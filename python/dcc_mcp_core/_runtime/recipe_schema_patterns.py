@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import re
-
 
 def pattern_is_safe(pattern: str) -> bool:
     """Accept only patterns whose backtracking structure is provably linear.
@@ -12,18 +10,18 @@ def pattern_is_safe(pattern: str) -> bool:
     Python 3.7. A flat textual blacklist is insufficient (for example,
     ``((ab)*)*$`` hides a nested quantifier behind two groups), so this
     scanner tracks the structure of every group and quantifier. Any
-    quantifier applied to a quantified or alternated atom, and every
-    backreference, is rejected before instance text reaches ``re.search``.
+    quantifier applied to a quantified atom, ambiguous alternation boundaries,
+    and every backreference are rejected before instance text reaches
+    ``re.search``.
     """
-    # Each frame records whether its group already contains a quantifier or
-    # an alternation. The preceding atom carries the same metadata when a
-    # closing parenthesis makes the group quantifiable.
-    frames: list[tuple[bool, bool, int]] = []
+    # Each frame records whether its group already contains a quantifier. The
+    # preceding atom carries the same metadata when a closing parenthesis makes
+    # the group quantifiable. Alternation ambiguity is handled by the boundary
+    # scan below, which has the actual consumer sets for every branch.
+    frames: list[bool] = []
     frame_has_quantifier = False
-    frame_has_alternation = False
     atom_present = False
     atom_has_quantifier = False
-    atom_has_alternation = False
     quantifier_pending = False
     in_character_class = False
     character_class_has_item = False
@@ -35,7 +33,7 @@ def pattern_is_safe(pattern: str) -> bool:
         nonlocal frame_has_quantifier
         nonlocal atom_has_quantifier
         nonlocal quantifier_pending
-        if not atom_present or atom_has_quantifier or atom_has_alternation:
+        if not atom_present or atom_has_quantifier:
             return False
         frame_has_quantifier = True
         atom_has_quantifier = True
@@ -56,7 +54,6 @@ def pattern_is_safe(pattern: str) -> bool:
                 character_class_may_negate = False
             atom_present = True
             atom_has_quantifier = False
-            atom_has_alternation = False
             quantifier_pending = False
             index += 1
             continue
@@ -76,7 +73,6 @@ def pattern_is_safe(pattern: str) -> bool:
                 character_class_may_negate = False
             atom_present = True
             atom_has_quantifier = False
-            atom_has_alternation = False
             quantifier_pending = False
             index += 1
             continue
@@ -86,7 +82,6 @@ def pattern_is_safe(pattern: str) -> bool:
             character_class_may_negate = True
             atom_present = True
             atom_has_quantifier = False
-            atom_has_alternation = False
             quantifier_pending = False
             index += 1
             continue
@@ -96,20 +91,16 @@ def pattern_is_safe(pattern: str) -> bool:
             # in this deliberately small safety grammar.
             if pattern.startswith("(?P=", index):
                 return False
-            frames.append((frame_has_quantifier, frame_has_alternation, index))
+            frames.append(frame_has_quantifier)
             frame_has_quantifier = False
-            frame_has_alternation = False
             atom_present = False
             atom_has_quantifier = False
-            atom_has_alternation = False
             quantifier_pending = False
             index += 1
             continue
         if character == "|":
-            frame_has_alternation = True
             atom_present = False
             atom_has_quantifier = False
-            atom_has_alternation = False
             quantifier_pending = False
             index += 1
             continue
@@ -117,19 +108,11 @@ def pattern_is_safe(pattern: str) -> bool:
             if not frames:
                 return False
             group_has_quantifier = frame_has_quantifier
-            group_has_alternation = frame_has_alternation
-            _, _, group_start = frames[-1]
-            frame_has_quantifier, frame_has_alternation, _ = frames.pop()
-            # Preserve nested structure in the enclosing group. Without
-            # this propagation, ``((a|b)c)+`` would hide its alternation
-            # behind an inner pair of parentheses.
+            frame_has_quantifier = frames.pop()
+            # Preserve nested quantifiers in the enclosing group.
             frame_has_quantifier = frame_has_quantifier or group_has_quantifier
-            frame_has_alternation = frame_has_alternation or group_has_alternation
             atom_present = True
             atom_has_quantifier = group_has_quantifier
-            atom_has_alternation = group_has_alternation and not _linear_alternation_group(
-                pattern[group_start + 1 : index]
-            )
             quantifier_pending = False
             index += 1
             continue
@@ -148,7 +131,6 @@ def pattern_is_safe(pattern: str) -> bool:
                 # not quantifiers; ``re.compile`` validates them.
                 atom_present = True
                 atom_has_quantifier = False
-                atom_has_alternation = False
                 quantifier_pending = False
             index += 1
             continue
@@ -164,27 +146,72 @@ def pattern_is_safe(pattern: str) -> bool:
         # single regular atoms.
         atom_present = True
         atom_has_quantifier = False
-        atom_has_alternation = False
         quantifier_pending = False
         index += 1
     # Draft ``pattern`` uses search semantics and therefore does not require
     # anchors. The structural scan above and adjacent-quantifier check below
     # keep the accepted subset linear on Python's backtracking engine.
-    # Unanchored quantified groups/classes can trigger expensive search
-    # retries at every offset. Keep Draft search semantics for literals and
-    # simple quantified atoms, while conservatively rejecting this higher-risk
-    # subset before invoking ``re.search``.
-    unanchored_complex = not pattern.startswith("^") and (
-        re.search(r"[)\]](?:[*+?]|\{(?:\d+(?:,\d*)?|,\d*)\})", pattern) is not None
-        or re.search(r"\([^)]*[+*?{][^)]*\)", pattern) is not None
-    )
+    # Search retries an unanchored quantified path at every candidate offset.
+    # Preserve Draft search semantics for unquantified patterns, but require
+    # every top-level path to carry an absolute-start anchor once any
+    # quantifier is present.
+    unanchored_quantified = frame_has_quantifier and not _all_top_level_paths_anchored(pattern)
     return (
         not escaped
         and not in_character_class
         and not frames
-        and not unanchored_complex
+        and not unanchored_quantified
         and not _has_adjacent_quantifiers(pattern)
     )
+
+
+def _all_top_level_paths_anchored(pattern: str) -> bool:
+    """Return whether every top-level alternative starts at the string root."""
+    branch_start = 0
+    depth = 0
+    escaped = False
+    in_class = False
+    class_has_item = False
+    for index, character in enumerate(pattern):
+        if escaped:
+            escaped = False
+            continue
+        if character == "\\":
+            escaped = True
+            continue
+        if in_class:
+            if character == "]" and class_has_item:
+                in_class = False
+            else:
+                class_has_item = True
+            continue
+        if character == "[":
+            in_class = True
+            class_has_item = False
+        elif character == "(":
+            depth += 1
+        elif character == ")" and depth:
+            depth -= 1
+        elif character == "|" and depth == 0:
+            if not _branch_starts_at_root(pattern[branch_start:index]):
+                return False
+            branch_start = index + 1
+    return _branch_starts_at_root(pattern[branch_start:])
+
+
+def _branch_starts_at_root(branch: str) -> bool:
+    r"""Recognize a leading global flag/comment group followed by ``^``/``\A``."""
+    cursor = 0
+    while branch.startswith("(?", cursor):
+        content_start, zero_width, _, supported = _group_content_start(
+            branch,
+            cursor + 1,
+            parent_ignore_case=False,
+        )
+        if not supported or not zero_width or content_start >= len(branch) or branch[content_start] != ")":
+            break
+        cursor = content_start + 1
+    return branch.startswith("^", cursor) or branch.startswith(r"\A", cursor)
 
 
 class _ConsumerSet:
@@ -211,9 +238,18 @@ class _ConsumerSet:
 
     @classmethod
     def literal(cls, codepoint: int, *, ignore_case: bool = False) -> _ConsumerSet:
-        """Return one literal code point, or an unknown fold when needed."""
-        if ignore_case:
+        """Return one literal and its bounded case-insensitive closure."""
+        if ignore_case and codepoint >= cls._ASCII_LIMIT:
             return cls.any_character()
+        if ignore_case and (ord("A") <= codepoint <= ord("Z") or ord("a") <= codepoint <= ord("z")):
+            lower = ord(chr(codepoint).lower())
+            upper = ord(chr(codepoint).upper())
+            extras = {
+                ord("i"): {0x0130, 0x0131},
+                ord("k"): {0x212A},
+                ord("s"): {0x017F},
+            }.get(lower, set())
+            return cls((1 << lower) | (1 << upper), extras)
         if codepoint < cls._ASCII_LIMIT:
             return cls(1 << codepoint)
         return cls(non_ascii_literals={codepoint})
@@ -234,11 +270,15 @@ class _ConsumerSet:
 
     def add_range(self, start: int, end: int, *, ignore_case: bool = False) -> None:
         """Add a class range without expanding an unbounded Unicode interval."""
-        if ignore_case:
-            self.update(self.any_character())
-            return
         if start > end:
             self.update(self.any_character())
+            return
+        if ignore_case:
+            if end >= self._ASCII_LIMIT:
+                self.update(self.any_character())
+                return
+            for codepoint in range(start, end + 1):
+                self.update(self.literal(codepoint, ignore_case=True))
             return
         ascii_start = max(start, 0)
         ascii_end = min(end, self._ASCII_LIMIT - 1)
@@ -282,17 +322,24 @@ class _ConsumerSet:
 class _BoundaryFrame:
     """Track consuming and quantified edges for one sequence or group."""
 
-    def __init__(self, *, zero_width: bool = False) -> None:
+    def __init__(self, *, zero_width: bool = False, ignore_case: bool = False) -> None:
         self.zero_width = zero_width
+        self.ignore_case = ignore_case
         self.first_consumers = _ConsumerSet()
         self.last_consumers = _ConsumerSet()
         self.leading_quantified = _ConsumerSet()
         self.trailing_quantified = _ConsumerSet()
+        self.leading_ambiguous = _ConsumerSet()
+        self.trailing_ambiguous = _ConsumerSet()
+        self.alternation_ambiguous = False
+        self.branch_count = 0
         self.nullable = False
         self.branch_first = _ConsumerSet()
         self.branch_last = _ConsumerSet()
         self.branch_leading_quantified = _ConsumerSet()
         self.branch_trailing_quantified = _ConsumerSet()
+        self.branch_leading_ambiguous = _ConsumerSet()
+        self.branch_trailing_ambiguous = _ConsumerSet()
         self.branch_nullable = True
 
     def add_atom(
@@ -303,78 +350,136 @@ class _BoundaryFrame:
         nullable: bool,
         leading_quantified: _ConsumerSet,
         trailing_quantified: _ConsumerSet,
+        leading_ambiguous: _ConsumerSet,
+        trailing_ambiguous: _ConsumerSet,
     ) -> bool:
-        """Add one atom and report an ambiguous quantified boundary."""
+        """Add one atom and report an unsafe quantified/ambiguous boundary."""
         if self.branch_trailing_quantified.overlaps(leading_quantified):
+            return True
+        if self.branch_trailing_ambiguous.overlaps(leading_ambiguous):
             return True
         prefix_nullable = self.branch_nullable
         if prefix_nullable:
             self.branch_first.update(first_consumers)
             self.branch_leading_quantified.update(leading_quantified)
+            self.branch_leading_ambiguous.update(leading_ambiguous)
         if nullable:
             self.branch_last.update(last_consumers)
             self.branch_trailing_quantified.update(trailing_quantified)
+            self.branch_trailing_ambiguous.update(trailing_ambiguous)
         else:
             self.branch_last = last_consumers.copy()
             self.branch_trailing_quantified = trailing_quantified.copy()
+            self.branch_trailing_ambiguous = trailing_ambiguous.copy()
         self.branch_nullable = prefix_nullable and nullable
         return False
 
     def end_branch(self) -> None:
         """Merge the current alternative into the group's edge summary."""
+        if self.branch_count and self.first_consumers.overlaps(self.branch_first):
+            self.alternation_ambiguous = True
         self.first_consumers.update(self.branch_first)
         self.last_consumers.update(self.branch_last)
         self.leading_quantified.update(self.branch_leading_quantified)
         self.trailing_quantified.update(self.branch_trailing_quantified)
+        self.leading_ambiguous.update(self.branch_leading_ambiguous)
+        self.trailing_ambiguous.update(self.branch_trailing_ambiguous)
         self.nullable = self.nullable or self.branch_nullable
+        self.branch_count += 1
         self.branch_first = _ConsumerSet()
         self.branch_last = _ConsumerSet()
         self.branch_leading_quantified = _ConsumerSet()
         self.branch_trailing_quantified = _ConsumerSet()
+        self.branch_leading_ambiguous = _ConsumerSet()
+        self.branch_trailing_ambiguous = _ConsumerSet()
         self.branch_nullable = True
 
-    def finish(self) -> tuple[_ConsumerSet, _ConsumerSet, bool, _ConsumerSet, _ConsumerSet]:
+    def finish(
+        self,
+    ) -> tuple[
+        _ConsumerSet,
+        _ConsumerSet,
+        bool,
+        _ConsumerSet,
+        _ConsumerSet,
+        _ConsumerSet,
+        _ConsumerSet,
+        bool,
+    ]:
         """Return the group's consuming and quantified edge summary."""
         self.end_branch()
         if self.zero_width:
-            return _ConsumerSet(), _ConsumerSet(), True, _ConsumerSet(), _ConsumerSet()
+            return (
+                _ConsumerSet(),
+                _ConsumerSet(),
+                True,
+                _ConsumerSet(),
+                _ConsumerSet(),
+                _ConsumerSet(),
+                _ConsumerSet(),
+                False,
+            )
         return (
             self.first_consumers,
             self.last_consumers,
             self.nullable,
             self.leading_quantified,
             self.trailing_quantified,
+            self.leading_ambiguous,
+            self.trailing_ambiguous,
+            self.alternation_ambiguous,
         )
 
 
 def _has_adjacent_quantifiers(pattern: str) -> bool:
-    """Detect adjacent quantified atoms in one linear structural pass."""
-    frames = [_BoundaryFrame()]
-    ignore_case = _pattern_may_ignore_case(pattern)
+    """Detect unsafe quantified and ambiguous boundaries in one pass."""
+    frames = [_BoundaryFrame(ignore_case=_leading_global_ignore_case(pattern))]
     index = 0
     while index < len(pattern):
         character = pattern[index]
         if character == "(":
-            content_start, zero_width = _group_content_start(pattern, index + 1)
-            frames.append(_BoundaryFrame(zero_width=zero_width))
+            content_start, zero_width, ignore_case, supported = _group_content_start(
+                pattern,
+                index + 1,
+                parent_ignore_case=frames[-1].ignore_case,
+            )
+            if not supported:
+                return True
+            frames.append(_BoundaryFrame(zero_width=zero_width, ignore_case=ignore_case))
             index = content_start
             continue
         if character == ")":
             if len(frames) == 1:
                 return False
-            first_consumers, last_consumers, nullable, leading_quantified, trailing_quantified = frames.pop().finish()
+            (
+                first_consumers,
+                last_consumers,
+                nullable,
+                leading_quantified,
+                trailing_quantified,
+                leading_ambiguous,
+                trailing_ambiguous,
+                alternation_ambiguous,
+            ) = frames.pop().finish()
             atom_end = index + 1
             quantifier_end = _quantifier_end(pattern, atom_end)
             if quantifier_end > atom_end:
+                if alternation_ambiguous:
+                    return True
                 nullable = nullable or _quantifier_allows_zero(pattern, atom_end)
                 leading_quantified = first_consumers.copy()
                 trailing_quantified = last_consumers.copy()
+            elif alternation_ambiguous:
+                leading_ambiguous.update(first_consumers)
+                trailing_ambiguous.update(last_consumers)
             if frames[-1].add_atom(
                 first_consumers,
                 last_consumers,
                 nullable=nullable,
                 leading_quantified=leading_quantified,
                 trailing_quantified=trailing_quantified,
+                leading_ambiguous=leading_ambiguous,
+                trailing_ambiguous=trailing_ambiguous,
             ):
                 return True
             index = quantifier_end
@@ -390,15 +495,25 @@ def _has_adjacent_quantifiers(pattern: str) -> bool:
                 nullable=True,
                 leading_quantified=_ConsumerSet(),
                 trailing_quantified=_ConsumerSet(),
+                leading_ambiguous=_ConsumerSet(),
+                trailing_ambiguous=_ConsumerSet(),
             ):
                 return True
             index += 1
             continue
 
         if character == "\\":
-            atom_end, consumers, zero_width = _escaped_consumer(pattern, index, ignore_case=ignore_case)
+            atom_end, consumers, zero_width = _escaped_consumer(
+                pattern,
+                index,
+                ignore_case=frames[-1].ignore_case,
+            )
         elif character == "[":
-            atom_end, consumers = _character_class_consumer(pattern, index, ignore_case=ignore_case)
+            atom_end, consumers = _character_class_consumer(
+                pattern,
+                index,
+                ignore_case=frames[-1].ignore_case,
+            )
             zero_width = False
         elif character == ".":
             atom_end = index + 1
@@ -406,7 +521,7 @@ def _has_adjacent_quantifiers(pattern: str) -> bool:
             zero_width = False
         else:
             atom_end = index + 1
-            consumers = _ConsumerSet.literal(ord(character), ignore_case=ignore_case)
+            consumers = _ConsumerSet.literal(ord(character), ignore_case=frames[-1].ignore_case)
             zero_width = False
 
         quantifier_end = _quantifier_end(pattern, atom_end)
@@ -419,56 +534,41 @@ def _has_adjacent_quantifiers(pattern: str) -> bool:
             nullable=nullable,
             leading_quantified=quantified_consumers,
             trailing_quantified=quantified_consumers,
+            leading_ambiguous=_ConsumerSet(),
+            trailing_ambiguous=_ConsumerSet(),
         ):
             return True
         index = quantifier_end
     return False
 
 
-def _pattern_may_ignore_case(pattern: str) -> bool:
-    """Return whether any inline flag enables case-insensitive matching."""
-    escaped = False
-    in_class = False
-    class_has_item = False
-    class_may_negate = False
-    index = 0
-    while index < len(pattern):
-        character = pattern[index]
-        if escaped:
-            escaped = False
-            if in_class:
-                class_has_item = True
-                class_may_negate = False
-            index += 1
-            continue
-        if character == "\\":
-            escaped = True
-            index += 1
-            continue
-        if in_class:
-            if character == "^" and class_may_negate:
-                class_may_negate = False
-            elif character == "]" and class_has_item:
-                in_class = False
-            else:
-                class_has_item = True
-                class_may_negate = False
-            index += 1
-            continue
-        if character == "[":
-            in_class = True
-            class_has_item = False
-            class_may_negate = True
-            index += 1
-            continue
-        if pattern.startswith("(?", index):
-            cursor = index + 2
-            while cursor < len(pattern) and pattern[cursor] in "aiLmsux-":
-                if pattern[cursor] == "i" and "-" not in pattern[index + 2 : cursor]:
-                    return True
-                cursor += 1
-        index += 1
-    return False
+def _leading_global_ignore_case(pattern: str) -> bool:
+    """Return the supported leading global case-fold state."""
+    if not pattern.startswith("(?"):
+        return False
+    content_start, zero_width, ignore_case, supported = _group_content_start(
+        pattern,
+        1,
+        parent_ignore_case=False,
+    )
+    if not supported or not zero_width or content_start >= len(pattern):
+        return False
+    return ignore_case if pattern[content_start] == ")" else False
+
+
+def _apply_inline_case_flag(flag_spec: str, parent_ignore_case: bool) -> tuple[bool, bool]:
+    """Apply an ``i``/``-i`` flag spec and reject unsupported flag syntax."""
+    if not flag_spec or flag_spec.count("-") > 1:
+        return parent_ignore_case, False
+    enabled, _, disabled = flag_spec.partition("-")
+    if any(flag != "i" for flag in enabled + disabled):
+        return parent_ignore_case, False
+    ignore_case = parent_ignore_case
+    if "i" in enabled:
+        ignore_case = True
+    if "i" in disabled:
+        ignore_case = False
+    return ignore_case, True
 
 
 _ASCII_DIGIT_MASK = ((1 << 10) - 1) << ord("0")
@@ -572,26 +672,40 @@ def _class_element(
     return index + 1, _ConsumerSet.literal(ord(pattern[index]), ignore_case=ignore_case)
 
 
-def _group_content_start(pattern: str, start: int) -> tuple[int, bool]:
-    """Skip zero-width group prefix syntax and return the content offset."""
+def _group_content_start(
+    pattern: str,
+    start: int,
+    *,
+    parent_ignore_case: bool,
+) -> tuple[int, bool, bool, bool]:
+    """Return group content, width, scoped case-fold state, and support."""
     for prefix in ("?:", "?=", "?!", "?<=", "?<!", "?>"):
         if pattern.startswith(prefix, start):
-            return start + len(prefix), prefix in {"?=", "?!", "?<=", "?<!"}
+            return (
+                start + len(prefix),
+                prefix in {"?=", "?!", "?<=", "?<!"},
+                parent_ignore_case,
+                True,
+            )
     if pattern.startswith("?P<", start):
         name_end = pattern.find(">", start + 3)
-        return (name_end + 1, False) if name_end >= 0 else (start, False)
+        content_start = name_end + 1 if name_end >= 0 else start
+        return content_start, False, parent_ignore_case, True
     if pattern.startswith("?#", start):
         comment_end = pattern.find(")", start + 2)
-        return (comment_end, True) if comment_end >= 0 else (start, True)
+        content_start = comment_end if comment_end >= 0 else start
+        return content_start, True, parent_ignore_case, True
     if start < len(pattern) and pattern[start] == "?":
         cursor = start + 1
         while cursor < len(pattern) and pattern[cursor] in "aiLmsux-":
             cursor += 1
-        if cursor < len(pattern) and pattern[cursor] == ":":
-            return cursor + 1, False
-        if cursor < len(pattern) and pattern[cursor] == ")":
-            return cursor, True
-    return start, False
+        if cursor > start + 1 and cursor < len(pattern) and pattern[cursor] in ":)":
+            ignore_case, supported = _apply_inline_case_flag(
+                pattern[start + 1 : cursor],
+                parent_ignore_case,
+            )
+            return cursor + 1 if pattern[cursor] == ":" else cursor, pattern[cursor] == ")", ignore_case, supported
+    return start, False, parent_ignore_case, True
 
 
 def _quantifier_end(pattern: str, atom_end: int) -> int:
@@ -639,47 +753,3 @@ def _quantifier_allows_zero(pattern: str, atom_end: int) -> bool:
         minimum_end += 1
     minimum = pattern[atom_end + 1 : minimum_end]
     return not minimum or int(minimum) == 0
-
-
-def _linear_alternation_group(body: str) -> bool:
-    """Return whether a group is a disjoint fixed-literal alternation."""
-    for prefix in ("?:", "?=", "?!", "?<=", "?<!", "?>"):
-        if body.startswith(prefix):
-            body = body[len(prefix) :]
-            break
-    branches: list[str] = []
-    start = 0
-    escaped = False
-    depth = 0
-    in_class = False
-    for index, character in enumerate(body):
-        if escaped:
-            escaped = False
-            continue
-        if character == "\\":
-            escaped = True
-            continue
-        if in_class:
-            if character == "]":
-                in_class = False
-            continue
-        if character == "[":
-            in_class = True
-        elif character == "(":
-            depth += 1
-        elif character == ")" and depth:
-            depth -= 1
-        elif character == "|" and depth == 0:
-            branches.append(body[start:index])
-            start = index + 1
-    if in_class or escaped or depth:
-        return False
-    branches.append(body[start:])
-    if len(branches) < 2:
-        return False
-    tokens: list[str] = []
-    for branch in branches:
-        if not branch or any(character in "\\[](){}*+?^$|." for character in branch):
-            return False
-        tokens.append(branch[0])
-    return len(set(tokens)) == len(tokens)
