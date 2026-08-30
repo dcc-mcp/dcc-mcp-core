@@ -40,7 +40,6 @@ from dcc_mcp_core.runtime.scene_digest import snapshot_from_provider
 from dcc_mcp_core.runtime.scene_digest_envelope import scene_digest_postcondition as _scene_digest_postcondition
 from dcc_mcp_core.runtime.scene_digest_envelope import script_execution_failure as _script_execution_failure
 from dcc_mcp_core.runtime.scene_digest_execution import freeze_scene_digest as _freeze_scene_digest
-from dcc_mcp_core.runtime.scene_digest_execution import scene_digest_restorer as _scene_digest_restorer
 from dcc_mcp_core.runtime.script_execution_helpers import file_ref_for_script_path as _file_ref_for_script_path
 from dcc_mcp_core.schema import derive_script_parameters_schema
 from dcc_mcp_core.script_materialization import MaterializedScript
@@ -48,6 +47,11 @@ from dcc_mcp_core.script_materialization import cleanup_materialized_scripts
 from dcc_mcp_core.script_materialization import default_script_materialization_root
 from dcc_mcp_core.script_materialization import materialize_script
 from dcc_mcp_core.script_materialization import resolve_materialized_script
+
+try:
+    from dcc_mcp_core._core import _run_with_scene_digest_custody
+except ImportError:  # pragma: no cover - py37-lite has no native trust boundary
+    _run_with_scene_digest_custody = None
 
 ScriptMaterializationPolicy = str
 _SCRIPT_MATERIALIZATION_POLICIES = {"off", "auto", "require"}
@@ -845,28 +849,33 @@ class ScriptExecutionContext:
     ) -> SceneDigestExecution:
         """Capture host state immediately before and after one script."""
         with self._lock:
-            # Do not retain the mutable before snapshot in this stack frame:
-            # scripts can inspect caller locals through sys._getframe.
-            # Keep only immutable serialized evidence while the script runs,
-            # then rehydrate a fresh snapshot after execution.
-            before_wire = _freeze_scene_digest(self.capture_state_digest())
-            restore_before = _scene_digest_restorer(before_wire)
-            del before_wire
-            try:
-                value = self.execute(code, filename=filename)
-            except Exception as exc:
-                before = restore_before()
+            if _run_with_scene_digest_custody is None:
+                raise SceneDigestError(
+                    "scene_digest_custody_unavailable",
+                    "Verified in-process scene execution requires the native custody boundary",
+                )
+            # The serialized before-state is passed inline so no Python local
+            # or closure owns it while arbitrary script code can inspect
+            # Python frames. The native extension parses and retains it on the
+            # Rust stack until ``_execute_digest_callback`` returns.
+            callback_result, before = _run_with_scene_digest_custody(
+                _freeze_scene_digest(self.capture_state_digest()),
+                self._execute_digest_callback,
+                code,
+                filename,
+            )
+            succeeded, value_or_error = callback_result
+            if not succeeded:
                 try:
                     after = self.capture_state_digest()
                 except SceneDigestError as readback_error:
                     raise SceneDigestExecutionError(
-                        exc,
+                        value_or_error,
                         before,
                         None,
                         readback_error=readback_error,
                     ) from None
-                raise SceneDigestExecutionError(exc, before, after) from None
-            before = restore_before()
+                raise SceneDigestExecutionError(value_or_error, before, after) from None
             try:
                 after = self.capture_state_digest()
             except SceneDigestError as readback_error:
@@ -876,7 +885,14 @@ class ScriptExecutionContext:
                     None,
                     readback_error=readback_error,
                 ) from None
-            return SceneDigestExecution(value, before, after)
+            return SceneDigestExecution(value_or_error, before, after)
+
+    def _execute_digest_callback(self, code: str, filename: str) -> tuple[bool, Any]:
+        """Run one script while native code retains the before-state evidence."""
+        try:
+            return True, self.execute(code, filename=filename)
+        except Exception as exc:
+            return False, exc
 
     def reset_for_tests(self) -> None:
         """Clear both DCC and persistent script namespaces."""

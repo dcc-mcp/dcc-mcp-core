@@ -15,6 +15,7 @@ from dcc_mcp_core import McpHttpServer
 from dcc_mcp_core import ToolRegistry
 from dcc_mcp_core.runtime.scene_digest import SceneDigestSnapshot
 from dcc_mcp_core.runtime.scene_digest import normalize_scene_digest
+import dcc_mcp_core.script_execution as script_execution_module
 from dcc_mcp_core.script_execution import SceneDigestError
 from dcc_mcp_core.script_execution import SceneDigestExecutionError
 from dcc_mcp_core.script_execution import ScriptExecutionContext
@@ -193,6 +194,24 @@ def test_scene_digest_validate_rejects_non_string_integrity_without_type_error(i
     assert exc_info.value.code == "scene_digest_fingerprint_mismatch"
 
 
+@pytest.mark.parametrize("integrity", ["café", "签名"])
+def test_non_ascii_scene_digest_integrity_returns_stable_failure_envelope(integrity: str) -> None:
+    context = ScriptExecutionContext()
+    register_state_digest_provider(lambda: _stats(1), context=context)
+    before = capture_state_digest(context=context)
+    after = capture_state_digest(context=context)
+    object.__setattr__(before, "integrity", integrity)
+
+    result = ScriptExecutionResult.from_value(
+        "ok",
+        scene_digest_before=before,
+        scene_digest_after=after,
+    )
+
+    assert result["success"] is False
+    assert result["error"] == "scene_digest_fingerprint_mismatch"
+
+
 def test_contaminated_snapshot_fails_closed_through_validate_and_result_path() -> None:
     context = ScriptExecutionContext()
     register_state_digest_provider(lambda: _stats(1), context=context)
@@ -363,6 +382,37 @@ def test_execute_with_state_digest_captures_before_and_after() -> None:
     assert outcome.scene_digest_before.payload["object_count"] == 0
     assert outcome.scene_digest_after.payload["object_count"] == 1
     assert outcome.scene_digest_before.fingerprint != outcome.scene_digest_after.fingerprint
+
+
+def test_before_scene_digest_uses_native_immutable_custody() -> None:
+    context = ScriptExecutionContext()
+    state = {"objects": 0}
+    register_state_digest_provider(lambda: _stats(state["objects"]), context=context)
+    context.register_dcc_namespace({"state": state})
+
+    outcome = execute_with_state_digest(
+        "state['objects'] += 1; result = 'created'",
+        context=context,
+    )
+
+    before = outcome.scene_digest_before
+    assert type(before).__module__ == "dcc_mcp_core._core"
+    with pytest.raises(TypeError):
+        type(before)()
+    contaminated_copy = before.payload
+    contaminated_copy["object_count"] = 999
+    assert before.payload["object_count"] == 0
+
+
+def test_execute_with_state_digest_fails_closed_without_native_custody(monkeypatch) -> None:
+    context = ScriptExecutionContext()
+    register_state_digest_provider(lambda: _stats(0), context=context)
+    monkeypatch.setattr(script_execution_module, "_run_with_scene_digest_custody", None)
+
+    with pytest.raises(SceneDigestError) as exc_info:
+        context.execute_with_state_digest("result = 'untrusted'")
+
+    assert exc_info.value.code == "scene_digest_custody_unavailable"
 
 
 def test_execute_with_state_digest_preserves_evidence_when_script_raises() -> None:
@@ -646,19 +696,70 @@ def test_execute_python_digest_routes_reject_frame_snapshot_tampering(dcc_name: 
         return ScriptExecutionResult.from_outcome(outcome)
 
     attack = """
+import ctypes
+import hashlib
+import json
 import sys
-frame = sys._getframe(2)
-before = frame.f_locals.get("before")
-if before is not None:
-    import dcc_mcp_core.runtime.scene_digest as digest
-    before.payload["object_count"] = 999
-    before.__dict__["fingerprint"] = digest._fingerprint(before.payload, truncated=before.truncated)
-    before.__dict__["integrity"] = digest._snapshot_integrity(
-        schema_version=before.schema_version,
-        fingerprint=before.fingerprint,
-        payload=before.payload,
-        truncated=before.truncated,
-    )
+
+import dcc_mcp_core.runtime.scene_digest as digest
+
+
+def replace_cell(cell, value):
+    try:
+        cell.cell_contents = value
+    except AttributeError:
+        setter = ctypes.pythonapi.PyCell_Set
+        setter.argtypes = (ctypes.py_object, ctypes.py_object)
+        setter.restype = ctypes.c_int
+        if setter(cell, value) != 0:
+            raise RuntimeError("could not replace closure cell")
+
+
+frame = sys._getframe()
+while frame is not None:
+    for candidate in tuple(frame.f_locals.values()):
+        closure = getattr(candidate, "__closure__", None)
+        if not closure:
+            continue
+        for cell in closure:
+            try:
+                wire = cell.cell_contents
+            except ValueError:
+                continue
+            if not isinstance(wire, bytes) or b'"schema_version":"dcc-mcp.scene-digest.v1"' not in wire:
+                continue
+            forged = json.loads(wire.decode("utf-8"))
+            forged["payload"]["object_count"] = 999
+            canonical = json.dumps(
+                forged["payload"],
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+            )
+            if forged["truncated"]:
+                canonical += "|truncated"
+            forged["fingerprint"] = "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+            forged["integrity"] = digest._snapshot_integrity(
+                schema_version=forged["schema_version"],
+                fingerprint=forged["fingerprint"],
+                payload=forged["payload"],
+                truncated=forged["truncated"],
+            )
+            replace_cell(
+                cell,
+                json.dumps(
+                    forged,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    ensure_ascii=False,
+                ).encode("utf-8"),
+            )
+            frame = None
+            break
+        if frame is None:
+            break
+    if frame is not None:
+        frame = frame.f_back
 state["objects"] += 1
 result = "tamper-attempt"
 """
