@@ -46,7 +46,6 @@ class _RecipeSchemaValidator:
     _MAX_INSTANCE_SIZE: ClassVar[int] = 1_000_000
     _SUPPORTED_KEYWORDS: ClassVar[set[str]] = {
         "$schema",
-        "$id",
         "$anchor",
         "$ref",
         "$defs",
@@ -153,6 +152,8 @@ class _RecipeSchemaValidator:
         if unsupported:
             # Unsupported assertion vocabularies (format/content and unknown
             # keywords) must fail closed instead of being silently ignored.
+            # In particular, $id remains unsupported until resource-relative
+            # reference scope is implemented for every nested schema.
             raise ValueError(path)
         # Dynamic references require runtime scope tracking that this
         # dependency-free validator does not implement. Reject them during
