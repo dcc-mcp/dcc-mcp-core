@@ -1294,7 +1294,10 @@ mod tests {
             .is_empty()
         {
             assert!(tokio::time::Instant::now() < deadline);
-            tokio::task::yield_now().await;
+            // Leave the blocking registry worker enough time to acquire the
+            // in-process write lock. A tight synchronous read loop can starve
+            // the registration it is waiting to observe on loaded runners.
+            tokio::time::sleep(Duration::from_millis(10)).await;
         }
         challenger.abort();
         drop(occupied);
