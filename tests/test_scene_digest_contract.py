@@ -229,6 +229,8 @@ def test_after_provider_failure_preserves_before_state_and_indeterminate_result(
         {"object_count": 1, "vertex_count": 1, "has_mesh": True, "extra": "bad"},
         {"object_count": 1, "vertex_count": 1, "has_mesh": True, "extra": {"bad\ud800": 1}},
         {"object_count": 1, "vertex_count": 1, "has_mesh": True, "extra": {"value": 10**5000}},
+        {"object_count": 1, "vertex_count": 1, "has_mesh": True, "extra": {"poison": object()}},
+        {"object_count": 1, "vertex_count": 1, "has_mesh": True, "extra": {"value": float("nan")}},
     ],
 )
 def test_malformed_provider_values_fail_with_stable_scene_digest_error(provider_value) -> None:
