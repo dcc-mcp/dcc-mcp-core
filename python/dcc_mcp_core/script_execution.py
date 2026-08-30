@@ -646,6 +646,32 @@ class ScriptExecutionResult:
         return ToolResultEnvelope.ok(message, postcondition=digest_evidence, **context).to_dict()
 
     @staticmethod
+    def from_outcome(
+        outcome: SceneDigestExecution,
+        *,
+        stdout: str = "",
+        stderr: str = "",
+        strict_json: bool = True,
+        repr_fallback: bool | None = None,
+        message: str = "Script executed successfully",
+        materialized_script: MaterializedScript | FileBackedScriptExecutionParams | Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Build an envelope from one before/after execution outcome."""
+        if not isinstance(outcome, SceneDigestExecution):
+            raise TypeError("outcome must be a SceneDigestExecution")
+        return ScriptExecutionResult.from_value(
+            outcome.value,
+            stdout=stdout,
+            stderr=stderr,
+            strict_json=strict_json,
+            repr_fallback=repr_fallback,
+            message=message,
+            materialized_script=materialized_script,
+            scene_digest_before=outcome.scene_digest_before,
+            scene_digest_after=outcome.scene_digest_after,
+        )
+
+    @staticmethod
     def from_exception(
         exc: BaseException,
         *,

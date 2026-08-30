@@ -141,6 +141,39 @@ def test_scene_digest_snapshot_and_envelope_are_deeply_detached() -> None:
     assert snapshot.payload["extra"]["nested"]["labels"] == ["mesh"]
 
 
+def test_contaminated_snapshot_fails_closed_through_validate_and_result_path() -> None:
+    context = ScriptExecutionContext()
+    register_state_digest_provider(lambda: _stats(1), context=context)
+    snapshot = capture_state_digest(context=context)
+    snapshot.payload["extra"] = {"poison": object()}
+
+    with pytest.raises(SceneDigestError) as exc_info:
+        snapshot.validate()
+    assert exc_info.value.code == "scene_digest_invalid"
+
+    result = ScriptExecutionResult.from_value(
+        "ok",
+        scene_digest_before=snapshot,
+        scene_digest_after=snapshot,
+    )
+    assert result["success"] is False
+    assert result["error"] == "scene_digest_invalid"
+
+
+def test_contaminated_execute_outcome_fails_closed_on_from_outcome() -> None:
+    context = ScriptExecutionContext()
+    state = {"objects": 0}
+    register_state_digest_provider(lambda: _stats(state["objects"]), context=context)
+    context.register_dcc_namespace({"state": state})
+    outcome = context.execute_with_state_digest("state['objects'] += 1; result = 'ok'")
+    outcome.scene_digest_after.payload["extra"] = {"poison": object()}
+
+    result = ScriptExecutionResult.from_outcome(outcome)
+
+    assert result["success"] is False
+    assert result["error"] == "scene_digest_invalid"
+
+
 def test_state_digest_provider_can_be_unregistered() -> None:
     context = ScriptExecutionContext()
     register_state_digest_provider(lambda: _stats(1), context=context)
