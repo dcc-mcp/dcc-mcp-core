@@ -695,6 +695,12 @@ class TestRegisterRecipesTools:
         )
         assert errors == []
 
+    def test_grouped_adjacent_quantifiers_are_rejected_during_admission(self) -> None:
+        for pattern in ("^(a*)a*$", "^(a*)(a*)$"):
+            assert validate_recipe_inputs({"inputs_schema": {"type": "string", "pattern": pattern}}, "a") == [
+                "$: Recipe input schema is invalid"
+            ]
+
     def test_unanchored_pattern_uses_draft_search_semantics(self) -> None:
         assert validate_recipe_inputs({"inputs_schema": {"type": "string", "pattern": "foo"}}, "afoob") == []
 
@@ -840,6 +846,39 @@ class TestRegisterRecipesTools:
         assert validated["context"]["errors"] == ["$: Recipe input schema is invalid"]
         assert applied["success"] is False
         assert applied["context"]["errors"] == ["$: Recipe input schema is invalid"]
+
+    def test_id_rejection_has_validate_apply_parity(self, tmp_path: Path) -> None:
+        schemas = {
+            "root-resource": {"$id": "recipe.json", "type": "object"},
+            "nested-resource": {
+                "type": "object",
+                "properties": {"child": {"$id": "nested.json", "type": "object"}},
+            },
+            "invalid-id-null": {"$id": None},
+            "invalid-id-array": {"$id": []},
+        }
+        recipe_path = tmp_path / "id.yaml"
+        recipe_path.write_text(
+            json.dumps(
+                {"recipes": [{"name": name, "inputs_schema": schema, "steps": []} for name, schema in schemas.items()]}
+            ),
+            encoding="utf-8",
+        )
+        skill_dir = tmp_path / "id-skill"
+        skill_dir.mkdir()
+        md = _make_metadata(str(skill_dir), str(recipe_path), nested=True)
+        md.name = "id-skill"
+        server, handlers = self._make_server([md])
+        register_recipes_tools(server, skills=[md])
+
+        for recipe_name in schemas:
+            params = {"skill": "id-skill", "recipe": recipe_name, "inputs": {}}
+            validated = handlers["recipes__validate"](json.dumps(params))
+            applied = handlers["recipes__apply"](json.dumps(params))
+            assert validated["context"]["valid"] is False
+            assert validated["context"]["errors"] == ["$: Recipe input schema is invalid"]
+            assert applied["success"] is False
+            assert applied["context"]["errors"] == ["$: Recipe input schema is invalid"]
 
     def test_local_anchor_reference_is_supported(self) -> None:
         schema = {"$defs": {"name": {"$anchor": "name", "type": "string"}}, "$ref": "#name"}

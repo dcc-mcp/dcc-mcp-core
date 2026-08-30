@@ -179,102 +179,184 @@ def pattern_is_safe(pattern: str) -> bool:
     )
 
 
+class _BoundaryFrame:
+    """Track quantified boundaries for one regex sequence or group."""
+
+    def __init__(self, *, zero_width: bool = False) -> None:
+        self.zero_width = zero_width
+        self.first_tokens: set[str] = set()
+        self.last_tokens: set[str] = set()
+        self.nullable = False
+        self.branch_first: set[str] = set()
+        self.branch_last: set[str] = set()
+        self.branch_nullable = True
+
+    def add_atom(self, first_tokens: set[str], last_tokens: set[str], *, nullable: bool) -> bool:
+        """Add one atom and report whether its leading boundary overlaps."""
+        if _quantifier_boundaries_overlap(self.branch_last, first_tokens):
+            return True
+        if self.branch_nullable:
+            self.branch_first.update(first_tokens)
+        if nullable:
+            self.branch_last.update(last_tokens)
+        else:
+            self.branch_last = set(last_tokens)
+        self.branch_nullable = self.branch_nullable and nullable
+        return False
+
+    def end_branch(self) -> None:
+        """Merge the current alternative into the group's edge summary."""
+        self.first_tokens.update(self.branch_first)
+        self.last_tokens.update(self.branch_last)
+        self.nullable = self.nullable or self.branch_nullable
+        self.branch_first = set()
+        self.branch_last = set()
+        self.branch_nullable = True
+
+    def finish(self) -> tuple[set[str], set[str], bool]:
+        """Return all quantified tokens exposed by the group's outer edges."""
+        self.end_branch()
+        if self.zero_width:
+            return set(), set(), True
+        return self.first_tokens, self.last_tokens, self.nullable
+
+
 def _has_adjacent_quantifiers(pattern: str) -> bool:
-    """Detect adjacent quantified atoms that can overlap or explode."""
-    previous_quantified: str | None = None
-    previous_group_quantified = False
+    """Detect adjacent quantified atoms in one linear structural pass."""
+    frames = [_BoundaryFrame()]
     index = 0
     while index < len(pattern):
         character = pattern[index]
         if character == "(":
-            # Treat a complete group as one atom. The main structural scanner
-            # validates its contents; this pass additionally catches quantified
-            # groups placed next to one another, which otherwise reset state at
-            # each parenthesis and allow exponential alternation backtracking.
-            depth = 1
-            cursor = index + 1
+            content_start, zero_width = _group_content_start(pattern, index + 1)
+            frames.append(_BoundaryFrame(zero_width=zero_width))
+            index = content_start
+            continue
+        if character == ")":
+            if len(frames) == 1:
+                return False
+            first_tokens, last_tokens, nullable = frames.pop().finish()
+            atom_end = index + 1
+            quantifier_end = _quantifier_end(pattern, atom_end)
+            if quantifier_end > atom_end:
+                first_tokens = {"<group>"}
+                last_tokens = first_tokens
+                nullable = nullable or _quantifier_allows_zero(pattern, atom_end)
+            if frames[-1].add_atom(first_tokens, last_tokens, nullable=nullable):
+                return True
+            index = quantifier_end
+            continue
+        if character == "|":
+            frames[-1].end_branch()
+            index += 1
+            continue
+        if character in "^$":
+            index += 1
+            continue
+
+        token = character
+        if character == "\\":
+            atom_end = min(index + 2, len(pattern))
+            token = pattern[index:atom_end]
+        elif character == "[":
+            atom_end = index + 1
             escaped = False
-            in_class = False
-            while cursor < len(pattern) and depth:
-                current = pattern[cursor]
+            while atom_end < len(pattern):
+                current = pattern[atom_end]
                 if escaped:
                     escaped = False
                 elif current == "\\":
                     escaped = True
-                elif in_class:
-                    if current == "]":
-                        in_class = False
-                elif current == "[":
-                    in_class = True
-                elif current == "(":
-                    depth += 1
-                elif current == ")":
-                    depth -= 1
-                cursor += 1
-            if depth or in_class:
-                return False
-            quantifier_end = cursor
-            if quantifier_end < len(pattern) and pattern[quantifier_end] in "*+?":
-                quantifier_end += 1
-            elif quantifier_end < len(pattern) and pattern[quantifier_end] == "{":
-                end = pattern.find("}", quantifier_end + 1)
-                if end >= 0:
-                    quantifier_end = end + 1
-            quantified = quantifier_end > cursor
-            if quantified and (previous_group_quantified or previous_quantified is not None):
-                return True
-            previous_group_quantified = quantified
-            previous_quantified = None
-            index = quantifier_end
-            continue
-        if character == "\\":
-            index += 2
-            previous_quantified = None
-            previous_group_quantified = False
-            continue
-        if character == "[":
-            end = index + 1
-            while end < len(pattern) and pattern[end] != "]":
-                end += 2 if pattern[end] == "\\" else 1
-            atom_end = min(end + 1, len(pattern))
-            quantifier_end = atom_end
-            if quantifier_end < len(pattern) and pattern[quantifier_end] in "*+?":
-                quantifier_end += 1
-            elif quantifier_end < len(pattern) and pattern[quantifier_end] == "{":
-                close = pattern.find("}", quantifier_end + 1)
-                if close >= 0:
-                    quantifier_end = close + 1
-            quantified = quantifier_end > atom_end
-            if quantified and previous_quantified is not None:
-                return True
-            previous_quantified = "<class>" if quantified else None
-            previous_group_quantified = False
-            index = quantifier_end
-            continue
-        if character in "^$|()":
-            previous_quantified = None
-            previous_group_quantified = False
-            index += 1
-            continue
-        token = character
-        quantifier_end = index + 1
-        if quantifier_end < len(pattern) and pattern[quantifier_end] in "*+?":
-            quantifier_end += 1
-        elif quantifier_end < len(pattern) and pattern[quantifier_end] == "{":
-            end = pattern.find("}", quantifier_end + 1)
-            if end >= 0:
-                quantifier_end = end + 1
-        if quantifier_end > index + 1:
-            if previous_group_quantified or (previous_quantified is not None and previous_quantified == token):
-                return True
-            previous_quantified = token
-            previous_group_quantified = False
-            index = quantifier_end
+                elif current == "]":
+                    atom_end += 1
+                    break
+                atom_end += 1
+            token = "<class>"
         else:
-            previous_quantified = None
-            previous_group_quantified = False
-            index += 1
+            atom_end = index + 1
+
+        quantifier_end = _quantifier_end(pattern, atom_end)
+        quantified_tokens = {token} if quantifier_end > atom_end else set()
+        nullable = quantifier_end > atom_end and _quantifier_allows_zero(pattern, atom_end)
+        if frames[-1].add_atom(quantified_tokens, quantified_tokens, nullable=nullable):
+            return True
+        index = quantifier_end
     return False
+
+
+def _quantifier_boundaries_overlap(previous: set[str], current: set[str]) -> bool:
+    """Return whether adjacent quantified boundaries can consume the same text."""
+    if not previous or not current:
+        return False
+    if "<group>" in current:
+        return True
+    if "<class>" in current:
+        return True
+    if "<group>" in previous:
+        return True
+    return bool(previous.intersection(current))
+
+
+def _group_content_start(pattern: str, start: int) -> tuple[int, bool]:
+    """Skip zero-width group prefix syntax and return the content offset."""
+    for prefix in ("?:", "?=", "?!", "?<=", "?<!", "?>"):
+        if pattern.startswith(prefix, start):
+            return start + len(prefix), prefix in {"?=", "?!", "?<=", "?<!"}
+    if pattern.startswith("?P<", start):
+        name_end = pattern.find(">", start + 3)
+        return (name_end + 1, False) if name_end >= 0 else (start, False)
+    if pattern.startswith("?#", start):
+        comment_end = pattern.find(")", start + 2)
+        return (comment_end, True) if comment_end >= 0 else (start, True)
+    if start < len(pattern) and pattern[start] == "?":
+        cursor = start + 1
+        while cursor < len(pattern) and pattern[cursor] in "aiLmsux-":
+            cursor += 1
+        if cursor < len(pattern) and pattern[cursor] == ":":
+            return cursor + 1, False
+        if cursor < len(pattern) and pattern[cursor] == ")":
+            return cursor, True
+    return start, False
+
+
+def _quantifier_end(pattern: str, atom_end: int) -> int:
+    """Return the first offset after an atom's optional quantifier."""
+    if atom_end >= len(pattern):
+        return atom_end
+    character = pattern[atom_end]
+    if character in "*+?":
+        end = atom_end + 1
+    elif character == "{":
+        end = atom_end + 1
+        while end < len(pattern) and pattern[end].isdigit():
+            end += 1
+        if end == atom_end + 1:
+            return atom_end
+        if end < len(pattern) and pattern[end] == ",":
+            end += 1
+            while end < len(pattern) and pattern[end].isdigit():
+                end += 1
+        if end >= len(pattern) or pattern[end] != "}":
+            return atom_end
+        end += 1
+    else:
+        return atom_end
+    if end < len(pattern) and pattern[end] == "?":
+        end += 1
+    return end
+
+
+def _quantifier_allows_zero(pattern: str, atom_end: int) -> bool:
+    """Return whether the quantifier at ``atom_end`` permits zero matches."""
+    character = pattern[atom_end]
+    if character in "*?":
+        return True
+    if character == "+":
+        return False
+    minimum_end = atom_end + 1
+    while minimum_end < len(pattern) and pattern[minimum_end].isdigit():
+        minimum_end += 1
+    return int(pattern[atom_end + 1 : minimum_end]) == 0
 
 
 def _linear_alternation_group(body: str) -> bool:

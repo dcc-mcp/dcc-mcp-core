@@ -65,13 +65,15 @@ validate_recipe_inputs(recipe, inputs) -> list[str]
 ```
 
 `validate_recipe_inputs` evaluates the published `inputs_schema` as a
-Draft 2020-12 contract (including nested/root JSON-Pointer `$ref`, bounds,
+Draft 2020-12 contract (including same-resource nested/root JSON-Pointer `$ref`, bounds,
 enums/constants, `additionalProperties`, `unevaluatedProperties`/
 `unevaluatedItems`, and composition such as `oneOf`). Applicator annotations
 are merged before unevaluated assertions are applied. It is implemented in
 Core without a runtime `jsonschema` dependency. Malformed or resource-heavy
 schemas (over 128 schema nesting levels, 10,000 schema nodes, or 1 MiB of JSON)
 fail closed; instance validation has the same bounded-depth/node behavior.
+Resource identifiers (`$id`) and dynamic references are not admitted until
+resource-relative scope is implemented; schemas using them fail closed.
 Returned errors are path-oriented without echoing input values.
 
 ## register_recipes_tools
