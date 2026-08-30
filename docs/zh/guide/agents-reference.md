@@ -178,7 +178,11 @@ from dcc_mcp_core._core import DeferredExecutor   # 需要直接导入
 `ScriptExecutionResult.from_exception(...)`。如果变更已执行但 after readback
 失败，异常仍保留 before 快照，失败结果会标记 `indeterminate=true` 并保持
 `verified=false`；不得把它当作没有副作用来重试。适配器应把这些组件传入 Core helper 的 `store=` 或
-`context=` 参数，不要再创建模块级 feedback buffer、脚本命名空间或默认存储。
+`context=` 参数。Core 不会自动注册或宣称 `execute_python` 路由；适配器只有在
+`server.script_execution_context.state_digest_capability()["available"]` 为 true 时才应暴露该路由，
+并在 provider 未注册时把 `unavailable/provider_missing` 能力状态写入 discovery 元数据。
+适配器应把这些组件传入 Core helper 的 `store=` 或 `context=` 参数，不要再创建模块级
+feedback buffer、脚本命名空间或默认存储。
 
 **Python 工具处理器返回 `ToolResultEnvelope`（#2183），不要手写字典：**
 ```python
