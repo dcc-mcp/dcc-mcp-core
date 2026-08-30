@@ -277,6 +277,16 @@ before it becomes visible in memory, files rotate with bounded backups, and
 explicit `feedback_persistence_failed` result even when the gateway accepted
 the report; adapters must not override this shared forwarder or add
 host-specific feedback actions.
+
+Bounded snapshots include an opaque runtime integrity tag in their serialized
+shape. It is verified before an evidence mapping is rehydrated, so callers must
+not remove the truncation marker or synthesize a replacement fingerprint. The
+tag is an adapter-runtime trust signal, not a portable authorization token.
+This core contract remains host-neutral: Issue #2260 acceptance for Maya,
+Houdini, Blender, and 3ds Max requires each adapter to register its own
+host-owned provider and MCP/REST route tests; core's generic route smoke does
+not claim those licensed-host integrations.
+
 Pass the other components to `execute_with_context(..., context=...)` and
 checkpoint helpers' existing `store=` parameter. Module-level convenience calls
 use explicit compatibility holders with `reset_default_*_for_tests()` seams;

@@ -143,6 +143,10 @@ the server from its exact target environment. Gateway Admin is check-only.
    Digest change proves only that observed state changed; leave `verified`
    omitted/false unless an adapter-owned postcondition verifies the claimed
    effect. Never turn contract-test evidence into a real-host success claim.
+   Serialized digest evidence carries an opaque runtime integrity tag and a
+   truncation marker; preserve both fields and never synthesize a replacement
+   fingerprint when forwarding an envelope. The tag is a local trust signal,
+   not a portable authorization token.
    Core does not auto-register or advertise an `execute_python` route. Gate
    adapter discovery and route registration on successful provider
    registration, and expose `unavailable/provider_missing` when

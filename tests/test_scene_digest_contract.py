@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import urllib.request
 
@@ -114,6 +115,24 @@ def test_scene_digest_is_redacted_bounded_and_deterministically_fingerprinted() 
     assert "hidden" not in serialized
     assert len(serialized.encode("utf-8")) <= 8_192
     assert left_digest.truncated is True
+
+
+def test_scene_digest_bounds_provider_work_with_one_mapping_sentinel() -> None:
+    class LazyMapping(dict):
+        def __init__(self) -> None:
+            super().__init__()
+            self.reads = 0
+
+        def items(self):
+            for index in range(100_000):
+                self.reads += 1
+                yield f"item-{index}", index
+
+    large = LazyMapping()
+    digest = normalize_scene_digest(_stats(1, extra={"large": large}))
+
+    assert digest.truncated is True
+    assert large.reads == 17
 
 
 @pytest.mark.parametrize("path", [r"\\server\share\scene.ma", r"\scene.ma", r"C:\scene.ma", "/tmp/scene.ma"])
@@ -477,9 +496,43 @@ def test_scene_digest_rejects_forged_snapshot_truncation_flag() -> None:
     assert result["error"] == "scene_digest_fingerprint_mismatch"
 
 
-@pytest.mark.parametrize("dcc_name", ["maya", "blender"])
+def test_truncated_snapshot_wire_round_trip_preserves_verified_evidence() -> None:
+    before = normalize_scene_digest(_stats(1, extra={"items": list(range(32))}))
+    after = normalize_scene_digest(_stats(2, extra={"items": list(range(32))}))
+
+    result = ScriptExecutionResult.from_value(
+        "ok",
+        scene_digest_before=before.to_dict(),
+        scene_digest_after=after.to_dict(),
+        verified=True,
+    )
+
+    assert result["success"] is True
+    assert result["postcondition"]["verified"] is True
+    assert result["postcondition"]["scene_digest_before"]["truncated"] is True
+
+
+def test_snapshot_integrity_rejects_marker_removal_and_recomputed_hash() -> None:
+    original = normalize_scene_digest(_stats(1, extra={"items": list(range(32))})).to_dict()
+    original["payload"].pop("_dcc_mcp_truncated")
+    original["truncated"] = False
+    canonical = json.dumps(original["payload"], sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    original["fingerprint"] = "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+    result = ScriptExecutionResult.from_value(
+        "ok",
+        scene_digest_before=original,
+        scene_digest_after=normalize_scene_digest(_stats(2)).to_dict(),
+        verified=True,
+    )
+
+    assert result["success"] is False
+    assert result["error"] == "scene_digest_fingerprint_mismatch"
+
+
+@pytest.mark.parametrize("dcc_name", ["maya", "houdini", "blender", "3dsmax"])
 def test_execute_python_digest_route_mcp_and_rest_contract(dcc_name: str) -> None:
-    """Exercise the real MCP + REST dispatch path with two DCC families."""
+    """Exercise the generic MCP + REST dispatch path for supported host IDs."""
     registry = ToolRegistry()
     registry.register(
         "execute_python",
