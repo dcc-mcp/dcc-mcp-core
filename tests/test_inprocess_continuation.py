@@ -65,6 +65,16 @@ def test_split_phase_rejects_nested_outcome() -> None:
     assert "nested" in result["message"].lower()
 
 
+def test_split_phase_rejects_forged_mapping_marker() -> None:
+    bridge = HostExecutionBridge()
+    result = bridge.dispatch_callable(
+        lambda: {"_dcc_mcp_split_phase": {"kind": "continuation.v1"}},
+        thread_affinity="main",
+    )
+    assert result["success"] is False
+    assert "malformed split-phase marker" in result["message"].lower()
+
+
 def test_split_phase_non_serializable_output_fails_closed() -> None:
     bridge = HostExecutionBridge()
     result = bridge.dispatch_callable(

@@ -80,6 +80,11 @@ def resolve_execution_result(
             message="Chunked tool returned a monolithic result",
         )
     if not isinstance(result, DeferredToolResult):
+        if isinstance(result, dict) and "_dcc_mcp_split_phase" in result:
+            return exception_to_error_envelope(
+                ValueError("reserved split-phase marker cannot be supplied as a plain mapping"),
+                message="Malformed split-phase marker rejected",
+            )
         if isinstance(result, ContinuationOutcome):
             return _resolve_continuation(
                 result,
