@@ -453,9 +453,7 @@ class _RecipeSchemaValidator:
                 if end >= 0:
                     quantifier_end = end + 1
             if quantifier_end > index + 1:
-                if previous_group_quantified or (
-                    previous_quantified is not None and previous_quantified == token
-                ):
+                if previous_group_quantified or (previous_quantified is not None and previous_quantified == token):
                     return True
                 previous_quantified = token
                 previous_group_quantified = False
