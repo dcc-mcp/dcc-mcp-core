@@ -118,6 +118,7 @@ class SceneDigestSnapshot:
             or self.fingerprint != expected
             or normalized.payload != self.payload
             or not isinstance(self.truncated, bool)
+            or normalized.truncated != self.truncated
         ):
             raise SceneDigestError(
                 "scene_digest_fingerprint_mismatch",
@@ -160,6 +161,7 @@ def normalize_scene_digest(raw: Mapping[str, Any] | SceneStats) -> SceneDigestSn
             )
 
         supplied_fingerprint = source.pop("fingerprint", None)
+        supplied_truncated = source.pop("truncated", None)
         _validate_core_fields(source)
         extra = source.get("extra", {})
         if not isinstance(extra, Mapping):
@@ -180,6 +182,13 @@ def normalize_scene_digest(raw: Mapping[str, Any] | SceneStats) -> SceneDigestSn
             raise SceneDigestError(
                 "scene_digest_fingerprint_mismatch",
                 "Provider-supplied scene digest fingerprint does not match canonical state",
+            )
+        if supplied_truncated is not None and (
+            not isinstance(supplied_truncated, bool) or supplied_truncated != truncated[0]
+        ):
+            raise SceneDigestError(
+                "scene_digest_fingerprint_mismatch",
+                "Provider-supplied scene digest truncation flag does not match canonical state",
             )
         return SceneDigestSnapshot(payload=payload, fingerprint=fingerprint, truncated=truncated[0])
     except SceneDigestError:
