@@ -29,9 +29,6 @@ from typing import Any
 from typing import Sequence
 from typing import TextIO
 
-from dcc_mcp_core._scene_digest_execution import freeze_scene_digest as _freeze_scene_digest
-from dcc_mcp_core._scene_digest_execution import scene_digest_restorer as _scene_digest_restorer
-from dcc_mcp_core._script_execution_helpers import file_ref_for_script_path as _file_ref_for_script_path
 from dcc_mcp_core.errors import DccMcpError
 from dcc_mcp_core.result_envelope import ToolResultEnvelope
 from dcc_mcp_core.runtime.scene_digest import SceneDigestError
@@ -42,6 +39,9 @@ from dcc_mcp_core.runtime.scene_digest import StateDigestProvider
 from dcc_mcp_core.runtime.scene_digest import snapshot_from_provider
 from dcc_mcp_core.runtime.scene_digest_envelope import scene_digest_postcondition as _scene_digest_postcondition
 from dcc_mcp_core.runtime.scene_digest_envelope import script_execution_failure as _script_execution_failure
+from dcc_mcp_core.runtime.scene_digest_execution import freeze_scene_digest as _freeze_scene_digest
+from dcc_mcp_core.runtime.scene_digest_execution import scene_digest_restorer as _scene_digest_restorer
+from dcc_mcp_core.runtime.script_execution_helpers import file_ref_for_script_path as _file_ref_for_script_path
 from dcc_mcp_core.schema import derive_script_parameters_schema
 from dcc_mcp_core.script_materialization import MaterializedScript
 from dcc_mcp_core.script_materialization import cleanup_materialized_scripts
