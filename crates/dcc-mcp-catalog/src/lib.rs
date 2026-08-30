@@ -1245,7 +1245,7 @@ entries:
                     .is_some_and(|install| install.install_type == "pip")
             })
             .collect::<Vec<_>>();
-        assert_eq!(pip_entries.len(), 31);
+        assert_eq!(pip_entries.len(), 32);
         assert!(pip_entries.iter().all(|entry| {
             let install = entry.install.as_ref().unwrap();
             install
@@ -1267,6 +1267,7 @@ entries:
                 "dcc_mcp_illustrator.cli:main",
             ),
             ("dcc-mcp-comfyui", "comfyui", "dcc_mcp_comfyui.cli:main"),
+            ("dcc-mcp-obs", "obs", "dcc_mcp_obs:ObsMcpServer"),
             (
                 "dcc-mcp-touchdesigner",
                 "touchdesigner",

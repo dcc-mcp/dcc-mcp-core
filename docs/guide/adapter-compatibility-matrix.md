@@ -53,6 +53,7 @@ submit a PR updating this matrix before the release PR merges.
 | Katana | [dcc-mcp-katana](https://github.com/dcc-mcp/dcc-mcp-katana) | 0.4.0 | >=0.19.45,<1.0.0 | — | Host main-thread dispatcher | — |
 | MotionBuilder | [dcc-mcp-mobu](https://github.com/dcc-mcp/dcc-mcp-mobu) | 0.3.0 | >=0.19.45,<1.0.0 | — | Host main-thread dispatcher | — |
 | RenderDoc | [dcc-mcp-renderdoc](https://github.com/dcc-mcp/dcc-mcp-renderdoc) | 0.3.0 | >=0.19.45,<1.0.0 | — | Headless CLI adapter | 2026-07 |
+| OBS Studio | [dcc-mcp-obs](https://github.com/dcc-mcp/dcc-mcp-obs) | 1.1.0 | >=0.20.14,<1.0.0 | 28+ | In-process native plugin + authenticated loopback WebSocket sidecar | 2026-08 |
 | Substance 3D Designer | [dcc-mcp-substance3d-designer](https://github.com/dcc-mcp/dcc-mcp-substance3d-designer) | 0.3.0 | >=0.19.45,<1.0.0 | — | Host bridge | — |
 | Substance 3D Painter | [dcc-mcp-substance3d-painter](https://github.com/dcc-mcp/dcc-mcp-substance3d-painter) | 0.1.3 | >=0.19.3,<1.0.0 | — | Host bridge | — |
 | Godot | [dcc-mcp-godot](https://github.com/dcc-mcp/dcc-mcp-godot) | 0.4.0 | >=0.19.45,<1.0.0 | 4.x | EditorPlugin + runtime bridge | 2026-07 |
