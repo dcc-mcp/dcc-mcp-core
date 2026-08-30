@@ -763,6 +763,63 @@ class TestRegisterRecipesTools:
     def test_unanchored_pattern_uses_draft_search_semantics(self) -> None:
         assert validate_recipe_inputs({"inputs_schema": {"type": "string", "pattern": "foo"}}, "afoob") == []
 
+    @pytest.mark.parametrize("pattern", ["a+b", "^x|a+b"])
+    def test_unanchored_quantified_search_paths_fail_closed(self, pattern: str) -> None:
+        assert validate_recipe_inputs({"inputs_schema": {"type": "string", "pattern": pattern}}, "aaab") == [
+            "$: Recipe input schema is invalid"
+        ]
+
+    def test_anchored_quantified_search_path_remains_supported(self) -> None:
+        assert (
+            validate_recipe_inputs(
+                {"inputs_schema": {"type": "string", "pattern": "^a+b$"}},
+                "aaab",
+            )
+            == []
+        )
+
+    @pytest.mark.parametrize(
+        "pattern",
+        [
+            "^(?i:(ab|AB)+)$",
+            "(?i)^(ab|AB)+$",
+        ],
+    )
+    def test_casefold_equivalent_quantified_alternations_fail_closed(self, pattern: str) -> None:
+        assert validate_recipe_inputs({"inputs_schema": {"type": "string", "pattern": pattern}}, "abAB") == [
+            "$: Recipe input schema is invalid"
+        ]
+
+    @pytest.mark.parametrize(
+        "pattern",
+        [
+            "^(?i:(ab|cd)+)$",
+            "(?i)^(ab|cd)+$",
+        ],
+    )
+    def test_casefold_disjoint_quantified_alternations_remain_supported(self, pattern: str) -> None:
+        assert validate_recipe_inputs({"inputs_schema": {"type": "string", "pattern": pattern}}, "abCD") == []
+
+    def test_scoped_casefold_disable_restores_disjointness(self) -> None:
+        pattern = "(?i)^(?-i:(ab|AB)+)$"
+        assert validate_recipe_inputs({"inputs_schema": {"type": "string", "pattern": pattern}}, "abAB") == []
+
+    @pytest.mark.parametrize("pattern", ["(?m)^a+$", "^(?x:a +)$"])
+    def test_unsupported_inline_flag_modes_fail_closed(self, pattern: str) -> None:
+        assert validate_recipe_inputs({"inputs_schema": {"type": "string", "pattern": pattern}}, "aaa") == [
+            "$: Recipe input schema is invalid"
+        ]
+
+    def test_repeated_prefix_overlapping_alternation_chain_fails_closed(self) -> None:
+        pattern = "^(a|aa)(a|aa)(a|aa)b$"
+        assert validate_recipe_inputs({"inputs_schema": {"type": "string", "pattern": pattern}}, "aaaaaab") == [
+            "$: Recipe input schema is invalid"
+        ]
+
+    def test_disjoint_alternation_chain_remains_supported(self) -> None:
+        pattern = "^(a|b)(c|d)(e|f)g$"
+        assert validate_recipe_inputs({"inputs_schema": {"type": "string", "pattern": pattern}}, "aceg") == []
+
     def test_quantified_character_classes_are_bounded(self) -> None:
         pattern = "^[a-z]*[a-y]*$"
         started = time.perf_counter()
