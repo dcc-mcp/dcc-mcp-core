@@ -620,6 +620,11 @@ class ScriptExecutionResult:
             verified=verified,
         )
         if isinstance(digest_evidence, dict) and digest_evidence.get("success") is False:
+            if not isinstance(digest_evidence.get("message"), str) or not isinstance(digest_evidence.get("error"), str):
+                return ToolResultEnvelope.fail(
+                    "Scene digest evidence could not be normalized",
+                    error="invalid_scene_digest_evidence",
+                ).to_dict()
             return digest_evidence
         use_repr = not strict_json if repr_fallback is None else repr_fallback
         try:

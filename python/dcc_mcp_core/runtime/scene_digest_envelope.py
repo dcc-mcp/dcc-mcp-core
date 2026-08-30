@@ -11,6 +11,8 @@ from dcc_mcp_core.runtime.scene_digest import SceneDigestSnapshot
 from dcc_mcp_core.runtime.scene_digest import normalize_scene_digest
 from dcc_mcp_core.verifier import SceneStats
 
+_ENVELOPE_KEYS = frozenset({"success", "message", "error", "prompt", "context", "postcondition", "_meta"})
+
 
 def scene_digest_postcondition(
     before: SceneDigestSnapshot | Mapping[str, Any] | SceneStats | None,
@@ -32,7 +34,19 @@ def scene_digest_postcondition(
         if existing is not None and existing is not verified:
             raise ValueError("'verified' conflicts with postcondition verification evidence")
         evidence["verified"] = verified
+    collisions = sorted(_ENVELOPE_KEYS.intersection(evidence))
+    if collisions:
+        return ToolResultEnvelope.fail(
+            "Scene digest postcondition uses reserved envelope keys",
+            error="invalid_scene_digest_postcondition",
+            reserved_keys=collisions,
+        ).to_dict()
     if before is None and after is None:
+        if evidence.get("verified") is True:
+            return ToolResultEnvelope.fail(
+                "Verified scene execution requires both before and after digest observations",
+                error="scene_digest_evidence_missing",
+            ).to_dict()
         return evidence or None
     if before is None or after is None:
         return ToolResultEnvelope.fail(

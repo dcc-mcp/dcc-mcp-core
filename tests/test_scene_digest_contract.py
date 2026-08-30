@@ -296,6 +296,23 @@ def test_script_result_fails_closed_for_missing_or_unchanged_verified_digest() -
     assert unchanged["error"] == "scene_digest_postcondition_mismatch"
 
 
+def test_verified_postcondition_requires_two_digest_observations() -> None:
+    result = ScriptExecutionResult.from_value(1, verified=True)
+
+    assert result["success"] is False
+    assert result["error"] == "scene_digest_evidence_missing"
+    assert "postcondition" not in result
+
+
+@pytest.mark.parametrize("reserved", ["success", "message", "error", "context", "_meta", "postcondition"])
+def test_postcondition_reserved_keys_fail_closed(reserved: str) -> None:
+    result = ScriptExecutionResult.from_value(1, postcondition={reserved: False})
+
+    assert result["success"] is False
+    assert result["error"] == "invalid_scene_digest_postcondition"
+    assert isinstance(result["context"]["reserved_keys"], list)
+
+
 def test_script_result_normalizes_mapping_snapshots_and_rejects_malformed_values() -> None:
     result = ScriptExecutionResult.from_value(
         1,
