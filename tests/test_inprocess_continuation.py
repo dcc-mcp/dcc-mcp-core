@@ -241,9 +241,9 @@ def test_sync_continuation_receives_deadline_probe_without_cancel_token() -> Non
 
     def continuation(probe):
         observed.append(probe)
-        deadline = time.perf_counter() + 0.02
-        while time.perf_counter() < deadline:
-            pass
+        wait_limit = time.monotonic() + 1.0
+        while not probe.cancelled and time.monotonic() < wait_limit:
+            time.sleep(0)
         probe.check()
         return {"published": True}
 
