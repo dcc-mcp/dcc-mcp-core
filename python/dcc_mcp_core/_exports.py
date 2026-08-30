@@ -571,6 +571,7 @@ _ALL_LAZY: dict[str, str] = {
     "ScriptExecutionParams": "dcc_mcp_core.script_execution",
     "ScriptExecutionResult": "dcc_mcp_core.script_execution",
     "ScriptExecutionSerializationError": "dcc_mcp_core.script_execution",
+    "SCENE_DIGEST_SCHEMA_VERSION": "dcc_mcp_core.runtime.scene_digest",
     "SceneDigestError": "dcc_mcp_core.script_execution",
     "SceneDigestExecution": "dcc_mcp_core.script_execution",
     "SceneDigestExecutionError": "dcc_mcp_core.script_execution",

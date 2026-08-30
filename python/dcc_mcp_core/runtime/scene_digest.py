@@ -23,7 +23,10 @@ _SENSITIVE_KEY = re.compile(
     r"(?:api[_-]?key|authorization|credential|password|secret|token|file[_-]?path|path)",
     re.IGNORECASE,
 )
-_ABSOLUTE_PATH = re.compile(r"^(?:[A-Za-z]:[\\/]|[/\\]{2}|/)")
+# Cover drive-qualified, UNC, and rooted current-drive Windows paths as well
+# as POSIX paths.  Relative paths are intentionally left intact because they
+# are not independently identifiable as host-local locations.
+_ABSOLUTE_PATH = re.compile(r"^(?:[A-Za-z]:[\\/]|[/\\]{1,2})")
 
 
 class StateDigestProvider(Protocol):
@@ -71,7 +74,11 @@ class SceneDigestSnapshot:
         return {
             "schema_version": self.schema_version,
             "fingerprint": self.fingerprint,
-            "payload": dict(self.payload),
+            # Re-parse canonical JSON rather than returning a shallow copy.
+            # ``extra`` may contain nested mappings/lists; a shallow copy
+            # would let a caller mutate the snapshot that was used to compute
+            # ``fingerprint`` after it crossed the host trust boundary.
+            "payload": json.loads(_canonical_json(self.payload)),
             "truncated": self.truncated,
         }
 

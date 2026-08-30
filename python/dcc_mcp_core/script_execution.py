@@ -32,18 +32,20 @@ from typing import TextIO
 
 from dcc_mcp_core.errors import DccMcpError
 from dcc_mcp_core.result_envelope import ToolResultEnvelope
-from dcc_mcp_core.schema import derive_script_parameters_schema
 from dcc_mcp_core.runtime.scene_digest import SceneDigestError
 from dcc_mcp_core.runtime.scene_digest import SceneDigestExecution
 from dcc_mcp_core.runtime.scene_digest import SceneDigestExecutionError
 from dcc_mcp_core.runtime.scene_digest import SceneDigestSnapshot
 from dcc_mcp_core.runtime.scene_digest import StateDigestProvider
+from dcc_mcp_core.runtime.scene_digest import normalize_scene_digest
 from dcc_mcp_core.runtime.scene_digest import snapshot_from_provider
+from dcc_mcp_core.schema import derive_script_parameters_schema
 from dcc_mcp_core.script_materialization import MaterializedScript
 from dcc_mcp_core.script_materialization import cleanup_materialized_scripts
 from dcc_mcp_core.script_materialization import default_script_materialization_root
 from dcc_mcp_core.script_materialization import materialize_script
 from dcc_mcp_core.script_materialization import resolve_materialized_script
+from dcc_mcp_core.verifier import SceneStats
 
 ScriptMaterializationPolicy = str
 _SCRIPT_MATERIALIZATION_POLICIES = {"off", "auto", "require"}
@@ -804,10 +806,15 @@ class ScriptExecutionContext:
         with self._lock:
             self._dcc_namespace = namespace
 
-    def register_state_digest_provider(self, provider: StateDigestProvider) -> None:
-        """Enable the scene-digest capability for this server instance."""
-        if not callable(provider):
-            raise TypeError("state digest provider must be callable")
+    def register_state_digest_provider(self, provider: StateDigestProvider | None) -> None:
+        """Enable or disable scene-digest capture for this server instance.
+
+        Passing ``None`` explicitly removes a provider during adapter shutdown
+        or reconfiguration.  This keeps the capability instance-owned and
+        avoids retaining a stale host callback after its DCC has gone away.
+        """
+        if provider is not None and not callable(provider):
+            raise TypeError("state digest provider must be callable or None")
         with self._lock:
             self._state_digest_provider = provider
 
@@ -908,7 +915,7 @@ def register_dcc_namespace(
 
 
 def register_state_digest_provider(
-    provider: StateDigestProvider,
+    provider: StateDigestProvider | None,
     *,
     context: ScriptExecutionContext | None = None,
 ) -> None:
@@ -962,8 +969,8 @@ def execute_with_state_digest(
 
 
 def _scene_digest_postcondition(
-    before: SceneDigestSnapshot | None,
-    after: SceneDigestSnapshot | None,
+    before: SceneDigestSnapshot | Mapping[str, Any] | SceneStats | None,
+    after: SceneDigestSnapshot | Mapping[str, Any] | SceneStats | None,
     *,
     postcondition: Mapping[str, Any] | None,
     verified: bool | None,
@@ -982,17 +989,34 @@ def _scene_digest_postcondition(
             error="scene_digest_evidence_missing",
         ).to_dict()
     try:
-        before.validate()
-        after.validate()
+        before_snapshot = _coerce_scene_digest_snapshot(before)
+        after_snapshot = _coerce_scene_digest_snapshot(after)
     except SceneDigestError as exc:
         return ToolResultEnvelope.fail(str(exc), error=exc.code).to_dict()
     is_verified = evidence.get("verified") is True
-    if is_verified and before.fingerprint == after.fingerprint:
+    if is_verified and before_snapshot.fingerprint == after_snapshot.fingerprint:
         return ToolResultEnvelope.fail(
             "Verified scene mutation did not change the observed scene digest",
             error="scene_digest_postcondition_mismatch",
         ).to_dict()
     evidence.setdefault("verified", False)
-    evidence["scene_digest_before"] = before.to_dict()
-    evidence["scene_digest_after"] = after.to_dict()
+    evidence["scene_digest_before"] = before_snapshot.to_dict()
+    evidence["scene_digest_after"] = after_snapshot.to_dict()
     return evidence
+
+
+def _coerce_scene_digest_snapshot(
+    value: SceneDigestSnapshot | Mapping[str, Any] | SceneStats,
+) -> SceneDigestSnapshot:
+    """Normalize an envelope snapshot while preserving fail-closed errors.
+
+    Public callers normally pass the typed snapshot returned by
+    ``execute_with_state_digest``.  Accepting the provider's ``SceneStats`` /
+    mapping shape here keeps direct adapter integrations safe: malformed or
+    tampered evidence is converted into a structured error envelope instead of
+    surfacing an ``AttributeError`` from the result builder.
+    """
+    if isinstance(value, SceneDigestSnapshot):
+        value.validate()
+        return value
+    return normalize_scene_digest(value)
