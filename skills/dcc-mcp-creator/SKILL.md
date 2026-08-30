@@ -144,9 +144,9 @@ the server from its exact target environment. Gateway Admin is check-only.
    omitted/false unless an adapter-owned postcondition verifies the claimed
    effect. Never turn contract-test evidence into a real-host success claim.
    Core does not auto-register or advertise an `execute_python` route. Gate
-   adapter discovery and route registration on
-   `server.script_execution_context.state_digest_capability()["available"]`,
-   and expose `unavailable/provider_missing` when no provider is registered.
+   adapter discovery and route registration on successful provider
+   registration, and expose `unavailable/provider_missing` when
+   `capture_state_digest(...)` reports no provider.
    If the script raises, catch `SceneDigestExecutionError` and pass its `cause`,
    snapshots, and `readback_error` to `ScriptExecutionResult.from_exception(...)`.
    A failed after-readback after a mutating script is explicitly

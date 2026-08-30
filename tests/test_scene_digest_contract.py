@@ -291,25 +291,6 @@ def test_state_digest_provider_can_be_unregistered() -> None:
     assert exc_info.value.code == "scene_digest_provider_missing"
 
 
-def test_state_digest_capability_is_visible_for_adapter_discovery() -> None:
-    context = ScriptExecutionContext()
-    assert context.state_digest_capability() == {
-        "available": False,
-        "status": "unavailable",
-        "reason": "provider_missing",
-    }
-
-    register_state_digest_provider(lambda: _stats(0), context=context)
-    assert context.state_digest_capability() == {
-        "available": True,
-        "status": "ready",
-        "reason": "provider_registered",
-    }
-
-    context.register_state_digest_provider(None)
-    assert context.state_digest_capability()["available"] is False
-
-
 def test_scene_digest_rejects_provider_fingerprint_mismatch() -> None:
     context = ScriptExecutionContext()
     register_state_digest_provider(
