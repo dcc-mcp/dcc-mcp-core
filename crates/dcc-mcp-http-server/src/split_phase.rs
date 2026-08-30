@@ -83,14 +83,12 @@ pub async fn resolve_output(
             "continuation invalidated before execution",
         ));
     }
-    let worker = tokio::time::timeout(
-        timeout,
-        tokio::task::spawn_blocking({
-            let callback = registration.callback.clone();
-            let control = control.clone();
-            move || (callback)(control)
-        }),
-    );
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    let callback = registration.callback.clone();
+    std::thread::spawn(move || {
+        let _ = sender.send((callback)(control));
+    });
+    let worker = tokio::time::timeout(timeout, receiver);
     tokio::pin!(worker);
     let result = if let Some(token) = cancellation.as_ref() {
         tokio::select! {
@@ -108,14 +106,14 @@ pub async fn resolve_output(
             registration.cancel();
             return Err(split_phase_error("TIMEOUT", "continuation timed out"));
         }
-        Ok(result) => result
-            .map_err(|err| {
-                split_phase_error(
-                    "WORKER_FAILED",
-                    &format!("continuation worker failed: {err}"),
-                )
-            })?
-            .map_err(|err| split_phase_error("CALLBACK_FAILED", &err))?,
+        Ok(Ok(result)) => result.map_err(|err| split_phase_error("CALLBACK_FAILED", &err))?,
+        Ok(Err(err)) => {
+            registration.cancel();
+            return Err(split_phase_error(
+                "WORKER_FAILED",
+                &format!("continuation worker failed: {err}"),
+            ));
+        }
     };
 
     if dcc_mcp_skills::catalog::execute::has_split_phase_marker(&result) {
@@ -224,6 +222,46 @@ mod tests {
         let marker = json!({"_dcc_mcp_split_phase": {"kind": "continuation.v1", "owner": store.owner(), "generation": store.generation(), "continuation_id": id}});
         assert!(resolve_output(marker, None).await.is_err());
         std::thread::sleep(std::time::Duration::from_millis(40));
+        assert!(!published.load(std::sync::atomic::Ordering::Acquire));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn aborting_sync_resolver_cancels_detached_callback() {
+        let store = dcc_mcp_skills::catalog::execute::SplitPhaseStore::new();
+        let started = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let released = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let published = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let id = store.register(
+            {
+                let started = Arc::clone(&started);
+                let released = Arc::clone(&released);
+                let published = Arc::clone(&published);
+                Arc::new(move |control| {
+                    started.store(true, std::sync::atomic::Ordering::Release);
+                    while !released.load(std::sync::atomic::Ordering::Acquire) {
+                        std::thread::yield_now();
+                    }
+                    if control.check().is_ok() {
+                        published.store(true, std::sync::atomic::Ordering::Release);
+                    }
+                    Ok(json!({"published": true}))
+                })
+            },
+            std::time::Duration::from_secs(5),
+        );
+        let marker = json!({"_dcc_mcp_split_phase": {"kind": "continuation.v1", "owner": store.owner(), "generation": store.generation(), "continuation_id": id}});
+        let task = tokio::spawn(resolve_output(marker, None));
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            while !started.load(std::sync::atomic::Ordering::Acquire) {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("callback started");
+        task.abort();
+        let _ = task.await;
+        released.store(true, std::sync::atomic::Ordering::Release);
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
         assert!(!published.load(std::sync::atomic::Ordering::Acquire));
     }
 

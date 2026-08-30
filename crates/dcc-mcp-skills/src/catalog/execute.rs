@@ -110,6 +110,7 @@ impl SplitPhaseRegistration {
 
 impl Drop for SplitPhaseRegistration {
     fn drop(&mut self) {
+        self.control.cancel();
         if let Some(store) = self.store.upgrade() {
             store.active.lock().remove(&self.id);
         }
