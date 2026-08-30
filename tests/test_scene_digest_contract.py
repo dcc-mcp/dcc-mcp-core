@@ -174,6 +174,105 @@ def test_contaminated_execute_outcome_fails_closed_on_from_outcome() -> None:
     assert result["error"] == "scene_digest_invalid"
 
 
+def test_non_serializable_result_retains_digest_evidence() -> None:
+    context = ScriptExecutionContext()
+    state = {"objects": 0}
+    register_state_digest_provider(lambda: _stats(state["objects"]), context=context)
+    context.register_dcc_namespace({"state": state})
+    outcome = context.execute_with_state_digest("state['objects'] += 1; result = object()")
+
+    result = ScriptExecutionResult.from_outcome(outcome)
+
+    assert result["success"] is False
+    assert result["error"] == "non_serializable_result"
+    assert result["postcondition"]["verified"] is False
+    assert result["postcondition"]["scene_digest_before"]["payload"]["object_count"] == 0
+    assert result["postcondition"]["scene_digest_after"]["payload"]["object_count"] == 1
+
+
+def test_after_provider_failure_preserves_before_state_and_indeterminate_result() -> None:
+    context = ScriptExecutionContext()
+    state = {"objects": 0, "reads": 0}
+
+    def provider():
+        state["reads"] += 1
+        if state["reads"] == 2:
+            raise RuntimeError("host readback unavailable")
+        return _stats(state["objects"])
+
+    register_state_digest_provider(provider, context=context)
+    context.register_dcc_namespace({"state": state})
+
+    with pytest.raises(SceneDigestExecutionError) as exc_info:
+        context.execute_with_state_digest("state['objects'] += 1; result = 'ok'")
+
+    failure = exc_info.value
+    assert failure.scene_digest_before.payload["object_count"] == 0
+    assert failure.scene_digest_after is None
+    assert failure.readback_error is not None
+    result = ScriptExecutionResult.from_exception(
+        failure.cause,
+        scene_digest_before=failure.scene_digest_before,
+        scene_digest_after=failure.scene_digest_after,
+        readback_error=failure.readback_error,
+    )
+    assert result["success"] is False
+    assert result["error"] == "scene_digest_provider_error"
+    assert result["postcondition"]["indeterminate"] is True
+    assert result["postcondition"]["scene_digest_before"]["payload"]["object_count"] == 0
+    assert result["postcondition"]["scene_digest_after"] is None
+
+
+@pytest.mark.parametrize(
+    "provider_value",
+    [
+        {"object_count": 1, "vertex_count": 1, "has_mesh": True, "extra": "bad"},
+        {"object_count": 1, "vertex_count": 1, "has_mesh": True, "extra": {"bad\ud800": 1}},
+        {"object_count": 1, "vertex_count": 1, "has_mesh": True, "extra": {"value": 10**5000}},
+    ],
+)
+def test_malformed_provider_values_fail_with_stable_scene_digest_error(provider_value) -> None:
+    context = ScriptExecutionContext()
+    register_state_digest_provider(lambda: provider_value, context=context)
+
+    with pytest.raises(SceneDigestError) as exc_info:
+        capture_state_digest(context=context)
+    assert exc_info.value.code == "scene_digest_invalid"
+
+
+def test_hostile_mapping_key_is_structured_as_scene_digest_error() -> None:
+    class HostileKey:
+        def __str__(self):
+            raise RuntimeError("key conversion failed")
+
+    context = ScriptExecutionContext()
+    register_state_digest_provider(
+        lambda: {"object_count": 1, "vertex_count": 1, "has_mesh": True, "extra": {HostileKey(): 1}},
+        context=context,
+    )
+
+    with pytest.raises(SceneDigestError) as exc_info:
+        capture_state_digest(context=context)
+    assert exc_info.value.code == "scene_digest_invalid"
+
+
+def test_direct_snapshot_to_dict_validates_tamper_and_rejects_nan() -> None:
+    context = ScriptExecutionContext()
+    register_state_digest_provider(lambda: _stats(1), context=context)
+    snapshot = capture_state_digest(context=context)
+    snapshot.payload["object_count"] = float("nan")
+
+    with pytest.raises(SceneDigestError) as exc_info:
+        snapshot.to_dict()
+    assert exc_info.value.code == "scene_digest_invalid"
+
+    clean = capture_state_digest(context=context)
+    clean.payload["object_count"] = 2
+    with pytest.raises(SceneDigestError) as exc_info:
+        clean.to_dict()
+    assert exc_info.value.code == "scene_digest_fingerprint_mismatch"
+
+
 def test_state_digest_provider_can_be_unregistered() -> None:
     context = ScriptExecutionContext()
     register_state_digest_provider(lambda: _stats(1), context=context)

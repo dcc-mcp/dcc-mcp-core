@@ -46,18 +46,25 @@ class SceneDigestError(DccMcpError):
 
 
 class SceneDigestExecutionError(DccMcpError):
-    """Script exception plus state captured on both sides of the attempt."""
+    """Execution failure plus whatever host state readback was available."""
 
     def __init__(
         self,
         cause: Exception,
         scene_digest_before: SceneDigestSnapshot,
-        scene_digest_after: SceneDigestSnapshot,
+        scene_digest_after: SceneDigestSnapshot | None,
+        *,
+        readback_error: SceneDigestError | None = None,
     ) -> None:
-        super().__init__("Script execution failed after scene digest capture")
+        super().__init__(
+            "Script execution failed after scene digest capture"
+            if readback_error is None
+            else "Script execution completed without a trusted after-state readback",
+        )
         self.cause = cause
         self.scene_digest_before = scene_digest_before
         self.scene_digest_after = scene_digest_after
+        self.readback_error = readback_error
 
 
 @dataclass(frozen=True)
@@ -71,6 +78,7 @@ class SceneDigestSnapshot:
 
     def to_dict(self) -> dict[str, Any]:
         """Return the adapter-facing JSON-safe evidence shape."""
+        self.validate()
         try:
             payload = json.loads(_canonical_json(self.payload))
         except Exception:
@@ -108,6 +116,7 @@ class SceneDigestSnapshot:
             self.schema_version != SCENE_DIGEST_SCHEMA_VERSION
             or self.fingerprint != expected
             or normalized.payload != self.payload
+            or not isinstance(self.truncated, bool)
         ):
             raise SceneDigestError(
                 "scene_digest_fingerprint_mismatch",
@@ -138,39 +147,47 @@ def snapshot_from_provider(provider: StateDigestProvider) -> SceneDigestSnapshot
 
 def normalize_scene_digest(raw: Mapping[str, Any] | SceneStats) -> SceneDigestSnapshot:
     """Validate, redact, bound, and fingerprint a provider result."""
-    if isinstance(raw, SceneStats):
-        source = raw.to_dict()
-    elif isinstance(raw, Mapping):
-        source = dict(raw)
-    else:
+    try:
+        if isinstance(raw, SceneStats):
+            source = raw.to_dict()
+        elif isinstance(raw, Mapping):
+            source = dict(raw)
+        else:
+            raise SceneDigestError(
+                "scene_digest_invalid",
+                "Scene digest provider must return SceneStats or a mapping",
+            )
+
+        supplied_fingerprint = source.pop("fingerprint", None)
+        _validate_core_fields(source)
+        extra = source.get("extra", {})
+        if not isinstance(extra, Mapping):
+            raise SceneDigestError("scene_digest_invalid", "Scene digest extra must be a mapping")
+
+        truncated = [False]
+        payload = {
+            "object_count": source["object_count"],
+            "vertex_count": source["vertex_count"],
+            "has_mesh": source["has_mesh"],
+            "extra": _bounded_value(extra, depth=0, truncated=truncated),
+        }
+        if len(_canonical_json(payload).encode("utf-8")) > _MAX_PAYLOAD_BYTES:
+            payload["extra"] = {"_truncated": True}
+            truncated[0] = True
+        fingerprint = _fingerprint(payload)
+        if supplied_fingerprint is not None and supplied_fingerprint != fingerprint:
+            raise SceneDigestError(
+                "scene_digest_fingerprint_mismatch",
+                "Provider-supplied scene digest fingerprint does not match canonical state",
+            )
+        return SceneDigestSnapshot(payload=payload, fingerprint=fingerprint, truncated=truncated[0])
+    except SceneDigestError:
+        raise
+    except Exception:
         raise SceneDigestError(
             "scene_digest_invalid",
-            "Scene digest provider must return SceneStats or a mapping",
-        )
-
-    supplied_fingerprint = source.pop("fingerprint", None)
-    _validate_core_fields(source)
-    extra = source.get("extra", {})
-    if not isinstance(extra, Mapping):
-        raise SceneDigestError("scene_digest_invalid", "Scene digest extra must be a mapping")
-
-    truncated = [False]
-    payload = {
-        "object_count": source["object_count"],
-        "vertex_count": source["vertex_count"],
-        "has_mesh": source["has_mesh"],
-        "extra": _bounded_value(extra, depth=0, truncated=truncated),
-    }
-    if len(_canonical_json(payload).encode("utf-8")) > _MAX_PAYLOAD_BYTES:
-        payload["extra"] = {"_truncated": True}
-        truncated[0] = True
-    fingerprint = _fingerprint(payload)
-    if supplied_fingerprint is not None and supplied_fingerprint != fingerprint:
-        raise SceneDigestError(
-            "scene_digest_fingerprint_mismatch",
-            "Provider-supplied scene digest fingerprint does not match canonical state",
-        )
-    return SceneDigestSnapshot(payload=payload, fingerprint=fingerprint, truncated=truncated[0])
+            "Scene digest provider returned invalid or non-serializable state",
+        ) from None
 
 
 def _validate_core_fields(source: Mapping[str, Any]) -> None:
@@ -234,7 +251,7 @@ def _fingerprint(payload: Mapping[str, Any]) -> str:
 
 
 def _canonical_json(payload: Mapping[str, Any]) -> str:
-    return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
 
 
 __all__ = [

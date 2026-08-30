@@ -174,9 +174,10 @@ from dcc_mcp_core._core import DeferredExecutor   # 需要直接导入
 返回畸形数据、指纹不匹配或只提供单侧证据时都会 fail-closed。指纹变化只证明观察到的
 状态发生变化，不证明请求的语义效果正确；只有适配器自有 postcondition 确认声明后才能
 设置 `verified=True`。当有界场景摘要未变化时，Core 会拒绝 `verified=True`。捕获
-`SceneDigestExecutionError` 后，应把它的 `cause` 与两个快照传给
-`ScriptExecutionResult.from_exception(...)`，使失败结果保留重试证据并保持
-`verified=false`。适配器应把这些组件传入 Core helper 的 `store=` 或
+`SceneDigestExecutionError` 后，应把它的 `cause`、快照以及 `readback_error` 传给
+`ScriptExecutionResult.from_exception(...)`。如果变更已执行但 after readback
+失败，异常仍保留 before 快照，失败结果会标记 `indeterminate=true` 并保持
+`verified=false`；不得把它当作没有副作用来重试。适配器应把这些组件传入 Core helper 的 `store=` 或
 `context=` 参数，不要再创建模块级 feedback buffer、脚本命名空间或默认存储。
 
 **Python 工具处理器返回 `ToolResultEnvelope`（#2183），不要手写字典：**
