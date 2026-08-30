@@ -19,6 +19,7 @@ _MAX_DEPTH = 4
 _MAX_ITEMS = 16
 _MAX_STRING_CHARS = 128
 _MAX_PAYLOAD_BYTES = 4_096
+_MAX_INTEGER_BITS = 512
 _SENSITIVE_KEY = re.compile(
     r"(?:api[_-]?key|authorization|credential|password|secret|token|file[_-]?path|path)",
     re.IGNORECASE,
@@ -196,7 +197,7 @@ def _validate_core_fields(source: Mapping[str, Any]) -> None:
             raise SceneDigestError("scene_digest_invalid", "Scene digest is missing a required core field")
     for field_name in ("object_count", "vertex_count"):
         value = source[field_name]
-        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0 or value.bit_length() > _MAX_INTEGER_BITS:
             raise SceneDigestError(
                 "scene_digest_invalid",
                 "Scene digest count fields must be non-negative integers",
@@ -209,13 +210,16 @@ def _bounded_value(value: Any, *, depth: int, truncated: list[bool]) -> Any:
     if depth >= _MAX_DEPTH:
         truncated[0] = True
         return "<truncated>"
-    if value is None or isinstance(value, (bool, int)):
+    if value is None or isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        if value.bit_length() > _MAX_INTEGER_BITS:
+            raise SceneDigestError("scene_digest_invalid", "Scene digest integers exceed the bounded range")
         return value
     if isinstance(value, float):
         if math.isfinite(value):
             return value
-        truncated[0] = True
-        return "<non-finite>"
+        raise SceneDigestError("scene_digest_invalid", "Scene digest contains a non-finite number")
     if isinstance(value, str):
         if _ABSOLUTE_PATH.match(value):
             return "<redacted>"
@@ -241,8 +245,10 @@ def _bounded_value(value: Any, *, depth: int, truncated: list[bool]) -> Any:
         if len(items) > _MAX_ITEMS:
             truncated[0] = True
         return [_bounded_value(item, depth=depth + 1, truncated=truncated) for item in items[:_MAX_ITEMS]]
-    truncated[0] = True
-    return f"<unsupported:{type(value).__name__}>"
+    raise SceneDigestError(
+        "scene_digest_invalid",
+        f"Scene digest contains unsupported value type: {type(value).__name__}",
+    )
 
 
 def _fingerprint(payload: Mapping[str, Any]) -> str:
