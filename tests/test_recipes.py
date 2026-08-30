@@ -680,6 +680,7 @@ class TestRegisterRecipesTools:
             ("a*a*$", "a" * 1000 + "!"),
             ("(a|b)+c$", "a" * 8000 + "!"),
             ("(.+)x$", "a" * 8000 + "!"),
+            ("^" + "(a|b)+" * 11 + "$", "a" * 31 + "!"),
         ):
             started = time.perf_counter()
             errors = validate_recipe_inputs({"inputs_schema": {"type": "string", "pattern": pattern}}, instance)
@@ -693,6 +694,12 @@ class TestRegisterRecipesTools:
             "abcdab",
         )
         assert errors == []
+
+    def test_unevaluated_true_annotations_propagate_through_all_of(self) -> None:
+        object_schema = {"allOf": [{"unevaluatedProperties": True}], "unevaluatedProperties": False}
+        array_schema = {"allOf": [{"unevaluatedItems": True}], "unevaluatedItems": False}
+        assert validate_recipe_inputs({"inputs_schema": object_schema}, {"x": 1}) == []
+        assert validate_recipe_inputs({"inputs_schema": array_schema}, [1]) == []
 
     def test_pattern_properties_rejects_catastrophic_keys_before_matching(self) -> None:
         schema = {"type": "object", "patternProperties": {"(a+)+$": {"type": "string"}}}

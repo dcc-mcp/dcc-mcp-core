@@ -374,14 +374,58 @@ class _RecipeSchemaValidator:
 
     @staticmethod
     def _has_adjacent_quantifiers(pattern: str) -> bool:
-        """Detect adjacent quantified literal atoms that can overlap."""
+        """Detect adjacent quantified atoms that can overlap or explode."""
         previous_quantified: str | None = None
+        previous_group_quantified = False
         index = 0
         while index < len(pattern):
             character = pattern[index]
+            if character == "(":
+                # Treat a complete group as one atom.  The main structural
+                # scanner validates its contents; this pass additionally
+                # catches quantified groups placed next to one another,
+                # which otherwise reset state at each parenthesis and allow
+                # exponential alternation backtracking.
+                depth = 1
+                cursor = index + 1
+                escaped = False
+                in_class = False
+                while cursor < len(pattern) and depth:
+                    current = pattern[cursor]
+                    if escaped:
+                        escaped = False
+                    elif current == "\\":
+                        escaped = True
+                    elif in_class:
+                        if current == "]":
+                            in_class = False
+                    elif current == "[":
+                        in_class = True
+                    elif current == "(":
+                        depth += 1
+                    elif current == ")":
+                        depth -= 1
+                    cursor += 1
+                if depth or in_class:
+                    return False
+                quantifier_end = cursor
+                if quantifier_end < len(pattern) and pattern[quantifier_end] in "*+?":
+                    quantifier_end += 1
+                elif quantifier_end < len(pattern) and pattern[quantifier_end] == "{":
+                    end = pattern.find("}", quantifier_end + 1)
+                    if end >= 0:
+                        quantifier_end = end + 1
+                quantified = quantifier_end > cursor
+                if quantified and (previous_group_quantified or previous_quantified is not None):
+                    return True
+                previous_group_quantified = quantified
+                previous_quantified = None
+                index = quantifier_end
+                continue
             if character == "\\":
                 index += 2
                 previous_quantified = None
+                previous_group_quantified = False
                 continue
             if character == "[":
                 end = index + 1
@@ -389,9 +433,11 @@ class _RecipeSchemaValidator:
                     end += 2 if pattern[end] == "\\" else 1
                 index = min(end + 1, len(pattern))
                 previous_quantified = None
+                previous_group_quantified = False
                 continue
             if character in "^$|()":
                 previous_quantified = None
+                previous_group_quantified = False
                 index += 1
                 continue
             token = character
@@ -403,12 +449,16 @@ class _RecipeSchemaValidator:
                 if end >= 0:
                     quantifier_end = end + 1
             if quantifier_end > index + 1:
-                if previous_quantified is not None and previous_quantified == token:
+                if previous_group_quantified or (
+                    previous_quantified is not None and previous_quantified == token
+                ):
                     return True
                 previous_quantified = token
+                previous_group_quantified = False
                 index = quantifier_end
             else:
                 previous_quantified = None
+                previous_group_quantified = False
                 index += 1
         return False
 
@@ -813,7 +863,12 @@ class _RecipeSchemaValidator:
                     if index in evaluated_items:
                         continue
                     assertion = schema["unevaluatedItems"]
-                    if assertion is False:
+                    if assertion is True:
+                        # ``true`` successfully evaluates every remaining
+                        # item; record the annotation so an outer
+                        # unevaluatedItems assertion cannot reject it.
+                        evaluated_items.add(index)
+                    elif assertion is False:
                         errors.append(f"{path}[{index}]: Unevaluated items are not allowed")
                         valid = False
                     elif assertion is not True and not self._validate(
@@ -881,7 +936,11 @@ class _RecipeSchemaValidator:
                 for name, item in value.items():
                     if name in evaluated:
                         continue
-                    if assertion is False:
+                    if assertion is True:
+                        # ``true`` successfully evaluates every remaining
+                        # property; retain the annotation for outer schemas.
+                        evaluated.add(name)
+                    elif assertion is False:
                         errors.append(f"{path}.{name}: Unevaluated properties are not allowed")
                         valid = False
                     elif assertion is not True and not self._validate(
