@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import json
 import traceback
 from typing import Any
 
@@ -70,6 +71,19 @@ def scene_digest_postcondition(
         evidence["scene_digest_after"] = after_snapshot.to_dict()
     except SceneDigestError as exc:
         return ToolResultEnvelope.fail(str(exc), error=exc.code).to_dict()
+    try:
+        json.dumps(evidence, allow_nan=False, separators=(",", ":"))
+    except (TypeError, ValueError):
+        failure = ToolResultEnvelope.fail(
+            "Scene digest postcondition is not JSON serializable",
+            error="invalid_scene_digest_postcondition",
+        ).to_dict()
+        failure["postcondition"] = {
+            "verified": False,
+            "scene_digest_before": before_snapshot.to_dict(),
+            "scene_digest_after": after_snapshot.to_dict(),
+        }
+        return failure
     return evidence
 
 

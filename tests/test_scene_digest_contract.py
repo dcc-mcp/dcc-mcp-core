@@ -7,6 +7,8 @@ import json
 import pytest
 
 import dcc_mcp_core
+from dcc_mcp_core.runtime.scene_digest import SceneDigestSnapshot
+from dcc_mcp_core.runtime.scene_digest import normalize_scene_digest
 from dcc_mcp_core.script_execution import SceneDigestError
 from dcc_mcp_core.script_execution import SceneDigestExecutionError
 from dcc_mcp_core.script_execution import ScriptExecutionContext
@@ -411,7 +413,34 @@ def test_postcondition_reserved_keys_fail_closed(reserved: str) -> None:
 
     assert result["success"] is False
     assert result["error"] == "invalid_scene_digest_postcondition"
+
+
+def test_scene_digest_rejects_forged_truncated_flag() -> None:
+    with pytest.raises(SceneDigestError):
+        normalize_scene_digest(
+            {
+                "object_count": 1,
+                "vertex_count": 2,
+                "has_mesh": True,
+                "truncated": False,
+                "extra": {"items": list(range(32))},
+            }
+        )
+
+
+def test_non_json_postcondition_fails_closed_with_digest_evidence() -> None:
+    before = normalize_scene_digest({"object_count": 1, "vertex_count": 2, "has_mesh": True})
+    after = normalize_scene_digest({"object_count": 2, "vertex_count": 2, "has_mesh": True})
+    result = ScriptExecutionResult.from_value(
+        1,
+        scene_digest_before=before,
+        scene_digest_after=after,
+        postcondition={"readback": object()},
+    )
+    assert result["success"] is False
+    assert result["error"] == "invalid_scene_digest_postcondition"
     assert isinstance(result["context"]["reserved_keys"], list)
+    assert result["postcondition"]["scene_digest_before"]["fingerprint"] == before.fingerprint
 
 
 def test_script_result_normalizes_mapping_snapshots_and_rejects_malformed_values() -> None:
