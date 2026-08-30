@@ -19,6 +19,26 @@ pub(in crate::rmcp_tool_call_dispatch) fn compute_job_timestamps(
     (job.started_at, job.completed_at)
 }
 
+fn project_job_error(error: &str) -> Value {
+    let Ok(value) = serde_json::from_str::<Value>(error) else {
+        return Value::String(error.to_owned());
+    };
+    let recognized = value
+        .as_object()
+        .and_then(|object| {
+            object
+                .get("layer")
+                .and_then(Value::as_str)
+                .zip(object.get("code").and_then(Value::as_str))
+        })
+        .is_some_and(|(layer, code)| layer == "instance" && code.starts_with("SPLIT_PHASE_"));
+    if recognized {
+        value
+    } else {
+        Value::String(error.to_owned())
+    }
+}
+
 pub(in crate::rmcp_tool_call_dispatch) fn handle_jobs_get_status(
     state: &ServerState,
     arguments: &Value,
@@ -104,7 +124,7 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_jobs_get_status(
     envelope.insert(
         "error".into(),
         match &job.error {
-            Some(e) => serde_json::from_str(e).unwrap_or_else(|_| Value::String(e.clone())),
+            Some(e) => project_job_error(e),
             None => Value::Null,
         },
     );
@@ -255,6 +275,33 @@ mod tests {
         let error = payload.structured_content.unwrap()["error"].clone();
         assert_eq!(error["layer"], "instance");
         assert_eq!(error["code"], "SPLIT_PHASE_TIMEOUT");
+    }
+
+    #[test]
+    fn jobs_get_status_preserves_json_looking_legacy_error_strings() {
+        let registry = Arc::new(ToolRegistry::new());
+        registry.register_action(ToolMeta {
+            name: "legacy_tool".into(),
+            ..Default::default()
+        });
+        let dispatcher = Arc::new(ToolDispatcher::new((*registry).clone()));
+        let catalog = Arc::new(SkillCatalog::new_with_dispatcher(
+            Arc::clone(&registry),
+            Arc::clone(&dispatcher),
+        ));
+        let jobs = Arc::new(JobManager::new());
+        let handle = jobs.create("legacy_tool");
+        let id = handle.read().id.clone();
+        jobs.start(&id).unwrap();
+        jobs.fail(&id, r#"{"reason":"bad"}"#).unwrap();
+        let state = ServerState::builder(registry, dispatcher, catalog)
+            .with_jobs(jobs)
+            .build();
+        let payload = handle_jobs_get_status(&state, &json!({"job_id": id}));
+        assert_eq!(
+            payload.structured_content.unwrap()["error"],
+            r#"{"reason":"bad"}"#
+        );
     }
 
     #[test]
