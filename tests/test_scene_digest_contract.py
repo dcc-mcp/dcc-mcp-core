@@ -135,6 +135,19 @@ def test_scene_digest_bounds_provider_work_with_one_mapping_sentinel() -> None:
     assert large.reads == 17
 
 
+def test_oversized_mappings_use_an_insertion_order_independent_sentinel() -> None:
+    first = {f"item-{index}": index for index in range(100)}
+    second = dict(reversed(list(first.items())))
+
+    left = normalize_scene_digest(_stats(1, extra={"large": first}))
+    right = normalize_scene_digest(_stats(1, extra={"large": second}))
+
+    assert left.truncated is True
+    assert right.truncated is True
+    assert left.fingerprint == right.fingerprint
+    assert left.payload["extra"]["large"] == {"_truncated": True}
+
+
 @pytest.mark.parametrize("path", [r"\\server\share\scene.ma", r"\scene.ma", r"C:\scene.ma", "/tmp/scene.ma"])
 def test_scene_digest_redacts_windows_and_posix_absolute_paths(path: str) -> None:
     context = ScriptExecutionContext()
@@ -165,6 +178,19 @@ def test_scene_digest_snapshot_and_envelope_are_deeply_detached() -> None:
     )
     result["postcondition"]["scene_digest_before"]["payload"]["extra"]["nested"]["labels"].append("wire mutation")
     assert snapshot.payload["extra"]["nested"]["labels"] == ["mesh"]
+
+
+@pytest.mark.parametrize("integrity", [None, 7, b"bytes"])
+def test_scene_digest_validate_rejects_non_string_integrity_without_type_error(integrity) -> None:
+    context = ScriptExecutionContext()
+    register_state_digest_provider(lambda: _stats(1), context=context)
+    snapshot = capture_state_digest(context=context)
+    object.__setattr__(snapshot, "integrity", integrity)
+
+    with pytest.raises(SceneDigestError) as exc_info:
+        snapshot.validate()
+
+    assert exc_info.value.code == "scene_digest_fingerprint_mismatch"
 
 
 def test_contaminated_snapshot_fails_closed_through_validate_and_result_path() -> None:
@@ -592,6 +618,86 @@ def test_execute_python_digest_route_mcp_and_rest_contract(dcc_name: str) -> Non
         with urllib.request.urlopen(request, timeout=10) as rest_response:
             rest_body = json.loads(rest_response.read().decode("utf-8"))
         output = rest_body["output"]
+        assert output["success"] is True
+        assert output["postcondition"]["scene_digest_before"]["payload"]["object_count"] == 1
+        assert output["postcondition"]["scene_digest_after"]["payload"]["object_count"] == 2
+    finally:
+        handle.shutdown()
+
+
+@pytest.mark.parametrize("dcc_name", ["maya", "blender"])
+def test_execute_python_digest_routes_reject_frame_snapshot_tampering(dcc_name: str) -> None:
+    """MCP and REST must retain host-owned before evidence despite hostile code."""
+    registry = ToolRegistry()
+    registry.register(
+        "execute_python",
+        description=f"Execute Python in the {dcc_name} host",
+        category="script",
+        dcc=dcc_name,
+        version="1.0.0",
+    )
+    context = ScriptExecutionContext()
+    state = {"objects": 0}
+    register_state_digest_provider(lambda: _stats(state["objects"]), context=context)
+    context.register_dcc_namespace({"state": state})
+
+    def _handler(params: dict) -> dict:
+        outcome = context.execute_with_state_digest(params["code"])
+        return ScriptExecutionResult.from_outcome(outcome)
+
+    attack = """
+import sys
+frame = sys._getframe(2)
+before = frame.f_locals.get("before")
+if before is not None:
+    import dcc_mcp_core.runtime.scene_digest as digest
+    before.payload["object_count"] = 999
+    before.__dict__["fingerprint"] = digest._fingerprint(before.payload, truncated=before.truncated)
+    before.__dict__["integrity"] = digest._snapshot_integrity(
+        schema_version=before.schema_version,
+        fingerprint=before.fingerprint,
+        payload=before.payload,
+        truncated=before.truncated,
+    )
+state["objects"] += 1
+result = "tamper-attempt"
+"""
+
+    server = McpHttpServer(
+        registry,
+        McpHttpConfig(port=0, server_name=f"scene-digest-tamper-{dcc_name}"),
+    )
+    server.register_handler("execute_python", _handler)
+    handle = server.start()
+    try:
+        client = McpClient(handle.mcp_url())
+        _, response = client.post(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {"name": "execute_python", "arguments": {"code": attack}},
+            }
+        )
+        assert response.get("error") is None, response
+        structured = response["result"].get("structuredContent")
+        if structured is None:
+            structured = json.loads(response["result"]["content"][0]["text"])
+        assert structured["success"] is True
+        assert structured["postcondition"]["scene_digest_before"]["payload"]["object_count"] == 0
+        assert structured["postcondition"]["scene_digest_after"]["payload"]["object_count"] == 1
+
+        payload = json.dumps(
+            {"tool_slug": "execute_python", "params": {"code": attack}},
+        ).encode("utf-8")
+        request = urllib.request.Request(
+            f"{handle.mcp_url().rsplit('/mcp', 1)[0]}/v1/call",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=10) as rest_response:
+            output = json.loads(rest_response.read().decode("utf-8"))["output"]
         assert output["success"] is True
         assert output["postcondition"]["scene_digest_before"]["payload"]["object_count"] == 1
         assert output["postcondition"]["scene_digest_after"]["payload"]["object_count"] == 2

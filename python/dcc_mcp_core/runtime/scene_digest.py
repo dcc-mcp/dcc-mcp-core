@@ -125,6 +125,11 @@ class SceneDigestSnapshot:
                     "scene_digest_fingerprint_mismatch",
                     "Scene digest evidence does not match its canonical fingerprint",
                 )
+            if not isinstance(self.integrity, str):
+                raise SceneDigestError(
+                    "scene_digest_fingerprint_mismatch",
+                    "Scene digest integrity must be a string",
+                )
             payload, inferred_truncated = _canonical_snapshot_payload(self.payload)
             if inferred_truncated != self.truncated:
                 raise SceneDigestError(
@@ -318,7 +323,11 @@ def _bounded_value(value: Any, *, depth: int, truncated: list[bool]) -> Any:
         for index, (key, item) in enumerate(value.items()):
             if index >= _MAX_ITEMS:
                 truncated[0] = True
-                break
+                # Once a mapping exceeds the observation budget, do not
+                # retain an insertion-order-dependent prefix. A fixed
+                # sentinel keeps equivalent host mappings deterministic while
+                # still reading only one bounded sentinel item.
+                return {"_truncated": True}
             items.append((str(key), item))
         items.sort(key=lambda pair: pair[0])
         for key, item in items:
@@ -335,6 +344,8 @@ def _bounded_value(value: Any, *, depth: int, truncated: list[bool]) -> Any:
         for index, item in enumerate(value):
             if index >= _MAX_ITEMS:
                 truncated[0] = True
+                if isinstance(value, (set, frozenset)):
+                    return {"_truncated": True}
                 break
             items.append(item)
         if isinstance(value, (set, frozenset)):
