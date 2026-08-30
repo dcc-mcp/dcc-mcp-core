@@ -832,22 +832,6 @@ class ScriptExecutionContext:
         with self._lock:
             self._state_digest_provider = provider
 
-    def state_digest_capability(self) -> dict[str, Any]:
-        """Describe whether this context can provide trusted state readback.
-
-        Core does not auto-register an ``execute_python`` route.  Adapters can
-        use this small, JSON-safe capability payload when building discovery
-        metadata and must keep the route unavailable while the provider is not
-        registered.
-        """
-        with self._lock:
-            available = self._state_digest_provider is not None
-        return {
-            "available": available,
-            "status": "ready" if available else "unavailable",
-            "reason": "provider_registered" if available else "provider_missing",
-        }
-
     def capture_state_digest(self) -> SceneDigestSnapshot:
         """Read one bounded digest, failing closed when capability is absent."""
         with self._lock:
