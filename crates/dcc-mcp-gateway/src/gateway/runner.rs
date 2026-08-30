@@ -1281,24 +1281,29 @@ mod tests {
         assert!(
             runner
                 .registry
-                .list_instances(GATEWAY_SENTINEL_DCC_TYPE)
+                .list_instances_async(GATEWAY_SENTINEL_DCC_TYPE.to_string())
+                .await
+                .unwrap()
                 .is_empty(),
             "challenger must not publish a sentinel before startup readback"
         );
 
         ready_tx.send(true).unwrap();
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(8);
-        while runner
-            .registry
-            .list_instances(GATEWAY_SENTINEL_DCC_TYPE)
-            .is_empty()
-        {
-            assert!(tokio::time::Instant::now() < deadline);
-            // Leave the blocking registry worker enough time to acquire the
-            // in-process write lock. A tight synchronous read loop can starve
-            // the registration it is waiting to observe on loaded runners.
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
+        tokio::time::timeout(Duration::from_secs(30), async {
+            while runner
+                .registry
+                .list_instances_async(GATEWAY_SENTINEL_DCC_TYPE.to_string())
+                .await
+                .unwrap()
+                .is_empty()
+            {
+                // Avoid monopolizing the current-thread runtime or registry
+                // storage lock when nextest runs the workspace under load.
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("challenger sentinel should appear after startup readback");
         challenger.abort();
         drop(occupied);
     }
