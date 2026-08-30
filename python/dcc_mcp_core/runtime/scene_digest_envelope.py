@@ -1,0 +1,68 @@
+"""Canonical result-envelope integration for scene-digest evidence."""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from typing import Any
+
+from dcc_mcp_core.result_envelope import ToolResultEnvelope
+from dcc_mcp_core.runtime.scene_digest import SceneDigestError
+from dcc_mcp_core.runtime.scene_digest import SceneDigestSnapshot
+from dcc_mcp_core.runtime.scene_digest import normalize_scene_digest
+from dcc_mcp_core.verifier import SceneStats
+
+
+def scene_digest_postcondition(
+    before: SceneDigestSnapshot | Mapping[str, Any] | SceneStats | None,
+    after: SceneDigestSnapshot | Mapping[str, Any] | SceneStats | None,
+    *,
+    postcondition: Mapping[str, Any] | None,
+    verified: bool | None,
+) -> dict[str, Any] | None:
+    """Build postcondition evidence from before/after host observations.
+
+    A one-sided or malformed observation becomes a structured failure.  A
+    changed digest is evidence that host state changed, but ``verified=True``
+    still requires an adapter-owned semantic readback and is rejected when the
+    digest is unchanged.
+    """
+    evidence = dict(postcondition) if postcondition is not None else {}
+    if verified is not None:
+        existing = evidence.get("verified")
+        if existing is not None and existing is not verified:
+            raise ValueError("'verified' conflicts with postcondition verification evidence")
+        evidence["verified"] = verified
+    if before is None and after is None:
+        return evidence or None
+    if before is None or after is None:
+        return ToolResultEnvelope.fail(
+            "Scene digest evidence requires both before and after observations",
+            error="scene_digest_evidence_missing",
+        ).to_dict()
+    try:
+        before_snapshot = _coerce_scene_digest_snapshot(before)
+        after_snapshot = _coerce_scene_digest_snapshot(after)
+    except SceneDigestError as exc:
+        return ToolResultEnvelope.fail(str(exc), error=exc.code).to_dict()
+    if evidence.get("verified") is True and before_snapshot.fingerprint == after_snapshot.fingerprint:
+        return ToolResultEnvelope.fail(
+            "Verified scene mutation did not change the observed scene digest",
+            error="scene_digest_postcondition_mismatch",
+        ).to_dict()
+    evidence.setdefault("verified", False)
+    evidence["scene_digest_before"] = before_snapshot.to_dict()
+    evidence["scene_digest_after"] = after_snapshot.to_dict()
+    return evidence
+
+
+def _coerce_scene_digest_snapshot(
+    value: SceneDigestSnapshot | Mapping[str, Any] | SceneStats,
+) -> SceneDigestSnapshot:
+    """Normalize an envelope snapshot and preserve fail-closed semantics."""
+    if isinstance(value, SceneDigestSnapshot):
+        value.validate()
+        return value
+    return normalize_scene_digest(value)
+
+
+__all__ = ["scene_digest_postcondition"]
