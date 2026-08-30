@@ -73,6 +73,10 @@ class _RecipeSchemaValidator:
             kind: {path: set(values) for path, values in paths.items()} for kind, paths in self._annotations.items()
         }
 
+    @staticmethod
+    def _empty_annotations() -> dict[str, dict[str, set[Any]]]:
+        return {"properties": {}, "items": {}}
+
     def _merge_annotations(self, source: dict[str, dict[str, set[Any]]]) -> None:
         for kind, paths in source.items():
             target = self._annotations[kind]
@@ -731,7 +735,7 @@ class _RecipeSchemaValidator:
 
         for _index, child in enumerate(schema.get("allOf", ())):
             base_annotations = self._annotations
-            self._annotations = self._clone_annotations()
+            self._annotations = self._empty_annotations()
             branch_annotations = self._annotations
             branch_valid = self._validate(value, child, path, errors, resolving, depth)
             self._annotations = base_annotations
@@ -746,7 +750,7 @@ class _RecipeSchemaValidator:
                 successful_annotations: list[dict[str, dict[str, set[Any]]]] = []
                 for child in schema[key]:
                     branch_errors: list[str] = []
-                    self._annotations = self._clone_annotations()
+                    self._annotations = self._empty_annotations()
                     branch_annotations = self._annotations
                     if self._validate(value, child, path, branch_errors, resolving, depth):
                         matches += 1
@@ -761,7 +765,7 @@ class _RecipeSchemaValidator:
                     valid = False
         if "not" in schema:
             base_annotations = self._annotations
-            self._annotations = self._clone_annotations()
+            self._annotations = self._empty_annotations()
             not_valid = self._validate(value, schema["not"], path, [], resolving, depth)
             self._annotations = base_annotations
             if not_valid:
@@ -770,16 +774,32 @@ class _RecipeSchemaValidator:
         if "if" in schema:
             condition: list[str] = []
             base_annotations = self._annotations
-            self._annotations = self._clone_annotations()
+            self._annotations = self._empty_annotations()
             condition_valid = self._validate(value, schema["if"], path, condition, resolving, depth)
             condition_annotations = self._annotations
             self._annotations = base_annotations
             if condition_valid:
                 self._merge_annotations(condition_annotations)
-                if "then" in schema and not self._validate(value, schema["then"], path, errors, resolving, depth):
+                if "then" in schema:
+                    then_base = self._annotations
+                    self._annotations = self._empty_annotations()
+                    then_valid = self._validate(value, schema["then"], path, errors, resolving, depth)
+                    then_annotations = self._annotations
+                    self._annotations = then_base
+                    if then_valid:
+                        self._merge_annotations(then_annotations)
+                    else:
+                        valid = False
+            elif "else" in schema:
+                else_base = self._annotations
+                self._annotations = self._empty_annotations()
+                else_valid = self._validate(value, schema["else"], path, errors, resolving, depth)
+                else_annotations = self._annotations
+                self._annotations = else_base
+                if else_valid:
+                    self._merge_annotations(else_annotations)
+                else:
                     valid = False
-            elif "else" in schema and not self._validate(value, schema["else"], path, errors, resolving, depth):
-                valid = False
 
         if isinstance(value, (int, float)) and not isinstance(value, bool):
             if "minimum" in schema and value < schema["minimum"]:
@@ -929,7 +949,16 @@ class _RecipeSchemaValidator:
                                 valid = False
             if "dependentSchemas" in schema:
                 for name, child in schema["dependentSchemas"].items():
-                    if name in value and not self._validate(value, child, path, errors, resolving, depth):
+                    if name not in value:
+                        continue
+                    child_base = self._annotations
+                    self._annotations = self._empty_annotations()
+                    child_valid = self._validate(value, child, path, errors, resolving, depth)
+                    child_annotations = self._annotations
+                    self._annotations = child_base
+                    if child_valid:
+                        self._merge_annotations(child_annotations)
+                    else:
                         valid = False
             if "unevaluatedProperties" in schema:
                 assertion = schema["unevaluatedProperties"]
