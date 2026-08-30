@@ -701,6 +701,31 @@ class TestRegisterRecipesTools:
         assert validate_recipe_inputs({"inputs_schema": object_schema}, {"x": 1}) == []
         assert validate_recipe_inputs({"inputs_schema": array_schema}, [1]) == []
 
+    @pytest.mark.parametrize(
+        "schema",
+        [
+            {
+                "type": "object",
+                "properties": {"a": {"type": "integer"}},
+                "dependentSchemas": {"a": {"unevaluatedProperties": False}},
+            },
+            {
+                "type": "object",
+                "properties": {"a": {"type": "integer"}},
+                "if": {"properties": {"a": {"const": 1}}},
+                "then": {"unevaluatedProperties": False},
+            },
+            {
+                "type": "object",
+                "properties": {"a": {"type": "integer"}},
+                "allOf": [{"unevaluatedProperties": False}],
+            },
+        ],
+    )
+    def test_nested_subschemas_do_not_inherit_parent_annotations(self, schema: dict[str, object]) -> None:
+        errors = validate_recipe_inputs({"inputs_schema": schema}, {"a": 1})
+        assert errors == ["$.a: Unevaluated properties are not allowed"]
+
     def test_pattern_properties_rejects_catastrophic_keys_before_matching(self) -> None:
         schema = {"type": "object", "patternProperties": {"(a+)+$": {"type": "string"}}}
         started = time.perf_counter()
