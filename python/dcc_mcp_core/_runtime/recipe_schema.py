@@ -42,6 +42,59 @@ class _RecipeSchemaValidator:
     _MAX_SCHEMA_NODES: ClassVar[int] = 10000
     _MAX_SCHEMA_SIZE: ClassVar[int] = 1_000_000
     _MAX_INSTANCE_SIZE: ClassVar[int] = 1_000_000
+    _SUPPORTED_KEYWORDS: ClassVar[set[str]] = {
+        "$schema",
+        "$id",
+        "$anchor",
+        "$ref",
+        "$defs",
+        "definitions",
+        "$comment",
+        "title",
+        "description",
+        "default",
+        "examples",
+        "deprecated",
+        "readOnly",
+        "writeOnly",
+        "type",
+        "enum",
+        "const",
+        "required",
+        "dependentRequired",
+        "dependentSchemas",
+        "properties",
+        "patternProperties",
+        "additionalProperties",
+        "unevaluatedProperties",
+        "propertyNames",
+        "minProperties",
+        "maxProperties",
+        "items",
+        "prefixItems",
+        "unevaluatedItems",
+        "contains",
+        "minContains",
+        "maxContains",
+        "minItems",
+        "maxItems",
+        "uniqueItems",
+        "minLength",
+        "maxLength",
+        "pattern",
+        "allOf",
+        "anyOf",
+        "oneOf",
+        "not",
+        "if",
+        "then",
+        "else",
+        "minimum",
+        "maximum",
+        "exclusiveMinimum",
+        "exclusiveMaximum",
+        "multipleOf",
+    }
 
     def __init__(self, schema: Any) -> None:
         self.schema = schema
@@ -93,6 +146,11 @@ class _RecipeSchemaValidator:
         if isinstance(schema, bool):
             return
         if not isinstance(schema, dict):
+            raise ValueError(path)
+        unsupported = set(schema).difference(cls._SUPPORTED_KEYWORDS)
+        if unsupported:
+            # Unsupported assertion vocabularies (format/content and unknown
+            # keywords) must fail closed instead of being silently ignored.
             raise ValueError(path)
         # Dynamic references require runtime scope tracking that this
         # dependency-free validator does not implement. Reject them during
@@ -364,15 +422,22 @@ class _RecipeSchemaValidator:
             atom_has_alternation = False
             quantifier_pending = False
             index += 1
-        # Matching is deliberately bounded to anchored patterns.  This keeps
-        # the remaining backtracking work proportional to the input length and
-        # avoids unbounded search offsets on attacker-controlled strings.
+        # Draft ``pattern`` uses search semantics and therefore does not require
+        # anchors.  The structural scan above and adjacent-quantifier check
+        # below keep the accepted subset linear on Python's backtracking engine.
+        # Unanchored quantified groups/classes can trigger expensive search
+        # retries at every offset.  Keep Draft search semantics for literals
+        # and simple quantified atoms, while conservatively rejecting this
+        # higher-risk subset before invoking ``re.search``.
+        unanchored_complex = not pattern.startswith("^") and (
+            re.search(r"[)\]](?:[*+?]|\{\d)", pattern) is not None
+            or re.search(r"\([^)]*[+*?{][^)]*\)", pattern) is not None
+        )
         return (
             not escaped
             and not in_character_class
             and not frames
-            and pattern.startswith("^")
-            and pattern.endswith("$")
+            and not unanchored_complex
             and not cls._has_adjacent_quantifiers(pattern)
         )
 
@@ -435,9 +500,20 @@ class _RecipeSchemaValidator:
                 end = index + 1
                 while end < len(pattern) and pattern[end] != "]":
                     end += 2 if pattern[end] == "\\" else 1
-                index = min(end + 1, len(pattern))
-                previous_quantified = None
+                atom_end = min(end + 1, len(pattern))
+                quantifier_end = atom_end
+                if quantifier_end < len(pattern) and pattern[quantifier_end] in "*+?":
+                    quantifier_end += 1
+                elif quantifier_end < len(pattern) and pattern[quantifier_end] == "{":
+                    close = pattern.find("}", quantifier_end + 1)
+                    if close >= 0:
+                        quantifier_end = close + 1
+                quantified = quantifier_end > atom_end
+                if quantified and previous_quantified is not None:
+                    return True
+                previous_quantified = "<class>" if quantified else None
                 previous_group_quantified = False
+                index = quantifier_end
                 continue
             if character in "^$|()":
                 previous_quantified = None
@@ -889,10 +965,12 @@ class _RecipeSchemaValidator:
                     elif assertion is False:
                         errors.append(f"{path}[{index}]: Unevaluated items are not allowed")
                         valid = False
-                    elif assertion is not True and not self._validate(
-                        item, assertion, f"{path}[{index}]", errors, resolving, depth + 1
-                    ):
-                        valid = False
+                    elif assertion is not True:
+                        item_valid = self._validate(item, assertion, f"{path}[{index}]", errors, resolving, depth + 1)
+                        if item_valid:
+                            evaluated_items.add(index)
+                        else:
+                            valid = False
         if isinstance(value, dict):
             if len(value) > self._MAX_CONTAINER_ITEMS:
                 raise ValueError("instance container budget exceeded")
@@ -970,10 +1048,12 @@ class _RecipeSchemaValidator:
                     elif assertion is False:
                         errors.append(f"{path}.{name}: Unevaluated properties are not allowed")
                         valid = False
-                    elif assertion is not True and not self._validate(
-                        item, assertion, f"{path}.{name}", errors, resolving, depth + 1
-                    ):
-                        valid = False
+                    elif assertion is not True:
+                        item_valid = self._validate(item, assertion, f"{path}.{name}", errors, resolving, depth + 1)
+                        if item_valid:
+                            evaluated.add(name)
+                        else:
+                            valid = False
             if "propertyNames" in schema:
                 for name in value:
                     if not self._validate(name, schema["propertyNames"], f"{path}.{name}", errors, resolving, depth):
