@@ -81,6 +81,7 @@ except ImportError:
         exclude_skill_stubs_from_tools_list: bool = False
         exclude_group_stubs_from_tools_list: bool = False
         job_storage_path: str | None = None
+        job_retention_hours: int | None = None
         backend_timeout_ms: int = 120_000
         _job_recovery: str = field(default="drop", repr=False)
 
@@ -232,6 +233,8 @@ def build_mcp_http_config(
         config.scene = gateway.scene
 
     config.dcc_type = options.dcc_name
+    if options.observability.job_retention_hours is not None:
+        config.job_retention_hours = options.observability.job_retention_hours
     # Only an explicitly supplied DCC PID creates a second lifetime. When the
     # adapter is embedded, the owner sentinel already follows the DCC process;
     # standalone/headless services intentionally remain unbound.

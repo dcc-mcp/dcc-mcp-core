@@ -89,6 +89,10 @@ fn builds_health_url_from_mcp_url() {
         health_url_from_mcp_url("http://127.0.0.1:64954/mcp/"),
         "http://127.0.0.1:64954/health"
     );
+    assert_eq!(
+        health_url_from_mcp_url("https://backend.example/prefix/mcp?token=abc"),
+        "https://backend.example/prefix/health"
+    );
 }
 
 #[test]
@@ -116,6 +120,10 @@ fn builds_readyz_url_from_mcp_url() {
     assert_eq!(
         readyz_url_from_mcp_url("http://127.0.0.1:64954"),
         "http://127.0.0.1:64954/v1/readyz"
+    );
+    assert_eq!(
+        readyz_url_from_mcp_url("https://backend.example/prefix/mcp?token=abc"),
+        "https://backend.example/prefix/v1/readyz"
     );
 }
 

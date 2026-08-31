@@ -346,7 +346,12 @@ class DccServerBase:
         return self._get_observability().init_file_logging(dcc_name)
 
     def _init_job_persistence(self, dcc_name: str) -> None:
-        self._get_observability().init_job_persistence(dcc_name)
+        observability = self._get_observability()
+        observability.init_job_persistence(dcc_name)
+        summary = observability.observability_summary
+        if self._enable_job_persistence and summary.get("job_persistence_state") == "unavailable":
+            error_kind = summary.get("job_persistence_error_kind") or "backend"
+            raise RuntimeError(f"job persistence unavailable ({error_kind}); refusing to start with in-memory history")
 
     def _init_telemetry(self) -> None:
         self._get_observability().init_telemetry()

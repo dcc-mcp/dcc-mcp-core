@@ -94,3 +94,10 @@ def test_job_recovery_setter_rejects_unknown_value() -> None:
         cfg.job_recovery = "retry"
     msg = str(info.value)
     assert "retry" in msg and "drop" in msg and "requeue" in msg
+
+
+def test_job_retention_hours_is_explicit_and_opt_in() -> None:
+    cfg = McpHttpConfig(port=8765)
+    assert cfg.job_retention_hours is None
+    cfg.job_retention_hours = 24 * 30
+    assert cfg.job_retention_hours == 24 * 30

@@ -104,6 +104,7 @@ fn all_mcp_http_config_fields_have_py_getters() {
 
     // ── JobConfig ───────────────────────────────────────────────
     let _ = cfg.job_storage_path();
+    let _ = cfg.job_retention_hours();
     let _ = cfg.job_recovery();
 
     // ── In-process sandbox (issue #1001) ──────────────────────────

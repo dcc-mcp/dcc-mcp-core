@@ -18,6 +18,7 @@ use dcc_mcp_gateway_core::resource_uri::encode_resource_uri;
 use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry};
 
 use super::super::backend_client::fetch_resources;
+use super::super::capability_service::safe_discovery_target;
 use super::super::handlers::resources::GATEWAY_EVENTS_URI;
 use super::super::http_registration::entry_discovery_mcp_url;
 use super::super::native_resources::pointers_for_list as gateway_native_pointers;
@@ -35,6 +36,8 @@ fn backend_mcp_url(entry: &ServiceEntry) -> String {
 /// spurious `resources/list_changed` when the toggle flips.
 fn is_registry_row_eligible_for_resources(entry: &ServiceEntry) -> bool {
     is_fingerprint_eligible_instance(entry)
+        && safe_discovery_target(entry)
+        && !entry_discovery_mcp_url(entry).is_empty()
 }
 
 async fn fetch_resources_for_entries(
@@ -44,6 +47,10 @@ async fn fetch_resources_for_entries(
     backend_timeout: Duration,
 ) -> Vec<(uuid::Uuid, String, Vec<Value>)> {
     let futs = entries.iter().map(|entry| async move {
+        if !safe_discovery_target(entry) || entry_discovery_mcp_url(entry).is_empty() {
+            tracing::warn!(instance = %entry.instance_id, "skipping resources fetch for unsafe backend target");
+            return (entry.instance_id, entry.dcc_type.clone(), Vec::new());
+        }
         let url = backend_mcp_url(entry);
         let resources = fetch_resources(client, resilience, &url, backend_timeout).await;
         (entry.instance_id, entry.dcc_type.clone(), resources)
@@ -294,5 +301,14 @@ mod eligibility_tests {
         let mut e = ServiceEntry::new("maya", "192.168.1.10", 12345);
         e.status = ServiceStatus::Available;
         assert_eq!(backend_mcp_url(&e), "http://192.168.1.10:12345/mcp");
+    }
+
+    #[test]
+    fn dispatch_only_sidecar_is_excluded_from_discovery_aggregation() {
+        let mut e = entry("3dsmax", ServiceStatus::Available);
+        e.metadata
+            .insert("dcc_mcp_role".to_string(), "per-dcc-sidecar".to_string());
+        assert!(entry_discovery_mcp_url(&e).is_empty());
+        assert!(!is_registry_row_eligible_for_resources(&e));
     }
 }

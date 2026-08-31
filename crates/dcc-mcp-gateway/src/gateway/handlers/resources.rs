@@ -66,6 +66,12 @@ pub(super) async fn handle_resources_read(
         let owning = aggregator::find_instance_by_prefix(gs, &id8).await;
         return match owning {
             Some(entry) => {
+                if !crate::gateway::capability_service::safe_discovery_target(&entry) {
+                    return json!({
+                        "jsonrpc": "2.0", "id": id,
+                        "error": {"code": -32002, "kind": "unsafe-backend-target", "message": "backend target rejected by gateway safety policy"}
+                    });
+                }
                 let url = entry_discovery_mcp_url(&entry);
                 match crate::gateway::backend_client::read_resource(
                     &gs.http_client,
@@ -169,6 +175,12 @@ pub(super) async fn handle_resource_subscription(
         return match owning {
             Some(entry) => {
                 let backend_url = entry_discovery_mcp_url(&entry);
+                if !crate::gateway::capability_service::safe_discovery_target(&entry) {
+                    return json!({
+                        "jsonrpc": "2.0", "id": id,
+                        "error": {"code": -32002, "kind": "unsafe-backend-target", "message": "backend target rejected by gateway safety policy"}
+                    });
+                }
                 if subscribe {
                     gs.subscriber.bind_resource_subscription(
                         &backend_url,

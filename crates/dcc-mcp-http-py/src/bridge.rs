@@ -263,9 +263,26 @@ pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // PromptRegistry PyO3 handle (issue #792)
     super::prompts_handle::register(m)?;
     m.add_function(wrap_pyfunction!(py_create_skill_server, m)?)?;
+    m.add_function(wrap_pyfunction!(py_job_persistence_feature_enabled, m)?)?;
+    #[cfg(feature = "job-persist-sqlite")]
+    m.add_function(wrap_pyfunction!(py_job_persistence_ownership_lock_path, m)?)?;
     m.add_function(wrap_pyfunction!(py_get_bridge_context, m)?)?;
     m.add_function(wrap_pyfunction!(py_register_bridge, m)?)?;
     Ok(())
+}
+
+/// Report whether the native SQLite job-persistence backend is available.
+#[pyfunction]
+#[pyo3(name = "job_persistence_feature_enabled")]
+pub fn py_job_persistence_feature_enabled() -> bool {
+    dcc_mcp_http::job_persistence_feature_enabled()
+}
+
+#[cfg(feature = "job-persist-sqlite")]
+#[pyfunction]
+#[pyo3(name = "job_persistence_ownership_lock_path")]
+pub fn py_job_persistence_ownership_lock_path(path: &str) -> String {
+    dcc_mcp_http::job_persistence_ownership_lock_path(path)
 }
 
 // ── py_create_skill_server ───────────────────────────────────────────────

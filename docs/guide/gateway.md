@@ -757,6 +757,13 @@ Use HTTP registration when a backend has a routable, authenticated URL. Use
 relay sources when the gateway must route through the tunnel data plane. Use
 mDNS only as a same-LAN discovery hint.
 
+HTTP registrations are untrusted routing input. The gateway rejects URL
+userinfo, does not follow redirects, and fails closed before every backend
+dispatch when the registered or discovery endpoint is malformed, uses a
+private/link-local literal (including IPv4-mapped IPv6), or cannot be proven
+safe. Such rows remain visible for diagnostics but are not contacted until
+their registration is replaced with a safe endpoint.
+
 ### Optional Instance Pooling
 
 Instances can opt into warm-pool semantics through the registry fields surfaced

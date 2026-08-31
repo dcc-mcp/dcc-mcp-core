@@ -59,6 +59,16 @@ If `job_storage_path` is set but the wheel was built **without**
 `job-persist-sqlite`, `server.start()` fails fast with a descriptive error
 rather than silently falling back to the in-memory store.
 
+When adapters use the default Python wiring, the database name includes the
+DCC process instance key (`dcc-mcp-<dcc>-<key>-jobs.db`). This lets two GUI
+instances of the same DCC own independent SQLite leases while preserving
+history across stop/start in one process. Set `DCC_MCP_JOB_INSTANCE_KEY` to a
+stable operator-provided key when the process identity is managed externally.
+An explicit `job_storage_path` (or `DCC_MCP_JOB_STORAGE_PATH`) opts into a
+shared pathname and therefore remains subject to single-owner arbitration;
+ownership failures are reported as unavailable rather than falling back to
+memory.
+
 ## Runtime write failures
 
 Persistence is fail-soft after startup: jobs continue to run from the
@@ -78,15 +88,58 @@ backend messages:
   "job_persistence": {
     "state": "disabled",
     "consecutive_failures": 3,
-    "last_error_kind": "backend"
+    "last_error_kind": "readonly"
   }
 }
 ```
 
-`state` is one of `not_configured`, `healthy`, `degraded`, or `disabled`.
+`state` is one of `not_configured`, `healthy`, `degraded`, `disabled`, or
+`unavailable`. `unavailable` means persistence was requested but the selected
+runtime cannot safely provide the storage contract (for example a lite
+sidecar without the native SQLite backend); callers must not treat it as
+durable persistence.
+`last_error_kind` is a stable category suitable for diagnostics: `readonly`,
+`wal`, `busy`, `disk_full`, `decode`, `feature_disabled`, or the generic
+`backend`. It never contains a database path or backend-specific raw message.
 Installing a storage backend on a new manager resets the circuit. A disabled
 manager does not probe or automatically repair the database; replace or
 restart it after correcting the backend fault.
+
+The SQLite backend sets a bounded busy timeout and attempts WAL mode for
+concurrent readers. WAL setup is best-effort: if a read-only database or stale
+sidecar files prevent the pragma, the existing journal mode is preserved and
+the write circuit remains authoritative. The backend never removes `-wal` or
+`-shm` files automatically. Terminal-job pruning is explicit through
+`jobs_cleanup`; non-terminal rows are never deleted.
+
+The adapter startup check first acquires the same physical-file ownership
+sidecar lease as the Rust backend (aliases converge on one lease), then uses a
+storage-level `BEGIN IMMEDIATE` transaction with a temporary sentinel table and
+rolls it back. It does not
+start a server, scan job rows, or recover `Pending`/`Running` jobs. Read-only
+ACL, ownership, and WAL/SHM failures are classified as unavailable and keep
+the configured path so the real server fails closed. A failed retention prune records
+`retention_prune_failed` in persistence health and disables further writes until
+the next cleanup retry or process restart; persisted rows are left untouched.
+The in-process terminal rows remain visible until a durable prune succeeds, so a
+failed cleanup cannot make them disappear and then reappear after restart.
+
+For deployments that want bounded history, set the opt-in
+`job_retention_hours` configuration. Startup removes only terminal rows older
+than the cutoff; a failed prune is logged and leaves all persisted rows
+unchanged. The default is `None`, so existing deployments remain
+non-destructive. A writable SQLite database is process-owned through a
+physical-identity sidecar lock outside the database directory; a second process
+fails closed instead of sharing a write connection. Shutdown drains accepted
+ worker commands within the configured bound before closing the backend. If an
+ arbitrary in-flight SQLite write is still blocked, both explicit shutdown and
+ manager Drop call the backend force-close hook before detaching the worker;
+ SQLite is interrupted, marked closed, and fenced so subsequent writes fail
+ closed and a replacement can reacquire the sidecar lease.
+
+```python
+config.job_retention_hours = 24 * 30
+```
 
 ## Startup recovery
 
@@ -152,6 +205,14 @@ A client-safe built-in MCP tool prunes terminal jobs:
   are eligible; `Pending` and `Running` rows are never removed regardless of
   age.
 - Works against whichever backend is configured — in-memory or SQLite.
+- The explicit tool waits for the persistence worker to confirm the durable
+  delete before reporting `removed`; the wait runs on a blocking worker so
+  synchronous storage I/O cannot starve the HTTP runtime. If the backend
+  cannot complete the delete, no rows are removed from the in-process map.
+- The Rust `JobManager::cleanup_older_than_hours` helper remains a
+  non-blocking enqueue API for offloaded backends and therefore reports zero
+  until confirmation; callers that need a confirmed count should use the
+  blocking helper or this MCP tool.
 
 ## Storage schema
 
@@ -186,8 +247,9 @@ JSON-serialized — the schema stays stable even if internal `Job` fields evolve
   changes in a future release, delete the file and let `JobManager` recreate
   it — the file is meant to survive restarts, not upgrades.
 - **Concurrency**: `SqliteStorage` serializes through a `parking_lot::Mutex` on
-  the connection. Good enough for per-DCC servers; do not point multiple
-  `McpHttpServer` instances at the same file.
+  the connection and claims a sidecar ownership lease. Pointing multiple
+  `McpHttpServer` instances at the same file is rejected fail-closed; use a
+  distinct database path per process.
 
 ## Related issues
 

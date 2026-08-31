@@ -258,6 +258,42 @@ async fn register_rejects_non_mcp_url() {
     assert_eq!(body["error"]["kind"], "bad-request");
 }
 
+#[tokio::test]
+async fn registered_private_source_http_target_is_blocked_by_proxy() {
+    let state = test_gateway_state();
+    let app = crate::gateway::build_gateway_router(state);
+    let instance_id = "44444444-4444-4444-8444-444444444444";
+
+    let (status, _) = request_json(
+        app.clone(),
+        "POST",
+        "/v1/instances/register",
+        json!({
+            "instance_id": instance_id,
+            "dcc_type": "maya",
+            "mcp_url": "http://[::ffff:127.0.0.1]:8765/mcp"
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/mcp/{instance_id}"))
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let bytes = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body["kind"], "unsafe-backend-target");
+}
+
 // ── #1365 — bearer-token + DCC-scope enforcement integration tests ──────────
 
 fn test_gateway_state_with_auth(auth: crate::gateway::security::GatewayAuth) -> GatewayState {

@@ -135,6 +135,7 @@ class ObservabilityOptions:
     enable_file_logging: bool = True
     enable_job_persistence: bool = True
     enable_telemetry: bool = True
+    job_retention_hours: int | None = None
 
 
 @dataclass(frozen=True)
@@ -348,6 +349,7 @@ class DccServerOptions:
         enable_file_logging: bool = True,
         enable_job_persistence: bool = True,
         enable_telemetry: bool = True,
+        job_retention_hours: int | None = None,
         # diagnostics kwargs
         dcc_pid: int | None = None,
         dcc_window_title: str | None = None,
@@ -409,6 +411,7 @@ class DccServerOptions:
             enable_file_logging=enable_file_logging,
             enable_job_persistence=enable_job_persistence,
             enable_telemetry=enable_telemetry,
+            job_retention_hours=job_retention_hours,
         )
         diagnostics = DiagnosticsOptions(
             dcc_pid=dcc_pid,

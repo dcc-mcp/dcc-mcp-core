@@ -386,6 +386,15 @@ async fn probe_relay_candidate(
         .is_ok_and(|response| response.status().is_success())
 }
 
+fn build_backend_http_client() -> Result<reqwest::Client, reqwest::Error> {
+    reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(5))
+        .timeout(Duration::from_secs(30))
+        // Registered HTTP backends are untrusted; fail closed on redirects.
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+}
+
 /// Capacity of the in-memory audit ring buffer and SQLite merge limit.
 #[cfg(feature = "admin")]
 const ADMIN_AUDIT_RING_CAPACITY: usize = 512;
@@ -447,10 +456,7 @@ pub(crate) async fn start_gateway_tasks(
     // Reused by watcher tasks and the facade /mcp handler via GatewayState so
     // connection pooling is shared across all consumers.
     // A 30-second timeout is appropriate for regular request/response calls.
-    let http_client = reqwest::Client::builder()
-        .connect_timeout(Duration::from_secs(5))
-        .timeout(Duration::from_secs(30))
-        .build()?;
+    let http_client = build_backend_http_client()?;
     let gateway_limits = crate::gateway::resilience::GatewayLimits::from_env();
     let ingress = Arc::new(crate::gateway::http_limits::GatewayIngressState::new(
         gateway_limits.clone(),
@@ -470,6 +476,9 @@ pub(crate) async fn start_gateway_tasks(
     // normal server-side SSE keep-alive heartbeats while still failing fast
     // when the backend goes genuinely silent.
     let sse_http_client = reqwest::Client::builder()
+        // Never follow a redirect from a trusted-looking endpoint into a
+        // private or otherwise untrusted target (SSRF boundary).
+        .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(Duration::from_secs(10))
         .build()?;
 
@@ -929,6 +938,7 @@ pub(crate) async fn start_gateway_tasks(
                 );
                 entries
                     .into_iter()
+                    .filter(crate::gateway::capability_service::safe_discovery_target)
                     .map(|e| crate::gateway::http_registration::entry_mcp_url(&e))
                     .collect()
             };
@@ -1340,6 +1350,7 @@ async fn wait_for_startup_ready(ready: &mut watch::Receiver<bool>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::{Router, response::Redirect, routing::get};
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     fn membership(dcc_type: &str, instance_id: &str) -> (String, InstanceMembership) {
@@ -1421,5 +1432,35 @@ mod tests {
         assert!(!waiter.is_finished());
         ready_tx.send(true).unwrap();
         assert!(waiter.await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn backend_http_client_does_not_follow_redirects() {
+        let private_hits = Arc::new(AtomicUsize::new(0));
+        let private_hits_handler = private_hits.clone();
+        let app = Router::new()
+            .route("/start", get(|| async { Redirect::temporary("/private") }))
+            .route(
+                "/private",
+                get(move || {
+                    let private_hits = private_hits_handler.clone();
+                    async move {
+                        private_hits.fetch_add(1, Ordering::SeqCst);
+                        "private"
+                    }
+                }),
+            );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        let response = build_backend_http_client()
+            .unwrap()
+            .get(format!("http://{addr}/start"))
+            .send()
+            .await
+            .unwrap();
+        assert!(response.status().is_redirection());
+        assert_eq!(private_hits.load(Ordering::SeqCst), 0);
     }
 }

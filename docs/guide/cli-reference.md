@@ -167,7 +167,7 @@ dcc-mcp-cli call maya.abc12345.create_sphere --require-gateway --agent-session-i
 dcc-mcp-cli call unity.abc12345.run_tests --require-gateway --wait --wait-timeout-secs 600 --json '{}'
 dcc-mcp-cli call maya_scene__get_session_info --dcc-type maya --instance-id abc12345 --json '{}'
 dcc-mcp-cli wait-ready --dcc-type maya --instance-id abc12345 --require skill_catalog,host_execution_bridge
-dcc-mcp-cli stop-instance --dcc-type maya --instance-id abc12345 --expected-owner release-smoke-test
+dcc-mcp-cli stop-instance --dcc-type maya --instance-id abc12345 --expected-owner release-smoke-test --expected-session smoke-2026-08-30
 dcc-mcp-cli install --dcc-type maya
 dcc-mcp-cli install --dcc-type maya --python "C:/Program Files/Autodesk/Maya2026/bin/mayapy.exe"
 dcc-mcp-cli install --dcc-type maya --python "C:/Program Files/Autodesk/Maya2026/bin/mayapy.exe" --execute
@@ -237,7 +237,7 @@ launching operation.
 | `call <backend-tool> --dcc-type <dcc> --instance-id <id> --json <object>` | local MCP `tools/call` or remote `POST /v1/dcc/{dcc}/instances/{id}/call` | Invoke a backend tool without constructing a dotted gateway slug. |
 | `wait-ready [--dcc-type <dcc>] [--instance-id <id>] [--require <bits>]` | local registry + per-instance `/v1/readyz`, or remote gateway inventory + `/v1/readyz` | Wait for smoke-test readiness bits such as `skill_catalog` or `host_execution_bridge`. |
 | `reload-skills [--dcc-type <dcc>] [--instance-id <id>]` | local MCP `tools/call dcc_admin__reload_skills`, or remote `POST /v1/dcc/{dcc}/instances/{id}/call` | Ask running adapters to re-scan skill search paths after marketplace installs or path changes. |
-| `stop-instance --dcc-type <dcc> --instance-id <id>` | local `safe_stop_url` or remote `POST /v1/dcc/{dcc}/instances/{id}/stop` | Forward a guarded safe-stop request to instances that advertise `safe_stop_url`. |
+| `stop-instance --dcc-type <dcc> --instance-id <id> --expected-owner <owner> --expected-session <session>` | local `safe_stop_url` or remote `POST /v1/dcc/{dcc}/instances/{id}/stop` | Forward a guarded safe-stop request only when owner/session metadata and configured gateway auth match. |
 | `install --dcc-type <dcc> [--version <catalog-version>] [--python <path>] [--dcc-path <path>] [--execute]` | catalog-backed local plan / executor | Resolve the matching adapter and emit an auditable install plan. Pip adapters use the catalog-pinned wheel URL and SHA-256; `--version` may only repeat that artifact version. If the host is non-standard, supply its path with `--dcc-path`. |
 | `marketplace add <source>` | local source registry | Register a marketplace source (`dcc-mcp/marketplace`, a GitHub `owner/repo`, raw JSON URL, or local catalog file). |
 | `marketplace list` | local source registry | List the built-in, configured, and environment-provided marketplace sources. |

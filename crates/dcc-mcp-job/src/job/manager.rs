@@ -3,6 +3,7 @@
 //! See [`crate::job`] for the module-level overview and state diagram.
 
 use std::sync::Arc;
+use std::time::Duration as StdDuration;
 
 use chrono::{Duration, Utc};
 use dashmap::DashMap;
@@ -133,6 +134,57 @@ impl JobManager {
         self.persistence.lock().status()
     }
 
+    /// Close process-owned persistence resources before the HTTP server stops.
+    ///
+    /// Background job tasks may outlive the listener. Disable the circuit
+    /// first so they cannot enqueue further writes, then ask the backend to
+    /// release any process ownership lease within the bounded window. A
+    /// backend may force-close its ownership file when an arbitrary
+    /// in-flight call cannot be pre-empted.
+    pub fn shutdown_persistence(&self, timeout: StdDuration) -> bool {
+        let started = std::time::Instant::now();
+        let drained = self
+            .persistence_writer
+            .as_ref()
+            .map(|writer| writer.drain(timeout))
+            .unwrap_or(true);
+        self.persistence.lock().disable("server_shutdown");
+        let remaining = timeout.saturating_sub(started.elapsed());
+        let released = self
+            .storage
+            .as_ref()
+            .map(|storage| {
+                if !drained {
+                    let _ = storage.force_close();
+                    return false;
+                }
+                let released = storage.shutdown_with_timeout(remaining);
+                if !released {
+                    let _ = storage.force_close();
+                }
+                released
+            })
+            .unwrap_or(true);
+        drained && released
+    }
+
+    /// Disable persistence after a startup or administrative boundary fails.
+    pub fn disable_persistence(&self, error_kind: &str) {
+        self.persistence.lock().disable(error_kind);
+    }
+
+    /// Disable persistence after a storage operation fails outside the
+    /// background writer (for example, startup recovery). The health payload
+    /// keeps the same stable category mapping as write failures.
+    pub fn disable_persistence_for_storage_error(
+        &self,
+        error: &crate::job_storage::JobStorageError,
+    ) {
+        self.persistence
+            .lock()
+            .disable(super::persistence::error_kind(error));
+    }
+
     /// Recover any in-flight rows left over by a previous process
     /// (issue #328). Every row whose status is `Pending` or `Running`
     /// is rewritten to [`JobStatus::Interrupted`] with
@@ -159,8 +211,17 @@ impl JobManager {
                 job.updated_at = now;
                 job.completed_at = Some(now);
                 // Persist the new terminal state before we hand the row
-                // back out so a second crash does not re-flip it.
-                storage.put(&job)?;
+                // back out so a second crash does not re-flip it.  A failed
+                // retention pass may have opened the circuit; never bypass
+                // that decision with a direct storage write during recovery.
+                if self.persistence.lock().can_write() {
+                    if let Err(error) = storage.put(&job) {
+                        self.disable_persistence_for_storage_error(&error);
+                        return Err(error);
+                    }
+                } else {
+                    tracing::warn!(job_id = %job.id, "skipping restart recovery write while persistence is disabled");
+                }
                 interrupted += 1;
             }
             // Rehydrate the in-process map so reads and the next
@@ -430,9 +491,17 @@ impl JobManager {
 
     /// Purge terminal jobs whose `updated_at` is older than `older_than`.
     ///
-    /// Returns the number of jobs removed.  Non-terminal jobs are never
-    /// purged regardless of age.
+    /// Returns the number of jobs removed. Non-terminal jobs are never
+    /// purged regardless of age. With an offloaded backend this non-blocking
+    /// API returns zero until a durable delete can be confirmed; use
+    /// [`Self::cleanup_older_than_hours_blocking`] when a confirmed count is
+    /// required.
     pub fn gc_stale(&self, older_than: Duration) -> usize {
+        if self.persistence_status().state == super::JobPersistenceState::Disabled
+            && !self.persistence.lock().retry_retention()
+        {
+            return 0;
+        }
         let cutoff = Utc::now() - older_than;
         let stale: Vec<String> = self
             .jobs
@@ -446,16 +515,19 @@ impl JobManager {
                 }
             })
             .collect();
+        if stale.is_empty() {
+            return 0;
+        }
+        if let Some(writer) = &self.persistence_writer
+            && !writer.delete_older_than(cutoff)
+        {
+            return 0;
+        }
         let mut removed = 0usize;
         for id in stale {
             if self.jobs.remove(&id).is_some() {
                 removed += 1;
             }
-        }
-        if removed > 0
-            && let Some(writer) = &self.persistence_writer
-        {
-            writer.delete_older_than(cutoff);
         }
         removed
     }
@@ -473,5 +545,65 @@ impl JobManager {
         // more than any real caller should ever pass.
         let hours = older_than_hours.min(24 * 365 * 1000) as i64;
         self.gc_stale(Duration::hours(hours))
+    }
+
+    /// TTL cleanup that waits for the persistence worker to confirm the
+    /// durable delete before removing rows from the in-process map.
+    ///
+    /// Callers must invoke this method from a blocking context. It is used by
+    /// the explicit MCP cleanup tool, which wraps it in `spawn_blocking` so
+    /// synchronous storage drivers cannot starve the async HTTP runtime.
+    pub fn cleanup_older_than_hours_blocking(&self, older_than_hours: u64) -> usize {
+        self.cleanup_older_than_hours_blocking_with_timeout(
+            older_than_hours,
+            StdDuration::from_secs(5),
+        )
+        .unwrap_or(0)
+    }
+
+    /// Bounded variant for request handlers. `None` means the durable delete
+    /// did not complete within `timeout`; in-memory rows remain visible.
+    pub fn cleanup_older_than_hours_blocking_with_timeout(
+        &self,
+        older_than_hours: u64,
+        timeout: StdDuration,
+    ) -> Option<usize> {
+        let hours = older_than_hours.min(24 * 365 * 1000) as i64;
+        self.gc_stale_blocking(Duration::hours(hours), timeout)
+    }
+
+    fn gc_stale_blocking(&self, older_than: Duration, timeout: StdDuration) -> Option<usize> {
+        if self.persistence_status().state == super::JobPersistenceState::Disabled
+            && !self.persistence.lock().retry_retention()
+        {
+            return Some(0);
+        }
+        let cutoff = Utc::now() - older_than;
+        let stale: Vec<String> = self
+            .jobs
+            .iter()
+            .filter_map(|e| {
+                let job = e.value().read();
+                if job.status.is_terminal() && job.updated_at < cutoff {
+                    Some(job.id.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        if stale.is_empty() {
+            return Some(0);
+        }
+        if let Some(writer) = &self.persistence_writer
+            && !writer.delete_older_than_blocking(cutoff, timeout)
+        {
+            return None;
+        }
+        Some(
+            stale
+                .into_iter()
+                .filter(|id| self.jobs.remove(id).is_some())
+                .count(),
+        )
     }
 }

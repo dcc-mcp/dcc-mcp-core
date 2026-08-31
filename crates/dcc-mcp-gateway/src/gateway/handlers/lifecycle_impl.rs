@@ -1,6 +1,9 @@
 use super::*;
 
-use crate::gateway::capability_service::{ServiceError, service_error_to_json};
+use crate::gateway::capability_service::{
+    ServiceError, safe_discovery_target, service_error_to_json,
+};
+use crate::gateway::http_registration::{SOURCE_HTTP, entry_registry_source};
 
 #[derive(Debug, Default, Deserialize)]
 pub struct StopInstanceBody {
@@ -12,14 +15,49 @@ pub struct StopInstanceBody {
 /// stop for a test-owned instance that explicitly advertises a safe-stop URL.
 ///
 /// The gateway never kills a process directly. Test launchers opt in by adding
-/// `safe_stop_url` (or `dcc_mcp_safe_stop_url`) to registry metadata. Optional
-/// `expected_owner` / `expected_session` fields must match public metadata
-/// aliases before the gateway forwards the stop request.
+/// `safe_stop_url` (or `dcc_mcp_safe_stop_url`) to registry metadata. Both
+/// `expected_owner` and `expected_session` must match public metadata aliases
+/// before the gateway forwards the stop request.
 pub async fn handle_v1_dcc_instance_stop(
     State(gs): State<GatewayState>,
     Path((dcc_type, instance_id)): Path<(String, String)>,
+    headers: HeaderMap,
     Json(body): Json<StopInstanceBody>,
 ) -> Response {
+    if let Err(err) = gs.auth.authorize_register(
+        headers
+            .get(axum::http::header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok()),
+        &dcc_type,
+    ) {
+        return (
+            StatusCode::from_u16(err.http_status()).unwrap_or(StatusCode::UNAUTHORIZED),
+            Json(service_error_to_json(&ServiceError::new(
+                err.kind(),
+                err.message(),
+            ))),
+        )
+            .into_response();
+    }
+
+    let expected_owner = body
+        .expected_owner
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty());
+    let expected_session = body
+        .expected_session
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty());
+    if expected_owner.is_none() || expected_session.is_none() {
+        return lifecycle_guard_response(
+            "owner and session",
+            "both expected_owner and expected_session are required",
+            None,
+        );
+    }
+
     let entry = match gs
         .resolve_instance_async(Some(instance_id.as_str()), Some(dcc_type.as_str()))
         .await
@@ -51,7 +89,7 @@ pub async fn handle_v1_dcc_instance_stop(
             "dcc_mcp.owner",
         ],
     );
-    if let Some(expected) = body.expected_owner.as_deref().map(str::trim)
+    if let Some(expected) = expected_owner
         && Some(expected) != owner
     {
         return lifecycle_guard_response("owner", expected, owner);
@@ -67,7 +105,7 @@ pub async fn handle_v1_dcc_instance_stop(
             "dcc_mcp.session",
         ],
     );
-    if let Some(expected) = body.expected_session.as_deref().map(str::trim)
+    if let Some(expected) = expected_session
         && Some(expected) != session
     {
         return lifecycle_guard_response("session", expected, session);
@@ -91,6 +129,17 @@ pub async fn handle_v1_dcc_instance_stop(
         )
             .into_response();
     };
+
+    if let Err(message) = validate_safe_stop_url(&entry, stop_url) {
+        return (
+            StatusCode::CONFLICT,
+            Json(service_error_to_json(&ServiceError::new(
+                "unsafe-backend-target",
+                message,
+            ))),
+        )
+            .into_response();
+    }
 
     let method = metadata_value(
         &entry,
@@ -118,7 +167,25 @@ pub async fn handle_v1_dcc_instance_stop(
         "owner": owner,
         "session": session,
     });
-    match gs.http_client.post(stop_url).json(&request).send().await {
+    let stop_client = match reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .connect_timeout(gs.backend_timeout.min(std::time::Duration::from_secs(10)))
+        .timeout(gs.backend_timeout)
+        .build()
+    {
+        Ok(client) => client,
+        Err(error) => {
+            return (
+                StatusCode::BAD_GATEWAY,
+                Json(service_error_to_json(&ServiceError::new(
+                    "backend-error",
+                    format!("safe_stop_url client setup failed: {error}"),
+                ))),
+            )
+                .into_response();
+        }
+    };
+    match stop_client.post(stop_url).json(&request).send().await {
         Ok(response) => {
             let status = response.status();
             let text = response.text().await.unwrap_or_default();
@@ -159,6 +226,46 @@ pub async fn handle_v1_dcc_instance_stop(
     }
 }
 
+fn validate_safe_stop_url(
+    entry: &dcc_mcp_transport::discovery::types::ServiceEntry,
+    raw: &str,
+) -> Result<(), String> {
+    let url = reqwest::Url::parse(raw.trim())
+        .map_err(|_| "safe_stop_url must be a valid HTTP(S) URL".to_string())?;
+    if !matches!(url.scheme(), "http" | "https")
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return Err("safe_stop_url must not contain credentials, query, or fragment".into());
+    }
+    let host = url
+        .host_str()
+        .ok_or_else(|| "safe_stop_url is missing a host".to_string())?;
+    if !host.eq_ignore_ascii_case(&entry.host) {
+        return Err("safe_stop_url host must match the registered instance host".into());
+    }
+    let advertised = metadata_value(entry, &["mcp_url", "dcc_mcp_url"])
+        .ok_or_else(|| "safe_stop_url requires an advertised MCP URL".to_string())?;
+    let advertised_url = reqwest::Url::parse(advertised)
+        .map_err(|_| "safe_stop_url requires a valid advertised MCP URL".to_string())?;
+    let stop_path = url.path().trim_end_matches('/');
+    if url.scheme() != advertised_url.scheme()
+        || url.port_or_known_default() != advertised_url.port_or_known_default()
+        || !matches!(stop_path, "/stop" | "/safe-stop")
+    {
+        return Err(
+            "safe_stop_url must use the registered MCP scheme/port and a /stop or /safe-stop path"
+                .into(),
+        );
+    }
+    if entry_registry_source(entry) == SOURCE_HTTP && !safe_discovery_target(entry) {
+        return Err("safe_stop_url requires a validated public HTTP registration".into());
+    }
+    Ok(())
+}
+
 fn metadata_value<'a>(
     entry: &'a dcc_mcp_transport::discovery::types::ServiceEntry,
     keys: &[&str],
@@ -177,4 +284,67 @@ fn lifecycle_guard_response(field: &str, expected: &str, actual: Option<&str>) -
         ))),
     )
         .into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::gateway::http_registration::{
+        DISCOVERY_MCP_URL_METADATA_KEY, MCP_URL_METADATA_KEY, REGISTRY_SOURCE_METADATA_KEY,
+    };
+    use dcc_mcp_transport::discovery::types::ServiceEntry;
+
+    fn public_http_entry() -> ServiceEntry {
+        let mut entry = ServiceEntry::new("maya", "93.184.216.34", 8765);
+        entry.metadata.insert(
+            REGISTRY_SOURCE_METADATA_KEY.to_string(),
+            SOURCE_HTTP.to_string(),
+        );
+        entry.metadata.insert(
+            MCP_URL_METADATA_KEY.to_string(),
+            "http://93.184.216.34:8765/mcp".to_string(),
+        );
+        entry.metadata.insert(
+            DISCOVERY_MCP_URL_METADATA_KEY.to_string(),
+            "http://93.184.216.34:8765/mcp".to_string(),
+        );
+        entry
+    }
+
+    #[test]
+    fn safe_stop_requires_plain_same_host_url() {
+        let entry = public_http_entry();
+        for raw in [
+            "http://93.184.216.34:8765/stop?token=secret",
+            "http://user:pass@93.184.216.34:8765/stop",
+            "http://93.184.216.34:8765/stop#fragment",
+            "http://198.51.100.9:8765/stop",
+        ] {
+            assert!(
+                validate_safe_stop_url(&entry, raw).is_err(),
+                "unsafe stop URL must be rejected: {raw}"
+            );
+        }
+    }
+
+    #[test]
+    fn safe_stop_accepts_validated_public_registration() {
+        let entry = public_http_entry();
+        assert!(validate_safe_stop_url(&entry, "http://93.184.216.34:8765/stop").is_ok());
+    }
+
+    #[test]
+    fn safe_stop_is_bound_to_registered_scheme_port_and_path() {
+        let entry = public_http_entry();
+        for raw in [
+            "https://93.184.216.34:8765/stop",
+            "http://93.184.216.34:9999/stop",
+            "http://93.184.216.34:8765/admin/stop",
+        ] {
+            assert!(
+                validate_safe_stop_url(&entry, raw).is_err(),
+                "stop target must stay bound to the registered endpoint: {raw}"
+            );
+        }
+    }
 }

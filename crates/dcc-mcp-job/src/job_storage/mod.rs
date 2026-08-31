@@ -12,6 +12,7 @@
 //! never see a silently "lost" job.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use parking_lot::Mutex;
@@ -74,6 +75,32 @@ impl JobFilter {
 /// freshly restarted server depend on [`Self::list`] returning rows that
 /// were `put` by the previous incarnation.
 pub trait JobStorage: Send + Sync + std::fmt::Debug {
+    /// Stop accepting writes and release process-owned resources.
+    ///
+    /// Servers call this before dropping their HTTP state so detached
+    /// background jobs cannot retain a database ownership lease across a
+    /// restart. Backends without process-owned resources may leave this as a
+    /// no-op.
+    fn shutdown(&self) {}
+
+    /// Attempt to stop within `timeout`; returns `false` when a backend does
+    /// not provide a bounded shutdown implementation or could not release its
+    /// resources in time. The default deliberately avoids calling the legacy
+    /// unbounded [`Self::shutdown`] hook from an async shutdown path.
+    fn shutdown_with_timeout(&self, _timeout: Duration) -> bool {
+        false
+    }
+
+    /// Force the backend into a closed state and release process ownership
+    /// without waiting for an in-flight operation. Implementations must make
+    /// subsequent writes fail closed; this is used only after a bounded
+    /// shutdown window expires. The return value reports whether the backend
+    /// actually performed a force-close; `false` means the default no-op was
+    /// used and an in-flight operation may still own external resources.
+    fn force_close(&self) -> bool {
+        false
+    }
+
     /// Insert-or-update the full job row.
     fn put(&self, job: &Job) -> Result<(), JobStorageError>;
 
@@ -132,6 +159,10 @@ impl InMemoryStorage {
 }
 
 impl JobStorage for InMemoryStorage {
+    fn shutdown_with_timeout(&self, _timeout: Duration) -> bool {
+        true
+    }
+
     fn put(&self, job: &Job) -> Result<(), JobStorageError> {
         let row = PersistedJob::from_job(job);
         self.rows.lock().insert(job.id.clone(), row);

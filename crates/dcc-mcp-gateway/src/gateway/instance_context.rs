@@ -6,6 +6,7 @@ use serde_json::{Value, json};
 use sysinfo::{Pid, ProcessesToUpdate, System};
 use uuid::Uuid;
 
+use super::capability_service::ensure_safe_backend_target;
 use super::http_registration::entry_mcp_url;
 use super::state::GatewayState;
 use dcc_mcp_transport::discovery::types::ServiceEntry;
@@ -175,6 +176,7 @@ async fn fetch_backend_context(
     entry: ServiceEntry,
 ) -> (ServiceEntry, Result<Value, String>) {
     let result = async {
+        ensure_safe_backend_target(&entry).map_err(|error| error.message)?;
         let mut url = reqwest::Url::parse(&entry_mcp_url(&entry)).map_err(|e| e.to_string())?;
         let path = url.path().trim_end_matches('/');
         let base = path.strip_suffix("/mcp").unwrap_or(path);

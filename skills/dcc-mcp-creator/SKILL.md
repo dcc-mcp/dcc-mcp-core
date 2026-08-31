@@ -251,6 +251,11 @@ the server from its exact target environment. Gateway Admin is check-only.
     generate a replacement UUID.
 11. Adapter supervisors that must stop the sidecar on plugin unload should call `launch_sidecar(..., return_process=True, detached=False)` instead of reimplementing `subprocess.Popen`; keep `return_process=False` for CLI/JSON paths because the process handle is not serializable.
 12. If the adapter cannot share the gateway `FileRegistry`, register remotely through `POST /v1/instances/register`, refresh with `/heartbeat`, and deregister on shutdown; the gateway will expose the row as `source: "http"` in `gateway://instances` / `GET /v1/instances`, preserve `instance_short` and `mcp_url`, and route it through the same `live_instances` contract.
+    Remote registrations are untrusted input: health and capability refresh
+    only use policy-allowed, identity-matching HTTP(S) endpoints with no
+    query credentials or URL userinfo; redirects are not followed, and
+    private/link-local targets (including IPv4-mapped IPv6 literals) and DNS
+    names are rejected for periodic outbound probes.
 13. Keep the gateway's secondary listener on its default loopback host. Opt into LAN access only with an explicit `--remote-host 0.0.0.0` or concrete LAN IP; for same-LAN convenience discovery, build with `mdns` and pair adapter-side `--advertise-mdns` with gateway-side `--discover-mdns`. Treat mDNS as a multicast discovery hint only, keep auth/TLS policy explicit, and prefer HTTP registration or relay for routed/subnet-crossing production deployments.
 14. For NAT or routed-subnet deployments, run the tunnel agent with stable `instance_id`, `capabilities_fingerprint`, `adapter_version`, and `scene` metadata, then configure the standalone gateway with `--relay-source ADMIN_URL=PUBLIC_BASE_URL`; the gateway will expose active tunnels as `source: "relay"` rows with relay details in `source_meta` after probing `/v1/healthz` through `<PUBLIC_BASE_URL>/tunnel/<tunnel_id>/mcp`.
 15. Preserve gateway caller attribution when adding adapter wrappers or admin/debug routes: let MCP `initialize.params.clientInfo`, MCP `_meta.agent_context`, REST `meta.agent_context`, `x-dcc-mcp-*` headers, and safe `User-Agent` fallbacks flow through core rather than logging raw prompts or local machine data.
@@ -357,7 +362,15 @@ would be unsafe.
 - Read `job_persistence` from the server `/health` payload before claiming
   durable job history. `degraded` means recent writes failed; `disabled` means
   the manager latched repeated failures and is serving jobs from memory only.
+  `last_error_kind` is a stable category (`readonly`, `wal`, `busy`,
+  `disk_full`, `decode`, `feature_disabled`, `retention_prune_failed`,
+  `server_shutdown`, or `backend`) for diagnostics.
   Do not expose backend messages or filesystem paths from that status.
+  Gateway `/admin/api/health` and `/v1/debug/health` aggregate the same
+  payload-safe state per registered backend; `unavailable` means the backend
+  did not answer the bounded admin read.
+  `job_retention_hours` is opt-in startup pruning of terminal rows only;
+  leave it unset when retention ownership is not established.
 - Make every adapter-owned launch return its durable `job_id` and one canonical
   status (`pending`, `running`, `completed`, `failed`, `cancelled`, or
   `interrupted`). Declare its status tool in `next-tools.on-success`. Automatic

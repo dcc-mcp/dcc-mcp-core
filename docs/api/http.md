@@ -529,7 +529,15 @@ Set `McpHttpConfig.job_storage_path` to persist `JobManager` state so in-flight 
 cfg = McpHttpConfig(port=8765)
 cfg.job_storage_path = "/var/lib/dcc-mcp/jobs.sqlite3"
 cfg.job_recovery = "drop"        # default; "requeue" reserved (issue #567)
+cfg.job_retention_hours = 24 * 30 # optional startup pruning of terminal rows only
 ```
+
+`job_retention_hours` is unset by default. When configured, startup removes only
+terminal jobs older than the cutoff; non-terminal rows are never selected. A
+retention failure leaves persisted rows unchanged and is reported through the
+job-persistence health status. SQLite storage also takes an exclusive
+`<database>.lock` ownership lease, so a second process fails closed instead of
+sharing the database silently.
 
 On startup, any `pending` / `running` rows from a previous run are rewritten to the new terminal `interrupted` status with `error = "server restart"` and surfaced via `$/dcc.jobUpdated`.
 

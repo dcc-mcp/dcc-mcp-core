@@ -1,4 +1,5 @@
 use super::*;
+use crate::gateway::capability_service::safe_discovery_target;
 use crate::gateway::http_registration::entry_mcp_url;
 
 /// `POST /mcp/{instance_id}` — transparent proxy to a specific DCC instance.
@@ -15,6 +16,9 @@ pub async fn handle_proxy_instance(
 
     match entry {
         Some(entry) => {
+            if !safe_discovery_target(&entry) {
+                return unsafe_backend_target_response(&entry);
+            }
             if let Err(error) = crate::gateway::lease_guard::check_raw_mcp_call_owner(&entry, &body)
             {
                 return lease_rejection_response(&entry, error, &body);
@@ -54,11 +58,54 @@ pub async fn handle_proxy_dcc(
 
     candidates.sort_by_key(|entry| matches!(entry.status, ServiceStatus::Busy) as u8);
     let entry = &candidates[0];
+    if !safe_discovery_target(entry) {
+        return unsafe_backend_target_response(entry);
+    }
     if let Err(error) = crate::gateway::lease_guard::check_raw_mcp_call_owner(entry, &body) {
         return lease_rejection_response(entry, error, &body);
     }
     let url = entry_mcp_url(entry);
     proxy_request(&gs.http_client, &url, headers, body).await
+}
+
+fn unsafe_backend_target_response(
+    entry: &dcc_mcp_transport::discovery::types::ServiceEntry,
+) -> Response {
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(json!({
+            "error": "backend target rejected by gateway safety policy",
+            "kind": "unsafe-backend-target",
+            "instance_id": entry.instance_id,
+        })),
+    )
+        .into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn source_http_private_targets_are_rejected_before_proxy() {
+        let mut entry = dcc_mcp_transport::discovery::types::ServiceEntry::new(
+            "maya",
+            "::ffff:127.0.0.1",
+            8765,
+        );
+        entry.metadata.insert(
+            crate::gateway::http_registration::REGISTRY_SOURCE_METADATA_KEY.to_string(),
+            crate::gateway::http_registration::SOURCE_HTTP.to_string(),
+        );
+        entry.metadata.insert(
+            crate::gateway::http_registration::MCP_URL_METADATA_KEY.to_string(),
+            "http://[::ffff:127.0.0.1]:8765/mcp".to_string(),
+        );
+
+        assert!(!safe_discovery_target(&entry));
+        let response = unsafe_backend_target_response(&entry);
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    }
 }
 
 fn lease_rejection_response(

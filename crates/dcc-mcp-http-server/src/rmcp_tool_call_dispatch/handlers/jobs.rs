@@ -189,7 +189,7 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_jobs_get_status(
     }
 }
 
-pub(in crate::rmcp_tool_call_dispatch) fn handle_jobs_cleanup(
+pub(in crate::rmcp_tool_call_dispatch) async fn handle_jobs_cleanup(
     state: &ServerState,
     arguments: &Value,
 ) -> CallToolResult {
@@ -197,7 +197,33 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_jobs_cleanup(
         .get("older_than_hours")
         .and_then(Value::as_u64)
         .unwrap_or(24);
-    let removed = state.jobs.cleanup_older_than_hours(older_than_hours);
+    let jobs = state.jobs.clone();
+    let cleanup_timeout = std::time::Duration::from_millis(250);
+    let removed = match tokio::time::timeout(
+        cleanup_timeout,
+        tokio::task::spawn_blocking(move || {
+            jobs.cleanup_older_than_hours_blocking_with_timeout(older_than_hours, cleanup_timeout)
+        }),
+    )
+    .await
+    {
+        Ok(Ok(Some(removed))) => removed,
+        Ok(Ok(None)) | Ok(Err(_)) | Err(_) => {
+            let envelope = json!({
+                "removed": 0,
+                "older_than_hours": older_than_hours,
+                "error": "retention_prune_failed",
+            });
+            let text = serde_json::to_string(&envelope).unwrap_or_default();
+            tracing::warn!("jobs cleanup exceeded bounded timeout or worker failed");
+            return CallToolResult {
+                content: vec![ToolContent::Text { text }],
+                structured_content: Some(envelope),
+                is_error: true,
+                meta: None,
+            };
+        }
+    };
     let envelope = json!({
         "removed": removed,
         "older_than_hours": older_than_hours,
