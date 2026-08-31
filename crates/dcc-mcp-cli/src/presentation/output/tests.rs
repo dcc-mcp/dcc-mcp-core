@@ -1,4 +1,44 @@
 use super::*;
+
+#[test]
+fn failed_call_envelope_preserves_structured_tool_diagnostics() {
+    let value = serde_json::json!({
+        "success": false,
+        "result": {
+            "isError": true,
+            "structuredContent": {
+                "success": false,
+                "message": "Failed to inspect Blueprint 'BP_ShooterEnemyAI'",
+                "error": "RuntimeError",
+                "context": {
+                    "reason": "internal_error",
+                    "error_type": "RuntimeError",
+                    "traceback": "RuntimeError: large graph reflection failed"
+                },
+                "_meta": {
+                    "dcc.error": {
+                        "type": "RuntimeError",
+                        "message": "large graph reflection failed"
+                    }
+                }
+            }
+        }
+    });
+
+    let envelope = failure_envelope(&value, ExitCode::GeneralError);
+
+    assert_eq!(
+        envelope.error.message,
+        "Failed to inspect Blueprint 'BP_ShooterEnemyAI'"
+    );
+    let details = envelope.error.details.expect("structured failure details");
+    assert_eq!(details["reason"], "internal_error");
+    assert_eq!(details["error_type"], "RuntimeError");
+    assert_eq!(
+        details["traceback"],
+        "RuntimeError: large graph reflection failed"
+    );
+}
 use serde_json::json;
 
 #[test]

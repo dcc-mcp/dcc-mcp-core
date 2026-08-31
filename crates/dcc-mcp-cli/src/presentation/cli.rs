@@ -6,9 +6,7 @@ use anyhow::{Context, anyhow};
 use clap::{Parser, Subcommand};
 use serde_json::{Map, Value};
 
-use super::output::{
-    ErrorEnvelope, ExitCode, OutputFormat, OutputWriter, exit_code_to_error_code, to_json,
-};
+use super::output::{ExitCode, OutputFormat, OutputWriter, failure_envelope, to_json};
 
 use crate::application::call_attribution::{
     attach_agent_session_id, attach_batch_agent_session_id,
@@ -169,7 +167,7 @@ enum Command {
         #[arg(long, env = "DCC_MCP_CATALOG_PATH")]
         catalog: Option<PathBuf>,
     },
-    /// Search callable tools through local MCP or the selected gateway profile.
+    /// Search callable tools, or list the complete loaded inventory when no query is provided.
     Search {
         /// Query text. Positional words are also accepted, for example `search create sphere`.
         #[arg(short, long, conflicts_with = "query_terms")]
@@ -1161,11 +1159,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
         std::process::exit(code);
     }
     if failed {
-        let envelope = ErrorEnvelope::new(
-            exit_code_to_error_code(exit_code),
-            format!("command failed with exit code {}", exit_code.as_i32()),
-            exit_code,
-        );
+        let envelope = failure_envelope(&value, exit_code);
         writer.write_error(&envelope)?;
         std::process::exit(exit_code.as_i32());
     }
