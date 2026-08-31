@@ -176,6 +176,8 @@ Generated `tools.yaml` entries follow the modern contract:
   they preserve the intended matching semantics. Global inline flags such as
   `(?i)` are portable only at the absolute start; use scoped flags such as
   `(?i:...)` when flags must appear after a prefix or inside another group.
+  The `\B` non-boundary assertion is not portable because its empty-string
+  behavior changes in Python 3.14; express the intended boundary explicitly.
 - `execution` is `sync` or `async`; use `async` for deferred/long-running work.
 - `job_strategy` is `monolithic` (default), `chunked`, or `isolated`. Agents
   use it to select a safe execution and recovery workflow.
