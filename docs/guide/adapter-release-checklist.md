@@ -154,6 +154,9 @@ copy the boundary implemented by
 
 - declare `contents: read` for the job and set
   `persist-credentials: false` on checkout;
+- land the self-contained helper as an immutable validator commit first, then
+  update both the validator environment ref and trusted checkout ref in a later
+  commit. Materialize every invocation from that pinned object with `git show`;
 - run every generator with the scrubbed environment provided by
   `generated_lock_sync.py`, which removes write tokens, disables Git prompts,
   and ignores global/system Git configuration;
