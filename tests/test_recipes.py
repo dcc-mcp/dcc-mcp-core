@@ -816,6 +816,37 @@ class TestRegisterRecipesTools:
     def test_disjoint_quantified_boundaries_remain_supported(self, pattern: str, instance: str) -> None:
         assert validate_recipe_inputs({"inputs_schema": {"type": "string", "pattern": pattern}}, instance) == []
 
+    @pytest.mark.parametrize(
+        "pattern",
+        [
+            "^a+aa+$",
+            "^a+(a|aa)a+$",
+            "^a+(?:a|aa)a+$",
+        ],
+    )
+    def test_connected_quantifiers_separated_by_fixed_consumers_fail_closed(self, pattern: str) -> None:
+        assert validate_recipe_inputs({"inputs_schema": {"type": "string", "pattern": pattern}}, "aaaa") == [
+            "$: Recipe input schema is invalid"
+        ]
+
+    @pytest.mark.parametrize("pattern", ["^a+(a|aa)a+$", "^a+(?:a|aa)a+$"])
+    def test_pattern_properties_connected_quantifier_sandwiches_fail_closed(self, pattern: str) -> None:
+        schema = {"type": "object", "patternProperties": {pattern: {"type": "string"}}}
+        assert validate_recipe_inputs({"inputs_schema": schema}, {"aaaa": "value"}) == [
+            "$: Recipe input schema is invalid"
+        ]
+
+    @pytest.mark.parametrize(
+        ("pattern", "instance"),
+        [
+            ("^a+bb+$", "abbb"),
+            ("^a+(?:b|cc)d+$", "abdd"),
+            ("^(a|b)+ab+$", "aabb"),
+        ],
+    )
+    def test_disjoint_fixed_consumers_clear_quantified_overlap(self, pattern: str, instance: str) -> None:
+        assert validate_recipe_inputs({"inputs_schema": {"type": "string", "pattern": pattern}}, instance) == []
+
     def test_unanchored_pattern_uses_draft_search_semantics(self) -> None:
         assert validate_recipe_inputs({"inputs_schema": {"type": "string", "pattern": "foo"}}, "afoob") == []
 
@@ -1075,6 +1106,47 @@ class TestRegisterRecipesTools:
         params = {"skill": "dynamic-skill", "recipe": "dynamic", "inputs": {"secret": "redacted"}}
         validated = handlers["recipes__validate"](json.dumps(params))
         applied = handlers["recipes__apply"](json.dumps(params))
+        assert validated["context"]["valid"] is False
+        assert validated["context"]["errors"] == ["$: Recipe input schema is invalid"]
+        assert applied["success"] is False
+        assert applied["context"]["errors"] == ["$: Recipe input schema is invalid"]
+
+    def test_connected_quantifier_rejection_has_validate_apply_parity(self, tmp_path: Path) -> None:
+        recipe_path = tmp_path / "connected-quantifiers.yaml"
+        recipe_path.write_text(
+            json.dumps(
+                {
+                    "recipes": [
+                        {
+                            "name": "connected-quantifiers",
+                            "inputs_schema": {
+                                "type": "object",
+                                "properties": {
+                                    "value": {"type": "string", "pattern": "^a+(a|aa)a+$"},
+                                },
+                            },
+                            "steps": [],
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        skill_dir = tmp_path / "connected-quantifiers-skill"
+        skill_dir.mkdir()
+        md = _make_metadata(str(skill_dir), str(recipe_path), nested=True)
+        md.name = "connected-quantifiers-skill"
+        server, handlers = self._make_server([md])
+        register_recipes_tools(server, skills=[md])
+        params = {
+            "skill": "connected-quantifiers-skill",
+            "recipe": "connected-quantifiers",
+            "inputs": {"value": "aaaa"},
+        }
+
+        validated = handlers["recipes__validate"](json.dumps(params))
+        applied = handlers["recipes__apply"](json.dumps(params))
+
         assert validated["context"]["valid"] is False
         assert validated["context"]["errors"] == ["$: Recipe input schema is invalid"]
         assert applied["success"] is False

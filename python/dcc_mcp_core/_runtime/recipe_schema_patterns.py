@@ -268,6 +268,19 @@ class _ConsumerSet:
         self.non_ascii_literals.update(other.non_ascii_literals)
         self.non_ascii_unknown = self.non_ascii_unknown or other.non_ascii_unknown
 
+    def intersection(self, other: _ConsumerSet) -> _ConsumerSet:
+        """Return the conservative intersection with another consumer set."""
+        non_ascii_literals = self.non_ascii_literals.intersection(other.non_ascii_literals)
+        if self.non_ascii_unknown:
+            non_ascii_literals.update(other.non_ascii_literals)
+        if other.non_ascii_unknown:
+            non_ascii_literals.update(self.non_ascii_literals)
+        return _ConsumerSet(
+            self.ascii_mask & other.ascii_mask,
+            non_ascii_literals,
+            non_ascii_unknown=self.non_ascii_unknown and other.non_ascii_unknown,
+        )
+
     def add_range(self, start: int, end: int, *, ignore_case: bool = False) -> None:
         """Add a class range without expanding an unbounded Unicode interval."""
         if start > end:
@@ -358,6 +371,11 @@ class _BoundaryFrame:
             return True
         if self.branch_trailing_ambiguous.overlaps(leading_ambiguous):
             return True
+        # A fixed atom only separates quantified regions where its consuming
+        # path is disjoint; retain code points that can enter and leave it.
+        connected_quantified = self.branch_trailing_quantified.intersection(first_consumers).intersection(
+            last_consumers
+        )
         prefix_nullable = self.branch_nullable
         if prefix_nullable:
             self.branch_first.update(first_consumers)
@@ -370,6 +388,7 @@ class _BoundaryFrame:
         else:
             self.branch_last = last_consumers.copy()
             self.branch_trailing_quantified = trailing_quantified.copy()
+            self.branch_trailing_quantified.update(connected_quantified)
             self.branch_trailing_ambiguous = trailing_ambiguous.copy()
         self.branch_nullable = prefix_nullable and nullable
         return False
