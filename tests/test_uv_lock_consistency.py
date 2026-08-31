@@ -19,8 +19,11 @@ from dcc_mcp_core import yaml_loads
 
 SCRIPT_PATH = REPO_ROOT / "scripts" / "ci" / "check_uv_lock.py"
 LOCK_SYNC_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "release-please-lock-sync.yml"
+CI_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 VERSION_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "version-consistency.yml"
 EXPECTED_ROOT_PACKAGE = "dcc-mcp-core"
+TRUSTED_VALIDATOR_PATH = "scripts/ci/generated_lock_sync.py"
+TRUSTED_VALIDATOR_COMMIT = "3ee3cbf1445a5f3a909788443c7bdbec0c2ca3da"
 
 
 def _load_checker_module():
@@ -87,6 +90,32 @@ def _workflow_pull_request_paths(workflow_text: str) -> set[str]:
     assert isinstance(paths, list)
     assert all(isinstance(path, str) for path in paths)
     return set(paths)
+
+
+def _trusted_validator_ref() -> str:
+    workflow = yaml_loads(LOCK_SYNC_WORKFLOW.read_text(encoding="utf-8"))
+    assert isinstance(workflow, dict)
+    job = workflow["jobs"]["sync-cargo-metadata"]
+    ref = job["env"]["TRUSTED_VALIDATOR_REF"]
+    trusted = next(step for step in job["steps"] if step.get("name") == "Checkout trusted lock validator")
+    assert trusted["with"]["ref"] == ref
+    return ref
+
+
+def _trusted_validator_source() -> str:
+    ref = _trusted_validator_ref()
+    result = subprocess.run(
+        ["git", "show", f"{ref}:{TRUSTED_VALIDATOR_PATH}"],
+        check=False,
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        # Most matrix jobs intentionally use a shallow checkout. The native
+        # Python 3.7 jobs retain full history and are authoritative here.
+        pytest.skip("trusted validator ref is unavailable in shallow checkout")
+    return result.stdout
 
 
 def test_stale_editable_root_version_is_rejected(tmp_path: Path) -> None:
@@ -251,8 +280,9 @@ def test_generated_lock_workflow_is_read_only_until_fixed_push() -> None:
     assert isinstance(workflow, dict)
     assert workflow["permissions"]["contents"] == "read"
     job = workflow["jobs"]["sync-cargo-metadata"]
+    assert job["env"]["TRUSTED_VALIDATOR_REF"] == TRUSTED_VALIDATOR_COMMIT
     trusted = next(step for step in job["steps"] if step.get("name") == "Checkout trusted lock validator")
-    assert trusted["with"]["ref"] == "07b57c8aec591fe9ee549f8252bfd5894041f2af"
+    assert trusted["with"]["ref"] == TRUSTED_VALIDATOR_COMMIT
     assert trusted["with"]["persist-credentials"] is False
     pin = next(step for step in job["steps"] if step.get("name") == "Verify single-file trusted lock validator object")
     assert "$RUNNER_TEMP/generated_lock_sync.py" not in pin["run"]
@@ -304,7 +334,7 @@ def test_trusted_validator_overwrite_is_detected_before_execution() -> None:
 @pytest.mark.skipif(os.name != "nt", reason="Windows trusted-stdin execution contract")
 def test_trusted_validator_generate_runs_from_stdin_on_windows(tmp_path: Path) -> None:
     """The exact validator object must remain executable through ``python -``."""
-    validator = REPO_ROOT / "scripts" / "ci" / "generated_lock_sync.py"
+    validator_source = _trusted_validator_source()
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
     where = Path(os.environ["SYSTEMROOT"]) / "System32" / "where.exe"
@@ -317,7 +347,7 @@ def test_trusted_validator_generate_runs_from_stdin_on_windows(tmp_path: Path) -
         [sys.executable, "-", "generate", "--root", str(tmp_path)],
         cwd=tmp_path,
         env=env,
-        input=validator.read_text(encoding="utf-8"),
+        input=validator_source,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
@@ -336,6 +366,8 @@ def test_generated_lock_windows_contract_documents_job_object() -> None:
     assert "Job Object" in contract
     assert "breakaway" in contract
     assert "bounded cleanup" in contract
+    assert "immutable validator commit" in contract
+    assert "later commit" in contract
 
 
 @pytest.mark.skipif(os.name == "nt", reason="credential helper shell contract is POSIX-only")
@@ -402,21 +434,39 @@ def test_generation_uses_ephemeral_credential_roots(tmp_path: Path, monkeypatch:
     assert not Path(env["HOME"]).exists(), "temporary credential root escaped cleanup"
 
 
-def test_trusted_validator_ref_contains_attested_file() -> None:
-    workflow = yaml_loads(LOCK_SYNC_WORKFLOW.read_text(encoding="utf-8"))
-    ref = workflow["jobs"]["sync-cargo-metadata"]["steps"][0]["with"]["ref"]
+def test_trusted_validator_ref_attests_self_contained_job_object() -> None:
+    source = _trusted_validator_source()
+
+    assert "class WindowsJob:" in source
+    assert "WINDOWS_CREATE_SUSPENDED" in source
+    assert "ResumeThread" in source
+    assert "taskkill" not in source
+    assert "_kill_windows_tree" not in source
+
     result = subprocess.run(
-        ["git", "cat-file", "-e", f"{ref}:scripts/ci/generated_lock_sync.py"],
+        [sys.executable, "-", "--help"],
         check=False,
         cwd=REPO_ROOT,
+        input=source,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        timeout=30,
     )
-    if result.returncode != 0:
-        # Most matrix jobs intentionally use a shallow checkout.  The native
-        # Python 3.7 contract job sets fetch-depth: 0 and is the authoritative
-        # execution of this attestation; other jobs retain the workflow shape
-        # check without requiring a network fetch.
-        pytest.skip("trusted validator ref is unavailable in shallow checkout")
-    assert result.returncode == 0
+    assert result.returncode == 0, result.stdout
+
+
+def test_native_python37_windows_executes_pinned_validator_contract() -> None:
+    workflow = yaml_loads(CI_WORKFLOW.read_text(encoding="utf-8"))
+    assert isinstance(workflow, dict)
+    steps = workflow["jobs"]["python37-native"]["steps"]
+    install = next(step for step in steps if step.get("name") == "Install Python 3.7 test toolchain")
+    assert install["if"] == "matrix.full_suite || runner.os == 'Windows'"
+    contract = next(step for step in steps if step.get("name") == "Run trusted validator Python 3.7 contract")
+    assert contract["if"] == "runner.os == 'Windows'"
+    assert "tests/test_uv_lock_consistency.py" in contract["run"]
+    assert "trusted_validator_ref_attests_self_contained_job_object" in contract["run"]
+    assert "trusted_validator_generate_runs_from_stdin_on_windows" in contract["run"]
 
 
 def test_generated_lock_contract_rejects_fork_and_identity_drift() -> None:
