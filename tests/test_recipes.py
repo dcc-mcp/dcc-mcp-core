@@ -303,6 +303,29 @@ class TestRegisterRecipesTools:
         server.register_handler.side_effect = lambda name, fn: handlers.__setitem__(name, fn)
         return server, handlers
 
+    def _make_recipe_handlers(
+        self,
+        tmp_path: Path,
+        *,
+        skill_name: str,
+        recipes: dict[str, dict[str, object]],
+    ) -> dict:
+        """Register an in-memory recipe pack and return its handlers."""
+        recipe_path = tmp_path / f"{skill_name}.yaml"
+        recipe_path.write_text(
+            json.dumps(
+                {"recipes": [{"name": name, "inputs_schema": schema, "steps": []} for name, schema in recipes.items()]}
+            ),
+            encoding="utf-8",
+        )
+        skill_dir = tmp_path / skill_name
+        skill_dir.mkdir()
+        metadata = _make_metadata(str(skill_dir), str(recipe_path), nested=True)
+        metadata.name = skill_name
+        server, handlers = self._make_server([metadata])
+        register_recipes_tools(server, skills=[metadata])
+        return handlers
+
     def test_registers_two_tools(self, recipes_md: Path, tmp_path: Path) -> None:
         skill_dir = tmp_path / "maya-scripting"
         skill_dir.mkdir()
@@ -1264,6 +1287,208 @@ class TestRegisterRecipesTools:
             assert validated["context"]["errors"] == ["$: Recipe input schema is invalid"]
             assert applied["success"] is False
             assert applied["context"]["errors"] == ["$: Recipe input schema is invalid"]
+
+    @pytest.mark.parametrize(
+        "pattern",
+        [
+            "^((a|aa)a)+$",
+            "^(?:(?:a|aa)a)+$",
+        ],
+    )
+    def test_quantified_wrappers_preserve_nested_ambiguity_at_admission(self, pattern: str) -> None:
+        pattern_schema = {"type": "string", "pattern": pattern}
+        pattern_properties_schema = {
+            "type": "object",
+            "patternProperties": {pattern: {"type": "string"}},
+        }
+
+        assert validate_recipe_inputs({"inputs_schema": pattern_schema}, "aaaa") == [
+            "$: Recipe input schema is invalid"
+        ]
+        assert validate_recipe_inputs({"inputs_schema": pattern_properties_schema}, {"aaaa": "value"}) == [
+            "$: Recipe input schema is invalid"
+        ]
+
+    @pytest.mark.parametrize(
+        "pattern",
+        [
+            "^((a|aa)b)+$",
+            "^(?:(?:a|aa)b)+$",
+        ],
+    )
+    def test_quantified_wrappers_allow_disjoint_fixed_consumer_control(self, pattern: str) -> None:
+        assert validate_recipe_inputs({"inputs_schema": {"type": "string", "pattern": pattern}}, "abaab") == []
+        assert (
+            validate_recipe_inputs(
+                {
+                    "inputs_schema": {
+                        "type": "object",
+                        "patternProperties": {pattern: {"type": "string"}},
+                    }
+                },
+                {"abaab": "value"},
+            )
+            == []
+        )
+
+    def test_quantified_wrapper_rejection_has_validate_apply_parity(self, tmp_path: Path) -> None:
+        pattern = "^((a|aa)a)+$"
+        handlers = self._make_recipe_handlers(
+            tmp_path,
+            skill_name="quantified-wrapper-skill",
+            recipes={
+                "pattern": {
+                    "type": "object",
+                    "properties": {"value": {"type": "string", "pattern": pattern}},
+                },
+                "pattern-properties": {
+                    "type": "object",
+                    "patternProperties": {pattern: {"type": "string"}},
+                },
+            },
+        )
+        inputs_by_recipe = {
+            "pattern": {"value": "aaaa"},
+            "pattern-properties": {"aaaa": "value"},
+        }
+
+        for recipe_name, inputs in inputs_by_recipe.items():
+            params = {"skill": "quantified-wrapper-skill", "recipe": recipe_name, "inputs": inputs}
+            validated = handlers["recipes__validate"](json.dumps(params))
+            applied = handlers["recipes__apply"](json.dumps(params))
+            assert validated["context"]["valid"] is False
+            assert validated["context"]["errors"] == ["$: Recipe input schema is invalid"]
+            assert applied["success"] is False
+            assert applied["context"]["errors"] == ["$: Recipe input schema is invalid"]
+
+    def test_contains_annotation_branch_work_is_linear(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        original_merge = _RecipeSchemaValidator._merge_annotations
+        merged_work = 0
+
+        def counted_merge(
+            validator: _RecipeSchemaValidator,
+            source: dict[str, dict[str, set[object]]],
+        ) -> None:
+            nonlocal merged_work
+            merged_work += sum(len(paths) + sum(len(values) for values in paths.values()) for paths in source.values())
+            original_merge(validator, source)
+
+        monkeypatch.setattr(_RecipeSchemaValidator, "_merge_annotations", counted_merge)
+        schema = {
+            "type": "array",
+            "contains": {
+                "type": "object",
+                "required": ["matched"],
+                "properties": {"matched": {"const": True}},
+            },
+        }
+        work_by_size: list[tuple[int, int]] = []
+
+        for size in (4, 8, 16):
+            merged_work = 0
+            values = [{"matched": True} for _ in range(size)]
+            assert validate_recipe_inputs({"inputs_schema": {**schema, "minContains": size}}, values) == []
+            work_by_size.append((size, merged_work))
+
+        assert all(work <= size * 16 for size, work in work_by_size), work_by_size
+
+    def test_contains_annotations_preserve_structure_and_validate_apply_parity(self, tmp_path: Path) -> None:
+        schema = {
+            "type": "object",
+            "required": ["values"],
+            "properties": {
+                "values": {
+                    "type": "array",
+                    "contains": {
+                        "type": "object",
+                        "required": ["matched"],
+                        "properties": {"matched": {"const": True}},
+                    },
+                    "minContains": 2,
+                    "unevaluatedItems": False,
+                }
+            },
+            "additionalProperties": False,
+        }
+        valid_inputs = {"values": [{"matched": True}, {"matched": True}]}
+        invalid_inputs = {"values": [{"matched": True}, {"matched": False}]}
+        assert validate_recipe_inputs({"inputs_schema": schema}, valid_inputs) == []
+        assert validate_recipe_inputs({"inputs_schema": schema}, invalid_inputs)
+
+        handlers = self._make_recipe_handlers(
+            tmp_path,
+            skill_name="contains-annotation-skill",
+            recipes={"contains": schema},
+        )
+        for inputs, expected_valid in ((valid_inputs, True), (invalid_inputs, False)):
+            params = {"skill": "contains-annotation-skill", "recipe": "contains", "inputs": inputs}
+            validated = handlers["recipes__validate"](json.dumps(params))
+            applied = handlers["recipes__apply"](json.dumps(params))
+            assert validated["context"]["valid"] is expected_valid
+            assert applied["success"] is expected_valid
+
+    @pytest.mark.parametrize(
+        "schema",
+        [
+            {"$schema": None},
+            {"$schema": []},
+            {"$schema": "https://json-schema.org/draft/2019-09/schema"},
+            {"$schema": "draft/2020-12/schema"},
+            {"$schema": "urn:example:unsupported-dialect"},
+            {
+                "type": "object",
+                "properties": {
+                    "value": {
+                        "$schema": "https://json-schema.org/draft/2020-12/schema",
+                        "type": "string",
+                    }
+                },
+            },
+        ],
+    )
+    def test_schema_dialect_declaration_fails_closed(self, schema: dict[str, object]) -> None:
+        assert validate_recipe_inputs({"inputs_schema": schema}, {}) == ["$: Recipe input schema is invalid"]
+
+    def test_supported_schema_dialect_is_allowed_only_at_resource_root(self) -> None:
+        schema = {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "type": "object",
+            "properties": {"value": {"type": "string"}},
+        }
+        assert validate_recipe_inputs({"inputs_schema": schema}, {"value": "ok"}) == []
+
+    def test_schema_dialect_admission_has_validate_apply_parity(self, tmp_path: Path) -> None:
+        supported = "https://json-schema.org/draft/2020-12/schema"
+        handlers = self._make_recipe_handlers(
+            tmp_path,
+            skill_name="schema-dialect-skill",
+            recipes={
+                "valid-root": {
+                    "$schema": supported,
+                    "type": "object",
+                    "properties": {"value": {"type": "string"}},
+                },
+                "invalid-null": {"$schema": None},
+                "invalid-relative": {"$schema": "draft/2020-12/schema"},
+                "invalid-dialect": {"$schema": "https://json-schema.org/draft/2019-09/schema"},
+                "invalid-nested": {
+                    "type": "object",
+                    "properties": {"value": {"$schema": supported, "type": "string"}},
+                },
+            },
+        )
+
+        for recipe_name in ("valid-root", "invalid-null", "invalid-relative", "invalid-dialect", "invalid-nested"):
+            params = {
+                "skill": "schema-dialect-skill",
+                "recipe": recipe_name,
+                "inputs": {"value": "ok"},
+            }
+            validated = handlers["recipes__validate"](json.dumps(params))
+            applied = handlers["recipes__apply"](json.dumps(params))
+            expected_valid = recipe_name == "valid-root"
+            assert validated["context"]["valid"] is expected_valid
+            assert applied["success"] is expected_valid
 
     def test_local_anchor_reference_is_supported(self) -> None:
         schema = {"$defs": {"name": {"$anchor": "name", "type": "string"}}, "$ref": "#name"}

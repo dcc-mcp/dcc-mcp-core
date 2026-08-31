@@ -166,6 +166,10 @@ Generated `tools.yaml` entries follow the modern contract:
   such as `#name`. Recipe admission rejects `$id`, `$dynamicRef`, and
   `$dynamicAnchor`; external and resource-relative `$ref` values are not
   supported by the dependency-free validator.
+- A recipe `inputs_schema` may declare `$schema` only at the schema resource
+  root, and its value must be the absolute canonical Draft 2020-12 URI
+  `https://json-schema.org/draft/2020-12/schema`. Null, relative, unsupported,
+  and nested dialect declarations fail closed during recipe admission.
 - `execution` is `sync` or `async`; use `async` for deferred/long-running work.
 - `job_strategy` is `monolithic` (default), `chunked`, or `isolated`. Agents
   use it to select a safe execution and recovery workflow.
