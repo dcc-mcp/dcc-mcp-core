@@ -44,6 +44,7 @@ class _RecipeSchemaValidator:
     _MAX_SCHEMA_NODES: ClassVar[int] = 10000
     _MAX_SCHEMA_SIZE: ClassVar[int] = 1_000_000
     _MAX_INSTANCE_SIZE: ClassVar[int] = 1_000_000
+    _SUPPORTED_DIALECT: ClassVar[str] = "https://json-schema.org/draft/2020-12/schema"
     _SUPPORTED_KEYWORDS: ClassVar[set[str]] = {
         "$schema",
         "$anchor",
@@ -124,11 +125,6 @@ class _RecipeSchemaValidator:
         self._validate(instance, self.schema, "$", errors, set(), 0)
         return errors
 
-    def _clone_annotations(self) -> dict[str, dict[str, set[Any]]]:
-        return {
-            kind: {path: set(values) for path, values in paths.items()} for kind, paths in self._annotations.items()
-        }
-
     @staticmethod
     def _empty_annotations() -> dict[str, dict[str, set[Any]]]:
         return {"properties": {}, "items": {}}
@@ -156,6 +152,10 @@ class _RecipeSchemaValidator:
             # keywords) must fail closed instead of being silently ignored.
             # In particular, $id remains unsupported until resource-relative
             # reference scope is implemented for every nested schema.
+            raise ValueError(path)
+        if "$schema" in schema and (
+            depth != 0 or not isinstance(schema["$schema"], str) or schema["$schema"] != cls._SUPPORTED_DIALECT
+        ):
             raise ValueError(path)
         # Dynamic references require runtime scope tracking that this
         # dependency-free validator does not implement. Reject them during
@@ -648,7 +648,7 @@ class _RecipeSchemaValidator:
                 matches = 0
                 for index, item in enumerate(value):
                     base_annotations = self._annotations
-                    self._annotations = self._clone_annotations()
+                    self._annotations = self._empty_annotations()
                     branch_annotations = self._annotations
                     item_valid = self._validate(item, schema["contains"], f"{path}[{index}]", [], resolving, depth + 1)
                     self._annotations = base_annotations

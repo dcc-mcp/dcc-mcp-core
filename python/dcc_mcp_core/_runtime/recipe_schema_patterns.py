@@ -485,7 +485,7 @@ def _has_adjacent_quantifiers(pattern: str) -> bool:
             atom_end = index + 1
             quantifier_end = _quantifier_end(pattern, atom_end)
             if quantifier_end > atom_end:
-                if nullable or alternation_ambiguous:
+                if nullable or alternation_ambiguous or leading_ambiguous.overlaps(trailing_ambiguous):
                     return True
                 nullable = _quantifier_allows_zero(pattern, atom_end)
                 leading_quantified = first_consumers.copy()
