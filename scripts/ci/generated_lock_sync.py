@@ -28,9 +28,17 @@ from typing import NoReturn
 from typing import Sequence
 from urllib.parse import urlparse
 
+try:
+    import _winapi
+except ImportError:  # pragma: no cover - Windows-only stdlib module
+    _winapi = None
+
+
 LOCK_OUTPUTS = frozenset(("Cargo.lock", "uv.lock", "crates/workspace-hack/Cargo.toml"))
 BRANCH_PREFIXES = ("release-please--branches--main", "renovate/")
 GIT_COMMAND_TIMEOUT_SECONDS = 30
+WINDOWS_JOB_WAIT_SECONDS = 5.0
+WINDOWS_CREATE_SUSPENDED = 0x00000004
 # POSIX systems without a child subreaper (notably macOS) can reparent an
 # escaped descendant while the leader is exiting.  Keep a bounded second
 # convergence window long enough for that reparent/fork transition to become
@@ -49,6 +57,314 @@ CREDENTIAL_ENV_KEYS = frozenset(
         "SSH_AUTH_SOCK",
     )
 )
+
+
+class _JobBasicLimitInformation(ctypes.Structure):
+    """Windows JOBOBJECT_BASIC_LIMIT_INFORMATION layout."""
+
+    _fields_ = [
+        ("PerProcessUserTimeLimit", ctypes.c_longlong),
+        ("PerJobUserTimeLimit", ctypes.c_longlong),
+        ("LimitFlags", ctypes.c_ulong),
+        ("MinimumWorkingSetSize", ctypes.c_size_t),
+        ("MaximumWorkingSetSize", ctypes.c_size_t),
+        ("ActiveProcessLimit", ctypes.c_ulong),
+        ("Affinity", ctypes.c_size_t),
+        ("PriorityClass", ctypes.c_ulong),
+        ("SchedulingClass", ctypes.c_ulong),
+    ]
+
+
+class _IoCounters(ctypes.Structure):
+    """Windows IO_COUNTERS layout."""
+
+    _fields_ = [
+        ("ReadOperationCount", ctypes.c_ulonglong),
+        ("WriteOperationCount", ctypes.c_ulonglong),
+        ("OtherOperationCount", ctypes.c_ulonglong),
+        ("ReadTransferCount", ctypes.c_ulonglong),
+        ("WriteTransferCount", ctypes.c_ulonglong),
+        ("OtherTransferCount", ctypes.c_ulonglong),
+    ]
+
+
+class _JobExtendedLimitInformation(ctypes.Structure):
+    """Windows JOBOBJECT_EXTENDED_LIMIT_INFORMATION layout."""
+
+    _fields_ = [
+        ("BasicLimitInformation", _JobBasicLimitInformation),
+        ("IoInfo", _IoCounters),
+        ("ProcessMemoryLimit", ctypes.c_size_t),
+        ("JobMemoryLimit", ctypes.c_size_t),
+        ("PeakProcessMemoryUsed", ctypes.c_size_t),
+        ("PeakJobMemoryUsed", ctypes.c_size_t),
+    ]
+
+
+class _JobBasicAccountingInformation(ctypes.Structure):
+    """Windows JOBOBJECT_BASIC_ACCOUNTING_INFORMATION layout."""
+
+    _fields_ = [
+        ("TotalUserTime", ctypes.c_longlong),
+        ("TotalKernelTime", ctypes.c_longlong),
+        ("ThisPeriodTotalUserTime", ctypes.c_longlong),
+        ("ThisPeriodTotalKernelTime", ctypes.c_longlong),
+        ("TotalPageFaultCount", ctypes.c_ulong),
+        ("TotalProcesses", ctypes.c_ulong),
+        ("ActiveProcesses", ctypes.c_ulong),
+        ("TotalTerminatedProcesses", ctypes.c_ulong),
+    ]
+
+
+def _configure_process_api(kernel32) -> None:
+    """Declare the Win32 calls owned by a suspended process handle pair."""
+    kernel32.ResumeThread.argtypes = (ctypes.c_void_p,)
+    kernel32.ResumeThread.restype = ctypes.c_ulong
+    kernel32.WaitForSingleObject.argtypes = (ctypes.c_void_p, ctypes.c_ulong)
+    kernel32.WaitForSingleObject.restype = ctypes.c_ulong
+    kernel32.GetExitCodeProcess.argtypes = (ctypes.c_void_p, ctypes.c_void_p)
+    kernel32.GetExitCodeProcess.restype = ctypes.c_int
+    kernel32.TerminateProcess.argtypes = (ctypes.c_void_p, ctypes.c_uint)
+    kernel32.TerminateProcess.restype = ctypes.c_int
+    kernel32.CloseHandle.argtypes = (ctypes.c_void_p,)
+    kernel32.CloseHandle.restype = ctypes.c_int
+
+
+class _SuspendedWindowsProcess:
+    """Own the process and primary-thread handles returned by CreateProcess."""
+
+    _WAIT_OBJECT_0 = 0
+    _WAIT_TIMEOUT = 0x00000102
+    _RESUME_FAILED = 0xFFFFFFFF
+
+    def __init__(
+        self,
+        *,
+        process_handle: int,
+        thread_handle: int,
+        pid: int,
+        command: Sequence[str],
+        kernel32,
+    ) -> None:
+        self._process_handle = process_handle
+        self._thread_handle = thread_handle
+        self.pid = pid
+        self._command = tuple(command)
+        self._kernel32 = kernel32
+        self.returncode: int | None = None
+
+    @property
+    def process_handle(self) -> int:
+        """Return the physical process handle used for Job assignment."""
+        return self._process_handle
+
+    def _close_owned_handle(self, attribute: str, description: str) -> None:
+        handle = getattr(self, attribute, None)
+        if handle is None:
+            return
+        if not self._kernel32.CloseHandle(ctypes.c_void_p(handle)):
+            raise RuntimeError(f"could not close Windows {description} handle: error {ctypes.get_last_error()}")
+        setattr(self, attribute, None)
+
+    def resume_initial_thread(self) -> int:
+        """Release exactly the suspension introduced by CREATE_SUSPENDED."""
+        handle = self._thread_handle
+        if handle is None:
+            raise RuntimeError("Windows process primary-thread handle is unavailable")
+        error: RuntimeError | None = None
+        previous_count: int | None = None
+        result = self._kernel32.ResumeThread(ctypes.c_void_p(handle))
+        if result == self._RESUME_FAILED:
+            error = RuntimeError(f"could not resume suspended process primary thread: error {ctypes.get_last_error()}")
+        elif result < 1:
+            error = RuntimeError("could not resume suspended process primary thread: it was not suspended")
+        else:
+            previous_count = int(result)
+        try:
+            self._close_owned_handle("_thread_handle", "primary-thread")
+        except RuntimeError as close_error:
+            error = error or close_error
+        if error is not None:
+            raise error
+        assert previous_count is not None
+        return previous_count
+
+    def wait(self, timeout_seconds: float) -> int:
+        """Wait a bounded interval for this physical process object."""
+        if self.returncode is not None:
+            return self.returncode
+        wait_ms = max(1, min(0xFFFFFFFE, int(timeout_seconds * 1000)))
+        result = self._kernel32.WaitForSingleObject(ctypes.c_void_p(self._process_handle), wait_ms)
+        if result == self._WAIT_TIMEOUT:
+            raise subprocess.TimeoutExpired(self._command, timeout_seconds)
+        if result != self._WAIT_OBJECT_0:
+            raise RuntimeError(f"Windows process wait failed: result {result}")
+        exit_code = ctypes.c_ulong()
+        if not self._kernel32.GetExitCodeProcess(ctypes.c_void_p(self._process_handle), ctypes.byref(exit_code)):
+            raise RuntimeError(f"could not read Windows process exit code: error {ctypes.get_last_error()}")
+        self.returncode = int(exit_code.value)
+        return self.returncode
+
+    def terminate(self) -> None:
+        """Terminate this exact process object without consulting its PID."""
+        if not self._kernel32.TerminateProcess(ctypes.c_void_p(self._process_handle), 1):
+            raise RuntimeError(f"could not terminate Windows process: error {ctypes.get_last_error()}")
+
+    def close(self) -> None:
+        """Close every remaining owned process-creation handle."""
+        first_error: RuntimeError | None = None
+        for attribute, description in (
+            ("_thread_handle", "primary-thread"),
+            ("_process_handle", "process"),
+        ):
+            try:
+                self._close_owned_handle(attribute, description)
+            except RuntimeError as exc:
+                first_error = first_error or exc
+        if first_error is not None:
+            raise first_error
+
+
+def _create_suspended_windows_process(
+    command: Sequence[str],
+    *,
+    cwd: Path | None,
+    env: Mapping[str, str] | None,
+) -> _SuspendedWindowsProcess:
+    """Create a suspended process while retaining both returned handles."""
+    if os.name != "nt" or _winapi is None:
+        raise RuntimeError("Windows process creation is unavailable on this platform")
+    arguments = tuple(os.fsdecode(os.fspath(value)) for value in command)
+    if not arguments:
+        raise ValueError("Windows process command must not be empty")
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    _configure_process_api(kernel32)
+    startup_info = subprocess.STARTUPINFO()
+    creation_flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | WINDOWS_CREATE_SUSPENDED
+    process_handle, thread_handle, pid, _thread_id = _winapi.CreateProcess(
+        None,
+        subprocess.list2cmdline(arguments),
+        None,
+        None,
+        0,
+        creation_flags,
+        dict(env) if env is not None else None,
+        str(cwd) if cwd is not None else None,
+        startup_info,
+    )
+    return _SuspendedWindowsProcess(
+        process_handle=int(process_handle),
+        thread_handle=int(thread_handle),
+        pid=int(pid),
+        command=arguments,
+        kernel32=kernel32,
+    )
+
+
+class WindowsJob:
+    """Own a kill-on-close Windows Job Object containment identity."""
+
+    _JOB_OBJECT_EXTENDED_LIMIT_INFORMATION = 9
+    _JOB_OBJECT_BASIC_ACCOUNTING_INFORMATION = 1
+    _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000
+    _WAIT_OBJECT_0 = 0
+    _WAIT_TIMEOUT = 0x00000102
+
+    def __init__(self) -> None:
+        if os.name != "nt":
+            raise RuntimeError("Windows Job Objects are unavailable on this platform")
+        self._kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        self._configure_api()
+        self._handle = self._kernel32.CreateJobObjectW(None, None)
+        if not self._handle:
+            raise RuntimeError(f"could not create Windows Job Object: error {ctypes.get_last_error()}")
+        info = _JobExtendedLimitInformation()
+        info.BasicLimitInformation.LimitFlags = self._JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        if not self._kernel32.SetInformationJobObject(
+            self._handle,
+            self._JOB_OBJECT_EXTENDED_LIMIT_INFORMATION,
+            ctypes.byref(info),
+            ctypes.sizeof(info),
+        ):
+            error = ctypes.get_last_error()
+            self.close()
+            raise RuntimeError(f"could not configure Windows Job Object: error {error}")
+
+    def _configure_api(self) -> None:
+        self._kernel32.CreateJobObjectW.argtypes = (ctypes.c_void_p, ctypes.c_wchar_p)
+        self._kernel32.CreateJobObjectW.restype = ctypes.c_void_p
+        self._kernel32.SetInformationJobObject.argtypes = (
+            ctypes.c_void_p,
+            ctypes.c_int,
+            ctypes.c_void_p,
+            ctypes.c_ulong,
+        )
+        self._kernel32.SetInformationJobObject.restype = ctypes.c_int
+        self._kernel32.AssignProcessToJobObject.argtypes = (ctypes.c_void_p, ctypes.c_void_p)
+        self._kernel32.AssignProcessToJobObject.restype = ctypes.c_int
+        self._kernel32.QueryInformationJobObject.argtypes = (
+            ctypes.c_void_p,
+            ctypes.c_int,
+            ctypes.c_void_p,
+            ctypes.c_ulong,
+            ctypes.c_void_p,
+        )
+        self._kernel32.QueryInformationJobObject.restype = ctypes.c_int
+        self._kernel32.TerminateJobObject.argtypes = (ctypes.c_void_p, ctypes.c_uint)
+        self._kernel32.TerminateJobObject.restype = ctypes.c_int
+        self._kernel32.WaitForSingleObject.argtypes = (ctypes.c_void_p, ctypes.c_ulong)
+        self._kernel32.WaitForSingleObject.restype = ctypes.c_ulong
+        self._kernel32.CloseHandle.argtypes = (ctypes.c_void_p,)
+        self._kernel32.CloseHandle.restype = ctypes.c_int
+
+    def assign(self, process: _SuspendedWindowsProcess) -> None:
+        """Assign a suspended process by its owned process handle."""
+        if not self._kernel32.AssignProcessToJobObject(
+            self._handle,
+            ctypes.c_void_p(process.process_handle),
+        ):
+            raise RuntimeError(f"could not assign process to Windows Job Object: error {ctypes.get_last_error()}")
+
+    def active_processes(self) -> int:
+        """Return the count of live processes physically owned by the job."""
+        accounting = _JobBasicAccountingInformation()
+        if not self._kernel32.QueryInformationJobObject(
+            self._handle,
+            self._JOB_OBJECT_BASIC_ACCOUNTING_INFORMATION,
+            ctypes.byref(accounting),
+            ctypes.sizeof(accounting),
+            None,
+        ):
+            raise RuntimeError(f"could not query Windows Job Object: error {ctypes.get_last_error()}")
+        return int(accounting.ActiveProcesses)
+
+    def terminate(self) -> None:
+        """Terminate every process owned by the job."""
+        if not self._kernel32.TerminateJobObject(self._handle, 1):
+            raise RuntimeError(f"could not terminate Windows Job Object: error {ctypes.get_last_error()}")
+
+    def wait_empty(self, timeout_seconds: float) -> None:
+        """Wait a bounded interval for the job to report zero active processes."""
+        deadline = time.monotonic() + timeout_seconds
+        while True:
+            active = self.active_processes()
+            if not active:
+                return
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise RuntimeError(f"Windows Job Object cleanup timed out with {active} active process(es)")
+            wait_ms = max(1, min(50, int(remaining * 1000)))
+            result = self._kernel32.WaitForSingleObject(self._handle, wait_ms)
+            if result not in (self._WAIT_OBJECT_0, self._WAIT_TIMEOUT):
+                raise RuntimeError(f"Windows Job Object wait failed: result {result}")
+
+    def close(self) -> None:
+        """Close the Job handle; kill-on-close is the last-resort fence."""
+        handle = getattr(self, "_handle", None)
+        if handle:
+            self._handle = None
+            if not self._kernel32.CloseHandle(handle):
+                raise RuntimeError(f"could not close Windows Job Object: error {ctypes.get_last_error()}")
 
 
 class PullRequestIdentity(NamedTuple):
@@ -132,18 +448,33 @@ def run_generation(root: Path, *, timeout_seconds: int = 900) -> None:
 def process_exists(pid: int) -> bool:
     """Return whether a process ID is still live."""
     if os.name == "nt":
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.OpenProcess.argtypes = (ctypes.c_ulong, ctypes.c_int, ctypes.c_ulong)
+        kernel32.OpenProcess.restype = ctypes.c_void_p
+        kernel32.WaitForSingleObject.argtypes = (ctypes.c_void_p, ctypes.c_ulong)
+        kernel32.WaitForSingleObject.restype = ctypes.c_ulong
+        kernel32.CloseHandle.argtypes = (ctypes.c_void_p,)
+        kernel32.CloseHandle.restype = ctypes.c_int
+        handle = kernel32.OpenProcess(0x00100000, False, pid)  # SYNCHRONIZE
+        if not handle:
+            error = ctypes.get_last_error()
+            if error == 87:  # ERROR_INVALID_PARAMETER: no such process
+                return False
+            if error == 5:  # ERROR_ACCESS_DENIED still proves that the PID is live
+                return True
+            raise RuntimeError(f"could not open Windows process handle for PID {pid}: error {error}")
         try:
-            result = subprocess.run(
-                ("tasklist", "/FI", f"PID eq {pid}", "/NH"),
-                check=False,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-                text=True,
-                timeout=5,
-            )
-        except subprocess.TimeoutExpired as exc:
-            raise RuntimeError(f"process probe timed out for PID {pid}") from exc
-        return result.returncode == 0 and str(pid) in result.stdout
+            result = kernel32.WaitForSingleObject(handle, 0)
+            if result == 0:
+                return False
+            if result == 0x00000102:
+                return True
+            raise RuntimeError(f"Windows process wait failed for PID {pid}: result {result}")
+        finally:
+            if not kernel32.CloseHandle(handle):
+                raise RuntimeError(
+                    f"could not close Windows process handle for PID {pid}: error {ctypes.get_last_error()}"
+                )
     try:
         if sys.platform.startswith("linux"):
             stat = Path(f"/proc/{pid}/stat")
@@ -157,14 +488,65 @@ def process_exists(pid: int) -> bool:
     return True
 
 
-def _kill_windows_tree(pid: int) -> None:
-    """Terminate a Windows process tree with a bounded, fail-closed call."""
+def _terminate_windows_job(job: WindowsJob, process: _SuspendedWindowsProcess) -> None:
+    """Terminate the owned job and confirm every member plus the leader exited."""
+    job.terminate()
+    job.wait_empty(WINDOWS_JOB_WAIT_SECONDS)
     try:
-        result = subprocess.run(("taskkill", "/PID", str(pid), "/T", "/F"), check=False, timeout=5)
+        process.wait(WINDOWS_JOB_WAIT_SECONDS)
     except subprocess.TimeoutExpired as exc:
-        raise RuntimeError(f"process tree kill timed out for PID {pid}") from exc
-    if result.returncode not in (0, 128):
-        raise RuntimeError(f"process tree kill failed for PID {pid}: exit {result.returncode}")
+        raise RuntimeError("Windows process handle did not signal after Job Object cleanup") from exc
+
+
+def run_bounded_windows(
+    command: Sequence[str],
+    *,
+    cwd: Path | None,
+    env: Mapping[str, str] | None,
+    timeout_seconds: float,
+) -> None:
+    """Run a command in a Job Object established before its first instruction."""
+    job = WindowsJob()
+    process: _SuspendedWindowsProcess | None = None
+    assigned = False
+    try:
+        process = _create_suspended_windows_process(command, cwd=cwd, env=env)
+        try:
+            job.assign(process)
+            assigned = True
+            process.resume_initial_thread()
+        except RuntimeError as exc:
+            try:
+                if assigned:
+                    _terminate_windows_job(job, process)
+                else:
+                    process.terminate()
+                    process.wait(WINDOWS_JOB_WAIT_SECONDS)
+            except RuntimeError as cleanup_error:
+                raise RuntimeError("could not establish Windows process containment; cleanup failed") from cleanup_error
+            raise RuntimeError("could not establish Windows process containment") from exc
+        try:
+            process.wait(timeout_seconds)
+        except subprocess.TimeoutExpired:
+            _terminate_windows_job(job, process)
+            raise
+        active = job.active_processes()
+        if active:
+            _terminate_windows_job(job, process)
+            raise RuntimeError(
+                f"process containment failed; descendants survived completion: {active} Windows Job Object process(es)"
+            )
+        job.wait_empty(0)
+        if process.returncode:
+            raise subprocess.CalledProcessError(process.returncode, command)
+    finally:
+        # Close the Job first so KILL_ON_JOB_CLOSE remains the final process
+        # fence even if an earlier setup/query path failed unexpectedly.
+        try:
+            job.close()
+        finally:
+            if process is not None:
+                process.close()
 
 
 def run_bounded(
@@ -177,6 +559,14 @@ def run_bounded(
     """Run a command in a process group/tree and kill descendants on timeout."""
     if os.name not in ("nt", "posix"):
         raise RuntimeError("process containment is unavailable on this platform")
+    if os.name == "nt":
+        run_bounded_windows(
+            command,
+            cwd=cwd,
+            env=env,
+            timeout_seconds=timeout_seconds,
+        )
+        return
     # macOS has no child-subreaper or cgroup equivalent.  A detached setsid
     # descendant can be reparented to launchd after its intermediate leader
     # exits, making zero-residual containment unprovable.  Refuse to start
@@ -185,27 +575,22 @@ def run_bounded(
         raise RuntimeError("process containment is unavailable on macOS")
     _enable_child_subreaper()
     baseline = set(_descendant_pids(os.getpid()))
-    creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) if os.name == "nt" else 0
     process = subprocess.Popen(
         command,
         cwd=str(cwd) if cwd is not None else None,
         env=dict(env) if env is not None else None,
-        start_new_session=os.name != "nt",
-        creationflags=creationflags,
+        start_new_session=True,
     )
     observed: set[int] = set()
     observer_errors: list[RuntimeError] = []
     stop_observer = Event()
 
     def collect_descendants() -> None:
-        roots = (process.pid,) if os.name == "nt" else (process.pid, *tuple(observed))
-        for root in roots:
+        for root in (process.pid, *tuple(observed)):
             observed.update(_descendant_pids(root))
-        if os.name == "posix":
-            observed.update(set(_descendant_pids(os.getpid())) - baseline - {process.pid})
+        observed.update(set(_descendant_pids(os.getpid())) - baseline - {process.pid})
 
     def observe_descendants() -> None:
-        interval = 0.5 if os.name == "nt" else 0.02
         while not stop_observer.is_set():
             try:
                 collect_descendants()
@@ -213,10 +598,10 @@ def run_bounded(
                 observer_errors.append(exc)
                 stop_observer.set()
                 return
-            stop_observer.wait(interval)
+            stop_observer.wait(0.02)
 
-    observer = Thread(target=observe_descendants, daemon=True) if os.name in ("nt", "posix") else None
-    observer.start() if observer is not None else None
+    observer = Thread(target=observe_descendants, daemon=True)
+    observer.start()
     try:
         process.communicate(timeout=timeout_seconds)
     except subprocess.TimeoutExpired:
@@ -224,8 +609,7 @@ def run_bounded(
         # child can call setsid() and leave the leader's process group; taking
         # this snapshot lets the fail-closed cleanup still target that PID.
         stop_observer.set()
-        if observer is not None:
-            observer.join()
+        observer.join()
         descendants = set(observed)
         cleanup_error: RuntimeError | None = None
         try:
@@ -233,31 +617,25 @@ def run_bounded(
         except RuntimeError as exc:
             cleanup_error = exc
         descendants.update(observed)
-        if os.name == "nt":
-            _kill_windows_tree(process.pid)
-        else:
-            with suppress(ProcessLookupError):
-                os.killpg(process.pid, signal.SIGKILL)
-            convergence_passes = POSIX_CONVERGENCE_PASSES
-            convergence_interval = POSIX_CONVERGENCE_INTERVAL_SECONDS
-            for _ in range(convergence_passes):
-                try:
-                    # Once the leader exits, escaped descendants are
-                    # reparented to this process (the Linux subreaper).  A
-                    # process.pid-only walk would miss those descendants and
-                    # falsely claim containment, so converge over both roots.
-                    current = set(_descendant_pids(process.pid))
-                    current.update(set(_descendant_pids(os.getpid())) - baseline - {process.pid})
-                except RuntimeError as exc:
-                    cleanup_error = cleanup_error or exc
-                    current = set()
-                descendants.update(current)
-                for pid in descendants | current:
-                    with suppress(ProcessLookupError):
-                        os.kill(pid, signal.SIGKILL)
-                if not current:
-                    break
-                time.sleep(convergence_interval)
+        with suppress(ProcessLookupError):
+            os.killpg(process.pid, signal.SIGKILL)
+        for _ in range(POSIX_CONVERGENCE_PASSES):
+            try:
+                # Once the leader exits, escaped descendants are reparented
+                # to this process (the Linux subreaper). Converge over both
+                # roots so an escaped child cannot be hidden by reparenting.
+                current = set(_descendant_pids(process.pid))
+                current.update(set(_descendant_pids(os.getpid())) - baseline - {process.pid})
+            except RuntimeError as exc:
+                cleanup_error = cleanup_error or exc
+                current = set()
+            descendants.update(current)
+            for pid in descendants | current:
+                with suppress(ProcessLookupError):
+                    os.kill(pid, signal.SIGKILL)
+            if not current:
+                break
+            time.sleep(POSIX_CONVERGENCE_INTERVAL_SECONDS)
         try:
             process.communicate(timeout=5)
         except subprocess.TimeoutExpired:
@@ -269,49 +647,38 @@ def run_bounded(
             raise RuntimeError("process containment enumeration failed during timeout cleanup") from cleanup_error
         raise
     finally:
-        if observer is not None:
-            stop_observer.set()
-            observer.join()
-            interval = 0.5 if os.name == "nt" else POSIX_CONVERGENCE_INTERVAL_SECONDS
-            # Stop observation before the final bounded convergence pass so a
-            # last fork racing with process exit cannot be hidden by a stale
-            # observer snapshot.
-            passes = 10 if os.name == "nt" else POSIX_CONVERGENCE_PASSES
-            for _ in range(passes):
-                try:
-                    collect_descendants()
-                except RuntimeError as exc:
-                    observer_errors.append(exc)
-                    break
-                time.sleep(interval)
+        stop_observer.set()
+        observer.join()
+        # Stop observation before the final bounded convergence pass so a
+        # last fork racing with process exit cannot be hidden by a stale
+        # observer snapshot.
+        for _ in range(POSIX_CONVERGENCE_PASSES):
+            try:
+                collect_descendants()
+            except RuntimeError as exc:
+                observer_errors.append(exc)
+                break
+            time.sleep(POSIX_CONVERGENCE_INTERVAL_SECONDS)
     collect_descendants()
     if observer_errors:
         raise RuntimeError("process observer failed; containment is not provable") from observer_errors[0]
     escaped = [pid for pid in observed if process_exists(pid)]
     if escaped:
         for pid in escaped:
-            if os.name == "nt":
-                _kill_windows_tree(pid)
-            else:
-                with suppress(ProcessLookupError):
-                    os.kill(pid, signal.SIGKILL)
+            with suppress(ProcessLookupError):
+                os.kill(pid, signal.SIGKILL)
         # SIGKILL delivery is asynchronous; converge with bounded probes so
         # callers never proceed while an escaped daemon still has a chance to
         # observe subsequent credentials.
         remaining = set(escaped)
-        convergence_passes = 20 if os.name == "nt" else POSIX_CONVERGENCE_PASSES
-        convergence_interval = 0.05 if os.name == "nt" else POSIX_CONVERGENCE_INTERVAL_SECONDS
-        for _ in range(convergence_passes):
+        for _ in range(POSIX_CONVERGENCE_PASSES):
             remaining = {pid for pid in remaining if process_exists(pid)}
             if not remaining:
                 break
             for pid in remaining:
-                if os.name == "nt":
-                    _kill_windows_tree(pid)
-                else:
-                    with suppress(ProcessLookupError):
-                        os.kill(pid, signal.SIGKILL)
-            time.sleep(convergence_interval)
+                with suppress(ProcessLookupError):
+                    os.kill(pid, signal.SIGKILL)
+            time.sleep(POSIX_CONVERGENCE_INTERVAL_SECONDS)
         if remaining:
             raise RuntimeError(f"process containment failed; descendants survived completion: {sorted(remaining)}")
         raise RuntimeError(f"process containment failed; descendants survived completion: {escaped}")
@@ -333,25 +700,20 @@ def _enable_child_subreaper() -> None:
 def _descendant_pids(root_pid: int) -> list[int]:
     """Return the currently observable descendant process IDs."""
     children: dict[int, list[int]] = {}
-    if os.name == "nt":
-        entries = _windows_process_entries()
-    else:
-        try:
-            result = subprocess.run(
-                ("ps", "-eo", "pid=,ppid="), check=False, stdout=subprocess.PIPE, text=True, timeout=5
-            )
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            raise RuntimeError("process enumeration timed out or failed") from exc
-        if result.returncode != 0:
-            raise RuntimeError(f"process enumeration failed with exit {result.returncode}")
-        entries = []
-        for line in result.stdout.splitlines():
-            fields = line.split()
-            if len(fields) == 2:
-                try:
-                    entries.append((int(fields[0]), int(fields[1])))
-                except ValueError as exc:
-                    raise RuntimeError("process enumeration returned malformed output") from exc
+    try:
+        result = subprocess.run(("ps", "-eo", "pid=,ppid="), check=False, stdout=subprocess.PIPE, text=True, timeout=5)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise RuntimeError("process enumeration timed out or failed") from exc
+    if result.returncode != 0:
+        raise RuntimeError(f"process enumeration failed with exit {result.returncode}")
+    entries = []
+    for line in result.stdout.splitlines():
+        fields = line.split()
+        if len(fields) == 2:
+            try:
+                entries.append((int(fields[0]), int(fields[1])))
+            except ValueError as exc:
+                raise RuntimeError("process enumeration returned malformed output") from exc
     for pid, parent in entries:
         children.setdefault(parent, []).append(pid)
     pending = list(children.get(root_pid, []))
@@ -361,42 +723,6 @@ def _descendant_pids(root_pid: int) -> list[int]:
         descendants.append(pid)
         pending.extend(children.get(pid, []))
     return descendants
-
-
-def _windows_process_entries() -> list[tuple[int, int]]:
-    """Enumerate Windows processes without spawning an observer subprocess."""
-
-    class ProcessEntry32(ctypes.Structure):
-        _fields_ = [
-            ("dwSize", ctypes.c_ulong),
-            ("cntUsage", ctypes.c_ulong),
-            ("th32ProcessID", ctypes.c_ulong),
-            ("th32DefaultHeapID", ctypes.c_void_p),
-            ("th32ModuleID", ctypes.c_ulong),
-            ("cntThreads", ctypes.c_ulong),
-            ("th32ParentProcessID", ctypes.c_ulong),
-            ("pcPriClassBase", ctypes.c_long),
-            ("dwFlags", ctypes.c_ulong),
-            ("szExeFile", ctypes.c_wchar * 260),
-        ]
-
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    snapshot = kernel32.CreateToolhelp32Snapshot(0x00000002, 0)
-    if snapshot == ctypes.c_void_p(-1).value:
-        return []
-    entry = ProcessEntry32()
-    entry.dwSize = ctypes.sizeof(entry)
-    entries: list[tuple[int, int]] = []
-    try:
-        if not kernel32.Process32FirstW(snapshot, ctypes.byref(entry)):
-            return entries
-        while True:
-            entries.append((int(entry.th32ProcessID), int(entry.th32ParentProcessID)))
-            if not kernel32.Process32NextW(snapshot, ctypes.byref(entry)):
-                break
-    finally:
-        kernel32.CloseHandle(snapshot)
-    return entries
 
 
 def _remote_repository(url: str) -> str | None:

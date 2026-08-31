@@ -166,13 +166,24 @@ copy the boundary implemented by
   unset it on exit. A failed lease or any identity mismatch must result in no
   remote mutation.
 
-The helper runs timed child processes in a process group (POSIX) or a Windows
-process group/tree (`taskkill /T`), so timeout cleanup includes descendants and
-their inherited pipes. This contract does not remove credentials held by
-registry/cloud CLIs or runner services; those remain an operational residual
-risk. The repository's Python 3.7 interpreter and Windows-shell CI jobs remain
-the authoritative compatibility boundary; local Python 3.12+ or PowerShell
-checks alone are not equivalent proof.
+The helper runs timed child processes in a process group with bounded
+descendant convergence on supported POSIX hosts. On Windows it uses
+`CREATE_SUSPENDED`, retains the physical process and primary-thread handle
+returned by `CreateProcess`, assigns that process handle to a kill-on-close Job
+Object, and then releases exactly its own primary-thread suspension. Descendant
+inheritance is therefore established before the first instruction. A child that
+requests Job breakaway can start only when the effective outer/nested Job policy
+allows it; assignment or nested-Job incompatibility fails closed before the
+generator runs.
+
+Timeout, setup failure, or a leader that exits while Job members remain triggers
+Job termination followed by bounded cleanup and active-process readback. The
+helper does not use PID/tree snapshots for assignment, resume, or cleanup, so PID
+reuse cannot redirect those actions to an unrelated process. This contract does
+not remove credentials held by registry/cloud CLIs or runner services; those
+remain an operational residual risk. The repository's Python 3.7 interpreter
+and Windows-shell CI jobs remain the authoritative compatibility boundary;
+local Python 3.12+ or PowerShell checks alone are not equivalent proof.
 
 Do not broaden this workflow to publish packages or alter release gates. Keep
 the same checks and output allowlist when adapting the pattern downstream.

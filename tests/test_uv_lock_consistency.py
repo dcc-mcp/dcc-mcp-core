@@ -6,6 +6,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import time
@@ -253,8 +254,9 @@ def test_generated_lock_workflow_is_read_only_until_fixed_push() -> None:
     trusted = next(step for step in job["steps"] if step.get("name") == "Checkout trusted lock validator")
     assert trusted["with"]["ref"] == "07b57c8aec591fe9ee549f8252bfd5894041f2af"
     assert trusted["with"]["persist-credentials"] is False
-    pin = next(step for step in job["steps"] if step.get("name") == "Verify trusted lock validator object")
+    pin = next(step for step in job["steps"] if step.get("name") == "Verify single-file trusted lock validator object")
     assert "$RUNNER_TEMP/generated_lock_sync.py" not in pin["run"]
+    assert "pinned, self-contained object" in pin["run"]
     assert "git -C trusted-lock-validator cat-file -e" in pin["run"]
     checkout = next(step for step in job["steps"] if step.get("uses", "").startswith("actions/checkout@"))
     assert checkout["with"]["persist-credentials"] is False
@@ -272,9 +274,11 @@ def test_generated_lock_workflow_is_read_only_until_fixed_push() -> None:
     assert "--force-with-lease" in push["run"]
     assert "env -u PUSH_TOKEN git -C trusted-lock-validator show" in push["run"]
     trigger_paths = _workflow_pull_request_paths(LOCK_SYNC_WORKFLOW.read_text(encoding="utf-8"))
-    assert {"scripts/ci/generated_lock_sync.py", ".github/workflows/release-please-lock-sync.yml"}.issubset(
-        trigger_paths
-    )
+    assert {
+        "scripts/ci/generated_lock_sync.py",
+        ".github/workflows/release-please-lock-sync.yml",
+    }.issubset(trigger_paths)
+    assert "scripts/ci/windows_process_job.py" not in trigger_paths
     assert "PUSH_TOKEN" not in push["env"]
     assert "credential.helper" in push["run"]
     # Clear any PR-controlled local helper before installing the ephemeral
@@ -295,6 +299,43 @@ def test_trusted_validator_overwrite_is_detected_before_execution() -> None:
     workflow_text = LOCK_SYNC_WORKFLOW.read_text(encoding="utf-8")
     assert "$RUNNER_TEMP/generated_lock_sync.py" not in workflow_text
     assert workflow_text.count("trusted-lock-validator show") >= 5
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows trusted-stdin execution contract")
+def test_trusted_validator_generate_runs_from_stdin_on_windows(tmp_path: Path) -> None:
+    """The exact validator object must remain executable through ``python -``."""
+    validator = REPO_ROOT / "scripts" / "ci" / "generated_lock_sync.py"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    where = Path(os.environ["SYSTEMROOT"]) / "System32" / "where.exe"
+    for name in ("cargo", "vx", "update", "-w", "hakari", "generate", "uv", "lock"):
+        shutil.copy2(where, fake_bin / f"{name}.exe")
+    env = dict(os.environ)
+    env["PATH"] = str(fake_bin) + os.pathsep + env.get("PATH", "")
+
+    result = subprocess.run(
+        [sys.executable, "-", "generate", "--root", str(tmp_path)],
+        cwd=tmp_path,
+        env=env,
+        input=validator.read_text(encoding="utf-8"),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stdout
+
+
+def test_generated_lock_windows_contract_documents_job_object() -> None:
+    guide = (REPO_ROOT / "docs" / "guide" / "adapter-release-checklist.md").read_text(encoding="utf-8")
+    section = guide.split("### Generated-lock credential boundary", 1)[1].split("### CHANGELOG Convention", 1)[0]
+    contract = " ".join(section.split())
+    assert "taskkill /T" not in contract
+    assert "CREATE_SUSPENDED" in contract
+    assert "primary-thread handle" in contract
+    assert "Job Object" in contract
+    assert "breakaway" in contract
+    assert "bounded cleanup" in contract
 
 
 @pytest.mark.skipif(os.name == "nt", reason="credential helper shell contract is POSIX-only")
@@ -537,7 +578,7 @@ def test_bounded_runner_kills_process_descendants(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     with pytest.raises(subprocess.TimeoutExpired):
-        module.run_bounded([sys.executable, str(probe), str(child_pid), str(grandchild_pid)], timeout_seconds=0.2)
+        module.run_bounded([sys.executable, str(probe), str(child_pid), str(grandchild_pid)], timeout_seconds=1.0)
     assert child_pid.exists() and grandchild_pid.exists()
     for pid_path in (child_pid, grandchild_pid):
         pid = int(pid_path.read_text())
@@ -606,30 +647,251 @@ def test_bounded_runner_fails_closed_on_windows_normal_daemon(tmp_path: Path) ->
             subprocess.run(("taskkill", "/PID", daemon_pid.read_text(), "/T", "/F"), check=False, timeout=5)
 
 
-def test_windows_process_controls_have_bounded_timeout() -> None:
-    script_text = (REPO_ROOT / "scripts" / "ci" / "generated_lock_sync.py").read_text(encoding="utf-8")
-    assert script_text.count('"tasklist"') >= 1
-    assert script_text.count('"taskkill"') >= 1
-    assert script_text.count("timeout=5") >= 2
-
-
-@pytest.mark.skipif(os.name != "nt", reason="Windows process probe contract")
-def test_windows_process_probe_timeout_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.skipif(os.name != "nt", reason="Windows process-tree contract")
+def test_bounded_runner_contains_windows_last_fork_after_leader_exit(tmp_path: Path) -> None:
     script = REPO_ROOT / "scripts" / "ci" / "generated_lock_sync.py"
-    spec = importlib.util.spec_from_file_location("generated_lock_sync_probe_timeout", script)
+    spec = importlib.util.spec_from_file_location("generated_lock_sync_windows_last_fork", script)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    child_pid = tmp_path / "child.pid"
+    probe = tmp_path / "windows_last_fork.py"
+    probe.write_text(
+        "import os, subprocess, sys, time\n"
+        "from pathlib import Path\n"
+        # Let the first observer pass see an empty tree, then fork and exit
+        # before its next pass. PID-only walks cannot rediscover the orphan.
+        "time.sleep(0.1)\n"
+        "subprocess.Popen([sys.executable, '-c', \"from pathlib import Path; import os,sys,time; Path(sys.argv[1]).write_text(str(os.getpid())); time.sleep(60)\", sys.argv[1]], start_new_session=True)\n"
+        "deadline = time.monotonic() + 0.2\n"
+        "while not Path(sys.argv[1]).exists() and time.monotonic() < deadline: time.sleep(0.005)\n"
+        "os._exit(0)\n",
+        encoding="utf-8",
+    )
+    try:
+        with pytest.raises(RuntimeError, match="descendants survived"):
+            module.run_bounded([sys.executable, str(probe), str(child_pid)], timeout_seconds=5)
+    finally:
+        if child_pid.exists() and module.process_exists(int(child_pid.read_text())):
+            subprocess.run(("taskkill", "/PID", child_pid.read_text(), "/T", "/F"), check=False, timeout=5)
 
-    def timeout_run(*args, **kwargs):
-        raise subprocess.TimeoutExpired(args[0], kwargs.get("timeout"))
 
-    monkeypatch.setattr(module.subprocess, "run", timeout_run)
-    with pytest.raises(RuntimeError, match="process probe timed out"):
-        module.process_exists(1234)
+@pytest.mark.skipif(os.name != "nt", reason="Windows process-tree contract")
+def test_bounded_runner_allows_windows_normal_exit() -> None:
+    script = REPO_ROOT / "scripts" / "ci" / "generated_lock_sync.py"
+    spec = importlib.util.spec_from_file_location("generated_lock_sync_windows_normal_exit", script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    module.run_bounded([sys.executable, "-c", "raise SystemExit(0)"], timeout_seconds=5)
 
 
-@pytest.mark.skipif(sys.platform == "darwin", reason="macOS process execution fails closed")
+@pytest.mark.skipif(os.name != "nt", reason="Windows process-tree contract")
+def test_bounded_runner_does_not_kill_unrelated_windows_process() -> None:
+    script = REPO_ROOT / "scripts" / "ci" / "generated_lock_sync.py"
+    spec = importlib.util.spec_from_file_location("generated_lock_sync_windows_unrelated", script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    unrelated = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    try:
+        with pytest.raises(subprocess.TimeoutExpired):
+            module.run_bounded([sys.executable, "-c", "import time; time.sleep(60)"], timeout_seconds=0.2)
+        assert unrelated.poll() is None
+    finally:
+        unrelated.terminate()
+        unrelated.wait(timeout=5)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows process-tree contract")
+def test_windows_create_process_retains_and_closes_returned_handles(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    script = REPO_ROOT / "scripts" / "ci" / "generated_lock_sync.py"
+    spec = importlib.util.spec_from_file_location("generated_lock_sync_create_handles", script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    observed: dict[str, object] = {}
+    closed: list[int] = []
+
+    class FakeWinApi:
+        def CreateProcess(self, *args):
+            observed["command_line"] = args[1]
+            observed["creation_flags"] = args[5]
+            observed["cwd"] = args[7]
+            return 202, 404, 303, 505
+
+    class FakeKernel32:
+        def CloseHandle(self, handle):
+            closed.append(handle.value)
+            return 1
+
+    fake_kernel32 = FakeKernel32()
+    monkeypatch.setattr(module, "_winapi", FakeWinApi())
+    monkeypatch.setattr(module.ctypes, "WinDLL", lambda *args, **kwargs: fake_kernel32)
+    monkeypatch.setattr(module, "_configure_process_api", lambda _kernel32: None)
+
+    process = module._create_suspended_windows_process(
+        ["fake.exe", "argument with spaces"],
+        cwd=tmp_path,
+        env={"SAFE": "1"},
+    )
+    assert process.process_handle == 202
+    assert process._thread_handle == 404
+    assert process.pid == 303
+    assert observed == {
+        "command_line": 'fake.exe "argument with spaces"',
+        "creation_flags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | module.WINDOWS_CREATE_SUSPENDED,
+        "cwd": str(tmp_path),
+    }
+    process.close()
+    assert closed == [404, 202]
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows process-tree contract")
+def test_windows_primary_thread_resume_is_handle_bound_and_exactly_once() -> None:
+    script = REPO_ROOT / "scripts" / "ci" / "generated_lock_sync.py"
+    spec = importlib.util.spec_from_file_location("generated_lock_sync_thread_handle", script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    calls: list[tuple[str, int]] = []
+
+    class FakeKernel32:
+        def ResumeThread(self, thread_handle):
+            calls.append(("resume", thread_handle.value))
+            # Another owner contributed two suspension levels. This wrapper
+            # may release only its own CREATE_SUSPENDED level.
+            return 3
+
+        def CloseHandle(self, handle):
+            calls.append(("close", handle.value if hasattr(handle, "value") else handle))
+            return 1
+
+    process = object.__new__(module._SuspendedWindowsProcess)
+    process.pid = 303  # May already have been reused; resume must not consult it.
+    process._thread_handle = 404
+    process._process_handle = 202
+    process._kernel32 = FakeKernel32()
+    previous_count = process.resume_initial_thread()
+    assert previous_count == 3
+    assert calls == [("resume", 404), ("close", 404)]
+    assert process._thread_handle is None
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows process-tree contract")
+def test_windows_primary_thread_resume_failure_closes_owned_handle() -> None:
+    script = REPO_ROOT / "scripts" / "ci" / "generated_lock_sync.py"
+    spec = importlib.util.spec_from_file_location("generated_lock_sync_thread_resume_failure", script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    calls: list[tuple[str, int]] = []
+
+    class FakeKernel32:
+        def ResumeThread(self, thread_handle):
+            calls.append(("resume", thread_handle.value))
+            return 0xFFFFFFFF
+
+        def CloseHandle(self, handle):
+            calls.append(("close", handle.value if hasattr(handle, "value") else handle))
+            return 1
+
+    process = object.__new__(module._SuspendedWindowsProcess)
+    process._thread_handle = 404
+    process._process_handle = 202
+    process._kernel32 = FakeKernel32()
+    with pytest.raises(RuntimeError, match="resume suspended process primary thread"):
+        process.resume_initial_thread()
+    assert calls == [("resume", 404), ("close", 404)]
+    assert process._thread_handle is None
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows process-tree contract")
+def test_windows_job_assignment_uses_owned_process_handle() -> None:
+    script = REPO_ROOT / "scripts" / "ci" / "generated_lock_sync.py"
+    spec = importlib.util.spec_from_file_location("generated_lock_sync_job_assignment", script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    calls: list[tuple[int, int]] = []
+
+    class FakeKernel32:
+        def AssignProcessToJobObject(self, job_handle, process_handle):
+            calls.append((job_handle, process_handle.value))
+            return 1
+
+    job = object.__new__(module.WindowsJob)
+    job._handle = 101
+    job._kernel32 = FakeKernel32()
+    job.assign(SimpleNamespace(process_handle=202))
+    assert calls == [(101, 202)]
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows process-tree contract")
+def test_windows_resume_failure_terminates_job_before_closing_handles(monkeypatch: pytest.MonkeyPatch) -> None:
+    script = REPO_ROOT / "scripts" / "ci" / "generated_lock_sync.py"
+    spec = importlib.util.spec_from_file_location("generated_lock_sync_resume_cleanup", script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    events: list[object] = []
+
+    class FakeJob:
+        def assign(self, process) -> None:
+            events.append(("assign", process.process_handle))
+
+        def terminate(self) -> None:
+            events.append("terminate-job")
+
+        def wait_empty(self, timeout_seconds: float) -> None:
+            events.append(("wait-job-empty", timeout_seconds))
+
+        def close(self) -> None:
+            events.append("close-job")
+
+    class FakeProcess:
+        process_handle = 202
+        returncode = None
+
+        @property
+        def pid(self) -> int:
+            pytest.fail("resume consulted a reused PID instead of the primary-thread handle")
+
+        def resume_initial_thread(self) -> int:
+            events.append("resume-primary-thread")
+            events.append("close-primary-thread")
+            raise RuntimeError("synthetic handle-bound resume failure")
+
+        def wait(self, timeout: float) -> int:
+            events.append(("wait-process", timeout))
+            self.returncode = 1
+            return self.returncode
+
+        def close(self) -> None:
+            events.append("close-process")
+
+    fake_job = FakeJob()
+    monkeypatch.setattr(module, "WindowsJob", lambda: fake_job)
+    monkeypatch.setattr(module, "_create_suspended_windows_process", lambda *args, **kwargs: FakeProcess())
+
+    with pytest.raises(RuntimeError, match="could not establish Windows process containment"):
+        module.run_bounded_windows(["fake"], cwd=None, env=None, timeout_seconds=0.2)
+    assert events == [
+        ("assign", 202),
+        "resume-primary-thread",
+        "close-primary-thread",
+        "terminate-job",
+        ("wait-job-empty", module.WINDOWS_JOB_WAIT_SECONDS),
+        ("wait-process", module.WINDOWS_JOB_WAIT_SECONDS),
+        "close-job",
+        "close-process",
+    ]
+
+
+@pytest.mark.skipif(os.name == "nt" or sys.platform == "darwin", reason="POSIX observer contract")
 def test_observer_failure_still_kills_timeout_process(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     script = REPO_ROOT / "scripts" / "ci" / "generated_lock_sync.py"
     spec = importlib.util.spec_from_file_location("generated_lock_sync_observer_failure", script)
@@ -656,28 +918,17 @@ def test_observer_failure_still_kills_timeout_process(tmp_path: Path, monkeypatc
         return []
 
     monkeypatch.setattr(module, "_descendant_pids", fail_after_baseline)
-    if os.name == "nt":
 
-        def fake_kill(_pid: int) -> None:
-            nonlocal killed
-            killed = True
+    def fake_killpg(_pid: int, _signal: int) -> None:
+        nonlocal killed
+        killed = True
 
-        monkeypatch.setattr(module, "_kill_windows_tree", fake_kill)
-    else:
-
-        def fake_killpg(_pid: int, _signal: int) -> None:
-            nonlocal killed
-            killed = True
-
-        monkeypatch.setattr(module.os, "killpg", fake_killpg)
+    monkeypatch.setattr(module.os, "killpg", fake_killpg)
     with pytest.raises(RuntimeError):
         module.run_bounded([sys.executable, str(probe), str(child_pid)], timeout_seconds=0.2)
     assert killed
     if child_pid.exists():
-        if os.name == "nt":
-            subprocess.run(("taskkill", "/PID", child_pid.read_text(), "/T", "/F"), check=False, timeout=5)
-        else:
-            os.kill(int(child_pid.read_text()), 9)
+        os.kill(int(child_pid.read_text()), 9)
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX process probe contract")
