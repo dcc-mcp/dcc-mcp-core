@@ -371,11 +371,12 @@ class _BoundaryFrame:
             return True
         if self.branch_trailing_ambiguous.overlaps(leading_ambiguous):
             return True
-        # A fixed atom only separates quantified regions where its consuming
-        # path is disjoint; retain code points that can enter and leave it.
+        # A fixed atom only separates tracked regions where its consuming path
+        # is disjoint; retain code points that can enter and leave it.
         connected_quantified = self.branch_trailing_quantified.intersection(first_consumers).intersection(
             last_consumers
         )
+        connected_ambiguous = self.branch_trailing_ambiguous.intersection(first_consumers).intersection(last_consumers)
         prefix_nullable = self.branch_nullable
         if prefix_nullable:
             self.branch_first.update(first_consumers)
@@ -390,6 +391,7 @@ class _BoundaryFrame:
             self.branch_trailing_quantified = trailing_quantified.copy()
             self.branch_trailing_quantified.update(connected_quantified)
             self.branch_trailing_ambiguous = trailing_ambiguous.copy()
+            self.branch_trailing_ambiguous.update(connected_ambiguous)
         self.branch_nullable = prefix_nullable and nullable
         return False
 
