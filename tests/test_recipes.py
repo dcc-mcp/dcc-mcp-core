@@ -548,6 +548,62 @@ class TestRegisterRecipesTools:
             "$.child: Missing required property 'value'"
         ]
 
+    @pytest.mark.parametrize(
+        ("schema", "instance"),
+        [
+            ({"examples": [{"type": "integer"}], "$ref": "#/examples/0"}, 1),
+            (
+                {
+                    "type": "object",
+                    "examples": [{"type": "integer"}],
+                    "properties": {"value": {"$ref": "#/examples/0"}},
+                },
+                {"value": 1},
+            ),
+        ],
+    )
+    def test_local_refs_must_target_schema_locations(self, schema: dict[str, object], instance: object) -> None:
+        assert validate_recipe_inputs({"inputs_schema": schema}, instance) == ["$: Recipe input schema is invalid"]
+
+    @pytest.mark.parametrize(
+        ("target", "instance"),
+        [
+            ({"type": "string", "pattern": "^(a+)+$"}, "a"),
+            (
+                {"type": "object", "patternProperties": {"^(a+)+$": {"type": "string"}}},
+                {"a": "value"},
+            ),
+        ],
+    )
+    def test_local_ref_annotation_targets_cannot_bypass_pattern_admission(
+        self, target: dict[str, object], instance: object
+    ) -> None:
+        schema = {"examples": [target], "$ref": "#/examples/0"}
+        assert validate_recipe_inputs({"inputs_schema": schema}, instance) == ["$: Recipe input schema is invalid"]
+
+    def test_local_ref_annotation_target_has_validate_apply_parity(self, tmp_path: Path) -> None:
+        schema = {"examples": [{"type": "object"}], "$ref": "#/examples/0"}
+        recipe_path = tmp_path / "annotation-ref.yaml"
+        recipe_path.write_text(
+            json.dumps({"recipes": [{"name": "annotation-ref", "inputs_schema": schema, "steps": []}]}),
+            encoding="utf-8",
+        )
+        skill_dir = tmp_path / "annotation-ref-skill"
+        skill_dir.mkdir()
+        md = _make_metadata(str(skill_dir), str(recipe_path), nested=True)
+        md.name = "annotation-ref-skill"
+        server, handlers = self._make_server([md])
+        register_recipes_tools(server, skills=[md])
+        params = {"skill": "annotation-ref-skill", "recipe": "annotation-ref", "inputs": {}}
+
+        validated = handlers["recipes__validate"](json.dumps(params))
+        applied = handlers["recipes__apply"](json.dumps(params))
+
+        assert validated["context"]["valid"] is False
+        assert validated["context"]["errors"] == ["$: Recipe input schema is invalid"]
+        assert applied["success"] is False
+        assert applied["context"]["errors"] == ["$: Recipe input schema is invalid"]
+
     def test_unevaluated_keywords_and_json_number_semantics(self) -> None:
         schema = {
             "type": "object",
@@ -859,6 +915,21 @@ class TestRegisterRecipesTools:
     def test_repeated_prefix_overlapping_alternation_chain_fails_closed(self) -> None:
         pattern = "^(a|aa)(a|aa)(a|aa)b$"
         assert validate_recipe_inputs({"inputs_schema": {"type": "string", "pattern": pattern}}, "aaaaaab") == [
+            "$: Recipe input schema is invalid"
+        ]
+
+    @pytest.mark.parametrize("pattern", ["^(a|)(a|)(a|)b$", "^(?:a|)(?:a|)(?:a|)b$"])
+    def test_nullable_alternative_chains_fail_closed(self, pattern: str) -> None:
+        assert validate_recipe_inputs({"inputs_schema": {"type": "string", "pattern": pattern}}, "aaab") == [
+            "$: Recipe input schema is invalid"
+        ]
+
+    def test_pattern_properties_nullable_alternative_chain_fails_closed(self) -> None:
+        schema = {
+            "type": "object",
+            "patternProperties": {"^(a|)(a|)(a|)b$": {"type": "string"}},
+        }
+        assert validate_recipe_inputs({"inputs_schema": schema}, {"aaab": "value"}) == [
             "$: Recipe input schema is invalid"
         ]
 

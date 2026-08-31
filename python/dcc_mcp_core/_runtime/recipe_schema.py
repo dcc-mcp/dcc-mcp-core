@@ -106,6 +106,8 @@ class _RecipeSchemaValidator:
         except (TypeError, ValueError, OverflowError) as exc:
             raise ValueError("schema is not JSON data") from exc
         self._check_schema(schema, "$")
+        self._schema_locations: set[tuple[str, ...]] = set()
+        self._collect_schema_locations(schema, ())
         self._collect_anchors(schema, set())
         self._check_refs(schema, set())
 
@@ -286,8 +288,10 @@ class _RecipeSchemaValidator:
         if not ref.startswith("#/"):
             raise ValueError(ref)
         value: Any = self.schema
+        location: list[str] = []
         for component in ref[2:].split("/"):
             component = component.replace("~1", "/").replace("~0", "~")
+            location.append(component)
             if isinstance(value, dict):
                 if component not in value:
                     raise ValueError(ref)
@@ -300,16 +304,18 @@ class _RecipeSchemaValidator:
                 value = value[index]
                 continue
             raise ValueError(ref)
+        if tuple(location) not in self._schema_locations:
+            raise ValueError(ref)
         return value
 
     @classmethod
-    def _schema_children(cls, value: dict[str, Any]) -> list[Any]:
-        """Return only schema-valued children, excluding instance data."""
-        children: list[Any] = []
+    def _schema_child_items(cls, value: dict[str, Any]) -> list[tuple[tuple[str, ...], Any]]:
+        """Return schema-valued children and their relative pointer tokens."""
+        children: list[tuple[tuple[str, ...], Any]] = []
         for key in ("properties", "patternProperties", "$defs", "definitions", "dependentSchemas"):
             mapping = value.get(key)
             if isinstance(mapping, dict):
-                children.extend(mapping.values())
+                children.extend(((key, name), child) for name, child in mapping.items())
         for key in (
             "additionalProperties",
             "unevaluatedProperties",
@@ -323,12 +329,24 @@ class _RecipeSchemaValidator:
             "else",
         ):
             if key in value:
-                children.append(value[key])
+                children.append(((key,), value[key]))
         for key in ("prefixItems", "allOf", "anyOf", "oneOf"):
             items = value.get(key)
             if isinstance(items, list):
-                children.extend(items)
+                children.extend(((key, str(index)), child) for index, child in enumerate(items))
         return children
+
+    @classmethod
+    def _schema_children(cls, value: dict[str, Any]) -> list[Any]:
+        """Return only schema-valued children, excluding instance data."""
+        return [child for _tokens, child in cls._schema_child_items(value)]
+
+    def _collect_schema_locations(self, value: Any, location: tuple[str, ...]) -> None:
+        """Record every location admitted recursively as a schema node."""
+        self._schema_locations.add(location)
+        if isinstance(value, dict):
+            for tokens, child in self._schema_child_items(value):
+                self._collect_schema_locations(child, location + tokens)
 
     def _collect_anchors(self, value: Any, seen: set[int]) -> None:
         if isinstance(value, dict):
