@@ -165,12 +165,9 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_search_tools(
             }
         });
         tool_hits.push(hit);
-        if tool_hits.len() >= limit {
-            break;
-        }
     }
 
-    if include_stubs && tool_hits.len() < limit {
+    if include_stubs {
         for summary in state.catalog.list_skills(Some("unloaded")) {
             if let Some(filter) = dcc
                 && !summary.dcc.eq_ignore_ascii_case(filter)
@@ -202,50 +199,50 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_search_tools(
                 "dcc": summary.dcc,
                 "skill_name": summary.name,
             }));
-            if tool_hits.len() >= limit {
-                break;
-            }
         }
 
-        if tool_hits.len() < limit {
-            let mut seen_groups: std::collections::HashSet<(String, String)> =
-                std::collections::HashSet::new();
-            for (skill, group, active) in state.catalog.list_groups() {
-                if active {
-                    continue;
-                }
-                if !seen_groups.insert((skill.clone(), group.clone())) {
-                    continue;
-                }
-                let stub_name = group_stub_name(Some(&skill), &group);
-                let haystack = format!("{stub_name} {group} {skill}").to_lowercase();
-                if !matches_phrase(&haystack, &query, &query_words) {
-                    continue;
-                }
-                tool_hits.push(json!({
-                    "kind": "tool",
-                    "name": stub_name,
-                    "description": format!(
-                        "[stub] inactive tool group `{group}` in skill `{skill}` — call activate_tool_group(group_name=\"{group}\", skill_name=\"{skill}\") to expose its members",
-                    ),
-                    "category": "stub",
-                    "group": group,
-                    "enabled": false,
-                    "dcc": "",
-                    "skill_name": skill,
-                }));
-                if tool_hits.len() >= limit {
-                    break;
-                }
+        let mut seen_groups: std::collections::HashSet<(String, String)> =
+            std::collections::HashSet::new();
+        for (skill, group, active) in state.catalog.list_groups() {
+            if active {
+                continue;
             }
+            if !seen_groups.insert((skill.clone(), group.clone())) {
+                continue;
+            }
+            let stub_name = group_stub_name(Some(&skill), &group);
+            let haystack = format!("{stub_name} {group} {skill}").to_lowercase();
+            if !matches_phrase(&haystack, &query, &query_words) {
+                continue;
+            }
+            tool_hits.push(json!({
+                "kind": "tool",
+                "name": stub_name,
+                "description": format!(
+                    "[stub] inactive tool group `{group}` in skill `{skill}` — call activate_tool_group(group_name=\"{group}\", skill_name=\"{skill}\") to expose its members",
+                ),
+                "category": "stub",
+                "group": group,
+                "enabled": false,
+                "dcc": "",
+                "skill_name": skill,
+            }));
         }
     }
+
+    tool_hits.sort_by(|left, right| {
+        left.get("name")
+            .and_then(Value::as_str)
+            .cmp(&right.get("name").and_then(Value::as_str))
+    });
+    let total_tool_matches = tool_hits.len();
+    tool_hits.truncate(limit);
 
     let mut skill_candidates: Vec<Value> = Vec::new();
     if include_unloaded_skills {
         let candidates = state
             .catalog
-            .search_skills(Some(query_raw), &[], dcc, None, Some(limit));
+            .search_skills(Some(query_raw), &[], dcc, None, None);
         for summary in candidates {
             if summary.loaded {
                 continue;
@@ -299,9 +296,21 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_search_tools(
         }
     }
 
-    let total = tool_hits.len() + skill_candidates.len();
+    skill_candidates.sort_by(|left, right| {
+        left.get("skill_name")
+            .and_then(Value::as_str)
+            .cmp(&right.get("skill_name").and_then(Value::as_str))
+    });
+    let total_skill_matches = skill_candidates.len();
+    skill_candidates.truncate(limit);
+
+    let returned = tool_hits.len() + skill_candidates.len();
+    let total_matches = total_tool_matches + total_skill_matches;
     let result = json!({
-        "total": total,
+        "total": returned,
+        "total_matches": total_matches,
+        "returned": returned,
+        "truncated": returned < total_matches,
         "query": query,
         "tools": tool_hits,
         "skill_candidates": skill_candidates,
@@ -312,6 +321,62 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_search_tools(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use std::sync::Arc;
+
+    use dcc_mcp_actions::ToolDispatcher;
+    use dcc_mcp_actions::registry::{ToolMeta, ToolRegistry};
+    use dcc_mcp_jsonrpc::ToolContent;
+    use dcc_mcp_skills::SkillCatalog;
+
+    fn result_text_json(result: &CallToolResult) -> Value {
+        let Some(ToolContent::Text { text }) = result.content.first() else {
+            panic!("expected text content, got {result:?}");
+        };
+        serde_json::from_str(text).expect("handler text should be JSON")
+    }
+
+    #[test]
+    fn search_tools_is_stable_and_reports_truncation() {
+        let registry = Arc::new(ToolRegistry::new());
+        for name in ["unreal_zeta", "unreal_alpha", "unreal_middle"] {
+            registry.register_action(ToolMeta {
+                name: name.to_string(),
+                description: "Unreal deterministic discovery".to_string(),
+                dcc: "unreal".to_string(),
+                ..Default::default()
+            });
+        }
+        let dispatcher = Arc::new(ToolDispatcher::new((*registry).clone()));
+        let catalog = Arc::new(SkillCatalog::new_with_dispatcher(
+            Arc::clone(&registry),
+            Arc::clone(&dispatcher),
+        ));
+        let state = ServerState::builder(registry, dispatcher, catalog).build();
+        let arguments = json!({
+            "query": "unreal",
+            "dcc": "unreal",
+            "limit": 2,
+            "include_unloaded_skills": false,
+        });
+
+        let first = result_text_json(&handle_search_tools(&state, &arguments));
+        let second = result_text_json(&handle_search_tools(&state, &arguments));
+
+        assert_eq!(first["tools"], second["tools"]);
+        assert_eq!(
+            first["tools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|tool| tool["name"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            vec!["unreal_alpha", "unreal_middle"]
+        );
+        assert_eq!(first["total_matches"], 3);
+        assert_eq!(first["returned"], 2);
+        assert_eq!(first["truncated"], true);
+    }
 
     #[test]
     fn matches_phrase_single_word_substring() {

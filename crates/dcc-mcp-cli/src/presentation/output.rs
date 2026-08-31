@@ -11,7 +11,7 @@ use std::io::{IsTerminal, Write};
 
 use anyhow::Context;
 use serde::Serialize;
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 pub(crate) fn to_json(value: impl Serialize) -> anyhow::Result<Value> {
     serde_json::to_value(value).context("failed to serialize command output")
@@ -168,6 +168,60 @@ impl ErrorEnvelope {
         self.error.details = Some(details);
         self
     }
+}
+
+pub(crate) fn failure_envelope(value: &Value, exit_code: ExitCode) -> ErrorEnvelope {
+    let payload = [
+        value.pointer("/result/structuredContent"),
+        value.get("output"),
+        value.get("structuredContent"),
+        value.get("result"),
+    ]
+    .into_iter()
+    .flatten()
+    .find(|candidate| candidate.is_object())
+    .unwrap_or(value);
+
+    let text = |pointers: &[&str]| {
+        pointers
+            .iter()
+            .find_map(|pointer| payload.pointer(pointer).and_then(Value::as_str))
+            .filter(|text| !text.trim().is_empty())
+    };
+    let message = text(&["/message", "/error/message", "/_meta/dcc.error/message"])
+        .unwrap_or("command failed")
+        .to_string();
+    let reason = text(&["/context/reason", "/reason", "/error/reason"])
+        .unwrap_or("command_failed")
+        .to_string();
+
+    let mut details = Map::new();
+    details.insert("reason".to_string(), Value::String(reason));
+    for (name, pointers) in [
+        (
+            "error_type",
+            &[
+                "/context/error_type",
+                "/_meta/dcc.error/type",
+                "/error_type",
+            ][..],
+        ),
+        (
+            "message",
+            &["/_meta/dcc.error/message", "/context/error_message"][..],
+        ),
+        (
+            "traceback",
+            &["/context/traceback", "/_meta/dcc.error/traceback"][..],
+        ),
+    ] {
+        if let Some(value) = text(pointers) {
+            details.insert(name.to_string(), Value::String(value.to_string()));
+        }
+    }
+
+    ErrorEnvelope::new(exit_code_to_error_code(exit_code), message, exit_code)
+        .with_details(Value::Object(details))
 }
 
 // ---------------------------------------------------------------------------

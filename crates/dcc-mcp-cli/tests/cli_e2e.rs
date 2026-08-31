@@ -521,6 +521,9 @@ fn local_profile_controls_registered_instance_through_direct_mcp() {
     let search = run_json_with_env(&["search", "--query", "scene", "--dcc-type", "maya"], &envs);
     assert_eq!(search["source"], "local_mcp");
     assert_eq!(search["total"], 2);
+    assert_eq!(search["total_matches"], 2);
+    assert_eq!(search["returned"], 2);
+    assert_eq!(search["truncated"], false);
     assert_eq!(
         search["hits"][0]["backend_tool"],
         "maya_scene__get_session_info"

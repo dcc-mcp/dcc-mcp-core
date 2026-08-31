@@ -30,13 +30,15 @@ pub async fn search_local(registry_dir: PathBuf, request: SearchRequest) -> anyh
     )?;
     let gateway = HttpGateway::default();
     let mut hits = Vec::new();
-    let limit = request.limit.unwrap_or(25).clamp(1, 100);
+    let mut total_matches = 0_usize;
+    let mut truncated = false;
     let query = request
         .query
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string);
+    let limit = effective_search_limit(query.as_deref(), request.limit);
 
     for entry in &entries {
         let discovery_mcp_url = local_instance::discovery_mcp_url(entry);
@@ -74,21 +76,61 @@ pub async fn search_local(registry_dir: PathBuf, request: SearchRequest) -> anyh
                 })?;
             json!({ "tools": tools })
         };
+        let previous = hits.len();
         extend_tool_hits(&mut hits, entry, &payload);
         extend_skill_hits(&mut hits, entry, &payload);
-        if hits.len() >= limit {
-            hits.truncate(limit);
-            break;
-        }
+        let payload_returned = hits.len() - previous;
+        let payload_matches = payload
+            .get("total_matches")
+            .or_else(|| payload.get("total"))
+            .and_then(Value::as_u64)
+            .map(|value| value as usize)
+            .unwrap_or(payload_returned)
+            .max(payload_returned);
+        total_matches += payload_matches;
+        truncated |= payload.get("truncated").and_then(Value::as_bool) == Some(true)
+            || payload_returned < payload_matches;
     }
 
+    hits.sort_by(|left, right| {
+        let left_key = left
+            .get("slug")
+            .and_then(Value::as_str)
+            .or_else(|| left.get("skill_name").and_then(Value::as_str));
+        let right_key = right
+            .get("slug")
+            .and_then(Value::as_str)
+            .or_else(|| right.get("skill_name").and_then(Value::as_str));
+        left_key.cmp(&right_key).then_with(|| {
+            left.get("instance_id")
+                .and_then(Value::as_str)
+                .cmp(&right.get("instance_id").and_then(Value::as_str))
+        })
+    });
+    if hits.len() > limit {
+        hits.truncate(limit);
+        truncated = true;
+    }
+    let returned = hits.len();
+
     Ok(json!({
-        "total": hits.len(),
+        "total": returned,
+        "total_matches": total_matches,
+        "returned": returned,
+        "truncated": truncated || returned < total_matches,
         "hits": hits,
         "source": "local_mcp",
         "registry_dir": registry_dir,
         "query": request.query,
     }))
+}
+
+fn effective_search_limit(query: Option<&str>, requested: Option<usize>) -> usize {
+    match requested {
+        Some(limit) => limit.clamp(1, 100),
+        None if query.is_none() => usize::MAX,
+        None => 25,
+    }
 }
 
 pub async fn describe_local(registry_dir: PathBuf, tool_slug: String) -> anyhow::Result<Value> {

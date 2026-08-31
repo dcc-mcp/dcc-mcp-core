@@ -1,6 +1,13 @@
 use super::*;
 
 #[test]
+fn empty_query_without_limit_requests_the_complete_inventory() {
+    assert_eq!(effective_search_limit(None, None), usize::MAX);
+    assert_eq!(effective_search_limit(Some("spawn"), None), 25);
+    assert_eq!(effective_search_limit(None, Some(7)), 7);
+}
+
+#[test]
 fn local_tool_slug_round_trips() {
     let entry = ServiceEntry::new("maya", "127.0.0.1", 18080);
     let slug = local_instance::local_tool_slug(&entry, "maya_scene__get_session_info");
