@@ -55,9 +55,12 @@ def pattern_is_safe(pattern: str) -> bool:
     while index < len(pattern):
         character = pattern[index]
         if escaped:
-            # ``\N{name}`` requires Python 3.8+ and ``\z`` requires Python
-            # 3.14+, so neither belongs to the Python 3.7-3.14 common subset.
+            # ``\N{name}`` requires Python 3.8+, ``\z`` requires Python 3.14+,
+            # and ``\B`` changed empty-string semantics in Python 3.14.
+            # None belongs to the Python 3.7-3.14 portable common subset.
             if character in {"N", "z"}:
+                return False
+            if character == "B" and not in_character_class:
                 return False
             # Numeric and named backreferences are non-regular and can
             # force unbounded backtracking. Reject all digit escapes to

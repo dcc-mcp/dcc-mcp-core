@@ -1386,6 +1386,83 @@ class TestRegisterRecipesTools:
         assert validate_recipe_inputs({"inputs_schema": schema}, inputs) == ["$: Recipe input schema is invalid"]
 
     @pytest.mark.parametrize(
+        ("schema", "inputs"),
+        [
+            ({"type": "string", "pattern": r"\B"}, ""),
+            (
+                {
+                    "type": "object",
+                    "patternProperties": {r"\B": {"type": "string"}},
+                },
+                {"": "value"},
+            ),
+        ],
+    )
+    def test_version_drifting_non_boundary_assertion_fails_closed_during_admission(
+        self,
+        schema: dict[str, object],
+        inputs: object,
+    ) -> None:
+        assert pattern_is_safe(r"\B") is False
+        assert validate_recipe_inputs({"inputs_schema": schema}, inputs) == ["$: Recipe input schema is invalid"]
+
+    @pytest.mark.parametrize(
+        ("pattern", "value"),
+        [
+            (r"^\\B$", r"\B"),
+            (r"^[\\]B$", r"\B"),
+            (r"^[B]+$", "BB"),
+        ],
+    )
+    def test_non_boundary_literal_and_character_class_controls_remain_supported(
+        self,
+        pattern: str,
+        value: str,
+    ) -> None:
+        assert pattern_is_safe(pattern) is True
+        assert validate_recipe_inputs({"inputs_schema": {"type": "string", "pattern": pattern}}, value) == []
+
+    def test_non_boundary_portability_has_validate_apply_parity(self, tmp_path: Path) -> None:
+        handlers = self._make_recipe_handlers(
+            tmp_path,
+            skill_name="non-boundary-portability-skill",
+            recipes={
+                "pattern": {
+                    "type": "object",
+                    "properties": {"value": {"type": "string", "pattern": r"\B"}},
+                },
+                "pattern-properties": {
+                    "type": "object",
+                    "patternProperties": {r"\B": {"type": "string"}},
+                },
+                "literal-control": {
+                    "type": "object",
+                    "properties": {"value": {"type": "string", "pattern": r"^\\B$"}},
+                },
+                "character-class-control": {
+                    "type": "object",
+                    "properties": {"value": {"type": "string", "pattern": r"^[\\]B$"}},
+                },
+            },
+        )
+        cases = [
+            ("pattern", {"value": ""}, False),
+            ("pattern-properties", {"": "value"}, False),
+            ("literal-control", {"value": r"\B"}, True),
+            ("character-class-control", {"value": r"\B"}, True),
+        ]
+
+        for recipe_name, inputs, expected_valid in cases:
+            params = {"skill": "non-boundary-portability-skill", "recipe": recipe_name, "inputs": inputs}
+            validated = handlers["recipes__validate"](json.dumps(params))
+            applied = handlers["recipes__apply"](json.dumps(params))
+            assert validated["context"]["valid"] is expected_valid
+            assert applied["success"] is expected_valid
+            if not expected_valid:
+                assert validated["context"]["errors"] == ["$: Recipe input schema is invalid"]
+                assert applied["context"]["errors"] == ["$: Recipe input schema is invalid"]
+
+    @pytest.mark.parametrize(
         "pattern",
         [
             "^a(?i)b$",
