@@ -2,6 +2,18 @@
 
 from __future__ import annotations
 
+_INLINE_FLAG_CHARACTERS = "aiLmsux-"
+
+
+def _is_global_inline_flag_group(pattern: str, index: int) -> bool:
+    """Return whether ``index`` starts a syntactic ``(?flags)`` group."""
+    if not pattern.startswith("(?", index):
+        return False
+    cursor = index + 2
+    while cursor < len(pattern) and pattern[cursor] in _INLINE_FLAG_CHARACTERS:
+        cursor += 1
+    return cursor > index + 2 and cursor < len(pattern) and pattern[cursor] == ")"
+
 
 def pattern_is_safe(pattern: str) -> bool:
     """Accept only patterns whose backtracking structure is provably linear.
@@ -43,6 +55,10 @@ def pattern_is_safe(pattern: str) -> bool:
     while index < len(pattern):
         character = pattern[index]
         if escaped:
+            # ``\N{name}`` requires Python 3.8+ and ``\z`` requires Python
+            # 3.14+, so neither belongs to the Python 3.7-3.14 common subset.
+            if character in {"N", "z"}:
+                return False
             # Numeric and named backreferences are non-regular and can
             # force unbounded backtracking. Reject all digit escapes to
             # keep the accepted grammar explicit and conservative.
@@ -90,6 +106,11 @@ def pattern_is_safe(pattern: str) -> bool:
             # regular, but rejecting the whole construct avoids ambiguity
             # in this deliberately small safety grammar.
             if pattern.startswith("(?P=", index):
+                return False
+            # Python 3.7 permits global inline flags after a prefix or inside
+            # another group, while current Python requires absolute position
+            # zero. Scoped ``(?flags:...)`` groups remain portable anywhere.
+            if index != 0 and _is_global_inline_flag_group(pattern, index):
                 return False
             frames.append(frame_has_quantifier)
             frame_has_quantifier = False
@@ -700,7 +721,7 @@ def _group_content_start(
     parent_ignore_case: bool,
 ) -> tuple[int, bool, bool, bool]:
     """Return group content, width, scoped case-fold state, and support."""
-    for prefix in ("?:", "?=", "?!", "?<=", "?<!", "?>"):
+    for prefix in ("?:", "?=", "?!", "?<=", "?<!"):
         if pattern.startswith(prefix, start):
             return (
                 start + len(prefix),
@@ -716,11 +737,13 @@ def _group_content_start(
         comment_end = pattern.find(")", start + 2)
         content_start = comment_end if comment_end >= 0 else start
         return content_start, True, parent_ignore_case, True
-    if pattern.startswith("?(", start):
+    # Atomic groups require Python 3.11+, so they are outside the portable
+    # Python 3.7-3.14 recipe grammar. Conditional groups are also unsupported.
+    if pattern.startswith(("?>", "?("), start):
         return start, False, parent_ignore_case, False
     if start < len(pattern) and pattern[start] == "?":
         cursor = start + 1
-        while cursor < len(pattern) and pattern[cursor] in "aiLmsux-":
+        while cursor < len(pattern) and pattern[cursor] in _INLINE_FLAG_CHARACTERS:
             cursor += 1
         if cursor > start + 1 and cursor < len(pattern) and pattern[cursor] in ":)":
             ignore_case, supported = _apply_inline_case_flag(

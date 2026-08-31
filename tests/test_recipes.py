@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 import pytest
 
+from dcc_mcp_core._runtime.recipe_schema_patterns import pattern_is_safe
 from dcc_mcp_core.recipes import _RecipeSchemaValidator
 from dcc_mcp_core.recipes import get_recipe_content
 from dcc_mcp_core.recipes import get_recipes_path
@@ -1360,6 +1361,192 @@ class TestRegisterRecipesTools:
             assert validated["context"]["errors"] == ["$: Recipe input schema is invalid"]
             assert applied["success"] is False
             assert applied["context"]["errors"] == ["$: Recipe input schema is invalid"]
+
+    @pytest.mark.parametrize(
+        ("schema", "inputs"),
+        [
+            ({"type": "string", "pattern": "^(?>ab)+$"}, "abab"),
+            (
+                {
+                    "type": "object",
+                    "patternProperties": {"^(?>ab)+$": {"type": "string"}},
+                },
+                {"abab": "value"},
+            ),
+            ({"type": "string", "pattern": "^ab++$"}, "ab"),
+            ({"type": "string", "pattern": r"^\z$"}, ""),
+            ({"type": "string", "pattern": r"^\N{EM DASH}$"}, "—"),
+        ],
+    )
+    def test_python_version_specific_regex_syntax_fails_closed_during_admission(
+        self,
+        schema: dict[str, object],
+        inputs: object,
+    ) -> None:
+        assert validate_recipe_inputs({"inputs_schema": schema}, inputs) == ["$: Recipe input schema is invalid"]
+
+    @pytest.mark.parametrize(
+        "pattern",
+        [
+            "^a(?i)b$",
+            "^(?:(?i)ab)$",
+        ],
+    )
+    def test_nonleading_global_inline_flags_fail_closed_across_schema_keywords(self, pattern: str) -> None:
+        assert pattern_is_safe(pattern) is False
+        assert validate_recipe_inputs({"inputs_schema": {"type": "string", "pattern": pattern}}, "aB") == [
+            "$: Recipe input schema is invalid"
+        ]
+        assert validate_recipe_inputs(
+            {
+                "inputs_schema": {
+                    "type": "object",
+                    "patternProperties": {pattern: {"type": "string"}},
+                }
+            },
+            {"aB": "value"},
+        ) == ["$: Recipe input schema is invalid"]
+
+    @pytest.mark.parametrize(
+        ("pattern", "value"),
+        [
+            ("(?i)^ab$", "AB"),
+            ("^a(?i:b)$", "aB"),
+            (r"^\(\?i\)$", "(?i)"),
+            (r"^[()?i]+$", "(?i)"),
+        ],
+    )
+    def test_portable_inline_flag_and_literal_controls_remain_supported(self, pattern: str, value: str) -> None:
+        assert pattern_is_safe(pattern) is True
+        assert validate_recipe_inputs({"inputs_schema": {"type": "string", "pattern": pattern}}, value) == []
+        assert (
+            validate_recipe_inputs(
+                {
+                    "inputs_schema": {
+                        "type": "object",
+                        "patternProperties": {pattern: {"type": "string"}},
+                    }
+                },
+                {value: "value"},
+            )
+            == []
+        )
+
+    def test_inline_flag_portability_has_validate_apply_parity(self, tmp_path: Path) -> None:
+        handlers = self._make_recipe_handlers(
+            tmp_path,
+            skill_name="inline-flag-portability-skill",
+            recipes={
+                "prefixed-global-pattern": {
+                    "type": "object",
+                    "properties": {"value": {"type": "string", "pattern": "^a(?i)b$"}},
+                },
+                "nested-global-pattern-properties": {
+                    "type": "object",
+                    "patternProperties": {"^(?:(?i)ab)$": {"type": "string"}},
+                },
+                "leading-global-pattern": {
+                    "type": "object",
+                    "properties": {"value": {"type": "string", "pattern": "(?i)^ab$"}},
+                },
+                "scoped-pattern-properties": {
+                    "type": "object",
+                    "patternProperties": {"^a(?i:b)$": {"type": "string"}},
+                },
+                "escaped-literal-pattern": {
+                    "type": "object",
+                    "properties": {"value": {"type": "string", "pattern": r"^\(\?i\)$"}},
+                },
+                "character-class-pattern-properties": {
+                    "type": "object",
+                    "patternProperties": {r"^[()?i]+$": {"type": "string"}},
+                },
+            },
+        )
+        cases = [
+            ("prefixed-global-pattern", {"value": "aB"}, False),
+            ("nested-global-pattern-properties", {"aB": "value"}, False),
+            ("leading-global-pattern", {"value": "AB"}, True),
+            ("scoped-pattern-properties", {"aB": "value"}, True),
+            ("escaped-literal-pattern", {"value": "(?i)"}, True),
+            ("character-class-pattern-properties", {"(?i)": "value"}, True),
+        ]
+
+        for recipe_name, inputs, expected_valid in cases:
+            params = {"skill": "inline-flag-portability-skill", "recipe": recipe_name, "inputs": inputs}
+            validated = handlers["recipes__validate"](json.dumps(params))
+            applied = handlers["recipes__apply"](json.dumps(params))
+            assert validated["context"]["valid"] is expected_valid
+            assert applied["success"] is expected_valid
+            if not expected_valid:
+                assert validated["context"]["errors"] == ["$: Recipe input schema is invalid"]
+                assert applied["context"]["errors"] == ["$: Recipe input schema is invalid"]
+
+    @pytest.mark.parametrize(
+        ("schema", "inputs"),
+        [
+            ({"type": "string", "pattern": "^(?:ab)+$"}, "abab"),
+            (
+                {
+                    "type": "object",
+                    "patternProperties": {"^(?:ab)+$": {"type": "string"}},
+                },
+                {"abab": "value"},
+            ),
+            ({"type": "string", "pattern": r"^\Z$"}, ""),
+            ({"type": "string", "pattern": r"^\u2014$"}, "—"),
+        ],
+    )
+    def test_portable_regex_syntax_controls_remain_supported(
+        self,
+        schema: dict[str, object],
+        inputs: object,
+    ) -> None:
+        assert validate_recipe_inputs({"inputs_schema": schema}, inputs) == []
+
+    def test_atomic_group_rejection_has_validate_apply_parity(self, tmp_path: Path) -> None:
+        atomic_pattern = "^(?>ab)+$"
+        portable_pattern = "^(?:ab)+$"
+        handlers = self._make_recipe_handlers(
+            tmp_path,
+            skill_name="portable-regex-skill",
+            recipes={
+                "atomic-pattern": {
+                    "type": "object",
+                    "properties": {"value": {"type": "string", "pattern": atomic_pattern}},
+                },
+                "atomic-pattern-properties": {
+                    "type": "object",
+                    "patternProperties": {atomic_pattern: {"type": "string"}},
+                },
+                "portable-pattern": {
+                    "type": "object",
+                    "properties": {"value": {"type": "string", "pattern": portable_pattern}},
+                },
+            },
+        )
+
+        for recipe_name, inputs in (
+            ("atomic-pattern", {"value": "abab"}),
+            ("atomic-pattern-properties", {"abab": "value"}),
+        ):
+            params = {"skill": "portable-regex-skill", "recipe": recipe_name, "inputs": inputs}
+            validated = handlers["recipes__validate"](json.dumps(params))
+            applied = handlers["recipes__apply"](json.dumps(params))
+            assert validated["context"]["valid"] is False
+            assert validated["context"]["errors"] == ["$: Recipe input schema is invalid"]
+            assert applied["success"] is False
+            assert applied["context"]["errors"] == ["$: Recipe input schema is invalid"]
+
+        portable_params = {
+            "skill": "portable-regex-skill",
+            "recipe": "portable-pattern",
+            "inputs": {"value": "abab"},
+        }
+        portable_validated = handlers["recipes__validate"](json.dumps(portable_params))
+        portable_applied = handlers["recipes__apply"](json.dumps(portable_params))
+        assert portable_validated["context"]["valid"] is True
+        assert portable_applied["success"] is True
 
     def test_contains_annotation_branch_work_is_linear(self, monkeypatch: pytest.MonkeyPatch) -> None:
         original_merge = _RecipeSchemaValidator._merge_annotations
