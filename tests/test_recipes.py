@@ -968,6 +968,45 @@ class TestRegisterRecipesTools:
         pattern = "^(a|b)(c|d)(e|f)g$"
         assert validate_recipe_inputs({"inputs_schema": {"type": "string", "pattern": pattern}}, "aceg") == []
 
+    @pytest.mark.parametrize(
+        "pattern",
+        [
+            "^(a|aa)a(a|aa)a(a|aa)b$",
+            "^(?:a|aa)a(?:a|aa)a(?:a|aa)b$",
+            "^(a|)a(a|)a(a|)b$",
+        ],
+    )
+    def test_connected_ambiguity_chains_separated_by_fixed_consumers_fail_closed(self, pattern: str) -> None:
+        assert validate_recipe_inputs({"inputs_schema": {"type": "string", "pattern": pattern}}, "aaaaab") == [
+            "$: Recipe input schema is invalid"
+        ]
+
+    @pytest.mark.parametrize(
+        "pattern",
+        [
+            "^(a|aa)a(a|aa)a(a|aa)b$",
+            "^(?:a|aa)a(?:a|aa)a(?:a|aa)b$",
+            "^(a|)a(a|)a(a|)b$",
+        ],
+    )
+    def test_pattern_properties_connected_ambiguity_chains_fail_closed(self, pattern: str) -> None:
+        schema = {"type": "object", "patternProperties": {pattern: {"type": "string"}}}
+        assert validate_recipe_inputs({"inputs_schema": schema}, {"aaaaab": "value"}) == [
+            "$: Recipe input schema is invalid"
+        ]
+
+    @pytest.mark.parametrize(
+        ("pattern", "instance"),
+        [
+            ("^(a|aa)b(a|aa)c(a|aa)d$", "abacad"),
+            ("^(?:a|aa)b(?:a|aa)c(?:a|aa)d$", "abacad"),
+            ("^(a|)b(a|)c(a|)d$", "abacad"),
+            ("^(a|aa|b|bb)a(b|bb)c$", "aabc"),
+        ],
+    )
+    def test_disjoint_fixed_consumers_clear_ambiguous_overlap(self, pattern: str, instance: str) -> None:
+        assert validate_recipe_inputs({"inputs_schema": {"type": "string", "pattern": pattern}}, instance) == []
+
     def test_quantified_character_classes_are_bounded(self) -> None:
         pattern = "^[a-z]*[a-y]*$"
         started = time.perf_counter()
@@ -1142,6 +1181,47 @@ class TestRegisterRecipesTools:
             "skill": "connected-quantifiers-skill",
             "recipe": "connected-quantifiers",
             "inputs": {"value": "aaaa"},
+        }
+
+        validated = handlers["recipes__validate"](json.dumps(params))
+        applied = handlers["recipes__apply"](json.dumps(params))
+
+        assert validated["context"]["valid"] is False
+        assert validated["context"]["errors"] == ["$: Recipe input schema is invalid"]
+        assert applied["success"] is False
+        assert applied["context"]["errors"] == ["$: Recipe input schema is invalid"]
+
+    def test_connected_ambiguity_rejection_has_validate_apply_parity(self, tmp_path: Path) -> None:
+        recipe_path = tmp_path / "connected-ambiguity.yaml"
+        recipe_path.write_text(
+            json.dumps(
+                {
+                    "recipes": [
+                        {
+                            "name": "connected-ambiguity",
+                            "inputs_schema": {
+                                "type": "object",
+                                "properties": {
+                                    "value": {"type": "string", "pattern": "^(a|aa)a(a|aa)a(a|aa)b$"},
+                                },
+                            },
+                            "steps": [],
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        skill_dir = tmp_path / "connected-ambiguity-skill"
+        skill_dir.mkdir()
+        md = _make_metadata(str(skill_dir), str(recipe_path), nested=True)
+        md.name = "connected-ambiguity-skill"
+        server, handlers = self._make_server([md])
+        register_recipes_tools(server, skills=[md])
+        params = {
+            "skill": "connected-ambiguity-skill",
+            "recipe": "connected-ambiguity",
+            "inputs": {"value": "aaaaab"},
         }
 
         validated = handlers["recipes__validate"](json.dumps(params))
