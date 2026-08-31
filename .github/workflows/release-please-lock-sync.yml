@@ -45,10 +45,11 @@ jobs:
           path: trusted-lock-validator
           persist-credentials: false
 
-      - name: Verify trusted lock validator object
+      - name: Verify single-file trusted lock validator object
         shell: bash
         run: |
           set -euo pipefail
+          # Every execution below pipes this same pinned, self-contained object.
           git -C trusted-lock-validator cat-file -e "$TRUSTED_VALIDATOR_REF:scripts/ci/generated_lock_sync.py"
 
       - uses: actions/checkout@v6
