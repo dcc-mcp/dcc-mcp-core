@@ -51,7 +51,7 @@ def test_obs_release_is_available_to_the_install_planner() -> None:
         ),
         "sha256": "d407127d5b200df29a6cab0a5ed6546a03a6c5a8f93b617d0dd034442f0c6b7a",
         "entry_point": "dcc_mcp_obs:ObsMcpServer",
-        "instructions_url": ("https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-obs/main/docs/install.md"),
+        "instructions_url": ("https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-obs/main/install.md"),
     }
 
 

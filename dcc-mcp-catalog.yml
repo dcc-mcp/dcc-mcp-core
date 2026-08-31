@@ -319,7 +319,7 @@ entries:
       url: "https://files.pythonhosted.org/packages/cc/6e/fd6b04280ab4de5c1839cf7449f894b10e5cc9184fdefb34e073a214aa1a/dcc_mcp_obs-1.1.0-py3-none-any.whl"
       sha256: "d407127d5b200df29a6cab0a5ed6546a03a6c5a8f93b617d0dd034442f0c6b7a"
       entry_point: "dcc_mcp_obs:ObsMcpServer"
-      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-obs/main/docs/install.md"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-obs/main/install.md"
 
   - name: "dcc-mcp-substance3d-designer"
     description: "Substance 3D Designer adapter for DCC-MCP"
