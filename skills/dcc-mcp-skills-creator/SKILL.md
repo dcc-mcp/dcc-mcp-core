@@ -170,6 +170,12 @@ Generated `tools.yaml` entries follow the modern contract:
   root, and its value must be the absolute canonical Draft 2020-12 URI
   `https://json-schema.org/draft/2020-12/schema`. Null, relative, unsupported,
   and nested dialect declarations fail closed during recipe admission.
+- Recipe `pattern` and `patternProperties` expressions must use syntax shared
+  by Python 3.7-3.14. Version-specific constructs such as atomic groups
+  `(?>...)` fail closed; use portable constructs such as `(?:...)` only when
+  they preserve the intended matching semantics. Global inline flags such as
+  `(?i)` are portable only at the absolute start; use scoped flags such as
+  `(?i:...)` when flags must appear after a prefix or inside another group.
 - `execution` is `sync` or `async`; use `async` for deferred/long-running work.
 - `job_strategy` is `monolithic` (default), `chunked`, or `isolated`. Agents
   use it to select a safe execution and recovery workflow.
