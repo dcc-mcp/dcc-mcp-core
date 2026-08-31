@@ -46,6 +46,7 @@ class McpHttpConfig:
     exclude_skill_stubs_from_tools_list: bool = False
     exclude_group_stubs_from_tools_list: bool = False
     job_storage_path: str | None = None
+    job_retention_hours: int | None = None
     sandbox_policy: Any = None
 
     def __init__(
@@ -78,6 +79,8 @@ class McpHttpConfig:
         self.exclude_skill_stubs_from_tools_list = bool(kwargs.pop("exclude_skill_stubs_from_tools_list", False))
         self.exclude_group_stubs_from_tools_list = bool(kwargs.pop("exclude_group_stubs_from_tools_list", False))
         self.job_storage_path = kwargs.pop("job_storage_path", None)
+        raw_retention = kwargs.pop("job_retention_hours", None)
+        self.job_retention_hours = int(raw_retention) if raw_retention is not None else None
         self.sandbox_policy = kwargs.pop("sandbox_policy", None)
         for key, value in kwargs.items():
             setattr(self, key, value)

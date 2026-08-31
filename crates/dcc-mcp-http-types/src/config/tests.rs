@@ -93,6 +93,7 @@ fn job_config_default_is_in_memory_with_drop_policy() {
     let cfg = JobConfig::default();
     assert!(cfg.job_storage_path.is_none());
     assert_eq!(cfg.job_recovery, JobRecoveryPolicy::Drop);
+    assert!(cfg.job_retention_hours.is_none());
 }
 
 #[test]
@@ -111,11 +112,13 @@ fn job_config_round_trips_with_storage_path() {
     let cfg = JobConfig {
         job_storage_path: Some(PathBuf::from("/var/lib/dcc/jobs.sqlite")),
         job_recovery: JobRecoveryPolicy::Requeue,
+        job_retention_hours: Some(24 * 30),
     };
     let s = serde_json::to_string(&cfg).unwrap();
     let back: JobConfig = serde_json::from_str(&s).unwrap();
     assert_eq!(back.job_storage_path, cfg.job_storage_path);
     assert_eq!(back.job_recovery, cfg.job_recovery);
+    assert_eq!(back.job_retention_hours, cfg.job_retention_hours);
 }
 
 #[test]
@@ -127,6 +130,7 @@ fn job_config_accepts_minimal_body() {
     let cfg: JobConfig = serde_json::from_str("{}").unwrap();
     assert!(cfg.job_storage_path.is_none());
     assert_eq!(cfg.job_recovery, JobRecoveryPolicy::Drop);
+    assert!(cfg.job_retention_hours.is_none());
 }
 
 // ── WorkflowConfig ─────────────────────────────────────────────────

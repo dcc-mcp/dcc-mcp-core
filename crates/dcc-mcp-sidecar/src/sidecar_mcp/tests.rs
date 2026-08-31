@@ -13,6 +13,13 @@ use tokio::sync::oneshot;
 
 use super::*;
 
+#[test]
+fn configured_persistence_is_unavailable_in_dispatch_only_sidecar() {
+    let health = sidecar_job_persistence_health(true);
+    assert_eq!(health["state"], "unavailable");
+    assert_eq!(health["last_error_kind"], "feature_disabled");
+}
+
 async fn connected_stub_client() -> Box<dyn HostRpcClient> {
     let mut client = StubHostRpcClient::new();
     client

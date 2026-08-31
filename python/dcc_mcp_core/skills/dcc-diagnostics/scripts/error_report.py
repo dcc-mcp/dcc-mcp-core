@@ -6,7 +6,7 @@ Aggregates the most useful signals for diagnosing tool failures:
    ``DccServerBase`` (``dcc-mcp-<dcc>.*.log``).  Includes ERROR and WARNING
    lines plus the last N lines of context.
 2. **Failed / interrupted jobs** — query the SQLite job-persistence database
-   (``dcc-mcp-<dcc>-jobs.db``) for recent non-successful jobs.
+   (``dcc-mcp-<dcc>-<instance>-jobs.db``) for recent non-successful jobs.
 3. **Process status** — current PID liveness, platform, Python version.
 4. **Observability config** — which features are active (file logging, job
    persistence, telemetry) so the user knows what data is available.
@@ -24,8 +24,11 @@ import json
 import os
 from pathlib import Path
 import platform
+import re
 import sqlite3
 import sys
+
+from dcc_mcp_core.constants import ENV_JOB_INSTANCE_KEY
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -226,7 +229,24 @@ def main(**kwargs) -> None:
         job_limit = args.job_limit
 
     if not db_path and log_dir and dcc_name:
-        db_path = str(Path(log_dir) / f"dcc-mcp-{dcc_name}-jobs.db")
+        # Default persistence is isolated by process/instance key. Resolve
+        # the current instance first so concurrent DCC processes cannot leak
+        # another process's failed jobs into this report.
+        instance_key = os.environ.get(ENV_JOB_INSTANCE_KEY, "").strip() or str(os.getpid())
+        safe_key = re.sub(r"[^A-Za-z0-9_.-]+", "_", instance_key)[:64] or "default"
+        exact = Path(log_dir) / f"dcc-mcp-{dcc_name}-{safe_key}-jobs.db"
+        candidates = [exact] if exact.exists() else []
+        legacy = Path(log_dir) / f"dcc-mcp-{dcc_name}-jobs.db"
+        if not candidates and legacy.exists():
+            candidates.append(legacy)
+        if not candidates:
+            candidates = sorted(
+                Path(log_dir).glob(f"dcc-mcp-{dcc_name}-*-jobs.db"),
+                key=os.path.getmtime,
+                reverse=True,
+            )
+        if candidates:
+            db_path = str(candidates[0])
     elif not db_path and log_dir:
         candidates = sorted(
             Path(log_dir).glob("dcc-mcp-*-jobs.db"),

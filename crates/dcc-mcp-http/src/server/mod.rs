@@ -7,6 +7,7 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::{net::TcpListener, sync::watch, task::JoinHandle};
 use tower_http::classify::{
     ClassifiedResponse, ClassifyResponse, MakeClassifier, NeverClassifyEos, ServerErrorsAsFailures,
@@ -146,6 +147,7 @@ pub type LiveMeta = Arc<RwLock<LiveMetaInner>>;
 /// listener's accept loop from being starved under PyO3-embedded hosts.
 pub struct McpServerHandle {
     shutdown_tx: watch::Sender<bool>,
+    jobs: Arc<crate::job::JobManager>,
     /// JoinHandle for the serve task when running in
     /// [`ServerSpawnMode::Ambient`] mode.
     join: Option<JoinHandle<()>>,
@@ -173,9 +175,32 @@ pub struct McpServerHandle {
     _gateway: Option<dcc_mcp_gateway::GatewayHandle>,
 }
 
+const PERSISTENCE_SHUTDOWN_TIMEOUT: Duration = Duration::from_millis(250);
+
 impl McpServerHandle {
     /// Gracefully shut down the server and wait for it to stop.
     pub async fn shutdown(mut self) {
+        // Stop persistence before dropping the listener. Async job tasks can
+        // outlive the HTTP server and must not retain the SQLite ownership
+        // lease into the next process incarnation.
+        let jobs = Arc::clone(&self.jobs);
+        let shutdown = tokio::task::spawn_blocking(move || {
+            jobs.shutdown_persistence(PERSISTENCE_SHUTDOWN_TIMEOUT)
+        });
+        match tokio::time::timeout(PERSISTENCE_SHUTDOWN_TIMEOUT, shutdown).await {
+            Ok(Ok(true)) => {}
+            Ok(Ok(false)) => tracing::warn!(
+                timeout_ms = PERSISTENCE_SHUTDOWN_TIMEOUT.as_millis(),
+                "job persistence ownership did not close within the bounded shutdown window"
+            ),
+            Ok(Err(error)) => {
+                tracing::warn!(error = %error, "job persistence shutdown task failed")
+            }
+            Err(_) => tracing::warn!(
+                timeout_ms = PERSISTENCE_SHUTDOWN_TIMEOUT.as_millis(),
+                "job persistence shutdown task exceeded the bounded shutdown window"
+            ),
+        }
         // Issue #718: deregister from FileRegistry *before* waiting for
         // the serve loop to finish. Peers reading `services.json` should
         // see the row disappear as soon as `shutdown()` is invoked rather
@@ -572,11 +597,15 @@ impl McpHttpServer {
                     policy = self.config.job.job_recovery.as_str(),
                     "JobManager storage recovery found no in-flight rows"
                 ),
-                Err(e) => tracing::error!(
-                    error = %e,
-                    policy = self.config.job.job_recovery.as_str(),
-                    "JobManager storage recovery failed — in-process map stays empty"
-                ),
+                Err(e) => {
+                    jobs.disable_persistence_for_storage_error(&e);
+                    tracing::error!(
+                        error = %e,
+                        error_kind = ?jobs.persistence_status().last_error_kind,
+                        policy = self.config.job.job_recovery.as_str(),
+                        "JobManager storage recovery failed — persistence marked unavailable"
+                    );
+                }
             }
         }
 
@@ -670,11 +699,12 @@ impl McpHttpServer {
 
         let app_state_for_rmcp = state.clone();
 
+        let health_jobs = jobs.clone();
         let mut router = Router::new()
             .route(
                 "/health",
                 routing::get(move || {
-                    let jobs = jobs.clone();
+                    let jobs = health_jobs.clone();
                     async move { Json(health_payload(&jobs)) }
                 }),
             )
@@ -788,6 +818,7 @@ impl McpHttpServer {
 
         Ok(McpServerHandle {
             shutdown_tx,
+            jobs,
             join,
             serve_thread,
             port,
@@ -834,9 +865,26 @@ fn build_job_manager(config: &McpHttpConfig) -> HttpResult<Arc<crate::job::JobMa
                         path.display()
                     ))
                 })?;
-                Ok(Arc::new(crate::job::JobManager::with_offloaded_storage(
-                    Arc::new(storage),
-                )))
+                let jobs = Arc::new(crate::job::JobManager::with_offloaded_storage(Arc::new(
+                    storage,
+                )));
+                if let Some(retention_hours) = config.job.job_retention_hours {
+                    let hours = retention_hours.min(24 * 365 * 1000) as i64;
+                    let cutoff = chrono::Utc::now() - chrono::Duration::hours(hours);
+                    if let Err(error) = jobs
+                        .storage()
+                        .expect("SQLite JobManager always has storage")
+                        .delete_older_than(cutoff)
+                    {
+                        tracing::warn!(
+                            error = %error,
+                            retention_hours,
+                            "startup job retention failed; persistence disabled and data left unchanged"
+                        );
+                        jobs.disable_persistence("retention_prune_failed");
+                    }
+                }
+                Ok(jobs)
             }
             #[cfg(not(feature = "job-persist-sqlite"))]
             {

@@ -265,6 +265,18 @@ impl PyMcpHttpConfig {
         self.inner.job.job_storage_path = path.map(std::path::PathBuf::from);
     }
 
+    /// Optional startup retention window for terminal persisted jobs.
+    #[getter]
+    fn job_retention_hours(&self) -> Option<u64> {
+        self.inner.job.job_retention_hours
+    }
+
+    /// Configure startup pruning of terminal persisted jobs older than hours.
+    #[setter]
+    fn set_job_retention_hours(&mut self, hours: Option<u64>) {
+        self.inner.job.job_retention_hours = hours;
+    }
+
     /// Shared FileRegistry directory path. ``None`` uses a system temp dir.
     #[getter]
     fn registry_dir(&self) -> Option<String> {

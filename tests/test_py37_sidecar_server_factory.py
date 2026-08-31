@@ -18,6 +18,8 @@ from dcc_mcp_core._runtime.sidecar_skill_server import SidecarBackedSkillServer
 from dcc_mcp_core._server.skill_query import SkillQueryClient
 from dcc_mcp_core.constants import ENV_DISABLE_ACCUMULATED_SKILLS
 from dcc_mcp_core.constants import ENV_DISABLE_DEFAULT_SKILL_PATHS
+from dcc_mcp_core.constants import ENV_JOB_RETENTION_HOURS
+from dcc_mcp_core.constants import ENV_JOB_STORAGE_PATH
 from dcc_mcp_core.constants import ENV_SKILL_PATHS
 
 
@@ -121,6 +123,18 @@ class TestServerFactoryRouting:
 
 
 class TestSidecarBackedSkillServer:
+    def test_launch_environment_forwards_persistence_contract(self, tmp_path: Path) -> None:
+        config = PureMcpHttpConfig(
+            job_storage_path=str(tmp_path / "jobs.sqlite3"),
+            job_retention_hours=48,
+        )
+        server = SidecarBackedSkillServer("maya", config, host_rpc="commandport://127.0.0.1:6000")
+
+        launch_env = server._launch_environment()
+
+        assert launch_env[ENV_JOB_STORAGE_PATH] == str(tmp_path / "jobs.sqlite3")
+        assert launch_env[ENV_JOB_RETENTION_HOURS] == "48"
+
     def test_discover_returns_real_skill_count_without_core(
         self,
         monkeypatch: pytest.MonkeyPatch,

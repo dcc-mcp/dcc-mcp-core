@@ -75,6 +75,12 @@ pub struct JobConfig {
     /// `Running` after a crash or restart (issue #567).
     #[serde(default)]
     pub job_recovery: JobRecoveryPolicy,
+
+    /// Optional startup retention window for terminal rows. When set, the
+    /// server prunes only terminal jobs older than this many hours after
+    /// opening the SQLite backend. `None` keeps startup non-destructive.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub job_retention_hours: Option<u64>,
 }
 
 impl Default for JobConfig {
@@ -82,6 +88,7 @@ impl Default for JobConfig {
         Self {
             job_storage_path: None,
             job_recovery: JobRecoveryPolicy::Drop,
+            job_retention_hours: None,
         }
     }
 }

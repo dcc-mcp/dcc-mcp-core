@@ -19,6 +19,8 @@ from dcc_mcp_core._runtime.skill_paths import skill_env_slug
 from dcc_mcp_core._runtime.tool_registry_py import PurePythonToolRegistry
 from dcc_mcp_core.constants import ENV_DISABLE_ACCUMULATED_SKILLS
 from dcc_mcp_core.constants import ENV_DISABLE_DEFAULT_SKILL_PATHS
+from dcc_mcp_core.constants import ENV_JOB_RETENTION_HOURS
+from dcc_mcp_core.constants import ENV_JOB_STORAGE_PATH
 from dcc_mcp_core.constants import ENV_SKILL_PATHS
 from dcc_mcp_core.constants import ENV_TEAM_DCC_SKILL_PATHS_TEMPLATE
 from dcc_mcp_core.constants import ENV_TEAM_SKILL_PATHS
@@ -129,6 +131,12 @@ class SidecarBackedSkillServer:
             overrides[ENV_SKILL_PATHS] = os.pathsep.join(dict.fromkeys(paths))
         if not self._accumulated:
             overrides[ENV_DISABLE_ACCUMULATED_SKILLS] = "1"
+        storage_path = getattr(self._config, "job_storage_path", None)
+        if storage_path:
+            overrides[ENV_JOB_STORAGE_PATH] = str(storage_path)
+        retention_hours = getattr(self._config, "job_retention_hours", None)
+        if retention_hours is not None:
+            overrides[ENV_JOB_RETENTION_HOURS] = str(int(retention_hours))
         return overrides
 
     def start(self) -> SidecarServerHandle:

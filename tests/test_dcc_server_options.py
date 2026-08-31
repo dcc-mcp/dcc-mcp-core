@@ -569,6 +569,20 @@ class TestDccServerBaseOptionsPath:
         server, _ = self._make_server_via_options(tmp_path)
         assert isinstance(server._options, DccServerOptions)
 
+    def test_build_config_forwards_job_retention_hours(self, tmp_path):
+        options = DccServerOptions.from_env(
+            "maya",
+            tmp_path,
+            job_retention_hours=72,
+        )
+        config = build_mcp_http_config(
+            options,
+            package_version="1.0.0",
+            version_provider=lambda: "2025",
+        )
+
+        assert config.job_retention_hours == 72
+
     def test_diagnostics_state_is_bound_to_the_server_instance(self, tmp_path):
         first, _ = self._make_server_via_options(tmp_path)
         second, _ = self._make_server_via_options(tmp_path)

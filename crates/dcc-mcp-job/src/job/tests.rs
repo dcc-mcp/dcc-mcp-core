@@ -1,8 +1,8 @@
 //! Unit tests for [`crate::job::JobManager`].
 
-use super::persistence::PERSISTENCE_FAILURE_THRESHOLD;
+use super::persistence::{JobPersistenceState, PERSISTENCE_FAILURE_THRESHOLD};
 use super::*;
-use crate::job_storage::{JobFilter, JobStorage, JobStorageError};
+use crate::job_storage::{InMemoryStorage, JobFilter, JobStorage, JobStorageError};
 use serde_json::json;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
@@ -14,6 +14,39 @@ use std::time::{Duration, Instant};
 struct FailingStorage {
     puts: AtomicUsize,
     alternating: bool,
+}
+
+#[derive(Debug, Default)]
+struct CorruptStorage;
+
+impl JobStorage for CorruptStorage {
+    fn put(&self, _job: &Job) -> Result<(), JobStorageError> {
+        Ok(())
+    }
+
+    fn get(&self, _job_id: &str) -> Result<Option<Job>, JobStorageError> {
+        Ok(None)
+    }
+
+    fn list(&self, _filter: JobFilter) -> Result<Vec<Job>, JobStorageError> {
+        Err(JobStorageError::Decode("invalid status".to_string()))
+    }
+
+    fn update_status(
+        &self,
+        _job_id: &str,
+        _status: JobStatus,
+        _at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<(), JobStorageError> {
+        Ok(())
+    }
+
+    fn delete_older_than(
+        &self,
+        _cutoff: chrono::DateTime<chrono::Utc>,
+    ) -> Result<u64, JobStorageError> {
+        Ok(0)
+    }
 }
 
 impl FailingStorage {
@@ -62,6 +95,19 @@ struct BlockingStorage {
     release: std::sync::Mutex<mpsc::Receiver<()>>,
 }
 
+struct BlockingDeleteStorage {
+    delete_entered: mpsc::SyncSender<()>,
+    delete_release: std::sync::Mutex<mpsc::Receiver<()>>,
+}
+
+impl std::fmt::Debug for BlockingDeleteStorage {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("BlockingDeleteStorage")
+            .finish_non_exhaustive()
+    }
+}
+
 impl std::fmt::Debug for BlockingStorage {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
@@ -82,6 +128,33 @@ struct ShutdownObservingStorage {
 
 struct FailingDeleteObservingStorage {
     delete_called: mpsc::SyncSender<()>,
+}
+
+#[derive(Debug)]
+struct RetentionFailureStorage {
+    rows: std::sync::Mutex<Vec<Job>>,
+    puts: AtomicUsize,
+    delete_failures_remaining: AtomicUsize,
+}
+
+impl Default for RetentionFailureStorage {
+    fn default() -> Self {
+        Self {
+            rows: std::sync::Mutex::new(Vec::new()),
+            puts: AtomicUsize::new(0),
+            delete_failures_remaining: AtomicUsize::new(usize::MAX),
+        }
+    }
+}
+
+impl RetentionFailureStorage {
+    fn retry_once() -> Self {
+        Self {
+            rows: std::sync::Mutex::new(Vec::new()),
+            puts: AtomicUsize::new(0),
+            delete_failures_remaining: AtomicUsize::new(1),
+        }
+    }
 }
 
 impl std::fmt::Debug for NeverReturningStorage {
@@ -136,6 +209,54 @@ impl JobStorage for FailingDeleteObservingStorage {
     ) -> Result<u64, JobStorageError> {
         self.delete_called.send(()).unwrap();
         Ok(0)
+    }
+}
+
+impl JobStorage for RetentionFailureStorage {
+    fn put(&self, job: &Job) -> Result<(), JobStorageError> {
+        self.puts.fetch_add(1, Ordering::SeqCst);
+        let mut rows = self.rows.lock().unwrap();
+        if let Some(existing) = rows.iter_mut().find(|row| row.id == job.id) {
+            *existing = job.clone();
+        } else {
+            rows.push(job.clone());
+        }
+        Ok(())
+    }
+
+    fn get(&self, _job_id: &str) -> Result<Option<Job>, JobStorageError> {
+        Ok(None)
+    }
+
+    fn list(&self, _filter: JobFilter) -> Result<Vec<Job>, JobStorageError> {
+        Ok(self.rows.lock().unwrap().clone())
+    }
+
+    fn update_status(
+        &self,
+        _job_id: &str,
+        _status: JobStatus,
+        _at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<(), JobStorageError> {
+        Ok(())
+    }
+
+    fn delete_older_than(
+        &self,
+        cutoff: chrono::DateTime<chrono::Utc>,
+    ) -> Result<u64, JobStorageError> {
+        let remaining = self.delete_failures_remaining.load(Ordering::SeqCst);
+        if remaining > 0 {
+            self.delete_failures_remaining
+                .fetch_sub(1, Ordering::SeqCst);
+            return Err(JobStorageError::Backend(
+                "retention delete failed".to_string(),
+            ));
+        }
+        let mut rows = self.rows.lock().unwrap();
+        let before = rows.len();
+        rows.retain(|row| !(row.status.is_terminal() && row.updated_at < cutoff));
+        Ok((before - rows.len()) as u64)
     }
 }
 
@@ -234,6 +355,38 @@ impl JobStorage for BlockingStorage {
         _cutoff: chrono::DateTime<chrono::Utc>,
     ) -> Result<u64, JobStorageError> {
         Ok(0)
+    }
+}
+
+impl JobStorage for BlockingDeleteStorage {
+    fn put(&self, _job: &Job) -> Result<(), JobStorageError> {
+        Ok(())
+    }
+
+    fn get(&self, _job_id: &str) -> Result<Option<Job>, JobStorageError> {
+        Ok(None)
+    }
+
+    fn list(&self, _filter: JobFilter) -> Result<Vec<Job>, JobStorageError> {
+        Ok(Vec::new())
+    }
+
+    fn update_status(
+        &self,
+        _job_id: &str,
+        _status: JobStatus,
+        _at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<(), JobStorageError> {
+        Ok(())
+    }
+
+    fn delete_older_than(
+        &self,
+        _cutoff: chrono::DateTime<chrono::Utc>,
+    ) -> Result<u64, JobStorageError> {
+        self.delete_entered.send(()).unwrap();
+        self.delete_release.lock().unwrap().recv().unwrap();
+        Ok(1)
     }
 }
 
@@ -704,6 +857,190 @@ fn persistence_status_is_not_configured_without_storage() {
 }
 
 #[test]
+fn recovery_failure_disables_persistence_health() {
+    let jobs = JobManager::with_storage(Arc::new(CorruptStorage));
+    let error = jobs
+        .recover_from_storage()
+        .expect_err("corrupt storage must fail recovery");
+    jobs.disable_persistence_for_storage_error(&error);
+
+    assert_eq!(
+        jobs.persistence_status().state,
+        JobPersistenceState::Disabled
+    );
+    assert_eq!(
+        jobs.persistence_status().last_error_kind.as_deref(),
+        Some("decode")
+    );
+}
+
+#[test]
+fn shutdown_drains_accepted_offloaded_writes_before_disabling_health() {
+    let storage = Arc::new(InMemoryStorage::new());
+    let jobs = JobManager::with_offloaded_storage(storage.clone());
+    let first = jobs.create("scene.inspect.shutdown-first");
+    let second = jobs.create("scene.inspect.shutdown-second");
+
+    assert!(jobs.shutdown_persistence(Duration::from_secs(1)));
+    assert!(storage.get(&first.read().id).unwrap().is_some());
+    assert!(storage.get(&second.read().id).unwrap().is_some());
+}
+
+#[test]
+fn synchronous_storage_shutdown_does_not_wait_for_blocked_backend() {
+    let (entered_tx, entered_rx) = mpsc::sync_channel(1);
+    let (release_tx, release_rx) = mpsc::sync_channel(1);
+    let storage = Arc::new(BlockingStorage {
+        entered: entered_tx,
+        release: std::sync::Mutex::new(release_rx),
+    });
+    let jobs = Arc::new(JobManager::with_storage(storage.clone()));
+    let create_jobs = Arc::clone(&jobs);
+    let creator = std::thread::spawn(move || create_jobs.create("scene.inspect.blocked-shutdown"));
+    entered_rx
+        .recv_timeout(Duration::from_secs(1))
+        .expect("backend write should start");
+
+    let shutdown_jobs = Arc::clone(&jobs);
+    let shutdown =
+        std::thread::spawn(move || shutdown_jobs.shutdown_persistence(Duration::from_millis(25)));
+    let result = shutdown
+        .join()
+        .expect("shutdown thread should return within its bounded window");
+    assert!(
+        !result,
+        "blocked synchronous backend must report incomplete shutdown"
+    );
+
+    release_tx.send(()).unwrap();
+    let _ = creator.join();
+}
+
+#[test]
+fn startup_retention_failure_disables_persistence_health() {
+    let jobs = JobManager::with_storage(Arc::new(InMemoryStorage::new()));
+    jobs.disable_persistence("retention_prune_failed");
+    let status = jobs.persistence_status();
+    assert_eq!(status.state, JobPersistenceState::Disabled);
+    assert_eq!(
+        status.last_error_kind.as_deref(),
+        Some("retention_prune_failed")
+    );
+}
+
+#[test]
+fn runtime_retention_failure_disables_persistence_health() {
+    let storage = Arc::new(RetentionFailureStorage::default());
+    let jobs = JobManager::with_storage(storage.clone());
+    let old_job = jobs.create("scene.inspect.retention-failure");
+    let old_job_id = old_job.read().id.clone();
+    jobs.start(&old_job_id).unwrap();
+    jobs.complete(&old_job_id, json!({"ok": true})).unwrap();
+    old_job.write().updated_at = chrono::Utc::now() - chrono::Duration::hours(2);
+
+    assert_eq!(jobs.cleanup_older_than_hours(1), 0);
+    assert_eq!(
+        jobs.persistence_status().last_error_kind.as_deref(),
+        Some("retention_prune_failed")
+    );
+    assert_eq!(
+        jobs.persistence_status().state,
+        JobPersistenceState::Disabled
+    );
+    assert!(jobs.get(&old_job_id).is_some());
+
+    let mut inflight = old_job.read().clone();
+    inflight.id = "retention-inflight".to_string();
+    inflight.status = JobStatus::Running;
+    storage.put(&inflight).unwrap();
+    let puts_before_recovery = storage.puts.load(Ordering::SeqCst);
+    jobs.recover_from_storage()
+        .expect("disabled retention must not block in-memory recovery");
+    assert_eq!(
+        storage.puts.load(Ordering::SeqCst),
+        puts_before_recovery,
+        "recovery must not bypass a disabled persistence circuit"
+    );
+
+    let puts_before_restart = storage.puts.load(Ordering::SeqCst);
+    drop(jobs);
+    let restarted = JobManager::with_storage(storage.clone());
+    restarted
+        .recover_from_storage()
+        .expect("retention failure must not corrupt persisted rows");
+    assert!(restarted.get(&old_job_id).is_some());
+    assert!(storage.puts.load(Ordering::SeqCst) >= puts_before_restart);
+}
+
+#[test]
+fn retention_prune_failure_keeps_row_until_explicit_retry_succeeds() {
+    let storage = Arc::new(RetentionFailureStorage::retry_once());
+    let jobs = JobManager::with_storage(storage.clone());
+    let old_job = jobs.create("scene.inspect.retention-retry");
+    let old_job_id = old_job.read().id.clone();
+    jobs.start(&old_job_id).unwrap();
+    jobs.complete(&old_job_id, json!({"ok": true})).unwrap();
+    old_job.write().updated_at = chrono::Utc::now() - chrono::Duration::hours(2);
+    storage.put(&old_job.read().clone()).unwrap();
+
+    assert_eq!(jobs.cleanup_older_than_hours(1), 0);
+    assert!(jobs.get(&old_job_id).is_some());
+    assert_eq!(
+        jobs.persistence_status().last_error_kind.as_deref(),
+        Some("retention_prune_failed")
+    );
+
+    assert_eq!(jobs.cleanup_older_than_hours(1), 1);
+    assert!(jobs.get(&old_job_id).is_none());
+    assert!(storage.list(JobFilter::default()).unwrap().is_empty());
+}
+
+#[test]
+fn blocking_cleanup_waits_for_offloaded_delete_before_reporting_rows() {
+    let storage = Arc::new(InMemoryStorage::new());
+    let jobs = JobManager::with_offloaded_storage(storage.clone());
+    let job = jobs.create("scene.inspect.blocking-cleanup");
+    let job_id = job.read().id.clone();
+    jobs.start(&job_id).unwrap();
+    jobs.complete(&job_id, json!({"ok": true})).unwrap();
+    let mut persisted = job.read().clone();
+    persisted.updated_at = chrono::Utc::now() - chrono::Duration::hours(2);
+    storage.put(&persisted).unwrap();
+    job.write().updated_at = persisted.updated_at;
+
+    assert_eq!(jobs.cleanup_older_than_hours_blocking(1), 1);
+    assert!(jobs.get(&job_id).is_none());
+}
+
+#[test]
+fn blocking_cleanup_times_out_without_removing_in_memory_rows() {
+    let (entered_tx, entered_rx) = mpsc::sync_channel(1);
+    let (release_tx, release_rx) = mpsc::sync_channel(1);
+    let storage = Arc::new(BlockingDeleteStorage {
+        delete_entered: entered_tx,
+        delete_release: std::sync::Mutex::new(release_rx),
+    });
+    let jobs = JobManager::with_offloaded_storage(storage);
+    let job = jobs.create("scene.inspect.blocking-delete");
+    let job_id = job.read().id.clone();
+    jobs.start(&job_id).unwrap();
+    jobs.complete(&job_id, json!({"ok": true})).unwrap();
+    job.write().updated_at = chrono::Utc::now() - chrono::Duration::hours(2);
+
+    let started = Instant::now();
+    let result = jobs.cleanup_older_than_hours_blocking_with_timeout(1, Duration::from_millis(50));
+    assert!(entered_rx.recv_timeout(Duration::from_secs(1)).is_ok());
+    assert!(result.is_none(), "blocked cleanup must fail closed");
+    assert!(started.elapsed() < Duration::from_millis(500));
+    assert!(
+        jobs.get(&job_id).is_some(),
+        "timeout must preserve in-memory rows"
+    );
+
+    release_tx.send(()).unwrap();
+}
+
+#[test]
 fn repeated_identical_put_failures_latch_persistence() {
     let storage = Arc::new(FailingStorage::default());
     let jobs = JobManager::with_storage(storage.clone());
@@ -718,10 +1055,26 @@ fn repeated_identical_put_failures_latch_persistence() {
         JobPersistenceStatus {
             state: JobPersistenceState::Disabled,
             consecutive_failures: 3,
-            last_error_kind: Some("backend".to_string()),
+            last_error_kind: Some("readonly".to_string()),
         }
     );
     assert_eq!(jobs.list().len(), 5, "in-memory jobs must keep working");
+}
+
+#[test]
+fn readonly_storage_failures_surface_a_stable_health_kind() {
+    let storage = Arc::new(FailingStorage::default());
+    let jobs = JobManager::with_storage(storage);
+
+    for _ in 0..PERSISTENCE_FAILURE_THRESHOLD {
+        jobs.create("scene.inspect.readonly");
+    }
+
+    assert_eq!(
+        jobs.persistence_status().last_error_kind,
+        Some("readonly".to_string()),
+        "health must distinguish a read-only backend from an unknown backend failure"
+    );
 }
 
 #[test]
@@ -886,7 +1239,7 @@ fn offloaded_storage_shutdown_timeout_cancels_queued_cleanup() {
     jobs.start(&job_id).unwrap();
     jobs.complete(&job_id, json!({"ok": true})).unwrap();
     job.write().updated_at = chrono::Utc::now() - chrono::Duration::hours(2);
-    assert_eq!(jobs.cleanup_older_than_hours(1), 1);
+    assert_eq!(jobs.cleanup_older_than_hours(1), 0);
 
     let drop_started = Instant::now();
     drop(jobs);
@@ -924,7 +1277,7 @@ fn offloaded_storage_queue_full_disable_cancels_cleanup_before_backend() {
     jobs.start(&job_id).unwrap();
     jobs.complete(&job_id, json!({"ok": true})).unwrap();
     job.write().updated_at = chrono::Utc::now() - chrono::Duration::hours(2);
-    assert_eq!(jobs.cleanup_older_than_hours(1), 1);
+    assert_eq!(jobs.cleanup_older_than_hours(1), 0);
     for index in 0..65 {
         jobs.create(format!("scene.inspect.queue-full-cleanup.{index}"));
     }
@@ -966,7 +1319,7 @@ fn disabled_storage_circuit_rejects_cleanup_before_enqueue() {
     jobs.start(&old_job_id).unwrap();
     jobs.complete(&old_job_id, json!({"ok": true})).unwrap();
     old_job.write().updated_at = chrono::Utc::now() - chrono::Duration::hours(2);
-    assert_eq!(jobs.cleanup_older_than_hours(1), 1);
+    assert_eq!(jobs.cleanup_older_than_hours(1), 0);
 
     assert!(
         delete_called_rx

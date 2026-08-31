@@ -3,6 +3,7 @@ use dcc_mcp_gateway_core::capability::compute_fingerprint;
 use dcc_mcp_gateway_core::policy::GatewayPolicyOperation;
 
 use super::super::capability::{CapabilityRecord, tool_slug};
+use super::super::capability_service::safe_discovery_target;
 use super::super::http_registration::{entry_discovery_mcp_url, entry_mcp_url};
 
 /// Dispatch a skill-management tool across backends.
@@ -38,6 +39,12 @@ pub(crate) async fn skill_mgmt_dispatch(
         "load_skill" | "unload_skill" | "activate_tool_group" | "deactivate_tool_group" => {
             match resolve_target(gs, target_instance, dcc_filter).await {
                 Ok(entry) => {
+                    if !crate::gateway::capability_service::safe_discovery_target(&entry) {
+                        return (
+                            "backend target rejected by gateway safety policy".to_string(),
+                            true,
+                        );
+                    }
                     let search_id = crate::gateway::search_telemetry::search_id_from_payload(&args);
                     let skill_names = requested_skill_names(&args);
                     if let Err(denial) = gs.policy.enforce_skill_operation(
@@ -234,7 +241,9 @@ Standalone `dcc-mcp-server` without `--app` registers as `dcc_type` from DCC_MCP
                     true,
                 );
             }
-            targets.retain(|entry| gs.policy.allows_dcc(&entry.dcc_type));
+            targets.retain(|entry| {
+                gs.policy.allows_dcc(&entry.dcc_type) && safe_discovery_target(entry)
+            });
             if targets.is_empty() {
                 return (
                     serde_json::to_string_pretty(&json!({

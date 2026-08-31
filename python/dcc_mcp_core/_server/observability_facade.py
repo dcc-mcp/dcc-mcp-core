@@ -34,6 +34,7 @@ class ObservabilityFacade:
 
     def __init__(self, owner: Any) -> None:
         self._owner = owner
+        self._job_persistence_manager: JobPersistenceManager | None = None
 
     # -- file logging ---------------------------------------------------------
 
@@ -122,6 +123,7 @@ class ObservabilityFacade:
             enabled=owner._enable_job_persistence,
             log_dir=owner._log_dir,
         )
+        self._job_persistence_manager = manager
         manager.init(owner._config)
 
     # -- telemetry ------------------------------------------------------------
@@ -138,11 +140,14 @@ class ObservabilityFacade:
     def observability_summary(self) -> dict[str, Any]:
         owner = self._owner
         capture = getattr(owner, "_host_error_capture", None)
+        job_manager = self._job_persistence_manager
         return {
             "file_logging": owner._enable_file_logging,
             "log_dir": owner._log_dir or None,
             "job_persistence": owner._enable_job_persistence,
             "job_db": getattr(owner._config, "job_storage_path", None),
+            "job_persistence_state": job_manager.state if job_manager else "not_configured",
+            "job_persistence_error_kind": job_manager.last_error_kind if job_manager else None,
             "telemetry": owner._enable_telemetry,
             "host_error_capture": capture is not None,
             "host_output_resource": getattr(capture, "output_resource_uri", None),

@@ -408,6 +408,12 @@ impl McpHttpConfig {
     pub fn set_job_recovery(&mut self, v: JobRecoveryPolicy) {
         self.job.job_recovery = v;
     }
+    pub fn job_retention_hours(&self) -> Option<u64> {
+        self.job.job_retention_hours
+    }
+    pub fn set_job_retention_hours(&mut self, v: Option<u64>) {
+        self.job.job_retention_hours = v;
+    }
     pub fn enable_scheduler(&self) -> bool {
         self.workflow.enable_scheduler
     }
@@ -504,6 +510,12 @@ impl McpHttpConfig {
     /// persisted by a previous run (issue #567).
     pub fn with_job_recovery(mut self, policy: JobRecoveryPolicy) -> Self {
         self.job.job_recovery = policy;
+        self
+    }
+
+    /// Builder: prune terminal persisted jobs older than `hours` on startup.
+    pub fn with_job_retention_hours(mut self, hours: u64) -> Self {
+        self.job.job_retention_hours = Some(hours);
         self
     }
 

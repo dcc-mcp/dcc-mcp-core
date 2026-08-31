@@ -992,6 +992,7 @@ fn gateway_schemas() -> Vec<(&'static str, Value)> {
             "GatewaySafeStopRequest",
             json!({
                 "type": "object",
+                "required": ["expected_owner", "expected_session"],
                 "properties": {
                     "expected_owner": {"type": "string"},
                     "expected_session": {"type": "string"}

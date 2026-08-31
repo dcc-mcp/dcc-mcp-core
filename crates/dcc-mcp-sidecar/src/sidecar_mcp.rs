@@ -70,6 +70,7 @@ pub struct SidecarMcpState {
     pub(crate) host_rpc: Arc<Mutex<Box<dyn HostRpcClient>>>,
     pub(crate) server_version: String,
     pub(crate) feedback: Option<SidecarFeedbackForwarder>,
+    pub(crate) job_persistence: serde_json::Value,
 }
 
 impl SidecarMcpState {
@@ -83,6 +84,9 @@ impl SidecarMcpState {
             host_rpc: Arc::new(Mutex::new(host_rpc)),
             server_version: server_version.into(),
             feedback: None,
+            job_persistence: sidecar_job_persistence_health(
+                std::env::var_os("DCC_MCP_JOB_STORAGE_PATH").is_some(),
+            ),
         }
     }
 
@@ -110,6 +114,22 @@ impl SidecarMcpState {
         let mut guard = self.host_rpc.lock().await;
         guard.close().await;
         *guard = host_rpc;
+    }
+}
+
+fn sidecar_job_persistence_health(configured: bool) -> serde_json::Value {
+    if configured {
+        serde_json::json!({
+            "state": "unavailable",
+            "consecutive_failures": 0,
+            "last_error_kind": "feature_disabled"
+        })
+    } else {
+        serde_json::json!({
+            "state": "not_configured",
+            "consecutive_failures": 0,
+            "last_error_kind": serde_json::Value::Null
+        })
     }
 }
 

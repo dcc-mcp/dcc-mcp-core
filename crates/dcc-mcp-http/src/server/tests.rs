@@ -1,4 +1,6 @@
 use super::*;
+#[cfg(feature = "job-persist-sqlite")]
+use crate::job_storage::JobStorage;
 use axum::body::Body;
 use http::{Method, Request, Response, StatusCode};
 use parking_lot::Mutex;
@@ -19,6 +21,53 @@ fn health_payload_surfaces_job_persistence_state() {
     assert_eq!(payload["job_persistence"]["state"], "not_configured");
     assert_eq!(payload["job_persistence"]["consecutive_failures"], 0);
     assert!(payload["job_persistence"]["last_error_kind"].is_null());
+}
+
+#[cfg(feature = "job-persist-sqlite")]
+#[test]
+fn startup_retention_prunes_only_terminal_rows() {
+    let path = std::env::temp_dir().join(format!(
+        "dcc-mcp-http-retention-{}.sqlite3",
+        uuid::Uuid::new_v4()
+    ));
+    let storage = crate::job_storage::SqliteStorage::open(&path).unwrap();
+    let seed = crate::job::JobManager::new();
+
+    let old_terminal = seed.create("scene.completed");
+    {
+        let mut job = old_terminal.write();
+        job.status = crate::job::JobStatus::Completed;
+        job.updated_at = chrono::Utc::now() - chrono::Duration::days(30);
+    }
+    let old_terminal_id = old_terminal.read().id.clone();
+    storage.put(&old_terminal.read()).unwrap();
+
+    let old_running = seed.create("scene.running");
+    {
+        let mut job = old_running.write();
+        job.status = crate::job::JobStatus::Running;
+        job.updated_at = chrono::Utc::now() - chrono::Duration::days(30);
+    }
+    let old_running_id = old_running.read().id.clone();
+    storage.put(&old_running.read()).unwrap();
+    drop(storage);
+
+    let mut config = McpHttpConfig::default();
+    config.job.job_storage_path = Some(path.clone());
+    config.job.job_retention_hours = Some(24);
+    let jobs = build_job_manager(&config).unwrap();
+    let storage = jobs.storage().unwrap();
+    assert!(storage.get(&old_terminal_id).unwrap().is_none());
+    assert!(storage.get(&old_running_id).unwrap().is_some());
+
+    drop(jobs);
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(path.with_file_name(format!(
+        "{}.lock",
+        path.file_name().unwrap().to_string_lossy()
+    )));
+    let _ = std::fs::remove_file(path.with_extension("sqlite3-wal"));
+    let _ = std::fs::remove_file(path.with_extension("sqlite3-shm"));
 }
 
 struct HttpBlockingStorage {
@@ -291,7 +340,9 @@ async fn dedicated_health_remains_responsive_while_job_cleanup_is_blocked() {
 
     let health_started = Instant::now();
     let health_response = tokio::time::timeout(
-        Duration::from_millis(100),
+        // Leave headroom for first-connection scheduling while remaining
+        // below the 300ms blocked-storage window used by this regression.
+        Duration::from_millis(200),
         client.get(format!("http://127.0.0.1:{port}/health")).send(),
     )
     .await;
@@ -318,7 +369,7 @@ async fn dedicated_health_remains_responsive_while_job_cleanup_is_blocked() {
     });
     assert_eq!(health_response.unwrap().status(), StatusCode::OK);
     assert!(
-        health_elapsed < Duration::from_millis(100),
+        health_elapsed < Duration::from_millis(200),
         "/health took {health_elapsed:?}"
     );
 }

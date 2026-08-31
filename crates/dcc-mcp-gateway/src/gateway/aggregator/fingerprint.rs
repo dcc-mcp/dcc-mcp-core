@@ -1,3 +1,4 @@
+use super::super::capability_service::safe_discovery_target;
 use super::super::http_registration::entry_discovery_mcp_url;
 use super::helpers::is_fingerprint_eligible_instance;
 use super::*;
@@ -65,6 +66,9 @@ pub(crate) async fn compute_tools_fingerprint_with_own(
     };
 
     let futs = instances.iter().map(|entry| async move {
+        if !safe_discovery_target(entry) || entry_discovery_mcp_url(entry).is_empty() {
+            return (entry.instance_id, Vec::new());
+        }
         let url = entry_discovery_mcp_url(entry);
         let (tools, _unloaded) = fetch_tools(http_client, resilience, &url, backend_timeout).await;
         (entry.instance_id, tools)

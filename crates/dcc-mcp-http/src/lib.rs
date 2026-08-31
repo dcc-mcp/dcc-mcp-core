@@ -81,6 +81,24 @@ pub use dcc_mcp_http_types::debug_session::{
 pub use dcc_mcp_http_types::session_events::{
     SessionEvent, SessionEventPage, SessionEventReadOptions, SessionEventTruncation,
 };
+
+/// Return whether the optional SQLite job-persistence backend is compiled
+/// into this build. Python startup probes use this non-mutating capability
+/// check before touching a configured database path.
+pub const fn job_persistence_feature_enabled() -> bool {
+    cfg!(feature = "job-persist-sqlite")
+}
+
+/// Return the native SQLite ownership sidecar path for a database path.
+///
+/// Python startup probes use this helper so their lease participates in the
+/// same physical-file namespace as the Rust storage backend.
+#[cfg(feature = "job-persist-sqlite")]
+pub fn job_persistence_ownership_lock_path(path: impl AsRef<std::path::Path>) -> String {
+    dcc_mcp_job::job_storage::sqlite::ownership_lock_path_for(path)
+        .display()
+        .to_string()
+}
 pub use dcc_mcp_skill_rest::{
     AllowLocalhostGate, AuditEvent, AuditOutcome, AuditSink, AuthGate, BearerTokenGate,
     NoopAuditSink, Principal, ReadinessProbe, ReadinessReport, ServiceError, ServiceErrorKind,

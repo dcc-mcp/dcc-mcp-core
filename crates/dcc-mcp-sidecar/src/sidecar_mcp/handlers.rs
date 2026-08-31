@@ -26,8 +26,12 @@ struct ToolsCallParams {
     arguments: Value,
 }
 
-pub(super) async fn handle_health() -> Response {
-    (StatusCode::OK, axum::Json(json!({"ok": true}))).into_response()
+pub(super) async fn handle_health(State(state): State<SidecarMcpState>) -> Response {
+    (
+        StatusCode::OK,
+        axum::Json(json!({"ok": true, "job_persistence": state.job_persistence})),
+    )
+        .into_response()
 }
 
 pub(super) async fn handle_healthz() -> Response {

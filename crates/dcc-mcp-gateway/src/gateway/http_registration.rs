@@ -446,6 +446,18 @@ fn parse_mcp_url(raw: &str) -> Result<ParsedMcpUrl, RegistrationError> {
             message: "scheme must be http or https".to_string(),
         });
     }
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err(RegistrationError::InvalidField {
+            field: "mcp_url",
+            message: "userinfo is not allowed in MCP URLs".to_string(),
+        });
+    }
+    if url.query().is_some() || url.fragment().is_some() {
+        return Err(RegistrationError::InvalidField {
+            field: "mcp_url",
+            message: "query and fragment are not allowed in MCP URLs".to_string(),
+        });
+    }
     if !url.path().trim_end_matches('/').ends_with("/mcp") {
         return Err(RegistrationError::InvalidField {
             field: "mcp_url",
@@ -644,6 +656,50 @@ mod tests {
             .unwrap_err();
 
         assert!(err.to_string().contains("end with /mcp"));
+    }
+
+    #[test]
+    fn register_rejects_query_and_fragment_in_mcp_url() {
+        let mut registry = HttpInstanceRegistry::default();
+        let request = |mcp_url: &str| HttpInstanceRegistrationRequest {
+            instance_id: "33333333-3333-4333-8333-333333333333".to_string(),
+            dcc_type: "maya".to_string(),
+            mcp_url: mcp_url.to_string(),
+            capabilities_fingerprint: None,
+            adapter_version: None,
+            scene: None,
+            ttl_secs: None,
+        };
+        for url in [
+            "https://remote.example:9443/mcp?token=secret",
+            "https://remote.example:9443/mcp#fragment",
+        ] {
+            let error = registry
+                .register(request(url), UNIX_EPOCH)
+                .expect_err("MCP URL query/fragment must be rejected");
+            assert!(error.to_string().contains("query and fragment"));
+        }
+    }
+
+    #[test]
+    fn rejects_mcp_url_userinfo() {
+        let mut registry = HttpInstanceRegistry::default();
+        let err = registry
+            .register(
+                HttpInstanceRegistrationRequest {
+                    instance_id: "44444444-4444-4444-8444-444444444444".to_string(),
+                    dcc_type: "maya".to_string(),
+                    mcp_url: "https://user:secret@203.0.113.7:8765/mcp".to_string(),
+                    capabilities_fingerprint: None,
+                    adapter_version: None,
+                    scene: None,
+                    ttl_secs: None,
+                },
+                SystemTime::now(),
+            )
+            .unwrap_err();
+
+        assert!(err.to_string().contains("userinfo is not allowed"));
     }
 
     #[tokio::test]

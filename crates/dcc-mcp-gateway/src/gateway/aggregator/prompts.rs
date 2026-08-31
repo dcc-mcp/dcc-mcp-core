@@ -20,6 +20,7 @@ use dcc_mcp_gateway_core::capability_naming::{decode_tool_name, encode_tool_name
 use super::*;
 
 use super::super::backend_client::{fetch_prompts, forward_prompts_get, try_fetch_prompts};
+use super::super::capability_service::safe_discovery_target;
 use super::super::http_registration::entry_discovery_mcp_url;
 use super::helpers::is_fingerprint_eligible_instance;
 
@@ -39,11 +40,12 @@ pub async fn aggregate_prompts_list(gs: &GatewayState) -> Value {
         .await
         .into_iter()
         .filter(|e| {
-            !matches!(
-                e.status,
-                dcc_mcp_transport::discovery::types::ServiceStatus::Unreachable
-                    | dcc_mcp_transport::discovery::types::ServiceStatus::Booting
-            )
+            safe_discovery_target(e)
+                && !matches!(
+                    e.status,
+                    dcc_mcp_transport::discovery::types::ServiceStatus::Unreachable
+                        | dcc_mcp_transport::discovery::types::ServiceStatus::Booting
+                )
         })
         .collect();
     let client = &gs.http_client;
@@ -143,7 +145,11 @@ pub async fn route_prompts_get(
             }
         },
         None => {
-            let instances = live_backends(gs).await;
+            let instances = live_backends(gs)
+                .await
+                .into_iter()
+                .filter(safe_discovery_target)
+                .collect::<Vec<_>>();
             match instances.len() {
                 0 => return Err(PromptsGetError::NoLiveBackend),
                 1 => (
@@ -159,6 +165,11 @@ pub async fn route_prompts_get(
     };
 
     let url = entry_discovery_mcp_url(&entry);
+    if !safe_discovery_target(&entry) {
+        return Err(PromptsGetError::Backend(
+            "backend target rejected by gateway safety policy".to_string(),
+        ));
+    }
     forward_prompts_get(
         &gs.http_client,
         &gs.resilience,
@@ -257,6 +268,9 @@ pub(crate) async fn compute_prompts_fingerprint_with_own(
     };
 
     let futs = instances.iter().map(|entry| async move {
+        if !safe_discovery_target(entry) || entry_discovery_mcp_url(entry).is_empty() {
+            return (entry.instance_id, Vec::new());
+        }
         let url = entry_discovery_mcp_url(entry);
         let prompts = fetch_prompts(http_client, resilience, &url, backend_timeout).await;
         (entry.instance_id, prompts)

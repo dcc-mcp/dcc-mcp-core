@@ -98,7 +98,9 @@ fmt-check:
 # not run doctests, so we chain a `cargo test --doc` pass to preserve coverage.
 test-rust:
     cargo nextest run --workspace
+    cargo nextest run -p dcc-mcp-job --features job-persist-sqlite
     cargo test --workspace --doc
+    cargo test -p dcc-mcp-job --features job-persist-sqlite --doc
 
 # Rust test coverage via cargo-llvm-cov (install: cargo install cargo-llvm-cov)
 # Generates lcov.info; CI uploads to Codecov (set `files: coverage/lcov.info`).
