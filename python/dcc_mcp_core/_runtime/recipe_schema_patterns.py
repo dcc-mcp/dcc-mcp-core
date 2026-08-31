@@ -469,7 +469,7 @@ def _has_adjacent_quantifiers(pattern: str) -> bool:
                 nullable = _quantifier_allows_zero(pattern, atom_end)
                 leading_quantified = first_consumers.copy()
                 trailing_quantified = last_consumers.copy()
-            elif alternation_ambiguous:
+            elif alternation_ambiguous or (nullable and not first_consumers.is_empty()):
                 leading_ambiguous.update(first_consumers)
                 trailing_ambiguous.update(last_consumers)
             if frames[-1].add_atom(
