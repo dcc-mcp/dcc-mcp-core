@@ -427,6 +427,29 @@ struct ParsedMcpUrl {
     port: u16,
 }
 
+pub(crate) fn canonical_host_identity(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let candidate = if let Some(without_open) = trimmed.strip_prefix('[') {
+        without_open.strip_suffix(']')?
+    } else if trimmed.ends_with(']') {
+        return None;
+    } else {
+        trimmed
+    };
+    match candidate.parse::<std::net::IpAddr>() {
+        Ok(ip) => Some(ip.to_string()),
+        Err(_) if !candidate.contains(['[', ']']) => Some(candidate.to_ascii_lowercase()),
+        Err(_) => None,
+    }
+}
+
+pub(crate) fn canonical_url_host(url: &Url) -> Option<String> {
+    canonical_host_identity(url.host_str()?)
+}
+
 fn parse_instance_id(raw: &str) -> Result<Uuid, RegistrationError> {
     Uuid::parse_str(raw.trim()).map_err(|err| RegistrationError::InvalidField {
         field: "instance_id",
@@ -464,14 +487,10 @@ fn parse_mcp_url(raw: &str) -> Result<ParsedMcpUrl, RegistrationError> {
             message: "path must point at the MCP endpoint and end with /mcp".to_string(),
         });
     }
-    let host = url
-        .host_str()
-        .filter(|value| !value.trim().is_empty())
-        .ok_or_else(|| RegistrationError::InvalidField {
-            field: "mcp_url",
-            message: "missing host".to_string(),
-        })?
-        .to_string();
+    let host = canonical_url_host(&url).ok_or_else(|| RegistrationError::InvalidField {
+        field: "mcp_url",
+        message: "missing host".to_string(),
+    })?;
     let port = url
         .port_or_known_default()
         .ok_or_else(|| RegistrationError::InvalidField {
@@ -700,6 +719,30 @@ mod tests {
             .unwrap_err();
 
         assert!(err.to_string().contains("userinfo is not allowed"));
+    }
+
+    #[test]
+    fn public_literal_ipv6_registration_remains_dispatch_eligible() {
+        let mut registry = HttpInstanceRegistry::default();
+        registry
+            .register(
+                HttpInstanceRegistrationRequest {
+                    instance_id: "55555555-5555-4555-8555-555555555555".to_string(),
+                    dcc_type: "maya".to_string(),
+                    mcp_url: "https://[2606:4700:4700::1111]:8765/mcp".to_string(),
+                    capabilities_fingerprint: None,
+                    adapter_version: None,
+                    scene: None,
+                    ttl_secs: None,
+                },
+                SystemTime::now(),
+            )
+            .unwrap();
+        let entry = registry.live_entries(SystemTime::now()).pop().unwrap();
+        assert_eq!(entry.host, "2606:4700:4700::1111");
+        assert!(crate::gateway::capability_service::safe_discovery_target(
+            &entry
+        ));
     }
 
     #[tokio::test]

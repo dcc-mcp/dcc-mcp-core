@@ -996,6 +996,31 @@ fn retention_prune_failure_keeps_row_until_explicit_retry_succeeds() {
 }
 
 #[test]
+fn empty_retention_retry_preserves_unverified_backend_failure() {
+    let storage = Arc::new(RetentionFailureStorage::default());
+    let jobs = JobManager::with_storage(storage.clone());
+    jobs.disable_persistence("retention_prune_failed");
+
+    assert_eq!(jobs.cleanup_older_than_hours_blocking(1), 0);
+    assert_eq!(
+        jobs.persistence_status().state,
+        JobPersistenceState::Disabled,
+        "an empty cleanup cannot verify backend recovery"
+    );
+    assert_eq!(
+        jobs.persistence_status().last_error_kind.as_deref(),
+        Some("retention_prune_failed")
+    );
+    let puts_before = storage.puts.load(Ordering::SeqCst);
+    jobs.create("scene.inspect.retention-disabled");
+    assert_eq!(
+        storage.puts.load(Ordering::SeqCst),
+        puts_before,
+        "retention retry eligibility must not reopen ordinary writes"
+    );
+}
+
+#[test]
 fn blocking_cleanup_waits_for_offloaded_delete_before_reporting_rows() {
     let storage = Arc::new(InMemoryStorage::new());
     let jobs = JobManager::with_offloaded_storage(storage.clone());

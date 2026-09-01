@@ -91,12 +91,12 @@ pub trait JobStorage: Send + Sync + std::fmt::Debug {
         false
     }
 
-    /// Force the backend into a closed state and release process ownership
-    /// without waiting for an in-flight operation. Implementations must make
-    /// subsequent writes fail closed; this is used only after a bounded
-    /// shutdown window expires. The return value reports whether the backend
-    /// actually performed a force-close; `false` means the default no-op was
-    /// used and an in-flight operation may still own external resources.
+    /// Force the backend into a closed state after a bounded shutdown window.
+    /// Implementations must make subsequent writes fail closed and must not
+    /// transfer process ownership while an operation admitted by the old
+    /// owner can still execute. The return value is `true` only when ownership
+    /// has already been released; `false` means it remains fail-closed until
+    /// in-flight work quiesces, or the default no-op was used.
     fn force_close(&self) -> bool {
         false
     }

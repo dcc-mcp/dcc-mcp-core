@@ -255,7 +255,10 @@ the server from its exact target environment. Gateway Admin is check-only.
     only use policy-allowed, identity-matching HTTP(S) endpoints with no
     query credentials or URL userinfo; redirects are not followed, and
     private/link-local targets (including IPv4-mapped IPv6 literals) and DNS
-    names are rejected for periodic outbound probes.
+    names are rejected for periodic outbound probes. Public literal IPv6
+    registrations keep an unbracketed canonical host identity; brackets belong
+    only to serialized URLs. Adapters must not copy a bracketed URL host into
+    `ServiceEntry.host` or compare raw URL text across discovery and dispatch.
 13. Keep the gateway's secondary listener on its default loopback host. Opt into LAN access only with an explicit `--remote-host 0.0.0.0` or concrete LAN IP; for same-LAN convenience discovery, build with `mdns` and pair adapter-side `--advertise-mdns` with gateway-side `--discover-mdns`. Treat mDNS as a multicast discovery hint only, keep auth/TLS policy explicit, and prefer HTTP registration or relay for routed/subnet-crossing production deployments.
 14. For NAT or routed-subnet deployments, run the tunnel agent with stable `instance_id`, `capabilities_fingerprint`, `adapter_version`, and `scene` metadata, then configure the standalone gateway with `--relay-source ADMIN_URL=PUBLIC_BASE_URL`; the gateway will expose active tunnels as `source: "relay"` rows with relay details in `source_meta` after probing `/v1/healthz` through `<PUBLIC_BASE_URL>/tunnel/<tunnel_id>/mcp`.
 15. Preserve gateway caller attribution when adding adapter wrappers or admin/debug routes: let MCP `initialize.params.clientInfo`, MCP `_meta.agent_context`, REST `meta.agent_context`, `x-dcc-mcp-*` headers, and safe `User-Agent` fallbacks flow through core rather than logging raw prompts or local machine data.
@@ -359,6 +362,11 @@ would be unsafe.
   DCC/sidecar process, that status tool must be owned by the worker/service or
   another independently live control process; gateway restart alone cannot
   recreate an API whose owner exited.
+- A bounded SQLite shutdown may return before an in-flight statement has
+  quiesced. Core closes the old handle immediately but retains its physical
+  ownership lease until every admitted operation exits; do not start a
+  replacement owner until acquisition succeeds. Never bypass the lease or
+  reuse a second path alias to the same database.
 - Read `job_persistence` from the server `/health` payload before claiming
   durable job history. `degraded` means recent writes failed; `disabled` means
   the manager latched repeated failures and is serving jobs from memory only.
@@ -369,6 +377,9 @@ would be unsafe.
   Gateway `/admin/api/health` and `/v1/debug/health` aggregate the same
   payload-safe state per registered backend; `unavailable` means the backend
   did not answer the bounded admin read.
+  A `retention_prune_failed` latch recovers only after a real backend prune
+  succeeds. An empty cleanup is a no-op and must leave that health state
+  disabled because it did not verify storage recovery.
   `job_retention_hours` is opt-in startup pruning of terminal rows only;
   leave it unset when retention ownership is not established.
 - Make every adapter-owned launch return its durable `job_id` and one canonical
@@ -388,6 +399,9 @@ Reproduce through `dcc-mcp` and keep one gateway session id. Run
 version, DCC version, readiness fields, and the smallest safe reproduction.
 Use `/v1/debug/issue-reports/<request_id>` for the public-safe issue body and
 review any `?mode=raw` export locally before sharing it.
+The bundled error report binds persisted-job diagnostics to the exact current
+instance key. If that database is absent, report persistence as unavailable;
+never glob a sibling instance or fall back to another process's database.
 
 Report adapter-owned dispatch, host-thread, readiness, packaging, or install
 bugs in the adapter repository. Escalate shared CLI, gateway, protocol, or core
