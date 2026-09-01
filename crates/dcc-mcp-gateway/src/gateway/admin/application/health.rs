@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 use crate::gateway::GatewayPolicy;
 use crate::gateway::admin::state::AdminState;
 use crate::gateway::backend_client::health_url_from_mcp_url;
-use crate::gateway::capability_service::is_public_ip;
+use crate::gateway::capability_service::{is_public_ip, safe_discovery_target};
 use crate::gateway::http_registration::{SOURCE_HTTP, entry_mcp_url, entry_registry_source};
 use crate::gateway::response_codec::{
     JSON_MIME, TOKEN_ESTIMATOR, TOON_MIME, default_rest_response_format,
@@ -181,6 +181,7 @@ fn eligible_health_entries(
         .into_iter()
         .filter(|entry| policy.allows_dcc(&entry.dcc_type))
         .filter(|entry| entry.port != 0)
+        .filter(safe_discovery_target)
         .collect()
 }
 
