@@ -63,7 +63,7 @@ def test_skill_only_packages_are_not_pip_adapters() -> None:
     assert "dcc-mcp-cache-inspector" not in entry_names
 
 
-def test_liquigen_is_installable_from_pinned_github_release_wheel() -> None:
+def test_liquigen_is_installable_from_pinned_pypi_wheel() -> None:
     entries = {entry["name"]: entry for entry in _entries()}
     liquigen = entries["dcc-mcp-liquigen"]
 
@@ -75,10 +75,10 @@ def test_liquigen_is_installable_from_pinned_github_release_wheel() -> None:
         "type": "pip",
         "pip_package": "dcc-mcp-liquigen",
         "url": (
-            "https://github.com/dcc-mcp/dcc-mcp-liquigen/releases/download/v0.1.0/"
+            "https://files.pythonhosted.org/packages/57/04/09ef0e03c75d0aa2694338a4bb5d3e19d1b5c3d996dac3e635dab2ad450c/"
             "dcc_mcp_liquigen-0.1.0-py3-none-any.whl"
         ),
-        "sha256": "97f33d45c289c20b67f16b8b356fa83afb9abbd633cd29cdde415aa81af11834",
+        "sha256": "130caacfb16b99b9365db071f145a7613f20b45d9b11a7397934c918b7691d0b",
         "entry_point": "dcc_mcp_liquigen.server:main",
         "instructions_url": "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-liquigen/main/README.md",
     }

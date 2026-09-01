@@ -64,9 +64,9 @@ submit a PR updating this matrix before the release PR merges.
 
 Tiled, Material Maker, and Wwise remain discoverable source projects, but the
 bundled catalog omits automatic install metadata until each project publishes a
-wheel that can be pinned by URL and SHA-256. LiquiGen is currently pinned to its
-immutable GitHub release wheel; its PyPI trusted publisher can replace that
-fallback without changing the adapter identity.
+wheel that can be pinned by URL and SHA-256. LiquiGen is pinned to its immutable
+PyPI wheel published through the repository's GitHub Actions trusted publisher;
+the adapter identity remains stable across future wheel updates.
 
 ## Column Reference
 
