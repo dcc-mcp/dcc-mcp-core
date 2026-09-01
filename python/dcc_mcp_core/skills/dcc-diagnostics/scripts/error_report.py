@@ -235,26 +235,8 @@ def main(**kwargs) -> None:
         instance_key = os.environ.get(ENV_JOB_INSTANCE_KEY, "").strip() or str(os.getpid())
         safe_key = re.sub(r"[^A-Za-z0-9_.-]+", "_", instance_key)[:64] or "default"
         exact = Path(log_dir) / f"dcc-mcp-{dcc_name}-{safe_key}-jobs.db"
-        candidates = [exact] if exact.exists() else []
-        legacy = Path(log_dir) / f"dcc-mcp-{dcc_name}-jobs.db"
-        if not candidates and legacy.exists():
-            candidates.append(legacy)
-        if not candidates:
-            candidates = sorted(
-                Path(log_dir).glob(f"dcc-mcp-{dcc_name}-*-jobs.db"),
-                key=os.path.getmtime,
-                reverse=True,
-            )
-        if candidates:
-            db_path = str(candidates[0])
-    elif not db_path and log_dir:
-        candidates = sorted(
-            Path(log_dir).glob("dcc-mcp-*-jobs.db"),
-            key=os.path.getmtime,
-            reverse=True,
-        )
-        if candidates:
-            db_path = str(candidates[0])
+        if exact.exists():
+            db_path = str(exact)
 
     log_section = _collect_log_section(log_dir, dcc_name, tail_lines)
     job_section = _collect_job_section(db_path, job_limit)

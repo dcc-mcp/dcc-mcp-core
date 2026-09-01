@@ -13,6 +13,7 @@
 use std::fs::{File, OpenOptions};
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
@@ -47,9 +48,10 @@ CREATE INDEX IF NOT EXISTS jobs_updated_idx ON jobs(updated_at);
 pub struct SqliteStorage {
     conn: Mutex<Connection>,
     interrupt: rusqlite::InterruptHandle,
-    lock_file: Mutex<Option<File>>,
-    lifecycle: RwLock<()>,
+    lock_file: Arc<Mutex<Option<File>>>,
+    lifecycle: Arc<RwLock<()>>,
     closed: AtomicBool,
+    handoff_fence_started: AtomicBool,
 }
 
 impl std::fmt::Debug for SqliteStorage {
@@ -86,6 +88,7 @@ impl SqliteStorage {
         if !input_path.exists() {
             OpenOptions::new()
                 .create(true)
+                .truncate(false)
                 .write(true)
                 .open(input_path)
                 .map_err(|error| {
@@ -150,9 +153,10 @@ impl SqliteStorage {
         Ok(Self {
             conn: Mutex::new(conn),
             interrupt,
-            lock_file: Mutex::new(Some(lock_file)),
-            lifecycle: RwLock::new(()),
+            lock_file: Arc::new(Mutex::new(Some(lock_file))),
+            lifecycle: Arc::new(RwLock::new(())),
             closed: AtomicBool::new(false),
+            handoff_fence_started: AtomicBool::new(false),
         })
     }
 
@@ -166,9 +170,10 @@ impl SqliteStorage {
         Ok(Self {
             conn: Mutex::new(conn),
             interrupt,
-            lock_file: Mutex::new(None),
-            lifecycle: RwLock::new(()),
+            lock_file: Arc::new(Mutex::new(None)),
+            lifecycle: Arc::new(RwLock::new(())),
             closed: AtomicBool::new(false),
+            handoff_fence_started: AtomicBool::new(false),
         })
     }
 
@@ -185,7 +190,7 @@ impl SqliteStorage {
 
 impl Drop for SqliteStorage {
     fn drop(&mut self) {
-        if let Some(lock_file) = self.lock_file.get_mut().take() {
+        if let Some(lock_file) = self.lock_file.lock().take() {
             let _ = FileExt::unlock(&lock_file);
         }
     }
@@ -198,16 +203,9 @@ impl JobStorage for SqliteStorage {
 
     fn shutdown_with_timeout(&self, timeout: Duration) -> bool {
         let Some(_lifecycle) = self.lifecycle.try_write_for(timeout) else {
-            // Do not let a blocked SQLite operation retain the process-wide
-            // sidecar lease indefinitely. Mark the handle closed first so no
-            // new operations can start, then release only the ownership file;
-            // the in-flight call remains isolated by SQLite's own lock.
-            self.force_close();
-            return true;
+            return self.force_close();
         };
-        if self.closed.swap(true, Ordering::AcqRel) {
-            return true;
-        }
+        self.closed.store(true, Ordering::Release);
         if let Some(lock_file) = self.lock_file.lock().take() {
             let _ = FileExt::unlock(&lock_file);
         }
@@ -216,14 +214,40 @@ impl JobStorage for SqliteStorage {
 
     fn force_close(&self) -> bool {
         self.closed.store(true, Ordering::Release);
-        // Abort a statement that is blocked in SQLite's busy handler before
-        // releasing the sidecar lease. This fences the old owner so a
-        // replacement process cannot be overwritten by a late write.
+        // Abort a statement that is blocked in SQLite's busy handler. The
+        // ownership lease remains held until every operation that passed the
+        // closed check has dropped its lifecycle guard; otherwise a
+        // replacement could acquire the lease before a pre-statement writer
+        // is fenced.
         self.interrupt.interrupt();
-        if let Some(lock_file) = self.lock_file.lock().take() {
-            let _ = FileExt::unlock(&lock_file);
+        if let Some(_lifecycle) = self.lifecycle.try_write() {
+            if let Some(lock_file) = self.lock_file.lock().take() {
+                let _ = FileExt::unlock(&lock_file);
+            }
+            return true;
         }
-        true
+
+        if self
+            .handoff_fence_started
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+        {
+            let lifecycle = Arc::clone(&self.lifecycle);
+            let lock_file = Arc::clone(&self.lock_file);
+            if std::thread::Builder::new()
+                .name("dcc-mcp-job-sqlite-close".to_string())
+                .spawn(move || {
+                    let _lifecycle = lifecycle.write();
+                    if let Some(lock_file) = lock_file.lock().take() {
+                        let _ = FileExt::unlock(&lock_file);
+                    }
+                })
+                .is_err()
+            {
+                self.handoff_fence_started.store(false, Ordering::Release);
+            }
+        }
+        false
     }
 
     fn put(&self, job: &Job) -> Result<(), JobStorageError> {
@@ -420,6 +444,10 @@ fn ownership_lock_path(path: &Path) -> PathBuf {
     path.with_file_name(lock_name)
 }
 
+fn windows_physical_identity(volume: u32, file_index_high: u32, file_index_low: u32) -> String {
+    format!("w{volume:08x}-{file_index_high:08x}-{file_index_low:08x}")
+}
+
 fn physical_identity(path: &Path) -> Option<String> {
     #[cfg(unix)]
     {
@@ -444,9 +472,10 @@ fn physical_identity(path: &Path) -> Option<String> {
             return None;
         }
         let info = unsafe { info.assume_init() };
-        return Some(format!(
-            "w{:x}-{:x}{:x}",
-            info.dwVolumeSerialNumber, info.nFileIndexHigh, info.nFileIndexLow
+        return Some(windows_physical_identity(
+            info.dwVolumeSerialNumber,
+            info.nFileIndexHigh,
+            info.nFileIndexLow,
         ));
     }
     #[allow(unreachable_code)]
@@ -817,12 +846,84 @@ mod tests {
                 .join()
                 .unwrap();
         assert!(
-            result,
-            "shutdown must force-close a contended lifecycle lock"
+            !result,
+            "shutdown must retain ownership while a lifecycle reader is active"
+        );
+        assert!(
+            SqliteStorage::open(&path).is_err(),
+            "a replacement must not acquire ownership before the old reader quiesces"
         );
         drop(reader);
-        let second = SqliteStorage::open(&path).expect("ownership must be reacquirable");
+        let deadline = std::time::Instant::now() + Duration::from_secs(1);
+        let second = loop {
+            match SqliteStorage::open(&path) {
+                Ok(storage) => break storage,
+                Err(_) if std::time::Instant::now() < deadline => {
+                    std::thread::yield_now();
+                }
+                Err(error) => panic!("ownership must be reacquirable after quiescence: {error}"),
+            }
+        };
         drop(second);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(path.with_extension("sqlite3-wal"));
+        let _ = std::fs::remove_file(path.with_extension("sqlite3-shm"));
+        let _ = std::fs::remove_file(path.with_extension("sqlite3.lock"));
+    }
+
+    #[test]
+    fn windows_physical_identity_encoding_is_injective() {
+        let first = windows_physical_identity(0x77, 0x1, 0x23);
+        let second = windows_physical_identity(0x77, 0x12, 0x3);
+        assert_ne!(first, second);
+        assert_eq!(first, "w00000077-00000001-00000023");
+        assert_eq!(second, "w00000077-00000012-00000003");
+    }
+
+    #[test]
+    fn force_close_does_not_handoff_before_prechecked_writer_quiesces() {
+        let path = std::env::temp_dir().join(format!(
+            "dcc-mcp-job-owner-prechecked-{}.sqlite3",
+            uuid::Uuid::new_v4()
+        ));
+        let storage = std::sync::Arc::new(SqliteStorage::open(&path).unwrap());
+
+        // Model a mutator after its final closed check but before conn.execute.
+        let lifecycle = storage.lifecycle.read();
+        let conn = storage.conn.lock();
+        assert!(!storage.closed.load(Ordering::Acquire));
+
+        let closing = std::sync::Arc::clone(&storage);
+        assert!(
+            !std::thread::spawn(move || {
+                closing.shutdown_with_timeout(Duration::from_millis(10))
+            })
+            .join()
+            .unwrap(),
+            "bounded shutdown cannot release ownership before the writer quiesces"
+        );
+        assert!(
+            SqliteStorage::open(&path).is_err(),
+            "replacement ownership must remain fenced"
+        );
+
+        assert!(storage.closed.load(Ordering::Acquire));
+        drop(conn);
+        drop(lifecycle);
+        let deadline = std::time::Instant::now() + Duration::from_secs(1);
+        let replacement = loop {
+            match SqliteStorage::open(&path) {
+                Ok(storage) => break storage,
+                Err(_) if std::time::Instant::now() < deadline => {
+                    std::thread::yield_now();
+                }
+                Err(error) => panic!("replacement must acquire after quiescence: {error}"),
+            }
+        };
+        let replacement_job = JobManager::new().create("replacement.write");
+        replacement.put(&replacement_job.read()).unwrap();
+
+        drop(replacement);
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(path.with_extension("sqlite3-wal"));
         let _ = std::fs::remove_file(path.with_extension("sqlite3-shm"));
@@ -846,18 +947,12 @@ mod tests {
         let writer = std::thread::spawn(move || writer_storage.put(&writer_job));
         std::thread::sleep(Duration::from_millis(50));
 
-        // The lifecycle guard is held by the blocked writer. Shutdown must
-        // still close the process ownership lease within its bounded window.
-        assert!(storage.shutdown_with_timeout(Duration::from_millis(10)));
+        // The lifecycle guard is held by the blocked writer. Shutdown marks
+        // the handle closed but must retain ownership until that writer
+        // quiesces.
+        assert!(!storage.shutdown_with_timeout(Duration::from_millis(10)));
+        assert!(SqliteStorage::open(&path).is_err());
         blocker.execute_batch("ROLLBACK").unwrap();
-
-        // Reopen immediately while the old writer is still unwinding. The
-        // replacement must acquire the sidecar and its write must not be
-        // overwritten by a late statement from the fenced owner.
-        let second = SqliteStorage::open(&path)
-            .expect("a blocked writer must not strand the sidecar ownership lease");
-        let replacement = JobManager::new().create("replacement.write");
-        second.put(&replacement.read()).unwrap();
 
         let writer_error = writer
             .join()
@@ -870,6 +965,17 @@ mod tests {
                 || writer_error.to_string().contains("interrupted")
                 || writer_error.to_string().contains("database is locked")
         );
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(1);
+        let second = loop {
+            match SqliteStorage::open(&path) {
+                Ok(storage) => break storage,
+                Err(_) if std::time::Instant::now() < deadline => std::thread::yield_now(),
+                Err(error) => panic!("ownership must release after the writer quiesces: {error}"),
+            }
+        };
+        let replacement = JobManager::new().create("replacement.write");
+        second.put(&replacement.read()).unwrap();
 
         assert!(second.get(&job.read().id).unwrap().is_none());
         drop(second);
@@ -895,9 +1001,21 @@ mod tests {
         std::thread::sleep(Duration::from_millis(50));
         drop(jobs);
 
-        let replacement = SqliteStorage::open(&path)
-            .expect("dropping a blocked manager must release its sidecar lease");
+        assert!(
+            SqliteStorage::open(&path).is_err(),
+            "the lease must remain held while the old write is active"
+        );
         blocker.execute_batch("ROLLBACK").unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(1);
+        let replacement = loop {
+            match SqliteStorage::open(&path) {
+                Ok(storage) => break storage,
+                Err(_) if std::time::Instant::now() < deadline => std::thread::yield_now(),
+                Err(error) => {
+                    panic!("dropping a blocked manager must release after drain: {error}")
+                }
+            }
+        };
         let replacement_job = JobManager::new().create("replacement.drop");
         replacement.put(&replacement_job.read()).unwrap();
         assert!(replacement.get(&job.read().id).unwrap().is_none());

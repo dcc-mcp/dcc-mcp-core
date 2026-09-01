@@ -31,8 +31,9 @@ use dcc_mcp_transport::discovery::{
 
 use crate::gateway::admin::trace::TraceContext;
 use crate::gateway::http_registration::{
-    HttpInstanceDeregisterRequest, HttpInstanceRegistry, SOURCE_HTTP, entry_discovery_mcp_url,
-    entry_mcp_url, entry_registry_source, entry_uses_sidecar_dispatch,
+    HttpInstanceDeregisterRequest, HttpInstanceRegistry, SOURCE_HTTP, canonical_host_identity,
+    canonical_url_host, entry_discovery_mcp_url, entry_mcp_url, entry_registry_source,
+    entry_uses_sidecar_dispatch,
 };
 
 use super::admin::trace::AgentContext;
@@ -997,6 +998,9 @@ pub(crate) fn ensure_safe_backend_target(entry: &ServiceEntry) -> Result<(), Ser
 }
 
 pub(crate) fn safe_discovery_target(entry: &ServiceEntry) -> bool {
+    let Some(entry_host) = canonical_host_identity(&entry.host) else {
+        return false;
+    };
     let raw = entry_discovery_mcp_url(entry);
     // Dispatch-only sidecars intentionally have no separate discovery
     // endpoint. Keep them eligible for direct dispatch only when their MCP
@@ -1031,17 +1035,15 @@ pub(crate) fn safe_discovery_target(entry: &ServiceEntry) -> bool {
             .path()
             .trim_end_matches('/')
             .ends_with("/mcp")
-        || advertised_url
-            .host_str()
-            .is_none_or(|host| !host.eq_ignore_ascii_case(&entry.host))
+        || canonical_url_host(&advertised_url).as_deref() != Some(entry_host.as_str())
         || advertised_url.port_or_known_default() != Some(entry.port)
     {
         return false;
     }
-    let Some(host) = url.host_str() else {
+    let Some(host) = canonical_url_host(&url) else {
         return false;
     };
-    if !host.eq_ignore_ascii_case(&entry.host) {
+    if host != entry_host {
         return false;
     }
     let Ok(ip) = host.parse::<std::net::IpAddr>() else {
@@ -1060,9 +1062,7 @@ fn safe_mcp_url(entry: &ServiceEntry, raw: &str, require_public: bool) -> bool {
         || url.query().is_some()
         || url.fragment().is_some()
         || !url.path().trim_end_matches('/').ends_with("/mcp")
-        || url
-            .host_str()
-            .is_none_or(|host| !host.eq_ignore_ascii_case(&entry.host))
+        || canonical_url_host(&url) != canonical_host_identity(&entry.host)
         || url.port_or_known_default() != Some(entry.port)
     {
         return false;
@@ -1070,7 +1070,7 @@ fn safe_mcp_url(entry: &ServiceEntry, raw: &str, require_public: bool) -> bool {
     if !require_public {
         return true;
     }
-    let Some(host) = url.host_str() else {
+    let Some(host) = canonical_url_host(&url) else {
         return false;
     };
     let Ok(ip) = host.parse::<std::net::IpAddr>() else {
@@ -1089,16 +1089,14 @@ fn safe_discovery_url(entry: &ServiceEntry, raw: &str, require_public: bool) -> 
         || url.query().is_some()
         || url.fragment().is_some()
         || !url.path().trim_end_matches('/').ends_with("/mcp")
-        || url
-            .host_str()
-            .is_none_or(|host| !host.eq_ignore_ascii_case(&entry.host))
+        || canonical_url_host(&url) != canonical_host_identity(&entry.host)
     {
         return false;
     }
     if !require_public {
         return true;
     }
-    let Some(host) = url.host_str() else {
+    let Some(host) = canonical_url_host(&url) else {
         return false;
     };
     let Ok(ip) = host.parse::<std::net::IpAddr>() else {
@@ -1141,6 +1139,15 @@ pub(crate) fn is_public_ip(ip: std::net::IpAddr) -> bool {
                 || ip.is_unique_local()
                 || ip.is_unicast_link_local()
                 || ip.is_multicast()
+                || (segments[0] & 0xffc0 == 0xfec0) // deprecated site-local
+                || (segments[0] == 0x0064
+                    && segments[1] == 0xff9b
+                    && segments[2] == 0x0001) // local-use NAT64
+                || (segments[0] == 0x0100
+                    && segments[1] == 0
+                    && segments[2] == 0
+                    && segments[3] == 0) // discard-only
+                || (segments[0] == 0x2001 && segments[1] & 0xfff0 == 0x0020) // ORCHIDv2
                 || (segments[0] == 0x2001 && segments[1] == 0x0db8) // documentation
                 || (segments[0] == 0x2001 && segments[1] == 0x0002) // benchmarking
                 || (segments[0] == 0x2001 && (0x0010..=0x001f).contains(&segments[1]))
@@ -1682,6 +1689,39 @@ mod unit_tests {
             entry
                 .metadata
                 .insert("mcp_url".to_string(), format!("https://{host}:8765/mcp"));
+            assert!(!safe_discovery_target(&entry), "{host} must be rejected");
+        }
+    }
+
+    #[test]
+    fn public_and_non_global_ipv6_discovery_targets_are_classified() {
+        let public = "2606:4700:4700::1111";
+        let mut entry = ServiceEntry::new("maya", public, 8765);
+        entry.metadata.insert(
+            "dcc_mcp_registry_source".to_string(),
+            SOURCE_HTTP.to_string(),
+        );
+        entry.metadata.insert(
+            "mcp_url".to_string(),
+            format!("https://[{public}]:8765/mcp"),
+        );
+        assert!(safe_discovery_target(&entry));
+
+        for host in [
+            "::",
+            "::1",
+            "fe80::1",
+            "fc00::1",
+            "ff02::1",
+            "fec0::1",
+            "64:ff9b:1::1",
+            "100::1",
+            "2001:20::1",
+        ] {
+            entry.host = host.to_string();
+            entry
+                .metadata
+                .insert("mcp_url".to_string(), format!("https://[{host}]:8765/mcp"));
             assert!(!safe_discovery_target(&entry), "{host} must be rejected");
         }
     }

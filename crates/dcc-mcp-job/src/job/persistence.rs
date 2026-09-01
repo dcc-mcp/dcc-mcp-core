@@ -96,8 +96,14 @@ impl PersistenceCircuit {
         changed
     }
 
-    pub(super) fn retry_retention(&mut self) -> bool {
-        if self.disabled && self.last_error_kind.as_deref() == Some("retention_prune_failed") {
+    pub(super) fn can_retry_retention(&self) -> bool {
+        self.configured
+            && self.disabled
+            && self.last_error_kind.as_deref() == Some("retention_prune_failed")
+    }
+
+    fn record_retention_success(&mut self) -> bool {
+        if self.can_retry_retention() {
             self.disabled = false;
             self.consecutive_failures = 0;
             self.last_error = None;
@@ -189,10 +195,16 @@ impl PersistenceWriter {
                             }
                         }
                         PersistenceCommand::DeleteOlderThan { cutoff, completed } => {
-                            let can_write = worker_circuit.lock().can_write();
-                            let succeeded = if can_write {
+                            let can_prune = {
+                                let circuit = worker_circuit.lock();
+                                circuit.can_write() || circuit.can_retry_retention()
+                            };
+                            let succeeded = if can_prune {
                                 match worker_storage.delete_older_than(cutoff) {
-                                    Ok(_) => true,
+                                    Ok(_) => {
+                                        worker_circuit.lock().record_retention_success();
+                                        true
+                                    }
                                     Err(error) => {
                                         worker_circuit.lock().disable("retention_prune_failed");
                                         tracing::warn!(error = %error, "JobStorage.delete_older_than failed during gc_stale");
@@ -280,7 +292,10 @@ impl PersistenceWriter {
             let (completed_tx, completed_rx) = mpsc::sync_channel(0);
             let sent = {
                 let _enqueue_guard = self.enqueue_gate.lock();
-                if self.closing.load(Ordering::Acquire) || !self.circuit.lock().can_write() {
+                if self.closing.load(Ordering::Acquire) || {
+                    let circuit = self.circuit.lock();
+                    !circuit.can_write() && !circuit.can_retry_retention()
+                } {
                     return false;
                 }
                 let Some(sender) = &self.sender else {
@@ -311,7 +326,10 @@ impl PersistenceWriter {
         }
 
         let _enqueue_guard = self.enqueue_gate.lock();
-        if self.closing.load(Ordering::Acquire) || !self.circuit.lock().can_write() {
+        if self.closing.load(Ordering::Acquire) || {
+            let circuit = self.circuit.lock();
+            !circuit.can_write() && !circuit.can_retry_retention()
+        } {
             return false;
         }
         let Some(sender) = &self.sender else {
@@ -353,7 +371,10 @@ impl PersistenceWriter {
         let (completed_tx, completed_rx) = mpsc::sync_channel(0);
         {
             let _enqueue_guard = self.enqueue_gate.lock();
-            if self.closing.load(Ordering::Acquire) || !self.circuit.lock().can_write() {
+            if self.closing.load(Ordering::Acquire) || {
+                let circuit = self.circuit.lock();
+                !circuit.can_write() && !circuit.can_retry_retention()
+            } {
                 return false;
             }
             let Some(sender) = &self.sender else {

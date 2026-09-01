@@ -498,7 +498,7 @@ impl JobManager {
     /// required.
     pub fn gc_stale(&self, older_than: Duration) -> usize {
         if self.persistence_status().state == super::JobPersistenceState::Disabled
-            && !self.persistence.lock().retry_retention()
+            && !self.persistence.lock().can_retry_retention()
         {
             return 0;
         }
@@ -574,7 +574,7 @@ impl JobManager {
 
     fn gc_stale_blocking(&self, older_than: Duration, timeout: StdDuration) -> Option<usize> {
         if self.persistence_status().state == super::JobPersistenceState::Disabled
-            && !self.persistence.lock().retry_retention()
+            && !self.persistence.lock().can_retry_retention()
         {
             return Some(0);
         }
