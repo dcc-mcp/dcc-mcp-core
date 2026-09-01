@@ -62,10 +62,11 @@ submit a PR updating this matrix before the release PR merges.
 | OpenUSD | [dcc-mcp-openusd](https://github.com/dcc-mcp/dcc-mcp-openusd) | 0.8.1 | >=0.19.45,<1.0.0 | — | Headless USD stage adapter | 2026-07 |
 | Custom Studio Tool | _(your repo here)_ | _your version_ | _your pin_ | _your min_ | _your pattern_ | _date_ |
 
-LiquiGen, Tiled, Material Maker, and Wwise remain discoverable source projects, but the
+Tiled, Material Maker, and Wwise remain discoverable source projects, but the
 bundled catalog omits automatic install metadata until each project publishes a
-wheel (and, for LiquiGen, its PyPI trusted publisher) that can be pinned by URL
-and SHA-256.
+wheel that can be pinned by URL and SHA-256. LiquiGen is currently pinned to its
+immutable GitHub release wheel; its PyPI trusted publisher can replace that
+fallback without changing the adapter identity.
 
 ## Column Reference
 
