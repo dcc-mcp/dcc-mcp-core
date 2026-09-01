@@ -1133,27 +1133,53 @@ pub(crate) fn is_public_ip(ip: std::net::IpAddr) -> bool {
             if let Some(mapped) = ip.to_ipv4() {
                 return is_public_ip(std::net::IpAddr::V4(mapped));
             }
-            let segments = ip.segments();
+            if ipv6_matches_prefix(ip, [0x0064, 0xff9b, 0, 0, 0, 0, 0, 0], 96) {
+                let octets = ip.octets();
+                let translated =
+                    std::net::Ipv4Addr::new(octets[12], octets[13], octets[14], octets[15]);
+                return is_public_ip(std::net::IpAddr::V4(translated));
+            }
             !(ip.is_loopback()
                 || ip.is_unspecified()
                 || ip.is_unique_local()
                 || ip.is_unicast_link_local()
                 || ip.is_multicast()
-                || (segments[0] & 0xffc0 == 0xfec0) // deprecated site-local
-                || (segments[0] == 0x0064
-                    && segments[1] == 0xff9b
-                    && segments[2] == 0x0001) // local-use NAT64
-                || (segments[0] == 0x0100
-                    && segments[1] == 0
-                    && segments[2] == 0
-                    && segments[3] == 0) // discard-only
-                || (segments[0] == 0x2001 && segments[1] & 0xfff0 == 0x0020) // ORCHIDv2
-                || (segments[0] == 0x2001 && segments[1] == 0x0db8) // documentation
-                || (segments[0] == 0x2001 && segments[1] == 0x0002) // benchmarking
-                || (segments[0] == 0x2001 && (0x0010..=0x001f).contains(&segments[1]))
-                || (0x3fff..=0x3fff).contains(&segments[0]))
+                || NON_GLOBAL_IPV6_PREFIXES
+                    .iter()
+                    .any(|(prefix, prefix_len)| ipv6_matches_prefix(ip, *prefix, *prefix_len)))
         }
     }
+}
+
+/// IANA special-purpose IPv6 blocks that are not globally reachable and are
+/// not already covered by stable `Ipv6Addr` predicates. Prefix matching keeps
+/// the policy auditable when the registry adds a whole block rather than one
+/// exemplar address.
+const NON_GLOBAL_IPV6_PREFIXES: &[([u16; 8], u8)] = &[
+    ([0x0064, 0xff9b, 0x0001, 0, 0, 0, 0, 0], 48), // local-use NAT64
+    ([0x0100, 0, 0, 0, 0, 0, 0, 0], 64),           // discard-only
+    ([0x0100, 0, 0, 0x0001, 0, 0, 0, 0], 64),      // dummy IPv6 prefix
+    ([0x2001, 0, 0, 0, 0, 0, 0, 0], 32),           // Teredo
+    ([0x2001, 0x0002, 0, 0, 0, 0, 0, 0], 48),      // benchmarking
+    ([0x2001, 0x0010, 0, 0, 0, 0, 0, 0], 28),      // deprecated ORCHID
+    ([0x2001, 0x0020, 0, 0, 0, 0, 0, 0], 28),      // ORCHIDv2
+    ([0x2001, 0x0db8, 0, 0, 0, 0, 0, 0], 32),      // documentation
+    ([0x2002, 0, 0, 0, 0, 0, 0, 0], 16),           // 6to4
+    ([0x3fff, 0, 0, 0, 0, 0, 0, 0], 16),           // documentation/reserved
+    ([0x5f00, 0, 0, 0, 0, 0, 0, 0], 16),           // SRv6 SID
+    ([0xfec0, 0, 0, 0, 0, 0, 0, 0], 10),           // deprecated site-local
+];
+
+fn ipv6_matches_prefix(ip: std::net::Ipv6Addr, prefix: [u16; 8], prefix_len: u8) -> bool {
+    debug_assert!(prefix_len <= 128);
+    let address = u128::from_be_bytes(ip.octets());
+    let prefix = u128::from_be_bytes(std::net::Ipv6Addr::from(prefix).octets());
+    let mask = if prefix_len == 0 {
+        0
+    } else {
+        u128::MAX << (128 - u32::from(prefix_len))
+    };
+    address & mask == prefix & mask
 }
 
 #[derive(Clone, Copy)]
@@ -1707,6 +1733,14 @@ mod unit_tests {
         );
         assert!(safe_discovery_target(&entry));
 
+        for host in ["64:ff9b::808:808", "64:ff9b::101:101"] {
+            entry.host = host.to_string();
+            entry
+                .metadata
+                .insert("mcp_url".to_string(), format!("https://[{host}]:8765/mcp"));
+            assert!(safe_discovery_target(&entry), "{host} must remain public");
+        }
+
         for host in [
             "::",
             "::1",
@@ -1715,8 +1749,12 @@ mod unit_tests {
             "ff02::1",
             "fec0::1",
             "64:ff9b:1::1",
+            "64:ff9b::7f00:1",
+            "64:ff9b::c0a8:101",
             "100::1",
             "2001:20::1",
+            "100:0:0:1::1",
+            "5f00::1",
         ] {
             entry.host = host.to_string();
             entry

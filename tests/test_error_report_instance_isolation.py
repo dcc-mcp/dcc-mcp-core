@@ -65,3 +65,38 @@ def test_error_report_reads_only_the_exact_current_instance_database(tmp_path, m
     assert "foreign.tool" not in serialized
     assert "foreign-error" not in serialized
     assert report["context"]["jobs"]["db_path"].endswith("dcc-mcp-maya-current-instance-jobs.db")
+
+
+def test_error_report_does_not_read_a_sibling_instance_log(tmp_path, monkeypatch, capsys):
+    sibling = tmp_path / "dcc-mcp-maya.999999.20260901.log"
+    sibling.write_text(r"ERROR sibling-instance-secret C:\Users\foreign\scene.ma", encoding="utf-8")
+    monkeypatch.setenv("DCC_MCP_JOB_INSTANCE_KEY", "current-instance")
+
+    module = _load_error_report_module()
+    module.main(dcc_name="maya", log_dir=str(tmp_path), tail=10, job_limit=10)
+    report = json.loads(capsys.readouterr().out)
+
+    assert not report["context"]["log"]["available"]
+    serialized = json.dumps(report)
+    assert "sibling-instance-secret" not in serialized
+    assert "999999" not in serialized
+    assert "foreign\\scene.ma" not in serialized
+
+
+def test_error_report_reads_only_the_exact_current_process_log(tmp_path, monkeypatch, capsys):
+    pid = 424242
+    current = tmp_path / f"dcc-mcp-maya.{pid}.20260901.log"
+    sibling = tmp_path / "dcc-mcp-maya.999999.20260901.log"
+    current.write_text("ERROR current-instance-error", encoding="utf-8")
+    sibling.write_text("ERROR sibling-instance-secret", encoding="utf-8")
+    monkeypatch.setattr("os.getpid", lambda: pid)
+
+    module = _load_error_report_module()
+    module.main(dcc_name="maya", log_dir=str(tmp_path), tail=10, job_limit=10)
+    report = json.loads(capsys.readouterr().out)
+
+    serialized = json.dumps(report)
+    assert report["context"]["log"]["available"]
+    assert "current-instance-error" in serialized
+    assert "sibling-instance-secret" not in serialized
+    assert report["context"]["log"]["log_file"].endswith(current.name)

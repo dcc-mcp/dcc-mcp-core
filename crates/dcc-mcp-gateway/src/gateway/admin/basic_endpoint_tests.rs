@@ -309,7 +309,8 @@ mod endpoint_contracts {
 
         let (_, health) = body_json(app.clone(), "/admin/api/health").await;
         assert_eq!(health["instances_ready"], 0, "{health}");
-        assert_eq!(health["instances_total"], 1, "{health}");
+        assert_eq!(health["instances_total"], 0, "{health}");
+        assert_eq!(health["instances_rejected"], 1, "{health}");
         assert_eq!(health["status"], "degraded", "{health}");
 
         let (_, reliability) = body_json(app.clone(), "/admin/api/reliability").await;
@@ -318,7 +319,11 @@ mod endpoint_contracts {
             "{reliability}"
         );
         assert_eq!(
-            reliability["capability_funnel"]["instances_total"], 1,
+            reliability["capability_funnel"]["instances_total"], 0,
+            "{reliability}"
+        );
+        assert_eq!(
+            reliability["capability_funnel"]["instances_rejected"], 1,
             "{reliability}"
         );
         assert_eq!(reliability["status"], "degraded", "{reliability}");
@@ -376,7 +381,8 @@ mod endpoint_contracts {
 
         let (_, health) = body_json(app.clone(), "/admin/api/health").await;
         assert_eq!(health["instances_ready"], 1, "{health}");
-        assert_eq!(health["instances_total"], 2, "{health}");
+        assert_eq!(health["instances_total"], 1, "{health}");
+        assert_eq!(health["instances_rejected"], 1, "{health}");
         assert_eq!(health["status"], "ok", "{health}");
 
         let (_, reliability) = body_json(app, "/admin/api/reliability").await;
@@ -385,10 +391,72 @@ mod endpoint_contracts {
             "{reliability}"
         );
         assert_eq!(
-            reliability["capability_funnel"]["instances_total"], 2,
+            reliability["capability_funnel"]["instances_total"], 1,
+            "{reliability}"
+        );
+        assert_eq!(
+            reliability["capability_funnel"]["instances_rejected"], 1,
             "{reliability}"
         );
         assert_eq!(reliability["status"], "ok", "{reliability}");
+    }
+
+    #[tokio::test]
+    async fn proxy_ignores_unsafe_available_registration_before_selecting_safe_busy_backend() {
+        let backend_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let backend_port = backend_listener.local_addr().unwrap().port();
+        let backend = Router::new().route(
+            "/mcp",
+            axum::routing::post(|| async { axum::Json(json!({"routed": "safe"})) }),
+        );
+        let backend_task = tokio::spawn(async move {
+            axum::serve(backend_listener, backend).await.unwrap();
+        });
+
+        let gateway = make_gateway_state();
+        let mut safe = dcc_mcp_transport::discovery::types::ServiceEntry::new(
+            "maya",
+            "127.0.0.1",
+            backend_port,
+        );
+        safe.instance_id = uuid::Uuid::parse_str("22222222-2222-4222-8222-222222222222").unwrap();
+        safe.status = dcc_mcp_transport::discovery::types::ServiceStatus::Busy;
+        gateway.registry.register(safe).unwrap();
+
+        let app = gateway_router_with_admin(gateway);
+        let (register_status, _) = request_json(
+            app.clone(),
+            "POST",
+            "/v1/instances/register",
+            json!({
+                "instance_id": "33333333-3333-4333-8333-333333333333",
+                "dcc_type": "maya",
+                "mcp_url": "http://127.0.0.1:9/mcp"
+            }),
+        )
+        .await;
+        assert_eq!(register_status, StatusCode::OK);
+
+        let (status, payload) = request_json(
+            app,
+            "POST",
+            "/mcp/dcc/maya",
+            json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-03-26",
+                    "capabilities": {},
+                    "clientInfo": {"name": "safe-candidate-test", "version": "1.0"}
+                }
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{payload}");
+        assert_eq!(payload["routed"], "safe", "{payload}");
+
+        backend_task.abort();
     }
 
     #[tokio::test]

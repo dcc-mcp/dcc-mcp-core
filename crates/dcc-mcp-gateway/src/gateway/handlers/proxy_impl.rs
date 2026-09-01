@@ -41,14 +41,14 @@ pub async fn handle_proxy_dcc(
     headers: HeaderMap,
     body: axum::body::Bytes,
 ) -> Response {
-    let mut candidates = gs
+    let matching = gs
         .live_instances_async()
         .await
         .into_iter()
         .filter(|entry| entry.dcc_type == dcc_type)
         .collect::<Vec<_>>();
 
-    if candidates.is_empty() {
+    if matching.is_empty() {
         return (
             StatusCode::SERVICE_UNAVAILABLE,
             Json(json!({"error": format!("No live '{}' instances", dcc_type)})),
@@ -56,11 +56,16 @@ pub async fn handle_proxy_dcc(
             .into_response();
     }
 
-    candidates.sort_by_key(|entry| matches!(entry.status, ServiceStatus::Busy) as u8);
-    let entry = &candidates[0];
-    if !safe_discovery_target(entry) {
-        return unsafe_backend_target_response(entry);
+    let mut candidates = matching
+        .iter()
+        .filter(|entry| safe_discovery_target(entry))
+        .collect::<Vec<_>>();
+    if candidates.is_empty() {
+        return unsafe_backend_target_response(&matching[0]);
     }
+
+    candidates.sort_by_key(|entry| matches!(entry.status, ServiceStatus::Busy) as u8);
+    let entry = candidates[0];
     if let Err(error) = crate::gateway::lease_guard::check_raw_mcp_call_owner(entry, &body) {
         return lease_rejection_response(entry, error, &body);
     }

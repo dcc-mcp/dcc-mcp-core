@@ -557,6 +557,7 @@ Admin token fields intentionally separate two accounting models:
   "uptime_secs": 3600,
   "instances_total": 3,
   "instances_ready": 2,
+  "instances_rejected": 1,
   "response_format": {
     "default": "toon",
     "legacy_mime": "application/json",
@@ -1041,6 +1042,11 @@ Admin token fields intentionally separate two accounting models:
   ]
 }
 ```
+
+`instances_total` and `instances_ready` use the same policy-allowed, safe,
+dispatchable registration set as gateway routing. `instances_rejected` counts
+otherwise eligible registrations that failed the canonical target-safety
+predicate; rejected rows do not inflate capacity or shadow a safe backend.
 
 ## Connecting AuditMiddleware
 
