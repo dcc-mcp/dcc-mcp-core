@@ -38,6 +38,7 @@ submit a PR updating this matrix before the release PR merges.
 | FPT / ShotGrid | [dcc-mcp-fpt](https://github.com/dcc-mcp/dcc-mcp-fpt) | 0.1.8 | >=0.19.45,<1.0.0 | — | REST bridge | 2026-06 |
 | Nuke | [dcc-mcp-nuke](https://github.com/dcc-mcp/dcc-mcp-nuke) | 0.13.1 | >=0.19.45,<1.0.0 | — | Host main-thread dispatcher | — |
 | Unreal | [dcc-mcp-unreal](https://github.com/dcc-mcp/dcc-mcp-unreal) | 0.3.0 | >=0.19.45,<1.0.0 | — | Unreal Python bridge | — |
+| LiquiGen | [dcc-mcp-liquigen](https://github.com/dcc-mcp/dcc-mcp-liquigen) | 0.1.0 | >=0.20.22,<1.0.0 | 1.0.5+ | Standalone native host bridge with typed node-graph, simulation, VAT export, and Unreal handoff tools | 2026-09 |
 | ZBrush | [dcc-mcp-zbrush](https://github.com/dcc-mcp/dcc-mcp-zbrush) | 0.2.18 | >=0.19.45,<1.0.0 | — | Socket bridge + sidecar | — |
 | Photoshop | [dcc-mcp-photoshop](https://github.com/dcc-mcp/dcc-mcp-photoshop) | 0.1.37 | >=0.19.45,<1.0.0 | Photoshop UXP | WebSocket bridge | 2026-06 |
 | Premiere Pro | [dcc-mcp-premiere](https://github.com/dcc-mcp/dcc-mcp-premiere) | 0.5.0 | >=0.19.45,<1.0.0 | 25.6+ | UXP WebSocket bridge | — |
@@ -61,9 +62,10 @@ submit a PR updating this matrix before the release PR merges.
 | OpenUSD | [dcc-mcp-openusd](https://github.com/dcc-mcp/dcc-mcp-openusd) | 0.8.1 | >=0.19.45,<1.0.0 | — | Headless USD stage adapter | 2026-07 |
 | Custom Studio Tool | _(your repo here)_ | _your version_ | _your pin_ | _your min_ | _your pattern_ | _date_ |
 
-Tiled, Material Maker, and Wwise remain discoverable source projects, but the
+LiquiGen, Tiled, Material Maker, and Wwise remain discoverable source projects, but the
 bundled catalog omits automatic install metadata until each project publishes a
-wheel that can be pinned by URL and SHA-256.
+wheel (and, for LiquiGen, its PyPI trusted publisher) that can be pinned by URL
+and SHA-256.
 
 ## Column Reference
 

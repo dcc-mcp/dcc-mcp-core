@@ -156,6 +156,17 @@ entries:
       sha256: "4df543a902bcd771bc0733c1ba894fd802a64e1e897adb65c29800dcf5cb2ccf"
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-unreal/main/README.md"
 
+  - name: "dcc-mcp-liquigen"
+    # Automatic install is omitted until the PyPI trusted publisher is configured.
+    description: "LiquiGen adapter with typed node-graph inspection, simulation controls, VAT export, and Unreal Engine handoff"
+    dcc: ["liquigen"]
+    url: "https://github.com/dcc-mcp/dcc-mcp-liquigen"
+    issues_url: "https://github.com/dcc-mcp/dcc-mcp-liquigen/issues"
+    tags: ["adapter", "liquigen", "official", "water", "simulation", "vat", "unreal"]
+    version: "0.1.0"
+    min_core_version: "0.20.22"
+    maintainer: "dcc-mcp"
+
   - name: "dcc-mcp-zbrush"
     description: "ZBrush adapter for DCC-MCP"
     dcc: ["zbrush"]

@@ -61,3 +61,14 @@ def test_skill_only_packages_are_not_pip_adapters() -> None:
     # Cache Inspector is distributed through marketplace.json as a Skill pack.
     # It intentionally has no PyPI project or first-party adapter catalog entry.
     assert "dcc-mcp-cache-inspector" not in entry_names
+
+
+def test_liquigen_is_discoverable_before_pypi_publisher_activation() -> None:
+    entries = {entry["name"]: entry for entry in _entries()}
+    liquigen = entries["dcc-mcp-liquigen"]
+
+    assert liquigen["dcc"] == ["liquigen"]
+    assert liquigen["version"] == "0.1.0"
+    assert liquigen["min_core_version"] == "0.20.22"
+    assert "typed node-graph" in liquigen["description"]
+    assert "install" not in liquigen
