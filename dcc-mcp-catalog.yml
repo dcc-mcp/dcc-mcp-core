@@ -157,7 +157,7 @@ entries:
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-unreal/main/README.md"
 
   - name: "dcc-mcp-liquigen"
-    # Automatic install is omitted until the PyPI trusted publisher is configured.
+    # Pin the public GitHub release wheel until the PyPI trusted publisher is configured.
     description: "LiquiGen adapter with typed node-graph inspection, simulation controls, VAT export, and Unreal Engine handoff"
     dcc: ["liquigen"]
     url: "https://github.com/dcc-mcp/dcc-mcp-liquigen"
@@ -166,6 +166,13 @@ entries:
     version: "0.1.0"
     min_core_version: "0.20.22"
     maintainer: "dcc-mcp"
+    install:
+      type: pip
+      pip_package: "dcc-mcp-liquigen"
+      url: "https://github.com/dcc-mcp/dcc-mcp-liquigen/releases/download/v0.1.0/dcc_mcp_liquigen-0.1.0-py3-none-any.whl"
+      sha256: "97f33d45c289c20b67f16b8b356fa83afb9abbd633cd29cdde415aa81af11834"
+      entry_point: "dcc_mcp_liquigen.server:main"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-liquigen/main/README.md"
 
   - name: "dcc-mcp-zbrush"
     description: "ZBrush adapter for DCC-MCP"
