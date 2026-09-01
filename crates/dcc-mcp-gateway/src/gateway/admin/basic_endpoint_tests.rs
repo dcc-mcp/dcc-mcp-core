@@ -8,7 +8,7 @@ mod endpoint_contracts {
     use axum::Router;
     use axum::body::to_bytes;
     use axum::http::{Request, StatusCode};
-    use serde_json::Value;
+    use serde_json::{Value, json};
     use tokio::sync::{RwLock, broadcast, watch};
     use tower::ServiceExt;
 
@@ -98,12 +98,43 @@ mod endpoint_contracts {
         build_v1_debug_router(make_admin_state())
     }
 
+    fn gateway_router_with_admin(gateway: GatewayState) -> Router {
+        crate::gateway::build_gateway_router_with_admin(
+            gateway.clone(),
+            Some(AdminState::new(gateway)),
+            "/admin",
+        )
+    }
+
     async fn body_json(router: Router, uri: &str) -> (StatusCode, Value) {
         let resp = router
             .oneshot(
                 Request::builder()
                     .uri(uri)
                     .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let status = resp.status();
+        let bytes = to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let body: Value = serde_json::from_slice(&bytes).unwrap();
+        (status, body)
+    }
+
+    async fn request_json(
+        router: Router,
+        method: &str,
+        uri: &str,
+        body: Value,
+    ) -> (StatusCode, Value) {
+        let resp = router
+            .oneshot(
+                Request::builder()
+                    .method(method)
+                    .uri(uri)
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(body.to_string()))
                     .unwrap(),
             )
             .await
@@ -255,6 +286,109 @@ mod endpoint_contracts {
         let (_, admin) = body_json(admin_router(), "/api/health").await;
         let (_, debug) = body_json(debug_router(), "/v1/debug/health").await;
         assert_eq!(admin["job_persistence"], debug["job_persistence"]);
+    }
+
+    #[tokio::test]
+    async fn unsafe_http_registration_is_not_reported_ready_by_admin_routes() {
+        let mut gateway = make_gateway_state();
+        gateway.backend_timeout = Duration::from_millis(25);
+        let app = gateway_router_with_admin(gateway);
+
+        let (register_status, _) = request_json(
+            app.clone(),
+            "POST",
+            "/v1/instances/register",
+            json!({
+                "instance_id": "11111111-1111-4111-8111-111111111111",
+                "dcc_type": "maya",
+                "mcp_url": "http://127.0.0.1:9/mcp"
+            }),
+        )
+        .await;
+        assert_eq!(register_status, StatusCode::OK);
+
+        let (_, health) = body_json(app.clone(), "/admin/api/health").await;
+        assert_eq!(health["instances_ready"], 0, "{health}");
+        assert_eq!(health["instances_total"], 1, "{health}");
+        assert_eq!(health["status"], "degraded", "{health}");
+
+        let (_, reliability) = body_json(app.clone(), "/admin/api/reliability").await;
+        assert_eq!(
+            reliability["capability_funnel"]["instances_ready"], 0,
+            "{reliability}"
+        );
+        assert_eq!(
+            reliability["capability_funnel"]["instances_total"], 1,
+            "{reliability}"
+        );
+        assert_eq!(reliability["status"], "degraded", "{reliability}");
+
+        let (dispatch_status, dispatch) = request_json(
+            app,
+            "POST",
+            "/mcp/dcc/maya",
+            json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-03-26",
+                    "capabilities": {},
+                    "clientInfo": {"name": "health-contract-test", "version": "1.0"}
+                }
+            }),
+        )
+        .await;
+        assert_eq!(dispatch_status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(dispatch["kind"], "unsafe-backend-target", "{dispatch}");
+    }
+
+    #[tokio::test]
+    async fn mixed_safe_and_unsafe_instances_count_only_dispatchable_backend_as_ready() {
+        let mut gateway = make_gateway_state();
+        gateway.backend_timeout = Duration::from_millis(25);
+
+        let mut safe =
+            dcc_mcp_transport::discovery::types::ServiceEntry::new("blender", "127.0.0.1", 18812);
+        safe.metadata.insert(
+            "mcp_url".to_string(),
+            "http://127.0.0.1:18812/mcp".to_string(),
+        );
+        safe.metadata.insert(
+            "discovery_mcp_url".to_string(),
+            "http://127.0.0.1:18813/mcp".to_string(),
+        );
+        gateway.registry.register(safe).unwrap();
+
+        let app = gateway_router_with_admin(gateway);
+        let (register_status, _) = request_json(
+            app.clone(),
+            "POST",
+            "/v1/instances/register",
+            json!({
+                "instance_id": "22222222-2222-4222-8222-222222222222",
+                "dcc_type": "photoshop",
+                "mcp_url": "http://127.0.0.1:9/mcp"
+            }),
+        )
+        .await;
+        assert_eq!(register_status, StatusCode::OK);
+
+        let (_, health) = body_json(app.clone(), "/admin/api/health").await;
+        assert_eq!(health["instances_ready"], 1, "{health}");
+        assert_eq!(health["instances_total"], 2, "{health}");
+        assert_eq!(health["status"], "ok", "{health}");
+
+        let (_, reliability) = body_json(app, "/admin/api/reliability").await;
+        assert_eq!(
+            reliability["capability_funnel"]["instances_ready"], 1,
+            "{reliability}"
+        );
+        assert_eq!(
+            reliability["capability_funnel"]["instances_total"], 2,
+            "{reliability}"
+        );
+        assert_eq!(reliability["status"], "ok", "{reliability}");
     }
 
     #[tokio::test]
