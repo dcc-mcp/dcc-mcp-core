@@ -255,7 +255,10 @@ the server from its exact target environment. Gateway Admin is check-only.
     only use policy-allowed, identity-matching HTTP(S) endpoints with no
     query credentials or URL userinfo; redirects are not followed, and
     private/link-local targets (including IPv4-mapped IPv6 literals) and DNS
-    names are rejected for periodic outbound probes. Public literal IPv6
+    names are rejected for periodic outbound probes. Gateway health and
+    reliability totals count only registrations accepted by that same dispatch
+    predicate; rejected registrations are reported separately and cannot
+    shadow a safe backend during DCC-type routing. Public literal IPv6
     registrations keep an unbracketed canonical host identity; brackets belong
     only to serialized URLs. Adapters must not copy a bracketed URL host into
     `ServiceEntry.host` or compare raw URL text across discovery and dispatch.
@@ -402,6 +405,9 @@ review any `?mode=raw` export locally before sharing it.
 The bundled error report binds persisted-job diagnostics to the exact current
 instance key. If that database is absent, report persistence as unavailable;
 never glob a sibling instance or fall back to another process's database.
+It likewise binds rolling-log diagnostics to the current DCC process PID; if
+that exact log is absent, report logging as unavailable instead of selecting a
+same-DCC sibling log.
 
 Report adapter-owned dispatch, host-thread, readiness, packaging, or install
 bugs in the adapter repository. Escalate shared CLI, gateway, protocol, or core

@@ -25,18 +25,20 @@ pub async fn handle_admin_health(State(s): State<AdminState>) -> impl IntoRespon
     let registry = s.gateway.registry.clone();
     let all = s.gateway.all_instances_async().await;
     let live = s.gateway.live_instances_async().await;
-    let eligible = eligible_health_entries(&s.gateway.policy, live);
-    let ready = eligible.len();
-    let job_persistence = collect_job_persistence_health(&s.gateway, &eligible).await;
+    let live_eligibility = classify_health_entries(&s.gateway.policy, live);
+    let all_eligibility = classify_health_entries(&s.gateway.policy, all);
+    let ready = live_eligibility.eligible.len();
+    let total = all_eligibility.eligible.len();
+    let rejected = all_eligibility.rejected;
+    let job_persistence =
+        collect_job_persistence_health(&s.gateway, &live_eligibility.eligible).await;
     let gateway_sentinels = registry
         .list_instances_async(GATEWAY_SENTINEL_DCC_TYPE.to_string())
         .await
         .unwrap_or_default();
-    let total = eligible_instance_count(&s.gateway.policy, &all);
-
     let uptime_secs = s.started_at.elapsed().unwrap_or_default().as_secs();
 
-    let status = if ready > 0 || total == 0 {
+    let status = if ready > 0 || (total == 0 && rejected == 0) {
         "ok"
     } else {
         "degraded"
@@ -53,6 +55,7 @@ pub async fn handle_admin_health(State(s): State<AdminState>) -> impl IntoRespon
             "status": status,
             "instances_ready": ready,
             "instances_total": total,
+            "instances_rejected": rejected,
             "uptime_secs": uptime_secs,
             "version": s.gateway.server_version,
             "rss_bytes": rss_bytes,
@@ -173,23 +176,28 @@ async fn collect_job_persistence_health(
     })
 }
 
-fn eligible_health_entries(
-    policy: &GatewayPolicy,
-    entries: Vec<ServiceEntry>,
-) -> Vec<ServiceEntry> {
-    entries
-        .into_iter()
-        .filter(|entry| policy.allows_dcc(&entry.dcc_type))
-        .filter(|entry| entry.port != 0)
-        .filter(safe_discovery_target)
-        .collect()
+struct HealthEligibility {
+    eligible: Vec<ServiceEntry>,
+    rejected: usize,
 }
 
-fn eligible_instance_count(policy: &GatewayPolicy, entries: &[ServiceEntry]) -> usize {
-    entries
-        .iter()
+fn classify_health_entries(
+    policy: &GatewayPolicy,
+    entries: Vec<ServiceEntry>,
+) -> HealthEligibility {
+    let mut eligible = Vec::new();
+    let mut rejected = 0;
+    for entry in entries
+        .into_iter()
         .filter(|entry| policy.allows_dcc(&entry.dcc_type) && entry.port != 0)
-        .count()
+    {
+        if safe_discovery_target(&entry) {
+            eligible.push(entry);
+        } else {
+            rejected += 1;
+        }
+    }
+    HealthEligibility { eligible, rejected }
 }
 
 /// Construct a safe health target from the registry identity.
@@ -260,9 +268,8 @@ fn is_known_error_kind(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        eligible_health_entries, eligible_instance_count, health_probe_url,
-        health_url_from_mcp_url, is_known_error_kind, is_known_persistence_state,
-        normalize_error_kind,
+        classify_health_entries, health_probe_url, health_url_from_mcp_url, is_known_error_kind,
+        is_known_persistence_state, normalize_error_kind,
     };
     use dcc_mcp_gateway_core::policy::GatewayPolicy;
     use dcc_mcp_transport::discovery::types::ServiceEntry;
@@ -302,9 +309,9 @@ mod tests {
             ServiceEntry::new("maya", "127.0.0.1", 8765),
             ServiceEntry::new("blender", "127.0.0.1", 8766),
         ];
-        let eligible = eligible_health_entries(&policy, entries);
-        assert_eq!(eligible.len(), 1);
-        assert_eq!(eligible[0].dcc_type, "maya");
+        let eligibility = classify_health_entries(&policy, entries);
+        assert_eq!(eligibility.eligible.len(), 1);
+        assert_eq!(eligibility.eligible[0].dcc_type, "maya");
         assert_eq!(
             health_url_from_mcp_url("https://127.0.0.1:8765/mcp"),
             "https://127.0.0.1:8765/health"
@@ -322,7 +329,9 @@ mod tests {
             ServiceEntry::new("maya", "127.0.0.1", 0),
             ServiceEntry::new("blender", "127.0.0.1", 8766),
         ];
-        assert_eq!(eligible_instance_count(&policy, &entries), 1);
+        let eligibility = classify_health_entries(&policy, entries);
+        assert_eq!(eligibility.eligible.len(), 1);
+        assert_eq!(eligibility.rejected, 0);
     }
 
     #[test]
@@ -433,15 +442,18 @@ pub async fn handle_admin_reliability(State(s): State<AdminState>) -> impl IntoR
     let registry = s.gateway.registry.clone();
     let all = s.gateway.all_instances_async().await;
     let live = s.gateway.live_instances_async().await;
-    let ready = eligible_health_entries(&s.gateway.policy, live).len();
-    let total = eligible_instance_count(&s.gateway.policy, &all);
+    let live_eligibility = classify_health_entries(&s.gateway.policy, live);
+    let all_eligibility = classify_health_entries(&s.gateway.policy, all);
+    let ready = live_eligibility.eligible.len();
+    let total = all_eligibility.eligible.len();
+    let rejected = all_eligibility.rejected;
     let gateway_sentinels = registry
         .list_instances_async(GATEWAY_SENTINEL_DCC_TYPE.to_string())
         .await
         .unwrap_or_default();
 
     let uptime_secs = s.started_at.elapsed().unwrap_or_default().as_secs();
-    let status = if ready > 0 || total == 0 {
+    let status = if ready > 0 || (total == 0 && rejected == 0) {
         "ok"
     } else {
         "degraded"
@@ -535,6 +547,7 @@ pub async fn handle_admin_reliability(State(s): State<AdminState>) -> impl IntoR
             "capability_funnel": {
                 "instances_ready": ready,
                 "instances_total": total,
+                "instances_rejected": rejected,
                 "skills_loaded": 0,
                 "skills_total": 0,
                 "tools_registered": 0,
