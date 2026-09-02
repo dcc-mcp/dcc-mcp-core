@@ -1,10 +1,10 @@
 //! Gateway election + health-probe failover for per-DCC sidecar processes.
 //!
 //! In-process DCC adapters use :class:`dcc_mcp_core.gateway_election.DccGatewayElection`
-//! (Python) to promote when ``GET /health`` on the well-known gateway port fails.
-//! Sidecar mode moves MCP dispatch out-of-process; the sidecar must run the
-//! same probe loop in Rust so a surviving peer can take over when the elected
-//! gateway crashes without restarting Maya.
+//! (Python) to promote when application readiness on the well-known gateway
+//! port fails.  Sidecar mode moves MCP dispatch out-of-process; the sidecar
+//! must run the same probe loop in Rust so a surviving peer can take over when
+//! the elected gateway crashes or becomes service-dead without restarting Maya.
 
 use dcc_mcp_gateway::{ElectionOutcome, GatewayConfig, GatewayHandle, GatewayRunner};
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
@@ -218,17 +218,127 @@ fn spawn_failover_probe(
 }
 
 async fn probe_gateway_health(host: &str, port: u16, timeout_secs: u64) -> bool {
-    let url = format!("http://{host}:{port}/health");
+    let timeout = Duration::from_secs(timeout_secs);
     let client = match reqwest::Client::builder()
-        .timeout(Duration::from_secs(timeout_secs))
+        .connect_timeout(timeout)
+        .timeout(timeout)
         .build()
     {
         Ok(c) => c,
         Err(_) => return false,
     };
-    match client.get(&url).send().await {
-        Ok(resp) => resp.status().is_success(),
-        Err(_) => false,
+    let readiness_url = format!("http://{host}:{port}/v1/readyz");
+    match client.get(&readiness_url).send().await {
+        Ok(resp) if resp.status() == reqwest::StatusCode::OK => resp
+            .bytes()
+            .await
+            .is_ok_and(|body| readyz_body_is_healthy(&body)),
+        Ok(resp) if resp.status() == reqwest::StatusCode::NOT_FOUND => {
+            // Legacy gateways predating /v1/readyz are accepted only when
+            // their explicit /health probe returns HTTP 200.
+            let health_url = format!("http://{host}:{port}/health");
+            client
+                .get(health_url)
+                .send()
+                .await
+                .is_ok_and(|response| response.status() == reqwest::StatusCode::OK)
+        }
+        Ok(_) | Err(_) => false,
+    }
+}
+
+fn readyz_body_is_healthy(body: &[u8]) -> bool {
+    serde_json::from_slice::<serde_json::Value>(body)
+        .ok()
+        .and_then(|payload| payload.get("ok").and_then(serde_json::Value::as_bool))
+        == Some(true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::Router;
+    use axum::http::StatusCode;
+    use axum::routing::get;
+
+    async fn probe_with_routes(health_status: StatusCode) -> bool {
+        let app = Router::new()
+            .route(
+                "/v1/readyz",
+                get(|| async { (StatusCode::OK, r#"{"ok":false}"#) }),
+            )
+            .route("/health", get(move || async move { health_status }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let healthy = probe_gateway_health("127.0.0.1", port, 1).await;
+        server.abort();
+        healthy
+    }
+
+    #[tokio::test]
+    async fn service_dead_readyz_does_not_trust_healthy_health_alias() {
+        assert!(!probe_with_routes(StatusCode::OK).await);
+    }
+
+    #[tokio::test]
+    async fn readiness_requires_explicit_ok_true() {
+        let app = Router::new().route(
+            "/v1/readyz",
+            get(|| async { (StatusCode::OK, r#"{"ok":true}"#) }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        assert!(probe_gateway_health("127.0.0.1", port, 1).await);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn legacy_404_fallback_requires_http_200_health() {
+        let app = Router::new()
+            .route("/v1/readyz", get(|| async { StatusCode::NOT_FOUND }))
+            .route("/health", get(|| async { StatusCode::NO_CONTENT }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        assert!(!probe_gateway_health("127.0.0.1", port, 1).await);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn legacy_404_fallback_accepts_http_200_health() {
+        let app = Router::new()
+            .route("/v1/readyz", get(|| async { StatusCode::NOT_FOUND }))
+            .route("/health", get(|| async { StatusCode::OK }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        assert!(probe_gateway_health("127.0.0.1", port, 1).await);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn hanging_readyz_is_bounded_and_unhealthy() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let holder = tokio::spawn(async move {
+            if let Ok((_stream, _peer)) = listener.accept().await {
+                tokio::time::sleep(Duration::from_secs(5)).await;
+            }
+        });
+        let started = std::time::Instant::now();
+        assert!(!probe_gateway_health("127.0.0.1", port, 1).await);
+        assert!(started.elapsed() < Duration::from_secs(2));
+        holder.abort();
     }
 }
 
