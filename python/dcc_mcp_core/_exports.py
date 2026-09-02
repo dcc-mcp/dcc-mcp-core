@@ -660,6 +660,11 @@ _ALL_LAZY: dict[str, str] = {
     "SpatialConvention": "dcc_mcp_core.spatial",
     "plan_spatial_conversion": "dcc_mcp_core.spatial",
     "SceneStats": "dcc_mcp_core.verifier",
+    # Deterministic capture response contract (PIP-2261)
+    "CaptureReturnMode": "dcc_mcp_core.runtime.capture_contract",
+    "CaptureTargetSpec": "dcc_mcp_core.runtime.capture_contract",
+    "build_capture_response": "dcc_mcp_core.runtime.capture_contract",
+    "capture_response": "dcc_mcp_core.runtime.capture_contract",
     "UnitHint": "dcc_mcp_core.asset_import",
     "WorkflowTask": "dcc_mcp_core.workflow_yaml",
     "WorkflowYaml": "dcc_mcp_core.workflow_yaml",
