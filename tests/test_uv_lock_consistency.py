@@ -288,21 +288,31 @@ def test_generated_lock_workflow_is_read_only_until_fixed_push() -> None:
     assert "$RUNNER_TEMP/generated_lock_sync.py" not in pin["run"]
     assert "pinned, self-contained object" in pin["run"]
     assert "git -C trusted-lock-validator cat-file -e" in pin["run"]
-    checkout = next(step for step in job["steps"] if step.get("uses", "").startswith("actions/checkout@"))
+    checkouts = [step for step in job["steps"] if step.get("uses", "").startswith("actions/checkout@")]
+    assert len(checkouts) == 2
+    checkout = checkouts[0]
+    assert checkout["with"]["path"] == "trusted-lock-validator"
     assert checkout["with"]["persist-credentials"] is False
+    pr_checkout = checkouts[1]
+    assert pr_checkout["name"] == "Checkout pull request head"
+    assert pr_checkout["with"]["path"] == "pull-request"
+    assert pr_checkout["with"]["persist-credentials"] is False
     remote_check = next(step for step in job["steps"] if step.get("name") == "Validate checkout remote")
     assert (
-        "git -C trusted-lock-validator show" in remote_check["run"]
+        "git -C ../trusted-lock-validator show" in remote_check["run"]
         and "python - validate-remote" in remote_check["run"]
     )
+    assert remote_check["working-directory"] == "pull-request"
     generation = next(step for step in job["steps"] if step.get("name") == "Sync generated lock metadata")
-    assert "trusted-lock-validator show" in generation["run"] and "python - generate" in generation["run"]
+    assert "../trusted-lock-validator show" in generation["run"] and "python - generate" in generation["run"]
+    assert generation["working-directory"] == "pull-request"
     assert "PUSH_TOKEN" not in generation.get("env", {})
     push = next(step for step in job["steps"] if step.get("name") == "Push fixed generated lock commit")
     assert push["if"] == "steps.commit.outputs.changed == 'true'"
     assert "trap" in push["run"] and 'rm -f "$credential_file"' in push["run"]
     assert "--force-with-lease" in push["run"]
-    assert "env -u PUSH_TOKEN git -C trusted-lock-validator show" in push["run"]
+    assert "env -u PUSH_TOKEN git -C ../trusted-lock-validator show" in push["run"]
+    assert push["working-directory"] == "pull-request"
     trigger_paths = _workflow_pull_request_paths(LOCK_SYNC_WORKFLOW.read_text(encoding="utf-8"))
     assert {
         "scripts/ci/generated_lock_sync.py",
@@ -322,13 +332,37 @@ def test_generated_lock_workflow_is_read_only_until_fixed_push() -> None:
     assert "env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY" in push["run"]
     assert "validate-remote" in push["run"]
     assert "--no-verify" in push["run"]
-    assert "trusted-lock-validator show" in push["run"] and "python - verify-commit" in push["run"]
+    assert "../trusted-lock-validator show" in push["run"] and "python - verify-commit" in push["run"]
 
 
 def test_trusted_validator_overwrite_is_detected_before_execution() -> None:
     workflow_text = LOCK_SYNC_WORKFLOW.read_text(encoding="utf-8")
     assert "$RUNNER_TEMP/generated_lock_sync.py" not in workflow_text
     assert workflow_text.count("trusted-lock-validator show") >= 5
+
+
+def test_pr_checkout_cannot_clean_trusted_validator_checkout() -> None:
+    workflow = yaml_loads(LOCK_SYNC_WORKFLOW.read_text(encoding="utf-8"))
+    assert isinstance(workflow, dict)
+    job = workflow["jobs"]["sync-cargo-metadata"]
+    steps = job["steps"]
+    checkouts = [step for step in steps if step.get("uses", "").startswith("actions/checkout@")]
+    assert checkouts[0]["with"]["path"] == "trusted-lock-validator"
+    assert checkouts[1]["with"]["path"] == "pull-request"
+    for name in (
+        "Validate checkout remote",
+        "Sync generated lock metadata",
+        "Revalidate pull request identity and generated diff",
+        "Commit and push changes",
+        "Push fixed generated lock commit",
+    ):
+        step = next(step for step in steps if step.get("name") == name)
+        assert step["working-directory"] == "pull-request"
+    assert all(
+        "git -C trusted-lock-validator" not in step.get("run", "")
+        for step in steps
+        if step.get("name") != "Verify single-file trusted lock validator object"
+    )
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows trusted-stdin execution contract")

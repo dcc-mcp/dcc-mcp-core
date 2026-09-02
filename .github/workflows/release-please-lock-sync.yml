@@ -53,16 +53,23 @@ jobs:
           git -C trusted-lock-validator cat-file -e "$TRUSTED_VALIDATOR_REF:scripts/ci/generated_lock_sync.py"
 
       - uses: actions/checkout@v6
+        name: Checkout pull request head
         with:
           ref: ${{ github.event.pull_request.head.sha }}
+          # Keep the PR-controlled checkout separate from the pinned trusted
+          # validator checkout above. actions/checkout cleans its target path
+          # by default; using an explicit sibling path prevents it from
+          # deleting trusted-lock-validator.
+          path: pull-request
           persist-credentials: false
 
       - name: Validate checkout remote
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
+        working-directory: pull-request
         run: |
           set -euo pipefail
-          git -C trusted-lock-validator show "$TRUSTED_VALIDATOR_REF:scripts/ci/generated_lock_sync.py" | python - validate-remote
+          git -C ../trusted-lock-validator show "$TRUSTED_VALIDATOR_REF:scripts/ci/generated_lock_sync.py" | python - validate-remote
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -80,9 +87,10 @@ jobs:
           tool: cargo-hakari
 
       - name: Sync generated lock metadata
+        working-directory: pull-request
         run: |
           set -euo pipefail
-          git -C trusted-lock-validator show "$TRUSTED_VALIDATOR_REF:scripts/ci/generated_lock_sync.py" | python - generate
+          git -C ../trusted-lock-validator show "$TRUSTED_VALIDATOR_REF:scripts/ci/generated_lock_sync.py" | python - generate
 
       - name: Revalidate pull request identity and generated diff
         env:
@@ -93,13 +101,15 @@ jobs:
           PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_TITLE: ${{ github.event.pull_request.title }}
+        working-directory: pull-request
         run: |
           set -euo pipefail
-          git -C trusted-lock-validator show "$TRUSTED_VALIDATOR_REF:scripts/ci/generated_lock_sync.py" | python - preflight
-          git -C trusted-lock-validator show "$TRUSTED_VALIDATOR_REF:scripts/ci/generated_lock_sync.py" | python - verify-diff
+          git -C ../trusted-lock-validator show "$TRUSTED_VALIDATOR_REF:scripts/ci/generated_lock_sync.py" | python - preflight
+          git -C ../trusted-lock-validator show "$TRUSTED_VALIDATOR_REF:scripts/ci/generated_lock_sync.py" | python - verify-diff
 
       - name: Commit and push changes
         id: commit
+        working-directory: pull-request
         run: |
           if git diff --quiet -- Cargo.lock uv.lock crates/workspace-hack/Cargo.toml; then
             echo "Generated lock metadata is already in sync."
@@ -125,13 +135,14 @@ jobs:
           PR_TITLE: ${{ github.event.pull_request.title }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
           EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        working-directory: pull-request
         run: |
           set -euo pipefail
           # Re-capture remote identity without passing the write token to the
           # validation child processes, then enforce the immutable lease.
-          env -u PUSH_TOKEN git -C trusted-lock-validator show "$TRUSTED_VALIDATOR_REF:scripts/ci/generated_lock_sync.py" | env -u PUSH_TOKEN python - validate-remote
-          env -u PUSH_TOKEN git -C trusted-lock-validator show "$TRUSTED_VALIDATOR_REF:scripts/ci/generated_lock_sync.py" | env -u PUSH_TOKEN python - remote-preflight
-          env -u PUSH_TOKEN git -C trusted-lock-validator show "$TRUSTED_VALIDATOR_REF:scripts/ci/generated_lock_sync.py" | env -u PUSH_TOKEN python - verify-commit
+          env -u PUSH_TOKEN git -C ../trusted-lock-validator show "$TRUSTED_VALIDATOR_REF:scripts/ci/generated_lock_sync.py" | env -u PUSH_TOKEN python - validate-remote
+          env -u PUSH_TOKEN git -C ../trusted-lock-validator show "$TRUSTED_VALIDATOR_REF:scripts/ci/generated_lock_sync.py" | env -u PUSH_TOKEN python - remote-preflight
+          env -u PUSH_TOKEN git -C ../trusted-lock-validator show "$TRUSTED_VALIDATOR_REF:scripts/ci/generated_lock_sync.py" | env -u PUSH_TOKEN python - verify-commit
           credential_file="$(mktemp)"
           trap 'rm -f "$credential_file"' EXIT
           chmod 600 "$credential_file"
