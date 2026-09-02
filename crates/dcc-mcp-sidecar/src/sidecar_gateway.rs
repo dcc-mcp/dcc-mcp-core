@@ -8,7 +8,7 @@
 
 use dcc_mcp_gateway::{ElectionOutcome, GatewayConfig, GatewayHandle, GatewayRunner};
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
-use dcc_mcp_transport::discovery::types::{ServiceEntry, ServiceKey};
+use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry, ServiceKey};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
@@ -19,6 +19,13 @@ use crate::sidecar::SidecarArgs;
 const DEFAULT_PROBE_INTERVAL_SECS: u64 = 1;
 const DEFAULT_PROBE_FAILURES: u32 = 2;
 const DEFAULT_PROBE_TIMEOUT_SECS: u64 = 2;
+
+#[derive(Debug, Clone, Copy)]
+struct ProbeSettings {
+    interval: Duration,
+    failures: u32,
+    timeout: Duration,
+}
 
 /// Owns the gateway runner, heartbeat, and optional failover probe task.
 pub struct SidecarGatewayControl {
@@ -148,26 +155,46 @@ fn spawn_failover_probe(
     host: String,
     port: u16,
 ) -> AbortHandle {
-    let probe_interval = std::env::var("DCC_MCP_GATEWAY_PROBE_INTERVAL")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(DEFAULT_PROBE_INTERVAL_SECS)
-        .max(1);
-    let probe_failures = std::env::var("DCC_MCP_GATEWAY_PROBE_FAILURES")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(DEFAULT_PROBE_FAILURES)
-        .max(1);
-    let probe_timeout = std::env::var("DCC_MCP_GATEWAY_PROBE_TIMEOUT")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(DEFAULT_PROBE_TIMEOUT_SECS)
-        .max(1);
+    let settings = ProbeSettings {
+        interval: Duration::from_secs(
+            std::env::var("DCC_MCP_GATEWAY_PROBE_INTERVAL")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(DEFAULT_PROBE_INTERVAL_SECS)
+                .max(1),
+        ),
+        failures: std::env::var("DCC_MCP_GATEWAY_PROBE_FAILURES")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(DEFAULT_PROBE_FAILURES)
+            .max(1),
+        timeout: Duration::from_secs(
+            std::env::var("DCC_MCP_GATEWAY_PROBE_TIMEOUT")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(DEFAULT_PROBE_TIMEOUT_SECS)
+                .max(1),
+        ),
+    };
+    spawn_failover_probe_with_settings(runner, registry, failover, host, port, settings)
+}
+
+fn spawn_failover_probe_with_settings(
+    runner: Arc<GatewayRunner>,
+    registry: Arc<FileRegistry>,
+    failover: Arc<RwLock<FailoverHandles>>,
+    host: String,
+    port: u16,
+    settings: ProbeSettings,
+) -> AbortHandle {
+    let probe_interval = settings.interval;
+    let probe_failures = settings.failures;
+    let probe_timeout = settings.timeout;
 
     let handle = tokio::spawn(async move {
         let mut consecutive_failures = 0u32;
         loop {
-            tokio::time::sleep(Duration::from_secs(probe_interval)).await;
+            tokio::time::sleep(probe_interval).await;
 
             let is_gateway = failover.read().await.is_gateway;
             if is_gateway {
@@ -217,8 +244,7 @@ fn spawn_failover_probe(
     handle.abort_handle()
 }
 
-async fn probe_gateway_health(host: &str, port: u16, timeout_secs: u64) -> bool {
-    let timeout = Duration::from_secs(timeout_secs);
+async fn probe_gateway_health(host: &str, port: u16, timeout: Duration) -> bool {
     let client = match reqwest::Client::builder()
         .connect_timeout(timeout)
         .timeout(timeout)
@@ -273,7 +299,7 @@ mod tests {
         let server = tokio::spawn(async move {
             axum::serve(listener, app).await.unwrap();
         });
-        let healthy = probe_gateway_health("127.0.0.1", port, 1).await;
+        let healthy = probe_gateway_health("127.0.0.1", port, Duration::from_secs(1)).await;
         server.abort();
         healthy
     }
@@ -294,7 +320,7 @@ mod tests {
         let server = tokio::spawn(async move {
             axum::serve(listener, app).await.unwrap();
         });
-        assert!(probe_gateway_health("127.0.0.1", port, 1).await);
+        assert!(probe_gateway_health("127.0.0.1", port, Duration::from_secs(1)).await);
         server.abort();
     }
 
@@ -308,7 +334,7 @@ mod tests {
         let server = tokio::spawn(async move {
             axum::serve(listener, app).await.unwrap();
         });
-        assert!(!probe_gateway_health("127.0.0.1", port, 1).await);
+        assert!(!probe_gateway_health("127.0.0.1", port, Duration::from_secs(1)).await);
         server.abort();
     }
 
@@ -322,7 +348,7 @@ mod tests {
         let server = tokio::spawn(async move {
             axum::serve(listener, app).await.unwrap();
         });
-        assert!(probe_gateway_health("127.0.0.1", port, 1).await);
+        assert!(probe_gateway_health("127.0.0.1", port, Duration::from_secs(1)).await);
         server.abort();
     }
 
@@ -336,9 +362,115 @@ mod tests {
             }
         });
         let started = std::time::Instant::now();
-        assert!(!probe_gateway_health("127.0.0.1", port, 1).await);
+        assert!(!probe_gateway_health("127.0.0.1", port, Duration::from_secs(1)).await);
         assert!(started.elapsed() < Duration::from_secs(2));
         holder.abort();
+    }
+
+    #[tokio::test]
+    async fn failover_probe_re_elects_service_dead_gateway_and_converges_registry() {
+        let dir = tempfile::tempdir().unwrap();
+        let registry = Arc::new(FileRegistry::new(dir.path()).unwrap());
+        let stale_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = stale_listener.local_addr().unwrap().port();
+        let stale_readyz_seen = Arc::new(tokio::sync::Notify::new());
+        let handler_notify = stale_readyz_seen.clone();
+        let stale_app = Router::new()
+            .route(
+                "/v1/readyz",
+                get(move || {
+                    let notify = handler_notify.clone();
+                    async move {
+                        notify.notify_one();
+                        (StatusCode::OK, r#"{"ok":false}"#)
+                    }
+                }),
+            )
+            .route("/health", get(|| async { StatusCode::OK }));
+        let stale_server = tokio::spawn(async move {
+            axum::serve(stale_listener, stale_app).await.unwrap();
+        });
+
+        let runner = Arc::new(
+            GatewayRunner::new(GatewayConfig {
+                host: "127.0.0.1".to_string(),
+                gateway_port: port,
+                registry_dir: Some(dir.path().to_path_buf()),
+                server_name: "sidecar-failover-test".to_string(),
+                server_version: "2.0.0".to_string(),
+                heartbeat_secs: 0,
+                ..GatewayConfig::default()
+            })
+            .unwrap(),
+        );
+        let failover = Arc::new(RwLock::new(FailoverHandles {
+            is_gateway: false,
+            gateway_abort: None,
+            challenger_abort: None,
+            gateway_supervisor: None,
+            gateway_thread: None,
+            sentinel_key: None,
+        }));
+
+        let probe_abort = spawn_failover_probe_with_settings(
+            runner,
+            registry.clone(),
+            failover.clone(),
+            "127.0.0.1".to_string(),
+            port,
+            ProbeSettings {
+                interval: Duration::from_millis(10),
+                failures: 1,
+                timeout: Duration::from_millis(250),
+            },
+        );
+
+        stale_readyz_seen.notified().await;
+        tokio::time::sleep(Duration::from_millis(25)).await;
+        stale_server.abort();
+
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if failover.read().await.is_gateway {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("failover probe should promote after stale gateway exits");
+
+        let state = failover.read().await;
+        assert!(state.is_gateway, "role should converge to gateway");
+        assert!(
+            state.gateway_abort.is_some(),
+            "gateway tasks should be owned"
+        );
+        let sentinel_key = state
+            .sentinel_key
+            .clone()
+            .expect("promotion should publish a gateway sentinel");
+        drop(state);
+        let sentinels = registry
+            .list_instances_async(GATEWAY_SENTINEL_DCC_TYPE.to_string())
+            .await
+            .unwrap();
+        assert_eq!(
+            sentinels.len(),
+            1,
+            "registry should converge to one gateway"
+        );
+        assert_eq!(sentinels[0].key(), sentinel_key);
+        assert_eq!(sentinels[0].port, port);
+
+        probe_abort.abort();
+        let mut state = failover.write().await;
+        let sentinel_key = state.sentinel_key.take();
+        abort_failover_handles(&mut state);
+        drop(state);
+        if let Some(key) = sentinel_key {
+            registry.deregister_async(key).await.unwrap();
+        }
     }
 }
 
