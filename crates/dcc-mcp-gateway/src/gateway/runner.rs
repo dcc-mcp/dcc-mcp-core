@@ -580,18 +580,19 @@ impl GatewayRunner {
                 let gw_adapter_version = resident.as_ref().and_then(|e| e.adapter_version.clone());
                 let gw_adapter_dcc = resident.as_ref().and_then(|e| e.adapter_dcc.clone());
 
-                // Three cases reach this branch (decided by /health, not sentinel
-                // presence alone):
-                //   A. /health passes                         -> plain instance
-                //   B. /health fails with a resident sentinel -> challenger
-                //   C. /health fails with no sentinel         -> challenger
+                // Three cases reach this branch (decided by application
+                // readiness, not sentinel presence alone):
+                //   A. /v1/readyz (or legacy /health) passes -> plain instance
+                //   B. readiness fails with a resident sentinel -> challenger
+                //   C. readiness fails with no sentinel         -> challenger
                 //      (TIME_WAIT / race: bind failed, nothing
                 //      listening yet, registry row may be gone)
                 //
                 // Standalone ``dcc-mcp-server gateway`` daemons often hold the
                 // port without a ``__gateway__`` row in this process's
                 // FileRegistry (separate registry dir or daemon-only deploy).
-                // Case A covers that attach/coexist path: probe /health before
+                // Case A covers that attach/coexist path: probe application
+                // readiness before
                 // assuming (C). Without the probe, adapters entered challenger
                 // mode, published a competing sentinel, and shut down (PIP-2509).
                 //
