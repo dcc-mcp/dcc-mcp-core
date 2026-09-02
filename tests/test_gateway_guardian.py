@@ -42,6 +42,22 @@ class _JsonResp(_Resp):
         return json.dumps(self._payload).encode("utf-8")
 
 
+def test_application_ready_requires_readyz_ok_and_ignores_stale_liveness(monkeypatch):
+    """A listening gateway with a non-ready application must be challenged."""
+    calls = []
+
+    def _urlopen(url, **_kwargs):
+        calls.append(url)
+        if url.endswith("/v1/readyz"):
+            return _JsonResp({"ok": False})
+        return _Resp()
+
+    monkeypatch.setattr(gg, "urlopen", _urlopen)
+
+    assert gg._is_application_ready("127.0.0.1", 9765, timeout=0.1) is False
+    assert calls == ["http://127.0.0.1:9765/v1/readyz"]
+
+
 def test_is_healthy_treats_malformed_http_response_as_unhealthy(monkeypatch):
     def _raise_bad_status_line(*_args, **_kwargs):
         raise BadStatusLine("GET /health HTTP/1.1")
