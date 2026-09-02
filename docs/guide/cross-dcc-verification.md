@@ -67,6 +67,35 @@ Extra fields beyond the three core ones belong in `extra`. The
 comparator does not read `extra`, which keeps DCC-specific telemetry
 from ever breaking a round-trip assertion.
 
+## Deterministic capture responses
+
+Capture implementations can use `dcc_mcp_core.runtime.capture_contract` to
+publish one bounded response shape:
+
+```python
+from dcc_mcp_core import CaptureTargetSpec, build_capture_response
+
+response = build_capture_response(
+    frame.data,
+    width=frame.width,
+    height=frame.height,
+    format="png",
+    backend="mock",
+    target=CaptureTargetSpec.active_viewport(),
+    return_mode="artifact_only",  # image or both are explicit opt-ins
+    unchanged_if_hash=previous_sha256,
+)
+```
+
+`artifact_only` is the compatibility-safe default and returns an
+`artefact://sha256/...` reference plus bounded metadata (`dimensions`,
+`bytes`, `sha256`, `format`, `backend`, and `target`) without inline pixels.
+`image` adds one base64 image payload; `both` adds that payload alongside the
+artifact reference. A matching `unchanged_if_hash` suppresses image data and
+marks the response `unchanged: true`. Targets are explicit (`dcc_window`,
+`active_viewport`, `scene_viewer`, or a positive bounded `crop`); hidden or
+unknown targets fail closed.
+
 ## Writing a verifier skill
 
 Scaffold a skill with `dcc-mcp-skills-creator`, then wire it to
