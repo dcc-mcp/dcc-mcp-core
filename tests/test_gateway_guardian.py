@@ -4,6 +4,7 @@ from http.client import BadStatusLine
 import json
 import os
 from pathlib import Path
+import socket
 import sys
 import threading
 import time
@@ -32,6 +33,14 @@ class _Resp:
     def __exit__(self, *_exc):
         return False
 
+    def read(self):
+        return b'{"ok": true}'
+
+
+class _EmptyResp(_Resp):
+    def read(self):
+        return b""
+
 
 class _JsonResp(_Resp):
     def __init__(self, payload, status: int = 200):
@@ -40,6 +49,94 @@ class _JsonResp(_Resp):
 
     def read(self):
         return json.dumps(self._payload).encode("utf-8")
+
+
+def test_application_ready_requires_readyz_ok_and_ignores_stale_liveness(monkeypatch):
+    """A listening gateway with a non-ready application must be challenged."""
+    calls = []
+
+    def _urlopen(url, **_kwargs):
+        calls.append(url)
+        if url.endswith("/v1/readyz"):
+            return _JsonResp({"ok": False})
+        return _Resp()
+
+    monkeypatch.setattr(gg, "urlopen", _urlopen)
+
+    assert gg._is_application_ready("127.0.0.1", 9765, timeout=0.1) is False
+    assert calls == ["http://127.0.0.1:9765/v1/readyz"]
+
+
+def test_application_ready_uses_health_only_for_explicit_legacy_404(monkeypatch):
+    calls = []
+
+    def _urlopen(url, **_kwargs):
+        calls.append(url)
+        if url.endswith("/v1/readyz"):
+            response = _Resp()
+            response.status = 404
+            return response
+        return _Resp()
+
+    monkeypatch.setattr(gg, "urlopen", _urlopen)
+
+    assert gg._is_application_ready("127.0.0.1", 9765, timeout=0.1) is True
+    assert calls == [
+        "http://127.0.0.1:9765/v1/readyz",
+        "http://127.0.0.1:9765/health",
+    ]
+
+
+def test_application_ready_transport_failure_does_not_fallback_to_health(monkeypatch):
+    calls = []
+
+    def _urlopen(url, **_kwargs):
+        calls.append(url)
+        raise OSError("service-dead")
+
+    monkeypatch.setattr(gg, "urlopen", _urlopen)
+    monkeypatch.setattr(gg, "_is_healthy", lambda *_a, **_k: pytest.fail("transport failure must not use stale health"))
+
+    assert gg._is_application_ready("127.0.0.1", 9765, timeout=0.1) is False
+    assert calls == ["http://127.0.0.1:9765/v1/readyz"]
+
+
+def test_application_ready_rejects_empty_success_body(monkeypatch):
+    monkeypatch.setattr(gg, "urlopen", lambda *_args, **_kwargs: _EmptyResp())
+
+    assert gg._is_application_ready("127.0.0.1", 9765, timeout=0.1) is False
+
+
+def test_application_ready_rejects_live_hanging_port_within_probe_timeout():
+    """A listening but unresponsive holder must not block gateway recovery."""
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(1)
+    listener.settimeout(0.05)
+    port = listener.getsockname()[1]
+    stop = threading.Event()
+
+    def _hold_connection():
+        while not stop.is_set():
+            try:
+                conn, _ = listener.accept()
+            except socket.timeout:
+                continue
+            with conn:
+                while not stop.wait(0.01):
+                    pass
+
+    thread = threading.Thread(target=_hold_connection, daemon=True)
+    thread.start()
+    started = time.monotonic()
+    try:
+        assert gg._is_application_ready("127.0.0.1", port, timeout=0.1) is False
+    finally:
+        stop.set()
+        listener.close()
+        thread.join(timeout=1.0)
+
+    assert time.monotonic() - started < 1.0
 
 
 def test_is_healthy_treats_malformed_http_response_as_unhealthy(monkeypatch):
@@ -372,7 +469,7 @@ def test_launch_lock_acquire_single_attempt_no_loop(tmp_path, monkeypatch):
 
 
 def test_gateway_daemon_guardian_restarts_after_failure_threshold(monkeypatch):
-    monkeypatch.setattr(gg, "_is_healthy", lambda *_a, **_k: False)
+    monkeypatch.setattr(gg, "_is_application_ready", lambda *_a, **_k: False)
     calls = []
 
     def _ensure(**kwargs):
@@ -404,7 +501,7 @@ def test_gateway_daemon_guardian_restarts_after_failure_threshold(monkeypatch):
 
 def test_gateway_daemon_guardian_jitter_skips_when_peer_recovers(monkeypatch):
     checks = iter([False, True])
-    monkeypatch.setattr(gg, "_is_healthy", lambda *_a, **_k: next(checks))
+    monkeypatch.setattr(gg, "_is_application_ready", lambda *_a, **_k: next(checks))
     monkeypatch.setattr(gg.random, "uniform", lambda *_a, **_k: 0.0)
 
     def _ensure(**_kwargs):
@@ -429,7 +526,7 @@ def test_gateway_daemon_guardian_jitter_skips_when_peer_recovers(monkeypatch):
 
 def test_gateway_daemon_guardian_resets_failures_on_health(monkeypatch):
     checks = iter([False, True])
-    monkeypatch.setattr(gg, "_is_healthy", lambda *_a, **_k: next(checks))
+    monkeypatch.setattr(gg, "_is_application_ready", lambda *_a, **_k: next(checks))
     monkeypatch.setattr(gg, "_try_version_takeover", lambda **_kwargs: None)
     guardian = gg.GatewayDaemonGuardian(
         gateway_host="127.0.0.1",
@@ -449,7 +546,7 @@ def test_gateway_daemon_guardian_resets_failures_on_health(monkeypatch):
 
 def test_gateway_daemon_guardian_audits_version_when_endpoint_is_healthy(monkeypatch, tmp_path):
     """A healthy stale gateway must still enter the version takeover path."""
-    monkeypatch.setattr(gg, "_is_healthy", lambda *_a, **_k: True)
+    monkeypatch.setattr(gg, "_is_application_ready", lambda *_a, **_k: True)
     calls = []
 
     def _takeover(**kwargs):
@@ -497,7 +594,7 @@ def test_guardian_run_catches_crash_and_increments_crash_count(monkeypatch):
         if status.get("crash_count", 0) >= 1:
             crash_reported.set()
 
-    monkeypatch.setattr(gg, "_is_healthy", _crash_after_one)
+    monkeypatch.setattr(gg, "_is_application_ready", _crash_after_one)
 
     guardian = gg.GatewayDaemonGuardian(
         gateway_host="127.0.0.1",
@@ -545,7 +642,7 @@ def test_guardian_run_continues_after_exception(monkeypatch):
         if status.get("crash_count", 0) >= 1:
             crash_reported.set()
 
-    monkeypatch.setattr(gg, "_is_healthy", _probe)
+    monkeypatch.setattr(gg, "_is_application_ready", _probe)
 
     guardian = gg.GatewayDaemonGuardian(
         gateway_host="127.0.0.1",
@@ -626,6 +723,9 @@ def test_ensure_gateway_daemon_spawn_includes_persist_flags(tmp_path, monkeypatc
         def __exit__(self, *_exc):
             return False
 
+        def read(self):
+            return b'{"ok": true}'
+
     def _urlopen(*_args, **_kwargs):
         state["calls"] += 1
         if state["calls"] < 3:
@@ -699,7 +799,7 @@ def _make_runtime_controller(monkeypatch, **owner_attrs):
 
 def test_start_guardian_replaces_dead_guardian(monkeypatch):
     """P1: start_gateway_guardian_if_needed replaces a dead guardian."""
-    monkeypatch.setattr(gg, "_is_healthy", lambda *a, **k: False)
+    monkeypatch.setattr(gg, "_is_application_ready", lambda *a, **k: False)
     monkeypatch.setattr(gg, "ensure_gateway_daemon", lambda **kw: {"ok": True, "reason": "spawned"})
     monkeypatch.setattr(gg, "_resolve_server_bin", lambda: "dcc-mcp-server")
 
@@ -726,7 +826,7 @@ def test_start_guardian_replaces_dead_guardian(monkeypatch):
 
 def test_guardian_watchdog_detects_dead_guardian(monkeypatch):
     """P1: Watchdog loop detects dead guardian and triggers restart."""
-    monkeypatch.setattr(gg, "_is_healthy", lambda *a, **k: False)
+    monkeypatch.setattr(gg, "_is_application_ready", lambda *a, **k: False)
     monkeypatch.setattr(gg, "ensure_gateway_daemon", lambda **kw: {"ok": True, "reason": "spawned"})
     monkeypatch.setattr(gg, "_resolve_server_bin", lambda: "dcc-mcp-server")
 
@@ -1067,7 +1167,7 @@ def test_read_gateway_version_missing_registry():
 
 def test_wait_managed_gateway_ready_rejects_health_only_challenger(monkeypatch, tmp_path):
     """A temporary challenger sentinel cannot prove gateway ownership."""
-    monkeypatch.setattr(gg, "_is_healthy", lambda *a, **k: True)
+    monkeypatch.setattr(gg, "_is_application_ready", lambda *a, **k: True)
     gg._write_sentinel_entry(
         str(tmp_path),
         gateway_host="127.0.0.1",
@@ -1086,7 +1186,7 @@ def test_wait_managed_gateway_ready_rejects_health_only_challenger(monkeypatch, 
 
 def test_wait_managed_gateway_ready_accepts_owned_same_version(monkeypatch, tmp_path):
     """A healthy process-owned sentinel satisfies the takeover contract."""
-    monkeypatch.setattr(gg, "_is_healthy", lambda *a, **k: True)
+    monkeypatch.setattr(gg, "_is_application_ready", lambda *a, **k: True)
     services = [
         {
             "dcc_type": "__gateway__",
@@ -1137,7 +1237,7 @@ def test_try_version_takeover_returns_none_when_dev_version(monkeypatch, tmp_pat
     # _get_core_version should return this in test environment.
     monkeypatch.setattr(gg, "_get_core_version", lambda: "0.0.0-dev")
     monkeypatch.setattr(gg, "_read_gateway_version_from_registry", lambda *a, **k: "0.18.0")
-    monkeypatch.setattr(gg, "_is_healthy", lambda *a, **k: True)
+    monkeypatch.setattr(gg, "_is_application_ready", lambda *a, **k: True)
 
     result = gg._try_version_takeover(
         gateway_host="127.0.0.1",
@@ -1166,7 +1266,7 @@ def test_try_version_takeover_uses_admin_health_and_cooperative_yield(monkeypatc
         "_write_sentinel_entry",
         lambda *a, **k: pytest.fail("cooperative yield must not rewrite FileRegistry"),
     )
-    monkeypatch.setattr(gg, "_is_healthy", lambda *a, **k: False)
+    monkeypatch.setattr(gg, "_is_application_ready", lambda *a, **k: False)
     monkeypatch.setattr(gg, "_wait_managed_gateway_ready", lambda *a, **k: True)
 
     def _launch_detached(cmd, **kwargs):
@@ -1236,7 +1336,7 @@ def test_watchdog_interval_env_invalid_falls_back(monkeypatch):
 
 def test_watchdog_immediate_retry_on_guardian_death(monkeypatch):
     """PIP-1416: watchdog immediately probes the new guardian after restart."""
-    monkeypatch.setattr(gg, "_is_healthy", lambda *a, **k: False)
+    monkeypatch.setattr(gg, "_is_application_ready", lambda *a, **k: False)
     monkeypatch.setattr(gg, "ensure_gateway_daemon", lambda **kw: {"ok": True, "reason": "spawned"})
     monkeypatch.setattr(gg, "_resolve_server_bin", lambda: "dcc-mcp-server")
 

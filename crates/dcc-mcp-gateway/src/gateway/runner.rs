@@ -580,18 +580,19 @@ impl GatewayRunner {
                 let gw_adapter_version = resident.as_ref().and_then(|e| e.adapter_version.clone());
                 let gw_adapter_dcc = resident.as_ref().and_then(|e| e.adapter_dcc.clone());
 
-                // Three cases reach this branch (decided by /health, not sentinel
-                // presence alone):
-                //   A. /health passes                         -> plain instance
-                //   B. /health fails with a resident sentinel -> challenger
-                //   C. /health fails with no sentinel         -> challenger
+                // Three cases reach this branch (decided by application
+                // readiness, not sentinel presence alone):
+                //   A. /v1/readyz (or legacy /health) passes -> plain instance
+                //   B. readiness fails with a resident sentinel -> challenger
+                //   C. readiness fails with no sentinel         -> challenger
                 //      (TIME_WAIT / race: bind failed, nothing
                 //      listening yet, registry row may be gone)
                 //
                 // Standalone ``dcc-mcp-server gateway`` daemons often hold the
                 // port without a ``__gateway__`` row in this process's
                 // FileRegistry (separate registry dir or daemon-only deploy).
-                // Case A covers that attach/coexist path: probe /health before
+                // Case A covers that attach/coexist path: probe application
+                // readiness before
                 // assuming (C). Without the probe, adapters entered challenger
                 // mode, published a competing sentinel, and shut down (PIP-2509).
                 //
@@ -972,7 +973,7 @@ fn stamp_gateway_sentinel(
 fn challenger_reason(resident_health: ResidentGatewayHealth) -> Option<&'static str> {
     match resident_health {
         ResidentGatewayHealth::Unhealthy => {
-            Some("Resident gateway failed /health probe — entering challenger mode")
+            Some("Resident gateway failed application readiness probe — entering challenger mode")
         }
         ResidentGatewayHealth::Healthy => None,
     }
@@ -983,31 +984,65 @@ async fn probe_resident_gateway_health(
     port: u16,
     timeout: Duration,
 ) -> ResidentGatewayHealth {
-    let url = format!("http://{host}:{port}/health");
+    let readiness_url = format!("http://{host}:{port}/v1/readyz");
     let client = reqwest::Client::builder()
         .connect_timeout(timeout)
         .timeout(timeout)
         .build()
         .unwrap_or_else(|_| reqwest::Client::new());
-    match client.get(&url).send().await {
-        Ok(resp) if resp.status().is_success() => ResidentGatewayHealth::Healthy,
+    match client.get(&readiness_url).send().await {
+        Ok(resp) if resp.status() == reqwest::StatusCode::OK => {
+            let status = resp.status();
+            match resp.bytes().await {
+                Ok(body) if readyz_body_is_healthy(&body) => ResidentGatewayHealth::Healthy,
+                Ok(_) => {
+                    tracing::warn!(status = %status, url = %readiness_url, "Resident gateway readiness body is not ready");
+                    ResidentGatewayHealth::Unhealthy
+                }
+                Err(err) => {
+                    tracing::warn!(error = %err, url = %readiness_url, "Resident gateway readiness body read failed");
+                    ResidentGatewayHealth::Unhealthy
+                }
+            }
+        }
+        Ok(resp) if resp.status() == reqwest::StatusCode::NOT_FOUND => {
+            // Pre-readiness gateways only expose /health.
+            let health_url = format!("http://{host}:{port}/health");
+            match client.get(&health_url).send().await {
+                // Keep the legacy fallback as strict as the application
+                // readiness probe: only an explicit 200 response proves the
+                // resident gateway is ready.  Other 2xx responses (for
+                // example 204/206) may be emitted by a proxy or an unrelated
+                // listener and must not suppress challenger recovery.
+                Ok(resp) if resp.status() == reqwest::StatusCode::OK => {
+                    ResidentGatewayHealth::Healthy
+                }
+                Ok(resp) => {
+                    tracing::warn!(status = %resp.status(), url = %health_url, "Resident gateway readiness probe failed");
+                    ResidentGatewayHealth::Unhealthy
+                }
+                Err(err) => {
+                    tracing::warn!(error = %err, url = %health_url, "Resident gateway readiness probe failed");
+                    ResidentGatewayHealth::Unhealthy
+                }
+            }
+        }
         Ok(resp) => {
-            tracing::warn!(
-                status = %resp.status(),
-                url = %url,
-                "Resident gateway /health probe failed"
-            );
+            tracing::warn!(status = %resp.status(), url = %readiness_url, "Resident gateway readiness probe failed");
             ResidentGatewayHealth::Unhealthy
         }
         Err(err) => {
-            tracing::warn!(
-                error = %err,
-                url = %url,
-                "Resident gateway /health probe failed"
-            );
+            tracing::warn!(error = %err, url = %readiness_url, "Resident gateway readiness probe failed");
             ResidentGatewayHealth::Unhealthy
         }
     }
+}
+
+fn readyz_body_is_healthy(body: &[u8]) -> bool {
+    serde_json::from_slice::<serde_json::Value>(body)
+        .ok()
+        .and_then(|payload| payload.get("ok").and_then(serde_json::Value::as_bool))
+        == Some(true)
 }
 
 struct PromotedGatewayGuard {
@@ -1178,6 +1213,9 @@ fn cooperative_yield_fallback_detail(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::Router;
+    use axum::http::StatusCode;
+    use axum::routing::get;
 
     #[test]
     fn registration_identity_rejects_external_endpoint_replacement() {
@@ -1241,10 +1279,71 @@ mod tests {
     }
 
     #[test]
+    fn readyz_requires_explicit_ok_true() {
+        assert!(readyz_body_is_healthy(br#"{"ok":true}"#));
+        assert!(!readyz_body_is_healthy(br#"{"ok":false}"#));
+        assert!(!readyz_body_is_healthy(br#"{}"#));
+        assert!(!readyz_body_is_healthy(b"not-json"));
+        assert!(!readyz_body_is_healthy(b""));
+    }
+
+    #[tokio::test]
+    async fn hanging_resident_readyz_is_bounded_and_unhealthy() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let holder = tokio::spawn(async move {
+            if let Ok((_stream, _peer)) = listener.accept().await {
+                tokio::time::sleep(Duration::from_secs(5)).await;
+            }
+        });
+
+        let started = std::time::Instant::now();
+        let observed =
+            probe_resident_gateway_health("127.0.0.1", port, Duration::from_millis(100)).await;
+        assert_eq!(observed, ResidentGatewayHealth::Unhealthy);
+        assert!(started.elapsed() < Duration::from_secs(1));
+        holder.abort();
+    }
+
+    #[tokio::test]
+    async fn legacy_health_fallback_requires_http_200() {
+        let app = Router::new()
+            .route("/v1/readyz", get(|| async { StatusCode::NOT_FOUND }))
+            .route("/health", get(|| async { StatusCode::NO_CONTENT }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        let observed =
+            probe_resident_gateway_health("127.0.0.1", port, Duration::from_millis(500)).await;
+        assert_eq!(observed, ResidentGatewayHealth::Unhealthy);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn legacy_health_fallback_accepts_http_200() {
+        let app = Router::new()
+            .route("/v1/readyz", get(|| async { StatusCode::NOT_FOUND }))
+            .route("/health", get(|| async { StatusCode::OK }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        let observed =
+            probe_resident_gateway_health("127.0.0.1", port, Duration::from_millis(500)).await;
+        assert_eq!(observed, ResidentGatewayHealth::Healthy);
+        server.abort();
+    }
+
+    #[test]
     fn unhealthy_resident_enters_challenger_mode_even_without_version_advantage() {
         assert_eq!(
             challenger_reason(ResidentGatewayHealth::Unhealthy),
-            Some("Resident gateway failed /health probe — entering challenger mode")
+            Some("Resident gateway failed application readiness probe — entering challenger mode")
         );
     }
 
@@ -1253,7 +1352,7 @@ mod tests {
         // No sentinel: /health fails (connection refused) → Unhealthy → challenger
         assert_eq!(
             challenger_reason(ResidentGatewayHealth::Unhealthy),
-            Some("Resident gateway failed /health probe — entering challenger mode")
+            Some("Resident gateway failed application readiness probe — entering challenger mode")
         );
     }
 

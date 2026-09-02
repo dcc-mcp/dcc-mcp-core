@@ -73,7 +73,7 @@ the server from its exact target environment. Gateway Admin is check-only.
 - Per-DCC service: one registered runtime row for one concrete DCC instance; Python `DccServerBase` and Rust sidecars both participate as per-DCC services.
 - Sidecar: the Rust `dcc-mcp-sidecar` child launched through the stable `dcc-mcp-server sidecar` command; it bridges host RPC to MCP/REST and exits when the watched DCC dies.
 - Gateway daemon: the one machine-wide `dcc-mcp-server gateway` process that owns routing, dynamic capability search/describe/call, and Gateway Admin.
-- Guardian: a lightweight loop inside daemon-backed services that probes gateway `/health` and re-ensures the daemon through `gateway-launch.lock`; it is not a separate process.
+- Guardian: a lightweight loop inside daemon-backed services that probes gateway `/v1/readyz` (falling back to `/health` for legacy gateways) and re-ensures the daemon through `gateway-launch.lock`; it is not a separate process.
 - Service heartbeat: registry freshness for the service row only. Do not describe heartbeat as the gateway restart trigger.
 - Service owner: the process that owns the registry sentinel and MCP endpoint; its `pid`/sentinel prove the service itself is alive.
 - Bound DCC host: optional external process identified by `host_pid`; both owner and host must stay alive. Standalone/headless services intentionally have no bound host.
