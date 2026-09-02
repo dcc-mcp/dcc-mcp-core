@@ -8,7 +8,7 @@
 
 use dcc_mcp_gateway::{ElectionOutcome, GatewayConfig, GatewayHandle, GatewayRunner};
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
-use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry, ServiceKey};
+use dcc_mcp_transport::discovery::types::{ServiceEntry, ServiceKey};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
@@ -286,6 +286,7 @@ mod tests {
     use axum::Router;
     use axum::http::StatusCode;
     use axum::routing::get;
+    use dcc_mcp_transport::discovery::types::GATEWAY_SENTINEL_DCC_TYPE;
 
     async fn probe_with_routes(health_status: StatusCode) -> bool {
         let app = Router::new()
