@@ -1008,7 +1008,14 @@ async fn probe_resident_gateway_health(
             // Pre-readiness gateways only expose /health.
             let health_url = format!("http://{host}:{port}/health");
             match client.get(&health_url).send().await {
-                Ok(resp) if resp.status().is_success() => ResidentGatewayHealth::Healthy,
+                // Keep the legacy fallback as strict as the application
+                // readiness probe: only an explicit 200 response proves the
+                // resident gateway is ready.  Other 2xx responses (for
+                // example 204/206) may be emitted by a proxy or an unrelated
+                // listener and must not suppress challenger recovery.
+                Ok(resp) if resp.status() == reqwest::StatusCode::OK => {
+                    ResidentGatewayHealth::Healthy
+                }
                 Ok(resp) => {
                     tracing::warn!(status = %resp.status(), url = %health_url, "Resident gateway readiness probe failed");
                     ResidentGatewayHealth::Unhealthy
@@ -1205,6 +1212,9 @@ fn cooperative_yield_fallback_detail(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::Router;
+    use axum::http::StatusCode;
+    use axum::routing::get;
 
     #[test]
     fn registration_identity_rejects_external_endpoint_replacement() {
@@ -1292,6 +1302,40 @@ mod tests {
         assert_eq!(observed, ResidentGatewayHealth::Unhealthy);
         assert!(started.elapsed() < Duration::from_secs(1));
         holder.abort();
+    }
+
+    #[tokio::test]
+    async fn legacy_health_fallback_requires_http_200() {
+        let app = Router::new()
+            .route("/v1/readyz", get(|| async { StatusCode::NOT_FOUND }))
+            .route("/health", get(|| async { StatusCode::NO_CONTENT }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        let observed =
+            probe_resident_gateway_health("127.0.0.1", port, Duration::from_millis(500)).await;
+        assert_eq!(observed, ResidentGatewayHealth::Unhealthy);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn legacy_health_fallback_accepts_http_200() {
+        let app = Router::new()
+            .route("/v1/readyz", get(|| async { StatusCode::NOT_FOUND }))
+            .route("/health", get(|| async { StatusCode::OK }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        let observed =
+            probe_resident_gateway_health("127.0.0.1", port, Duration::from_millis(500)).await;
+        assert_eq!(observed, ResidentGatewayHealth::Healthy);
+        server.abort();
     }
 
     #[test]
