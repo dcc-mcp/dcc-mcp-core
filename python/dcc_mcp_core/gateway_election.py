@@ -34,6 +34,7 @@ Usage example::
 from __future__ import annotations
 
 import contextlib
+import json
 
 # Import built-in modules
 import logging
@@ -240,21 +241,34 @@ class DccGatewayElection:
             self._stop_event.wait(self._probe_interval + jitter_s)
 
     def _probe_gateway(self) -> bool:
-        """HTTP GET /health probe against the gateway endpoint.
+        """Bounded application-level readiness probe against the gateway.
 
         Returns:
-            ``True`` if the gateway responds with HTTP 200.
+            ``True`` if ``/v1/readyz`` reports ``ok=true``.  Legacy gateways
+            without that route are accepted via ``/health``.
 
         """
         try:
             import urllib.request
 
-            url = f"http://{self._gateway_host}:{self._gateway_port}/health"
+            url = f"http://{self._gateway_host}:{self._gateway_port}/v1/readyz"
             req = urllib.request.Request(url, method="GET")
             with urllib.request.urlopen(req, timeout=self._probe_timeout) as resp:
-                return resp.status == 200
+                if resp.status != 200:
+                    return False
+                raw = resp.read()
+                if not raw:
+                    return True
+                payload = json.loads(raw.decode("utf-8"))
+                return isinstance(payload, dict) and payload.get("ok") is True
         except Exception:
-            return False
+            try:
+                url = f"http://{self._gateway_host}:{self._gateway_port}/health"
+                req = urllib.request.Request(url, method="GET")
+                with urllib.request.urlopen(req, timeout=self._probe_timeout) as resp:
+                    return resp.status == 200
+            except Exception:
+                return False
 
     def _attempt_election(self) -> bool:
         """Probe the gateway port and, if free, run the real promotion path.

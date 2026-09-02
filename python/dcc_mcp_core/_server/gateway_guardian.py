@@ -60,6 +60,26 @@ def _is_healthy(host: str, port: int, timeout: float) -> bool:
         return False
 
 
+def _is_application_ready(host: str, port: int, timeout: float) -> bool:
+    """Probe application readiness with a bounded legacy fallback."""
+    url = f"http://{host}:{port}/v1/readyz"
+    try:
+        with urlopen(url, timeout=timeout) as resp:
+            if int(getattr(resp, "status", 0)) != 200:
+                return False
+            reader = getattr(resp, "read", None)
+            if not callable(reader):
+                return True
+            raw = reader()
+            if not raw:
+                return True
+            payload = json.loads(raw.decode("utf-8"))
+            return isinstance(payload, dict) and payload.get("ok") is True
+    except (HTTPError, HTTPException, URLError, OSError, ValueError, TypeError, UnicodeDecodeError, AttributeError):
+        # Pre-readiness gateways expose only /health.
+        return _is_healthy(host, port, timeout)
+
+
 def _read_gateway_version_from_admin_health(
     gateway_host: str,
     gateway_port: int,
@@ -229,7 +249,7 @@ def _remove_stale_launch_lock(path: Path, stale_after_secs: float) -> bool:
 def _wait_gateway_ready(host: str, port: int, *, timeout_secs: float, probe_timeout: float = 0.5) -> bool:
     deadline = time.time() + max(timeout_secs, 0.2)
     while time.time() < deadline:
-        if _is_healthy(host, port, timeout=probe_timeout):
+        if _is_application_ready(host, port, timeout=probe_timeout):
             return True
         time.sleep(0.1)
     return False
@@ -262,7 +282,7 @@ def _wait_managed_gateway_ready(
             minimum_version,
             managed_version,
         )
-        if version_is_acceptable and _is_healthy(host, port, timeout=probe_timeout):
+        if version_is_acceptable and _is_application_ready(host, port, timeout=probe_timeout):
             return True
         time.sleep(0.1)
     return False
@@ -395,7 +415,7 @@ def _try_version_takeover(
     # Wait for the old gateway to yield (up to ~20 s for the 15 s cleanup interval + grace).
     deadline = time.time() + 20.0
     while time.time() < deadline:
-        if not _is_healthy(gateway_host, gateway_port, timeout=0.5):
+        if not _is_application_ready(gateway_host, gateway_port, timeout=0.5):
             logger.info("version takeover: old gateway yielded — spawning new version")
             break
         time.sleep(0.5)
@@ -494,7 +514,7 @@ def ensure_gateway_daemon(
     timeout_secs = _resolve_ensure_timeout(timeout_secs)
     if gateway_port <= 0:
         return {"ok": False, "reason": "gateway_port_not_configured"}
-    if _is_healthy(gateway_host, gateway_port, timeout=0.5):
+    if _is_application_ready(gateway_host, gateway_port, timeout=0.5):
         takeover_result = _try_version_takeover(
             gateway_host=gateway_host,
             gateway_port=gateway_port,
@@ -537,7 +557,7 @@ def ensure_gateway_daemon(
 
     try:
         try:
-            if _is_healthy(gateway_host, gateway_port, timeout=0.5):
+            if _is_application_ready(gateway_host, gateway_port, timeout=0.5):
                 return {"ok": True, "reason": "already_healthy", "registry_dir": str(registry_path)}
             spawn = launch_detached(cmd, env=env, cwd=Path.cwd())
             if not spawn.get("ok"):
@@ -670,7 +690,7 @@ class GatewayDaemonGuardian:
         if self.gateway_port <= 0:
             return self._publish({"ok": False, "reason": "gateway_port_not_configured"})
 
-        if _is_healthy(self.gateway_host, self.gateway_port, timeout=self.probe_timeout_secs):
+        if _is_application_ready(self.gateway_host, self.gateway_port, timeout=self.probe_timeout_secs):
             self._consecutive_failures = 0
             takeover_result = _try_version_takeover(
                 gateway_host=self.gateway_host,
@@ -701,7 +721,7 @@ class GatewayDaemonGuardian:
             jitter = random.uniform(0.0, self.reensure_jitter_max_secs)
             if jitter > 0.0 and self._stop.wait(jitter):
                 return self._publish({"ok": False, "reason": "guardian_stopped"})
-            if _is_healthy(self.gateway_host, self.gateway_port, timeout=self.probe_timeout_secs):
+            if _is_application_ready(self.gateway_host, self.gateway_port, timeout=self.probe_timeout_secs):
                 self._consecutive_failures = 0
                 return self._publish(
                     {

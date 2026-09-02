@@ -983,28 +983,35 @@ async fn probe_resident_gateway_health(
     port: u16,
     timeout: Duration,
 ) -> ResidentGatewayHealth {
-    let url = format!("http://{host}:{port}/health");
+    let readiness_url = format!("http://{host}:{port}/v1/readyz");
     let client = reqwest::Client::builder()
         .connect_timeout(timeout)
         .timeout(timeout)
         .build()
         .unwrap_or_else(|_| reqwest::Client::new());
-    match client.get(&url).send().await {
+    match client.get(&readiness_url).send().await {
         Ok(resp) if resp.status().is_success() => ResidentGatewayHealth::Healthy,
+        Ok(resp) if resp.status() == reqwest::StatusCode::NOT_FOUND => {
+            // Pre-readiness gateways only expose /health.
+            let health_url = format!("http://{host}:{port}/health");
+            match client.get(&health_url).send().await {
+                Ok(resp) if resp.status().is_success() => ResidentGatewayHealth::Healthy,
+                Ok(resp) => {
+                    tracing::warn!(status = %resp.status(), url = %health_url, "Resident gateway readiness probe failed");
+                    ResidentGatewayHealth::Unhealthy
+                }
+                Err(err) => {
+                    tracing::warn!(error = %err, url = %health_url, "Resident gateway readiness probe failed");
+                    ResidentGatewayHealth::Unhealthy
+                }
+            }
+        }
         Ok(resp) => {
-            tracing::warn!(
-                status = %resp.status(),
-                url = %url,
-                "Resident gateway /health probe failed"
-            );
+            tracing::warn!(status = %resp.status(), url = %readiness_url, "Resident gateway readiness probe failed");
             ResidentGatewayHealth::Unhealthy
         }
         Err(err) => {
-            tracing::warn!(
-                error = %err,
-                url = %url,
-                "Resident gateway /health probe failed"
-            );
+            tracing::warn!(error = %err, url = %readiness_url, "Resident gateway readiness probe failed");
             ResidentGatewayHealth::Unhealthy
         }
     }
