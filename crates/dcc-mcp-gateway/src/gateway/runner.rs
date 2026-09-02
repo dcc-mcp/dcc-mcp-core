@@ -972,7 +972,7 @@ fn stamp_gateway_sentinel(
 fn challenger_reason(resident_health: ResidentGatewayHealth) -> Option<&'static str> {
     match resident_health {
         ResidentGatewayHealth::Unhealthy => {
-            Some("Resident gateway failed /health probe — entering challenger mode")
+            Some("Resident gateway failed application readiness probe — entering challenger mode")
         }
         ResidentGatewayHealth::Healthy => None,
     }
@@ -990,7 +990,20 @@ async fn probe_resident_gateway_health(
         .build()
         .unwrap_or_else(|_| reqwest::Client::new());
     match client.get(&readiness_url).send().await {
-        Ok(resp) if resp.status().is_success() => ResidentGatewayHealth::Healthy,
+        Ok(resp) if resp.status() == reqwest::StatusCode::OK => {
+            let status = resp.status();
+            match resp.bytes().await {
+                Ok(body) if readyz_body_is_healthy(&body) => ResidentGatewayHealth::Healthy,
+                Ok(_) => {
+                    tracing::warn!(status = %status, url = %readiness_url, "Resident gateway readiness body is not ready");
+                    ResidentGatewayHealth::Unhealthy
+                }
+                Err(err) => {
+                    tracing::warn!(error = %err, url = %readiness_url, "Resident gateway readiness body read failed");
+                    ResidentGatewayHealth::Unhealthy
+                }
+            }
+        }
         Ok(resp) if resp.status() == reqwest::StatusCode::NOT_FOUND => {
             // Pre-readiness gateways only expose /health.
             let health_url = format!("http://{host}:{port}/health");
@@ -1015,6 +1028,13 @@ async fn probe_resident_gateway_health(
             ResidentGatewayHealth::Unhealthy
         }
     }
+}
+
+fn readyz_body_is_healthy(body: &[u8]) -> bool {
+    serde_json::from_slice::<serde_json::Value>(body)
+        .ok()
+        .and_then(|payload| payload.get("ok").and_then(serde_json::Value::as_bool))
+        == Some(true)
 }
 
 struct PromotedGatewayGuard {
@@ -1248,10 +1268,37 @@ mod tests {
     }
 
     #[test]
+    fn readyz_requires_explicit_ok_true() {
+        assert!(readyz_body_is_healthy(br#"{"ok":true}"#));
+        assert!(!readyz_body_is_healthy(br#"{"ok":false}"#));
+        assert!(!readyz_body_is_healthy(br#"{}"#));
+        assert!(!readyz_body_is_healthy(b"not-json"));
+        assert!(!readyz_body_is_healthy(b""));
+    }
+
+    #[tokio::test]
+    async fn hanging_resident_readyz_is_bounded_and_unhealthy() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let holder = tokio::spawn(async move {
+            if let Ok((_stream, _peer)) = listener.accept().await {
+                tokio::time::sleep(Duration::from_secs(5)).await;
+            }
+        });
+
+        let started = std::time::Instant::now();
+        let observed =
+            probe_resident_gateway_health("127.0.0.1", port, Duration::from_millis(100)).await;
+        assert_eq!(observed, ResidentGatewayHealth::Unhealthy);
+        assert!(started.elapsed() < Duration::from_secs(1));
+        holder.abort();
+    }
+
+    #[test]
     fn unhealthy_resident_enters_challenger_mode_even_without_version_advantage() {
         assert_eq!(
             challenger_reason(ResidentGatewayHealth::Unhealthy),
-            Some("Resident gateway failed /health probe — entering challenger mode")
+            Some("Resident gateway failed application readiness probe — entering challenger mode")
         );
     }
 
@@ -1260,7 +1307,7 @@ mod tests {
         // No sentinel: /health fails (connection refused) → Unhealthy → challenger
         assert_eq!(
             challenger_reason(ResidentGatewayHealth::Unhealthy),
-            Some("Resident gateway failed /health probe — entering challenger mode")
+            Some("Resident gateway failed application readiness probe — entering challenger mode")
         );
     }
 

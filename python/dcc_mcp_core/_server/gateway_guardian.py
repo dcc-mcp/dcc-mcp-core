@@ -65,19 +65,28 @@ def _is_application_ready(host: str, port: int, timeout: float) -> bool:
     url = f"http://{host}:{port}/v1/readyz"
     try:
         with urlopen(url, timeout=timeout) as resp:
-            if int(getattr(resp, "status", 0)) != 200:
+            status = int(getattr(resp, "status", 0))
+            if status == 404:
+                # Pre-readiness gateways expose only /health.
+                return _is_healthy(host, port, timeout)
+            if status != 200:
                 return False
             reader = getattr(resp, "read", None)
             if not callable(reader):
-                return True
+                return False
             raw = reader()
             if not raw:
-                return True
+                return False
             payload = json.loads(raw.decode("utf-8"))
             return isinstance(payload, dict) and payload.get("ok") is True
-    except (HTTPError, HTTPException, URLError, OSError, ValueError, TypeError, UnicodeDecodeError, AttributeError):
-        # Pre-readiness gateways expose only /health.
-        return _is_healthy(host, port, timeout)
+    except HTTPError as err:
+        if int(getattr(err, "code", 0)) == 404:
+            # Pre-readiness gateways expose only /health.
+            return _is_healthy(host, port, timeout)
+        return False
+    except (HTTPException, URLError, OSError, ValueError, TypeError, UnicodeDecodeError, AttributeError):
+        # A transport or malformed readiness response is not proof of liveness.
+        return False
 
 
 def _read_gateway_version_from_admin_health(

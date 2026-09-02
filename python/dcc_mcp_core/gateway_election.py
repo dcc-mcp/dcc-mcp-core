@@ -43,6 +43,7 @@ import socket
 import threading
 from typing import Any
 from typing import Callable
+from urllib.error import HTTPError
 
 from dcc_mcp_core.constants import ENV_GATEWAY_PROBE_FAILURES
 from dcc_mcp_core.constants import ENV_GATEWAY_PROBE_INTERVAL
@@ -61,7 +62,8 @@ class DccGatewayElection:
     """Manages automatic gateway election when the current gateway fails.
 
     Runs a background daemon thread that:
-    1. Periodically probes the gateway's ``/health`` HTTP endpoint
+    1. Periodically probes the gateway's ``/v1/readyz`` endpoint (with a bounded
+       ``/health`` fallback for legacy gateways)
     2. Counts consecutive failures
     3. Attempts a first-wins socket bind when failures exceed the threshold
     4. Signals the server to upgrade to gateway mode on success
@@ -258,17 +260,23 @@ class DccGatewayElection:
                     return False
                 raw = resp.read()
                 if not raw:
-                    return True
+                    return False
                 payload = json.loads(raw.decode("utf-8"))
                 return isinstance(payload, dict) and payload.get("ok") is True
-        except Exception:
-            try:
-                url = f"http://{self._gateway_host}:{self._gateway_port}/health"
-                req = urllib.request.Request(url, method="GET")
-                with urllib.request.urlopen(req, timeout=self._probe_timeout) as resp:
-                    return resp.status == 200
-            except Exception:
+        except HTTPError as err:
+            if err.code != 404:
                 return False
+        except Exception:
+            return False
+
+        # Only an explicit 404 means the legacy gateway lacks /v1/readyz.
+        try:
+            url = f"http://{self._gateway_host}:{self._gateway_port}/health"
+            req = urllib.request.Request(url, method="GET")
+            with urllib.request.urlopen(req, timeout=self._probe_timeout) as resp:
+                return resp.status == 200
+        except Exception:
+            return False
 
     def _attempt_election(self) -> bool:
         """Probe the gateway port and, if free, run the real promotion path.
