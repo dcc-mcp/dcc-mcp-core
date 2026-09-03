@@ -124,26 +124,27 @@ Start a new agent turn after installation.
 | Full index | `llms-full.txt` | When `llms.txt` lacks detail |
 | Detailed rules | [`docs/guide/agents-reference.md`](docs/guide/agents-reference.md) | Before writing code — traps, do/don't, code style |
 | Conceptual docs | [`docs/guide/INDEX.md`](docs/guide/INDEX.md) + `docs/api/` | Building a new adapter or skill — see INDEX.md for topic list |
-| Skill authoring | [`dcc-mcp-skills-creator` on ClawHub](https://clawhub.ai/loonghao/skills/dcc-mcp-skills-creator) + [`skills/dcc-mcp-skills-creator/SKILL.md`](skills/dcc-mcp-skills-creator/SKILL.md) | Creating or modifying DCC-specific Skills |
-| Adapter developer guidance | [`dcc-mcp-creator` on ClawHub](https://clawhub.ai/loonghao/skills/dcc-mcp-creator) + [`skills/dcc-mcp-creator/SKILL.md`](skills/dcc-mcp-creator/SKILL.md) | Before creating or changing DCC adapter server/runtime wiring, dispatcher bridges, readiness, resources, gateway behavior, or core-escalation plans |
-| Skill creator guidance | [`skills/dcc-mcp-skills-creator/SKILL.md`](skills/dcc-mcp-skills-creator/SKILL.md) | Before creating or changing adapter skill authoring, tool schemas, scripts, skill taxonomy, testing, or agent-facing workflows |
-| CLI + marketplace operations | [`dcc-mcp` on ClawHub](https://clawhub.ai/loonghao/skills/dcc-mcp) + [`skills/dcc-mcp/SKILL.md`](skills/dcc-mcp/SKILL.md) | Agents doing DCC control via `dcc-mcp-cli` — gateway ensure, inventory, search, describe, call, marketplace install/update |
+| Skill authoring | [`dcc-mcp-skills-creator` on ClawHub](https://clawhub.ai/loonghao/skills/dcc-mcp-skills-creator) | Creating or modifying DCC-specific Skills |
+| Adapter developer guidance | [`dcc-mcp-creator` on ClawHub](https://clawhub.ai/loonghao/skills/dcc-mcp-creator) | Before creating or changing DCC adapter server/runtime wiring, dispatcher bridges, readiness, resources, gateway behavior, or core-escalation plans |
+| CLI + marketplace operations | [`dcc-mcp` on ClawHub](https://clawhub.ai/loonghao/skills/dcc-mcp) | Agents doing DCC control via `dcc-mcp-cli` — gateway ensure, inventory, search, describe, call, marketplace install/update |
 | Marketplace extension publishing | [`skills/marketplace-publish-extension/SKILL.md`](skills/marketplace-publish-extension/SKILL.md) | Before publishing a new skill package to the DCC-MCP marketplace |
 | Marketplace extension creation | [`skills/marketplace-create-extension/SKILL.md`](skills/marketplace-create-extension/SKILL.md) | Before creating a new marketplace extension package |
 | Gateway REST regressions (VRS) | [`tests/vrs/README.md`](tests/vrs/README.md) + `scripts/vrs_replay.py` | After gateway `/v1/*` or live-adapter bugs — add a JSONL trace per regression |
 
 ---
 
-## Agent-Facing Skill Sync
+## Public Skill Coordination
 
-- After any code change, check whether the installed adapter and skill guidance
-  in `skills/dcc-mcp-creator/` or
-  `skills/dcc-mcp-skills-creator/` needs to change.
-- If the change affects public APIs, adapter/server wiring, dispatcher
+- The public `dcc-mcp`, `dcc-mcp-creator`, and `dcc-mcp-skills-creator`
+  packages are authored and released from
+  [`dcc-mcp-agent-plugins`](https://github.com/dcc-mcp/dcc-mcp-agent-plugins).
+- If a Core change affects public APIs, adapter/server wiring, dispatcher
   contracts, readiness, resources, gateway behavior, skill authoring rules,
-  tool/resource/prompt schemas, testing expectations, or agent workflow, update
-  the relevant skill guidance in the same PR.
-- If no update is needed, mention that explicitly in the PR validation notes.
+  tool/resource/prompt schemas, testing expectations, or agent workflow,
+  coordinate a matching agent-plugins pull request. Do not recreate a public
+  Skill mirror in Core.
+- If no public Skill update is needed, mention that explicitly in the Core PR
+  validation notes.
 
 ## Quick Orientation
 

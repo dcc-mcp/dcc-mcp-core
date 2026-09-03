@@ -113,6 +113,6 @@ Do not expose the MCP Inspector proxy to an untrusted network.
 
 ## See Also
 
-- [Internal standalone service workflow](../../skills/dcc-mcp-creator/references/INTERNAL_SERVICE_WORKFLOW.md)
+- [Internal standalone service workflow](https://github.com/dcc-mcp/dcc-mcp-agent-plugins/blob/main/plugins/dcc-mcp/skills/dcc-mcp-creator/references/INTERNAL_SERVICE_WORKFLOW.md)
 - [Remote-first deployment guide](../../docs/guide/remote-server.md)
 - [Production deployment](../../docs/guide/production-deployment.md)

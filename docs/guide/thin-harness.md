@@ -241,7 +241,7 @@ a new wrapper tool.
 ## Related
 
 - [ADR 003](../adr/003-thin-harness-skill-pattern.md) — architectural decision
-- [`dcc-mcp-skills-creator`](https://github.com/dcc-mcp/dcc-mcp-core/tree/main/skills/dcc-mcp-skills-creator/) — scaffold and validate a new thin-harness skill
+- [`dcc-mcp-skills-creator`](https://github.com/dcc-mcp/dcc-mcp-agent-plugins/tree/main/plugins/dcc-mcp/skills/dcc-mcp-skills-creator/) — scaffold and validate a new thin-harness skill
 - [agents-reference.md](agents-reference.md) — skill layer definitions
 - Issue #426 — `dcc_introspect__*` built-in tools
 - Issue #427 — `_meta.dcc.raw_trace` error envelope

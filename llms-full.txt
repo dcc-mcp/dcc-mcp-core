@@ -802,7 +802,7 @@ all_deps = expand_transitive_dependencies(skills, "my-skill")  # -> List[str] na
 
 Authoring helpers:
 
-- `skills/dcc-mcp-skills-creator/` scaffolds and validates DCC-MCP skill packages and bundles the agent-facing authoring guidance for building or modernizing DCC adapter skills. It distills dcc-mcp-maya, dcc-mcp-blender, and dcc-mcp-3dsmax patterns for server wiring, `SKILL.md` / `tools.yaml`, execution and affinity metadata, host differences, and testing/VRS coverage.
+- [`dcc-mcp-skills-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-skills-creator) scaffolds and validates DCC-MCP skill packages and bundles the agent-facing authoring guidance for building or modernizing DCC adapter skills. Its source lives in [`dcc-mcp-agent-plugins`](https://github.com/dcc-mcp/dcc-mcp-agent-plugins/tree/main/plugins/dcc-mcp/skills/dcc-mcp-skills-creator). It distills dcc-mcp-maya, dcc-mcp-blender, and dcc-mcp-3dsmax patterns for server wiring, `SKILL.md` / `tools.yaml`, execution and affinity metadata, host differences, and testing/VRS coverage.
 
 ```yaml
 ---

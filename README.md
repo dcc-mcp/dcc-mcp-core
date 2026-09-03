@@ -235,8 +235,9 @@ All three packages carry Codex `agents/openai.yaml` metadata while preserving
 their DCC-MCP and ClawHub contracts. Their source, vendor manifests, immutable
 versions, and publication workflows now live in
 [`dcc-mcp-agent-plugins`](https://github.com/dcc-mcp/dcc-mcp-agent-plugins).
-The copies under this repository's `skills/` directory remain frozen
-compatibility mirrors for existing Core consumers.
+This repository does not vendor those public packages. Its top-level `skills/`
+directory contains Core-owned marketplace and reference Skills. Bundled runtime
+Skills remain under `python/dcc_mcp_core/skills/`.
 
 Keep an official build current through the release manifest:
 
@@ -290,7 +291,7 @@ After a task is accepted, agents can inspect bounded gateway evidence with
 `dcc-mcp-cli stats --range 24h --session-id task-42`. A zero call count means
 no telemetry evidence, and direct local calls may not be represented. Feed the
 result plus short task and validation summaries to the
-[`review_skill_improvement` prompt](skills/dcc-mcp-skills-creator/prompts.yaml).
+[`review_skill_improvement` prompt](https://github.com/dcc-mcp/dcc-mcp-agent-plugins/blob/main/plugins/dcc-mcp/skills/dcc-mcp-skills-creator/prompts.yaml).
 The prompt defaults to no change, prefers improving an existing skill, and
 never grants authority to edit or publish outside the task scope.
 

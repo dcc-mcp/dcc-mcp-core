@@ -77,7 +77,7 @@ the adapter identity remains stable across future wheel updates.
 | **Adapter Version** | Latest released semver of the adapter. |
 | **Core Pin** | Dependency range for `dcc-mcp-core`. Must exclude `<1.0.0` until core reaches 1.0. |
 | **DCC Min Version** | Minimum host version (e.g. `2024+`, `3.6+`, `20.5+`). |
-| **Dispatcher Pattern** | A short summary of the adapter's runtime routing model, such as `Qt sidecar`, `Event-loop callback`, `InProcessCallableDispatcher`, diagnostics-only sidecar, or an external bridge. See `skills/dcc-mcp-creator/references/HOST_PATTERN_MATRIX.md` for details. |
+| **Dispatcher Pattern** | A short summary of the adapter's runtime routing model, such as `Qt sidecar`, `Event-loop callback`, `InProcessCallableDispatcher`, diagnostics-only sidecar, or an external bridge. See the public [`HOST_PATTERN_MATRIX.md`](https://github.com/dcc-mcp/dcc-mcp-agent-plugins/blob/main/plugins/dcc-mcp/skills/dcc-mcp-creator/references/HOST_PATTERN_MATRIX.md) for details. |
 | **Last Verified** | Month the last gateway smoke was run (format: `YYYY-MM`). |
 
 ## Core Version Policy

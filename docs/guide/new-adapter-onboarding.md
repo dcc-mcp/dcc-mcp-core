@@ -237,8 +237,9 @@ metadata:
 ```
 
 Plus a sibling `tools.yaml` with one tool definition and a `scripts/` directory
-with the implementation. Refer to the `skills/dcc-mcp-skills-creator/SKILL.md`
-skill for detailed authoring guidance.
+with the implementation. Refer to the published
+[`dcc-mcp-skills-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-skills-creator)
+Skill for detailed authoring guidance.
 
 ## 8. VRS Smoke Trace
 
@@ -254,4 +255,5 @@ gateway can discover the new adapter. Copy the pattern from
 - [ ] Verify the Install SOP release gates pass (see
       [adapter-release-checklist.md](adapter-release-checklist.md#1-install-sop-v1)).
 - [ ] File a core issue if any adapter-local code should be escalated
-      (see `skills/dcc-mcp-creator/references/CORE_ESCALATION_CHECKLIST.md`).
+      (see the public
+      [`CORE_ESCALATION_CHECKLIST.md`](https://github.com/dcc-mcp/dcc-mcp-agent-plugins/blob/main/plugins/dcc-mcp/skills/dcc-mcp-creator/references/CORE_ESCALATION_CHECKLIST.md)).

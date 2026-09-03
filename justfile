@@ -283,7 +283,7 @@ lint-py:
 
 # Lint bundled, example, and fixture skills with the built production CLI
 lint-skills: build-cli
-    {{CLI_BIN}} lint --max-depth 4 skills/dcc-mcp python/dcc_mcp_core/skills examples/skills examples/remote-server/skills examples/rez-skills tests/fixtures/skills tests/fixtures/prompts_skills
+    {{CLI_BIN}} lint --max-depth 4 python/dcc_mcp_core/skills examples/skills examples/remote-server/skills examples/rez-skills tests/fixtures/skills tests/fixtures/prompts_skills
 
 # Verify pure-Python sources parse on Python 3.7 (cp37 wheel parity).
 check-py37-syntax:

@@ -343,17 +343,3 @@ def test_adapter_onboarding_and_release_gate_the_install_sop() -> None:
 
     assert "install.md" in onboarding
     assert "plan -> execute -> verify -> status -> uninstall" in release
-
-
-def test_creator_guidance_routes_installers_to_the_sop_contract() -> None:
-    creator = (REPO_ROOT / "skills" / "dcc-mcp-creator" / "SKILL.md").read_text(encoding="utf-8")
-    testing = (REPO_ROOT / "skills" / "dcc-mcp-creator" / "references" / "TESTING_AND_RELEASE.md").read_text(
-        encoding="utf-8"
-    )
-
-    for text in (creator, testing):
-        assert "adapter-install-sop.md" in text
-        assert "load_install_sop_schema" in text
-        assert "INSTALL_EXIT_CODES" in text
-
-    assert "plan -> execute -> verify -> status -> uninstall" in testing

@@ -2,7 +2,7 @@
 
 The Skills system registers scripts (Python, MEL, MaxScript, BAT, Shell, etc.) as MCP-discoverable tools with **zero Python glue code**. `SKILL.md` follows the agentskills.io V1.0 frontmatter shape; dcc-mcp-core extensions live under `metadata.dcc-mcp.*` and point to sibling files such as `tools.yaml` and `groups.yaml`. Keep extension data out of top-level `SKILL.md` keys so generic agentskills.io readers can still parse the package.
 
-For **adapter maintenance** (I/O tool copy, `recipes` / `skill-reference-docs`, gateway-friendly descriptions), use [skill-maintenance.md](skill-maintenance.md). For agent-facing adapter skill development guidance, load `skills/dcc-mcp-skills-creator/`. In-tree reference skills: `python/dcc_mcp_core/skills/dcc-diagnostics`, `python/dcc_mcp_core/skills/workflow`.
+For **adapter maintenance** (I/O tool copy, `recipes` / `skill-reference-docs`, gateway-friendly descriptions), use [skill-maintenance.md](skill-maintenance.md). For agent-facing adapter skill development guidance, install [`dcc-mcp-skills-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-skills-creator); its source is maintained in [`dcc-mcp-agent-plugins`](https://github.com/dcc-mcp/dcc-mcp-agent-plugins/tree/main/plugins/dcc-mcp/skills/dcc-mcp-skills-creator). In-tree runtime reference skills: `python/dcc_mcp_core/skills/dcc-diagnostics`, `python/dcc_mcp_core/skills/workflow`.
 
 ## Evidence-Informed Skill Improvement
 
@@ -16,8 +16,8 @@ dcc-mcp-cli call <slug> --require-gateway --agent-session-id task-42 --json '{}'
 dcc-mcp-cli stats --range 24h --dcc-type maya --session-id task-42
 ```
 
-The prompt is defined in
-`skills/dcc-mcp-skills-creator/prompts.yaml`. Supply only bounded task, stats,
+The prompt is defined in the public
+[`dcc-mcp-skills-creator` package](https://github.com/dcc-mcp/dcc-mcp-agent-plugins/blob/main/plugins/dcc-mcp/skills/dcc-mcp-skills-creator/prompts.yaml). Supply only bounded task, stats,
 validation, and existing-skill summaries; never send hidden reasoning, raw
 prompts, secrets, private paths, or full tool payloads. Stats are supporting
 evidence, not root-cause proof. Inspect `stats_coverage`: direct local MCP is
@@ -2016,9 +2016,11 @@ The validator checks the following categories:
 
 ### Using the `dcc-mcp-skills-creator` Skill
 
-The `skills/dcc-mcp-skills-creator/` skill provides scaffolding and validation
-helpers as MCP tools, plus the agent-facing authoring guidance for building or
-modernizing DCC-MCP adapter skill packages:
+The published [`dcc-mcp-skills-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-skills-creator)
+Skill provides scaffolding and validation helpers as MCP tools, plus the
+agent-facing authoring guidance for building or modernizing DCC-MCP adapter
+skill packages. Its canonical source is in
+[`dcc-mcp-agent-plugins`](https://github.com/dcc-mcp/dcc-mcp-agent-plugins/tree/main/plugins/dcc-mcp/skills/dcc-mcp-skills-creator):
 
 ```python
 # Scaffold a new skill directory via the loaded MCP tool:

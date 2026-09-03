@@ -9,12 +9,8 @@ from conftest import REPO_ROOT
 import dcc_mcp_core
 from dcc_mcp_core import skill as skill_module
 from dcc_mcp_core._server import skill_discovery
-from dcc_mcp_core.skill_reference_docs import _handle_list
 
 SKILL_ROOTS = [
-    REPO_ROOT / "skills" / "dcc-mcp-skills-creator",
-    REPO_ROOT / "skills" / "dcc-mcp-creator",
-    REPO_ROOT / "skills" / "dcc-mcp",
     REPO_ROOT / "python" / "dcc_mcp_core" / "skills" / "ui-control",
     REPO_ROOT / "python" / "dcc_mcp_core" / "skills" / "dcc-diagnostics",
     REPO_ROOT / "python" / "dcc_mcp_core" / "skills" / "media",
@@ -69,7 +65,7 @@ def test_bundled_api_keeps_root_contract_while_internal_discovery_ignores_upgrad
     assert [Path(path).name for path in discovery_paths] == ["ui-control"]
 
 
-def test_official_and_bundled_skills_validate_clean() -> None:
+def test_core_runtime_skills_validate_clean() -> None:
     for skill_dir in SKILL_ROOTS:
         report = dcc_mcp_core.validate_skill(str(skill_dir))
         assert report.is_clean, (skill_dir, [(issue.severity, issue.message) for issue in report.issues])
@@ -82,37 +78,3 @@ def test_bundled_tool_declarations_include_execution_and_affinity() -> None:
         for tool in meta.tools:
             assert tool.execution in ("sync", "async"), (skill_dir, tool.name)
             assert tool.enforce_thread_affinity is True, (skill_dir, tool.name)
-
-
-def test_dcc_mcp_skills_creator_reference_docs_are_indexed() -> None:
-    skill_dir = REPO_ROOT / "skills" / "dcc-mcp-skills-creator"
-    meta = dcc_mcp_core.parse_skill_md(str(skill_dir))
-
-    assert meta is not None
-    result = _handle_list({meta.name: meta}, {"skill": meta.name})
-    paths = {entry["path"] for entry in result["context"]["files"]}
-
-    assert result["success"] is True
-    assert {
-        "references/AUTHORING_WORKFLOW.md",
-        "references/DCC_TOOL_CONTRACTS.md",
-    } <= paths
-
-
-def test_dcc_mcp_skills_creator_exposes_improvement_prompt() -> None:
-    prompt_path = REPO_ROOT / "skills" / "dcc-mcp-skills-creator" / "prompts.yaml"
-    payload = dcc_mcp_core.yaml_loads(prompt_path.read_text(encoding="utf-8"))
-    prompt = payload["prompts"][0]
-
-    assert prompt["name"] == "review_skill_improvement"
-    assert {argument["name"] for argument in prompt["arguments"]} == {
-        "task_summary",
-        "stats_json",
-        "validation_summary",
-        "existing_skill",
-    }
-    content = "\n".join(message["content"] for message in prompt["messages"])
-    assert "starts one typed job" in content
-    assert "progress.current/progress.total/progress.message" in content
-    assert "explicit cross-session monitoring request" in content
-    assert "never relaunch the work" in content
