@@ -604,7 +604,7 @@ If you are uncertain whether a change affects py37 compatibility, ask. Never ass
 
 ## 📖 Further Reading
 
-- **Default entry skill**: [`dcc-mcp`](skills/dcc-mcp/SKILL.md) — load this skill for CLI+REST DCC control
+- **Default entry skill**: [`dcc-mcp`](https://clawhub.ai/loonghao/skills/dcc-mcp) — install this public skill for CLI+REST DCC control
 - **CLI reference**: [`docs/guide/cli-reference.md`](docs/guide/cli-reference.md) — full `dcc-mcp-cli` command reference
 - **Navigation map**: [`AGENTS.md`](AGENTS.md) — start here for detailed rules
 - **API index**: [`llms.txt`](llms.txt) — compressed API reference for AI agents

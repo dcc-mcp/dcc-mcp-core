@@ -88,16 +88,13 @@ fn lint_probes_declared_execution_contracts_through_core_dispatch() {
 }
 
 #[test]
-fn lint_bundled_skills_are_present_and_clean() {
+fn lint_core_runtime_skills_are_present_and_clean() {
     let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let workspace_root = manifest_dir
         .parent()
         .and_then(std::path::Path::parent)
         .unwrap();
-    let builtin_skill_roots = [
-        workspace_root.join("skills/dcc-mcp"),
-        workspace_root.join("python/dcc_mcp_core/skills"),
-    ];
+    let builtin_skill_roots = [workspace_root.join("python/dcc_mcp_core/skills")];
 
     for root in &builtin_skill_roots {
         assert!(

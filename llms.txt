@@ -429,7 +429,7 @@ tools:
 
 **AI Agent Tool Priority**: When interacting with DCCs, prefer: (1) Skill Discovery (`search_skills` → `load_skill`), (2) Skill-based tools (validated schemas + `next-tools` + `ToolAnnotations` safety hints), (3) read gateway diagnostics via `gateway://diagnostics/*` resources or per-DCC diagnostics tools (`dcc_diagnostics__screenshot` etc.), (4) Direct registry access (last resort). Skills-first provides safety, discoverability, chainability, progressive exposure, and input validation.
 
-**Adapter skill authoring**: Use `skills/dcc-mcp-skills-creator/` to scaffold and validate skill packages and for agent-facing authoring guidance before building or modernizing DCC adapter skills; it summarizes patterns from dcc-mcp-maya, dcc-mcp-blender, and dcc-mcp-3dsmax, including stage taxonomy, execution/affinity metadata, host matrix, and testing/VRS choices.
+**Adapter skill authoring**: Install [`dcc-mcp-skills-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-skills-creator) to scaffold and validate skill packages and load agent-facing authoring guidance before building or modernizing DCC adapter skills; it summarizes patterns from dcc-mcp-maya, dcc-mcp-blender, and dcc-mcp-3dsmax, including stage taxonomy, execution/affinity metadata, host matrix, and testing/VRS choices.
 
 ### MCP Protocol Types (`dcc_mcp_core`)
 

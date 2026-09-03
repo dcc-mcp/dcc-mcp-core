@@ -97,9 +97,15 @@ instance row -> gateway 统一路由所有 live DCC instance。
 
 | Agent 任务 | 公开 Skill | 源码 |
 |---|---|---|
-| 操作实时 DCC、发现工具或搜索 Marketplace | [`@loonghao/dcc-mcp`](https://clawhub.ai/loonghao/skills/dcc-mcp) | [`skills/dcc-mcp`](skills/dcc-mcp/) |
-| 创建或现代化完整 DCC-MCP adapter/runtime | [`@loonghao/dcc-mcp-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-creator) | [`skills/dcc-mcp-creator`](skills/dcc-mcp-creator/) |
-| 创建、验证或改进 DCC 专项 Skill 包 | [`@loonghao/dcc-mcp-skills-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-skills-creator) | [`skills/dcc-mcp-skills-creator`](skills/dcc-mcp-skills-creator/) |
+| 操作实时 DCC、发现工具或搜索 Marketplace | [`@loonghao/dcc-mcp`](https://clawhub.ai/loonghao/skills/dcc-mcp) | [`dcc-mcp`](https://github.com/dcc-mcp/dcc-mcp-agent-plugins/tree/main/plugins/dcc-mcp/skills/dcc-mcp) |
+| 创建或现代化完整 DCC-MCP adapter/runtime | [`@loonghao/dcc-mcp-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-creator) | [`dcc-mcp-creator`](https://github.com/dcc-mcp/dcc-mcp-agent-plugins/tree/main/plugins/dcc-mcp/skills/dcc-mcp-creator) |
+| 创建、验证或改进 DCC 专项 Skill 包 | [`@loonghao/dcc-mcp-skills-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-skills-creator) | [`dcc-mcp-skills-creator`](https://github.com/dcc-mcp/dcc-mcp-agent-plugins/tree/main/plugins/dcc-mcp/skills/dcc-mcp-skills-creator) |
+
+三个公开 Skill 的源码、版本和发布工作流均由
+[`dcc-mcp-agent-plugins`](https://github.com/dcc-mcp/dcc-mcp-agent-plugins)
+维护；Core 不再保留它们的镜像。Core 的 `skills/` 目录保留 Marketplace
+和参考用途的 Core 自有 Skill；随运行时发布的 Skill 继续保留在
+`python/dcc_mcp_core/skills/`。
 
 OpenClaw 默认安装到当前 workspace；只有需要本机所有 OpenClaw Agent 共享时
 才加 `--global`：

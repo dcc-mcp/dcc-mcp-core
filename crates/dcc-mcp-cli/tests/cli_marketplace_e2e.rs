@@ -1,6 +1,5 @@
 mod support;
 
-use dcc_mcp_skills::parse_skill_md;
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
 use dcc_mcp_transport::discovery::types::ServiceEntry;
 use serde_json::{Value, json};
@@ -1436,26 +1435,6 @@ fn marketplace_update_git_package_uses_latest_catalog_ref() {
     let listed = run_json_with_env(&["marketplace", "list-installed", "--dcc", "maya"], &envs);
     assert_eq!(listed["packages"][0]["version"], "0.2.0");
     assert_eq!(listed["packages"][0]["install_ref"], commit_v2);
-}
-
-#[test]
-fn dcc_mcp_skill_routes_dcc_intent_without_required_gateway_env() {
-    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let workspace_root = manifest_dir
-        .parent()
-        .and_then(std::path::Path::parent)
-        .unwrap();
-    let skill_dir = workspace_root.join("skills/dcc-mcp");
-
-    let meta = parse_skill_md(&skill_dir).expect("dcc-mcp SKILL.md parses");
-
-    assert_eq!(meta.name, "dcc-mcp");
-    assert!(meta.description.contains("Use this skill first"));
-    for dcc in ["Maya", "Blender", "Houdini", "Photoshop"] {
-        assert!(meta.description.contains(dcc), "missing DCC trigger: {dcc}");
-    }
-    assert!(meta.required_env_vars().is_empty());
-    assert_eq!(meta.primary_env(), None);
 }
 
 #[test]

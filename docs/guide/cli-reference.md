@@ -283,7 +283,8 @@ For post-task review, route every task call with
 single-call route cannot support the review. Stats are aggregate evidence rather than
 root-cause proof; `total_calls == 0` means no telemetry evidence, not that no
 calls occurred. The
-`review_skill_improvement` prompt in `skills/dcc-mcp-skills-creator/prompts.yaml`
+`review_skill_improvement` prompt in the published
+[`dcc-mcp-skills-creator` package](https://github.com/dcc-mcp/dcc-mcp-agent-plugins/blob/main/plugins/dcc-mcp/skills/dcc-mcp-skills-creator/prompts.yaml)
 accepts this JSON plus bounded task and validation summaries.
 
 ### Failure analysis and bug reporting
