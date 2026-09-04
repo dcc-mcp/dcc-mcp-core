@@ -7,7 +7,9 @@ use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use axum::{Json, Router};
-use dcc_mcp_host_rpc::{HostRpcClient, StubHostRpcClient, UnavailableHostRpcClient};
+use dcc_mcp_host_rpc::{
+    HostRpcClient, QtServerClient, StubHostRpcClient, UnavailableHostRpcClient,
+};
 use serde_json::{Value, json};
 use tokio::sync::oneshot;
 
@@ -45,6 +47,138 @@ async fn post_mcp(url: &str, body: Value) -> reqwest::Response {
         .send()
         .await
         .expect("POST /mcp")
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn qtserver_sidecar_fails_closed_when_a_fast_call_receives_the_slow_call_response() {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+    let qt_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind fake Qt server");
+    let qt_port = qt_listener.local_addr().expect("Qt server address").port();
+    let (slow_frame_tx, slow_frame_rx) = oneshot::channel();
+    let (slow_response_release_tx, slow_response_release_rx) = oneshot::channel();
+    let fake_host = tokio::spawn(async move {
+        let (stream, _) = qt_listener.accept().await.expect("accept sidecar");
+        let (read_half, mut write_half) = stream.into_split();
+        let mut reader = BufReader::new(read_half);
+
+        let mut slow_line = String::new();
+        reader
+            .read_line(&mut slow_line)
+            .await
+            .expect("read slow call");
+        let slow_request: Value = serde_json::from_str(&slow_line).expect("slow call JSON");
+        assert_eq!(slow_request["id"], "sidecar-slow");
+        assert_eq!(
+            slow_request["params"]["action"],
+            "3dsmax_scripting__execute_maxscript"
+        );
+        let _ = slow_frame_tx.send(());
+        let _ = slow_response_release_rx.await;
+        write_half
+            .write_all(
+                br#"{"jsonrpc":"2.0","id":"sidecar-slow","result":{"marker":"ALPHA"}}
+"#,
+            )
+            .await
+            .expect("write slow response");
+        write_half.flush().await.expect("flush slow response");
+
+        let mut fast_line = String::new();
+        reader
+            .read_line(&mut fast_line)
+            .await
+            .expect("read fast call");
+        let fast_request: Value = serde_json::from_str(&fast_line).expect("fast call JSON");
+        assert_eq!(fast_request["id"], "sidecar-fast");
+        write_half
+            .write_all(
+                br#"{"jsonrpc":"2.0","id":"sidecar-slow","result":{"marker":"ALPHA"}}
+"#,
+            )
+            .await
+            .expect("write stale response");
+        write_half.flush().await.expect("flush stale response");
+    });
+
+    let mut qt_client = QtServerClient::new();
+    qt_client
+        .connect(
+            &format!("qtserver://127.0.0.1:{qt_port}"),
+            Duration::from_secs(1),
+        )
+        .await
+        .expect("connect sidecar to fake Qt server");
+    let sidecar = spawn_listener(
+        SidecarMcpState::new(Box::new(qt_client), "test-0.0.0"),
+        "127.0.0.1",
+        0,
+    )
+    .await
+    .expect("spawn sidecar MCP listener");
+    let client = reqwest::Client::new();
+
+    let slow_client = client.clone();
+    let slow_mcp_url = sidecar.mcp_url.clone();
+    let slow_request = tokio::spawn(async move {
+        slow_client
+            .post(slow_mcp_url)
+            .json(&json!({
+                "jsonrpc": "2.0",
+                "id": "sidecar-slow",
+                "method": "tools/call",
+                "params": {
+                    "name": "3dsmax_scripting__execute_maxscript",
+                    "arguments": {"script": "\"ALPHA\"", "confirm_execution": true}
+                }
+            }))
+            .timeout(Duration::from_secs(1))
+            .send()
+            .await
+    });
+    tokio::time::timeout(Duration::from_secs(1), slow_frame_rx)
+        .await
+        .expect("slow request must reach the fake Qt host before its timeout")
+        .expect("slow frame signal");
+    let slow = slow_request
+        .await
+        .expect("slow HTTP request task")
+        .expect_err("slow sidecar call must exceed the client timeout");
+    assert!(slow.is_timeout(), "expected client timeout, got {slow}");
+    let _ = slow_response_release_tx.send(());
+
+    let fast: Value = client
+        .post(&sidecar.mcp_url)
+        .json(&json!({
+            "jsonrpc": "2.0",
+            "id": "sidecar-fast",
+            "method": "tools/call",
+            "params": {
+                "name": "3dsmax_scripting__execute_maxscript",
+                "arguments": {"script": "\"BRAVO\"", "confirm_execution": true}
+            }
+        }))
+        .timeout(Duration::from_secs(2))
+        .send()
+        .await
+        .expect("fast sidecar response")
+        .json()
+        .await
+        .expect("fast sidecar response JSON");
+
+    assert_eq!(fast["id"], "sidecar-fast");
+    assert_eq!(fast["error"]["message"], "transport-error");
+    let transport_message = fast["error"]["data"]["message"]
+        .as_str()
+        .expect("transport desync details");
+    assert!(transport_message.contains("transport desync"), "{fast}");
+    assert!(transport_message.contains("sidecar-fast"), "{fast}");
+    assert!(transport_message.contains("sidecar-slow"), "{fast}");
+
+    fake_host.await.expect("fake Qt host task");
+    sidecar.shutdown().await;
 }
 
 #[derive(Clone)]

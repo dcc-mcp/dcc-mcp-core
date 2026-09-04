@@ -40,6 +40,7 @@ tempfile.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 toon-format.workspace = true
+uuid.workspace = true
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 

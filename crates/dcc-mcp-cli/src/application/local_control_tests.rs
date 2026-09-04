@@ -269,3 +269,250 @@ fn observable_discovery_catalog_satisfies_missing_readiness_bit() {
     assert_eq!(reconciled["skill_catalog_source"], "discovery_mcp");
     assert!(missing_required_fields(Some(&reconciled), &["skill_catalog".to_string()]).is_empty());
 }
+
+#[tokio::test]
+async fn local_mcp_rejects_late_response_from_timed_out_previous_call() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex};
+
+    use axum::Json;
+    use axum::Router;
+    use axum::extract::State;
+    use axum::routing::post;
+
+    #[derive(Clone)]
+    struct FixtureState {
+        calls: Arc<AtomicUsize>,
+        first_request_id: Arc<Mutex<Option<Value>>>,
+        first_request_started: Arc<tokio::sync::Notify>,
+        first_response_release: Arc<tokio::sync::Notify>,
+    }
+
+    async fn off_by_one_response(
+        State(state): State<FixtureState>,
+        Json(request): Json<Value>,
+    ) -> Json<Value> {
+        let call_index = state.calls.fetch_add(1, Ordering::SeqCst);
+        let request_id = request.get("id").cloned().unwrap_or(Value::Null);
+        if call_index == 0 {
+            *state.first_request_id.lock().expect("first request id") = Some(request_id.clone());
+            state.first_request_started.notify_one();
+            state.first_response_release.notified().await;
+            return Json(json!({
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "result": {"marker": "ALPHA"}
+            }));
+        }
+
+        let stale_request_id = state
+            .first_request_id
+            .lock()
+            .expect("first request id")
+            .clone()
+            .expect("the timed-out request reached the server");
+        Json(json!({
+            "jsonrpc": "2.0",
+            "id": stale_request_id,
+            "result": {"marker": "ALPHA"}
+        }))
+    }
+
+    let state = FixtureState {
+        calls: Arc::new(AtomicUsize::new(0)),
+        first_request_id: Arc::new(Mutex::new(None)),
+        first_request_started: Arc::new(tokio::sync::Notify::new()),
+        first_response_release: Arc::new(tokio::sync::Notify::new()),
+    };
+    let first_request_started = state.first_request_started.clone();
+    let first_response_release = state.first_response_release.clone();
+    let app = Router::new()
+        .route("/mcp", post(off_by_one_response))
+        .with_state(state);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind MCP fixture");
+    let address = listener.local_addr().expect("MCP fixture address");
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let mcp_url = format!("http://{address}/mcp");
+
+    let slow_mcp_url = mcp_url.clone();
+    let slow_request = tokio::spawn(async move {
+        mcp_request(
+            &HttpGateway::with_timeout(Duration::from_secs(1)),
+            &slow_mcp_url,
+            "tools/call",
+            json!({
+                "name": "maya_scripting__execute_python",
+                "arguments": {"marker": "ALPHA"}
+            }),
+        )
+        .await
+    });
+    tokio::time::timeout(Duration::from_secs(1), first_request_started.notified())
+        .await
+        .expect("the slow request must reach the MCP handler before its timeout");
+    let timeout_error = slow_request
+        .await
+        .expect("slow request task")
+        .expect_err("the first slow request must time out");
+    first_response_release.notify_one();
+    let timeout_message = timeout_error.to_string();
+    let timeout_request_id = timeout_message
+        .split("request_id=")
+        .nth(1)
+        .and_then(|value| value.strip_suffix(')'))
+        .expect("timeout error must expose its request id");
+    let timeout_uuid = timeout_request_id
+        .strip_prefix("dcc-mcp-cli-local-")
+        .expect("timeout request id prefix");
+    uuid::Uuid::parse_str(timeout_uuid).expect("timeout request id must end in a UUID");
+
+    let error = mcp_request(
+        &HttpGateway::with_timeout(Duration::from_secs(1)),
+        &mcp_url,
+        "tools/call",
+        json!({
+            "name": "3dsmax_scripting__execute_maxscript",
+            "arguments": {"marker": "BRAVO"}
+        }),
+    )
+    .await
+    .expect_err("the second call must reject the first call's late response");
+
+    assert!(error.to_string().contains("transport desync"), "{error}");
+    server.abort();
+}
+
+#[tokio::test]
+async fn local_mcp_jsonrpc_error_exposes_its_request_id() {
+    use axum::Json;
+    use axum::Router;
+    use axum::routing::post;
+
+    let app = Router::new().route(
+        "/mcp",
+        post(|Json(request): Json<Value>| async move {
+            Json(json!({
+                "jsonrpc": "2.0",
+                "id": request.get("id").cloned().unwrap_or(Value::Null),
+                "error": {"code": -32000, "message": "host failed"}
+            }))
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind MCP fixture");
+    let address = listener.local_addr().expect("MCP fixture address");
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+    let error = mcp_request(
+        &HttpGateway::with_timeout(Duration::from_secs(1)),
+        &format!("http://{address}/mcp"),
+        "tools/call",
+        json!({"name": "nuke_scripting__execute_python", "arguments": {}}),
+    )
+    .await
+    .expect_err("JSON-RPC error must fail the request");
+    let message = error.to_string();
+    let request_id = message
+        .split("request_id=")
+        .nth(1)
+        .and_then(|value| value.split(')').next())
+        .expect("JSON-RPC error must expose its request id");
+    let request_uuid = request_id
+        .strip_prefix("dcc-mcp-cli-local-")
+        .expect("JSON-RPC error request id prefix");
+    uuid::Uuid::parse_str(request_uuid).expect("JSON-RPC error request id must end in a UUID");
+    assert!(message.contains("host failed"), "{message}");
+    server.abort();
+}
+
+#[tokio::test]
+async fn local_call_retry_exposes_the_discovery_attempt_request_id() {
+    use std::sync::{Arc, Mutex};
+
+    use axum::Json;
+    use axum::Router;
+    use axum::extract::State;
+    use axum::routing::post;
+    use dcc_mcp_transport::discovery::file_registry::FileRegistry;
+    use tempfile::TempDir;
+
+    #[derive(Clone)]
+    struct FixtureState {
+        unknown_action: bool,
+        request_ids: Arc<Mutex<Vec<String>>>,
+    }
+
+    async fn tools_call(
+        State(state): State<FixtureState>,
+        Json(request): Json<Value>,
+    ) -> Json<Value> {
+        let request_id = request
+            .get("id")
+            .and_then(Value::as_str)
+            .expect("local MCP request string id")
+            .to_string();
+        state
+            .request_ids
+            .lock()
+            .expect("request ids")
+            .push(request_id.clone());
+        let result = if state.unknown_action {
+            json!({"success": false, "error": "unknown-action"})
+        } else {
+            json!({"success": true, "message": "discovery handled call"})
+        };
+        Json(json!({"jsonrpc": "2.0", "id": request_id, "result": result}))
+    }
+
+    async fn spawn_fixture(
+        unknown_action: bool,
+    ) -> (String, Arc<Mutex<Vec<String>>>, tokio::task::JoinHandle<()>) {
+        let request_ids = Arc::new(Mutex::new(Vec::new()));
+        let app = Router::new()
+            .route("/mcp", post(tools_call))
+            .with_state(FixtureState {
+                unknown_action,
+                request_ids: request_ids.clone(),
+            });
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind MCP fixture");
+        let address = listener.local_addr().expect("MCP fixture address");
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        (format!("http://{address}/mcp"), request_ids, server)
+    }
+
+    let (dispatch_url, dispatch_ids, dispatch_server) = spawn_fixture(true).await;
+    let (discovery_url, discovery_ids, discovery_server) = spawn_fixture(false).await;
+    let registry_dir = TempDir::new().expect("registry tempdir");
+    let registry = FileRegistry::new(registry_dir.path()).expect("file registry");
+    let mut entry = ServiceEntry::new("3dsmax", "127.0.0.1", 0);
+    entry.metadata.insert("mcp_url".to_string(), dispatch_url);
+    entry
+        .metadata
+        .insert("discovery_mcp_url".to_string(), discovery_url);
+    registry.register(entry).expect("register local DCC");
+
+    let output = call_local(
+        registry_dir.path().to_path_buf(),
+        "3dsmax_scripting__execute_maxscript".to_string(),
+        Some("3dsmax".to_string()),
+        None,
+        json!({"script": "\"BRAVO\"", "confirm_execution": true}),
+        None,
+        Duration::from_secs(1),
+    )
+    .await
+    .expect("discovery retry must succeed");
+
+    let dispatch_id = dispatch_ids.lock().expect("dispatch ids")[0].clone();
+    let discovery_id = discovery_ids.lock().expect("discovery ids")[0].clone();
+    assert_ne!(dispatch_id, discovery_id);
+    assert_eq!(output["request_id"], discovery_id);
+    assert_eq!(output["result"]["message"], "discovery handled call");
+    dispatch_server.abort();
+    discovery_server.abort();
+}

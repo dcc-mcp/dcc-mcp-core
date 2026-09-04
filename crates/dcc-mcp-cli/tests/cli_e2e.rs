@@ -623,7 +623,32 @@ fn local_profile_controls_registered_instance_through_direct_mcp() {
     assert_eq!(call["success"], true);
     assert_eq!(call["tool_slug"], target_tool_slug);
     assert_eq!(call["backend_tool"], "workflow__run");
+    let first_request_id = call["request_id"]
+        .as_str()
+        .expect("local call output must expose its transport correlation id");
+    let first_request_uuid = first_request_id
+        .strip_prefix("dcc-mcp-cli-local-")
+        .expect("local call request id prefix");
+    uuid::Uuid::parse_str(first_request_uuid).expect("local call request id must end in a UUID");
     assert_eq!(call["result"]["isError"], false);
+
+    let second_call = run_json_with_env(
+        &["call", target_tool_slug, "--json", &backend_arguments],
+        &envs,
+    );
+    let second_request_id = second_call["request_id"]
+        .as_str()
+        .expect("second local call must expose its transport correlation id");
+    let second_request_uuid = second_request_id
+        .strip_prefix("dcc-mcp-cli-local-")
+        .expect("second local call request id prefix");
+    uuid::Uuid::parse_str(second_request_uuid)
+        .expect("second local call request id must end in a UUID");
+    assert_ne!(
+        first_request_id, second_request_id,
+        "repeated tools/call requests must use distinct correlation ids"
+    );
+    assert_eq!(second_call["result"]["isError"], false);
 
     let skill_only = run_json_with_env(
         &["search", "--query", "skill-only", "--dcc-type", "maya"],
