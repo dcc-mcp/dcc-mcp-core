@@ -5,6 +5,105 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.23](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.22...v0.20.23) (2026-09-04)
+
+
+### Features
+
+* add deterministic capture response contract ([a3779bb](https://github.com/dcc-mcp/dcc-mcp-core/commit/a3779bbbd5cb8761483a8eeb84c91092d5747b52))
+* add scene digest provider contract ([23a3fe1](https://github.com/dcc-mcp/dcc-mcp-core/commit/23a3fe121ddfc84c7cdd02ca89474ee44d5a5b3d))
+* **catalog:** add OBS adapter install plan ([#2400](https://github.com/dcc-mcp/dcc-mcp-core/issues/2400)) ([f30a607](https://github.com/dcc-mcp/dcc-mcp-core/commit/f30a607b9e1bdbc5685125ac0b8de4f2776643b1))
+* **catalog:** enable LiquiGen release install ([5a4e15a](https://github.com/dcc-mcp/dcc-mcp-core/commit/5a4e15aba0c152830049fc76c375efa35c302619))
+* **catalog:** register LiquiGen adapter ([01b7317](https://github.com/dcc-mcp/dcc-mcp-core/commit/01b7317bc8dfda01ff441c51dd8b77e9150e3c41))
+* **execution:** add split-phase in-process continuations ([5adbd6d](https://github.com/dcc-mcp/dcc-mcp-core/commit/5adbd6d27f56288e4a3fe649c1a28ad2d658be35))
+* propose repeated script promotion candidates ([#2334](https://github.com/dcc-mcp/dcc-mcp-core/issues/2334)) ([742e1e2](https://github.com/dcc-mcp/dcc-mcp-core/commit/742e1e2c632119749813b3358234a63753050af1))
+
+
+### Bug Fixes
+
+* align admin readiness with dispatch safety ([88c0f22](https://github.com/dcc-mcp/dcc-mcp-core/commit/88c0f2291f4e1c7f1a34d890d8dcc33b29d91c28))
+* **async:** preserve split-phase error envelopes ([ff13c54](https://github.com/dcc-mcp/dcc-mcp-core/commit/ff13c543da3dc667df7305fc27f103914c4ea967))
+* authenticate bounded scene digest evidence ([ae8ef8e](https://github.com/dcc-mcp/dcc-mcp-core/commit/ae8ef8e8c6f670d45c86a8edd7eb8da316a12f19))
+* **catalog:** pin LiquiGen PyPI wheel ([#2412](https://github.com/dcc-mcp/dcc-mcp-core/issues/2412)) ([8f7254d](https://github.com/dcc-mcp/dcc-mcp-core/commit/8f7254d76356b3dee5705a1dc4d213acbedbbbcc))
+* **ci:** contain Windows process descendants ([85143a1](https://github.com/dcc-mcp/dcc-mcp-core/commit/85143a1ae83a32133edf7aefc0278cfed5306b47))
+* **ci:** isolate generated lock execution from write credentials ([#2390](https://github.com/dcc-mcp/dcc-mcp-core/issues/2390)) ([fe8971a](https://github.com/dcc-mcp/dcc-mcp-core/commit/fe8971a637df4bb309596f1bb1e71ae0187334b5))
+* **ci:** isolate lock sync checkouts ([8450345](https://github.com/dcc-mcp/dcc-mcp-core/commit/8450345113745beebc36684316390f90e515c4a1))
+* **ci:** pin trusted Windows job validator ([b121848](https://github.com/dcc-mcp/dcc-mcp-core/commit/b121848e0532c98bdfd93f0b13a9b36dbe7e03db))
+* close persistence boundary review gaps ([3161bf5](https://github.com/dcc-mcp/dcc-mcp-core/commit/3161bf525e184b7045445120591a97ac45b8a4da))
+* close post-merge gateway boundary gaps ([c4d3196](https://github.com/dcc-mcp/dcc-mcp-core/commit/c4d31964b06207846643f88e1a76cdf095843886))
+* **continuation:** align REST lifecycle and error envelopes ([f25e5a0](https://github.com/dcc-mcp/dcc-mcp-core/commit/f25e5a0c2bcad3d1063b6800d0af2f92fc3da66c))
+* **continuation:** cancel detached resolver workers ([3886f79](https://github.com/dcc-mcp/dcc-mcp-core/commit/3886f7967d7512876fe97c4bcad5ffc824cd592f))
+* **continuation:** reject forged split-phase markers ([b98b1a7](https://github.com/dcc-mcp/dcc-mcp-core/commit/b98b1a781763766738ec916cfd0a4700711b4877))
+* correlate local MCP responses ([#2420](https://github.com/dcc-mcp/dcc-mcp-core/issues/2420)) ([4b7045a](https://github.com/dcc-mcp/dcc-mcp-core/commit/4b7045a13c18f6de3dbd91795c4b1bae6ea3f072))
+* enforce portable recipe regex syntax ([c6a0d86](https://github.com/dcc-mcp/dcc-mcp-core/commit/c6a0d86df47371251875d1804e1c5599f201f004))
+* **execution:** add cooperative continuation cancellation ([b2a3a1f](https://github.com/dcc-mcp/dcc-mcp-core/commit/b2a3a1f8bb0a9dc867247bc27be2b02c77e5a88c))
+* **execution:** avoid stale ambient cancellation ([71b22e1](https://github.com/dcc-mcp/dcc-mcp-core/commit/71b22e1beb001ce6e390d292acb4a1f607dea591))
+* **execution:** close continuation lifecycle races ([bb94abe](https://github.com/dcc-mcp/dcc-mcp-core/commit/bb94abeca6bb456301439a1bbaf9a800201e2ddf))
+* **execution:** gate split-phase continuation publication ([f8b0248](https://github.com/dcc-mcp/dcc-mcp-core/commit/f8b02484c685a0bc0aaf9b29a6681a3857f316b3))
+* **execution:** harden continuation cancellation and lifetime ([c7082de](https://github.com/dcc-mcp/dcc-mcp-core/commit/c7082de3e3acb903256f32cae6736bbc45fdeb71))
+* **execution:** invalidate active split-phase continuations ([e5d6fe4](https://github.com/dcc-mcp/dcc-mcp-core/commit/e5d6fe421961816b5b107e8ae45d742855f300ff))
+* **execution:** pass split-phase probes on every route ([93c6b9a](https://github.com/dcc-mcp/dcc-mcp-core/commit/93c6b9a01b5ef9b0a81f64db4d8f3b823cbfafb5))
+* **execution:** unify split-phase cancellation probes ([64147f0](https://github.com/dcc-mcp/dcc-mcp-core/commit/64147f033b6b5cc7e7719614e2b632764edb644e))
+* fail closed on contaminated scene digests ([009fef2](https://github.com/dcc-mcp/dcc-mcp-core/commit/009fef2216a8d7dcbf7d4fa6d3557ed12588aabf))
+* harden recipe regex admission ([c047e3d](https://github.com/dcc-mcp/dcc-mcp-core/commit/c047e3df6ed82bee326349c1e64b2591239db6b5))
+* harden recipe regex admission ([04a0642](https://github.com/dcc-mcp/dcc-mcp-core/commit/04a06427d52b5977836861849af50e5c5c5bb75c))
+* harden recipe schema admission ([e6afa64](https://github.com/dcc-mcp/dcc-mcp-core/commit/e6afa64f033a7e2fdb13cfa6326cc2fa4e99cb25))
+* harden scene digest evidence boundaries ([a48ec54](https://github.com/dcc-mcp/dcc-mcp-core/commit/a48ec5417aaea5f0c538b38a15ff4719f16c84e7))
+* harden scene digest evidence contracts ([7f1df44](https://github.com/dcc-mcp/dcc-mcp-core/commit/7f1df44c6f87ffa721af41cc701a96893b7f389c))
+* isolate scene digest execution evidence ([9509afa](https://github.com/dcc-mcp/dcc-mcp-core/commit/9509afa349bf30bf5ef87cdbe5327a25fd4b855b))
+* **job:** harden SQLite persistence boundaries ([248444d](https://github.com/dcc-mcp/dcc-mcp-core/commit/248444d3e6bd9b45b51feaff1575cabf7f207144))
+* **jobs:** preserve legacy error strings ([fae526a](https://github.com/dcc-mcp/dcc-mcp-core/commit/fae526a426e6bf8fd77826046f71444df5a89802))
+* keep scene digest runtime within file limits ([fadb490](https://github.com/dcc-mcp/dcc-mcp-core/commit/fadb490ee2df442f7af9c813a2bfd4ecf612b2b8))
+* keep script helpers in runtime namespace ([43f8419](https://github.com/dcc-mcp/dcc-mcp-core/commit/43f8419a6afb00ab879a317992d71527f4a7e0b3))
+* move scene digest custody to native boundary ([133a42e](https://github.com/dcc-mcp/dcc-mcp-core/commit/133a42ed9760a868cb2847d083bcbf8312b3ff1e))
+* pin scene digest transaction provider ([4e61147](https://github.com/dcc-mcp/dcc-mcp-core/commit/4e6114744eb1d6a5ca1f7aba76d8fe321ed96b5c))
+* preserve indeterminate scene readback ([ffa0659](https://github.com/dcc-mcp/dcc-mcp-core/commit/ffa06591995628d73020e93e3b64613b31e19e5e))
+* preserve trusted UI scope with process names ([#2422](https://github.com/dcc-mcp/dcc-mcp-core/issues/2422)) ([ae559e8](https://github.com/dcc-mcp/dcc-mcp-core/commit/ae559e8f94bbad82bd6423bf5a5cd5dad1529a9c))
+* **recipes:** allow linear regex alternations ([ec0a787](https://github.com/dcc-mcp/dcc-mcp-core/commit/ec0a78726422dab8675d776521e8aeeb2915d229))
+* **recipes:** bound adjacent regex quantifiers ([4d4ff4e](https://github.com/dcc-mcp/dcc-mcp-core/commit/4d4ff4e6fdbdbf83c54ac80ec1a6775556e88b17))
+* **recipes:** bound conditional schema evaluation ([1773025](https://github.com/dcc-mcp/dcc-mcp-core/commit/1773025b01f9550c3deb2fee7e2a23aa98381cce))
+* **recipes:** bound input payload size ([d8c4b6b](https://github.com/dcc-mcp/dcc-mcp-core/commit/d8c4b6b7cc57607499ecfa054a5a218264fdf34e))
+* **recipes:** bound quantified group regex backtracking ([6aa0de7](https://github.com/dcc-mcp/dcc-mcp-core/commit/6aa0de7f0d9f4e0b54cb9f1db27827b1820c4eab))
+* **recipes:** close dynamic reference validation gaps ([9d66fca](https://github.com/dcc-mcp/dcc-mcp-core/commit/9d66fca0cef20186f1645feb28bf1721b1985177))
+* **recipes:** close ref and nullable regex gaps ([0d0fe30](https://github.com/dcc-mcp/dcc-mcp-core/commit/0d0fe30ef29ba633da756122923a8ede2180bdae))
+* **recipes:** close schema assertion and regex gaps ([90cc90f](https://github.com/dcc-mcp/dcc-mcp-core/commit/90cc90f96f7ae10c32ebb1073138a5b7d7da99be))
+* **recipes:** close schema validation review gaps ([30a859a](https://github.com/dcc-mcp/dcc-mcp-core/commit/30a859ad144ba4992ae332b18339981715956127))
+* **recipes:** discard failed condition annotations ([cb5ab27](https://github.com/dcc-mcp/dcc-mcp-core/commit/cb5ab273bb3024fdc941fccc83797fcc2c5e20bc))
+* **recipes:** enforce published draft 2020-12 schemas ([c889554](https://github.com/dcc-mcp/dcc-mcp-core/commit/c88955417a131051d570eb1862ef6967d11df52d))
+* **recipes:** harden regex and reference validation ([d99e7b9](https://github.com/dcc-mcp/dcc-mcp-core/commit/d99e7b90cf7ed9530f02a7502fc22a0b303a1b37))
+* **recipes:** harden schema admission boundaries ([b029817](https://github.com/dcc-mcp/dcc-mcp-core/commit/b0298173d3ff6272441b94df7080e0cc8f2effe2))
+* **recipes:** harden schema annotations and depth ([69c523c](https://github.com/dcc-mcp/dcc-mcp-core/commit/69c523c5b7c40229e8448c5d6eda882bc70af6d3))
+* **recipes:** isolate subschema annotations ([79b3c0c](https://github.com/dcc-mcp/dcc-mcp-core/commit/79b3c0c52a2f44dc4ac132918977782896a9e527))
+* **recipes:** keep validator in runtime namespace ([8bc7605](https://github.com/dcc-mcp/dcc-mcp-core/commit/8bc76057a7555ea8e5e9cdfc7d513f1587e8afdc))
+* **recipes:** merge schema annotations safely ([6daf532](https://github.com/dcc-mcp/dcc-mcp-core/commit/6daf532c38ca23c62fc356bdb915ef9b4018c5dc))
+* **recipes:** reject risky regex schemas ([01027eb](https://github.com/dcc-mcp/dcc-mcp-core/commit/01027eb8c8f027f704955deb493f4ef66646ecee))
+* **recipes:** reject separated regex ambiguity ([2493bca](https://github.com/dcc-mcp/dcc-mcp-core/commit/2493bca2511925abcd7f2c338f76d71bdff51d3d))
+* **recipes:** reject separated regex quantifiers ([12c2b8b](https://github.com/dcc-mcp/dcc-mcp-core/commit/12c2b8bb0b0204dfc63d8d2de119336b9190e89f))
+* **recipes:** reject unsupported unevaluated compositions ([d4d1481](https://github.com/dcc-mcp/dcc-mcp-core/commit/d4d1481788e1efb54c8baeeeba8bd73171b33c8e))
+* **recipes:** secure pattern property regexes ([1b479bf](https://github.com/dcc-mcp/dcc-mcp-core/commit/1b479bfa02915e7b93bac4ca26b17386b24627fc))
+* **recipes:** structurally reject risky regex schemas ([2b96d84](https://github.com/dcc-mcp/dcc-mcp-core/commit/2b96d84baa26291a34bc6e94f67a3fbcf165ae42))
+* reject nonportable regex boundary semantics ([f21bc04](https://github.com/dcc-mcp/dcc-mcp-core/commit/f21bc04579a115b6efad5a00dbc4cbf25cc79baf))
+* reject unsafe recipe regex groups ([e0fce18](https://github.com/dcc-mcp/dcc-mcp-core/commit/e0fce18c47e99b36f8dc8cc427aca15737aeee2d))
+* reject unsupported scene digest values ([c7f1b9e](https://github.com/dcc-mcp/dcc-mcp-core/commit/c7f1b9e737881aea17f62aacef589ad66ac5a538))
+* require verified digest evidence ([ad9cec8](https://github.com/dcc-mcp/dcc-mcp-core/commit/ad9cec8c344d47f3c4ecb7ca21b6018c8a4cee19))
+* **runtime:** validate scene digest envelope integrity ([7ee6d32](https://github.com/dcc-mcp/dcc-mcp-core/commit/7ee6d3232ef1226e0da02dc76e402170bf594fd4))
+* separate catalog support from live discovery ([d8524d6](https://github.com/dcc-mcp/dcc-mcp-core/commit/d8524d6ee52ee685a769cb87e376fcdf0da1ee33))
+* split script execution helpers ([0c4792e](https://github.com/dcc-mcp/dcc-mcp-core/commit/0c4792e29b3999e65a248be13ff27a0ff7d301a9))
+* stabilize discovery and preserve CLI errors ([#2407](https://github.com/dcc-mcp/dcc-mcp-core/issues/2407)) ([37f399f](https://github.com/dcc-mcp/dcc-mcp-core/commit/37f399fb6cc9657a18c833cd729f82c8c228ab60))
+
+
+### Code Refactoring
+
+* **execution:** isolate continuation lifecycle helper ([0125344](https://github.com/dcc-mcp/dcc-mcp-core/commit/0125344903703f1edf58af9c5fcc498550e591e4))
+* isolate scene digest envelope handling ([690a156](https://github.com/dcc-mcp/dcc-mcp-core/commit/690a156cf0ba3cc4e4b2f177eedede8798a3d2e5))
+* split recipe schema pattern validation ([c135ffb](https://github.com/dcc-mcp/dcc-mcp-core/commit/c135ffb359292cbc8a4d9314e7707d7bc62811a5))
+
+
+### Documentation
+
+* clarify digest capability discovery ([0a9de0a](https://github.com/dcc-mcp/dcc-mcp-core/commit/0a9de0abe6a9199248f70ac75694f531ddfef7d3))
+* route OBS installs to root runbook ([fe65f7b](https://github.com/dcc-mcp/dcc-mcp-core/commit/fe65f7b48fb2379b33bf7c3b718b700935e3b118))
+
 ## [0.20.22](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.21...v0.20.22) (2026-08-28)
 
 
