@@ -160,3 +160,9 @@ title constraint is forwarded to the Host to resolve one window inside a
 multi-window process before an exact capability is minted. The Host owns
 platform accessibility, capture, visible control markers, input serialization,
 and Escape interruption.
+
+A request may also repeat `process_name` beside the trusted PID/HWND as
+metadata or an additional constraint. That redundant field preserves the
+trusted native scope when it is consistent with
+`DCC_MCP_UI_CONTROL_PROCESS_NAME`; a conflict fails with `invalid_target`.
+Process names and titles alone never establish the native capability boundary.

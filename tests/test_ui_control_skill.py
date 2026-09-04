@@ -1048,6 +1048,82 @@ def test_ui_control_cua_host_uses_adapter_scope_and_title_to_select_one_window(m
     assert _FakeHostClient.instances[0].kwargs["window_title"] == "Substance Designer - Graph"
 
 
+def test_ui_control_cua_host_accepts_redundant_process_name_with_trusted_adapter_scope(monkeypatch: Any) -> None:
+    backend = _load_cua_module()
+    _FakeHostClient.instances.clear()
+    monkeypatch.setattr(backend, "_HostClient", _FakeHostClient)
+    monkeypatch.delenv("DCC_MCP_UI_CONTROL_DCC_TYPE", raising=False)
+    monkeypatch.delenv("DCC_MCP_UI_CONTROL_PROCESS_ID", raising=False)
+    monkeypatch.delenv("DCC_MCP_UI_CONTROL_PROCESS_NAME", raising=False)
+    monkeypatch.delenv("DCC_MCP_UI_CONTROL_WINDOW_HANDLE", raising=False)
+    monkeypatch.delenv("DCC_MCP_UI_CONTROL_WINDOW_TITLE", raising=False)
+
+    result = backend.snapshot_tool(
+        {
+            "session_id": "obs-studio",
+            "process_name": "obs64.exe",
+            "trusted_adapter_scope": {
+                "dcc_type": "obs",
+                "process_id": None,
+                "window_handle": 9001,
+                "window_title": "OBS Studio",
+            },
+        }
+    )
+
+    assert result["success"] is True
+    scope = result["context"]["snapshot"]["metadata"]["ui_control"]["scope"]
+    assert scope["native_scope_trusted"] is True
+    assert scope.get("process_ids", []) == []
+    assert scope["window_handles"] == [9001]
+    assert scope["process_names"] == ["obs64.exe"]
+    assert _FakeHostClient.instances[0].kwargs["dcc_type"] == "obs"
+    assert _FakeHostClient.instances[0].kwargs["process_id"] is None
+    assert _FakeHostClient.instances[0].kwargs["window_handle"] == 9001
+
+
+def test_ui_control_cua_host_rejects_process_name_conflicting_with_trusted_identity(monkeypatch: Any) -> None:
+    backend = _load_cua_module()
+    _FakeHostClient.instances.clear()
+    monkeypatch.setattr(backend, "_HostClient", _FakeHostClient)
+    monkeypatch.delenv("DCC_MCP_UI_CONTROL_PROCESS_ID", raising=False)
+    monkeypatch.setenv("DCC_MCP_UI_CONTROL_PROCESS_NAME", "renderhost.exe")
+    monkeypatch.delenv("DCC_MCP_UI_CONTROL_WINDOW_HANDLE", raising=False)
+
+    result = backend.snapshot_tool(
+        {
+            "session_id": "custom-renderer",
+            "process_name": "otherhost.exe",
+            "trusted_adapter_scope": {
+                "dcc_type": "custom-renderer",
+                "process_id": 8100,
+                "window_handle": 9100,
+                "window_title": "Custom Renderer",
+            },
+        }
+    )
+
+    assert result["success"] is False
+    assert result["error"] == "invalid_target"
+    assert "process name is outside the runtime DCC scope" in result["message"]
+    assert not _FakeHostClient.instances
+
+
+def test_ui_control_cua_host_process_name_alone_does_not_mint_native_scope(monkeypatch: Any) -> None:
+    backend = _load_cua_module()
+    _FakeHostClient.instances.clear()
+    monkeypatch.setattr(backend, "_HostClient", _FakeHostClient)
+    monkeypatch.delenv("DCC_MCP_UI_CONTROL_PROCESS_ID", raising=False)
+    monkeypatch.delenv("DCC_MCP_UI_CONTROL_PROCESS_NAME", raising=False)
+    monkeypatch.delenv("DCC_MCP_UI_CONTROL_WINDOW_HANDLE", raising=False)
+
+    result = backend.snapshot_tool({"session_id": "name-only", "process_name": "obs64.exe"})
+
+    assert result["success"] is False
+    assert result["error"] == "permission_denied"
+    assert not _FakeHostClient.instances
+
+
 def test_ui_control_cua_host_controls_trajectory_recording(tmp_path: Path, monkeypatch: Any) -> None:
     backend = _load_cua_module()
     _configure_fake_host(backend, monkeypatch)

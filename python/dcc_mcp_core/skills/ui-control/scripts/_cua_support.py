@@ -236,7 +236,6 @@ def _scope_is_trusted_native_target(scope: Dict[str, Any]) -> bool:
     return bool(
         not scope.get("invalid_reason")
         and scope.get("native_scope_trusted")
-        and not scope.get("process_names")
         and (len(scope.get("process_ids") or []) == 1 or len(scope.get("window_handles") or []) == 1)
     )
 

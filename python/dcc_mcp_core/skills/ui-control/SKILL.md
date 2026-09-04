@@ -71,6 +71,11 @@ that narrows the trusted PID to one window. The Host resolves that title once,
 then returns and enforces an exact window capability; use an explicit handle if
 the title still matches more than one window.
 
+A redundant `process_name` may accompany a trusted PID or HWND as metadata or
+an additional constraint. It never replaces the exact native binding: a
+process name or title by itself cannot mint a capability, and a process name
+that conflicts with an operator-trusted name fails with `invalid_target`.
+
 Multiple agents may control different applications concurrently. Each logical
 session has its own grant, window capability, observation fences, and bridge.
 The shared Host isolates session state, serializes raw input, and broadcasts

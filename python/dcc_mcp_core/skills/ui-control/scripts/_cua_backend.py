@@ -175,11 +175,6 @@ def _scope_error(scope: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             ),
             UiErrorCode.PERMISSION_DENIED,
         )
-    if scope.get("process_names"):
-        return skill_error(
-            "Process-name and title-only scopes cannot mint native UI Control capabilities.",
-            UiErrorCode.INVALID_TARGET,
-        )
     return None
 
 

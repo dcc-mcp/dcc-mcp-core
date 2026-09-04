@@ -118,6 +118,9 @@ signals:
    `DCC_MCP_UI_CONTROL_PROCESS_ID` or `DCC_MCP_UI_CONTROL_WINDOW_HANDLE`.
    A request may select that exact PID/HWND or narrow it further, but cannot
    replace the trusted runtime scope with another application.
+   A redundant `process_name` may accompany the trusted binding as metadata or
+   an additional constraint, but a process name or title alone never grants
+   native control and a conflicting trusted name fails closed.
    Raw pointer and keyboard input are enabled by default only inside that exact
    bound scope. Operators can disable them with
    `DCC_MCP_CUA_ALLOW_RAW_INPUT=false`.
