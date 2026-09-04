@@ -81,13 +81,16 @@ fn dcc_types_contract_accepts_a_custom_catalog() {
         "dcc-types",
         "--catalog",
         "studio-catalog.yml",
+        "--dcc-type",
+        "studio tool",
     ])
     .expect("parse dcc-types command");
 
-    let Command::DccTypes { catalog } = args.command else {
+    let Command::DccTypes { catalog, dcc_type } = args.command else {
         panic!("expected dcc-types command");
     };
     assert_eq!(catalog, Some(PathBuf::from("studio-catalog.yml")));
+    assert_eq!(dcc_type.as_deref(), Some("studio tool"));
 }
 
 #[test]
@@ -908,7 +911,10 @@ fn gateway_endpoint_for_command_ensures_gateway_for_agent_control_commands() {
     assert!(
         gateway_endpoint_for_command(
             DEFAULT_BASE_URL,
-            &Command::DccTypes { catalog: None },
+            &Command::DccTypes {
+                catalog: None,
+                dcc_type: None,
+            },
             &local,
         )
         .is_none()

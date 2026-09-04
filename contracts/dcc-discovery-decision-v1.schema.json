@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dcc-mcp.dev/contracts/dcc-discovery-decision-v1.schema.json",
+  "title": "DCC discovery decision v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "dcc_type",
+    "live_instances",
+    "public_adapter",
+    "released_catalog",
+    "package_installation",
+    "adapter_import",
+    "project_bootstrap",
+    "registry_registration",
+    "direct_readiness",
+    "gateway_capability_index",
+    "search_hit",
+    "exact_instance_call",
+    "real_host_effect",
+    "uncertainties",
+    "failure_stage",
+    "failure_reason",
+    "next_action"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "dcc_type": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "live_instances": { "type": ["integer", "null"], "minimum": 0 },
+    "public_adapter": { "$ref": "#/$defs/presence" },
+    "released_catalog": {
+      "enum": ["present", "absent", "stale", "unknown"]
+    },
+    "package_installation": {
+      "enum": ["absent", "planned", "installed", "unknown"]
+    },
+    "adapter_import": { "enum": ["pass", "fail", "unknown"] },
+    "project_bootstrap": {
+      "enum": ["not_detected", "bootstrappable", "configured", "failed", "unknown"]
+    },
+    "registry_registration": {
+      "enum": ["present", "absent", "stale", "unknown"]
+    },
+    "direct_readiness": { "enum": ["ready", "not_ready", "unknown"] },
+    "gateway_capability_index": { "$ref": "#/$defs/presence" },
+    "search_hit": { "$ref": "#/$defs/presence" },
+    "exact_instance_call": { "enum": ["pass", "fail", "not_run", "unknown"] },
+    "real_host_effect": {
+      "enum": ["verified", "not_verified", "not_applicable", "unknown"]
+    },
+    "uncertainties": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "enum": ["version", "custom_fork", "real_host"] }
+    },
+    "failure_stage": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[a-z][a-z0-9_-]*$"
+    },
+    "failure_reason": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Z][A-Z0-9_]*$"
+    },
+    "next_action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "command", "requires_consent"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-z][a-z0-9_]*$"
+        },
+        "command": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": { "type": "string", "minLength": 1, "maxLength": 256 }
+        },
+        "requires_consent": { "type": "boolean" },
+        "instructions_url": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048,
+          "pattern": "^https://"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "presence": { "enum": ["present", "absent", "unknown"] }
+  }
+}

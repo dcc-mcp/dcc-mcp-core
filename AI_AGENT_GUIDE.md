@@ -200,6 +200,9 @@ coordinates, or stale control ids.
 # 0. Inspect catalog-backed DCC identifiers when support is unclear
 dcc-mcp-cli dcc-types
 
+# Keep catalog and runtime evidence separate for one target
+dcc-mcp-cli --output json dcc-types --dcc-type unreal
+
 # 1. Select a live instance; local list auto-ensures the loopback gateway
 dcc-mcp-cli list
 
@@ -225,7 +228,13 @@ Use the `dcc-mcp` skill to wrap these CLI calls as structured MCP tools in your 
 
 `dcc-types` reads the release catalog without starting a gateway; it reports
 adapter-backed identifiers such as `godot` and `renderdoc`, while `list` reports
-live sessions.
+live sessions. The targeted form returns the versioned
+`dcc-discovery-decision` contract. Treat `live_instances: 0` only as an empty
+local registry result and `live_instances: null` as an unavailable observation:
+package installation, adapter import, project-local bootstrap, and public
+support remain independent evidence gates. Follow its
+read-only `next_action`; do not call a DCC until search returns an
+instance-qualified slug or identity.
 
 On failure, keep the CLI-returned `request_id` and run `doctor` for startup or
 readiness faults, then `stats --status failure --session-id task-42` for the

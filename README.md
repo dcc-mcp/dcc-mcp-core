@@ -253,6 +253,7 @@ Then discover a live capability before calling it:
 
 ~~~bash
 dcc-mcp-cli dcc-types
+dcc-mcp-cli --output json dcc-types --dcc-type unreal
 dcc-mcp-cli list
 dcc-mcp-cli search --query "create sphere" --dcc-type maya --limit 20
 dcc-mcp-cli describe <tool-slug>
@@ -265,7 +266,12 @@ contain the unified search parser also accept unquoted positional words.
 
 `dcc-types` is an offline, catalog-backed capability query. It reports
 canonical adapter identifiers and install-plan availability; `list` remains
-the source of truth for live instances.
+the source of truth for live instances. The targeted `--dcc-type` form emits a
+versioned decision that keeps public catalog support, package/bootstrap state,
+registry registration, readiness, capability discovery, and real-host proof
+separate. In particular, `live_instances: 0` does not mean zero supported or
+installed applications; `live_instances: null` means the local registry
+observation was unavailable.
 
 Replace the placeholder with the slug returned by search. For remote workstations,
 register a gateway profile and select it:
