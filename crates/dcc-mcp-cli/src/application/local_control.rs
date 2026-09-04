@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 use anyhow::Context;
-use dcc_mcp_jsonrpc::MCP_PROTOCOL_VERSION;
+use dcc_mcp_jsonrpc::{JsonRpcRequestBuilder, MCP_PROTOCOL_VERSION};
 use dcc_mcp_transport::discovery::types::ServiceEntry;
 use serde_json::{Map, Value, json};
 
@@ -507,7 +507,7 @@ pub async fn call_local(
     enforce_active_instance_lease(&route.entry, meta.as_ref())?;
     let gateway = HttpGateway::with_timeout(timeout);
     let dispatch_mcp_url = local_dispatch_mcp_url(&route.entry, &route.backend_tool);
-    let mut result = mcp_call_tool(
+    let mut call = mcp_call_tool_correlated(
         &gateway,
         &dispatch_mcp_url,
         &route.backend_tool,
@@ -516,11 +516,12 @@ pub async fn call_local(
     )
     .await
     .with_context(|| format!("calling local tool {}", route.tool_slug))?;
+    let mut result = call.result;
 
     if should_retry_local_call_via_discovery(&result) {
         let discovery_mcp_url = local_instance::discovery_mcp_url(&route.entry);
         if discovery_mcp_url != dispatch_mcp_url {
-            result = mcp_call_tool(
+            call = mcp_call_tool_correlated(
                 &gateway,
                 &discovery_mcp_url,
                 &route.backend_tool,
@@ -534,6 +535,7 @@ pub async fn call_local(
                     route.tool_slug
                 )
             })?;
+            result = call.result;
         }
     }
 
@@ -544,6 +546,7 @@ pub async fn call_local(
         "dcc_type": route.entry.dcc_type,
         "instance_id": route.entry.instance_id.to_string(),
         "instance_short": local_instance::instance_short(&route.entry),
+        "request_id": call.request_id,
         "arguments": arguments,
         "result": result,
         "source": "local_mcp",
@@ -943,6 +946,25 @@ async fn mcp_call_tool(
     arguments: Value,
     meta: Option<Value>,
 ) -> anyhow::Result<Value> {
+    Ok(
+        mcp_call_tool_correlated(gateway, mcp_url, name, arguments, meta)
+            .await?
+            .result,
+    )
+}
+
+struct CorrelatedMcpToolCall {
+    request_id: String,
+    result: Value,
+}
+
+async fn mcp_call_tool_correlated(
+    gateway: &HttpGateway,
+    mcp_url: &str,
+    name: &str,
+    arguments: Value,
+    meta: Option<Value>,
+) -> anyhow::Result<CorrelatedMcpToolCall> {
     let mut params = Map::new();
     params.insert("name".to_string(), Value::String(name.to_string()));
     params.insert("arguments".to_string(), arguments);
@@ -954,7 +976,12 @@ async fn mcp_call_tool(
         .get("result")
         .cloned()
         .ok_or_else(|| anyhow::anyhow!("MCP tools/call response did not contain result"))?;
-    Ok(result)
+    let request_id = response
+        .get("id")
+        .and_then(Value::as_str)
+        .expect("mcp_request validates the generated string id")
+        .to_string();
+    Ok(CorrelatedMcpToolCall { request_id, result })
 }
 
 async fn mcp_request(
@@ -963,12 +990,10 @@ async fn mcp_request(
     method: &str,
     params: Value,
 ) -> anyhow::Result<Value> {
-    let body = json!({
-        "jsonrpc": "2.0",
-        "id": format!("dcc-mcp-cli-local-{method}"),
-        "method": method,
-        "params": params,
-    });
+    let request_id = next_local_mcp_request_id();
+    let body = JsonRpcRequestBuilder::new(request_id.clone(), method)
+        .with_params(params)
+        .to_value();
     let response = gateway
         .post_json_with_headers(
             mcp_url,
@@ -978,11 +1003,25 @@ async fn mcp_request(
                 ("Accept", MCP_ACCEPT),
             ],
         )
-        .await?;
+        .await
+        .with_context(|| format!("MCP {method} request failed (request_id={request_id})"))?;
+    let expected_id = Value::String(request_id.clone());
+    if response.get("id") != Some(&expected_id) {
+        anyhow::bail!(
+            "transport desync: expected JSON-RPC response id {request_id:?}, got {}",
+            response
+                .get("id")
+                .map_or_else(|| "<missing>".to_string(), Value::to_string),
+        );
+    }
     if let Some(error) = response.get("error") {
-        anyhow::bail!("MCP {method} failed: {error}");
+        anyhow::bail!("MCP {method} failed (request_id={request_id}): {error}");
     }
     Ok(response)
+}
+
+fn next_local_mcp_request_id() -> String {
+    format!("dcc-mcp-cli-local-{}", uuid::Uuid::new_v4())
 }
 
 pub(crate) fn call_result_payload(result: &Value) -> Option<Value> {

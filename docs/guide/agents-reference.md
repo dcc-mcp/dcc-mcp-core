@@ -76,7 +76,12 @@ top-level `request_id`, and gateway REST responses must echo `X-Request-ID`.
 The gateway and CLI reject missing or mismatched echoes as `transport desync`;
 they must never deliver that payload as the current call's result. Adapter
 transport tests must include a slow call followed by fast calls on one session
-and assert that no response crosses request boundaries.
+and assert that no response crosses request boundaries. The CLI's
+`local_mcp_direct` route generates a new JSON-RPC id for every individual MCP
+request, including repeated calls of the same method, validates the exact echo,
+and exposes the accepted `request_id` in the final call output. Transport,
+timeout, and JSON-RPC errors include that same generated id in their diagnostic
+context so an operator can correlate a failed or still-running host call.
 
 **`ToolRegistry.register()` — keyword args only, no positional:**
 ```python
