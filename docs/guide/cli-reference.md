@@ -148,6 +148,7 @@ path/source/version without launching or downloading anything.
 
 ```bash
 dcc-mcp-cli dcc-types
+dcc-mcp-cli --output json dcc-types --dcc-type unreal
 dcc-mcp-cli dcc-types --catalog ./studio-catalog.yml
 dcc-mcp-cli list
 dcc-mcp-cli list --gateway pcA
@@ -219,7 +220,7 @@ launching operation.
 
 | Command | REST/API contract | Meaning |
 |---|---|---|
-| `dcc-types [--catalog <path>]` | bundled or supplied adapter catalog | List canonical adapter-backed DCC identifiers without starting a gateway. Each row includes matching adapters, version/source metadata when present, and whether the catalog can produce an install plan. |
+| `dcc-types [--dcc-type <dcc>] [--catalog <path>]` | bundled or supplied adapter catalog + local FileRegistry for the targeted form | Without `--dcc-type`, list canonical adapter-backed identifiers without starting a gateway. With one target, emit the versioned discovery decision that separates catalog, registration, readiness, capability, and real-host evidence. |
 | `health` | `GET /v1/healthz` | Check the configured endpoint. |
 | `stats [--range 1h\|24h\|7d\|all] [--dcc-type <dcc>] [--skill <name>] [--tool <name>] [--status success\|failure] [--instance-id <id>] [--session-id <id>]` | `GET /v1/debug/stats` | Query persisted gateway tool-call counts and return `stats_coverage`, including direct routes excluded from the aggregate. JSON is the default output for agent use. |
 | `feedback --tool-name <name> --intent <text> --blocker <text> [--attempt <text>] [--severity <level>] [--dcc-type <dcc>] [--instance-id <id>] [--request-id <id>] [--job-id <id>]` | `POST /v1/feedback` | File bounded gateway-level feedback even after the referenced DCC exits. The receipt points to `resources://gateway/events`. |
@@ -274,6 +275,21 @@ use `list` for live inventory. The core still accepts unknown/custom DCC names,
 so `custom_types_supported` remains true even when a custom identifier has no
 catalog install plan. Alias normalization follows `DccName::parse`, including
 `3ds Max`, `3ds-max`, and `3dsmax` mapping to `3dsmax`.
+
+The targeted form, `dcc-types --dcc-type <dcc>`, follows
+[`dcc-discovery-decision-v1.schema.json`](../../contracts/dcc-discovery-decision-v1.schema.json).
+It is read-only and does not start a gateway. `live_instances: 0` means only
+that no matching live row was found in the local FileRegistry;
+`live_instances: null` means that observation was unavailable or the requested
+identifier was invalid. Neither state proves that a public adapter, package
+installation, project-local plugin, or custom fork is absent. Unobserved gates
+stay `unknown`, and fixture evidence is never real-host proof. When the bundled catalog has an installable adapter, the
+safe next action is the plan-only `install --dcc-type <dcc>` command together
+with the adapter-owned installation URL. A custom catalog is never reported as
+the released public catalog, and the decision does not copy its private URL or
+path into a plan action. Run a separate explicit `install --catalog <path>`
+plan when that local source is intended. Search and calls remain separate: call
+only a slug or exact identity returned by live capability discovery.
 
 For post-task review, route every task call with
 `--require-gateway --agent-session-id task-42`, then query

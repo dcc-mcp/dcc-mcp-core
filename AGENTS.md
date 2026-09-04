@@ -158,7 +158,7 @@ Start a new agent turn after installation.
 
 ```
 Gateway CLI+REST (agent default — use dcc-mcp skill + dcc-mcp-cli):
-Support check (only when unclear): `dcc-mcp-cli dcc-types` lists canonical adapter-backed identifiers from the release catalog without starting a gateway; use `list` for live sessions.
+Support check (only when unclear): `dcc-mcp-cli dcc-types` lists canonical adapter-backed identifiers from the release catalog without starting a gateway. For one target, use `dcc-mcp-cli --output json dcc-types --dcc-type <dcc>` to keep catalog support, local registration, readiness, and later capability evidence separate; `live_instances: 0` means an observed empty local registry while `null` means the observation is unavailable, and neither is proof that the adapter, installation, or project-local host is absent. Use `list` for full live-session inventory.
 1. Discover: `dcc-mcp-cli search --query "keyword" --dcc-type maya` or `POST /v1/search` → get `tool_slug`; names/summaries are tokenized, so underscores are optional (`create_sphere` and `sphere` both work).
 2. Follow `next_step`: a no-schema hit calls directly only when search also carries safety hints; otherwise perform the returned targeted `load_skill` or `describe`. A correlated load may inline `compact_schema` with safety/execution hints and point straight to `call`.
 3. Execute: `dcc-mcp-cli call <slug> --json '{"radius": 2.0}'` or `POST /v1/call`.

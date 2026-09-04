@@ -1,23 +1,21 @@
-use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use dcc_mcp_models::DccName;
-use serde::Serialize;
 use thiserror::Error;
 
 use crate::domain::install::{
-    InstallPlan, InstallPlanError, InstallPlanner, InstallPolicy, InstallRequest,
-    InstallStepAction, normalized_dcc_key,
+    InstallPlan, InstallPlanError, InstallPlanner, InstallPolicy, InstallRequest, InstallStepAction,
 };
 
 const BUNDLED_CATALOG: &str = include_str!("../../../../dcc-mcp-catalog.yml");
 
+mod discovery;
 mod pip;
 mod policy;
 mod report;
 
+pub use discovery::{DccAdapterSummary, DccTypeSummary, DccTypesCatalog};
 use pip::{pip_install_args, pip_show_args, pip_uninstall_args};
 use policy::{AutoInstallPolicy, ask_consent, render_install_policy_prompt};
 pub use report::{
@@ -45,29 +43,6 @@ pub enum InstallError {
     Io(#[from] std::io::Error),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct DccTypesCatalog {
-    pub total: usize,
-    pub dcc_types: Vec<DccTypeSummary>,
-    pub custom_types_supported: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct DccTypeSummary {
-    pub dcc_type: String,
-    pub adapters: Vec<DccAdapterSummary>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct DccAdapterSummary {
-    pub name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub version: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub url: Option<String>,
-    pub catalog_install_available: bool,
-}
-
 /// Describes how to undo a completed step.
 #[derive(Debug)]
 enum StepRollback {
@@ -84,7 +59,7 @@ enum StepExecution {
 }
 
 pub struct InstallService {
-    default_catalog_path: PathBuf,
+    default_catalog_path: Option<PathBuf>,
     auto_install_policy: AutoInstallPolicy,
 }
 
@@ -92,7 +67,17 @@ impl InstallService {
     #[must_use]
     pub fn new(default_catalog_path: PathBuf) -> Self {
         Self {
-            default_catalog_path,
+            default_catalog_path: Some(default_catalog_path),
+            auto_install_policy: AutoInstallPolicy::from_env(),
+        }
+    }
+
+    /// Build a service whose implicit catalog is the release catalog embedded
+    /// in this binary. Custom catalogs must be passed explicitly in a request.
+    #[must_use]
+    pub fn bundled() -> Self {
+        Self {
+            default_catalog_path: None,
             auto_install_policy: AutoInstallPolicy::from_env(),
         }
     }
@@ -103,7 +88,7 @@ impl InstallService {
         auto_install_policy: AutoInstallPolicy,
     ) -> Self {
         Self {
-            default_catalog_path,
+            default_catalog_path: Some(default_catalog_path),
             auto_install_policy,
         }
     }
@@ -113,56 +98,6 @@ impl InstallService {
         let entries = self.load_entries(request.catalog_path.as_deref())?;
         let plan = InstallPlanner::plan(&entries, request)?;
         Ok(self.apply_auto_install_policy(plan))
-    }
-
-    /// List adapter-backed DCC types from the same catalog used by `install`.
-    pub fn dcc_types(&self, catalog_path: Option<&Path>) -> Result<DccTypesCatalog, InstallError> {
-        let entries = self.load_entries(catalog_path)?;
-        let mut grouped: BTreeMap<String, BTreeMap<String, DccAdapterSummary>> = BTreeMap::new();
-        let mut canonical_by_normalized: BTreeMap<String, String> = BTreeMap::new();
-
-        for entry in entries.iter().filter(|entry| {
-            entry
-                .tags
-                .iter()
-                .any(|tag| tag.eq_ignore_ascii_case("adapter"))
-        }) {
-            let adapter = DccAdapterSummary {
-                name: entry.name.clone(),
-                version: entry.version.clone(),
-                url: entry.url.clone(),
-                catalog_install_available: entry.install.is_some(),
-            };
-            for dcc_type in &entry.dcc {
-                let parsed = DccName::parse(dcc_type).to_string();
-                let normalized = normalized_dcc_key(&parsed);
-                if normalized.is_empty() {
-                    continue;
-                }
-                let canonical = canonical_by_normalized
-                    .entry(normalized)
-                    .or_insert_with(|| parsed.clone())
-                    .clone();
-                grouped
-                    .entry(canonical)
-                    .or_default()
-                    .insert(adapter.name.clone(), adapter.clone());
-            }
-        }
-
-        let dcc_types = grouped
-            .into_iter()
-            .map(|(dcc_type, adapters)| DccTypeSummary {
-                dcc_type,
-                adapters: adapters.into_values().collect(),
-            })
-            .collect::<Vec<_>>();
-
-        Ok(DccTypesCatalog {
-            total: dcc_types.len(),
-            dcc_types,
-            custom_types_supported: true,
-        })
     }
 
     /// Generate and execute an install plan with user consent.
@@ -195,11 +130,13 @@ impl InstallService {
             return dcc_mcp_catalog::load_from_file(path).map_err(Into::into);
         }
 
-        let entries = dcc_mcp_catalog::load_from_file(Path::new(&self.default_catalog_path))?;
-        if entries.is_empty() {
-            return dcc_mcp_catalog::load_from_str(BUNDLED_CATALOG).map_err(Into::into);
+        if let Some(default_path) = self.default_catalog_path.as_deref() {
+            let entries = dcc_mcp_catalog::load_from_file(Path::new(default_path))?;
+            if !entries.is_empty() {
+                return Ok(entries);
+            }
         }
-        Ok(entries)
+        dcc_mcp_catalog::load_from_str(BUNDLED_CATALOG).map_err(Into::into)
     }
 
     fn apply_auto_install_policy(&self, mut plan: InstallPlan) -> InstallPlan {

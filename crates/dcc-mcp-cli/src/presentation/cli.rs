@@ -27,6 +27,7 @@ use crate::domain::rest::{
 };
 use crate::infra::http::HttpGateway;
 
+mod dcc_types_output;
 mod image_artifacts;
 mod job_progress;
 mod lint;
@@ -166,6 +167,9 @@ enum Command {
         /// Read a custom adapter catalog instead of the release catalog.
         #[arg(long, env = "DCC_MCP_CATALOG_PATH")]
         catalog: Option<PathBuf>,
+        /// Resolve one DCC's catalog and live-instance states independently.
+        #[arg(long)]
+        dcc_type: Option<String>,
     },
     /// Search callable tools, or list the complete loaded inventory when no query is provided.
     Search {
@@ -684,9 +688,8 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             run_doctor(doctor.request(registry_dir, Some(gateway_host), Some(gateway_port))).await?
         }
         Command::List => control.list_instances().await?,
-        Command::DccTypes { catalog } => {
-            let service = InstallService::new(PathBuf::from("dcc-mcp-catalog.yml"));
-            to_json(service.dcc_types(catalog.as_deref())?)?
+        Command::DccTypes { catalog, dcc_type } => {
+            dcc_types_output::run(catalog.as_deref(), dcc_type.as_deref())?
         }
         Command::Search {
             query,
@@ -922,7 +925,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             execute,
             json,
         } => {
-            let service = InstallService::new(PathBuf::from("dcc-mcp-catalog.yml"));
+            let service = InstallService::bundled();
             let req = InstallRequest {
                 dcc_type,
                 version,

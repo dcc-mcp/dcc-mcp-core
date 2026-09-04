@@ -1,0 +1,48 @@
+{
+  "cases": [
+    {
+      "id": "unreal-5.6",
+      "dcc_type": "unreal",
+      "context": {
+        "reported_version": "5.6.1",
+        "project_local": true,
+        "selected_bootstrap_path": "engine_bundled_python",
+        "legacy_remote_execution_required": false,
+        "optional_native_bridge_required": false,
+        "evidence_scope": "catalog_and_adapter_contract_only"
+      },
+      "expected_instructions_url": "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-unreal/main/README.md"
+    },
+    {
+      "id": "unity-standard",
+      "dcc_type": "unity",
+      "context": {
+        "reported_version": "2022.3.62f1",
+        "project_local": true,
+        "evidence_scope": "catalog_and_adapter_contract_only"
+      },
+      "expected_instructions_url": "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-unity/main/install.md"
+    },
+    {
+      "id": "unity-tuanjie",
+      "dcc_type": "unity",
+      "context": {
+        "reported_version": "2022.3.48t1",
+        "project_local": true,
+        "evidence_scope": "catalog_and_adapter_contract_only"
+      },
+      "expected_instructions_url": "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-unity/main/install.md"
+    },
+    {
+      "id": "godot-project",
+      "dcc_type": "godot",
+      "context": {
+        "reported_version": "4.4",
+        "project_local_addon_present": true,
+        "machine_wide_host_detected": false,
+        "evidence_scope": "catalog_and_adapter_contract_only"
+      },
+      "expected_instructions_url": "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-godot/main/README.md"
+    }
+  ]
+}
