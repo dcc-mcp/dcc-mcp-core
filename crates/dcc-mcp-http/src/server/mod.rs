@@ -1,6 +1,7 @@
 //! The main `McpHttpServer` type.
 
-use axum::{Json, Router, routing};
+use axum::middleware::Next;
+use axum::{Json, Router, middleware, routing};
 use http::{Method, Request, Response, StatusCode};
 use parking_lot::RwLock;
 use serde_json::json;
@@ -82,6 +83,24 @@ impl<B> MakeSpan<B> for HttpTraceMakeSpan {
 
 fn http_trace_layer() -> TraceLayer<HttpTraceClassifier, HttpTraceMakeSpan> {
     TraceLayer::new(HttpTraceClassifier).make_span_with(HttpTraceMakeSpan)
+}
+
+/// Echo a caller-supplied request id on every HTTP response.
+///
+/// The CLI sends `X-Request-ID` and validates the value before accepting a
+/// response.  Keeping the header at the HTTP boundary makes stale or
+/// mis-correlated responses observable for both REST and MCP transports,
+/// including handler-generated errors.
+async fn echo_request_id(
+    request: Request<axum::body::Body>,
+    next: Next,
+) -> Response<axum::body::Body> {
+    let request_id = request.headers().get("x-request-id").cloned();
+    let mut response = next.run(request).await;
+    if let Some(request_id) = request_id {
+        response.headers_mut().insert("x-request-id", request_id);
+    }
+    response
 }
 
 impl ClassifyResponse for HttpResponseClassifier {
@@ -731,6 +750,10 @@ impl McpHttpServer {
 
         // MCP endpoint — speaks MCP 2025-11-25 via the official rmcp SDK.
         router = crate::handler::rmcp_mount::attach_rmcp_endpoint(router, &app_state_for_rmcp);
+
+        // Apply correlation after mounting `/mcp` so the middleware wraps both
+        // the existing REST routes and the nested MCP service.
+        router = router.layer(middleware::from_fn(echo_request_id));
 
         if self.config.server.enable_cors {
             router = router.layer(
