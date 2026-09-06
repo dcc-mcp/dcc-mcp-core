@@ -33,6 +33,7 @@ mod job_progress;
 mod lint;
 mod marketplace_output;
 mod record_replay;
+mod transport_args;
 mod ui_control_output;
 
 #[cfg(test)]
@@ -41,6 +42,7 @@ use image_artifacts::{default_image_artifact_root, materialize_call_images};
 use job_progress::JobProgressReporter;
 use marketplace_output::reload_marketplace_value;
 use record_replay::{RecordReplayAction, run_record_replay};
+use transport_args::TransportArgs;
 use ui_control_output::compact_ui_control_result;
 
 use super::feedback_cmd::FeedbackArgs;
@@ -99,6 +101,8 @@ pub struct Args {
     /// Global timeout in seconds for all operations.
     #[arg(long, global = true, env = "DCC_MCP_TIMEOUT_SECS")]
     timeout_secs: Option<u64>,
+    #[command(flatten)]
+    transport: TransportArgs,
     #[command(subcommand)]
     command: Command,
 }
@@ -573,9 +577,11 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
         output,
         non_interactive,
         timeout_secs: global_timeout_secs,
+        transport: transport_args,
         command,
     } = args;
 
+    let transport = transport_args.transport;
     let output = match &command {
         Command::Feedback(args) => args.resolve_output(output),
         Command::Install { json: true, .. } => Ok(OutputFormat::Json),
@@ -604,7 +610,8 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
         gateway_ensure::default_registry_dir(),
         require_gateway,
     )
-    .with_auto_gateway_enabled(!no_auto_gateway);
+    .with_auto_gateway_enabled(!no_auto_gateway)
+    .with_transport(transport);
     let doctor = DoctorContext::new(
         profile_path.clone(),
         profile_store,
@@ -1465,7 +1472,6 @@ fn endpoint_for_mcp(raw: &str) -> String {
     }
 }
 
-/// Check whether a command timeout would be ignored in favor of a distinct global timeout.
 fn command_has_distinct_per_timeout(command: &Command, global_timeout_secs: Option<u64>) -> bool {
     let per_command_timeout = match command {
         Command::Smoke { timeout_secs, .. }

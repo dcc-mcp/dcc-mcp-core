@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 
 use dcc_mcp_models::FeedbackReport;
 
-use crate::application::client::{ClientError, DccMcpClient};
+use crate::application::client::{ClientError, DccMcpClient, TransportMode};
 use crate::application::gateway_profile::GatewayTarget;
 use crate::application::instance_selection::{
     InstanceSelectionError, instance_field, select_instances,
@@ -38,6 +38,7 @@ pub struct DccControlPlane {
     registry_dir: PathBuf,
     require_gateway: bool,
     auto_gateway_enabled: bool,
+    transport: TransportMode,
 }
 
 impl DccControlPlane {
@@ -54,6 +55,7 @@ impl DccControlPlane {
             registry_dir,
             require_gateway,
             auto_gateway_enabled: true,
+            transport: TransportMode::Auto,
         }
     }
 
@@ -63,8 +65,14 @@ impl DccControlPlane {
         self
     }
 
+    #[must_use]
+    pub fn with_transport(mut self, transport: TransportMode) -> Self {
+        self.transport = transport;
+        self
+    }
+
     fn uses_direct_local(&self) -> bool {
-        self.target.is_local() && !self.require_gateway
+        self.target.is_local() && !self.require_gateway && self.transport != TransportMode::Rest
     }
 
     pub async fn list_instances(&self) -> anyhow::Result<Value> {
@@ -162,6 +170,14 @@ impl DccControlPlane {
         timeout: Duration,
     ) -> anyhow::Result<Value> {
         let direct_local = self.uses_direct_local();
+        if !direct_local
+            && self.transport == TransportMode::Mcp
+            && (dcc_type.is_some() || instance_id.is_some())
+        {
+            anyhow::bail!(
+                "--transport mcp requires a gateway tool slug; direct backend calls need REST routing"
+            );
+        }
         let value = if direct_local {
             local_control::call_local(
                 self.registry_dir.clone(),
@@ -177,7 +193,8 @@ impl DccControlPlane {
             let client = DccMcpClient::with_gateway(
                 self.endpoint.clone(),
                 HttpGateway::with_timeout(timeout),
-            );
+            )
+            .with_transport(self.transport);
             match (dcc_type, instance_id) {
                 (Some(dcc_type), Some(instance_id)) => client
                     .direct_call(DirectCallRequest {
@@ -502,10 +519,14 @@ impl DccControlPlane {
     }
 
     pub async fn call_batch(&self, body: Value, timeout: Duration) -> anyhow::Result<Value> {
+        if self.transport == TransportMode::Mcp {
+            anyhow::bail!("--transport mcp does not support REST-only batch calls yet");
+        }
         // Local mode owns and auto-starts the machine gateway, so batches use
         // its REST endpoint even though single calls can take the direct MCP path.
         let value =
             DccMcpClient::with_gateway(self.endpoint.clone(), HttpGateway::with_timeout(timeout))
+                .with_transport(self.transport)
                 .call_batch(body)
                 .await
                 .map_err(anyhow::Error::from)?;
