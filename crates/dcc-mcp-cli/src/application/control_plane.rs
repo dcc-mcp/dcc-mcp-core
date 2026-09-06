@@ -72,7 +72,7 @@ impl DccControlPlane {
     }
 
     fn uses_direct_local(&self) -> bool {
-        self.target.is_local() && !self.require_gateway
+        self.target.is_local() && !self.require_gateway && self.transport != TransportMode::Rest
     }
 
     pub async fn list_instances(&self) -> anyhow::Result<Value> {

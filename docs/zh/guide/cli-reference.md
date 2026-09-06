@@ -87,7 +87,7 @@ dcc-mcp-cli gateway set local
 `--transport mcp` 会直接向 `/mcp` 发送 JSON-RPC `tools/call`，适合协议一致性
 检查和只在 MCP 暴露的工具。批量调用以及带 `--dcc-type`/`--instance-id` 的
 direct backend 调用仍是 REST 操作；local profile 的 direct-instance 调用本来就
-走 MCP，此标志不会改变它。
+走 MCP；选择 `rest` 时则会改为通过本机 gateway 的 REST control plane 路由。
 
 如果本地调用必须进入 Gateway audit/stats，请加 `--require-gateway`（或设置
 `DCC_MCP_CLI_REQUIRE_GATEWAY=true`）。该路径 fail-closed，不会静默回退到

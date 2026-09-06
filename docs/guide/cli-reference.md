@@ -103,8 +103,8 @@ when the REST catalog reports an unknown tool. `--transport rest` is strict and
 never falls back; `--transport mcp` sends a JSON-RPC `tools/call` directly to
 `/mcp`, which is useful for protocol-parity checks and MCP-only tools. Batch
 calls and direct backend calls with `--dcc-type`/`--instance-id` remain REST
-operations. Local direct-instance calls already use MCP regardless of this
-flag.
+operations. In the default `auto` mode, local direct-instance calls continue to
+use MCP; selecting `rest` routes them through the local gateway REST surface.
 
 Add `--require-gateway` (or set `DCC_MCP_CLI_REQUIRE_GATEWAY=true`) when local
 calls must be retained by Gateway audit/stats. This route is fail-closed and

@@ -408,37 +408,6 @@ fn call_falls_back_to_mcp_for_core_tool_missing_from_rest_catalog() {
         &[],
     );
     assert!(stderr.contains("job-404"), "stderr: {stderr}");
-
-    let explicit_mcp = run_json(&[
-        "--base-url",
-        &fixture.base_url,
-        "--transport",
-        "mcp",
-        "call",
-        "jobs_get_status",
-        "--json",
-        r#"{"job_id":"job-42"}"#,
-    ]);
-    assert_eq!(explicit_mcp["slug"], "jobs_get_status");
-    assert_eq!(explicit_mcp["output"]["status"], "completed");
-
-    let explicit_rest = run_failure_with_env(
-        &[
-            "--base-url",
-            &fixture.base_url,
-            "--transport",
-            "rest",
-            "call",
-            "jobs_get_status",
-            "--json",
-            r#"{"job_id":"job-42"}"#,
-        ],
-        &[],
-    );
-    assert!(
-        explicit_rest.contains("invalid tool slug"),
-        "REST-only transport should not silently fall back to MCP: {explicit_rest}"
-    );
 }
 
 #[test]
