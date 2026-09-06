@@ -13,6 +13,54 @@ use tower::ServiceExt;
 use tower_http::classify::{ClassifiedResponse, ClassifyResponse, MakeClassifier};
 use tracing_subscriber::fmt::MakeWriter;
 
+#[tokio::test]
+async fn request_id_is_echoed_on_http_responses() {
+    let router = Router::new()
+        .route(
+            "/ok",
+            axum::routing::get(|| async { StatusCode::NO_CONTENT }),
+        )
+        .layer(axum::middleware::from_fn(echo_request_id));
+
+    let response = router
+        .oneshot(
+            Request::builder()
+                .uri("/ok")
+                .header("X-Request-ID", "req-echo-1")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    assert_eq!(
+        response
+            .headers()
+            .get("X-Request-ID")
+            .and_then(|value| value.to_str().ok()),
+        Some("req-echo-1")
+    );
+}
+
+#[tokio::test]
+async fn request_id_is_not_invented_when_header_is_absent() {
+    let router = Router::new()
+        .route(
+            "/ok",
+            axum::routing::get(|| async { StatusCode::NO_CONTENT }),
+        )
+        .layer(axum::middleware::from_fn(echo_request_id));
+
+    let response = router
+        .oneshot(Request::builder().uri("/ok").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    assert!(response.headers().get("X-Request-ID").is_none());
+}
+
 #[test]
 fn health_payload_surfaces_job_persistence_state() {
     let payload = health_payload(&crate::job::JobManager::new());
