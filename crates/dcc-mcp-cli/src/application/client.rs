@@ -12,6 +12,21 @@ use crate::domain::rest::{
 use crate::infra::http::{HttpError, HttpGateway};
 
 const MCP_STREAMABLE_HTTP_ACCEPT: &str = "application/json, text/event-stream";
+
+/// Wire transport used for model-facing tool calls.
+///
+/// `Auto` preserves the historical CLI behavior: use the gateway REST
+/// control-plane endpoint first and fall back to MCP when the REST catalog
+/// does not know the tool.  `Mcp` is useful for protocol parity testing and
+/// for tools that are only exposed through `tools/call`; `Rest` keeps the
+/// control-plane behavior strict and never silently changes transports.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, clap::ValueEnum)]
+pub enum TransportMode {
+    #[default]
+    Auto,
+    Rest,
+    Mcp,
+}
 #[derive(Debug, Error)]
 pub enum ClientError {
     #[error(transparent)]
@@ -23,6 +38,7 @@ pub enum ClientError {
 pub struct DccMcpClient {
     endpoint: Endpoint,
     gateway: HttpGateway,
+    transport: TransportMode,
 }
 
 impl DccMcpClient {
@@ -30,12 +46,23 @@ impl DccMcpClient {
         Self {
             endpoint,
             gateway: HttpGateway::default(),
+            transport: TransportMode::Auto,
         }
     }
 
     #[must_use]
     pub fn with_gateway(endpoint: Endpoint, gateway: HttpGateway) -> Self {
-        Self { endpoint, gateway }
+        Self {
+            endpoint,
+            gateway,
+            transport: TransportMode::Auto,
+        }
+    }
+
+    #[must_use]
+    pub fn with_transport(mut self, transport: TransportMode) -> Self {
+        self.transport = transport;
+        self
     }
 
     pub async fn health(&self) -> Result<Value, ClientError> {
@@ -145,6 +172,9 @@ impl DccMcpClient {
 
     pub async fn call(&self, request: CallRequest) -> Result<Value, ClientError> {
         let request_id = next_request_id();
+        if self.transport == TransportMode::Mcp {
+            return self.call_mcp_tool(request, &request_id).await;
+        }
         let body = json!({
             "tool_slug": &request.tool_slug,
             "arguments": &request.arguments,
@@ -156,7 +186,7 @@ impl DccMcpClient {
             .await
         {
             Ok(value) => Ok(value),
-            Err(error) if is_unknown_rest_tool(&error) => {
+            Err(error) if self.transport == TransportMode::Auto && is_unknown_rest_tool(&error) => {
                 self.call_mcp_tool(request, &request_id).await
             }
             Err(error) => Err(error.into()),

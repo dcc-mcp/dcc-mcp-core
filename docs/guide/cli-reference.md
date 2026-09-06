@@ -96,6 +96,16 @@ dcc-mcp-cli gateway set local
 and `DCC_MCP_BASE_URL` remain supported as direct endpoint overrides for legacy
 scripts and smoke checks.
 
+Tool calls accept `--transport auto|rest|mcp` (or
+`DCC_MCP_CLI_TRANSPORT`). The default `auto` mode keeps the compatibility path:
+it calls gateway `POST /v1/call` first and falls back to MCP `tools/call` only
+when the REST catalog reports an unknown tool. `--transport rest` is strict and
+never falls back; `--transport mcp` sends a JSON-RPC `tools/call` directly to
+`/mcp`, which is useful for protocol-parity checks and MCP-only tools. Batch
+calls and direct backend calls with `--dcc-type`/`--instance-id` remain REST
+operations. Local direct-instance calls already use MCP regardless of this
+flag.
+
 Add `--require-gateway` (or set `DCC_MCP_CLI_REQUIRE_GATEWAY=true`) when local
 calls must be retained by Gateway audit/stats. This route is fail-closed and
 does not fall back to direct MCP. Add `--agent-session-id <task-id>` (or
@@ -165,6 +175,7 @@ dcc-mcp-cli search --query "create sphere" --dcc-type maya --instance-id abc1234
 dcc-mcp-cli describe maya.abc12345.create_sphere
 dcc-mcp-cli load-skill workflow --dcc-type 3dsmax --instance-id 80321760
 dcc-mcp-cli call maya.abc12345.create_sphere --require-gateway --agent-session-id task-42 --json '{"radius":2}'
+dcc-mcp-cli --transport mcp call jobs_get_status --json '{"job_id":"job-42"}'
 dcc-mcp-cli call unity.abc12345.run_tests --require-gateway --wait --wait-timeout-secs 600 --json '{}'
 dcc-mcp-cli call maya_scene__get_session_info --dcc-type maya --instance-id abc12345 --json '{}'
 dcc-mcp-cli wait-ready --dcc-type maya --instance-id abc12345 --require skill_catalog,host_execution_bridge

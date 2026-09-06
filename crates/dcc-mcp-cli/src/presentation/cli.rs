@@ -11,7 +11,7 @@ use super::output::{ExitCode, OutputFormat, OutputWriter, failure_envelope, to_j
 use crate::application::call_attribution::{
     attach_agent_session_id, attach_batch_agent_session_id,
 };
-use crate::application::client::DccMcpClient;
+use crate::application::client::{DccMcpClient, TransportMode};
 use crate::application::control_plane::DccControlPlane;
 use crate::application::doctor::{DoctorContext, run_doctor};
 use crate::application::gateway_ctrl;
@@ -99,6 +99,15 @@ pub struct Args {
     /// Global timeout in seconds for all operations.
     #[arg(long, global = true, env = "DCC_MCP_TIMEOUT_SECS")]
     timeout_secs: Option<u64>,
+    /// Tool-call transport: auto (REST, then MCP fallback), rest, or mcp.
+    #[arg(
+        long,
+        global = true,
+        env = "DCC_MCP_CLI_TRANSPORT",
+        value_enum,
+        default_value_t = TransportMode::Auto
+    )]
+    transport: TransportMode,
     #[command(subcommand)]
     command: Command,
 }
@@ -573,6 +582,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
         output,
         non_interactive,
         timeout_secs: global_timeout_secs,
+        transport,
         command,
     } = args;
 
@@ -604,7 +614,8 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
         gateway_ensure::default_registry_dir(),
         require_gateway,
     )
-    .with_auto_gateway_enabled(!no_auto_gateway);
+    .with_auto_gateway_enabled(!no_auto_gateway)
+    .with_transport(transport);
     let doctor = DoctorContext::new(
         profile_path.clone(),
         profile_store,

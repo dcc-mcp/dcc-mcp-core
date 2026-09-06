@@ -80,6 +80,15 @@ dcc-mcp-cli gateway set local
 `--gateway <name>` 可为单次命令覆盖当前 profile。`--base-url` 与
 `DCC_MCP_BASE_URL` 继续作为旧脚本和 smoke check 的直接 endpoint override。
 
+工具调用支持 `--transport auto|rest|mcp`（或设置
+`DCC_MCP_CLI_TRANSPORT`）。默认 `auto` 保持兼容路径：先调用 gateway 的
+`POST /v1/call`，只有 REST catalog 报告工具未知时才回退到 MCP
+`tools/call`。`--transport rest` 是严格 REST 模式，不会回退；
+`--transport mcp` 会直接向 `/mcp` 发送 JSON-RPC `tools/call`，适合协议一致性
+检查和只在 MCP 暴露的工具。批量调用以及带 `--dcc-type`/`--instance-id` 的
+direct backend 调用仍是 REST 操作；local profile 的 direct-instance 调用本来就
+走 MCP，此标志不会改变它。
+
 如果本地调用必须进入 Gateway audit/stats，请加 `--require-gateway`（或设置
 `DCC_MCP_CLI_REQUIRE_GATEWAY=true`）。该路径 fail-closed，不会静默回退到
 direct MCP。再加 `--agent-session-id <task-id>`（或
@@ -140,6 +149,7 @@ dcc-mcp-cli search --query sphere --dcc-type maya --instance-id abc12345
 dcc-mcp-cli describe maya.abc12345.create_sphere
 dcc-mcp-cli load-skill workflow --dcc-type 3dsmax --instance-id 80321760
 dcc-mcp-cli call maya.abc12345.create_sphere --require-gateway --agent-session-id task-42 --json '{"radius":2}'
+dcc-mcp-cli --transport mcp call jobs_get_status --json '{"job_id":"job-42"}'
 dcc-mcp-cli call maya_scene__get_session_info --dcc-type maya --instance-id abc12345 --json '{}'
 dcc-mcp-cli wait-ready --dcc-type maya --instance-id abc12345 --require skill_catalog,host_execution_bridge
 dcc-mcp-cli stop-instance --dcc-type maya --instance-id abc12345 --expected-owner release-smoke-test
