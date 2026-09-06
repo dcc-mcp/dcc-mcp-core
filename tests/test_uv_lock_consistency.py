@@ -23,7 +23,7 @@ CI_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 VERSION_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "version-consistency.yml"
 EXPECTED_ROOT_PACKAGE = "dcc-mcp-core"
 TRUSTED_VALIDATOR_PATH = "scripts/ci/generated_lock_sync.py"
-TRUSTED_VALIDATOR_COMMIT = "3ee3cbf1445a5f3a909788443c7bdbec0c2ca3da"
+TRUSTED_VALIDATOR_COMMIT = "3667e8786549cc890e701dffba6512b2f6a5b5e7"
 
 
 def _load_checker_module():
