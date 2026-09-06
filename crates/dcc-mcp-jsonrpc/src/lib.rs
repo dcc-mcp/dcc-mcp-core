@@ -87,7 +87,11 @@ pub const MCP_PROTOCOL_VERSION_2026_07_28: &str = MCP_PROTOCOL_VERSION_2026;
 /// still `2025-06-18` in Phase 1.  The ordering here is used only for fallback
 /// when the client requests an *unknown* version — which remains `2025-06-18`
 /// until Phase 2.
+#[cfg(feature = "mcp-2026-07-28")]
 pub const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &["2026-07-28", "2025-06-18", "2025-03-26"];
+
+#[cfg(not(feature = "mcp-2026-07-28"))]
+pub const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &["2025-06-18", "2025-03-26"];
 
 /// Legacy (session-based) protocol versions (2025-x and earlier).
 ///
@@ -151,11 +155,19 @@ pub fn select_protocol_mode(
     mcp_protocol_version_header: Option<&str>,
     has_session_id: bool,
 ) -> ProtocolMode {
+    #[cfg(feature = "mcp-2026-07-28")]
     match mcp_protocol_version_header {
         Some(v) if v == MCP_PROTOCOL_VERSION_2026 => ProtocolMode::Stateless,
         Some(v) if LEGACY_PROTOCOL_VERSIONS.contains(&v) => ProtocolMode::Session,
         None if has_session_id => ProtocolMode::Session,
         _ => ProtocolMode::default(),
+    }
+
+    #[cfg(not(feature = "mcp-2026-07-28"))]
+    {
+        let _ = mcp_protocol_version_header;
+        let _ = has_session_id;
+        ProtocolMode::Session
     }
 }
 
@@ -207,6 +219,7 @@ mod tests {
 
     // ── negotiate_protocol_version ──────────────────────────────────────────
 
+    #[cfg(feature = "mcp-2026-07-28")]
     #[test]
     fn negotiate_returns_2026_when_client_requests_it() {
         assert_eq!(negotiate_protocol_version(Some("2026-07-28")), "2026-07-28");
@@ -237,6 +250,7 @@ mod tests {
 
     // ── select_protocol_mode ────────────────────────────────────────────────
 
+    #[cfg(feature = "mcp-2026-07-28")]
     #[test]
     fn select_protocol_mode_returns_stateless_for_2026() {
         assert_eq!(
