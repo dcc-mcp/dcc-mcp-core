@@ -27,12 +27,15 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_pyproject_maturin_features_match_canonical_wheel_features(tmp_path: Path) -> None:
-    (tmp_path / "justfile").write_text((_REPO_ROOT / "justfile").read_text(encoding="utf-8"), encoding="utf-8")
+    justfile = (_REPO_ROOT / "justfile").read_text(encoding="utf-8")
+    assert "mcp-2026-07-28" in justfile
+    (tmp_path / "justfile").write_text(justfile, encoding="utf-8")
     pyproject = (_REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
     (tmp_path / "pyproject.toml").write_text(pyproject, encoding="utf-8")
     assert collect_wheel_feature_projection_errors(tmp_path) == []
 
-    (tmp_path / "pyproject.toml").write_text(pyproject.replace(', "admin"]', "]", 1), encoding="utf-8")
+    weakened = pyproject.replace(', "admin", "mcp-2026-07-28"]', ', "mcp-2026-07-28"]', 1)
+    (tmp_path / "pyproject.toml").write_text(weakened, encoding="utf-8")
     errors = collect_wheel_feature_projection_errors(tmp_path)
     assert any("missing=['admin']" in error for error in errors)
 

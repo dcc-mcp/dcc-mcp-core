@@ -57,3 +57,5 @@ stub-gen = [
 ]
 prometheus = ["dcc-mcp-http/prometheus"]
 job-persist-sqlite = ["dcc-mcp-http/job-persist-sqlite"]
+# Forward the opt-in MCP 2026 stateless HTTP path into the PyO3 wheel.
+mcp-2026-07-28 = ["dcc-mcp-http/mcp-2026-07-28"]

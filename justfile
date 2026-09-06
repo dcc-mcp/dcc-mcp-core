@@ -10,7 +10,7 @@ set shell := ["sh", "-cu"]
 # Opt-in Cargo features that must ship in every wheel. Add new features here
 # and every recipe below — as well as CI workflows invoking `just build-*` —
 # will pick them up automatically.
-OPT_FEATURES := "workflow,scheduler,prometheus,job-persist-sqlite,admin"
+OPT_FEATURES := "workflow,scheduler,prometheus,job-persist-sqlite,admin,mcp-2026-07-28"
 CLI_BIN := if os_family() == "windows" { ".\\target\\release\\dcc-mcp-cli.exe" } else { "./target/release/dcc-mcp-cli" }
 
 # Feature set for `maturin develop` (no abi3, extension-module linkage)
