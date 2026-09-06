@@ -130,3 +130,6 @@ prometheus = ["dep:dcc-mcp-telemetry", "dcc-mcp-telemetry/prometheus", "dcc-mcp-
 # extracted `dcc-mcp-job` crate. Off by default — the wheel's default
 # build uses the in-memory store.
 job-persist-sqlite = ["dcc-mcp-job/job-persist-sqlite"]
+# Route explicitly negotiated MCP 2026-07-28 requests through the
+# stateless service while retaining rmcp for legacy requests.
+mcp-2026-07-28 = ["dcc-mcp-http-server/mcp-2026-07-28", "dcc-mcp-jsonrpc/mcp-2026-07-28"]
