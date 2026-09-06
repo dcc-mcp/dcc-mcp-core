@@ -12,10 +12,16 @@
 use std::sync::Arc;
 
 use axum::Router;
+#[cfg(feature = "mcp-2026-07-28")]
+use axum::body::{Body, to_bytes};
 use dcc_mcp_http_server::rmcp_handler::{DccMcpHandler, RegistryContext};
 use dcc_mcp_jsonrpc::NotificationBuilder;
+#[cfg(feature = "mcp-2026-07-28")]
+use http::{Request, Response, StatusCode, header::HeaderValue};
 use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
 use rmcp::transport::streamable_http_server::{StreamableHttpServerConfig, StreamableHttpService};
+#[cfg(feature = "mcp-2026-07-28")]
+use tower::ServiceExt;
 use tracing::info;
 
 use super::rmcp_providers_impl::{PromptRegistryProvider, ResourceRegistryProvider};
@@ -31,8 +37,34 @@ use crate::handler::AppState;
 /// The router passed in is already state-erased (`Router<()>`) because
 /// `.with_state()` was called earlier in the builder chain.
 pub fn attach_rmcp_endpoint(router: Router, app_state: &AppState) -> Router {
-    let server_state = app_state.server.clone();
+    let registry_context = build_registry_context(app_state);
+    let service = build_legacy_service(app_state, registry_context.clone());
 
+    #[cfg(feature = "mcp-2026-07-28")]
+    {
+        let stateless = dcc_mcp_http_server::stateless::StatelessMcpService::new(
+            app_state.server.clone(),
+            registry_context,
+        );
+        let dispatcher = tower::service_fn(move |request: Request<Body>| {
+            let legacy = service.clone();
+            let stateless = stateless.clone();
+            async move { dispatch_request(request, legacy, stateless).await }
+        });
+        info!("rmcp MCP endpoint mounted at /mcp (legacy + 2026 stateless dispatcher)");
+        return router.nest_service("/mcp", dispatcher);
+    }
+
+    #[cfg(not(feature = "mcp-2026-07-28"))]
+    {
+        info!("rmcp MCP endpoint mounted at /mcp");
+        router.nest_service("/mcp", service)
+    }
+}
+
+/// Build the provider and readiness context shared by legacy and stateless
+/// protocol handlers.
+pub(crate) fn build_registry_context(app_state: &AppState) -> Arc<RegistryContext> {
     // Build provider trait objects that bridge registries into the handler.
     let resource_provider: Option<Arc<dyn dcc_mcp_http_server::rmcp_providers::ResourceProvider>> =
         if app_state.server.features.enable_resources {
@@ -69,12 +101,21 @@ pub fn attach_rmcp_endpoint(router: Router, app_state: &AppState) -> Router {
         }
     });
 
-    let registry_context = Arc::new(RegistryContext {
+    Arc::new(RegistryContext {
         resource_provider,
         prompt_provider,
         readiness: app_state.readiness.clone(),
         on_skill_catalog_mutated,
-    });
+    })
+}
+
+/// Construct the existing rmcp service. Keeping this separate makes the
+/// legacy service an explicit fallback for protocol dispatch.
+pub(crate) fn build_legacy_service(
+    app_state: &AppState,
+    registry_context: Arc<RegistryContext>,
+) -> StreamableHttpService<DccMcpHandler, LocalSessionManager> {
+    let server_state = app_state.server.clone();
 
     let session_manager = Arc::new(LocalSessionManager::default());
 
@@ -89,7 +130,7 @@ pub fn attach_rmcp_endpoint(router: Router, app_state: &AppState) -> Router {
     // Allow any host (production should restrict via reverse proxy).
     config.allowed_hosts = vec![];
 
-    let service = StreamableHttpService::new(
+    StreamableHttpService::new(
         move || {
             Ok(DccMcpHandler::new(
                 server_state.clone(),
@@ -98,9 +139,131 @@ pub fn attach_rmcp_endpoint(router: Router, app_state: &AppState) -> Router {
         },
         session_manager,
         config,
+    )
+}
+
+#[cfg(feature = "mcp-2026-07-28")]
+async fn dispatch_request(
+    request: Request<Body>,
+    legacy: StreamableHttpService<DccMcpHandler, LocalSessionManager>,
+    stateless: dcc_mcp_http_server::stateless::StatelessMcpService,
+) -> Result<Response<Body>, std::convert::Infallible> {
+    use dcc_mcp_jsonrpc::{
+        JsonRpcRequest, MCP_PROTOCOL_VERSION_HEADER, MCP_SESSION_HEADER, ProtocolMode,
+        ProtocolRequestHints, select_protocol_mode_from_headers,
+    };
+
+    let headers = request.headers();
+    let hints = ProtocolRequestHints {
+        protocol_version: headers
+            .get(MCP_PROTOCOL_VERSION_HEADER)
+            .and_then(|value| value.to_str().ok()),
+        has_session_id: headers.contains_key(MCP_SESSION_HEADER),
+        accept: headers.get("accept").and_then(|value| value.to_str().ok()),
+        method: headers
+            .get("mcp-method")
+            .and_then(|value| value.to_str().ok()),
+        name: headers
+            .get("mcp-name")
+            .and_then(|value| value.to_str().ok()),
+    };
+
+    if select_protocol_mode_from_headers(hints) != ProtocolMode::Stateless {
+        return legacy
+            .oneshot(request)
+            .await
+            .map(|response| response.map(Body::new));
+    }
+
+    if request.method() != http::Method::POST {
+        return Ok(Response::builder()
+            .status(StatusCode::METHOD_NOT_ALLOWED)
+            .header(http::header::ALLOW, "POST")
+            .body(Body::empty())
+            .expect("valid response"));
+    }
+
+    let body = match to_bytes(request.into_body(), 16 * 1024 * 1024).await {
+        Ok(body) => body,
+        Err(error) => return Ok(json_error_response(None, -32700, error.to_string())),
+    };
+    let req: JsonRpcRequest = match serde_json::from_slice(&body) {
+        Ok(req) => req,
+        Err(error) => return Ok(json_error_response(None, -32700, error.to_string())),
+    };
+
+    let response = stateless.handle_request(&req).await;
+    let mut builder = Response::builder().status(if response.is_some() {
+        StatusCode::OK
+    } else {
+        StatusCode::ACCEPTED
+    });
+    builder = builder.header(
+        MCP_PROTOCOL_VERSION_HEADER,
+        HeaderValue::from_static("2026-07-28"),
     );
+    if let Some(response) = response {
+        Ok(builder
+            .header(http::header::CONTENT_TYPE, "application/json")
+            .body(Body::from(response.to_string()))
+            .expect("valid response"))
+    } else {
+        Ok(builder.body(Body::empty()).expect("valid response"))
+    }
+}
 
-    info!("rmcp MCP endpoint mounted at /mcp");
+#[cfg(feature = "mcp-2026-07-28")]
+fn json_error_response(
+    id: Option<serde_json::Value>,
+    code: i64,
+    message: String,
+) -> Response<Body> {
+    use dcc_mcp_jsonrpc::JsonRpcResponse;
+    let response = JsonRpcResponse {
+        jsonrpc: "2.0".to_string(),
+        id,
+        result: None,
+        error: Some(dcc_mcp_jsonrpc::JsonRpcError {
+            code,
+            message,
+            data: None,
+        }),
+    };
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(http::header::CONTENT_TYPE, "application/json")
+        .header(dcc_mcp_jsonrpc::MCP_PROTOCOL_VERSION_HEADER, "2026-07-28")
+        .body(Body::from(
+            serde_json::to_vec(&response).expect("JSON-RPC error serializes"),
+        ))
+        .expect("valid response")
+}
 
-    router.nest_service("/mcp", service)
+#[cfg(all(test, feature = "mcp-2026-07-28"))]
+mod tests {
+    use dcc_mcp_jsonrpc::{ProtocolMode, ProtocolRequestHints, select_protocol_mode_from_headers};
+
+    #[test]
+    fn explicit_2026_header_uses_stateless_dispatch() {
+        assert_eq!(
+            select_protocol_mode_from_headers(ProtocolRequestHints {
+                protocol_version: Some("2026-07-28"),
+                ..Default::default()
+            }),
+            ProtocolMode::Stateless
+        );
+    }
+
+    #[test]
+    fn absent_or_legacy_header_uses_legacy_dispatch() {
+        for protocol_version in [None, Some("2025-06-18"), Some("2025-03-26")] {
+            assert_eq!(
+                select_protocol_mode_from_headers(ProtocolRequestHints {
+                    protocol_version,
+                    ..Default::default()
+                }),
+                ProtocolMode::Session
+            );
+        }
+    }
 }
