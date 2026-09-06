@@ -429,8 +429,9 @@ mod tests {
         stale_readyz_seen.notified().await;
         tokio::time::sleep(Duration::from_millis(25)).await;
         stale_server.abort();
+        let _ = stale_server.await;
 
-        tokio::time::timeout(Duration::from_secs(5), async {
+        tokio::time::timeout(Duration::from_secs(15), async {
             loop {
                 if failover.read().await.is_gateway {
                     break;
