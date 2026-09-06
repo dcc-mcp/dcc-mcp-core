@@ -545,6 +545,8 @@ def test_generation_environment_cannot_expose_write_credentials(tmp_path: Path) 
     assert "GITHUB_TOKEN" not in env and "GH_TOKEN" not in env and "PERSONAL_ACCESS_TOKEN" not in env
     assert env["GIT_CONFIG_NOSYSTEM"] == "1"
     assert env["GIT_TERMINAL_PROMPT"] == "0"
+    assert Path(env["UV_CONFIG_FILE"]).is_file()
+    assert Path(env["UV_CONFIG_FILE"]).parent == tmp_path / "isolated-home"
 
     probe = tmp_path / "hostile_lock_backend_probe.py"
     probe.write_text(

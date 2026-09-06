@@ -398,7 +398,13 @@ def sanitized_environment(source: Mapping[str, str], *, isolated_home: Path) -> 
     env["XDG_CACHE_HOME"] = str(isolated_home / "cache")
     env["CARGO_HOME"] = str(isolated_home / "cargo")
     env["PIP_CONFIG_FILE"] = str(isolated_home / "pip.conf")
-    env["UV_CONFIG_FILE"] = str(isolated_home / "uv.toml")
+    # uv treats UV_CONFIG_FILE as an explicit path and fails closed when the
+    # file is absent.  Materialize the empty isolated config before exposing
+    # the path so lock generation cannot fall back to a user-owned config.
+    isolated_home.mkdir(parents=True, exist_ok=True)
+    uv_config = isolated_home / "uv.toml"
+    uv_config.touch(exist_ok=True)
+    env["UV_CONFIG_FILE"] = str(uv_config)
     return env
 
 
