@@ -283,6 +283,9 @@ job-persist-sqlite = ["dcc-mcp-http/job-persist-sqlite"]
 # default — when disabled, zero admin UI code or front-end assets are
 # compiled into the wheel.
 admin = ["dcc-mcp-gateway/admin", "dcc-mcp-http/admin"]
+# Route explicitly negotiated MCP 2026-07-28 requests through the stateless
+# HTTP service while retaining the legacy session path.
+mcp-2026-07-28 = ["dcc-mcp-http/mcp-2026-07-28"]
 # Persist gateway admin state in SQLite (bundled `rusqlite`). Off by default
 # so the admin-persist-sqlite path no longer compiles the bundled `rusqlite`
 # driver (issue #2182). Note: the gateway's traffic-capture sink still depends

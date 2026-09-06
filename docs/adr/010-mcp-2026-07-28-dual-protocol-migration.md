@@ -90,6 +90,15 @@ fn select_protocol_mode(req: &HttpRequest) -> ProtocolMode {
 - 特性开关: `mcp-2026-07-28` feature flag, off by default
 - 无状态路径的 session store / TTL 驱逐逻辑完全跳过
 
+Python abi3 wheels include the `mcp-2026-07-28` feature so an explicit
+`MCP-Protocol-Version: 2026-07-28` header can reach the stateless handler.
+
+Native CPython 3.7 wheels carry the same feature. The py37-lite wheel remains
+pure-Python and delegates HTTP serving to the separately distributed
+`dcc-mcp-server` binary; it must be validated independently. Adapter packages
+must not advertise 2026 support until the corresponding wheel and sidecar
+artifact smoke tests pass.
+
 **交付物:**
 - `crates/dcc-mcp-http-server/src/stateless/` — 无状态服务实现
 - `dcc-mcp-jsonrpc` 新增 `server/discover` 类型
