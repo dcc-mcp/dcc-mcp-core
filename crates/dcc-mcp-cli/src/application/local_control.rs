@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 use anyhow::Context;
+use dcc_mcp_jsonrpc::MCP_PROTOCOL_VERSION;
 use dcc_mcp_transport::discovery::types::ServiceEntry;
 use serde_json::{Map, Value, json};
 
@@ -17,7 +18,6 @@ use crate::domain::rest::{
 };
 use crate::infra::http::HttpGateway;
 
-const MCP_PROTOCOL_VERSION: &str = "2025-03-26";
 const MCP_ACCEPT: &str = "application/json, text/event-stream";
 const DEFAULT_REQUIRED_READINESS_FIELDS: &[&str] =
     &["process", "dcc", "skill_catalog", "dispatcher"];
