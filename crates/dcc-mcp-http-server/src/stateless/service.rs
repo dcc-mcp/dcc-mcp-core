@@ -20,8 +20,8 @@ use serde_json::{Value, json};
 use tracing::debug;
 
 use dcc_mcp_jsonrpc::{
-    DiscoverResult, JsonRpcRequest, JsonRpcResponse, SUPPORTED_PROTOCOL_VERSIONS, ServerInfo,
-    StatelessServerCapabilities, ToolsCapability, complete_modern_result, error_codes,
+    DiscoverResult, JsonRpcRequest, JsonRpcResponse, SUPPORTED_MODERN_PROTOCOL_VERSIONS,
+    ServerInfo, StatelessServerCapabilities, ToolsCapability, complete_modern_result, error_codes,
 };
 
 use crate::mcp_tool_list_builder::{assemble_full_tool_list, slice_tools_page};
@@ -93,7 +93,7 @@ impl StatelessMcpService {
     fn handle_discover(&self, id: Value) -> Value {
         let caps = self.build_stateless_capabilities();
         let result = DiscoverResult {
-            supported_versions: SUPPORTED_PROTOCOL_VERSIONS
+            supported_versions: SUPPORTED_MODERN_PROTOCOL_VERSIONS
                 .iter()
                 .map(|v| (*v).to_string())
                 .collect(),
@@ -277,8 +277,8 @@ mod tests {
         assert_eq!(resp["id"], 1);
         let result = &resp["result"];
         assert_eq!(
-            result["supportedVersions"][0],
-            MCP_PROTOCOL_VERSION_2026_07_28
+            result["supportedVersions"],
+            json!([MCP_PROTOCOL_VERSION_2026_07_28])
         );
         assert_eq!(
             result["_meta"][SERVER_INFO_META_KEY]["name"],

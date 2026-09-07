@@ -92,6 +92,16 @@ pub const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &["2026-07-28", "2025-06-18", "
 #[cfg(not(feature = "mcp-2026-07-28"))]
 pub const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &["2025-06-18", "2025-03-26"];
 
+/// Modern protocol versions advertised by `server/discover`, newest first.
+///
+/// Discovery must never advertise a legacy `initialize` revision. An opt-out
+/// build has no modern protocol support to advertise.
+#[cfg(feature = "mcp-2026-07-28")]
+pub const SUPPORTED_MODERN_PROTOCOL_VERSIONS: &[&str] = &[MCP_PROTOCOL_VERSION_2026_07_28];
+
+#[cfg(not(feature = "mcp-2026-07-28"))]
+pub const SUPPORTED_MODERN_PROTOCOL_VERSIONS: &[&str] = &[];
+
 /// Legacy (session-based) protocol versions (2025-x and earlier).
 ///
 /// Used by [`select_protocol_mode`] for routing and by

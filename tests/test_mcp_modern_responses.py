@@ -73,7 +73,7 @@ def test_modern_success_response_fields(modern_response_server, method, params, 
         assert "ttlMs" not in result
         assert "cacheScope" not in result
     if method == "server/discover":
-        assert result["supportedVersions"][0] == "2026-07-28"
+        assert result["supportedVersions"] == ["2026-07-28"]
         assert "protocolVersion" not in result
         assert "serverInfo" not in result
     elif method == "tools/call":

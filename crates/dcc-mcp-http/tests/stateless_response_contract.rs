@@ -84,7 +84,7 @@ async fn discover_list_call_and_errors_use_the_modern_response_boundary() {
             assert!(result.get("cacheScope").is_none());
         }
         if method == "server/discover" {
-            assert_eq!(result["supportedVersions"][0], "2026-07-28");
+            assert_eq!(result["supportedVersions"], json!(["2026-07-28"]));
             assert!(result.get("serverInfo").is_none());
             assert!(result.get("protocolVersion").is_none());
         } else if method == "tools/call" {

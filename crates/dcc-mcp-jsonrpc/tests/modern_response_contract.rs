@@ -2,7 +2,8 @@
 
 use dcc_mcp_jsonrpc::{
     CACHEABLE_RESULT_METHODS, DiscoverResult, InitializeResult, SERVER_INFO_META_KEY,
-    ServerCapabilities, ServerDiscoverResult, ServerInfo, complete_modern_result,
+    SUPPORTED_MODERN_PROTOCOL_VERSIONS, ServerCapabilities, ServerDiscoverResult, ServerInfo,
+    complete_modern_result,
 };
 use serde_json::{Value, json};
 
@@ -16,6 +17,14 @@ fn identity() -> ServerInfo {
 fn stamp(method: &str, mut result: Value) -> Value {
     complete_modern_result(method, result.as_object_mut().unwrap(), &identity()).unwrap();
     result
+}
+
+#[test]
+fn modern_versions_match_compiled_support_without_legacy_revisions() {
+    #[cfg(feature = "mcp-2026-07-28")]
+    assert_eq!(SUPPORTED_MODERN_PROTOCOL_VERSIONS, &["2026-07-28"]);
+    #[cfg(not(feature = "mcp-2026-07-28"))]
+    assert!(SUPPORTED_MODERN_PROTOCOL_VERSIONS.is_empty());
 }
 
 #[test]
@@ -90,13 +99,40 @@ fn business_payload_and_authored_metadata_are_preserved() {
             "content": [{"type": "text", "text": "readback"}],
             "structuredContent": {"host": "blender", "value": 3},
             "isError": is_error,
-            "_meta": {"dcc.next_tools": ["inspect"], SERVER_INFO_META_KEY: {"name": "adapter", "version": "2"}}
+            "_meta": {"dcc.next_tools": ["inspect"], SERVER_INFO_META_KEY: {"name": "adapter", "version": "2", "title": "Adapter identity"}}
         });
         let stamped = stamp("tools/call", original.clone());
         for field in ["content", "structuredContent", "isError", "_meta"] {
             assert_eq!(stamped[field], original[field]);
         }
         assert_eq!(stamped["resultType"], "complete");
+    }
+}
+
+#[test]
+fn malformed_authored_identity_uses_configured_identity_without_losing_payload() {
+    for invalid in [
+        json!(null),
+        json!(false),
+        json!("adapter"),
+        json!([]),
+        json!({}),
+        json!({"name": "adapter"}),
+        json!({"name": 3, "version": "2"}),
+    ] {
+        let result = stamp(
+            "tools/call",
+            json!({
+                "content": [{"type": "text", "text": "completed"}],
+                "isError": false,
+                "_meta": {"dcc.readback": true, SERVER_INFO_META_KEY: invalid}
+            }),
+        );
+        assert_eq!(result["_meta"][SERVER_INFO_META_KEY], json!(identity()));
+        assert_eq!(result["_meta"]["dcc.readback"], true);
+        assert_eq!(result["content"][0]["text"], "completed");
+        assert_eq!(result["isError"], false);
+        assert_eq!(result["resultType"], "complete");
     }
 }
 

@@ -39,6 +39,8 @@ pub enum CacheScope {
 /// This codec does not implement multi-round-trip input requests; reject a
 /// different result kind rather than incorrectly reporting it as complete.
 /// Valid handler-authored cache hints and server identity take precedence.
+/// Missing or malformed identity falls back to the configured server without
+/// changing the completed business result or unrelated vendor metadata.
 pub fn complete_modern_result(
     method: &str,
     result: &mut Map<String, Value>,
@@ -75,8 +77,12 @@ pub fn complete_modern_result(
     }
     let meta = result.entry("_meta").or_insert_with(|| json!({}));
     if let Some(meta) = meta.as_object_mut() {
-        meta.entry(SERVER_INFO_META_KEY)
-            .or_insert_with(|| json!(server_info));
+        let valid_identity = meta
+            .get(SERVER_INFO_META_KEY)
+            .is_some_and(|value| serde_json::from_value::<ServerInfo>(value.clone()).is_ok());
+        if !valid_identity {
+            meta.insert(SERVER_INFO_META_KEY.to_string(), json!(server_info));
+        }
     }
     Ok(())
 }

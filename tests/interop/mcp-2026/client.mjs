@@ -15,7 +15,7 @@ try {
     try {
       await client.connect(transport);
       assert.equal(client.getProtocolEra(), 'modern');
-      assert.ok(client.getDiscoverResult().supportedVersions.includes('2026-07-28'));
+      assert.deepEqual(client.getDiscoverResult().supportedVersions, ['2026-07-28']);
       assert.equal(typeof client.getServerVersion().name, 'string');
       const tools = await client.listTools();
       assert.ok(tools.tools.some((tool) => tool.name === 'search_tools'));

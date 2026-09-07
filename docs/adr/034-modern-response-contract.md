@@ -15,11 +15,16 @@ constructing the former RC shape must migrate `protocol_version` to
 `supported_versions` and move `server_info` into result metadata. The final
 wire result carries `supportedVersions`, `resultType`, `ttlMs`, `cacheScope`,
 and optional `_meta`; it does not emit RC `protocolVersion` or `serverInfo`.
+Discovery uses `SUPPORTED_MODERN_PROTOCOL_VERSIONS`, containing only compiled
+modern revisions, never legacy `initialize` versions. This follows the
+[official SDK era contract](https://github.com/modelcontextprotocol/typescript-sdk/blob/5119ee7fd7790e335a3fb60ef36f85334e2a6326/packages/core-internal/src/shared/protocolEras.ts).
 
 The modern codec stamps `resultType: complete` and the server identity under
-`_meta["io.modelcontextprotocol/serverInfo"]`. Existing handler-authored
-identity and vendor metadata are retained. A different result kind fails
-closed; this change does not implement multi-round-trip input requests.
+`_meta["io.modelcontextprotocol/serverInfo"]`. Valid handler-authored identity
+and vendor metadata are retained. Missing or malformed identity falls back to
+the configured server identity without losing a completed business result.
+A different result kind fails closed; this change does not implement
+multi-round-trip input requests.
 JSON-RPC error responses are not success results and bypass the codec.
 
 Only discovery, tool/prompt/resource lists, resource-template lists, and
