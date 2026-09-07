@@ -219,7 +219,7 @@ async fn dispatch_request(
                     .map(|r| r.map(Body::new));
             }
             Ok(InboundRoute::Modern(req)) => req,
-            Err(response) => return Ok(json_error_response(response)),
+            Err(response) => return Ok(json_error_response(*response)),
         };
     use dcc_mcp_http_server::stateless::StatelessDispatchOutcome;
     let outcome = stateless.handle_request_with_outcome(&req).await;

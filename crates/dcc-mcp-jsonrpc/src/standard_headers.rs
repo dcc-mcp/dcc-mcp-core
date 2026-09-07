@@ -59,7 +59,7 @@ pub fn mcp_name_source<'a>(
 pub(crate) fn validate_standard_headers(
     headers: ProtocolRequestHints<'_>,
     request: &JsonRpcRequest,
-) -> Result<(), JsonRpcResponse> {
+) -> Result<(), Box<JsonRpcResponse>> {
     // Notification POST header presence is not specified by this revision.
     if request.id.is_none() {
         return Ok(());
@@ -69,11 +69,11 @@ pub(crate) fn validate_standard_headers(
         (headers.method, "Mcp-Method"),
     ] {
         if value.is_none() {
-            return Err(JsonRpcResponse::header_mismatch(
+            return Err(Box::new(JsonRpcResponse::header_mismatch(
                 request.id.clone(),
                 "(missing)",
                 &format!("Required {name} header is absent"),
-            ));
+            )));
         }
     }
     let Some((field, expected)) = mcp_name_source(&request.method, request.params.as_ref()) else {
@@ -81,11 +81,11 @@ pub(crate) fn validate_standard_headers(
     };
     let Some(value) = headers.name else {
         return if expected.is_some() {
-            Err(JsonRpcResponse::header_mismatch(
+            Err(Box::new(JsonRpcResponse::header_mismatch(
                 request.id.clone(),
                 "(missing)",
                 &format!("Mcp-Name must mirror params.{field}"),
-            ))
+            )))
         } else {
             Ok(())
         };
@@ -99,11 +99,11 @@ pub(crate) fn validate_standard_headers(
         )
     })?;
     if expected.is_some_and(|expected| expected != decoded) {
-        return Err(JsonRpcResponse::header_mismatch(
+        return Err(Box::new(JsonRpcResponse::header_mismatch(
             request.id.clone(),
             value,
             &format!("Mcp-Name must match params.{field}"),
-        ));
+        )));
     }
     Ok(())
 }

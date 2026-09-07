@@ -25,7 +25,7 @@ fn classify(
     version: Option<&str>,
     method: Option<&str>,
     name: Option<&str>,
-) -> Result<InboundRoute, JsonRpcResponse> {
+) -> Result<InboundRoute, Box<JsonRpcResponse>> {
     classify_protocol_request(
         "POST",
         ProtocolRequestHints {
@@ -39,8 +39,42 @@ fn classify(
     )
 }
 
-fn error_code(result: Result<InboundRoute, JsonRpcResponse>) -> i64 {
+fn error_code(result: Result<InboundRoute, Box<JsonRpcResponse>>) -> i64 {
     result.unwrap_err().error.unwrap().code
+}
+
+#[test]
+fn ingress_errors_preserve_the_complete_wire_envelope() {
+    let request = body("tools/list", json!({}));
+    let header_error = classify(&request, None, Some("tools/list"), None).unwrap_err();
+    assert_eq!(
+        serde_json::to_value(header_error).unwrap(),
+        json!({
+            "jsonrpc": "2.0", "id": "boundary",
+            "error": {
+                "code": -32020,
+                "message": "Request headers and body disagree",
+                "data": {"mismatch": {
+                    "header": "(missing)",
+                    "body": "Required MCP-Protocol-Version header is absent"
+                }}
+            }
+        })
+    );
+    let mut request = request;
+    request["params"]["_meta"][CAPS] = json!(null);
+    let envelope_error = classify(&request, Some(MODERN), Some("tools/list"), None).unwrap_err();
+    assert_eq!(
+        serde_json::to_value(envelope_error).unwrap(),
+        json!({
+            "jsonrpc": "2.0", "id": "boundary",
+            "error": {
+                "code": -32602,
+                "message": format!("Invalid request envelope: {CAPS}: expected an object"),
+                "data": {"envelope": {"key": CAPS, "problem": "expected an object"}}
+            }
+        })
+    );
 }
 
 #[test]

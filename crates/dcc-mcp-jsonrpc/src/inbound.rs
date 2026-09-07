@@ -93,7 +93,7 @@ pub fn classify_protocol_request(
     headers: ProtocolRequestHints<'_>,
     body: &Value,
     supported: &[&str],
-) -> Result<InboundRoute, JsonRpcResponse> {
+) -> Result<InboundRoute, Box<JsonRpcResponse>> {
     if http_method != "POST" {
         return Ok(InboundRoute::Legacy);
     }
@@ -109,7 +109,7 @@ pub fn classify_protocol_request(
                 .iter()
                 .any(|row| has_modern_envelope_claim(row) || !valid_legacy_message(row))
         {
-            Err(JsonRpcResponse::invalid_request())
+            Err(Box::new(JsonRpcResponse::invalid_request()))
         } else {
             Ok(InboundRoute::Legacy)
         };
@@ -129,7 +129,7 @@ pub fn classify_protocol_request(
 
     let id = body.get("id").filter(|value| valid_id(value)).cloned();
     if !valid_request_message(body) {
-        return Err(JsonRpcResponse::invalid_request());
+        return Err(Box::new(JsonRpcResponse::invalid_request()));
     }
     let request: JsonRpcRequest =
         serde_json::from_value(body.clone()).map_err(|_| JsonRpcResponse::invalid_request())?;
@@ -144,11 +144,11 @@ pub fn classify_protocol_request(
             .is_ok_and(|m| is_modern(&m.protocol_version))
     {
         return if modern_header {
-            Err(JsonRpcResponse::header_mismatch(
+            Err(Box::new(JsonRpcResponse::header_mismatch(
                 id,
                 headers.protocol_version.unwrap_or_default(),
                 "initialize is a legacy handshake",
-            ))
+            )))
         } else {
             Ok(InboundRoute::Legacy)
         };
@@ -176,28 +176,28 @@ pub fn classify_protocol_request(
             .protocol_version
             .as_str()
     };
-    if let Some(header) = headers.protocol_version {
-        if header != revision {
-            return Err(JsonRpcResponse::header_mismatch(
-                id,
-                header,
-                "MCP-Protocol-Version must match the request envelope",
-            ));
-        }
+    if let Some(header) = headers.protocol_version
+        && header != revision
+    {
+        return Err(Box::new(JsonRpcResponse::header_mismatch(
+            id,
+            header,
+            "MCP-Protocol-Version must match the request envelope",
+        )));
     }
-    if let Some(header) = headers.method {
-        if header != request.method {
-            return Err(JsonRpcResponse::header_mismatch(
-                id,
-                header,
-                "Mcp-Method must match the request method",
-            ));
-        }
+    if let Some(header) = headers.method
+        && header != request.method
+    {
+        return Err(Box::new(JsonRpcResponse::header_mismatch(
+            id,
+            header,
+            "Mcp-Method must match the request method",
+        )));
     }
     if !supported.contains(&revision) {
-        return Err(JsonRpcResponse::unsupported_protocol_version(
+        return Err(Box::new(JsonRpcResponse::unsupported_protocol_version(
             id, revision, supported,
-        ));
+        )));
     }
     validate_standard_headers(headers, &request)?;
     Ok(InboundRoute::Modern(request))

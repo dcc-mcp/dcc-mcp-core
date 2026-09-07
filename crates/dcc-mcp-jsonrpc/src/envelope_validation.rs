@@ -121,16 +121,17 @@ pub(crate) fn validate_optional_fields(
         validate_identity(info)?;
     }
     validate_capabilities(caps)?;
-    if let Some(token) = meta.get("progressToken") {
-        if !token.is_string() && !is_safe_integer(token) {
-            return Err(EnvelopeIssue::new(
-                "progressToken",
-                "expected a string or safe integer",
-            ));
-        }
+    if let Some(token) = meta.get("progressToken")
+        && !token.is_string()
+        && !is_safe_integer(token)
+    {
+        return Err(EnvelopeIssue::new(
+            "progressToken",
+            "expected a string or safe integer",
+        ));
     }
-    if let Some(level) = meta.get(LOG_LEVEL_META_KEY) {
-        if !matches!(
+    if let Some(level) = meta.get(LOG_LEVEL_META_KEY)
+        && !matches!(
             level.as_str(),
             Some(
                 "debug"
@@ -142,9 +143,9 @@ pub(crate) fn validate_optional_fields(
                     | "alert"
                     | "emergency"
             )
-        ) {
-            return Err(EnvelopeIssue::new(LOG_LEVEL_META_KEY, "invalid log level"));
-        }
+        )
+    {
+        return Err(EnvelopeIssue::new(LOG_LEVEL_META_KEY, "invalid log level"));
     }
     Ok(())
 }
