@@ -116,6 +116,7 @@ dcc-mcp-test-utils = { path = "crates/dcc-mcp-test-utils" }
 pyo3 = { version = "0.28", features = ["multiple-pymethods"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+jsonschema = "0.28"
 serde_yaml_ng = "0.10"
 semver = "1.0"
 toon-format = { version = "0.5", default-features = false }

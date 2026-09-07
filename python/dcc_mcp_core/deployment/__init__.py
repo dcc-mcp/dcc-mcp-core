@@ -15,6 +15,7 @@ from dcc_mcp_core.deployment.install_sop import INSTALL_EXIT_REQUIRES_RESTART
 from dcc_mcp_core.deployment.install_sop import INSTALL_EXIT_VERIFY
 from dcc_mcp_core.deployment.install_sop import INSTALL_SOP_SCHEMA_VERSION
 from dcc_mcp_core.deployment.install_sop import load_install_sop_schema
+from dcc_mcp_core.deployment.install_sop import validate_install_sop_report
 from dcc_mcp_core.install_lifecycle import *  # noqa: F403
 from dcc_mcp_core.install_lifecycle import __all__ as _LIFECYCLE_EXPORTS
 
@@ -29,4 +30,5 @@ __all__ = [
     "INSTALL_EXIT_VERIFY",
     "INSTALL_SOP_SCHEMA_VERSION",
     "load_install_sop_schema",
+    "validate_install_sop_report",
 ]

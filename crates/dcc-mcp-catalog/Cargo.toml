@@ -9,7 +9,7 @@ description = "Public DCC-MCP catalog for ecosystem discovery — adapters, skil
 
 [dependencies]
 dcc-mcp-gateway-search = { workspace = true }
-jsonschema = "0.28"
+jsonschema.workspace = true
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml_ng = { workspace = true }

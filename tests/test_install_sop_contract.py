@@ -9,6 +9,7 @@ from pathlib import Path
 import subprocess
 
 from jsonschema import Draft202012Validator
+import pytest
 from scripts.ci.python_support_contract import load_contract
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -61,8 +62,11 @@ def test_install_sop_schema_is_public_and_versioned() -> None:
     assert dcc_mcp_core.INSTALL_SOP_SCHEMA_VERSION == 1
     assert deployment.INSTALL_SOP_SCHEMA_VERSION == 1
     assert dcc_mcp_core.load_install_sop_schema is deployment.load_install_sop_schema
+    assert dcc_mcp_core.validate_install_sop_report is deployment.validate_install_sop_report
     assert "load_install_sop_schema" in dcc_mcp_core.__all__
+    assert "validate_install_sop_report" in dcc_mcp_core.__all__
     assert "load_install_sop_schema" in deployment.__all__
+    assert "validate_install_sop_report" in deployment.__all__
 
     schema = deployment.load_install_sop_schema()
 
@@ -186,6 +190,55 @@ def test_install_sop_schema_requires_exactly_one_executable_form() -> None:
 
     assert not validator.is_valid(dual_form)
     assert not validator.is_valid(missing_form)
+
+
+def test_install_sop_validator_enforces_full_draft_without_python_jsonschema(monkeypatch) -> None:
+    from dcc_mcp_core import validate_install_sop_report
+
+    valid = _install_result_with_next_step(_command_next_step())
+    real_import = __import__
+
+    def reject_jsonschema(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "jsonschema" or name.startswith("jsonschema."):
+            raise AssertionError("production validation imported Python jsonschema")
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr("builtins.__import__", reject_jsonschema)
+    validate_install_sop_report(valid)
+
+    empty_command = deepcopy(valid)
+    empty_command["next_steps"][0]["command"] = []
+    with pytest.raises(ValueError) as empty_error:
+        validate_install_sop_report(empty_command)
+    assert "/next_steps/0/command" in str(empty_error.value)
+    assert "minItems" in str(empty_error.value)
+
+    dual_form = deepcopy(valid)
+    dual_form["next_steps"][0]["file_edit"] = {"path": "install.md", "action": "remove"}
+    with pytest.raises(ValueError) as dual_error:
+        validate_install_sop_report(dual_form)
+    assert "/next_steps/0" in str(dual_error.value)
+    assert "oneOf" in str(dual_error.value)
+
+    missing_content = _install_result_with_next_step(_file_edit_next_step("create", include_content=False))
+    with pytest.raises(ValueError) as content_error:
+        validate_install_sop_report(missing_content)
+    assert "/next_steps/0/file_edit" in str(content_error.value)
+    assert "required" in str(content_error.value)
+
+    blank_path = _install_result_with_next_step(_file_edit_next_step("update", include_content=True))
+    blank_path["next_steps"][0]["file_edit"]["path"] = "   "
+    with pytest.raises(ValueError) as path_error:
+        validate_install_sop_report(blank_path)
+    assert "/next_steps/0/file_edit/path" in str(path_error.value)
+    assert "pattern" in str(path_error.value)
+
+    unsupported_version = deepcopy(valid)
+    unsupported_version["schema_version"] = 2
+    with pytest.raises(ValueError) as version_error:
+        validate_install_sop_report(unsupported_version)
+    assert "/schema_version" in str(version_error.value)
+    assert "const" in str(version_error.value)
 
 
 def test_install_sop_schema_allows_additive_adapter_fields() -> None:

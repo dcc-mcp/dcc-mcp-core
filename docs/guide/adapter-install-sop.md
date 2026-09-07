@@ -128,6 +128,19 @@ from dcc_mcp_core.deployment import load_install_sop_schema
 schema = load_install_sop_schema()
 ```
 
+Adapters should validate emitted reports through Core's full Draft 2020-12
+implementation instead of adding a Python `jsonschema` runtime dependency:
+
+```python
+from dcc_mcp_core.deployment import validate_install_sop_report
+
+validate_install_sop_report(report)
+```
+
+This validator requires an official native Core wheel. The import-light
+`py37-lite` wheel can still load the schema document, but it intentionally does
+not pretend to provide native report validation.
+
 The same document is packaged as
 `dcc_mcp_core/schemas/adapter-install-sop-v1.schema.json` with canonical id
 `https://dcc-mcp.github.io/schemas/adapter-install-sop-v1.schema.json`.

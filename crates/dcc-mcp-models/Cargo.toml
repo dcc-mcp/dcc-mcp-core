@@ -9,6 +9,7 @@ description = "Core data models for the DCC-MCP ecosystem (ActionResultModel, Sk
 
 [dependencies]
 pyo3 = { workspace = true, optional = true }
+jsonschema = { workspace = true, optional = true }
 
 # Type-stub generation (opt-in via `stub-gen` feature).
 pyo3-stub-gen = { workspace = true, optional = true }
@@ -26,7 +27,7 @@ workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [features]
 default = []
-python-bindings = ["pyo3", "dcc-mcp-naming/python-bindings", "dep:dcc-mcp-pybridge", "dcc-mcp-pybridge/python-bindings"]
+python-bindings = ["pyo3", "dep:jsonschema", "dcc-mcp-naming/python-bindings", "dep:dcc-mcp-pybridge", "dcc-mcp-pybridge/python-bindings"]
 # Enable `pyo3-stub-gen` annotations on this crate's PyO3 types.
 stub-gen = ["python-bindings", "dep:pyo3-stub-gen", "dep:pyo3-stub-gen-derive"]
 # Expose the shared `registry::testing` harness so downstream crates can call
