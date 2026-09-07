@@ -20,9 +20,8 @@ use serde_json::{Value, json};
 use tracing::debug;
 
 use dcc_mcp_jsonrpc::{
-    DiscoverResult, JsonRpcRequest, JsonRpcResponse, MCP_PROTOCOL_VERSION_2026_07_28,
-    PromptsCapability, ResourcesCapability, ServerInfo, StatelessServerCapabilities,
-    TasksCapability, ToolsCapability, error_codes,
+    DiscoverResult, JsonRpcRequest, JsonRpcResponse, MCP_PROTOCOL_VERSION_2026_07_28, ServerInfo,
+    StatelessServerCapabilities, ToolsCapability, error_codes,
 };
 
 use crate::mcp_tool_list_builder::{assemble_full_tool_list, slice_tools_page};
@@ -101,23 +100,13 @@ impl StatelessMcpService {
 
     fn build_stateless_capabilities(&self) -> StatelessServerCapabilities {
         StatelessServerCapabilities {
-            tools: Some(ToolsCapability { list_changed: true }),
-            resources: if self.state.features.enable_resources {
-                Some(ResourcesCapability {
-                    subscribe: true,
-                    list_changed: true,
-                })
-            } else {
-                None
-            },
-            prompts: if self.state.features.enable_prompts {
-                Some(PromptsCapability { list_changed: true })
-            } else {
-                None
-            },
-            // Tasks are a first-class capability in 2026-07-28.
-            tasks: Some(TasksCapability {}),
-            experimental: None,
+            // This path has no subscription stream. Resources and prompts
+            // remain unadvertised until their read/get handlers are wired.
+            // The final 2026 revision does not include the task wire surface.
+            tools: Some(ToolsCapability {
+                list_changed: false,
+            }),
+            ..Default::default()
         }
     }
 
@@ -277,8 +266,48 @@ mod tests {
         assert_eq!(result["protocolVersion"], MCP_PROTOCOL_VERSION_2026_07_28);
         assert_eq!(result["serverInfo"]["name"], "dcc-mcp-http");
         assert!(result["capabilities"]["tools"].is_object());
-        assert!(result["capabilities"]["tasks"].is_object());
+        assert!(result["capabilities"].get("tasks").is_none());
         assert!(result["instructions"].is_string());
+    }
+
+    #[tokio::test]
+    async fn discovery_advertises_only_implemented_stateless_capabilities() {
+        for enable_resources in [false, true] {
+            for enable_prompts in [false, true] {
+                let mut svc = make_service();
+                svc.state.features.enable_resources = enable_resources;
+                svc.state.features.enable_prompts = enable_prompts;
+                let req = make_request("server/discover", json!("capabilities"), None);
+                let resp = svc.handle_request(&req).await.expect("has id");
+
+                assert_eq!(
+                    resp["result"]["capabilities"],
+                    json!({"tools": {"listChanged": false}}),
+                    "resources={enable_resources}, prompts={enable_prompts}"
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn unadvertised_stateless_methods_remain_unsupported() {
+        let svc = make_service();
+        for method in [
+            "resources/read",
+            "prompts/get",
+            "subscriptions/listen",
+            "tasks/get",
+            "tasks/cancel",
+        ] {
+            let req = make_request(method, json!(method), Some(json!({})));
+            let resp = svc.handle_request(&req).await.expect("has id");
+            assert_eq!(
+                resp["error"]["code"],
+                error_codes::METHOD_NOT_FOUND,
+                "{method}"
+            );
+            assert!(resp.get("result").is_none(), "{method}");
+        }
     }
 
     #[tokio::test]
