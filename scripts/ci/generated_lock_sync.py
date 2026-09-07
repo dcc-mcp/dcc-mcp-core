@@ -836,7 +836,9 @@ def _git(root: Path, *args: str) -> str:
         )
     except subprocess.TimeoutExpired as exc:
         raise RuntimeError("git command timed out") from exc
-    return result.stdout.strip()
+    # Porcelain status starts with two significant status columns. Preserve
+    # its leading space (" M Cargo.lock") when removing line terminators.
+    return result.stdout.rstrip("\r\n")
 
 
 def _remote_preflight(expected: PullRequestIdentity) -> None:
