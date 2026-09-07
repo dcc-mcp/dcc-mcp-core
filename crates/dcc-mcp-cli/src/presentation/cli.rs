@@ -561,6 +561,7 @@ fn restart_after_update() -> anyhow::Result<()> {
     let executable = std::env::current_exe()?;
     std::process::Command::new(executable)
         .args(std::env::args_os().skip(1))
+        .env("DCC_MCP_UPDATE_JUST_APPLIED", "1")
         .spawn()?;
     Ok(())
 }
@@ -588,7 +589,9 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
         _ => Ok(output.unwrap_or_else(OutputFormat::auto_detect)),
     };
     let writer = OutputWriter::new(output.map_err(anyhow::Error::msg)?);
-    let marketplace_update_check = tokio::spawn(check_marketplace_updates());
+    let explicit_update_command = matches!(&command, Command::Update { .. });
+    let marketplace_update_check = (!crate::application::update::is_background_refresh())
+        .then(|| tokio::spawn(check_marketplace_updates()));
 
     if global_timeout_secs.is_some()
         && (command_has_distinct_per_timeout(&command, global_timeout_secs)
@@ -1104,35 +1107,12 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             result.value
         }
         Command::Components { action } => super::components_cmd::run(action).await?,
-        Command::Update { action } => match action {
-            super::update_cmd::UpdateAction::Check {
-                binary,
-                current_version,
-            } => {
-                let binary_name = binary.unwrap_or_else(|| env!("CARGO_PKG_NAME").to_string());
-                let current_version =
-                    current_version.unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string());
-                let service = crate::application::update::UpdateService::new(
-                    &base_url,
-                    &binary_name,
-                    &current_version,
-                );
-                let value = service.check_update().await?;
-                if value.get("error").is_some() {
-                    failed = true;
-                    exit_code = ExitCode::Unavailable;
-                }
-                to_json(value)?
-            }
-            super::update_cmd::UpdateAction::Apply => {
-                let service = crate::application::update::UpdateService::new(
-                    &base_url,
-                    env!("CARGO_PKG_NAME"),
-                    env!("CARGO_PKG_VERSION"),
-                );
-                to_json(service.apply_update().await?)?
-            }
-        },
+        Command::Update { action } => {
+            let result = super::update_cmd::run(&base_url, action).await?;
+            failed = result.failed;
+            exit_code = result.exit_code;
+            result.value
+        }
         Command::Gateway { action, daemon } => {
             if let Some(action) = action {
                 to_json(run_gateway_cmd(&base_url, action, &profile_path).await?)?
@@ -1147,8 +1127,9 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
         }
     };
 
-    if let Ok(Ok(Some(updates))) =
-        tokio::time::timeout(Duration::from_millis(750), marketplace_update_check).await
+    if let Some(marketplace_update_check) = marketplace_update_check
+        && let Ok(Ok(Some(updates))) =
+            tokio::time::timeout(Duration::from_millis(750), marketplace_update_check).await
     {
         if let Some(object) = value.as_object_mut() {
             object.insert(
@@ -1161,6 +1142,13 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             updates.join(", ")
         );
     }
+
+    super::update_cmd::surface_cached_cli_update(
+        &mut value,
+        &writer,
+        &base_url,
+        !explicit_update_command,
+    )?;
 
     writer.write_data(&value)?;
     if let Some(code) = explicit_exit_code

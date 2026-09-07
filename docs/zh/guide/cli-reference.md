@@ -169,7 +169,7 @@ dcc-mcp-cli marketplace pack path/to/skill --out dist/
 dcc-mcp-cli marketplace publish path/to/skill --catalog marketplace.json --install-url https://example.com/skill.zip --sha256 sha256:<digest>
 dcc-mcp-cli update check
 dcc-mcp-cli update check --binary dcc-mcp-server --current-version 0.18.16
-dcc-mcp-cli update apply
+dcc-mcp-cli update apply --yes  # 仅在用户确认后执行
 dcc-mcp-cli gateway daemon start
 dcc-mcp-cli gateway daemon restart
 dcc-mcp-cli gateway daemon stop
@@ -212,7 +212,7 @@ dcc-mcp-cli lint path/to/skills
 | `marketplace pack <path> [--out <path>]` | local filesystem + zip | 生成 marketplace 发布 ZIP 并输出 SHA-256 摘要。 |
 | `marketplace publish <path> --catalog <file> --install-url <url>` | local marketplace catalog file | 根据 `SKILL.md` 元数据和 CLI 覆盖字段创建或更新 `marketplace.json` 条目。 |
 | `update check [--binary <name>] [--current-version <version>]` | `GET /v1/update/check` | 检查 gateway update manifest。默认检查 CLI 自身；检查 Admin 面板里的实例版本时，传 `--binary dcc-mcp-server` 和对应 server 版本。 |
-| `update apply` | `GET /v1/update/check` + download URL | 下载并暂存 CLI binary，下一次 CLI 启动时应用。它不会更新正在运行的 server 实例；请在目标 server 环境里运行 `dcc-mcp-server update apply`。 |
+| `update apply --yes` | `GET /v1/update/check` + download URL | 用户明确确认后下载并暂存 CLI binary，下一次 CLI 启动时应用。它不会更新或重启正在运行的 server 实例；请在目标 server 环境里运行 `dcc-mcp-server update apply`。 |
 | `gateway register <url> --name <profile>` | local profile config | 保存命名远程 gateway profile。 |
 | `gateway list` | local profile config | 显示已配置的远程 profile 和当前 local/remote 选择。 |
 | `gateway set <profile\|local>` | local profile config | 选择当前 gateway profile。 |
@@ -298,12 +298,20 @@ adapter 启动时被发现。要让运行中的 adapter 立即看到准确包名
 没有自动加载该 skill，再运行
 `dcc-mcp-cli load-skill <skill-name> --dcc-type <dcc> --instance-id <id>`。
 
-`dcc-mcp-cli update` 面向由 gateway update manifest 暴露的二进制更新；
+`dcc-mcp-cli update` 面向由 gateway update manifest 暴露的二进制更新；官方
+release build 最多每 24 小时用独立后台进程刷新一次缓存，失败后等待一小时再试，
+不会阻塞当前命令。缓存确认有新版时，普通命令会在 stderr 提示，并把包含
+current/latest version、缓存来源和年龄、兼容性状态及确认策略的 `cli_update`
+对象加入结构化结果。Agent 读取到 `version_status: "update_available"` 后必须先
+询问用户，再执行 `update_policy.apply_command`。设置
+`DCC_MCP_DISABLE_UPDATE_CHECK=1` 可关闭这种被动检查。
+
+显式更新命令面向由 gateway update manifest 暴露的二进制更新；
 manifest 通过 `DCC_MCP_UPDATE_MANIFEST_URL`（或
 `GatewayConfig.update_manifest_url`）配置。`update check` 只读取
 `/v1/update/check`，适合人和 agent 使用；CLI 会在请求前默认确保本机 gateway
 存在。有更新时，manifest 必须同时提供 URL 和 64 位十六进制 SHA-256。
-`update apply` 流式下载并校验该资产，只暂存一个与当前安装绑定的 CLI component；
+`update apply --yes` 流式下载并校验该资产，只暂存一个与当前安装绑定的 CLI component；
 下次启动替换前会再次校验，替换后用原参数重启 CLI。旧的 `pending.bin` /
 `pending.marker` 没有摘要，只会被隔离，绝不会应用。
 

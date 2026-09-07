@@ -67,13 +67,19 @@ Keep an official installation current with:
 
 ```bash
 dcc-mcp-cli update check
-dcc-mcp-cli update apply
+dcc-mcp-cli update apply --yes  # only after user confirmation
 ```
 
-`update apply` requires the release-manifest SHA-256, verifies the downloaded
-CLI, and stages it for the next launch. Replacement re-verifies the staged
-bytes and restarts the CLI with the same arguments. It does not replace a
-running `dcc-mcp-server`; update that server in its own environment.
+Official release builds refresh their cached update status in a detached
+background process at most once per 24 hours. Failed checks retry after one hour
+and never block the foreground command. When `cli_update.version_status` is
+`update_available`, agents should show the current/latest versions and ask the
+user before running its `update_policy.apply_command`. `update apply --yes`
+requires the release-manifest SHA-256, verifies the downloaded CLI, and stages
+it for the next launch. Replacement re-verifies the staged bytes and restarts
+the CLI with the same arguments. It does not replace or restart a running
+`dcc-mcp-server`; update that server in its own environment. Set
+`DCC_MCP_DISABLE_UPDATE_CHECK=1` to disable passive checks.
 
 The CLI is also available as a standalone ZIP archive
 (`dcc-mcp-cli-<version>-<platform>.zip`) from each

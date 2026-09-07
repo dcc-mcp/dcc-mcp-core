@@ -96,14 +96,22 @@ Keep an official build current through the release manifest:
 
 ```bash
 dcc-mcp-cli update check
-dcc-mcp-cli update apply
+# Only after the user confirms the reported update:
+dcc-mcp-cli update apply --yes
 ```
 
-`update apply` accepts only an available manifest entry with a valid SHA-256,
-downloads and verifies the exact asset, and stages it for the next launch. The
-next process re-verifies the installation-bound staged bytes before replacing
-and restarting the CLI; legacy unsigned staging is quarantined. It does not
-update a running `dcc-mcp-server`; update that server in its own environment.
+Official release builds also refresh a local update-status cache in a detached
+background process at most once per 24 hours. A failed check retries after one
+hour and never fails the foreground command. If a command returns
+`cli_update.version_status: "update_available"`, read its current/latest
+versions and `update_policy`, then ask the user before running the reported
+`apply_command`. `update apply --yes` accepts only an available manifest entry
+with a valid SHA-256, downloads and verifies the exact asset, and stages it for
+the next launch. The next process re-verifies the installation-bound staged
+bytes before replacing and restarting the CLI; legacy unsigned staging is
+quarantined. It does not update or restart a running `dcc-mcp-server`; update
+that server in its own environment. Set `DCC_MCP_DISABLE_UPDATE_CHECK=1` to
+disable passive checks without disabling explicit `update check`.
 
 ### Computer Use is an agent-directed fallback
 

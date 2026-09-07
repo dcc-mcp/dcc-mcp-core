@@ -243,11 +243,15 @@ Keep an official build current through the release manifest:
 
 ~~~bash
 dcc-mcp-cli update check
-dcc-mcp-cli update apply
+dcc-mcp-cli update apply --yes  # after user confirmation
 ~~~
 
-`update apply` downloads and stages the latest CLI for the next launch. It does
-not update a running `dcc-mcp-server`; update that server in its own environment.
+Official release builds refresh a cached update status in the background every
+24 hours without blocking the foreground command. Available updates appear as
+structured `cli_update` data; agents must ask the user before running the
+reported apply command. `update apply --yes` downloads and stages the latest
+CLI for the next launch. It does not update or restart a running
+`dcc-mcp-server`; update that server in its own environment.
 
 Then discover a live capability before calling it:
 

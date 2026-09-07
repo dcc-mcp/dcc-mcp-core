@@ -196,7 +196,7 @@ dcc-mcp-cli marketplace pack path/to/skill --out dist/
 dcc-mcp-cli marketplace publish path/to/skill --catalog marketplace.json --install-url https://example.com/skill.zip --sha256 sha256:<digest>
 dcc-mcp-cli update check
 dcc-mcp-cli update check --binary dcc-mcp-server --current-version 0.18.16
-dcc-mcp-cli update apply
+dcc-mcp-cli update apply --yes  # only after user confirmation
 dcc-mcp-cli components status dcc-cua
 dcc-mcp-cli components ensure dcc-cua --yes
 dcc-mcp-cli components ensure dcc-cua --version 0.6.0 --yes
@@ -264,7 +264,7 @@ launching operation.
 | `marketplace pack <path> [--out <path>]` | local filesystem + zip | Build a release zip for a marketplace package and print its SHA-256 digest. |
 | `marketplace publish <path> --catalog <file> --install-url <url>` | local marketplace catalog file | Build or update a `marketplace.json` entry from `SKILL.md` metadata and CLI overrides. |
 | `update check [--binary <name>] [--current-version <version>]` | `GET /v1/update/check` | Check the gateway update manifest. Defaults to the CLI binary/version; pass `--binary dcc-mcp-server` plus a server version when checking an instance shown in Admin. |
-| `update apply` | `GET /v1/update/check` + download URL | Download and stage the CLI binary for the next CLI launch. It does not update running server instances; run `dcc-mcp-server update apply` in the exact server environment. |
+| `update apply --yes` | `GET /v1/update/check` + download URL | After explicit user confirmation, download and stage the CLI binary for the next CLI launch. It does not update or restart running server instances; run `dcc-mcp-server update apply` in the exact server environment. |
 | `components status dcc-cua` | CLI sibling + `dcc-cua manifest` | Read-only check of the independently released CUA runtime installed beside this CLI. |
 | `components ensure dcc-cua [--version <version>] --yes` | official per-target install manifest + archive | Download only from `dcc-mcp/dcc-cua`, require the manifest SHA-256, safely extract and validate the candidate runtime contract, then install it beside this CLI. Explicit `--yes` is mandatory. |
 | `gateway register <url> --name <profile>` | local profile config | Persist a named remote gateway profile. |
@@ -430,14 +430,26 @@ entry (e.g. the source was removed) are silently skipped.
 
 `dcc-mcp-cli update` is for binary updates exposed by the gateway update
 manifest configured with `DCC_MCP_UPDATE_MANIFEST_URL` (or
-`GatewayConfig.update_manifest_url`). `update check` is safe for both humans
-and agents because it only reads `/v1/update/check`; the CLI auto-ensures the
-local gateway before the request. An available entry is valid only when its URL
-and 64-hex SHA-256 are present. `update apply` streams and verifies that exact
-asset, stages one installation-bound CLI component, and re-verifies it before
-replacement on the next launch. The CLI then restarts with the original
-arguments. Legacy `pending.bin` / `pending.marker` state is unsigned and is
-quarantined rather than applied.
+`GatewayConfig.update_manifest_url`). Official release builds refresh a local
+status cache in a detached process at most once every 24 hours. Failures use a
+one-hour retry interval and never block the foreground command. A cached
+available update adds `cli_update` to structured command output and writes a
+diagnostic to stderr. Agents must report its current/latest versions and ask
+the user before running `update_policy.apply_command`. Set
+`DCC_MCP_DISABLE_UPDATE_CHECK=1` to disable passive checks; explicit checks
+remain available.
+
+`update check` is safe for both humans and agents because it only reads
+`/v1/update/check`; the CLI auto-ensures the local gateway before the request.
+Its result includes `version_status`, live/cache timing, target compatibility,
+and the confirmation/apply policy. An available entry is valid only when its
+URL and 64-hex SHA-256 are present. `update apply --yes` streams and verifies
+that exact asset only after explicit user confirmation, stages one
+installation-bound CLI component, and re-verifies it before replacement on the
+next launch. The CLI then restarts with the original arguments and reports
+`version_status: "applied"`. It never restarts a running server or DCC host.
+Legacy `pending.bin` / `pending.marker` state is unsigned and is quarantined
+rather than applied.
 
 Official `dcc-mcp/dcc-mcp-core` update manifests also require a detached
 Sigstore bundle produced by the release workflow on `main`. The gateway checks

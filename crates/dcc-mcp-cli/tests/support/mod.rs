@@ -600,6 +600,18 @@ pub(crate) fn spawn_gateway_fixture() -> GatewayFixture {
                         .get("current_version")
                         .map(String::as_str)
                         .unwrap_or("0.0.0");
+                    if binary == "dcc-mcp-cli" && current == env!("CARGO_PKG_VERSION") {
+                        return (
+                            StatusCode::OK,
+                            Json(json!({
+                                "update_available": true,
+                                "latest_version": "99.0.0",
+                                "download_url": "https://example.invalid/dcc-mcp-cli.exe",
+                                "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                                "release_notes": "CLI update"
+                            })),
+                        );
+                    }
                     if binary != "dcc-mcp-server" {
                         return (
                             StatusCode::NOT_FOUND,
