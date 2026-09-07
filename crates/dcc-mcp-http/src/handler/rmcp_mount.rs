@@ -180,7 +180,12 @@ async fn dispatch_request(
             .headers
             .get_all(name)
             .iter()
-            .map(|value| value.to_str().unwrap_or("<invalid-header>"))
+            .map(|value| {
+                value
+                    .to_str()
+                    .map(|value| value.trim_matches([' ', '\t']))
+                    .unwrap_or("\0")
+            })
             .collect();
         (!values.is_empty()).then(|| values.join(", "))
     };
@@ -222,7 +227,10 @@ async fn dispatch_request(
             Err(response) => return Ok(json_error_response(*response)),
         };
     use dcc_mcp_http_server::stateless::StatelessDispatchOutcome;
-    let outcome = stateless.handle_request_with_outcome(&req).await;
+    let outcome = match stateless.parameter_header_error(&req, header) {
+        Some(error) => error,
+        None => stateless.handle_request_with_outcome(&req).await,
+    };
     let status = match &outcome {
         StatelessDispatchOutcome::Notification => StatusCode::ACCEPTED,
         StatelessDispatchOutcome::Response(_) => StatusCode::OK,

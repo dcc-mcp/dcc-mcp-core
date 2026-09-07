@@ -3,7 +3,12 @@
 mod adapter_jobs;
 mod handlers;
 mod helpers;
+#[cfg(feature = "mcp-2026-07-28")]
+mod schema;
 mod thread_route;
+
+#[cfg(feature = "mcp-2026-07-28")]
+pub(crate) use schema::{stateless_wire_tool, warn_invalid_parameter_schema};
 
 pub use thread_route::{ThreadRoutingDispatch, dispatch_action_with_thread_routing};
 pub(crate) use thread_route::{

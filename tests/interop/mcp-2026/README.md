@@ -12,8 +12,9 @@ DCC_MCP_SDK_SMOKE=1 cargo test -p dcc-mcp-http --no-default-features \
 ```
 
 On PowerShell, set `$env:DCC_MCP_SDK_SMOKE = "1"` before the Cargo command.
-The Node subprocess is opt-in and has a 30-second deadline. The ordinary Rust
-test still checks the same raw HTTP result fields without Node dependencies.
+The Node subprocess is opt-in locally and has a 30-second deadline. Required
+Linux CI enables it explicitly for response, request, and parameter tests.
+The ordinary Rust tests still check raw HTTP without Node dependencies.
 
 The upstream discovery fixture is pinned to official SDK source commit
 `5119ee7fd7790e335a3fb60ef36f85334e2a6326`, at
@@ -36,6 +37,20 @@ whereas the pinned official source requires it (Core returns 400/-32020).
 The all-legacy batch fixture uses public `isLegacyRequest`, because strict
 modern-only rejection is not the dual-era forwarding contract under test.
 
-This is **not** a full conformance claim. Schema-driven parameter header
-mirroring, subscriptions, multi-round-trip execution, and full transport /
-authorization behavior require separate acceptance.
+## Parameter headers
+
+`--test stateless_param_headers` covers source-schema projection and a real
+handler invocation counter, including rejected mirrors, alias/core resolution,
+and unchanged legacy behavior. With `DCC_MCP_SDK_SMOKE=1`, `param-client.mjs`
+checks the public client's cached and explicit tool-definition mirroring in
+both auto and pinned modern modes, without any private SDK imports.
+
+Core deliberately follows the final specification's string/integer/boolean
+restriction rather than SDK 2.0.0's documented `number` fixture exception.
+Other intentional strictness differences (invalid server definitions, unsafe
+integers, canonical Base64, exact header decimals, and malformed recognized
+headers with absent/null arguments) are detailed in
+[ADR-035](../../../docs/adr/035-schema-driven-parameter-headers.md).
+
+This is **not** a full conformance claim. Subscriptions, multi-round-trip
+execution, and full transport / authorization behavior require separate acceptance.

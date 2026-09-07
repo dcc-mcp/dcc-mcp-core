@@ -103,6 +103,43 @@ pub fn assemble_full_tool_list(
     tools
 }
 
+/// Modern annotations are validated against the actual dispatch winner's
+/// source schema, never against the lossy legacy compatibility projection.
+#[cfg(feature = "mcp-2026-07-28")]
+pub(crate) fn assemble_modern_tool_list(state: &ServerState) -> Vec<McpTool> {
+    project_modern_tools(state, assemble_full_tool_list(state, true, None))
+}
+
+#[cfg(feature = "mcp-2026-07-28")]
+fn project_modern_tools(state: &ServerState, mut tools: Vec<McpTool>) -> Vec<McpTool> {
+    use crate::mcp_tool_catalog::simplify_mcp_input_schema;
+    use crate::rmcp_tool_call_dispatch::{stateless_wire_tool, warn_invalid_parameter_schema};
+
+    let mut names = HashSet::new();
+    tools.retain_mut(|tool| {
+        if !names.insert(tool.name.clone()) {
+            return false;
+        }
+        let Some((mut winner, projection)) = stateless_wire_tool(state, &tool.name) else {
+            return true;
+        };
+        match dcc_mcp_jsonrpc::scan_mcp_param_headers(&winner.input_schema) {
+            Ok(declarations) => {
+                if declarations.is_empty() && projection == SchemaProjection::ToolsListCompatible {
+                    winner.input_schema = simplify_mcp_input_schema(&winner.input_schema);
+                }
+                *tool = winner;
+                true
+            }
+            Err(issue) => {
+                warn_invalid_parameter_schema(&tool.name, issue.reason);
+                false
+            }
+        }
+    });
+    tools
+}
+
 const GROUP_SKILL_SEPARATOR: &str = "__for_skill__";
 
 pub(crate) fn group_stub_name(skill_name: Option<&str>, group: &str) -> String {
@@ -172,6 +209,73 @@ pub fn slice_tools_page(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "mcp-2026-07-28")]
+    #[test]
+    fn colliding_alias_retains_actual_winner_safety_and_output_contract_in_either_order() {
+        use dcc_mcp_actions::{ToolDispatcher, ToolMeta, ToolRegistry};
+        use dcc_mcp_models::SkillToolAnnotations;
+        use dcc_mcp_skills::SkillCatalog;
+        use serde_json::json;
+        use std::sync::Arc;
+
+        let winner = ToolMeta {
+            name: "echo".into(),
+            description: "actual destructive winner".into(),
+            input_schema: json!({"type":"object", "properties": {
+                "tenant":{"type":"string", "x-mcp-header":"Tenant"}
+            }}),
+            output_schema: json!({"type":"object", "required":["actual"]}),
+            annotations: SkillToolAnnotations {
+                read_only_hint: Some(false),
+                destructive_hint: Some(true),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let alias = ToolMeta {
+            name: "fixture_tools__echo".into(),
+            skill_name: Some("fixture-tools".into()),
+            description: "shadowed read-only alias".into(),
+            input_schema: json!({"type":"object"}),
+            output_schema: json!({"type":"string"}),
+            annotations: SkillToolAnnotations {
+                read_only_hint: Some(true),
+                destructive_hint: Some(false),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let registry = Arc::new(ToolRegistry::new());
+        registry.register_action(winner.clone());
+        registry.register_action(alias.clone());
+        let dispatcher = Arc::new(ToolDispatcher::new((*registry).clone()));
+        let catalog = Arc::new(SkillCatalog::new_with_dispatcher(
+            registry.clone(),
+            dispatcher.clone(),
+        ));
+        let state = ServerState::builder(registry, dispatcher, catalog)
+            .with_bare_tool_names(true)
+            .build();
+        let bare = HashSet::from([("fixture-tools".into(), "fixture_tools__echo".into())]);
+        let expected = action_meta_to_mcp_tool(&winner, true, &bare, &[], SchemaProjection::Full);
+        let loser = action_meta_to_mcp_tool(
+            &alias,
+            true,
+            &bare,
+            &[],
+            SchemaProjection::ToolsListCompatible,
+        );
+        assert_eq!(loser.name, expected.name);
+        // Explicit orders avoid relying on randomized DashMap iteration.
+        for rows in [
+            vec![loser.clone(), expected.clone()],
+            vec![expected.clone(), loser],
+        ] {
+            let projected = project_modern_tools(&state, rows);
+            assert_eq!(serde_json::to_value(projected).unwrap(), json!([expected]));
+        }
+    }
 
     #[test]
     fn scoped_group_stub_names_stay_client_safe() {

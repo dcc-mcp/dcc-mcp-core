@@ -25,7 +25,7 @@ use dcc_mcp_jsonrpc::{
     complete_modern_result, error_codes,
 };
 
-use crate::mcp_tool_list_builder::{assemble_full_tool_list, slice_tools_page};
+use crate::mcp_tool_list_builder::{assemble_modern_tool_list, slice_tools_page};
 use crate::rmcp_registry_context::RegistryContext;
 use crate::rmcp_tool_call_dispatch::dispatch_rmcp_tool_call;
 use crate::server_state::ServerState;
@@ -79,6 +79,16 @@ impl StatelessMcpService {
     /// and not forwarded here; they return `null`.
     pub async fn handle_request(&self, req: &JsonRpcRequest) -> Option<Value> {
         self.handle_request_with_outcome(req).await.into_response()
+    }
+
+    /// Validate schema-driven HTTP mirrors after envelope classification and
+    /// before dispatch. Transport-neutral/direct callers do not require headers.
+    pub fn parameter_header_error(
+        &self,
+        req: &JsonRpcRequest,
+        header: impl Fn(&str) -> Option<String>,
+    ) -> Option<StatelessDispatchOutcome> {
+        super::param_headers::parameter_header_error(&self.state, req, header)
     }
 
     /// Preserve error origin for HTTP adapters without inspecting handler
@@ -215,7 +225,7 @@ impl StatelessMcpService {
     ///
     /// No session context: session_id is always `None` in stateless mode.
     async fn handle_tools_list(&self, id: Value, req: &JsonRpcRequest) -> Value {
-        let full = assemble_full_tool_list(&self.state, true, None);
+        let full = assemble_modern_tool_list(&self.state);
         let cursor = req
             .params
             .as_ref()

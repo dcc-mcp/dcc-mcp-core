@@ -240,6 +240,19 @@ jobs:
       - name: Rust tests
         if: matrix.rust-validation == 'full'
         run: vx just test-rust
+      - name: MCP 2026 official SDK interoperability
+        if: matrix.rust-validation == 'full'
+        timeout-minutes: 15
+        shell: bash
+        env:
+          DCC_MCP_SDK_SMOKE: "1"
+        run: |
+          set -euxo pipefail
+          vx npm --prefix tests/interop/mcp-2026 ci --ignore-scripts
+          vx node tests/interop/mcp-2026/request-oracle.mjs
+          vx cargo test -p dcc-mcp-http --no-default-features --features mcp-2026-07-28 \
+            --test stateless_response_contract --test stateless_request_boundary \
+            --test stateless_param_headers -- --nocapture
       - name: Shared fixture feature tests
         if: matrix.rust-validation == 'full'
         run: vx cargo test -p dcc-mcp-test-utils --features skill-rest

@@ -35,6 +35,7 @@ mod jsonrpc;
 mod lifecycle;
 mod modern;
 mod notification_builder;
+mod param_headers;
 mod prompts;
 mod resources;
 mod sse;
@@ -67,6 +68,10 @@ pub use modern::{
     complete_modern_result,
 };
 pub use notification_builder::{JsonRpcRequestBuilder, NotificationBuilder};
+pub use param_headers::{
+    McpParamDeclaration, McpParamSchemaError, McpParamType, McpParamValidationError,
+    build_mcp_param_headers, scan_mcp_param_headers, validate_mcp_param_headers,
+};
 pub use prompts::{
     GetPromptParams, GetPromptResult, ListPromptsResult, McpPrompt, McpPromptArgument,
     McpPromptContent, McpPromptMessage,
