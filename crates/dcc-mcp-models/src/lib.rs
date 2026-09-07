@@ -40,8 +40,8 @@ pub use skill_metadata::{
     SideEffects, SkillBranding, SkillDependencies, SkillDependency, SkillDependencyType,
     SkillGroup, SkillLinks, SkillMetadata, SkillPolicy, SkillRuntimeDescriptor, SkillRuntimeKind,
     SkillRuntimeReport, SkillRuntimeState, SkillRuntimeSummary, SkillToolAnnotations,
-    SuccessMetrics, ThreadAffinity, ToolDeclaration, ToolRole, resolve_runtime_reports,
-    summarize_runtime_reports,
+    SuccessMetrics, ThreadAffinity, ToolDeclaration, ToolRole, is_valid_progress_token,
+    resolve_runtime_reports, summarize_runtime_reports,
 };
 pub use skill_scope::SkillScope;
 pub use state_delta::{

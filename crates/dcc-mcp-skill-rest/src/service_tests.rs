@@ -134,11 +134,11 @@ fn search_and_describe_surface_safety_and_execution_metadata() {
 }
 
 #[test]
-fn timeout_hinted_sync_action_uses_async_rest_dispatch() {
+fn timeout_hinted_sync_action_keeps_sync_rest_dispatch() {
     let mut action = sphere_action(true);
     action.timeout_hint_secs = Some(5);
 
-    assert!(super::should_dispatch_async(None, &action));
+    assert!(!super::should_dispatch_async(None, &action));
 }
 
 #[test]

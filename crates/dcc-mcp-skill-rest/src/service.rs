@@ -97,12 +97,17 @@ fn should_dispatch_async(meta: Option<&Value>, action: &CatalogAction) -> bool {
             .pointer("/dcc/async")
             .and_then(Value::as_bool)
             .unwrap_or(false)
-            || value.get("progressToken").is_some()
-            || value.get("progress_token").is_some()
     });
-    request_opt_in
-        || matches!(action.execution, ExecutionMode::Async)
-        || action.timeout_hint_secs.unwrap_or(0) > 0
+    // Preserve the REST-only legacy alias. A present canonical value wins,
+    // including null; an alias must not turn that into an implicit opt-in.
+    let progress_token = meta.and_then(|value| {
+        value
+            .get("progressToken")
+            .or_else(|| value.get("progress_token"))
+    });
+    action
+        .execution
+        .should_dispatch_async(request_opt_in, progress_token)
 }
 
 /// A single search hit — deliberately compact.
@@ -1503,7 +1508,8 @@ impl SkillRestService {
     /// Existing embedders that do not implement [`ToolInvoker::invoke_async`]
     /// retain synchronous behavior. Runtimes with a job-aware invoker return
     /// a pending envelope immediately for explicitly asynchronous or
-    /// timeout-hinted tools, matching MCP dispatch semantics.
+    /// explicitly opted-in tools, matching MCP dispatch semantics. Timeout
+    /// hints alone never change a synchronous tool's execution contract.
     pub async fn dispatch_call(
         &self,
         req: &CallRequest,

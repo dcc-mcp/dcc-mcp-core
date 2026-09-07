@@ -40,6 +40,9 @@ use crate::server_state::ServerState;
 use crate::session::SessionLogLevel;
 use dcc_mcp_jsonrpc::RESOURCE_NOT_ENABLED_ERROR;
 
+#[cfg(test)]
+mod tests;
+
 /// Adapter that implements rmcp's [`ServerHandler`] trait by delegating to our
 /// existing [`ServerState`].
 ///
@@ -193,7 +196,7 @@ impl ServerHandler for DccMcpHandler {
     fn call_tool(
         &self,
         request: CallToolRequestParams,
-        _context: RequestContext<RoleServer>,
+        context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<RmcpCallToolResult, McpError>> + Send + '_ {
         async move {
             let tool_name = request.name.as_ref();
@@ -212,8 +215,14 @@ impl ServerHandler for DccMcpHandler {
                     .and_then(|v| serde_json::from_value(v).ok()),
                 _ => None,
             };
-            let call_meta =
-                Self::merge_call_meta(call_meta_from_rmcp(request.meta.as_ref()), legacy_meta);
+            // rmcp moves wire `_meta` into RequestContext before invoking us.
+            // Retain request.meta for direct typed calls, then the existing
+            // arguments._meta fallback (including its null/OR semantics).
+            let request_meta = Self::merge_call_meta(
+                call_meta_from_rmcp(Some(&context.meta)),
+                call_meta_from_rmcp(request.meta.as_ref()),
+            );
+            let call_meta = Self::merge_call_meta(request_meta, legacy_meta);
             let dispatch_result = dispatch_rmcp_tool_call(
                 &self.state,
                 &self.registry_context,

@@ -8,7 +8,7 @@ use tokio_util::sync::CancellationToken;
 use dcc_mcp_actions::registry::ToolMeta;
 use dcc_mcp_actions::{DispatchJobContext, with_dispatch_job_context};
 use dcc_mcp_jsonrpc::{CallToolMeta, CallToolResult, ToolContent};
-use dcc_mcp_models::{ExecutionMode, ThreadAffinity};
+use dcc_mcp_models::{ThreadAffinity, is_valid_progress_token};
 
 use crate::job_aware_invoker::attach_job_id_to_meta;
 use crate::server_state::ServerState;
@@ -43,10 +43,15 @@ pub(super) fn async_dispatch_config(
 ) -> Option<AsyncDispatchConfig> {
     let meta_dcc = call_meta.and_then(|m| m.dcc.as_ref());
     let async_opt_in = meta_dcc.is_some_and(|dcc| dcc.r#async);
-    let progress_token = call_meta.and_then(|m| m.progress_token.clone());
-    let action_declares_async = matches!(action_meta.execution, ExecutionMode::Async);
+    let progress_token = call_meta
+        .and_then(|m| m.progress_token.as_ref())
+        .filter(|token| is_valid_progress_token(token))
+        .cloned();
 
-    if !(async_opt_in || progress_token.is_some() || action_declares_async) {
+    if !action_meta
+        .execution
+        .should_dispatch_async(async_opt_in, progress_token.as_ref())
+    {
         return None;
     }
 
@@ -304,4 +309,38 @@ pub(super) async fn dispatch_async_registry_tool(
     );
 
     build_pending_envelope(&job_id, cfg.parent_job_id)
+}
+
+#[cfg(test)]
+mod admission_tests {
+    use super::*;
+    use dcc_mcp_jsonrpc::CallToolMetaDcc;
+    use dcc_mcp_models::ExecutionMode;
+
+    #[test]
+    fn invalid_tokens_are_not_registered_even_when_async_is_requested() {
+        for token in [json!(null), json!(false), json!([]), json!({})] {
+            for execution in [ExecutionMode::Sync, ExecutionMode::Async] {
+                for explicit_async in [false, true] {
+                    let action = ToolMeta {
+                        execution,
+                        timeout_hint_secs: Some(5),
+                        ..Default::default()
+                    };
+                    let meta = CallToolMeta {
+                        progress_token: Some(token.clone()),
+                        dcc: Some(CallToolMetaDcc {
+                            r#async: explicit_async,
+                            ..Default::default()
+                        }),
+                    };
+                    let config = async_dispatch_config(Some(&meta), &action);
+                    assert_eq!(config.is_some(), execution.is_deferred() || explicit_async);
+                    if let Some(config) = config {
+                        assert!(config.progress_token.is_none());
+                    }
+                }
+            }
+        }
+    }
 }

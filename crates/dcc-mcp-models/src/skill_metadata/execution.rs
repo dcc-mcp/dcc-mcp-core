@@ -1,4 +1,12 @@
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+/// A legacy-compatible progress token, not merely a present metadata field.
+/// Modern transports enforce their narrower numeric rules before dispatch.
+#[must_use]
+pub fn is_valid_progress_token(value: &Value) -> bool {
+    value.is_string() || value.is_number()
+}
 
 // ── ExecutionMode ─────────────────────────────────────────────────────────
 
@@ -31,6 +39,17 @@ impl ExecutionMode {
     #[must_use]
     pub fn is_deferred(self) -> bool {
         matches!(self, Self::Async)
+    }
+
+    /// Admit a background job only from an execution contract or caller opt-in.
+    /// A timeout hint sizes latency budgets; it never changes execution mode.
+    #[must_use]
+    pub fn should_dispatch_async(
+        self,
+        explicit_async: bool,
+        progress_token: Option<&Value>,
+    ) -> bool {
+        self.is_deferred() || explicit_async || progress_token.is_some_and(is_valid_progress_token)
     }
 }
 
