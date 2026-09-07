@@ -28,6 +28,9 @@
 //! | `notification_builder.rs` | `NotificationBuilder` / `JsonRpcRequestBuilder` — fluent envelope construction (#484) |
 
 mod discover;
+mod envelope;
+mod envelope_validation;
+mod inbound;
 mod jsonrpc;
 mod lifecycle;
 mod modern;
@@ -35,6 +38,7 @@ mod notification_builder;
 mod prompts;
 mod resources;
 mod sse;
+mod standard_headers;
 mod tools;
 
 pub use discover::{
@@ -42,6 +46,12 @@ pub use discover::{
     DiscoverCapabilities, DiscoverServerInfo, ServerDiscoverResult, StatelessClientInfo,
     StatelessRequestMeta, TasksCapability,
 };
+pub use envelope::{
+    CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, EnvelopeIssue, LOG_LEVEL_META_KEY,
+    PROTOCOL_VERSION_META_KEY, REQUEST_ENVELOPE_KEYS, has_modern_envelope_claim,
+    strip_request_envelope,
+};
+pub use inbound::{InboundRoute, classify_protocol_request};
 pub use jsonrpc::{
     JsonRpcBatch, JsonRpcError, JsonRpcMessage, JsonRpcNotification, JsonRpcRequest,
     JsonRpcResponse, error_codes,
@@ -66,6 +76,7 @@ pub use resources::{
     ReadResourceResult, ResourceContents, SubscribeResourceParams,
 };
 pub use sse::{decode_cursor, encode_cursor, format_sse_event};
+pub use standard_headers::{decode_mcp_header_value, encode_mcp_header_value, mcp_name_source};
 pub use tools::{
     CallToolMeta, CallToolMetaDcc, CallToolParams, CallToolResult, ListToolsResult, McpTool,
     McpToolAnnotations, ToolContent, coerce_tool_arguments_object,
@@ -181,12 +192,9 @@ pub fn select_protocol_mode(
 
 /// Request-level hints used by HTTP routers before JSON-RPC parsing.
 ///
-/// The protocol version is the authoritative routing signal.  `Accept`,
-/// `Mcp-Method`, and `Mcp-Name` are intentionally retained as optional hints
-/// so gateways can make the same decision without re-parsing request bodies.
-/// They are not used to upgrade an unversioned legacy request to stateless
-/// mode; doing so would silently change the lifecycle contract for old MCP
-/// clients.
+/// The final revision treats these as cross-checks against the parsed body.
+/// Use [`classify_protocol_request`] for ingress; a header-only decision
+/// cannot validate required namespaced metadata or prevent silent downgrade.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ProtocolRequestHints<'a> {
     pub protocol_version: Option<&'a str>,
@@ -196,14 +204,9 @@ pub struct ProtocolRequestHints<'a> {
     pub name: Option<&'a str>,
 }
 
-/// Select the HTTP protocol route from transport headers.
-///
-/// This is the shared classifier for `/mcp` implementations.  A request is
-/// routed statelessly only when the client explicitly advertises
-/// `2026-07-28`; the remaining headers are metadata available to middleware.
-/// The helper deliberately does not require `Accept`, `Mcp-Method`, or
-/// `Mcp-Name`, because discovery and intermediary clients may omit one of
-/// those hints while still negotiating the version explicitly.
+/// Compatibility header hint selector, not a final-revision ingress validator.
+/// Existing users retain its behavior; servers must use the body-primary
+/// [`classify_protocol_request`] before dispatching modern requests.
 #[must_use]
 pub fn select_protocol_mode_from_headers(hints: ProtocolRequestHints<'_>) -> ProtocolMode {
     select_protocol_mode(hints.protocol_version, hints.has_session_id)

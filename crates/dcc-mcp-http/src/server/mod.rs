@@ -729,9 +729,6 @@ impl McpHttpServer {
             )
             .with_state(state)
             .merge(rest_router)
-            .layer(RequestBodyLimitLayer::new(
-                self.config.queue.max_request_body_bytes,
-            ))
             .layer(http_trace_layer());
 
         // Prometheus `/metrics` endpoint (issue #331). Mounted on the
@@ -749,7 +746,16 @@ impl McpHttpServer {
         }
 
         // MCP endpoint — speaks MCP 2025-11-25 via the official rmcp SDK.
-        router = crate::handler::rmcp_mount::attach_rmcp_endpoint(router, &app_state_for_rmcp);
+        router = crate::handler::rmcp_mount::attach_rmcp_endpoint(
+            router,
+            &app_state_for_rmcp,
+            self.config.queue.max_request_body_bytes,
+        );
+
+        // Apply the documented body budget after /mcp is mounted as well.
+        router = router.layer(RequestBodyLimitLayer::new(
+            self.config.queue.max_request_body_bytes,
+        ));
 
         // Apply correlation after mounting `/mcp` so the middleware wraps both
         // the existing REST routes and the nested MCP service.

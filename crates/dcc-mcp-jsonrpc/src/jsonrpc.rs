@@ -88,30 +88,15 @@ pub mod error_codes {
 
     // ── MCP 2026-07-28 specific error codes ────────────────────────────────
 
-    /// MCP 2026-07-28 — the client sent an `MCP-Protocol-Version` header
-    /// whose value is not in the server's supported versions list.
-    ///
-    /// The `data` payload MUST include a `supported_versions` array so the
-    /// client can retry with the correct version (ADR-010 §版本降级流程):
-    ///
-    /// ```json
-    /// {
-    ///   "code": -32004,
-    ///   "message": "Unsupported protocol version",
-    ///   "data": {
-    ///     "requested": "2026-07-28",
-    ///     "supported_versions": ["2026-07-28", "2025-06-18", "2025-03-26"]
-    ///   }
-    /// }
-    /// ```
-    pub const UNSUPPORTED_PROTOCOL_VERSION: i64 = -32004;
-
-    /// MCP 2026-07-28 — the server received a stateless request that omitted
-    /// a required `_meta` field (e.g. `protocolVersion`).
-    ///
-    /// Only emitted on the `2026-07-28` code path; legacy session requests
-    /// use `INVALID_PARAMS` instead.
-    pub const VERSION_REQUIRED: i64 = -32005;
+    /// Final SEP-2243 header absence, malformed encoding, or body disagreement.
+    pub const HEADER_MISMATCH: i64 = -32020;
+    /// Required client capability was not declared for this request.
+    pub const MISSING_REQUIRED_CLIENT_CAPABILITY: i64 = -32021;
+    /// Unsupported protocol version; data contains `supported` and `requested`.
+    pub const UNSUPPORTED_PROTOCOL_VERSION: i64 = -32022;
+    /// Compatibility name: final missing envelope fields use invalid params.
+    #[deprecated(note = "Use INVALID_PARAMS for missing final-revision envelope fields")]
+    pub const VERSION_REQUIRED: i64 = INVALID_PARAMS;
 }
 
 impl JsonRpcResponse {
@@ -190,7 +175,7 @@ impl JsonRpcResponse {
         Self::error(id, error_codes::INTERNAL_ERROR, msg)
     }
 
-    /// MCP 2026-07-28 — respond with `UNSUPPORTED_PROTOCOL_VERSION` (-32004).
+    /// MCP 2026-07-28 — respond with `UNSUPPORTED_PROTOCOL_VERSION` (-32022).
     ///
     /// `requested` is the version the client asked for; `supported` is the
     /// slice of versions the server accepts (passed through as `data`).
@@ -206,8 +191,26 @@ impl JsonRpcResponse {
             "Unsupported protocol version",
             Some(json!({
                 "requested": requested,
-                "supported_versions": supported,
+                "supported": supported,
             })),
+        )
+    }
+
+    pub fn header_mismatch(id: Option<Value>, header: &str, body: &str) -> Self {
+        Self::error_with_data(
+            id,
+            error_codes::HEADER_MISMATCH,
+            "Request headers and body disagree",
+            Some(serde_json::json!({"mismatch": {"header": header, "body": body}})),
+        )
+    }
+
+    pub fn missing_required_client_capability(id: Option<Value>, required: Value) -> Self {
+        Self::error_with_data(
+            id,
+            error_codes::MISSING_REQUIRED_CLIENT_CAPABILITY,
+            "Missing required client capability",
+            Some(serde_json::json!({"requiredCapabilities": required})),
         )
     }
 }

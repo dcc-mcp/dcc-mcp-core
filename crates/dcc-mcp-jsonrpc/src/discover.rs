@@ -6,6 +6,7 @@
 //!
 //! Reference: ADR-010 / SEP-2575.
 
+pub use crate::envelope::{StatelessClientInfo, StatelessRequestMeta};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -49,47 +50,6 @@ pub type ServerDiscoverResult = DiscoverResult;
 /// There are no sub-fields in the initial spec.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TasksCapability {}
-
-/// Per-request `_meta` block for MCP 2026-07-28 stateless requests.
-///
-/// In 2026-07-28, every request is self-contained: session context (client
-/// info, capabilities, protocol version) is carried in `params._meta` rather
-/// than being established once during `initialize`. All fields are optional so
-/// that older clients that do not send them continue to parse successfully.
-///
-/// SEP-2575.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct StatelessRequestMeta {
-    /// Declared protocol version of the client for this request.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub protocol_version: Option<String>,
-    /// Free-form client identification (name + version).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub client_info: Option<StatelessClientInfo>,
-    /// Client capabilities for this request.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub client_capabilities: Option<Value>,
-    /// Progress token for streaming / `InputRequiredResult` callbacks (SEP-2260).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub progress_token: Option<Value>,
-    /// W3C Trace Context `traceparent` header value (SEP-414).
-    ///
-    /// When present the server SHOULD propagate it to downstream calls and
-    /// include it in diagnostic logs.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub traceparent: Option<String>,
-    /// W3C Trace Context `tracestate` header value (SEP-414).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tracestate: Option<String>,
-}
-
-/// Minimal client identification carried in `_meta.clientInfo` (2026-07-28).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StatelessClientInfo {
-    pub name: String,
-    pub version: String,
-}
 
 #[cfg(test)]
 mod tests {
@@ -180,62 +140,5 @@ mod tests {
         assert!(recovered.capabilities.tools.is_some());
         assert!(recovered.capabilities.tasks.is_some());
         assert!(recovered.capabilities.resources.is_none());
-    }
-
-    // ── StatelessRequestMeta round-trip ─────────────────────────────────────
-
-    #[test]
-    fn stateless_request_meta_all_optional_omitted_by_default() {
-        let meta = StatelessRequestMeta::default();
-        let json = serde_json::to_value(&meta).unwrap();
-        // All fields are None, so the serialised object must be empty.
-        assert_eq!(json, json!({}), "default meta must serialise to {{}}");
-    }
-
-    #[test]
-    fn stateless_request_meta_roundtrip_with_all_fields() {
-        let meta = StatelessRequestMeta {
-            protocol_version: Some("2026-07-28".to_string()),
-            client_info: Some(StatelessClientInfo {
-                name: "test-client".to_string(),
-                version: "1.0".to_string(),
-            }),
-            client_capabilities: Some(json!({"sampling": {}})),
-            progress_token: Some(Value::String("tok-abc".to_string())),
-            traceparent: Some("00-trace-id-span-00".to_string()),
-            tracestate: Some("vendor=abc".to_string()),
-        };
-
-        let json_str = serde_json::to_string(&meta).unwrap();
-        let recovered: StatelessRequestMeta = serde_json::from_str(&json_str).unwrap();
-
-        assert_eq!(recovered.protocol_version.as_deref(), Some("2026-07-28"));
-        assert_eq!(
-            recovered.client_info.as_ref().map(|i| i.name.as_str()),
-            Some("test-client")
-        );
-        assert_eq!(
-            recovered.traceparent.as_deref(),
-            Some("00-trace-id-span-00")
-        );
-    }
-
-    #[test]
-    fn stateless_request_meta_serialises_client_info_as_camel_case() {
-        let meta = StatelessRequestMeta {
-            protocol_version: Some("2026-07-28".to_string()),
-            client_info: Some(StatelessClientInfo {
-                name: "MyCLI".to_string(),
-                version: "2.0".to_string(),
-            }),
-            ..Default::default()
-        };
-        let json = serde_json::to_value(&meta).unwrap();
-        // Top-level key must be camelCase.
-        assert!(
-            json.get("clientInfo").is_some(),
-            "expected clientInfo key, got: {json}"
-        );
-        assert_eq!(json["protocolVersion"], "2026-07-28");
     }
 }

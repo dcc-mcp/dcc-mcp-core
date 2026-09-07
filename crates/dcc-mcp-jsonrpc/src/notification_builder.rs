@@ -127,6 +127,33 @@ impl JsonRpcRequestBuilder {
         self
     }
 
+    /// Explicit modern opt-in; legacy builders and callers remain unchanged.
+    /// Attach the canonical envelope without replacing caller vendor metadata.
+    pub fn with_stateless_metadata(
+        mut self,
+        meta: &super::StatelessRequestMeta,
+    ) -> Result<Self, super::EnvelopeIssue> {
+        let encoded = serde_json::to_value(meta).expect("metadata is JSON data");
+        super::StatelessRequestMeta::parse(Some(&encoded))?;
+        let params = self.params.get_or_insert_with(|| serde_json::json!({}));
+        let params = params
+            .as_object_mut()
+            .ok_or_else(|| super::EnvelopeIssue::new("params", "expected an object"))?;
+        let target = params
+            .entry("_meta")
+            .or_insert_with(|| serde_json::json!({}));
+        let target = target
+            .as_object_mut()
+            .ok_or_else(|| super::EnvelopeIssue::new("_meta", "expected an object"))?;
+        target.extend(
+            encoded
+                .as_object()
+                .expect("canonical metadata is an object")
+                .clone(),
+        );
+        Ok(self)
+    }
+
     /// Consume the builder and return the raw JSON value of the envelope.
     pub fn to_value(self) -> Value {
         let mut obj = serde_json::Map::with_capacity(4);

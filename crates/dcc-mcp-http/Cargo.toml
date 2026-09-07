@@ -61,6 +61,7 @@ axum = { workspace = true, features = ["http1", "tokio"] }
 tower = { workspace = true, features = ["util"] }
 tower-http = { workspace = true, features = ["cors", "trace", "limit"] }
 http.workspace = true
+http-body-util = "0.1"
 futures.workspace = true
 tokio-stream = { version = "0.1", features = ["sync", "tokio-util"] }
 pin-project-lite = "0.2"

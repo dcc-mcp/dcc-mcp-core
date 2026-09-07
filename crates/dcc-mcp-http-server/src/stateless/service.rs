@@ -56,8 +56,38 @@ impl StatelessMcpService {
     /// and not forwarded here; they return `null`.
     pub async fn handle_request(&self, req: &JsonRpcRequest) -> Option<Value> {
         let id = req.id.clone()?;
-        let meta = req.params.as_ref().and_then(|p| p.get("_meta")).cloned();
-        let _request_meta = RequestMeta::from_value(meta.as_ref());
+        let meta = req.params.as_ref().and_then(|p| p.get("_meta"));
+        let metadata = match RequestMeta::parse(meta) {
+            Ok(meta) => meta,
+            Err(issue) => {
+                return Some(
+                    serde_json::to_value(JsonRpcResponse::error_with_data(
+                        Some(id),
+                        error_codes::INVALID_PARAMS,
+                        format!("Invalid request envelope: {}: {}", issue.key, issue.problem),
+                        Some(json!({"envelope": issue})),
+                    ))
+                    .expect("JSON-RPC envelope error"),
+                );
+            }
+        };
+        if !dcc_mcp_jsonrpc::SUPPORTED_MODERN_PROTOCOL_VERSIONS
+            .contains(&metadata.protocol_version.as_str())
+        {
+            return Some(
+                serde_json::to_value(JsonRpcResponse::unsupported_protocol_version(
+                    Some(id),
+                    &metadata.protocol_version,
+                    dcc_mcp_jsonrpc::SUPPORTED_MODERN_PROTOCOL_VERSIONS,
+                ))
+                .expect("JSON-RPC version error"),
+            );
+        }
+        let mut business_request = req.clone();
+        if let Some(params) = business_request.params.as_mut() {
+            dcc_mcp_jsonrpc::strip_request_envelope(params);
+        }
+        let req = &business_request;
 
         let mut response = match req.method.as_str() {
             "server/discover" => self.handle_discover(id),
@@ -259,12 +289,36 @@ mod tests {
     }
 
     fn make_request(method: &str, id: Value, params: Option<Value>) -> JsonRpcRequest {
+        let mut params = params.unwrap_or_else(|| json!({}));
+        params["_meta"] = json!({
+            dcc_mcp_jsonrpc::PROTOCOL_VERSION_META_KEY: "2026-07-28",
+            dcc_mcp_jsonrpc::CLIENT_CAPABILITIES_META_KEY: {}
+        });
         JsonRpcRequest {
             jsonrpc: "2.0".to_string(),
             id: Some(id),
             method: method.to_string(),
-            params,
+            params: Some(params),
         }
+    }
+
+    #[tokio::test]
+    async fn direct_stateless_dispatch_requires_valid_request_metadata() {
+        let svc = make_service();
+        let mut request = make_request("tools/list", json!("metadata"), None);
+        request.params = None;
+        let response = svc.handle_request(&request).await.unwrap();
+        assert_eq!(response["error"]["code"], error_codes::INVALID_PARAMS);
+        request.params = Some(json!({"_meta": {
+            dcc_mcp_jsonrpc::PROTOCOL_VERSION_META_KEY: "2099-01-01",
+            dcc_mcp_jsonrpc::CLIENT_CAPABILITIES_META_KEY: {}
+        }}));
+        let response = svc.handle_request(&request).await.unwrap();
+        assert_eq!(
+            response["error"]["code"],
+            error_codes::UNSUPPORTED_PROTOCOL_VERSION
+        );
+        assert_eq!(response["error"]["data"]["requested"], "2099-01-01");
     }
 
     #[tokio::test]
