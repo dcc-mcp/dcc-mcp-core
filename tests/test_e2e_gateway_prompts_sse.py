@@ -206,11 +206,6 @@ class TestGatewayPromptsListChangedSse:
             if subscriber.error is not None:
                 pytest.fail(f"SSE subscription failed: {subscriber.error!r}")
 
-            # Let the baseline prompts fingerprint settle (empty set) so
-            # the load-triggered transition isn't collapsed into any
-            # initial-state broadcast.
-            time.sleep(AGGREGATOR_TICK_S + 0.5)
-
             load_resp = _post_mcp(
                 gateway_url,
                 "tools/call",
@@ -257,14 +252,6 @@ class TestGatewayPromptsListChangedSse:
         """Symmetric unload path — a regression in only one direction must still be caught."""
         gateway_url = gateway_with_prompts_skill["gateway_url"]
 
-        # Precondition: load the skill so the fingerprint is non-empty.
-        pre = _post_mcp(
-            gateway_url,
-            "tools/call",
-            {"name": "load_skill", "arguments": {"skill_name": "maya-prompts-demo"}},
-        )
-        assert "result" in pre, f"precondition load_skill failed: {pre}"
-
         events: queue.Queue[dict] = queue.Queue()
         stop = threading.Event()
         subscriber = _SseSubscriber(gateway_url, events, stop)
@@ -274,7 +261,26 @@ class TestGatewayPromptsListChangedSse:
             if subscriber.error is not None:
                 pytest.fail(f"SSE subscription failed: {subscriber.error!r}")
 
-            time.sleep(AGGREGATOR_TICK_S + 0.5)
+            # Subscribe before loading and consume the actual load notification.
+            # A fixed sleep neither proves that the watcher sampled the loaded
+            # state nor prevents its delayed load event satisfying the unload
+            # assertion. The two transitions need separate observable evidence.
+            pre = _post_mcp(
+                gateway_url,
+                "tools/call",
+                {"name": "load_skill", "arguments": {"skill_name": "maya-prompts-demo"}},
+            )
+            assert "result" in pre, f"precondition load_skill failed: {pre}"
+            loaded = json.loads(pre["result"]["content"][0]["text"])
+            assert loaded.get("loaded") or loaded.get("newly_loaded"), loaded
+            load_notification = _drain_for_notification(
+                events,
+                "notifications/prompts/list_changed",
+                budget=SSE_NOTIFICATION_BUDGET_S,
+            )
+            assert load_notification is not None, "watcher did not observe the loaded prompt set before unload"
+            before_unload = _post_mcp(gateway_url, "prompts/list")
+            assert before_unload["result"]["prompts"], before_unload
 
             unload_resp = _post_mcp(
                 gateway_url,
@@ -292,6 +298,9 @@ class TestGatewayPromptsListChangedSse:
                 "gateway did not push notifications/prompts/list_changed within "
                 f"{SSE_NOTIFICATION_BUDGET_S}s after unload_skill"
             )
+            assert notif.get("jsonrpc") == "2.0"
+            after_unload = _post_mcp(gateway_url, "prompts/list")
+            assert after_unload["result"]["prompts"] == [], after_unload
         finally:
             stop.set()
             subscriber.join(timeout=1.0)
