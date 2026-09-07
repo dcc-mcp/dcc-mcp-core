@@ -158,8 +158,8 @@ dynamic calls share the same affinity metadata and error normalization.
 Long-running host-native operations can return `DeferredToolResult` from the
 skill runner or a direct bridge callable. The bridge polls the completion
 callback until it returns a final JSON-serialisable value; when the original
-`tools/call` used the async job path (`execution: async`, timeout hint, or
-`_meta.dcc.async`), the existing `JobManager` row remains `running` until that
+`tools/call` used the async job path (`execution: async`, `_meta.dcc.async=true`,
+or a valid `_meta.progressToken`), the existing `JobManager` row remains `running` until that
 final value completes or the deferred result times out:
 
 ```python
@@ -180,6 +180,10 @@ def start_render(params):
         stdout="Render submitted",
     )
 ```
+
+`timeout_hint_secs` sizes a budget; it does not select the async job path.
+Token-driven job admission is a Core policy, not a general MCP requirement.
+See [job admission and compatibility](http.md#job-admission-and-compatibility).
 
 See [Callable Dispatcher API](./dispatcher.md) for the full
 `BaseDccCallableDispatcher` / `BaseDccCallableDispatcherFull` / `BaseDccPump`

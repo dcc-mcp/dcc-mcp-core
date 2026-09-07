@@ -38,10 +38,11 @@ result = dispatcher.dispatch("name", json_str)   # 返回 dict
 # 以下任一条件会将调用路由到 JobManager 并立即返回
 # {job_id, status: "pending"}：
 #   1. 请求携带 _meta.dcc.async = true
-#   2. 请求携带 _meta.progressToken
+#   2. 请求携带有效的字符串/数字 _meta.progressToken
 #   3. 工具的 ToolMeta 声明 execution: async
-# 否则分发给同步处理（与 #318 之前的行为字节一致）。
+# 否则已注册工具按同步路径分发。
 # timeout_hint_secs 仅用于延迟/超时预算提示，不会改变声明的执行模式。
+# 有效 token 触发任务是 Core 自身策略，不是 MCP 规范的通用要求。
 body = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
     "name": "render_frames",
     "arguments": {"start": 1, "end": 250},
@@ -52,6 +53,12 @@ body = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
 # 通过 jobs_get_status (#319) 轮询；取消父任务会取消每个子任务
 # 其 _meta.dcc.parentJobId 匹配（CancellationToken 子令牌级联）。
 ```
+
+请求上下文元数据修复后，原本自动携带有效 progress token 的 MCP 客户端可能
+开始收到 Core 任务回执，而不是直接结果。MCP 进度通知是可选的，任务回执不
+保证 SSE 必达。使用同一实例上的 `jobs_get_status` 跟踪原任务到终态并读取结果；
+不要因缺少通知重发原操作或切换传输重放。参见
+[任务准入与升级边界](../../api/http.md#job-admission-and-compatibility)。
 
 **`ToolRegistry.register()` — 仅关键字参数，不支持位置参数：**
 ```python

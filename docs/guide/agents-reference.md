@@ -37,11 +37,12 @@ result = dispatcher.dispatch("name", json_str)   # returns dict
 # Any of these routes the call through JobManager and returns immediately
 # with {job_id, core_job_id, job_id_owner: "core", status: "pending"}:
 #   1. Request carries _meta.dcc.async = true
-#   2. Request carries _meta.progressToken
+#   2. Request carries a valid string/number _meta.progressToken
 #   3. Tool's ToolMeta declares execution: async
-# Otherwise dispatch is synchronous (byte-identical to pre-#318 behaviour).
+# Otherwise registered-tool dispatch is synchronous.
 # timeout_hint_secs is only a latency/timeout sizing hint; it never changes
 # the declared execution mode.
+# Token-driven job admission is Core policy, not an MCP requirement.
 body = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
     "name": "render_frames",
     "arguments": {"start": 1, "end": 250},
@@ -1799,9 +1800,10 @@ required args return JSON-RPC `INVALID_PARAMS`.
 
 ### Job Lifecycle Notifications (issue #326)
 
-Every `tools/call` emits SSE frames:
+Core background jobs can emit SSE frames when their transport has a bound
+publisher and subscribed session; a receipt does not guarantee delivery:
 
-- `notifications/progress` — when `_meta.progressToken` is set.
+- `notifications/progress` — when a valid `_meta.progressToken` is bound to the publisher.
 - `notifications/$/dcc.jobUpdated` — gated by `enable_job_notifications` (default `True`).
 - `notifications/$/dcc.workflowUpdated` — same gate; #348 executor populates it.
 
@@ -1810,7 +1812,12 @@ cfg = McpHttpConfig(port=8765)
 cfg.enable_job_notifications = False  # opt the $/dcc.* channels out
 ```
 
-Polling fallback: **`jobs_get_status`** (#319, registered by each adapter and
+MCP progress tracking is optional. After the request-context metadata fix,
+clients that already attach progress tokens may start receiving Core job
+receipts. Follow the same job to terminal; never replay a mutation because SSE
+is absent. See [job admission and compatibility](../api/http.md#job-admission-and-compatibility).
+
+Polling: **`jobs_get_status`** (#319, registered by each adapter and
 indexed by the gateway under that exact instance) returns the full job-state
 envelope for a given `job_id`. Use **`jobs_cleanup`**
 (#328) with `older_than_hours` to prune terminal jobs; combine with

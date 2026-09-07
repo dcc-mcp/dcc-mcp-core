@@ -431,13 +431,45 @@ handle = server.start()
 ```
 :::
 
+## Job admission and compatibility
+
+For registered tools on the job-capable REST/MCP paths, Core creates a background
+job when the tool declares `execution: async`, the caller sets `dcc.async=true`,
+or the caller supplies a valid progress token. `timeout_hint_secs` is only a
+latency/timeout budget hint; it does not change execution mode. Legacy Core
+accepts string/number progress tokens; null, boolean, array, and object tokens
+do not opt in. Use strings for portable clients; modern ingress applies its
+own stricter validation.
+
+This token-to-job rule is a **Core policy**, not a general MCP requirement.
+Use `params._meta` for native MCP requests and `meta` for REST wrappers. REST's
+existing `progress_token` alias is not an MCP field; a present canonical
+`progressToken` masks that REST alias even when null. MCP's existing
+`arguments._meta` fallback retains its separate null/async-OR merge behavior.
+
+::: warning Upgrade boundary
+The [async-admission fix](https://github.com/dcc-mcp/dcc-mcp-core/pull/2449)
+restores MCP metadata moved into the SDK request context. Clients that already
+attach a valid progress token may now receive a Core job receipt instead of a
+direct result. Older REST builds may also turn timeout-only synchronous calls
+into jobs. Verify the installed wheel before assuming either behavior.
+
+When a receipt contains `job_id`, query that same job with `jobs_get_status`
+until terminal and read its result. Do not resend the original operation or
+switch transports to replay it because SSE is absent. Core job completion and
+adapter-owned background operation completion remain separate contracts.
+:::
+
 ## Job lifecycle notifications
 
-Every `tools/call` is tracked by a [`JobManager`](../api/actions.md) instance, and transitions are surfaced to the client through three SSE channels (issue #326):
+Core background jobs are tracked by a [`JobManager`](../api/actions.md).
+Transports with a bound job publisher and subscribed session can expose the
+following SSE channels (issue #326); not every synchronous call creates a job,
+and a job receipt alone does not establish notification delivery:
 
 | Channel | Method | Fires when |
 |---------|--------|-----------|
-| A | `notifications/progress` | The call supplied `_meta.progressToken`. Echoes the token, and maps `pending=0`, `running=10`, terminal states=100. |
+| A | `notifications/progress` | A valid `_meta.progressToken` is bound to the job publisher. Core maps `pending=0`, `running=10`, terminal states=100. |
 | B | `notifications/$/dcc.jobUpdated` | `enable_job_notifications` is `True` (default). One event per transition, payload carries `job_id`, `tool`, `status`, `started_at`, `completed_at`, `error`. |
 | C | `notifications/$/dcc.workflowUpdated` | Same flag; emitted by the workflow executor (#348) on step enter / step terminal / workflow terminal. |
 
@@ -447,7 +479,11 @@ cfg = McpHttpConfig(port=8765)
 cfg.enable_job_notifications = True
 ```
 
-Channel A follows the MCP 2025-03-26 spec exactly and is mandatory whenever a `progressToken` is provided — the flag only controls B and C.
+MCP [progress tracking is optional](https://modelcontextprotocol.io/specification/2025-06-18/basic/utilities/progress),
+including when a token is supplied. The flag controls Core channels B and C,
+not whether a transport has a usable notification binding. Restoring native
+rmcp request-context metadata does not by itself add an SSE subscription or
+guarantee job notifications. Polling below remains the terminal-result path.
 
 ### Built-in tools: `jobs_get_status`
 

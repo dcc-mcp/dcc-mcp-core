@@ -221,12 +221,22 @@ generated clients can use the canonical field without breaking integrations
 that still emit the compatibility alias.
 
 Direct per-DCC REST returns `200` for completed synchronous calls. When the
-tool declares `execution: async`, has a positive timeout hint, or the request
-sets `meta.dcc.async=true`, it returns `202` immediately with the same envelope
+tool declares `execution: async`, the request sets `meta.dcc.async=true`, or
+the request supplies a valid string/number `meta.progressToken`, a job-aware
+invoker returns `202` immediately with the same envelope
 and `output: {"job_id":"...","status":"pending","parent_job_id":null}`.
-Follow progress through `GET /v1/jobs/{id}/events` or cancel with
-`DELETE /v1/jobs/{id}`; the DCC HTTP worker remains responsive while the host
-main thread performs the job.
+A positive `timeout_hint_secs` alone does not change a synchronous call to
+`202`. Null, boolean, array, and object progress tokens do not request a job.
+REST retains the `progress_token` alias; a present canonical `progressToken`
+wins even when it is null. MCP does not gain that alias. Embedders without an
+async-capable invoker retain their synchronous fallback.
+
+Track the returned job on the same instance with `jobs_get_status` and read its
+terminal result. Where exposed, `GET /v1/jobs/{id}/events` provides progress and
+`DELETE /v1/jobs/{id}` requests cancellation. Do not replay the original call
+because a notification is absent. Job admission does not remove host
+thread-affinity or cooperative-execution requirements. See the
+[upgrade boundary](../api/http.md#job-admission-and-compatibility).
 
 The canonical normalization rules live in `dcc-mcp-wire`; Python wrappers can reuse them via `dcc_mcp_core.wire.normalize_tool_arguments()` and `normalize_tool_meta()` instead of hand-rolling JSON coercion. The `dcc_mcp_core.host` names remain compatibility aliases.
 

@@ -199,9 +199,11 @@ thread.
 
 #### Long-running async tools (cooperative contract)
 
-If your tool declares `long_running: true` or `timeout_hint_secs > 1`,
-the handler **must** be cooperative — it runs on the single DCC main
-thread, so a 30 s hot loop freezes the UI even if it is "correct".
+If a long-running operation executes on the DCC main thread, its handler
+**must** be cooperative: a 30 s hot loop freezes the UI even when submitted
+as a background job. Determine routing from the actual thread affinity and
+execution contract. `timeout_hint_secs` alone selects neither async execution
+nor the main thread, and does not make blocking host work cooperative.
 Async handlers receive the core-assigned identifier at
 `params["_meta"]["dcc"]["jobId"]`; treat it as read-only and use it to
 associate host-side queue entries, progress, and artefacts with the job. The

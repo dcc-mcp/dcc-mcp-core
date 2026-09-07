@@ -290,13 +290,19 @@ print(f"MCP server running at {handle.mcp_url()}")
 
 ### Job lifecycle notifications
 
-Every `tools/call` emits SSE notifications on completion (issue #326):
+Core background jobs can emit these notifications when the transport has a
+bound publisher and subscribed session (issue #326):
 
-- `notifications/progress` — fires when the call included `_meta.progressToken`.
+- `notifications/progress` — uses the job's valid `_meta.progressToken` when progress publishing is available.
 - `notifications/$/dcc.jobUpdated` — fires on every status transition while `McpHttpConfig.enable_job_notifications` is `True` (default).
 - `notifications/$/dcc.workflowUpdated` — emitted by the workflow executor (#348).
 
-Disable the `$/dcc.*` channels with `cfg.enable_job_notifications = False`; the spec-mandated progress channel still fires whenever a token is supplied.
+Disable the `$/dcc.*` channels with `cfg.enable_job_notifications = False`.
+MCP progress notifications are optional, not spec-mandated. Core's valid-token
+async admission is its own policy; timeout hints alone do not request a job.
+Follow a returned `job_id` with `jobs_get_status` to its terminal result rather
+than replaying the call if SSE is absent. See
+[job admission and compatibility](../api/http.md#job-admission-and-compatibility).
 
 ### Instance-Bound Diagnostics
 
