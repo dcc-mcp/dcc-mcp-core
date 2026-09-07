@@ -49,6 +49,7 @@ mdns = [
 prometheus = ["dcc-mcp-gateway?/prometheus"]
 
 [dev-dependencies]
+socket2.workspace = true
 tempfile.workspace = true
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 dcc-mcp-test-utils = { workspace = true }

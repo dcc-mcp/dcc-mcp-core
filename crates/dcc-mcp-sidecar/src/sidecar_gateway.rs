@@ -286,7 +286,119 @@ mod tests {
     use axum::Router;
     use axum::http::StatusCode;
     use axum::routing::get;
+    use axum::serve::ListenerExt;
     use dcc_mcp_transport::discovery::types::GATEWAY_SENTINEL_DCC_TYPE;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    fn spawn_gateway_fixture(
+        listener: tokio::net::TcpListener,
+        app: Router,
+        reset_on_close: bool,
+    ) -> (
+        tokio::sync::oneshot::Sender<()>,
+        tokio::task::JoinHandle<()>,
+    ) {
+        // Model a crash/RST, not FIN/graceful TCP recovery. A server-first FIN
+        // leaves Linux TIME_WAIT behind and legitimately blocks the production
+        // election's exclusive bind, regardless of the test's wait budget.
+        let listener = listener.tap_io(move |stream| {
+            socket2::SockRef::from(&*stream)
+                .set_linger(reset_on_close.then_some(Duration::ZERO))
+                .unwrap();
+        });
+        let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app)
+                .with_graceful_shutdown(async move {
+                    let _ = stop_rx.await;
+                })
+                .await
+                .unwrap();
+        });
+        // Axum drains its spawned connection tasks before returning. Aborting
+        // only the listener task neither joins those tasks nor guarantees RST.
+        (stop_tx, server)
+    }
+
+    #[tokio::test]
+    async fn crash_fixture_releases_exclusive_port_with_keepalive_and_inflight_request() {
+        bind_after_fixture_shutdown(true).await.unwrap();
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn fin_fixture_retains_exclusive_port_with_keepalive_and_inflight_request() {
+        // Negative control: removing RST from the otherwise identical fixture
+        // must reproduce the kernel-owned port that caused the CI timeout.
+        let error = bind_after_fixture_shutdown(false).await.unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::AddrInUse);
+    }
+
+    async fn bind_after_fixture_shutdown(reset_on_close: bool) -> std::io::Result<()> {
+        let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+        let entered_tx = Arc::new(tokio::sync::Mutex::new(Some(entered_tx)));
+        let release_rx = Arc::new(tokio::sync::Mutex::new(Some(release_rx)));
+        let app = Router::new()
+            .route("/idle", get(|| async { "ready" }))
+            .route(
+                "/inflight",
+                get(move || {
+                    let entered_tx = entered_tx.clone();
+                    let release_rx = release_rx.clone();
+                    async move {
+                        entered_tx.lock().await.take().unwrap().send(()).unwrap();
+                        release_rx.lock().await.take().unwrap().await.unwrap();
+                        "finished"
+                    }
+                }),
+            );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (stop_tx, server) = spawn_gateway_fixture(listener, app, reset_on_close);
+
+        let mut idle = tokio::net::TcpStream::connect(addr).await.unwrap();
+        idle.write_all(b"GET /idle HTTP/1.1\r\nHost: localhost\r\n\r\n")
+            .await
+            .unwrap();
+        let mut response = Vec::new();
+        while !response.ends_with(b"ready") {
+            let mut buffer = [0; 256];
+            let count = tokio::time::timeout(Duration::from_secs(2), idle.read(&mut buffer))
+                .await
+                .expect("fixture must answer the keep-alive request")
+                .unwrap();
+            assert_ne!(count, 0, "keep-alive response ended early");
+            response.extend_from_slice(&buffer[..count]);
+        }
+        let mut inflight = tokio::net::TcpStream::connect(addr).await.unwrap();
+        inflight
+            .write_all(b"GET /inflight HTTP/1.1\r\nHost: localhost\r\n\r\n")
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(2), entered_rx)
+            .await
+            .expect("fixture must begin the in-flight request")
+            .unwrap();
+        stop_tx.send(()).unwrap();
+        release_tx.send(()).unwrap();
+        tokio::time::timeout(Duration::from_secs(2), server)
+            .await
+            .expect("fixture must drain accepted connection tasks")
+            .unwrap();
+
+        // Keep both clients alive until after shutdown to force server-first
+        // closure. Match gateway/bind.rs rather than a reuse-enabled listener.
+        let replacement =
+            socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::STREAM, None).unwrap();
+        replacement.set_reuse_address(false).unwrap();
+        #[cfg(unix)]
+        replacement.set_reuse_port(false).unwrap();
+        replacement.bind(&addr.into())?;
+        replacement.listen(128)?;
+        drop((idle, inflight));
+        Ok(())
+    }
 
     async fn probe_with_routes(health_status: StatusCode) -> bool {
         let app = Router::new()
@@ -388,9 +500,7 @@ mod tests {
                 }),
             )
             .route("/health", get(|| async { StatusCode::OK }));
-        let stale_server = tokio::spawn(async move {
-            axum::serve(stale_listener, stale_app).await.unwrap();
-        });
+        let (stale_stop, stale_server) = spawn_gateway_fixture(stale_listener, stale_app, true);
 
         let runner = Arc::new(
             GatewayRunner::new(GatewayConfig {
@@ -427,9 +537,18 @@ mod tests {
         );
 
         stale_readyz_seen.notified().await;
-        tokio::time::sleep(Duration::from_millis(25)).await;
-        stale_server.abort();
-        let _ = stale_server.await;
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while failover.read().await.challenger_abort.is_none() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("unhealthy readiness must trigger election before the fixture exits");
+        stale_stop.send(()).unwrap();
+        tokio::time::timeout(Duration::from_secs(2), stale_server)
+            .await
+            .expect("stale fixture must drain before election")
+            .unwrap();
 
         tokio::time::timeout(Duration::from_secs(15), async {
             loop {
