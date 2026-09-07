@@ -20,8 +20,8 @@ use serde_json::{Value, json};
 use tracing::debug;
 
 use dcc_mcp_jsonrpc::{
-    DiscoverResult, JsonRpcRequest, JsonRpcResponse, MCP_PROTOCOL_VERSION_2026_07_28, ServerInfo,
-    StatelessServerCapabilities, ToolsCapability, error_codes,
+    DiscoverResult, JsonRpcRequest, JsonRpcResponse, SUPPORTED_PROTOCOL_VERSIONS, ServerInfo,
+    StatelessServerCapabilities, ToolsCapability, complete_modern_result, error_codes,
 };
 
 use crate::mcp_tool_list_builder::{assemble_full_tool_list, slice_tools_page};
@@ -59,7 +59,7 @@ impl StatelessMcpService {
         let meta = req.params.as_ref().and_then(|p| p.get("_meta")).cloned();
         let _request_meta = RequestMeta::from_value(meta.as_ref());
 
-        let response = match req.method.as_str() {
+        let mut response = match req.method.as_str() {
             "server/discover" => self.handle_discover(id),
             "ping" => json!({"jsonrpc": "2.0", "id": id, "result": {}}),
             "tools/list" => self.handle_tools_list(id, req).await,
@@ -72,6 +72,18 @@ impl StatelessMcpService {
                 serde_json::to_value(error).unwrap_or_else(|_| json!(null))
             }
         };
+        if let Some(result) = response.get_mut("result").and_then(Value::as_object_mut) {
+            let server_info = ServerInfo {
+                name: self.state.server_name.clone(),
+                version: self.state.server_version.clone(),
+            };
+            if let Err(message) = complete_modern_result(&req.method, result, &server_info) {
+                return Some(
+                    serde_json::to_value(JsonRpcResponse::internal_error(req.id.clone(), message))
+                        .unwrap_or(Value::Null),
+                );
+            }
+        }
         Some(response)
     }
 
@@ -81,17 +93,17 @@ impl StatelessMcpService {
     fn handle_discover(&self, id: Value) -> Value {
         let caps = self.build_stateless_capabilities();
         let result = DiscoverResult {
-            protocol_version: MCP_PROTOCOL_VERSION_2026_07_28.to_string(),
-            server_info: ServerInfo {
-                name: self.state.server_name.clone(),
-                version: self.state.server_version.clone(),
-            },
+            supported_versions: SUPPORTED_PROTOCOL_VERSIONS
+                .iter()
+                .map(|v| (*v).to_string())
+                .collect(),
             capabilities: caps,
             instructions: Some(
                 "Direct DCC workflow: search_tools(query) → load_skill → tools/call. \
                  tools/list is paginated; follow nextCursor if you list it."
                     .to_string(),
             ),
+            ..Default::default()
         };
         let result_value =
             serde_json::to_value(result).unwrap_or_else(|_| json!({"error": "serialize_failed"}));
@@ -224,6 +236,7 @@ mod tests {
     use std::sync::Arc;
 
     use dcc_mcp_actions::{ToolDispatcher, ToolRegistry};
+    use dcc_mcp_jsonrpc::{MCP_PROTOCOL_VERSION_2026_07_28, SERVER_INFO_META_KEY};
     use dcc_mcp_skill_rest::StaticReadiness;
     use dcc_mcp_skills::SkillCatalog;
     use serde_json::json;
@@ -263,8 +276,19 @@ mod tests {
         assert_eq!(resp["jsonrpc"], "2.0");
         assert_eq!(resp["id"], 1);
         let result = &resp["result"];
-        assert_eq!(result["protocolVersion"], MCP_PROTOCOL_VERSION_2026_07_28);
-        assert_eq!(result["serverInfo"]["name"], "dcc-mcp-http");
+        assert_eq!(
+            result["supportedVersions"][0],
+            MCP_PROTOCOL_VERSION_2026_07_28
+        );
+        assert_eq!(
+            result["_meta"][SERVER_INFO_META_KEY]["name"],
+            "dcc-mcp-http"
+        );
+        assert!(result.get("protocolVersion").is_none());
+        assert!(result.get("serverInfo").is_none());
+        assert_eq!(result["resultType"], "complete");
+        assert_eq!(result["ttlMs"], 0);
+        assert_eq!(result["cacheScope"], "private");
         assert!(result["capabilities"]["tools"].is_object());
         assert!(result["capabilities"].get("tasks").is_none());
         assert!(result["instructions"].is_string());
@@ -349,7 +373,10 @@ mod tests {
         let req = make_request("ping", json!(4), None);
         let resp = svc.handle_request(&req).await.expect("has id");
 
-        assert_eq!(resp["result"], json!({}));
+        assert_eq!(resp["result"]["resultType"], "complete");
+        assert!(resp["result"]["_meta"][SERVER_INFO_META_KEY].is_object());
+        assert!(resp["result"].get("ttlMs").is_none());
+        assert!(resp["result"].get("cacheScope").is_none());
     }
 
     #[tokio::test]
@@ -387,5 +414,8 @@ mod tests {
         // for unknown tools rather than Err.
         let result = &resp["result"];
         assert_eq!(result["isError"], true);
+        assert_eq!(result["resultType"], "complete");
+        assert!(result["_meta"][SERVER_INFO_META_KEY].is_object());
+        assert!(result.get("ttlMs").is_none());
     }
 }

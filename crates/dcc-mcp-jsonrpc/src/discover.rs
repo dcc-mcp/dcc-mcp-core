@@ -9,77 +9,39 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::modern::{CacheScope, CompleteResultType};
+
+// Keep the historical public names without maintaining duplicate wire types.
+pub use crate::lifecycle::{
+    PromptsCapability as Discover2026PromptsCapability,
+    ResourcesCapability as Discover2026ResourcesCapability, ServerInfo as DiscoverServerInfo,
+    StatelessServerCapabilities as DiscoverCapabilities,
+    ToolsCapability as Discover2026ToolsCapability,
+};
+
 /// Result payload for `server/discover` (MCP 2026-07-28).
 ///
 /// Returned verbatim as the `result` field of a JSON-RPC 2.0 response.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
-pub struct ServerDiscoverResult {
-    /// Protocol version the server will use for this request.
-    pub protocol_version: String,
-    pub server_info: DiscoverServerInfo,
+pub struct DiscoverResult {
+    /// Protocol versions supported by this endpoint, newest first.
+    pub supported_versions: Vec<String>,
     pub capabilities: DiscoverCapabilities,
     /// Optional natural-language instructions for MCP clients / agents.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub instructions: Option<String>,
+    /// Discovery always returns a complete result, never an input request.
+    pub result_type: CompleteResultType,
+    /// Conservative defaults do not permit stale cross-principal discovery.
+    pub ttl_ms: u64,
+    pub cache_scope: CacheScope,
+    #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
+    pub meta: Option<serde_json::Map<String, Value>>,
 }
 
-/// Abbreviated `serverInfo` block (name + version), same shape as the 2025 spec.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DiscoverServerInfo {
-    pub name: String,
-    pub version: String,
-}
-
-/// 2026-07-28 capabilities block.
-///
-/// The structure is intentionally a superset of the 2025-06-18 `ServerCapabilities`
-/// so that new fields can be added without breaking old deserializers. Fields that
-/// existed in older specs (`tools`, `resources`, `prompts`, `logging`) keep the
-/// same JSON key names; new fields (`tasks`, `tracing`, `caching`) are additions.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct DiscoverCapabilities {
-    /// Tools capability (unchanged from 2025 spec).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tools: Option<Discover2026ToolsCapability>,
-    /// Resources capability (unchanged from 2025 spec).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub resources: Option<Discover2026ResourcesCapability>,
-    /// Prompts capability (unchanged from 2025 spec).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub prompts: Option<Discover2026PromptsCapability>,
-    /// Tasks — first-class in 2026-07-28 (SEP-2663).
-    ///
-    /// Present when the server supports `tasks/get` and `tasks/cancel`.
-    /// `tasks/list` was removed from the spec; do **not** advertise it.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tasks: Option<TasksCapability>,
-    /// Vendor-extension capabilities.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub experimental: Option<Value>,
-}
-
-/// `tools` capability for 2026-07-28 sessions (same shape as 2025 `ToolsCapability`).
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct Discover2026ToolsCapability {
-    pub list_changed: bool,
-}
-
-/// `resources` capability for 2026-07-28 sessions.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct Discover2026ResourcesCapability {
-    pub subscribe: bool,
-    pub list_changed: bool,
-}
-
-/// `prompts` capability for 2026-07-28 sessions.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct Discover2026PromptsCapability {
-    pub list_changed: bool,
-}
+/// Compatibility name for the single canonical final-revision discovery type.
+pub type ServerDiscoverResult = DiscoverResult;
 
 /// `tasks` capability — new in MCP 2026-07-28, SEP-2663.
 ///
@@ -139,11 +101,7 @@ mod tests {
     #[test]
     fn server_discover_result_serialises_to_camel_case() {
         let result = ServerDiscoverResult {
-            protocol_version: "2026-07-28".to_string(),
-            server_info: DiscoverServerInfo {
-                name: "dcc-mcp-core".to_string(),
-                version: "0.19.0".to_string(),
-            },
+            supported_versions: vec!["2026-07-28".to_string()],
             capabilities: DiscoverCapabilities {
                 tools: Some(Discover2026ToolsCapability { list_changed: true }),
                 resources: Some(Discover2026ResourcesCapability {
@@ -155,17 +113,22 @@ mod tests {
                 experimental: None,
             },
             instructions: Some("Direct DCC workflow".to_string()),
+            ..Default::default()
         };
 
         let json = serde_json::to_value(&result).unwrap();
 
         // Top-level keys must be camelCase.
         assert!(
-            json.get("protocolVersion").is_some(),
-            "expected protocolVersion, got: {json}"
+            json.get("supportedVersions").is_some(),
+            "expected supportedVersions, got: {json}"
         );
-        assert_eq!(json["protocolVersion"], "2026-07-28");
-        assert!(json.get("serverInfo").is_some(), "expected serverInfo");
+        assert_eq!(json["supportedVersions"], json!(["2026-07-28"]));
+        assert!(json.get("protocolVersion").is_none());
+        assert!(json.get("serverInfo").is_none());
+        assert_eq!(json["resultType"], "complete");
+        assert_eq!(json["ttlMs"], 0);
+        assert_eq!(json["cacheScope"], "private");
         assert!(json.get("capabilities").is_some(), "expected capabilities");
         assert!(json.get("instructions").is_some(), "expected instructions");
 
@@ -179,13 +142,10 @@ mod tests {
     #[test]
     fn server_discover_result_optional_fields_omitted_when_none() {
         let result = ServerDiscoverResult {
-            protocol_version: "2026-07-28".to_string(),
-            server_info: DiscoverServerInfo {
-                name: "test".to_string(),
-                version: "0.0.1".to_string(),
-            },
+            supported_versions: vec!["2026-07-28".to_string()],
             capabilities: DiscoverCapabilities::default(),
             instructions: None,
+            ..Default::default()
         };
 
         let json = serde_json::to_value(&result).unwrap();
@@ -202,11 +162,7 @@ mod tests {
     #[test]
     fn server_discover_result_roundtrip() {
         let original = ServerDiscoverResult {
-            protocol_version: "2026-07-28".to_string(),
-            server_info: DiscoverServerInfo {
-                name: "dcc-mcp-core".to_string(),
-                version: "0.19.0".to_string(),
-            },
+            supported_versions: vec!["2026-07-28".to_string()],
             capabilities: DiscoverCapabilities {
                 tools: Some(Discover2026ToolsCapability { list_changed: true }),
                 resources: None,
@@ -215,11 +171,12 @@ mod tests {
                 experimental: Some(json!({"dcc-mcp": {"compactResponses": true}})),
             },
             instructions: None,
+            ..Default::default()
         };
         let json_str = serde_json::to_string(&original).unwrap();
         let recovered: ServerDiscoverResult = serde_json::from_str(&json_str).unwrap();
-        assert_eq!(recovered.protocol_version, original.protocol_version);
-        assert_eq!(recovered.server_info.name, original.server_info.name);
+        assert_eq!(recovered.supported_versions, original.supported_versions);
+        assert_eq!(recovered.result_type, CompleteResultType::Complete);
         assert!(recovered.capabilities.tools.is_some());
         assert!(recovered.capabilities.tasks.is_some());
         assert!(recovered.capabilities.resources.is_none());

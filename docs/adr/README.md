@@ -37,6 +37,8 @@ Decision / Consequences / Alternatives considered.
 | 030 | [Preserve Published Crate Identities Across Boundary Cleanup](./030-preserve-published-crate-identities.md) | Accepted |
 | 031 | [Python API Ownership and Compatibility Boundaries](./031-python-api-ownership.md) | Accepted |
 | 032 | [Keep Public Agent Skills in dcc-mcp-agent-plugins](./032-public-agent-skill-ownership.md) | Accepted |
+| 033 | [Explicit MCP HTTP protocol routing](./033-mcp-http-protocol-router.md) | Proposed |
+| 034 | [Final-revision modern response projection](./034-modern-response-contract.md) | Proposed |
 
 > Numbering is strictly sequential and never reused. ADR 001 is reserved for
 > the first historical record; filling it in is tracked separately from any

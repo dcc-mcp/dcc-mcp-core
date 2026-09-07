@@ -30,6 +30,7 @@
 mod discover;
 mod jsonrpc;
 mod lifecycle;
+mod modern;
 mod notification_builder;
 mod prompts;
 mod resources;
@@ -50,6 +51,10 @@ pub use lifecycle::{
     ElicitationCreateParams, ElicitationCreateResult, InitializeParams, InitializeResult,
     LoggingCapability, LoggingSetLevelParams, PromptsCapability, ResourcesCapability,
     RootsListResult, ServerCapabilities, ServerInfo, StatelessServerCapabilities, ToolsCapability,
+};
+pub use modern::{
+    CACHEABLE_RESULT_METHODS, CacheScope, CompleteResultType, SERVER_INFO_META_KEY,
+    complete_modern_result,
 };
 pub use notification_builder::{JsonRpcRequestBuilder, NotificationBuilder};
 pub use prompts::{

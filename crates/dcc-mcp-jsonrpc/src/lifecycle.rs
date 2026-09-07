@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub use crate::discover::TasksCapability;
+pub use crate::discover::{DiscoverResult, TasksCapability};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -80,20 +80,20 @@ pub struct ServerCapabilities {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", default)]
 pub struct ToolsCapability {
     pub list_changed: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", default)]
 pub struct ResourcesCapability {
     pub subscribe: bool,
     pub list_changed: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", default)]
 pub struct PromptsCapability {
     pub list_changed: bool,
 }
@@ -156,23 +156,4 @@ pub struct StatelessServerCapabilities {
     /// Vendor-extension capabilities.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub experimental: Option<serde_json::Value>,
-}
-
-/// Result payload for `server/discover` (MCP 2026-07-28, SEP-2575).
-///
-/// Replaces `initialize` in the 2026-07-28 stateless protocol.  Every
-/// request is self-contained (no session), so the client calls
-/// `server/discover` once (or caches the result) to learn server capabilities.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DiscoverResult {
-    /// The protocol version this server is speaking (`"2026-07-28"`).
-    pub protocol_version: String,
-    /// Server name and version.
-    pub server_info: ServerInfo,
-    /// Server capabilities under the 2026-07-28 model.
-    pub capabilities: StatelessServerCapabilities,
-    /// Optional human-readable workflow hint for AI agents.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub instructions: Option<String>,
 }

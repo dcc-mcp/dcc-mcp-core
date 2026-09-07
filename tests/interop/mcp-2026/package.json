@@ -1,0 +1,11 @@
+{
+  "name": "dcc-mcp-modern-response-interop",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "smoke": "node client.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/client": "2.0.0"
+  }
+}
