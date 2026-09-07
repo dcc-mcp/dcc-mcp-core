@@ -23,7 +23,7 @@ CI_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 VERSION_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "version-consistency.yml"
 EXPECTED_ROOT_PACKAGE = "dcc-mcp-core"
 TRUSTED_VALIDATOR_PATH = "scripts/ci/generated_lock_sync.py"
-TRUSTED_VALIDATOR_COMMIT = "3667e8786549cc890e701dffba6512b2f6a5b5e7"
+TRUSTED_VALIDATOR_COMMIT = "b8e294e8a64abba426871b1e86eb106e75aab075"
 
 
 def _load_checker_module():
@@ -110,12 +110,73 @@ def _trusted_validator_source() -> str:
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
+        timeout=30,
     )
     if result.returncode != 0:
-        # Most matrix jobs intentionally use a shallow checkout. The native
-        # Python 3.7 jobs retain full history and are authoritative here.
-        pytest.skip("trusted validator ref is unavailable in shallow checkout")
+        shallow = subprocess.run(
+            ["git", "rev-parse", "--is-shallow-repository"],
+            check=False,
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if shallow.returncode == 0 and shallow.stdout.strip() == "true":
+            # Ordinary matrix jobs may omit the pin's history. Native Python
+            # 3.7 checkouts retain full history and must fail if it is missing.
+            pytest.skip("trusted validator ref is unavailable in shallow checkout")
+        pytest.fail(f"cannot read trusted validator {ref} outside a confirmed shallow checkout")
     return result.stdout
+
+
+@pytest.mark.parametrize(
+    ("show_code", "shallow_code", "shallow_stdout", "expected"),
+    [
+        (0, None, "", "source"),
+        (128, 0, "true\n", "skip"),
+        (128, 0, "false\n", "fail"),
+        (128, 128, "", "fail"),
+        (128, 0, "unknown\n", "fail"),
+    ],
+    ids=["source-present", "shallow-missing", "full-history-missing", "probe-failed", "probe-invalid"],
+)
+def test_trusted_validator_source_requires_confirmed_shallow_checkout(
+    monkeypatch: pytest.MonkeyPatch,
+    show_code: int,
+    shallow_code: int | None,
+    shallow_stdout: str,
+    expected: str,
+) -> None:
+    source = "# immutable validator\n\n"
+    commands = []
+    results = [subprocess.CompletedProcess([], show_code, source if show_code == 0 else "", "")]
+    if shallow_code is not None:
+        results.append(subprocess.CompletedProcess([], shallow_code, shallow_stdout, ""))
+
+    def run_git(command, **kwargs):
+        assert kwargs["cwd"] == REPO_ROOT
+        commands.append(command)
+        return results.pop(0)
+
+    monkeypatch.setattr(subprocess, "run", run_git)
+    try:
+        actual_source = _trusted_validator_source()
+    except pytest.skip.Exception as error:
+        assert "shallow checkout" in str(error)
+        actual = "skip"
+    except pytest.fail.Exception as error:
+        assert "cannot read trusted validator" in str(error)
+        actual = "fail"
+    else:
+        assert actual_source == source
+        actual = "source"
+    assert actual == expected
+
+    expected_commands = [["git", "show", f"{TRUSTED_VALIDATOR_COMMIT}:{TRUSTED_VALIDATOR_PATH}"]]
+    if shallow_code is not None:
+        expected_commands.append(["git", "rev-parse", "--is-shallow-repository"])
+    assert commands == expected_commands
+    assert not results
 
 
 def test_stale_editable_root_version_is_rejected(tmp_path: Path) -> None:
@@ -365,6 +426,59 @@ def test_pr_checkout_cannot_clean_trusted_validator_checkout() -> None:
     )
 
 
+def test_trusted_validator_verify_diff_preserves_unstaged_lock_status(tmp_path: Path) -> None:
+    """The immutable stdin helper must preserve porcelain's unstaged prefix."""
+    validator_source = _trusted_validator_source()
+
+    def git(*args: str) -> str:
+        result = subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.name=loonghao",
+                "-c",
+                "user.email=hal.long@outlook.com",
+                "-c",
+                "commit.gpgsign=false",
+                "-c",
+                "core.autocrlf=false",
+                *args,
+            ],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        return result.stdout
+
+    git("init", "--quiet")
+    lock_path = tmp_path / "Cargo.lock"
+    lock_path.write_bytes(b"baseline\n")
+    # A candidate helper must never substitute for the immutable Git object.
+    candidate_helper = tmp_path / TRUSTED_VALIDATOR_PATH
+    candidate_helper.parent.mkdir(parents=True)
+    candidate_helper.write_text('raise SystemExit("WORKTREE_VALIDATOR_EXECUTED")\n', encoding="utf-8")
+    git("add", "Cargo.lock", TRUSTED_VALIDATOR_PATH)
+    git("commit", "--quiet", "--no-verify", "-m", "test: seed generated lock fixture")
+    lock_path.write_bytes(b"regenerated\n")
+    status_before = git("status", "--porcelain=v1", "--untracked-files=all")
+    assert status_before == " M Cargo.lock\n"
+
+    result = subprocess.run(
+        [sys.executable, "-", "verify-diff", "--root", str(tmp_path)],
+        cwd=tmp_path,
+        input=validator_source,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert lock_path.read_bytes() == b"regenerated\n"
+    assert git("status", "--porcelain=v1", "--untracked-files=all") == status_before
+
+
 @pytest.mark.skipif(os.name != "nt", reason="Windows trusted-stdin execution contract")
 def test_trusted_validator_generate_runs_from_stdin_on_windows(tmp_path: Path) -> None:
     """The exact validator object must remain executable through ``python -``."""
@@ -494,6 +608,8 @@ def test_native_python37_windows_executes_pinned_validator_contract() -> None:
     workflow = yaml_loads(CI_WORKFLOW.read_text(encoding="utf-8"))
     assert isinstance(workflow, dict)
     steps = workflow["jobs"]["python37-native"]["steps"]
+    checkout = next(step for step in steps if step.get("uses", "").startswith("actions/checkout@"))
+    assert checkout["with"]["fetch-depth"] == 0
     install = next(step for step in steps if step.get("name") == "Install Python 3.7 test toolchain")
     assert install["if"] == "matrix.full_suite || runner.os == 'Windows'"
     contract = next(step for step in steps if step.get("name") == "Run trusted validator Python 3.7 contract")
@@ -501,6 +617,8 @@ def test_native_python37_windows_executes_pinned_validator_contract() -> None:
     assert "tests/test_uv_lock_consistency.py" in contract["run"]
     assert "trusted_validator_ref_attests_self_contained_job_object" in contract["run"]
     assert "trusted_validator_generate_runs_from_stdin_on_windows" in contract["run"]
+    assert "trusted_validator_verify_diff_preserves_unstaged_lock_status" in contract["run"]
+    assert "trusted_validator_source_requires_confirmed_shallow_checkout" in contract["run"]
 
 
 def test_generated_lock_contract_rejects_fork_and_identity_drift() -> None:
