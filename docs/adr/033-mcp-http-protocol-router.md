@@ -41,11 +41,12 @@ handler.
 
 ## Staged stateless capabilities
 
-The opt-in stateless endpoint currently advertises only tools, with
-`listChanged: false`: no subscription stream is implemented. Resources and
-prompts stay unadvertised until their read/get provider handlers are wired
-(#2434), regardless of the legacy feature flags. The final 2026 revision
-does not include the task wire surface, so tasks are not advertised (#2433).
+The opt-in stateless endpoint advertises tools, with `listChanged: false`:
+no subscription stream is implemented. Resources and prompts are advertised
+only when their feature flag is enabled and a matching read/get provider is
+registered (#2434). Both use the existing legacy providers; notification and
+subscription flags remain false. The final 2026 revision does not include
+the task wire surface, so tasks are not advertised (#2433).
 Legacy capability behavior is unchanged. These declarations do not claim
 full final-2026 wire compatibility; the independent SDK round-trip and wire
 validation work is tracked in #2436.

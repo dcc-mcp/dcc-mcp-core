@@ -53,7 +53,12 @@ def test_stateless_discovery_advertises_only_implemented_capabilities(enable_res
                 "clientInfo": {"name": "capability-contract", "version": "1"},
             },
         )
-    assert response["result"]["capabilities"] == {"tools": {"listChanged": False}}
+    expected = {"tools": {"listChanged": False}}
+    if enable_resources:
+        expected["resources"] = {"subscribe": False, "listChanged": False}
+    if enable_prompts:
+        expected["prompts"] = {"listChanged": False}
+    assert response["result"]["capabilities"] == expected
     assert ("resources" in legacy["result"]["capabilities"]) is enable_resources
     assert ("prompts" in legacy["result"]["capabilities"]) is enable_prompts
     assert legacy["result"]["capabilities"]["tools"]["listChanged"] is True

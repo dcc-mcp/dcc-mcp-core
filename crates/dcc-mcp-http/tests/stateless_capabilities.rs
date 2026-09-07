@@ -41,7 +41,7 @@ async fn request(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn http_capabilities_match_staged_support_without_changing_legacy() {
+async fn http_capabilities_match_provider_support_without_changing_legacy() {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
         .build()
@@ -62,9 +62,15 @@ async fn http_capabilities_match_staged_support_without_changing_legacy() {
             #[cfg(feature = "mcp-2026-07-28")]
             {
                 let discovery = request(&client, &url, "server/discover", json!({}), true).await;
+                let mut expected = json!({"tools": {"listChanged": false}});
+                if enable_resources {
+                    expected["resources"] = json!({"subscribe": false, "listChanged": false});
+                }
+                if enable_prompts {
+                    expected["prompts"] = json!({"listChanged": false});
+                }
                 assert_eq!(
-                    discovery["result"]["capabilities"],
-                    json!({"tools": {"listChanged": false}}),
+                    discovery["result"]["capabilities"], expected,
                     "resources={enable_resources}, prompts={enable_prompts}"
                 );
                 let tools = request(&client, &url, "tools/list", json!({}), true).await;

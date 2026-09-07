@@ -20,8 +20,9 @@ use serde_json::{Value, json};
 use tracing::debug;
 
 use dcc_mcp_jsonrpc::{
-    DiscoverResult, JsonRpcRequest, JsonRpcResponse, SUPPORTED_MODERN_PROTOCOL_VERSIONS,
-    ServerInfo, StatelessServerCapabilities, ToolsCapability, complete_modern_result, error_codes,
+    DiscoverResult, JsonRpcRequest, JsonRpcResponse, PromptsCapability, ResourcesCapability,
+    SUPPORTED_MODERN_PROTOCOL_VERSIONS, ServerInfo, StatelessServerCapabilities,
+    ToolsCapability, complete_modern_result, error_codes,
 };
 
 use crate::mcp_tool_list_builder::{assemble_full_tool_list, slice_tools_page};
@@ -127,8 +128,9 @@ impl StatelessMcpService {
             "ping" => json!({"jsonrpc": "2.0", "id": id, "result": {}}),
             "tools/list" => self.handle_tools_list(id, req).await,
             "tools/call" => self.handle_tools_call(id, req).await,
-            "resources/list" => self.handle_resources_list(id).await,
-            "prompts/list" => self.handle_prompts_list(id).await,
+            "resources/list" | "resources/read" | "prompts/list" | "prompts/get" => {
+                super::providers::handle_request(&self.state, &self.registry_context, req, id)
+            }
             other => {
                 debug!(method = other, "stateless: method not found");
                 let error = JsonRpcResponse::method_not_found(Some(id), other);
@@ -177,12 +179,30 @@ impl StatelessMcpService {
 
     fn build_stateless_capabilities(&self) -> StatelessServerCapabilities {
         StatelessServerCapabilities {
-            // This path has no subscription stream. Resources and prompts
-            // remain unadvertised until their read/get handlers are wired.
+            // Stateless requests do not provide a subscription stream.
             // The final 2026 revision does not include the task wire surface.
             tools: Some(ToolsCapability {
                 list_changed: false,
             }),
+            resources: if self.state.features.enable_resources
+                && self.registry_context.resource_provider.is_some()
+            {
+                Some(ResourcesCapability {
+                    subscribe: false,
+                    list_changed: false,
+                })
+            } else {
+                None
+            },
+            prompts: if self.state.features.enable_prompts
+                && self.registry_context.prompt_provider.is_some()
+            {
+                Some(PromptsCapability {
+                    list_changed: false,
+                })
+            } else {
+                None
+            },
             ..Default::default()
         }
     }
@@ -278,32 +298,6 @@ impl StatelessMcpService {
                 })
             }
         }
-    }
-
-    /// `resources/list` — returns an empty list when resources are disabled.
-    async fn handle_resources_list(&self, id: Value) -> Value {
-        if !self.state.features.enable_resources {
-            return json!({
-                "jsonrpc": "2.0", "id": id,
-                "error": {
-                    "code": error_codes::METHOD_NOT_FOUND,
-                    "message": "Resources not enabled"
-                }
-            });
-        }
-        // Stateless path: no resource provider wiring yet (Phase 1).
-        json!({"jsonrpc": "2.0", "id": id, "result": {"resources": []}})
-    }
-
-    /// `prompts/list` — returns an empty list when prompts are disabled.
-    async fn handle_prompts_list(&self, id: Value) -> Value {
-        if !self.state.features.enable_prompts {
-            return json!({
-                "jsonrpc": "2.0", "id": id,
-                "result": {"prompts": []}
-            });
-        }
-        json!({"jsonrpc": "2.0", "id": id, "result": {"prompts": []}})
     }
 }
 

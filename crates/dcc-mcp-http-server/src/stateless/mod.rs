@@ -27,6 +27,7 @@
 //! ```
 
 mod meta;
+mod providers;
 mod service;
 
 pub use service::{StatelessDispatchOutcome, StatelessMcpService};
