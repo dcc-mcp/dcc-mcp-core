@@ -372,13 +372,18 @@ class TestMcpHttpProtocol:
         # (returns 415 because it doesn't match the expected JSON-RPC structure)
         assert code in (200, 400, 415)
 
-    def test_empty_batch_returns_invalid_request(self, running_server):
-        """JSON-RPC batches are not supported by rmcp (returns 415)."""
+    @pytest.mark.parametrize("batch", [[], [{}], [None]])
+    def test_empty_batch_returns_invalid_request(self, running_server, batch):
+        """Packaged ingress rejects malformed batches before legacy dispatch."""
         _, _, url = running_server
         client = McpClient(url)
-        code, _text = client.post_raw(json.dumps([]).encode())
-        # rmcp doesn't support batch requests; returns 415 Unsupported Media Type
-        assert code == 415
+        code, text = client.post_raw(json.dumps(batch).encode())
+        assert code == 400
+        body = json.loads(text)
+        assert body["jsonrpc"] == "2.0"
+        assert body["id"] is None
+        assert body["error"]["code"] == -32600
+        assert "result" not in body
 
     def test_client_response_message_is_accepted_without_response(self, running_server):
         """Client responses to server-initiated requests are acknowledgements, not new requests."""
