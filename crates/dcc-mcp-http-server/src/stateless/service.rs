@@ -21,8 +21,8 @@ use tracing::debug;
 
 use dcc_mcp_jsonrpc::{
     DiscoverResult, JsonRpcRequest, JsonRpcResponse, PromptsCapability, ResourcesCapability,
-    SUPPORTED_MODERN_PROTOCOL_VERSIONS, ServerInfo, StatelessServerCapabilities,
-    ToolsCapability, complete_modern_result, error_codes,
+    SUPPORTED_MODERN_PROTOCOL_VERSIONS, ServerInfo, StatelessServerCapabilities, ToolsCapability,
+    complete_modern_result, error_codes,
 };
 
 use crate::mcp_tool_list_builder::{assemble_full_tool_list, slice_tools_page};
@@ -129,7 +129,11 @@ impl StatelessMcpService {
             "tools/list" => self.handle_tools_list(id, req).await,
             "tools/call" => self.handle_tools_call(id, req).await,
             "resources/list" | "resources/read" | "prompts/list" | "prompts/get" => {
-                super::providers::handle_request(&self.state, &self.registry_context, req, id)
+                match super::providers::handle_request(&self.state, &self.registry_context, req, id)
+                {
+                    StatelessDispatchOutcome::Response(response) => response,
+                    outcome => return outcome,
+                }
             }
             other => {
                 debug!(method = other, "stateless: method not found");

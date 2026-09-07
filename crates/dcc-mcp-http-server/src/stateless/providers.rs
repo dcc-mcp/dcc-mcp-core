@@ -7,6 +7,7 @@ use dcc_mcp_jsonrpc::{
 use serde::Serialize;
 use serde_json::{Value, json};
 
+use super::StatelessDispatchOutcome;
 use crate::rmcp_providers::ProviderError;
 use crate::rmcp_registry_context::RegistryContext;
 use crate::server_state::ServerState;
@@ -18,7 +19,7 @@ pub(super) fn handle_request(
     context: &RegistryContext,
     request: &JsonRpcRequest,
     id: Value,
-) -> Value {
+) -> StatelessDispatchOutcome {
     let enabled = match request.method.as_str() {
         "resources/list" | "resources/read" => {
             state.features.enable_resources && context.resource_provider.is_some()
@@ -29,8 +30,10 @@ pub(super) fn handle_request(
         _ => false,
     };
     if !enabled {
-        return serde_json::to_value(JsonRpcResponse::method_not_found(Some(id), &request.method))
-            .unwrap_or(Value::Null);
+        return StatelessDispatchOutcome::MethodNotFound(
+            serde_json::to_value(JsonRpcResponse::method_not_found(Some(id), &request.method))
+                .unwrap_or(Value::Null),
+        );
     }
     let result = dispatch(state, context, request);
     let response = match result {
@@ -56,7 +59,7 @@ pub(super) fn handle_request(
             JsonRpcResponse::error(Some(id), code, message)
         }
     };
-    serde_json::to_value(response).unwrap_or(Value::Null)
+    StatelessDispatchOutcome::Response(serde_json::to_value(response).unwrap_or(Value::Null))
 }
 
 fn invalid_params() -> ProviderError {

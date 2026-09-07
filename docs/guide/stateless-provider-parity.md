@@ -14,18 +14,26 @@ notifications; consumers re-list to observe catalog changes.
   Follow `nextCursor`; malformed, non-ASCII or out-of-range cursors are rejected.
 - Resource payloads retain their text/blob and MIME type. Prompt templates
   retain their declared arguments and source metadata.
-- Missing providers or disabled features return method-not-found. Missing
+- Missing providers or disabled features return HTTP 404 with method-not-found. Missing
   targets and malformed arguments return invalid-params; a provider's disabled
   resource and internal-error categories remain distinct. Responses do not
-  expose provider exception text.
+  expose provider exception text. Business/provider errors remain HTTP 200;
+  malformed request envelopes fail at ingress before provider access.
 - Prompt arguments must be a string-to-string object; no implicit value
   stringification occurs on this route.
 - Pagination does not create a session or pin a catalog snapshot. Re-list after
   loading/unloading skills rather than reusing old cursors indefinitely.
 
-This repairs provider wiring only. Subscriptions, notifications, and final
-2026 wire-envelope conformance have separate gates; successful provider tests
-are not a claim of full protocol support. Adapter and public skill authoring
+Every modern provider request supplies the required namespaced request metadata
+and matching standard headers. Successful results pass through the shared final
+response builder: server identity lives in result `_meta`, `resultType` is
+`complete`, and cacheable resource reads/lists and prompt lists use conservative
+`ttlMs: 0` and `cacheScope: private`. Prompt rendering is not marked cacheable.
+Legacy responses retain their existing envelope.
+
+This repairs provider wiring and its request/response integration. Subscriptions
+and notifications have separate gates; successful provider tests are not a
+claim of full protocol support. Adapter and public skill authoring
 APIs are unchanged, so no public agent-plugins skill change is needed for this
 provider repair.
 

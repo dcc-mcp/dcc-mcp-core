@@ -7,8 +7,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use dcc_mcp_actions::{ToolDispatcher, ToolRegistry};
 use dcc_mcp_http_types::config::FeatureFlags;
 use dcc_mcp_jsonrpc::{
-    GetPromptResult, JsonRpcRequestBuilder, McpPrompt, McpPromptArgument, McpPromptContent,
-    McpPromptMessage, McpResource, ReadResourceResult, ResourceContents, encode_cursor,
+    GetPromptResult, JsonRpcRequest, JsonRpcRequestBuilder, McpPrompt, McpPromptArgument,
+    McpPromptContent, McpPromptMessage, McpResource, ReadResourceResult, ResourceContents,
+    encode_cursor,
 };
 use dcc_mcp_skill_rest::StaticReadiness;
 use dcc_mcp_skills::SkillCatalog;
@@ -17,7 +18,7 @@ use serde_json::{Value, json};
 use crate::rmcp_providers::{PromptProvider, ProviderError, ResourceProvider};
 use crate::rmcp_registry_context::RegistryContext;
 use crate::server_state::ServerState;
-use crate::stateless::StatelessMcpService;
+use crate::stateless::{StatelessDispatchOutcome, StatelessMcpService};
 
 #[derive(Default)]
 struct FixtureProvider {
@@ -172,16 +173,42 @@ fn service(
     StatelessMcpService::new(state, context)
 }
 
-async fn call(service: &StatelessMcpService, method: &str, params: Option<Value>) -> Value {
-    let request = serde_json::from_value(
+fn request(method: &str, params: Option<Value>) -> JsonRpcRequest {
+    let mut params = params
+        .filter(|value| !value.is_null())
+        .unwrap_or_else(|| json!({}));
+    if let Some(object) = params.as_object_mut() {
+        object.insert(
+            "_meta".into(),
+            json!({
+                dcc_mcp_jsonrpc::PROTOCOL_VERSION_META_KEY: "2026-07-28",
+                dcc_mcp_jsonrpc::CLIENT_CAPABILITIES_META_KEY: {}
+            }),
+        );
+    }
+    serde_json::from_value(
         JsonRpcRequestBuilder::new("provider-request", method)
-            .with_optional_params(params)
+            .with_params(params)
             .to_value(),
     )
-    .unwrap();
+    .unwrap()
+}
+
+async fn call(service: &StatelessMcpService, method: &str, params: Option<Value>) -> Value {
+    let request = request(method, params);
     let response = service.handle_request(&request).await.unwrap();
     assert_eq!(response["id"], "provider-request");
     assert_eq!(response["jsonrpc"], "2.0");
+    if let Some(result) = response.get("result") {
+        assert_eq!(result["resultType"], "complete");
+        assert!(result["_meta"][dcc_mcp_jsonrpc::SERVER_INFO_META_KEY].is_object());
+        if dcc_mcp_jsonrpc::CACHEABLE_RESULT_METHODS.contains(&method) {
+            assert_eq!(result["ttlMs"], 0);
+            assert_eq!(result["cacheScope"], "private");
+        } else {
+            assert!(result.get("ttlMs").is_none());
+        }
+    }
     response
 }
 
@@ -445,8 +472,17 @@ async fn disabled_features_never_invoke_installed_providers() {
     let service = service(Some(Arc::clone(&provider)), false, false);
     for (method, params) in provider_requests() {
         assert_error(&call(&service, method, Some(params)).await, -32601);
-        // Capability gating must precede parameter validation as well.
-        assert_error(&call(&service, method, Some(json!([]))).await, -32601);
+        // Capability gating precedes business-parameter validation, after
+        // the required modern request envelope has already been validated.
+        assert_error(
+            &call(
+                &service,
+                method,
+                Some(json!({"cursor": 42, "uri": 42, "name": 42})),
+            )
+            .await,
+            -32601,
+        );
     }
     assert_eq!(provider.calls.load(Ordering::SeqCst), 0);
 }
@@ -457,6 +493,33 @@ async fn absent_providers_return_method_not_found_instead_of_empty_success() {
     for (method, params) in provider_requests() {
         assert_error(&call(&service, method, Some(params)).await, -32601);
     }
+}
+
+#[tokio::test]
+async fn unavailable_provider_methods_preserve_method_not_found_origin() {
+    for service in [
+        service(None, true, true),
+        service(Some(populated_provider()), false, false),
+    ] {
+        for (method, params) in provider_requests() {
+            let outcome = service
+                .handle_request_with_outcome(&request(method, Some(params)))
+                .await;
+            assert!(
+                matches!(outcome, StatelessDispatchOutcome::MethodNotFound(_)),
+                "{method}: {outcome:?}"
+            );
+        }
+    }
+    let service = service(Some(populated_provider()), true, true);
+    let outcome = service
+        .handle_request_with_outcome(&request(
+            "resources/read",
+            Some(json!({"uri": "scene://missing"})),
+        ))
+        .await;
+    assert!(matches!(outcome, StatelessDispatchOutcome::Response(_)));
+    assert_error(&outcome.into_response().unwrap(), -32602);
 }
 
 #[tokio::test]

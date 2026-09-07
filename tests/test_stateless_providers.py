@@ -4,15 +4,18 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import urllib.error
 import urllib.request
 
 import pytest
 
 from dcc_mcp_core import McpHttpConfig
+from dcc_mcp_core import McpHttpServer
+from dcc_mcp_core import ToolRegistry
 from dcc_mcp_core import create_skill_server
 
 
-def _request(url, method, params=None, session=None, modern=True):
+def _request(url, method, params=None, session=None, modern=True, expected_status=200):
     params = dict(params or {})
     headers = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream"}
     if modern:
@@ -31,13 +34,48 @@ def _request(url, method, params=None, session=None, modern=True):
         data=json.dumps({"jsonrpc": "2.0", "id": method, "method": method, "params": params}).encode(),
         headers=headers,
     )
-    with urllib.request.urlopen(request, timeout=10) as response:
-        assert response.status == 200
+    try:
+        response = urllib.request.urlopen(request, timeout=10)
+    except urllib.error.HTTPError as error:
+        response = error
+    with response:
+        assert response.status == expected_status
         body = json.loads(response.read())
         assert body["id"] == method
         if modern:
             assert response.headers.get("Mcp-Session-Id") is None
+            if "result" in body:
+                result = body["result"]
+                assert result["resultType"] == "complete"
+                assert isinstance(result["_meta"]["io.modelcontextprotocol/serverInfo"], dict)
+                if method in ("server/discover", "resources/list", "resources/read", "prompts/list"):
+                    assert result["ttlMs"] == 0
+                    assert result["cacheScope"] == "private"
+                else:
+                    assert "ttlMs" not in result
+        elif "result" in body:
+            assert "resultType" not in body["result"]
         return body, response.headers.get("Mcp-Session-Id")
+
+
+@pytest.mark.parametrize(
+    ("method", "params"),
+    [
+        ("resources/list", {}),
+        ("resources/read", {"uri": "scene://current"}),
+        ("prompts/list", {}),
+        ("prompts/get", {"name": "missing"}),
+    ],
+)
+def test_disabled_stateless_provider_methods_return_http_not_found(method, params):
+    config = McpHttpConfig(port=0)
+    config.enable_resources = False
+    config.enable_prompts = False
+    server = McpHttpServer(ToolRegistry(), config)
+    with server.start() as handle:
+        body, _ = _request(handle.mcp_url(), method, params, expected_status=404)
+    assert body["error"]["code"] == -32601
+    assert "result" not in body
 
 
 @pytest.fixture(params=["blender", "maya"])

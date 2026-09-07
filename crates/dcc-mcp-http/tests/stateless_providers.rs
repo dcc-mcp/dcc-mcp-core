@@ -16,8 +16,19 @@ async fn request(
     client: &reqwest::Client,
     url: &str,
     method: &str,
+    params: Value,
+    modern: bool,
+) -> Value {
+    request_with_status(client, url, method, params, modern, reqwest::StatusCode::OK).await
+}
+
+async fn request_with_status(
+    client: &reqwest::Client,
+    url: &str,
+    method: &str,
     mut params: Value,
     modern: bool,
+    status: reqwest::StatusCode,
 ) -> Value {
     let mut request = client
         .post(url)
@@ -39,13 +50,62 @@ async fn request(
         .with_params(params)
         .to_value();
     let response = request.json(&envelope).send().await.expect("HTTP response");
-    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    assert_eq!(response.status(), status);
     if modern {
         assert!(response.headers().get("Mcp-Session-Id").is_none());
     }
     let body: Value = response.json().await.expect("JSON-RPC body");
     assert_eq!(body["id"], "provider-check");
+    if let Some(result) = body.get("result") {
+        if modern {
+            assert_eq!(result["resultType"], "complete");
+            assert!(result["_meta"][dcc_mcp_jsonrpc::SERVER_INFO_META_KEY].is_object());
+            if dcc_mcp_jsonrpc::CACHEABLE_RESULT_METHODS.contains(&method) {
+                assert_eq!(result["ttlMs"], 0);
+                assert_eq!(result["cacheScope"], "private");
+            } else {
+                assert!(result.get("ttlMs").is_none());
+            }
+        } else {
+            assert!(result.get("resultType").is_none());
+        }
+    }
     body
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn disabled_provider_methods_return_http_not_found() {
+    let mut config = McpHttpConfig::default();
+    config.server.port = 0;
+    config.gateway.gateway_port = 0;
+    config.features.enable_resources = false;
+    config.features.enable_prompts = false;
+    let server = McpHttpServer::new(Arc::new(ToolRegistry::new()), config);
+    let handle = server.start().await.expect("start server");
+    let url = format!("http://127.0.0.1:{}/mcp", handle.port);
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .unwrap();
+    for (method, params) in [
+        ("resources/list", json!({})),
+        ("resources/read", json!({"uri": "scene://current"})),
+        ("prompts/list", json!({})),
+        ("prompts/get", json!({"name": "missing"})),
+    ] {
+        let body = request_with_status(
+            &client,
+            &url,
+            method,
+            params,
+            true,
+            reqwest::StatusCode::NOT_FOUND,
+        )
+        .await;
+        assert_eq!(body["error"]["code"], -32601);
+        assert!(body.get("result").is_none());
+    }
+    handle.shutdown().await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
