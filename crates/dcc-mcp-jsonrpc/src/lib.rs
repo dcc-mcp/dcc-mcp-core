@@ -68,10 +68,7 @@ pub use tools::{
 
 // ── Protocol-version negotiation + session/header/method constants ─────────
 
-/// MCP protocol version this server implements (default / latest).
-///
-/// Phase 1 (0.19.0): still `2025-06-18`; will become `2026-07-28` in Phase 2
-/// (0.21.0) per ADR-010.
+/// Default MCP protocol version for the legacy `initialize` lifecycle.
 pub const MCP_PROTOCOL_VERSION: &str = "2025-06-18";
 
 /// The MCP 2026-07-28 protocol version string.
@@ -82,11 +79,8 @@ pub const MCP_PROTOCOL_VERSION_2026_07_28: &str = MCP_PROTOCOL_VERSION_2026;
 
 /// All protocol versions this server can speak, newest first.
 ///
-/// `2026-07-28` is listed first so that `negotiate_protocol_version` returns it
-/// when a client explicitly requests it, even though `MCP_PROTOCOL_VERSION` is
-/// still `2025-06-18` in Phase 1.  The ordering here is used only for fallback
-/// when the client requests an *unknown* version — which remains `2025-06-18`
-/// until Phase 2.
+/// This includes both lifecycles. The HTTP protocol header selects the
+/// stateless lifecycle; `initialize` negotiates only legacy versions.
 #[cfg(feature = "mcp-2026-07-28")]
 pub const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &["2026-07-28", "2025-06-18", "2025-03-26"];
 
@@ -95,26 +89,25 @@ pub const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &["2025-06-18", "2025-03-26"];
 
 /// Legacy (session-based) protocol versions (2025-x and earlier).
 ///
-/// Used by [`select_protocol_mode`] to decide whether to route to the
-/// session-based or stateless handler.
+/// Used by [`select_protocol_mode`] for routing and by
+/// [`negotiate_protocol_version`] for `initialize` negotiation.
 pub const LEGACY_PROTOCOL_VERSIONS: &[&str] = &["2025-06-18", "2025-03-26"];
 
-/// Negotiate the protocol version to use for a session.
+/// Negotiate the protocol version for the legacy `initialize` lifecycle.
 ///
-/// If the client requests a version we support, we use it; otherwise we fall
-/// back to the Phase 1 default (`2025-06-18`), keeping old clients working.
-///
-/// In Phase 2 this will change to fall back to `2026-07-28`.
+/// Supported legacy versions are echoed; missing or unsupported versions
+/// fall back to `2025-06-18`. Even when stateless support is compiled in,
+/// requesting `2026-07-28` here cannot switch lifecycles: that protocol uses
+/// an explicit HTTP header and `server/discover`, not `initialize`.
 pub fn negotiate_protocol_version(client_requested: Option<&str>) -> &'static str {
     if let Some(requested) = client_requested {
-        for &v in SUPPORTED_PROTOCOL_VERSIONS {
+        for &v in LEGACY_PROTOCOL_VERSIONS {
             if v == requested {
                 return v;
             }
         }
     }
-    // Client asked for an unknown version (or didn't specify one) — fall back to
-    // the Phase 1 default so existing session-based clients are not broken.
+    // Keep the negotiated version consistent with the selected lifecycle.
     MCP_PROTOCOL_VERSION
 }
 
@@ -249,10 +242,9 @@ mod tests {
 
     // ── negotiate_protocol_version ──────────────────────────────────────────
 
-    #[cfg(feature = "mcp-2026-07-28")]
     #[test]
-    fn negotiate_returns_2026_when_client_requests_it() {
-        assert_eq!(negotiate_protocol_version(Some("2026-07-28")), "2026-07-28");
+    fn initialize_negotiation_does_not_select_the_stateless_lifecycle() {
+        assert_eq!(negotiate_protocol_version(Some("2026-07-28")), "2025-06-18");
     }
 
     #[test]

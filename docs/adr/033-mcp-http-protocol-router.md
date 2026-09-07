@@ -20,6 +20,12 @@ HTTP routers use `MCP-Protocol-Version` as the authoritative route signal:
 - `Accept`, `Mcp-Method`, and `Mcp-Name` are optional middleware hints and are
   not sufficient to upgrade an unversioned request.
 
+The `initialize` body does not select a lifecycle. Its version negotiation
+is restricted to `2025-06-18` and `2025-03-26`; requesting `2026-07-28` (or
+another unsupported version) falls back to `2025-06-18`. Clients opting into
+the stateless header use `server/discover`; that route rejects `initialize`
+as an unsupported method.
+
 The shared `dcc-mcp-jsonrpc::select_protocol_mode_from_headers` helper owns
 this decision so the embedded HTTP server, gateway, and CLI cannot drift.
 Phase 2 HTTP integration may add validation of the optional hints, but must
