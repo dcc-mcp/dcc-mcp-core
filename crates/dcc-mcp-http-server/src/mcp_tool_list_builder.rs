@@ -192,7 +192,7 @@ pub fn slice_tools_page(
 ) -> (Vec<McpTool>, Option<String>) {
     let total = tools.len();
     let cursor: usize = cursor_str.and_then(decode_cursor).unwrap_or(0);
-    let page_end = (cursor + TOOLS_LIST_PAGE_SIZE).min(total);
+    let page_end = cursor.saturating_add(TOOLS_LIST_PAGE_SIZE).min(total);
     let page: Vec<McpTool> = if cursor < total {
         tools.drain(cursor..page_end).collect()
     } else {
@@ -274,6 +274,59 @@ mod tests {
         ] {
             let projected = project_modern_tools(&state, rows);
             assert_eq!(serde_json::to_value(projected).unwrap(), json!([expected]));
+        }
+    }
+
+    fn pagination_tools() -> Vec<McpTool> {
+        (0..TOOLS_LIST_PAGE_SIZE * 2 + 1)
+            .map(|index| McpTool {
+                name: format!("tool_{index}"),
+                ..Default::default()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn slice_tools_page_out_of_range_cursors_end_pagination() {
+        for offset in [
+            usize::MAX,
+            usize::MAX - TOOLS_LIST_PAGE_SIZE + 1,
+            pagination_tools().len(),
+        ] {
+            let cursor = encode_cursor(offset);
+            let (page, next_cursor) = slice_tools_page(pagination_tools(), Some(&cursor));
+            assert!(page.is_empty(), "offset: {offset}");
+            assert_eq!(next_cursor, None, "offset: {offset}");
+        }
+    }
+
+    #[test]
+    fn slice_tools_page_preserves_page_order_and_completion() {
+        let mut cursor = None;
+        let mut names = Vec::new();
+        for expected_size in [TOOLS_LIST_PAGE_SIZE, TOOLS_LIST_PAGE_SIZE, 1] {
+            let (page, next_cursor) = slice_tools_page(pagination_tools(), cursor.as_deref());
+            assert_eq!(page.len(), expected_size);
+            names.extend(page.into_iter().map(|tool| tool.name));
+            cursor = next_cursor;
+        }
+        assert_eq!(cursor, None);
+        assert_eq!(
+            names,
+            pagination_tools()
+                .into_iter()
+                .map(|tool| tool.name)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn slice_tools_page_malformed_cursors_keep_first_page_fallback() {
+        for cursor in ["0é0".to_owned(), "30".repeat(4096), "gg".to_owned()] {
+            let (page, next_cursor) = slice_tools_page(pagination_tools(), Some(&cursor));
+            assert_eq!(page.len(), TOOLS_LIST_PAGE_SIZE);
+            assert_eq!(page[0].name, "tool_0");
+            assert_eq!(next_cursor, Some(encode_cursor(TOOLS_LIST_PAGE_SIZE)));
         }
     }
 

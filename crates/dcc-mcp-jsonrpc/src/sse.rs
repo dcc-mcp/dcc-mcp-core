@@ -21,8 +21,12 @@ pub fn encode_cursor(offset: usize) -> String {
 }
 
 /// Decode a cursor produced by [`encode_cursor`]. Returns `None` if malformed.
+///
+/// Input is bounded by the longest cursor this platform can encode, so decoding
+/// untrusted tokens cannot allocate or scan an arbitrarily large input.
 pub fn decode_cursor(cursor: &str) -> Option<usize> {
-    if !cursor.len().is_multiple_of(2) {
+    const MAX_CURSOR_BYTES: usize = (usize::MAX.ilog10() as usize + 1) * 2;
+    if cursor.len() > MAX_CURSOR_BYTES || !cursor.len().is_multiple_of(2) || !cursor.is_ascii() {
         return None;
     }
     let bytes: Option<Vec<u8>> = (0..cursor.len())

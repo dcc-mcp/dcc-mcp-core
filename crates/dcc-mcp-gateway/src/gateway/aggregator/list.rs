@@ -32,7 +32,7 @@ pub async fn aggregate_tools_list(gs: &GatewayState, cursor: Option<&str>) -> Va
     // ── Pagination ───────────────────────────────────────────────────────
     let offset = cursor.and_then(decode_cursor).unwrap_or(0);
     let total = tools.len();
-    let page_end = (offset + TOOLS_LIST_PAGE_SIZE).min(total);
+    let page_end = offset.saturating_add(TOOLS_LIST_PAGE_SIZE).min(total);
     let page: Vec<Value> = if offset < total {
         tools.drain(offset..page_end).collect()
     } else {
@@ -44,4 +44,46 @@ pub async fn aggregate_tools_list(gs: &GatewayState, cursor: Option<&str>) -> Va
         result["nextCursor"] = json!(encode_cursor(page_end));
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::gateway::aggregator::tests::helpers::make_gateway_state;
+    use dcc_mcp_transport::discovery::file_registry::FileRegistry;
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn aggregate_tools_list_out_of_range_cursors_end_pagination() {
+        let directory = tempfile::tempdir().unwrap();
+        let registry = Arc::new(FileRegistry::new(directory.path()).unwrap());
+        let state = make_gateway_state(registry).await;
+
+        for offset in [
+            usize::MAX,
+            usize::MAX - TOOLS_LIST_PAGE_SIZE + 1,
+            TOOLS_LIST_PAGE_SIZE,
+        ] {
+            let result = aggregate_tools_list(&state, Some(&encode_cursor(offset))).await;
+            assert_eq!(result["tools"], json!([]), "offset: {offset}");
+            assert!(result.get("nextCursor").is_none(), "offset: {offset}");
+        }
+    }
+
+    #[tokio::test]
+    async fn aggregate_tools_list_malformed_cursors_keep_first_page_fallback() {
+        let directory = tempfile::tempdir().unwrap();
+        let registry = Arc::new(FileRegistry::new(directory.path()).unwrap());
+        let state = make_gateway_state(registry).await;
+        let first_page = aggregate_tools_list(&state, None).await;
+        assert!(!first_page["tools"].as_array().unwrap().is_empty());
+        assert!(first_page.get("nextCursor").is_none());
+
+        for cursor in ["0é0".to_owned(), "30".repeat(4096), "gg".to_owned()] {
+            assert_eq!(
+                aggregate_tools_list(&state, Some(&cursor)).await,
+                first_page
+            );
+        }
+    }
 }
