@@ -606,6 +606,7 @@ _ALL_LAZY: dict[str, str] = {
     "inspect_install_root": "dcc_mcp_core.deployment",
     "launch_sidecar": "dcc_mcp_core.deployment",
     "load_install_sop_schema": "dcc_mcp_core.deployment",
+    "validate_install_sop_report": "dcc_mcp_core.deployment",
     "plan_runtime_updates": "dcc_mcp_core.deployment",
     "probe_sidecar_tool": "dcc_mcp_core.deployment",
     "query_runtime_state": "dcc_mcp_core.deployment",

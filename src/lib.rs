@@ -132,6 +132,7 @@ fn register_models(m: &Bound<'_, PyModule>) -> PyResult<()> {
         dcc_mcp_models::py_serialize_result,
         dcc_mcp_models::py_deserialize_result,
     );
+    dcc_mcp_models::register_schema_validation(m)?;
     Ok(())
 }
 

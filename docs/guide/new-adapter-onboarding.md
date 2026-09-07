@@ -78,7 +78,7 @@ shared constants and schema from the ownership namespace:
 
 ```python
 from dcc_mcp_core.deployment import INSTALL_EXIT_CODES
-from dcc_mcp_core.deployment import load_install_sop_schema
+from dcc_mcp_core.deployment import validate_install_sop_report
 ```
 
 Before the first release, prove these behaviors:
@@ -94,8 +94,9 @@ Before the first release, prove these behaviors:
   idempotent;
 - verify checks digest, package/version, target-interpreter import, bootstrap
   diagnostics, and a typed readiness probe where the host can run; and
-- plan/install/status/verify/uninstall/upgrade JSON validates against the
-  shared schema with machine-executable `next_steps`.
+- plan/install/status/verify/uninstall/upgrade JSON passes
+  `validate_install_sop_report()` with machine-executable `next_steps` and no
+  adapter-owned Python JSON Schema runtime.
 
 The adapter catalog `instructions_url` must be:
 

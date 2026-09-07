@@ -16,6 +16,56 @@ except ImportError:  # pragma: no cover - direct script execution
     from python_support_contract import load_contract
 
 
+def _install_sop_report() -> dict:
+    return {
+        "schema_version": 1,
+        "status": "planned",
+        "dcc_type": "example",
+        "adapter_version": "1.2.3",
+        "core_version": "0.20.23",
+        "steps": [{"id": "preflight", "status": "ok"}],
+        "next_steps": [
+            {
+                "id": "execute",
+                "description": "Execute the validated plan.",
+                "why": "Planning does not mutate the host.",
+                "command": ["dcc-mcp-example", "install", "--yes"],
+            }
+        ],
+        "receipt_path": None,
+        "verify": {
+            "directly_usable": False,
+            "failure_stage": None,
+            "failure_reason": None,
+        },
+    }
+
+
+def _verify_install_sop_validation(profile: str) -> None:
+    from dcc_mcp_core import validate_install_sop_report
+
+    report = _install_sop_report()
+    if profile == "lite_py37":
+        try:
+            validate_install_sop_report(report)
+        except RuntimeError as exc:
+            if "native dcc-mcp-core wheel" not in str(exc):
+                raise
+        else:
+            raise RuntimeError("lite_py37 silently claimed native Install SOP validation")
+        return
+
+    validate_install_sop_report(report)
+    report["schema_version"] = 2
+    try:
+        validate_install_sop_report(report)
+    except ValueError as exc:
+        if "/schema_version" not in str(exc) or "const" not in str(exc):
+            raise
+    else:
+        raise RuntimeError("native_py37 accepted an unsupported Install SOP version")
+
+
 def _verify_profile(profile: str) -> None:
     contract = load_contract()
     expected = tuple(int(part) for part in contract["build"][profile]["python"].split("."))
@@ -25,6 +75,8 @@ def _verify_profile(profile: str) -> None:
 
     for module_name in contract["runtime_smoke"][profile]:
         importlib.import_module(module_name)
+
+    _verify_install_sop_validation(profile)
 
     if profile == "native_py37":
         from dcc_mcp_core import ToolRegistry
