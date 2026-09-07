@@ -3,7 +3,10 @@
 # Import built-in modules
 from __future__ import annotations
 
+from concurrent.futures import FIRST_COMPLETED
+from concurrent.futures import Future
 from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import wait
 import importlib.util
 import os
 from pathlib import Path
@@ -315,51 +318,72 @@ def test_shutdown_stays_bounded_when_request_stop_blocks(
 
     (tmp_path / "_state.py").write_text(
         "stop_release = None\n"
+        "stop_started = None\n"
         "cleaned = None\n"
-        "def configure(stop_event, cleaned_event):\n"
-        "    global stop_release, cleaned\n"
-        "    stop_release, cleaned = stop_event, cleaned_event\n"
-        "def request_stop(): stop_release.wait(5)\n"
+        "def configure(stop_event, started_event, cleaned_event):\n"
+        "    global stop_release, stop_started, cleaned\n"
+        "    stop_release, stop_started, cleaned = stop_event, started_event, cleaned_event\n"
+        "def request_stop():\n"
+        "    stop_started.set()\n"
+        "    stop_release.wait(5)\n"
         "def cleanup(): cleaned.set()\n",
         encoding="utf-8",
     )
     script = _write_script(
         tmp_path,
         "from ._state import configure\n"
-        "def main(started, release, stop_release, cleaned):\n"
-        "    configure(stop_release, cleaned)\n"
-        "    started.set()\n"
+        "def main(ready, release, stop_release, stop_started, cleaned):\n"
+        "    configure(stop_release, stop_started, cleaned)\n"
+        "    ready.set_result(None)\n"
         "    release.wait(5)\n"
         "    return 'done'\n",
     )
-    started = threading.Event()
+    ready: Future[None] = Future()
     release = threading.Event()
     stop_release = threading.Event()
+    stop_started = threading.Event()
     cleaned = threading.Event()
     bridge = HostExecutionBridge()
     monkeypatch.setattr(inprocess_executor, "_SCRIPT_PACKAGE_CLEAR_TIMEOUT_SECS", 0.05)
 
-    with ThreadPoolExecutor(max_workers=1) as pool:
-        call = pool.submit(
-            bridge.execute_script,
-            str(script),
-            {
-                "started": started,
-                "release": release,
-                "stop_release": stop_release,
-                "cleaned": cleaned,
-            },
-        )
-        assert started.wait(1)
-        before = time.monotonic()
-        assert bridge.shutdown_script_execution() == 0
-        assert time.monotonic() - before < 0.5
+    # Cold imports and worker scheduling are setup, not the shutdown contract.
+    fixture_timeout = 5
+    try:
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            call = pool.submit(
+                bridge.execute_script,
+                str(script),
+                {
+                    "ready": ready,
+                    "release": release,
+                    "stop_release": stop_release,
+                    "stop_started": stop_started,
+                    "cleaned": cleaned,
+                },
+            )
+            try:
+                completed, _ = wait((ready, call), timeout=fixture_timeout, return_when=FIRST_COMPLETED)
+                if call in completed:
+                    call.result()  # Surface import/worker errors instead of a readiness timeout.
+                    pytest.fail("script exited before the active-call shutdown check")
+                assert ready in completed, "script did not become ready before the setup deadline"
+                before = time.monotonic()
+                assert bridge.shutdown_script_execution() == 0
+                assert time.monotonic() - before < 0.5
+                assert stop_started.wait(fixture_timeout)
+                assert not call.done()
+                assert not cleaned.is_set()
 
-        release.set()
-        assert call.result(timeout=1) == "done"
-        assert not cleaned.is_set()
-        stop_release.set()
-        assert cleaned.wait(1)
+                release.set()
+                assert call.result(timeout=fixture_timeout) == "done"
+                assert not cleaned.is_set()
+                stop_release.set()
+                assert cleaned.wait(fixture_timeout)
+            finally:
+                release.set()
+                stop_release.set()
+    finally:
+        bridge.shutdown_script_execution()
 
 
 def test_run_skill_script_supports_single_dict_main(tmp_path: Path) -> None:
