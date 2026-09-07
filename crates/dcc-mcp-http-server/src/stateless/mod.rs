@@ -29,4 +29,4 @@
 mod meta;
 mod service;
 
-pub use service::StatelessMcpService;
+pub use service::{StatelessDispatchOutcome, StatelessMcpService};

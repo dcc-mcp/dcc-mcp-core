@@ -40,6 +40,27 @@ pub struct StatelessMcpService {
     registry_context: Arc<RegistryContext>,
 }
 
+/// Transport-neutral origin of a stateless result. Handler errors remain
+/// in-band; only ingress and method-registry failures change HTTP status.
+#[derive(Debug)]
+pub enum StatelessDispatchOutcome {
+    Notification,
+    Response(Value),
+    InvalidEnvelope(Value),
+    MethodNotFound(Value),
+}
+
+impl StatelessDispatchOutcome {
+    pub fn into_response(self) -> Option<Value> {
+        match self {
+            Self::Notification => None,
+            Self::Response(value) | Self::InvalidEnvelope(value) | Self::MethodNotFound(value) => {
+                Some(value)
+            }
+        }
+    }
+}
+
 impl StatelessMcpService {
     /// Create a new service backed by the given server state.
     #[must_use]
@@ -55,12 +76,23 @@ impl StatelessMcpService {
     /// Notifications (requests with no `id`) should be handled by the caller
     /// and not forwarded here; they return `null`.
     pub async fn handle_request(&self, req: &JsonRpcRequest) -> Option<Value> {
-        let id = req.id.clone()?;
+        self.handle_request_with_outcome(req).await.into_response()
+    }
+
+    /// Preserve error origin for HTTP adapters without inspecting handler
+    /// error codes or duplicating the method registry.
+    pub async fn handle_request_with_outcome(
+        &self,
+        req: &JsonRpcRequest,
+    ) -> StatelessDispatchOutcome {
+        let Some(id) = req.id.clone() else {
+            return StatelessDispatchOutcome::Notification;
+        };
         let meta = req.params.as_ref().and_then(|p| p.get("_meta"));
         let metadata = match RequestMeta::parse(meta) {
             Ok(meta) => meta,
             Err(issue) => {
-                return Some(
+                return StatelessDispatchOutcome::InvalidEnvelope(
                     serde_json::to_value(JsonRpcResponse::error_with_data(
                         Some(id),
                         error_codes::INVALID_PARAMS,
@@ -74,7 +106,7 @@ impl StatelessMcpService {
         if !dcc_mcp_jsonrpc::SUPPORTED_MODERN_PROTOCOL_VERSIONS
             .contains(&metadata.protocol_version.as_str())
         {
-            return Some(
+            return StatelessDispatchOutcome::InvalidEnvelope(
                 serde_json::to_value(JsonRpcResponse::unsupported_protocol_version(
                     Some(id),
                     &metadata.protocol_version,
@@ -99,7 +131,9 @@ impl StatelessMcpService {
             other => {
                 debug!(method = other, "stateless: method not found");
                 let error = JsonRpcResponse::method_not_found(Some(id), other);
-                serde_json::to_value(error).unwrap_or_else(|_| json!(null))
+                return StatelessDispatchOutcome::MethodNotFound(
+                    serde_json::to_value(error).unwrap_or(Value::Null),
+                );
             }
         };
         if let Some(result) = response.get_mut("result").and_then(Value::as_object_mut) {
@@ -108,13 +142,13 @@ impl StatelessMcpService {
                 version: self.state.server_version.clone(),
             };
             if let Err(message) = complete_modern_result(&req.method, result, &server_info) {
-                return Some(
+                return StatelessDispatchOutcome::Response(
                     serde_json::to_value(JsonRpcResponse::internal_error(req.id.clone(), message))
                         .unwrap_or(Value::Null),
                 );
             }
         }
-        Some(response)
+        StatelessDispatchOutcome::Response(response)
     }
 
     /// `server/discover` — returns server capabilities without creating a session.
@@ -197,6 +231,19 @@ impl StatelessMcpService {
             }
         };
 
+        // Legacy callers may coerce JSON-string arguments in the shared
+        // dispatcher. The modern wire contract must validate the raw object
+        // before dispatch (and before schema-driven parameter-header checks).
+        if params
+            .get("arguments")
+            .is_some_and(|arguments| !arguments.is_object())
+        {
+            return serde_json::to_value(JsonRpcResponse::invalid_params(
+                Some(id),
+                "arguments must be an object when present",
+            ))
+            .unwrap_or(Value::Null);
+        }
         let arguments = params.get("arguments").cloned();
 
         // Extract _meta for async dispatch / progress routing.
@@ -416,8 +463,12 @@ mod tests {
     async fn unknown_method_returns_method_not_found() {
         let svc = make_service();
         let req = make_request("initialize", json!(3), None);
-        let resp = svc.handle_request(&req).await.expect("has id");
-
+        let outcome = svc.handle_request_with_outcome(&req).await;
+        assert!(matches!(
+            outcome,
+            StatelessDispatchOutcome::MethodNotFound(_)
+        ));
+        let resp = outcome.into_response().expect("has id");
         assert_eq!(resp["error"]["code"], error_codes::METHOD_NOT_FOUND);
     }
 
@@ -451,7 +502,9 @@ mod tests {
     async fn tools_call_missing_name_returns_invalid_params() {
         let svc = make_service();
         let req = make_request("tools/call", json!(5), Some(json!({"arguments": {}})));
-        let resp = svc.handle_request(&req).await.expect("has id");
+        let outcome = svc.handle_request_with_outcome(&req).await;
+        assert!(matches!(outcome, StatelessDispatchOutcome::Response(_)));
+        let resp = outcome.into_response().expect("has id");
         assert_eq!(resp["error"]["code"], error_codes::INVALID_PARAMS);
     }
 
@@ -471,5 +524,57 @@ mod tests {
         assert_eq!(result["resultType"], "complete");
         assert!(result["_meta"][SERVER_INFO_META_KEY].is_object());
         assert!(result.get("ttlMs").is_none());
+    }
+
+    #[tokio::test]
+    async fn modern_argument_shape_rejects_before_handler_without_changing_legacy_coercion() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let svc = make_service();
+        let calls = Arc::new(AtomicUsize::new(0));
+        svc.state
+            .registry
+            .register_action(dcc_mcp_actions::ToolMeta {
+                name: "bounded_probe".into(),
+                input_schema: json!({"type":"object","properties":{}}),
+                ..Default::default()
+            });
+        let observed = calls.clone();
+        svc.state
+            .dispatcher
+            .register_handler("bounded_probe", move |_| {
+                observed.fetch_add(1, Ordering::SeqCst);
+                Ok(json!({"ok":true}))
+            });
+        for arguments in [json!(null), json!("{}"), json!([]), json!(false)] {
+            let request = make_request(
+                "tools/call",
+                json!("invalid"),
+                Some(json!({"name":"bounded_probe","arguments":arguments})),
+            );
+            let response = svc.handle_request(&request).await.unwrap();
+            assert_eq!(response["error"]["code"], error_codes::INVALID_PARAMS);
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        for params in [
+            json!({"name":"bounded_probe"}),
+            json!({"name":"bounded_probe","arguments":{}}),
+        ] {
+            let request = make_request("tools/call", json!("valid"), Some(params));
+            let response = svc.handle_request(&request).await.unwrap();
+            assert_ne!(response["result"]["isError"], true, "{response}");
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        let legacy = dispatch_rmcp_tool_call(
+            &svc.state,
+            &svc.registry_context,
+            None,
+            "bounded_probe",
+            Some(json!("{}")),
+            None,
+        )
+        .await
+        .unwrap();
+        assert!(!legacy.is_error);
+        assert_eq!(calls.load(Ordering::SeqCst), 3);
     }
 }

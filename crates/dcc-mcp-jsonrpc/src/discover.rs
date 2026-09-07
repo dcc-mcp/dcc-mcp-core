@@ -54,7 +54,7 @@ pub struct TasksCapability {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::{Value, json};
+    use serde_json::json;
 
     // ── ServerDiscoverResult round-trip ─────────────────────────────────────
 

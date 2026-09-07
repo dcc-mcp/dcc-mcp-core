@@ -24,11 +24,56 @@ fn valid_id(value: &Value) -> bool {
     value.is_string() || crate::envelope_validation::is_safe_integer(value)
 }
 
-fn contains_claim(body: &Value) -> bool {
-    body.as_array().map_or_else(
-        || has_modern_envelope_claim(body),
-        |rows| rows.iter().any(contains_claim),
-    )
+fn only_keys(value: &Value, allowed: &[&str]) -> bool {
+    value
+        .as_object()
+        .is_some_and(|object| object.keys().all(|key| allowed.contains(&key.as_str())))
+}
+
+fn valid_params(params: &Value) -> bool {
+    params.is_object()
+        && params.get("_meta").is_none_or(|meta| {
+            meta.is_object()
+                && meta.get("progressToken").is_none_or(valid_id)
+                && meta
+                    .get("io.modelcontextprotocol/related-task")
+                    .is_none_or(|task| {
+                        task.is_object() && task.get("taskId").is_some_and(Value::is_string)
+                    })
+        })
+}
+
+fn valid_request_message(body: &Value) -> bool {
+    only_keys(body, &["jsonrpc", "id", "method", "params"])
+        && body.get("jsonrpc").and_then(Value::as_str) == Some("2.0")
+        && body.get("method").is_some_and(Value::is_string)
+        && body.get("id").is_none_or(valid_id)
+        && body.get("params").is_none_or(valid_params)
+}
+
+fn valid_legacy_message(body: &Value) -> bool {
+    if valid_request_message(body) {
+        return true;
+    }
+    if body.get("jsonrpc").and_then(Value::as_str) != Some("2.0") {
+        return false;
+    }
+    if let Some(result) = body.get("result") {
+        return only_keys(body, &["jsonrpc", "id", "result"])
+            && body.get("id").is_some_and(valid_id)
+            && result.is_object()
+            && result.get("_meta").is_none_or(Value::is_object);
+    }
+    if let Some(error) = body.get("error") {
+        return only_keys(body, &["jsonrpc", "id", "error"])
+            && body.get("id").is_none_or(valid_id)
+            && error.is_object()
+            && error
+                .get("code")
+                .is_some_and(crate::envelope_validation::is_safe_integer)
+            && error.get("message").is_some_and(Value::is_string);
+    }
+    false
 }
 
 fn envelope_error(id: Option<Value>, issue: crate::EnvelopeIssue) -> JsonRpcResponse {
@@ -58,8 +103,12 @@ pub fn classify_protocol_request(
         name: headers.name.map(strip_ows),
         ..headers
     };
-    if body.is_array() {
-        return if contains_claim(body) {
+    if let Some(rows) = body.as_array() {
+        return if rows.is_empty()
+            || rows
+                .iter()
+                .any(|row| has_modern_envelope_claim(row) || !valid_legacy_message(row))
+        {
             Err(JsonRpcResponse::invalid_request())
         } else {
             Ok(InboundRoute::Legacy)
@@ -79,11 +128,7 @@ pub fn classify_protocol_request(
     }
 
     let id = body.get("id").filter(|value| valid_id(value)).cloned();
-    if body.get("jsonrpc").and_then(Value::as_str) != Some("2.0")
-        || !body.get("method").is_some_and(Value::is_string)
-        || body.get("id").is_some_and(|v| !valid_id(v))
-        || body.get("params").is_some_and(|v| !v.is_object())
-    {
+    if !valid_request_message(body) {
         return Err(JsonRpcResponse::invalid_request());
     }
     let request: JsonRpcRequest =
@@ -92,7 +137,8 @@ pub fn classify_protocol_request(
     let parsed_meta = StatelessRequestMeta::parse(raw_meta);
     // Preserve the SDK's legacy initialize exception; a VALID modern claim
     // instead reaches the modern registry and returns method-not-found.
-    if request.method == "initialize"
+    if request.id.is_some()
+        && request.method == "initialize"
         && !parsed_meta
             .as_ref()
             .is_ok_and(|m| is_modern(&m.protocol_version))

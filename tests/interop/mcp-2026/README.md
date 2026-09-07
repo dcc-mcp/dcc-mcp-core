@@ -1,4 +1,4 @@
-# MCP 2026 response interoperability
+# MCP 2026 bounded interoperability
 
 This bounded smoke exercises `server/discover`, `tools/list`, and `tools/call`
 through the official `@modelcontextprotocol/client` **2.0.0**, using both auto
@@ -23,6 +23,19 @@ The authoritative specification schema is pinned to
 `e76e9c572c6f2bfcb730357101acc90f2f802e02`, at
 `schema/2026-07-28/schema.ts`.
 
-This is **not** a full conformance claim. Request-envelope validation,
-header/body consistency, standard errors, parameter header mirroring,
-subscriptions, and multi-round-trip execution require separate acceptance.
+## Request boundary
+
+Run `node tests/interop/mcp-2026/request-oracle.mjs` for the public server SDK
+**2.0.0** fixture oracle. The same cases drive native HTTP and Python-binding
+tests; `--test stateless_request_boundary` also exercises configured body
+limits and, with `DCC_MCP_SDK_SMOKE=1`, both official client modes above.
+
+Of 29 cases, 28 match the published SDK. One explicitly asserted release
+difference remains: 2.0.0 accepts a modern body missing the version header,
+whereas the pinned official source requires it (Core returns 400/-32020).
+The all-legacy batch fixture uses public `isLegacyRequest`, because strict
+modern-only rejection is not the dual-era forwarding contract under test.
+
+This is **not** a full conformance claim. Schema-driven parameter header
+mirroring, subscriptions, multi-round-trip execution, and full transport /
+authorization behavior require separate acceptance.

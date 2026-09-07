@@ -47,7 +47,7 @@ fn error_code(result: Result<InboundRoute, JsonRpcResponse>) -> i64 {
 fn pinned_negative_fixture_matches_the_shared_classifier() {
     let cases: Vec<Value> =
         serde_json::from_str(include_str!("fixtures/modern_request_cases.json")).unwrap();
-    assert_eq!(cases.len(), 18);
+    assert_eq!(cases.len(), 29);
     for case in cases {
         let h = &case["headers"];
         let result = classify(
@@ -57,11 +57,19 @@ fn pinned_negative_fixture_matches_the_shared_classifier() {
             h["Mcp-Name"].as_str(),
         );
         if case["route"] == "legacy" {
-            assert!(matches!(result, Ok(InboundRoute::Legacy)), "{}", case["name"]);
+            assert!(
+                matches!(result, Ok(InboundRoute::Legacy)),
+                "{}",
+                case["name"]
+            );
             continue;
         }
         if case["route"] == "modern" {
-            assert!(matches!(result, Ok(InboundRoute::Modern(_))), "{}", case["name"]);
+            assert!(
+                matches!(result, Ok(InboundRoute::Modern(_))),
+                "{}",
+                case["name"]
+            );
             continue;
         }
         assert_eq!(
@@ -133,7 +141,11 @@ fn envelope_requiredness_and_present_field_types_are_validated() {
         request["params"]["_meta"][key] = invalid;
         assert_eq!(
             error_code(classify(&request, Some(MODERN), Some("tools/list"), None)),
-            -32602,
+            if key == "progressToken" {
+                -32600
+            } else {
+                -32602
+            },
             "{request}"
         );
     }

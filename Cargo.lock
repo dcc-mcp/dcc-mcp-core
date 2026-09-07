@@ -1452,6 +1452,7 @@ dependencies = [
  "dcc-mcp-workflow",
  "futures",
  "http",
+ "http-body-util",
  "parking_lot",
  "pin-project-lite",
  "pyo3",
@@ -1573,6 +1574,7 @@ dependencies = [
 name = "dcc-mcp-jsonrpc"
 version = "0.20.23"
 dependencies = [
+ "base64 0.22.1",
  "dcc-mcp-protocols",
  "dcc-mcp-wire",
  "serde",

@@ -8,10 +8,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 fn legacy_body(bytes: usize) -> String {
-    let mut body = JsonRpcRequestBuilder::new("legacy-limit", "initialize")
+    let body = JsonRpcRequestBuilder::new("legacy-limit", "initialize")
         .with_params(json!({"protocolVersion":"2025-06-18", "capabilities":{},
             "clientInfo":{"name":"bounded-test","version":"1"}, "padding":""}))
         .to_value();
+    padded_body(body, bytes)
+}
+
+fn padded_body(mut body: Value, bytes: usize) -> String {
     let overhead = body.to_string().len();
     body["params"]["padding"] = json!("x".repeat(bytes.checked_sub(overhead).unwrap()));
     let encoded = body.to_string();
@@ -59,6 +63,46 @@ async fn configured_request_body_limit_covers_mcp_and_honors_larger_values() {
                 assert_eq!(body["result"]["protocolVersion"], "2025-06-18");
                 assert!(body["result"].get("resultType").is_none());
             }
+            #[cfg(feature = "mcp-2026-07-28")]
+            {
+                let modern = modern::request("tools/list", json!({"padding":""}));
+                let response = client
+                    .post(&url)
+                    .header("Content-Type", "application/json")
+                    .header("MCP-Protocol-Version", "2026-07-28")
+                    .header("Mcp-Method", "tools/list")
+                    .body(padded_body(modern, bytes))
+                    .send()
+                    .await
+                    .unwrap();
+                if bytes > limit {
+                    assert_eq!(response.status(), reqwest::StatusCode::PAYLOAD_TOO_LARGE);
+                } else {
+                    assert_eq!(response.status(), reqwest::StatusCode::OK);
+                    let body: Value = response.json().await.unwrap();
+                    assert_eq!(body["result"]["resultType"], "complete");
+                }
+            }
+        }
+        if limit == 1024 {
+            // Unknown Content-Length must not bypass the same configured
+            // budget (the outer layer cannot reject it from headers alone).
+            for bytes in [limit, limit + 1] {
+                let stream = futures::stream::iter([Ok::<_, std::io::Error>(legacy_body(bytes))]);
+                let response = client
+                    .post(&url)
+                    .header("Accept", "application/json, text/event-stream")
+                    .header("Content-Type", "application/json")
+                    .header("MCP-Protocol-Version", "2025-06-18")
+                    .body(reqwest::Body::wrap_stream(stream))
+                    .send()
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    response.status().as_u16(),
+                    if bytes > limit { 413 } else { 200 }
+                );
+            }
         }
         handle.shutdown().await;
     }
@@ -72,7 +116,7 @@ mod modern {
         StatelessRequestMeta,
     };
 
-    fn request(method: &str, params: Value) -> Value {
+    pub(super) fn request(method: &str, params: Value) -> Value {
         let meta =
             StatelessRequestMeta::parse(Some(&json!({VERSION:"2026-07-28",CAPS:{}}))).unwrap();
         JsonRpcRequestBuilder::new("positive", method)
@@ -121,6 +165,10 @@ mod modern {
                 case["name"]
             );
             assert!(response.headers().get("Mcp-Session-Id").is_none());
+            if case["status"] == 202 {
+                assert!(response.text().await.unwrap().is_empty());
+                continue;
+            }
             let body: Value = response.json().await.unwrap();
             assert_eq!(
                 body["error"]["code"], case["code"],
@@ -179,6 +227,26 @@ mod modern {
         assert_eq!(
             response.json::<Value>().await.unwrap()["error"]["code"],
             -32602
+        );
+
+        // A missing tool is a tools/call business result, not an unregistered
+        // JSON-RPC method. It stays HTTP 200 with isError=true.
+        let response = client
+            .post(&url)
+            .header("MCP-Protocol-Version", "2026-07-28")
+            .header("Mcp-Method", "tools/call")
+            .header("Mcp-Name", "missing-fixture-tool")
+            .json(&request(
+                "tools/call",
+                json!({"name":"missing-fixture-tool","arguments":{}}),
+            ))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::OK);
+        assert_eq!(
+            response.json::<Value>().await.unwrap()["result"]["isError"],
+            true
         );
 
         // Duplicate standard headers must not hide a disagreeing second value.

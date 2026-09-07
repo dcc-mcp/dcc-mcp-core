@@ -3,9 +3,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "smoke": "node client.mjs"
+    "smoke": "node client.mjs",
+    "request-oracle": "node request-oracle.mjs"
   },
   "dependencies": {
-    "@modelcontextprotocol/client": "2.0.0"
+    "@modelcontextprotocol/client": "2.0.0",
+    "@modelcontextprotocol/server": "2.0.0"
   }
 }

@@ -18,17 +18,23 @@ capability fields are validated without inferring capabilities from sessions.
 | Missing or malformed request envelope | 400 | -32602 |
 | Required standard header absent, malformed, or disagreeing | 400 | -32020 |
 | Unsupported modern version | 400 | -32022 |
+| Unregistered modern JSON-RPC method | 404 | -32601 |
 
 Unsupported-version errors use `data.supported` and `data.requested`.
 The shared error vocabulary also defines -32021 with `requiredCapabilities`;
 this change does not add methods requiring sampling, elicitation, or roots.
 Handler-produced invalid parameters remain ordinary HTTP 200 JSON-RPC errors.
+Tool execution failures remain HTTP 200 `tools/call` results with `isError`.
+HTTP status follows dispatch origin, not blanket mapping of handler error codes.
 
 `MCP-Protocol-Version` and `Mcp-Method` are required on modern request POSTs.
 `Mcp-Name` mirrors the standard method-specific name/URI field. Its shared
 codec supports canonical Base64 sentinels and strips only HTTP SP/HTAB around
 raw header values. Duplicate disagreeing headers are not silently ignored.
 Notification acceptance does not claim notification or cancellation support.
+All-legacy batch bodies remain legacy even with a modern version header;
+an envelope-claiming element cannot be forwarded through that legacy route.
+Empty batches, nested batches, and malformed elements fail before forwarding.
 
 ## Compatibility and shared producers
 
@@ -37,11 +43,14 @@ The existing CLI MCP routes explicitly use the legacy `MCP_PROTOCOL_VERSION`;
 the gateway's backend client does not create modern envelope claims. Those
 producers and adapter APIs are unchanged. A future modern client can opt into
 the canonical `StatelessRequestMeta` through the existing
-`JsonRpcRequestBuilder.with_stateless_metadata` method and use the shared
+`JsonRpcRequestBuilder::with_stateless_metadata` method and use the shared
 standard-header codec. It must not merely change a version header.
 
 Modern protocol metadata is lifted before tool business dispatch; vendor
 metadata, tracing, progress tokens, and tool arguments are preserved. The
+modern `tools/call` arguments must be an object when present; null, arrays,
+and JSON-encoded strings are rejected before any handler runs. The shared
+legacy argument coercion remains unchanged. The
 historical `StatelessRequestMeta` Rust name now models required namespaced
 fields; callers constructing its former optional RC shape must migrate.
 
@@ -53,11 +62,17 @@ Configured limits above the former modern-only 16 MiB cap remain honored.
 
 ## Evidence and remaining work
 
-The negative fixture is exercised by the shared classifier, a real native
-HTTP server, and the official SDK HTTP entry. Auto and pinned official-client
+The boundary fixture is exercised by the shared classifier, a real native
+HTTP server, and the official SDK HTTP entry/routing predicate. Auto and pinned official-client
 discovery/list/call checks exercise the exact native build. Source anchors:
 [SDK classifier](https://github.com/modelcontextprotocol/typescript-sdk/blob/5119ee7fd7790e335a3fb60ef36f85334e2a6326/packages/core-internal/src/shared/inboundClassification.ts)
 and [final specification schema](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/e76e9c572c6f2bfcb730357101acc90f2f802e02/schema/2026-07-28/schema.ts).
+
+The published server SDK **2.0.0** matches 28 of the 29 fixture cases. Its
+known difference is explicitly pinned: it accepts a modern body missing
+`MCP-Protocol-Version`, whereas the official source above requires that header
+and Core returns HTTP 400 / -32020. The oracle asserts this release difference;
+it does not skip the case or claim the published release matches newer source.
 
 Schema-driven `Mcp-Param-*` mirroring/validation remains a separate #2436
 batch. Subscriptions, multi-round-trip execution, and full transport/authorization
