@@ -51,6 +51,7 @@ pub enum StatelessDispatchOutcome {
 }
 
 impl StatelessDispatchOutcome {
+    #[must_use]
     pub fn into_response(self) -> Option<Value> {
         match self {
             Self::Notification => None,
