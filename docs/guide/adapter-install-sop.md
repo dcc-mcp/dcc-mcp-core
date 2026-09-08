@@ -145,13 +145,15 @@ not pretend to provide native report validation.
 
 Schema validation is not a complete safety gate and does not grant authority to
 execute a returned next step. It verifies the byte-pinned canonical schema,
-report structure, unique step and next-step IDs, and control-character
-constraints. The downstream installer or agent remains the authorization
-boundary: immediately before mutation it MUST resolve file targets against an
-approved root, reject path traversal and unauthorized absolute paths, authorize
-the executable, and review all command arguments against the active policy. A
-structurally valid `command` or `file_edit` is data to authorize, not permission
-to execute.
+report structure, unique step and next-step IDs, and Unicode General Category
+`Cc` control-character constraints (including C0 and C1). Schema and semantic
+checks consume the same captured canonical JSON document, so later changes to a
+caller-owned mapping cannot change what the semantic pass observes. The
+downstream installer or agent remains the authorization boundary: immediately
+before mutation it MUST resolve file targets against an approved root, reject
+path traversal and unauthorized absolute paths, authorize the executable, and
+review all command arguments against the active policy. A structurally valid
+`command` or `file_edit` is data to authorize, not permission to execute.
 
 The same document is packaged as
 `dcc_mcp_core/schemas/adapter-install-sop-v1.schema.json` with canonical id
