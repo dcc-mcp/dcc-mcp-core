@@ -311,7 +311,9 @@ def test_release_workflows_regenerate_and_validate_uv_lock() -> None:
         job="sync-cargo-metadata",
         step_name="Sync generated lock metadata",
     )
-    assert any("trusted-lock-validator show" in command and "python - generate" in command for command in sync_commands)
+    assert any(
+        "trusted-lock-validator show" in command and "python -I - generate" in command for command in sync_commands
+    )
     commit_commands = _workflow_step_commands(
         sync_workflow,
         job="sync-cargo-metadata",
@@ -361,11 +363,11 @@ def test_generated_lock_workflow_is_read_only_until_fixed_push() -> None:
     remote_check = next(step for step in job["steps"] if step.get("name") == "Validate checkout remote")
     assert (
         "git -C ../trusted-lock-validator show" in remote_check["run"]
-        and "python - validate-remote" in remote_check["run"]
+        and "python -I - validate-remote" in remote_check["run"]
     )
     assert remote_check["working-directory"] == "pull-request"
     generation = next(step for step in job["steps"] if step.get("name") == "Sync generated lock metadata")
-    assert "../trusted-lock-validator show" in generation["run"] and "python - generate" in generation["run"]
+    assert "../trusted-lock-validator show" in generation["run"] and "python -I - generate" in generation["run"]
     assert generation["working-directory"] == "pull-request"
     assert "PUSH_TOKEN" not in generation.get("env", {})
     push = next(step for step in job["steps"] if step.get("name") == "Push fixed generated lock commit")
@@ -393,7 +395,7 @@ def test_generated_lock_workflow_is_read_only_until_fixed_push() -> None:
     assert "env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY" in push["run"]
     assert "validate-remote" in push["run"]
     assert "--no-verify" in push["run"]
-    assert "../trusted-lock-validator show" in push["run"] and "python - verify-commit" in push["run"]
+    assert "../trusted-lock-validator show" in push["run"] and "python -I - verify-commit" in push["run"]
 
 
 def test_trusted_validator_overwrite_is_detected_before_execution() -> None:
@@ -466,7 +468,7 @@ def test_trusted_validator_verify_diff_preserves_unstaged_lock_status(tmp_path: 
     assert status_before == " M Cargo.lock\n"
 
     result = subprocess.run(
-        [sys.executable, "-", "verify-diff", "--root", str(tmp_path)],
+        [sys.executable, "-I", "-", "verify-diff", "--root", str(tmp_path)],
         cwd=tmp_path,
         input=validator_source,
         capture_output=True,
@@ -481,7 +483,7 @@ def test_trusted_validator_verify_diff_preserves_unstaged_lock_status(tmp_path: 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows trusted-stdin execution contract")
 def test_trusted_validator_generate_runs_from_stdin_on_windows(tmp_path: Path) -> None:
-    """The exact validator object must remain executable through ``python -``."""
+    """The exact validator object must remain executable through ``python -I -``."""
     validator_source = _trusted_validator_source()
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
@@ -492,7 +494,7 @@ def test_trusted_validator_generate_runs_from_stdin_on_windows(tmp_path: Path) -
     env["PATH"] = str(fake_bin) + os.pathsep + env.get("PATH", "")
 
     result = subprocess.run(
-        [sys.executable, "-", "generate", "--root", str(tmp_path)],
+        [sys.executable, "-I", "-", "generate", "--root", str(tmp_path)],
         cwd=tmp_path,
         env=env,
         input=validator_source,
@@ -592,7 +594,7 @@ def test_trusted_validator_ref_attests_self_contained_job_object() -> None:
     assert "_kill_windows_tree" not in source
 
     result = subprocess.run(
-        [sys.executable, "-", "--help"],
+        [sys.executable, "-I", "-", "--help"],
         check=False,
         cwd=REPO_ROOT,
         input=source,
@@ -619,6 +621,11 @@ def test_native_python37_windows_executes_pinned_validator_contract() -> None:
     assert "trusted_validator_generate_runs_from_stdin_on_windows" in contract["run"]
     assert "trusted_validator_verify_diff_preserves_unstaged_lock_status" in contract["run"]
     assert "trusted_validator_source_requires_confirmed_shallow_checkout" in contract["run"]
+    execution = next(step for step in steps if step.get("name") == "Run generated lock workflow Python 3.7 contract")
+    assert execution["if"] == "runner.os == 'Windows'"
+    assert execution["run"] == (
+        "python -m pytest tests/test_generated_lock_workflow_execution.py -q --tb=short --show-capture=no"
+    )
 
 
 def test_generated_lock_contract_rejects_fork_and_identity_drift() -> None:

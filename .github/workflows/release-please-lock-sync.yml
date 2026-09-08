@@ -69,7 +69,7 @@ jobs:
         working-directory: pull-request
         run: |
           set -euo pipefail
-          git -C ../trusted-lock-validator show "$TRUSTED_VALIDATOR_REF:scripts/ci/generated_lock_sync.py" | python - validate-remote
+          git -C ../trusted-lock-validator show "$TRUSTED_VALIDATOR_REF:scripts/ci/generated_lock_sync.py" | python -I - validate-remote
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -90,7 +90,7 @@ jobs:
         working-directory: pull-request
         run: |
           set -euo pipefail
-          git -C ../trusted-lock-validator show "$TRUSTED_VALIDATOR_REF:scripts/ci/generated_lock_sync.py" | python - generate
+          git -C ../trusted-lock-validator show "$TRUSTED_VALIDATOR_REF:scripts/ci/generated_lock_sync.py" | python -I - generate
 
       - name: Revalidate pull request identity and generated diff
         env:
@@ -104,8 +104,8 @@ jobs:
         working-directory: pull-request
         run: |
           set -euo pipefail
-          git -C ../trusted-lock-validator show "$TRUSTED_VALIDATOR_REF:scripts/ci/generated_lock_sync.py" | python - preflight
-          git -C ../trusted-lock-validator show "$TRUSTED_VALIDATOR_REF:scripts/ci/generated_lock_sync.py" | python - verify-diff
+          git -C ../trusted-lock-validator show "$TRUSTED_VALIDATOR_REF:scripts/ci/generated_lock_sync.py" | python -I - preflight
+          git -C ../trusted-lock-validator show "$TRUSTED_VALIDATOR_REF:scripts/ci/generated_lock_sync.py" | python -I - verify-diff
 
       - name: Commit and push changes
         id: commit
@@ -140,9 +140,9 @@ jobs:
           set -euo pipefail
           # Re-capture remote identity without passing the write token to the
           # validation child processes, then enforce the immutable lease.
-          env -u PUSH_TOKEN git -C ../trusted-lock-validator show "$TRUSTED_VALIDATOR_REF:scripts/ci/generated_lock_sync.py" | env -u PUSH_TOKEN python - validate-remote
-          env -u PUSH_TOKEN git -C ../trusted-lock-validator show "$TRUSTED_VALIDATOR_REF:scripts/ci/generated_lock_sync.py" | env -u PUSH_TOKEN python - remote-preflight
-          env -u PUSH_TOKEN git -C ../trusted-lock-validator show "$TRUSTED_VALIDATOR_REF:scripts/ci/generated_lock_sync.py" | env -u PUSH_TOKEN python - verify-commit
+          env -u PUSH_TOKEN git -C ../trusted-lock-validator show "$TRUSTED_VALIDATOR_REF:scripts/ci/generated_lock_sync.py" | env -u PUSH_TOKEN python -I - validate-remote
+          env -u PUSH_TOKEN git -C ../trusted-lock-validator show "$TRUSTED_VALIDATOR_REF:scripts/ci/generated_lock_sync.py" | env -u PUSH_TOKEN python -I - remote-preflight
+          env -u PUSH_TOKEN git -C ../trusted-lock-validator show "$TRUSTED_VALIDATOR_REF:scripts/ci/generated_lock_sync.py" | env -u PUSH_TOKEN python -I - verify-commit
           credential_file="$(mktemp)"
           trap 'rm -f "$credential_file"' EXIT
           chmod 600 "$credential_file"
@@ -157,6 +157,5 @@ jobs:
             -c core.gitProxy= \
             -c credential.helper= \
             -c credential.helper="store --file=${credential_file}" \
-            --no-verify \
-            push --force-with-lease="refs/heads/${HEAD_REF}:${EXPECTED_HEAD_SHA}" \
+            push --no-verify --force-with-lease="refs/heads/${HEAD_REF}:${EXPECTED_HEAD_SHA}" \
             "https://github.com/${GITHUB_REPOSITORY}.git" "HEAD:${HEAD_REF}"
