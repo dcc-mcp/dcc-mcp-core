@@ -1,5 +1,6 @@
 //! Installation boundary for independently released companion executables.
 
+use std::collections::BTreeSet;
 use std::ffi::OsStr;
 use std::io::Write;
 use std::path::{Component, Path, PathBuf};
@@ -28,6 +29,7 @@ pub struct InstallManifest {
     pub version: String,
     pub target: String,
     pub asset: InstallAsset,
+    pub install: InstallPlan,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -35,6 +37,20 @@ pub struct InstallManifest {
 pub struct InstallAsset {
     pub name: String,
     pub url: String,
+    pub sha256: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct InstallPlan {
+    pub directories: Vec<String>,
+    pub files: Vec<InstallFile>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct InstallFile {
+    pub path: String,
     pub sha256: String,
 }
 
@@ -132,6 +148,7 @@ impl ComponentService {
         let extracted = transaction.path().join("extracted");
         std::fs::create_dir(&extracted)?;
         extract_archive(&archive_path, &extracted)?;
+        verify_extracted_install_plan(&extracted, &manifest.install)?;
         let candidate = extracted.join(component_file_name());
         let candidate_version = validate_candidate(&candidate, Some(&manifest.version))?;
         let candidate_sha = dcc_mcp_updater::sha256_file(&candidate)?;
@@ -209,14 +226,65 @@ pub fn validate_install_manifest(
     if manifest.asset.url != expected_url {
         bail!("official dcc-cua install manifest contains a non-official asset URL");
     }
-    if manifest.asset.sha256.len() != 64
-        || !manifest
-            .asset
-            .sha256
+    validate_sha256(&manifest.asset.sha256, "asset")?;
+    validate_install_plan(&manifest.install)?;
+    Ok(())
+}
+
+fn validate_install_plan(plan: &InstallPlan) -> anyhow::Result<()> {
+    if plan.files.is_empty() {
+        bail!("official dcc-cua install manifest has an empty install plan");
+    }
+    let mut paths = BTreeSet::new();
+    for directory in &plan.directories {
+        validate_install_path(directory)?;
+        if !paths.insert(directory.as_str()) {
+            bail!("official dcc-cua install manifest contains a duplicate install path");
+        }
+    }
+    for file in &plan.files {
+        validate_install_path(&file.path)?;
+        if !paths.insert(file.path.as_str()) {
+            bail!("official dcc-cua install manifest contains a duplicate install path");
+        }
+        validate_sha256(&file.sha256, "install file")?;
+    }
+    Ok(())
+}
+
+fn validate_install_path(path: &str) -> anyhow::Result<()> {
+    if path.contains('\\') || path.split('/').any(|part| part.is_empty()) {
+        bail!("official dcc-cua install manifest contains an unsafe install path");
+    }
+    validate_relative_path(Path::new(path))
+        .context("official dcc-cua install manifest contains an unsafe install path")
+}
+
+fn validate_sha256(value: &str, subject: &str) -> anyhow::Result<()> {
+    if value.len() != 64
+        || !value
             .bytes()
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
     {
-        bail!("official dcc-cua install manifest contains an invalid SHA-256");
+        bail!("official dcc-cua install manifest contains an invalid {subject} SHA-256");
+    }
+    Ok(())
+}
+
+fn verify_extracted_install_plan(root: &Path, plan: &InstallPlan) -> anyhow::Result<()> {
+    for directory in &plan.directories {
+        if !root.join(directory).is_dir() {
+            bail!("dcc-cua archive is missing a declared install directory");
+        }
+    }
+    for file in &plan.files {
+        let path = root.join(&file.path);
+        if !path.is_file() {
+            bail!("dcc-cua archive is missing a declared install file");
+        }
+        if dcc_mcp_updater::sha256_file(&path)? != file.sha256 {
+            bail!("dcc-cua archive install file SHA-256 mismatch");
+        }
     }
     Ok(())
 }
@@ -499,7 +567,39 @@ mod tests {
                 name,
                 sha256: "a".repeat(64),
             },
+            install: InstallPlan {
+                directories: vec!["assets".into()],
+                files: vec![InstallFile {
+                    path: "dcc-cua.exe".into(),
+                    sha256: "b".repeat(64),
+                }],
+            },
         }
+    }
+
+    #[test]
+    fn released_manifest_shape_includes_a_typed_install_plan() {
+        let target = "x86_64-pc-windows-msvc";
+        let version = "1.8.1";
+        let asset_name = format!("dcc-cua-{version}-{target}.zip");
+        let document = json!({
+            "schema_version": 1,
+            "name": COMPONENT_NAME,
+            "version": version,
+            "target": target,
+            "asset": {
+                "name": asset_name,
+                "url": format!("{OFFICIAL_RELEASES}/download/v{version}/{asset_name}"),
+                "sha256": "a".repeat(64),
+            },
+            "install": {
+                "directories": ["assets"],
+                "files": [{"path": "dcc-cua.exe", "sha256": "b".repeat(64)}],
+            },
+        });
+
+        let manifest: InstallManifest = serde_json::from_value(document).unwrap();
+        validate_install_manifest(&manifest, target, Some(version)).unwrap();
     }
 
     #[test]
@@ -528,6 +628,46 @@ mod tests {
         let mut uppercase_sha = valid;
         uppercase_sha.asset.sha256 = "A".repeat(64);
         assert!(validate_install_manifest(&uppercase_sha, target, None).is_err());
+    }
+
+    #[test]
+    fn manifest_install_plan_rejects_unsafe_duplicate_and_invalid_entries() {
+        let target = "x86_64-pc-windows-msvc";
+
+        let mut unsafe_path = manifest(target);
+        unsafe_path.install.files[0].path = "../dcc-cua.exe".into();
+        assert!(validate_install_manifest(&unsafe_path, target, None).is_err());
+
+        let mut duplicate = manifest(target);
+        duplicate.install.directories.push("assets".into());
+        assert!(validate_install_manifest(&duplicate, target, None).is_err());
+
+        let mut invalid_digest = manifest(target);
+        invalid_digest.install.files[0].sha256 = "B".repeat(64);
+        assert!(validate_install_manifest(&invalid_digest, target, None).is_err());
+
+        let mut empty = manifest(target);
+        empty.install.files.clear();
+        assert!(validate_install_manifest(&empty, target, None).is_err());
+    }
+
+    #[test]
+    fn extracted_install_plan_verifies_declared_content() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root.path().join("assets")).unwrap();
+        let executable = root.path().join("dcc-cua.exe");
+        std::fs::write(&executable, b"verified executable").unwrap();
+        let plan = InstallPlan {
+            directories: vec!["assets".into()],
+            files: vec![InstallFile {
+                path: "dcc-cua.exe".into(),
+                sha256: dcc_mcp_updater::sha256_file(&executable).unwrap(),
+            }],
+        };
+
+        verify_extracted_install_plan(root.path(), &plan).unwrap();
+        std::fs::write(&executable, b"tampered executable").unwrap();
+        assert!(verify_extracted_install_plan(root.path(), &plan).is_err());
     }
 
     #[test]
