@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import urllib.error
 import urllib.request
 
 import pytest
@@ -19,18 +20,30 @@ def protocol_server():
         yield handle.mcp_url()
 
 
-def _request(url, method, params, protocol_header=None):
+def _request(url, method, params, protocol_header=None, expected_status=200):
     headers = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream"}
     if protocol_header is not None:
         headers["MCP-Protocol-Version"] = protocol_header
+        headers["Mcp-Method"] = method
+        params = {
+            **params,
+            "_meta": {
+                "io.modelcontextprotocol/protocolVersion": protocol_header,
+                "io.modelcontextprotocol/clientCapabilities": {},
+            },
+        }
     request = urllib.request.Request(
         url,
         data=json.dumps({"jsonrpc": "2.0", "id": "lifecycle-check", "method": method, "params": params}).encode(),
         headers=headers,
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=10) as response:
-        assert response.status == 200
+    try:
+        response = urllib.request.urlopen(request, timeout=10)
+    except urllib.error.HTTPError as error:
+        response = error
+    with response:
+        assert response.status == expected_status
         body = json.loads(response.read())
     assert body["id"] == "lifecycle-check"
     return body
@@ -68,6 +81,7 @@ def test_explicit_stateless_header_uses_discover_not_initialize(protocol_server)
             "clientInfo": {"name": "protocol-contract", "version": "1"},
         },
         "2026-07-28",
+        expected_status=404,
     )
     assert response["error"]["code"] == -32601
     assert "result" not in response
