@@ -1,0 +1,47 @@
+name: Core 2442 Windows Job Diagnostic
+
+on:
+  push:
+    branches: [agent/core2442-windows2022-diagnostic]
+    paths:
+      - .github/workflows/core2442-windows-diagnostic.yml
+      - scripts/ci/core2442_windows_diagnostic.py
+      - scripts/ci/core2442_windows_observer.py
+      - tests/test_core2442_diagnostic_contract.py
+
+permissions:
+  contents: read
+
+concurrency:
+  group: core2442-windows-diagnostic-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  diagnose:
+    name: One-shot Windows 2022 Python 3.14.7 evidence
+    runs-on: windows-2022
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14.7"
+          architecture: x64
+      - name: Run the fixed diagnostic once
+        timeout-minutes: 2
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_RUN_ATTEMPT -ne '1') { throw 'Diagnostic reruns are not authorized' }
+          New-Item -ItemType Directory -Path diagnostic-evidence | Out-Null
+          python -I -B scripts/ci/core2442_windows_diagnostic.py --output diagnostic-evidence 1>diagnostic-evidence/stdout.log 2>diagnostic-evidence/stderr.log
+          exit $LASTEXITCODE
+      - name: Preserve evidence even when the original assertion fails
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: core2442-windows-${{ github.sha }}-${{ github.run_id }}
+          path: diagnostic-evidence/
+          if-no-files-found: error
+          retention-days: 30
