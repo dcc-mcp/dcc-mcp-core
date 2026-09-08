@@ -203,6 +203,8 @@ def _mcpcall_call(
     _server_name: str,
     tool: str,
     args: dict[str, Any] | None = None,
+    *,
+    wait_for_completion: bool = True,
 ) -> dict[str, Any]:
     """Invoke ``mcpcall call --url <url> <tool>`` against a local server."""
     argv = [
@@ -219,7 +221,31 @@ def _mcpcall_call(
     result = _run_mcpcall(*argv)
     if result.returncode != 0:
         raise RuntimeError(f"mcpcall call failed: {result.stderr}\nstdout: {result.stdout}")
-    return _parse_mcpcall_json(result.stdout)
+    payload = _parse_mcpcall_json(result.stdout)
+    pending = payload.get("structuredContent", {})
+    if not wait_for_completion or pending.get("status") != "pending" or not pending.get("core_job_id"):
+        return payload
+
+    # mcpcall supplies a progress token, which explicitly admits a Core job.
+    # Assert the terminal output rather than accepting the admission receipt.
+    job_id = pending["core_job_id"]
+    deadline = time.monotonic() + _MCPCALL_TIMEOUT
+    while time.monotonic() < deadline:
+        status_result = _mcpcall_call(
+            server_url, _server_name, "jobs_get_status", {"job_id": job_id, "include_result": True}
+        )
+        job = status_result.get("structuredContent") or _parse_content_json(status_result)
+        assert job["job_id"] == job_id, job
+        if job["status"] == "completed":
+            output = job["result"]
+            return {
+                "content": [{"type": "text", "text": json.dumps(output)}],
+                "structuredContent": output,
+                "isError": False,
+            }
+        assert job["status"] in {"pending", "running"}, job
+        time.sleep(0.05)
+    pytest.fail(f"Core job {job_id} did not reach its terminal state")
 
 
 def _mcpcall_list_tools(server_url: str, _server_name: str) -> list[dict[str, Any]]:
@@ -1489,6 +1515,7 @@ class TestMcpcallJobsLifecycle:
             name,
             "render_frames",
             {"start": 1, "end": 3},
+            wait_for_completion=False,
         )
         job_id = _extract_job_id(result)
         assert job_id, f"render_frames must return a job_id, got: {result}"
@@ -1506,7 +1533,7 @@ class TestMcpcallJobsLifecycle:
         """After a job is terminal, jobs_cleanup(older_than_hours=0) must prune it."""
         _, _, url, name = server_for_jobs
         # Fire another render so we have a fresh terminal row to prune.
-        result = _mcpcall_call(url, name, "render_frames", {"start": 1, "end": 1})
+        result = _mcpcall_call(url, name, "render_frames", {"start": 1, "end": 1}, wait_for_completion=False)
         job_id = _extract_job_id(result)
         assert job_id, f"render_frames must return a job_id, got: {result}"
         _poll_job_until_terminal(url, name, job_id, timeout_s=20.0)
