@@ -7,6 +7,7 @@ import hashlib
 import json
 from pathlib import Path
 import subprocess
+from types import SimpleNamespace
 
 from jsonschema import Draft202012Validator
 import pytest
@@ -76,6 +77,8 @@ def test_install_sop_schema_is_public_and_versioned() -> None:
 
 
 def test_install_sop_schema_checkout_forces_the_canonical_git_blob_bytes() -> None:
+    from dcc_mcp_core.deployment import install_sop
+
     contract = load_contract(REPO_ROOT)
     resource = contract["distributions"]["dcc-mcp-core"]["wheel_resources"][0]
     git_blob = subprocess.run(
@@ -96,6 +99,7 @@ def test_install_sop_schema_checkout_forces_the_canonical_git_blob_bytes() -> No
     assert resource["source"] == INSTALL_SOP_SCHEMA_PATH.as_posix()
     assert resource["canonical_url"] == "https://dcc-mcp.github.io/schemas/adapter-install-sop-v1.schema.json"
     assert hashlib.sha256(git_blob).hexdigest() == resource["sha256"]
+    assert resource["sha256"] == install_sop._INSTALL_SOP_SCHEMA_SHA256
 
 
 def test_install_sop_schema_requires_agent_executable_results() -> None:
@@ -239,6 +243,220 @@ def test_install_sop_validator_enforces_full_draft_without_python_jsonschema(mon
         validate_install_sop_report(unsupported_version)
     assert "/schema_version" in str(version_error.value)
     assert "const" in str(version_error.value)
+
+
+@pytest.mark.parametrize(
+    ("schema_bytes", "error_code"),
+    [
+        (b'{"$id":"x","$id":"y"}', "schema_duplicate_key"),
+        (
+            b'{"$id":"https://attacker.invalid/schema","$schema":"https://json-schema.org/draft/2020-12/schema"}',
+            "schema_identity_mismatch",
+        ),
+        (
+            b'{"$id":"https://dcc-mcp.github.io/schemas/adapter-install-sop-v1.schema.json","$schema":"https://attacker.invalid/draft"}',
+            "schema_dialect_mismatch",
+        ),
+        (
+            b'{"$id":"https://dcc-mcp.github.io/schemas/adapter-install-sop-v1.schema.json","$schema":"https://json-schema.org/draft/2020-12/schema","$ref":"file:///private/schema.json"}',
+            "schema_external_ref",
+        ),
+        (
+            b'{"$id":"https://dcc-mcp.github.io/schemas/adapter-install-sop-v1.schema.json","$schema":"https://json-schema.org/draft/2020-12/schema","type":"object"}',
+            "schema_digest_mismatch",
+        ),
+        (b"\xff", "schema_invalid_utf8"),
+        (b'{"$id":', "schema_invalid_json"),
+    ],
+)
+def test_install_sop_schema_loader_rejects_untrusted_bytes(
+    monkeypatch, tmp_path: Path, schema_bytes: bytes, error_code: str
+) -> None:
+    from dcc_mcp_core.deployment import install_sop
+
+    schema_path = tmp_path / "untrusted.schema.json"
+    schema_path.write_bytes(schema_bytes)
+    monkeypatch.setattr(install_sop, "_SCHEMA_PATH", schema_path)
+
+    with pytest.raises(RuntimeError, match=rf"^Install SOP schema integrity error: {error_code}$") as error:
+        install_sop.load_install_sop_schema()
+
+    assert str(schema_path) not in str(error.value)
+
+
+def test_install_sop_schema_loader_redacts_missing_path(monkeypatch, tmp_path: Path) -> None:
+    from dcc_mcp_core.deployment import install_sop
+
+    schema_path = tmp_path / "missing-private.schema.json"
+    monkeypatch.setattr(install_sop, "_SCHEMA_PATH", schema_path)
+
+    with pytest.raises(RuntimeError, match=r"^Install SOP schema integrity error: schema_unavailable$") as error:
+        install_sop.load_install_sop_schema()
+
+    assert str(schema_path) not in str(error.value)
+
+
+def test_install_sop_validator_separates_schema_report_and_native_failures(monkeypatch, tmp_path: Path) -> None:
+    import dcc_mcp_core
+    from dcc_mcp_core.deployment import install_sop
+
+    report = _install_result_with_next_step(_command_next_step())
+    malformed_schema = tmp_path / "malformed-private.schema.json"
+    malformed_schema.write_text('{"$id":', encoding="utf-8")
+    monkeypatch.setattr(install_sop, "_SCHEMA_PATH", malformed_schema)
+    with pytest.raises(RuntimeError, match=r"schema_invalid_json") as schema_error:
+        install_sop.validate_install_sop_report(report)
+    assert str(malformed_schema) not in str(schema_error.value)
+
+    monkeypatch.undo()
+    invalid_report = deepcopy(report)
+    invalid_report["adapter_specific"] = object()
+    with pytest.raises(ValueError, match=r"^Install SOP report is not JSON-compatible$"):
+        install_sop.validate_install_sop_report(invalid_report)
+
+    def fail_native(*_):
+        raise ValueError("PRIVATE-NATIVE-DETAIL")
+
+    monkeypatch.setattr(
+        dcc_mcp_core,
+        "_core",
+        SimpleNamespace(_validate_install_sop_report_json=fail_native),
+    )
+    with pytest.raises(RuntimeError, match=r"^Install SOP validator runtime error: native_call_failed$") as error:
+        install_sop.validate_install_sop_report(report)
+    assert "PRIVATE-NATIVE-DETAIL" not in str(error.value)
+
+
+def test_install_sop_native_validator_rejects_untrusted_schema_and_duplicate_report_keys() -> None:
+    from dcc_mcp_core import _core
+
+    assert not hasattr(_core, "_validate_json_schema_draft_2020_12")
+    validator = _core._validate_install_sop_report_json
+    canonical_schema = (REPO_ROOT / INSTALL_SOP_SCHEMA_PATH).read_text(encoding="utf-8")
+
+    with pytest.raises(ValueError, match=r"^install_sop_schema_digest_mismatch$"):
+        validator('{"type":"object"}', "{}")
+    with pytest.raises(ValueError, match=r"^install_sop_schema_duplicate_key$"):
+        validator('{"$id":"x","$id":"y"}', "{}")
+    with pytest.raises(ValueError, match=r"^install_sop_schema_external_ref$"):
+        validator(
+            '{"$id":"https://dcc-mcp.github.io/schemas/adapter-install-sop-v1.schema.json",'
+            '"$schema":"https://json-schema.org/draft/2020-12/schema",'
+            '"$ref":"https://attacker.invalid/schema"}',
+            "{}",
+        )
+    with pytest.raises(ValueError, match=r"^install_sop_report_duplicate_key$"):
+        validator(canonical_schema, '{"schema_version":1,"schema_version":2}')
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda report: report["steps"].append(deepcopy(report["steps"][0])),
+        lambda report: report["next_steps"].append(deepcopy(report["next_steps"][0])),
+        lambda report: report["next_steps"][0]["command"].__setitem__(1, "install\x00--yes"),
+        lambda report: report["next_steps"][0]["command"].__setitem__(1, "install\n--yes"),
+    ],
+)
+def test_install_sop_validator_rejects_duplicate_ids_and_executable_controls(mutate) -> None:
+    from dcc_mcp_core import validate_install_sop_report
+
+    report = _install_result_with_next_step(_command_next_step())
+    mutate(report)
+
+    with pytest.raises(ValueError, match=r"Install SOP report failed semantic validation"):
+        validate_install_sop_report(report)
+
+
+def test_install_sop_validator_rejects_control_characters_in_file_edit_paths() -> None:
+    from dcc_mcp_core import validate_install_sop_report
+
+    report = _install_result_with_next_step(_file_edit_next_step("update", include_content=True))
+    report["next_steps"][0]["file_edit"]["path"] = "install.md\routside"
+
+    with pytest.raises(ValueError, match=r"Install SOP report failed semantic validation"):
+        validate_install_sop_report(report)
+
+
+def test_install_sop_validator_emits_bounded_value_free_diagnostics() -> None:
+    from dcc_mcp_core import validate_install_sop_report
+
+    report = _install_result_with_next_step(_command_next_step())
+    private_value = "PRIVATE-VALUE-" + ("x" * 4096)
+    report["status"] = private_value
+    report["next_steps"] = [
+        {
+            "id": f"execute-{index}",
+            "description": "Execute the validated install plan.",
+            "why": "Planning does not mutate the host.",
+            "command": ["dcc-mcp-example", " " * 4096],
+        }
+        for index in range(48)
+    ]
+
+    messages = []
+    for _ in range(2):
+        with pytest.raises(ValueError) as error:
+            validate_install_sop_report(report)
+        messages.append(str(error.value))
+
+    assert messages[0] == messages[1]
+    assert "PRIVATE-VALUE" not in messages[0]
+    assert len(messages[0].encode("utf-8")) <= 16_384
+    details = messages[0].splitlines()[1:]
+    assert details
+    assert all(len(line.encode("utf-8")) <= 640 for line in details)
+    assert all("code=" in line and "instance=" in line and "schema=" in line for line in details)
+
+
+@pytest.mark.parametrize(
+    ("native_result", "error_code"),
+    [
+        (None, "native_result_type"),
+        (("error",), "native_result_type"),
+        ([1], "native_result_entry_type"),
+        (["ok", 1], "native_result_entry_type"),
+    ],
+)
+def test_install_sop_validator_rejects_native_result_shape(monkeypatch, native_result: object, error_code: str) -> None:
+    import dcc_mcp_core
+    from dcc_mcp_core import validate_install_sop_report
+
+    fake_core = SimpleNamespace(_validate_install_sop_report_json=lambda *_: native_result)
+    monkeypatch.setattr(dcc_mcp_core, "_core", fake_core)
+
+    with pytest.raises(RuntimeError, match=rf"^Install SOP validator runtime error: {error_code}$"):
+        validate_install_sop_report(_install_result_with_next_step(_command_next_step()))
+
+
+def test_install_sop_validator_requires_callable_native_symbol(monkeypatch) -> None:
+    import dcc_mcp_core
+    from dcc_mcp_core import validate_install_sop_report
+
+    monkeypatch.setattr(
+        dcc_mcp_core,
+        "_core",
+        SimpleNamespace(_validate_install_sop_report_json="not-callable"),
+    )
+
+    with pytest.raises(RuntimeError, match=r"^Install SOP validator runtime error: native_symbol_unavailable$"):
+        validate_install_sop_report(_install_result_with_next_step(_command_next_step()))
+
+
+def test_install_sop_validation_is_not_path_or_argv_authorization() -> None:
+    from dcc_mcp_core import validate_install_sop_report
+
+    traversal = _install_result_with_next_step(_file_edit_next_step("update", include_content=True))
+    traversal["next_steps"][0]["file_edit"]["path"] = "../../outside/install.md"
+    absolute = _install_result_with_next_step(_command_next_step())
+    absolute["next_steps"][0]["command"].append("C:\\private\\target")
+
+    validate_install_sop_report(traversal)
+    validate_install_sop_report(absolute)
+
+    guide = (REPO_ROOT / "docs" / "guide" / "adapter-install-sop.md").read_text(encoding="utf-8").lower()
+    for phrase in ("authorization boundary", "path traversal", "absolute paths", "command arguments"):
+        assert phrase in guide
 
 
 def test_install_sop_schema_allows_additive_adapter_fields() -> None:
