@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 from typing import Any
 from typing import Mapping
+import unicodedata
 
 INSTALL_SOP_SCHEMA_VERSION = 1
 
@@ -107,7 +108,7 @@ def load_install_sop_schema() -> dict[str, Any]:
 
 
 def _contains_control_character(value: str) -> bool:
-    return any(ord(character) < 0x20 or ord(character) == 0x7F for character in value)
+    return any(unicodedata.category(character) == "Cc" for character in value)
 
 
 def _semantic_validation_errors(report: Mapping[str, Any]) -> list[str]:
@@ -195,7 +196,7 @@ def validate_install_sop_report(report: Mapping[str, Any]) -> None:
             allow_nan=False,
             separators=(",", ":"),
         )
-        _decode_unique_json(report_json)
+        canonical_report = _decode_unique_json(report_json)
     except _DuplicateJsonKeyError as exc:
         raise ValueError("Install SOP report is not JSON-compatible: duplicate_object_key") from exc
     except (TypeError, ValueError) as exc:
@@ -231,7 +232,7 @@ def validate_install_sop_report(report: Mapping[str, Any]) -> None:
         details = "\n".join(f"- {error}" for error in errors)
         raise ValueError(f"Install SOP report failed schema validation:\n{details}")
 
-    semantic_errors = _semantic_validation_errors(report)
+    semantic_errors = _semantic_validation_errors(canonical_report)
     if semantic_errors:
         details = "\n".join(f"- {error}" for error in semantic_errors)
         raise ValueError(f"Install SOP report failed semantic validation:\n{details}")

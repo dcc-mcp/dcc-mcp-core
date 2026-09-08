@@ -368,6 +368,86 @@ def test_install_sop_validator_rejects_duplicate_ids_and_executable_controls(mut
         validate_install_sop_report(report)
 
 
+def test_install_sop_validator_uses_one_stable_document_for_schema_and_semantics(monkeypatch) -> None:
+    import dcc_mcp_core
+    from dcc_mcp_core import _core
+    from dcc_mcp_core import validate_install_sop_report
+
+    report = _install_result_with_next_step(_command_next_step())
+    report["next_steps"].append(deepcopy(report["next_steps"][0]))
+    native_validator = _core._validate_install_sop_report_json
+
+    def validate_then_change_caller_mapping(schema_json: str, report_json: str):
+        errors = native_validator(schema_json, report_json)
+        report["next_steps"].pop()
+        return errors
+
+    monkeypatch.setattr(
+        dcc_mcp_core,
+        "_core",
+        SimpleNamespace(_validate_install_sop_report_json=validate_then_change_caller_mapping),
+    )
+
+    with pytest.raises(ValueError, match=r"code=duplicate_next_step_id path=/next_steps/1/id"):
+        validate_install_sop_report(report)
+
+    assert len(report["next_steps"]) == 1
+
+
+@pytest.mark.parametrize(
+    ("build_report", "mutate", "expected_path"),
+    [
+        (
+            lambda: _install_result_with_next_step(_command_next_step()),
+            lambda report: report["steps"][0].__setitem__("id", "preflight\u0080host"),
+            "/steps/0/id",
+        ),
+        (
+            lambda: _install_result_with_next_step(_command_next_step()),
+            lambda report: report["next_steps"][0].__setitem__("id", "execute\u0085install"),
+            "/next_steps/0/id",
+        ),
+        (
+            lambda: _install_result_with_next_step(_command_next_step()),
+            lambda report: report["next_steps"][0]["command"].__setitem__(1, "install\u009f--yes"),
+            "/next_steps/0/command/1",
+        ),
+        (
+            lambda: _install_result_with_next_step(_file_edit_next_step("update", include_content=True)),
+            lambda report: report["next_steps"][0]["file_edit"].__setitem__("path", "install\u0081outside.md"),
+            "/next_steps/0/file_edit/path",
+        ),
+        (
+            lambda: _install_result_with_next_step(_command_next_step()),
+            lambda report: report.__setitem__("receipt_path", "receipts/install\u009f.json"),
+            "/receipt_path",
+        ),
+    ],
+)
+def test_install_sop_validator_rejects_c1_control_characters(build_report, mutate, expected_path) -> None:
+    from dcc_mcp_core import validate_install_sop_report
+
+    report = build_report()
+    mutate(report)
+
+    with pytest.raises(ValueError, match=r"Install SOP report failed semantic validation") as error:
+        validate_install_sop_report(report)
+
+    assert f"code=control_character path={expected_path}" in str(error.value)
+
+
+def test_install_sop_validator_allows_normal_unicode_text() -> None:
+    from dcc_mcp_core import validate_install_sop_report
+
+    report = _install_result_with_next_step(_command_next_step())
+    report["steps"][0]["id"] = "preflight-检查"
+    report["next_steps"][0]["id"] = "execute-安装"
+    report["next_steps"][0]["command"][1] = "install\u00a0OBS"
+    report["receipt_path"] = "状态/收据-😀.json"
+
+    validate_install_sop_report(report)
+
+
 def test_install_sop_validator_rejects_control_characters_in_file_edit_paths() -> None:
     from dcc_mcp_core import validate_install_sop_report
 
