@@ -56,7 +56,9 @@ def test_headerless_initialize_stays_on_legacy_lifecycle(protocol_server, reques
 
 def test_explicit_stateless_header_uses_discover_not_initialize(protocol_server):
     response = _request(protocol_server, "server/discover", {}, "2026-07-28")
-    assert response["result"]["protocolVersion"] == "2026-07-28"
+    assert response["result"]["supportedVersions"] == ["2026-07-28"]
+    assert response["result"]["resultType"] == "complete"
+    assert "protocolVersion" not in response["result"]
     response = _request(
         protocol_server,
         "initialize",
