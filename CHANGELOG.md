@@ -5,6 +5,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.24](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.23...v0.20.24) (2026-09-08)
+
+
+### Features
+
+* add consent-gated CLI update notices ([2a99af9](https://github.com/dcc-mcp/dcc-mcp-core/commit/2a99af9b9a7e1d4fc2ca1440ec74fa64e9efa413))
+* add native Install SOP validation ([7a02c3e](https://github.com/dcc-mcp/dcc-mcp-core/commit/7a02c3e94b3c30071dcff42230fbf84eef244e65))
+
+
+### Bug Fixes
+
+* advertise only implemented stateless capabilities ([#2437](https://github.com/dcc-mcp/dcc-mcp-core/issues/2437)) ([9454fbd](https://github.com/dcc-mcp/dcc-mcp-core/commit/9454fbdffc03fa31f3d3f7cd6aee4f6744c95225))
+* align async admission across REST and MCP ([4e0ee41](https://github.com/dcc-mcp/dcc-mcp-core/commit/4e0ee41620d64822b6eff59b89e64be0ea748008))
+* align modern MCP response contracts ([0834c1b](https://github.com/dcc-mcp/dcc-mcp-core/commit/0834c1b8b90dfb410f4a4bafe4f284c6b053c82e))
+* constrain modern discovery and repair result identity ([fc6edc4](https://github.com/dcc-mcp/dcc-mcp-core/commit/fc6edc4b55d9000e34337c79a8c5efa935fe14e0))
+* consume DCC-CUA install plans ([#2453](https://github.com/dcc-mcp/dcc-mcp-core/issues/2453)) ([dde7388](https://github.com/dcc-mcp/dcc-mcp-core/commit/dde738847d645f36a2615708f9b22cb0711b8ec2))
+* harden Install SOP validation ([842ecf7](https://github.com/dcc-mcp/dcc-mcp-core/commit/842ecf7a0f712f1bd185fecdbbc499381064064f))
+* harden pagination cursor decoding and bounds ([b0914c1](https://github.com/dcc-mcp/dcc-mcp-core/commit/b0914c13275371cd842a95b5d2af4c3e555fada7))
+* isolate generated lock workflow execution ([512f63f](https://github.com/dcc-mcp/dcc-mcp-core/commit/512f63ff0b419ff29c6533c75e27e6235556e66a))
+* keep ingress errors small without changing wire responses ([fbb3848](https://github.com/dcc-mcp/dcc-mcp-core/commit/fbb38486953db4a3e04b9b85d986322f65101eaf))
+* keep initialize on the legacy protocol lifecycle ([4f3cbad](https://github.com/dcc-mcp/dcc-mcp-core/commit/4f3cbad425602850877eddc83c5bcc7b5c90282f))
+* mark stateless response conversion as must-use ([d5a05f3](https://github.com/dcc-mcp/dcc-mcp-core/commit/d5a05f35934b35738e52210efb1a9397ca5efe48))
+* pin generated lock validator status handling ([20363a5](https://github.com/dcc-mcp/dcc-mcp-core/commit/20363a5568fd4930e77b6720152b82680d339ac7))
+* preserve generated lock status paths ([b8e294e](https://github.com/dcc-mcp/dcc-mcp-core/commit/b8e294e8a64abba426871b1e86eb106e75aab075))
+* preserve request routing and bounded transport failures ([a43cf86](https://github.com/dcc-mcp/dcc-mcp-core/commit/a43cf86457e4147169c101c1806534d4426d92cd))
+* preserve stateless provider response origins ([9122c56](https://github.com/dcc-mcp/dcc-mcp-core/commit/9122c5660785f0f06284974f38261994f98e351f))
+* stabilize Install SOP validation ([73e137d](https://github.com/dcc-mcp/dcc-mcp-core/commit/73e137d776dabfe95678fb6a8dadaeb0c083f4b7))
+* validate modern MCP parameter headers ([fcefbb8](https://github.com/dcc-mcp/dcc-mcp-core/commit/fcefbb84bffaf51f73e34e19cceb6cdeefc6df59))
+* validate modern MCP request boundaries ([9c241c5](https://github.com/dcc-mcp/dcc-mcp-core/commit/9c241c5b637c5d5737b64b30c376944159ee9043))
+* wire stateless resource and prompt providers ([1782e39](https://github.com/dcc-mcp/dcc-mcp-core/commit/1782e392d3c3e7c9ab24c7d8a058bed99a6d1a19))
+
+
+### Documentation
+
+* clarify job admission and upgrade behavior ([181e4d5](https://github.com/dcc-mcp/dcc-mcp-core/commit/181e4d5b40d54889c88d41f3554badc573733a8f))
+
 ## [0.20.23](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.22...v0.20.23) (2026-09-06)
 
 
