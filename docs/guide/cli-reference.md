@@ -458,6 +458,11 @@ transparency-log proof before parsing entries. A custom
 `DCC_MCP_UPDATE_MANIFEST_URL` is an explicit operator-trusted boundary and is
 not treated as an official DCC-MCP release.
 
+Update metadata uses a separate HTTP client that follows at most ten
+redirects, as required by GitHub release downloads. DCC backend requests
+continue to reject redirects. A redirect without a usable destination fails
+as an HTTP error instead of being parsed as an empty signature bundle.
+
 The Admin Instances panel is check-only for every binary because the gateway
 cannot prove a selected local or remote instance's installation root. Run
 `dcc-mcp-server update apply` in the exact server environment. It uses the same

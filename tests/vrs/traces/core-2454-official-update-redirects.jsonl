@@ -1,0 +1,3 @@
+{"_vrs":{"version":1,"trace_id":"core-2454-official-update-redirects","description":"Requires the default official GitHub update manifest and network access; verifies signed release metadata through GitHub download redirects."}}
+{"id":"check-cli-update","http":{"method":"GET","path":"/v1/update/check?binary=dcc-mcp-cli&current_version=0.0.0"},"expect":{"status":200,"json_subset":{"update_available":true}}}
+{"id":"resolve-cli-download","http":{"method":"GET","path":"/v1/update/download/dcc-mcp-cli"},"expect":{"status":200,"body_contains_all":["download_url","sha256","https://github.com/dcc-mcp/dcc-mcp-core/releases/download/"]}}

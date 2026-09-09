@@ -63,6 +63,11 @@ pub(crate) enum UpdateManifestError {
     },
     #[error("update metadata from '{url}' exceeds the {limit}-byte safety limit")]
     TooLarge { url: String, limit: usize },
+    #[error("update metadata from '{url}' returned unexpected HTTP status {status}")]
+    UnexpectedStatus {
+        url: String,
+        status: reqwest::StatusCode,
+    },
     #[error("update manifest from '{url}' is not valid UTF-8: {source}")]
     InvalidUtf8 {
         url: String,
@@ -77,12 +82,21 @@ pub(crate) enum UpdateManifestError {
 
 /// Fetch and parse the configured update manifest.
 pub(crate) async fn fetch_update_manifest(
-    client: &reqwest::Client,
     url: &str,
 ) -> Result<UpdateManifest, UpdateManifestError> {
-    let manifest_bytes = fetch_bounded(client, url, MAX_MANIFEST_BYTES).await?;
+    // Release assets redirect to GitHub's download host. Keep this policy
+    // separate from the gateway's redirect-rejecting DCC backend client.
+    let client = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(5))
+        .redirect(reqwest::redirect::Policy::limited(10))
+        .build()
+        .map_err(|source| UpdateManifestError::Fetch {
+            url: url.to_owned(),
+            source,
+        })?;
+    let manifest_bytes = fetch_bounded(&client, url, MAX_MANIFEST_BYTES).await?;
     if let Some(attestation_url) = official_attestation_url(url) {
-        let bundle_bytes = fetch_bounded(client, &attestation_url, MAX_ATTESTATION_BYTES).await?;
+        let bundle_bytes = fetch_bounded(&client, &attestation_url, MAX_ATTESTATION_BYTES).await?;
         let bundle =
             String::from_utf8(bundle_bytes).map_err(|source| UpdateManifestError::InvalidUtf8 {
                 url: attestation_url,
@@ -122,6 +136,12 @@ async fn fetch_bounded(
             url: url.to_owned(),
             source,
         })?;
+    if !response.status().is_success() {
+        return Err(UpdateManifestError::UnexpectedStatus {
+            url: url.to_owned(),
+            status: response.status(),
+        });
+    }
     if response
         .content_length()
         .is_some_and(|length| length > limit as u64)
@@ -189,6 +209,39 @@ fn official_attestation_url(url: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::official_attestation_url;
+
+    #[tokio::test]
+    async fn update_downloads_follow_redirects_and_reject_unresolved_redirects() {
+        use axum::{Router, http::StatusCode, response::Redirect, routing::get};
+        let app = Router::new()
+            .route("/latest", get(|| async { Redirect::temporary("/asset") }))
+            .route(
+                "/asset",
+                get(|| async { r#"{"dcc-mcp-cli":{"version":"0.20.24"}}"# }),
+            )
+            .route("/loop", get(|| async { Redirect::temporary("/loop") }))
+            .route("/missing-location", get(|| async { StatusCode::FOUND }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let manifest = super::fetch_update_manifest(&format!("{base}/latest")).await;
+        let loop_result = super::fetch_update_manifest(&format!("{base}/loop")).await;
+        let missing_location =
+            super::fetch_update_manifest(&format!("{base}/missing-location")).await;
+        server.abort();
+        assert_eq!(manifest.unwrap()["dcc-mcp-cli"].version, "0.20.24");
+        assert!(matches!(
+            loop_result,
+            Err(super::UpdateManifestError::Fetch { .. })
+        ));
+        assert!(matches!(
+            missing_location,
+            Err(super::UpdateManifestError::UnexpectedStatus {
+                status: StatusCode::FOUND,
+                ..
+            })
+        ));
+    }
 
     #[test]
     fn official_release_manifest_requires_its_detached_attestation() {

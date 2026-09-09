@@ -71,7 +71,10 @@ fn test_gateway_state_with_debug_routes(
         server_version: server_version.into(),
         own_host: "127.0.0.1".into(),
         own_port: 9765,
-        http_client: reqwest::Client::new(),
+        http_client: reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap(),
         yield_tx: Arc::new(yield_tx),
         events_tx: Arc::new(events_tx),
         protocol_version: Arc::new(RwLock::new(None)),
@@ -178,60 +181,9 @@ fn trace_headers() -> HeaderMap {
     headers
 }
 
-async fn spawn_update_manifest(manifest: Value) -> (String, tokio::sync::oneshot::Sender<()>) {
-    let app = axum::Router::new().route(
-        "/manifest.json",
-        axum::routing::get(move || {
-            let manifest = manifest.clone();
-            async move { Json(manifest) }
-        }),
-    );
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let url = format!(
-        "http://127.0.0.1:{}/manifest.json",
-        listener.local_addr().unwrap().port()
-    );
-    let (tx, rx) = tokio::sync::oneshot::channel::<()>();
-    tokio::spawn(async move {
-        let _ = axum::serve(listener, app)
-            .with_graceful_shutdown(async {
-                let _ = rx.await;
-            })
-            .await;
-    });
-    (url, tx)
-}
-
-async fn spawn_update_manifest_response(
-    status: StatusCode,
-    content_type: &'static str,
-    body: &'static str,
-) -> (String, tokio::sync::oneshot::Sender<()>) {
-    let app = axum::Router::new().route(
-        "/manifest.json",
-        axum::routing::get(move || async move {
-            axum::response::Response::builder()
-                .status(status)
-                .header(axum::http::header::CONTENT_TYPE, content_type)
-                .body(Body::from(body))
-                .unwrap()
-        }),
-    );
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let url = format!(
-        "http://127.0.0.1:{}/manifest.json",
-        listener.local_addr().unwrap().port()
-    );
-    let (tx, rx) = tokio::sync::oneshot::channel::<()>();
-    tokio::spawn(async move {
-        let _ = axum::serve(listener, app)
-            .with_graceful_shutdown(async {
-                let _ = rx.await;
-            })
-            .await;
-    });
-    (url, tx)
-}
+#[path = "update_manifest_fixture.rs"]
+mod update_manifest_fixture;
+use update_manifest_fixture::{spawn_update_manifest, spawn_update_manifest_response};
 
 fn attributed_trace_headers() -> HeaderMap {
     let mut headers = trace_headers();

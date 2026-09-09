@@ -232,11 +232,7 @@ pub async fn handle_admin_instance_update(
         }
     };
 
-    let manifest = match crate::gateway::update_manifest::fetch_update_manifest(
-        &s.gateway.http_client,
-        &manifest_url,
-    )
-    .await
+    let manifest = match crate::gateway::update_manifest::fetch_update_manifest(&manifest_url).await
     {
         Ok(manifest) => manifest,
         Err(err) => {

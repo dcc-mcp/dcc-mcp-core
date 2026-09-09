@@ -1,0 +1,14 @@
+{
+  "dcc-mcp-server": {
+    "version": "0.20.24",
+    "url": "https://github.com/dcc-mcp/dcc-mcp-core/releases/download/v0.20.24/dcc-mcp-server-windows-x86_64.exe",
+    "sha256": "87165e007ae67de8b2ac4f50fbb719246965fc1506fb5ecc6637ca164bb7177b",
+    "release_notes": null
+  },
+  "dcc-mcp-cli": {
+    "version": "0.20.24",
+    "url": "https://github.com/dcc-mcp/dcc-mcp-core/releases/download/v0.20.24/dcc-mcp-cli-windows-x86_64.exe",
+    "sha256": "306ee2207b7f1f3ee6bd372a5fd66071aea82c120ede36bbc8d5fc841949ca57",
+    "release_notes": null
+  }
+}

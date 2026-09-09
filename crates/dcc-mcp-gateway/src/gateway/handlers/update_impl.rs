@@ -94,7 +94,7 @@ pub(crate) async fn handle_v1_update_check(
         .unwrap_or_else(|| "0.0.0".to_string());
 
     // Fetch the manifest
-    let manifest = match fetch_update_manifest(&state.http_client, &manifest_url).await {
+    let manifest = match fetch_update_manifest(&manifest_url).await {
         Ok(m) => m,
         Err(e) => {
             return (
@@ -151,7 +151,7 @@ pub(crate) async fn handle_v1_update_download(
         None => return not_configured().into_response(),
     };
 
-    let manifest = match fetch_update_manifest(&state.http_client, &manifest_url).await {
+    let manifest = match fetch_update_manifest(&manifest_url).await {
         Ok(m) => m,
         Err(e) => {
             return (
