@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.25](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.24...v0.20.25) (2026-09-09)
+
+
+### Bug Fixes
+
+* isolate update download redirect policy ([446f187](https://github.com/dcc-mcp/dcc-mcp-core/commit/446f18704d13cb774428d4f18e7b981b9ac66f5e))
+
 ## [0.20.24](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.23...v0.20.24) (2026-09-08)
 
 
