@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.26](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.25...v0.20.26) (2026-09-10)
+
+
+### Features
+
+* add vendor-neutral memory providers ([#2457](https://github.com/dcc-mcp/dcc-mcp-core/issues/2457)) ([d6e9921](https://github.com/dcc-mcp/dcc-mcp-core/commit/d6e992174b495ee0848504db3079aad6e0593c69))
+
 ## [0.20.25](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.24...v0.20.25) (2026-09-09)
 
 
