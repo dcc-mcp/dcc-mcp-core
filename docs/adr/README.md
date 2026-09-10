@@ -40,6 +40,7 @@ Decision / Consequences / Alternatives considered.
 | 033 | [Explicit MCP HTTP protocol routing](./033-mcp-http-protocol-router.md) | Proposed |
 | 034 | [Final-revision modern response projection](./034-modern-response-contract.md) | Proposed |
 | 035 | [Schema-driven modern parameter headers](./035-schema-driven-parameter-headers.md) | Proposed |
+| 036 | [Vendor-neutral durable memory provider boundary](./036-vendor-neutral-memory-provider.md) | Accepted |
 
 > Numbering is strictly sequential and never reused. ADR 001 is reserved for
 > the first historical record; filling it in is tracked separately from any
