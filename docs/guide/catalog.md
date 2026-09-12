@@ -61,11 +61,27 @@ Output is JSON-formatted for easy parsing.
 
 Adobe UXP and CEP adapters may declare an `install.adobe` block. The catalog
 stores only product metadata and adapter-relative paths; the operator supplies
-the source checkout and Adobe debug root at install time:
+the source bridge and Adobe debug root at install time. For Internal profiles,
+keep this block in an approved catalog overlay rather than publishing local
+workstation paths:
+
+```yaml
+install:
+  type: pip
+  pip_package: dcc-mcp-premiere
+  adobe:
+    product: premierepro
+    extensionType: uxp
+    plugin_id: com.adobepy.bridge.premiere
+    manifest_path: manifest.json
+```
+
+Select that overlay with `DCC_MCP_CATALOG_PATH` or `--catalog`:
 
 ```powershell
+$env:DCC_MCP_CATALOG_PATH = 'F:\studio\catalog\dcc-mcp-internal.yml'
 dcc-mcp-cli install --dcc-type premiere `
-  --plugin-source F:\github\dcc-mcp-premiere `
+  --plugin-source F:\studio\artifacts\premiere-uxp-bridge `
   --adobe-debug-root F:\studio\adobe-debug `
   --execute
 ```
