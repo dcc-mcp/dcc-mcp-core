@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.27](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.26...v0.20.27) (2026-09-12)
+
+
+### Features
+
+* support Adobe debug plugin links ([#2459](https://github.com/dcc-mcp/dcc-mcp-core/issues/2459)) ([88f6d98](https://github.com/dcc-mcp/dcc-mcp-core/commit/88f6d98a7da5669bf1bf7c7719b49fd5dc97ebab))
+
 ## [0.20.26](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.25...v0.20.26) (2026-09-10)
 
 
