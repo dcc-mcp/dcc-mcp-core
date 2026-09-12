@@ -504,19 +504,21 @@ class TestMcpSdkClient:
 
         _, _, url = running_server
 
-        async with mcp.client.streamable_http.streamable_http_client(url) as (
-            read,
-            write,
-            _,
-        ), mcp.client.session.ClientSession(read, write) as session:
-            result = await session.initialize()
-            assert result.serverInfo.name == "e2e-test-server"
-            assert result.protocolVersion in ("2025-03-26", "2025-06-18", "2025-11-25")
+        # Python SDK 2.1.1 returns (read, write), while 1.x and early 2.x
+        # releases also returned a third session-id callback.  The transport
+        # contract only requires the two streams, so keep the fixture valid
+        # across both official SDK shapes.
+        async with mcp.client.streamable_http.streamable_http_client(url) as streams:
+            read, write = streams[:2]
+            async with mcp.client.session.ClientSession(read, write) as session:
+                result = await session.initialize()
+                assert result.serverInfo.name == "e2e-test-server"
+                assert result.protocolVersion in ("2025-03-26", "2025-06-18", "2025-11-25")
 
-            tools = await session.list_tools()
-            names = {t.name for t in tools.tools}
-            assert "get_scene_info" in names
-            assert "list_objects" in names
+                tools = await session.list_tools()
+                names = {t.name for t in tools.tools}
+                assert "get_scene_info" in names
+                assert "list_objects" in names
 
     @pytest.mark.anyio
     async def test_sdk_call_tool(self, running_server):
@@ -526,15 +528,13 @@ class TestMcpSdkClient:
 
         _, _, url = running_server
 
-        async with mcp.client.streamable_http.streamable_http_client(url) as (
-            read,
-            write,
-            _,
-        ), mcp.client.session.ClientSession(read, write) as session:
-            await session.initialize()
-            result = await session.call_tool("get_scene_info", {})
-            assert not result.isError
-            assert len(result.content) > 0
+        async with mcp.client.streamable_http.streamable_http_client(url) as streams:
+            read, write = streams[:2]
+            async with mcp.client.session.ClientSession(read, write) as session:
+                await session.initialize()
+                result = await session.call_tool("get_scene_info", {})
+                assert not result.isError
+                assert len(result.content) > 0
 
 
 # ── McpHttpServer Python API tests ───────────────────────────────────────
