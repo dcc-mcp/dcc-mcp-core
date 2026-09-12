@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use dcc_mcp_catalog::{CatalogEntry, CatalogInstall};
+use dcc_mcp_catalog::{CatalogAdobeInstall, CatalogEntry, CatalogInstall};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -12,6 +12,10 @@ pub struct InstallRequest {
     pub python: Option<String>,
     /// Optional absolute DCC executable or application path supplied by the user.
     pub dcc_path: Option<PathBuf>,
+    /// Source checkout or internal package root containing the host plugin.
+    pub plugin_source: Option<PathBuf>,
+    /// Adobe UXP/CEP debug root supplied by the operator or studio profile.
+    pub adobe_debug_root: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -126,6 +130,15 @@ pub enum InstallStepAction {
         source: PathBuf,
         /// Target directory.
         dest: PathBuf,
+    },
+    /// Create an Adobe debug-mode directory link without copying plugin files.
+    AdobePluginLink {
+        source: PathBuf,
+        dest: PathBuf,
+        product: String,
+        extension_type: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        manifest: Option<PathBuf>,
     },
     /// Register the DCC adapter with the gateway.
     RegisterDcc {
@@ -298,6 +311,8 @@ impl InstallPlanner {
                 version.clone(),
                 request.python.clone(),
                 dcc_path.clone(),
+                request.plugin_source.clone(),
+                request.adobe_debug_root.clone(),
             ),
             None => Self::build_info_steps(),
         };
@@ -323,6 +338,8 @@ impl InstallPlanner {
         version: Option<String>,
         python_override: Option<String>,
         dcc_path: Option<PathBuf>,
+        plugin_source: Option<PathBuf>,
+        adobe_debug_root: Option<PathBuf>,
     ) -> Vec<InstallStep> {
         let adapter_dir = default_adapter_dir().join(&entry.name);
 
@@ -388,6 +405,15 @@ impl InstallPlanner {
             action: Some(install_action),
         });
 
+        if let Some(adobe) = &install.adobe {
+            steps.push(Self::build_adobe_link_step(
+                entry,
+                adobe,
+                plugin_source.as_deref(),
+                adobe_debug_root.as_deref(),
+            ));
+        }
+
         // Register step
         steps.push(InstallStep {
             name: "register-dcc".into(),
@@ -411,6 +437,59 @@ impl InstallPlanner {
         });
 
         steps
+    }
+
+    fn build_adobe_link_step(
+        entry: &CatalogEntry,
+        adobe: &CatalogAdobeInstall,
+        plugin_source: Option<&std::path::Path>,
+        adobe_debug_root: Option<&std::path::Path>,
+    ) -> InstallStep {
+        let source = plugin_source.map(|root| {
+            adobe
+                .source_subpath
+                .as_deref()
+                .map(|relative| root.join(relative))
+                .unwrap_or_else(|| root.to_path_buf())
+        });
+        let dest = adobe_debug_root.map(|root| {
+            adobe
+                .target_subpath
+                .as_deref()
+                .or(adobe.plugin_id.as_deref())
+                .map(|relative| root.join(relative))
+                .unwrap_or_else(|| root.to_path_buf())
+        });
+        let manifest = match (&source, adobe.manifest_path.as_deref()) {
+            (Some(source), Some(relative)) => Some(source.join(relative)),
+            _ => None,
+        };
+        let action = match (source, dest) {
+            (Some(source), Some(dest)) => Some(InstallStepAction::AdobePluginLink {
+                source,
+                dest,
+                product: adobe.product.clone(),
+                extension_type: adobe.extension_type.clone(),
+                manifest,
+            }),
+            _ => None,
+        };
+        let description = if action.is_some() {
+            format!(
+                "Link {} {} plugin into the Adobe debug root",
+                adobe.product, adobe.extension_type
+            )
+        } else {
+            format!(
+                "Provide --plugin-source and --adobe-debug-root to link the {} {} plugin",
+                entry.name, adobe.product
+            )
+        };
+        InstallStep {
+            name: "install-adobe-debug-link".into(),
+            description,
+            action,
+        }
     }
 
     /// Build informational-only steps when no install metadata exists.
@@ -717,6 +796,8 @@ mod tests {
                 catalog_path: None,
                 python: None,
                 dcc_path: None,
+                plugin_source: None,
+                adobe_debug_root: None,
             },
         )
         .unwrap();
@@ -740,6 +821,8 @@ mod tests {
                 catalog_path: None,
                 python: None,
                 dcc_path: Some(dcc_path.clone()),
+                plugin_source: None,
+                adobe_debug_root: None,
             },
         )
         .unwrap();
@@ -767,6 +850,8 @@ mod tests {
                 catalog_path: None,
                 python: None,
                 dcc_path: None,
+                plugin_source: None,
+                adobe_debug_root: None,
             },
         )
         .unwrap_err();
@@ -790,6 +875,7 @@ mod tests {
             python_path: Some("/usr/bin/mayapy".into()),
             entry_point: Some("dcc_mcp_maya.cli:main".into()),
             instructions_url: None,
+            adobe: None,
         };
         let entries = vec![catalog_entry("dcc-mcp-maya", &["maya"], Some(install))];
         let plan = InstallPlanner::plan(
@@ -800,6 +886,8 @@ mod tests {
                 catalog_path: None,
                 python: None,
                 dcc_path: None,
+                plugin_source: None,
+                adobe_debug_root: None,
             },
         )
         .unwrap();
@@ -861,6 +949,8 @@ mod tests {
                 catalog_path: None,
                 python: None,
                 dcc_path: None,
+                plugin_source: None,
+                adobe_debug_root: None,
             },
         )
         .unwrap();
@@ -948,6 +1038,8 @@ mod tests {
                 catalog_path: None,
                 python: None,
                 dcc_path: None,
+                plugin_source: None,
+                adobe_debug_root: None,
             },
         )
         .unwrap();
@@ -976,6 +1068,7 @@ mod tests {
             python_path: None,
             entry_point: None,
             instructions_url: Some("https://example.com/custom-install.md".into()),
+            adobe: None,
         };
         let mut entry = catalog_entry("dcc-mcp-maya", &["maya"], Some(install));
         entry.url = Some("https://github.com/dcc-mcp/dcc-mcp-maya".into());
@@ -987,6 +1080,8 @@ mod tests {
                 catalog_path: None,
                 python: None,
                 dcc_path: None,
+                plugin_source: None,
+                adobe_debug_root: None,
             },
         )
         .unwrap();
@@ -1010,6 +1105,7 @@ mod tests {
             python_path: None,
             entry_point: None,
             instructions_url: None,
+            adobe: None,
         };
         let entries = vec![catalog_entry(
             "dcc-mcp-maya-mgear",
@@ -1024,6 +1120,8 @@ mod tests {
                 catalog_path: None,
                 python: None,
                 dcc_path: None,
+                plugin_source: None,
+                adobe_debug_root: None,
             },
         )
         .unwrap();
@@ -1049,6 +1147,7 @@ mod tests {
             python_path: None,
             entry_point: None,
             instructions_url: None,
+            adobe: None,
         };
         let request = || InstallRequest {
             dcc_type: "maya".into(),
@@ -1056,6 +1155,8 @@ mod tests {
             catalog_path: None,
             python: None,
             dcc_path: None,
+            plugin_source: None,
+            adobe_debug_root: None,
         };
 
         let error = InstallPlanner::plan(
@@ -1105,6 +1206,7 @@ mod tests {
             python_path: None,
             entry_point: None,
             instructions_url: None,
+            adobe: None,
         };
         let entry = |install| catalog_entry("dcc-mcp-maya", &["maya"], Some(install));
         let request = |version: Option<&str>| InstallRequest {
@@ -1113,6 +1215,8 @@ mod tests {
             catalog_path: None,
             python: None,
             dcc_path: None,
+            plugin_source: None,
+            adobe_debug_root: None,
         };
 
         let error = InstallPlanner::plan(&[entry(install.clone())], request(None)).unwrap_err();
@@ -1168,6 +1272,8 @@ mod tests {
                 catalog_path: None,
                 python: None,
                 dcc_path: None,
+                plugin_source: None,
+                adobe_debug_root: None,
             },
         )
         .unwrap();
@@ -1192,6 +1298,7 @@ mod tests {
             python_path: Some("/catalog/mayapy".into()),
             entry_point: None,
             instructions_url: None,
+            adobe: None,
         };
         let entries = vec![catalog_entry("dcc-mcp-maya", &["maya"], Some(install))];
         let plan = InstallPlanner::plan(
@@ -1202,6 +1309,8 @@ mod tests {
                 catalog_path: None,
                 python: Some("/custom/mayapy".into()),
                 dcc_path: None,
+                plugin_source: None,
+                adobe_debug_root: None,
             },
         )
         .unwrap();
@@ -1212,6 +1321,66 @@ mod tests {
             }
             other => panic!("expected PipInstall action, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn planner_builds_adobe_debug_link_from_operator_paths() {
+        let install = CatalogInstall {
+            install_type: "pip".into(),
+            url: Some(
+                "https://files.pythonhosted.org/packages/example/dcc_mcp_premiere-0.3.0-py3-none-any.whl"
+                    .into(),
+            ),
+            ref_: None,
+            sha256: Some("a".repeat(64)),
+            skill_roots: None,
+            pip_package: Some("dcc-mcp-premiere".into()),
+            pip_extras: None,
+            python_path: None,
+            entry_point: Some("dcc_mcp_premiere:PremiereMcpServer".into()),
+            instructions_url: None,
+            adobe: Some(dcc_mcp_catalog::CatalogAdobeInstall {
+                product: "premierepro".into(),
+                extension_type: "uxp".into(),
+                plugin_id: Some("com.dccmcp.premiere".into()),
+                source_subpath: Some("src/dcc_mcp_premiere/premiere_uxp".into()),
+                manifest_path: Some("manifest.json".into()),
+                target_subpath: None,
+            }),
+        };
+        let plan = InstallPlanner::plan(
+            &[catalog_entry(
+                "dcc-mcp-premiere",
+                &["premiere"],
+                Some(install),
+            )],
+            InstallRequest {
+                dcc_type: "premiere".into(),
+                version: Some("0.3.0".into()),
+                catalog_path: None,
+                python: None,
+                dcc_path: None,
+                plugin_source: Some("F:/internal/dcc-mcp-premiere".into()),
+                adobe_debug_root: Some("F:/internal/adobe-debug".into()),
+            },
+        )
+        .unwrap();
+
+        let action = plan.steps[1].action.as_ref().unwrap();
+        assert!(matches!(
+            action,
+            InstallStepAction::AdobePluginLink {
+                product,
+                extension_type,
+                source,
+                dest,
+                manifest,
+            } if product == "premierepro"
+                && extension_type == "uxp"
+                && source.ends_with("src/dcc_mcp_premiere/premiere_uxp")
+                && dest.ends_with("com.dccmcp.premiere")
+                && manifest.as_ref().is_some_and(|path| path.ends_with("manifest.json"))
+        ));
     }
 
     #[test]
@@ -1230,6 +1399,7 @@ mod tests {
             python_path: None,
             entry_point: Some("dcc_mcp_photoshop.cli:main".into()),
             instructions_url: None,
+            adobe: None,
         };
         let mut skill_pack = catalog_entry("dcc-mcp-photoshop-skills", &["photoshop"], None);
         skill_pack.tags = vec!["skills".into(), "official".into()];
@@ -1244,6 +1414,8 @@ mod tests {
                 catalog_path: None,
                 python: None,
                 dcc_path: None,
+                plugin_source: None,
+                adobe_debug_root: None,
             },
         )
         .unwrap();
@@ -1266,6 +1438,8 @@ mod tests {
                 catalog_path: None,
                 python: None,
                 dcc_path: None,
+                plugin_source: None,
+                adobe_debug_root: None,
             },
         )
         .unwrap();

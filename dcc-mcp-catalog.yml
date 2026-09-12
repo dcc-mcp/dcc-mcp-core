@@ -205,6 +205,12 @@ entries:
       url: "https://files.pythonhosted.org/packages/5c/e1/f7602fec72ded139a7a10bde8783cd5690b14f4377278e0ead284f2137e2/dcc_mcp_premiere-0.5.0-py3-none-any.whl"
       sha256: "e35061610b0aba182b2eec29f2dc111cffb9d92194f9321f43805213456c3252"
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-premiere/main/README.md"
+      adobe:
+        product: "premierepro"
+        extensionType: "uxp"
+        plugin_id: "com.dccmcp.premiere"
+        source_subpath: "src/dcc_mcp_premiere/premiere_uxp"
+        manifest_path: "manifest.json"
 
   - name: "dcc-mcp-aftereffects"
     description: "Adobe After Effects adapter with typed project, layer, render queue, and official DOM workflows"

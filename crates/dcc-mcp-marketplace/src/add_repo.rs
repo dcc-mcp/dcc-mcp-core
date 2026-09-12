@@ -303,6 +303,7 @@ pub fn install_from_repo_at_commit(
         python_path: None,
         entry_point: None,
         instructions_url: None,
+        adobe: None,
     };
     required_git_commit(&install)?;
 

@@ -318,6 +318,12 @@ enum Command {
         /// Absolute DCC executable or application path for non-standard installs.
         #[arg(long, env = "DCC_MCP_DCC_PATH")]
         dcc_path: Option<PathBuf>,
+        /// Source checkout or internal package root containing an Adobe plugin.
+        #[arg(long, env = "DCC_MCP_PLUGIN_SOURCE")]
+        plugin_source: Option<PathBuf>,
+        /// Adobe UXP/CEP debug root. Use a studio-owned path in Internal deployments.
+        #[arg(long, env = "DCC_MCP_ADOBE_DEBUG_ROOT")]
+        adobe_debug_root: Option<PathBuf>,
         /// Execute the install plan with consent gating.
         #[arg(long, short = 'x')]
         execute: bool,
@@ -932,6 +938,8 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             catalog,
             python,
             dcc_path,
+            plugin_source,
+            adobe_debug_root,
             execute,
             json,
         } => {
@@ -942,6 +950,8 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 catalog_path: catalog,
                 python,
                 dcc_path,
+                plugin_source,
+                adobe_debug_root,
             };
             if execute {
                 // `--execute` is the mutation opt-in; JSON mode must never add

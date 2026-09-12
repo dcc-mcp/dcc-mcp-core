@@ -10,6 +10,8 @@ fn actual_planner_never_reports_manual_registration_as_ok() {
             catalog_path: None,
             python: Some("test-python".into()),
             dcc_path: None,
+            plugin_source: None,
+            adobe_debug_root: None,
         })
         .unwrap();
     let register_index = plan
