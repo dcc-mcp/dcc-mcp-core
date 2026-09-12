@@ -21,6 +21,6 @@ This review records the disposition of the currently open Core issues after chec
 
 ## Keep open without implementation in this pass
 
-#2297–#2300, #2252, #2253, #2259, #2263, and #2277 remain valid but require coordinated design or adapter-owned work. Closing them would hide unfinished contracts; implementing them opportunistically in Core would create scope drift.
+Issues #2297–#2300, #2252, #2253, #2259, #2263, and #2277 remain valid but require coordinated design or adapter-owned work. Closing them would hide unfinished contracts; implementing them opportunistically in Core would create scope drift.
 
 This document is a triage record, not evidence that a real-host or licensed acceptance gate passed. Any implementation PR must re-check the exact issue head, run the relevant source and integration tests, and obtain fresh CI evidence before merge.
