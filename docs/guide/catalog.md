@@ -57,6 +57,47 @@ dcc-mcp-server catalog describe --name dcc-mcp-maya-skills
 
 Output is JSON-formatted for easy parsing.
 
+## Adobe debug plugin links
+
+Adobe UXP and CEP adapters may declare an `install.adobe` block. The catalog
+stores only product metadata and adapter-relative paths; the operator supplies
+the source bridge and Adobe debug root at install time. For Internal profiles,
+keep this block in an approved catalog overlay rather than publishing local
+workstation paths:
+
+```yaml
+install:
+  type: pip
+  pip_package: dcc-mcp-premiere
+  adobe:
+    product: premierepro
+    extensionType: uxp
+    plugin_id: com.adobepy.bridge.premiere
+    manifest_path: manifest.json
+```
+
+Select that overlay with `DCC_MCP_CATALOG_PATH` or `--catalog`:
+
+```powershell
+$env:DCC_MCP_CATALOG_PATH = 'F:\studio\catalog\dcc-mcp-internal.yml'
+dcc-mcp-cli install --dcc-type premiere `
+  --plugin-source F:\studio\artifacts\premiere-uxp-bridge `
+  --adobe-debug-root F:\studio\adobe-debug `
+  --execute
+```
+
+The same values can be provided through `DCC_MCP_PLUGIN_SOURCE` and
+`DCC_MCP_ADOBE_DEBUG_ROOT`, which is useful for Internal deployment profiles.
+The CLI creates an idempotent directory link, refuses to replace an existing
+non-link or link to a different source, verifies the declared manifest, and
+rolls the link back if a later install step fails. A successful local install
+still requires the Adobe host to be restarted or reloaded and then verified
+through `dcc-mcp-cli list` and the adapter's Skill discovery.
+
+Adobe debug links are intended for development and Internal deployment
+profiles. Public or production distribution should use the adapter's packaged
+host-extension workflow.
+
 ## MCP Resource Usage
 
 The gateway publishes the catalog as MCP **resources** (#813 phase 2). Read

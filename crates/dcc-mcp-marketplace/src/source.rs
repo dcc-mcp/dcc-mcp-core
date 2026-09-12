@@ -151,6 +151,7 @@ mod tests {
             python_path: None,
             entry_point: None,
             instructions_url: None,
+            adobe: None,
         }
     }
 

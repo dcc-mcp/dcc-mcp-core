@@ -186,6 +186,7 @@ pub fn publish_marketplace_package(
             python_path: None,
             entry_point: None,
             instructions_url: None,
+            adobe: None,
         }),
         package,
         maintainer: options.maintainer.or_else(|| {

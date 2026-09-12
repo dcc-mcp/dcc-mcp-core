@@ -233,6 +233,35 @@ pub struct CatalogInstall {
     /// Agent-facing installation runbook, usually the adapter repo's raw install.md.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub instructions_url: Option<String>,
+    /// Optional Adobe host plugin installation metadata for debug-link installs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adobe: Option<CatalogAdobeInstall>,
+}
+
+/// Adobe host-side plugin metadata.
+///
+/// The CLI receives source and debug-root paths from the operator. Catalogs
+/// describe adapter-owned relative paths only, so public catalogs never embed
+/// a developer workstation or studio mount.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CatalogAdobeInstall {
+    /// Adobe product identifier, for example `premierepro` or `aftereffects`.
+    pub product: String,
+    /// Host extension family (`uxp` or `cep`).
+    #[serde(rename = "extensionType", alias = "extension_type")]
+    pub extension_type: String,
+    /// Plugin directory name under the configured Adobe debug root.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plugin_id: Option<String>,
+    /// Relative plugin directory under the supplied source root.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_subpath: Option<String>,
+    /// Optional relative manifest path used for local verification.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub manifest_path: Option<String>,
+    /// Optional relative target path under the configured Adobe debug root.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_subpath: Option<String>,
 }
 
 /// Top-level catalog document.
@@ -882,6 +911,7 @@ entries:
                 python_path: None,
                 entry_point: None,
                 instructions_url: Some("https://example.com/install.md".into()),
+                adobe: None,
             }),
             icon: None,
             showcase: None,
@@ -903,6 +933,7 @@ entries:
             python_path: None,
             entry_point: None,
             instructions_url: None,
+            adobe: None,
         });
 
         assert!(validate_entry(&entry).is_err());
@@ -924,6 +955,7 @@ entries:
             python_path: None,
             entry_point: None,
             instructions_url: None,
+            adobe: None,
         });
 
         assert!(validate_entry(&entry).is_err());
@@ -961,6 +993,7 @@ entries:
                 python_path: Some("/usr/autodesk/maya2026/bin/mayapy".into()),
                 entry_point: Some("dcc_mcp_maya.cli:main".into()),
                 instructions_url: None,
+                adobe: None,
             }),
             icon: None,
             showcase: None,
@@ -1044,6 +1077,7 @@ entries:
                 python_path: None,
                 entry_point: None,
                 instructions_url: None,
+                adobe: None,
             }),
             icon: None,
             showcase: None,

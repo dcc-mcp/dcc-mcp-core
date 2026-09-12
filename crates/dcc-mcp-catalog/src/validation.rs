@@ -128,7 +128,20 @@ const MARKETPLACE_V2_SCHEMA_JSON: &str = r##"{
             "pip_extras":  { "type": "array", "items": { "type": "string", "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$" }, "uniqueItems": true },
             "python_path": { "type": "string" },
             "entry_point": { "type": "string" },
-            "instructions_url": { "type": "string" }
+            "instructions_url": { "type": "string" },
+            "adobe": {
+              "type": "object",
+              "required": ["product", "extensionType"],
+              "properties": {
+                "product": { "type": "string", "minLength": 1 },
+                "extensionType": { "type": "string", "enum": ["uxp", "cep"] },
+                "plugin_id": { "type": "string", "minLength": 1 },
+                "source_subpath": { "type": "string", "minLength": 1 },
+                "manifest_path": { "type": "string", "minLength": 1 },
+                "target_subpath": { "type": "string", "minLength": 1 }
+              },
+              "additionalProperties": false
+            }
           },
           "allOf": [
             {

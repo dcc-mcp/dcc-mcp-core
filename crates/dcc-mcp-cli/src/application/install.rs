@@ -10,6 +10,7 @@ use crate::domain::install::{
 
 const BUNDLED_CATALOG: &str = include_str!("../../../../dcc-mcp-catalog.yml");
 
+mod adobe;
 mod discovery;
 mod pip;
 mod policy;
@@ -329,6 +330,14 @@ fn execute_action(action: &InstallStepAction) -> Result<StepExecution, InstallEr
         InstallStepAction::PathCopy { source, dest } => {
             execute_path_copy(source, dest).map(StepExecution::Completed)
         }
+        InstallStepAction::AdobePluginLink {
+            source,
+            dest,
+            product,
+            extension_type,
+            ..
+        } => adobe::execute_plugin_link(source, dest, product, extension_type)
+            .map(StepExecution::Completed),
         InstallStepAction::RegisterDcc {
             dcc_type,
             entry_point,
@@ -680,6 +689,9 @@ fn execute_verify(plan: &InstallPlan) -> Result<Option<StepRollback>, InstallErr
                 python,
                 ..
             } => verify_pip_package(package, version.as_deref(), python.as_deref())?,
+            InstallStepAction::AdobePluginLink { dest, manifest, .. } => {
+                adobe::verify_linked_plugin(dest, manifest.as_deref())?
+            }
             InstallStepAction::RegisterDcc { .. } | InstallStepAction::Verify => {}
         }
     }
@@ -817,6 +829,8 @@ mod tests {
                 catalog_path: None,
                 python: None,
                 dcc_path: None,
+                plugin_source: None,
+                adobe_debug_root: None,
             })
             .unwrap();
 
@@ -837,6 +851,8 @@ mod tests {
                 catalog_path: None,
                 python: None,
                 dcc_path: None,
+                plugin_source: None,
+                adobe_debug_root: None,
             })
             .unwrap();
 
@@ -921,6 +937,8 @@ mod tests {
                 catalog_path: None,
                 python: None,
                 dcc_path: None,
+                plugin_source: None,
+                adobe_debug_root: None,
             })
             .unwrap();
 
@@ -947,6 +965,8 @@ mod tests {
                 catalog_path: None,
                 python: Some("/__nonexistent__/python".into()),
                 dcc_path: None,
+                plugin_source: None,
+                adobe_debug_root: None,
             },
             true,
         );
