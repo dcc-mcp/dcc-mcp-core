@@ -18,6 +18,12 @@ pub struct InstallRequest {
     pub adobe_debug_root: Option<PathBuf>,
 }
 
+#[derive(Debug, Clone, Default)]
+struct InstallOperatorPaths {
+    plugin_source: Option<PathBuf>,
+    adobe_debug_root: Option<PathBuf>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct InstallPlan {
     pub dcc_type: String,
@@ -311,8 +317,10 @@ impl InstallPlanner {
                 version.clone(),
                 request.python.clone(),
                 dcc_path.clone(),
-                request.plugin_source.clone(),
-                request.adobe_debug_root.clone(),
+                InstallOperatorPaths {
+                    plugin_source: request.plugin_source.clone(),
+                    adobe_debug_root: request.adobe_debug_root.clone(),
+                },
             ),
             None => Self::build_info_steps(),
         };
@@ -338,8 +346,7 @@ impl InstallPlanner {
         version: Option<String>,
         python_override: Option<String>,
         dcc_path: Option<PathBuf>,
-        plugin_source: Option<PathBuf>,
-        adobe_debug_root: Option<PathBuf>,
+        operator_paths: InstallOperatorPaths,
     ) -> Vec<InstallStep> {
         let adapter_dir = default_adapter_dir().join(&entry.name);
 
@@ -409,8 +416,8 @@ impl InstallPlanner {
             steps.push(Self::build_adobe_link_step(
                 entry,
                 adobe,
-                plugin_source.as_deref(),
-                adobe_debug_root.as_deref(),
+                operator_paths.plugin_source.as_deref(),
+                operator_paths.adobe_debug_root.as_deref(),
             ));
         }
 
