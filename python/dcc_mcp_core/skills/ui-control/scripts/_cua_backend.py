@@ -632,6 +632,9 @@ def _action_payload(
         "checked": params.get("checked"),
         "duration_ms": params.get("duration_ms"),
     }
+    if native:
+        # Native input uses the exact foreground target; the Host enforces it.
+        payload["delivery_mode"] = "foreground"
     metadata = (control or {}).get("metadata") or {}
     locator = metadata.get("ui_control") if isinstance(metadata, dict) else None
     if not native and isinstance(locator, dict):
