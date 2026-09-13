@@ -34,7 +34,7 @@ def test_semantic_action_keeps_host_control_delivery_policy():
 
 @pytest.mark.parametrize("dcc", ["capcut", "blender"])
 @pytest.mark.parametrize("allow_mutation", [False, True])
-def test_confirmation_permission_preserves_operator_scope(dcc, allow_mutation):
+def test_menu_permission_never_enables_native_confirmation(dcc, allow_mutation):
     module = _load(_CLIENT_PATH, "_test_confirmation_permission")
     bridge = FakeBridge()
     module.UiControlHostClient(
@@ -48,7 +48,8 @@ def test_confirmation_permission_preserves_operator_scope(dcc, allow_mutation):
         bridge=bridge,
     )
     grant = bridge.calls[0][1]["grant"]
-    assert grant["allow_trusted_confirmation"] is allow_mutation
+    assert grant["allow_trusted_confirmation"] is False
+    assert grant["allow_menu_invoke"] is allow_mutation
     assert grant["allow_raw_input"] is False
     assert (grant["process_id"], grant["window_handle"]) == (42, 500)
     assert [method for method, _ in bridge.calls] == ["open_session"]
