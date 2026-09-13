@@ -928,7 +928,12 @@ mod tests {
         eprintln!("descendant stderr inherited");
         std::io::stdout().flush().unwrap();
         std::io::stderr().flush().unwrap();
-        std::fs::write(ready_path, b"ready").unwrap();
+        // Publish only after the marker is complete: write() first creates an
+        // empty file, which the parent's readiness poll can otherwise observe.
+        let ready_path = Path::new(&ready_path);
+        let pending_path = ready_path.with_extension("pending");
+        std::fs::write(&pending_path, b"ready").unwrap();
+        std::fs::rename(pending_path, ready_path).unwrap();
         thread::sleep(Duration::from_secs(30));
     }
 
