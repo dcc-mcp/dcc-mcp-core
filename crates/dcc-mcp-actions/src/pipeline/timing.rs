@@ -12,15 +12,11 @@ use super::{ActionMiddleware, MiddlewareContext};
 
 /// Timing middleware — measures and records action execution latency.
 ///
-/// Stores the start time in `ctx.extensions["timing.start_ns"]` and
-/// the elapsed duration in `ctx.extensions["timing.elapsed_ms"]` (available
-/// in `after_dispatch` via a shared state mechanism).
+/// Each context owns its monotonic start offset. Completed durations are
+/// retained separately so reads and rejected dispatches cannot change them.
 pub struct TimingMiddleware {
-    /// Shared per-call timers (action → start Instant).
-    ///
-    /// Using a Mutex<HashMap> instead of thread-local to support both
-    /// single-threaded DCC main loops and multi-threaded test environments.
-    timers: Mutex<HashMap<String, Instant>>,
+    epoch: Instant,
+    completed: Mutex<HashMap<String, Duration>>,
 }
 
 impl TimingMiddleware {
@@ -28,15 +24,15 @@ impl TimingMiddleware {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            timers: Mutex::new(HashMap::new()),
+            epoch: Instant::now(),
+            completed: Mutex::new(HashMap::new()),
         }
     }
 
     /// Get the last recorded elapsed time for an action (for test assertions).
     #[must_use]
     pub fn last_elapsed(&self, action: &str) -> Option<Duration> {
-        let timers = self.timers.lock();
-        timers.get(action).map(|start| start.elapsed())
+        self.completed.lock().get(action).copied()
     }
 }
 
@@ -48,9 +44,8 @@ impl Default for TimingMiddleware {
 
 impl ActionMiddleware for TimingMiddleware {
     fn before_dispatch(&self, ctx: &mut MiddlewareContext) -> Result<(), DispatchError> {
-        let start = Instant::now();
-        let mut timers = self.timers.lock();
-        timers.insert(ctx.action.clone(), start);
+        let start_ns = u64::try_from(self.epoch.elapsed().as_nanos()).unwrap_or(u64::MAX);
+        ctx.insert("timing.start_ns", Value::Number(start_ns.into()));
         // Record start time in extensions as epoch milliseconds (u64)
         let start_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -65,13 +60,15 @@ impl ActionMiddleware for TimingMiddleware {
         ctx: &MiddlewareContext,
         _result: Result<&DispatchResult, &DispatchError>,
     ) {
-        let elapsed_ms = {
-            let timers = self.timers.lock();
-            timers
-                .get(&ctx.action)
-                .map(|start| start.elapsed().as_millis() as u64)
-                .unwrap_or(0)
+        let Some(start_ns) = ctx.get("timing.start_ns").and_then(Value::as_u64) else {
+            return;
         };
+        let elapsed = self
+            .epoch
+            .elapsed()
+            .saturating_sub(Duration::from_nanos(start_ns));
+        self.completed.lock().insert(ctx.action.clone(), elapsed);
+        let elapsed_ms = elapsed.as_millis() as u64;
         tracing::debug!(
             action = %ctx.action,
             elapsed_ms = elapsed_ms,
