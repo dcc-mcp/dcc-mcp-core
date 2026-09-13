@@ -1282,7 +1282,7 @@ entries:
                     .is_some_and(|install| install.install_type == "pip")
             })
             .collect::<Vec<_>>();
-        assert_eq!(pip_entries.len(), 33);
+        assert_eq!(pip_entries.len(), 34);
         assert!(pip_entries.iter().all(|entry| {
             let install = entry.install.as_ref().unwrap();
             install
@@ -1318,6 +1318,7 @@ entries:
             ),
             ("dcc-mcp-krita", "krita", "dcc_mcp_krita.server:main"),
             ("dcc-mcp-gimp", "gimp", "dcc_mcp_gimp.server:main"),
+            ("dcc-mcp-kdenlive", "kdenlive", "dcc_mcp_kdenlive.cli:main"),
         ] {
             let entry = entries
                 .iter()
