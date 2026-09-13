@@ -18,6 +18,16 @@
 
 version: "1"
 entries:
+  - name: "dcc-mcp-kdenlive"
+    description: "Kdenlive adapter with 20 typed project, media, timeline, effect, catalog and async MLT rendering tools, plus shared DCC-CUA editor control"
+    dcc: ["kdenlive"]
+    url: "https://github.com/dcc-mcp/dcc-mcp-kdenlive"
+    issues_url: "https://github.com/dcc-mcp/dcc-mcp-kdenlive/issues"
+    tags: ["adapter", "kdenlive", "official", "video-editing", "mlt"]
+    version: "0.1.0"
+    min_core_version: "0.20.28"
+    maintainer: "dcc-mcp"
+
   - name: "dcc-mcp-core"
     description: "Foundational Rust + Python library for the DCC-MCP ecosystem"
     dcc: []
