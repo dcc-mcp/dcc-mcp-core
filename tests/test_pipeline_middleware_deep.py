@@ -16,6 +16,8 @@ Covers:
 
 from __future__ import annotations
 
+import time
+
 import pytest
 
 from dcc_mcp_core import AuditMiddleware
@@ -327,6 +329,15 @@ class TestTimingMiddlewareElapsed:
         # Both should be valid ints
         assert isinstance(first, int)
         assert isinstance(second, int)
+
+    def test_last_elapsed_ms_does_not_grow_while_idle(self):
+        """A completed measurement stays fixed until another handler completes."""
+        pipeline, _ = _make_pipeline("op")
+        timing = pipeline.add_timing()
+        pipeline.dispatch("op", "{}")
+        completed = timing.last_elapsed_ms("op")
+        time.sleep(0.02)
+        assert timing.last_elapsed_ms("op") == completed
 
     def test_timing_multiple_actions_all_tracked(self):
         pipeline, _ = _make_pipeline("a", "b", "c")
