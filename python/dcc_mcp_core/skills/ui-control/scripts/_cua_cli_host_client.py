@@ -47,6 +47,8 @@ class UiControlHostClient:
                 "window_title": window_title,
                 "allow_raw_input": allow_raw_input,
                 "allow_recording": True,
+                # Permit the Host to ask the user, never approve on their behalf.
+                "allow_trusted_confirmation": bool(allow_menu_invoke),
             }
             if self._supports_native_menu_path:
                 grant["allow_menu_invoke"] = allow_menu_invoke
