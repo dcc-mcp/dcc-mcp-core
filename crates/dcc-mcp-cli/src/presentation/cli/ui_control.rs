@@ -4,7 +4,7 @@ use super::{DEFAULT_CALL_TIMEOUT_SECS, UiControlAction, UiControlArgs};
 
 impl UiControlAction {
     pub(super) fn effective_timeout_secs(&self, global: Option<u64>) -> u64 {
-        global.or(self.timeout_secs()).unwrap_or_else(|| {
+        global.or(self.timeout_secs()).unwrap_or({
             if matches!(self, Self::Act(_)) {
                 // Match the tool budget around the 120s native confirmation wait.
                 130
