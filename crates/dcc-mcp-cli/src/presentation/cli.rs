@@ -377,6 +377,17 @@ enum UiControlAction {
 }
 
 impl UiControlAction {
+    fn effective_timeout_secs(&self, global: Option<u64>) -> u64 {
+        global.or(self.timeout_secs()).unwrap_or_else(|| {
+            if matches!(self, Self::Act(_)) {
+                // Match the tool budget around the 120s native confirmation wait.
+                130
+            } else {
+                DEFAULT_CALL_TIMEOUT_SECS
+            }
+        })
+    }
+
     fn timeout_secs(&self) -> Option<u64> {
         match self {
             Self::Snapshot(args)
@@ -834,11 +845,9 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             result
         }
         Command::UiControl { action } => {
+            let effective_timeout = action.effective_timeout_secs(global_timeout_secs);
             let (tool_name, args) = action.into_call();
             let full_output = args.full_output;
-            let effective_timeout = global_timeout_secs
-                .or(args.timeout_secs)
-                .unwrap_or(DEFAULT_CALL_TIMEOUT_SECS);
             let arguments = read_call_arguments(&args.arguments_json, args.json_file.as_deref())?;
             let meta = args
                 .meta_json
@@ -1496,3 +1505,7 @@ fn command_has_configured_timeout_env(command: &Command) -> bool {
 #[cfg(test)]
 #[path = "cli/tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "cli/confirmation_timeout_tests.rs"]
+mod confirmation_timeout_tests;
