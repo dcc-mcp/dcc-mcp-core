@@ -27,6 +27,13 @@ entries:
     version: "0.1.0"
     min_core_version: "0.20.28"
     maintainer: "dcc-mcp"
+    install:
+      type: pip
+      pip_package: "dcc-mcp-kdenlive"
+      url: "https://github.com/dcc-mcp/dcc-mcp-kdenlive/releases/download/v0.1.0/dcc_mcp_kdenlive-0.1.0-py3-none-any.whl"
+      sha256: "eb3d1dd71164a00ad44bf2ff7a1e6f58075885df225f99ebb9ee8a8dd00cea2b"
+      entry_point: "dcc_mcp_kdenlive.cli:main"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-kdenlive/v0.1.0/README.md"
 
   - name: "dcc-mcp-core"
     description: "Foundational Rust + Python library for the DCC-MCP ecosystem"
