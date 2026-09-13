@@ -20,6 +20,12 @@ metadata:
 
 # DCC UI Control
 
+The Agent Host owns user authorization. Core never enables the standalone
+Host's legacy native confirmation popup, including when menu invocation is
+allowed. Missing authorization remains a typed refusal; do not auto-approve or
+retry it through another input route. For bounded task authorization, use the
+project-owned DCC-CUA task bridge and its exact target/scope checks.
+
 Use application UI automation only when a typed DCC skill, host API, or adapter
 script reports `unsupported` or `capability_missing`. Policy denial, user
 interruption, authentication, and desktop unavailability are stop conditions.

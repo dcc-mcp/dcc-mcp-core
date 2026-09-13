@@ -145,7 +145,7 @@ def test_cua_host_adapter_preserves_exact_grant_snapshot_and_action_fences() -> 
         "window_title": "Autodesk Maya",
         "allow_raw_input": True,
         "allow_recording": True,
-        "allow_trusted_confirmation": True,
+        "allow_trusted_confirmation": False,
         "allow_menu_invoke": True,
     }
     snapshot = client.snapshot(max_depth=5, max_nodes=250)
