@@ -34,6 +34,7 @@ mod lint;
 mod marketplace_output;
 mod record_replay;
 mod transport_args;
+mod ui_control;
 mod ui_control_output;
 
 #[cfg(test)]
@@ -374,34 +375,6 @@ enum UiControlAction {
     Wait(UiControlArgs),
     /// Stop the scoped session and release its visible effects and input owner.
     Stop(UiControlArgs),
-}
-
-impl UiControlAction {
-    fn timeout_secs(&self) -> Option<u64> {
-        match self {
-            Self::Snapshot(args)
-            | Self::Find(args)
-            | Self::Act(args)
-            | Self::RecordingStart(args)
-            | Self::RecordingState(args)
-            | Self::RecordingStop(args)
-            | Self::Wait(args)
-            | Self::Stop(args) => args.timeout_secs,
-        }
-    }
-
-    fn into_call(self) -> (&'static str, UiControlArgs) {
-        match self {
-            Self::Snapshot(args) => ("ui_control__snapshot", args),
-            Self::Find(args) => ("ui_control__find", args),
-            Self::Act(args) => ("ui_control__act", args),
-            Self::RecordingStart(args) => ("ui_control__recording_start", args),
-            Self::RecordingState(args) => ("ui_control__recording_state", args),
-            Self::RecordingStop(args) => ("ui_control__recording_stop", args),
-            Self::Wait(args) => ("ui_control__wait_for", args),
-            Self::Stop(args) => ("ui_control__stop_computer_use", args),
-        }
-    }
 }
 
 #[derive(Debug, Clone, clap::Args)]
@@ -834,11 +807,9 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             result
         }
         Command::UiControl { action } => {
+            let effective_timeout = action.effective_timeout_secs(global_timeout_secs);
             let (tool_name, args) = action.into_call();
             let full_output = args.full_output;
-            let effective_timeout = global_timeout_secs
-                .or(args.timeout_secs)
-                .unwrap_or(DEFAULT_CALL_TIMEOUT_SECS);
             let arguments = read_call_arguments(&args.arguments_json, args.json_file.as_deref())?;
             let meta = args
                 .meta_json
@@ -1496,3 +1467,7 @@ fn command_has_configured_timeout_env(command: &Command) -> bool {
 #[cfg(test)]
 #[path = "cli/tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "cli/confirmation_timeout_tests.rs"]
+mod confirmation_timeout_tests;

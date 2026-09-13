@@ -439,6 +439,7 @@ tools:
       destructive_hint: true
       idempotent_hint: false
       open_world_hint: false
+    timeout_hint_secs: 130
     execution: sync
     affinity: any
     source_file: scripts/act.py

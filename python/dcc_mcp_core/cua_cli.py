@@ -38,6 +38,7 @@ MINIMUM_CUA_VERSION_TEXT = ".".join(str(part) for part in MINIMUM_CUA_VERSION)
 _MANIFEST_TIMEOUT_SECONDS = 5.0
 _ENSURE_TIMEOUT_SECONDS = 20.0
 _DEFAULT_CALL_TIMEOUT_SECONDS = 35.0
+_ACTION_CALL_TIMEOUT_SECONDS = 120.0
 _MAX_MANIFEST_BYTES = 256 * 1024
 _MAX_IMAGE_BYTES = 512 * 1024 * 1024
 _EOF = object()
@@ -287,11 +288,18 @@ class CuaCliBridge:
         params: Optional[Dict[str, Any]] = None,
         *,
         request_id: Optional[str] = None,
-        timeout: float = _DEFAULT_CALL_TIMEOUT_SECONDS,
+        timeout: Optional[float] = None,
     ) -> Dict[str, Any]:
         """Send one bounded Host request and return its correlated response."""
         if not isinstance(method, str) or not method:
             raise CuaCliError("invalid_request", "CUA method must be a non-empty string.")
+        if timeout is None:
+            # These methods may wait for a native user decision. Never replay them.
+            timeout = (
+                _ACTION_CALL_TIMEOUT_SECONDS
+                if method in {"execute_action", "invoke_menu"}
+                else _DEFAULT_CALL_TIMEOUT_SECONDS
+            )
         arguments = {} if params is None else params
         if not isinstance(arguments, dict):
             raise CuaCliError("invalid_request", "CUA params must be an object.")
