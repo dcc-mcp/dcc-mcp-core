@@ -22,6 +22,7 @@ live alongside the ``submit_deferred`` implementation.
 from __future__ import annotations
 
 import json
+from threading import Event
 import time
 from typing import Any
 import urllib.request
@@ -100,10 +101,16 @@ class TestThreadAffinityRegistration:
 
 
 @pytest.fixture(scope="module")
-def server_url() -> Any:
+def handler_state() -> tuple[Event, Event, Event]:
+    """Track handler start, explicit release, and completion independently."""
+    return Event(), Event(), Event()
+
+
+@pytest.fixture(scope="module")
+def server_url(handler_state: tuple[Event, Event, Event]) -> Any:
     reg = ToolRegistry()
-    # Main-affined async tool — the handler sleeps to prove the envelope
-    # returns *before* the handler completes.
+    # Hold the handler until the test observes admission, independently of
+    # runner scheduling and HTTP startup latency.
     reg.register(
         "main_affined",
         description="Tool that must run on DCC main thread",
@@ -133,10 +140,18 @@ def server_url() -> Any:
     )
 
     server = McpHttpServer(reg, McpHttpConfig(port=0, server_name="main-affinity-test"))
-    server.register_handler(
-        "main_affined",
-        lambda params: (time.sleep(0.3), {"ok": True})[1],
-    )
+    started, release, finished = handler_state
+
+    def main_handler(_params: Any) -> dict[str, Any]:
+        started.set()
+        try:
+            if not release.wait(30):
+                raise RuntimeError("test did not release the main-affined handler")
+            return {"ok": True}
+        finally:
+            finished.set()
+
+    server.register_handler("main_affined", main_handler)
     server.register_handler(
         "main_affined_enforced",
         lambda params: {"ok": True},
@@ -159,20 +174,23 @@ def mcp_client(server_url: str) -> McpClient:
 
 
 class TestMainAffinityAsyncEnvelope:
-    def test_main_affined_tool_still_returns_pending_immediately(self, mcp_client: McpClient) -> None:
-        # Acceptance criterion 4: regardless of affinity the async envelope
-        # returns immediately.
-        t0 = time.perf_counter()
-        resp = _tools_call(mcp_client, "main_affined", arguments={})
-        elapsed = time.perf_counter() - t0
-
-        assert "result" in resp, resp
-        result = resp["result"]
-        assert result["isError"] is False
-        assert result["structuredContent"]["status"] == "pending"
-        assert isinstance(result["structuredContent"]["job_id"], str)
-        # Envelope must return well before the 300 ms handler sleep.
-        assert elapsed < 0.25, f"main-affined async envelope blocked for {elapsed:.3f}s"
+    def test_main_affined_tool_still_returns_pending_immediately(
+        self, mcp_client: McpClient, handler_state: tuple[Event, Event, Event]
+    ) -> None:
+        # AC 4: admission must not wait for the handler, even if it cannot finish.
+        started, release, finished = handler_state
+        try:
+            resp = _tools_call(mcp_client, "main_affined", arguments={})
+            assert "result" in resp, resp
+            result = resp["result"]
+            assert result["isError"] is False
+            assert result["structuredContent"]["status"] == "pending"
+            assert isinstance(result["structuredContent"]["job_id"], str)
+            assert started.wait(5), "handler did not start"
+            assert not finished.is_set(), "admission waited for handler completion"
+        finally:
+            release.set()
+        assert finished.wait(5), "released handler did not complete"
 
     def test_any_affined_tool_also_returns_pending_immediately(self, mcp_client: McpClient) -> None:
         resp = _tools_call(mcp_client, "any_affined", arguments={})
