@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.28](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.27...v0.20.28) (2026-09-13)
+
+
+### Bug Fixes
+
+* allow bounded native CUA confirmation waits ([#2465](https://github.com/dcc-mcp/dcc-mcp-core/issues/2465)) ([b286e09](https://github.com/dcc-mcp/dcc-mcp-core/commit/b286e09b9b2f6ee267e4ced8ceee4a73e57dec6a))
+* **docs:** satisfy markdown lint ([0f148a8](https://github.com/dcc-mcp/dcc-mcp-core/commit/0f148a8ac76ad64913327fa3f0bc3ea43733d409))
+* preserve foreground CUA action contracts ([#2464](https://github.com/dcc-mcp/dcc-mcp-core/issues/2464)) ([81069f9](https://github.com/dcc-mcp/dcc-mcp-core/commit/81069f9e20928359885aeb74e18a4cb510618932))
+* retain completed pipeline timing measurements ([#2466](https://github.com/dcc-mcp/dcc-mcp-core/issues/2466)) ([a484e79](https://github.com/dcc-mcp/dcc-mcp-core/commit/a484e7978e3dcb8e1fcd10183eaadaadef3f4f67))
+
+
+### Documentation
+
+* record issue triage dispositions ([9c8b707](https://github.com/dcc-mcp/dcc-mcp-core/commit/9c8b70754144aaddae91efab8dadbad6ad37e865))
+
 ## [0.20.27](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.26...v0.20.27) (2026-09-12)
 
 
