@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.29](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.28...v0.20.29) (2026-09-13)
+
+
+### Bug Fixes
+
+* **ui-control:** disable legacy native confirmation prompts ([f9be377](https://github.com/dcc-mcp/dcc-mcp-core/commit/f9be37799408b8773ce791e772d70018c3b41505))
+
 ## [0.20.28](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.27...v0.20.28) (2026-09-13)
 
 
