@@ -159,7 +159,8 @@ fn unfiltered_catalog_uses_the_bundled_release_catalog_not_cwd() {
     let value: Value = serde_json::from_slice(&output.stdout).unwrap();
     let serialized = value.to_string();
 
-    assert_eq!(value["total"], 37);
+    assert_eq!(value["total"], 38);
+    assert!(serialized.contains("dcc-mcp-kdenlive"));
     assert!(serialized.contains("dcc-mcp-unreal"));
     assert!(!serialized.contains("private-only-adapter"));
     assert!(!serialized.contains("private.invalid"));

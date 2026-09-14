@@ -1334,6 +1334,19 @@ entries:
             assert_eq!(install.entry_point.as_deref(), Some(entry_point));
         }
 
+        let kdenlive_install = entries
+            .iter()
+            .find(|entry| entry.name == "dcc-mcp-kdenlive")
+            .and_then(|entry| entry.install.as_ref())
+            .expect("dcc-mcp-kdenlive must publish install metadata");
+        assert_eq!(
+            kdenlive_install.instructions_url.as_deref(),
+            Some(concat!(
+                "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-kdenlive/",
+                "b73753fda1d492b57e1805930f9c60a4b46d3510/install.md"
+            ))
+        );
+
         for name in ["dcc-mcp-tiled", "dcc-mcp-material-maker", "dcc-mcp-wwise"] {
             let entry = entries
                 .iter()
