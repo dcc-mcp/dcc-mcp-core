@@ -24,6 +24,7 @@ submit a PR updating this matrix before the release PR merges.
 
 | DCC | Repository | Adapter Version | Core Pin | DCC Min Version | Dispatcher Pattern | Last Verified |
 |-----|-----------|----------------|----------|-----------------|-------------------|---------------|
+| Kdenlive | [dcc-mcp-kdenlive](https://github.com/dcc-mcp/dcc-mcp-kdenlive) | 0.1.0 | >=0.20.28,<1.0.0 | 26.08.1 verified | Copy-on-write MLT project tools, core async render jobs, shared DCC-CUA UI Control | 2026-09 |
 | Maya | [dcc-mcp-maya](https://github.com/dcc-mcp/dcc-mcp-maya) | 0.9.22 | >=0.19.45,<1.0.0 | 2024+ | Qt sidecar + HostUiDispatcherBase | 2026-08 |
 | Marmoset Toolbag | [dcc-mcp-marmoset](https://github.com/dcc-mcp/dcc-mcp-marmoset) | 0.1.1 | >=0.19.86,<1.0.0 | 4.03+ | External sidecar + Toolbag periodic callback | 2026-07 |
 | OpenSCAD | [dcc-mcp-openscad](https://github.com/dcc-mcp/dcc-mcp-openscad) | 0.1.2 | >=0.19.91,<1.0.0 | 2021.01+ | External OpenSCAD CLI subprocess | 2026-08 |
