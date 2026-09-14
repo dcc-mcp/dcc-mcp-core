@@ -169,6 +169,9 @@ enum Command {
     List,
     /// List adapter-backed DCC types from the release catalog.
     DccTypes {
+        /// Use a still-valid signed cache or the bundled catalog without checking online.
+        #[arg(long, env = "DCC_MCP_INSTALL_OFFLINE")]
+        offline: bool,
         /// Read a custom adapter catalog instead of the release catalog.
         #[arg(long, env = "DCC_MCP_CATALOG_PATH")]
         catalog: Option<PathBuf>,
@@ -306,6 +309,9 @@ enum Command {
     },
     /// Build an auditable DCC adapter installation plan.
     Install {
+        /// Use a still-valid signed cache or the bundled catalog without checking online.
+        #[arg(long, env = "DCC_MCP_INSTALL_OFFLINE")]
+        offline: bool,
         #[arg(long)]
         dcc_type: String,
         /// Exact adapter package version; must match the catalog-pinned artifact.
@@ -677,9 +683,11 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             run_doctor(doctor.request(registry_dir, Some(gateway_host), Some(gateway_port))).await?
         }
         Command::List => control.list_instances().await?,
-        Command::DccTypes { catalog, dcc_type } => {
-            dcc_types_output::run(catalog.as_deref(), dcc_type.as_deref())?
-        }
+        Command::DccTypes {
+            catalog,
+            dcc_type,
+            offline,
+        } => dcc_types_output::run(catalog.as_deref(), dcc_type.as_deref(), offline).await?,
         Command::Search {
             query,
             query_terms,
@@ -904,6 +912,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             control.stop_instance(request).await?
         }
         Command::Install {
+            offline,
             dcc_type,
             version,
             catalog,
@@ -914,7 +923,11 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             execute,
             json,
         } => {
-            let service = InstallService::bundled();
+            let service = if catalog.is_some() {
+                InstallService::bundled()
+            } else {
+                InstallService::refreshed(offline).await
+            };
             let req = InstallRequest {
                 dcc_type,
                 version,

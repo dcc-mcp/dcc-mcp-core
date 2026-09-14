@@ -4,6 +4,11 @@
   "dcc_type": "maya",
   "adapter_version": "0.0.0-test",
   "core_version": "0.0.0-test",
+  "catalog": {
+    "source": "bundled",
+    "latest_checked": false,
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
   "stage": "complete",
   "exit_code": 0,
   "steps": [

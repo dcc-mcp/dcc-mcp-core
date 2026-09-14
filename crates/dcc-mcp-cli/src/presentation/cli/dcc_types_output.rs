@@ -7,12 +7,22 @@ use crate::application::gateway_ensure;
 use crate::application::install::InstallService;
 use crate::application::local_registry::list_local_instances;
 
-pub(super) fn run(catalog: Option<&Path>, dcc_type: Option<&str>) -> anyhow::Result<Value> {
-    let service = InstallService::bundled();
-    if let Some(dcc_type) = dcc_type {
-        let inventory = list_local_instances(gateway_ensure::default_registry_dir()).ok();
-        to_json(service.discovery_decision(catalog, dcc_type, inventory.as_ref()))
+pub(super) async fn run(
+    catalog: Option<&Path>,
+    dcc_type: Option<&str>,
+    offline: bool,
+) -> anyhow::Result<Value> {
+    let service = if catalog.is_some() {
+        InstallService::bundled()
     } else {
-        to_json(service.dcc_types(catalog)?)
-    }
+        InstallService::refreshed(offline).await
+    };
+    let mut output = if let Some(dcc_type) = dcc_type {
+        let inventory = list_local_instances(gateway_ensure::default_registry_dir()).ok();
+        to_json(service.discovery_decision(catalog, dcc_type, inventory.as_ref()))?
+    } else {
+        to_json(service.dcc_types(catalog)?)?
+    };
+    output["catalog"] = to_json(service.catalog_provenance(catalog))?;
+    Ok(output)
 }

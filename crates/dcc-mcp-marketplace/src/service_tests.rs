@@ -507,6 +507,7 @@ fn install_policy_rejects_unavailable_entries() {
         category: None,
         policy: Some(dcc_mcp_catalog::CatalogPolicy {
             installation: "not_available".into(),
+            reason: None,
         }),
         requires: None,
         icon: None,

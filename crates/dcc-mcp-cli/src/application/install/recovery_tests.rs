@@ -1,4 +1,5 @@
 use super::*;
+use sha2::{Digest, Sha256};
 
 #[test]
 fn actual_planner_never_reports_manual_registration_as_ok() {
@@ -42,6 +43,11 @@ fn actual_planner_never_reports_manual_registration_as_ok() {
     let mut actual = serde_json::to_value(&report).unwrap();
     actual["adapter_version"] = serde_json::json!("0.0.0-test");
     actual["core_version"] = serde_json::json!("0.0.0-test");
+    assert_eq!(
+        actual["catalog"]["sha256"],
+        hex::encode(Sha256::digest(BUNDLED_CATALOG.as_bytes()))
+    );
+    actual["catalog"]["sha256"] = serde_json::json!("0".repeat(64));
     let expected: serde_json::Value = serde_json::from_str(include_str!(
         "../../../../../tests/fixtures/install-execution-report-v1-deferred.json"
     ))

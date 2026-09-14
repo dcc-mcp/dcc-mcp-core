@@ -1,0 +1,124 @@
+name: Publish verified install catalog
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - dcc-mcp-catalog.yml
+      - scripts/ci/prepare_install_catalog.py
+      - scripts/ci/archive_payload_policy.py
+      - .github/workflows/publish-install-catalog.yml
+  schedule:
+    # Refresh the seven-day validity window without changing curated versions.
+    - cron: "23 3 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: official-install-catalog
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.repository == 'dcc-mcp/dcc-mcp-core' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+
+      - uses: loonghao/vx@72d0ab2dcf855149aecf558ac846ddeb35216474 # v0.9.11
+        with:
+          version: "0.9.11"
+          cache-key-prefix: "vx-tools-v0.9.7"
+
+      - name: Validate curated artifacts and prepare catalog
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          vx uv run --no-project --with pyyaml==6.0.2 \
+            python scripts/ci/prepare_install_catalog.py \
+            --catalog dcc-mcp-catalog.yml \
+            --output "$RUNNER_TEMP/install-catalog-payload.json" \
+            --quarantine-invalid \
+            --source-revision "$GITHUB_SHA"
+
+      - name: Reject superseded source before signing
+        run: |
+          set -euo pipefail
+          latest_main="$(git ls-remote --exit-code origin refs/heads/main | cut -f1)"
+          if [ "$latest_main" != "$GITHUB_SHA" ]; then
+            echo "::error::Source was superseded; the previous install catalog remains published."
+            exit 1
+          fi
+
+      - name: Attest validated catalog bytes
+        id: attest
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: ${{ runner.temp }}/install-catalog-payload.json
+
+      - name: Assemble atomic catalog and attestation envelope
+        env:
+          BUNDLE_PATH: ${{ steps.attest.outputs.bundle-path }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path(os.environ["RUNNER_TEMP"])
+          payload = (root / "install-catalog-payload.json").read_bytes()
+          bundle = json.loads(Path(os.environ["BUNDLE_PATH"]).read_bytes())
+          envelope = {"catalog": payload.decode("utf-8"), "attestation": bundle}
+          (root / "install-catalog.json").write_bytes(
+              (json.dumps(envelope, separators=(",", ":")) + "\n").encode("utf-8")
+          )
+          PY
+
+      - name: Publish one catalog commit with an exact ref lease
+        env:
+          GIT_AUTHOR_NAME: loonghao
+          GIT_AUTHOR_EMAIL: hal.long@outlook.com
+          GIT_COMMITTER_NAME: loonghao
+          GIT_COMMITTER_EMAIL: hal.long@outlook.com
+        run: |
+          set -euo pipefail
+          branch=refs/heads/install-catalog
+          previous="$(git ls-remote origin "$branch" | cut -f1)"
+          parents=()
+          if [ -n "$previous" ]; then
+            git fetch --no-tags origin "$previous"
+            parents=(-p "$previous")
+          fi
+
+          # Build a tree containing only the published envelope. No source
+          # checkout, credentials, or generated payload file enters the branch.
+          export GIT_INDEX_FILE="$RUNNER_TEMP/install-catalog.index"
+          git read-tree --empty
+          blob="$(git hash-object -w "$RUNNER_TEMP/install-catalog.json")"
+          git update-index --add --cacheinfo "100644,$blob,install-catalog.json"
+          tree="$(git write-tree)"
+          commit="$(git commit-tree "$tree" "${parents[@]}" \
+            -m "chore: refresh verified install catalog")"
+
+          latest_main="$(git ls-remote --exit-code origin refs/heads/main | cut -f1)"
+          if [ "$latest_main" != "$GITHUB_SHA" ]; then
+            echo "::error::Source was superseded; the previous install catalog remains published."
+            exit 1
+          fi
+          git push --force-with-lease="$branch:$previous" origin "$commit:$branch"
+          printf 'Published catalog from `%s` as `%s`.\n' "$GITHUB_SHA" "$commit" \
+            >> "$GITHUB_STEP_SUMMARY"

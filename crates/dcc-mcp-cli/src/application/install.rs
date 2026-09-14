@@ -2,6 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+use crate::domain::install_catalog::CatalogSource;
 use thiserror::Error;
 
 use crate::domain::install::{
@@ -11,6 +12,9 @@ use crate::domain::install::{
 const BUNDLED_CATALOG: &str = include_str!("../../../../dcc-mcp-catalog.yml");
 
 mod adobe;
+mod catalog;
+#[cfg(test)]
+mod catalog_contract_tests;
 mod discovery;
 mod pip;
 mod policy;
@@ -24,12 +28,14 @@ pub use report::{
     InstallStepReport, InstallStepRollbackReport, InstallVerifyReport,
 };
 use report::{
-    action_failure, empty_execution_report, execution_report_for_plan, failed_report,
-    safe_report_identifier, stable_step_id, success_next_steps,
+    action_failure, execution_report_for_plan, failed_report, safe_report_identifier,
+    stable_step_id, success_next_steps,
 };
 
 #[derive(Debug, Error)]
 pub enum InstallError {
+    #[error("{0}")]
+    CatalogRefresh(String),
     #[error(transparent)]
     Catalog(#[from] dcc_mcp_catalog::CatalogError),
     #[error(transparent)]
@@ -62,6 +68,9 @@ enum StepExecution {
 pub struct InstallService {
     default_catalog_path: Option<PathBuf>,
     auto_install_policy: AutoInstallPolicy,
+    catalog_snapshot: Option<catalog::ResolvedCatalog>,
+    catalog_error: Option<String>,
+    require_fresh_catalog: bool,
 }
 
 impl InstallService {
@@ -70,6 +79,9 @@ impl InstallService {
         Self {
             default_catalog_path: Some(default_catalog_path),
             auto_install_policy: AutoInstallPolicy::from_env(),
+            catalog_snapshot: None,
+            catalog_error: None,
+            require_fresh_catalog: false,
         }
     }
 
@@ -80,6 +92,9 @@ impl InstallService {
         Self {
             default_catalog_path: None,
             auto_install_policy: AutoInstallPolicy::from_env(),
+            catalog_snapshot: None,
+            catalog_error: None,
+            require_fresh_catalog: false,
         }
     }
 
@@ -91,13 +106,17 @@ impl InstallService {
         Self {
             default_catalog_path: Some(default_catalog_path),
             auto_install_policy,
+            catalog_snapshot: None,
+            catalog_error: None,
+            require_fresh_catalog: false,
         }
     }
 
     /// Generate an install plan (display-only, no execution).
     pub fn plan(&self, request: InstallRequest) -> Result<InstallPlan, InstallError> {
-        let entries = self.load_entries(request.catalog_path.as_deref())?;
-        let plan = InstallPlanner::plan(&entries, request)?;
+        let catalog = self.load_catalog(request.catalog_path.as_deref())?;
+        let mut plan = InstallPlanner::plan(&catalog.entries, request)?;
+        plan.catalog = Some(catalog.provenance);
         Ok(self.apply_auto_install_policy(plan))
     }
 
@@ -113,31 +132,8 @@ impl InstallService {
         let requested_dcc = safe_report_identifier(&request.dcc_type, "unknown");
         match self.plan(request) {
             Ok(plan) => self.execute_plan(&plan, skip_confirmation),
-            Err(_) => failed_report(
-                empty_execution_report(requested_dcc),
-                "preflight",
-                10,
-                "INSTALL_PLAN_FAILED",
-                None,
-            ),
+            Err(error) => report::plan_failure_report(requested_dcc, &error),
         }
-    }
-
-    fn load_entries(
-        &self,
-        requested_path: Option<&Path>,
-    ) -> Result<Vec<dcc_mcp_catalog::CatalogEntry>, InstallError> {
-        if let Some(path) = requested_path {
-            return dcc_mcp_catalog::load_from_file(path).map_err(Into::into);
-        }
-
-        if let Some(default_path) = self.default_catalog_path.as_deref() {
-            let entries = dcc_mcp_catalog::load_from_file(Path::new(default_path))?;
-            if !entries.is_empty() {
-                return Ok(entries);
-            }
-        }
-        dcc_mcp_catalog::load_from_str(BUNDLED_CATALOG).map_err(Into::into)
     }
 
     fn apply_auto_install_policy(&self, mut plan: InstallPlan) -> InstallPlan {
@@ -176,6 +172,17 @@ impl InstallService {
     {
         let mut report = execution_report_for_plan(plan);
 
+        if self.require_fresh_catalog
+            && plan.catalog.as_ref().is_some_and(|catalog| {
+                !catalog.latest_checked && catalog.source != CatalogSource::Explicit
+            })
+        {
+            eprintln!(
+                "Latest installation catalog could not be checked. Reconnect or explicitly use --offline."
+            );
+            return failed_report(report, "preflight", 10, "INSTALL_CATALOG_UNAVAILABLE", None);
+        }
+
         if !plan.install_policy.auto_install_enabled {
             eprintln!("Automatic installation is disabled by policy.");
             return failed_report(report, "preflight", 10, "AUTO_INSTALL_DISABLED", None);
@@ -207,6 +214,15 @@ impl InstallService {
                     return failed_report(report, "preflight", 10, "CONSENT_INPUT_FAILED", None);
                 }
             }
+        }
+
+        if plan
+            .catalog
+            .as_ref()
+            .and_then(|catalog| catalog.expires_at)
+            .is_some_and(|expires| catalog::now_seconds().map_or(true, |now| expires <= now))
+        {
+            return failed_report(report, "preflight", 10, "INSTALL_CATALOG_EXPIRED", None);
         }
 
         let mut completed: Vec<(usize, Option<StepRollback>)> = Vec::new();
@@ -1118,6 +1134,7 @@ mod tests {
 
     fn verify_plan(action: InstallStepAction) -> InstallPlan {
         InstallPlan {
+            catalog: None,
             dcc_type: "maya".into(),
             version: None,
             dcc_path: None,

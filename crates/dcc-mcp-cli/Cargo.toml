@@ -17,6 +17,7 @@ anyhow.workspace = true
 base64.workspace = true
 clap = { version = "4", features = ["derive", "env"] }
 dcc-mcp-catalog.workspace = true
+dcc-mcp-attestation.workspace = true
 dcc-mcp-gateway-ensure.workspace = true
 dcc-mcp-jsonrpc.workspace = true
 dcc-mcp-http-server.workspace = true
