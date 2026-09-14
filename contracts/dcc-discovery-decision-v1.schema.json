@@ -25,6 +25,7 @@
     "next_action"
   ],
   "properties": {
+    "catalog": { "$ref": "#/$defs/catalog_provenance" },
     "schema_version": { "const": 1 },
     "dcc_type": {
       "type": "string",
@@ -98,6 +99,19 @@
     }
   },
   "$defs": {
+    "catalog_provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "latest_checked"],
+      "properties": {
+        "source": { "enum": ["remote", "cache", "bundled", "explicit", "unavailable"] },
+        "latest_checked": { "type": "boolean" },
+        "sha256": { "type": "string", "pattern": "^[a-fA-F0-9]{64}$" },
+        "source_revision": { "type": "string", "pattern": "^[a-fA-F0-9]{40}$" },
+        "issued_at": { "type": "integer", "minimum": 0 },
+        "expires_at": { "type": "integer", "minimum": 0 }
+      }
+    },
     "presence": { "enum": ["present", "absent", "unknown"] }
   }
 }

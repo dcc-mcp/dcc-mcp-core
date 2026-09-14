@@ -44,6 +44,11 @@ entries:
 
 ## CLI Usage
 
+Adapter installation and `dcc-mcp-cli dcc-types` use the
+[verified installation catalog](verified-install-catalog.md), which refreshes
+independently of CLI releases. The server catalog commands below remain discovery
+interfaces and do not perform this installation-specific refresh.
+
 ```bash
 # Search by keyword (matches name, description, DCC type, or tag)
 dcc-mcp-server catalog search --query maya

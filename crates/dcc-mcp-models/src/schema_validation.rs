@@ -12,7 +12,7 @@ const INSTALL_SOP_SCHEMA_ID: &str =
     "https://dcc-mcp.github.io/schemas/adapter-install-sop-v1.schema.json";
 const INSTALL_SOP_SCHEMA_DIALECT: &str = "https://json-schema.org/draft/2020-12/schema";
 const INSTALL_SOP_SCHEMA_SHA256: &str =
-    "3ca25788439917b4d4c0617230a762f9797756b5b54f45c8c4149f975b90f904";
+    "2b3a8a101384a5163c7569c4a2b0de6586c672c5ee291735f94334a33b7d37a0";
 const DUPLICATE_JSON_KEY: &str = "duplicate_json_object_key";
 const MAX_VALIDATION_ERRORS: usize = 32;
 const MAX_DIAGNOSTIC_BYTES: usize = 512;

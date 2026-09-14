@@ -4,6 +4,8 @@ use dcc_mcp_catalog::{CatalogAdobeInstall, CatalogEntry, CatalogInstall};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+pub(crate) mod policy;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InstallRequest {
     pub dcc_type: String,
@@ -31,6 +33,8 @@ pub struct InstallPlan {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dcc_path: Option<PathBuf>,
     pub adapter: CatalogEntry,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub catalog: Option<crate::domain::install_catalog::CatalogProvenance>,
     pub steps: Vec<InstallStep>,
     #[serde(default)]
     pub next_steps: Vec<InstallNextStep>,
@@ -167,6 +171,20 @@ pub enum InstallPlanError {
     UnsupportedDcc(String),
     #[error("no install metadata found in catalog entry for '{0}'")]
     MissingInstallMetadata(String),
+    #[error("catalog entry '{0}' is not available for installation")]
+    NotAvailable(String),
+    #[error("catalog entry '{name}' has unsupported installation policy '{installation}'")]
+    InvalidInstallationPolicy { name: String, installation: String },
+    #[error("catalog entry '{name}' has invalid min_core_version '{required}'")]
+    InvalidMinCoreVersion { name: String, required: String },
+    #[error(
+        "catalog entry '{name}' requires dcc-mcp-core >= {required}; current version is {current}"
+    )]
+    IncompatibleCoreVersion {
+        name: String,
+        required: String,
+        current: String,
+    },
     #[error("git install requires a full 40-character commit object ID")]
     UnpinnedGitReference,
     #[error("zip install requires exactly 64 hexadecimal SHA-256 digits")]
@@ -301,6 +319,8 @@ impl InstallPlanner {
             .cloned()
             .ok_or_else(|| InstallPlanError::UnsupportedDcc(request.dcc_type.clone()))?;
 
+        policy::validate(&adapter)?;
+
         let dcc_type = request.dcc_type.clone();
         let version = request.version.clone().or_else(|| adapter.version.clone());
         let dcc_path = request.dcc_path.clone();
@@ -333,6 +353,7 @@ impl InstallPlanner {
             version,
             dcc_path,
             adapter,
+            catalog: None,
             steps,
             install_policy: InstallPolicy::enabled(),
         })

@@ -199,6 +199,7 @@ pub fn publish_marketplace_package(
         category: Some("Skills".into()),
         policy: Some(CatalogPolicy {
             installation: "available".into(),
+            reason: None,
         }),
         requires: requirements,
         icon: options.icon,
@@ -427,7 +428,8 @@ fn marketplace_v1_entry_value(entry: &CatalogEntry) -> Result<Value, Marketplace
         "category": entry.category.as_deref().unwrap_or("Skills"),
         "source": install,
         "policy": entry.policy.as_ref().unwrap_or(&CatalogPolicy {
-            installation: "available".into()
+            installation: "available".into(),
+            reason: None,
         })
     });
     let object = value

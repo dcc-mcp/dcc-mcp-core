@@ -1,9 +1,12 @@
 use serde::{Deserialize, Serialize};
 
 use crate::domain::install::{InstallPlan, InstallStepAction, normalized_dcc_key};
+use crate::domain::install_catalog::{CatalogProvenance, CatalogSource};
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct InstallExecutionReport {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub catalog: Option<crate::domain::install_catalog::CatalogProvenance>,
     pub schema_version: u8,
     pub status: String,
     pub dcc_type: String,
@@ -84,6 +87,7 @@ pub(super) fn execution_report_for_plan(plan: &InstallPlan) -> InstallExecutionR
         })
         .collect();
     InstallExecutionReport {
+        catalog: plan.catalog.clone(),
         schema_version: 1,
         status: "running".into(),
         dcc_type: dcc_type.clone(),
@@ -115,6 +119,7 @@ pub(super) fn execution_report_for_plan(plan: &InstallPlan) -> InstallExecutionR
 
 pub(super) fn empty_execution_report(dcc_type: String) -> InstallExecutionReport {
     InstallExecutionReport {
+        catalog: None,
         schema_version: 1,
         status: "running".into(),
         dcc_type: dcc_type.clone(),
@@ -163,6 +168,20 @@ pub(super) fn failed_report(
         primary_code: primary_code.map(Into::into),
     });
     report
+}
+
+pub(super) fn plan_failure_report(
+    dcc_type: String,
+    error: &super::InstallError,
+) -> InstallExecutionReport {
+    let mut report = empty_execution_report(dcc_type);
+    let code = if matches!(error, super::InstallError::CatalogRefresh(_)) {
+        report.catalog = Some(CatalogProvenance::local(CatalogSource::Unavailable));
+        "INSTALL_CATALOG_UNAVAILABLE"
+    } else {
+        "INSTALL_PLAN_FAILED"
+    };
+    failed_report(report, "preflight", 10, code, None)
 }
 
 pub(super) fn safe_report_identifier(value: &str, fallback: &str) -> String {

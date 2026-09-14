@@ -56,7 +56,8 @@ const MARKETPLACE_V2_SCHEMA_JSON: &str = r##"{
           "type": "object",
           "required": ["installation"],
           "properties": {
-            "installation": { "type": "string" }
+            "installation": { "type": "string" },
+            "reason": { "type": "string", "minLength": 1 }
           },
           "additionalProperties": false
         },

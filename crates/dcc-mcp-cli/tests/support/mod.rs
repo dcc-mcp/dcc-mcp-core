@@ -1146,7 +1146,15 @@ pub(crate) fn spawn_local_mcp_fixture() -> LocalMcpFixture {
 }
 
 pub(crate) fn cli_command() -> Command {
-    Command::new(env!("CARGO_BIN_EXE_dcc-mcp-cli"))
+    let mut command = Command::new(env!("CARGO_BIN_EXE_dcc-mcp-cli"));
+    command.env("DCC_MCP_INSTALL_OFFLINE", "true");
+    command.env(
+        "DCC_MCP_INSTALL_CACHE",
+        std::env::temp_dir()
+            .join(format!("dcc-mcp-install-test-{}", uuid::Uuid::new_v4()))
+            .join("catalog.json"),
+    );
+    command
 }
 
 pub(crate) fn run_json(args: &[&str]) -> Value {

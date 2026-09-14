@@ -1194,6 +1194,7 @@ dependencies = [
  "base64 0.22.1",
  "clap",
  "dcc-mcp-actions",
+ "dcc-mcp-attestation",
  "dcc-mcp-catalog",
  "dcc-mcp-gateway-ensure",
  "dcc-mcp-http",

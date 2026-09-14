@@ -42,7 +42,7 @@
         "machine_wide_host_detected": false,
         "evidence_scope": "catalog_and_adapter_contract_only"
       },
-      "expected_instructions_url": "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-godot/main/README.md"
+      "expected_instructions_url": "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-godot/f8aaf7a3d8d810eec372b5cb77f1f79aa44a236f/README.md"
     }
   ]
 }

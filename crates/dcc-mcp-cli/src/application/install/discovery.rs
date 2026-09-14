@@ -5,7 +5,7 @@ use dcc_mcp_models::DccName;
 use serde::Serialize;
 use serde_json::Value;
 
-use super::{BUNDLED_CATALOG, InstallError, InstallService};
+use super::{InstallError, InstallService};
 use crate::domain::install::normalized_dcc_key;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -141,11 +141,7 @@ struct RuntimeObservation {
 impl InstallService {
     /// List adapter-backed DCC types from the bundled or explicitly supplied catalog.
     pub fn dcc_types(&self, catalog_path: Option<&Path>) -> Result<DccTypesCatalog, InstallError> {
-        let entries = if let Some(path) = catalog_path {
-            self.load_entries(Some(path))?
-        } else {
-            dcc_mcp_catalog::load_from_str(BUNDLED_CATALOG)?
-        };
+        let entries = self.load_entries(catalog_path)?;
         let mut grouped: BTreeMap<String, BTreeMap<String, DccAdapterSummary>> = BTreeMap::new();
         let mut canonical_by_normalized: BTreeMap<String, String> = BTreeMap::new();
 
@@ -159,7 +155,8 @@ impl InstallService {
                 name: entry.name.clone(),
                 version: entry.version.clone(),
                 url: entry.url.clone(),
-                catalog_install_available: entry.install.is_some(),
+                catalog_install_available: entry.install.is_some()
+                    && crate::domain::install::policy::validate(entry).is_ok(),
             };
             for dcc_type in &entry.dcc {
                 let parsed = DccName::parse(dcc_type).to_string();
@@ -213,11 +210,7 @@ impl InstallService {
         let requested_key = normalized_dcc_key(&canonical_dcc);
         let runtime = inventory.map(|value| observe_runtime(value, &requested_key));
 
-        let entries = if let Some(path) = catalog_path {
-            self.load_entries(Some(path))
-        } else {
-            dcc_mcp_catalog::load_from_str(BUNDLED_CATALOG).map_err(Into::into)
-        };
+        let entries = self.load_entries(catalog_path);
         let entries = match entries {
             Ok(entries) => entries,
             Err(_) => {
@@ -279,7 +272,9 @@ impl InstallService {
         } else if live_instances > 0 {
             wait_ready_action(&canonical_dcc)
         } else if catalog_path.is_none()
-            && adapter.and_then(|entry| entry.install.as_ref()).is_some()
+            && adapter.is_some_and(|entry| {
+                entry.install.is_some() && crate::domain::install::policy::validate(entry).is_ok()
+            })
         {
             install_plan_action(&canonical_dcc, instructions_url)
         } else {
@@ -500,5 +495,57 @@ fn doctor_action() -> DiscoveryNextAction {
         ],
         requires_consent: false,
         instructions_url: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::application::install::catalog::ResolvedCatalog;
+    use crate::domain::install_catalog::{CatalogProvenance, CatalogSource};
+    use serde_json::json;
+
+    #[test]
+    fn official_discovery_only_recommends_install_for_available_compatible_entries() {
+        for dcc in ["maya", "photoshop"] {
+            for (fields, expected_action) in [
+                (
+                    json!({"policy": {"installation": "available"}}),
+                    "plan_install",
+                ),
+                (
+                    json!({"policy": {"installation": "not_available"}}),
+                    "inspect_catalog",
+                ),
+                (
+                    json!({"policy": {"installation": "revoked"}}),
+                    "inspect_catalog",
+                ),
+                (json!({"min_core_version": "999.0.0"}), "inspect_catalog"),
+                (json!({"min_core_version": "invalid"}), "inspect_catalog"),
+            ] {
+                let mut entry = json!({
+                    "name": format!("dcc-mcp-{dcc}"),
+                    "description": "Official catalog fixture",
+                    "dcc": [dcc],
+                    "tags": ["adapter"],
+                    "install": {"type": "path", "url": "unused"},
+                });
+                entry
+                    .as_object_mut()
+                    .unwrap()
+                    .extend(fields.as_object().unwrap().clone());
+                let mut service = InstallService::bundled();
+                service.catalog_snapshot = Some(ResolvedCatalog {
+                    entries: vec![serde_json::from_value(entry).unwrap()],
+                    provenance: CatalogProvenance::local(CatalogSource::Remote),
+                });
+                let decision =
+                    service.discovery_decision(None, dcc, Some(&json!({"instances": []})));
+                assert_eq!(decision.next_action.id, expected_action, "{dcc}: {fields}");
+                assert_eq!(decision.released_catalog, CatalogPresence::Present);
+                assert_eq!(decision.live_instances, Some(0));
+            }
+        }
     }
 }

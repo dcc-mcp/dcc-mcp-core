@@ -172,6 +172,9 @@ pub enum CatalogComponentKind {
 pub struct CatalogPolicy {
     /// Whether a package may be installed by the current marketplace.
     pub installation: String,
+    /// Publisher explanation for a curated version hold or installation withdrawal.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
 }
 
 /// External prerequisites needed to use a marketplace package.

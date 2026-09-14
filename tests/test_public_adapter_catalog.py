@@ -39,19 +39,21 @@ def test_obs_release_is_available_to_the_install_planner() -> None:
     obs = entries["dcc-mcp-obs"]
 
     assert obs["dcc"] == ["obs"]
-    assert obs["version"] == "1.1.0"
+    assert obs["version"] == "1.4.0"
     assert obs["min_core_version"] == "0.20.14"
     assert obs["install"] == {
         "type": "pip",
         "pip_package": "dcc-mcp-obs",
         "url": (
-            "https://files.pythonhosted.org/packages/cc/6e/"
-            "fd6b04280ab4de5c1839cf7449f894b10e5cc9184fdefb34e073a214aa1a/"
-            "dcc_mcp_obs-1.1.0-py3-none-any.whl"
+            "https://files.pythonhosted.org/packages/c1/7e/"
+            "e928e483625278c43a84aced9f6c9243964f94e521bce8a77f66c0aedf03/"
+            "dcc_mcp_obs-1.4.0-py3-none-any.whl"
         ),
-        "sha256": "d407127d5b200df29a6cab0a5ed6546a03a6c5a8f93b617d0dd034442f0c6b7a",
+        "sha256": "31afb647da5c999147fd6629e8abb5a2020b30519a1fc68d39fb5c134bdbbddb",
         "entry_point": "dcc_mcp_obs:ObsMcpServer",
-        "instructions_url": ("https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-obs/main/install.md"),
+        "instructions_url": (
+            "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-obs/4ae80d4a7f062c6a496ad2848cf3eaeaea08ffbe/install.md"
+        ),
     }
 
 

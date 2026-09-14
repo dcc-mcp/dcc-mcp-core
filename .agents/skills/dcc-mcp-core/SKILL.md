@@ -52,6 +52,14 @@ The foundational library enabling AI assistants to interact with Digital Content
 
 ## Installation
 
+The CLI refreshes the official signed installation catalog independently of its
+binary version. Inspect `plan.catalog` for source, digest, expiry, and
+`latest_checked`; `--offline` explicitly uses a valid signed cache or bundled
+metadata. Never treat an integrity failure as permission to bypass verification.
+Adapter promotion must preserve curated versions, immutable artifact hashes,
+withdrawal policy, and minimum Core compatibility. See
+[`verified-install-catalog.md`](../../../docs/guide/verified-install-catalog.md).
+
 For agent-side DCC control, install the published `dcc-mcp` Skill and use its
 CLI workflow; the Python package below is for adapters and embedded runtimes:
 
