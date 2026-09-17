@@ -706,6 +706,7 @@ __all__ = [
     "register_dcc_namespace",
     "register_state_digest_provider",
     "reset_default_script_execution_context_for_tests",
+    "update_script_namespace",
     "validate_script_file_path",
     "write_temp_script",
 ]
@@ -831,6 +832,21 @@ class ScriptExecutionContext:
         with self._lock:
             self._script_namespace.clear()
 
+    def update_script_namespace(self, values: dict[str, Any]) -> None:
+        """Merge variables bound by a sandboxed execution back into the namespace.
+
+        Used by the ``dcc_execute`` persistent-namespace path (issue #2300):
+        the sandbox runs in its own dict and only the variable namespace is
+        copied back, so ``clear_script_namespace`` remains the single reset
+        point for both execution tools. Dunder keys are dropped — they belong
+        to the execution machinery, not to the script.
+        """
+        with self._lock:
+            for key, value in values.items():
+                if str(key).startswith("__"):
+                    continue
+                self._script_namespace[key] = value
+
     def execute(self, code: str, *, filename: str = "<execute_python>") -> Any:
         """Execute code and persist variables atomically in this context."""
         with self._lock:
@@ -954,6 +970,15 @@ def get_script_namespace(*, context: ScriptExecutionContext | None = None) -> di
 def clear_script_namespace(*, context: ScriptExecutionContext | None = None) -> None:
     """Reset the persistent script namespace (useful before a fresh workflow)."""
     _script_context(context).clear()
+
+
+def update_script_namespace(
+    values: dict[str, Any],
+    *,
+    context: ScriptExecutionContext | None = None,
+) -> None:
+    """Merge sandboxed variables into the persistent script namespace."""
+    _script_context(context).update_script_namespace(values)
 
 
 def execute_with_context(

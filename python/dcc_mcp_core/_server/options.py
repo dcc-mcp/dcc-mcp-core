@@ -123,19 +123,38 @@ class GatewayOptions:
 
 @dataclass(frozen=True)
 class ObservabilityOptions:
-    """File logging, job persistence, and telemetry configuration.
+    """File logging, job persistence, checkpoint durability, and telemetry.
 
-    All three flags can be overridden at runtime via env vars
-    (``DCC_MCP_DISABLE_FILE_LOGGING``, ``DCC_MCP_DISABLE_JOB_PERSISTENCE``,
-    ``DCC_MCP_DISABLE_TELEMETRY``).  The *effective* flag is the logical AND
-    of the option and the absence of the env override — resolved at server
-    startup, not here.
+    Args:
+        enable_file_logging: Mirror tool logs to disk.
+        enable_job_persistence: Persist job history through ``JobStorage``.
+        enable_telemetry: Emit tool/action telemetry.
+        enable_checkpoint_persistence: Back the server checkpoint store with a
+            durable per-DCC file so interrupted jobs survive a restart
+            (issue #2300).  ``False`` restores the in-memory store.  Can also
+            be disabled globally via ``DCC_MCP_CHECKPOINT_IN_MEMORY=1``.
+        enable_checkpoint_tools: Register ``jobs_checkpoint_status`` and
+            ``jobs_resume_context`` on the adapter server at startup so an
+            agent can read resume state after a restart (issue #2300).
+        job_retention_hours: Optional job-history retention window.
+        checkpoint_path: Explicit checkpoint file.  Wins over the per-DCC
+            default and over ``DCC_MCP_CHECKPOINT_DIR``.
+
+    The three ``enable_*`` runtime flags can also be overridden at runtime via
+    env vars (``DCC_MCP_DISABLE_FILE_LOGGING``,
+    ``DCC_MCP_DISABLE_JOB_PERSISTENCE``, ``DCC_MCP_DISABLE_TELEMETRY``).  The
+    *effective* flag is the logical AND of the option and the absence of the
+    env override — resolved at server startup, not here.
+
     """
 
     enable_file_logging: bool = True
     enable_job_persistence: bool = True
     enable_telemetry: bool = True
+    enable_checkpoint_persistence: bool = True
+    enable_checkpoint_tools: bool = True
     job_retention_hours: int | None = None
+    checkpoint_path: str | None = None
 
 
 @dataclass(frozen=True)
@@ -349,7 +368,10 @@ class DccServerOptions:
         enable_file_logging: bool = True,
         enable_job_persistence: bool = True,
         enable_telemetry: bool = True,
+        enable_checkpoint_persistence: bool = True,
+        enable_checkpoint_tools: bool = True,
         job_retention_hours: int | None = None,
+        checkpoint_path: str | None = None,
         # diagnostics kwargs
         dcc_pid: int | None = None,
         dcc_window_title: str | None = None,
@@ -411,7 +433,10 @@ class DccServerOptions:
             enable_file_logging=enable_file_logging,
             enable_job_persistence=enable_job_persistence,
             enable_telemetry=enable_telemetry,
+            enable_checkpoint_persistence=enable_checkpoint_persistence,
+            enable_checkpoint_tools=enable_checkpoint_tools,
             job_retention_hours=job_retention_hours,
+            checkpoint_path=checkpoint_path,
         )
         diagnostics = DiagnosticsOptions(
             dcc_pid=dcc_pid,

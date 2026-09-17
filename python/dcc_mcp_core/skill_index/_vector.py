@@ -53,6 +53,7 @@ from __future__ import annotations
 
 from array import array
 from dataclasses import dataclass
+from pathlib import Path
 from threading import RLock
 from typing import Iterable
 
@@ -60,8 +61,12 @@ from dcc_mcp_core._typing import Protocol
 from dcc_mcp_core._typing import runtime_checkable
 from dcc_mcp_core.skill_index._protocol import SkillDocument
 from dcc_mcp_core.skill_index._protocol import SkillSearchHit
+from dcc_mcp_core.vector_embedder import CachedEmbedder
 from dcc_mcp_core.vector_embedder import Embedder
+from dcc_mcp_core.vector_embedder import EmbeddingCache
+from dcc_mcp_core.vector_embedder import EmbeddingCacheStats
 from dcc_mcp_core.vector_embedder import HashedEmbedder
+from dcc_mcp_core.vector_embedder import default_embedding_cache_path
 
 __all__ = [
     "InMemoryVectorStore",
@@ -166,6 +171,21 @@ class VectorSkillIndex:
     :class:`LexicalSkillIndex` behaviour). Re-indexing a known
     ``skill_id`` replaces the previous vector — same contract as
     :class:`LexicalSkillIndex`.
+
+    Args:
+        embedder: Embedder to use; defaults to :class:`HashedEmbedder`.
+        store: Vector store to use; defaults to :class:`InMemoryVectorStore`.
+        cache_path: File backing the embedding warm-start cache.  ``None``
+            (default) keeps the index purely in memory — no filesystem
+            side effects.
+        embedding_cache: Pre-built :class:`EmbeddingCache` to share between
+            indexes.  Wins over *cache_path*.
+        dcc_name: Convenience warm-start switch.  When set (and no explicit
+            *cache_path* / *embedding_cache* is given) vectors are cached at
+            :func:`~dcc_mcp_core.vector_embedder.default_embedding_cache_path`
+            so a second process start with unchanged skill docs performs zero
+            embedding computations (issue #2300).
+
     """
 
     def __init__(
@@ -173,8 +193,20 @@ class VectorSkillIndex:
         *,
         embedder: Embedder | None = None,
         store: VectorStore | None = None,
+        cache_path: str | Path | None = None,
+        embedding_cache: EmbeddingCache | None = None,
+        dcc_name: str | None = None,
     ) -> None:
-        self._embedder: Embedder = embedder if embedder is not None else HashedEmbedder()
+        base_embedder: Embedder = embedder if embedder is not None else HashedEmbedder()
+        resolved_path: str | Path | None = cache_path
+        if resolved_path is None and embedding_cache is None and dcc_name:
+            # Warm-start by DCC name: ``~/.dcc-mcp/<dcc>/skill-embeddings.json``.
+            resolved_path = default_embedding_cache_path(dcc_name)
+        if embedding_cache is not None or resolved_path is not None:
+            # Warm-start: unchanged documents reuse the persisted vector instead
+            # of being re-embedded on every process start (issue #2300).
+            base_embedder = CachedEmbedder(base_embedder, embedding_cache, cache_path=resolved_path)
+        self._embedder: Embedder = base_embedder
         self._store: VectorStore = store if store is not None else InMemoryVectorStore()
 
     def __len__(self) -> int:
@@ -184,6 +216,23 @@ class VectorSkillIndex:
     def embedder(self) -> Embedder:
         """The embedder this index uses; useful for diagnostics and tests."""
         return self._embedder
+
+    @property
+    def embedding_cache(self) -> EmbeddingCache | None:
+        """The warm-start cache, or ``None`` when this index does not persist one."""
+        return getattr(self._embedder, "cache", None)
+
+    @property
+    def embedding_stats(self) -> EmbeddingCacheStats | None:
+        """Hit/miss counters for the warm-start cache, or ``None``."""
+        return getattr(self._embedder, "stats", None)
+
+    def flush_embedding_cache(self) -> bool:
+        """Persist any pending cached vectors. Returns success."""
+        cache = self.embedding_cache
+        if cache is None:
+            return False
+        return cache.flush()
 
     @property
     def store(self) -> VectorStore:

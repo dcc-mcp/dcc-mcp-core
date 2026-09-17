@@ -1194,6 +1194,29 @@ Environment variables for model overrides:
 |----------|---------|
 | `DCC_MCP_EMBED_MODEL` | Override the default ONNX model name |
 | `DCC_MCP_EMBED_MODEL_DIR` | Override the local model cache directory |
+| `DCC_MCP_EMBEDDING_CACHE_DIR` | Override the embedding cache directory (default `~/.dcc-mcp`) |
+
+### Embedding warm start
+
+Only the ONNX *model file* is cached on disk. By default every process start
+re-embeds every skill document in memory, which is pure waste when the docs
+have not changed. Pass `dcc_name` (or an explicit `cache_path` /
+`embedding_cache`) to persist vectors keyed by content hash:
+
+```python
+from dcc_mcp_core.skill_index import VectorSkillIndex
+
+idx = VectorSkillIndex(dcc_name="maya")     # ~/.dcc-mcp/maya/skill-embeddings.json
+idx.index(documents)
+idx.flush_embedding_cache()
+```
+
+The second process start with unchanged documents performs **zero** embedding
+computations — `idx.embedding_stats` reports `hits=5, misses=0` for five
+documents. Cached vectors are invalidated when the document text changes or
+when the embedder changes (the embedder fingerprint is part of every cache
+key), and a missing or corrupt cache file degrades to recomputation.
+Construction without `dcc_name` / `cache_path` stays side-effect free.
 
 ### `SkillDocument` and `SkillSearchHit`
 

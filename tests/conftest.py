@@ -60,6 +60,7 @@ SKILLS_DIR = str(REPO_ROOT / "skills")
 _DCC_MCP_REGISTRY_ENV = "DCC_MCP_REGISTRY_DIR"
 _DCC_MCP_GATEWAY_PORT_ENV = "DCC_MCP_GATEWAY_PORT"
 _DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS_ENV = "DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS"
+_DCC_MCP_CHECKPOINT_DIR_ENV = "DCC_MCP_CHECKPOINT_DIR"
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -115,6 +116,24 @@ def _isolated_registry_dir(tmp_path_factory: pytest.TempPathFactory):
         os.environ.pop(_DCC_MCP_REGISTRY_ENV, None)
     else:
         os.environ[_DCC_MCP_REGISTRY_ENV] = previous
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _isolated_checkpoint_dir(tmp_path_factory: pytest.TempPathFactory):
+    """Keep durable checkpoints out of the real ``~/.dcc-mcp`` profile.
+
+    ``DccServerBase`` resolves a file-backed checkpoint store by default
+    (issue #2300). Without this redirect, any test that saves a checkpoint
+    would write into the developer's home directory.
+    """
+    checkpoint_dir = tmp_path_factory.mktemp("session-checkpoints", numbered=True)
+    previous = os.environ.get(_DCC_MCP_CHECKPOINT_DIR_ENV)
+    os.environ[_DCC_MCP_CHECKPOINT_DIR_ENV] = str(checkpoint_dir)
+    yield
+    if previous is None:
+        os.environ.pop(_DCC_MCP_CHECKPOINT_DIR_ENV, None)
+    else:
+        os.environ[_DCC_MCP_CHECKPOINT_DIR_ENV] = previous
 
 
 def create_skill_dir(

@@ -4,7 +4,40 @@ Checkpoint/resume helpers for long-running tool executions (issue #436).
 
 Implements the Checkpoint-and-Resume pattern: checkpoint progress at configurable intervals so interrupted jobs can resume from the last successful checkpoint rather than restarting from scratch.
 
-**Exported symbols:** `CheckpointStore`, `checkpoint_every`, `clear_checkpoint`, `configure_checkpoint_store`, `get_checkpoint`, `list_checkpoints`, `register_checkpoint_tools`, `save_checkpoint`
+**Exported symbols:** `CHECKPOINT_FILE_NAME`, `CheckpointStore`, `checkpoint_every`, `clear_checkpoint`, `configure_checkpoint_store`, `default_checkpoint_dir`, `default_checkpoint_path`, `get_checkpoint`, `list_checkpoints`, `register_checkpoint_tools`, `resolve_checkpoint_path`, `save_checkpoint`
+
+## Durable default (issue #2300)
+
+Iteration state must survive restarts, so a server's checkpoint store is
+**durable by default** — no adapter opt-in required:
+
+- `DccServerBase` builds its store from `resolve_checkpoint_path(dcc_name)`,
+  which resolves to `<base>/<dcc>/checkpoints.json`.
+- `<base>` is `DCC_MCP_CHECKPOINT_DIR` when set, otherwise `~/.dcc-mcp`.
+- `jobs_checkpoint_status` / `jobs_resume_context` are registered on the
+  adapter server at startup, so an agent can read resume state after a
+  restart.
+- Writes are atomic (temp file + rename), so a crash mid-write cannot
+  truncate the file.
+
+Opt out with any of:
+
+| Opt-out | Scope |
+|---------|-------|
+| `DCC_MCP_CHECKPOINT_IN_MEMORY=1` | Process-wide env var |
+| `enable_checkpoint_persistence=False` | Per-server option |
+| `checkpoint_path=...` | Per-server explicit file (wins over both) |
+
+The module-level compatibility store used by `save_checkpoint` /
+`get_checkpoint` stays in memory; only the per-server store is durable.
+
+```python
+from dcc_mcp_core.checkpoint import default_checkpoint_path, resolve_checkpoint_path
+
+default_checkpoint_path("maya")            # ~/.dcc-mcp/maya/checkpoints.json
+resolve_checkpoint_path("maya")            # same, unless opted out
+resolve_checkpoint_path("maya", in_memory=True)   # None
+```
 
 ## CheckpointStore
 
@@ -25,6 +58,37 @@ Thread-safe checkpoint storage backend. Default is in-memory; pass `path` to per
 | `clear(job_id)` | `bool` | Delete the checkpoint; returns `True` if it existed |
 | `list_ids()` | `list[str]` | Return all job IDs that have checkpoints |
 | `clear_all()` | `int` | Delete all checkpoints; returns count deleted |
+
+### Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `path` | `Path \| None` | Backing file, or `None` for in-memory stores |
+| `is_durable` | `bool` | `True` when checkpoints survive a process restart |
+
+## Path helpers
+
+```python
+default_checkpoint_dir() -> Path
+default_checkpoint_path(dcc_name: str = "dcc", instance_id: str | None = None) -> Path
+resolve_checkpoint_path(
+    dcc_name: str = "dcc",
+    instance_id: str | None = None,
+    *,
+    path: str | Path | None = None,
+    in_memory: bool | None = None,
+    env: Mapping[str, str] | None = None,
+) -> Path | None
+```
+
+| Function | Description |
+|----------|-------------|
+| `default_checkpoint_dir()` | `DCC_MCP_CHECKPOINT_DIR` or `~/.dcc-mcp` |
+| `default_checkpoint_path(dcc_name, instance_id=None)` | `<base>/<dcc>/[instance/]checkpoints.json`; names are sanitised |
+| `resolve_checkpoint_path(...)` | Explicit `path` → in-memory opt-out → durable default; `None` means in-memory |
+
+`CHECKPOINT_FILE_NAME` is the `"checkpoints.json"` constant used by
+`default_checkpoint_path`.
 
 ## configure_checkpoint_store
 

@@ -58,6 +58,29 @@ from dcc_mcp_core import (
 | `dcc_name` | `str` | — | DCC 标识 |
 | `catalog` | `DccApiCatalog \| None` | 空目录 | `dcc_search` 使用 |
 | `dispatcher` | `ToolDispatcher \| None` | `None` | 提供时 `dcc_execute` 脚本内可用 `dispatch(name, args)` |
+| `persistent_namespace` | `bool` | `False` | 在多次 `dcc_execute` 调用间共享变量（见下） |
+| `script_execution_context` | `ScriptExecutionContext \| None` | 兼容上下文 | 持有共享命名空间 |
+
+### 持久化命名空间（issue #2300）
+
+默认情况下每次 `dcc_execute` 都从空命名空间开始，导入、缓存场景查询等开销会重复计算。
+通过构造参数 `persistent_namespace=True`，或在调用参数中传入 `"persistent_namespace": true` 开启：
+
+```python
+executor = DccApiExecutor("maya", persistent_namespace=True)
+executor.execute_params({"code": "scene = load_scene_cache()\nreturn len(scene)"})
+executor.execute_params({"code": "return scene['mesh_count']"})   # 复用 scene
+```
+
+仅**变量**命名空间持久：`EvalContext` 每次仍重建 `dispatch`、`json` 与受限的
+`__builtins__`，沙箱约束不变；`dispatch` 等保留名不会写回。嵌套 `def`/`class`
+内部的绑定保持局部。使用 `clear_script_namespace()` 清空共享状态。
+
+执行成功时返回携带的变量：
+
+```json
+{"context": {"persistent_namespace": {"enabled": true, "variables": ["scene"]}}}
+```
 
 ### `.search(query, *, limit=10) -> dict`
 

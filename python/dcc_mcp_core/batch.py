@@ -61,6 +61,7 @@ import json
 import logging
 from typing import Any
 from typing import Callable
+from typing import Iterator
 import uuid
 
 from dcc_mcp_core import json_dumps
@@ -137,6 +138,74 @@ def _validate_sandbox_source(source: str) -> None:
             key = _subscript_string_key(node)
             if key is not None and key.startswith("__"):
                 raise ValueError(_REFLECTIVE_ACCESS_ERROR)
+
+
+#: Names owned by the execution context. Never seeded from, nor persisted to,
+#: a shared namespace: they are rebuilt per run so the sandbox cannot drift.
+_RESERVED_NAMESPACE_KEYS = frozenset(
+    {
+        "dispatch",
+        "json",
+        "__builtins__",
+        "__dcc_params__",
+        "__dcc_eval_fn__",
+        "__name__",
+        "__doc__",
+    }
+)
+
+#: Nodes that introduce their own binding scope; names bound inside them are
+#: intentionally not promoted by :func:`_promote_top_level_names`.
+_SCOPE_NODES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)
+
+
+def _is_dunder(name: str) -> bool:
+    """Return True for ``__x__``/``__x`` names the sandbox already rejects."""
+    return str(name).startswith("__")
+
+
+def _iter_shallow(node: ast.AST) -> Iterator[ast.AST]:
+    """Yield *node*'s descendants without entering nested scopes."""
+    for child in ast.iter_child_nodes(node):
+        if isinstance(child, _SCOPE_NODES):
+            continue
+        yield child
+        yield from _iter_shallow(child)
+
+
+def _promote_top_level_names(script: str) -> list[str]:
+    """Return the names a script binds at its own top level.
+
+    ``EvalContext.run`` wraps the script in a function so a top-level
+    ``return`` works. That wrapper makes top-level assignments function
+    locals, invisible to a shared namespace. Declaring them ``global`` first
+    keeps ``return`` semantics intact while routing the bindings through the
+    execution globals, where they can be persisted between calls.
+
+    Nested scopes are skipped: ``def``/``class`` bodies keep their own locals,
+    exactly as they do today. The name a ``def``/``class`` binds at the top
+    level still counts — only its body is left alone.
+    """
+    try:
+        tree = ast.parse(script, mode="exec")
+    except SyntaxError:
+        return []
+    bound: set[str] = set()
+    for scope in ast.iter_child_nodes(tree):
+        if isinstance(scope, _SCOPE_NODES):
+            # ``Lambda`` has no ``name``; function/class definitions do.
+            bound.add(getattr(scope, "name", "") or "")
+    for node in _iter_shallow(tree):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+            bound.add(node.id)
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            for alias in node.names:
+                bound.add((alias.asname or alias.name).split(".")[0])
+        elif isinstance(node, ast.ExceptHandler) and node.name:
+            bound.add(node.name)
+        elif isinstance(node, ast.Global):
+            bound.update(node.names)
+    return sorted(name for name in bound if name and not _is_dunder(name))
 
 
 def _sandbox_json() -> _SandboxNamespace:
@@ -345,6 +414,13 @@ class EvalContext:
             ``None`` means no limit.  Default ``30``.
         parent_request_id: Optional parent request ID for batch attribution.
         batch_id: Optional batch group identifier. Auto-generated if not set.
+        shared_namespace: Optional dict that is seeded into the script
+            globals before execution and updated with the variables the
+            script binds, so consecutive ``dcc_execute`` calls in one session
+            can reuse expensive setup (issue #2300). ``None`` (default) keeps
+            the historical one-shot namespace. Only the variable namespace
+            crosses calls: ``dispatch``, ``json`` and ``__builtins__`` are
+            rebuilt per run, so the sandbox restrictions are unchanged.
 
     Example::
 
@@ -386,6 +462,7 @@ class EvalContext:
         timeout_secs: int | None = 30,
         parent_request_id: str | None = None,
         batch_id: str | None = None,
+        shared_namespace: dict | None = None,
     ) -> None:
         self._dispatcher = dispatcher
         self._sandbox = sandbox
@@ -393,6 +470,7 @@ class EvalContext:
         self._parent_request_id = parent_request_id
         self._batch_id = batch_id or generate_batch_id()
         self._call_index = 0
+        self._shared_namespace = shared_namespace
 
     def _make_builtins(self) -> dict[str, Any]:
         import builtins
@@ -462,9 +540,25 @@ class EvalContext:
                 "dispatch": self._dispatch_fn,
                 "json": json,
             }
+        if self._shared_namespace is not None:
+            # Seed persisted variables first so the reserved sandbox entries
+            # above always win and a script cannot smuggle a replacement
+            # ``dispatch`` / ``__builtins__`` into the next run.
+            for key, value in self._shared_namespace.items():
+                if key not in _RESERVED_NAMESPACE_KEYS and not _is_dunder(key):
+                    ns[key] = value
         if params is not None:
             ns["__dcc_params__"] = dict(params)
         return ns
+
+    def _persist_shared_namespace(self, ns: dict[str, Any]) -> None:
+        """Copy script-bound variables back into the shared namespace."""
+        if self._shared_namespace is None:
+            return
+        for key, value in ns.items():
+            if key in _RESERVED_NAMESPACE_KEYS or _is_dunder(key):
+                continue
+            self._shared_namespace[key] = value
 
     def run_callable(self, callback: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         """Run a trusted callable on the current thread under this deadline.
@@ -560,8 +654,15 @@ class EvalContext:
         ns = self._script_namespace()
 
         # Wrap script in a function so `return` works at the top level.
+        # With a shared namespace the top-level bindings are declared global
+        # first, so they land in ``ns`` and can be persisted (issue #2300).
         indented = "\n".join("    " + line for line in script.splitlines())
-        wrapped = f"def __dcc_eval_fn__():\n{indented}\n"
+        if self._shared_namespace is not None:
+            promoted = _promote_top_level_names(script)
+            globals_line = f"    global {', '.join(promoted)}\n" if promoted else ""
+            wrapped = f"def __dcc_eval_fn__():\n{globals_line}{indented}\n"
+        else:
+            wrapped = f"def __dcc_eval_fn__():\n{indented}\n"
         if self._sandbox:
             _validate_sandbox_source(wrapped)
 
@@ -575,7 +676,9 @@ class EvalContext:
                     dont_inherit=True,
                 )
                 exec(compiled, ns)
-                return ns["__dcc_eval_fn__"]()
+                result = ns["__dcc_eval_fn__"]()
+                self._persist_shared_namespace(ns)
+                return result
             except TimeoutError:
                 raise
             except Exception as exc:
@@ -610,7 +713,9 @@ class EvalContext:
                 entrypoint = ns.get("main")
                 if not callable(entrypoint):
                     raise TypeError("script must define a callable main")
-                return entrypoint(**ns["__dcc_params__"])
+                result = entrypoint(**ns["__dcc_params__"])
+                self._persist_shared_namespace(ns)
+                return result
             except TimeoutError:
                 raise
             except Exception as exc:
