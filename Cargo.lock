@@ -1291,6 +1291,7 @@ dependencies = [
  "dcc-mcp-db",
  "dcc-mcp-gateway-admin",
  "dcc-mcp-gateway-core",
+ "dcc-mcp-gateway-ensure",
  "dcc-mcp-jsonrpc",
  "dcc-mcp-marketplace",
  "dcc-mcp-models",

@@ -1130,6 +1130,11 @@ async fn run_server(args: ServerArgs) -> anyhow::Result<()> {
             gateway_name: args.gateway_name.clone(),
             server_version: env!("CARGO_PKG_VERSION").to_string(),
             registry_dir: registry_dir_path,
+            // Issue #2405: when this process launched the gateway it recorded
+            // the PID here. Recovery from a live-but-service-dead port holder
+            // only terminates a holder whose PID this deployment can prove it
+            // started, and the pidfile is one of those two proofs.
+            pidfile: args.pid_file.clone(),
             // Issue maya#137: standalone server has no adapter package, so
             // the election treats it as the lowest tier and yields to any
             // real DCC adapter at equal crate version.

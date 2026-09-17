@@ -26,6 +26,10 @@ pub(crate) async fn start_gateway_runner(
         gateway_name: config.gateway.gateway_name.clone(),
         server_version: config.server.server_version.clone(),
         registry_dir: config.gateway.registry_dir.clone(),
+        // The embedded HTTP server owns no pidfile; recovery from a
+        // service-dead port holder (#2405) still works through the
+        // gateway autolaunch manifest written into the registry directory.
+        pidfile: None,
         challenger_timeout_secs: 120,
         challenger_poll_interval_secs: 10,
         backend_timeout_ms: config.gateway.backend_timeout_ms,
