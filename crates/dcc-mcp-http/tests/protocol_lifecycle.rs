@@ -18,18 +18,70 @@ async fn request(
     let envelope = JsonRpcRequestBuilder::new("lifecycle-check", method)
         .with_params(params)
         .to_value();
+    send(client, url, method, envelope, protocol_header).await
+}
+
+/// Send a fully-formed envelope. Modern dispatch requires the request
+/// envelope inside `_meta`; a version header alone is never sufficient.
+/// `expected` is the transport status the design assigns to the outcome:
+/// a modern method-not-found is a 404, business errors stay 200.
+async fn send_expecting(
+    client: &reqwest::Client,
+    url: &str,
+    method: &str,
+    envelope: Value,
+    protocol_header: Option<&str>,
+    expected: reqwest::StatusCode,
+) -> Value {
     let mut request = client
         .post(url)
         .header("Accept", "application/json, text/event-stream")
+        .header("Mcp-Method", method)
         .json(&envelope);
     if let Some(version) = protocol_header {
         request = request.header("MCP-Protocol-Version", version);
     }
     let response = request.send().await.expect("MCP response");
-    assert_eq!(response.status(), reqwest::StatusCode::OK);
-    let body: Value = response.json().await.expect("JSON-RPC body");
+    let status = response.status();
+    let raw = response.text().await.expect("MCP body");
+    assert_eq!(
+        status, expected,
+        "{method} (MCP-Protocol-Version: {protocol_header:?}) -> {status}: {raw}"
+    );
+    let body: Value = serde_json::from_str(&raw).expect("JSON-RPC body");
     assert_eq!(body["id"], "lifecycle-check");
     body
+}
+
+async fn send(
+    client: &reqwest::Client,
+    url: &str,
+    method: &str,
+    envelope: Value,
+    protocol_header: Option<&str>,
+) -> Value {
+    send_expecting(
+        client,
+        url,
+        method,
+        envelope,
+        protocol_header,
+        reqwest::StatusCode::OK,
+    )
+    .await
+}
+
+/// A complete final-revision request envelope for `method`.
+#[cfg(feature = "mcp-2026-07-28")]
+fn modern_envelope(method: &str, mut params: Value) -> Value {
+    use dcc_mcp_jsonrpc::{CLIENT_CAPABILITIES_META_KEY, PROTOCOL_VERSION_META_KEY};
+    params["_meta"] = json!({
+        PROTOCOL_VERSION_META_KEY: "2026-07-28",
+        CLIENT_CAPABILITIES_META_KEY: {},
+    });
+    JsonRpcRequestBuilder::new("lifecycle-check", method)
+        .with_params(params)
+        .to_value()
 }
 
 fn initialize_params(version: Option<&str>) -> Value {
@@ -78,21 +130,39 @@ async fn http_header_selects_lifecycle_independently_of_initialize_body() {
 
     #[cfg(feature = "mcp-2026-07-28")]
     {
-        let discovery = request(
+        use dcc_mcp_jsonrpc::SERVER_INFO_META_KEY;
+        let discovery = send(
             &client,
             &url,
             "server/discover",
-            json!({}),
+            modern_envelope("server/discover", json!({})),
             Some("2026-07-28"),
         )
         .await;
-        assert_eq!(discovery["result"]["protocolVersion"], "2026-07-28");
-        let initialize = request(
+        // Discovery carries no body-level protocol identity: the final-revision
+        // result reports supportedVersions and stamps server identity under
+        // result `_meta` (ADR-034). RC `protocolVersion`/`serverInfo` are gone.
+        assert_eq!(
+            discovery["result"]["supportedVersions"],
+            json!(["2026-07-28"])
+        );
+        assert!(discovery["result"].get("protocolVersion").is_none());
+        assert!(discovery["result"].get("serverInfo").is_none());
+        assert!(
+            discovery["result"]["_meta"][SERVER_INFO_META_KEY]["name"].is_string(),
+            "discovery must carry result _meta server identity: {discovery}"
+        );
+        // A header alone never upgrades: `initialize` stays a legacy handshake,
+        // so the modern registry answers method-not-found (HTTP 404) for its
+        // modern form. The request envelope is otherwise well-formed, proving
+        // the routing decision, not envelope validation, produced the 404.
+        let initialize = send_expecting(
             &client,
             &url,
             "initialize",
-            initialize_params(Some("2026-07-28")),
+            modern_envelope("initialize", initialize_params(Some("2026-07-28"))),
             Some("2026-07-28"),
+            reqwest::StatusCode::NOT_FOUND,
         )
         .await;
         assert_eq!(initialize["error"]["code"], -32601);
