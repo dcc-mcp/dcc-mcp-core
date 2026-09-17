@@ -249,6 +249,15 @@ pub struct TranslateArgs {
     #[arg(long, default_value = "10")]
     pub shutdown_timeout_secs: u64,
 
+    /// Seconds to wait for a stdio child's response before failing the call
+    /// closed. 0 waits indefinitely.
+    #[arg(
+        long,
+        env = "DCC_MCP_BRIDGE_TIMEOUT_SECS",
+        default_value_t = DEFAULT_BRIDGE_TIMEOUT_SECS
+    )]
+    pub bridge_timeout_secs: u64,
+
     /// Server name advertised in gateway registration.
     #[arg(long, env = "DCC_MCP_SERVER_NAME")]
     pub server_name: Option<String>,
@@ -264,21 +273,66 @@ pub struct TranslateArgs {
 
 // ── Bridge message types ──────────────────────────────────────────────────────
 
-/// How long a caller waits for a child response before failing closed.
+/// Default upper bound, in seconds, on how long a caller waits for a child
+/// response before failing closed.
 ///
-/// Matches the server-wide request timeout so a child that never answers (or
-/// answers with an id we cannot correlate) cannot pin an HTTP request open.
-const BRIDGE_RESPONSE_TIMEOUT: Duration = Duration::from_secs(30);
+/// Long tool calls are the norm for the DCC hosts this bridge wraps — a Blender
+/// bake or a Maya export runs for minutes — so the bound is deliberately
+/// generous and matches the gateway's own terminal-state wait
+/// (`gateway_wait_terminal_timeout_ms`, 600s). It exists only so a child that
+/// never answers cannot pin an HTTP request open forever; it is not a tool-call
+/// budget. `--bridge-timeout-secs 0` removes the bound entirely.
+pub const DEFAULT_BRIDGE_TIMEOUT_SECS: u64 = 600;
+
+/// Build the wait bound for bridge calls. `0` means "wait indefinitely".
+fn bridge_timeout(secs: u64) -> Option<Duration> {
+    (secs > 0).then(|| Duration::from_secs(secs))
+}
 
 /// Normalise a JSON-RPC id into the string key used for response correlation.
 ///
 /// Returns `None` for absent or non-scalar ids, which cannot be correlated.
 fn request_id_key(id: Option<&Value>) -> Option<String> {
     match id {
-        Some(Value::Number(n)) => Some(n.to_string()),
+        Some(Value::Number(n)) => Some(number_id_key(n)),
         Some(Value::String(s)) => Some(s.clone()),
         _ => None,
     }
+}
+
+/// Render a numeric JSON-RPC id canonically.
+///
+/// `2`, `2.0` and `2e0` all name the same request id, but `serde_json` keeps
+/// the literal spelling a peer used, so `Number::to_string()` yields `"2.0"`
+/// for a float. A child that round-trips an integer id through a float would
+/// then fail to match the `"2"` the request was filed under and look desynced
+/// while behaving correctly. Integers and exactly-integral floats therefore
+/// render without a fractional part.
+fn number_id_key(n: &serde_json::Number) -> String {
+    if let Some(i) = n.as_i64() {
+        return i.to_string();
+    }
+    if let Some(u) = n.as_u64() {
+        return u.to_string();
+    }
+    match n.as_f64() {
+        // Exactly-integral floats normalise to their integer spelling. The
+        // 2^53 bound keeps the cast lossless; anything wider keeps the
+        // original spelling and simply will not correlate.
+        Some(f) if f.is_finite() && f.fract() == 0.0 && f.abs() < 9_007_199_254_740_992.0 => {
+            (f as i64).to_string()
+        }
+        _ => n.to_string(),
+    }
+}
+
+/// The error handed back when a call's response channel is dropped without a
+/// response: the child exited, or the bridge actor shut down, before answering.
+/// Either way the call has no usable result.
+fn response_channel_dropped(expected_id: &str) -> anyhow::Error {
+    anyhow::anyhow!(
+        "transport desync: no response for request id {expected_id:?}; the bridge dropped the channel"
+    )
 }
 
 /// A request sent from an HTTP handler to the stdio bridge actor.
@@ -295,6 +349,9 @@ struct BridgeRequest {
 struct StdioBridgeInner {
     /// Channel to send requests to the actor loop.
     tx: mpsc::Sender<BridgeRequest>,
+    /// Upper bound on how long `call` waits for the child's response.
+    /// `None` means wait indefinitely.
+    response_timeout: Option<Duration>,
 }
 
 /// Shared, clone-able handle to the stdio bridge.
@@ -323,18 +380,21 @@ impl StdioBridge {
             })
             .await
             .map_err(|_| anyhow::anyhow!("bridge actor has shut down"))?;
-        let response = match tokio::time::timeout(BRIDGE_RESPONSE_TIMEOUT, resp_rx).await {
-            Ok(Ok(response)) => response,
-            // The response sender was dropped: the reader failed the call
-            // closed (an unattributable response id) or the child exited
-            // before answering. Either way this call has no usable result.
-            Ok(Err(_)) => anyhow::bail!(
-                "transport desync: no response for response id {expected_id:?}; the bridge dropped the channel"
-            ),
-            Err(_) => anyhow::bail!(
-                "bridge timed out after {BRIDGE_RESPONSE_TIMEOUT:?} waiting for response id {expected_id:?}"
-            ),
-        };
+        // Wait no longer than the configured bound: a child that never answers
+        // must not pin the HTTP request open forever. `Ok(Err(_))` means the
+        // sender was dropped, which only happens when the child (or the whole
+        // actor) went away without answering.
+        let response = match self.inner.response_timeout {
+            Some(limit) => match tokio::time::timeout(limit, resp_rx).await {
+                Ok(outcome) => outcome.map_err(|_| response_channel_dropped(&expected_id)),
+                Err(_) => Err(anyhow::anyhow!(
+                    "bridge timed out after {limit:?} waiting for response id {expected_id:?}"
+                )),
+            },
+            None => resp_rx
+                .await
+                .map_err(|_| response_channel_dropped(&expected_id)),
+        }?;
         let delivered_id = request_id_key(response.id.as_ref());
         if delivered_id.as_deref() != Some(expected_id.as_str()) {
             anyhow::bail!(
@@ -435,17 +495,27 @@ async fn run_bridge_actor(
                             let _ = tx.send(resp);
                         } else {
                             // The child answered an id nobody is waiting on, so
-                            // responses can no longer be attributed to the calls
-                            // that produced them. Fail every outstanding call
-                            // closed rather than risk delivering the wrong
-                            // payload, then stop reading from this child.
+                            // this payload belongs to no call the bridge can
+                            // name: the id either was already answered or was
+                            // never issued. Drop it and keep reading.
+                            //
+                            // Nothing else here is safe. Failing the in-flight
+                            // calls instead looks stricter but manufactures a
+                            // desync: the child's own responses then arrive one
+                            // behind the freshly filed requests, so every later
+                            // call trips the same check and a healthy child is
+                            // desynced for good. Ending the read loop strands
+                            // every later call (each stalling for the full
+                            // timeout) and throws away the child's session
+                            // state on restart. The invariant that matters —
+                            // never deliver another call's payload — is held by
+                            // the id-keyed routing above and re-checked in
+                            // `StdioBridge::call`, so dropping costs nothing.
                             warn!(
                                 response_id = ?id_key,
                                 outstanding = map.len(),
-                                "stdio response id matches no pending request; failing in-flight calls closed"
+                                "stdio response id matches no pending request; dropping it"
                             );
-                            map.clear();
-                            break;
                         }
                     }
                     Ok(JsonRpcMessage::Notification(notif)) => {
@@ -712,7 +782,10 @@ pub async fn run(args: TranslateArgs) -> anyhow::Result<()> {
     });
 
     let bridge = StdioBridge {
-        inner: Arc::new(StdioBridgeInner { tx }),
+        inner: Arc::new(StdioBridgeInner {
+            tx,
+            response_timeout: bridge_timeout(args.bridge_timeout_secs),
+        }),
     };
 
     // ── Start axum HTTP server ────────────────────────────────────────────
@@ -941,6 +1014,7 @@ mod tests {
             stale_timeout_secs: 30,
             heartbeat_secs: 5,
             shutdown_timeout_secs: 10,
+            bridge_timeout_secs: DEFAULT_BRIDGE_TIMEOUT_SECS,
             server_name: None,
             pid_file: None,
             force: false,
@@ -1076,15 +1150,6 @@ mod tests {
 mod correlation_tests {
     use super::*;
 
-    fn response_with(id: Value) -> JsonRpcResponse {
-        JsonRpcResponse {
-            jsonrpc: "2.0".to_string(),
-            id: Some(id),
-            result: Some(serde_json::json!({"ok": true})),
-            error: None,
-        }
-    }
-
     #[test]
     fn id_key_normalises_numbers_and_strings() {
         assert_eq!(
@@ -1097,6 +1162,30 @@ mod correlation_tests {
         );
     }
 
+    /// A child that round-trips an integer id through a float must still
+    /// correlate: `2` and `2.0` name the same request id.
+    #[test]
+    fn id_key_normalises_integral_floats_to_integers() {
+        let integral_float = serde_json::from_str::<Value>("2.0").expect("parse 2.0");
+        assert_eq!(
+            request_id_key(Some(&integral_float)),
+            Some("2".to_string()),
+            "a child echoing id 2 as 2.0 must correlate with the filed id 2"
+        );
+        let negative = serde_json::from_str::<Value>("-3.0").expect("parse -3.0");
+        assert_eq!(request_id_key(Some(&negative)), Some("-3".to_string()));
+    }
+
+    #[test]
+    fn id_key_keeps_non_integral_floats_distinct() {
+        let fractional = serde_json::from_str::<Value>("2.5").expect("parse 2.5");
+        assert_eq!(request_id_key(Some(&fractional)), Some("2.5".to_string()));
+        assert_ne!(
+            request_id_key(Some(&fractional)),
+            request_id_key(Some(&Value::Number(2.into())))
+        );
+    }
+
     #[test]
     fn id_key_rejects_absent_and_non_scalar_ids() {
         assert_eq!(request_id_key(None), None);
@@ -1104,31 +1193,10 @@ mod correlation_tests {
         assert_eq!(request_id_key(Some(&serde_json::json!([1]))), None);
     }
 
-    /// The core of the #2417 fix: a response carrying a different id than the
-    /// request must be treated as a desync, never as this caller's payload.
     #[test]
-    fn mismatched_response_id_is_a_desync() {
-        let expected = request_id_key(Some(&Value::Number(2.into()))).expect("expected id");
-        let delivered = request_id_key(response_with(Value::Number(1.into())).id.as_ref());
-        assert_ne!(delivered.as_deref(), Some(expected.as_str()));
-    }
-
-    #[test]
-    fn matching_response_id_is_accepted() {
-        let expected = request_id_key(Some(&Value::Number(2.into()))).expect("expected id");
-        let delivered = request_id_key(response_with(Value::Number(2.into())).id.as_ref());
-        assert_eq!(delivered.as_deref(), Some(expected.as_str()));
-    }
-
-    #[test]
-    fn missing_response_id_is_a_desync() {
-        let response = JsonRpcResponse {
-            jsonrpc: "2.0".to_string(),
-            id: None,
-            result: None,
-            error: None,
-        };
-        assert_eq!(request_id_key(response.id.as_ref()), None);
+    fn zero_timeout_disables_the_wait_bound() {
+        assert_eq!(bridge_timeout(0), None);
+        assert_eq!(bridge_timeout(600), Some(Duration::from_secs(600)));
     }
 }
 
@@ -1162,15 +1230,61 @@ for raw in sys.stdin:
     send({"jsonrpc": "2.0", "id": echoed, "result": {"echoed": echoed}})
 "#;
 
-    fn skewed_child_command() -> (String, tempfile::NamedTempFile) {
+    /// A stdio child that answers correctly but renders the integer id the way
+    /// a JSON number round-tripped through a float does: `2` comes back `2.0`.
+    const FLOAT_ECHO_CHILD_PY: &str = r#"
+import sys, json
+
+def send(obj):
+    sys.stdout.write(json.dumps(obj) + "\n")
+    sys.stdout.flush()
+
+for raw in sys.stdin:
+    raw = raw.strip()
+    if not raw:
+        continue
+    try:
+        msg = json.loads(raw)
+    except Exception:
+        continue
+    req_id = msg.get("id")
+    if req_id is None:
+        continue
+    send({"jsonrpc": "2.0", "id": float(req_id), "result": {"ok": True}})
+"#;
+
+    /// A stdio child that emits one stray response — an id no caller issued —
+    /// before serving every request correctly.
+    const STRAY_THEN_HEALTHY_CHILD_PY: &str = r#"
+import sys, json
+
+def send(obj):
+    sys.stdout.write(json.dumps(obj) + "\n")
+    sys.stdout.flush()
+
+send({"jsonrpc": "2.0", "id": 999, "result": {"stray": True}})
+
+for raw in sys.stdin:
+    raw = raw.strip()
+    if not raw:
+        continue
+    try:
+        msg = json.loads(raw)
+    except Exception:
+        continue
+    req_id = msg.get("id")
+    if req_id is None:
+        continue
+    send({"jsonrpc": "2.0", "id": req_id, "result": {"ok": req_id}})
+"#;
+
+    fn child_command(source: &str) -> (String, tempfile::NamedTempFile) {
         use std::io::Write as _;
         let mut script = tempfile::Builder::new()
             .suffix(".py")
             .tempfile()
             .expect("tempfile");
-        script
-            .write_all(SKEWED_CHILD_PY.as_bytes())
-            .expect("write script");
+        script.write_all(source.as_bytes()).expect("write script");
         script.flush().expect("flush");
         let program = if cfg!(windows) { "python" } else { "python3" };
         (format!("{program} {}", script.path().display()), script)
@@ -1185,13 +1299,24 @@ for raw in sys.stdin:
         }
     }
 
+    /// Build a bridge over a stdio child script.
+    ///
+    /// The wait bound is short so a regression that strands a call instead of
+    /// answering it fails in seconds rather than hanging the suite.
     fn start_bridge(cmd: String) -> StdioBridge {
+        start_bridge_with_timeout(cmd, Some(Duration::from_secs(5)))
+    }
+
+    fn start_bridge_with_timeout(cmd: String, response_timeout: Option<Duration>) -> StdioBridge {
         let (tx, rx) = mpsc::channel::<BridgeRequest>(16);
         tokio::spawn(async move {
             run_bridge_actor(cmd, rx, false, 0).await;
         });
         StdioBridge {
-            inner: Arc::new(StdioBridgeInner { tx }),
+            inner: Arc::new(StdioBridgeInner {
+                tx,
+                response_timeout,
+            }),
         }
     }
 
@@ -1199,7 +1324,7 @@ for raw in sys.stdin:
     /// must never have that payload delivered as the current call's result.
     #[tokio::test]
     async fn stale_response_id_is_rejected_before_delivery() {
-        let (cmd, _script) = skewed_child_command();
+        let (cmd, _script) = child_command(SKEWED_CHILD_PY);
         let bridge = start_bridge(cmd);
 
         // First call is correlated: the child echoes id 1 correctly.
@@ -1213,14 +1338,56 @@ for raw in sys.stdin:
             "first call must get its own response"
         );
 
-        // Second call: the child answers id 1 again, so the bridge must fail
-        // closed rather than hand back the first payload.
+        // Second call: the child answers id 1 again. That payload belongs to
+        // the previous call, so the bridge must refuse to deliver it. A child
+        // this broken surfaces as a bounded wait, not as a wrong result.
         let second = bridge.call(request(2)).await;
         let error = second.expect_err("stale response must not be delivered");
         let message = error.to_string();
         assert!(
-            message.contains("transport desync"),
-            "expected a transport desync error, got: {message}"
+            message.contains("timed out") || message.contains("transport desync"),
+            "the stale payload must be refused, got: {message}"
         );
+    }
+
+    /// A child echoing an integer id as `2.0` is answering correctly, so the
+    /// response must correlate instead of reading as a desync.
+    #[tokio::test]
+    async fn float_rendered_response_id_still_correlates() {
+        let (cmd, _script) = child_command(FLOAT_ECHO_CHILD_PY);
+        let bridge = start_bridge(cmd);
+
+        let response = bridge
+            .call(request(2))
+            .await
+            .expect("an id echoed as 2.0 must correlate with the filed id 2");
+        assert_eq!(
+            request_id_key(response.id.as_ref()),
+            Some("2".to_string()),
+            "integral floats and integers must name the same request id"
+        );
+    }
+
+    /// A stray response may cost the calls that were in flight; it must not
+    /// strand the child so that every later call stalls for the full timeout.
+    #[tokio::test]
+    async fn stray_response_does_not_strand_the_child() {
+        let (cmd, _script) = child_command(STRAY_THEN_HEALTHY_CHILD_PY);
+        let bridge = start_bridge(cmd);
+
+        // The child emits id 999 once, at startup. There is no call that
+        // payload could belong to, so dropping it is enough: the child must
+        // keep serving every request correctly.
+        for id in [1, 2, 3] {
+            let response = bridge
+                .call(request(id))
+                .await
+                .unwrap_or_else(|e| panic!("call {id} must still be served, got: {e}"));
+            assert_eq!(
+                request_id_key(response.id.as_ref()),
+                Some(id.to_string()),
+                "call {id} must get its own response"
+            );
+        }
     }
 }
