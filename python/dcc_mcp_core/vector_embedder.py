@@ -37,11 +37,18 @@ External references:
 from __future__ import annotations
 
 from array import array
+import base64
 from dataclasses import dataclass
 import hashlib
+import json
+import logging
 import math
 import os
+from pathlib import Path
 import re
+import sys
+import threading
+from typing import Any
 from typing import Iterable
 from typing import Mapping
 
@@ -49,14 +56,20 @@ from dcc_mcp_core._typing import Protocol
 from dcc_mcp_core._typing import runtime_checkable
 from dcc_mcp_core.constants import ENV_EMBED_MODEL
 from dcc_mcp_core.constants import ENV_EMBED_MODEL_DIR
+from dcc_mcp_core.constants import ENV_EMBEDDING_CACHE_DIR
 from dcc_mcp_core.errors import DccMcpError
 
 __all__ = [
     "DEFAULT_DIM",
+    "CachedEmbedder",
     "Embedder",
     "EmbedderError",
+    "EmbeddingCache",
+    "EmbeddingCacheStats",
     "HashedEmbedder",
     "OnnxEmbedder",
+    "default_embedding_cache_path",
+    "embedder_fingerprint",
 ]
 
 
@@ -381,3 +394,283 @@ class OnnxEmbedder:
                 continue
             out.append(_l2_normalise(array("d", (float(x) for x in vec))))
         return out
+
+
+# ---------------------------------------------------------------------------
+# Disk-backed embedding cache (issue #2300)
+# ---------------------------------------------------------------------------
+# Only the ONNX *model file* was cached on disk before; every process start
+# re-embedded every skill document in memory. The cache below keys vectors by
+# (embedder fingerprint, content hash) so unchanged skill docs are never
+# re-embedded: the second process start performs zero embedding computations.
+#
+# Encoding is base64 of native float64 bytes. Vectors are exact (no JSON float
+# round-trip) and ~2.7 KB per 256-dim row.
+
+_EMBEDDING_CACHE_SCHEMA_VERSION = 1
+logger = logging.getLogger(__name__)
+
+_DEFAULT_EMBEDDING_CACHE_MAX_ENTRIES = 8192
+_SAFE_SEGMENT = re.compile(r"[^A-Za-z0-9_.-]+")
+
+
+def _safe_segment(value: str) -> str:
+    return _SAFE_SEGMENT.sub("_", str(value).strip()).strip("._-")[:96]
+
+
+def default_embedding_cache_path(dcc_name: str = "dcc") -> Path:
+    """Return the durable embedding cache file for *dcc_name*.
+
+    Layout is ``<base>/<dcc>/skill-embeddings.json`` where ``<base>`` is
+    ``DCC_MCP_EMBEDDING_CACHE_DIR`` or ``~/.dcc-mcp``.
+    """
+    configured = os.environ.get(ENV_EMBEDDING_CACHE_DIR, "").strip()
+    base = Path(configured).expanduser() if configured else Path("~").expanduser() / ".dcc-mcp"
+    return base / (_safe_segment(dcc_name) or "dcc") / "skill-embeddings.json"
+
+
+def embedder_fingerprint(embedder: Any) -> str:
+    """Return a stable string identifying *embedder*'s vector semantics.
+
+    Cached vectors are only valid for the embedder that produced them, so the
+    fingerprint is part of every cache key: swapping ``HashedEmbedder`` for
+    ``OnnxEmbedder`` (or changing ``dim``) invalidates the cache instead of
+    silently mixing incompatible vector spaces.
+    """
+    parts = [type(embedder).__name__]
+    declared = getattr(embedder, "__dataclass_fields__", None)
+    if declared:
+        for name in declared:
+            parts.append(f"{name}={getattr(embedder, name, None)}")
+    else:
+        for name in ("dim", "model_name"):
+            value = getattr(embedder, name, None)
+            if value is not None:
+                parts.append(f"{name}={value}")
+    return "|".join(parts)
+
+
+def _cache_key(fingerprint: str, text: str) -> str:
+    digest = hashlib.sha256()
+    digest.update(fingerprint.encode("utf-8"))
+    digest.update(b"\x00")
+    digest.update(text.encode("utf-8"))
+    return digest.hexdigest()
+
+
+def _encode_vector(vector: Iterable[float]) -> str:
+    return base64.b64encode(array("d", (float(x) for x in vector)).tobytes()).decode("ascii")
+
+
+def _decode_vector(encoded: str) -> array:
+    return array("d", base64.b64decode(encoded.encode("ascii")))
+
+
+@dataclass
+class EmbeddingCacheStats:
+    """Cache counters used by tests and diagnostics (issue #2300)."""
+
+    hits: int = 0
+    misses: int = 0
+    writes: int = 0
+
+    @property
+    def computes(self) -> int:
+        """Number of embeddings actually computed (cache misses)."""
+        return self.misses
+
+
+class EmbeddingCache:
+    """Content-hash keyed, file-backed embedding store.
+
+    Best-effort by design: a missing, corrupt, or byte-order-mismatched file
+    behaves like an empty cache, and write failures are logged and ignored so
+    a read-only filesystem degrades to recomputation instead of failing skill
+    indexing.
+    """
+
+    def __init__(
+        self,
+        path: Any | None = None,
+        *,
+        max_entries: int = _DEFAULT_EMBEDDING_CACHE_MAX_ENTRIES,
+    ) -> None:
+        self._path = Path(path).expanduser() if path is not None else None
+        self._max_entries = max(1, int(max_entries))
+        self._lock = threading.RLock()
+        self._entries: dict[str, str] = {}
+        self.stats = EmbeddingCacheStats()
+        self._dirty = False
+        self._load()
+
+    @property
+    def path(self) -> Path | None:
+        return self._path
+
+    @property
+    def enabled(self) -> bool:
+        return self._path is not None
+
+    def __len__(self) -> int:
+        with self._lock:
+            return len(self._entries)
+
+    def _load(self) -> None:
+        if self._path is None or not self._path.exists():
+            return
+        try:
+            payload = json.loads(self._path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            logger.warning("EmbeddingCache: could not read %s: %s", self._path, exc)
+            return
+        if not isinstance(payload, dict):
+            return
+        if int(payload.get("schema_version", 0)) != _EMBEDDING_CACHE_SCHEMA_VERSION:
+            return
+        if payload.get("byteorder") not in (None, sys.byteorder):
+            # Written on a host with the opposite endianness; ignore it.
+            return
+        raw_entries = payload.get("entries")
+        if not isinstance(raw_entries, dict):
+            return
+        with self._lock:
+            self._entries = dict((k, v) for k, v in raw_entries.items() if isinstance(k, str) and isinstance(v, str))
+
+    def get(self, key: str) -> array | None:
+        """Return the cached vector for *key*, or ``None``."""
+        with self._lock:
+            encoded = self._entries.get(key)
+        if encoded is None:
+            with self._lock:
+                self.stats.misses += 1
+            return None
+        with self._lock:
+            self.stats.hits += 1
+        try:
+            return _decode_vector(encoded)
+        except (ValueError, TypeError):
+            with self._lock:
+                self._entries.pop(key, None)
+                self.stats.misses += 1
+            return None
+
+    def put(self, key: str, vector: Iterable[float]) -> None:
+        """Store *vector* under *key*, bounding the cache to ``max_entries``."""
+        with self._lock:
+            self._entries[key] = _encode_vector(vector)
+            self.stats.writes += 1
+            self._dirty = True
+            if len(self._entries) > self._max_entries:
+                for stale_key in sorted(self._entries)[: len(self._entries) - self._max_entries]:
+                    self._entries.pop(stale_key, None)
+
+    def flush(self) -> bool:
+        """Write the cache to disk atomically. Returns success."""
+        if self._path is None:
+            return False
+        with self._lock:
+            if not self._dirty:
+                return True
+            payload = {
+                "schema_version": _EMBEDDING_CACHE_SCHEMA_VERSION,
+                "byteorder": sys.byteorder,
+                "entries": dict(self._entries),
+            }
+            try:
+                self._path.parent.mkdir(parents=True, exist_ok=True)
+                tmp_path = self._path.with_name(self._path.name + ".tmp")
+                tmp_path.write_text(json.dumps(payload), encoding="utf-8")
+                tmp_path.replace(self._path)
+            except OSError as exc:
+                logger.warning("EmbeddingCache: could not write %s: %s", self._path, exc)
+                return False
+            self._dirty = False
+            return True
+
+    def invalidate(self) -> None:
+        """Drop all cached vectors and persist the empty cache."""
+        with self._lock:
+            self._entries.clear()
+            self._dirty = True
+        self.flush()
+
+    def reset_stats(self) -> None:
+        """Zero the hit/miss counters without touching stored vectors."""
+        with self._lock:
+            self.stats = EmbeddingCacheStats()
+
+
+class CachedEmbedder:
+    """Embedder decorator that memoizes vectors through an :class:`EmbeddingCache`.
+
+    Wraps any :class:`Embedder` - including :class:`OnnxEmbedder`, which is the
+    expensive one - so unchanged documents cost zero embedding computations on
+    a warm start. ``dim`` and the other public properties delegate to the
+    wrapped embedder, so call sites see the same wire shape.
+    """
+
+    def __init__(
+        self,
+        embedder: Any,
+        cache: EmbeddingCache | None = None,
+        *,
+        cache_path: Any | None = None,
+        max_entries: int = _DEFAULT_EMBEDDING_CACHE_MAX_ENTRIES,
+    ) -> None:
+        self._embedder = embedder
+        if cache is None:
+            cache = EmbeddingCache(cache_path, max_entries=max_entries)
+        self._cache = cache
+        self._fingerprint = embedder_fingerprint(embedder)
+
+    @property
+    def embedder(self) -> Any:
+        """The wrapped embedder."""
+        return self._embedder
+
+    @property
+    def cache(self) -> EmbeddingCache:
+        """The backing :class:`EmbeddingCache`."""
+        return self._cache
+
+    @property
+    def stats(self) -> EmbeddingCacheStats:
+        """Hit/miss counters for diagnostics and warm-start tests."""
+        return self._cache.stats
+
+    @property
+    def dim(self) -> int:
+        return self._embedder.dim
+
+    def __getattr__(self, name: str) -> Any:
+        # Delegate ``model_name`` / ``backend_name`` / ``cache_dir`` so callers
+        # that probe the ONNX embedder keep working.
+        return getattr(self._embedder, name)
+
+    def embed(self, text: str) -> array:
+        key = _cache_key(self._fingerprint, text)
+        cached = self._cache.get(key)
+        if cached is not None:
+            return cached
+        vector = self._embedder.embed(text)
+        self._cache.put(key, vector)
+        self._cache.flush()
+        return vector
+
+    def embed_batch(self, texts: Iterable[str]) -> list:
+        materialised = list(texts)
+        results: list[array | None] = [None for _ in materialised]
+        pending: list[tuple[int, str]] = []
+        for index, text in enumerate(materialised):
+            cached = self._cache.get(_cache_key(self._fingerprint, text))
+            if cached is None:
+                pending.append((index, text))
+            else:
+                results[index] = cached
+        if pending:
+            computed = self._embedder.embed_batch([text for _, text in pending])
+            for (index, text), vector in zip(pending, computed):
+                self._cache.put(_cache_key(self._fingerprint, text), vector)
+                results[index] = vector
+            self._cache.flush()
+        return results

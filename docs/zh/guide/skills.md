@@ -458,6 +458,26 @@ idx = VectorSkillIndex(embedder=emb)
 |------|------|
 | `DCC_MCP_EMBED_MODEL` | 覆盖默认 ONNX 模型名称 |
 | `DCC_MCP_EMBED_MODEL_DIR` | 覆盖本地模型缓存目录 |
+| `DCC_MCP_EMBEDDING_CACHE_DIR` | 覆盖 embedding 缓存目录（默认 `~/.dcc-mcp`） |
+
+### Embedding 热启动
+
+磁盘上只缓存 ONNX *模型文件*：默认情况下每次进程启动都会在内存中重新嵌入全部技能文档，
+文档未变化时这是纯浪费。传入 `dcc_name`（或显式 `cache_path` / `embedding_cache`）
+即可按内容哈希持久化向量：
+
+```python
+from dcc_mcp_core.skill_index import VectorSkillIndex
+
+idx = VectorSkillIndex(dcc_name="maya")     # ~/.dcc-mcp/maya/skill-embeddings.json
+idx.index(documents)
+idx.flush_embedding_cache()
+```
+
+文档未变化时，第二次进程启动执行 **零次** embedding 计算——`idx.embedding_stats`
+对五个文档报告 `hits=5, misses=0`。文档文本变化或 embedder 变化（embedder 指纹参与
+每个缓存键）时缓存失效；缓存文件缺失或损坏时退化为重新计算。不传
+`dcc_name` / `cache_path` 的构造方式不产生任何文件副作用。
 
 ## 生命周期钩子
 

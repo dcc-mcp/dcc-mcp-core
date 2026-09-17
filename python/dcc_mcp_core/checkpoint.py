@@ -15,6 +15,16 @@ the existing ``JobManager`` / ``JobStorage`` system:
 - :class:`CheckpointStore` — pluggable backend (in-memory or JSON file)
 - :func:`checkpoint_every` — decorator / context helper for skill scripts
 
+Durable default (issue #2300)
+-----------------------------
+``DccServerBase`` resolves a file-backed path so checkpoints survive a DCC
+restart with no adapter opt-in: ``~/.dcc-mcp/<dcc>/checkpoints.json``.
+Override the base directory with ``DCC_MCP_CHECKPOINT_DIR``, or opt out
+entirely (pre-#2300 in-memory behaviour) with
+``DCC_MCP_CHECKPOINT_IN_MEMORY=1`` or
+``ObservabilityOptions(enable_checkpoint_persistence=False)``.
+See :func:`resolve_checkpoint_path`.
+
 Usage in a skill script::
 
     from dcc_mcp_core.checkpoint import checkpoint_every, save_checkpoint, get_checkpoint
@@ -39,15 +49,85 @@ Usage in a skill script::
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
+import re
 import threading
 import time
 from typing import Any
+from typing import Mapping
 
 from dcc_mcp_core import json_dumps
 from dcc_mcp_core import json_loads
+from dcc_mcp_core.constants import ENV_CHECKPOINT_DIR
+from dcc_mcp_core.constants import ENV_CHECKPOINT_IN_MEMORY
 
 logger = logging.getLogger(__name__)
+
+CHECKPOINT_FILE_NAME: str = "checkpoints.json"
+_UNSAFE_PATH_SEGMENT = re.compile(r"[^A-Za-z0-9_.-]+")
+_TRUE_ENV_VALUES = frozenset({"1", "true", "yes", "on"})
+
+
+# ── Durable default location (issue #2300) ─────────────────────────────────
+
+
+def _safe_segment(value: str) -> str:
+    """Return a filesystem-safe single path segment."""
+    return _UNSAFE_PATH_SEGMENT.sub("_", str(value).strip()).strip("._-")[:96]
+
+
+def default_checkpoint_dir() -> Path:
+    """Return the base directory that holds per-DCC checkpoint files.
+
+    ``DCC_MCP_CHECKPOINT_DIR`` wins; otherwise ``~/.dcc-mcp`` (the same base
+    :mod:`dcc_mcp_core.loaded_state_store` uses for per-DCC state).
+    """
+    configured = os.environ.get(ENV_CHECKPOINT_DIR, "").strip()
+    if configured:
+        return Path(configured).expanduser()
+    return Path("~").expanduser() / ".dcc-mcp"
+
+
+def default_checkpoint_path(dcc_name: str = "dcc", instance_id: str | None = None) -> Path:
+    """Return the durable checkpoint file for *dcc_name*.
+
+    Layout is ``<base>/<dcc>/[instance/]checkpoints.json`` — the ``instance``
+    segment is only added when the caller supplies one, so the default path
+    stays stable across restarts of the same DCC.
+    """
+    base = default_checkpoint_dir() / (_safe_segment(dcc_name) or "dcc")
+    if instance_id:
+        base = base / (_safe_segment(instance_id) or "default")
+    return base / CHECKPOINT_FILE_NAME
+
+
+def resolve_checkpoint_path(
+    dcc_name: str = "dcc",
+    instance_id: str | None = None,
+    *,
+    path: Any | None = None,
+    in_memory: bool | None = None,
+    env: Mapping[str, str] | None = None,
+) -> Path | None:
+    """Resolve the checkpoint backing path, or ``None`` for in-memory.
+
+    Precedence: explicit *path* → in-memory opt-out → durable default.
+
+    The in-memory opt-out is read from ``DCC_MCP_CHECKPOINT_IN_MEMORY`` when
+    *in_memory* is ``None``; adapters can also pass ``in_memory=True``
+    (or ``enable_checkpoint_persistence=False`` on the server options) to keep
+    the pre-#2300 behaviour.
+    """
+    if path is not None:
+        return Path(str(path)).expanduser()
+    if in_memory is None:
+        environ = os.environ if env is None else env
+        in_memory = str(environ.get(ENV_CHECKPOINT_IN_MEMORY, "")).strip().lower() in _TRUE_ENV_VALUES
+    if in_memory:
+        return None
+    return default_checkpoint_path(dcc_name, instance_id)
+
 
 # ── CheckpointStore ────────────────────────────────────────────────────────
 
@@ -73,6 +153,16 @@ class CheckpointStore:
         if self._path and self._path.exists():
             self._load()
 
+    @property
+    def path(self) -> Path | None:
+        """Backing file for durable stores; ``None`` for in-memory stores."""
+        return self._path
+
+    @property
+    def is_durable(self) -> bool:
+        """True when checkpoints survive a process restart."""
+        return self._path is not None
+
     # ── Persistence ────────────────────────────────────────────────────────
 
     def _load(self) -> None:
@@ -88,7 +178,11 @@ class CheckpointStore:
             return
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)
-            self._path.write_text(json_dumps(self._data, indent=2), encoding="utf-8")
+            # Atomic replace: a crash mid-write must not truncate the file the
+            # next process will read on restart.
+            tmp_path = self._path.with_name(self._path.name + ".tmp")
+            tmp_path.write_text(json_dumps(self._data, indent=2), encoding="utf-8")
+            tmp_path.replace(self._path)
         except OSError as exc:
             logger.warning("CheckpointStore: could not flush to %s: %s", self._path, exc)
 
@@ -477,6 +571,7 @@ def register_checkpoint_tools(
 # ── Public API ─────────────────────────────────────────────────────────────
 
 __all__ = [
+    "CHECKPOINT_FILE_NAME",
     "JOBS_CHECKPOINT_STATUS_TOOL",
     "JOBS_RESUME_CONTEXT_TOOL",
     "CheckpointStore",
@@ -484,10 +579,13 @@ __all__ = [
     "checkpoint_every",
     "clear_checkpoint",
     "configure_checkpoint_store",
+    "default_checkpoint_dir",
+    "default_checkpoint_path",
     "get_checkpoint",
     "get_default_checkpoint_store",
     "list_checkpoints",
     "register_checkpoint_tools",
     "reset_default_checkpoint_store_for_tests",
+    "resolve_checkpoint_path",
     "save_checkpoint",
 ]

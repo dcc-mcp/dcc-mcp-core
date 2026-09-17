@@ -183,6 +183,16 @@ class DccApiExecutor:
         script_materialization_policy: ``off`` preserves legacy inline
             execution; ``auto`` materializes inline code before execution;
             ``require`` accepts only trusted ``file_path`` / ``script_path``.
+        persistent_namespace: Share variables between ``dcc_execute`` calls
+            (opt-in, issue #2300). Expensive setup — imports, cached scene
+            queries — survives to the next call instead of being recomputed.
+            Only the variable namespace persists: ``EvalContext`` still
+            rebuilds ``dispatch``, ``json`` and the restricted ``__builtins__``
+            for every run, so the sandbox is unchanged. Reset it with
+            :func:`~dcc_mcp_core.script_execution.clear_script_namespace`.
+        script_execution_context: :class:`ScriptExecutionContext` that owns the
+            persistent namespace. Defaults to the compatibility context shared
+            with ``execute_python``, so one reset clears both tools.
 
     """
 
@@ -197,6 +207,8 @@ class DccApiExecutor:
         trusted_script_roots: tuple[str | Path, ...] = (),
         instance_id: str | None = None,
         session_id: str = "default",
+        persistent_namespace: bool = False,
+        script_execution_context: Any | None = None,
     ) -> None:
         self._dcc_name = dcc_name
         self._catalog = catalog or DccApiCatalog(dcc_name)
@@ -206,11 +218,22 @@ class DccApiExecutor:
         self._trusted_script_roots = trusted_script_roots
         self._instance_id = instance_id or dcc_name
         self._session_id = session_id
+        self._persistent_namespace = bool(persistent_namespace)
+        if script_execution_context is None:
+            from dcc_mcp_core.script_execution import get_default_script_execution_context
+
+            script_execution_context = get_default_script_execution_context()
+        self._script_execution_context = script_execution_context
 
     @property
     def catalog(self) -> DccApiCatalog:
         """The underlying :class:`DccApiCatalog`."""
         return self._catalog
+
+    @property
+    def persistent_namespace(self) -> bool:
+        """Whether consecutive ``dcc_execute`` calls share variable state."""
+        return self._persistent_namespace
 
     def search(self, query: str, *, limit: int = 10) -> dict[str, Any]:
         """Handle ``dcc_search`` tool calls.
@@ -262,6 +285,15 @@ class DccApiExecutor:
         from dcc_mcp_core.batch import EvalContext
 
         try:
+            persist = _optional_bool(params, "persistent_namespace", default=self._persistent_namespace)
+        except TypeError as exc:
+            return {
+                "success": False,
+                "message": f"Script parameters are invalid on {self._dcc_name}.",
+                "error": str(exc),
+            }
+
+        try:
             script = normalize_file_backed_script_execution_params(
                 params,
                 dcc_type=self._dcc_name,
@@ -289,14 +321,25 @@ class DccApiExecutor:
             }
 
         try:
+            shared: dict | None = None
+            if persist:
+                shared = dict(self._script_execution_context.script_namespace())
             ctx = EvalContext(
                 self._dispatcher,
                 sandbox=True,
                 timeout_secs=script.timeout_secs,
+                shared_namespace=shared,
             )
             result = ctx.run_entrypoint(script.code, script.params) if script.params_provided else ctx.run(script.code)
+            if shared is not None:
+                self._script_execution_context.update_script_namespace(shared)
             materialized_context = script.materialized_context()
             context = {"materialized_script": materialized_context} if materialized_context is not None else {}
+            if shared is not None:
+                context["persistent_namespace"] = {
+                    "enabled": True,
+                    "variables": sorted(shared),
+                }
             return {
                 "success": True,
                 "message": f"Script executed successfully on {self._dcc_name}.",
@@ -362,7 +405,8 @@ def register_dcc_api_executor(
         f"to call a typed file-backed main(**params) entry point. "
         f"Legacy inline scripts and typed entry points share the same sandbox and "
         f"dispatcher capabilities. Both paths stay on the owner thread and report timeout "
-        f"overruns without leaving background DCC mutations."
+        f"overruns without leaving background DCC mutations. "
+        f"Pass persistent_namespace=true to reuse variables from earlier calls."
     )
 
     search_schema = json_dumps(
@@ -421,6 +465,14 @@ def register_dcc_api_executor(
                     "default": 30,
                     "minimum": 1,
                     "maximum": 300,
+                },
+                "persistent_namespace": {
+                    "type": "boolean",
+                    "description": (
+                        "Opt in to sharing variables with previous dcc_execute calls in this session "
+                        "(default: the executor's persistent_namespace setting). The sandbox is unchanged; "
+                        "clear the shared state with clear_script_namespace."
+                    ),
                 },
             },
             "anyOf": [

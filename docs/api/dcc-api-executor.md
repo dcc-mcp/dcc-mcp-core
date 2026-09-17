@@ -66,6 +66,33 @@ The two-tool wrapper.
 | `dcc_name` | `str` | — | DCC identifier |
 | `catalog` | `DccApiCatalog \| None` | new empty catalog | Used by `dcc_search` |
 | `dispatcher` | `ToolDispatcher \| None` | `None` | When provided, `dcc_execute` exposes `dispatch(name, args)` inside the script |
+| `persistent_namespace` | `bool` | `False` | Share variables between `dcc_execute` calls (see below) |
+| `script_execution_context` | `ScriptExecutionContext \| None` | compatibility context | Owns the shared namespace |
+
+### Persistent namespace (issue #2300)
+
+Consecutive `dcc_execute` calls normally start from an empty namespace, so
+expensive setup — imports, cached scene queries — is recomputed every round
+trip. Opt in with `persistent_namespace=True` on the executor, or per call
+with `"persistent_namespace": true` in the `dcc_execute` params:
+
+```python
+executor = DccApiExecutor("maya", persistent_namespace=True)
+executor.execute_params({"code": "scene = load_scene_cache()\nreturn len(scene)"})
+executor.execute_params({"code": "return scene['mesh_count']"})   # reuses `scene`
+```
+
+Only the **variable** namespace persists. `EvalContext` still rebuilds
+`dispatch`, `json`, and the restricted `__builtins__` for every run, so the
+sandbox is unchanged; `dispatch` and other reserved names are never written
+back. Names bound inside a nested `def`/`class` body stay local. Reset the
+shared state with `clear_script_namespace()`.
+
+Successful runs report the carried variables:
+
+```json
+{"context": {"persistent_namespace": {"enabled": true, "variables": ["scene"]}}}
+```
 
 ### `.search(query, *, limit=10) -> dict`
 

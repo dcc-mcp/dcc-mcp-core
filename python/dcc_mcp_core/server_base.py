@@ -44,6 +44,8 @@ from dcc_mcp_core._server.options import DccServerOptions
 from dcc_mcp_core._server.skill_discovery import SkillDiscoveryController
 from dcc_mcp_core._version_util import package_version
 from dcc_mcp_core.checkpoint import CheckpointStore
+from dcc_mcp_core.checkpoint import register_checkpoint_tools
+from dcc_mcp_core.checkpoint import resolve_checkpoint_path
 from dcc_mcp_core.feedback import FeedbackStore
 from dcc_mcp_core.feedback import feedback_store_path
 from dcc_mcp_core.script_execution import ScriptExecutionContext
@@ -135,7 +137,15 @@ class DccServerBase:
             path=feedback_store_path(feedback_registry_dir, options.dcc_name, self._dcc_pid)
         )
         self._script_execution_context = ScriptExecutionContext()
-        self._checkpoint_store = CheckpointStore()
+        # Durable by default so checkpoints survive a DCC restart (#2300).
+        # ``None`` keeps the env-var opt-out (DCC_MCP_CHECKPOINT_IN_MEMORY)
+        # in play for adapters that leave persistence enabled.
+        self._checkpoint_path = resolve_checkpoint_path(
+            options.dcc_name,
+            path=options.observability.checkpoint_path,
+            in_memory=None if options.observability.enable_checkpoint_persistence else True,
+        )
+        self._checkpoint_store = CheckpointStore(path=self._checkpoint_path)
 
         # Resolve execution mode from the tagged union
         execution = resolve_execution_binding(options.execution.mode)
@@ -186,6 +196,7 @@ class DccServerBase:
             adapter_version=options.sidecar.adapter_version,
         )
         self._register_builtin_skills(options)
+        self._register_checkpoint_tools(options)
 
         # Wire execution bridge / dispatcher
         if execution.bridge is not None:
@@ -294,16 +305,50 @@ class DccServerBase:
 
     @property
     def checkpoint_store(self) -> CheckpointStore:
-        """Instance-owned checkpoint store for long-running adapter jobs."""
+        """Instance-owned checkpoint store for long-running adapter jobs.
+
+        Backed by a durable per-DCC file unless the adapter opted out
+        (``enable_checkpoint_persistence=False`` /
+        ``DCC_MCP_CHECKPOINT_IN_MEMORY=1``), so saved checkpoints are still
+        readable after the DCC restarts (issue #2300).
+        """
         store = self.__dict__.get("_checkpoint_store")
         if store is None:
-            store = CheckpointStore()
+            store = CheckpointStore(path=self.__dict__.get("_checkpoint_path"))
             self._checkpoint_store = store
         return store
+
+    @property
+    def checkpoint_path(self) -> str | None:
+        """Durable checkpoint file for this server, or ``None`` when in-memory."""
+        store = self.checkpoint_store
+        path = getattr(store, "path", None)
+        return str(path) if path is not None else None
 
     def _register_builtin_skills(self, options: DccServerOptions) -> None:
         """Register standard built-in skills (diagnostics, introspect, etc)."""
         self._get_skill_discovery().register_builtin_skills(options)
+
+    def _register_checkpoint_tools(self, options: DccServerOptions) -> None:
+        """Expose ``jobs_checkpoint_status`` / ``jobs_resume_context`` by default.
+
+        The durable store only fulfils the #436 "resume, don't restart" promise
+        when an agent can read the saved state back, so both tools are
+        registered on the adapter server unless the adapter opted out with
+        ``enable_checkpoint_tools=False``. Registration is best-effort: an
+        inner server without a ``registry`` (sidecar stub, tests) is skipped
+        with a warning instead of failing startup.
+        """
+        if not options.observability.enable_checkpoint_tools:
+            return
+        try:
+            register_checkpoint_tools(
+                self._server,
+                dcc_name=options.dcc_name,
+                store=self.checkpoint_store,
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("[%s] register_checkpoint_tools failed: %s", options.dcc_name, exc)
 
     def register_adapter_instructions(self, instruction_set: Any) -> list[str]:
         """Register standard adapter instruction/capability resources."""
