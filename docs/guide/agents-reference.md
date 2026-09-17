@@ -340,6 +340,26 @@ Successful mutations may attach a top-level `postcondition` mapping;
 `postcondition.verified` instead of hiding it in `context`. An absent
 `postcondition` is legacy or unreported verification, not a false claim.
 
+**Perform the readback, do not just claim it (#2260):** a mutating tool must read
+back the state it changed before returning success. `dcc_mcp_core.runtime.postcondition`
+makes that one declaration:
+
+```python
+from dcc_mcp_core.runtime.postcondition import PostconditionCheck, changed_from, with_postcondition
+
+@with_postcondition(
+    PostconditionCheck("slot_readback", read=lambda: read_slot(node, "normalCamera"),
+                       expected=changed_from(None)),
+    on_unverified="fail",
+)
+def assign_texture(node, path): ...
+```
+
+`on_unverified="fail"` converts an unconfirmed effect into a
+`postcondition_unverified` failure; `on_unverified="warn"` keeps `success=true`
+with `postcondition.verified = false`. Readback evidence outranks a
+self-declared `verified=True`, so a tool can never certify its own effect.
+
 > **Trap (#2183):** there is no `ToolResultEnvelope.success(...)` /
 > `ToolResultEnvelope.error(...)`
 > classmethod — `success` and `error` are *dataclass fields*, so the factories

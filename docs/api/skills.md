@@ -790,6 +790,45 @@ return skill_success(
 
 ---
 
+### Post-condition readback
+
+`verified=True` is only trustworthy when something actually read the state back.
+`dcc_mcp_core.runtime.postcondition` performs that readback so a mutating tool cannot
+report success while doing nothing observable:
+
+```python
+from dcc_mcp_core.runtime.postcondition import PostconditionCheck, changed_from, with_postcondition
+
+@with_postcondition(
+    PostconditionCheck(
+        "material_slot_readback",
+        read=lambda: read_slot(shader, "normalCamera"),
+        expected=changed_from(None),
+    ),
+    on_unverified="fail",
+)
+def assign_texture(shader, path):
+    ...
+    return skill_success("Texture assigned", shader=shader)
+```
+
+| Symbol | Description |
+|--------|-------------|
+| `PostconditionCheck(method, read, expected=PRESENT, equals=None)` | One readback assertion; `read` runs after the mutation |
+| `changed_from(value)` | Expectation meaning "this value must have moved" |
+| `PRESENT` | Default expectation: the readback value must be non-empty |
+| `verify_postcondition(checks, on_unverified=..., method=None)` | Run checks and return the `postcondition` evidence mapping |
+| `apply_postcondition(result, checks, on_unverified=...)` | Attach evidence to one result dict and enforce the policy |
+| `with_postcondition(*checks, on_unverified="fail")` | Decorate a mutating handler with readback enforcement |
+
+`on_unverified="fail"` turns an unconfirmed effect into a
+`postcondition_unverified` failure; `on_unverified="warn"` keeps `success=true`
+but sets `postcondition.verified = false`. Readback evidence always outranks a
+`verified=True` the handler declared itself. Values are bounded and sensitive
+keys are redacted before the evidence crosses the wire.
+
+---
+
 ### skill_error
 
 ```python
