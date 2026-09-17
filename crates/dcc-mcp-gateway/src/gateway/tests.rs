@@ -589,7 +589,7 @@ async fn test_challenger_recovers_live_but_service_dead_port_holder() {
 
     let mut holder = std::process::Command::new(std::env::current_exe().unwrap())
         .args([
-            "gateway::runner::tests::port_holder_child_process",
+            "gateway::port_recovery::port_recovery_tests::port_holder_child_process",
             "--exact",
             "--nocapture",
         ])
