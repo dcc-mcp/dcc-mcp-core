@@ -25,6 +25,7 @@ use crate::domain::rest::{
     Endpoint, LoadSkillRequest, ReloadSkillsRequest, SearchRequest, StatsRequest,
     StopInstanceRequest, WaitReadyRequest,
 };
+use crate::domain::start_instance::StartInstanceRequest;
 use crate::infra::http::HttpGateway;
 
 mod dcc_types_output;
@@ -55,6 +56,7 @@ const DEFAULT_BASE_URL: &str = "http://127.0.0.1:9765";
 const DEFAULT_SMOKE_TIMEOUT_SECS: u64 = 5;
 const DEFAULT_CALL_TIMEOUT_SECS: u64 = 30;
 const DEFAULT_WAIT_READY_TIMEOUT_SECS: u64 = 30;
+const DEFAULT_START_INSTANCE_TIMEOUT_SECS: u64 = 300;
 
 #[derive(Debug, Parser)]
 #[command(name = "dcc-mcp-cli", about, version)]
@@ -178,6 +180,10 @@ enum Command {
         /// Resolve one DCC's catalog and live-instance states independently.
         #[arg(long)]
         dcc_type: Option<String>,
+        /// Absolute project root. Lets a zero-instance decision recommend
+        /// `start-instance` when the adapter published a launch plan.
+        #[arg(long, value_name = "PATH")]
+        project: Option<PathBuf>,
     },
     /// Search callable tools, or list the complete loaded inventory when no query is provided.
     Search {
@@ -298,14 +304,51 @@ enum Command {
     },
     /// Ask a test-owned instance to stop through its advertised safe-stop hook.
     StopInstance {
-        #[arg(long)]
-        dcc_type: String,
-        #[arg(long)]
-        instance_id: String,
+        /// DCC type. Optional when `--operation-id` identifies the owner.
+        #[arg(long, required_unless_present = "operation_id")]
+        dcc_type: Option<String>,
+        /// Full instance UUID or unique >=4-character prefix. Optional when
+        /// `--operation-id` identifies the owner.
+        #[arg(long, required_unless_present = "operation_id")]
+        instance_id: Option<String>,
         #[arg(long)]
         expected_owner: Option<String>,
         #[arg(long)]
         expected_session: Option<String>,
+        /// Restrict the stop to the instance launched and owned by this
+        /// `start-instance` operation.
+        #[arg(long, value_name = "OPERATION_ID")]
+        operation_id: Option<String>,
+    },
+    /// Launch a project-bound DCC host and wait for readiness (zero-instance path).
+    StartInstance {
+        #[arg(long)]
+        dcc_type: String,
+        /// Absolute project root the launched host must bind to.
+        #[arg(long, value_name = "PATH")]
+        project: PathBuf,
+        /// Explicit launch plan document. Defaults to the project receipt.
+        #[arg(long, value_name = "PATH")]
+        launch_plan: Option<PathBuf>,
+        /// Require the launch plan to declare this exact version.
+        #[arg(long)]
+        version: Option<String>,
+        /// Wait for terminal readiness instead of registration only.
+        #[arg(long)]
+        wait_ready: bool,
+        /// Readiness bits required for terminal success.
+        #[arg(long, value_delimiter = ',')]
+        require: Vec<String>,
+        #[arg(long)]
+        timeout_secs: Option<u64>,
+        #[arg(long, default_value = "1")]
+        interval_secs: u64,
+        /// Resolve and report the launch plan without spawning a process.
+        #[arg(long)]
+        dry_run: bool,
+        /// Operator authorization to launch a GUI process.
+        #[arg(long)]
+        yes: bool,
     },
     /// Build an auditable DCC adapter installation plan.
     Install {
@@ -687,7 +730,16 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             catalog,
             dcc_type,
             offline,
-        } => dcc_types_output::run(catalog.as_deref(), dcc_type.as_deref(), offline).await?,
+            project,
+        } => {
+            dcc_types_output::run(
+                catalog.as_deref(),
+                dcc_type.as_deref(),
+                offline,
+                project.as_deref(),
+            )
+            .await?
+        }
         Command::Search {
             query,
             query_terms,
@@ -902,14 +954,86 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             instance_id,
             expected_owner,
             expected_session,
+            operation_id,
         } => {
+            // A stop scoped to a lifecycle operation may only touch the
+            // instance that operation launched and owns.
+            let (resolved_dcc_type, resolved_instance_id) = match (
+                dcc_type.as_deref(),
+                instance_id.as_deref(),
+            ) {
+                (Some(dcc_type), Some(instance_id)) => {
+                    (dcc_type.to_string(), instance_id.to_string())
+                }
+                _ => {
+                    let operation =
+                            crate::application::instance_launch::resolve_owned_operation(
+                                &gateway_ensure::default_registry_dir(),
+                                dcc_type.as_deref(),
+                                instance_id.as_deref(),
+                                operation_id.as_deref(),
+                            )?
+                            .ok_or_else(|| {
+                                anyhow!("--operation-id requires a start-instance operation that owns a live instance")
+                            })?;
+                    (
+                        operation.dcc_type.clone(),
+                        operation.instance_id.clone().unwrap_or_default(),
+                    )
+                }
+            };
             let request = StopInstanceRequest {
-                dcc_type,
-                instance_id,
+                dcc_type: resolved_dcc_type,
+                instance_id: resolved_instance_id,
                 expected_owner,
                 expected_session,
+                operation_id,
             };
             control.stop_instance(request).await?
+        }
+        Command::StartInstance {
+            dcc_type,
+            project,
+            launch_plan,
+            version,
+            wait_ready,
+            require,
+            timeout_secs,
+            interval_secs,
+            dry_run,
+            yes,
+        } => {
+            let effective_timeout = global_timeout_secs
+                .or(timeout_secs)
+                .unwrap_or(DEFAULT_START_INSTANCE_TIMEOUT_SECS);
+            let request = StartInstanceRequest {
+                dcc_type,
+                project,
+                launch_plan,
+                version,
+                wait_ready,
+                timeout: Duration::from_secs(effective_timeout),
+                interval: Duration::from_secs(interval_secs.max(1)),
+                required: require,
+                authorized: yes,
+                dry_run,
+                registry_dir: gateway_ensure::default_registry_dir(),
+                instance_id: None,
+            };
+            let result = crate::application::instance_launch::start_instance(request).await?;
+            if !result.get("ok").and_then(Value::as_bool).unwrap_or(false) {
+                failed = true;
+                exit_code = ExitCode::Unavailable;
+            } else if wait_ready
+                && !result
+                    .get("ready")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+            {
+                failed = true;
+                exit_code = ExitCode::Timeout;
+            }
+            result
         }
         Command::Install {
             offline,
@@ -1228,7 +1352,10 @@ fn gateway_endpoint_for_command(
         | Command::Marketplace { .. }
         | Command::Lint(_)
         | Command::Components { .. }
-        | Command::Gateway { .. } => None,
+        | Command::Gateway { .. }
+        // `start-instance` owns the local lifecycle: it resolves a launch plan
+        // and talks to the FileRegistry directly, never through the gateway.
+        | Command::StartInstance { .. } => None,
     }
 }
 
@@ -1459,7 +1586,8 @@ fn command_has_distinct_per_timeout(command: &Command, global_timeout_secs: Opti
         Command::Smoke { timeout_secs, .. }
         | Command::Call { timeout_secs, .. }
         | Command::CallBatch { timeout_secs, .. }
-        | Command::WaitReady { timeout_secs, .. } => *timeout_secs,
+        | Command::WaitReady { timeout_secs, .. }
+        | Command::StartInstance { timeout_secs, .. } => *timeout_secs,
         Command::UiControl { action } => action.timeout_secs(),
         _ => None,
     };

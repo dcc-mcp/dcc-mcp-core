@@ -96,6 +96,10 @@ pub struct StopInstanceRequest {
     pub expected_owner: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expected_session: Option<String>,
+    /// Restrict the stop to the instance launched and owned by this
+    /// `start-instance` operation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub operation_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

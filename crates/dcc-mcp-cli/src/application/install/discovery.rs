@@ -195,6 +195,7 @@ impl InstallService {
         catalog_path: Option<&std::path::Path>,
         requested_dcc_type: &str,
         inventory: Option<&Value>,
+        project: Option<&std::path::Path>,
     ) -> DccDiscoveryDecision {
         let Some(canonical_dcc) = validated_dcc_type(requested_dcc_type) else {
             return failure_decision(
@@ -271,6 +272,17 @@ impl InstallService {
             search_action(&canonical_dcc)
         } else if live_instances > 0 {
             wait_ready_action(&canonical_dcc)
+        } else if let Some(project) = project.filter(|project| {
+            crate::application::instance_launch::plan::resolvable(
+                &canonical_dcc,
+                project,
+                &crate::application::gateway_ensure::default_registry_dir(),
+            )
+        }) {
+            // Zero instances with a validated launch plan is exactly the gap
+            // `start-instance` closes: launch the recorded host bound to this
+            // project instead of asking the operator to open it by hand.
+            start_instance_action(&canonical_dcc, project)
         } else if catalog_path.is_none()
             && adapter.is_some_and(|entry| {
                 entry.install.is_some() && crate::domain::install::policy::validate(entry).is_ok()
@@ -453,6 +465,27 @@ fn search_action(dcc_type: &str) -> DiscoveryNextAction {
     }
 }
 
+fn start_instance_action(dcc_type: &str, project: &std::path::Path) -> DiscoveryNextAction {
+    DiscoveryNextAction {
+        id: "start_instance".to_string(),
+        command: vec![
+            "dcc-mcp-cli".to_string(),
+            "--output".to_string(),
+            "json".to_string(),
+            "--non-interactive".to_string(),
+            "start-instance".to_string(),
+            "--dcc-type".to_string(),
+            dcc_type.to_string(),
+            "--project".to_string(),
+            project.display().to_string(),
+            "--wait-ready".to_string(),
+            "--yes".to_string(),
+        ],
+        requires_consent: true,
+        instructions_url: None,
+    }
+}
+
 fn wait_ready_action(dcc_type: &str) -> DiscoveryNextAction {
     DiscoveryNextAction {
         id: "wait_ready".to_string(),
@@ -541,7 +574,7 @@ mod tests {
                     provenance: CatalogProvenance::local(CatalogSource::Remote),
                 });
                 let decision =
-                    service.discovery_decision(None, dcc, Some(&json!({"instances": []})));
+                    service.discovery_decision(None, dcc, Some(&json!({"instances": []})), None);
                 assert_eq!(decision.next_action.id, expected_action, "{dcc}: {fields}");
                 assert_eq!(decision.released_catalog, CatalogPresence::Present);
                 assert_eq!(decision.live_instances, Some(0));

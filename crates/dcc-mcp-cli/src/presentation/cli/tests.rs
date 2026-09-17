@@ -852,10 +852,11 @@ fn gateway_endpoint_for_command_ensures_gateway_for_agent_control_commands() {
         gateway_endpoint_for_command(
             DEFAULT_BASE_URL,
             &Command::StopInstance {
-                dcc_type: "maya".to_string(),
-                instance_id: "abc12345".to_string(),
+                dcc_type: Some("maya".to_string()),
+                instance_id: Some("abc12345".to_string()),
                 expected_owner: Some("release-smoke-test".to_string()),
                 expected_session: Some("test".to_string()),
+                operation_id: None,
             },
             &local,
         )
@@ -918,6 +919,7 @@ fn gateway_endpoint_for_command_ensures_gateway_for_agent_control_commands() {
                 offline: false,
                 catalog: None,
                 dcc_type: None,
+                project: None,
             },
             &local,
         )
