@@ -652,6 +652,42 @@ return skill_success(
 
 ---
 
+### 后置条件读回
+
+只有真正读回状态后，`verified=True` 才可信。`dcc_mcp_core.runtime.postcondition` 负责执行读回，
+避免变更类工具在没有任何可见效果时仍返回成功：
+
+```python
+from dcc_mcp_core.runtime.postcondition import PostconditionCheck, changed_from, with_postcondition
+
+@with_postcondition(
+    PostconditionCheck(
+        "material_slot_readback",
+        read=lambda: read_slot(shader, "normalCamera"),
+        expected=changed_from(None),
+    ),
+    on_unverified="fail",
+)
+def assign_texture(shader, path):
+    ...
+    return skill_success("贴图已指定", shader=shader)
+```
+
+| 符号 | 说明 |
+|------|------|
+| `PostconditionCheck(method, read, expected=PRESENT, equals=None)` | 单条读回断言，`read` 在变更后执行 |
+| `changed_from(value)` | 期望“该值必须发生变化” |
+| `PRESENT` | 默认期望：读回值非空 |
+| `verify_postcondition(checks, on_unverified=..., method=None)` | 执行检查并返回 `postcondition` 证据 |
+| `apply_postcondition(result, checks, on_unverified=...)` | 为结果附加证据并执行策略 |
+| `with_postcondition(*checks, on_unverified="fail")` | 为变更类处理函数装饰器增加读回强制 |
+
+`on_unverified="fail"` 会把未确认的效果转成 `postcondition_unverified` 失败；
+`on_unverified="warn"` 保留 `success=true` 但置 `postcondition.verified = false`。
+读回证据的优先级高于处理函数自己声明的 `verified=True`。证据上送到线协议前会做截断与敏感键脱敏。
+
+---
+
 ### skill_error
 
 ```python

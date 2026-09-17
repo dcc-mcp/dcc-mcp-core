@@ -217,6 +217,24 @@ return {"success": True, "message": "...", "context": {"name": name}}
 `skill_success(verified=False)` 会在 `postcondition.verified` 明确标记未确认的效果，
 而不是把它隐藏在 `context`。缺少 `postcondition` 表示旧版或未报告验证，
 不等同于验证失败。
+
+**读回必须由框架执行，而不是只声明（#2260）：** 变更类工具在返回成功前必须读回被修改的状态。
+`dcc_mcp_core.runtime.postcondition` 提供这一声明式契约：
+
+```python
+from dcc_mcp_core.runtime.postcondition import PostconditionCheck, changed_from, with_postcondition
+
+@with_postcondition(
+    PostconditionCheck("slot_readback", read=lambda: read_slot(node, "normalCamera"),
+                       expected=changed_from(None)),
+    on_unverified="fail",
+)
+def assign_texture(node, path): ...
+```
+
+`on_unverified="fail"` 会把未确认的效果转为 `postcondition_unverified` 失败；
+`on_unverified="warn"` 保留 `success=true` 并置 `postcondition.verified = false`。
+读回证据优先级高于工具自己声明的 `verified=True`，工具不能为自己的效果背书。
 工厂方法使用 `success_` / `error_`（或别名 `ok` / `fail`），因为
 `success` 与 `error` 本身是 dataclass 字段。顶层 `dcc_mcp_core.ToolResult`
 是 Rust 运行时模型，不是这个 wire builder。
