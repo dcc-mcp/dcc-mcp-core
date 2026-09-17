@@ -1,0 +1,151 @@
+tools:
+  - name: capture_review_views
+    description: >-
+      Emit the deterministic multi-view capture plan (front / side / top /
+      three-quarter, fixed resolution, viewport-only) and, when captures are
+      supplied, validate them against that plan. A capture on a hidden/blocked
+      window or a blank/white/near-black frame fails loudly - never success.
+    input_schema:
+      type: object
+      required: []
+      properties:
+        resolution:
+          type: array
+          minItems: 2
+          maxItems: 2
+          items:
+            type: integer
+            minimum: 1
+          default: [1920, 1080]
+          description: "Fixed capture resolution [width, height]."
+        views:
+          type: array
+          items:
+            type: string
+            enum: [front, side, top, three_quarter]
+          default: [front, side, top, three_quarter]
+          description: "Views to plan/require. Order is preserved."
+        captures:
+          type: array
+          items:
+            type: object
+          description: "Optional list of capture results to validate against the plan."
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 10
+    source_file: scripts/capture_review_views.py
+
+  - name: image_stats
+    description: >-
+      Compute in-band image statistics (mean luma, stddev, histogram,
+      uniformity) for a capture without shipping pixels to the model, and flag
+      the known-bad frames: white playblasts, near-black renders, and
+      display-transform-less linear frames. PPM/PGM decode via the standard
+      library; PNG/JPEG/EXR decode via ffmpeg.
+    input_schema:
+      type: object
+      required: [input_path]
+      properties:
+        input_path:
+          type: string
+          description: "Existing capture file. PPM/PGM, PNG, JPEG, or EXR."
+        channels:
+          type: integer
+          enum: [1, 3]
+          default: 3
+          description: "Pixel channels of raw PPM/PGM input (3 for PPM, 1 for PGM)."
+        bins:
+          type: integer
+          minimum: 2
+          maximum: 256
+          default: 16
+          description: "Luma histogram bucket count."
+        timeout_secs:
+          type: integer
+          minimum: 1
+          maximum: 300
+          default: 30
+          description: "Maximum time to wait for ffmpeg decode."
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 30
+    source_file: scripts/image_stats.py
+
+  - name: validate_scene_vs_spec
+    description: >-
+      Validate a normalised scene-state export against a written spec before
+      export: hierarchy names, material bindings, per-mesh UV coverage, part
+      existence, non-manifold geometry, and Euler bounds. Returns
+      {passed, failures[]} and never mutates the scene.
+    input_schema:
+      type: object
+      required: [scene, spec]
+      properties:
+        scene:
+          type: object
+          description: "Normalised scene-state export (parts, hierarchy, meshes, objects)."
+        spec:
+          type: object
+          description: "Spec of required parts/hierarchy/materials, min_uv_coverage, and bounds."
+        scene_path:
+          type: string
+          description: "Alternative: JSON/YAML file path for the scene export."
+        spec_path:
+          type: string
+          description: "Alternative: JSON/YAML file path for the spec."
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 10
+    source_file: scripts/validate_scene_vs_spec.py
+
+  - name: make_comparison_sheet
+    description: >-
+      Composite reference and render images side-by-side (or stacked) into one
+      comparison sheet using ffmpeg hstack/vstack. Packages evidence and
+      computes no scores. Fails loudly when any input is missing.
+    input_schema:
+      type: object
+      required: [reference_path, render_paths, output_path]
+      properties:
+        reference_path:
+          type: string
+          description: "Reference image path."
+        render_paths:
+          type: array
+          items:
+            type: string
+          description: "Render/candidate image paths to place beside the reference."
+        output_path:
+          type: string
+          description: "Destination sheet path (.png or .jpg). Parent directory must exist."
+        layout:
+          type: string
+          enum: [horizontal, vertical]
+          default: horizontal
+          description: "Stack direction; horizontal = side-by-side."
+        overwrite:
+          type: boolean
+          default: false
+          description: "Set true to replace an existing output file."
+        timeout_secs:
+          type: integer
+          minimum: 1
+          maximum: 300
+          default: 30
+          description: "Maximum time to wait for ffmpeg."
+    read_only: false
+    destructive: false
+    idempotent: false
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 30
+    source_file: scripts/make_comparison_sheet.py
