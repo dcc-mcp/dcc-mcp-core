@@ -1,0 +1,579 @@
+# Cross-adapter modeling recipe pack for the shared cross-DCC modeling
+# vocabulary. Each entry is a DCC-agnostic plan consumed by every DCC
+# adapter's mesh-ops skill via the recipes__list/get/validate/apply tools.
+#
+#   name               - canonical modeling verb (snake_case)
+#   dcc: any           - not tied to one host; applies to every adapter
+#   toolset_profiles   - the mesh-ops toolset carried by each adapter
+#   inputs_schema      - Draft 2020-12 input contract (validated by Core)
+#   steps              - ordered dispatch plan over canonical mesh_ops__<verb>
+#   output_contract    - the artifact produced by the plan
+#
+# Adapters resolve steps[].tool (`mesh_ops__<verb>`) to their own
+# `<adapter>_mesh_ops__<verb>` tool before dispatching.
+
+recipes:
+  - name: create_primitive
+    dcc: any
+    description: Create a named mesh primitive with bounded transform parameters.
+    inputs_schema:
+      type: object
+      additionalProperties: false
+      required: [primitive_type, name]
+      properties:
+        primitive_type:
+          type: string
+          enum: [cube, sphere, ico_sphere, cylinder, cone, torus, plane, circle]
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        size:
+          type: number
+          exclusiveMinimum: 0
+          maximum: 1000000
+          default: 1.0
+        location:
+          type: array
+          minItems: 3
+          maxItems: 3
+          items: {type: number}
+          default: [0, 0, 0]
+        rotation:
+          type: array
+          minItems: 3
+          maxItems: 3
+          items: {type: number}
+          default: [0, 0, 0]
+        scale:
+          type: array
+          minItems: 3
+          maxItems: 3
+          items: {type: number, exclusiveMinimum: 0}
+          default: [1, 1, 1]
+    steps:
+      - tool: mesh_ops__create_primitive
+        arguments:
+          primitive_type: ${primitive_type}
+          name: ${name}
+          size: ${size}
+          location: ${location}
+          rotation: ${rotation}
+          scale: ${scale}
+    output_contract: mesh_object
+    toolset_profiles: [mesh-ops]
+
+  - name: bevel_edges
+    dcc: any
+    description: Bevel bounded edge indices and verify resulting topology.
+    inputs_schema:
+      type: object
+      additionalProperties: false
+      required: [object_name, edge_indices, width]
+      properties:
+        object_name:
+          type: string
+          minLength: 1
+        edge_indices:
+          type: array
+          minItems: 1
+          maxItems: 4096
+          uniqueItems: true
+          items: {type: integer, minimum: 0}
+        width:
+          type: number
+          exclusiveMinimum: 0
+          maximum: 1000000
+        segments:
+          type: integer
+          minimum: 1
+          maximum: 64
+          default: 1
+    steps:
+      - tool: mesh_ops__bevel_edges
+        arguments:
+          object_name: ${object_name}
+          edge_indices: ${edge_indices}
+          width: ${width}
+          segments: ${segments}
+    output_contract: mesh_component_edit
+    toolset_profiles: [mesh-ops]
+
+  - name: extrude_faces
+    dcc: any
+    description: Extrude bounded face indices along a direction and verify topology.
+    inputs_schema:
+      type: object
+      additionalProperties: false
+      required: [object_name, face_indices]
+      properties:
+        object_name:
+          type: string
+          minLength: 1
+        face_indices:
+          type: array
+          minItems: 1
+          maxItems: 4096
+          uniqueItems: true
+          items: {type: integer, minimum: 0}
+        distance:
+          type: number
+          minimum: -1000000
+          maximum: 1000000
+          default: 0.0
+        direction:
+          type: array
+          minItems: 3
+          maxItems: 3
+          items: {type: number}
+          default: [0.0, 0.0, 1.0]
+    steps:
+      - tool: mesh_ops__extrude_faces
+        arguments:
+          object_name: ${object_name}
+          face_indices: ${face_indices}
+          distance: ${distance}
+          direction: ${direction}
+    output_contract: mesh_component_edit
+    toolset_profiles: [mesh-ops]
+
+  - name: inset_faces
+    dcc: any
+    description: Inset bounded face indices and verify resulting topology.
+    inputs_schema:
+      type: object
+      additionalProperties: false
+      required: [object_name, face_indices, thickness]
+      properties:
+        object_name:
+          type: string
+          minLength: 1
+        face_indices:
+          type: array
+          minItems: 1
+          maxItems: 4096
+          uniqueItems: true
+          items: {type: integer, minimum: 0}
+        thickness:
+          type: number
+          minimum: 0
+          maximum: 1000000
+        depth:
+          type: number
+          minimum: -1000000
+          maximum: 1000000
+          default: 0
+    steps:
+      - tool: mesh_ops__inset_faces
+        arguments:
+          object_name: ${object_name}
+          face_indices: ${face_indices}
+          thickness: ${thickness}
+          depth: ${depth}
+    output_contract: mesh_component_edit
+    toolset_profiles: [mesh-ops]
+
+  - name: boolean_op
+    dcc: any
+    description: Apply a typed boolean operation between two meshes.
+    inputs_schema:
+      type: object
+      additionalProperties: false
+      required: [input_a, input_b, operation]
+      properties:
+        input_a:
+          type: string
+          minLength: 1
+        input_b:
+          type: string
+          minLength: 1
+        operation:
+          type: string
+          enum: [union, intersect, subtract]
+        apply:
+          type: boolean
+          default: true
+        output_name:
+          type: string
+          minLength: 1
+          maxLength: 255
+    steps:
+      - tool: mesh_ops__boolean_op
+        arguments:
+          input_a: ${input_a}
+          input_b: ${input_b}
+          operation: ${operation}
+          apply: ${apply}
+          output_name: ${output_name}
+    output_contract: mesh_object
+    toolset_profiles: [mesh-ops]
+
+  - name: add_edge_loop
+    dcc: any
+    description: Subdivide bounded edge indices to add an edge loop.
+    inputs_schema:
+      type: object
+      additionalProperties: false
+      required: [object_name, edge_indices]
+      properties:
+        object_name:
+          type: string
+          minLength: 1
+        edge_indices:
+          type: array
+          minItems: 1
+          maxItems: 4096
+          uniqueItems: true
+          items: {type: integer, minimum: 0}
+        cuts:
+          type: integer
+          minimum: 1
+          maximum: 64
+          default: 1
+    steps:
+      - tool: mesh_ops__add_edge_loop
+        arguments:
+          object_name: ${object_name}
+          edge_indices: ${edge_indices}
+          cuts: ${cuts}
+    output_contract: mesh_component_edit
+    toolset_profiles: [mesh-ops]
+
+  - name: merge_vertices
+    dcc: any
+    description: Merge vertices within a distance threshold on a mesh object.
+    inputs_schema:
+      type: object
+      additionalProperties: false
+      required: [object_name]
+      properties:
+        object_name:
+          type: string
+          minLength: 1
+        threshold:
+          type: number
+          minimum: 0
+          default: 0.0001
+    steps:
+      - tool: mesh_ops__merge_vertices
+        arguments:
+          object_name: ${object_name}
+          threshold: ${threshold}
+    output_contract: mesh_topology_edit
+    toolset_profiles: [mesh-ops]
+
+  - name: triangulate_mesh
+    dcc: any
+    description: Convert selected or all mesh faces to triangles.
+    inputs_schema:
+      type: object
+      additionalProperties: false
+      required: [object_name]
+      properties:
+        object_name:
+          type: string
+          minLength: 1
+    steps:
+      - tool: mesh_ops__triangulate_mesh
+        arguments:
+          object_name: ${object_name}
+    output_contract: mesh_topology_edit
+    toolset_profiles: [mesh-ops]
+
+  - name: cleanup_mesh
+    dcc: any
+    description: Run common mesh cleanup operators (merge doubles, fix normals, delete loose).
+    inputs_schema:
+      type: object
+      additionalProperties: false
+      required: [object_name]
+      properties:
+        object_name:
+          type: string
+          minLength: 1
+        remove_doubles:
+          type: boolean
+          default: true
+        fix_normals:
+          type: boolean
+          default: true
+        delete_loose:
+          type: boolean
+          default: true
+        merge_threshold:
+          type: number
+          minimum: 0
+          default: 0.0001
+    steps:
+      - tool: mesh_ops__cleanup_mesh
+        arguments:
+          object_name: ${object_name}
+          remove_doubles: ${remove_doubles}
+          fix_normals: ${fix_normals}
+          delete_loose: ${delete_loose}
+          merge_threshold: ${merge_threshold}
+    output_contract: mesh_topology_edit
+    toolset_profiles: [mesh-ops]
+
+  - name: combine_meshes
+    dcc: any
+    description: Join two or more mesh objects into a single mesh object.
+    inputs_schema:
+      type: object
+      additionalProperties: false
+      required: [object_names]
+      properties:
+        object_names:
+          type: array
+          minItems: 2
+          uniqueItems: true
+          items: {type: string, minLength: 1}
+        new_name:
+          type: string
+          minLength: 1
+          maxLength: 255
+    steps:
+      - tool: mesh_ops__combine_meshes
+        arguments:
+          object_names: ${object_names}
+          new_name: ${new_name}
+    output_contract: mesh_object
+    toolset_profiles: [mesh-ops]
+
+  - name: mirror
+    dcc: any
+    description: Mirror a mesh across one axis, optionally applying the result.
+    inputs_schema:
+      type: object
+      additionalProperties: false
+      required: [object_name]
+      properties:
+        object_name:
+          type: string
+          minLength: 1
+        axis:
+          type: string
+          enum: [x, y, z]
+          default: x
+        merge:
+          type: boolean
+          default: true
+        bisect:
+          type: boolean
+          default: false
+        apply:
+          type: boolean
+          default: false
+    steps:
+      - tool: mesh_ops__mirror
+        arguments:
+          object_name: ${object_name}
+          axis: ${axis}
+          merge: ${merge}
+          bisect: ${bisect}
+          apply: ${apply}
+    output_contract: mesh_object
+    toolset_profiles: [mesh-ops]
+
+  - name: loft_sections
+    dcc: any
+    description: Loft two to sixty-four ordered mesh edge-loop sections.
+    inputs_schema:
+      type: object
+      additionalProperties: false
+      required: [sections]
+      properties:
+        sections:
+          type: array
+          minItems: 2
+          maxItems: 64
+          uniqueItems: true
+          items: {type: string, minLength: 1}
+        output_name:
+          type: string
+          minLength: 1
+          maxLength: 255
+    steps:
+      - tool: mesh_ops__loft_sections
+        arguments:
+          sections: ${sections}
+          output_name: ${output_name}
+    output_contract: mesh_object
+    toolset_profiles: [mesh-ops]
+
+  - name: lathe_profile
+    dcc: any
+    description: Revolve a mesh profile around an axis.
+    inputs_schema:
+      type: object
+      additionalProperties: false
+      required: [profile]
+      properties:
+        profile:
+          type: string
+          minLength: 1
+        axis:
+          type: string
+          enum: [x, y, z]
+          default: y
+        origin:
+          type: array
+          minItems: 3
+          maxItems: 3
+          items: {type: number}
+          default: [0, 0, 0]
+        segments:
+          type: integer
+          minimum: 3
+          maximum: 256
+          default: 32
+        output_name:
+          type: string
+          minLength: 1
+          maxLength: 255
+    steps:
+      - tool: mesh_ops__lathe_profile
+        arguments:
+          profile: ${profile}
+          axis: ${axis}
+          origin: ${origin}
+          segments: ${segments}
+          output_name: ${output_name}
+    output_contract: mesh_object
+    toolset_profiles: [mesh-ops]
+
+  - name: auto_uv
+    dcc: any
+    description: Generate a smart-projected UV map.
+    inputs_schema:
+      type: object
+      additionalProperties: false
+      required: [object_name]
+      properties:
+        object_name:
+          type: string
+          minLength: 1
+        margin:
+          type: number
+          minimum: 0
+          maximum: 0.49
+          default: 0.001
+    steps:
+      - tool: mesh_ops__auto_uv
+        arguments:
+          object_name: ${object_name}
+          margin: ${margin}
+    output_contract: uv_map
+    toolset_profiles: [mesh-ops]
+
+  - name: uv_project
+    dcc: any
+    description: Project UVs with a typed projection mode.
+    inputs_schema:
+      type: object
+      additionalProperties: false
+      required: [object_name]
+      properties:
+        object_name:
+          type: string
+          minLength: 1
+        projection:
+          type: string
+          enum: [planar, cylindrical, spherical, cube]
+          default: planar
+        axis:
+          type: string
+          enum: [x, y, z]
+          default: z
+        margin:
+          type: number
+          minimum: 0
+          maximum: 0.49
+          default: 0
+      allOf:
+        - if:
+            properties:
+              projection: {enum: [cylindrical, spherical, cube]}
+            required: [projection]
+          then:
+            properties:
+              axis: {const: z}
+    steps:
+      - tool: mesh_ops__uv_project
+        arguments:
+          object_name: ${object_name}
+          projection: ${projection}
+          axis: ${axis}
+          margin: ${margin}
+    output_contract: uv_map
+    toolset_profiles: [mesh-ops]
+
+  - name: assign_material
+    dcc: any
+    description: Assign a named material slot to a mesh object.
+    inputs_schema:
+      type: object
+      additionalProperties: false
+      required: [object_name, material_name]
+      properties:
+        object_name:
+          type: string
+          minLength: 1
+        material_name:
+          type: string
+          minLength: 1
+        slot_index:
+          type: integer
+          minimum: 0
+          maximum: 63
+          default: 0
+    steps:
+      - tool: mesh_ops__assign_material
+        arguments:
+          object_name: ${object_name}
+          material_name: ${material_name}
+          slot_index: ${slot_index}
+    output_contract: material_slot
+    toolset_profiles: [mesh-ops]
+
+  - name: set_pivot
+    dcc: any
+    description: Move a mesh object's origin to an explicit world-space position.
+    inputs_schema:
+      type: object
+      additionalProperties: false
+      required: [object_name, position]
+      properties:
+        object_name:
+          type: string
+          minLength: 1
+        position:
+          type: array
+          minItems: 3
+          maxItems: 3
+          items: {type: number}
+    steps:
+      - tool: mesh_ops__set_pivot
+        arguments:
+          object_name: ${object_name}
+          position: ${position}
+    output_contract: mesh_transform
+    toolset_profiles: [mesh-ops]
+
+  - name: get_poly_count
+    dcc: any
+    description: Read vertex, edge, face, and derived triangle counts for a mesh.
+    inputs_schema:
+      type: object
+      additionalProperties: false
+      required: [object_name]
+      properties:
+        object_name:
+          type: string
+          minLength: 1
+    steps:
+      - tool: mesh_ops__get_poly_count
+        arguments:
+          object_name: ${object_name}
+    output_contract: polygon_count
+    toolset_profiles: [mesh-ops]
