@@ -143,13 +143,38 @@ impl SqliteStorage {
         // files are left by another process. Treat journal-mode setup as a
         // best-effort optimization: preserve the connection and let the
         // write circuit report/disable persistence if writes are unavailable.
-        if let Err(error) = conn.execute_batch("PRAGMA journal_mode=WAL;") {
-            tracing::warn!(error = %error, "SQLite WAL setup unavailable; continuing with the existing journal mode");
+        //
+        // `query_row` (not `execute_batch`) so a refused mode switch is
+        // observable: rusqlite's batch entry points report success based on
+        // the last statement, which hides the `SQLITE_READONLY` that a
+        // read-only database raises here.
+        match conn.query_row("PRAGMA journal_mode=WAL;", [], |row| {
+            row.get::<_, String>(0)
+        }) {
+            Ok(mode) if mode.eq_ignore_ascii_case("wal") => {}
+            Ok(mode) => {
+                tracing::warn!(mode = %mode, "SQLite refused WAL journal mode; continuing with the existing journal mode");
+            }
+            Err(error) => {
+                tracing::warn!(error = %error, "SQLite WAL setup unavailable; continuing with the existing journal mode");
+            }
         }
         conn.execute_batch("PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON;")
             .map_err(map_err)?;
         conn.execute_batch(SCHEMA).map_err(map_err)?;
         ensure_lifecycle_columns(&conn)?;
+
+        // Fail closed *before* handing out a writer when the database is not
+        // writable. A read-only database opens fine and fails only on the
+        // first mutating statement, which is what produced a per-job
+        // `SQLITE_READONLY` warning storm. Detecting it here turns that into a
+        // single startup error the caller latches onto a disabled persistence
+        // circuit.
+        probe_writable(&conn).map_err(|error| {
+            JobStorageError::Backend(format!(
+                "job storage opened read-only: {error}; the database must be writable for job persistence"
+            ))
+        })?;
         Ok(Self {
             conn: Mutex::new(conn),
             interrupt,
@@ -423,6 +448,45 @@ impl JobStorage for SqliteStorage {
 
 fn map_err(e: rusqlite::Error) -> JobStorageError {
     JobStorageError::Backend(e.to_string())
+}
+
+/// Verify the connection can take a write lock before the schema is touched.
+///
+/// A read-only database is still *openable* by SQLite — the `SQLITE_READONLY`
+/// failure surfaces on the first statement that dirties the database file. So
+/// the probe must write to the real database, not to a `TEMP` object: SQLite
+/// keeps temporary tables in the connection's own temp store, where a write
+/// succeeds even when the main database cannot be written.
+///
+/// `BEGIN IMMEDIATE` takes the database write lock up front and the trailing
+/// `ROLLBACK` discards the transaction, so no row is left behind. The schema is
+/// created before this runs, so `jobs` exists in every build that can reach it;
+/// a missing table is reported the same way (as an open failure) rather than
+/// being silently ignored.
+fn probe_writable(conn: &Connection) -> Result<(), rusqlite::Error> {
+    conn.execute_batch("BEGIN IMMEDIATE;")?;
+    // The marker row is rolled back below; the probe id is a fixed sentinel so
+    // it can never collide with a real job id (always a generated UUID).
+    let result = conn.execute(
+        "INSERT INTO jobs (job_id, tool, status, created_at, updated_at) \
+         VALUES ('dcc-mcp-writability-probe', '', '', '', '')",
+        [],
+    );
+    let rollback = conn.execute_batch("ROLLBACK;");
+    result.and(rollback)
+}
+
+/// True when the backend rejected an operation because it is not writable.
+///
+/// SQLite reports this with several platform-specific spellings; keep the set
+/// in sync with [`JobStorageError`] classification so an open-time read-only
+/// failure latches the persistence circuit on the first attempt.
+pub fn is_readonly_error(message: &str) -> bool {
+    let normalized = message.to_ascii_lowercase();
+    normalized.contains("readonly")
+        || normalized.contains("read-only")
+        || normalized.contains("sqlite_readonly")
+        || normalized.contains("attempt to write a readonly database")
 }
 
 pub fn ownership_lock_path_for(path: impl AsRef<Path>) -> PathBuf {
@@ -1026,6 +1090,98 @@ mod tests {
         let _ = std::fs::remove_file(path.with_extension("sqlite3-wal"));
         let _ = std::fs::remove_file(path.with_extension("sqlite3-shm"));
         let _ = std::fs::remove_file(path.with_extension("sqlite3.lock"));
+    }
+
+    #[test]
+    fn readonly_database_is_rejected_at_open() {
+        let path = std::env::temp_dir().join(format!(
+            "dcc-mcp-job-readonly-{}.sqlite3",
+            uuid::Uuid::new_v4()
+        ));
+        // Materialize a writable database first so the schema exists, then
+        // drop every write bit. A read-only database is still openable by
+        // SQLite — that is exactly the state observed in the field — so the
+        // failure must be caught by the open-time probe rather than by a
+        // readable-open.
+        drop(SqliteStorage::open(&path).unwrap());
+
+        let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+        permissions.set_readonly(true);
+        std::fs::set_permissions(&path, permissions).unwrap();
+
+        let error = SqliteStorage::open(&path)
+            .expect_err("a read-only database must not be accepted as writable job storage")
+            .to_string();
+        assert!(
+            error.contains("read-only"),
+            "open must fail closed with a classified message, got: {error}"
+        );
+        assert!(
+            is_readonly_error(&error),
+            "the open error must classify as readonly so the circuit latches once: {error}"
+        );
+
+        // Restore write permission so the temp directory can be cleaned up.
+        let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+        #[allow(clippy::permissions_set_readonly_false)]
+        permissions.set_readonly(false);
+        std::fs::set_permissions(&path, permissions).unwrap();
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(path.with_extension("sqlite3-wal"));
+        let _ = std::fs::remove_file(path.with_extension("sqlite3-shm"));
+    }
+
+    #[test]
+    fn readonly_open_failure_latches_persistence_without_write_storm() {
+        let path = std::env::temp_dir().join(format!(
+            "dcc-mcp-job-readonly-latch-{}.sqlite3",
+            uuid::Uuid::new_v4()
+        ));
+        drop(SqliteStorage::open(&path).unwrap());
+        let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+        permissions.set_readonly(true);
+        std::fs::set_permissions(&path, permissions).unwrap();
+
+        // Mirror the server wiring: the backend cannot fail to open, so the
+        // caller disables persistence with the classified error kind. The
+        // manager then accepts job mutations without touching the backend.
+        let error = match SqliteStorage::open(&path) {
+            Ok(_) => panic!("read-only database must not open as writable storage"),
+            Err(error) => error,
+        };
+        let jobs = JobManager::new();
+        jobs.disable_persistence_for_storage_error(&error);
+        for index in 0..8 {
+            jobs.create(format!("scene.inspect.{index}"));
+        }
+
+        assert_eq!(
+            jobs.persistence_status().last_error_kind,
+            Some("readonly".to_string()),
+            "health must report the read-only category instead of a generic backend failure"
+        );
+        assert_eq!(jobs.list().len(), 8, "in-memory jobs must keep working");
+
+        let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+        #[allow(clippy::permissions_set_readonly_false)]
+        permissions.set_readonly(false);
+        std::fs::set_permissions(&path, permissions).unwrap();
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(path.with_extension("sqlite3-wal"));
+        let _ = std::fs::remove_file(path.with_extension("sqlite3-shm"));
+    }
+
+    #[test]
+    fn readonly_classifier_matches_platform_spellings() {
+        for message in [
+            "attempt to write a readonly database",
+            "SQLITE_READONLY",
+            "database is read-only",
+        ] {
+            assert!(is_readonly_error(message), "must classify: {message}");
+        }
+        assert!(!is_readonly_error("database is locked"));
+        assert!(!is_readonly_error("disk I/O error"));
     }
 
     #[test]

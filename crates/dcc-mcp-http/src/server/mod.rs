@@ -894,6 +894,26 @@ fn build_job_manager(config: &McpHttpConfig) -> HttpResult<Arc<crate::job::JobMa
                         path.display()
                     ))
                 })?;
+                // Read-back probe: `open` now rejects a database it cannot
+                // write, but a backend can still fail to enumerate rows (for
+                // example a stale `-shm`). Disabling here keeps the first job
+                // mutation from starting a per-put warning storm and surfaces
+                // the reason through `/health` instead.
+                {
+                    use crate::job_storage::JobStorage as _;
+                    if let Err(error) = storage.list(crate::job_storage::JobFilter::default()) {
+                        tracing::warn!(
+                            error = %error,
+                            path = %path.display(),
+                            "SQLite JobStorage is unreadable at startup; persistence disabled"
+                        );
+                        let jobs = Arc::new(crate::job::JobManager::with_offloaded_storage(
+                            Arc::new(storage),
+                        ));
+                        jobs.disable_persistence_for_storage_error(&error);
+                        return Ok(jobs);
+                    }
+                }
                 let jobs = Arc::new(crate::job::JobManager::with_offloaded_storage(Arc::new(
                     storage,
                 )));
