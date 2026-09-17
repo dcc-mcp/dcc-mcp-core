@@ -69,11 +69,69 @@ for raw in sys.stdin:
         send({"jsonrpc":"2.0","id":req_id,"error":{"code":-32601,"message":f"unknown: {method}"}})
 "#;
 
+/// A desynchronized stdio server: on every request after the first it emits a
+/// response carrying the *previous* request's id, mimicking the one-call
+/// response skew from #2417. It never answers the current id, so the bridge
+/// must fail closed instead of delivering the stale payload.
+const SKEWED_SERVER_PY: &str = r#"
+import sys, json
+
+def send(obj):
+    sys.stdout.write(json.dumps(obj) + "\n")
+    sys.stdout.flush()
+
+previous_id = None
+for raw in sys.stdin:
+    raw = raw.strip()
+    if not raw:
+        continue
+    try:
+        msg = json.loads(raw)
+    except Exception:
+        continue
+
+    req_id = msg.get("id")
+    if req_id is None:
+        continue
+
+    if previous_id is None:
+        # First request: answer correctly so the caller sees a healthy start.
+        send({"jsonrpc":"2.0","id":req_id,"result":{
+            "content":[{"type":"text","text":"payload-for-{}".format(req_id)}],"isError":False
+        }})
+    else:
+        # Later requests: emit the previous request's payload under its id.
+        send({"jsonrpc":"2.0","id":previous_id,"result":{
+            "content":[{"type":"text","text":"stale-payload-for-{}".format(previous_id)}],"isError":False
+        }})
+    previous_id = req_id
+"#;
+
 // ── Minimal in-process bridge (mirrors translate.rs logic) ───────────────────
 
 struct BridgeReq {
     message: JsonRpcMessage,
-    resp_tx: Option<oneshot::Sender<JsonRpcResponse>>,
+    resp_tx: Option<oneshot::Sender<CorrelatedResponse>>,
+}
+
+/// Response plus the id the caller expected, so the HTTP layer can fail closed
+/// on a desynchronized child instead of returning the wrong payload.
+struct CorrelatedResponse {
+    expected_id: String,
+    response: JsonRpcResponse,
+}
+
+/// In-flight requests, keyed by the id the bridge sent: `(expected_id, sender)`.
+type PendingResponses =
+    Arc<TokioMutex<HashMap<String, (String, oneshot::Sender<CorrelatedResponse>)>>>;
+
+/// Extract the correlation key used by the bridge's pending-request map.
+fn response_id_key(id: &Option<Value>) -> Option<String> {
+    match id {
+        Some(Value::Number(n)) => Some(n.to_string()),
+        Some(Value::String(s)) => Some(s.clone()),
+        _ => None,
+    }
 }
 
 #[derive(Clone)]
@@ -119,6 +177,15 @@ async fn handle_post(State(state): State<BridgeState>, body: axum::body::Bytes) 
 
     match msg {
         JsonRpcMessage::Request(req) => {
+            let expected_id = match response_id_key(&req.id) {
+                Some(id) => id,
+                None => {
+                    return Response::builder()
+                        .status(StatusCode::BAD_REQUEST)
+                        .body(Body::from("request missing id"))
+                        .unwrap();
+                }
+            };
             let (tx, rx) = oneshot::channel();
             let _ = state
                 .tx
@@ -127,17 +194,67 @@ async fn handle_post(State(state): State<BridgeState>, body: axum::body::Bytes) 
                     resp_tx: Some(tx),
                 })
                 .await;
-            match rx.await {
-                Ok(resp) => Response::builder()
-                    .status(StatusCode::OK)
-                    .header("content-type", "application/json")
-                    .body(Body::from(serde_json::to_vec(&resp).unwrap()))
-                    .unwrap(),
-                Err(_) => Response::builder()
-                    .status(StatusCode::INTERNAL_SERVER_ERROR)
-                    .body(Body::from("bridge closed"))
-                    .unwrap(),
+            // Bounded wait: a child that never answers the current id must not
+            // pin the HTTP request open (mirrors translate.rs).
+            let awaited = tokio::time::timeout(Duration::from_secs(5), rx).await;
+            let correlated = match awaited {
+                Ok(Ok(correlated)) => correlated,
+                Ok(Err(_)) => {
+                    let err = serde_json::json!({
+                        "jsonrpc": "2.0",
+                        "id": null,
+                        "error": {"code": -32603, "message": format!(
+                            "transport desync: no response for response id {expected_id:?}; the bridge dropped the channel"
+                        )}
+                    });
+                    return Response::builder()
+                        .status(StatusCode::INTERNAL_SERVER_ERROR)
+                        .header("content-type", "application/json")
+                        .body(Body::from(serde_json::to_vec(&err).unwrap()))
+                        .unwrap();
+                }
+                Err(_) => {
+                    let err = serde_json::json!({
+                        "jsonrpc": "2.0",
+                        "id": null,
+                        "error": {"code": -32603, "message": format!(
+                            "bridge timed out waiting for response id {expected_id:?}"
+                        )}
+                    });
+                    return Response::builder()
+                        .status(StatusCode::INTERNAL_SERVER_ERROR)
+                        .header("content-type", "application/json")
+                        .body(Body::from(serde_json::to_vec(&err).unwrap()))
+                        .unwrap();
+                }
+            };
+            {
+                let delivered = response_id_key(&correlated.response.id);
+                if delivered.as_deref() != Some(correlated.expected_id.as_str()) {
+                    // Fail closed: never deliver a payload belonging to another call.
+                    let err = serde_json::json!({
+                        "jsonrpc": "2.0",
+                        "id": null,
+                        "error": {"code": -32603, "message": format!(
+                            "transport desync: expected JSON-RPC response id {:?}, got {}",
+                            correlated.expected_id,
+                            delivered.unwrap_or_else(|| "<missing>".to_string()),
+                        )}
+                    });
+                    return Response::builder()
+                        .status(StatusCode::INTERNAL_SERVER_ERROR)
+                        .header("content-type", "application/json")
+                        .body(Body::from(serde_json::to_vec(&err).unwrap()))
+                        .unwrap();
+                }
             }
+            Response::builder()
+                .status(StatusCode::OK)
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&correlated.response).unwrap(),
+                ))
+                .unwrap()
         }
         JsonRpcMessage::Notification(notif) => {
             let _ = state
@@ -181,8 +298,7 @@ async fn start_bridge(stdio_cmd: &str) -> u16 {
         let stdout = child.stdout.take().expect("stdout");
         let mut reader = BufReader::new(stdout).lines();
 
-        let pending: Arc<TokioMutex<HashMap<String, oneshot::Sender<JsonRpcResponse>>>> =
-            Arc::new(TokioMutex::new(HashMap::new()));
+        let pending: PendingResponses = Arc::new(TokioMutex::new(HashMap::new()));
         let pending_clone = pending.clone();
 
         let mut read_task = tokio::spawn(async move {
@@ -190,14 +306,19 @@ async fn start_bridge(stdio_cmd: &str) -> u16 {
                 if let Ok(JsonRpcMessage::Response(resp)) =
                     serde_json::from_str::<JsonRpcMessage>(&line)
                 {
-                    let id_key = match &resp.id {
-                        Some(Value::Number(n)) => n.to_string(),
-                        Some(Value::String(s)) => s.clone(),
-                        _ => continue,
-                    };
+                    let id_key = response_id_key(&resp.id);
                     let mut map = pending_clone.lock().await;
-                    if let Some(tx) = map.remove(&id_key) {
-                        let _ = tx.send(resp);
+                    if let Some((expected_id, tx)) = id_key.as_ref().and_then(|key| map.remove(key))
+                    {
+                        let _ = tx.send(CorrelatedResponse {
+                            expected_id,
+                            response: resp,
+                        });
+                    } else {
+                        // Unattributable response: fail every outstanding call
+                        // closed rather than deliver the wrong payload.
+                        map.clear();
+                        break;
                     }
                 }
             }
@@ -209,13 +330,12 @@ async fn start_bridge(stdio_cmd: &str) -> u16 {
                     let Some(req) = msg else { break; };
                     match req.message {
                         JsonRpcMessage::Request(r) => {
-                            let id_key = match &r.id {
-                                Some(Value::Number(n)) => n.to_string(),
-                                Some(Value::String(s)) => s.clone(),
-                                _ => continue,
-                            };
-                            if let Some(resp_tx) = req.resp_tx {
-                                pending.lock().await.insert(id_key, resp_tx);
+                            let id_key = response_id_key(&r.id);
+                            if let (Some(id_key), Some(resp_tx)) = (id_key, req.resp_tx) {
+                                pending
+                                    .lock()
+                                    .await
+                                    .insert(id_key.clone(), (id_key, resp_tx));
                             }
                             if let Ok(line) = serde_json::to_string(&r) {
                                 let _ = stdin.write_all(format!("{line}\n").as_bytes()).await;
@@ -266,17 +386,26 @@ async fn post_jsonrpc(port: u16, body: serde_json::Value) -> serde_json::Value {
     resp.json().await.expect("JSON response")
 }
 
-/// Write the echo server Python script to a temp file.
-fn write_echo_server_script() -> tempfile::NamedTempFile {
+/// Write a Python stdio server script to a temp file.
+fn write_server_script(source: &str) -> tempfile::NamedTempFile {
     let mut f = tempfile::Builder::new()
         .suffix(".py")
         .tempfile()
         .expect("tempfile");
-    f.write_all(ECHO_SERVER_PY.as_bytes())
-        .expect("write script");
+    f.write_all(source.as_bytes()).expect("write script");
     // Flush so child process sees the content immediately.
     f.flush().expect("flush");
     f
+}
+
+/// Write the echo server Python script to a temp file.
+fn write_echo_server_script() -> tempfile::NamedTempFile {
+    write_server_script(ECHO_SERVER_PY)
+}
+
+/// The `python` (Windows) / `python3` (Unix) interpreter name.
+fn python_program() -> &'static str {
+    if cfg!(windows) { "python" } else { "python3" }
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -395,4 +524,82 @@ async fn test_bridge_notification_accepted() {
     drop(script);
 
     assert_eq!(status, reqwest::StatusCode::ACCEPTED);
+}
+
+/// A stdio server that echoes the *previous* request id must not have its
+/// payload delivered to the current caller — the bridge fails closed instead.
+///
+/// Regression guard for the one-call response skew: before the correlation
+/// check, the first response (id `1`) was routed to the second call (id `2`),
+/// so callers received the previous request's result.
+#[tokio::test]
+async fn test_bridge_rejects_stale_response_id() {
+    let script = write_server_script(SKEWED_SERVER_PY);
+    let stdio_cmd = format!("{} {}", python_program(), script.path().display());
+
+    let port = start_bridge(&stdio_cmd).await;
+
+    // First call: the skewed child echoes the current id (no previous id yet),
+    // so this call is correctly correlated and must succeed.
+    let first = post_jsonrpc(
+        port,
+        serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": "echo", "arguments": {"text": "first"}}
+        }),
+    )
+    .await;
+
+    // Second call: the child answers with id `1` (the previous request), so the
+    // bridge must refuse to deliver that payload under request id `2`.
+    let client = reqwest::Client::new();
+    let started = std::time::Instant::now();
+    let second = client
+        .post(format!("http://127.0.0.1:{port}/mcp"))
+        .json(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {"name": "echo", "arguments": {"text": "second"}}
+        }))
+        .send()
+        .await
+        .expect("HTTP POST");
+    let elapsed = started.elapsed();
+
+    // The first call is correlated: its own payload comes back.
+    assert!(
+        first.get("error").is_none(),
+        "first call should be correlated, got: {first}"
+    );
+    assert_eq!(
+        first["result"]["content"][0]["text"], "payload-for-1",
+        "first call must receive its own payload, got: {first}"
+    );
+
+    // The second call must fail closed rather than return the first payload.
+    assert!(
+        !second.status().is_success(),
+        "desynchronized second call must not succeed, got: {}",
+        second.status()
+    );
+    let body: Value = second.json().await.expect("error body JSON");
+    let message = body["error"]["message"].as_str().unwrap_or_default();
+    assert!(
+        message.contains("transport desync"),
+        "expected a transport desync error, got: {body}"
+    );
+    // Failure must be prompt: a desync is detected, not waited out.
+    assert!(
+        elapsed < Duration::from_secs(5),
+        "desync must fail closed promptly, took {elapsed:?}"
+    );
+    assert!(
+        !serde_json::to_string(&body)
+            .expect("serialize body")
+            .contains("payload-for-1"),
+        "the stale payload must never reach the caller, got: {body}"
+    );
 }

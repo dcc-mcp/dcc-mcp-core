@@ -264,6 +264,23 @@ pub struct TranslateArgs {
 
 // ── Bridge message types ──────────────────────────────────────────────────────
 
+/// How long a caller waits for a child response before failing closed.
+///
+/// Matches the server-wide request timeout so a child that never answers (or
+/// answers with an id we cannot correlate) cannot pin an HTTP request open.
+const BRIDGE_RESPONSE_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Normalise a JSON-RPC id into the string key used for response correlation.
+///
+/// Returns `None` for absent or non-scalar ids, which cannot be correlated.
+fn request_id_key(id: Option<&Value>) -> Option<String> {
+    match id {
+        Some(Value::Number(n)) => Some(n.to_string()),
+        Some(Value::String(s)) => Some(s.clone()),
+        _ => None,
+    }
+}
+
 /// A request sent from an HTTP handler to the stdio bridge actor.
 struct BridgeRequest {
     /// The JSON-RPC request to forward.
@@ -288,7 +305,15 @@ struct StdioBridge {
 
 impl StdioBridge {
     /// Send a JSON-RPC request and wait for the response.
+    ///
+    /// The response is only returned when the child echoes the id we sent.
+    /// A child that answers with a different (for example, the previous) id
+    /// would otherwise deliver another call's payload to this caller, so a
+    /// mismatch fails closed as a transport desync.
     async fn call(&self, req: JsonRpcRequest) -> anyhow::Result<JsonRpcResponse> {
+        let expected_id = request_id_key(req.id.as_ref()).ok_or_else(|| {
+            anyhow::anyhow!("request is missing an id; cannot correlate response")
+        })?;
         let (resp_tx, resp_rx) = oneshot::channel();
         self.inner
             .tx
@@ -298,9 +323,26 @@ impl StdioBridge {
             })
             .await
             .map_err(|_| anyhow::anyhow!("bridge actor has shut down"))?;
-        resp_rx
-            .await
-            .map_err(|_| anyhow::anyhow!("bridge actor dropped response sender"))
+        let response = match tokio::time::timeout(BRIDGE_RESPONSE_TIMEOUT, resp_rx).await {
+            Ok(Ok(response)) => response,
+            // The response sender was dropped: the reader failed the call
+            // closed (an unattributable response id) or the child exited
+            // before answering. Either way this call has no usable result.
+            Ok(Err(_)) => anyhow::bail!(
+                "transport desync: no response for response id {expected_id:?}; the bridge dropped the channel"
+            ),
+            Err(_) => anyhow::bail!(
+                "bridge timed out after {BRIDGE_RESPONSE_TIMEOUT:?} waiting for response id {expected_id:?}"
+            ),
+        };
+        let delivered_id = request_id_key(response.id.as_ref());
+        if delivered_id.as_deref() != Some(expected_id.as_str()) {
+            anyhow::bail!(
+                "transport desync: expected JSON-RPC response id {expected_id:?}, got {}",
+                delivered_id.unwrap_or_else(|| "<missing>".to_string()),
+            );
+        }
+        Ok(response)
     }
 
     /// Send a JSON-RPC notification (fire and forget).
@@ -386,14 +428,24 @@ async fn run_bridge_actor(
                 debug!(line = %line, "stdio<");
                 match serde_json::from_str::<JsonRpcMessage>(&line) {
                     Ok(JsonRpcMessage::Response(resp)) => {
-                        let id_key = match &resp.id {
-                            Some(Value::Number(n)) => n.to_string(),
-                            Some(Value::String(s)) => s.clone(),
-                            _ => continue,
-                        };
+                        // Only deliver to the caller that sent this exact id.
+                        let id_key = request_id_key(resp.id.as_ref());
                         let mut map = pending_clone.lock().await;
-                        if let Some(tx) = map.remove(&id_key) {
+                        if let Some(tx) = id_key.as_ref().and_then(|key| map.remove(key)) {
                             let _ = tx.send(resp);
+                        } else {
+                            // The child answered an id nobody is waiting on, so
+                            // responses can no longer be attributed to the calls
+                            // that produced them. Fail every outstanding call
+                            // closed rather than risk delivering the wrong
+                            // payload, then stop reading from this child.
+                            warn!(
+                                response_id = ?id_key,
+                                outstanding = map.len(),
+                                "stdio response id matches no pending request; failing in-flight calls closed"
+                            );
+                            map.clear();
+                            break;
                         }
                     }
                     Ok(JsonRpcMessage::Notification(notif)) => {
@@ -420,13 +472,9 @@ async fn run_bridge_actor(
                     };
                     match bridge_req.message {
                         JsonRpcMessage::Request(req) => {
-                            let id_key = match &req.id {
-                                Some(Value::Number(n)) => n.to_string(),
-                                Some(Value::String(s)) => s.clone(),
-                                _ => {
-                                    warn!("Request missing id; cannot route response");
-                                    continue;
-                                }
+                            let Some(id_key) = request_id_key(req.id.as_ref()) else {
+                                warn!("Request missing id; cannot route response");
+                                continue;
                             };
                             if let Some(resp_tx) = bridge_req.response_tx {
                                 pending.lock().await.insert(id_key, resp_tx);
@@ -1020,6 +1068,159 @@ mod tests {
                 .get(crate::GATEWAY_RECOVERY_DRIVER_METADATA_KEY)
                 .map(String::as_str),
             Some(crate::GATEWAY_RECOVERY_DRIVER_NONE)
+        );
+    }
+}
+
+#[cfg(test)]
+mod correlation_tests {
+    use super::*;
+
+    fn response_with(id: Value) -> JsonRpcResponse {
+        JsonRpcResponse {
+            jsonrpc: "2.0".to_string(),
+            id: Some(id),
+            result: Some(serde_json::json!({"ok": true})),
+            error: None,
+        }
+    }
+
+    #[test]
+    fn id_key_normalises_numbers_and_strings() {
+        assert_eq!(
+            request_id_key(Some(&Value::Number(7.into()))),
+            Some("7".to_string())
+        );
+        assert_eq!(
+            request_id_key(Some(&Value::String("abc".to_string()))),
+            Some("abc".to_string())
+        );
+    }
+
+    #[test]
+    fn id_key_rejects_absent_and_non_scalar_ids() {
+        assert_eq!(request_id_key(None), None);
+        assert_eq!(request_id_key(Some(&Value::Null)), None);
+        assert_eq!(request_id_key(Some(&serde_json::json!([1]))), None);
+    }
+
+    /// The core of the #2417 fix: a response carrying a different id than the
+    /// request must be treated as a desync, never as this caller's payload.
+    #[test]
+    fn mismatched_response_id_is_a_desync() {
+        let expected = request_id_key(Some(&Value::Number(2.into()))).expect("expected id");
+        let delivered = request_id_key(response_with(Value::Number(1.into())).id.as_ref());
+        assert_ne!(delivered.as_deref(), Some(expected.as_str()));
+    }
+
+    #[test]
+    fn matching_response_id_is_accepted() {
+        let expected = request_id_key(Some(&Value::Number(2.into()))).expect("expected id");
+        let delivered = request_id_key(response_with(Value::Number(2.into())).id.as_ref());
+        assert_eq!(delivered.as_deref(), Some(expected.as_str()));
+    }
+
+    #[test]
+    fn missing_response_id_is_a_desync() {
+        let response = JsonRpcResponse {
+            jsonrpc: "2.0".to_string(),
+            id: None,
+            result: None,
+            error: None,
+        };
+        assert_eq!(request_id_key(response.id.as_ref()), None);
+    }
+}
+
+#[cfg(test)]
+mod bridge_correlation_tests {
+    use super::*;
+
+    /// A stdio child that answers the first request correctly and every later
+    /// request with the *previous* request's id, reproducing the #2417 skew.
+    const SKEWED_CHILD_PY: &str = r#"
+import sys, json
+
+def send(obj):
+    sys.stdout.write(json.dumps(obj) + "\n")
+    sys.stdout.flush()
+
+previous_id = None
+for raw in sys.stdin:
+    raw = raw.strip()
+    if not raw:
+        continue
+    try:
+        msg = json.loads(raw)
+    except Exception:
+        continue
+    req_id = msg.get("id")
+    if req_id is None:
+        continue
+    echoed = req_id if previous_id is None else previous_id
+    previous_id = req_id
+    send({"jsonrpc": "2.0", "id": echoed, "result": {"echoed": echoed}})
+"#;
+
+    fn skewed_child_command() -> (String, tempfile::NamedTempFile) {
+        use std::io::Write as _;
+        let mut script = tempfile::Builder::new()
+            .suffix(".py")
+            .tempfile()
+            .expect("tempfile");
+        script
+            .write_all(SKEWED_CHILD_PY.as_bytes())
+            .expect("write script");
+        script.flush().expect("flush");
+        let program = if cfg!(windows) { "python" } else { "python3" };
+        (format!("{program} {}", script.path().display()), script)
+    }
+
+    fn request(id: i64) -> JsonRpcRequest {
+        JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: Some(Value::Number(id.into())),
+            method: "tools/call".to_string(),
+            params: None,
+        }
+    }
+
+    fn start_bridge(cmd: String) -> StdioBridge {
+        let (tx, rx) = mpsc::channel::<BridgeRequest>(16);
+        tokio::spawn(async move {
+            run_bridge_actor(cmd, rx, false, 0).await;
+        });
+        StdioBridge {
+            inner: Arc::new(StdioBridgeInner { tx }),
+        }
+    }
+
+    /// The regression under test: a child that echoes the previous request's id
+    /// must never have that payload delivered as the current call's result.
+    #[tokio::test]
+    async fn stale_response_id_is_rejected_before_delivery() {
+        let (cmd, _script) = skewed_child_command();
+        let bridge = start_bridge(cmd);
+
+        // First call is correlated: the child echoes id 1 correctly.
+        let first = bridge
+            .call(request(1))
+            .await
+            .expect("first call correlates");
+        assert_eq!(
+            request_id_key(first.id.as_ref()),
+            Some("1".to_string()),
+            "first call must get its own response"
+        );
+
+        // Second call: the child answers id 1 again, so the bridge must fail
+        // closed rather than hand back the first payload.
+        let second = bridge.call(request(2)).await;
+        let error = second.expect_err("stale response must not be delivered");
+        let message = error.to_string();
+        assert!(
+            message.contains("transport desync"),
+            "expected a transport desync error, got: {message}"
         );
     }
 }
