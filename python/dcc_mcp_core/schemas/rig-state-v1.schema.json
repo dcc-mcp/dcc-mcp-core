@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dcc-mcp.github.io/dcc-mcp-core/schemas/rig-state-v1.schema.json",
+  "title": "DCC-MCP Rig State v1",
+  "description": "Canonical rig state export: joint count/hierarchy, constraint targets, and per-mesh skin summary. Read-only write-verb pairing target.",
+  "type": "object",
+  "required": ["schema_name", "schema_version", "joints"],
+  "properties": {
+    "schema_name": {"const": "dcc-mcp/rig-state"},
+    "schema_version": {"const": 1},
+    "joints": {
+      "type": "object",
+      "required": ["count"],
+      "properties": {
+        "count": {"type": "integer", "minimum": 0},
+        "hierarchy": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/joint"}
+        }
+      },
+      "additionalProperties": true
+    },
+    "constraints": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/constraint"}
+    },
+    "skins": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/skin"}
+    }
+  },
+  "$defs": {
+    "joint": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "parent": {"type": ["string", "null"]},
+        "children": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/joint"}
+        }
+      },
+      "additionalProperties": true
+    },
+    "constraint": {
+      "type": "object",
+      "required": ["target"],
+      "properties": {
+        "target": {"type": "string", "minLength": 1},
+        "kind": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "skin": {
+      "type": "object",
+      "required": ["mesh", "influences", "unnormalized_vertices"],
+      "properties": {
+        "mesh": {"type": "string", "minLength": 1},
+        "influences": {"type": "integer", "minimum": 0},
+        "unnormalized_vertices": {"type": "integer", "minimum": 0}
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

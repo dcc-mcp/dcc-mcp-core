@@ -25,6 +25,40 @@ tools:
     timeout_hint_secs: 30
     source_file: scripts/probe.py
 
+  - name: image_stats
+    description: >-
+      Compute in-band image statistics — mean/min/max/stddev luma, a 16-bin
+      luma histogram, and uniform-frame detection — for a media file (PNG,
+      JPEG, EXR, ...) or the first frame of a video, using vx-managed ffmpeg.
+      Flags near-black, blown-out, and blank/uniform frames without shipping
+      pixels to the model. Read-only; does not modify the input.
+    input_schema:
+      type: object
+      required: [input_path]
+      properties:
+        input_path:
+          type: string
+          description: "Existing media file to inspect. Prefer an absolute path."
+        sample_size:
+          type: integer
+          minimum: 16
+          maximum: 4096
+          default: 256
+          description: "Square sample size used to downscale the frame before computing stats."
+        timeout_secs:
+          type: integer
+          minimum: 1
+          maximum: 300
+          default: 30
+          description: "Maximum time to wait for ffmpeg."
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 30
+    source_file: scripts/image_stats.py
+
   - name: sequence_to_mp4
     description: >-
       Convert an image sequence from DCC render/playblast output into an MP4
