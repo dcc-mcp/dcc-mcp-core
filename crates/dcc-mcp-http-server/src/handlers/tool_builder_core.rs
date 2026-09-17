@@ -445,6 +445,50 @@ pub fn build_core_tools_inner() -> Vec<McpTool> {
             meta: None,
             }
         },
+        // `jobs_poll_contract` — unified poller registry surface (#2262).
+        //
+        // Makes "this async job type is not tracked by the poller" a
+        // diagnosable answer instead of an early `--wait` return.
+        {
+            const TOOL_NAME: &str = "jobs_poll_contract";
+            if let Err(e) = dcc_mcp_naming::validate_tool_name(TOOL_NAME) {
+                panic!("built-in tool name `{TOOL_NAME}` fails tool-name validation: {e}");
+            }
+            McpTool {
+                name: TOOL_NAME.to_string(),
+                description: "Report how an async job type is polled to a terminal state. \
+                              With `job_type`, returns the registered poll contract or \
+                              `registered: false` plus a reason — a job type that is not \
+                              registered cannot be waited on with --wait. Without `job_type`, \
+                              lists every job type the unified poller tracks. Registration \
+                              happens when a tool result declares a `poll` descriptor \
+                              {owner, tool, arguments} or when the adapter registers the \
+                              contract directly."
+                    .to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "job_type": {
+                            "type": "string",
+                            "description": "Tool name that starts the job (e.g. \
+                                            `houdini_render__render_rop`). Omit to list \
+                                            every registered job type."
+                        }
+                    },
+                    "required": []
+                }),
+                output_schema: None,
+                annotations: Some(McpToolAnnotations {
+                    title: Some("Job Poll Contract".to_string()),
+                    read_only_hint: Some(true),
+                    destructive_hint: Some(false),
+                    idempotent_hint: Some(true),
+                    open_world_hint: Some(false),
+                    deferred_hint: Some(false),
+                }),
+                meta: None,
+            }
+        },
         // `jobs_cleanup` — built-in TTL pruning tool (#328). Removes
         // terminal job rows (and storage-backed rows when a
         // `job_storage_path` is configured) older than the given

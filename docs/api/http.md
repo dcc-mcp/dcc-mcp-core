@@ -522,7 +522,14 @@ Success envelope (returned inside a `CallToolResult` — text content mirrors `s
 
 Field semantics mirror the `$/dcc.jobUpdated` channel so polling and streaming clients observe the same shape. `started_at` is derived from `updated_at` once the job leaves `pending`; `completed_at` from `updated_at` once it reaches a terminal state.
 
-Unknown job id → `CallToolResult { isError: true, content: [{type:"text", text:"No job found with id '<bad>'"}] }`. This is always an MCP tool-level error, **never** a JSON-RPC transport error — the response still carries a successful `result` field with `isError=true`.
+Unknown job id → `CallToolResult { isError: true, content: [{type:"text", text:"No job found with id '<bad>'"}] }`. This is always an MCP tool-level error, **never** a JSON-RPC transport error — the response still carries a successful `result` field with `isError=true`. An unknown id never mints a new job.
+
+**Disk-backed counters (issue #2262).** When the job result declares where its
+outputs land (`output_dir`, optionally `output_extensions`), `progress` is
+reconciled against the files actually on disk at read time: a handler that
+caches its counter cannot report `0` while frames are already written. The
+reconciled payload carries `counter_source` (`disk` or `reported`) and, when the
+two disagree, `reported_current`. `total` is never left below `current`.
 
 Python example:
 
@@ -555,6 +562,50 @@ Success envelope (`CallToolResult.structuredContent`):
 
 ```json
 { "removed": 42, "older_than_hours": 24 }
+```
+
+### Built-in tools: `jobs_poll_contract`
+
+Report how an async job type is polled to a terminal state by the unified
+poller (issue #2262). This is the diagnostic for "`--wait` cannot work on this
+tool": an unregistered job type answers `registered: false` with a reason
+instead of letting the wait return early.
+
+- **Name**: `jobs_poll_contract` — client-safe, validated at server startup.
+- **Visibility**: always surfaced in `tools/list`, independent of which skills are loaded.
+- **Annotations**: `readOnlyHint=true`, `destructiveHint=false`, `idempotentHint=true`, `openWorldHint=false`.
+
+Input schema:
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `job_type` | `string` | — (optional) | Tool that starts the job, e.g. `houdini_render__render_rop`. Omit to list every registered job type. |
+
+A job type is registered when its result declares a `poll` descriptor
+(`{owner, tool, arguments}`) or when the adapter registers the contract
+directly. A descriptor is only usable when its `arguments` object identifies
+exactly one job with exactly one field — the field name may be anything
+(`job_id`, `render_id`, …), but a second field is rejected rather than
+registered, because a contract carries one argument and replaying it would
+drop the rest and poll the tool with a missing required input.
+Envelopes:
+
+```json
+{
+  "registered": true,
+  "job_type": "houdini_render__render_rop",
+  "poll": {"owner": "adapter", "tool": "houdini_render__get_render_job", "argument_field": "job_id"},
+  "output": {"dir": "/tmp/renders", "extensions": ["exr"]}
+}
+```
+
+```json
+{
+  "registered": false,
+  "job_type": "blender_render__render_sequence",
+  "reason": "job_type_not_registered",
+  "hint": "Register the job type with the unified poller (declare a poll descriptor on the launching tool) so --wait can reach a terminal state."
+}
 ```
 
 ## Optional SQLite job persistence

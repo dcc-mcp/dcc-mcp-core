@@ -262,6 +262,7 @@ impl DccControlPlane {
         F: FnMut(&JobWaitProgress),
     {
         let poll_meta = job_poll_meta(meta.clone());
+        let wait_declared_async = async_wait_requested(meta.as_ref());
         let mut result = self
             .call(
                 tool_slug.clone(),
@@ -278,6 +279,9 @@ impl DccControlPlane {
 
         if adapter_wait_target(&result, 0).is_none() {
             let Some(initial) = job_wait_progress(&result, 0) else {
+                // #2262: `--wait` must never look like it waited when the
+                // launch result carries no job identity at all.
+                attach_no_job_identity_wait(&mut result, wait_declared_async);
                 return Ok(result);
             };
             on_progress(&initial);
@@ -1358,6 +1362,116 @@ mod tests {
             "exited"
         );
         server.abort();
+    }
+
+    #[tokio::test]
+    async fn wait_without_job_identity_says_it_did_not_wait() {
+        async fn call(Json(body): Json<Value>) -> Json<Value> {
+            // A render tool that returns success with no job id at all.
+            Json(json!({
+                "slug": body["tool_slug"],
+                "output": {"success": true, "message": "render submitted"},
+            }))
+        }
+
+        let app = Router::new()
+            .route("/v1/call", post(call))
+            .layer(middleware::from_fn(echo_request_id));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let registry = tempdir().unwrap();
+        let control = DccControlPlane::new(
+            GatewayTarget::Local,
+            Endpoint::new(format!("http://{addr}")),
+            registry.path().to_path_buf(),
+            true,
+        );
+
+        let result = control
+            .call_and_wait(
+                "houdini.abcdef01.render_rop".to_string(),
+                None,
+                None,
+                json!({}),
+                Some(json!({"dcc": {"async": true, "wait_for_terminal": true}})),
+                Duration::from_secs(2),
+                Duration::from_secs(5),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            result["wait"]["tracking_status"], "no_job_identity",
+            "--wait must not look like it waited"
+        );
+        assert_eq!(result["wait"]["terminal"], false);
+        assert_eq!(result["wait"]["waited"], false);
+        assert_eq!(result["success"], false);
+        assert!(result["error"].as_str().is_some());
+        server.abort();
+    }
+
+    #[test]
+    fn wait_on_a_synchronous_call_warns_without_failing() {
+        let mut result = json!({"success": true});
+        attach_no_job_identity_wait(&mut result, false);
+        assert_eq!(result["wait"]["tracking_status"], "no_job_identity");
+        assert_eq!(result["success"], true);
+        assert!(result["warning"].as_str().is_some());
+
+        let mut async_result = json!({"success": true});
+        attach_no_job_identity_wait(&mut async_result, true);
+        assert_eq!(async_result["success"], false);
+        assert!(async_result["error"].as_str().is_some());
+    }
+
+    #[test]
+    fn no_job_identity_wait_keeps_its_reason_alongside_an_existing_warning() {
+        // `warning` is a single-valued field: a result that already carries an
+        // unrelated warning must not drop the explanation for the wait that
+        // never happened, so the envelope always carries it.
+        let mut result = json!({"success": true, "warning": "frame range was clamped"});
+        attach_no_job_identity_wait(&mut result, false);
+
+        assert_eq!(result["warning"], "frame range was clamped");
+        assert_eq!(result["wait"]["tracking_status"], "no_job_identity");
+        assert!(
+            result["wait"]["message"]
+                .as_str()
+                .is_some_and(|message| message.contains("no job identity")),
+            "the --wait explanation survives an existing warning, got {:?}",
+            result["wait"]["message"]
+        );
+    }
+
+    #[test]
+    fn async_intent_is_read_from_call_meta() {
+        assert!(async_wait_requested(Some(&json!({"dcc": {"async": true}}))));
+        assert!(async_wait_requested(Some(&json!({"dcc": {
+            "wait_for_terminal": true
+        }}))));
+        assert!(!async_wait_requested(Some(
+            &json!({"dcc": {"async": false}})
+        )));
+        assert!(!async_wait_requested(None));
+        assert!(!async_wait_requested(Some(&json!({}))));
+        // A false alias must not mask a true one: every alias is evaluated.
+        assert!(async_wait_requested(Some(&json!({"dcc": {
+            "async": false,
+            "wait_for_terminal": true,
+        }}))));
+        assert!(async_wait_requested(Some(&json!({"dcc": {
+            "async": false,
+            "waitForTerminal": true,
+        }}))));
+        assert!(
+            !async_wait_requested(Some(&json!({"dcc": {
+                "async": false,
+                "wait_for_terminal": false,
+            }}))),
+            "no alias signalling true means the call is synchronous"
+        );
     }
 
     #[test]

@@ -55,6 +55,7 @@ pub const CORE_TOOL_NAMES: &[&str] = &[
     "acquire_dcc_instance",
     "release_dcc_instance",
     "jobs_get_status",
+    "jobs_poll_contract",
     "jobs_cleanup",
     "jobs_checkpoint_status",
     "jobs_resume_context",

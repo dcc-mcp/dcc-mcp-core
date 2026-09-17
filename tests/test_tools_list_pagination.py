@@ -121,8 +121,9 @@ class TestToolsListPagination:
             if cursor is None:
                 break
 
-        # 14 core (11 + register_tool/deregister_tool/list_dynamic_tools #462) + 40 registered = 54 total
-        assert len(all_names) == 54, f"Expected 54 tools across all pages, got {len(all_names)}"
+        # 15 core (11 + register_tool/deregister_tool/list_dynamic_tools #462
+        # + jobs_poll_contract #2262) + 40 registered = 55 total
+        assert len(all_names) == 55, f"Expected 55 tools across all pages, got {len(all_names)}"
         unique = set(all_names)
         assert len(unique) == len(all_names), "Pages must not return duplicate tool names"
 
@@ -140,7 +141,7 @@ class TestToolsListPagination:
         )
         assert code == 200
         result2 = body2["result"]
-        assert len(result2["tools"]) == 54 - self.PAGE_SIZE
+        assert len(result2["tools"]) == 55 - self.PAGE_SIZE
         assert result2.get("nextCursor") is None, "Last page must not have nextCursor"
 
     def test_search_tools_finds_tool_outside_first_page(self, big_server):
