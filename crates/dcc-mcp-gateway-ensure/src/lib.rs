@@ -643,6 +643,178 @@ pub fn stop_process(pid: u32) -> anyhow::Result<()> {
     Ok(())
 }
 
+// ── Port holder resolution ─────────────────────────────────────────────────
+
+/// Process IDs that currently hold `port` for a TCP listener.
+///
+/// This is the recovery-side counterpart to [`stop_process`]: a gateway can
+/// stay alive and keep accepting TCP connections after its embedded service
+/// stops answering HTTP, in which case binding the port can never succeed and
+/// the only bounded recovery is to terminate the stale holder (issue #2405).
+///
+/// Resolution is best-effort. An empty result means "no evidence", never
+/// "nobody holds the port" — callers must not treat it as permission to kill
+/// anything, only as a reason to keep waiting.
+pub fn listener_pids_on_port(port: u16) -> Vec<u32> {
+    let table = port_holder_table();
+    parse_listener_pids(&table, port)
+}
+
+fn port_holder_table() -> String {
+    #[cfg(windows)]
+    {
+        // `netstat -ano` prints one row per socket with the owning PID in the
+        // last column. Fixed English keywords are used, and the numeric
+        // columns are parsed positionally, so localized status text cannot
+        // break PID extraction.
+        let mut cmd = Command::new("netstat");
+        cmd.arg("-ano");
+        hidden_console(&mut cmd);
+        cmd.stdin(Stdio::null())
+            .output()
+            .map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
+            .unwrap_or_default()
+    }
+    #[cfg(unix)]
+    {
+        // `lsof` is the portable first choice; `ss` covers Linux images that
+        // ship iproute2 without lsof installed.
+        let mut cmd = Command::new("lsof");
+        cmd.args(["-nP", "-iTCP", "-sTCP:LISTEN"]);
+        hidden_console(&mut cmd);
+        if let Ok(out) = cmd.stdin(Stdio::null()).output()
+            && out.status.success()
+        {
+            return String::from_utf8_lossy(&out.stdout).into_owned();
+        }
+        let mut fallback = Command::new("ss");
+        fallback.args(["-ltnp"]);
+        hidden_console(&mut fallback);
+        fallback
+            .stdin(Stdio::null())
+            .output()
+            .map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
+            .unwrap_or_default()
+    }
+}
+
+fn hidden_console(cmd: &mut Command) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    #[cfg(unix)]
+    {
+        let _ = cmd;
+    }
+}
+
+/// Extract listening PIDs for `port` from a port-table listing.
+///
+/// Only rows whose local address ends in `:port` count, so `9765` never
+/// matches `19765` or `59765`. Non-listening sockets are skipped even when
+/// they are bound to the port — an outbound connection pinned to our local
+/// port does not hold the listener.
+fn parse_listener_pids(table: &str, port: u16) -> Vec<u32> {
+    let mut pids = Vec::new();
+    for row in table.lines() {
+        let trimmed = row.trim();
+        if trimmed.is_empty() || !row_is_listening(trimmed) {
+            continue;
+        }
+        if !row_local_address_matches_port(trimmed, port) {
+            continue;
+        }
+        if let Some(pid) = row_owning_pid(trimmed)
+            && !pids.contains(&pid)
+        {
+            pids.push(pid);
+        }
+    }
+    pids
+}
+
+/// True for rows describing a listening TCP socket.
+///
+/// Windows marks the state explicitly. Unix rows from `ss` start with `LISTEN`;
+/// rows from other tools carry `(LISTEN)`. A row with no recognizable state is
+/// rejected — under-reporting a holder is safe (the caller waits), while
+/// over-reporting authorizes terminating an unrelated process.
+fn row_is_listening(row: &str) -> bool {
+    if row.contains("LISTENING") || row.starts_with("LISTEN") || row.contains("(LISTEN)") {
+        return true;
+    }
+    false
+}
+
+/// True when the row's *local* address column listens on `port`.
+///
+/// A Windows netstat row is
+/// `<proto> <local> <foreign> <state> <pid>`; the first column is the
+/// `TCP`/`UDP` protocol of each data row, while the header row starts with
+/// `Proto`. An `ss` row ends in `... <local> <peer> users:(...)`, so its local
+/// address is three columns from the end (or two when unannotated). Selecting
+/// by row shape rather than one fixed index keeps both layouts correct.
+fn row_local_address_matches_port(row: &str, port: u16) -> bool {
+    let suffix = format!(":{port}");
+    let columns: Vec<&str> = row.split_whitespace().collect();
+    let is_netstat_data_row = columns.first().is_some_and(|first| {
+        first.eq_ignore_ascii_case("TCP") || first.eq_ignore_ascii_case("UDP")
+    });
+    if is_netstat_data_row
+        && columns
+            .get(1)
+            .is_some_and(|local| address_column_has_port(local, &suffix))
+    {
+        return true;
+    }
+    // `ss`: the local address precedes the peer address.
+    let local_index = columns
+        .len()
+        .checked_sub(3)
+        .or_else(|| columns.len().checked_sub(2));
+    local_index.is_some_and(|index| address_column_has_port(columns[index], &suffix))
+}
+
+fn address_column_has_port(column: &str, suffix: &str) -> bool {
+    match column.rfind(suffix) {
+        Some(index) => {
+            index + suffix.len() == column.len()
+                || matches!(column.as_bytes()[index + suffix.len()], b',' | b']' | b')')
+        }
+        None => false,
+    }
+}
+
+fn row_owning_pid(row: &str) -> Option<u32> {
+    // `ss -ltnp` only annotates `users:(...)` for sockets owned by the
+    // current user; its last whitespace column is the peer address, so the
+    // user annotation is the authoritative source there.
+    if let Some(pid) = pid_from_users_annotation(row) {
+        return Some(pid);
+    }
+    if row.contains("users:(") {
+        // Annotated but unparseable — do not fall back to a positional guess.
+        return None;
+    }
+    row.split_whitespace()
+        .next_back()
+        .and_then(|column| column.parse::<u32>().ok())
+        .filter(|pid| *pid > 0)
+}
+
+fn pid_from_users_annotation(row: &str) -> Option<u32> {
+    let marker = "pid=";
+    let start = row.rfind(marker)? + marker.len();
+    let digits: String = row[start..]
+        .chars()
+        .take_while(|ch| ch.is_ascii_digit())
+        .collect();
+    digits.parse::<u32>().ok().filter(|pid| *pid > 0)
+}
+
 // ── Default registry dir ───────────────────────────────────────────────────
 
 /// Default registry directory used by the gateway and sidecar.
@@ -1018,5 +1190,92 @@ mod tests {
 
         assert_eq!(err.kind(), std::io::ErrorKind::AlreadyExists);
         assert!(path.exists());
+    }
+
+    // ── Port holder resolution tests ───────────────────────────────────
+
+    #[test]
+    fn windows_netstat_rows_resolve_listening_pid() {
+        let table = "Active Connections\r\n\
+\r\n  Proto  Local Address          Foreign Address        State           PID\r\n\
+  TCP    0.0.0.0:9765           0.0.0.0:0              LISTENING       4242\r\n\
+  TCP    127.0.0.1:19765        0.0.0.0:0              LISTENING       5150\r\n\
+  TCP    127.0.0.1:59765        0.0.0.0:0              LISTENING       5151\r\n\
+  TCP    [::]:9765              [::]:0                 LISTENING       4242\r\n\
+  TCP    10.0.0.1:59765         10.0.0.2:443           ESTABLISHED     909\r\n\
+  TCP    10.0.0.1:9765          10.0.0.2:443           ESTABLISHED     910\r\n\
+  TCP    10.0.0.1:35847         10.0.0.2:443           ESTABLISHED     911\r\n";
+
+        assert_eq!(parse_listener_pids(table, 9765), vec![4242]);
+        assert_eq!(parse_listener_pids(table, 19765), vec![5150]);
+        assert_eq!(parse_listener_pids(table, 59765), vec![5151]);
+        assert!(
+            parse_listener_pids(table, 35847).is_empty(),
+            "an ESTABLISHED row is not a listener"
+        );
+        assert!(
+            !parse_listener_pids(table, 9765).contains(&910),
+            "a pinned outbound socket on our port must not be reported as the holder"
+        );
+        assert!(parse_listener_pids(table, 9766).is_empty());
+    }
+
+    #[test]
+    fn ss_rows_resolve_listening_pid_from_users_annotation() {
+        let table = "State  Recv-Q Send-Q Local Address:Port Peer Address:Port Process\n\
+LISTEN 0      128    0.0.0.0:9765         0.0.0.0:*         users:((\"dcc-mcp-server\",pid=777,fd=9))\n\
+LISTEN 0      128    [::]:19765           [::]:*            users:((\"dcc-mcp-server\",pid=778,fd=10))\n\
+LISTEN 0      128    0.0.0.0:59765        0.0.0.0:*         users:((\"dcc-mcp-server\",pid=779,fd=11))\n";
+
+        assert_eq!(parse_listener_pids(table, 9765), vec![777]);
+        assert_eq!(parse_listener_pids(table, 19765), vec![778]);
+        assert_eq!(parse_listener_pids(table, 59765), vec![779]);
+        assert!(parse_listener_pids(table, 9766).is_empty());
+    }
+
+    #[test]
+    fn ss_rows_without_user_annotation_yield_no_pid() {
+        // Without `users:(...)` the trailing column is the peer address —
+        // parsing it as a PID would attribute the port to an unrelated
+        // process. Better to report "unknown" than a wrong owner.
+        let table = "State Recv-Q Send-Q Local Address:Port Peer Address:Port\n\
+LISTEN 0      128    127.0.0.1:9765       0.0.0.0:*\n";
+
+        assert!(parse_listener_pids(table, 9765).is_empty());
+    }
+
+    #[test]
+    fn lsof_rows_are_ignored_because_their_columns_are_ambiguous() {
+        // lsof ends in a `(LISTEN)` state token, not a PID. The shared parser
+        // applies the `ss` user-annotation rule on Unix, so an lsof row
+        // yields no PID rather than a wrong one.
+        let table = "COMMAND     PID   USER   FD   TYPE  DEVICE SIZE/OFF NODE NAME\n\
+dcc-mcp-se 4242 hallong   12u  IPv4 0x1234      0t0  TCP 127.0.0.1:9765 (LISTEN)\n";
+
+        assert!(parse_listener_pids(table, 9765).is_empty());
+    }
+
+    #[test]
+    fn port_prefix_sharing_never_matches_across_lengths() {
+        // `:9765` must not match a row for `59765`, and `:976` must not match
+        // either — the suffix has to be the whole port field.
+        let table =
+            "  TCP    127.0.0.1:59765        0.0.0.0:0              LISTENING       5151\r\n";
+
+        assert!(parse_listener_pids(table, 9765).is_empty());
+        assert!(parse_listener_pids(table, 976).is_empty());
+        assert_eq!(parse_listener_pids(table, 59765), vec![5151]);
+    }
+
+    #[test]
+    fn table_header_and_non_tcp_rows_are_ignored() {
+        let table = "  Proto  Local Address          Foreign Address        State           PID\r\n\
+  UDP    0.0.0.0:9765           0.0.0.0:*                              4242\r\n\
+Active Connections\r\n";
+
+        assert!(
+            parse_listener_pids(table, 9765).is_empty(),
+            "the column header and UDP rows must not resolve to a PID"
+        );
     }
 }
