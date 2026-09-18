@@ -16,7 +16,7 @@ import dcc_mcp_core._core as native_core
 import dcc_mcp_core.runtime.scene_digest as scene_digest_module
 from dcc_mcp_core.runtime.scene_digest import SceneDigestSnapshot
 from dcc_mcp_core.runtime.scene_digest import normalize_scene_digest
-import dcc_mcp_core.script_execution as script_execution_module
+import dcc_mcp_core.runtime.script_execution_context as script_execution_module
 from dcc_mcp_core.script_execution import SceneDigestError
 from dcc_mcp_core.script_execution import SceneDigestExecutionError
 from dcc_mcp_core.script_execution import ScriptExecutionContext
