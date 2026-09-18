@@ -17,7 +17,7 @@ from pathlib import Path
 import re
 from typing import Any
 
-from dcc_mcp_core.acceptance import AcceptanceValidationError
+from dcc_mcp_core.verification.acceptance import AcceptanceValidationError
 
 #: Minimum supported Unity/Tuanjie editor major (Unity 2021 / Tuanjie 2022).
 MIN_UNITY_EDITOR_MAJOR = 2021

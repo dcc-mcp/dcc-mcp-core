@@ -15,22 +15,23 @@ from typing import Any
 
 import pytest
 
-from dcc_mcp_core.acceptance import LEVELS
-from dcc_mcp_core.acceptance import AcceptanceValidationError
-from dcc_mcp_core.acceptance import build_report
-from dcc_mcp_core.acceptance import dumps_report
-from dcc_mcp_core.acceptance import evaluate_acceptance
-from dcc_mcp_core.acceptance import evaluate_many
-from dcc_mcp_core.acceptance import production_acceptance_v1_json_schema
-from dcc_mcp_core.acceptance import recompute_sha256
-from dcc_mcp_core.acceptance import record_from_catalog_entry
-from dcc_mcp_core.acceptance import sanitize_evidence_link
-from dcc_mcp_core.acceptance import validate_acceptance_schema
-from dcc_mcp_core.acceptance import verify_release_sha256
-from dcc_mcp_core.acceptance_fixtures import godot_project
-from dcc_mcp_core.acceptance_fixtures import godot_version_probe
-from dcc_mcp_core.acceptance_fixtures import unity_project_version
-from dcc_mcp_core.acceptance_fixtures import unreal_project
+from dcc_mcp_core import yaml_loads
+from dcc_mcp_core.verification.acceptance import LEVELS
+from dcc_mcp_core.verification.acceptance import AcceptanceValidationError
+from dcc_mcp_core.verification.acceptance import build_report
+from dcc_mcp_core.verification.acceptance import dumps_report
+from dcc_mcp_core.verification.acceptance import evaluate_acceptance
+from dcc_mcp_core.verification.acceptance import evaluate_many
+from dcc_mcp_core.verification.acceptance import production_acceptance_v1_json_schema
+from dcc_mcp_core.verification.acceptance import recompute_sha256
+from dcc_mcp_core.verification.acceptance import record_from_catalog_entry
+from dcc_mcp_core.verification.acceptance import sanitize_evidence_link
+from dcc_mcp_core.verification.acceptance import validate_acceptance_schema
+from dcc_mcp_core.verification.acceptance import verify_release_sha256
+from dcc_mcp_core.verification.acceptance_fixtures import godot_project
+from dcc_mcp_core.verification.acceptance_fixtures import godot_version_probe
+from dcc_mcp_core.verification.acceptance_fixtures import unity_project_version
+from dcc_mcp_core.verification.acceptance_fixtures import unreal_project
 
 TIMESTAMP = "2026-01-01T00:00:00+00:00"
 _DIGEST_A = "a" * 64
@@ -300,11 +301,9 @@ def test_godot_project_writes_and_rejects_unsupported(tmp_path: Any) -> None:
 
 
 def test_catalog_derives_a_record_for_every_adapter() -> None:
-    import yaml
-
     from conftest import REPO_ROOT
 
-    catalog = yaml.safe_load((REPO_ROOT / "dcc-mcp-catalog.yml").read_text(encoding="utf-8"))
+    catalog = yaml_loads((REPO_ROOT / "dcc-mcp-catalog.yml").read_text(encoding="utf-8"))
     entries = catalog["entries"]
     assert entries
 

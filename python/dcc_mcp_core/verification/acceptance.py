@@ -24,7 +24,7 @@ Example:
 -------
 ::
 
-    from dcc_mcp_core.acceptance import evaluate_acceptance
+    from dcc_mcp_core.verification.acceptance import evaluate_acceptance
 
     evaluation = evaluate_acceptance(record)
     if not evaluation.ok:
@@ -237,7 +237,7 @@ def verify_release_sha256(
 
 def production_acceptance_v1_json_schema() -> dict[str, Any]:
     """Load and return the packaged Production Acceptance v1 JSON Schema."""
-    schema_path = Path(__file__).with_name("schemas") / "production-acceptance-v1.schema.json"
+    schema_path = Path(__file__).resolve().parent.parent / "schemas" / "production-acceptance-v1.schema.json"
     payload = json_loads(schema_path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise AcceptanceValidationError("Production Acceptance v1 schema must be a JSON object")
