@@ -15,6 +15,7 @@ import pytest
 
 _SKILL_DIR = Path(__file__).parent.parent / "python" / "dcc_mcp_core" / "skills" / "media"
 _COMMON = _SKILL_DIR / "scripts" / "_media_common.py"
+_STATS = _SKILL_DIR / "scripts" / "_media_image_stats.py"
 _SEQUENCE_SCRIPT = _SKILL_DIR / "scripts" / "sequence_to_mp4.py"
 
 
@@ -31,14 +32,23 @@ def _skill_script_import_context(script_path: Path):
             sys.path.remove(script_dir)
 
 
-@pytest.fixture()
-def media_common():
-    spec = importlib.util.spec_from_file_location("_media_common_under_test", _COMMON)
+def _load_script_module(module_name: str, script_path: Path):
+    spec = importlib.util.spec_from_file_location(module_name, script_path)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
-    with _skill_script_import_context(_COMMON):
+    with _skill_script_import_context(script_path):
         spec.loader.exec_module(module)
     return module
+
+
+@pytest.fixture()
+def media_common():
+    return _load_script_module("_media_common_under_test", _COMMON)
+
+
+@pytest.fixture()
+def media_stats():
+    return _load_script_module("_media_image_stats_under_test", _STATS)
 
 
 def _write_stub_file(path: Path) -> None:
@@ -422,8 +432,8 @@ def test_sequence_to_mp4_smoke_with_vx(tmp_path):
 # --- image_stats (behavior verification contract, core#2269) -----------------
 
 
-def test_compute_image_stats_black_frame_is_uniform(media_common):
-    stats = media_common.compute_image_stats_from_gray(b"\x00" * 16, 4, 4)
+def test_compute_image_stats_black_frame_is_uniform(media_stats):
+    stats = media_stats.compute_image_stats_from_gray(b"\x00" * 16, 4, 4)
     assert stats["mean_luma"] == 0.0
     assert stats["min_luma"] == 0.0
     assert stats["max_luma"] == 0.0
@@ -432,33 +442,33 @@ def test_compute_image_stats_black_frame_is_uniform(media_common):
     assert stats["dominant_bin_fraction"] == 1.0
 
 
-def test_compute_image_stats_white_frame_is_uniform(media_common):
-    stats = media_common.compute_image_stats_from_gray(b"\xff" * 16, 4, 4)
+def test_compute_image_stats_white_frame_is_uniform(media_stats):
+    stats = media_stats.compute_image_stats_from_gray(b"\xff" * 16, 4, 4)
     assert stats["mean_luma"] == 1.0
     assert stats["max_luma"] == 1.0
     assert stats["uniform"] is True
 
 
-def test_compute_image_stats_gradient_is_not_uniform(media_common):
+def test_compute_image_stats_gradient_is_not_uniform(media_stats):
     # Four pixels spanning the full 0..255 range.
-    stats = media_common.compute_image_stats_from_gray(bytes([0, 85, 170, 255]), 2, 2)
+    stats = media_stats.compute_image_stats_from_gray(bytes([0, 85, 170, 255]), 2, 2)
     assert stats["mean_luma"] == pytest.approx(0.5, abs=1e-6)
     assert stats["uniform"] is False
     assert sum(stats["histogram"]) == pytest.approx(1.0, abs=1e-6)
     assert stats["dominant_bin_fraction"] == pytest.approx(0.25, abs=1e-6)
 
 
-def test_compute_image_stats_rejects_short_frame(media_common):
-    with pytest.raises(media_common.MediaToolError) as exc:
-        media_common.compute_image_stats_from_gray(b"\x00", 4, 4)
+def test_compute_image_stats_rejects_short_frame(media_stats):
+    with pytest.raises(media_stats.MediaToolError) as exc:
+        media_stats.compute_image_stats_from_gray(b"\x00", 4, 4)
     assert exc.value.code == "short_frame"
 
 
-def test_image_stats_command_uses_vx_ffmpeg_rawvideo(media_common, tmp_path):
+def test_image_stats_command_uses_vx_ffmpeg_rawvideo(media_stats, tmp_path):
     input_file = tmp_path / "frame.png"
     _write_stub_file(input_file)
 
-    command, tmp_out, size = media_common.build_image_stats_command(str(input_file), sample_size=32)
+    command, tmp_out, size = media_stats.build_image_stats_command(str(input_file), sample_size=32)
     try:
         assert command[:2] == ["vx", "ffmpeg"]
         assert "rawvideo" in command
@@ -471,7 +481,7 @@ def test_image_stats_command_uses_vx_ffmpeg_rawvideo(media_common, tmp_path):
             tmp_out.unlink()
 
 
-def test_image_stats_end_to_end_with_mocked_ffmpeg(media_common, tmp_path, monkeypatch):
+def test_image_stats_end_to_end_with_mocked_ffmpeg(media_stats, tmp_path, monkeypatch):
     input_file = tmp_path / "frame.png"
     _write_stub_file(input_file)
     sample = bytes([128]) * (16 * 16)
@@ -484,10 +494,10 @@ def test_image_stats_end_to_end_with_mocked_ffmpeg(media_common, tmp_path, monke
     def fake_probe(path, timeout_secs=30):
         return {"context": {"media": {"video": {"width": 1920, "height": 1080}}}}
 
-    monkeypatch.setattr(media_common, "run_command", fake_run)
-    monkeypatch.setattr(media_common, "probe", fake_probe)
+    monkeypatch.setattr(media_stats, "run_command", fake_run)
+    monkeypatch.setattr(media_stats, "probe", fake_probe)
 
-    result = media_common.image_stats(str(input_file), sample_size=16)
+    result = media_stats.image_stats(str(input_file), sample_size=16)
 
     assert result["success"] is True
     assert result["context"]["width"] == 1920

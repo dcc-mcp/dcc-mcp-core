@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from _media_common import emit
-from _media_common import image_stats
 from _media_common import read_params
 from _media_common import run_tool
+from _media_image_stats import image_stats
 
 
 def main(**params):
