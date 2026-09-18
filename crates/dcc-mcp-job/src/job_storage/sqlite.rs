@@ -170,11 +170,14 @@ impl SqliteStorage {
         // `SQLITE_READONLY` warning storm. Detecting it here turns that into a
         // single startup error the caller latches onto a disabled persistence
         // circuit.
-        probe_writable(&conn).map_err(|error| {
-            JobStorageError::Backend(format!(
-                "job storage opened read-only: {error}; the database must be writable for job persistence"
-            ))
-        })?;
+        //
+        // A read-only database is only one of the ways this probe can fail:
+        // another process may hold the write lock, the volume may be full, or
+        // the sentinel insert may hit a constraint. Keep the underlying
+        // classification — labelling those as read-only latches the
+        // persistence circuit under the wrong category and hides the real
+        // cause.
+        probe_writable(&conn).map_err(|error| probe_failure_error(&error))?;
         Ok(Self {
             conn: Mutex::new(conn),
             interrupt,
@@ -487,6 +490,30 @@ pub fn is_readonly_error(message: &str) -> bool {
         || normalized.contains("read-only")
         || normalized.contains("sqlite_readonly")
         || normalized.contains("attempt to write a readonly database")
+}
+
+/// Turn a `probe_writable` failure into the open error without flattening the
+/// original rusqlite classification.
+///
+/// Only a genuine read-only rejection is reported as read-only. A lock, I/O,
+/// disk-full, or constraint failure keeps its own wording so
+/// [`is_readonly_error`] — and the persistence-circuit category derived from
+/// it — stays truthful about why the probe failed.
+fn probe_failure_error(error: &rusqlite::Error) -> JobStorageError {
+    let source = error.to_string();
+    // Prefer the structured result code when rusqlite carries one; fall back to
+    // the message spellings for errors that only carry text.
+    let readonly = matches!(
+        error.sqlite_error_code(),
+        Some(rusqlite::ErrorCode::ReadOnly)
+    ) || is_readonly_error(&source);
+    if readonly {
+        JobStorageError::Backend(format!(
+            "job storage opened read-only: {source}; the database must be writable for job persistence"
+        ))
+    } else {
+        JobStorageError::Backend(format!("job storage writability probe failed: {source}"))
+    }
 }
 
 pub fn ownership_lock_path_for(path: impl AsRef<Path>) -> PathBuf {
@@ -1182,6 +1209,81 @@ mod tests {
         }
         assert!(!is_readonly_error("database is locked"));
         assert!(!is_readonly_error("disk I/O error"));
+    }
+
+    /// A probe failure must keep its own category: a lock, I/O, disk-full, or
+    /// constraint error reported as read-only would latch the persistence
+    /// circuit under the wrong reason and hide the real cause.
+    #[test]
+    fn probe_failure_keeps_the_original_error_classification() {
+        for (code, message) in [
+            (rusqlite::ffi::SQLITE_BUSY, "database is locked"),
+            (rusqlite::ffi::SQLITE_IOERR, "disk I/O error"),
+            (rusqlite::ffi::SQLITE_FULL, "database or disk is full"),
+            (
+                rusqlite::ffi::SQLITE_CONSTRAINT,
+                "UNIQUE constraint failed: jobs.job_id",
+            ),
+        ] {
+            let error = probe_failure_error(&rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error::new(code),
+                Some(message.to_string()),
+            ))
+            .to_string();
+            assert!(
+                !is_readonly_error(&error),
+                "{message} must not be reported as read-only, got: {error}"
+            );
+            assert!(
+                error.contains(message),
+                "the original rusqlite error must survive: {error}"
+            );
+        }
+
+        for message in [
+            "attempt to write a readonly database",
+            "database is read-only",
+        ] {
+            let error = probe_failure_error(&rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_READONLY),
+                Some(message.to_string()),
+            ))
+            .to_string();
+            assert!(is_readonly_error(&error), "must stay read-only: {error}");
+            assert!(
+                error.contains("read-only"),
+                "a read-only database must fail closed at open: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn probe_failure_latches_persistence_with_its_real_category() {
+        let jobs = JobManager::new();
+        for (code, message, expected) in [
+            (rusqlite::ffi::SQLITE_BUSY, "database is locked", "busy"),
+            (
+                rusqlite::ffi::SQLITE_FULL,
+                "database or disk is full",
+                "disk_full",
+            ),
+            (
+                rusqlite::ffi::SQLITE_READONLY,
+                "attempt to write a readonly database",
+                "readonly",
+            ),
+        ] {
+            let error = probe_failure_error(&rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error::new(code),
+                Some(message.to_string()),
+            ));
+            jobs.disable_persistence_for_storage_error(&error);
+            assert_eq!(
+                jobs.persistence_status().last_error_kind.as_deref(),
+                Some(expected),
+                "health must report {expected} for {message}"
+            );
+        }
     }
 
     #[test]
