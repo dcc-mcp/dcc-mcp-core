@@ -908,7 +908,6 @@ def thumbnail(
     )
 
 
-
 def _matching_outputs(directory: Path, pattern: str) -> Set[Path]:
     glob_pattern = re.sub(r"%0?\d*d", "*", pattern)
     return {path for path in directory.glob(glob_pattern) if path.is_file()}

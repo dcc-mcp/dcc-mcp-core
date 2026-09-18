@@ -19,9 +19,9 @@ from typing import List
 from typing import Optional
 from typing import Tuple
 
+from _media_common import MediaToolError
 from _media_common import existing_file
 from _media_common import int_value
-from _media_common import MediaToolError
 from _media_common import probe
 from _media_common import run_command
 from _media_common import skill_success
