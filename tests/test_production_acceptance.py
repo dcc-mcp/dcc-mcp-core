@@ -158,6 +158,43 @@ def test_optimistic_wrapper_fails_closed() -> None:
     assert {finding.code for finding in evaluation.findings} >= {"optimistic_wrapper"}
 
 
+@pytest.mark.parametrize(
+    "backend",
+    [
+        pytest.param({"success": False, "error": "backend down"}, id="no-loaded-flag"),
+        pytest.param({"error": "backend down"}, id="error-only"),
+        pytest.param({"success": False}, id="failure-without-message"),
+    ],
+)
+def test_optimistic_wrapper_fails_closed_without_loaded_flag(backend: Any) -> None:
+    """A failed backend demotes its level even when ``loaded`` is absent.
+
+    A wrapper that reports ``success=False`` without ever claiming ``loaded``
+    must not escape the rule by omitting one key.
+    """
+    record = _valid_record({"levels": {"instance_qualified_call": _level(backend=backend)}})
+    evaluation = evaluate_acceptance(record)
+    assert evaluation.overall_status != "PASS"
+    assert evaluation.effective_levels["instance_qualified_call"] == "FAIL"
+    assert {finding.code for finding in evaluation.findings} >= {"optimistic_wrapper"}
+
+
+def test_level_without_a_backend_block_is_not_penalized() -> None:
+    """An absent ``backend`` block means "not instrumented", not "failed".
+
+    ``optimistic_wrapper`` punishes a self-reported backend that contradicts its
+    own level, so it triggers on an explicitly failed backend only.  A level
+    with no backend block carries no such contradiction; whether an
+    un-instrumented level should still be acceptable is a separate question the
+    ``source`` field already answers, and collapsing the two would make every
+    not-yet-instrumented product unshippable in one step.
+    """
+    record = _valid_record({"levels": {"instance_qualified_call": _level(source="real-host")}})
+    evaluation = evaluate_acceptance(record)
+    assert evaluation.effective_levels["instance_qualified_call"] == "PASS"
+    assert [finding.code for finding in evaluation.findings] == []
+
+
 def test_source_tree_only_import_fails_closed() -> None:
     record = _valid_record({"levels": {"package_import": _level(source="source-tree")}})
     evaluation = evaluate_acceptance(record)
@@ -229,6 +266,31 @@ def test_verify_release_sha256_fails_closed_on_download_error() -> None:
     assert verify_release_sha256("https://example.com/pkg.whl", _DIGEST_A, fetcher=fetcher) is False
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "file:///C:/private/pkg.whl",
+        "file://localhost/C:/private/pkg.whl",
+        "ftp://host/pkg.whl",
+        "http://127.0.0.1/pkg.whl",
+    ],
+)
+def test_verify_release_sha256_rejects_non_public_url(tmp_path: Any, url: str) -> None:
+    """A non-public URL can never become a local-filesystem read.
+
+    The fetcher below would return bytes whose digest matches, so a passing
+    call would prove the fetcher ran instead of the URL being rejected first.
+    """
+    local = tmp_path / "pkg.whl"
+    local.write_bytes(b"local bytes")
+    digest = recompute_sha256(b"local bytes")
+
+    def fetcher(fetched_url: str) -> bytes:
+        return local.read_bytes()
+
+    assert verify_release_sha256(url, digest, fetcher=fetcher) is False
+
+
 # ── Evidence sanitization ─────────────────────────────────────────────────
 
 
@@ -242,6 +304,16 @@ def test_verify_release_sha256_fails_closed_on_download_error() -> None:
         "\\\\server\\share\\report.json",
         "ftp://host/report",
         "https://user:token@github.com/dcc-mcp/dcc-mcp-maya",
+        # Alternate spellings of loopback that bypass a plain "127." prefix match.
+        "http://2130706433/report",
+        "http://0177.0.0.1/report",
+        "http://0x7f.1/report",
+        "http://127.1/report",
+        "http://[fd00::1]/report",
+        "https://[::ffff:127.0.0.1]/report",
+        # Credentials smuggled into the query string instead of userinfo.
+        "https://github.com/dcc-mcp/dcc-mcp-maya?token=SECRET",
+        "https://github.com/dcc-mcp/dcc-mcp-maya?sig=abc",
     ],
 )
 def test_sanitize_evidence_link_rejects_non_public(url: str) -> None:
@@ -253,6 +325,8 @@ def test_sanitize_evidence_link_accepts_public_https() -> None:
     assert sanitize_evidence_link("https://github.com/dcc-mcp/dcc-mcp-maya") == (
         "https://github.com/dcc-mcp/dcc-mcp-maya"
     )
+    # A public numeric host is accepted: hardening targets non-public hosts only.
+    assert sanitize_evidence_link("http://93.184.216.34/report") == "http://93.184.216.34/report"
 
 
 # ── Engine fixtures (editor-free) ─────────────────────────────────────────
@@ -269,9 +343,9 @@ def test_unity_project_version_writes_and_rejects_unsupported(tmp_path: Any) -> 
         unity_project_version(tmp_path / "old", "2019.4.0f1")
 
 
-def test_tuanjie_project_version_decision() -> None:
+def test_tuanjie_project_version_decision(tmp_path: Any) -> None:
     result = unity_project_version(
-        "ignored", "2022.3.10f1", flavor="tuanjie", custom_editor_path="C:/Tuanjie/Editor.exe"
+        tmp_path, "2022.3.10f1", flavor="tuanjie", custom_editor_path="C:/Tuanjie/Editor.exe"
     )
     assert result["kind"] == "tuanjie"
     assert result["decision"] == "C:/Tuanjie/Editor.exe"

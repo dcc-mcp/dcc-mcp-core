@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import datetime
 import hashlib
+import ipaddress
 from pathlib import Path
 import re
 from typing import Any
@@ -124,6 +125,8 @@ _DIGEST_RE = re.compile(r"^[a-fA-F0-9]{64}$")
 
 #: Loopback hosts that can never be a public evidence source.
 _LOOPBACK_HOSTS = frozenset({"localhost", "::1", "0.0.0.0"})
+#: Query-string keys that carry credentials and must never reach a report.
+_CREDENTIAL_QUERY_MARKERS = ("token=", "access_token=", "api_key=", "apikey=", "password=", "secret=", "sig=")
 #: Private-use IPv4 prefixes that must not survive into a public report.
 _PRIVATE_V4_PREFIXES = (
     "127.",
@@ -212,6 +215,10 @@ def verify_release_sha256(
 ) -> bool:
     """Download *url* and verify its bytes match *expected_sha256*.
 
+    The URL must satisfy the same public-link contract as evidence links
+    (:func:`sanitize_evidence_link`), so ``file://`` and other non-HTTP(S)
+    schemes can never turn this into a local-filesystem read.
+
     The download is performed only when *fetcher* is provided; callers in
     tests inject a fetcher so no network access happens.  The production
     default fetches with the standard library.  Returns ``True`` only when the
@@ -219,6 +226,10 @@ def verify_release_sha256(
     failure returns ``False`` so level 2 (released artifact) can never pass on
     trust alone.
     """
+    try:
+        url = sanitize_evidence_link(url)
+    except AcceptanceValidationError:
+        return False
     expected = normalize_digest("expected_sha256", expected_sha256)
     try:
         if fetcher is not None:
@@ -244,6 +255,79 @@ def production_acceptance_v1_json_schema() -> dict[str, Any]:
     return payload
 
 
+def _canonical_host(host: str) -> str:
+    """Return the canonical dotted-quad form of a numeric *host*.
+
+    URLs accept bare-integer, octal, hexadecimal and right-aligned shorthand
+    spellings (``2130706433``, ``0177.0.0.1``, ``0x7f.1`` and ``127.1`` all mean
+    127.0.0.1), none of which :func:`ipaddress.ip_address` parses.  Normalizing
+    here stops those spellings from bypassing the non-public host check.  A host
+    that is not purely numeric is returned unchanged so DNS names still resolve.
+    """
+    if ":" in host or not host:
+        return host
+    parts = host.split(".")
+    if len(parts) > 4:
+        return host
+    values = []
+    for part in parts:
+        if not part:
+            return host
+        try:
+            if len(part) > 1 and part[0] == "0" and part[1] not in "xX":
+                values.append(int(part, 8))
+            elif part[:2].lower() == "0x":
+                values.append(int(part, 16))
+            else:
+                values.append(int(part, 10))
+        except ValueError:
+            return host
+    # Right-aligned shorthand: the last part fills the remaining octets.
+    if len(values) == 1:
+        packed = values[0]
+    else:
+        packed = values[-1]
+        for index, value in enumerate(values[:-1]):
+            if value > 0xFF:
+                return host
+            packed |= value << (8 * (3 - index))
+    if packed > 0xFFFFFFFF:
+        return host
+    return str(ipaddress.IPv4Address(packed))
+
+
+def _is_non_public_host(host: str) -> bool:
+    """Return ``True`` when *host* resolves to a non-public address.
+
+    Hosts are normalized with :mod:`ipaddress` so decimal, octal and hexadecimal
+    spellings of loopback/private addresses cannot slip past a prefix match
+    (``2130706433``, ``0177.0.0.1``, ``0x7f.1`` are all 127.0.0.1).
+    """
+    if host in _LOOPBACK_HOSTS:
+        return True
+    stripped = host.strip("[]")
+    try:
+        address = ipaddress.ip_address(_canonical_host(stripped))
+    except ValueError:
+        return host.startswith(_PRIVATE_V4_PREFIXES)
+    return (
+        address.is_loopback
+        or address.is_private
+        or address.is_link_local
+        or address.is_reserved
+        or address.is_unspecified
+        or address.is_multicast
+    )
+
+
+def _has_query_credentials(query: str) -> bool:
+    """Return ``True`` when the query string carries a credential-like key."""
+    if not query:
+        return False
+    lowered = query.lower()
+    return any(marker in lowered for marker in _CREDENTIAL_QUERY_MARKERS)
+
+
 def sanitize_evidence_link(url: str) -> str:
     """Return *url* only when it is a public HTTP(S) evidence link.
 
@@ -265,10 +349,10 @@ def sanitize_evidence_link(url: str) -> str:
     host = (parts.hostname or "").lower()
     if not host:
         raise AcceptanceValidationError(f"evidence url has no host: {normalized!r}")
-    if host in _LOOPBACK_HOSTS or host.startswith("127."):
-        raise AcceptanceValidationError(f"evidence url must be public, got loopback: {normalized!r}")
-    if host.startswith(_PRIVATE_V4_PREFIXES):
-        raise AcceptanceValidationError(f"evidence url must be public, got private address: {normalized!r}")
+    if _is_non_public_host(host):
+        raise AcceptanceValidationError(f"evidence url must be public, got non-public host: {normalized!r}")
+    if _has_query_credentials(parts.query):
+        raise AcceptanceValidationError("evidence url must not embed credentials")
     return normalized
 
 
@@ -551,11 +635,10 @@ def evaluate_acceptance(record: Any) -> AcceptanceEvaluation:
             continue
         backend = level.get("backend")
         if isinstance(backend, dict):
-            loaded = backend.get("loaded")
             success = backend.get("success")
             error = backend.get("error")
-            if loaded is True and (success is False or error):
-                demote(key, "FAIL", "optimistic_wrapper", f"{key} reports loaded=true with a failed backend")
+            if success is False or error:
+                demote(key, "FAIL", "optimistic_wrapper", f"{key} reports a failed backend")
 
     package_import = levels["package_import"]
     if package_import["status"] == "PASS" and package_import["source"] == "source-tree":
