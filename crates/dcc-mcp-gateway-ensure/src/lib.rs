@@ -660,42 +660,56 @@ pub fn listener_pids_on_port(port: u16) -> Vec<u32> {
     parse_listener_pids(&table, port)
 }
 
-fn port_holder_table() -> String {
+/// Port-table probes for this platform, in the order they are tried.
+///
+/// On Unix `ss` must come before `lsof`: the shared parser only understands
+/// `ss`-style `users:(("name",pid=N,fd=F))` PID annotations, while an `lsof`
+/// row ends in a `(LISTEN)` state token and its PID column is ambiguous, so
+/// lsof rows are ignored by design (see
+/// `lsof_rows_are_ignored_because_their_columns_are_ambiguous`). Probing
+/// `lsof` first therefore made every lookup on an image that ships both tools
+/// return "unknown" — which is every Linux CI image — and a service-dead port
+/// holder could never be identified (issue #2405).
+fn port_holder_probes() -> &'static [(&'static str, &'static [&'static str])] {
     #[cfg(windows)]
     {
         // `netstat -ano` prints one row per socket with the owning PID in the
         // last column. Fixed English keywords are used, and the numeric
         // columns are parsed positionally, so localized status text cannot
         // break PID extraction.
-        let mut cmd = Command::new("netstat");
-        cmd.arg("-ano");
-        hidden_console(&mut cmd);
-        cmd.stdin(Stdio::null())
-            .output()
-            .map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
-            .unwrap_or_default()
+        &[("netstat", &["-ano"])]
     }
     #[cfg(unix)]
     {
-        // `lsof` is the portable first choice; `ss` covers Linux images that
-        // ship iproute2 without lsof installed.
-        let mut cmd = Command::new("lsof");
-        cmd.args(["-nP", "-iTCP", "-sTCP:LISTEN"]);
-        hidden_console(&mut cmd);
-        if let Ok(out) = cmd.stdin(Stdio::null()).output()
-            && out.status.success()
-        {
-            return String::from_utf8_lossy(&out.stdout).into_owned();
-        }
-        let mut fallback = Command::new("ss");
-        fallback.args(["-ltnp"]);
-        hidden_console(&mut fallback);
-        fallback
-            .stdin(Stdio::null())
-            .output()
-            .map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
-            .unwrap_or_default()
+        // `lsof` stays as the fallback for images without iproute2 (notably
+        // macOS, where `ss` does not exist).
+        &[
+            ("ss", &["-ltnp"]),
+            ("lsof", &["-nP", "-iTCP", "-sTCP:LISTEN"]),
+        ]
     }
+}
+
+/// Run one port-table probe, returning its output when it produced any.
+fn run_port_holder_probe(program: &str, args: &[&str]) -> Option<String> {
+    let mut cmd = Command::new(program);
+    cmd.args(args);
+    hidden_console(&mut cmd);
+    let out = cmd.stdin(Stdio::null()).output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let table = String::from_utf8_lossy(&out.stdout).into_owned();
+    (!table.trim().is_empty()).then_some(table)
+}
+
+fn port_holder_table() -> String {
+    for (program, args) in port_holder_probes() {
+        if let Some(table) = run_port_holder_probe(program, args) {
+            return table;
+        }
+    }
+    String::new()
 }
 
 fn hidden_console(cmd: &mut Command) {
@@ -1234,6 +1248,26 @@ LISTEN 0      128    0.0.0.0:59765        0.0.0.0:*         users:((\"dcc-mcp-se
     }
 
     #[test]
+    fn real_ss_output_shape_resolves_only_the_annotated_listener() {
+        // Captured verbatim from `ss -ltnp` on Linux (iproute2) as an
+        // unprivileged user: only sockets owned by the caller carry a
+        // `users:(...)` annotation. Every unannotated neighbour must stay
+        // "unknown" rather than resolve to a guessed PID.
+        let table = "State  Recv-Q Send-Q  Local Address:Port  Peer Address:PortProcess\n\
+LISTEN 0      1000   10.255.255.254:53         0.0.0.0:*\n\
+LISTEN 0      5           127.0.0.1:45999      0.0.0.0:*    users:((\"python3\",pid=312260,fd=3))\n\
+LISTEN 0      128           0.0.0.0:53559      0.0.0.0:*\n\
+LISTEN 0      128              [::]:53559         [::]:*\n";
+
+        assert_eq!(parse_listener_pids(table, 45999), vec![312_260]);
+        assert!(
+            parse_listener_pids(table, 53).is_empty(),
+            "an unannotated row is unknown, never a guessed PID"
+        );
+        assert!(parse_listener_pids(table, 53559).is_empty());
+    }
+
+    #[test]
     fn ss_rows_without_user_annotation_yield_no_pid() {
         // Without `users:(...)` the trailing column is the peer address —
         // parsing it as a PID would attribute the port to an unrelated
@@ -1277,5 +1311,54 @@ Active Connections\r\n";
             parse_listener_pids(table, 9765).is_empty(),
             "the column header and UDP rows must not resolve to a PID"
         );
+    }
+
+    // ── Probe ordering (#2405) ─────────────────────────────────────────
+
+    /// Regression test for #2405: trying `lsof` before `ss` made every Unix
+    /// lookup return "unknown" on images that ship both tools, because an
+    /// `lsof` row carries no parseable PID. The order itself is the fix, so
+    /// it is asserted here rather than left implicit.
+    #[cfg(unix)]
+    #[test]
+    fn unix_probes_ss_before_lsof() {
+        let programs: Vec<&str> = port_holder_probes().iter().map(|(p, _)| *p).collect();
+        assert_eq!(
+            programs,
+            vec!["ss", "lsof"],
+            "`ss` must be tried first: only its rows carry a parseable PID"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_probes_netstat() {
+        let programs: Vec<&str> = port_holder_probes().iter().map(|(p, _)| *p).collect();
+        assert_eq!(programs, vec!["netstat"]);
+    }
+
+    /// End-to-end regression test for #2405 on the platform that runs the
+    /// Rust suite: a listener owned by this process must be resolvable.
+    ///
+    /// This is the check the port-recovery tests depend on — they spawn a
+    /// real holder child and poll until it can be resolved. Guarded on `ss`
+    /// being installed so images without iproute2 skip instead of failing.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_resolves_our_own_listener_pid() {
+        if Command::new("ss").stdin(Stdio::null()).output().is_err() {
+            eprintln!("skipping: `ss` (iproute2) is not installed");
+            return;
+        }
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        assert_eq!(
+            listener_pids_on_port(port),
+            vec![std::process::id()],
+            "a listener owned by this process must resolve to this process"
+        );
+        drop(listener);
     }
 }
