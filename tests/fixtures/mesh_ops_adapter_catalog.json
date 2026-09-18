@@ -1,0 +1,198 @@
+{
+  "$comment": "Snapshot of the tools and recipes the dcc-mcp adapters publish for the shared mesh-ops vocabulary. Used by tests/test_mesh_ops_recipes.py to assert that every routed dispatch target in skills/mesh-ops/RECIPES.yaml resolves to a tool an adapter really publishes. Refresh this file when an adapter ships or renames mesh-ops tools.",
+  "captured_at": "2026-09-18",
+  "adapters": {
+    "blender": {
+      "repository": "dcc-mcp/dcc-mcp-blender",
+      "skills": {
+        "blender-mesh-ops": [
+          "get_poly_count",
+          "inspect_mesh_components",
+          "cleanup_mesh",
+          "triangulate_mesh",
+          "separate_mesh",
+          "combine_meshes",
+          "merge_vertices",
+          "extract_faces",
+          "mirror_mesh",
+          "select_by_material",
+          "extrude_faces",
+          "create_primitive",
+          "loft_sections",
+          "lathe_profile",
+          "bevel_edges",
+          "inset",
+          "boolean_op",
+          "add_edge_loop",
+          "array_instances",
+          "mirror",
+          "set_pivot",
+          "group_parent",
+          "freeze_transforms",
+          "delete_history",
+          "auto_uv",
+          "uv_project",
+          "assign_material",
+          "create_pointed_arch"
+        ]
+      },
+      "recipes": []
+    },
+    "houdini": {
+      "repository": "dcc-mcp/dcc-mcp-houdini",
+      "skills": {
+        "houdini-mesh-ops": [
+          "array_instances",
+          "uv_project",
+          "auto_uv",
+          "mirror",
+          "bridge_edges",
+          "add_edge_loop",
+          "lathe_profile",
+          "boolean_op",
+          "loft_sections",
+          "inset",
+          "bevel_edges",
+          "extrude_faces",
+          "transform_geometry",
+          "merge_geometry",
+          "blast_geometry",
+          "group_geometry",
+          "add_normals",
+          "triangulate_geometry",
+          "convert_geometry"
+        ],
+        "houdini-geometry": [
+          "get_primitive_topology",
+          "create_primitive",
+          "create_curve_guides",
+          "get_geometry_info",
+          "list_attributes",
+          "list_groups",
+          "get_cook_status",
+          "get_attribute_values",
+          "get_primitive_intrinsics"
+        ],
+        "houdini-materials": [
+          "create_material",
+          "assign_material",
+          "build_materialx_pbr",
+          "validate_materialx_pbr"
+        ]
+      },
+      "recipes": []
+    },
+    "maya": {
+      "repository": "dcc-mcp/dcc-mcp-maya",
+      "skills": {
+        "maya-mesh-ops": [
+          "apply_subdivision",
+          "cleanup_mesh",
+          "combine_meshes",
+          "create_proxy_mesh",
+          "extract_faces",
+          "get_mesh_edge_info",
+          "get_poly_count",
+          "loft_sections",
+          "array_instances",
+          "merge_vertices",
+          "mirror_mesh",
+          "lathe_profile",
+          "select_by_material",
+          "set_pivot",
+          "separate_mesh",
+          "triangulate"
+        ],
+        "maya-uv-ops": [
+          "auto_uv",
+          "copy_uvs",
+          "create_uv_set",
+          "delete_uv_set",
+          "get_uv_info",
+          "get_uv_shell_info",
+          "normalize_uvs",
+          "project_uvs",
+          "unfold_uvs"
+        ],
+        "maya-materials": [
+          "assign_texture",
+          "assign_material",
+          "create_material",
+          "get_material_connections",
+          "get_shader_assignment",
+          "list_materials",
+          "list_shading_groups",
+          "reset_to_default_material",
+          "set_material_attribute"
+        ]
+      },
+      "recipes": [
+        "loft_hull_from_sections",
+        "mirror_assembly",
+        "radial_array",
+        "auto_uv_for_export"
+      ]
+    },
+    "3dsmax": {
+      "repository": "dcc-mcp/dcc-mcp-3dsmax",
+      "skills": {
+        "3dsmax-mesh-ops": [
+          "get_mesh_topology",
+          "get_selected_mesh_topology",
+          "get_smoothing_groups",
+          "get_modifier_stack",
+          "triangulate_meshes",
+          "cleanup_meshes",
+          "attach_meshes",
+          "detach_selected_faces",
+          "apply_subdivision",
+          "create_proxy_meshes",
+          "set_explicit_normals",
+          "clear_explicit_normals",
+          "assign_smoothing_group"
+        ],
+        "3dsmax-modeling": [
+          "create_box",
+          "lathe_profile",
+          "create_sphere",
+          "create_cylinder",
+          "create_plane"
+        ],
+        "3dsmax-uv-atlas": [
+          "list_uv_channels",
+          "create_uv_channel",
+          "delete_uv_channel",
+          "copy_uv_channel",
+          "get_uv_shell_summary",
+          "apply_uv_projection",
+          "unwrap_uvs",
+          "pack_uvs",
+          "detect_uv_overlaps",
+          "normalize_uvs",
+          "prepare_texture_atlas"
+        ],
+        "3dsmax-materials": [
+          "create_standard_material",
+          "apply_material",
+          "list_scene_materials",
+          "list_node_material_assignments",
+          "inspect_material",
+          "list_bitmap_connections",
+          "create_physical_material",
+          "create_pbr_material",
+          "reset_material",
+          "set_material_attributes",
+          "assign_bitmap_texture",
+          "report_missing_textures"
+        ]
+      },
+      "recipes": []
+    }
+  },
+  "scripting_fallback": {
+    "blender": "blender_scripting__execute_python",
+    "houdini": "houdini_scripting__execute_python",
+    "maya": "maya_scripting__execute_python",
+    "3dsmax": "3dsmax_scripting__execute_python"
+  }
+}
