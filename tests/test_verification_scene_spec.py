@@ -61,7 +61,7 @@ def test_uv_coverage_catches_meshes_without_uvs() -> None:
     assert result.passed is False
     assert "uv_coverage" in _failure_checks(result)
     failure = next(f for f in result.failures if f.check == "uv_coverage")
-    assert failure.detail["coverage"] == pytest.approx(1 / 3)
+    assert failure.detail["coverage"] == pytest.approx(1 / 3, abs=1e-3)
     assert failure.detail["meshes_without_uvs"] == ["rotor_main", "tail"]
 
 

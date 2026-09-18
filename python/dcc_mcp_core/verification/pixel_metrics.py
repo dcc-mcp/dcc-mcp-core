@@ -1,4 +1,3 @@
-
 """Deterministic pixel metrics for capture comparison (issue #2261).
 
 Zero-token hard/soft gates that run before any VLM is consulted: perceptual
@@ -129,9 +128,7 @@ def dhash_64(width: int, height: int, pixels: Any, channels: int = 3) -> int:
 
 def _dct_coefficients(gray: List[float], size: int, count: int) -> List[List[float]]:
     """Top-left ``count x count`` DCT-II coefficients (unnormalised)."""
-    cos_table = [
-        [math.cos((2 * x + 1) * u * math.pi / (2 * size)) for x in range(size)] for u in range(count)
-    ]
+    cos_table = [[math.cos((2 * x + 1) * u * math.pi / (2 * size)) for x in range(size)] for u in range(count)]
     result = [[0.0] * count for _ in range(count)]
     for u in range(count):
         for v in range(count):
@@ -235,8 +232,8 @@ def delta_e_2000(lab_a: Sequence[float], lab_b: Sequence[float]) -> float:
     c1 = math.hypot(a1, b1)
     c2 = math.hypot(a2, b2)
     c_bar = (c1 + c2) / 2.0
-    c_bar_7 = c_bar ** 7
-    g = 0.5 * (1.0 - math.sqrt(c_bar_7 / (c_bar_7 + 25.0 ** 7)))
+    c_bar_7 = c_bar**7
+    g = 0.5 * (1.0 - math.sqrt(c_bar_7 / (c_bar_7 + 25.0**7)))
 
     a1p = (1.0 + g) * a1
     a2p = (1.0 + g) * a2
@@ -285,19 +282,14 @@ def delta_e_2000(lab_a: Sequence[float], lab_b: Sequence[float]) -> float:
         - 0.20 * math.cos(math.radians(4.0 * hp_bar - 63.0))
     )
     delta_theta = 30.0 * math.exp(-(((hp_bar - 275.0) / 25.0) ** 2))
-    cp_bar_7 = cp_bar ** 7
-    rc = 2.0 * math.sqrt(cp_bar_7 / (cp_bar_7 + 25.0 ** 7))
+    cp_bar_7 = cp_bar**7
+    rc = 2.0 * math.sqrt(cp_bar_7 / (cp_bar_7 + 25.0**7))
     sl = 1.0 + (0.015 * (l_bar - 50.0) ** 2) / math.sqrt(20.0 + (l_bar - 50.0) ** 2)
     sc = 1.0 + 0.045 * cp_bar
     sh = 1.0 + 0.015 * cp_bar * t
     rt = -math.sin(math.radians(2.0 * delta_theta)) * rc
 
-    return math.sqrt(
-        (dlp / sl) ** 2
-        + (dcp / sc) ** 2
-        + (dhp_deg / sh) ** 2
-        + rt * (dcp / sc) * (dhp_deg / sh)
-    )
+    return math.sqrt((dlp / sl) ** 2 + (dcp / sc) ** 2 + (dhp_deg / sh) ** 2 + rt * (dcp / sc) * (dhp_deg / sh))
 
 
 def sobel_edges(width: int, height: int, pixels: Any, channels: int = 3) -> List[float]:

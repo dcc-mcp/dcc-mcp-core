@@ -1,4 +1,3 @@
-
 """In-band image statistics for verification (issue #2261).
 
 Captures are the primary quality signal in DCC work, but shipping pixels to a
@@ -189,7 +188,7 @@ def compute_image_stats(
 
     mean = total / pixel_count
     variance = (total_sq / pixel_count) - (mean * mean)
-    stddev = variance ** 0.5 if variance > 0.0 else 0.0
+    stddev = variance**0.5 if variance > 0.0 else 0.0
     uniformity = max(histogram) / float(pixel_count)
     return ImageStats(
         width=width,

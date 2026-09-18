@@ -28,7 +28,9 @@ def _script_import_context(script_path: Path):
 
 def _load_script(name: str):
     script_path = _SCRIPTS / name
-    spec = importlib.util.spec_from_file_location("_verification_{}_under_test".format(name[: -len(".py")]), script_path)
+    spec = importlib.util.spec_from_file_location(
+        "_verification_{}_under_test".format(name[: -len(".py")]), script_path
+    )
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     with _script_import_context(script_path):

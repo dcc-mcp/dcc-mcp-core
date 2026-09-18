@@ -1,4 +1,3 @@
-
 """Scene-vs-spec validation (issue #2261).
 
 ``validate_scene_vs_spec`` turns a normalised scene-state export into a
@@ -80,9 +79,7 @@ def _check_parts(scene: Dict[str, Any], spec: Dict[str, Any]) -> List[SceneSpecF
     present = {str(part) for part in _as_list(scene.get("parts"))}
     for part in required:
         if str(part) not in present:
-            failures.append(
-                SceneSpecFailure("parts", "missing required part", {"part": str(part)})
-            )
+            failures.append(SceneSpecFailure("parts", "missing required part", {"part": str(part)}))
     return failures
 
 
@@ -92,9 +89,7 @@ def _check_hierarchy(scene: Dict[str, Any], spec: Dict[str, Any]) -> List[SceneS
     present = {str(path) for path in _as_list(scene.get("hierarchy"))}
     for path in required:
         if str(path) not in present:
-            failures.append(
-                SceneSpecFailure("hierarchy", "missing required hierarchy path", {"path": str(path)})
-            )
+            failures.append(SceneSpecFailure("hierarchy", "missing required hierarchy path", {"path": str(path)}))
     return failures
 
 
@@ -106,9 +101,7 @@ def _check_materials(scene: Dict[str, Any], spec: Dict[str, Any]) -> List[SceneS
         name = str(mesh.get("name", "<unnamed>"))
         material = mesh.get("material")
         if material is None or str(material).strip() == "":
-            failures.append(
-                SceneSpecFailure("materials", "mesh has no material binding", {"mesh": name})
-            )
+            failures.append(SceneSpecFailure("materials", "mesh has no material binding", {"mesh": name}))
         elif required and str(material) not in required:
             failures.append(
                 SceneSpecFailure(

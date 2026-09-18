@@ -15,10 +15,7 @@ _VIEWPORT_TARGETS = ("active_viewport", "viewport", "scene_viewer")
 
 
 def _plan(views: List[str], resolution: List[int]) -> List[Dict[str, Any]]:
-    return [
-        {"view": view, "target": "active_viewport", "resolution": resolution}
-        for view in views
-    ]
+    return [{"view": view, "target": "active_viewport", "resolution": resolution} for view in views]
 
 
 def _validate_captures(views: List[str], resolution: List[int], captures: Any) -> List[Dict[str, Any]]:
@@ -58,9 +55,7 @@ def _validate_captures(views: List[str], resolution: List[int], captures: Any) -
                 {"view": view, "check": "hidden", "message": "window is hidden or blocked; capture is invalid"}
             )
         if capture.get("blank") or capture.get("is_blank"):
-            failures.append(
-                {"view": view, "check": "blank", "message": "capture is blank/white/near-black"}
-            )
+            failures.append({"view": view, "check": "blank", "message": "capture is blank/white/near-black"})
     return failures
 
 

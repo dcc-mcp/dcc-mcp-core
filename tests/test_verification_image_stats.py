@@ -44,7 +44,7 @@ def test_mid_gray_low_contrast_is_linear_candidate() -> None:
     stats = compute_image_stats(8, 8, _rgb(8, 8, 128, 128, 128))
     flags = classify_image_stats(stats)
 
-    assert stats.mean_luma == pytest.approx(0.5, abs=1e-3)
+    assert stats.mean_luma == pytest.approx(128 / 255, abs=1e-6)
     assert flags.is_low_contrast is True
     assert flags.is_white is False
     assert flags.is_near_black is False
