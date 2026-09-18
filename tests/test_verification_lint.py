@@ -29,7 +29,7 @@ class TestPairingRule:
 
     def test_write_verb_paired_by_next_success(self):
         tools = [
-            _tool("sequence_to_mp4", next_tools={"on-success": ["media__probe"]}),
+            _tool("sequence_to_mp4", **{"next-tools": {"on-success": ["media__probe"]}}),
             _tool("probe", read_only=True),
         ]
         assert find_unpaired_write_verbs(tools) == []
