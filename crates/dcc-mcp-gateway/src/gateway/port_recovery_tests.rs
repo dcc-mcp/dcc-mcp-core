@@ -99,7 +99,7 @@ async fn autolaunch_manifest_for_another_pid_does_not_attribute() {
 
 #[tokio::test]
 async fn service_dead_holder_is_reaped_and_the_port_is_released() {
-    let (port, holder) = start_service_dead_holder().await;
+    let (port, mut holder) = start_service_dead_holder().await;
 
     // The holder accepts TCP but never answers HTTP — exactly the
     // adversarial state from #2405. The bind fails while it lives.
@@ -118,6 +118,10 @@ async fn service_dead_holder_is_reaped_and_the_port_is_released() {
             .await;
 
     assert!(released, "reaping the holder must release the port");
+    // Collect the child. Until its parent waits, an exited child keeps its
+    // process-table slot on Unix, so the assertion below would be checking
+    // zombie bookkeeping instead of whether the holder is gone.
+    let _ = holder.try_wait();
     assert!(
         !dcc_mcp_gateway_ensure::is_process_alive(holder.id()),
         "the stale holder must no longer be alive"
