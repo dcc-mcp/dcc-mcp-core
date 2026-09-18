@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.30](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.29...v0.20.30) (2026-09-18)
+
+
+### Features
+
+* add Kdenlive adapter to the public catalog ([#2468](https://github.com/dcc-mcp/dcc-mcp-core/issues/2468)) ([bd09f6e](https://github.com/dcc-mcp/dcc-mcp-core/commit/bd09f6ed2fbc55538e597d803118fea0072c7a78))
+* refresh verified installation catalogs ([7be466d](https://github.com/dcc-mcp/dcc-mcp-core/commit/7be466d412965c181b95f4b6d418bd494976d3be))
+
+
+### Bug Fixes
+
+* **job:** fail closed when SQLite job storage is read-only ([#2474](https://github.com/dcc-mcp/dcc-mcp-core/issues/2474)) ([fe16e6c](https://github.com/dcc-mcp/dcc-mcp-core/commit/fe16e6cc836d715224d3b3e7aa8d22c246641b28))
+
 ## [0.20.29](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.28...v0.20.29) (2026-09-13)
 
 
