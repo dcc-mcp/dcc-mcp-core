@@ -48,7 +48,12 @@ async fn send_expecting(
         status, expected,
         "{method} (MCP-Protocol-Version: {protocol_header:?}) -> {status}: {raw}"
     );
-    let body: Value = serde_json::from_str(&raw).expect("JSON-RPC body");
+    let body: Value = serde_json::from_str(&raw).unwrap_or_else(|error| {
+        panic!(
+            "invalid JSON-RPC body for {method} (MCP-Protocol-Version: {protocol_header:?}) \
+             -> {status}: {raw}: {error}"
+        )
+    });
     assert_eq!(body["id"], "lifecycle-check");
     body
 }
