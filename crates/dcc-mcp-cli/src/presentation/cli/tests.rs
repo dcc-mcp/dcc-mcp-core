@@ -2,6 +2,13 @@ use super::*;
 use base64::Engine;
 use dcc_mcp_models::FeedbackSeverity;
 
+use super::cli_args::{
+    GatewayAction, GatewayDaemonAction, GatewayStatusArgs, command_has_distinct_per_timeout,
+    read_call_arguments, resolve_query,
+};
+use super::gateway_cmd::gateway_endpoint_for_command;
+use super::record_replay::RecordReplayAction;
+use crate::application::gateway_profile::GatewayTarget;
 use crate::presentation::feedback_cmd::FeedbackAction;
 
 #[test]
