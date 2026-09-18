@@ -171,6 +171,21 @@ def _optional_str(name: str, value: Any, max_chars: int = 256) -> str | None:
     return _required_str(name, value, max_chars)
 
 
+def _optional_error(name: str, value: Any) -> str | None:
+    """Accept an ``error`` field only as a string or null, like the packaged schema.
+
+    Deliberately type-only: the schema declares ``{"type": ["string", "null"]}``
+    with no ``minLength``/``maxLength``, so anything stricter here — rejecting
+    the empty string, trimming whitespace, or capping the length — would make
+    the Python validator reject records the shipped schema accepts.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise AcceptanceValidationError(f"{name} must be a string or null")
+    return value
+
+
 def _required_choice(name: str, value: Any, allowed: tuple[str, ...]) -> str:
     normalized = _required_str(name, value)
     if normalized not in allowed:
@@ -407,7 +422,7 @@ def _validate_backend(backend: Any) -> dict[str, Any]:
     if "loaded" in backend:
         out["loaded"] = _required_bool("backend.loaded", backend["loaded"])
     if "error" in backend:
-        out["error"] = backend["error"]
+        out["error"] = _optional_error("backend.error", backend["error"])
     return out
 
 

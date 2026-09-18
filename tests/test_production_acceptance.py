@@ -134,6 +134,41 @@ def test_schema_rejects_product_non_public_owner_repository() -> None:
         validate_acceptance_schema(record)
 
 
+@pytest.mark.parametrize(
+    ("error", "accepted"),
+    [
+        pytest.param({"code": 500}, False, id="dict"),
+        pytest.param([1, 2], False, id="list"),
+        pytest.param(123, False, id="int"),
+        pytest.param(True, False, id="bool"),
+        pytest.param(4.5, False, id="float"),
+        pytest.param("boom", True, id="message"),
+        pytest.param(None, True, id="null"),
+        pytest.param("", True, id="empty-string"),
+        pytest.param("  ", True, id="whitespace-only"),
+        pytest.param("x" * 5000, True, id="long-string"),
+    ],
+)
+def test_backend_error_type_matches_the_packaged_schema(error: Any, accepted: bool) -> None:
+    """The Python validator and the shipped schema must agree on ``backend.error``.
+
+    The schema types ``error`` as ``["string", "null"]`` with no length bounds,
+    so validation here is deliberately type-only: trimming, rejecting the empty
+    string, or capping the length would make this validator reject records the
+    packaged schema accepts, and the two enforcement paths would contradict.
+    """
+    record = _valid_record({"levels": {"instance_qualified_call": _level(backend={"success": True, "error": error})}})
+    schema_rejects = bool(_jsonschema_validate(record))
+
+    if accepted:
+        validate_acceptance_schema(record)
+        assert not schema_rejects, f"schema rejects an error value the validator accepts: {error!r}"
+    else:
+        with pytest.raises(AcceptanceValidationError, match="must be a string or null"):
+            validate_acceptance_schema(record)
+        assert schema_rejects, f"schema accepts an error value the validator rejects: {error!r}"
+
+
 # ── Fail-closed evaluator ────────────────────────────────────────────────
 
 
@@ -177,6 +212,26 @@ def test_optimistic_wrapper_fails_closed_without_loaded_flag(backend: Any) -> No
     assert evaluation.overall_status != "PASS"
     assert evaluation.effective_levels["instance_qualified_call"] == "FAIL"
     assert {finding.code for finding in evaluation.findings} >= {"optimistic_wrapper"}
+
+
+@pytest.mark.parametrize(
+    ("error", "demoted"),
+    [
+        pytest.param("boom", True, id="message"),
+        pytest.param("  ", True, id="whitespace-only-still-truthy"),
+        pytest.param("", False, id="empty-string"),
+        pytest.param(None, False, id="null"),
+    ],
+)
+def test_backend_error_type_check_preserves_fail_closed(error: Any, demoted: bool) -> None:
+    """Type validation must not change which ``error`` values count as a failure.
+
+    A non-empty string reports a failure even when it is only whitespace; an
+    empty string or null reports none.
+    """
+    record = _valid_record({"levels": {"instance_qualified_call": _level(backend={"success": True, "error": error})}})
+    evaluation = evaluate_acceptance(record)
+    assert (evaluation.effective_levels["instance_qualified_call"] == "FAIL") is demoted
 
 
 def test_level_without_a_backend_block_is_not_penalized() -> None:
