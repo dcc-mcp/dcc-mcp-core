@@ -2,15 +2,170 @@
 # vocabulary. Each entry is a DCC-agnostic plan consumed by every DCC
 # adapter's mesh-ops skill via the recipes__list/get/validate/apply tools.
 #
-#   name               - canonical modeling verb (snake_case)
+#   name               - canonical modeling verb (snake_case); also the
+#                        dispatch verb, because one recipe owns exactly one verb
 #   dcc: any           - not tied to one host; applies to every adapter
 #   toolset_profiles   - the mesh-ops toolset carried by each adapter
 #   inputs_schema      - Draft 2020-12 input contract (validated by Core)
 #   steps              - ordered dispatch plan over canonical mesh_ops__<verb>
-#   output_contract    - the artifact produced by the plan
+#   output_contract    - Draft 2020-12 schema for the observed tool receipt
 #
-# Adapters resolve steps[].tool (`mesh_ops__<verb>`) to their own
-# `<adapter>_mesh_ops__<verb>` tool before dispatching.
+# `output_contract` is a schema, not a label: after the adapter's tool runs,
+# the observed result is validated against it. Contracts are only meaningful
+# when they can fail, so every contract requires the fields that prove the
+# operation actually happened (`changed`, a component/element count, and for
+# UV work a `uv_count >= 1` digest-backed receipt).
+#
+# Adapters resolve steps[].tool (`mesh_ops__<verb>`) through `tool_routing`
+# below. Core returns the plan verbatim: it does not substitute `${param}`
+# placeholders and does not apply schema defaults, so the caller must
+# materialize each placeholder from the validated `inputs` (falling back to
+# the schema `default`) before dispatching. Every placeholder therefore names
+# an input property that is either required or carries a default — the test
+# suite enforces that invariant.
+#
+# Placeholders are quoted ("${x}") so YAML keeps them as strings instead of
+# resolving them against the document.
+
+pack:
+  name: mesh-ops
+  version: "1.0.0"
+  dcc: any
+  canonical_namespace: mesh_ops
+  output_contract_format: draft-2020-12
+
+# Canonical verb -> the concrete tool each adapter publishes. A `null` entry
+# means the adapter publishes no equivalent: callers must fall back to that
+# adapter's scripting tool and project the result onto the output contract.
+# Names were captured from the adapter repositories; refresh the snapshot in
+# tests/fixtures/mesh_ops_adapter_catalog.json when an adapter ships tools.
+#
+# This table resolves the *tool*, not the argument shape. Step arguments use
+# the canonical vocabulary below; mapping them onto an adapter's own signature
+# is that adapter's job (for example Maya's `combine_meshes` takes `objects`
+# and `name` where the canonical recipe says `object_names` and `new_name`).
+# Where an adapter cannot express a canonical argument at all, use the
+# scripting fallback instead of dropping it silently.
+tool_routing:
+  adapters: [blender, houdini, maya, "3dsmax"]
+  scripting_fallback:
+    blender: blender_scripting__execute_python
+    houdini: houdini_scripting__execute_python
+    maya: maya_scripting__execute_python
+    "3dsmax": 3dsmax_scripting__execute_python
+  tools:
+    create_primitive:
+      blender: blender_mesh_ops__create_primitive
+      houdini: houdini_geometry__create_primitive
+      maya: null
+      "3dsmax": null
+    bevel_edges:
+      blender: blender_mesh_ops__bevel_edges
+      houdini: houdini_mesh_ops__bevel_edges
+      maya: null
+      "3dsmax": null
+    extrude_faces:
+      blender: blender_mesh_ops__extrude_faces
+      houdini: houdini_mesh_ops__extrude_faces
+      maya: null
+      "3dsmax": null
+    inset:
+      blender: blender_mesh_ops__inset
+      houdini: houdini_mesh_ops__inset
+      maya: null
+      "3dsmax": null
+    boolean_op:
+      blender: blender_mesh_ops__boolean_op
+      houdini: houdini_mesh_ops__boolean_op
+      maya: null
+      "3dsmax": null
+    add_edge_loop:
+      blender: blender_mesh_ops__add_edge_loop
+      houdini: houdini_mesh_ops__add_edge_loop
+      maya: null
+      "3dsmax": null
+    merge_vertices:
+      blender: blender_mesh_ops__merge_vertices
+      houdini: null
+      maya: maya_mesh_ops__merge_vertices
+      "3dsmax": null
+    triangulate_mesh:
+      blender: blender_mesh_ops__triangulate_mesh
+      houdini: houdini_mesh_ops__triangulate_geometry
+      maya: maya_mesh_ops__triangulate
+      "3dsmax": 3dsmax_mesh_ops__triangulate_meshes
+    cleanup_mesh:
+      blender: blender_mesh_ops__cleanup_mesh
+      houdini: null
+      maya: maya_mesh_ops__cleanup_mesh
+      "3dsmax": 3dsmax_mesh_ops__cleanup_meshes
+    combine_meshes:
+      blender: blender_mesh_ops__combine_meshes
+      houdini: houdini_mesh_ops__merge_geometry
+      maya: maya_mesh_ops__combine_meshes
+      "3dsmax": 3dsmax_mesh_ops__attach_meshes
+    mirror:
+      blender: blender_mesh_ops__mirror
+      houdini: houdini_mesh_ops__mirror
+      maya: maya_mesh_ops__mirror_mesh
+      "3dsmax": null
+    loft_sections:
+      blender: blender_mesh_ops__loft_sections
+      houdini: houdini_mesh_ops__loft_sections
+      maya: maya_mesh_ops__loft_sections
+      "3dsmax": null
+    lathe_profile:
+      blender: blender_mesh_ops__lathe_profile
+      houdini: houdini_mesh_ops__lathe_profile
+      maya: maya_mesh_ops__lathe_profile
+      "3dsmax": 3dsmax_modeling__lathe_profile
+    radial_array:
+      blender: blender_mesh_ops__array_instances
+      houdini: houdini_mesh_ops__array_instances
+      maya: maya_mesh_ops__array_instances
+      "3dsmax": null
+    # Dispatch-only verb: composed by radial_array, not exposed as its own recipe.
+    array_instances:
+      blender: blender_mesh_ops__array_instances
+      houdini: houdini_mesh_ops__array_instances
+      maya: maya_mesh_ops__array_instances
+      "3dsmax": null
+    auto_uv:
+      blender: blender_mesh_ops__auto_uv
+      houdini: houdini_mesh_ops__auto_uv
+      maya: maya_uv_ops__auto_uv
+      "3dsmax": 3dsmax_uv_atlas__unwrap_uvs
+    uv_project:
+      blender: blender_mesh_ops__uv_project
+      houdini: houdini_mesh_ops__uv_project
+      maya: maya_uv_ops__project_uvs
+      "3dsmax": 3dsmax_uv_atlas__apply_uv_projection
+    assign_material:
+      blender: blender_mesh_ops__assign_material
+      houdini: houdini_materials__assign_material
+      maya: maya_materials__assign_material
+      "3dsmax": 3dsmax_materials__apply_material
+    set_pivot:
+      blender: blender_mesh_ops__set_pivot
+      houdini: null
+      maya: maya_mesh_ops__set_pivot
+      "3dsmax": null
+    get_poly_count:
+      blender: blender_mesh_ops__get_poly_count
+      houdini: null
+      maya: maya_mesh_ops__get_poly_count
+      "3dsmax": 3dsmax_mesh_ops__get_mesh_topology
+
+# Adapter-local recipe names that describe the same operation. A query such as
+# `recipes__search "loft"` legitimately returns both the cross-adapter entry
+# and the adapter-local one; when both match, prefer the adapter-local recipe
+# (`dcc: <adapter>`) because its steps and contract are verified against that
+# host's real tools, and fall back to the cross-adapter entry (`dcc: any`).
+adapter_recipe_aliases:
+  maya:
+    loft_sections: loft_hull_from_sections
+    mirror: mirror_assembly
+    auto_uv: auto_uv_for_export
 
 recipes:
   - name: create_primitive
@@ -54,13 +209,31 @@ recipes:
     steps:
       - tool: mesh_ops__create_primitive
         arguments:
-          primitive_type: ${primitive_type}
-          name: ${name}
-          size: ${size}
-          location: ${location}
-          rotation: ${rotation}
-          scale: ${scale}
-    output_contract: mesh_object
+          primitive_type: "${primitive_type}"
+          name: "${name}"
+          size: "${size}"
+          location: "${location}"
+          rotation: "${rotation}"
+          scale: "${scale}"
+    output_contract:
+      type: object
+      required: [object_name, primitive_type, changed, vertex_count, face_count]
+      properties:
+        object_name:
+          type: string
+          minLength: 1
+        primitive_type:
+          type: string
+          enum: [cube, sphere, ico_sphere, cylinder, cone, torus, plane, circle]
+        changed:
+          type: boolean
+          const: true
+        vertex_count:
+          type: integer
+          minimum: 1
+        face_count:
+          type: integer
+          minimum: 1
     toolset_profiles: [mesh-ops]
 
   - name: bevel_edges
@@ -92,11 +265,28 @@ recipes:
     steps:
       - tool: mesh_ops__bevel_edges
         arguments:
-          object_name: ${object_name}
-          edge_indices: ${edge_indices}
-          width: ${width}
-          segments: ${segments}
-    output_contract: mesh_component_edit
+          object_name: "${object_name}"
+          edge_indices: "${edge_indices}"
+          width: "${width}"
+          segments: "${segments}"
+    output_contract:
+      type: object
+      required: [object_name, changed, beveled_edges, face_count]
+      properties:
+        object_name:
+          type: string
+          minLength: 1
+        changed:
+          type: boolean
+          const: true
+        beveled_edges:
+          type: array
+          minItems: 1
+          maxItems: 4096
+          items: {type: integer, minimum: 0}
+        face_count:
+          type: integer
+          minimum: 1
     toolset_profiles: [mesh-ops]
 
   - name: extrude_faces
@@ -130,14 +320,31 @@ recipes:
     steps:
       - tool: mesh_ops__extrude_faces
         arguments:
-          object_name: ${object_name}
-          face_indices: ${face_indices}
-          distance: ${distance}
-          direction: ${direction}
-    output_contract: mesh_component_edit
+          object_name: "${object_name}"
+          face_indices: "${face_indices}"
+          distance: "${distance}"
+          direction: "${direction}"
+    output_contract:
+      type: object
+      required: [object_name, changed, extruded_faces, face_count]
+      properties:
+        object_name:
+          type: string
+          minLength: 1
+        changed:
+          type: boolean
+          const: true
+        extruded_faces:
+          type: array
+          minItems: 1
+          maxItems: 4096
+          items: {type: integer, minimum: 0}
+        face_count:
+          type: integer
+          minimum: 1
     toolset_profiles: [mesh-ops]
 
-  - name: inset_faces
+  - name: inset
     dcc: any
     description: Inset bounded face indices and verify resulting topology.
     inputs_schema:
@@ -164,13 +371,30 @@ recipes:
           maximum: 1000000
           default: 0
     steps:
-      - tool: mesh_ops__inset_faces
+      - tool: mesh_ops__inset
         arguments:
-          object_name: ${object_name}
-          face_indices: ${face_indices}
-          thickness: ${thickness}
-          depth: ${depth}
-    output_contract: mesh_component_edit
+          object_name: "${object_name}"
+          face_indices: "${face_indices}"
+          thickness: "${thickness}"
+          depth: "${depth}"
+    output_contract:
+      type: object
+      required: [object_name, changed, inset_faces, face_count]
+      properties:
+        object_name:
+          type: string
+          minLength: 1
+        changed:
+          type: boolean
+          const: true
+        inset_faces:
+          type: array
+          minItems: 1
+          maxItems: 4096
+          items: {type: integer, minimum: 0}
+        face_count:
+          type: integer
+          minimum: 1
     toolset_profiles: [mesh-ops]
 
   - name: boolean_op
@@ -179,7 +403,7 @@ recipes:
     inputs_schema:
       type: object
       additionalProperties: false
-      required: [input_a, input_b, operation]
+      required: [input_a, input_b, operation, output_name]
       properties:
         input_a:
           type: string
@@ -190,22 +414,42 @@ recipes:
         operation:
           type: string
           enum: [union, intersect, subtract]
-        apply:
-          type: boolean
-          default: true
         output_name:
           type: string
           minLength: 1
           maxLength: 255
+        apply:
+          type: boolean
+          default: true
     steps:
       - tool: mesh_ops__boolean_op
         arguments:
-          input_a: ${input_a}
-          input_b: ${input_b}
-          operation: ${operation}
-          apply: ${apply}
-          output_name: ${output_name}
-    output_contract: mesh_object
+          input_a: "${input_a}"
+          input_b: "${input_b}"
+          operation: "${operation}"
+          output_name: "${output_name}"
+          apply: "${apply}"
+    output_contract:
+      type: object
+      required: [object_name, operation, source_objects, changed, face_count]
+      properties:
+        object_name:
+          type: string
+          minLength: 1
+        operation:
+          type: string
+          enum: [union, intersect, subtract]
+        source_objects:
+          type: array
+          minItems: 2
+          maxItems: 2
+          items: {type: string, minLength: 1}
+        changed:
+          type: boolean
+          const: true
+        face_count:
+          type: integer
+          minimum: 1
     toolset_profiles: [mesh-ops]
 
   - name: add_edge_loop
@@ -233,10 +477,26 @@ recipes:
     steps:
       - tool: mesh_ops__add_edge_loop
         arguments:
-          object_name: ${object_name}
-          edge_indices: ${edge_indices}
-          cuts: ${cuts}
-    output_contract: mesh_component_edit
+          object_name: "${object_name}"
+          edge_indices: "${edge_indices}"
+          cuts: "${cuts}"
+    output_contract:
+      type: object
+      required: [object_name, changed, cuts, edge_count]
+      properties:
+        object_name:
+          type: string
+          minLength: 1
+        changed:
+          type: boolean
+          const: true
+        cuts:
+          type: integer
+          minimum: 1
+          maximum: 64
+        edge_count:
+          type: integer
+          minimum: 1
     toolset_profiles: [mesh-ops]
 
   - name: merge_vertices
@@ -257,9 +517,24 @@ recipes:
     steps:
       - tool: mesh_ops__merge_vertices
         arguments:
-          object_name: ${object_name}
-          threshold: ${threshold}
-    output_contract: mesh_topology_edit
+          object_name: "${object_name}"
+          threshold: "${threshold}"
+    output_contract:
+      type: object
+      required: [object_name, changed, vertices_removed, vertex_count]
+      properties:
+        object_name:
+          type: string
+          minLength: 1
+        changed:
+          type: boolean
+          const: true
+        vertices_removed:
+          type: integer
+          minimum: 0
+        vertex_count:
+          type: integer
+          minimum: 1
     toolset_profiles: [mesh-ops]
 
   - name: triangulate_mesh
@@ -276,8 +551,23 @@ recipes:
     steps:
       - tool: mesh_ops__triangulate_mesh
         arguments:
-          object_name: ${object_name}
-    output_contract: mesh_topology_edit
+          object_name: "${object_name}"
+    output_contract:
+      type: object
+      required: [object_name, changed, triangle_count, non_triangle_face_count]
+      properties:
+        object_name:
+          type: string
+          minLength: 1
+        changed:
+          type: boolean
+          const: true
+        triangle_count:
+          type: integer
+          minimum: 1
+        non_triangle_face_count:
+          type: integer
+          const: 0
     toolset_profiles: [mesh-ops]
 
   - name: cleanup_mesh
@@ -307,12 +597,37 @@ recipes:
     steps:
       - tool: mesh_ops__cleanup_mesh
         arguments:
-          object_name: ${object_name}
-          remove_doubles: ${remove_doubles}
-          fix_normals: ${fix_normals}
-          delete_loose: ${delete_loose}
-          merge_threshold: ${merge_threshold}
-    output_contract: mesh_topology_edit
+          object_name: "${object_name}"
+          remove_doubles: "${remove_doubles}"
+          fix_normals: "${fix_normals}"
+          delete_loose: "${delete_loose}"
+          merge_threshold: "${merge_threshold}"
+    output_contract:
+      type: object
+      required: [object_name, changed, removed, face_count]
+      properties:
+        object_name:
+          type: string
+          minLength: 1
+        changed:
+          type: boolean
+          const: true
+        removed:
+          type: object
+          required: [vertices, edges, faces]
+          properties:
+            vertices:
+              type: integer
+              minimum: 0
+            edges:
+              type: integer
+              minimum: 0
+            faces:
+              type: integer
+              minimum: 0
+        face_count:
+          type: integer
+          minimum: 1
     toolset_profiles: [mesh-ops]
 
   - name: combine_meshes
@@ -321,7 +636,7 @@ recipes:
     inputs_schema:
       type: object
       additionalProperties: false
-      required: [object_names]
+      required: [object_names, new_name]
       properties:
         object_names:
           type: array
@@ -335,9 +650,24 @@ recipes:
     steps:
       - tool: mesh_ops__combine_meshes
         arguments:
-          object_names: ${object_names}
-          new_name: ${new_name}
-    output_contract: mesh_object
+          object_names: "${object_names}"
+          new_name: "${new_name}"
+    output_contract:
+      type: object
+      required: [object_name, changed, source_count, face_count]
+      properties:
+        object_name:
+          type: string
+          minLength: 1
+        changed:
+          type: boolean
+          const: true
+        source_count:
+          type: integer
+          minimum: 2
+        face_count:
+          type: integer
+          minimum: 1
     toolset_profiles: [mesh-ops]
 
   - name: mirror
@@ -367,21 +697,36 @@ recipes:
     steps:
       - tool: mesh_ops__mirror
         arguments:
-          object_name: ${object_name}
-          axis: ${axis}
-          merge: ${merge}
-          bisect: ${bisect}
-          apply: ${apply}
-    output_contract: mesh_object
+          object_name: "${object_name}"
+          axis: "${axis}"
+          merge: "${merge}"
+          bisect: "${bisect}"
+          apply: "${apply}"
+    output_contract:
+      type: object
+      required: [object_name, axis, changed, face_count]
+      properties:
+        object_name:
+          type: string
+          minLength: 1
+        axis:
+          type: string
+          enum: [x, y, z]
+        changed:
+          type: boolean
+          const: true
+        face_count:
+          type: integer
+          minimum: 1
     toolset_profiles: [mesh-ops]
 
   - name: loft_sections
     dcc: any
-    description: Loft two to sixty-four ordered mesh edge-loop sections.
+    description: Build a hull from two to sixty-four ordered mesh edge-loop sections.
     inputs_schema:
       type: object
       additionalProperties: false
-      required: [sections]
+      required: [sections, output_name]
       properties:
         sections:
           type: array
@@ -396,9 +741,25 @@ recipes:
     steps:
       - tool: mesh_ops__loft_sections
         arguments:
-          sections: ${sections}
-          output_name: ${output_name}
-    output_contract: mesh_object
+          sections: "${sections}"
+          output_name: "${output_name}"
+    output_contract:
+      type: object
+      required: [object_name, changed, section_count, face_count]
+      properties:
+        object_name:
+          type: string
+          minLength: 1
+        changed:
+          type: boolean
+          const: true
+        section_count:
+          type: integer
+          minimum: 2
+          maximum: 64
+        face_count:
+          type: integer
+          minimum: 1
     toolset_profiles: [mesh-ops]
 
   - name: lathe_profile
@@ -407,11 +768,15 @@ recipes:
     inputs_schema:
       type: object
       additionalProperties: false
-      required: [profile]
+      required: [profile, output_name]
       properties:
         profile:
           type: string
           minLength: 1
+        output_name:
+          type: string
+          minLength: 1
+          maxLength: 255
         axis:
           type: string
           enum: [x, y, z]
@@ -427,24 +792,101 @@ recipes:
           minimum: 3
           maximum: 256
           default: 32
-        output_name:
+    steps:
+      - tool: mesh_ops__lathe_profile
+        arguments:
+          profile: "${profile}"
+          output_name: "${output_name}"
+          axis: "${axis}"
+          origin: "${origin}"
+          segments: "${segments}"
+    output_contract:
+      type: object
+      required: [object_name, changed, segment_count, face_count]
+      properties:
+        object_name:
+          type: string
+          minLength: 1
+        changed:
+          type: boolean
+          const: true
+        segment_count:
+          type: integer
+          minimum: 3
+          maximum: 256
+        face_count:
+          type: integer
+          minimum: 1
+    toolset_profiles: [mesh-ops]
+
+  - name: radial_array
+    dcc: any
+    description: >-
+      Place a source pivot, then build a bounded rotational instance array
+      around it (rotor blades, wheel spokes, radial detailing).
+    inputs_schema:
+      type: object
+      additionalProperties: false
+      required: [object_name, count, pivot, rotate_step, name_prefix]
+      properties:
+        object_name:
+          type: string
+          minLength: 1
+        count:
+          type: integer
+          minimum: 2
+          maximum: 128
+        pivot:
+          type: array
+          minItems: 3
+          maxItems: 3
+          items: {type: number}
+        rotate_step:
+          type: array
+          minItems: 3
+          maxItems: 3
+          items: {type: number}
+        name_prefix:
           type: string
           minLength: 1
           maxLength: 255
     steps:
-      - tool: mesh_ops__lathe_profile
+      - tool: mesh_ops__set_pivot
         arguments:
-          profile: ${profile}
-          axis: ${axis}
-          origin: ${origin}
-          segments: ${segments}
-          output_name: ${output_name}
-    output_contract: mesh_object
+          object_name: "${object_name}"
+          position: "${pivot}"
+      - tool: mesh_ops__array_instances
+        arguments:
+          object_name: "${object_name}"
+          count: "${count}"
+          rotate_step: "${rotate_step}"
+          name_prefix: "${name_prefix}"
+    output_contract:
+      type: object
+      required: [source, objects, verified_count, changed]
+      properties:
+        source:
+          type: string
+          minLength: 1
+        objects:
+          type: array
+          minItems: 2
+          maxItems: 128
+          items: {type: string, minLength: 1}
+        verified_count:
+          type: integer
+          minimum: 2
+          maximum: 128
+        changed:
+          type: boolean
+          const: true
     toolset_profiles: [mesh-ops]
 
   - name: auto_uv
     dcc: any
-    description: Generate a smart-projected UV map.
+    description: >-
+      Automatically project UVs for one export mesh and verify the result.
+      Fails when the mesh carries no UVs after projection.
     inputs_schema:
       type: object
       additionalProperties: false
@@ -461,14 +903,38 @@ recipes:
     steps:
       - tool: mesh_ops__auto_uv
         arguments:
-          object_name: ${object_name}
-          margin: ${margin}
-    output_contract: uv_map
+          object_name: "${object_name}"
+          margin: "${margin}"
+    output_contract:
+      # The acceptance contract: `uv_count >= 1` plus a SHA-256 digest of the
+      # UV buffer means a mesh that ends up without UVs cannot pass.
+      type: object
+      required: [object_name, uv_set, uv_count, uv_digest, changed, margin]
+      properties:
+        object_name:
+          type: string
+          minLength: 1
+        uv_set:
+          type: string
+          minLength: 1
+        uv_count:
+          type: integer
+          minimum: 1
+        uv_digest:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+        changed:
+          type: boolean
+          const: true
+        margin:
+          type: number
+          minimum: 0
+          maximum: 0.49
     toolset_profiles: [mesh-ops]
 
   - name: uv_project
     dcc: any
-    description: Project UVs with a typed projection mode.
+    description: Project UVs with a typed projection mode along any world axis.
     inputs_schema:
       type: object
       additionalProperties: false
@@ -490,22 +956,35 @@ recipes:
           minimum: 0
           maximum: 0.49
           default: 0
-      allOf:
-        - if:
-            properties:
-              projection: {enum: [cylindrical, spherical, cube]}
-            required: [projection]
-          then:
-            properties:
-              axis: {const: z}
     steps:
       - tool: mesh_ops__uv_project
         arguments:
-          object_name: ${object_name}
-          projection: ${projection}
-          axis: ${axis}
-          margin: ${margin}
-    output_contract: uv_map
+          object_name: "${object_name}"
+          projection: "${projection}"
+          axis: "${axis}"
+          margin: "${margin}"
+    output_contract:
+      type: object
+      required: [object_name, uv_set, uv_count, projection, axis, changed]
+      properties:
+        object_name:
+          type: string
+          minLength: 1
+        uv_set:
+          type: string
+          minLength: 1
+        uv_count:
+          type: integer
+          minimum: 1
+        projection:
+          type: string
+          enum: [planar, cylindrical, spherical, cube]
+        axis:
+          type: string
+          enum: [x, y, z]
+        changed:
+          type: boolean
+          const: true
     toolset_profiles: [mesh-ops]
 
   - name: assign_material
@@ -530,10 +1009,26 @@ recipes:
     steps:
       - tool: mesh_ops__assign_material
         arguments:
-          object_name: ${object_name}
-          material_name: ${material_name}
-          slot_index: ${slot_index}
-    output_contract: material_slot
+          object_name: "${object_name}"
+          material_name: "${material_name}"
+          slot_index: "${slot_index}"
+    output_contract:
+      type: object
+      required: [object_name, material_name, slot_index, changed]
+      properties:
+        object_name:
+          type: string
+          minLength: 1
+        material_name:
+          type: string
+          minLength: 1
+        slot_index:
+          type: integer
+          minimum: 0
+          maximum: 63
+        changed:
+          type: boolean
+          const: true
     toolset_profiles: [mesh-ops]
 
   - name: set_pivot
@@ -555,9 +1050,23 @@ recipes:
     steps:
       - tool: mesh_ops__set_pivot
         arguments:
-          object_name: ${object_name}
-          position: ${position}
-    output_contract: mesh_transform
+          object_name: "${object_name}"
+          position: "${position}"
+    output_contract:
+      type: object
+      required: [object_name, position, changed]
+      properties:
+        object_name:
+          type: string
+          minLength: 1
+        position:
+          type: array
+          minItems: 3
+          maxItems: 3
+          items: {type: number}
+        changed:
+          type: boolean
+          const: true
     toolset_profiles: [mesh-ops]
 
   - name: get_poly_count
@@ -574,6 +1083,28 @@ recipes:
     steps:
       - tool: mesh_ops__get_poly_count
         arguments:
-          object_name: ${object_name}
-    output_contract: polygon_count
+          object_name: "${object_name}"
+    output_contract:
+      # Read-only: `changed` must stay false, so a mutating tool cannot pass.
+      type: object
+      required: [object_name, vertex_count, edge_count, face_count, triangle_count, changed]
+      properties:
+        object_name:
+          type: string
+          minLength: 1
+        vertex_count:
+          type: integer
+          minimum: 0
+        edge_count:
+          type: integer
+          minimum: 0
+        face_count:
+          type: integer
+          minimum: 0
+        triangle_count:
+          type: integer
+          minimum: 0
+        changed:
+          type: boolean
+          const: false
     toolset_profiles: [mesh-ops]

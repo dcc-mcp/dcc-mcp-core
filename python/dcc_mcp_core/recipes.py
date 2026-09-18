@@ -281,7 +281,7 @@ def load_recipe_pack(recipes_path: str, *, skill_name: str = "") -> list[RecipeD
             dcc: substance-designer
             inputs_schema: {...}
             steps: [...]
-            output_contract: material_graph
+            output_contract: {type: object, required: [changed], properties: {...}}
 
     Non-YAML files and malformed packs return ``[]`` so legacy
     ``RECIPES.md`` anchors continue to be handled by the Markdown helpers.

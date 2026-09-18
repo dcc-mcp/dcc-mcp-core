@@ -55,14 +55,44 @@ recipes:
       - tool: maya_materials__create
         arguments:
           name: ${material_name}
-    output_contract: material_graph
+    output_contract:
+      type: object
+      required: [material_name, changed]
+      properties:
+        material_name:
+          type: string
+        changed:
+          type: boolean
+          const: true
 ```
+
+`output_contract` is a Draft 2020-12 schema, not a label: after the tool runs,
+validate the observed result against it. Contracts that cannot fail are useless,
+so require the fields that prove the operation happened — for example a
+`changed: {const: true}` receipt flag, post-operation element counts, and for UV
+work a `uv_count: {minimum: 1}` bound so a mesh left without UVs fails the
+contract. Legacy packs may still carry a plain string label, which callers treat
+as documentation only.
 
 ```python
 load_recipe_pack(path) -> list[RecipeDefinition]
 list_recipe_entries(skill_metadata) -> list[dict]
 validate_recipe_inputs(recipe, inputs) -> list[str]
 ```
+
+### Step materialization
+
+`recipes__apply` validates `inputs` against `inputs_schema` and returns the
+`steps` **verbatim**: Core does not substitute `${param}` placeholders and does
+not apply schema defaults. The caller materializes each step argument:
+
+```text
+step.arguments[k] == "${name}"  ->  inputs[name] if present
+                                    else inputs_schema.properties[name].default
+```
+
+Pack authors must therefore keep every placeholder resolvable: an argument named
+by a placeholder is either listed in `required` or declares a `default`.
 
 `validate_recipe_inputs` evaluates the published `inputs_schema` as a
 Draft 2020-12 contract (including same-resource nested/root JSON-Pointer `$ref`, bounds,
