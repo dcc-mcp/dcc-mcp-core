@@ -23,7 +23,7 @@ the observation is captured, compared, bounded, and reported.
 
 Typical use in an adapter tool::
 
-    from dcc_mcp_core.postcondition import PostconditionCheck, with_postcondition
+    from dcc_mcp_core.runtime.postcondition import PostconditionCheck, with_postcondition
 
     @with_postcondition(
         PostconditionCheck(
@@ -44,6 +44,7 @@ visible in-band so callers stop trusting unconfirmed successes.
 
 from __future__ import annotations
 
+from collections.abc import Sequence as _AbcSequence
 from dataclasses import dataclass
 import functools
 import json
@@ -183,10 +184,16 @@ class PostconditionCheck:
             raise TypeError("post-condition check description must be a string")
 
     def evaluate(self) -> PostconditionOutcome:
-        """Read the state back once and compare it against the expectation."""
+        """Read the state back once and compare it against the expectation.
+
+        Only :class:`Exception` is captured as evidence. ``KeyboardInterrupt``,
+        ``SystemExit``, and ``GeneratorExit`` derive from :class:`BaseException`
+        and must keep their cancellation/termination semantics, so they
+        propagate instead of being downgraded to an "unverified" verdict.
+        """
         try:
             actual = self.read()
-        except BaseException as exc:
+        except Exception as exc:
             return PostconditionOutcome(
                 method=self.method,
                 verified=False,
@@ -208,7 +215,7 @@ class PostconditionCheck:
                 verified = _is_present(actual)
             else:
                 verified = _values_equal(actual, self.expected)
-        except BaseException as exc:
+        except Exception as exc:
             return PostconditionOutcome(
                 method=self.method,
                 verified=False,
@@ -258,11 +265,7 @@ def verify_postcondition(
             "postcondition_check_missing",
             "At least one post-condition check is required",
         )
-    if on_unverified not in UNVERIFIED_POLICIES:
-        raise PostconditionError(
-            "postcondition_policy_invalid",
-            f"Unknown post-condition policy: {on_unverified!r}",
-        )
+    _validate_policy(on_unverified)
     outcomes = [check.evaluate() for check in normalized]
     verified = all(outcome.verified for outcome in outcomes)
     evidence: dict[str, Any] = {
@@ -346,6 +349,14 @@ def with_postcondition(
     :func:`apply_postcondition`. Failures propagate untouched because an
     exception or an error envelope is already explicit.
 
+    Both the checks and *on_unverified* are validated at decoration time, so an
+    invalid contract fails on import rather than after the handler has already
+    mutated host state.
+
+    Raises:
+        PostconditionError: If no check is supplied or *on_unverified* is not
+            one of :data:`UNVERIFIED_POLICIES`.
+
     Example::
 
         @with_postcondition(
@@ -358,13 +369,15 @@ def with_postcondition(
         )
         def assign_bitmap_texture(shader, path):
             ...
+
     """
-    normalized = _normalize_checks(list(checks))
+    normalized = _normalize_checks(checks)
     if not normalized:
         raise PostconditionError(
             "postcondition_check_missing",
             "At least one post-condition check is required",
         )
+    _validate_policy(on_unverified)
 
     def decorate(func: Callable[..., Any]) -> Callable[..., Any]:
         @functools.wraps(func)
@@ -381,10 +394,19 @@ def with_postcondition(
     return decorate
 
 
+def _validate_policy(on_unverified: str) -> None:
+    if on_unverified not in UNVERIFIED_POLICIES:
+        raise PostconditionError(
+            "postcondition_policy_invalid",
+            f"Unknown post-condition policy: {on_unverified!r}",
+        )
+
+
 def _normalize_checks(checks: CheckInput) -> list[PostconditionCheck]:
     if isinstance(checks, PostconditionCheck):
         return [checks]
-    if isinstance(checks, (list, tuple)):
+    # Strings are sequences too, but a bare string is never a check list.
+    if isinstance(checks, _AbcSequence) and not isinstance(checks, (str, bytes, bytearray)):
         normalized: list[PostconditionCheck] = []
         for check in checks:
             if not isinstance(check, PostconditionCheck):
@@ -409,11 +431,10 @@ def _merge_postcondition(
     evidence: Mapping[str, Any],
 ) -> dict[str, Any]:
     merged: dict[str, Any] = dict(existing) if isinstance(existing, Mapping) else {}
+    # Readback evidence is authoritative: ``evidence["verified"]`` always
+    # overwrites a ``verified`` value the handler declared itself, so a tool
+    # cannot certify its own effect as verified.
     merged.update(evidence)
-    declared = merged.get("verified")
-    if isinstance(declared, bool) and declared and not evidence.get("verified"):
-        # Readback is authoritative: a tool cannot self-certify as verified.
-        merged["verified"] = False
     return merged
 
 
@@ -484,6 +505,15 @@ def _bounded_repr(value: Any) -> str:
     return text if len(text) <= _MAX_STRING_CHARS else text[:_MAX_STRING_CHARS] + "..."
 
 
+def _bounded_key(key: Any) -> str:
+    """Bound one mapping key so a pathological host key cannot bloat evidence."""
+    try:
+        text = key if isinstance(key, str) else str(key)
+    except Exception:
+        text = f"<unrepresentable {type(key).__name__}>"
+    return text if len(text) <= _MAX_STRING_CHARS else text[:_MAX_STRING_CHARS] + "..."
+
+
 def _json_safe(value: Any, *, depth: int = 0) -> Any:
     """Bound and redact one read-back value before it crosses the wire."""
     if value is None or isinstance(value, bool):
@@ -502,15 +532,18 @@ def _json_safe(value: Any, *, depth: int = 0) -> Any:
             if index >= _MAX_ITEMS:
                 out["_truncated"] = True
                 break
-            key_text = str(key)
+            key_text = _bounded_key(key)
             out[key_text] = _REDACTED if _SENSITIVE_KEY.search(key_text) else _json_safe(item, depth=depth + 1)
         return out
     if isinstance(value, (list, tuple, set, frozenset)):
-        items = list(value)[:_MAX_ITEMS]
-        truncated = len(value) > _MAX_ITEMS
-        out_list = [_json_safe(item, depth=depth + 1) for item in items]
-        if truncated:
-            out_list.append(_TRUNCATED)
+        # Consume at most ``_MAX_ITEMS + 1`` entries: materializing the whole
+        # collection first would defeat the bound on a large host-side value.
+        out_list: list[Any] = []
+        for index, item in enumerate(value):
+            if index >= _MAX_ITEMS:
+                out_list.append(_TRUNCATED)
+                break
+            out_list.append(_json_safe(item, depth=depth + 1))
         return out_list
     return _bounded_repr(value)
 
