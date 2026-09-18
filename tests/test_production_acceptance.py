@@ -127,9 +127,9 @@ def test_schema_rejects_product_missing_a_level() -> None:
         validate_acceptance_schema(record)
 
 
-def test_schema_rejects_product_missing_owner_repository() -> None:
+def test_schema_rejects_product_non_public_owner_repository() -> None:
     record = _valid_record({"product": {"owner_repository": "file:///private/repo"}})
-    with pytest.raises(AcceptanceValidationError, match="public link"):
+    with pytest.raises(AcceptanceValidationError, match="evidence url must be an http"):
         validate_acceptance_schema(record)
 
 
