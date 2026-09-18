@@ -8,6 +8,7 @@ explicit ``verified: false``.
 
 from __future__ import annotations
 
+from collections import deque
 import json
 
 import pytest
@@ -27,6 +28,11 @@ from dcc_mcp_core.runtime.postcondition import verify_postcondition
 from dcc_mcp_core.runtime.postcondition import with_postcondition
 from dcc_mcp_core.skill import skill_error
 from dcc_mcp_core.skill import skill_success
+
+#: Mirrors ``postcondition._MAX_ITEMS`` / ``_MAX_STRING_CHARS``; kept local so
+#: the contract is asserted against the documented bound, not the private name.
+MAX_EVIDENCE_ITEMS = 16
+MAX_EVIDENCE_CHARS = 256
 
 
 def _success(**context):
@@ -305,3 +311,89 @@ def test_changed_from_and_present_are_distinct_expectations() -> None:
     assert PRESENT is not changed_from(None)
     with pytest.raises(TypeError):
         bool(PRESENT)
+
+
+def test_decorator_rejects_an_invalid_policy_before_the_handler_runs() -> None:
+    """Policy errors must fail at import time, not after host state changed."""
+    calls = []
+
+    def assign_texture(path):
+        calls.append(path)
+        return skill_success("Texture assigned", path=path)
+
+    check = PostconditionCheck("slot_readback", read=lambda: "tex.png")
+
+    with pytest.raises(PostconditionError) as exc_info:
+        with_postcondition(check, on_unverified="ignore")(assign_texture)
+    assert exc_info.value.code == "postcondition_policy_invalid"
+    assert calls == []
+
+    # The same contract through ``verify_postcondition`` keeps the same code.
+    with pytest.raises(PostconditionError) as exc_info:
+        verify_postcondition(check, on_unverified="ignore")
+    assert exc_info.value.code == "postcondition_policy_invalid"
+
+
+def test_process_control_exceptions_propagate_instead_of_becoming_evidence() -> None:
+    """``KeyboardInterrupt``/``SystemExit`` are cancellations, not verdicts."""
+
+    def interrupted():
+        raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        PostconditionCheck("slot", read=interrupted).evaluate()
+    with pytest.raises(KeyboardInterrupt):
+        verify_postcondition(PostconditionCheck("slot", read=interrupted))
+
+    def exiting_comparison(actual, expected):
+        raise SystemExit(3)
+
+    with pytest.raises(SystemExit):
+        PostconditionCheck("slot", read=lambda: 1, equals=exiting_comparison).evaluate()
+
+
+def test_checks_may_be_any_non_string_sequence() -> None:
+    check = PostconditionCheck("slot", read=lambda: "tex.png")
+
+    assert verify_postcondition((check,))["verified"] is True
+    assert verify_postcondition(deque([check]))["verified"] is True
+    # A bare string is a sequence but never a check list.
+    with pytest.raises(TypeError):
+        verify_postcondition("slot_readback")
+    with pytest.raises(TypeError):
+        verify_postcondition(b"slot_readback")
+
+
+def test_bounded_evidence_does_not_walk_a_large_collection() -> None:
+    """Truncation must stay lazy: the host value is never fully materialized."""
+    consumed = []
+
+    class HostSet(set):
+        def __iter__(self):
+            for item in super().__iter__():
+                consumed.append(item)
+                yield item
+
+    huge = HostSet(range(5000))
+
+    evidence = verify_postcondition(PostconditionCheck("node_dump", read=lambda: huge))
+    actual = evidence["actual"]
+
+    assert actual[-1] == "<truncated>"
+    assert len(actual) == MAX_EVIDENCE_ITEMS + 1
+    # 16 kept entries plus the single look-ahead that detects truncation.
+    assert len(consumed) == MAX_EVIDENCE_ITEMS + 1
+    json.dumps(evidence)
+
+
+def test_bounded_evidence_truncates_pathological_mapping_keys() -> None:
+    evidence = verify_postcondition(
+        PostconditionCheck("node_dump", read=lambda: {"k" * 5000: "value", "api_token": "secret"}),
+    )
+    actual = evidence["actual"]
+
+    long_key = next(key for key in actual if key.startswith("kkk"))
+    assert len(long_key) <= MAX_EVIDENCE_CHARS + 3
+    assert actual[long_key] == "value"
+    assert actual["api_token"] == "<redacted>"
+    json.dumps(evidence)
