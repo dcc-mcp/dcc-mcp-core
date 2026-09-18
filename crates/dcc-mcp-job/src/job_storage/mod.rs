@@ -24,7 +24,7 @@ use crate::job::{Job, JobProgress, JobStatus};
 pub mod sqlite;
 
 #[cfg(feature = "job-persist-sqlite")]
-pub use sqlite::SqliteStorage;
+pub use sqlite::{SqliteStorage, is_readonly_error};
 
 /// Error returned by every [`JobStorage`] operation.
 #[must_use]

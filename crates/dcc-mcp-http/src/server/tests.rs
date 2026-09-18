@@ -118,11 +118,48 @@ fn startup_retention_prunes_only_terminal_rows() {
     let _ = std::fs::remove_file(path.with_extension("sqlite3-shm"));
 }
 
+#[cfg(feature = "job-persist-sqlite")]
+#[test]
+fn readonly_job_storage_fails_closed_at_startup() {
+    let path = std::env::temp_dir().join(format!(
+        "dcc-mcp-http-readonly-{}.sqlite3",
+        uuid::Uuid::new_v4()
+    ));
+    // Create a complete database first, then drop its write permission. The
+    // file stays readable, so the failure must come from the writability
+    // probe rather than from an open error.
+    drop(crate::job_storage::SqliteStorage::open(&path).unwrap());
+    let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+    permissions.set_readonly(true);
+    std::fs::set_permissions(&path, permissions).unwrap();
+
+    let mut config = McpHttpConfig::default();
+    config.job.job_storage_path = Some(path.clone());
+    let error = build_job_manager(&config)
+        .expect_err("a read-only job database must fail closed instead of warning per job")
+        .to_string();
+    assert!(
+        error.contains("read-only"),
+        "startup error must name the read-only condition, got: {error}"
+    );
+
+    let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+    #[allow(clippy::permissions_set_readonly_false)]
+    permissions.set_readonly(false);
+    std::fs::set_permissions(&path, permissions).unwrap();
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(path.with_file_name(format!(
+        "{}.lock",
+        path.file_name().unwrap().to_string_lossy()
+    )));
+    let _ = std::fs::remove_file(path.with_extension("sqlite3-wal"));
+    let _ = std::fs::remove_file(path.with_extension("sqlite3-shm"));
+}
+
 struct HttpBlockingStorage {
     entered: mpsc::SyncSender<()>,
     release: std::sync::Mutex<mpsc::Receiver<()>>,
 }
-
 impl std::fmt::Debug for HttpBlockingStorage {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
