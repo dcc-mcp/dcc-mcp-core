@@ -531,11 +531,7 @@ counter cannot report `0` while frames are already written. The reconciled
 payload carries `counter_source` (`disk` or `reported`) and, when the two
 disagree, `reported_current`. `total` is never left below `current`.
 
-The output directory is read from the job's result once it reaches a terminal
-state, and — so that a **running** job is covered too, which is the shape
-#2262 describes — from the output directory declared in its launch arguments
-while it is still running. A job that declares none keeps its reported
-counter, and `counter_source` says so.
+The output directory is read from the job's result once it reaches a terminal state, and — so that a **running** job is covered too, which is the shape issue #2262 describes — from the output directory declared in its launch arguments while it is still running. A job that declares none keeps its reported counter, and `counter_source` says so.
 
 Python example:
 
