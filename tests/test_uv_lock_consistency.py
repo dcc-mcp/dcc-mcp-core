@@ -24,6 +24,37 @@ VERSION_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "version-consistency.ym
 EXPECTED_ROOT_PACKAGE = "dcc-mcp-core"
 TRUSTED_VALIDATOR_PATH = "scripts/ci/generated_lock_sync.py"
 TRUSTED_VALIDATOR_COMMIT = "b8e294e8a64abba426871b1e86eb106e75aab075"
+# Probe children create their PID file and only afterwards write the payload.
+# On Windows that pair is not atomic for a reader, so a parent that observes
+# the path immediately after ``run_bounded`` fails closed can read an empty or
+# half-written file. Retry inside a bounded window before giving up.
+PID_READ_ATTEMPTS = 40
+PID_READ_DELAY_SECS = 0.05
+
+
+def _read_pid_file(
+    path: Path,
+    *,
+    attempts: int = PID_READ_ATTEMPTS,
+    delay: float = PID_READ_DELAY_SECS,
+) -> int | None:
+    """Return the PID recorded by a probe process, or ``None`` if unreadable.
+
+    Missing files, empty files (create-before-write races), and non-numeric
+    payloads all yield ``None`` so cleanup branches can skip the kill instead of
+    raising ``ValueError`` from a ``finally`` block, which would mask the very
+    ``pytest.raises`` result the test is asserting on.
+    """
+    for _ in range(attempts):
+        try:
+            raw = path.read_text(encoding="utf-8").strip()
+        except OSError:
+            return None
+        if raw.isdigit():
+            pid = int(raw)
+            return pid if pid > 0 else None
+        time.sleep(delay)
+    return None
 
 
 def _load_checker_module():
@@ -770,6 +801,34 @@ def test_git_helper_uses_hard_timeout(monkeypatch: pytest.MonkeyPatch, tmp_path:
     assert observed["timeout"] > 0
 
 
+def test_pid_file_reader_accepts_a_recorded_pid(tmp_path: Path) -> None:
+    pid_file = tmp_path / "daemon.pid"
+    pid_file.write_text("4321\n", encoding="utf-8")
+    assert _read_pid_file(pid_file) == 4321
+
+
+def test_pid_file_reader_waits_for_a_late_payload(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    pid_file = tmp_path / "daemon.pid"
+    pid_file.write_text("", encoding="utf-8")
+    reads = {"count": 0}
+
+    def late_writer() -> None:
+        reads["count"] += 1
+        if reads["count"] >= 3:
+            pid_file.write_text("4321", encoding="utf-8")
+
+    monkeypatch.setattr(time, "sleep", lambda _seconds: late_writer())
+    assert _read_pid_file(pid_file) == 4321
+
+
+def test_pid_file_reader_returns_none_for_unusable_payloads(tmp_path: Path) -> None:
+    pid_file = tmp_path / "daemon.pid"
+    assert _read_pid_file(pid_file, attempts=1) is None
+    for payload in ("", "   ", "not-a-pid", "0"):
+        pid_file.write_text(payload, encoding="utf-8")
+        assert _read_pid_file(pid_file, attempts=1) is None, payload
+
+
 @pytest.mark.skipif(sys.platform == "darwin", reason="macOS process execution fails closed")
 def test_bounded_runner_kills_process_descendants(tmp_path: Path) -> None:
     script = REPO_ROOT / "scripts" / "ci" / "generated_lock_sync.py"
@@ -792,7 +851,8 @@ def test_bounded_runner_kills_process_descendants(tmp_path: Path) -> None:
         module.run_bounded([sys.executable, str(probe), str(child_pid), str(grandchild_pid)], timeout_seconds=1.0)
     assert child_pid.exists() and grandchild_pid.exists()
     for pid_path in (child_pid, grandchild_pid):
-        pid = int(pid_path.read_text())
+        pid = _read_pid_file(pid_path)
+        assert pid is not None, f"{pid_path.name} never received a PID payload"
         for _ in range(20):
             if not module.process_exists(pid):
                 break
@@ -824,14 +884,14 @@ def test_bounded_runner_fails_closed_on_escaped_daemon(tmp_path: Path) -> None:
         with pytest.raises(RuntimeError):
             module.run_bounded([sys.executable, str(probe), str(daemon_pid)], timeout_seconds=5)
     finally:
-        if daemon_pid.exists():
-            pid = int(daemon_pid.read_text())
-            if module.process_exists(pid):
-                if os.name == "nt":
-                    subprocess.run(("taskkill", "/PID", str(pid), "/T", "/F"), check=False, timeout=5)
-                else:
-                    os.kill(pid, 9)
-    assert not daemon_pid.exists() or not module.process_exists(int(daemon_pid.read_text()))
+        pid = _read_pid_file(daemon_pid)
+        if pid is not None and module.process_exists(pid):
+            if os.name == "nt":
+                subprocess.run(("taskkill", "/PID", str(pid), "/T", "/F"), check=False, timeout=5)
+            else:
+                os.kill(pid, 9)
+    escaped_pid = _read_pid_file(daemon_pid)
+    assert escaped_pid is None or not module.process_exists(escaped_pid)
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows process-tree contract")
@@ -854,8 +914,9 @@ def test_bounded_runner_fails_closed_on_windows_normal_daemon(tmp_path: Path) ->
         with pytest.raises(RuntimeError):
             module.run_bounded([sys.executable, str(probe), str(daemon_pid)], timeout_seconds=5)
     finally:
-        if daemon_pid.exists() and module.process_exists(int(daemon_pid.read_text())):
-            subprocess.run(("taskkill", "/PID", daemon_pid.read_text(), "/T", "/F"), check=False, timeout=5)
+        pid = _read_pid_file(daemon_pid)
+        if pid is not None and module.process_exists(pid):
+            subprocess.run(("taskkill", "/PID", str(pid), "/T", "/F"), check=False, timeout=5)
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows process-tree contract")
@@ -883,8 +944,9 @@ def test_bounded_runner_contains_windows_last_fork_after_leader_exit(tmp_path: P
         with pytest.raises(RuntimeError, match="descendants survived"):
             module.run_bounded([sys.executable, str(probe), str(child_pid)], timeout_seconds=5)
     finally:
-        if child_pid.exists() and module.process_exists(int(child_pid.read_text())):
-            subprocess.run(("taskkill", "/PID", child_pid.read_text(), "/T", "/F"), check=False, timeout=5)
+        pid = _read_pid_file(child_pid)
+        if pid is not None and module.process_exists(pid):
+            subprocess.run(("taskkill", "/PID", str(pid), "/T", "/F"), check=False, timeout=5)
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows process-tree contract")
@@ -1138,8 +1200,9 @@ def test_observer_failure_still_kills_timeout_process(tmp_path: Path, monkeypatc
     with pytest.raises(RuntimeError):
         module.run_bounded([sys.executable, str(probe), str(child_pid)], timeout_seconds=0.2)
     assert killed
-    if child_pid.exists():
-        os.kill(int(child_pid.read_text()), 9)
+    pid = _read_pid_file(child_pid)
+    if pid is not None:
+        os.kill(pid, 9)
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX process probe contract")
@@ -1224,8 +1287,9 @@ def test_bounded_runner_catches_last_fork_after_leader_exit(tmp_path: Path) -> N
         with pytest.raises(RuntimeError, match="descendants survived"):
             module.run_bounded([sys.executable, str(probe), str(grandchild_pid)], timeout_seconds=5)
     finally:
-        if grandchild_pid.exists() and module.process_exists(int(grandchild_pid.read_text())):
-            os.kill(int(grandchild_pid.read_text()), 9)
+        pid = _read_pid_file(grandchild_pid)
+        if pid is not None and module.process_exists(pid):
+            os.kill(pid, 9)
 
 
 @pytest.mark.skipif(sys.platform != "darwin", reason="macOS fail-closed contract")
