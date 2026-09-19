@@ -33,6 +33,7 @@ from dataclasses import dataclass
 from dataclasses import field
 from pathlib import Path
 from typing import Any
+from typing import Mapping
 
 from dcc_mcp_core.verification.schemas import SchemaValidationError
 from dcc_mcp_core.verification.schemas import validate_state_export
@@ -65,6 +66,32 @@ class AssertionFailure(AssertionError):
         super().__init__(message)
 
 
+def _json_safe(value: Any) -> Any:
+    """Return a value that :func:`json.dumps` can always serialize.
+
+    Callers may hand a :class:`Check` values that compare perfectly well in
+    Python but are not JSON-representable — a ``set`` of joint names, a
+    :class:`~pathlib.Path`, a tuple, or raw ``bytes``. Serializing the report
+    is the whole point of the collecting verifier, so unsupported types are
+    coerced here instead of letting ``json.dumps`` raise ``TypeError``.
+    """
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, (bytes, bytearray)):
+        return bytes(value).decode("utf-8", "replace")
+    if isinstance(value, (set, frozenset)):
+        return [_json_safe(item) for item in sorted(value, key=repr)]
+    if isinstance(value, Mapping):
+        # JSON object keys are always strings; coerce up front so the result is
+        # identical whether or not a serializer would have done it for us.
+        return {str(_json_safe(key)): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    return str(value)
+
+
 @dataclass(frozen=True)
 class Check:
     """One recorded behavior check."""
@@ -82,8 +109,8 @@ class Check:
             "name": self.name,
             "kind": self.kind,
             "passed": self.passed,
-            "expected": self.expected,
-            "actual": self.actual,
+            "expected": _json_safe(self.expected),
+            "actual": _json_safe(self.actual),
             "message": self.message,
         }
 

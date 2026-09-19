@@ -114,27 +114,65 @@ def _require_field(
     if field not in payload:
         raise SchemaValidationError(schema_name, f"missing required field: {field}", path=path)
     value = payload[field]
-    if expected_type is not None and not isinstance(value, expected_type):
-        expected_name = getattr(expected_type, "__name__", expected_type)
-        actual_name = type(value).__name__
+    if expected_type is not None:
+        # ``bool`` is a subclass of ``int``, so a plain ``isinstance(value, int)``
+        # would happily accept ``True`` where the packaged JSON Schema declares
+        # ``"type": "integer"``. Reject it explicitly.
+        if expected_type is int and isinstance(value, bool):
+            raise SchemaValidationError(
+                schema_name,
+                f"field {field} must be int, got bool",
+                path=f"{path}.{field}",
+            )
+        if not isinstance(value, expected_type):
+            expected_name = getattr(expected_type, "__name__", expected_type)
+            actual_name = type(value).__name__
+            raise SchemaValidationError(
+                schema_name,
+                f"field {field} must be {expected_name}, got {actual_name}",
+                path=f"{path}.{field}",
+            )
+    return value
+
+
+def _require_non_negative_int(
+    payload: Mapping[str, Any],
+    field: str,
+    schema_name: str,
+    *,
+    path: str = "$",
+) -> int:
+    """Require *field* to be a non-negative integer.
+
+    Mirrors the packaged JSON Schema's ``{"type": "integer", "minimum": 0}``
+    for count-style fields, including the explicit ``bool`` rejection that
+    ``isinstance(value, int)`` alone cannot provide.
+    """
+    value = _require_field(payload, field, schema_name, path=path, expected_type=int)
+    if value < 0:
         raise SchemaValidationError(
             schema_name,
-            f"field {field} must be {expected_name}, got {actual_name}",
+            f"field {field} must be >= 0",
             path=f"{path}.{field}",
         )
     return value
 
 
 def _check_schema_identity(payload: Mapping[str, Any], schema_name: str) -> None:
-    declared = payload.get("schema_name")
-    if declared is not None and declared != schema_name:
+    """Require the payload to declare *schema_name* at the published version.
+
+    Both fields are mandatory in every packaged JSON Schema document, so a
+    payload that omits them is malformed rather than merely untagged.
+    """
+    declared = _require_field(payload, "schema_name", schema_name, expected_type=str)
+    if declared != schema_name:
         raise SchemaValidationError(
             schema_name,
             f"schema_name mismatch: expected {schema_name}, got {declared}",
         )
-    version = payload.get("schema_version")
+    version = _require_field(payload, "schema_version", schema_name, expected_type=int)
     expected_version = SCHEMA_VERSIONS[schema_name]
-    if version is not None and version != expected_version:
+    if version != expected_version:
         raise SchemaValidationError(
             schema_name,
             f"unsupported schema_version {version} (expected {expected_version})",
@@ -160,11 +198,9 @@ def _validate_anim_curves(payload: Mapping[str, Any]) -> None:
         path = f"$.curves[{index}]"
         curve_map = _require_mapping(curve, SCHEMA_ANIM_CURVES, path)
         _require_field(curve_map, "target", SCHEMA_ANIM_CURVES, path=path, expected_type=str)
-        key_count = _require_field(curve_map, "key_count", SCHEMA_ANIM_CURVES, path=path, expected_type=int)
+        key_count = _require_non_negative_int(curve_map, "key_count", SCHEMA_ANIM_CURVES, path=path)
         times = _require_number_list(curve_map, "times", SCHEMA_ANIM_CURVES, path)
         values = _require_number_list(curve_map, "values", SCHEMA_ANIM_CURVES, path)
-        if key_count < 0:
-            raise SchemaValidationError(SCHEMA_ANIM_CURVES, "key_count must be >= 0", path=path)
         if key_count != len(times):
             raise SchemaValidationError(
                 SCHEMA_ANIM_CURVES,
@@ -191,7 +227,7 @@ def _validate_anim_curves(payload: Mapping[str, Any]) -> None:
 def _validate_rig_state(payload: Mapping[str, Any]) -> None:
     _check_schema_identity(payload, SCHEMA_RIG_STATE)
     joints = _require_field(payload, "joints", SCHEMA_RIG_STATE, expected_type=dict)
-    _require_field(joints, "count", SCHEMA_RIG_STATE, path="$.joints", expected_type=int)
+    _require_non_negative_int(joints, "count", SCHEMA_RIG_STATE, path="$.joints")
     hierarchy = joints.get("hierarchy")
     if hierarchy is not None:
         if not isinstance(hierarchy, list):
@@ -220,16 +256,14 @@ def _validate_rig_state(payload: Mapping[str, Any]) -> None:
             path = f"$.skins[{index}]"
             skin_map = _require_mapping(skin, SCHEMA_RIG_STATE, path)
             _require_field(skin_map, "mesh", SCHEMA_RIG_STATE, path=path, expected_type=str)
-            _require_field(skin_map, "influences", SCHEMA_RIG_STATE, path=path, expected_type=int)
-            _require_field(skin_map, "unnormalized_vertices", SCHEMA_RIG_STATE, path=path, expected_type=int)
+            _require_non_negative_int(skin_map, "influences", SCHEMA_RIG_STATE, path=path)
+            _require_non_negative_int(skin_map, "unnormalized_vertices", SCHEMA_RIG_STATE, path=path)
 
 
 def _validate_sim_status(payload: Mapping[str, Any]) -> None:
     _check_schema_identity(payload, SCHEMA_SIM_STATUS)
     _require_field(payload, "cache_exists", SCHEMA_SIM_STATUS, expected_type=bool)
-    frame_count = _require_field(payload, "frame_count", SCHEMA_SIM_STATUS, expected_type=int)
-    if frame_count < 0:
-        raise SchemaValidationError(SCHEMA_SIM_STATUS, "frame_count must be >= 0")
+    _require_non_negative_int(payload, "frame_count", SCHEMA_SIM_STATUS)
     per_frame = payload.get("per_frame_counts")
     if per_frame is not None:
         if not isinstance(per_frame, list):

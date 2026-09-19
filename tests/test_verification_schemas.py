@@ -199,6 +199,94 @@ class TestGraphState:
             validate_state_export(payload, SCHEMA_GRAPH_STATE)
 
 
+class TestSchemaIdentityIsRequired:
+    """``schema_name``/``schema_version`` are ``required`` in every packaged document.
+
+    A payload that omits them is malformed, not merely untagged, and a boolean
+    must never satisfy an integer version check (``True == 1`` in Python).
+    """
+
+    def test_missing_schema_name_rejected(self):
+        payload = _rig_state_payload()
+        del payload["schema_name"]
+        with pytest.raises(SchemaValidationError, match="schema_name"):
+            validate_state_export(payload, SCHEMA_RIG_STATE)
+
+    def test_missing_schema_version_rejected(self):
+        payload = _rig_state_payload()
+        del payload["schema_version"]
+        with pytest.raises(SchemaValidationError, match="schema_version"):
+            validate_state_export(payload, SCHEMA_RIG_STATE)
+
+    def test_boolean_schema_version_rejected(self):
+        payload = _rig_state_payload()
+        payload["schema_version"] = True
+        with pytest.raises(SchemaValidationError, match="schema_version"):
+            validate_state_export(payload, SCHEMA_RIG_STATE)
+
+    def test_non_string_schema_name_rejected(self):
+        payload = _rig_state_payload()
+        payload["schema_name"] = 1
+        with pytest.raises(SchemaValidationError, match="schema_name"):
+            validate_state_export(payload, SCHEMA_RIG_STATE)
+
+
+class TestCountFieldsAreNonNegativeIntegers:
+    """Count fields mirror the packaged ``{"type": "integer", "minimum": 0}``.
+
+    ``bool`` is a subclass of ``int``, so ``isinstance(value, int)`` alone would
+    accept ``True`` as a count; the validator must reject it explicitly.
+    """
+
+    def test_negative_joint_count_rejected(self):
+        payload = _rig_state_payload()
+        payload["joints"]["count"] = -1
+        with pytest.raises(SchemaValidationError, match="count"):
+            validate_state_export(payload, SCHEMA_RIG_STATE)
+
+    def test_negative_skin_influences_rejected(self):
+        payload = _rig_state_payload()
+        payload["skins"][0]["influences"] = -2
+        with pytest.raises(SchemaValidationError, match="influences"):
+            validate_state_export(payload, SCHEMA_RIG_STATE)
+
+    def test_negative_unnormalized_vertices_rejected(self):
+        payload = _rig_state_payload()
+        payload["skins"][0]["unnormalized_vertices"] = -1
+        with pytest.raises(SchemaValidationError, match="unnormalized_vertices"):
+            validate_state_export(payload, SCHEMA_RIG_STATE)
+
+    def test_boolean_counts_rejected(self):
+        payload = _rig_state_payload()
+        payload["joints"]["count"] = True
+        with pytest.raises(SchemaValidationError, match="count"):
+            validate_state_export(payload, SCHEMA_RIG_STATE)
+
+        payload = _rig_state_payload()
+        payload["skins"][0]["influences"] = False
+        with pytest.raises(SchemaValidationError, match="influences"):
+            validate_state_export(payload, SCHEMA_RIG_STATE)
+
+    def test_negative_key_count_rejected(self):
+        payload = _anim_curves_payload()
+        payload["curves"][0]["key_count"] = -3
+        with pytest.raises(SchemaValidationError, match="key_count"):
+            validate_state_export(payload, SCHEMA_ANIM_CURVES)
+
+    def test_negative_frame_count_rejected(self):
+        payload = _sim_status_payload()
+        payload["frame_count"] = -1
+        with pytest.raises(SchemaValidationError, match="frame_count"):
+            validate_state_export(payload, SCHEMA_SIM_STATUS)
+
+    def test_zero_counts_are_valid(self):
+        payload = _rig_state_payload()
+        payload["joints"]["count"] = 0
+        payload["skins"][0]["influences"] = 0
+        payload["skins"][0]["unnormalized_vertices"] = 0
+        validate_state_export(payload, SCHEMA_RIG_STATE)
+
+
 class TestValidationGuards:
     def test_non_mapping_payload_raises_typeerror(self):
         with pytest.raises(TypeError):

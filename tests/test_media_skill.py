@@ -481,6 +481,79 @@ def test_image_stats_command_uses_vx_ffmpeg_rawvideo(media_stats, tmp_path):
             tmp_out.unlink()
 
 
+def test_image_stats_command_overwrites_the_precreated_output(media_stats, tmp_path):
+    """Regression: the output is reserved with mkstemp, so ffmpeg needs -y.
+
+    Without ``-y`` ffmpeg sees an already-existing output path, asks for an
+    interactive overwrite confirmation, reads EOF as "no" and exits non-zero -
+    which made ``image_stats()`` fail for every valid input. The mocked
+    end-to-end test below cannot catch this, so assert it on the argv.
+    """
+    input_file = tmp_path / "frame.png"
+    _write_stub_file(input_file)
+
+    command, tmp_out, _size = media_stats.build_image_stats_command(str(input_file), sample_size=16)
+    try:
+        assert "-y" in command, "the output path already exists; ffmpeg needs -y to overwrite it"
+        # Global options must precede the input so ffmpeg applies them to the output.
+        assert command.index("-y") < command.index("-i")
+        assert command[-1] == str(tmp_out)
+        assert tmp_out.is_file(), "the output path is created up front and must be overwritten"
+    finally:
+        with suppress(OSError):
+            tmp_out.unlink()
+
+
+def test_image_stats_command_runs_against_real_ffmpeg(media_stats, tmp_path):
+    """End-to-end against a real ffmpeg binary when one is available.
+
+    This is the only test that exercises the argv ``build_image_stats_command``
+    actually produces: a mocked ``run_command`` writes the output itself and so
+    would pass with or without ``-y``. Skipped (not failed) when ffmpeg is not
+    installed, since vx installs it on demand at runtime.
+    """
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg is None:
+        pytest.skip("ffmpeg is not installed; vx installs it on demand at runtime")
+
+    source = tmp_path / "frame.png"
+    generated = subprocess.run(
+        [
+            ffmpeg,
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc=size=64x64:rate=1:duration=1",
+            "-frames:v",
+            "1",
+            str(source),
+        ],
+        capture_output=True,
+    )
+    if generated.returncode != 0 or not source.is_file():
+        pytest.skip("the installed ffmpeg cannot synthesize a test frame")
+
+    command, tmp_out, size = media_stats.build_image_stats_command(str(source), sample_size=16)
+    try:
+        # command is vx-managed (["vx", "ffmpeg", ...]); swap in the real binary.
+        assert command[:2] == ["vx", "ffmpeg"]
+        executed = subprocess.run([ffmpeg, *command[2:]], capture_output=True)
+        assert executed.returncode == 0, executed.stderr.decode("utf-8", "replace")
+        assert tmp_out.is_file()
+        assert tmp_out.stat().st_size == size * size
+
+        stats = media_stats.compute_image_stats_from_gray(tmp_out.read_bytes(), size, size)
+        assert 0.0 <= stats["mean_luma"] <= 1.0
+        assert stats["uniform"] is False
+    finally:
+        with suppress(OSError):
+            tmp_out.unlink()
+
+
 def test_image_stats_end_to_end_with_mocked_ffmpeg(media_stats, tmp_path, monkeypatch):
     input_file = tmp_path / "frame.png"
     _write_stub_file(input_file)

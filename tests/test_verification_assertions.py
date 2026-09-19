@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 
 from dcc_mcp_core.verification import SCHEMA_ANIM_CURVES
 from dcc_mcp_core.verification import AssertionFailure
+from dcc_mcp_core.verification import BehaviorReport
 from dcc_mcp_core.verification import BehaviorVerifier
+from dcc_mcp_core.verification import Check
 from dcc_mcp_core.verification import assert_exact
 from dcc_mcp_core.verification import assert_exists
 from dcc_mcp_core.verification import assert_in_band
@@ -128,3 +133,50 @@ class TestSchemaCheckFailureIsRecordedNotRaised:
         assert report.failed == 1
         assert report.checks[0].kind == "schema"
         assert "key_count" in report.checks[0].message
+
+
+class TestReportIsJsonSafe:
+    """A report exists to be serialized, so no accepted value may break json.dumps."""
+
+    def test_non_json_values_are_coerced_in_check_to_dict(self):
+        check = Check(
+            name="joint_names",
+            kind="exact",
+            passed=False,
+            expected={"root", "blade_pivot"},
+            actual=("root",),
+            message="mismatch",
+        )
+        payload = check.to_dict()
+        assert isinstance(payload["expected"], list)
+        assert payload["expected"] == ["blade_pivot", "root"]
+        assert payload["actual"] == ["root"]
+        # The whole point: this must not raise TypeError.
+        assert json.loads(json.dumps(payload)) == payload
+
+    def test_path_and_bytes_and_nested_values_are_coerced(self, tmp_path):
+        actual_path = tmp_path / "sim.cache"
+        expected_path = tmp_path / "other.cache"
+        verify = BehaviorVerifier("serialization")
+        verify.exact("cache_path", actual_path, expected_path)
+        verify.exact("signature", b"\x00\xff", b"\x00")
+        verify.exact("nested", {"a": (1, 2), "b": frozenset({3})}, {"a": [1, 2]})
+        report = verify.report()
+        payload = json.loads(json.dumps(report.to_dict()))
+        assert payload["checks"][0]["expected"] == str(expected_path)
+        assert payload["checks"][0]["actual"] == str(actual_path)
+        # Undecodable bytes degrade to the replacement character rather than raising.
+        assert payload["checks"][1]["actual"] == "\x00\ufffd"
+        assert payload["checks"][2]["expected"] == {"a": [1, 2]}
+        # Tuples and frozensets nested inside a mapping are coerced too.
+        assert payload["checks"][2]["actual"] == {"a": [1, 2], "b": [3]}
+
+    def test_report_round_trips_through_json(self):
+        verify = BehaviorVerifier("rotor")
+        verify.exact("joint_count", 12, 12)
+        verify.within("rotateY_at_24", 360.0005, 360.0, 1e-3)
+        report = verify.report()
+        payload = json.loads(json.dumps(report.to_dict()))
+        assert payload["total"] == 2
+        assert payload["pass_rate"] == pytest.approx(1.0)
+        assert BehaviorReport(checks=report.checks).to_dict() == report.to_dict()

@@ -83,7 +83,14 @@ def compute_image_stats_from_gray(data: bytes, width: int, height: int) -> Dict[
 
 
 def build_image_stats_command(input_path: Any, sample_size: Any = 256) -> Tuple[List[str], Path, int]:
-    """Build the ffmpeg command that dumps one downscaled gray frame to a temp file."""
+    """Build the ffmpeg command that dumps one downscaled gray frame to a temp file.
+
+    The output path is reserved up front with :func:`tempfile.mkstemp`, so the
+    argv carries ``-y`` before the input: without it ffmpeg treats the
+    already-existing path as a conflict, waits for an interactive overwrite
+    confirmation, takes EOF as "no", and exits non-zero — which would make
+    :func:`image_stats` fail for every valid input.
+    """
     input_file = existing_file("input_path", input_path)
     size = int_value("sample_size", sample_size, 256, minimum=16, maximum=4096)
     descriptor, tmp_name = tempfile.mkstemp(prefix="dcc_media_stats_", suffix=".gray")
@@ -94,6 +101,7 @@ def build_image_stats_command(input_path: Any, sample_size: Any = 256) -> Tuple[
             "-hide_banner",
             "-loglevel",
             "error",
+            "-y",
             "-i",
             str(input_file),
             "-vf",

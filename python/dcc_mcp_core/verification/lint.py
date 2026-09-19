@@ -9,8 +9,10 @@ This module implements the pairing rule as a dependency-free function over a
 ``tools.yaml`` tool table. A write verb is considered *paired* when any of
 these hold:
 
-1. It declares ``next-tools.on-success`` pointing at a read-only tool
-   (the media skill already does this with ``media__probe``).
+1. It declares ``next-tools.on-success`` (or the ``next_tools`` /
+   ``on_success`` spelling used by Python-side ``ToolDeclaration``
+   metadata) pointing at a read-only tool. The media skill already does
+   this with ``media__probe``.
 2. It declares an explicit ``readback`` (or ``state_export``) field naming a
    read-only tool.
 3. Its name shares a domain token with a read-only tool in the same table
@@ -104,14 +106,24 @@ def _domain_tokens(name: str) -> set[str]:
     return tokens or _tokens(name)
 
 
+# ``tools.yaml`` spells these keys with hyphens (the wire contract, and what
+# the bundled media skill ships), while Python-side ``ToolDeclaration``
+# metadata spells them with underscores. A declaration is a pairing signal
+# either way, so both spellings are honoured.
+_NEXT_TOOLS_KEYS = ("next-tools", "next_tools")
+_ON_SUCCESS_KEYS = ("on-success", "on_success")
+
+
 def _next_success_targets(tool: Mapping[str, Any]) -> list[str]:
-    next_tools = tool.get("next-tools")
-    if not isinstance(next_tools, Mapping):
-        return []
-    on_success = next_tools.get("on-success")
-    if not isinstance(on_success, list):
-        return []
-    return [item for item in on_success if isinstance(item, str)]
+    for next_tools_key in _NEXT_TOOLS_KEYS:
+        next_tools = tool.get(next_tools_key)
+        if not isinstance(next_tools, Mapping):
+            continue
+        for on_success_key in _ON_SUCCESS_KEYS:
+            on_success = next_tools.get(on_success_key)
+            if isinstance(on_success, list):
+                return [item for item in on_success if isinstance(item, str)]
+    return []
 
 
 def _matches_read_only(reference: str, read_only_names: set[str]) -> bool:

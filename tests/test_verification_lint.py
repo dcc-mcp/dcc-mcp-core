@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from dcc_mcp_core.verification import DeclarationFinding
 from dcc_mcp_core.verification import find_unpaired_write_verbs
 from dcc_mcp_core.verification import lint_tool_table
@@ -74,3 +76,67 @@ class TestPairingRule:
             "code": "unpaired_write_verb",
             "reason": finding.reason,
         }
+
+
+class TestKeySpellingCompatibility:
+    """Both key spellings must pair a write verb.
+
+    ``tools.yaml`` uses hyphens (``next-tools.on-success``) because that is the
+    wire contract shipped by the bundled skills; Python-side
+    ``ToolDeclaration`` metadata uses underscores (``next_tools.on_success``).
+    A declaration is a pairing signal in either spelling, so a verb must not be
+    reported unpaired just because the table used the other convention.
+    """
+
+    def test_underscore_outer_and_inner_keys_pair(self):
+        tools = [
+            _tool("sequence_to_mp4", **{"next_tools": {"on_success": ["media__probe"]}}),
+            _tool("probe", read_only=True),
+        ]
+        assert find_unpaired_write_verbs(tools) == []
+
+    def test_underscore_outer_key_with_hyphen_inner_key_pairs(self):
+        tools = [
+            _tool("sequence_to_mp4", **{"next_tools": {"on-success": ["media__probe"]}}),
+            _tool("probe", read_only=True),
+        ]
+        assert find_unpaired_write_verbs(tools) == []
+
+    def test_hyphen_outer_key_with_underscore_inner_key_pairs(self):
+        tools = [
+            _tool("sequence_to_mp4", **{"next-tools": {"on_success": ["media__probe"]}}),
+            _tool("probe", read_only=True),
+        ]
+        assert find_unpaired_write_verbs(tools) == []
+
+    def test_bundled_media_skill_hyphen_spelling_pairs_its_write_verbs(self):
+        """The real bundled table uses the hyphen spelling; it must still pair."""
+        from pathlib import Path
+
+        # yaml_loads is Rust-backed, so this one test needs the native extension.
+        pytest.importorskip("dcc_mcp_core._core", reason="native extension not compiled")
+        from dcc_mcp_core import yaml_loads
+
+        tools_yaml = Path(__file__).parent.parent / "python" / "dcc_mcp_core" / "skills" / "media" / "tools.yaml"
+        table = yaml_loads(tools_yaml.read_text(encoding="utf-8")) or {}
+        tools = table.get("tools") or []
+        assert tools, "the bundled media skill must declare a tool table"
+
+        declared = {
+            tool["name"]
+            for tool in tools
+            if any(key in tool for key in ("next-tools", "next_tools"))
+            and "on-success" in (tool.get("next-tools") or tool.get("next_tools") or {})
+        }
+        assert {"sequence_to_mp4", "transcode", "thumbnail"} <= declared
+
+        reported = {finding.tool for finding in find_unpaired_write_verbs(tools)}
+        assert reported & declared == set(), "a verb declaring on-success must pair regardless of spelling"
+
+    def test_misspelled_keys_stay_unpaired(self):
+        # A near-miss must not silently pair: only the two accepted spellings count.
+        tools = [
+            _tool("sequence_to_mp4", **{"nexttools": {"onsuccess": ["probe"]}}),
+            _tool("probe", read_only=True),
+        ]
+        assert {f.tool for f in find_unpaired_write_verbs(tools)} == {"sequence_to_mp4"}
