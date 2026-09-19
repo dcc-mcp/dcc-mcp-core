@@ -380,19 +380,26 @@ def make_level(
     evidence: Any = (),
     backend: Any = None,
 ) -> dict[str, Any]:
-    """Build one level entry with bounded validation."""
+    """Build one level entry with bounded validation.
+
+    The result is guaranteed to satisfy :func:`validate_acceptance_schema`.  To
+    keep that promise, this builder applies the same field validation a level
+    meets on the way in, so an unusable value fails here at build time instead
+    of surfacing later from the validator: ``checked_at`` must be a non-empty
+    timestamp, and every evidence entry must be an object with ``url`` and
+    ``label`` rather than a bare URL string.
+    """
     status = _required_choice("status", status, STATUSES)
     source = _required_choice("source", source, EVIDENCE_SOURCES)
-    level: dict[str, Any] = {"status": status, "source": source, "checked_at": checked_at}
+    level: dict[str, Any] = {
+        "status": status,
+        "source": source,
+        "checked_at": _required_str("checked_at", checked_at, 64),
+    }
     if detail:
         level["detail"] = _required_str("detail", detail, max_chars=4096)
     if evidence:
-        if not isinstance(evidence, (list, tuple)):
-            raise AcceptanceValidationError("evidence must be a list")
-        level["evidence"] = [
-            sanitize_evidence_link(str(link)) if not isinstance(link, dict) else _validate_link(link)
-            for link in evidence
-        ]
+        level["evidence"] = _validate_links("evidence", evidence)
     if backend is not None:
         level["backend"] = _validate_backend(backend)
     return level
@@ -764,7 +771,13 @@ def record_from_catalog_entry(
     asset_name: str | None = None
     publisher_digest: str | None = None
     if isinstance(install, dict):
-        asset_name = _optional_str("asset_name", install.get("url", "").rsplit("/", 1)[-1] or None)
+        # `install.url` feeds an `rsplit`, so a non-string value (dict, list,
+        # int) used to escape as an AttributeError instead of a validation
+        # error.  A null or empty url still means "no artifact".
+        install_url = install.get("url")
+        if install_url is not None and not isinstance(install_url, str):
+            raise AcceptanceValidationError("install.url must be a string")
+        asset_name = install_url.rsplit("/", 1)[-1] or None if install_url else None
         publisher_digest = _optional_digest("publisher_digest", install.get("sha256"))
 
     def level(status: str, source: str = "catalog", detail: str = "") -> dict[str, Any]:

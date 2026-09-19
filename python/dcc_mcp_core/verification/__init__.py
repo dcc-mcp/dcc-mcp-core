@@ -38,6 +38,7 @@ from dcc_mcp_core.verification.acceptance import validate_acceptance_schema
 from dcc_mcp_core.verification.acceptance import verify_release_sha256
 from dcc_mcp_core.verification.acceptance_fixtures import MAX_GODOT_CONFIG_VERSION
 from dcc_mcp_core.verification.acceptance_fixtures import MIN_GODOT_CONFIG_VERSION
+from dcc_mcp_core.verification.acceptance_fixtures import MIN_TUANJIE_EDITOR_MAJOR
 from dcc_mcp_core.verification.acceptance_fixtures import MIN_UNITY_EDITOR_MAJOR
 from dcc_mcp_core.verification.acceptance_fixtures import MIN_UNREAL_ENGINE_MAJOR
 from dcc_mcp_core.verification.acceptance_fixtures import godot_project
@@ -68,6 +69,7 @@ __all__ = [
     "LEVELS",
     "MAX_GODOT_CONFIG_VERSION",
     "MIN_GODOT_CONFIG_VERSION",
+    "MIN_TUANJIE_EDITOR_MAJOR",
     "MIN_UNITY_EDITOR_MAJOR",
     "MIN_UNREAL_ENGINE_MAJOR",
     "PRODUCTION_ACCEPTANCE_V1_SCHEMA_VERSION",
