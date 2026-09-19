@@ -86,6 +86,41 @@ jobs:
         with:
           tool: cargo-hakari
 
+      - name: Resolve current pull request head
+        working-directory: pull-request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          # Release automation force-pushes its branch in bursts, and the run
+          # that survives the concurrency group is not always the newest
+          # delivery: a run once won with a stale head SHA, cancelled the run
+          # carrying the current head, failed identity revalidation, and left
+          # the release PR with unsynced locks. Re-read the head from the API
+          # and check it out so generation and the fixed push both target the
+          # commit the branch actually points at. Identity is still bound to
+          # the event's repository, branch, and title and re-captured by the
+          # pinned validator before anything is committed or pushed.
+          live_sha="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq .head.sha)"
+          if [ "$live_sha" != "$EVENT_HEAD_SHA" ]; then
+            echo "event head $EVENT_HEAD_SHA is stale; resolving live head $live_sha"
+            git fetch --no-tags origin "refs/heads/$PR_HEAD_REF"
+            git checkout --detach "$live_sha"
+          fi
+          observed_sha="$(git rev-parse HEAD)"
+          if [ "$observed_sha" != "$live_sha" ]; then
+            echo "::error::resolved head $live_sha is not checked out (HEAD is $observed_sha)"
+            exit 1
+          fi
+          {
+            printf 'PR_HEAD_SHA=%s\n' "$live_sha"
+            printf 'EXPECTED_HEAD_SHA=%s\n' "$live_sha"
+          } >> "$GITHUB_ENV"
+
       - name: Sync generated lock metadata
         working-directory: pull-request
         run: |
@@ -99,7 +134,7 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
           PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_HEAD_SHA: ${{ env.PR_HEAD_SHA || github.event.pull_request.head.sha }}
           PR_TITLE: ${{ github.event.pull_request.title }}
         working-directory: pull-request
         run: |
@@ -131,10 +166,10 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
           PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_HEAD_SHA: ${{ env.PR_HEAD_SHA || github.event.pull_request.head.sha }}
           PR_TITLE: ${{ github.event.pull_request.title }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
-          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EXPECTED_HEAD_SHA: ${{ env.EXPECTED_HEAD_SHA || github.event.pull_request.head.sha }}
         working-directory: pull-request
         run: |
           set -euo pipefail
