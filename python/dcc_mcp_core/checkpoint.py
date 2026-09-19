@@ -48,10 +48,12 @@ Usage in a skill script::
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 from pathlib import Path
 import re
+import tempfile
 import threading
 import time
 from typing import Any
@@ -62,11 +64,26 @@ from dcc_mcp_core import json_loads
 from dcc_mcp_core.constants import ENV_CHECKPOINT_DIR
 from dcc_mcp_core.constants import ENV_CHECKPOINT_IN_MEMORY
 
+try:  # POSIX advisory locking
+    import fcntl
+except ImportError:  # pragma: no cover - non-POSIX platforms
+    fcntl = None  # type: ignore[assignment]
+try:  # Windows byte-range locking
+    import msvcrt
+except ImportError:  # pragma: no cover - non-Windows platforms
+    msvcrt = None  # type: ignore[assignment]
+
 logger = logging.getLogger(__name__)
 
 CHECKPOINT_FILE_NAME: str = "checkpoints.json"
 _UNSAFE_PATH_SEGMENT = re.compile(r"[^A-Za-z0-9_.-]+")
 _TRUE_ENV_VALUES = frozenset({"1", "true", "yes", "on"})
+
+#: How long a durable write waits for the interprocess lock before giving up.
+#: Checkpointing must never hang a DCC host, so an exhausted wait degrades to
+#: the unlocked path (reload + merge) rather than blocking forever.
+_LOCK_TIMEOUT = 2.0
+_LOCK_RETRY_INTERVAL = 0.01
 
 
 def _saved_at(entry: Any) -> float:
@@ -75,6 +92,12 @@ def _saved_at(entry: Any) -> float:
         return 0.0
     value = entry.get("saved_at")
     return value if isinstance(value, (int, float)) and not isinstance(value, bool) else 0.0
+
+
+def _unlink_quietly(path: str | Path) -> None:
+    """Delete *path*, ignoring a file that is already gone or unwritable."""
+    with contextlib.suppress(OSError):
+        Path(path).unlink()
 
 
 # ── Durable default location (issue #2300) ─────────────────────────────────
@@ -137,6 +160,100 @@ def resolve_checkpoint_path(
     return default_checkpoint_path(dcc_name, instance_id)
 
 
+# ── Interprocess locking ───────────────────────────────────────────────────
+
+
+def _lock_path_for(path: Path) -> Path:
+    """Return the sidecar lock file guarding *path*."""
+    return path.with_name(path.name + ".lock")
+
+
+class _FileLock:
+    """Best-effort interprocess lock around one durable checkpoint file.
+
+    Wraps the whole read-merge-write cycle so two processes cannot both merge
+    the same old file and have the second ``replace`` drop the first save.
+    ``fcntl.flock`` is used on POSIX and ``msvcrt.locking`` on Windows; both
+    are released by the OS when the process dies, so a crash cannot leave a
+    stale lock behind.
+
+    The lock is advisory and **best effort**: when it cannot be acquired
+    within :data:`_LOCK_TIMEOUT` — or on a platform providing neither API —
+    the context manager yields without a lock and logs a warning. Callers
+    still reload and merge, so the outcome degrades to the pre-lock behaviour
+    (a possible lost checkpoint) instead of blocking a DCC host forever.
+
+    Passing ``path=None`` (an in-memory store) makes the lock a no-op.
+    """
+
+    def __init__(self, path: Path | None, timeout: float = _LOCK_TIMEOUT) -> None:
+        self._path: Path | None = None if path is None else _lock_path_for(path)
+        self._timeout = timeout
+        self._fd: int | None = None
+
+    @property
+    def locked(self) -> bool:
+        """True when this instance actually holds the lock."""
+        return self._fd is not None
+
+    def _try_acquire(self) -> bool:
+        if self._path is None:
+            return True
+        try:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            fd = os.open(str(self._path), os.O_CREAT | os.O_RDWR)
+        except OSError:
+            return False
+        try:
+            if fcntl is not None:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            elif msvcrt is not None:
+                # msvcrt locks a byte range, so the file needs one to give.
+                if os.fstat(fd).st_size < 1:
+                    os.ftruncate(fd, 1)
+                os.lseek(fd, 0, os.SEEK_SET)
+                msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+            else:  # pragma: no cover - neither fcntl nor msvcrt available
+                os.close(fd)
+                return True
+        except OSError:
+            os.close(fd)
+            return False
+        self._fd = fd
+        return True
+
+    def __enter__(self) -> _FileLock:
+        if self._path is None:
+            return self
+        deadline = time.monotonic() + self._timeout
+        while True:
+            if self._try_acquire():
+                return self
+            if time.monotonic() >= deadline:
+                logger.warning(
+                    "CheckpointStore: could not lock %s within %.1fs; writing unlocked",
+                    self._path,
+                    self._timeout,
+                )
+                return self
+            time.sleep(_LOCK_RETRY_INTERVAL)
+
+    def __exit__(self, *_exc: Any) -> None:
+        fd, self._fd = self._fd, None
+        if fd is None:
+            return
+        try:
+            if fcntl is not None:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+            elif msvcrt is not None:
+                os.lseek(fd, 0, os.SEEK_SET)
+                msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+        except OSError as exc:  # pragma: no cover - release is best effort
+            logger.debug("CheckpointStore: could not unlock %s: %s", self._path, exc)
+        finally:
+            os.close(fd)
+
+
 # ── CheckpointStore ────────────────────────────────────────────────────────
 
 
@@ -156,10 +273,15 @@ class CheckpointStore:
     ---------------------
     The durable default path is shared by every instance of the same DCC, so
     two processes can hold a store over one file. Reads serve this process's
-    in-memory copy, but every write re-reads the file first and merges it with
-    the in-memory state (newest ``saved_at`` per job wins) before flushing the
-    whole set. Concurrent writers therefore stay additive: a store that loaded
-    the file before another instance saved cannot clobber that save.
+    in-memory copy, but every write takes an advisory interprocess lock
+    (``flock`` on POSIX, ``msvcrt.locking`` on Windows), re-reads the file,
+    merges it with the in-memory state (newest ``saved_at`` per job wins),
+    and flushes the whole set before releasing the lock. Concurrent writers
+    therefore stay additive instead of last-writer-wins.
+
+    The lock is best effort: if it cannot be taken within a couple of seconds
+    the write proceeds unlocked and still reloads and merges, so a stall
+    costs at most a lost checkpoint rather than hanging the host.
 
     """
 
@@ -196,10 +318,21 @@ class CheckpointStore:
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)
             # Atomic replace: a crash mid-write must not truncate the file the
-            # next process will read on restart.
-            tmp_path = self._path.with_name(self._path.name + ".tmp")
-            tmp_path.write_text(json_dumps(self._data, indent=2), encoding="utf-8")
-            tmp_path.replace(self._path)
+            # next process will read on restart. The temp name is unique
+            # because the durable file is shared — a fixed ``.tmp`` name let
+            # one instance truncate another's in-flight write.
+            fd, tmp_name = tempfile.mkstemp(
+                dir=str(self._path.parent),
+                prefix=self._path.name + ".",
+                suffix=".tmp",
+            )
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                    handle.write(json_dumps(self._data, indent=2))
+                Path(tmp_name).replace(self._path)
+            except BaseException:
+                _unlink_quietly(tmp_name)
+                raise
         except OSError as exc:
             logger.warning("CheckpointStore: could not flush to %s: %s", self._path, exc)
 
@@ -238,7 +371,7 @@ class CheckpointStore:
             "progress_hint": progress_hint,
             "context": state,
         }
-        with self._lock:
+        with self._lock, _FileLock(self._path):
             self._merge_disk_state()
             self._data[job_id] = entry
             self._flush()
@@ -250,7 +383,7 @@ class CheckpointStore:
 
     def clear(self, job_id: str) -> bool:
         """Delete the checkpoint for *job_id*.  Returns ``True`` if it existed."""
-        with self._lock:
+        with self._lock, _FileLock(self._path):
             self._merge_disk_state()
             existed = job_id in self._data
             self._data.pop(job_id, None)
@@ -265,7 +398,7 @@ class CheckpointStore:
 
     def clear_all(self) -> int:
         """Delete all checkpoints.  Returns the number deleted."""
-        with self._lock:
+        with self._lock, _FileLock(self._path):
             self._merge_disk_state()
             count = len(self._data)
             self._data.clear()

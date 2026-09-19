@@ -19,9 +19,13 @@ Iteration state must survive restarts, so a server's checkpoint store is
   restart.
 - Writes are atomic (temp file + rename), so a crash mid-write cannot
   truncate the file.
-- Several instances of the same DCC share the file. `CheckpointStore` re-reads
-  and merges it before every write (newest `saved_at` per job wins), so
-  concurrent saves stay additive instead of last-writer-wins.
+- Several instances of the same DCC share the file. Every write takes an
+  advisory interprocess lock (`flock` on POSIX, `msvcrt.locking` on Windows),
+  re-reads and merges the file (newest `saved_at` per job wins), then flushes
+  before releasing the lock — so concurrent saves stay additive instead of
+  last-writer-wins. The lock is best effort: if it cannot be taken within a
+  couple of seconds the write still reloads and merges, degrading to a
+  possible lost checkpoint rather than blocking the host.
 
 Opt out with either of:
 

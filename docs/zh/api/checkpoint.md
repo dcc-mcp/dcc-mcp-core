@@ -14,7 +14,7 @@
 - `<base>` 为 `DCC_MCP_CHECKPOINT_DIR`（若设置），否则为 `~/.dcc-mcp`。
 - 启动时自动注册 `jobs_checkpoint_status` / `jobs_resume_context`，重启后可直接读取恢复状态。
 - 写入为原子操作（临时文件 + rename），崩溃不会截断文件。
-- 同名 DCC 的多个实例共享该文件。`CheckpointStore` 每次写入前重新读取并合并（按 job 取 `saved_at` 最新者），因此并发保存是叠加的，而非后写覆盖前写。
+- 同名 DCC 的多个实例共享该文件。每次写入都会先取跨进程咨询锁（POSIX 用 `flock`，Windows 用 `msvcrt.locking`），重新读取并合并文件（按 job 取 `saved_at` 最新者），再落盘并释放锁 —— 因此并发保存是叠加的，而非后写覆盖前写。该锁是尽力而为：几秒内拿不到锁时写入仍会重新读取并合并，最坏情况只是丢一个检查点，不会把宿主卡住。
 
 退出方式（任选其一）：
 
