@@ -298,3 +298,158 @@ def test_workflow_validator_verifies_real_diff_with_candidate_shadow(push_reposi
     assert lock.read_bytes() == b"regenerated\n"
     assert _git(repository.work, repository.env, "status", "--porcelain=v1", "--untracked-files=all") == status
     assert not repository.marker.exists()
+
+
+RESOLVE_STEP = "Resolve current pull request head"
+RESOLVED_HEAD_EXPRESSION = "${{ env.PR_HEAD_SHA || github.event.pull_request.head.sha }}"
+RESOLVED_LEASE_EXPRESSION = "${{ env.EXPECTED_HEAD_SHA || github.event.pull_request.head.sha }}"
+
+
+def _workflow_step(name):
+    return next(step for step in _workflow_steps() if step.get("name") == name)
+
+
+def test_workflow_resolves_live_head_immediately_before_generation() -> None:
+    """The surviving concurrency winner can carry a stale event head SHA."""
+    step = _workflow_step(RESOLVE_STEP)
+    assert step["working-directory"] == "pull-request"
+    run = step["run"]
+    assert 'gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq .head.sha' in run
+    assert 'git fetch --no-tags origin "refs/heads/$PR_HEAD_REF"' in run
+    assert 'git checkout --detach "$live_sha"' in run
+    assert "printf 'PR_HEAD_SHA=%s\\n' \"$live_sha\"" in run
+    assert "printf 'EXPECTED_HEAD_SHA=%s\\n' \"$live_sha\"" in run
+    assert '>> "$GITHUB_ENV"' in run
+    assert "exit 1" in run
+    assert step["env"]["EVENT_HEAD_SHA"] == "${{ github.event.pull_request.head.sha }}"
+    assert step["env"]["PR_HEAD_REF"] == "${{ github.event.pull_request.head.ref }}"
+    assert step["env"]["PR_NUMBER"] == "${{ github.event.pull_request.number }}"
+    assert "PUSH_TOKEN" not in step.get("env", {})
+    names = [step.get("name") for step in _workflow_steps()]
+    assert names.index(RESOLVE_STEP) == names.index("Sync generated lock metadata") - 1
+
+
+def test_workflow_identity_steps_use_resolved_head_sha() -> None:
+    """Validation and the fixed lease must bind the resolved head, not the event."""
+    revalidate = _workflow_step("Revalidate pull request identity and generated diff")
+    assert revalidate["env"]["PR_HEAD_SHA"] == RESOLVED_HEAD_EXPRESSION
+    push = _workflow_step("Push fixed generated lock commit")
+    assert push["env"]["PR_HEAD_SHA"] == RESOLVED_HEAD_EXPRESSION
+    assert push["env"]["EXPECTED_HEAD_SHA"] == RESOLVED_LEASE_EXPRESSION
+
+
+def _resolve_fixture(tmp_path: Path):
+    """Model the failure: event head stale, branch already force-pushed on."""
+    env = _clean_environment(tmp_path)
+    bare = tmp_path / "resolve remote.git"
+    work = tmp_path / "stale checkout"
+    other = tmp_path / "release automation"
+    _git(tmp_path, env, "init", "--bare", "-q", str(bare))
+    _git(tmp_path, env, "init", "-q", str(work))
+    _git(work, env, "checkout", "-q", "-b", "main")
+    (work / "Cargo.lock").write_bytes(b"stale\n")
+    _git(work, env, "add", "Cargo.lock")
+    _git(work, env, "commit", "-qm", "test: stale release head")
+    _git(work, env, "push", "-q", str(bare), "HEAD:main")
+    _git(work, env, "remote", "add", "origin", str(bare))
+    stale = _git(work, env, "rev-parse", "HEAD")
+    _git(tmp_path, env, "clone", "-q", "--branch", "main", str(bare), str(other))
+    (other / "Cargo.lock").write_bytes(b"live\n")
+    _git(other, env, "commit", "-qam", "test: live release head")
+    _git(other, env, "push", "-q", str(bare), "HEAD:main")
+    live = _git(other, env, "rev-parse", "HEAD")
+    assert live != stale
+    bin_dir = tmp_path / "stub bin"
+    bin_dir.mkdir()
+    stub = bin_dir / "gh"
+    stub.write_text('#!/bin/sh\nprintf "%s\\n" "$STUB_HEAD_SHA"\n', encoding="utf-8")
+    stub.chmod(0o755)
+    github_env = tmp_path / "github env"
+    github_env.write_bytes(b"")
+    script = tmp_path / "resolve step.sh"
+    script.write_text(_workflow_step(RESOLVE_STEP)["run"], encoding="utf-8")
+    run_env = dict(env)
+    run_env["PATH"] = str(bin_dir) + os.pathsep + env["PATH"]
+    run_env.update(
+        {
+            "GITHUB_REPOSITORY": "dcc-mcp/dcc-mcp-core",
+            "PR_NUMBER": "2486",
+            "PR_HEAD_REF": "main",
+            "EVENT_HEAD_SHA": stale,
+            "GITHUB_ENV": str(github_env),
+            "STUB_HEAD_SHA": live,
+        }
+    )
+    return SimpleNamespace(
+        env=run_env,
+        work=work,
+        script=script,
+        github_env=github_env,
+        stale=stale,
+        live=live,
+    )
+
+
+_RESOLVE_SHELL = pytest.mark.skipif(
+    os.name == "nt" or shutil.which("bash") is None,
+    reason="resolve step executes through the workflow's POSIX shell",
+)
+
+
+@_RESOLVE_SHELL
+def test_workflow_resolve_step_checks_out_live_head(tmp_path: Path) -> None:
+    fixture = _resolve_fixture(tmp_path)
+    result = subprocess.run(
+        ["bash", str(fixture.script)],
+        cwd=fixture.work,
+        env=fixture.env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert _git(fixture.work, fixture.env, "rev-parse", "HEAD") == fixture.live
+    assert (fixture.work / "Cargo.lock").read_bytes() == b"live\n"
+    exported = fixture.github_env.read_text(encoding="utf-8")
+    assert "PR_HEAD_SHA=" + fixture.live in exported
+    assert "EXPECTED_HEAD_SHA=" + fixture.live in exported
+
+
+@_RESOLVE_SHELL
+def test_workflow_resolve_step_keeps_current_head_without_fetching(tmp_path: Path) -> None:
+    fixture = _resolve_fixture(tmp_path)
+    fixture.env["STUB_HEAD_SHA"] = fixture.stale
+    # Any fetch would fail against this remote, so success proves the step
+    # short-circuits while the event head is still current.
+    _git(fixture.work, fixture.env, "remote", "set-url", "origin", str(tmp_path / "absent remote.git"))
+    result = subprocess.run(
+        ["bash", str(fixture.script)],
+        cwd=fixture.work,
+        env=fixture.env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert _git(fixture.work, fixture.env, "rev-parse", "HEAD") == fixture.stale
+    assert "PR_HEAD_SHA=" + fixture.stale in fixture.github_env.read_text(encoding="utf-8")
+
+
+@_RESOLVE_SHELL
+def test_workflow_resolve_step_rejects_unresolvable_head(tmp_path: Path) -> None:
+    fixture = _resolve_fixture(tmp_path)
+    fixture.env["STUB_HEAD_SHA"] = "f" * 40
+    result = subprocess.run(
+        ["bash", str(fixture.script)],
+        cwd=fixture.work,
+        env=fixture.env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+    assert result.returncode != 0
+    assert _git(fixture.work, fixture.env, "rev-parse", "HEAD") == fixture.stale
+    assert fixture.github_env.read_text(encoding="utf-8") == ""

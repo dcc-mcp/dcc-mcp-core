@@ -163,6 +163,10 @@ copy the boundary implemented by
 - bind repository, PR number, head repository, branch, title, and exact head
   SHA, then re-capture them before committing; reject forks, stale heads, and
   branches outside the approved release/automation classes;
+- resolve the pull request head from the API immediately before generation:
+  release automation force-pushes in bursts and the run that survives the
+  concurrency group can carry a stale event head SHA; generation and the
+  fixed `--force-with-lease` push must both target that resolved head;
 - reject any generated diff outside `Cargo.lock`, `uv.lock`, and
   `crates/workspace-hack/Cargo.toml`;
 - expose a write token only to the final fixed `--force-with-lease` push, and
