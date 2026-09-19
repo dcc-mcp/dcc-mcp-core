@@ -222,11 +222,12 @@ def _validate_anim_curves(payload: Mapping[str, Any]) -> None:
                         f"{tangent_field} must have length 0 or {len(times)}",
                         path=path,
                     )
-        # The packaged schema keeps the infinity kinds permissive (plain string,
-        # so adapters can extend the canonical INFINITY_KINDS), but a present
-        # non-null value still has to be a string rather than any other type.
+        # Optional, but present means a string: the packaged schema declares
+        # these as {"type": "string"} with no null union, so null is invalid
+        # here even though it is tolerated for the tangent arrays. The kinds
+        # themselves stay permissive so adapters can extend INFINITY_KINDS.
         for infinity_field in ("infinity_pre", "infinity_post"):
-            if infinity_field in curve_map and curve_map[infinity_field] is not None:
+            if infinity_field in curve_map:
                 _require_field(curve_map, infinity_field, SCHEMA_ANIM_CURVES, path=path, expected_type=str)
 
 

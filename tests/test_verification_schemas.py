@@ -164,11 +164,17 @@ class TestAnimCurves:
         with pytest.raises(SchemaValidationError, match="infinity_post"):
             validate_state_export(payload, SCHEMA_ANIM_CURVES)
 
-    def test_absent_and_null_infinity_kinds_are_allowed(self):
+    def test_absent_infinity_kind_is_allowed_but_null_is_not(self):
+        # Optional when absent, but the packaged schema has no null union, so an
+        # explicitly null infinity kind is invalid.
         payload = _anim_curves_payload()
         del payload["curves"][0]["infinity_pre"]
-        payload["curves"][0]["infinity_post"] = None
         validate_state_export(payload, SCHEMA_ANIM_CURVES)
+
+        payload = _anim_curves_payload()
+        payload["curves"][0]["infinity_post"] = None
+        with pytest.raises(SchemaValidationError, match="infinity_post"):
+            validate_state_export(payload, SCHEMA_ANIM_CURVES)
 
     def test_canonical_and_extended_infinity_kinds_are_allowed(self):
         # The packaged schema keeps these permissive so adapters can extend.
