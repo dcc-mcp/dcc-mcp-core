@@ -14,10 +14,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import threading
 from unittest.mock import MagicMock
 
 import pytest
 
+import dcc_mcp_core.checkpoint as checkpoint_module
 from dcc_mcp_core.checkpoint import CHECKPOINT_FILE_NAME
 from dcc_mcp_core.checkpoint import CheckpointStore
 from dcc_mcp_core.checkpoint import default_checkpoint_dir
@@ -138,6 +140,106 @@ class TestCheckpointStoreDurability:
 
         assert first.clear("job-1") is True
         assert set(CheckpointStore(path=str(path)).list_ids()) == {"job-2"}
+
+
+class TestCheckpointInterprocessLocking:
+    """Durable writes must be serialised across processes, not just threads.
+
+    Reload-and-merge (above) narrows the window but cannot close it: two
+    processes can still both merge the same old file and have the second
+    ``replace`` drop the first save. The lock closes it, and a unique temp
+    name keeps two in-flight flushes from truncating each other.
+    """
+
+    def test_durable_writes_lock_and_in_memory_writes_do_not(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        path = tmp_path / "cp.json"
+        acquired: list[str] = []
+        real_try_acquire = checkpoint_module._FileLock._try_acquire
+
+        def recording_try_acquire(self) -> bool:
+            acquired.append("try")
+            return real_try_acquire(self)
+
+        monkeypatch.setattr(checkpoint_module._FileLock, "_try_acquire", recording_try_acquire)
+
+        store = CheckpointStore(path=str(path))
+        store.save("job-1", {"count": 1})
+        store.clear("job-1")
+        store.clear_all()
+
+        assert len(acquired) == 3, "save, clear and clear_all must each take the lock"
+        assert (tmp_path / "cp.json.lock").exists(), "the durable lock must be a real file"
+
+        acquired.clear()
+        CheckpointStore().save("job-1", {"count": 1})
+        assert acquired == [], "in-memory stores must not lock"
+
+    def test_a_writer_holding_the_lock_blocks_the_other_instance(self, tmp_path: Path) -> None:
+        """A second instance's save must wait, not interleave its merge.
+
+        Event-driven, not sleep-driven: the slow writer signals once it holds
+        the lock, the fast writer is given 0.2s to finish and must still be
+        running, then the lock is released and both jobs must survive.
+        """
+        path = tmp_path / "cp.json"
+        holding = threading.Event()
+        release = threading.Event()
+
+        def hold_lock() -> None:
+            with checkpoint_module._FileLock(path):
+                holding.set()
+                assert release.wait(5), "test bug: lock holder was never released"
+
+        holder = threading.Thread(target=hold_lock, name="lock-holder")
+        holder.start()
+        try:
+            assert holding.wait(5), "test bug: lock holder never acquired the lock"
+
+            blocked = CheckpointStore(path=str(path))
+            writer = threading.Thread(target=blocked.save, args=("job-2", {"count": 1}), name="blocked-writer")
+            writer.start()
+            try:
+                writer.join(0.2)
+                assert writer.is_alive(), "the second writer must wait for the lock holder"
+            finally:
+                release.set()
+                writer.join(5)
+                assert not writer.is_alive(), "the second writer deadlocked behind the lock holder"
+        finally:
+            holder.join(5)
+
+        assert set(CheckpointStore(path=str(path)).list_ids()) == {"job-2"}
+
+    def test_concurrent_writes_never_truncate_the_shared_file(self, tmp_path: Path) -> None:
+        """Two instances flushing at once must leave a parseable file.
+
+        Each store has its own process-local lock, so only the interprocess
+        lock and the unique temp name stand between the two writers.
+        """
+        path = tmp_path / "cp.json"
+        errors: list[BaseException] = []
+
+        def write(prefix: str) -> None:
+            store = CheckpointStore(path=str(path))
+            try:
+                for index in range(10):
+                    store.save(f"{prefix}-{index}", {"count": index})
+            except BaseException as exc:  # surfaced through ``errors`` below
+                errors.append(exc)
+
+        writers = [threading.Thread(target=write, args=(name,)) for name in ("a", "b")]
+        for writer in writers:
+            writer.start()
+        for writer in writers:
+            writer.join(15)
+            assert not writer.is_alive(), "concurrent writer did not finish"
+
+        assert errors == []
+        saved = json.loads(path.read_text(encoding="utf-8"))
+        assert {f"{p}-{i}" for p in ("a", "b") for i in range(10)} <= set(saved)
+        assert list(path.parent.glob("*.tmp")) == [], "flushes must not leave temp files behind"
 
 
 class TestServerCheckpointDefault:
