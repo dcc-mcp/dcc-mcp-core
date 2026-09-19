@@ -625,6 +625,16 @@ async fn run_bridge_actor(
                                 continue;
                             };
                             if let Some(resp_tx) = bridge_req.response_tx {
+                                // Known race: if the actor is backpressured in
+                                // `stdin.write_all`, a caller's wait bound can
+                                // expire before its request is filed here, so
+                                // its `release()` was a no-op and the entry is
+                                // filed afterwards. That id then stays blocked
+                                // until the child answers it or exits. It is
+                                // self-healing and only reachable with a small
+                                // `--bridge-timeout-secs` and a stuck child,
+                                // so the insert is left unconditional rather
+                                // than re-checking a bound nobody owns here.
                                 let mut map = pending.lock().await;
                                 if map.contains_key(&id_key) {
                                     // Two live calls want the same id. Filing
@@ -662,9 +672,15 @@ async fn run_bridge_actor(
                             if let Err(e) = stdin.write_all(line.as_bytes()).await {
                                 error!("Failed to write to child stdin: {e}");
                                 read_task.abort();
-                                // The request was filed but never reached the
-                                // child, so it can never be answered.
-                                pending.lock().await.retain(|_, entry| entry.owner != owner);
+                                // This child is gone and its reader is
+                                // aborted, so nothing in flight can be
+                                // answered any more — not just the request
+                                // that failed to write. Dropping the senders
+                                // fails every call now; leaving them would
+                                // strand each one for the full response
+                                // bound, and hold its id against the
+                                // duplicate check the whole time.
+                                pending.lock().await.clear();
                                 break;
                             }
                         }

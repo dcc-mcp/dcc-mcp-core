@@ -218,6 +218,36 @@ for raw in sys.stdin:
         (format!("{program} {}", script.path().display()), script)
     }
 
+    /// Whether a usable Python interpreter is on `PATH`.
+    ///
+    /// The bridge tests spawn real child processes, so they need a working
+    /// interpreter. Some Windows machines only ship the Microsoft Store
+    /// `python.exe` stub, which exits with an error and prints nothing; probing
+    /// keeps those machines from reporting failures that are really "no
+    /// interpreter". The end-to-end suite in `tests/translate_bridge.rs` has
+    /// always needed one too, but that is a separate test target.
+    fn python_available() -> bool {
+        let program = if cfg!(windows) { "python" } else { "python3" };
+        let probe = std::process::Command::new(program)
+            .arg("-c")
+            .arg("print(1)")
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .output();
+        matches!(probe, Ok(out) if out.status.success() && out.stdout.first() == Some(&b'1'))
+    }
+
+    /// Skip the calling test when no usable Python interpreter is on `PATH`.
+    fn skip_without_python() -> bool {
+        if python_available() {
+            return false;
+        }
+        eprintln!(
+            "skipping: no usable python interpreter on PATH; the stdio bridge tests need one"
+        );
+        true
+    }
+
     fn request(id: i64) -> JsonRpcRequest {
         JsonRpcRequest {
             jsonrpc: "2.0".to_string(),
@@ -263,6 +293,9 @@ for raw in sys.stdin:
     /// instead of returning another call's result.
     #[tokio::test]
     async fn stale_response_id_is_rejected_before_delivery() {
+        if skip_without_python() {
+            return;
+        }
         let (cmd, _script) = child_command(SKEWED_CHILD_PY);
         let bridge = start_bridge(cmd);
 
@@ -293,6 +326,9 @@ for raw in sys.stdin:
     /// response must correlate instead of reading as a desync.
     #[tokio::test]
     async fn float_rendered_response_id_still_correlates() {
+        if skip_without_python() {
+            return;
+        }
         let (cmd, _script) = child_command(FLOAT_ECHO_CHILD_PY);
         let bridge = start_bridge(cmd);
 
@@ -311,6 +347,9 @@ for raw in sys.stdin:
     /// every later call stalls for the full timeout.
     #[tokio::test]
     async fn stray_response_does_not_strand_the_child() {
+        if skip_without_python() {
+            return;
+        }
         let (cmd, _script) = child_command(STRAY_THEN_HEALTHY_CHILD_PY);
         let bridge = start_bridge(cmd);
 
@@ -338,6 +377,9 @@ for raw in sys.stdin:
     /// answer whichever call it happened to be filed against.
     #[tokio::test]
     async fn duplicate_request_id_is_rejected_not_replaced() {
+        if skip_without_python() {
+            return;
+        }
         let (cmd, _script) = child_command(SLOW_ECHO_CHILD_PY);
         let bridge = start_bridge(cmd);
 
@@ -380,6 +422,9 @@ for raw in sys.stdin:
     /// reuses that id is served instead of being refused as a duplicate.
     #[tokio::test]
     async fn timed_out_call_releases_its_request_id() {
+        if skip_without_python() {
+            return;
+        }
         let (cmd, _script) = child_command(SILENT_FIRST_CHILD_PY);
         let bridge = start_bridge_with(cmd, Some(Duration::from_millis(300)), false);
 
@@ -415,6 +460,9 @@ for raw in sys.stdin:
     /// waiting out the response bound: nothing is left that could answer them.
     #[tokio::test]
     async fn child_exit_fails_in_flight_calls_immediately() {
+        if skip_without_python() {
+            return;
+        }
         let (cmd, _script) = child_command(EXIT_ON_REQUEST_CHILD_PY);
         // Restarting keeps the actor (and its pending map) alive across the
         // child's death, which is exactly when a leaked entry would linger.
