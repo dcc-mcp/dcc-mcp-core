@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.32](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.31...v0.20.32) (2026-09-19)
+
+
+### Bug Fixes
+
+* **gateway-ensure:** report every PID sharing a listening socket ([#2495](https://github.com/dcc-mcp/dcc-mcp-core/issues/2495)) ([db2dd64](https://github.com/dcc-mcp/dcc-mcp-core/commit/db2dd646586e784211f0a2a9fb51d1fee81a99a8))
+
 ## [0.20.31](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.30...v0.20.31) (2026-09-19)
 
 
