@@ -5,10 +5,20 @@ use crate::gateway::capability_service::{
 };
 use crate::gateway::http_registration::{SOURCE_HTTP, entry_registry_source};
 
+/// Metadata aliases under which a launched instance advertises the lifecycle
+/// operation that owns it. Mirrors the CLI-side contract so the gateway can
+/// verify an operation-scoped stop without depending on the CLI crate.
+const OPERATION_METADATA_KEYS: &[&str] = &[
+    "dcc_mcp_operation_id",
+    "operation_id",
+    "dcc_mcp.operation_id",
+];
+
 #[derive(Debug, Default, Deserialize)]
 pub struct StopInstanceBody {
     expected_owner: Option<String>,
     expected_session: Option<String>,
+    operation_id: Option<String>,
 }
 
 /// `POST /v1/dcc/{dcc_type}/instances/{instance_id}/stop` — request a safe
@@ -18,6 +28,12 @@ pub struct StopInstanceBody {
 /// `safe_stop_url` (or `dcc_mcp_safe_stop_url`) to registry metadata. Both
 /// `expected_owner` and `expected_session` must match public metadata aliases
 /// before the gateway forwards the stop request.
+///
+/// `operation_id` is optional but authoritative when present: it scopes the
+/// stop to the instance that the given start-instance operation launched, so a
+/// caller cannot stop a neighbouring instance by guessing its id. An instance
+/// that advertises no operation id cannot prove that ownership and is
+/// rejected rather than stopped.
 pub async fn handle_v1_dcc_instance_stop(
     State(gs): State<GatewayState>,
     Path((dcc_type, instance_id)): Path<(String, String)>,
@@ -57,6 +73,11 @@ pub async fn handle_v1_dcc_instance_stop(
             None,
         );
     }
+    let expected_operation = body
+        .operation_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty());
 
     let entry = match gs
         .resolve_instance_async(Some(instance_id.as_str()), Some(dcc_type.as_str()))
@@ -109,6 +130,16 @@ pub async fn handle_v1_dcc_instance_stop(
         && Some(expected) != session
     {
         return lifecycle_guard_response("session", expected, session);
+    }
+
+    // An operation-scoped stop is authoritative: the instance must advertise
+    // the operation that launched it, and it must be the same one. Absent
+    // metadata fails closed — the gateway cannot prove ownership.
+    if let Some(expected) = expected_operation {
+        let operation = metadata_value(&entry, OPERATION_METADATA_KEYS);
+        if operation != Some(expected) {
+            return lifecycle_guard_response("operation", expected, operation);
+        }
     }
 
     let Some(stop_url) = metadata_value(

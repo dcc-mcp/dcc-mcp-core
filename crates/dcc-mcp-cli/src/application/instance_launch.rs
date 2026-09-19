@@ -159,15 +159,25 @@ pub async fn start_instance(request: StartInstanceRequest) -> anyhow::Result<Val
             LaunchStage::Authorization,
             BlockingState::AuthorizationRequired,
             format!(
-                "launching {} requires explicit operator authorization; re-run with --yes",
-                plan.executable.display()
+                "launching {}{} requires explicit operator authorization; re-run with --yes",
+                plan.executable.display(),
+                plan.version
+                    .as_deref()
+                    .map(|version| format!(" ({version})"))
+                    .unwrap_or_default()
             ),
             json!({ "launch_plan": plan.summary() }),
         ));
     }
 
     // ── Stage: reuse / convergence ──────────────────────────────────────────
-    match find_reusable(&request.registry_dir, &dcc_type, &project, &store)? {
+    match find_reusable(
+        &request.registry_dir,
+        &dcc_type,
+        &project,
+        &store,
+        request.instance_id.as_deref(),
+    )? {
         Reuse::Ambiguous(candidates) => {
             return Ok(report.failure(
                 LaunchStage::Reuse,
@@ -192,12 +202,15 @@ pub async fn start_instance(request: StartInstanceRequest) -> anyhow::Result<Val
             operation.pid = entry.pid.or(entry.host_pid);
             operation.instance_id = Some(entry.instance_id.to_string());
             operation.touch();
+            // Classify before persisting: `blocking_state` is part of the
+            // record, so assigning it after `store.save` would leave the
+            // on-disk operation without it.
+            let blocking = classify_blocking_state(&entry.metadata);
+            operation.blocking_state = Some(blocking.as_str().to_string());
             store.save(&operation)?;
 
-            let blocking = classify_blocking_state(&entry.metadata);
             let ready =
                 blocking == BlockingState::None && local_instance::direct_control_ready(&entry);
-            operation.blocking_state = Some(blocking.as_str().to_string());
 
             let mut value =
                 report.terminal(&entry, true, blocking, ready, &plan, &operation, 1, None);
@@ -358,6 +371,16 @@ pub fn resolve_owned_operation(
             "operation '{operation_id}' did not launch its own process; refusing to stop an instance it does not own"
         );
     }
+    // A stop may only target an instance the operation actually registered. An
+    // owned operation is persisted before registration assigns an instance id,
+    // so an absent or blank id means there is nothing to stop; degrade here and
+    // the caller would route to an empty instance segment.
+    match operation.instance_id.as_deref().map(str::trim) {
+        Some(id) if !id.is_empty() => {}
+        _ => anyhow::bail!(
+            "operation '{operation_id}' has not registered an instance yet; refusing to stop an unknown instance"
+        ),
+    }
     if let Some(dcc_type) = dcc_type
         && !operation.dcc_type.eq_ignore_ascii_case(dcc_type)
     {
@@ -408,13 +431,17 @@ enum Reuse {
     Ambiguous(Vec<String>),
 }
 
+/// `instance_hint` is the caller's `--instance-id`: it narrows convergence to
+/// one exact instance instead of letting several project matches stay
+/// ambiguous.
 fn find_reusable(
     registry_dir: &Path,
     dcc_type: &str,
     project: &Path,
     store: &LifecycleStore,
+    instance_hint: Option<&str>,
 ) -> anyhow::Result<Reuse> {
-    let entries = local_instance::select_entries(registry_dir, Some(dcc_type), None)?;
+    let entries = local_instance::select_entries(registry_dir, Some(dcc_type), instance_hint)?;
     if entries.is_empty() {
         return Ok(Reuse::None);
     }

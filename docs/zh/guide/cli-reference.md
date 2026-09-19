@@ -284,7 +284,7 @@ play mode 等元数据原样透传）、`stage`、`timeout_stage`、`blocking_st
 `blocking_state` 取值包括 `none`、`restart_required`、`project_lock`、
 `license`、`modal_dialog`、`adapter_bootstrap`、`missing_executable`、
 `version_mismatch`、`ambiguous_reuse`、`launch_plan_missing`、
-`authorization_required`、`timeout`、`invalid_launch_plan`、
+`authorization_required`、`timeout`、`cancelled`、`invalid_launch_plan`、
 `project_not_found`、`project_marker_missing`、`launch_failed`。非 `none` 状态
 都会给出带精确 `command` 数组、可直接非交互执行的 `next_action`，但只在人工
 确认后执行。

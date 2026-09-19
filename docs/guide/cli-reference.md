@@ -379,8 +379,9 @@ importing, domain-reload, and play-mode metadata reported verbatim), `stage`,
 `blocking_state` covers `none`, `restart_required`, `project_lock`, `license`,
 `modal_dialog`, `adapter_bootstrap`, `missing_executable`, `version_mismatch`,
 `ambiguous_reuse`, `launch_plan_missing`, `authorization_required`, `timeout`,
-`invalid_launch_plan`, `project_not_found`, `project_marker_missing`, and
-`launch_failed`. Every non-`none` state carries a non-interactive `next_action`
+`cancelled`, `invalid_launch_plan`, `project_not_found`,
+`project_marker_missing`, and `launch_failed`. Every non-`none` state carries a
+non-interactive `next_action`
 with an exact `command` array; run it only after operator review.
 
 Stop stays a separate, guarded operation: `stop-instance --operation-id <id>`

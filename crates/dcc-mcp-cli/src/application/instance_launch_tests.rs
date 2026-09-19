@@ -230,6 +230,13 @@ async fn launching_a_gui_host_requires_authorization() {
     assert_eq!(value["blocking_state"], "authorization_required");
     assert_eq!(value["stage"], "authorization");
     assert_eq!(value["next_action"]["id"], "authorize_launch");
+    // The prompt names the exact host and version the operator is authorizing.
+    let message = value["message"].as_str().unwrap_or_default();
+    assert!(
+        message.contains(&executable.display().to_string()),
+        "{message}"
+    );
+    assert!(message.contains("2022.3.10f1"), "{message}");
     assert!(
         LifecycleStore::new(&registry)
             .find_owned("unity", &project)
@@ -386,6 +393,27 @@ async fn ambiguous_project_binding_is_refused() {
     );
 }
 
+/// `--instance-id` is advertised as the way out of an ambiguous project
+/// binding, so convergence must actually honour it rather than ignore it.
+#[tokio::test]
+async fn instance_id_disambiguates_an_ambiguous_project_binding() {
+    let dir = tempfile::tempdir().unwrap();
+    let (executable, flag) = noop_executable();
+    let project = project_with_plan(dir.path(), "MyProject", &argv_for(&executable, flag));
+    let registry = dir.path().join("registry");
+    let binding = project.display().to_string();
+    let first = register(&registry, "unity", 18080, &[("dcc_mcp_project", &binding)]);
+    let _second = register(&registry, "unity", 18081, &[("dcc_mcp_project", &binding)]);
+
+    let mut request = request(&project, &registry, 300);
+    request.instance_id = Some(first.instance_id.to_string());
+    let value = start_instance(request).await.unwrap();
+
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["reused"], true);
+    assert_eq!(value["instance_id"], first.instance_id.to_string());
+}
+
 #[tokio::test]
 async fn instance_bound_to_another_project_is_never_reused() {
     let dir = tempfile::tempdir().unwrap();
@@ -447,6 +475,13 @@ async fn advertised_blocking_state_drives_the_next_action() {
     assert_eq!(value["blocking_state"], "license");
     assert_eq!(value["next_action"]["id"], "resolve_license");
     assert_eq!(value["retryable"], false);
+    // The blocking state belongs to the persisted record too, not only to the
+    // returned report; a later `stop-instance` reads it from disk.
+    let persisted = LifecycleStore::new(&registry)
+        .find_owned("unity", &project)
+        .unwrap()
+        .unwrap();
+    assert_eq!(persisted.blocking_state.as_deref(), Some("license"));
 }
 
 #[test]
@@ -569,6 +604,91 @@ fn owned_operation_guard_rejects_unowned_and_mismatched_targets() {
         resolve_owned_operation(&registry, None, None, None)
             .unwrap()
             .is_none()
+    );
+}
+
+#[test]
+fn owned_operation_guard_rejects_an_operation_without_a_registered_instance() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = dir.path().join("registry");
+    let store = LifecycleStore::new(&registry);
+    let project = dir.path().join("MyProject");
+
+    // Persisted before registration assigns an instance id: there is nothing
+    // this operation can stop yet, so a stop must not degrade to an empty or
+    // caller-supplied instance segment.
+    let mut pending = LifecycleOperation::new(
+        "op-pending",
+        "unity",
+        &project,
+        std::path::Path::new("/opt/unity/Editor/Unity"),
+        None,
+    );
+    pending.launched = true;
+    pending.owned = true;
+    pending.pid = Some(4242);
+    store.save(&pending).unwrap();
+
+    let mut blank = pending.clone();
+    blank.operation_id = "op-blank".to_string();
+    blank.instance_id = Some("   ".to_string());
+    store.save(&blank).unwrap();
+
+    assert!(
+        resolve_owned_operation(&registry, Some("unity"), None, Some("op-pending")).is_err(),
+        "an owned operation with no instance id must not resolve"
+    );
+    assert!(
+        resolve_owned_operation(&registry, Some("unity"), None, Some("op-blank")).is_err(),
+        "a blank instance id must not resolve"
+    );
+}
+
+/// `stop-instance` routes through the operation record, so both routing flags
+/// being present must not let the caller's values win over the operation's.
+#[test]
+fn owned_operation_resolution_yields_the_registered_instance_id() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = dir.path().join("registry");
+    let store = LifecycleStore::new(&registry);
+    let project = dir.path().join("MyProject");
+
+    let mut operation = LifecycleOperation::new(
+        "op-owned",
+        "unity",
+        &project,
+        std::path::Path::new("/opt/unity/Editor/Unity"),
+        None,
+    );
+    operation.launched = true;
+    operation.owned = true;
+    operation.pid = Some(4242);
+    operation.instance_id = Some("11111111-2222-3333-4444-555555555555".to_string());
+    store.save(&operation).unwrap();
+
+    let resolved = resolve_owned_operation(
+        &registry,
+        Some("unity"),
+        Some("11111111-2222-3333-4444-555555555555"),
+        Some("op-owned"),
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        resolved.instance_id.as_deref(),
+        Some("11111111-2222-3333-4444-555555555555")
+    );
+    assert_eq!(resolved.dcc_type, "unity");
+
+    // A prefix the caller guessed must still resolve to the operation's full
+    // id rather than being forwarded verbatim.
+    let by_prefix =
+        resolve_owned_operation(&registry, Some("unity"), Some("11111111"), Some("op-owned"))
+            .unwrap()
+            .unwrap();
+    assert_eq!(
+        by_prefix.instance_id.as_deref(),
+        Some("11111111-2222-3333-4444-555555555555")
     );
 }
 

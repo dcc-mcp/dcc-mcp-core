@@ -512,30 +512,38 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             operation_id,
         } => {
             // A stop scoped to a lifecycle operation may only touch the
-            // instance that operation launched and owns.
-            let (resolved_dcc_type, resolved_instance_id) = match (
+            // instance that operation launched and owns. Any supplied
+            // --operation-id must resolve to a locally owned operation before
+            // it constrains the stop: the local path re-checks ownership in
+            // stop_instance_local, but the remote path would otherwise forward
+            // a caller-supplied operation id that nothing has validated.
+            // Resolving first also means the routing pair comes from the
+            // operation record rather than straight from the caller, so
+            // supplying both --dcc-type and --instance-id can no longer
+            // short-circuit the ownership check.
+            let owned_operation = crate::application::instance_launch::resolve_owned_operation(
+                &gateway_ensure::default_registry_dir(),
                 dcc_type.as_deref(),
                 instance_id.as_deref(),
-            ) {
-                (Some(dcc_type), Some(instance_id)) => {
-                    (dcc_type.to_string(), instance_id.to_string())
+                operation_id.as_deref(),
+            )?;
+            let (resolved_dcc_type, resolved_instance_id) = match owned_operation {
+                Some(operation) => {
+                    let instance_id = operation.instance_id.clone().ok_or_else(|| {
+                        anyhow!(
+                            "--operation-id resolves to an operation without a registered instance"
+                        )
+                    })?;
+                    (operation.dcc_type.clone(), instance_id)
                 }
-                _ => {
-                    let operation =
-                            crate::application::instance_launch::resolve_owned_operation(
-                                &gateway_ensure::default_registry_dir(),
-                                dcc_type.as_deref(),
-                                instance_id.as_deref(),
-                                operation_id.as_deref(),
-                            )?
-                            .ok_or_else(|| {
-                                anyhow!("--operation-id requires a start-instance operation that owns a live instance")
-                            })?;
-                    (
-                        operation.dcc_type.clone(),
-                        operation.instance_id.clone().unwrap_or_default(),
-                    )
-                }
+                None => match (dcc_type.as_deref(), instance_id.as_deref()) {
+                    (Some(dcc_type), Some(instance_id)) => {
+                        (dcc_type.to_string(), instance_id.to_string())
+                    }
+                    _ => anyhow::bail!(
+                        "stop-instance requires both --dcc-type and --instance-id, or an --operation-id that owns a registered instance"
+                    ),
+                },
             };
             let request = StopInstanceRequest {
                 dcc_type: resolved_dcc_type,

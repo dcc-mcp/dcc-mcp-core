@@ -284,7 +284,7 @@ impl BlockingState {
             Self::VersionMismatch => json!({
                 "id": "pin_matching_version",
                 "summary": "The recorded version does not match the requested version. Start without --version, or install the requested version.",
-                "requires_consent": false,
+                "requires_consent": true,
                 "command": project_args(&[]),
             }),
             Self::AmbiguousReuse => json!({
@@ -321,7 +321,7 @@ impl BlockingState {
             Self::Timeout => json!({
                 "id": "retry_with_longer_timeout",
                 "summary": "The operation timed out before terminal readiness. Retry with a larger --timeout-secs, or inspect the instance diagnostics.",
-                "requires_consent": false,
+                "requires_consent": true,
                 "command": project_args(&["--wait-ready", "--timeout-secs", "300"]),
             }),
             Self::Cancelled => json!({
@@ -347,7 +347,7 @@ impl BlockingState {
             Self::ProjectNotFound => json!({
                 "id": "fix_project_path",
                 "summary": "The project path does not exist or is not a directory. Pass the exact absolute project root.",
-                "requires_consent": false,
+                "requires_consent": true,
                 "command": vec![
                     "dcc-mcp-cli".to_string(),
                     "--output".to_string(),
@@ -375,7 +375,7 @@ impl BlockingState {
             Self::LaunchFailed => json!({
                 "id": "inspect_launch_failure",
                 "summary": "Spawning the recorded executable failed. Inspect the executable path and OS error, then retry.",
-                "requires_consent": false,
+                "requires_consent": true,
                 "command": project_args(&[]),
             }),
         }
@@ -978,5 +978,45 @@ mod tests {
         assert!(!BlockingState::License.retryable());
         assert!(!BlockingState::MissingExecutable.retryable());
         assert!(!BlockingState::None.retryable());
+    }
+
+    /// `--yes` authorizes a launch, which mutates machine state. A next action
+    /// that carries it must declare consent, or an agent replaying the command
+    /// verbatim would launch a GUI host it was never cleared to start.
+    #[test]
+    fn next_actions_carrying_yes_declare_consent() {
+        let states = [
+            BlockingState::None,
+            BlockingState::RestartRequired,
+            BlockingState::ProjectLock,
+            BlockingState::License,
+            BlockingState::ModalDialog,
+            BlockingState::AdapterBootstrap,
+            BlockingState::MissingExecutable,
+            BlockingState::VersionMismatch,
+            BlockingState::AmbiguousReuse,
+            BlockingState::LaunchPlanMissing,
+            BlockingState::AuthorizationRequired,
+            BlockingState::Timeout,
+            BlockingState::Cancelled,
+            BlockingState::InvalidLaunchPlan,
+            BlockingState::ProjectNotFound,
+            BlockingState::ProjectMarkerMissing,
+            BlockingState::LaunchFailed,
+        ];
+        for state in states {
+            let action =
+                state.next_action("unity", Some(Path::new("/work/MyProject")), Some("op-1"));
+            let command = action["command"].as_array().unwrap();
+            let carries_yes = command.iter().any(|flag| flag == "--yes");
+            if carries_yes {
+                assert_eq!(
+                    action["requires_consent"],
+                    true,
+                    "{} advertises --yes without requires_consent",
+                    state.as_str()
+                );
+            }
+        }
     }
 }
