@@ -52,6 +52,7 @@ use dashmap::DashMap;
 use dcc_mcp_actions::{ToolDispatcher, ToolRegistry};
 use dcc_mcp_http_types::config::FeatureFlags;
 use dcc_mcp_job::job::JobManager;
+use dcc_mcp_job::poller::JobPollRegistry;
 use dcc_mcp_jsonrpc::ElicitationCreateResult;
 use dcc_mcp_skills::SkillCatalog;
 use tokio::sync::oneshot;
@@ -100,6 +101,9 @@ pub struct ServerState {
     pub declared_capabilities: Arc<Vec<String>>,
     /// Async job manager.
     pub jobs: Arc<JobManager>,
+    /// Unified poller registry (issue #2262): job type → poll contract, plus
+    /// the output directory used for disk-backed progress counters.
+    pub poll_registry: Arc<JobPollRegistry>,
     /// Job / workflow lifecycle notifier.
     pub job_notifier: JobNotifier,
     /// Registry generation used for per-session tool-list cache invalidation.
@@ -135,6 +139,7 @@ impl ServerState {
                 features: FeatureFlags::default(),
                 declared_capabilities: Arc::new(Vec::new()),
                 jobs: Arc::new(JobManager::new()),
+                poll_registry: Arc::new(JobPollRegistry::new()),
                 job_notifier: JobNotifier::new(sessions, true),
                 registry_generation: Arc::new(AtomicU64::new(0)),
                 enable_tool_cache: true,
@@ -254,6 +259,13 @@ impl ServerStateBuilder {
     #[must_use]
     pub fn with_jobs(mut self, jobs: Arc<JobManager>) -> Self {
         self.state.jobs = jobs;
+        self
+    }
+
+    /// Use an existing unified poller registry (issue #2262).
+    #[must_use]
+    pub fn with_poll_registry(mut self, poll_registry: Arc<JobPollRegistry>) -> Self {
+        self.state.poll_registry = poll_registry;
         self
     }
 

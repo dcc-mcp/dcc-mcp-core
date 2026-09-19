@@ -11,7 +11,7 @@ use parking_lot::RwLock;
 use tokio_util::sync::CancellationToken;
 use tracing::debug;
 
-use super::types::{Job, JobEvent, JobProgress, JobStatus, JobSubscriber};
+use super::types::{Job, JobEvent, JobOutputTarget, JobProgress, JobStatus, JobSubscriber};
 use super::{
     JobPersistenceStatus,
     persistence::{PersistenceCircuit, PersistenceWriter},
@@ -311,6 +311,24 @@ impl JobManager {
             self.emit(&guard);
         }
         entry
+    }
+
+    /// Record where a job's outputs land (issue #2262).
+    ///
+    /// `complete()` is the only transition that carries a result, so without
+    /// this a `Running` job has nowhere to read `output_dir` from and its disk
+    /// counters stay unreconciled until it reaches a terminal state. Safe to
+    /// call before [`Self::start`]; it deliberately does not change `status`,
+    /// and `updated_at` is left alone because nothing observable about the
+    /// job's lifecycle moved.
+    pub fn set_output(&self, id: &str, output: Option<JobOutputTarget>) -> Option<()> {
+        let entry = self.jobs.get(id)?;
+        let mut job = entry.write();
+        job.output = output;
+        let snapshot = job.clone();
+        drop(job);
+        self.persist_put(&snapshot);
+        Some(())
     }
 
     /// Transition `Pending → Running`.

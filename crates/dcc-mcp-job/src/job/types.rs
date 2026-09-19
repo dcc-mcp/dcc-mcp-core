@@ -81,6 +81,22 @@ pub struct JobProgress {
     pub message: Option<String>,
 }
 
+/// Where a job's outputs land, captured when the job is launched.
+///
+/// `complete()` is the only transition that carries a result, so a `Running`
+/// job has no result to read `output_dir` from. Recording the declared output
+/// target at launch lets progress reconcile against disk while the job is
+/// still running, which is the shape #2262 actually describes (frames already
+/// on disk, counter still reporting zero).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct JobOutputTarget {
+    /// Directory the job writes its outputs into.
+    pub dir: String,
+    /// Extensions that count as outputs. Empty means "every file".
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub extensions: Vec<String>,
+}
+
 /// A tracked async tool invocation.
 #[derive(Debug, Clone, Serialize)]
 pub struct Job {
@@ -97,6 +113,14 @@ pub struct Job {
     pub parent_job_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub progress: Option<JobProgress>,
+    /// Where this job writes its outputs, captured from the launch arguments.
+    ///
+    /// Deliberately process-local: it is only consulted while the job runs,
+    /// and recovery rewrites every in-flight row to `Interrupted`, so a
+    /// rehydrated job never needs it. Terminal jobs keep carrying their
+    /// output directory in [`Self::result`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output: Option<JobOutputTarget>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -129,6 +153,7 @@ impl Job {
             status: JobStatus::Pending,
             parent_job_id,
             progress: None,
+            output: None,
             result: None,
             error: None,
             created_at: now,

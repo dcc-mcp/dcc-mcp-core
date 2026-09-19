@@ -4,10 +4,13 @@ use chrono;
 use serde_json::{Value, json};
 
 use dcc_mcp_job::job::Job;
+use dcc_mcp_job::poller::{
+    output_counter_from_result, output_counter_from_target, reconcile_progress,
+};
 use dcc_mcp_jsonrpc::{CallToolResult, ToolContent};
 use dcc_mcp_models::linked_adapter_job_from_result;
 
-use crate::rmcp_tool_call_dispatch::adapter_jobs::adapter_poll_tool;
+use crate::rmcp_tool_call_dispatch::adapter_jobs::ensure_poll_contract;
 use crate::server_state::ServerState;
 
 pub(in crate::rmcp_tool_call_dispatch) fn compute_job_timestamps(
@@ -117,10 +120,22 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_jobs_get_status(
         "updated_at".into(),
         Value::String(job.updated_at.to_rfc3339()),
     );
-    envelope.insert(
-        "progress".into(),
-        serde_json::to_value(&job.progress).unwrap_or(Value::Null),
-    );
+    // Counters are reconciled against authoritative state at read time: a job
+    // that declares where its outputs land never reports a cached zero while
+    // frames are already on disk (issue #2262).
+    //
+    // A terminal job declares its output directory in `result`. A job that is
+    // still running has no result yet, so it falls back to the output target
+    // captured from its launch arguments — that is the case #2262 describes.
+    let observed_outputs = job
+        .result
+        .as_ref()
+        .and_then(output_counter_from_result)
+        .or_else(|| job.output.as_ref().map(output_counter_from_target))
+        .and_then(|counter| counter.count());
+    let progress = reconcile_progress(job.progress.as_ref(), observed_outputs)
+        .unwrap_or_else(|| serde_json::to_value(&job.progress).unwrap_or(Value::Null));
+    envelope.insert("progress".into(), progress);
     envelope.insert(
         "error".into(),
         match &job.error {
@@ -140,10 +155,14 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_jobs_get_status(
             .as_ref()
             .and_then(|result| linked_adapter_job_from_result(result, &job.id))
     {
-        let poll_tool = state
+        // Resolve through the poller so the contract advertised here is one
+        // `jobs_poll_contract` can also resolve (issue #2262).
+        let launch_result = job.result.clone().unwrap_or(Value::Null);
+        let poll_contract = state
             .registry
             .get_action(&job.tool_name, None)
-            .and_then(|action| adapter_poll_tool(state, &action));
+            .and_then(|action| ensure_poll_contract(state, &action, &launch_result, None));
+        let poll_tool = poll_contract.as_ref().map(|contract| contract.tool.clone());
         let poll_registered = poll_tool.is_some();
         let hint = match poll_tool.as_deref() {
             Some(tool) => format!(
@@ -184,6 +203,50 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_jobs_get_status(
     CallToolResult {
         content: vec![ToolContent::Text { text }],
         structured_content: Some(envelope_value),
+        is_error: false,
+        meta: None,
+    }
+}
+
+/// Report how a job type is polled by the unified poller (issue #2262).
+///
+/// With `job_type` this answers "can `--wait` reach a terminal state for this
+/// tool?" — `registered: false` names the reason instead of letting the wait
+/// return early. Without it, every registered job type is listed so operators
+/// can see which async tools are actually tracked.
+pub(in crate::rmcp_tool_call_dispatch) fn handle_jobs_poll_contract(
+    state: &ServerState,
+    arguments: &Value,
+) -> CallToolResult {
+    let job_type = arguments
+        .get("job_type")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+
+    let envelope = match job_type {
+        Some(job_type) => state.poll_registry.contract_value(Some(job_type)),
+        None => {
+            let registered_types = state
+                .poll_registry
+                .list()
+                .into_iter()
+                .map(|registration| {
+                    state
+                        .poll_registry
+                        .contract_value(Some(&registration.job_type))
+                })
+                .collect::<Vec<_>>();
+            json!({
+                "count": registered_types.len(),
+                "registered_types": registered_types,
+            })
+        }
+    };
+    let text = serde_json::to_string(&envelope).unwrap_or_default();
+    CallToolResult {
+        content: vec![ToolContent::Text { text }],
+        structured_content: Some(envelope),
         is_error: false,
         meta: None,
     }
@@ -244,8 +307,10 @@ mod tests {
 
     use dcc_mcp_actions::{ToolDispatcher, ToolRegistry, registry::ToolMeta};
     use dcc_mcp_job::job::{JobManager, JobProgress};
+    use dcc_mcp_job::poller::{JobPollRegistration, PollContract};
     use dcc_mcp_models::{NextTools, SkillToolAnnotations};
     use dcc_mcp_skills::SkillCatalog;
+    use tempfile::tempdir;
 
     #[test]
     fn reported_start_timestamp_does_not_move_when_job_completes() {
@@ -328,6 +393,179 @@ mod tests {
             payload.structured_content.unwrap()["error"],
             r#"{"reason":"bad"}"#
         );
+    }
+
+    fn state() -> ServerState {
+        let registry = Arc::new(ToolRegistry::new());
+        let dispatcher = Arc::new(ToolDispatcher::new((*registry).clone()));
+        let catalog = Arc::new(SkillCatalog::new_with_dispatcher(
+            Arc::clone(&registry),
+            Arc::clone(&dispatcher),
+        ));
+        ServerState::builder(registry, dispatcher, catalog).build()
+    }
+
+    #[test]
+    fn poll_contract_query_names_unregistered_job_types() {
+        let state = state();
+
+        let payload = handle_jobs_poll_contract(
+            &state,
+            &json!({"job_type": "blender_render__render_sequence"}),
+        );
+        let envelope = payload.structured_content.unwrap();
+
+        assert_eq!(envelope["registered"], false);
+        assert_eq!(envelope["reason"], "job_type_not_registered");
+        assert_eq!(
+            envelope["job_type"], "blender_render__render_sequence",
+            "an untracked job type is diagnosable instead of failing silently"
+        );
+
+        state
+            .poll_registry
+            .register(JobPollRegistration::new(
+                "blender_render__render_sequence",
+                PollContract::adapter("blender_render__get_render_job"),
+            ))
+            .expect("register");
+
+        let payload = handle_jobs_poll_contract(
+            &state,
+            &json!({"job_type": "blender_render__render_sequence"}),
+        );
+        let envelope = payload.structured_content.unwrap();
+        assert_eq!(envelope["registered"], true);
+        assert_eq!(envelope["poll"]["tool"], "blender_render__get_render_job");
+
+        let listing = handle_jobs_poll_contract(&state, &json!({}))
+            .structured_content
+            .unwrap();
+        assert_eq!(listing["count"], 1);
+        assert_eq!(
+            listing["registered_types"][0]["job_type"],
+            "blender_render__render_sequence"
+        );
+    }
+
+    #[test]
+    fn status_query_prefers_frames_on_disk_over_a_cached_zero_counter() {
+        let dir = tempdir().expect("tempdir");
+        for frame in ["frame.0001.exr", "frame.0002.exr", "frame.0003.exr"] {
+            std::fs::write(dir.path().join(frame), b"x").expect("write frame");
+        }
+        std::fs::write(dir.path().join("log.txt"), b"x").expect("write log");
+
+        let state = state();
+        let handle = state.jobs.create("render__render_rop");
+        let id = handle.read().id.clone();
+        state.jobs.start(&id).expect("start");
+        state
+            .jobs
+            .update_progress(
+                &id,
+                dcc_mcp_job::job::JobProgress {
+                    current: 0,
+                    total: 24,
+                    message: None,
+                },
+            )
+            .expect("progress");
+        state
+            .jobs
+            .complete(
+                &id,
+                json!({
+                    "success": true,
+                    "output_dir": dir.path().to_string_lossy(),
+                    "output_extensions": ["exr"],
+                }),
+            )
+            .expect("complete");
+
+        let payload = handle_jobs_get_status(&state, &json!({"job_id": id}));
+        let envelope = payload.structured_content.unwrap();
+
+        assert_eq!(envelope["status"], "completed");
+        assert_eq!(
+            envelope["progress"]["current"], 3,
+            "the on-disk count wins over a cached zero"
+        );
+        assert_eq!(envelope["progress"]["total"], 24);
+        assert_eq!(envelope["progress"]["counter_source"], "disk");
+        assert_eq!(envelope["progress"]["reported_current"], 0);
+    }
+
+    #[test]
+    fn running_job_reconciles_against_the_output_dir_it_declared_at_launch() {
+        let dir = tempdir().expect("tempdir");
+        for frame in ["frame.0001.exr", "frame.0002.exr"] {
+            std::fs::write(dir.path().join(frame), b"x").expect("write frame");
+        }
+        std::fs::write(dir.path().join("log.txt"), b"x").expect("write log");
+
+        let state = state();
+        let handle = state.jobs.create("render__render_rop");
+        let id = handle.read().id.clone();
+        // The launch arguments are the only place a Running job can declare
+        // where its outputs land; `complete()` has not happened yet.
+        state.jobs.set_output(
+            &id,
+            Some(dcc_mcp_job::job::JobOutputTarget {
+                dir: dir.path().to_string_lossy().into_owned(),
+                extensions: vec!["exr".to_string()],
+            }),
+        );
+        state.jobs.start(&id).expect("start");
+        state
+            .jobs
+            .update_progress(
+                &id,
+                dcc_mcp_job::job::JobProgress {
+                    current: 0,
+                    total: 24,
+                    message: None,
+                },
+            )
+            .expect("progress");
+
+        let payload = handle_jobs_get_status(&state, &json!({"job_id": id}));
+        let envelope = payload.structured_content.unwrap();
+
+        assert_eq!(envelope["status"], "running");
+        assert_eq!(
+            envelope["progress"]["current"], 2,
+            "a running job counts the frames already on disk instead of the cached zero"
+        );
+        assert_eq!(envelope["progress"]["total"], 24);
+        assert_eq!(envelope["progress"]["counter_source"], "disk");
+        assert_eq!(envelope["progress"]["reported_current"], 0);
+    }
+
+    #[test]
+    fn running_job_without_a_declared_output_dir_keeps_its_reported_counter() {
+        let state = state();
+        let handle = state.jobs.create("render__render_rop");
+        let id = handle.read().id.clone();
+        state.jobs.start(&id).expect("start");
+        state
+            .jobs
+            .update_progress(
+                &id,
+                dcc_mcp_job::job::JobProgress {
+                    current: 0,
+                    total: 24,
+                    message: None,
+                },
+            )
+            .expect("progress");
+
+        let payload = handle_jobs_get_status(&state, &json!({"job_id": id}));
+        let envelope = payload.structured_content.unwrap();
+
+        assert_eq!(envelope["status"], "running");
+        assert_eq!(envelope["progress"]["current"], 0);
+        assert_eq!(envelope["progress"]["counter_source"], "reported");
     }
 
     #[test]

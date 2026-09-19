@@ -671,6 +671,7 @@ class TestMcpServerHandleDeep:
             "deactivate_tool_group",
             "search_tools",
             "jobs_get_status",
+            "jobs_poll_contract",
             "jobs_cleanup",
             # Dynamic tool management (issue #462)
             "register_tool",

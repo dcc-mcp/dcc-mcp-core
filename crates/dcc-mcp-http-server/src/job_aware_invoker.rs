@@ -78,6 +78,14 @@ impl ToolInvoker for JobAwareInvoker {
             (job.id.clone(), job.cancel_token.clone())
         };
 
+        // Remember where this job writes its outputs while it is still
+        // running: only `complete()` carries a result, so a Running job would
+        // otherwise never reconcile its counters against disk (issue #2262).
+        self.jobs.set_output(
+            &job_id,
+            dcc_mcp_job::poller::output_counter_from_result(&params).map(Into::into),
+        );
+
         let jobs = Arc::clone(&self.jobs);
         let invoker = Arc::clone(&self.inner);
         let action_name = action_name.to_string();

@@ -29,9 +29,9 @@ use adapter_jobs::attach_direct_adapter_job_contract;
 use handlers::{
     handle_activate_tool_group, handle_deactivate_tool_group, handle_deregister_tool_dynamic,
     handle_describe_action, handle_get_skill_info, handle_jobs_cleanup, handle_jobs_get_status,
-    handle_list_actions, handle_list_dynamic_tools_dynamic, handle_list_roots, handle_list_skills,
-    handle_load_skill, handle_register_tool_dynamic, handle_search_skills, handle_search_tools,
-    handle_unload_skill, route_dynamic_execution,
+    handle_jobs_poll_contract, handle_list_actions, handle_list_dynamic_tools_dynamic,
+    handle_list_roots, handle_list_skills, handle_load_skill, handle_register_tool_dynamic,
+    handle_search_skills, handle_search_tools, handle_unload_skill, route_dynamic_execution,
 };
 use helpers::{
     attach_next_tools_meta, capability_gate_result, dispatch_err_result, dispatch_json_result,
@@ -95,6 +95,7 @@ pub async fn dispatch_rmcp_tool_call(
         )),
         "search_tools" => Ok(handle_search_tools(state, &arguments_value)),
         "jobs_get_status" => Ok(handle_jobs_get_status(state, &arguments_value)),
+        "jobs_poll_contract" => Ok(handle_jobs_poll_contract(state, &arguments_value)),
         "jobs_cleanup" => Ok(handle_jobs_cleanup(state, &arguments_value).await),
         "register_tool" => Ok(handle_register_tool_dynamic(
             state,

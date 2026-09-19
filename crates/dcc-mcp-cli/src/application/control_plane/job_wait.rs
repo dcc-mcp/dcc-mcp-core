@@ -679,6 +679,61 @@ pub(super) fn is_terminal_job_status(status: &str) -> bool {
     TERMINAL_JOB_STATUSES.contains(&status)
 }
 
+/// `true` when the caller declared the call asynchronous.
+///
+/// `dcc.async` / `dcc.wait_for_terminal` is how `--wait` clients say "this
+/// call starts a job". Only those callers get a hard failure when the launch
+/// result carries no job identity — a synchronous tool called with `--wait`
+/// did nothing wrong, so it gets a warning instead.
+///
+/// Every alias is evaluated: stopping at the first one present would read
+/// `{"async": false, "wait_for_terminal": true}` as synchronous intent.
+pub(super) fn async_wait_requested(meta: Option<&Value>) -> bool {
+    meta.and_then(|value| value.get("dcc"))
+        .and_then(Value::as_object)
+        .is_some_and(|dcc| {
+            ["async", "wait_for_terminal", "waitForTerminal"]
+                .into_iter()
+                .any(|key| dcc.get(key).and_then(Value::as_bool) == Some(true))
+        })
+}
+
+/// Mark a `--wait` result that could not wait for anything (issue #2262).
+///
+/// A launch result with no job identity used to be returned verbatim, so
+/// `--wait` looked like it had waited. The envelope now says otherwise.
+pub(super) fn attach_no_job_identity_wait(result: &mut Value, async_requested: bool) {
+    let Some(object) = result.as_object_mut() else {
+        return;
+    };
+    let message = "--wait was requested but the call returned no job identity, so no wait \
+                   happened; query the tool's own status surface instead of resubmitting";
+    object.insert(
+        "wait".to_string(),
+        json!({
+            "terminal": false,
+            "completed": false,
+            "owner": "none",
+            "job_id": null,
+            "status": "unknown",
+            "tracking_status": "no_job_identity",
+            "job_resubmitted": false,
+            "waited": false,
+            // Always carried here: a result that already has a top-level
+            // `warning` must not swallow the explanation for the missing wait.
+            "message": message,
+        }),
+    );
+    if async_requested {
+        object.insert("success".to_string(), Value::Bool(false));
+        object.insert("error".to_string(), Value::String(message.to_string()));
+    } else {
+        object
+            .entry("warning".to_string())
+            .or_insert_with(|| Value::String(message.to_string()));
+    }
+}
+
 pub(super) fn job_poll_meta(mut meta: Option<Value>) -> Option<Value> {
     let Some(Value::Object(root)) = meta.as_mut() else {
         return meta;

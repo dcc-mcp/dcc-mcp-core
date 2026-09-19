@@ -15,6 +15,16 @@ use crate::server_state::ServerState;
 
 use crate::rmcp_tool_call_dispatch::use_main_thread_route;
 
+/// Where a launch's arguments say its outputs will land, if they say at all.
+///
+/// Reads the same spellings [`dcc_mcp_job::poller::output_counter_from_result`]
+/// accepts on a result envelope, so a caller that declares `output_dir` when it
+/// starts a job gets disk-backed counters from the first poll instead of only
+/// after the job completes (issue #2262).
+fn output_target_from_arguments(call_params: &Value) -> Option<dcc_mcp_job::job::JobOutputTarget> {
+    dcc_mcp_job::poller::output_counter_from_result(call_params).map(Into::into)
+}
+
 pub(super) struct AsyncDispatchConfig {
     pub parent_job_id: Option<String>,
     pub progress_token: Option<Value>,
@@ -279,6 +289,13 @@ pub(super) async fn dispatch_async_registry_tool(
         let job = job_handle.read();
         (job.id.clone(), job.cancel_token.clone())
     };
+
+    // Remember where this job writes its outputs while it is still running:
+    // only `complete()` carries a result, so a Running job would otherwise
+    // never reconcile its counters against disk (issue #2262).
+    state
+        .jobs
+        .set_output(&job_id, output_target_from_arguments(&call_params));
 
     if let Some(session) = session_id {
         state.job_notifier.subscribe_session(session);
