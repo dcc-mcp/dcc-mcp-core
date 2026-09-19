@@ -82,9 +82,13 @@ jobs:
           version: "0.9.11"
           cache-key-prefix: "vx-tools-v0.9.7"
 
+      # Pin cargo-hakari to the release that generated the committed
+      # crates/workspace-hack/Cargo.toml, matching .github/workflows/ci.yml.
+      # This workflow runs `cargo hakari generate`, so a drifting tool version
+      # would rewrite the checked-in artifacts with a different output shape.
       - uses: taiki-e/install-action@v2
         with:
-          tool: cargo-hakari
+          tool: cargo-hakari@0.9.38
 
       - name: Resolve current pull request head
         working-directory: pull-request

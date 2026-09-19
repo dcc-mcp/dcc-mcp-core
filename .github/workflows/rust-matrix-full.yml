@@ -72,9 +72,12 @@ jobs:
         with:
           key: rust-full-${{ runner.os }}
           shared-key: rust-full-${{ runner.os }}
+      # Pin cargo-hakari to the release that generated the committed
+      # crates/workspace-hack/Cargo.toml, matching .github/workflows/ci.yml.
+      # Unpinned installs drift to newer releases and fail `hakari verify`.
       - uses: taiki-e/install-action@v2
         with:
-          tool: cargo-hakari
+          tool: cargo-hakari@0.9.38
       - name: Install cargo-nextest
         uses: taiki-e/install-action@v2
         with:

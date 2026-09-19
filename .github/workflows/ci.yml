@@ -190,9 +190,14 @@ jobs:
         with:
           key: rust-${{ runner.os }}
           shared-key: rust-${{ runner.os }}
+      # Pin cargo-hakari to the release that generated the committed
+      # crates/workspace-hack/Cargo.toml. `cargo-hakari hakari verify` fails as
+      # soon as the installed tool drifts to a newer release (0.9.39 turned every
+      # Rust lane red on main). A bare version in `tool` is an exact `=0.9.38`
+      # requirement, not a caret range.
       - uses: taiki-e/install-action@v2
         with:
-          tool: cargo-hakari
+          tool: cargo-hakari@0.9.38
       - name: Install cargo-nextest
         uses: taiki-e/install-action@v2
         with:
