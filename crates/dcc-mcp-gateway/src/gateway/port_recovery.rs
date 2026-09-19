@@ -38,7 +38,11 @@ pub(crate) const RECOVERY_BIND_ATTEMPTS: u32 = 3;
 ///    "unknown", never "reap it").
 /// 2. That PID is not this process — self-termination is never recovery.
 /// 3. Exactly one PID holds the listener, so a shared or hijacked port does
-///    not turn into an ambiguous kill.
+///    not turn into an ambiguous kill. The port table reports every PID it
+///    attributes to the socket, so a listener shared through `SO_REUSEPORT`
+///    or by a pre-forking server (`nginx`, `httpd`) is seen as several
+///    holders — the group is left alone rather than reduced to one arbitrary
+///    member of it.
 /// 4. The PID is recorded as this deployment's gateway **for this port** in the
 ///    pidfile or in a gateway autolaunch manifest inside `registry_dir`. Only a
 ///    PID we can prove this deployment started is reaped; an unrelated
