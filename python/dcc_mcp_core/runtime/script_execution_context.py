@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import threading
 from typing import Any
+from typing import Callable
 
 from dcc_mcp_core.runtime.scene_digest import SceneDigestError
 from dcc_mcp_core.runtime.scene_digest import SceneDigestExecution
@@ -93,6 +94,31 @@ class ScriptExecutionContext:
                 if str(key).startswith("__"):
                     continue
                 self._script_namespace[key] = value
+
+    def run_with_shared_namespace(self, runner: Callable[[dict[str, Any]], Any]) -> tuple[Any, dict[str, Any]]:
+        """Run *runner* against a snapshot of the namespace, then merge it back.
+
+        The snapshot, the execution, and the merge happen as one atomic step
+        under this context's lock. Callers that can be dispatched concurrently
+        (``ThreadAffinity::Any`` workers all share one executor) must use this
+        instead of :meth:`script_namespace` + :meth:`update_script_namespace`:
+        two callers that snapshot before either merges would otherwise have the
+        second merge overwrite the first one's variables with a stale snapshot.
+
+        *runner* receives the snapshot dict and may bind new variables in it.
+        Dunder keys are dropped on merge, same as
+        :meth:`update_script_namespace`.
+
+        Returns:
+            A ``(result, shared)`` tuple: whatever *runner* returned, and the
+            namespace snapshot it ran against after the merge.
+
+        """
+        with self._lock:
+            shared: dict[str, Any] = dict(self._script_namespace)
+            result = runner(shared)
+            self.update_script_namespace(shared)
+            return result, shared
 
     def execute(self, code: str, *, filename: str = "<execute_python>") -> Any:
         """Execute code and persist variables atomically in this context."""

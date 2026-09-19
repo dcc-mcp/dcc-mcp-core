@@ -320,19 +320,24 @@ class DccApiExecutor:
                 "error": str(exc),
             }
 
-        try:
-            shared: dict | None = None
-            if persist:
-                shared = dict(self._script_execution_context.script_namespace())
+        def _run(shared: dict | None) -> Any:
             ctx = EvalContext(
                 self._dispatcher,
                 sandbox=True,
                 timeout_secs=script.timeout_secs,
                 shared_namespace=shared,
             )
-            result = ctx.run_entrypoint(script.code, script.params) if script.params_provided else ctx.run(script.code)
-            if shared is not None:
-                self._script_execution_context.update_script_namespace(shared)
+            return ctx.run_entrypoint(script.code, script.params) if script.params_provided else ctx.run(script.code)
+
+        try:
+            shared: dict | None = None
+            if persist:
+                # Snapshot, execution, and merge must be one atomic step: the
+                # registered executor is shared, and workers default to
+                # ThreadAffinity::Any, so two requests can run concurrently.
+                result, shared = self._script_execution_context.run_with_shared_namespace(_run)
+            else:
+                result = _run(None)
             materialized_context = script.materialized_context()
             context = {"materialized_script": materialized_context} if materialized_context is not None else {}
             if shared is not None:
