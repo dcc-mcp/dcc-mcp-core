@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.31](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.30...v0.20.31) (2026-09-19)
+
+
+### Features
+
+* **cli:** project-bound DCC launch and wait-ready workflow ([#2483](https://github.com/dcc-mcp/dcc-mcp-core/issues/2483)) ([bc9c31f](https://github.com/dcc-mcp/dcc-mcp-core/commit/bc9c31f5a60a77bfac0d64b5f7fa7fc0e99e0c9f))
+* **core:** enforce post-condition readback for mutating tools ([b74daf5](https://github.com/dcc-mcp/dcc-mcp-core/commit/b74daf59eb65a6e2357e927eb4380bac26a13136)), closes [#2260](https://github.com/dcc-mcp/dcc-mcp-core/issues/2260)
+* **job:** unified poller, honest --wait, disk-backed counters ([de3e5ae](https://github.com/dcc-mcp/dcc-mcp-core/commit/de3e5ae5ff5d6c8a2ce91f99935e17efc365a4b3)), closes [#2262](https://github.com/dcc-mcp/dcc-mcp-core/issues/2262)
+* **skills:** add cross-adapter mesh-ops modeling recipe pack ([#2476](https://github.com/dcc-mcp/dcc-mcp-core/issues/2476)) ([477d57e](https://github.com/dcc-mcp/dcc-mcp-core/commit/477d57e36fdff727373592bb939b238d80089198)), closes [#2259](https://github.com/dcc-mcp/dcc-mcp-core/issues/2259)
+* **validation:** add released-product production acceptance matrix ([#2478](https://github.com/dcc-mcp/dcc-mcp-core/issues/2478)) ([eb76412](https://github.com/dcc-mcp/dcc-mcp-core/commit/eb76412b44e031aab70c1b058e83a0e480a8b2d2)), closes [#2384](https://github.com/dcc-mcp/dcc-mcp-core/issues/2384)
+* **verification:** add cross-DCC verification toolset ([50d62cb](https://github.com/dcc-mcp/dcc-mcp-core/commit/50d62cbb5fd0b87cf5e2ad8452de7b10a6f6e0e2))
+* **verification:** behavior verification contract — state export and assertions ([8a86152](https://github.com/dcc-mcp/dcc-mcp-core/commit/8a8615228c054c4f3a520f5b0fa5e23c47947567))
+
+
+### Bug Fixes
+
+* **ci:** pin cargo-hakari to 0.9.38 across workflows ([4282632](https://github.com/dcc-mcp/dcc-mcp-core/commit/4282632d16ce98418eba18057d301282dd5bf3bd))
+* **ci:** resolve the live pull request head before syncing generated locks ([#2489](https://github.com/dcc-mcp/dcc-mcp-core/issues/2489)) ([225dc4a](https://github.com/dcc-mcp/dcc-mcp-core/commit/225dc4ae7fcd1d2b7cc1f41d6b9f531c14154d12))
+* **core:** lock durable checkpoint writes across processes ([1c5fafc](https://github.com/dcc-mcp/dcc-mcp-core/commit/1c5fafca75ebb298d57e9a8be967fa7cf41c59e0))
+* **core:** make iteration state survive restarts ([eff9f98](https://github.com/dcc-mcp/dcc-mcp-core/commit/eff9f988079c33ccfbd81a1f9c7a38b96edab217))
+* **core:** serialize namespace updates and batch embedding cache writes ([208e4ef](https://github.com/dcc-mcp/dcc-mcp-core/commit/208e4ef125d7280c7fcf774a03ef704468dd7a77))
+* **core:** validate postcondition policy early and stop swallowing cancellation ([89bad21](https://github.com/dcc-mcp/dcc-mcp-core/commit/89bad215015e3bc3bba55e3b0c808af31ba877b5))
+* **gateway:** recover from a live but service-dead port holder ([#2488](https://github.com/dcc-mcp/dcc-mcp-core/issues/2488)) ([faff5c5](https://github.com/dcc-mcp/dcc-mcp-core/commit/faff5c58b97eb4d89f847ab19961747dabdfc026)), closes [#2405](https://github.com/dcc-mcp/dcc-mcp-core/issues/2405)
+* **test:** assert the final modern lifecycle wire contract ([f14b440](https://github.com/dcc-mcp/dcc-mcp-core/commit/f14b44020a1bcf53c16e1dfface82d6e2e83d568))
+* **test:** report method, header, status, and body on lifecycle JSON parse failures ([eb53e4e](https://github.com/dcc-mcp/dcc-mcp-core/commit/eb53e4e5af72da2ba590dff26e48651d3bbf4a06))
+* **tests:** guard pid-file reads against create-before-write races ([#2494](https://github.com/dcc-mcp/dcc-mcp-core/issues/2494)) ([1dcd668](https://github.com/dcc-mcp/dcc-mcp-core/commit/1dcd668243e27e844d885b210054b0f4c77abc70))
+* **verification:** close four acceptance review findings ([#2493](https://github.com/dcc-mcp/dcc-mcp-core/issues/2493)) ([a9022a1](https://github.com/dcc-mcp/dcc-mcp-core/commit/a9022a12131040177e40e1d24c2719606d8ea6b9))
+
+
+### Code Refactoring
+
+* **core:** split script_execution into focused runtime modules ([d308cef](https://github.com/dcc-mcp/dcc-mcp-core/commit/d308cef49ad4ee8737e9fcad75bc43f0f82f922f))
+
 ## [0.20.30](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.29...v0.20.30) (2026-09-18)
 
 
