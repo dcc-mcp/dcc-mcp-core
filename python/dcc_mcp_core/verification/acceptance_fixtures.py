@@ -19,16 +19,44 @@ from typing import Any
 
 from dcc_mcp_core.verification.acceptance import AcceptanceValidationError
 
-#: Minimum supported Unity/Tuanjie editor major (Unity 2021 / Tuanjie 2022).
+#: Minimum supported Unity editor major (Unity 2021).
 MIN_UNITY_EDITOR_MAJOR = 2021
+#: Minimum supported Tuanjie editor major.  Tuanjie tracks the Unity 2022 LTS
+#: line, so it has its own floor one major above Unity's; sharing Unity's 2021
+#: floor would accept editor versions no Tuanjie release has ever shipped.
+MIN_TUANJIE_EDITOR_MAJOR = 2022
 #: Minimum supported Unreal Engine major.
 MIN_UNREAL_ENGINE_MAJOR = 5
 #: Bounded Godot ``config_version`` probe window (Godot 3.x through 4.x).
 MIN_GODOT_CONFIG_VERSION = 3
 MAX_GODOT_CONFIG_VERSION = 5
 
-_UNITY_FLAVORS = ("unity", "tuanjie")
+_UNITY_FLAVOR_MINIMUMS = {
+    "unity": MIN_UNITY_EDITOR_MAJOR,
+    "tuanjie": MIN_TUANJIE_EDITOR_MAJOR,
+}
+_UNITY_FLAVORS = tuple(_UNITY_FLAVOR_MINIMUMS)
 _MAJOR_RE = re.compile(r"^[0-9]+")
+# A bare file name: word characters plus interior dots, dashes and spaces, and
+# never a leading or trailing dot.  Deliberately an allow-list — a block-list of
+# path separators has to anticipate every platform spelling ("/", "\", "C:",
+# "..") and is silently wrong the moment one is missed.
+_STEM_RE = re.compile(r"^[^\W](?:[\w.\- ]*[^\W])?$")
+
+
+def _stem(name: str, value: Any) -> str:
+    """Return ``value`` only when it is safe to use as a single path component.
+
+    A fixture's ``project_name`` is interpolated into a path, so an unvalidated
+    value such as ``"../escaped"`` or ``"C:/Windows/abs"`` would write outside
+    the directory the caller passed and break this module's central promise.
+    """
+    if not isinstance(value, str) or not value.strip():
+        raise AcceptanceValidationError(f"{name} must be a non-empty string")
+    candidate = value.strip()
+    if ".." in candidate or not _STEM_RE.match(candidate):
+        raise AcceptanceValidationError(f"{name} must be a bare file name without path separators: {value!r}")
+    return candidate
 
 
 def _major(value: str) -> int | None:
@@ -61,14 +89,16 @@ def unity_project_version(
     """Write a disposable Unity/Tuanjie ``ProjectVersion.txt``.
 
     ``flavor`` must be ``unity`` or ``tuanjie``.  ``editor_version`` must be a
-    supported editor version (major >= :data:`MIN_UNITY_EDITOR_MAJOR`); anything
-    older is rejected.  When ``custom_editor_path`` is supplied it becomes the
-    recorded editor decision; otherwise the decision is the exact editor
-    version.  Never launches the editor.
+    supported editor version for that flavor (major >=
+    :data:`MIN_UNITY_EDITOR_MAJOR` for ``unity``, >=
+    :data:`MIN_TUANJIE_EDITOR_MAJOR` for ``tuanjie``); anything older is
+    rejected.  When ``custom_editor_path`` is supplied it becomes the recorded
+    editor decision; otherwise the decision is the exact editor version.  Never
+    launches the editor.
     """
     if flavor not in _UNITY_FLAVORS:
         raise AcceptanceValidationError(f"flavor must be one of: {', '.join(_UNITY_FLAVORS)}")
-    _require_major("editor_version", editor_version, MIN_UNITY_EDITOR_MAJOR)
+    _require_major("editor_version", editor_version, _UNITY_FLAVOR_MINIMUMS[flavor])
     root = Path(project_dir)
     content = f"m_EditorVersion: {editor_version}\nm_EditorVersionWithRevision: {editor_version} (0)\n"
     written = _write(root / "ProjectSettings" / "ProjectVersion.txt", content)
@@ -95,9 +125,11 @@ def unreal_project(
 
     ``engine_association`` must be a supported engine (numeric major >=
     :data:`MIN_UNREAL_ENGINE_MAJOR`, or a custom engine identifier such as a
-    source-build GUID).  ``engine_root`` records a custom engine-root decision;
-    ``released_package`` records an explicit released-package capability
-    check.  Never launches the editor.
+    source-build GUID).  ``project_name`` becomes the ``.uproject`` file name, so
+    it must be a bare file name — path separators, drive letters and leading dots
+    are rejected rather than followed.  ``engine_root`` records a custom
+    engine-root decision; ``released_package`` records an explicit
+    released-package capability check.  Never launches the editor.
     """
     association = engine_association.strip()
     if not association:
@@ -108,6 +140,7 @@ def unreal_project(
             f"engine_association is unsupported: {association!r} (minimum major {MIN_UNREAL_ENGINE_MAJOR})"
         )
     root = Path(project_dir)
+    stem = _stem("project_name", project_name)
     uproject: dict[str, Any] = {
         "FileVersion": 3,
         "EngineAssociation": association,
@@ -116,7 +149,7 @@ def unreal_project(
     }
     if released_package:
         uproject["Plugins"] = [{"Name": released_package, "Enabled": True}]
-    written = _write(root / f"{project_name}.uproject", json.dumps(uproject, indent=2, sort_keys=True))
+    written = _write(root / f"{stem}.uproject", json.dumps(uproject, indent=2, sort_keys=True))
     decision = engine_root if engine_root else f"engine association {association}"
     return {
         "kind": "unreal",
@@ -195,6 +228,7 @@ def godot_version_probe(project_dir: Any) -> int:
 __all__ = [
     "MAX_GODOT_CONFIG_VERSION",
     "MIN_GODOT_CONFIG_VERSION",
+    "MIN_TUANJIE_EDITOR_MAJOR",
     "MIN_UNITY_EDITOR_MAJOR",
     "MIN_UNREAL_ENGINE_MAJOR",
     "godot_project",

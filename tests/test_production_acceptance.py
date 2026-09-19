@@ -11,6 +11,7 @@ deterministic and sanitized.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -22,12 +23,15 @@ from dcc_mcp_core.verification.acceptance import build_report
 from dcc_mcp_core.verification.acceptance import dumps_report
 from dcc_mcp_core.verification.acceptance import evaluate_acceptance
 from dcc_mcp_core.verification.acceptance import evaluate_many
+from dcc_mcp_core.verification.acceptance import make_level
 from dcc_mcp_core.verification.acceptance import production_acceptance_v1_json_schema
 from dcc_mcp_core.verification.acceptance import recompute_sha256
 from dcc_mcp_core.verification.acceptance import record_from_catalog_entry
 from dcc_mcp_core.verification.acceptance import sanitize_evidence_link
 from dcc_mcp_core.verification.acceptance import validate_acceptance_schema
 from dcc_mcp_core.verification.acceptance import verify_release_sha256
+from dcc_mcp_core.verification.acceptance_fixtures import MIN_TUANJIE_EDITOR_MAJOR
+from dcc_mcp_core.verification.acceptance_fixtures import MIN_UNITY_EDITOR_MAJOR
 from dcc_mcp_core.verification.acceptance_fixtures import godot_project
 from dcc_mcp_core.verification.acceptance_fixtures import godot_version_probe
 from dcc_mcp_core.verification.acceptance_fixtures import unity_project_version
@@ -384,6 +388,50 @@ def test_sanitize_evidence_link_accepts_public_https() -> None:
     assert sanitize_evidence_link("http://93.184.216.34/report") == "http://93.184.216.34/report"
 
 
+# ── Level builder ─────────────────────────────────────────────────────────
+
+
+def test_make_level_output_passes_the_validator() -> None:
+    """``make_level`` must never hand back a level its own validator rejects."""
+    level = make_level(
+        "PASS",
+        source="real-host",
+        checked_at=TIMESTAMP,
+        detail="ok",
+        evidence=[{"url": "https://github.com/dcc-mcp/dcc-mcp-maya", "label": "repository"}],
+    )
+    validate_acceptance_schema(_valid_record({"levels": {"instance_qualified_call": level}}))
+    assert level["evidence"][0]["label"] == "repository"
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        pytest.param({"checked_at": ""}, "checked_at", id="empty-checked-at"),
+        pytest.param({"checked_at": None}, "checked_at", id="null-checked-at"),
+        pytest.param(
+            {"evidence": ["https://github.com/dcc-mcp/dcc-mcp-maya"]},
+            "evidence link must have url and label",
+            id="string-evidence",
+        ),
+        pytest.param(
+            {"evidence": {"url": "https://github.com/dcc-mcp/dcc-mcp-maya", "label": "repository"}},
+            "evidence must be a list",
+            id="dict-evidence",
+        ),
+    ],
+)
+def test_make_level_rejects_what_the_validator_rejects(overrides: Any, message: str) -> None:
+    """Fail at build time, not later from the validator.
+
+    ``checked_at=""`` was accepted here and then rejected by ``_validate_level``,
+    and a bare URL string was accepted where the schema requires an evidence
+    object, so this builder could return a level its own validator refused.
+    """
+    with pytest.raises(AcceptanceValidationError, match=message):
+        make_level("PASS", **{"checked_at": TIMESTAMP, **overrides})
+
+
 # ── Engine fixtures (editor-free) ─────────────────────────────────────────
 
 
@@ -406,6 +454,22 @@ def test_tuanjie_project_version_decision(tmp_path: Any) -> None:
     assert result["decision"] == "C:/Tuanjie/Editor.exe"
 
 
+def test_tuanjie_has_its_own_editor_floor(tmp_path: Any) -> None:
+    """Tuanjie tracks the Unity 2022 LTS line, so it gets its own floor.
+
+    Reusing Unity's 2021 floor accepted editor versions no Tuanjie release has
+    ever shipped, so the two flavors must not share a threshold.
+    """
+    assert MIN_TUANJIE_EDITOR_MAJOR > MIN_UNITY_EDITOR_MAJOR
+
+    # Unity's own floor still admits 2021.
+    accepted = unity_project_version(tmp_path / "unity", "2021.3.0f1")
+    assert accepted["editor_version"] == "2021.3.0f1"
+
+    with pytest.raises(AcceptanceValidationError, match="unsupported"):
+        unity_project_version(tmp_path / "tuanjie", "2021.3.0f1", flavor="tuanjie")
+
+
 def test_unreal_project_writes_and_rejects_unsupported(tmp_path: Any) -> None:
     result = unreal_project(tmp_path, "5.4", released_package="dcc-mcp-unreal")
     assert result["launched"] is False
@@ -415,6 +479,42 @@ def test_unreal_project_writes_and_rejects_unsupported(tmp_path: Any) -> None:
 
     with pytest.raises(AcceptanceValidationError, match="unsupported"):
         unreal_project(tmp_path / "old", "4.27")
+
+
+@pytest.mark.parametrize(
+    "project_name",
+    [
+        pytest.param("../escaped", id="parent-dir"),
+        pytest.param("../../escaped", id="grandparent-dir"),
+        pytest.param("a/b", id="forward-slash"),
+        pytest.param("a\\b", id="backslash"),
+        pytest.param("C:/Windows/abs", id="windows-drive"),
+        pytest.param("..", id="dot-dot"),
+        pytest.param(".hidden", id="leading-dot"),
+        pytest.param("", id="empty"),
+        pytest.param("   ", id="whitespace-only"),
+    ],
+)
+def test_unreal_project_rejects_a_name_that_leaves_the_root(tmp_path: Any, project_name: str) -> None:
+    """``project_name`` becomes a path component, so it must stay a bare name.
+
+    This module promises every fixture writes only into the directory the caller
+    passes.  ``"../escaped"`` resolves outside ``project_dir`` and
+    ``"C:/Windows/abs"`` replaces it outright, so both are rejected rather than
+    followed.
+    """
+    with pytest.raises(AcceptanceValidationError, match="project_name"):
+        unreal_project(tmp_path, "5.4", project_name=project_name)
+
+
+def test_unreal_project_writes_inside_the_caller_directory(tmp_path: Any) -> None:
+    """A safe ``project_name`` stays under ``project_dir``, whatever it looks like."""
+    project_dir = tmp_path / "project"
+    result = unreal_project(project_dir, "5.4", project_name="My.Proj-1")
+
+    written = Path(result["files_written"][0]).resolve()
+    assert written.parent == project_dir.resolve()
+    assert written.name == "My.Proj-1.uproject"
 
 
 def test_godot_project_writes_and_rejects_unsupported(tmp_path: Any) -> None:
@@ -448,6 +548,37 @@ def test_catalog_derives_a_record_for_every_adapter() -> None:
         assert set(record["levels"]) == set(LEVELS)
         assert record["report"]["overall_status"] != "PASS"
         assert record["report"]["sanitized"] is True
+
+
+@pytest.mark.parametrize("url", [{}, [], 123, True])
+def test_catalog_install_url_type_error_is_a_validation_error(url: Any) -> None:
+    """A non-string ``install.url`` must fail as a validation error.
+
+    It feeds an ``rsplit``, so a dict/list/int value escaped as an
+    ``AttributeError`` — an internal fault instead of a rejected catalog entry.
+    """
+    entry = {
+        "name": "dcc-mcp-example",
+        "maintainer": "dcc-mcp",
+        "url": "https://github.com/dcc-mcp/dcc-mcp-maya",
+        "version": "1.0.0",
+        "install": {"url": url},
+    }
+    with pytest.raises(AcceptanceValidationError, match=r"install\.url must be a string"):
+        record_from_catalog_entry(entry, checked_at=TIMESTAMP)
+
+
+@pytest.mark.parametrize("url", [None, ""])
+def test_catalog_install_url_stays_optional(url: Any) -> None:
+    """A null or empty ``install.url`` still means "no downloadable artifact"."""
+    entry: dict[str, Any] = {
+        "name": "dcc-mcp-example",
+        "maintainer": "dcc-mcp",
+        "url": "https://github.com/dcc-mcp/dcc-mcp-maya",
+        "version": "1.0.0",
+        "install": {"url": url},
+    }
+    assert record_from_catalog_entry(entry, checked_at=TIMESTAMP)["product"]["asset_name"] is None
 
 
 # ── Report contract ───────────────────────────────────────────────────────
