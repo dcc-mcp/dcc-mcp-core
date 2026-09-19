@@ -18,6 +18,10 @@ dcc-mcp-models = { workspace = true }
 dcc-mcp-actions = { workspace = true }
 dcc-mcp-gateway-core = { workspace = true }
 dcc-mcp-gateway-admin = { workspace = true }
+# Port-holder resolution and process liveness primitives used by the
+# challenger loop when a resident gateway stays alive but stops serving
+# (issue #2405).
+dcc-mcp-gateway-ensure = { workspace = true }
 dcc-mcp-jsonrpc = { workspace = true }
 dcc-mcp-naming = { workspace = true }
 dcc-mcp-transport = { workspace = true }

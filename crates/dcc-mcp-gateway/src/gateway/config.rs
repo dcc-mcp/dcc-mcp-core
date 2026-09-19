@@ -99,6 +99,14 @@ pub struct GatewayConfig {
     pub server_version: String,
     /// Shared `FileRegistry` directory. `None` falls back to a temp dir.
     pub registry_dir: Option<PathBuf>,
+    /// Pidfile recording the gateway process this deployment started.
+    ///
+    /// Recovery from a live-but-service-dead port holder may terminate that
+    /// holder to release the port, but only once the PID is proven to belong
+    /// to this deployment. The pidfile is one of the two accepted proofs; the
+    /// other is a gateway autolaunch manifest in the registry directory.
+    /// `None` means "no pidfile evidence" — never "any PID on the port".
+    pub pidfile: Option<PathBuf>,
     /// How many seconds a newer-version challenger waits for the old gateway
     /// to yield before giving up and running as a plain instance.
     ///
@@ -263,6 +271,7 @@ impl Default for GatewayConfig {
             gateway_name: None,
             server_version: env!("CARGO_PKG_VERSION").to_string(),
             registry_dir: None,
+            pidfile: None,
             challenger_timeout_secs: 120,
             challenger_poll_interval_secs: 10,
             backend_timeout_ms: DEFAULT_BACKEND_TIMEOUT_MS,

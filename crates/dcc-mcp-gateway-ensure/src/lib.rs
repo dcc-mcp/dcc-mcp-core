@@ -23,6 +23,10 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use anyhow::Context;
 use serde::Serialize;
 
+mod port_holders;
+
+pub use port_holders::listener_pids_on_port;
+
 // ── Constants ──────────────────────────────────────────────────────────────
 
 /// How long to wait for a single `/health` probe before timing out.
@@ -573,6 +577,16 @@ pub fn is_process_alive(pid: u32) -> bool {
     }
     #[cfg(unix)]
     {
+        // A child that has exited but whose status the parent has not
+        // collected yet is a zombie: it keeps its process-table slot, so
+        // `kill -0` succeeds even though the process holds no descriptors and
+        // no port. Treat it as gone — see [`process_is_zombie`].
+        #[cfg(target_os = "linux")]
+        {
+            if process_is_zombie(pid) {
+                return false;
+            }
+        }
         // `kill -0 <pid>` succeeds if the process exists and we can signal it.
         Command::new("kill")
             .args(["-0", &pid.to_string()])
@@ -582,6 +596,39 @@ pub fn is_process_alive(pid: u32) -> bool {
             .map(|s| s.success())
             .unwrap_or(false)
     }
+}
+
+/// True when `pid` has exited but its exit status has not been collected yet.
+///
+/// Linux keeps a zombie in the process table until its parent waits on it. It
+/// holds no file descriptors and no port, but `kill -0` still succeeds for it —
+/// which made [`is_process_alive`] report a terminated gateway holder as
+/// running after recovery had already released its port.
+///
+/// Reading `/proc` is best-effort: when it is unavailable this returns
+/// `false`, leaving the `kill -0` probe to decide as before.
+#[cfg(target_os = "linux")]
+fn process_is_zombie(pid: u32) -> bool {
+    std::fs::read_to_string(format!("/proc/{pid}/stat"))
+        .ok()
+        .as_deref()
+        .and_then(proc_stat_state)
+        == Some('Z')
+}
+
+/// The state field of a `/proc/<pid>/stat` snapshot.
+///
+/// `comm` is parenthesised and may itself contain spaces and parentheses
+/// (`4242 ((my app)) S 1 ...`), so the state is the first field after the
+/// last `)`.
+#[cfg(any(test, target_os = "linux"))]
+fn proc_stat_state(stat: &str) -> Option<char> {
+    stat.rsplit_once(')')?
+        .1
+        .split_whitespace()
+        .next()?
+        .chars()
+        .next()
 }
 
 /// Send a termination signal to the process with the given PID.
@@ -1018,5 +1065,53 @@ mod tests {
 
         assert_eq!(err.kind(), std::io::ErrorKind::AlreadyExists);
         assert!(path.exists());
+    }
+
+    #[test]
+    fn proc_stat_state_reads_the_field_after_the_command_name() {
+        // `comm` is parenthesised and can contain spaces and parentheses, so
+        // only the last `)` delimits it.
+        assert_eq!(proc_stat_state("4242 (dcc-mcp-server) S 1 4242"), Some('S'));
+        assert_eq!(proc_stat_state("4242 ((my app)) Z 1 4242"), Some('Z'));
+        assert_eq!(proc_stat_state("4242 (unterminated"), None);
+    }
+
+    /// A exited-but-uncollected child is a zombie and must not be reported as
+    /// alive: it holds no port and cannot serve anything, so treating it as
+    /// running would make the port-recovery path wait forever.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn zombie_child_is_not_alive() {
+        let Ok(mut child) = Command::new("true")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+        else {
+            eprintln!("skipping: could not spawn `true`");
+            return;
+        };
+        let pid = child.id();
+
+        // Wait for the child to exit without collecting it, which is what
+        // leaves it a zombie owned by this process.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < deadline {
+            let state = std::fs::read_to_string(format!("/proc/{pid}/stat"))
+                .ok()
+                .as_deref()
+                .and_then(proc_stat_state);
+            if state == Some('Z') {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+
+        assert!(
+            !is_process_alive(pid),
+            "a zombie holds no port and must not be reported as alive"
+        );
+        // Collect it so the test leaves nothing behind.
+        let _ = child.wait();
     }
 }

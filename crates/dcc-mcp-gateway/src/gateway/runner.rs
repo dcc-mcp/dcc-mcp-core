@@ -1,3 +1,6 @@
+use super::port_recovery::{
+    RECOVERY_BIND_ATTEMPTS, reap_service_dead_port_holder, service_dead_port_holder_pid,
+};
 use super::*;
 
 use futures::FutureExt;
@@ -140,7 +143,7 @@ pub struct GatewayRunner {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ResidentGatewayHealth {
+pub(crate) enum ResidentGatewayHealth {
     Healthy,
     Unhealthy,
 }
@@ -712,6 +715,8 @@ impl GatewayRunner {
         let gateway_persist = self.config.gateway_persist;
         let gateway_idle_timeout_secs = self.config.gateway_idle_timeout_secs;
         let semantic_search_enabled = self.config.semantic_search_enabled;
+        let registry_dir = self.registry.registry_dir().to_path_buf();
+        let pidfile = self.config.pidfile.clone();
         let mut startup_ready_challenger = startup_ready;
 
         let handle = tokio::spawn(async move {
@@ -766,6 +771,7 @@ impl GatewayRunner {
 
             // ── Retry loop ────────────────────────────────────────────────
             let max_retries = (timeout_secs / poll_interval_secs).max(1);
+            let mut failed_bind_attempts: u32 = 0;
             for attempt in 1..=max_retries {
                 tokio::time::sleep(Duration::from_secs(poll_interval_secs)).await;
 
@@ -884,6 +890,61 @@ impl GatewayRunner {
                 }
 
                 tracing::debug!("Challenger: port still taken (attempt {attempt}/{max_retries})");
+
+                // A live-but-service-dead holder accepts every TCP connection
+                // but never answers, so it will never release the port on its
+                // own and the bind-poll below can never promote (issue #2405).
+                // After a bounded number of failed attempts, reap the holder
+                // — but only when it is provably a gateway this deployment
+                // started, so an unrelated process on the port is never
+                // terminated.
+                failed_bind_attempts += 1;
+                if failed_bind_attempts >= RECOVERY_BIND_ATTEMPTS
+                    && probe_resident_gateway_health(
+                        &host,
+                        port,
+                        Duration::from_secs(poll_interval_secs.clamp(1, 5)),
+                    )
+                    .await
+                        == ResidentGatewayHealth::Unhealthy
+                {
+                    if let Some(pid) =
+                        service_dead_port_holder_pid(port, &registry_dir, pidfile.as_deref())
+                    {
+                        if reap_service_dead_port_holder(
+                            &host,
+                            port,
+                            pid,
+                            Duration::from_secs(poll_interval_secs.clamp(1, 5)),
+                        )
+                        .await
+                        {
+                            // The next attempt binds the freed port and takes
+                            // over through the normal promotion path.
+                            //
+                            // Deliberately skips `request_cooperative_yield`
+                            // below: the resident gateway was just terminated,
+                            // so asking it to step down is pointless, and the
+                            // port must be re-checked while it is still free.
+                            continue;
+                        }
+                    } else {
+                        tracing::warn!(
+                            attempt = attempt,
+                            port = port,
+                            "Challenger: resident gateway is service-dead but its holder PID could not be attributed to this deployment — waiting for the port instead of terminating it"
+                        );
+                    }
+                    // Reaping is a one-shot escalation per challenger run: do
+                    // not retry the kill on every remaining attempt. The
+                    // counter is intentionally left alone when the holder
+                    // probes healthy — a healthy resident answers in
+                    // milliseconds, so re-probing it every attempt is cheap
+                    // and is what lets the next round catch it the moment it
+                    // goes service-dead.
+                    failed_bind_attempts = 0;
+                }
+
                 request_cooperative_yield(&yield_client, &yield_url, &own_ver, &gw_ver).await;
             }
 
@@ -979,7 +1040,7 @@ fn challenger_reason(resident_health: ResidentGatewayHealth) -> Option<&'static 
     }
 }
 
-async fn probe_resident_gateway_health(
+pub(crate) async fn probe_resident_gateway_health(
     host: &str,
     port: u16,
     timeout: Duration,

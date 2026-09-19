@@ -578,6 +578,116 @@ async fn test_start_orders_winner_challenger_registry_barrier_and_promotion() {
 }
 
 #[tokio::test]
+async fn test_challenger_recovers_live_but_service_dead_port_holder() {
+    // Issue #2405 acceptance criteria: the old process stays alive and the
+    // port keeps accepting TCP, but HTTP/MCP never responds. Polling for a
+    // clean release can never succeed, so the challenger must promote within a
+    // bounded deadline by reaping the provably-owned stale holder.
+    if !crate::gateway::port_recovery::port_holder_resolution_available() {
+        eprintln!("skipping: this platform cannot resolve the PID holding a listening port");
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let occupied = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = occupied.local_addr().unwrap().port();
+
+    let mut holder = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "gateway::port_recovery::port_recovery_tests::port_holder_child_process",
+            "--exact",
+            "--nocapture",
+        ])
+        .env("DCC_MCP_TEST_PORT_HOLDER_PORT", port.to_string())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("spawn service-dead port holder");
+    drop(occupied);
+
+    // Wait until the holder owns the port, then prove it is service-dead:
+    // the bind fails and the readiness probe never turns green.
+    let hold_deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        if dcc_mcp_gateway_ensure::listener_pids_on_port(port)
+            .first()
+            .is_some_and(|pid| dcc_mcp_gateway_ensure::is_process_alive(*pid))
+        {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < hold_deadline,
+            "holder never bound port {port}"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+
+    // Attribute the holder to this deployment the way a real autolaunch does,
+    // so the recovery path is allowed to terminate it.
+    let manifest = serde_json::json!({ "pid": holder.id(), "port": port });
+    std::fs::write(
+        dir.path().join(format!("gateway-autolaunch-{port}.json")),
+        serde_json::to_vec(&manifest).unwrap(),
+    )
+    .unwrap();
+
+    let runner = GatewayRunner::new(GatewayConfig {
+        host: "127.0.0.1".to_string(),
+        gateway_port: port,
+        heartbeat_secs: 1,
+        challenger_poll_interval_secs: 1,
+        challenger_timeout_secs: 60,
+        registry_dir: Some(dir.path().to_path_buf()),
+        ..GatewayConfig::default()
+    })
+    .unwrap();
+    let mut challenger = runner
+        .start(ServiceEntry::new("blender", "127.0.0.1", 0), None)
+        .await
+        .unwrap();
+    assert!(
+        !challenger.is_gateway,
+        "the challenger starts as a plain instance while the port is held"
+    );
+    assert!(challenger.challenger_abort.is_some());
+
+    let registry = challenger.registry();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    loop {
+        let promoted = registry
+            .list_instances(GATEWAY_SENTINEL_DCC_TYPE)
+            .into_iter()
+            .any(|entry| {
+                entry.port == port
+                    && entry.metadata.get("gateway_role").map(String::as_str) == Some("active")
+            });
+        if promoted {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "challenger did not promote within the bounded deadline"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+
+    // The stale holder must be gone and the challenger must now serve the port
+    // well enough to answer the readiness probe.
+    assert!(
+        !dcc_mcp_gateway_ensure::is_process_alive(holder.id()),
+        "the service-dead holder must not survive recovery"
+    );
+    assert_eq!(
+        gateway_initialize_version(port).await.is_ok(),
+        true,
+        "the promoted challenger must answer on the recovered port"
+    );
+
+    challenger.abort_and_wait().await;
+    let _ = holder.kill();
+    let _ = holder.wait();
+}
+
+#[tokio::test]
 async fn test_newer_gateway_does_not_preempt_healthy_local_and_remote_listeners() {
     let dir = tempfile::tempdir().unwrap();
     let gw_port = ephemeral_port();
