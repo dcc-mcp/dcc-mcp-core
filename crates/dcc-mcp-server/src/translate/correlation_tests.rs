@@ -201,12 +201,69 @@ for raw in sys.stdin:
     if raw.strip():
         break
 "#;
+    /// A stdio child that reads one request, closes its own stdin, and then
+    /// stays alive with stdout open without ever answering anything.
+    ///
+    /// `os.close(0)` is what makes the parent's next write fail: closing the
+    /// buffered `sys.stdin` instead leaves the read end open on Windows, where
+    /// a small write is then still accepted.
+    ///
+    /// `__MARKER__` is replaced with a temp-file path. The child writes the
+    /// marker's contents right after closing stdin, which is the signal the
+    /// test waits for: no write issued after that point can be answered. The
+    /// child exits once the marker file disappears, so a finished test leaves
+    /// no stray process behind.
+    const CLOSES_STDIN_CHILD_PY: &str = r#"
+import os, sys, time
+
+marker = r'__MARKER__'
+
+# Read the first request, then close our own stdin so the parent's next write
+# fails. stdout stays open and no request is ever answered, so the bridge's
+# read task is still alive at that point -- which is what keeps this scenario
+# distinct from the child simply exiting.
+os.read(0, 65536)
+os.close(0)
+try:
+    # The descriptor is gone already; closing the buffered object only stops
+    # the interpreter from reporting a stale descriptor at shutdown.
+    sys.stdin.close()
+except OSError:
+    pass
+
+with open(marker, "w") as handle:
+    handle.write("closed")
+
+deadline = time.time() + 120.0
+while time.time() < deadline and os.path.exists(marker):
+    time.sleep(0.05)
+"#;
+
+    fn child_command(source: &str) -> (String, tempfile::NamedTempFile) {
+        write_child_script(source)
+    }
+
+    /// Like [`child_command`], but with the `__MARKER__` placeholder replaced by
+    /// `marker`.
+    ///
+    /// The path is baked into the script instead of passed as an argument
+    /// because [`parse_command`] splits the command on whitespace, so a path
+    /// containing spaces would reach the child mangled. It lands in a raw
+    /// Python string, so backslashes are rewritten to forward slashes (which
+    /// Windows accepts) and nothing else needs escaping.
+    fn child_command_with(
+        source: &str,
+        marker: &std::path::Path,
+    ) -> (String, tempfile::NamedTempFile) {
+        let marker = marker.to_string_lossy().replace('\\', "/");
+        write_child_script(&source.replace("__MARKER__", &marker))
+    }
 
     /// Write a stdio child script to a temp file and return its command line.
     ///
     /// The handle is returned as well: dropping it deletes the script while the
     /// child may still be starting up.
-    fn child_command(source: &str) -> (String, tempfile::NamedTempFile) {
+    fn write_child_script(source: &str) -> (String, tempfile::NamedTempFile) {
         use std::io::Write as _;
         let mut script = tempfile::Builder::new()
             .suffix(".py")
@@ -216,6 +273,27 @@ for raw in sys.stdin:
         script.flush().expect("flush");
         let program = if cfg!(windows) { "python" } else { "python3" };
         (format!("{program} {}", script.path().display()), script)
+    }
+
+    /// Block until the child has closed its stdin: until the marker it writes
+    /// right after the close is there.
+    ///
+    /// Waiting for that explicit signal instead of sleeping is what makes the
+    /// ordering this test relies on hold: the next write happens after the
+    /// close, so it has to fail.
+    async fn wait_for_stdin_close(marker: &std::path::Path) {
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        loop {
+            let closed = std::fs::read_to_string(marker).is_ok_and(|body| body.contains("closed"));
+            if closed {
+                return;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the child never closed its stdin; the write-failure path was not reached"
+            );
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
     }
 
     /// Whether a usable Python interpreter is on `PATH`.
@@ -481,5 +559,78 @@ for raw in sys.stdin:
             elapsed < Duration::from_secs(10),
             "the call must fail when the child exits, not after the wait bound, took {elapsed:?}"
         );
+    }
+
+    /// A failed write to the child fails **every** call the child can no
+    /// longer answer, not just the one whose write failed.
+    ///
+    /// The child closes its own stdin after the first request, so further
+    /// writes fail while the first request is still in flight and unanswered,
+    /// and while the bridge's reader is still alive -- the child did not exit,
+    /// so this is the write-failure branch rather than the child-exit one.
+    ///
+    /// Releasing only the failed call's entry -- `retain(|_, entry| entry.owner
+    /// != owner)` -- strands the first call for the whole response bound; the
+    /// elapsed check below is what separates that from `clear()`.
+    #[tokio::test]
+    async fn stdin_write_failure_fails_every_in_flight_call() {
+        if skip_without_python() {
+            return;
+        }
+        let marker = tempfile::Builder::new()
+            .suffix(".marker")
+            .tempfile()
+            .expect("tempfile");
+        let (cmd, _script) = child_command_with(CLOSES_STDIN_CHILD_PY, marker.path());
+        // A long bound: a regression that strands the in-flight call shows up
+        // as a wait of this length rather than as a quick failure.
+        let bridge = start_bridge_with(cmd, Some(Duration::from_secs(30)), false);
+
+        let first = {
+            let bridge = bridge.clone();
+            tokio::spawn(async move { bridge.call(request(1)).await })
+        };
+        // The child has read request 1 and closed its stdin, and it never
+        // answers anything from here on.
+        wait_for_stdin_close(marker.path()).await;
+
+        // Drive writes until one of them fails. Which write that is depends on
+        // the platform: on Unix every write after the close fails, while on
+        // Windows the first one is still accepted, so a single request is not
+        // enough to reach the write-failure branch.
+        let mut failed_at = None;
+        for id in 2..=12 {
+            let outcome =
+                tokio::time::timeout(Duration::from_secs(1), bridge.call(request(id))).await;
+            match outcome {
+                // The write went through; the child simply is not answering.
+                // Try the next one.
+                Err(_) | Ok(Ok(_)) => continue,
+                Ok(Err(_)) => {
+                    failed_at = Some(std::time::Instant::now());
+                    break;
+                }
+            }
+        }
+        let failed_at = failed_at.expect("a write to a closed stdin must eventually fail");
+
+        // The call that decides the regression: request 1 was filed, is still
+        // unanswered, and the child's reader is alive, so clearing the pending
+        // map is the only thing that can fail it now.
+        let first = first.await.expect("join");
+        let elapsed = failed_at.elapsed();
+        let error = first.expect_err("the in-flight call must fail once the child stops reading");
+        assert!(
+            error.to_string().contains("dropped the channel"),
+            "the in-flight call must fail on the write failure, got: {error}"
+        );
+        assert!(
+            elapsed < Duration::from_secs(5),
+            "the in-flight call must fail with the failed write, not after the response bound, took {elapsed:?}"
+        );
+
+        // Removing the marker lets the child exit instead of sleeping out its
+        // full deadline; dropping the handle would do the same.
+        let _ = marker.close();
     }
 }
