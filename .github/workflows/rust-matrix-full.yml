@@ -72,9 +72,12 @@ jobs:
         with:
           key: rust-full-${{ runner.os }}
           shared-key: rust-full-${{ runner.os }}
+      # Pinned for the same reason as ci.yml: unpinned cargo-hakari floats to
+      # the latest release, and 0.9.39+ generates a different workspace-hack
+      # than the committed artifact. See .github/workflows/ci.yml.
       - uses: taiki-e/install-action@v2
         with:
-          tool: cargo-hakari
+          tool: cargo-hakari@0.9.38
       - name: Install cargo-nextest
         uses: taiki-e/install-action@v2
         with:

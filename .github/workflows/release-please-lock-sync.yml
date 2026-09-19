@@ -82,9 +82,12 @@ jobs:
           version: "0.9.11"
           cache-key-prefix: "vx-tools-v0.9.7"
 
+      # Pinned for the same reason as ci.yml: unpinned cargo-hakari floats to
+      # the latest release, and 0.9.39+ generates a different workspace-hack
+      # than the committed artifact. See .github/workflows/ci.yml.
       - uses: taiki-e/install-action@v2
         with:
-          tool: cargo-hakari
+          tool: cargo-hakari@0.9.38
 
       - name: Resolve current pull request head
         working-directory: pull-request

@@ -190,9 +190,16 @@ jobs:
         with:
           key: rust-${{ runner.os }}
           shared-key: rust-${{ runner.os }}
+      # Pin cargo-hakari: install-action has no manifest for it, so an unpinned
+      # `tool: cargo-hakari` resolves to the newest crates.io release through
+      # cargo-binstall. Upstream 0.9.39 (hakari 0.18.0) changed workspace-hack
+      # output (it no longer adds third-party packages that depend on the
+      # workspace-hack), so it rejected the artifact committed by 0.9.38 and
+      # turned every Rust lane red. Keep the pin in sync with the version that
+      # generated crates/workspace-hack/Cargo.toml.
       - uses: taiki-e/install-action@v2
         with:
-          tool: cargo-hakari
+          tool: cargo-hakari@0.9.38
       - name: Install cargo-nextest
         uses: taiki-e/install-action@v2
         with:
