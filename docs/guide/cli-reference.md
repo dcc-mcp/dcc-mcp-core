@@ -667,6 +667,20 @@ Daemon auto-ensure paths pass a bounded idle timeout by default unless
 explicitly managed machine-wide daemon does not exit just because no DCC is
 currently registered.
 
+### Translate flags (`dcc-mcp-server translate`)
+
+| Flag | Env | Default | Meaning |
+|---|---|---|---|
+| `--stdio` | — | — | Shell command launching the stdio MCP server to bridge (e.g. `"uvx mcp-server-git"`). |
+| `--app-type` | — | `external` | App tag used for the gateway registration row. |
+| `--restart-on-exit` | — | `true` | Restart the stdio child when it exits. |
+| `--max-restarts` | — | `10` | Maximum restart attempts. `0` = unlimited. |
+| `--bridge-timeout-secs` | `DCC_MCP_BRIDGE_TIMEOUT_SECS` | `600` | Upper bound on how long a caller waits for the child's response. `0` waits indefinitely. A child that never answers the request id fails the call closed when the bound expires instead of pinning the HTTP request open. |
+
+Responses are routed by JSON-RPC request id, so a response whose id matches no
+request in flight is dropped and the child keeps being read. Integers and
+exactly-integral floats name the same id (`2` and `2.0` correlate).
+
 ### File-logging flags
 
 | Flag | Env | Default | Meaning |
