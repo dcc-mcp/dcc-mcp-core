@@ -565,6 +565,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             interval_secs,
             dry_run,
             yes,
+            instance_id,
         } => {
             let effective_timeout = global_timeout_secs
                 .or(timeout_secs)
@@ -581,7 +582,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 authorized: yes,
                 dry_run,
                 registry_dir: gateway_ensure::default_registry_dir(),
-                instance_id: None,
+                instance_id,
             };
             let result = crate::application::instance_launch::start_instance(request).await?;
             if !result.get("ok").and_then(Value::as_bool).unwrap_or(false) {

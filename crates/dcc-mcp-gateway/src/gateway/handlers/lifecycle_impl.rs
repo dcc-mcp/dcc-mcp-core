@@ -306,12 +306,24 @@ fn metadata_value<'a>(
         .find(|value| !value.trim().is_empty())
 }
 
+/// Refuses a guarded stop when a guard value does not match.
+///
+/// The instance's stored value is never echoed back: it is registry metadata a
+/// caller could otherwise harvest by probing the guard, which would hand over
+/// the very secret the guard exists to check. Presence or absence is enough to
+/// diagnose a mismatch. `expected` is the caller's own input, so it is safe to
+/// repeat.
 fn lifecycle_guard_response(field: &str, expected: &str, actual: Option<&str>) -> Response {
+    let message = if actual.is_some() {
+        format!("expected {field}='{expected}' but the instance advertises a different {field}")
+    } else {
+        format!("expected {field}='{expected}' but the instance advertises no {field}")
+    };
     (
         StatusCode::CONFLICT,
         Json(service_error_to_json(&ServiceError::new(
             "lifecycle-guard-mismatch",
-            format!("expected {field}='{expected}' but instance metadata has {actual:?}"),
+            message,
         ))),
     )
         .into_response()
@@ -375,6 +387,40 @@ mod tests {
             assert!(
                 validate_safe_stop_url(&entry, raw).is_err(),
                 "stop target must stay bound to the registered endpoint: {raw}"
+            );
+        }
+    }
+
+    /// A guard mismatch must not hand the caller the value the guard is
+    /// protecting: echoing it turns the guard into an oracle for harvesting
+    /// registry metadata by probing.
+    #[tokio::test]
+    async fn guard_mismatch_does_not_echo_the_stored_value() {
+        for (field, actual) in [
+            ("owner", Some("release-smoke-test")),
+            ("session", Some("sess-9f3c1a")),
+            ("operation", Some("op-1")),
+            ("operation", None),
+        ] {
+            let response = lifecycle_guard_response(field, "expected-value", actual);
+            let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+                .await
+                .unwrap();
+            let body = String::from_utf8(bytes.to_vec()).unwrap();
+
+            assert!(
+                body.contains("lifecycle-guard-mismatch"),
+                "{field}: unexpected body {body}"
+            );
+            if let Some(actual) = actual {
+                assert!(
+                    !body.contains(actual),
+                    "{field}: guard response leaked the stored value: {body}"
+                );
+            }
+            assert!(
+                body.contains("expected-value"),
+                "{field}: the caller's own value should still be repeated: {body}"
             );
         }
     }

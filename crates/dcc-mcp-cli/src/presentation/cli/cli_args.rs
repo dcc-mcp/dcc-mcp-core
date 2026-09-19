@@ -234,6 +234,11 @@ pub(crate) enum Command {
         /// Absolute project root the launched host must bind to.
         #[arg(long, value_name = "PATH")]
         project: PathBuf,
+        /// Converge on this exact instance instead of any instance bound to
+        /// the project. Use it to disambiguate several live instances that all
+        /// claim the same project.
+        #[arg(long, value_name = "INSTANCE_ID")]
+        instance_id: Option<String>,
         /// Explicit launch plan document. Defaults to the project receipt.
         #[arg(long, value_name = "PATH")]
         launch_plan: Option<PathBuf>,

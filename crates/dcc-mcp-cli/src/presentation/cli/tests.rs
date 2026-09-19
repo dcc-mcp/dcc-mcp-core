@@ -1304,6 +1304,49 @@ fn gateway_daemon_restart_defaults_to_persistent_daemon() {
     assert_eq!(restart.stop_timeout_secs, 10);
 }
 
+/// `AmbiguousReuse` tells the operator to pass `--instance-id`, so the flag has
+/// to exist or the advertised recovery step fails with an unknown argument.
+#[test]
+fn start_instance_accepts_the_advertised_instance_id_flag() {
+    let args = Args::try_parse_from([
+        "dcc-mcp-cli",
+        "start-instance",
+        "--dcc-type",
+        "unity",
+        "--project",
+        "/work/MyProject",
+        "--instance-id",
+        "11111111-2222-3333-4444-555555555555",
+    ])
+    .expect("--instance-id must parse on start-instance");
+
+    let Command::StartInstance { instance_id, .. } = args.command else {
+        panic!("expected start-instance");
+    };
+    assert_eq!(
+        instance_id.as_deref(),
+        Some("11111111-2222-3333-4444-555555555555")
+    );
+}
+
+#[test]
+fn start_instance_omits_instance_id_by_default() {
+    let args = Args::try_parse_from([
+        "dcc-mcp-cli",
+        "start-instance",
+        "--dcc-type",
+        "unity",
+        "--project",
+        "/work/MyProject",
+    ])
+    .expect("start-instance must parse without --instance-id");
+
+    let Command::StartInstance { instance_id, .. } = args.command else {
+        panic!("expected start-instance");
+    };
+    assert_eq!(instance_id, None);
+}
+
 fn default_gateway_daemon_args() -> dcc_mcp_sidecar::gateway_daemon::GatewayArgs {
     dcc_mcp_sidecar::gateway_daemon::GatewayArgs {
         host: "127.0.0.1".to_string(),

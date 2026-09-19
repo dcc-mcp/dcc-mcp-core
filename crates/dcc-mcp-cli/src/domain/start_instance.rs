@@ -493,10 +493,14 @@ impl LaunchPlanError {
             Self::ArgvEscapesExecutable(found) => {
                 format!("launch plan argv[0] '{found}' is not the recorded executable")
             }
-            Self::VersionMismatch { expected, found } => format!(
-                "requested version '{expected}' does not match launch plan version {:?}",
-                found.as_deref()
-            ),
+            Self::VersionMismatch { expected, found } => match found.as_deref() {
+                Some(found) => format!(
+                    "requested version '{expected}' does not match launch plan version '{found}'"
+                ),
+                None => format!(
+                    "requested version '{expected}' but the launch plan declares no version"
+                ),
+            },
             Self::UnreadablePlan(path) => {
                 format!("launch plan could not be read: {}", path.display())
             }
@@ -978,6 +982,33 @@ mod tests {
         assert!(!BlockingState::License.retryable());
         assert!(!BlockingState::MissingExecutable.retryable());
         assert!(!BlockingState::None.retryable());
+    }
+
+    /// Operator-facing messages must not leak Rust debug formatting: `Option`
+    /// rendered with `{:?}` shows up as `Some("2022.3.10f1")` / `None`.
+    #[test]
+    fn version_mismatch_message_renders_the_bare_version() {
+        let found = LaunchPlanError::VersionMismatch {
+            expected: "2022.3.10f1".to_string(),
+            found: Some("2021.3.2f1".to_string()),
+        }
+        .message();
+        assert_eq!(
+            found,
+            "requested version '2022.3.10f1' does not match launch plan version '2021.3.2f1'"
+        );
+        assert!(!found.contains("Some("), "{found}");
+
+        let missing = LaunchPlanError::VersionMismatch {
+            expected: "2022.3.10f1".to_string(),
+            found: None,
+        }
+        .message();
+        assert_eq!(
+            missing,
+            "requested version '2022.3.10f1' but the launch plan declares no version"
+        );
+        assert!(!missing.contains("None"), "{missing}");
     }
 
     /// `--yes` authorizes a launch, which mutates machine state. A next action
