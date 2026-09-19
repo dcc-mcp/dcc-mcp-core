@@ -222,6 +222,12 @@ def _validate_anim_curves(payload: Mapping[str, Any]) -> None:
                         f"{tangent_field} must have length 0 or {len(times)}",
                         path=path,
                     )
+        # The packaged schema keeps the infinity kinds permissive (plain string,
+        # so adapters can extend the canonical INFINITY_KINDS), but a present
+        # non-null value still has to be a string rather than any other type.
+        for infinity_field in ("infinity_pre", "infinity_post"):
+            if infinity_field in curve_map and curve_map[infinity_field] is not None:
+                _require_field(curve_map, infinity_field, SCHEMA_ANIM_CURVES, path=path, expected_type=str)
 
 
 def _validate_rig_state(payload: Mapping[str, Any]) -> None:
@@ -370,6 +376,11 @@ def sample_curve(curve: Mapping[str, Any], t: float) -> float:
         raise SchemaValidationError(SCHEMA_ANIM_CURVES, "curve must provide times and values arrays")
     if len(times) != len(values):
         raise SchemaValidationError(SCHEMA_ANIM_CURVES, "times and values lengths differ")
+    # sample_curve is public API, so validate every element up front: otherwise a
+    # non-numeric entry surfaces as a bare TypeError from float() deep inside the
+    # interpolation loop, and a bool silently samples as 0.0 / 1.0.
+    _require_number_list(curve, "times", SCHEMA_ANIM_CURVES, "$")
+    _require_number_list(curve, "values", SCHEMA_ANIM_CURVES, "$")
     if not times:
         raise SchemaValidationError(SCHEMA_ANIM_CURVES, "cannot sample an empty curve")
     if len(times) == 1:
@@ -396,7 +407,9 @@ def value_at(payload: Mapping[str, Any], t: float, target: str | None = None) ->
 
     *payload* may be a full ``dcc-mcp/anim-curves@1`` payload (``curves`` array)
     or a single curve mapping. When *target* is given, the curve whose
-    ``target`` matches is selected; otherwise the first curve is used.
+    ``target`` matches is selected; otherwise the first curve is used. For a
+    standalone curve, a *target* that does not match that curve's own ``target``
+    raises :class:`SchemaValidationError` rather than sampling it anyway.
 
     Example::
 
@@ -405,6 +418,10 @@ def value_at(payload: Mapping[str, Any], t: float, target: str | None = None) ->
     """
     if "curves" in payload and isinstance(payload.get("curves"), list):
         return sample_curve(_first_curve(payload, target), t)
+    # A standalone curve carries its own target; honour a requested one instead
+    # of silently sampling an unrelated curve.
+    if target is not None and payload.get("target") != target:
+        raise SchemaValidationError(SCHEMA_ANIM_CURVES, f"no curve named {target}")
     return sample_curve(payload, t)
 
 

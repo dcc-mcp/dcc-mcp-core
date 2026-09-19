@@ -153,6 +153,30 @@ class TestAnimCurves:
         with pytest.raises(SchemaValidationError, match="empty curve"):
             sample_curve({"times": [], "values": []}, 0.0)
 
+    def test_infinity_kinds_must_be_strings_when_present(self):
+        payload = _anim_curves_payload()
+        payload["curves"][0]["infinity_pre"] = 1
+        with pytest.raises(SchemaValidationError, match="infinity_pre"):
+            validate_state_export(payload, SCHEMA_ANIM_CURVES)
+
+        payload = _anim_curves_payload()
+        payload["curves"][0]["infinity_post"] = ["constant"]
+        with pytest.raises(SchemaValidationError, match="infinity_post"):
+            validate_state_export(payload, SCHEMA_ANIM_CURVES)
+
+    def test_absent_and_null_infinity_kinds_are_allowed(self):
+        payload = _anim_curves_payload()
+        del payload["curves"][0]["infinity_pre"]
+        payload["curves"][0]["infinity_post"] = None
+        validate_state_export(payload, SCHEMA_ANIM_CURVES)
+
+    def test_canonical_and_extended_infinity_kinds_are_allowed(self):
+        # The packaged schema keeps these permissive so adapters can extend.
+        payload = _anim_curves_payload()
+        payload["curves"][0]["infinity_pre"] = "cycle_relative"
+        payload["curves"][0]["infinity_post"] = "studio_custom_extrapolation"
+        validate_state_export(payload, SCHEMA_ANIM_CURVES)
+
 
 class TestRigState:
     def test_valid_payload_passes(self):
@@ -287,7 +311,46 @@ class TestCountFieldsAreNonNegativeIntegers:
         validate_state_export(payload, SCHEMA_RIG_STATE)
 
 
-class TestValidationGuards:
+class TestSamplingValidatesElements:
+    """sample_curve is public API, so it must reject bad elements itself."""
+
+    def test_non_numeric_times_rejected(self):
+        with pytest.raises(SchemaValidationError, match="times"):
+            sample_curve({"times": [0.0, None], "values": [0.0, 1.0]}, 0.5)
+
+    def test_non_numeric_values_rejected(self):
+        with pytest.raises(SchemaValidationError, match="values"):
+            sample_curve({"times": [0.0, 1.0], "values": [0.0, "x"]}, 0.5)
+
+    def test_boolean_elements_rejected(self):
+        # bool is an int subclass, so it must not silently sample as 0.0 / 1.0.
+        with pytest.raises(SchemaValidationError, match="values"):
+            sample_curve({"times": [0.0, 1.0], "values": [0.0, True]}, 0.5)
+
+    def test_length_mismatch_still_reported_first(self):
+        with pytest.raises(SchemaValidationError, match="lengths differ"):
+            sample_curve({"times": [0.0, 1.0], "values": [0.0]}, 0.5)
+
+    def test_valid_sampling_still_works(self):
+        curve = {"times": [0.0, 10.0], "values": [0.0, 100.0]}
+        assert sample_curve(curve, 5.0) == pytest.approx(50.0)
+        assert sample_curve({"times": [1.0], "values": [7.0]}, 99.0) == pytest.approx(7.0)
+
+
+class TestValueAtTargetMatching:
+    def test_standalone_curve_target_mismatch_rejected(self):
+        curve = {"target": "rotor_main.rotateY", "times": [0.0, 24.0], "values": [0.0, 360.0]}
+        with pytest.raises(SchemaValidationError, match="no curve named"):
+            value_at(curve, t=12, target="rotor_main.translateX")
+
+    def test_standalone_curve_matching_target_samples(self):
+        curve = {"target": "rotor_main.rotateY", "times": [0.0, 24.0], "values": [0.0, 360.0]}
+        assert value_at(curve, t=12, target="rotor_main.rotateY") == pytest.approx(180.0)
+
+    def test_standalone_curve_without_target_still_samples(self):
+        curve = {"target": "rotor_main.rotateY", "times": [0.0, 24.0], "values": [0.0, 360.0]}
+        assert value_at(curve, t=12) == pytest.approx(180.0)
+
     def test_non_mapping_payload_raises_typeerror(self):
         with pytest.raises(TypeError):
             validate_state_export(["not", "a", "mapping"], SCHEMA_ANIM_CURVES)
