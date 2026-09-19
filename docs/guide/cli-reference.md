@@ -148,7 +148,7 @@ that need a local gateway (`health`, `stats`, `update`, and `smoke` without an e
 `--url`) auto-ensure only loopback HTTP targets (`http://127.0.0.1:<port>` or
 `http://localhost:<port>`). Disable this for one invocation with
 `--no-auto-gateway`. Commands that operate only on local files (`install`,
-`dcc-types`, marketplace commands without `--reload`, `lint`), explicit lifecycle commands
+`dcc-types`, `start-instance`, marketplace commands without `--reload`, `lint`), explicit lifecycle commands
 (`gateway ...`), and smoke checks against an explicit `--url` do not
 auto-start the gateway.
 Use `dcc-mcp-cli doctor` when startup state is ambiguous: it reports the
@@ -180,6 +180,10 @@ dcc-mcp-cli call unity.abc12345.run_tests --require-gateway --wait --wait-timeou
 dcc-mcp-cli call maya_scene__get_session_info --dcc-type maya --instance-id abc12345 --json '{}'
 dcc-mcp-cli wait-ready --dcc-type maya --instance-id abc12345 --require skill_catalog,host_execution_bridge
 dcc-mcp-cli stop-instance --dcc-type maya --instance-id abc12345 --expected-owner release-smoke-test --expected-session smoke-2026-08-30
+dcc-mcp-cli stop-instance --operation-id 6f1f2c0e-5f2b-4a5e-9a63-2f0f6a1d7c11
+dcc-mcp-cli start-instance --dcc-type unity --project /abs/path/MyProject --dry-run
+dcc-mcp-cli start-instance --dcc-type unity --project /abs/path/MyProject --wait-ready --yes
+dcc-mcp-cli dcc-types --dcc-type unity --project /abs/path/MyProject
 dcc-mcp-cli install --dcc-type maya
 dcc-mcp-cli install --dcc-type maya --python "C:/Program Files/Autodesk/Maya2026/bin/mayapy.exe"
 dcc-mcp-cli install --dcc-type maya --python "C:/Program Files/Autodesk/Maya2026/bin/mayapy.exe" --execute
@@ -231,7 +235,7 @@ launching operation.
 
 | Command | REST/API contract | Meaning |
 |---|---|---|
-| `dcc-types [--dcc-type <dcc>] [--catalog <path>]` | bundled or supplied adapter catalog + local FileRegistry for the targeted form | Without `--dcc-type`, list canonical adapter-backed identifiers without starting a gateway. With one target, emit the versioned discovery decision that separates catalog, registration, readiness, capability, and real-host evidence. |
+| `dcc-types [--dcc-type <dcc>] [--catalog <path>] [--project <path>]` | bundled or supplied adapter catalog + local FileRegistry for the targeted form | Without `--dcc-type`, list canonical adapter-backed identifiers without starting a gateway. With one target, emit the versioned discovery decision that separates catalog, registration, readiness, capability, and real-host evidence. |
 | `health` | `GET /v1/healthz` | Check the configured endpoint. |
 | `stats [--range 1h\|24h\|7d\|all] [--dcc-type <dcc>] [--skill <name>] [--tool <name>] [--status success\|failure] [--instance-id <id>] [--session-id <id>]` | `GET /v1/debug/stats` | Query persisted gateway tool-call counts and return `stats_coverage`, including direct routes excluded from the aggregate. JSON is the default output for agent use. |
 | `feedback --tool-name <name> --intent <text> --blocker <text> [--attempt <text>] [--severity <level>] [--dcc-type <dcc>] [--instance-id <id>] [--request-id <id>] [--job-id <id>]` | `POST /v1/feedback` | File bounded gateway-level feedback even after the referenced DCC exits. The receipt points to `resources://gateway/events`. |
@@ -250,6 +254,8 @@ launching operation.
 | `wait-ready [--dcc-type <dcc>] [--instance-id <id>] [--require <bits>]` | local registry + per-instance `/v1/readyz`, or remote gateway inventory + `/v1/readyz` | Wait for smoke-test readiness bits such as `skill_catalog` or `host_execution_bridge`. |
 | `reload-skills [--dcc-type <dcc>] [--instance-id <id>]` | local MCP `tools/call dcc_admin__reload_skills`, or remote `POST /v1/dcc/{dcc}/instances/{id}/call` | Ask running adapters to re-scan skill search paths after marketplace installs or path changes. |
 | `stop-instance --dcc-type <dcc> --instance-id <id> --expected-owner <owner> --expected-session <session>` | local `safe_stop_url` or remote `POST /v1/dcc/{dcc}/instances/{id}/stop` | Forward a guarded safe-stop request only when owner/session metadata and configured gateway auth match. |
+| `stop-instance --operation-id <id>` | local lifecycle record + `safe_stop_url` | Stop only the instance launched and owned by that `start-instance` operation. Operation scoping is an additional opt-in constraint layered on the mandatory owner/session guard: it is enforced whenever the target receives an `operation_id`, and an instance that advertises none is refused rather than stopped. |
+| `start-instance --dcc-type <dcc> --project <path> [--launch-plan <path>] [--version <v>] [--instance-id <id>] [--wait-ready] [--require <bits>] [--timeout-secs <n>] [--dry-run] [--yes]` | adapter-authored launch plan + local FileRegistry + per-instance `/v1/readyz` | Launch the DCC host bound to one project when no instance is live, or converge on the exact existing one. `--instance-id` narrows convergence to one instance when several claim the same project. Requires `--yes` to spawn a GUI process; `--dry-run` resolves and reports the plan without launching. |
 | `install --dcc-type <dcc> [--version <catalog-version>] [--python <path>] [--dcc-path <path>] [--execute]` | catalog-backed local plan / executor | Resolve the matching adapter and emit an auditable install plan. Pip adapters use the catalog-pinned wheel URL and SHA-256; `--version` may only repeat that artifact version. If the host is non-standard, supply its path with `--dcc-path`. |
 | `marketplace add <source>` | local source registry | Register a marketplace source (`dcc-mcp/marketplace`, a GitHub `owner/repo`, raw JSON URL, or local catalog file). |
 | `marketplace list` | local source registry | List the built-in, configured, and environment-provided marketplace sources. |
@@ -313,6 +319,83 @@ calls occurred. The
 `review_skill_improvement` prompt in the published
 [`dcc-mcp-skills-creator` package](https://github.com/dcc-mcp/dcc-mcp-agent-plugins/blob/main/plugins/dcc-mcp/skills/dcc-mcp-skills-creator/prompts.yaml)
 accepts this JSON plus bounded task and validation summaries.
+
+### `start-instance` (project-bound launch and wait-ready)
+
+An adapter can be installed and receipted for an exact project while
+`dcc-mcp-cli list` still reports `total: 0` because no host is running.
+`start-instance` closes that zero-instance gap: it launches the DCC host bound
+to one project and waits until it is ready.
+
+```bash
+dcc-mcp-cli start-instance --dcc-type unity --project /abs/path/MyProject --dry-run
+dcc-mcp-cli start-instance --dcc-type unity --project /abs/path/MyProject --wait-ready --yes
+dcc-mcp-cli start-instance --dcc-type unity --project /abs/path/MyProject \
+  --wait-ready --require skill_catalog --timeout-secs 600 --yes
+dcc-mcp-cli stop-instance --operation-id <operation-id>
+```
+
+Ownership split: **core owns the lifecycle and readiness contract; the adapter
+supplies a validated launch plan.** Core never builds a DCC-specific command
+line, never downloads, installs, upgrades, or edits configuration, and fails
+closed with `blocking_state: launch_plan_missing` when no plan exists.
+
+Launch plan resolution, most specific source first:
+
+1. `--launch-plan <path>`
+2. `<project>/.dcc-mcp/launch-plan.json`
+3. `<registry-dir>/launch-plans/<dcc>.json`
+
+A plan is `schema_version: 1` JSON holding `dcc_type`, an absolute `executable`
+that exists on disk, a non-empty `argv` whose first element is that executable,
+and optional `version`, `project_markers`, and `cwd`. argv accepts the
+placeholders `{executable}`, `{project}`, `{dcc_type}`, and `{version}`.
+
+Safety boundaries:
+
+- launching a GUI process needs explicit `--yes`; without it the report is
+  `authorization_required` and nothing is spawned;
+- an instance bound to another project is reported under
+  `diagnostics.other_project_instances` and is never reused or closed;
+- several live instances claiming the same project fail closed as
+  `ambiguous_reuse` and ask for exact instance selection; that state is
+  reported as `retryable: false`, because replaying the identical request
+  reproduces the same ambiguity — the operator must stop the extra instance or
+  pass `--instance-id`;
+- process creation is never reported as readiness — without `--wait-ready` the
+  report stops at `stage: registration`, never `terminal`;
+- `--dry-run` resolves the plan without spawning a host, so it reports
+  `ready: false` by design and exits successfully even when `--wait-ready` is
+  also passed; the two flags are combinable and a dry run is never a timeout;
+- one operation ID spans launch, registration, domain reload, sidecar
+  registration, and readiness; the host receives it as
+  `DCC_MCP_START_OPERATION_ID` alongside `DCC_MCP_START_PROJECT` and
+  `DCC_MCP_START_DCC_TYPE`;
+- a second identical request converges on the existing instance
+  (`reused: true`, `converged_on_operation_id`) instead of launching a second
+  host.
+
+The terminal report (`schema_version: 1`) returns `operation_id`, the resolved
+`executable` and `version`, the canonical `project`, `launched` / `reused` /
+`owned`, `pid`, `window_handle` when the adapter advertises one, `instance_id`,
+`mcp_url`, `readyz_url`, `dispatch_state`, `host_progress` (compiling,
+importing, domain-reload, and play-mode metadata reported verbatim), `stage`,
+`timeout_stage`, `blocking_state`, `retryable`, and one bounded `next_action`.
+
+`blocking_state` covers `none`, `restart_required`, `project_lock`, `license`,
+`modal_dialog`, `adapter_bootstrap`, `missing_executable`, `version_mismatch`,
+`ambiguous_reuse`, `launch_plan_missing`, `authorization_required`, `timeout`,
+`cancelled`, `invalid_launch_plan`, `project_not_found`,
+`project_marker_missing`, and `launch_failed`. Every non-`none` state carries a
+non-interactive `next_action`
+with an exact `command` array; run it only after operator review.
+
+Stop stays a separate, guarded operation: `stop-instance --operation-id <id>`
+may only stop the instance that operation launched and owns
+(`stop_scope: owned_operation`). Without `--operation-id` the existing
+owner/session guard applies. `dcc-types --dcc-type <dcc> --project <path>`
+recommends `start-instance` when a DCC has zero live instances and a validated
+launch plan exists for that project.
 
 ### Failure analysis and bug reporting
 

@@ -13,7 +13,7 @@ use crate::infra::http::HttpGateway;
 use super::image_artifacts::{default_image_artifact_root, materialize_call_images};
 
 #[derive(Debug, Subcommand)]
-pub(super) enum RecordReplayAction {
+pub(crate) enum RecordReplayAction {
     /// Start capturing redacted gateway calls for --agent-session-id.
     Start {
         #[arg(long)]

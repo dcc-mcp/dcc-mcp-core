@@ -271,6 +271,7 @@ impl DccMcpClient {
         let body = json!({
             "expected_owner": request.expected_owner,
             "expected_session": request.expected_session,
+            "operation_id": request.operation_id,
         });
         let path = format!(
             "/v1/dcc/{}/instances/{}/stop",

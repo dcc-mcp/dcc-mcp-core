@@ -153,6 +153,9 @@ dcc-mcp-cli --transport mcp call jobs_get_status --json '{"job_id":"job-42"}'
 dcc-mcp-cli call maya_scene__get_session_info --dcc-type maya --instance-id abc12345 --json '{}'
 dcc-mcp-cli wait-ready --dcc-type maya --instance-id abc12345 --require skill_catalog,host_execution_bridge
 dcc-mcp-cli stop-instance --dcc-type maya --instance-id abc12345 --expected-owner release-smoke-test
+dcc-mcp-cli stop-instance --operation-id 6f1f2c0e-5f2b-4a5e-9a63-2f0f6a1d7c11
+dcc-mcp-cli start-instance --dcc-type unity --project /abs/path/MyProject --dry-run
+dcc-mcp-cli start-instance --dcc-type unity --project /abs/path/MyProject --wait-ready --yes
 dcc-mcp-cli install --dcc-type maya
 dcc-mcp-cli install --dcc-type maya --python "C:/Program Files/Autodesk/Maya2026/bin/mayapy.exe"
 dcc-mcp-cli install --dcc-type maya --python "C:/Program Files/Autodesk/Maya2026/bin/mayapy.exe" --execute
@@ -206,6 +209,8 @@ dcc-mcp-cli lint path/to/skills
 | `wait-ready [--dcc-type <dcc>] [--instance-id <id>] [--require <bits>]` | 本地 registry + per-instance `/v1/readyz`，或远程 gateway inventory + `/v1/readyz` | 等待 release smoke test 所需 readiness bit，例如 `skill_catalog` 或 `host_execution_bridge`。 |
 | `reload-skills [--dcc-type <dcc>] [--instance-id <id>]` | 本地 MCP `tools/call dcc_admin__reload_skills`，或远程 `POST /v1/dcc/{dcc}/instances/{id}/call` | marketplace 安装或 skill path 变更后，让正在运行的 adapter 重新扫描 skill 搜索路径。 |
 | `stop-instance --dcc-type <dcc> --instance-id <id>` | 本地 `safe_stop_url` 或远程 `POST /v1/dcc/{dcc}/instances/{id}/stop` | 对声明了 `safe_stop_url` 的实例发起带保护条件的 safe-stop 请求。 |
+| `stop-instance --operation-id <id>` | 本地 lifecycle 记录 + `safe_stop_url` | 只停止该 `start-instance` operation 自己启动并拥有的实例。operation 作用域是叠加在「owner/session 强制门禁」之上的可选约束：目标收到 `operation_id` 时才生效，未声明 operation 的实例会被拒停而不是放行。 |
+| `start-instance --dcc-type <dcc> --project <path> [--launch-plan <path>] [--version <v>] [--instance-id <id>] [--wait-ready] [--require <bits>] [--timeout-secs <n>] [--dry-run] [--yes]` | adapter 提供的启动计划 + 本地 FileRegistry + per-instance `/v1/readyz` | 没有在线实例时按项目启动 DCC 宿主，或收敛到已有的精确实例。多个实例都声明同一 project 时用 `--instance-id` 指定唯一目标。派生 GUI 进程必须 `--yes`；`--dry-run` 只解析并报告计划。 |
 | `install --dcc-type <dcc> [--version <catalog-version>] [--python <path>] [--execute]` | catalog-backed local plan / executor | 解析匹配的 adapter 并输出可审计安装计划；加 `--execute` 后会在确认后执行 package 安装步骤、失败回滚并做 package/path 验证。Live DCC 检查保留在返回的 `next_steps` 中。 |
 | `marketplace install <name> [--dcc <dcc>] [--reload]` | marketplace catalog + local installed state；可选控制运行中的 DCC | 安装本地 marketplace skill 包；`--reload` 会让匹配的运行中 adapter 重新扫描 skill path，并把刷新结果写入安装 JSON。 |
 | `marketplace search/update/...` | marketplace catalog + local installed state | 搜索、卸载和更新本地 marketplace skill 包。 |
@@ -223,6 +228,75 @@ dcc-mcp-cli lint path/to/skills
 `marketplace install` 会直接解析准确的包名，因此已知 ID 时可以省略
 `inspect`。当 catalog 条目只声明一个 DCC 时也可以省略 `--dcc`；多 DCC
 条目仍需显式指定。
+
+### `start-instance`（项目绑定启动与等待就绪）
+
+adapter 可能已经安装并记录了精确项目根目录，但 `dcc-mcp-cli list` 仍报
+`total: 0`，因为没有宿主进程在跑。`start-instance` 用于补上这个零实例缺口：
+按项目启动 DCC 宿主，并等到它就绪。
+
+```bash
+dcc-mcp-cli start-instance --dcc-type unity --project /abs/path/MyProject --dry-run
+dcc-mcp-cli start-instance --dcc-type unity --project /abs/path/MyProject --wait-ready --yes
+dcc-mcp-cli start-instance --dcc-type unity --project /abs/path/MyProject \
+  --wait-ready --require skill_catalog --timeout-secs 600 --yes
+dcc-mcp-cli stop-instance --operation-id <operation-id>
+```
+
+职责划分：**core 定义生命周期与就绪契约，adapter 提供经过校验的启动计划。**
+core 不会拼接任何 DCC 专属命令行，不会下载、安装、升级或修改配置；没有可用
+计划时按 `blocking_state: launch_plan_missing` fail-closed。
+
+启动计划按“最具体优先”解析：
+
+1. `--launch-plan <path>`
+2. `<project>/.dcc-mcp/launch-plan.json`
+3. `<registry-dir>/launch-plans/<dcc>.json`
+
+计划为 `schema_version: 1` JSON，包含 `dcc_type`、磁盘上真实存在的绝对
+`executable`、非空且首元素等于该可执行文件的 `argv`，以及可选的 `version`、
+`project_markers`、`cwd`。`argv` 支持 `{executable}`、`{project}`、
+`{dcc_type}`、`{version}` 占位符。
+
+安全边界：
+
+- 启动 GUI 进程必须显式 `--yes`；否则返回 `authorization_required` 且不派生
+  任何进程；
+- 绑定其他项目的实例只在 `diagnostics.other_project_instances` 中报告，绝不
+  复用或关闭；
+- 多个在线实例同时声明同一项目时按 `ambiguous_reuse` fail-closed，并要求精确
+  指定实例；该状态返回 `retryable: false`——重放同一请求只会再次撞上同一个
+  歧义，操作者必须先停掉多余实例或传 `--instance-id`；
+- 进程创建绝不等于就绪：不加 `--wait-ready` 时报告停在 `stage: registration`，
+  不会给出 `terminal`；
+- `--dry-run` 只解析计划、不派生宿主，因此按设计返回 `ready: false`；即使同时
+  传入 `--wait-ready` 也视为成功退出，两个 flag 可以组合，dry run 不算超时；
+- 同一个 operation ID 贯穿启动、注册、domain reload、sidecar 注册与就绪；宿主
+  通过 `DCC_MCP_START_OPERATION_ID`、`DCC_MCP_START_PROJECT`、
+  `DCC_MCP_START_DCC_TYPE` 收到它；
+- 第二次相同请求会收敛到已有实例（`reused: true`、
+  `converged_on_operation_id`），不会再开一个宿主。
+
+终态报告（`schema_version: 1`）包含 `operation_id`、解析出的 `executable` 与
+`version`、规范化 `project`、`launched` / `reused` / `owned`、`pid`、adapter
+上报时的 `window_handle`、`instance_id`、`mcp_url`、`readyz_url`、
+`dispatch_state`、`host_progress`（compiling、importing、domain reload、
+play mode 等元数据原样透传）、`stage`、`timeout_stage`、`blocking_state`、
+`retryable`，以及一个有界的 `next_action`。
+
+`blocking_state` 取值包括 `none`、`restart_required`、`project_lock`、
+`license`、`modal_dialog`、`adapter_bootstrap`、`missing_executable`、
+`version_mismatch`、`ambiguous_reuse`、`launch_plan_missing`、
+`authorization_required`、`timeout`、`cancelled`、`invalid_launch_plan`、
+`project_not_found`、`project_marker_missing`、`launch_failed`。非 `none` 状态
+都会给出带精确 `command` 数组、可直接非交互执行的 `next_action`，但只在人工
+确认后执行。
+
+停止仍然是独立且受保护的操作：`stop-instance --operation-id <id>` 只能停止该
+operation 自己启动并拥有的实例（`stop_scope: owned_operation`）；不传
+`--operation-id` 时沿用原有 owner/session 校验。当某个 DCC 在线实例数为 0 且
+该项目存在已校验的启动计划时，`dcc-types --dcc-type <dcc> --project <path>`
+会推荐 `start-instance`。
 
 ### 错误自查与 Bug 上报
 

@@ -6,7 +6,7 @@ use dcc_mcp_skills::validator::IssueSeverity;
 use dcc_mcp_skills::{SkillValidationReport, parse_skill_md, validate_skill_dir};
 use serde_json::Value;
 
-use super::LintArgs;
+use super::cli_args::LintArgs;
 
 pub(crate) struct LintCommandResult {
     pub(crate) value: Value,

@@ -11,6 +11,7 @@ pub mod gateway_discovery;
 pub mod gateway_ensure;
 pub mod gateway_profile;
 pub mod install;
+pub mod instance_launch;
 pub mod instance_selection;
 pub mod local_control;
 pub mod local_instance;

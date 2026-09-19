@@ -11,6 +11,7 @@ pub(super) async fn run(
     catalog: Option<&Path>,
     dcc_type: Option<&str>,
     offline: bool,
+    project: Option<&Path>,
 ) -> anyhow::Result<Value> {
     let service = if catalog.is_some() {
         InstallService::bundled()
@@ -19,7 +20,7 @@ pub(super) async fn run(
     };
     let mut output = if let Some(dcc_type) = dcc_type {
         let inventory = list_local_instances(gateway_ensure::default_registry_dir()).ok();
-        to_json(service.discovery_decision(catalog, dcc_type, inventory.as_ref()))?
+        to_json(service.discovery_decision(catalog, dcc_type, inventory.as_ref(), project))?
     } else {
         to_json(service.dcc_types(catalog)?)?
     };

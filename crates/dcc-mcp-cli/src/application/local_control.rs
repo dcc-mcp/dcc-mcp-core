@@ -764,6 +764,15 @@ pub async fn stop_instance_local(
     registry_dir: PathBuf,
     request: StopInstanceRequest,
 ) -> anyhow::Result<Value> {
+    // Guarded lifecycle stop: only the operation that launched and owns a
+    // process may stop it. `start-instance` never adopts pre-existing hosts, so
+    // a stop bound to an operation must resolve to that operation's instance.
+    let owned_operation = crate::application::instance_launch::resolve_owned_operation(
+        &registry_dir,
+        Some(&request.dcc_type),
+        Some(&request.instance_id),
+        request.operation_id.as_deref(),
+    )?;
     let entry = local_instance::select_one_entry(
         &registry_dir,
         Some(&request.dcc_type),
@@ -838,6 +847,15 @@ pub async fn stop_instance_local(
         "instance_id": entry.instance_id.to_string(),
         "dcc_type": entry.dcc_type,
         "safe_stop_url": stop_url,
+        "operation": owned_operation
+            .as_ref()
+            .map(crate::application::instance_launch::operation_summary)
+            .unwrap_or(Value::Null),
+        "stop_scope": if owned_operation.is_some() {
+            "owned_operation"
+        } else {
+            "instance_safe_stop"
+        },
         "response": response,
         "source": "local_mcp",
     }))

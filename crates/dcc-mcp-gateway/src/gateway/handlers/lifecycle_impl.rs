@@ -5,10 +5,20 @@ use crate::gateway::capability_service::{
 };
 use crate::gateway::http_registration::{SOURCE_HTTP, entry_registry_source};
 
+/// Metadata aliases under which a launched instance advertises the lifecycle
+/// operation that owns it. Mirrors the CLI-side contract so the gateway can
+/// verify an operation-scoped stop without depending on the CLI crate.
+const OPERATION_METADATA_KEYS: &[&str] = &[
+    "dcc_mcp_operation_id",
+    "operation_id",
+    "dcc_mcp.operation_id",
+];
+
 #[derive(Debug, Default, Deserialize)]
 pub struct StopInstanceBody {
     expected_owner: Option<String>,
     expected_session: Option<String>,
+    operation_id: Option<String>,
 }
 
 /// `POST /v1/dcc/{dcc_type}/instances/{instance_id}/stop` — request a safe
@@ -18,6 +28,12 @@ pub struct StopInstanceBody {
 /// `safe_stop_url` (or `dcc_mcp_safe_stop_url`) to registry metadata. Both
 /// `expected_owner` and `expected_session` must match public metadata aliases
 /// before the gateway forwards the stop request.
+///
+/// `operation_id` is optional but authoritative when present: it scopes the
+/// stop to the instance that the given start-instance operation launched, so a
+/// caller cannot stop a neighbouring instance by guessing its id. An instance
+/// that advertises no operation id cannot prove that ownership and is
+/// rejected rather than stopped.
 pub async fn handle_v1_dcc_instance_stop(
     State(gs): State<GatewayState>,
     Path((dcc_type, instance_id)): Path<(String, String)>,
@@ -57,6 +73,11 @@ pub async fn handle_v1_dcc_instance_stop(
             None,
         );
     }
+    let expected_operation = body
+        .operation_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty());
 
     let entry = match gs
         .resolve_instance_async(Some(instance_id.as_str()), Some(dcc_type.as_str()))
@@ -109,6 +130,16 @@ pub async fn handle_v1_dcc_instance_stop(
         && Some(expected) != session
     {
         return lifecycle_guard_response("session", expected, session);
+    }
+
+    // An operation-scoped stop is authoritative: the instance must advertise
+    // the operation that launched it, and it must be the same one. Absent
+    // metadata fails closed — the gateway cannot prove ownership.
+    if let Some(expected) = expected_operation {
+        let operation = metadata_value(&entry, OPERATION_METADATA_KEYS);
+        if operation != Some(expected) {
+            return lifecycle_guard_response("operation", expected, operation);
+        }
     }
 
     let Some(stop_url) = metadata_value(
@@ -275,12 +306,24 @@ fn metadata_value<'a>(
         .find(|value| !value.trim().is_empty())
 }
 
+/// Refuses a guarded stop when a guard value does not match.
+///
+/// The instance's stored value is never echoed back: it is registry metadata a
+/// caller could otherwise harvest by probing the guard, which would hand over
+/// the very secret the guard exists to check. Presence or absence is enough to
+/// diagnose a mismatch. `expected` is the caller's own input, so it is safe to
+/// repeat.
 fn lifecycle_guard_response(field: &str, expected: &str, actual: Option<&str>) -> Response {
+    let message = if actual.is_some() {
+        format!("expected {field}='{expected}' but the instance advertises a different {field}")
+    } else {
+        format!("expected {field}='{expected}' but the instance advertises no {field}")
+    };
     (
         StatusCode::CONFLICT,
         Json(service_error_to_json(&ServiceError::new(
             "lifecycle-guard-mismatch",
-            format!("expected {field}='{expected}' but instance metadata has {actual:?}"),
+            message,
         ))),
     )
         .into_response()
@@ -344,6 +387,40 @@ mod tests {
             assert!(
                 validate_safe_stop_url(&entry, raw).is_err(),
                 "stop target must stay bound to the registered endpoint: {raw}"
+            );
+        }
+    }
+
+    /// A guard mismatch must not hand the caller the value the guard is
+    /// protecting: echoing it turns the guard into an oracle for harvesting
+    /// registry metadata by probing.
+    #[tokio::test]
+    async fn guard_mismatch_does_not_echo_the_stored_value() {
+        for (field, actual) in [
+            ("owner", Some("release-smoke-test")),
+            ("session", Some("sess-9f3c1a")),
+            ("operation", Some("op-1")),
+            ("operation", None),
+        ] {
+            let response = lifecycle_guard_response(field, "expected-value", actual);
+            let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+                .await
+                .unwrap();
+            let body = String::from_utf8(bytes.to_vec()).unwrap();
+
+            assert!(
+                body.contains("lifecycle-guard-mismatch"),
+                "{field}: unexpected body {body}"
+            );
+            if let Some(actual) = actual {
+                assert!(
+                    !body.contains(actual),
+                    "{field}: guard response leaked the stored value: {body}"
+                );
+            }
+            assert!(
+                body.contains("expected-value"),
+                "{field}: the caller's own value should still be repeated: {body}"
             );
         }
     }
