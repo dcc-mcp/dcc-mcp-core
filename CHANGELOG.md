@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.33](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.32...v0.20.33) (2026-09-19)
+
+
+### Bug Fixes
+
+* **server:** bound translate stdio bridge waits and harden response correlation ([#2496](https://github.com/dcc-mcp/dcc-mcp-core/issues/2496)) ([8099504](https://github.com/dcc-mcp/dcc-mcp-core/commit/8099504fd9f8ae02d10e58747010fd5ab6751148))
+
 ## [0.20.32](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.31...v0.20.32) (2026-09-19)
 
 
