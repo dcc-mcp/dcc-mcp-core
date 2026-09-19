@@ -358,9 +358,15 @@ Safety boundaries:
 - an instance bound to another project is reported under
   `diagnostics.other_project_instances` and is never reused or closed;
 - several live instances claiming the same project fail closed as
-  `ambiguous_reuse` and ask for exact instance selection;
+  `ambiguous_reuse` and ask for exact instance selection; that state is
+  reported as `retryable: false`, because replaying the identical request
+  reproduces the same ambiguity — the operator must stop the extra instance or
+  pass `--instance-id`;
 - process creation is never reported as readiness — without `--wait-ready` the
   report stops at `stage: registration`, never `terminal`;
+- `--dry-run` resolves the plan without spawning a host, so it reports
+  `ready: false` by design and exits successfully even when `--wait-ready` is
+  also passed; the two flags are combinable and a dry run is never a timeout;
 - one operation ID spans launch, registration, domain reload, sidecar
   registration, and readiness; the host receives it as
   `DCC_MCP_START_OPERATION_ID` alongside `DCC_MCP_START_PROJECT` and

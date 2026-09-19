@@ -589,11 +589,15 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 failed = true;
                 exit_code = ExitCode::Unavailable;
             } else if wait_ready
+                && !dry_run
                 && !result
                     .get("ready")
                     .and_then(Value::as_bool)
                     .unwrap_or(false)
             {
+                // A dry run never spawns a host, so it reports `ready: false` by
+                // design. Waiting on it would turn a successful plan resolution
+                // into a spurious timeout exit code.
                 failed = true;
                 exit_code = ExitCode::Timeout;
             }

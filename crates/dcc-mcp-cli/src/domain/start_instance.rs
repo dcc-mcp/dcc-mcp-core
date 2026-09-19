@@ -163,6 +163,12 @@ impl BlockingState {
 
     /// True when the caller can retry the same operation without changing
     /// machine state.
+    ///
+    /// [`Self::AmbiguousReuse`] is deliberately excluded: its next action asks
+    /// the operator to stop an instance or pass `--instance-id`, so replaying
+    /// the identical request reproduces the same ambiguity forever. Reporting
+    /// it as retryable would tell an agent to spin on a request that cannot
+    /// succeed unchanged.
     #[must_use]
     pub fn retryable(self) -> bool {
         matches!(
@@ -172,7 +178,6 @@ impl BlockingState {
                 | Self::ProjectLock
                 | Self::ModalDialog
                 | Self::LaunchFailed
-                | Self::AmbiguousReuse
         )
     }
 
@@ -744,25 +749,52 @@ pub fn classify_blocking_state(
     }
     let failure_stage = read(&["failure_stage"]).unwrap_or_default();
     let failure_reason = read(&["failure_reason"]).unwrap_or_default();
-    let haystack = format!("{failure_stage} {failure_reason}").to_ascii_lowercase();
-    if haystack.contains("bootstrap") || haystack.contains("sidecar") {
+    let words = keyword_words(&format!("{failure_stage} {failure_reason}"));
+    if has_keyword(&words, &["bootstrap", "sidecar"]) {
         return BlockingState::AdapterBootstrap;
     }
-    if haystack.contains("license") {
+    if has_keyword(&words, &["license", "licence"]) {
         return BlockingState::License;
     }
-    if haystack.contains("dialog") || haystack.contains("modal") {
+    if has_keyword(&words, &["dialog", "modal"]) {
         return BlockingState::ModalDialog;
     }
-    if haystack.contains("lock") {
+    if has_keyword(&words, &["lock", "locks", "locked", "locking"]) {
         return BlockingState::ProjectLock;
     }
-    if haystack.contains("restart") {
+    if has_keyword(&words, &["restart", "restarts", "restarting"]) {
         return BlockingState::RestartRequired;
     }
     BlockingState::None
 }
 
+/// Split adapter-reported free text into lowercase word tokens.
+///
+/// Matching runs on whole words, never on substrings: "blocked" and
+/// "unlocked" both contain the letters "lock" but say nothing about a project
+/// lock, and this module must not invent a diagnosis the adapter never
+/// reported. Splitting on non-alphanumerics keeps dotted and underscored
+/// identifiers usable, so "sidecar_bootstrap" still yields "sidecar" plus
+/// "bootstrap".
+fn keyword_words(text: &str) -> Vec<String> {
+    text.split(|character: char| !character.is_ascii_alphanumeric())
+        .filter(|word| !word.is_empty())
+        .map(str::to_ascii_lowercase)
+        .collect()
+}
+
+/// True when any whole word token equals one of `keywords` exactly.
+fn has_keyword(words: &[String], keywords: &[&str]) -> bool {
+    words.iter().any(|word| keywords.contains(&word.as_str()))
+}
+
+/// Interpret an adapter's opt-in boolean flag.
+///
+/// Only reached for structured keys that advertise one specific condition
+/// (`restart_required`, `blocking_dialog`, `project_lock`, ...), never for the
+/// free-text `failure_stage` / `failure_reason` pair, so the synonyms accepted
+/// here cannot reintroduce the substring confusion guarded against in
+/// [`classify_blocking_state`].
 fn is_truthy(value: &str) -> bool {
     matches!(
         value.to_ascii_lowercase().as_str(),
@@ -959,6 +991,60 @@ mod tests {
             let metadata: HashMap<String, String> = entries.into_iter().collect();
             assert_eq!(classify_blocking_state(&metadata), expected);
         }
+    }
+
+    /// Free-text diagnostics must be matched on whole words only. "blocked"
+    /// and "unlocked" both contain the letters "lock"; classifying them as a
+    /// project lock would hand the operator a diagnosis the adapter never
+    /// reported.
+    #[test]
+    fn blocking_state_classification_matches_whole_words_only() {
+        let cases = [
+            ("startup blocked by IT policy", BlockingState::None),
+            (
+                "the project was unlocked after the host exited",
+                BlockingState::None,
+            ),
+            ("sidecar_bootstrap", BlockingState::AdapterBootstrap),
+            ("bootstrap", BlockingState::AdapterBootstrap),
+            ("project lock", BlockingState::ProjectLock),
+            ("project is locked", BlockingState::ProjectLock),
+            ("lockfile held", BlockingState::None),
+            ("restart", BlockingState::RestartRequired),
+            ("restarting the host", BlockingState::RestartRequired),
+        ];
+        for (reason, expected) in cases {
+            let metadata: HashMap<String, String> =
+                [("failure_reason".to_string(), reason.to_string())]
+                    .into_iter()
+                    .collect();
+            assert_eq!(
+                classify_blocking_state(&metadata),
+                expected,
+                "failure_reason: {reason}"
+            );
+        }
+    }
+
+    /// `AmbiguousReuse` tells the operator to stop an instance or pass
+    /// `--instance-id`, so replaying the identical request can never converge.
+    /// Advertising it as retryable makes an agent loop on a dead end.
+    #[test]
+    fn ambiguous_reuse_is_not_retryable_without_changing_the_request() {
+        assert!(!BlockingState::AmbiguousReuse.retryable());
+
+        let summary = BlockingState::AmbiguousReuse.next_action(
+            "unity",
+            Some(Path::new("/work/MyProject")),
+            None,
+        )["summary"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert!(
+            summary.contains("--instance-id"),
+            "recovery step must stay actionable: {summary}"
+        );
     }
 
     #[test]

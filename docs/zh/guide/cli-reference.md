@@ -265,9 +265,12 @@ core 不会拼接任何 DCC 专属命令行，不会下载、安装、升级或�
 - 绑定其他项目的实例只在 `diagnostics.other_project_instances` 中报告，绝不
   复用或关闭；
 - 多个在线实例同时声明同一项目时按 `ambiguous_reuse` fail-closed，并要求精确
-  指定实例；
+  指定实例；该状态返回 `retryable: false`——重放同一请求只会再次撞上同一个
+  歧义，操作者必须先停掉多余实例或传 `--instance-id`；
 - 进程创建绝不等于就绪：不加 `--wait-ready` 时报告停在 `stage: registration`，
   不会给出 `terminal`；
+- `--dry-run` 只解析计划、不派生宿主，因此按设计返回 `ready: false`；即使同时
+  传入 `--wait-ready` 也视为成功退出，两个 flag 可以组合，dry run 不算超时；
 - 同一个 operation ID 贯穿启动、注册、domain reload、sidecar 注册与就绪；宿主
   通过 `DCC_MCP_START_OPERATION_ID`、`DCC_MCP_START_PROJECT`、
   `DCC_MCP_START_DCC_TYPE` 收到它；
