@@ -40,6 +40,10 @@ fn unattributed_port_holder_is_never_reaped() {
 
 #[tokio::test]
 async fn pidfile_attributed_port_holder_is_selected_for_reaping() {
+    if !port_holder_resolution_available() {
+        eprintln!("skipping: this platform cannot resolve the PID holding a listening port");
+        return;
+    }
     let dir = tempfile::tempdir().unwrap();
     let (port, holder) = start_service_dead_holder().await;
     let pidfile = dir.path().join("gateway.pid");
@@ -55,6 +59,10 @@ async fn pidfile_attributed_port_holder_is_selected_for_reaping() {
 
 #[tokio::test]
 async fn autolaunch_manifest_attributes_the_port_holder() {
+    if !port_holder_resolution_available() {
+        eprintln!("skipping: this platform cannot resolve the PID holding a listening port");
+        return;
+    }
     let dir = tempfile::tempdir().unwrap();
     let (port, holder) = start_service_dead_holder().await;
 
@@ -79,6 +87,10 @@ async fn autolaunch_manifest_attributes_the_port_holder() {
 
 #[tokio::test]
 async fn autolaunch_manifest_for_another_pid_does_not_attribute() {
+    if !port_holder_resolution_available() {
+        eprintln!("skipping: this platform cannot resolve the PID holding a listening port");
+        return;
+    }
     let dir = tempfile::tempdir().unwrap();
     let (port, holder) = start_service_dead_holder().await;
 
@@ -98,7 +110,41 @@ async fn autolaunch_manifest_for_another_pid_does_not_attribute() {
 }
 
 #[tokio::test]
+async fn autolaunch_manifest_for_another_port_does_not_attribute() {
+    if !port_holder_resolution_available() {
+        eprintln!("skipping: this platform cannot resolve the PID holding a listening port");
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let (port, holder) = start_service_dead_holder().await;
+
+    // The manifest names the holder but a different port, so it is evidence
+    // that *some* launcher started a gateway, not that this process holds the
+    // port being recovered. Attributing on the PID alone would let a stale
+    // manifest — or a recycled PID — authorize killing an unrelated process.
+    // `+ 1` would overflow at the top of the ephemeral range.
+    let other_port = port.checked_add(1).unwrap_or(port - 1);
+    let manifest = serde_json::json!({ "pid": holder.id(), "port": other_port });
+    std::fs::write(
+        dir.path().join(format!("gateway-autolaunch-{port}.json")),
+        serde_json::to_vec(&manifest).unwrap(),
+    )
+    .unwrap();
+
+    assert!(
+        service_dead_port_holder_pid(port, dir.path(), None).is_none(),
+        "a manifest for another port must not authorize a kill"
+    );
+
+    let _ = dcc_mcp_gateway_ensure::stop_process(holder.id());
+}
+
+#[tokio::test]
 async fn service_dead_holder_is_reaped_and_the_port_is_released() {
+    if !port_holder_resolution_available() {
+        eprintln!("skipping: this platform cannot resolve the PID holding a listening port");
+        return;
+    }
     let (port, mut holder) = start_service_dead_holder().await;
 
     // The holder accepts TCP but never answers HTTP — exactly the
@@ -134,6 +180,10 @@ async fn service_dead_holder_is_reaped_and_the_port_is_released() {
 
 #[tokio::test]
 async fn reaping_a_nonexistent_holder_reports_failure_without_panicking() {
+    if !port_holder_resolution_available() {
+        eprintln!("skipping: this platform cannot resolve the PID holding a listening port");
+        return;
+    }
     let (port, holder) = start_service_dead_holder().await;
 
     // Stopping an already-dead PID is idempotent, but the port stays held
