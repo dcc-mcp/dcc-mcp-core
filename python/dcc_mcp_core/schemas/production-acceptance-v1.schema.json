@@ -1,0 +1,180 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dcc-mcp.github.io/dcc-mcp-core/schemas/production-acceptance-v1.schema.json",
+  "title": "DCC-MCP Released-Product Production Acceptance Record v1",
+  "description": "Machine-readable production-acceptance contract for a released DCC-MCP CLI adapter. Twelve independent per-level statuses replace any collapsed `supported` boolean.",
+  "type": "object",
+  "additionalProperties": false,
+  "not": {
+    "required": ["supported"]
+  },
+  "required": ["schema_version", "product", "levels", "report"],
+  "properties": {
+    "schema_version": {"type": "integer", "const": 1},
+    "product": {"$ref": "#/$defs/product"},
+    "levels": {"$ref": "#/$defs/levels"},
+    "report": {"$ref": "#/$defs/report"}
+  },
+  "$defs": {
+    "status": {
+      "type": "string",
+      "enum": ["PASS", "PARTIAL", "FAIL", "NOT_RUN", "BLOCKED", "NOT_APPLICABLE", "UNKNOWN"]
+    },
+    "evidence_source": {
+      "type": "string",
+      "enum": ["real-host", "source-tree", "mock", "contract-test", "public-ci", "release", "catalog", "manual", "none"]
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^(sha256:)?[a-fA-F0-9]{64}$"
+    },
+    "public_url": {
+      "type": "string",
+      "pattern": "^https?://[^\\s]+$",
+      "maxLength": 2048
+    },
+    "evidence_link": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url", "label"],
+      "properties": {
+        "url": {"$ref": "#/$defs/public_url"},
+        "label": {"type": "string", "minLength": 1, "maxLength": 256},
+        "sha256": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "backend": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "success": {"type": "boolean"},
+        "loaded": {"type": "boolean"},
+        "error": {"type": ["string", "null"]}
+      }
+    },
+    "level": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "source", "checked_at"],
+      "properties": {
+        "status": {"$ref": "#/$defs/status"},
+        "source": {"$ref": "#/$defs/evidence_source"},
+        "checked_at": {"type": "string", "format": "date-time"},
+        "detail": {"type": "string", "maxLength": 4096},
+        "evidence": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {"$ref": "#/$defs/evidence_link"}
+        },
+        "backend": {"$ref": "#/$defs/backend"}
+      }
+    },
+    "levels": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository_identity",
+        "released_artifact",
+        "package_import",
+        "editor_bootstrap",
+        "sidecar_identity",
+        "readyz",
+        "gateway_capability_index",
+        "instance_qualified_call",
+        "bounded_readback",
+        "licensed_host_acceptance",
+        "uninstall_rollback",
+        "mixed_version_recovery"
+      ],
+      "properties": {
+        "repository_identity": {"$ref": "#/$defs/level"},
+        "released_artifact": {"$ref": "#/$defs/level"},
+        "package_import": {"$ref": "#/$defs/level"},
+        "editor_bootstrap": {"$ref": "#/$defs/level"},
+        "sidecar_identity": {"$ref": "#/$defs/level"},
+        "readyz": {"$ref": "#/$defs/level"},
+        "gateway_capability_index": {"$ref": "#/$defs/level"},
+        "instance_qualified_call": {"$ref": "#/$defs/level"},
+        "bounded_readback": {"$ref": "#/$defs/level"},
+        "licensed_host_acceptance": {"$ref": "#/$defs/level"},
+        "uninstall_rollback": {"$ref": "#/$defs/level"},
+        "mixed_version_recovery": {"$ref": "#/$defs/level"}
+      }
+    },
+    "runner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["available"],
+      "properties": {
+        "available": {"type": "boolean"},
+        "os": {"type": "string", "maxLength": 256},
+        "python_version": {"type": "string", "maxLength": 64},
+        "host_version": {"type": "string", "maxLength": 256}
+      }
+    },
+    "credentials_licenses": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["licensed"],
+      "properties": {
+        "licensed": {"type": "boolean"},
+        "host_license_kind": {"type": "string", "maxLength": 256},
+        "notes": {"type": "string", "maxLength": 4096}
+      }
+    },
+    "product": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "identifier",
+        "entity",
+        "owner_repository",
+        "catalog_version",
+        "package_version",
+        "release_tag",
+        "source_ref",
+        "asset_name",
+        "publisher_digest",
+        "recomputed_sha256",
+        "runner",
+        "tests_executed",
+        "tests_skipped",
+        "credentials_licenses",
+        "last_licensed_acceptance",
+        "evidence_links"
+      ],
+      "properties": {
+        "identifier": {"type": "string", "minLength": 1, "maxLength": 256},
+        "entity": {"type": "string", "minLength": 1, "maxLength": 256},
+        "owner_repository": {"$ref": "#/$defs/public_url"},
+        "catalog_version": {"type": "string", "minLength": 1, "maxLength": 64},
+        "package_version": {"type": "string", "minLength": 1, "maxLength": 64},
+        "release_tag": {"type": "string", "minLength": 1, "maxLength": 128},
+        "source_ref": {"anyOf": [{"type": "string", "pattern": "^[a-fA-F0-9]{7,64}$"}, {"type": "null"}]},
+        "asset_name": {"anyOf": [{"type": "string", "minLength": 1, "maxLength": 256}, {"type": "null"}]},
+        "publisher_digest": {"anyOf": [{"$ref": "#/$defs/digest"}, {"type": "null"}]},
+        "recomputed_sha256": {"anyOf": [{"$ref": "#/$defs/digest"}, {"type": "null"}]},
+        "runner": {"$ref": "#/$defs/runner"},
+        "tests_executed": {"type": "integer", "minimum": 0},
+        "tests_skipped": {"type": "integer", "minimum": 0},
+        "credentials_licenses": {"$ref": "#/$defs/credentials_licenses"},
+        "last_licensed_acceptance": {"type": ["string", "null"]},
+        "evidence_links": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {"$ref": "#/$defs/evidence_link"}
+        }
+      }
+    },
+    "report": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["generated_at", "overall_status", "sanitized"],
+      "properties": {
+        "generated_at": {"type": "string", "format": "date-time"},
+        "overall_status": {"$ref": "#/$defs/status"},
+        "sanitized": {"type": "boolean"}
+      }
+    }
+  }
+}
