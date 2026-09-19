@@ -43,6 +43,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use anyhow::Context as _;
@@ -249,6 +250,15 @@ pub struct TranslateArgs {
     #[arg(long, default_value = "10")]
     pub shutdown_timeout_secs: u64,
 
+    /// Seconds to wait for a stdio child's response before failing the call
+    /// closed. 0 waits indefinitely.
+    #[arg(
+        long,
+        env = "DCC_MCP_BRIDGE_TIMEOUT_SECS",
+        default_value_t = DEFAULT_BRIDGE_TIMEOUT_SECS
+    )]
+    pub bridge_timeout_secs: u64,
+
     /// Server name advertised in gateway registration.
     #[arg(long, env = "DCC_MCP_SERVER_NAME")]
     pub server_name: Option<String>,
@@ -262,6 +272,85 @@ pub struct TranslateArgs {
     pub force: bool,
 }
 
+// ── Response correlation ──────────────────────────────────────────────────────
+
+/// Upper bound, in seconds, on how long a caller waits for a child response
+/// before failing closed.
+///
+/// Long tool calls are the norm for the DCC hosts this bridge wraps — a Blender
+/// bake or a Maya export runs for minutes — so the bound is deliberately
+/// generous and matches the gateway's own terminal-state wait
+/// (`gateway_wait_terminal_timeout_ms`, 600s). It exists only so a child that
+/// never answers cannot pin an HTTP request open forever; it is not a tool-call
+/// budget. `--bridge-timeout-secs 0` removes the bound entirely.
+pub const DEFAULT_BRIDGE_TIMEOUT_SECS: u64 = 600;
+
+/// Build the wait bound for bridge calls. `0` means "wait indefinitely".
+fn bridge_timeout(secs: u64) -> Option<Duration> {
+    (secs > 0).then(|| Duration::from_secs(secs))
+}
+
+/// Normalise a JSON-RPC id into the string key used for response correlation.
+///
+/// Returns `None` for absent or non-scalar ids, which cannot be correlated.
+fn request_id_key(id: Option<&Value>) -> Option<String> {
+    match id {
+        Some(Value::Number(n)) => Some(number_id_key(n)),
+        Some(Value::String(s)) => Some(s.clone()),
+        _ => None,
+    }
+}
+
+/// Render a numeric JSON-RPC id canonically.
+///
+/// `2`, `2.0` and `2e0` all name the same request id, but `serde_json` keeps
+/// the literal spelling a peer used, so `Number::to_string()` yields `"2.0"`
+/// for a float. A child that round-trips an integer id through a float would
+/// then fail to match the `"2"` the request was filed under and look desynced
+/// while behaving correctly. Integers and exactly-integral floats therefore
+/// render without a fractional part.
+fn number_id_key(n: &serde_json::Number) -> String {
+    if let Some(i) = n.as_i64() {
+        return i.to_string();
+    }
+    if let Some(u) = n.as_u64() {
+        return u.to_string();
+    }
+    match n.as_f64() {
+        // Exactly-integral floats normalise to their integer spelling. The 2^53
+        // bound keeps the cast lossless; anything wider keeps the original
+        // spelling and simply will not correlate.
+        Some(f) if f.is_finite() && f.fract() == 0.0 && f.abs() < 9_007_199_254_740_992.0 => {
+            (f as i64).to_string()
+        }
+        _ => n.to_string(),
+    }
+}
+
+/// The error handed back when a call's response channel is dropped without a
+/// response: the child exited, or the bridge actor shut down, before answering.
+/// Either way the call has no usable result.
+fn response_channel_dropped(expected_id: &str) -> anyhow::Error {
+    anyhow::anyhow!(
+        "transport desync: no response for request id {expected_id:?}; the bridge dropped the channel"
+    )
+}
+
+/// Build the JSON-RPC error response handed back when a request cannot be
+/// forwarded to the child at all.
+fn unforwardable_request(id: Option<Value>, message: impl Into<String>) -> JsonRpcResponse {
+    JsonRpcResponse {
+        jsonrpc: "2.0".to_string(),
+        id,
+        result: None,
+        error: Some(dcc_mcp_jsonrpc::JsonRpcError {
+            code: -32600,
+            message: message.into(),
+            data: None,
+        }),
+    }
+}
+
 // ── Bridge message types ──────────────────────────────────────────────────────
 
 /// A request sent from an HTTP handler to the stdio bridge actor.
@@ -270,7 +359,24 @@ struct BridgeRequest {
     message: JsonRpcMessage,
     /// If this is a request (not a notification), the response goes here.
     response_tx: Option<oneshot::Sender<JsonRpcResponse>>,
+    /// Identifies the caller that filed this request. Only that caller may
+    /// withdraw the pending entry, so a call that gives up (timeout) cannot
+    /// delete a newer request that reused the same JSON-RPC id.
+    owner: u64,
 }
+
+/// An in-flight request: its response sender plus the caller that filed it.
+struct PendingRequest {
+    owner: u64,
+    tx: oneshot::Sender<JsonRpcResponse>,
+}
+
+/// In-flight requests, keyed by their normalised JSON-RPC id.
+///
+/// Shared between the bridge handle (which files requests and withdraws them on
+/// timeout) and the actor (which owns the map across child restarts and routes
+/// responses to it).
+type PendingMap = Arc<Mutex<HashMap<String, PendingRequest>>>;
 
 // ── Stdio bridge actor ────────────────────────────────────────────────────────
 
@@ -278,6 +384,33 @@ struct BridgeRequest {
 struct StdioBridgeInner {
     /// Channel to send requests to the actor loop.
     tx: mpsc::Sender<BridgeRequest>,
+    /// Upper bound on how long `call` waits for the child's response.
+    /// `None` means wait indefinitely.
+    response_timeout: Option<Duration>,
+    /// Hands out the ownership tokens recorded in [`PendingRequest::owner`].
+    next_owner: AtomicU64,
+    /// In-flight requests, shared with the bridge actor.
+    pending: PendingMap,
+}
+
+impl StdioBridgeInner {
+    /// Claim the ownership token for one request.
+    fn claim_owner(&self) -> u64 {
+        self.next_owner.fetch_add(1, Ordering::Relaxed)
+    }
+
+    /// Withdraw the pending entry for `id`, but only if this caller still owns
+    /// it.
+    ///
+    /// A call that gives up must not evict a newer request that reused the same
+    /// id: evicting it would leave that request to wait out its own timeout
+    /// with no entry left to route its response to.
+    async fn release(&self, id: &str, owner: u64) {
+        let mut map = self.pending.lock().await;
+        if map.get(id).is_some_and(|entry| entry.owner == owner) {
+            map.remove(id);
+        }
+    }
 }
 
 /// Shared, clone-able handle to the stdio bridge.
@@ -288,19 +421,56 @@ struct StdioBridge {
 
 impl StdioBridge {
     /// Send a JSON-RPC request and wait for the response.
+    ///
+    /// The response is only returned when the child echoes the id we sent. A
+    /// child that answers under a different id would otherwise have its payload
+    /// delivered to an unrelated caller, so a mismatch fails closed.
     async fn call(&self, req: JsonRpcRequest) -> anyhow::Result<JsonRpcResponse> {
+        let expected_id = request_id_key(req.id.as_ref()).ok_or_else(|| {
+            anyhow::anyhow!("request is missing an id; cannot correlate response")
+        })?;
+        let owner = self.inner.claim_owner();
         let (resp_tx, resp_rx) = oneshot::channel();
         self.inner
             .tx
             .send(BridgeRequest {
                 message: JsonRpcMessage::Request(req),
                 response_tx: Some(resp_tx),
+                owner,
             })
             .await
             .map_err(|_| anyhow::anyhow!("bridge actor has shut down"))?;
-        resp_rx
-            .await
-            .map_err(|_| anyhow::anyhow!("bridge actor dropped response sender"))
+        // Wait no longer than the configured bound: a child that never answers
+        // must not pin the HTTP request open forever. `Ok(Err(_))` means the
+        // sender was dropped, which only happens when the child (or the whole
+        // actor) went away without answering.
+        let response = match self.inner.response_timeout {
+            Some(limit) => match tokio::time::timeout(limit, resp_rx).await {
+                Ok(outcome) => outcome.map_err(|_| response_channel_dropped(&expected_id)),
+                Err(_) => {
+                    // Give up on this call and stop owning the id, so the next
+                    // request that reuses it is not rejected as a duplicate.
+                    self.inner.release(&expected_id, owner).await;
+                    Err(anyhow::anyhow!(
+                        "bridge timed out after {limit:?} waiting for response id {expected_id:?}"
+                    ))
+                }
+            },
+            None => resp_rx
+                .await
+                .map_err(|_| response_channel_dropped(&expected_id)),
+        }?;
+        // Defence in depth: responses are routed by id, so a payload can only
+        // reach the caller that filed that id. Re-check before returning so a
+        // future refactor of the routing cannot silently break that invariant.
+        let delivered_id = request_id_key(response.id.as_ref());
+        if delivered_id.as_deref() != Some(expected_id.as_str()) {
+            anyhow::bail!(
+                "transport desync: expected JSON-RPC response id {expected_id:?}, got {}",
+                delivered_id.unwrap_or_else(|| "<missing>".to_string()),
+            );
+        }
+        Ok(response)
     }
 
     /// Send a JSON-RPC notification (fire and forget).
@@ -310,6 +480,9 @@ impl StdioBridge {
             .send(BridgeRequest {
                 message: JsonRpcMessage::Notification(notif),
                 response_tx: None,
+                // Notifications are never filed as pending, so the token is
+                // claimed only to keep the request shape uniform.
+                owner: self.inner.claim_owner(),
             })
             .await
             .map_err(|_| anyhow::anyhow!("bridge actor has shut down"))?;
@@ -340,11 +513,15 @@ fn spawn_child(cmd: &str) -> anyhow::Result<Child> {
 }
 
 /// Actor loop: read lines from child stdout and route responses back to callers.
+///
+/// `pending` is owned by [`StdioBridgeInner`] and handed in here so the actor
+/// keeps the same in-flight map across child restarts.
 async fn run_bridge_actor(
     cmd: String,
     mut rx: mpsc::Receiver<BridgeRequest>,
     restart_on_exit: bool,
     max_restarts: u32,
+    pending: PendingMap,
 ) {
     let mut restart_count = 0u32;
     let mut backoff = Duration::from_millis(200);
@@ -375,9 +552,9 @@ async fn run_bridge_actor(
         let stdout = child.stdout.expect("stdout must be piped");
         let mut reader = BufReader::new(stdout).lines();
 
-        // In-flight request map: request id → response sender
-        let pending: Arc<Mutex<HashMap<String, oneshot::Sender<JsonRpcResponse>>>> =
-            Arc::new(Mutex::new(HashMap::new()));
+        // In-flight request map: request id → the caller waiting on it.
+        // Restarting the child does not answer the calls that were in flight,
+        // so the map is cleared on exit (below) rather than recreated here.
         let pending_clone = pending.clone();
 
         // Spawn a task to read lines from child stdout and route responses
@@ -386,14 +563,34 @@ async fn run_bridge_actor(
                 debug!(line = %line, "stdio<");
                 match serde_json::from_str::<JsonRpcMessage>(&line) {
                     Ok(JsonRpcMessage::Response(resp)) => {
-                        let id_key = match &resp.id {
-                            Some(Value::Number(n)) => n.to_string(),
-                            Some(Value::String(s)) => s.clone(),
-                            _ => continue,
-                        };
+                        // Only deliver to the caller that sent this exact id.
+                        let id_key = request_id_key(resp.id.as_ref());
                         let mut map = pending_clone.lock().await;
-                        if let Some(tx) = map.remove(&id_key) {
-                            let _ = tx.send(resp);
+                        if let Some(entry) = id_key.as_ref().and_then(|key| map.remove(key)) {
+                            let _ = entry.tx.send(resp);
+                        } else {
+                            // The child answered an id nobody is waiting on, so
+                            // this payload belongs to no call the bridge can
+                            // name: the id was either already answered or was
+                            // never issued. Drop it and keep reading.
+                            //
+                            // Nothing else here is safe. Failing the in-flight
+                            // calls instead looks stricter but manufactures a
+                            // desync: the child's own responses then arrive one
+                            // behind the freshly filed requests, so every later
+                            // call trips the same check and a healthy child is
+                            // desynced for good. Ending the read loop strands
+                            // every later call (each stalling for the full
+                            // timeout) and throws away the child's session
+                            // state on restart. The invariant that matters —
+                            // never deliver another call's payload — is held by
+                            // the id-keyed routing above and re-checked in
+                            // `StdioBridge::call`, so dropping costs nothing.
+                            warn!(
+                                response_id = ?id_key,
+                                outstanding = map.len(),
+                                "stdio response id matches no pending request; dropping it"
+                            );
                         }
                     }
                     Ok(JsonRpcMessage::Notification(notif)) => {
@@ -414,22 +611,45 @@ async fn run_bridge_actor(
             tokio::select! {
                 msg = rx.recv() => {
                     let Some(bridge_req) = msg else {
-                        // Channel closed — shut down
+                        // Channel closed — shut down. No request can reach the
+                        // child any more, so nothing can answer what is left.
                         read_task.abort();
+                        pending.lock().await.clear();
                         break 'outer;
                     };
+                    let owner = bridge_req.owner;
                     match bridge_req.message {
                         JsonRpcMessage::Request(req) => {
-                            let id_key = match &req.id {
-                                Some(Value::Number(n)) => n.to_string(),
-                                Some(Value::String(s)) => s.clone(),
-                                _ => {
-                                    warn!("Request missing id; cannot route response");
-                                    continue;
-                                }
+                            let Some(id_key) = request_id_key(req.id.as_ref()) else {
+                                warn!("Request missing id; cannot route response");
+                                continue;
                             };
                             if let Some(resp_tx) = bridge_req.response_tx {
-                                pending.lock().await.insert(id_key, resp_tx);
+                                let mut map = pending.lock().await;
+                                if map.contains_key(&id_key) {
+                                    // Two live calls want the same id. Filing
+                                    // the newer one would evict the older
+                                    // sender, which kills that caller with a
+                                    // "dropped the channel" error and lets the
+                                    // child's single response answer whichever
+                                    // call it pleases. Reject the newer request
+                                    // instead, and do not forward it: an
+                                    // unrequested response is worse than a
+                                    // refused request.
+                                    warn!(
+                                        request_id = %id_key,
+                                        "duplicate JSON-RPC request id while an earlier call is still in flight; rejecting it"
+                                    );
+                                    drop(map);
+                                    let _ = resp_tx.send(unforwardable_request(
+                                        req.id.clone(),
+                                        format!(
+                                            "duplicate request id {id_key:?}: an earlier request with this id is still in flight"
+                                        ),
+                                    ));
+                                    continue;
+                                }
+                                map.insert(id_key, PendingRequest { owner, tx: resp_tx });
                             }
                             let line = match serde_json::to_string(&req) {
                                 Ok(s) => format!("{s}\n"),
@@ -442,6 +662,9 @@ async fn run_bridge_actor(
                             if let Err(e) = stdin.write_all(line.as_bytes()).await {
                                 error!("Failed to write to child stdin: {e}");
                                 read_task.abort();
+                                // The request was filed but never reached the
+                                // child, so it can never be answered.
+                                pending.lock().await.retain(|_, entry| entry.owner != owner);
                                 break;
                             }
                         }
@@ -465,6 +688,10 @@ async fn run_bridge_actor(
                     // Child process exited (stdout closed)
                     let _ = result; // ignore JoinHandle result
                     info!("stdio MCP server exited");
+                    // This child can no longer answer anything, so every call
+                    // in flight fails now instead of waiting out the response
+                    // bound. Dropping the senders is what fails them.
+                    pending.lock().await.clear();
                     break;
                 }
             }
@@ -659,12 +886,19 @@ pub async fn run(args: TranslateArgs) -> anyhow::Result<()> {
     let cmd_clone = args.stdio.clone();
     let restart = args.restart_on_exit;
     let max_restarts = args.max_restarts;
+    let pending: PendingMap = Arc::new(Mutex::new(HashMap::new()));
+    let actor_pending = pending.clone();
     tokio::spawn(async move {
-        run_bridge_actor(cmd_clone, rx, restart, max_restarts).await;
+        run_bridge_actor(cmd_clone, rx, restart, max_restarts, actor_pending).await;
     });
 
     let bridge = StdioBridge {
-        inner: Arc::new(StdioBridgeInner { tx }),
+        inner: Arc::new(StdioBridgeInner {
+            tx,
+            response_timeout: bridge_timeout(args.bridge_timeout_secs),
+            next_owner: AtomicU64::new(0),
+            pending,
+        }),
     };
 
     // ── Start axum HTTP server ────────────────────────────────────────────
@@ -893,6 +1127,7 @@ mod tests {
             stale_timeout_secs: 30,
             heartbeat_secs: 5,
             shutdown_timeout_secs: 10,
+            bridge_timeout_secs: DEFAULT_BRIDGE_TIMEOUT_SECS,
             server_name: None,
             pid_file: None,
             force: false,
@@ -1023,3 +1258,9 @@ mod tests {
         );
     }
 }
+
+// Response-correlation regression coverage for the bridge. It drives real
+// stdio children and lives in its own file so this module stays focused on the
+// implementation (and well inside the workspace's 1500-line file budget).
+#[cfg(test)]
+mod correlation_tests;
