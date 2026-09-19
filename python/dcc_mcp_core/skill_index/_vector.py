@@ -240,11 +240,18 @@ class VectorSkillIndex:
         return self._store
 
     def index(self, documents: Iterable[SkillDocument]) -> int:
+        """Embed and store *documents*, persisting the warm-start cache once.
+
+        The cache is flushed after the whole batch, not per document: an
+        in-memory cache already serves repeated documents inside one call, and
+        a per-miss flush would rewrite the cache file N times for N documents.
+        """
         added = 0
         for doc in documents:
             vec = self._embedder.embed(doc.corpus())
             self._store.add(doc.skill_id, vec)
             added += 1
+        self.flush_embedding_cache()
         return added
 
     def remove(self, skill_id: str) -> bool:

@@ -607,6 +607,10 @@ class CachedEmbedder:
     expensive one - so unchanged documents cost zero embedding computations on
     a warm start. ``dim`` and the other public properties delegate to the
     wrapped embedder, so call sites see the same wire shape.
+
+    Persistence is deferred: :meth:`embed` and :meth:`embed_batch` fill the
+    in-memory cache, and :meth:`flush` writes it out. Bulk callers flush once
+    when the batch ends instead of once per miss.
     """
 
     def __init__(
@@ -648,14 +652,25 @@ class CachedEmbedder:
         return getattr(self._embedder, name)
 
     def embed(self, text: str) -> array:
+        """Return the vector for *text*, computing and memoizing it on a miss.
+
+        A miss updates the in-memory cache only. Persistence is deferred to
+        :meth:`flush` so that indexing N documents performs one write instead
+        of N full-file rewrites; callers that own a bulk operation must call
+        :meth:`flush` (or ``VectorSkillIndex.flush_embedding_cache()``) when
+        they are done.
+        """
         key = _cache_key(self._fingerprint, text)
         cached = self._cache.get(key)
         if cached is not None:
             return cached
         vector = self._embedder.embed(text)
         self._cache.put(key, vector)
-        self._cache.flush()
         return vector
+
+    def flush(self) -> bool:
+        """Persist any vectors cached since the last flush. Returns success."""
+        return self._cache.flush()
 
     def embed_batch(self, texts: Iterable[str]) -> list:
         materialised = list(texts)

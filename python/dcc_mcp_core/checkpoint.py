@@ -69,6 +69,14 @@ _UNSAFE_PATH_SEGMENT = re.compile(r"[^A-Za-z0-9_.-]+")
 _TRUE_ENV_VALUES = frozenset({"1", "true", "yes", "on"})
 
 
+def _saved_at(entry: Any) -> float:
+    """Return an entry's ``saved_at`` timestamp, or ``0.0`` when absent."""
+    if not isinstance(entry, dict):
+        return 0.0
+    value = entry.get("saved_at")
+    return value if isinstance(value, (int, float)) and not isinstance(value, bool) else 0.0
+
+
 # ── Durable default location (issue #2300) ─────────────────────────────────
 
 
@@ -144,6 +152,15 @@ class CheckpointStore:
         Optional filesystem path for durable storage.  If ``None`` (default),
         checkpoints are kept in memory only.
 
+    Multi-instance safety
+    ---------------------
+    The durable default path is shared by every instance of the same DCC, so
+    two processes can hold a store over one file. Reads serve this process's
+    in-memory copy, but every write re-reads the file first and merges it with
+    the in-memory state (newest ``saved_at`` per job wins) before flushing the
+    whole set. Concurrent writers therefore stay additive: a store that loaded
+    the file before another instance saved cannot clobber that save.
+
     """
 
     def __init__(self, path: str | Path | None = None) -> None:
@@ -186,6 +203,31 @@ class CheckpointStore:
         except OSError as exc:
             logger.warning("CheckpointStore: could not flush to %s: %s", self._path, exc)
 
+    def _merge_disk_state(self) -> None:
+        """Merge entries another process wrote since our last read or write.
+
+        Must be called with ``self._lock`` held. The file is re-read and
+        combined with the in-memory state so a write never drops checkpoints
+        another instance saved after this store was constructed; newest
+        ``saved_at`` wins per job. A file that cannot be read is logged and
+        ignored rather than wiping what this process already holds.
+        """
+        if self._path is None or not self._path.exists():
+            return
+        try:
+            raw = self._path.read_text(encoding="utf-8")
+            on_disk = json_loads(raw)
+        except (OSError, ValueError) as exc:
+            logger.warning("CheckpointStore: could not reload %s: %s", self._path, exc)
+            return
+        if not isinstance(on_disk, dict):
+            return
+        merged = dict(on_disk)
+        for job_id, entry in self._data.items():
+            if job_id not in merged or _saved_at(entry) >= _saved_at(merged[job_id]):
+                merged[job_id] = entry
+        self._data = merged
+
     # ── CRUD ───────────────────────────────────────────────────────────────
 
     def save(self, job_id: str, state: dict[str, Any], progress_hint: str = "") -> None:
@@ -197,6 +239,7 @@ class CheckpointStore:
             "context": state,
         }
         with self._lock:
+            self._merge_disk_state()
             self._data[job_id] = entry
             self._flush()
 
@@ -208,6 +251,7 @@ class CheckpointStore:
     def clear(self, job_id: str) -> bool:
         """Delete the checkpoint for *job_id*.  Returns ``True`` if it existed."""
         with self._lock:
+            self._merge_disk_state()
             existed = job_id in self._data
             self._data.pop(job_id, None)
             if existed:
@@ -222,6 +266,7 @@ class CheckpointStore:
     def clear_all(self) -> int:
         """Delete all checkpoints.  Returns the number deleted."""
         with self._lock:
+            self._merge_disk_state()
             count = len(self._data)
             self._data.clear()
             self._flush()

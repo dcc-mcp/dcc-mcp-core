@@ -14,6 +14,7 @@
 - `<base>` 为 `DCC_MCP_CHECKPOINT_DIR`（若设置），否则为 `~/.dcc-mcp`。
 - 启动时自动注册 `jobs_checkpoint_status` / `jobs_resume_context`，重启后可直接读取恢复状态。
 - 写入为原子操作（临时文件 + rename），崩溃不会截断文件。
+- 同名 DCC 的多个实例共享该文件。`CheckpointStore` 每次写入前重新读取并合并（按 job 取 `saved_at` 最新者），因此并发保存是叠加的，而非后写覆盖前写。
 
 退出方式（任选其一）：
 
@@ -21,7 +22,8 @@
 |---------|---------|
 | `DCC_MCP_CHECKPOINT_IN_MEMORY=1` | 进程级环境变量 |
 | `enable_checkpoint_persistence=False` | 单服务端选项 |
-| `checkpoint_path=...` | 单服务端显式文件（优先级最高） |
+
+`checkpoint_path=...` **不是**退出方式——它是路径覆盖，**会启用**持久化到指定文件，且优先级高于上述两种退出方式（`resolve_checkpoint_path` 的优先级为：显式 `path` → 内存退出 → 持久化默认）。要关闭持久化请使用上表两种方式。
 
 模块级兼容存储（`save_checkpoint` / `get_checkpoint` 使用）仍为内存存储，仅服务端存储默认持久化。
 

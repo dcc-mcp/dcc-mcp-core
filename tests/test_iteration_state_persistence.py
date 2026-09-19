@@ -107,6 +107,38 @@ class TestCheckpointStoreDurability:
         assert list(path.parent.glob("*.tmp")) == []
         assert json.loads(path.read_text(encoding="utf-8"))["job-1"]["context"] == {"count": 1}
 
+    def test_late_writer_does_not_drop_the_others_checkpoints(self, tmp_path: Path) -> None:
+        """A store that loaded the file first must not clobber a later save.
+
+        The durable default path is shared by every instance of the same DCC,
+        so instance B can save after instance A loaded the file. A's next write
+        re-reads and merges instead of replacing the whole file.
+        """
+        path = tmp_path / "cp.json"
+        first = CheckpointStore(path=str(path))
+        first.save("job-1", {"count": 1})
+
+        other = CheckpointStore(path=str(path))
+        other.save("job-2", {"count": 1})
+
+        # ``first`` has never seen job-2; saving job-3 must keep it.
+        first.save("job-3", {"count": 1})
+
+        assert set(first.list_ids()) == {"job-1", "job-2", "job-3"}
+        assert set(CheckpointStore(path=str(path)).list_ids()) == {"job-1", "job-2", "job-3"}
+
+    def test_clear_keeps_other_instances_checkpoints(self, tmp_path: Path) -> None:
+        """Clearing one job only removes that job from the shared file."""
+        path = tmp_path / "cp.json"
+        first = CheckpointStore(path=str(path))
+        first.save("job-1", {"count": 1})
+
+        other = CheckpointStore(path=str(path))
+        other.save("job-2", {"count": 1})
+
+        assert first.clear("job-1") is True
+        assert set(CheckpointStore(path=str(path)).list_ids()) == {"job-2"}
+
 
 class TestServerCheckpointDefault:
     """``DccServerBase`` must be durable with no adapter opt-in."""
@@ -290,6 +322,81 @@ class TestDccExecutePersistentNamespace:
         assert result["output"] == 7
         assert result["context"]["persistent_namespace"]["variables"] == ["f"]
 
+    def test_run_with_shared_namespace_is_atomic(self) -> None:
+        """A peer must not snapshot the namespace while a runner still owns it.
+
+        Workers share one executor and default to ``ThreadAffinity::Any``, so
+        snapshot / execute / merge has to be one step: if the second runner
+        snapshots before the first one merges, the first merge writes back a
+        value computed from a stale read and the update is lost.
+        """
+        import threading
+
+        from dcc_mcp_core.script_execution import ScriptExecutionContext
+
+        context = ScriptExecutionContext()
+        context.update_script_namespace({"counter": 0})
+        runner_started = threading.Event()
+        release_runner = threading.Event()
+
+        def slow_runner(shared: dict) -> int:
+            value = shared["counter"] + 1
+            runner_started.set()
+            release_runner.wait(5)
+            shared["counter"] = value
+            return value
+
+        def fast_runner(shared: dict) -> int:
+            shared["counter"] = shared["counter"] + 1
+            return shared["counter"]
+
+        def run(runner) -> None:
+            context.run_with_shared_namespace(runner)
+
+        slow = threading.Thread(target=run, args=(slow_runner,))
+        slow.start()
+        assert runner_started.wait(5), "slow runner never started"
+        # The slow runner holds the snapshot and has not merged it back yet.
+        fast = threading.Thread(target=run, args=(fast_runner,))
+        fast.start()
+        fast.join(0.2)
+        assert fast.is_alive(), "fast runner must wait for the slow runner to merge"
+        release_runner.set()
+        fast.join(5)
+        slow.join(5)
+
+        assert not fast.is_alive()
+        assert not slow.is_alive()
+        assert context.script_namespace()["counter"] == 2
+
+    def test_concurrent_bumps_are_not_lost(self) -> None:
+        """Eight concurrent read-modify-write calls must all land."""
+        import threading
+
+        from dcc_mcp_core.script_execution import ScriptExecutionContext
+
+        context = ScriptExecutionContext()
+        executor = self._executor(persistent_namespace=True, script_execution_context=context)
+        assert executor.execute_params({"code": "counter = 1"})["success"] is True
+
+        failures: list[BaseException] = []
+
+        def bump() -> None:
+            try:
+                result = executor.execute_params({"code": "counter = counter + 1\nreturn counter"})
+                assert result["success"] is True, result
+            except BaseException as exc:  # surfaced below; threads swallow asserts
+                failures.append(exc)
+
+        threads = [threading.Thread(target=bump) for _ in range(8)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        assert failures == []
+        assert context.script_namespace()["counter"] == 9
+
     def test_schema_and_description_advertise_the_flag(self) -> None:
         from unittest.mock import MagicMock
 
@@ -448,3 +555,37 @@ class TestEmbeddingWarmStart:
         assert stats.hits == 5
         assert stats.computes == 0
         assert default_embedding_cache_path("maya").exists()
+
+    def test_embed_does_not_persist_until_flushed(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        """A miss fills the in-memory cache; only ``flush`` writes the file."""
+        from dcc_mcp_core.vector_embedder import CachedEmbedder
+        from dcc_mcp_core.vector_embedder import HashedEmbedder
+
+        monkeypatch.setenv(ENV_EMBEDDING_CACHE_DIR, str(tmp_path))
+        cache_path = default_embedding_cache_path("maya")
+        embedder = CachedEmbedder(HashedEmbedder(), cache_path=cache_path)
+
+        embedder.embed("hello")
+        assert not cache_path.exists()
+
+        assert embedder.flush() is True
+        assert cache_path.exists()
+
+    def test_index_flushes_once_not_per_document(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        """Indexing N documents must not rewrite the cache file N times."""
+        monkeypatch.setenv(ENV_EMBEDDING_CACHE_DIR, str(tmp_path))
+        index = VectorSkillIndex(cache_path=default_embedding_cache_path("maya"))
+        cache = index.embedding_cache
+        assert cache is not None
+
+        flushes: list[int] = []
+        original_flush = cache.flush
+
+        def counting_flush() -> bool:
+            flushes.append(1)
+            return original_flush()
+
+        monkeypatch.setattr(cache, "flush", counting_flush)
+
+        assert index.index(_make_docs()) == 5
+        assert len(flushes) == 1

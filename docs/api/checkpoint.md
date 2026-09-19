@@ -19,14 +19,21 @@ Iteration state must survive restarts, so a server's checkpoint store is
   restart.
 - Writes are atomic (temp file + rename), so a crash mid-write cannot
   truncate the file.
+- Several instances of the same DCC share the file. `CheckpointStore` re-reads
+  and merges it before every write (newest `saved_at` per job wins), so
+  concurrent saves stay additive instead of last-writer-wins.
 
-Opt out with any of:
+Opt out with either of:
 
 | Opt-out | Scope |
 |---------|-------|
 | `DCC_MCP_CHECKPOINT_IN_MEMORY=1` | Process-wide env var |
 | `enable_checkpoint_persistence=False` | Per-server option |
-| `checkpoint_path=...` | Per-server explicit file (wins over both) |
+
+`checkpoint_path=...` is **not** an opt-out — it is a location override that
+*enables* persistence at an explicit file, and it wins over both opt-outs
+above (`resolve_checkpoint_path` precedence: explicit `path` → in-memory
+opt-out → durable default). Use the two rows above to disable persistence.
 
 The module-level compatibility store used by `save_checkpoint` /
 `get_checkpoint` stays in memory; only the per-server store is durable.
