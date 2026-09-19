@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dcc-mcp.github.io/dcc-mcp-core/schemas/anim-curves-v1.schema.json",
+  "title": "DCC-MCP Animation Curves v1",
+  "description": "Canonical animation-curve state export: per-curve times/values/tangents/infinity plus a redundant key_count for direct assertion. Read-only write-verb pairing target.",
+  "type": "object",
+  "required": ["schema_name", "schema_version", "curves"],
+  "properties": {
+    "schema_name": {"const": "dcc-mcp/anim-curves"},
+    "schema_version": {"const": 1},
+    "curves": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/curve"}
+    }
+  },
+  "$defs": {
+    "curve": {
+      "type": "object",
+      "required": ["target", "key_count", "times", "values"],
+      "properties": {
+        "target": {"type": "string", "minLength": 1},
+        "key_count": {"type": "integer", "minimum": 0},
+        "times": {"type": "array", "items": {"type": "number"}},
+        "values": {"type": "array", "items": {"type": "number"}},
+        "tangents_in": {"type": "array", "items": {"type": "number"}},
+        "tangents_out": {"type": "array", "items": {"type": "number"}},
+        "infinity_pre": {"type": "string"},
+        "infinity_post": {"type": "string"}
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

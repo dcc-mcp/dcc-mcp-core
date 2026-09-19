@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from contextlib import suppress
 import importlib.util
 import json
 from pathlib import Path
@@ -14,6 +15,7 @@ import pytest
 
 _SKILL_DIR = Path(__file__).parent.parent / "python" / "dcc_mcp_core" / "skills" / "media"
 _COMMON = _SKILL_DIR / "scripts" / "_media_common.py"
+_STATS = _SKILL_DIR / "scripts" / "_media_image_stats.py"
 _SEQUENCE_SCRIPT = _SKILL_DIR / "scripts" / "sequence_to_mp4.py"
 
 
@@ -30,14 +32,23 @@ def _skill_script_import_context(script_path: Path):
             sys.path.remove(script_dir)
 
 
-@pytest.fixture()
-def media_common():
-    spec = importlib.util.spec_from_file_location("_media_common_under_test", _COMMON)
+def _load_script_module(module_name: str, script_path: Path):
+    spec = importlib.util.spec_from_file_location(module_name, script_path)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
-    with _skill_script_import_context(_COMMON):
+    with _skill_script_import_context(script_path):
         spec.loader.exec_module(module)
     return module
+
+
+@pytest.fixture()
+def media_common():
+    return _load_script_module("_media_common_under_test", _COMMON)
+
+
+@pytest.fixture()
+def media_stats():
+    return _load_script_module("_media_image_stats_under_test", _STATS)
 
 
 def _write_stub_file(path: Path) -> None:
@@ -63,6 +74,7 @@ def test_media_skill_parseable_and_declares_expected_tools():
     assert meta.dcc == "python"
     assert {tool.name for tool in meta.tools} == {
         "probe",
+        "image_stats",
         "sequence_to_mp4",
         "transcode",
         "extract_frames",
@@ -82,7 +94,7 @@ def test_media_skill_discoverable_from_source_skill_path():
     assert "media" in names
 
     results = catalog.search_skills(query="convert image sequence to mp4", limit=10)
-    assert any(result.name == "media" and result.tool_count == 5 for result in results)
+    assert any(result.name == "media" and result.tool_count == 6 for result in results)
 
 
 def test_media_tool_registers_prefixed_actions_after_load():
@@ -99,17 +111,20 @@ def test_media_tool_registers_prefixed_actions_after_load():
     assert "media__probe" in action_names
 
 
-def test_media_read_only_metadata_is_limited_to_probe():
+def test_media_read_only_metadata_is_limited_to_probe_and_image_stats():
     from dcc_mcp_core import parse_skill_md
 
     meta = parse_skill_md(str(_SKILL_DIR))
     assert meta is not None
     read_only_tools = {tool.name for tool in meta.tools if tool.read_only}
 
-    assert read_only_tools == {"probe"}
+    assert read_only_tools == {"probe", "image_stats"}
     probe_tool = next(tool for tool in meta.tools if tool.name == "probe")
     assert probe_tool.destructive is False
     assert probe_tool.idempotent is True
+    image_stats_tool = next(tool for tool in meta.tools if tool.name == "image_stats")
+    assert image_stats_tool.destructive is False
+    assert image_stats_tool.idempotent is True
 
 
 def test_sequence_command_uses_vx_ffmpeg_without_shell(media_common, tmp_path):
@@ -412,3 +427,156 @@ def test_sequence_to_mp4_smoke_with_vx(tmp_path):
     assert payload["success"] is True, json.dumps(payload, indent=2, sort_keys=True)
     assert output.is_file()
     assert output.stat().st_size > 0
+
+
+# --- image_stats (behavior verification contract, core#2269) -----------------
+
+
+def test_compute_image_stats_black_frame_is_uniform(media_stats):
+    stats = media_stats.compute_image_stats_from_gray(b"\x00" * 16, 4, 4)
+    assert stats["mean_luma"] == 0.0
+    assert stats["min_luma"] == 0.0
+    assert stats["max_luma"] == 0.0
+    assert stats["stddev_luma"] == 0.0
+    assert stats["uniform"] is True
+    assert stats["dominant_bin_fraction"] == 1.0
+
+
+def test_compute_image_stats_white_frame_is_uniform(media_stats):
+    stats = media_stats.compute_image_stats_from_gray(b"\xff" * 16, 4, 4)
+    assert stats["mean_luma"] == 1.0
+    assert stats["max_luma"] == 1.0
+    assert stats["uniform"] is True
+
+
+def test_compute_image_stats_gradient_is_not_uniform(media_stats):
+    # Four pixels spanning the full 0..255 range.
+    stats = media_stats.compute_image_stats_from_gray(bytes([0, 85, 170, 255]), 2, 2)
+    assert stats["mean_luma"] == pytest.approx(0.5, abs=1e-6)
+    assert stats["uniform"] is False
+    assert sum(stats["histogram"]) == pytest.approx(1.0, abs=1e-6)
+    assert stats["dominant_bin_fraction"] == pytest.approx(0.25, abs=1e-6)
+
+
+def test_compute_image_stats_rejects_short_frame(media_stats):
+    with pytest.raises(media_stats.MediaToolError) as exc:
+        media_stats.compute_image_stats_from_gray(b"\x00", 4, 4)
+    assert exc.value.code == "short_frame"
+
+
+def test_image_stats_command_uses_vx_ffmpeg_rawvideo(media_stats, tmp_path):
+    input_file = tmp_path / "frame.png"
+    _write_stub_file(input_file)
+
+    command, tmp_out, size = media_stats.build_image_stats_command(str(input_file), sample_size=32)
+    try:
+        assert command[:2] == ["vx", "ffmpeg"]
+        assert "rawvideo" in command
+        assert "gray" in command
+        assert "scale=32:32:flags=area,format=gray" in command
+        assert size == 32
+        assert tmp_out.name.endswith(".gray")
+    finally:
+        with suppress(OSError):
+            tmp_out.unlink()
+
+
+def test_image_stats_command_overwrites_the_precreated_output(media_stats, tmp_path):
+    """Regression: the output is reserved with mkstemp, so ffmpeg needs -y.
+
+    Without ``-y`` ffmpeg sees an already-existing output path, asks for an
+    interactive overwrite confirmation, reads EOF as "no" and exits non-zero -
+    which made ``image_stats()`` fail for every valid input. The mocked
+    end-to-end test below cannot catch this, so assert it on the argv.
+    """
+    input_file = tmp_path / "frame.png"
+    _write_stub_file(input_file)
+
+    command, tmp_out, _size = media_stats.build_image_stats_command(str(input_file), sample_size=16)
+    try:
+        assert "-y" in command, "the output path already exists; ffmpeg needs -y to overwrite it"
+        # Global options must precede the input so ffmpeg applies them to the output.
+        assert command.index("-y") < command.index("-i")
+        assert command[-1] == str(tmp_out)
+        assert tmp_out.is_file(), "the output path is created up front and must be overwritten"
+    finally:
+        with suppress(OSError):
+            tmp_out.unlink()
+
+
+def test_image_stats_command_runs_against_real_ffmpeg(media_stats, tmp_path):
+    """End-to-end against a real ffmpeg binary when one is available.
+
+    This is the only test that exercises the argv ``build_image_stats_command``
+    actually produces: a mocked ``run_command`` writes the output itself and so
+    would pass with or without ``-y``. Skipped (not failed) when ffmpeg is not
+    installed, since vx installs it on demand at runtime.
+    """
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg is None:
+        pytest.skip("ffmpeg is not installed; vx installs it on demand at runtime")
+
+    source = tmp_path / "frame.png"
+    generated = subprocess.run(
+        [
+            ffmpeg,
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc=size=64x64:rate=1:duration=1",
+            "-frames:v",
+            "1",
+            str(source),
+        ],
+        capture_output=True,
+    )
+    if generated.returncode != 0 or not source.is_file():
+        pytest.skip("the installed ffmpeg cannot synthesize a test frame")
+
+    command, tmp_out, size = media_stats.build_image_stats_command(str(source), sample_size=16)
+    try:
+        # command is vx-managed (["vx", "ffmpeg", ...]); swap in the real binary.
+        assert command[:2] == ["vx", "ffmpeg"]
+        executed = subprocess.run([ffmpeg, *command[2:]], capture_output=True)
+        assert executed.returncode == 0, executed.stderr.decode("utf-8", "replace")
+        assert tmp_out.is_file()
+        assert tmp_out.stat().st_size == size * size
+
+        stats = media_stats.compute_image_stats_from_gray(tmp_out.read_bytes(), size, size)
+        assert 0.0 <= stats["mean_luma"] <= 1.0
+        assert stats["uniform"] is False
+    finally:
+        with suppress(OSError):
+            tmp_out.unlink()
+
+
+def test_image_stats_end_to_end_with_mocked_ffmpeg(media_stats, tmp_path, monkeypatch):
+    input_file = tmp_path / "frame.png"
+    _write_stub_file(input_file)
+    sample = bytes([128]) * (16 * 16)
+
+    def fake_run(command, timeout_secs, **kwargs):
+        out_path = Path(command[-1])
+        out_path.write_bytes(sample)
+        return ""
+
+    def fake_probe(path, timeout_secs=30):
+        return {"context": {"media": {"video": {"width": 1920, "height": 1080}}}}
+
+    monkeypatch.setattr(media_stats, "run_command", fake_run)
+    monkeypatch.setattr(media_stats, "probe", fake_probe)
+
+    result = media_stats.image_stats(str(input_file), sample_size=16)
+
+    assert result["success"] is True
+    assert result["context"]["width"] == 1920
+    assert result["context"]["height"] == 1080
+    assert result["context"]["sample_size"] == 16
+    stats = result["context"]["stats"]
+    assert stats["mean_luma"] == pytest.approx(128 / 255.0, abs=1e-6)
+    assert stats["uniform"] is True
+    assert abs(sum(stats["histogram"]) - 1.0) < 1e-6

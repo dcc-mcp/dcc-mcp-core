@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dcc-mcp.github.io/dcc-mcp-core/schemas/graph-state-v1.schema.json",
+  "title": "DCC-MCP Graph State v1",
+  "description": "Canonical graph state export: node/connection/param/output topology for graph-based hosts (Designer, Nuke). Read-only write-verb pairing target.",
+  "type": "object",
+  "required": ["schema_name", "schema_version", "nodes"],
+  "properties": {
+    "schema_name": {"const": "dcc-mcp/graph-state"},
+    "schema_version": {"const": 1},
+    "nodes": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/node"}
+    },
+    "connections": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/connection"}
+    },
+    "params": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/param"}
+    },
+    "outputs": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/output"}
+    }
+  },
+  "$defs": {
+    "node": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "type": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "connection": {
+      "type": "object",
+      "required": ["from", "to"],
+      "properties": {
+        "from": {"type": "string", "minLength": 1},
+        "to": {"type": "string", "minLength": 1},
+        "from_port": {"type": "string"},
+        "to_port": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "param": {
+      "type": "object",
+      "required": ["node", "name"],
+      "properties": {
+        "node": {"type": "string", "minLength": 1},
+        "name": {"type": "string", "minLength": 1},
+        "value": {}
+      },
+      "additionalProperties": true
+    },
+    "output": {
+      "type": "object",
+      "required": ["node", "name"],
+      "properties": {
+        "node": {"type": "string", "minLength": 1},
+        "name": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

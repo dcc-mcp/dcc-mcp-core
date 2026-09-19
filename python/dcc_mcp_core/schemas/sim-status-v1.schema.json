@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dcc-mcp.github.io/dcc-mcp-core/schemas/sim-status-v1.schema.json",
+  "title": "DCC-MCP Simulation Status v1",
+  "description": "Canonical simulation state export: cache existence, frame count, and per-frame particle/vertex counts. Simulations are verified by cache artifacts, never screenshots.",
+  "type": "object",
+  "required": ["schema_name", "schema_version", "cache_exists", "frame_count"],
+  "properties": {
+    "schema_name": {"const": "dcc-mcp/sim-status"},
+    "schema_version": {"const": 1},
+    "cache_exists": {"type": "boolean"},
+    "cache_path": {"type": ["string", "null"]},
+    "frame_count": {"type": "integer", "minimum": 0},
+    "per_frame_counts": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/frame_counts"}
+    }
+  },
+  "$defs": {
+    "frame_counts": {
+      "type": "object",
+      "required": ["frame"],
+      "properties": {
+        "frame": {"type": "integer"},
+        "particle_count": {"type": "integer", "minimum": 0},
+        "vertex_count": {"type": "integer", "minimum": 0}
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}
