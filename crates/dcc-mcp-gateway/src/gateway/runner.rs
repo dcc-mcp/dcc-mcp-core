@@ -921,6 +921,11 @@ impl GatewayRunner {
                         {
                             // The next attempt binds the freed port and takes
                             // over through the normal promotion path.
+                            //
+                            // Deliberately skips `request_cooperative_yield`
+                            // below: the resident gateway was just terminated,
+                            // so asking it to step down is pointless, and the
+                            // port must be re-checked while it is still free.
                             continue;
                         }
                     } else {
@@ -931,7 +936,12 @@ impl GatewayRunner {
                         );
                     }
                     // Reaping is a one-shot escalation per challenger run: do
-                    // not retry the kill on every remaining attempt.
+                    // not retry the kill on every remaining attempt. The
+                    // counter is intentionally left alone when the holder
+                    // probes healthy — a healthy resident answers in
+                    // milliseconds, so re-probing it every attempt is cheap
+                    // and is what lets the next round catch it the moment it
+                    // goes service-dead.
                     failed_bind_attempts = 0;
                 }
 

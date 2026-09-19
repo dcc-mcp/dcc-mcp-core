@@ -583,6 +583,10 @@ async fn test_challenger_recovers_live_but_service_dead_port_holder() {
     // port keeps accepting TCP, but HTTP/MCP never responds. Polling for a
     // clean release can never succeed, so the challenger must promote within a
     // bounded deadline by reaping the provably-owned stale holder.
+    if !crate::gateway::port_recovery::port_holder_resolution_available() {
+        eprintln!("skipping: this platform cannot resolve the PID holding a listening port");
+        return;
+    }
     let dir = tempfile::tempdir().unwrap();
     let occupied = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let port = occupied.local_addr().unwrap().port();

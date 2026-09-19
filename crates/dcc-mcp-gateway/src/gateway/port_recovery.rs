@@ -39,10 +39,10 @@ pub(crate) const RECOVERY_BIND_ATTEMPTS: u32 = 3;
 /// 2. That PID is not this process — self-termination is never recovery.
 /// 3. Exactly one PID holds the listener, so a shared or hijacked port does
 ///    not turn into an ambiguous kill.
-/// 4. The PID is recorded as this deployment's gateway in the pidfile or in a
-///    gateway autolaunch manifest inside `registry_dir`. Only a PID we can
-///    prove this deployment started is reaped; an unrelated application that
-///    happens to hold the port is left alone.
+/// 4. The PID is recorded as this deployment's gateway **for this port** in the
+///    pidfile or in a gateway autolaunch manifest inside `registry_dir`. Only a
+///    PID we can prove this deployment started is reaped; an unrelated
+///    application that happens to hold the port is left alone.
 pub(crate) fn service_dead_port_holder_pid(
     port: u16,
     registry_dir: &Path,
@@ -56,11 +56,28 @@ pub(crate) fn service_dead_port_holder_pid(
     if pid == std::process::id() || !dcc_mcp_gateway_ensure::is_process_alive(pid) {
         return None;
     }
-    gateway_launch_owns_pid(registry_dir, pidfile, pid).then_some(pid)
+    gateway_launch_owns_pid(registry_dir, pidfile, pid, port).then_some(pid)
 }
 
-/// True when `pid` is recorded as a gateway this deployment launched.
-fn gateway_launch_owns_pid(registry_dir: &Path, pidfile: Option<&Path>, pid: u32) -> bool {
+/// True when `pid` is recorded as a gateway this deployment launched to serve
+/// `port`.
+///
+/// Both fields have to match. A manifest only records that *some* launcher
+/// started a gateway, and PIDs are recycled, so matching the PID alone would
+/// let a stale manifest left behind by an earlier run — on another port, or
+/// before the PID was reused by an unrelated process — authorize terminating a
+/// process that has nothing to do with this recovery.
+///
+/// A required `port` can only narrow the previous behaviour, never widen it:
+/// every launcher writes it (see `GatewayLaunchContext::gateway`), while a
+/// manifest written without one degrades to "not attributed", i.e. the caller
+/// keeps waiting instead of killing.
+fn gateway_launch_owns_pid(
+    registry_dir: &Path,
+    pidfile: Option<&Path>,
+    pid: u32,
+    port: u16,
+) -> bool {
     if dcc_mcp_gateway_ensure::read_pid_from_pidfile(pidfile) == Some(pid) {
         return true;
     }
@@ -79,8 +96,11 @@ fn gateway_launch_owns_pid(registry_dir: &Path, pidfile: Option<&Path>, pid: u32
         std::fs::read(&path)
             .ok()
             .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
-            .and_then(|manifest| manifest.get("pid").and_then(serde_json::Value::as_u64))
-            == Some(u64::from(pid))
+            .is_some_and(|manifest| {
+                manifest.get("pid").and_then(serde_json::Value::as_u64) == Some(u64::from(pid))
+                    && manifest.get("port").and_then(serde_json::Value::as_u64)
+                        == Some(u64::from(port))
+            })
     })
 }
 
@@ -120,6 +140,35 @@ pub(crate) async fn reap_service_dead_port_holder(
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
+}
+
+/// True when this platform can resolve the PID that holds a listening port.
+///
+/// `netstat -ano` (Windows), `ss -ltnp` (Linux) and `lsof -Fpn` (macOS) all
+/// report an owner, but a minimal image can ship none of them and an
+/// unprivileged `lsof` only sees the calling user's sockets. Tests that spawn
+/// a real holder child and then wait for it to be resolvable must **skip** on
+/// such a platform: without this probe they fail on a "holder never bound the
+/// port" timeout instead, which is how the macOS lane of the weekly matrix
+/// went red (issue #2405).
+#[cfg(test)]
+pub(crate) fn port_holder_resolution_available() -> bool {
+    use std::sync::OnceLock;
+    static AVAILABLE: OnceLock<bool> = OnceLock::new();
+
+    *AVAILABLE.get_or_init(|| {
+        let Ok(listener) = std::net::TcpListener::bind("127.0.0.1:0") else {
+            return false;
+        };
+        let Ok(port) = listener.local_addr().map(|addr| addr.port()) else {
+            return false;
+        };
+        // A listener owned by this process is the easiest case there is: if
+        // even that resolves to nothing, no holder can ever be attributed.
+        let resolved = !dcc_mcp_gateway_ensure::listener_pids_on_port(port).is_empty();
+        drop(listener);
+        resolved
+    })
 }
 
 #[cfg(test)]
