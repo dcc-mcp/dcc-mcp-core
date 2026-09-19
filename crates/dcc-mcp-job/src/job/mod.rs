@@ -55,13 +55,13 @@ mod tests;
 pub use chunked::{ChunkedJobRunner, ChunkedStep, ChunkedStepOutput};
 pub use manager::JobManager;
 pub use persistence::{JobPersistenceState, JobPersistenceStatus};
-pub use types::{Job, JobEvent, JobProgress, JobStatus, JobSubscriber};
+pub use types::{Job, JobEvent, JobOutputTarget, JobProgress, JobStatus, JobSubscriber};
 
 /// Unified poller registry (issue #2262) — re-exported for adapters that
 /// register a job type without going through the HTTP server.
 pub use crate::poller::{
     COUNTER_SOURCE_DISK, COUNTER_SOURCE_REPORTED, JobPollRegistration, JobPollRegistry,
     OutputCounter, PollContract, PollOwner, PollRegistryError, UnregisteredReason,
-    is_known_job_status, is_terminal_job_status, output_counter_from_result, reconcile_progress,
-    reconcile_progress_value,
+    is_known_job_status, is_terminal_job_status, output_counter_from_result,
+    output_counter_from_target, reconcile_progress, reconcile_progress_value,
 };

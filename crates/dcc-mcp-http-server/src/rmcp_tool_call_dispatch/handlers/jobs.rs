@@ -4,7 +4,9 @@ use chrono;
 use serde_json::{Value, json};
 
 use dcc_mcp_job::job::Job;
-use dcc_mcp_job::poller::{output_counter_from_result, reconcile_progress};
+use dcc_mcp_job::poller::{
+    output_counter_from_result, output_counter_from_target, reconcile_progress,
+};
 use dcc_mcp_jsonrpc::{CallToolResult, ToolContent};
 use dcc_mcp_models::linked_adapter_job_from_result;
 
@@ -121,10 +123,15 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_jobs_get_status(
     // Counters are reconciled against authoritative state at read time: a job
     // that declares where its outputs land never reports a cached zero while
     // frames are already on disk (issue #2262).
+    //
+    // A terminal job declares its output directory in `result`. A job that is
+    // still running has no result yet, so it falls back to the output target
+    // captured from its launch arguments — that is the case #2262 describes.
     let observed_outputs = job
         .result
         .as_ref()
         .and_then(output_counter_from_result)
+        .or_else(|| job.output.as_ref().map(output_counter_from_target))
         .and_then(|counter| counter.count());
     let progress = reconcile_progress(job.progress.as_ref(), observed_outputs)
         .unwrap_or_else(|| serde_json::to_value(&job.progress).unwrap_or(Value::Null));
@@ -487,6 +494,78 @@ mod tests {
         assert_eq!(envelope["progress"]["total"], 24);
         assert_eq!(envelope["progress"]["counter_source"], "disk");
         assert_eq!(envelope["progress"]["reported_current"], 0);
+    }
+
+    #[test]
+    fn running_job_reconciles_against_the_output_dir_it_declared_at_launch() {
+        let dir = tempdir().expect("tempdir");
+        for frame in ["frame.0001.exr", "frame.0002.exr"] {
+            std::fs::write(dir.path().join(frame), b"x").expect("write frame");
+        }
+        std::fs::write(dir.path().join("log.txt"), b"x").expect("write log");
+
+        let state = state();
+        let handle = state.jobs.create("render__render_rop");
+        let id = handle.read().id.clone();
+        // The launch arguments are the only place a Running job can declare
+        // where its outputs land; `complete()` has not happened yet.
+        state.jobs.set_output(
+            &id,
+            Some(dcc_mcp_job::job::JobOutputTarget {
+                dir: dir.path().to_string_lossy().into_owned(),
+                extensions: vec!["exr".to_string()],
+            }),
+        );
+        state.jobs.start(&id).expect("start");
+        state
+            .jobs
+            .update_progress(
+                &id,
+                dcc_mcp_job::job::JobProgress {
+                    current: 0,
+                    total: 24,
+                    message: None,
+                },
+            )
+            .expect("progress");
+
+        let payload = handle_jobs_get_status(&state, &json!({"job_id": id}));
+        let envelope = payload.structured_content.unwrap();
+
+        assert_eq!(envelope["status"], "running");
+        assert_eq!(
+            envelope["progress"]["current"], 2,
+            "a running job counts the frames already on disk instead of the cached zero"
+        );
+        assert_eq!(envelope["progress"]["total"], 24);
+        assert_eq!(envelope["progress"]["counter_source"], "disk");
+        assert_eq!(envelope["progress"]["reported_current"], 0);
+    }
+
+    #[test]
+    fn running_job_without_a_declared_output_dir_keeps_its_reported_counter() {
+        let state = state();
+        let handle = state.jobs.create("render__render_rop");
+        let id = handle.read().id.clone();
+        state.jobs.start(&id).expect("start");
+        state
+            .jobs
+            .update_progress(
+                &id,
+                dcc_mcp_job::job::JobProgress {
+                    current: 0,
+                    total: 24,
+                    message: None,
+                },
+            )
+            .expect("progress");
+
+        let payload = handle_jobs_get_status(&state, &json!({"job_id": id}));
+        let envelope = payload.structured_content.unwrap();
+
+        assert_eq!(envelope["status"], "running");
+        assert_eq!(envelope["progress"]["current"], 0);
+        assert_eq!(envelope["progress"]["counter_source"], "reported");
     }
 
     #[test]

@@ -280,6 +280,10 @@ impl PersistedJob {
             status: self.status,
             parent_job_id: self.parent_job_id.clone(),
             progress: self.progress.clone(),
+            // `output` is a launch-scoped, process-local hint: recovery
+            // rewrites every in-flight row to a terminal status, so a
+            // rehydrated job never reconciles against disk.
+            output: None,
             result: self.result.clone(),
             error: self.error.clone(),
             created_at: self.created_at,

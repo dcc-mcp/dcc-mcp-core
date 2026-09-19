@@ -524,12 +524,18 @@ Field semantics mirror the `$/dcc.jobUpdated` channel so polling and streaming c
 
 Unknown job id → `CallToolResult { isError: true, content: [{type:"text", text:"No job found with id '<bad>'"}] }`. This is always an MCP tool-level error, **never** a JSON-RPC transport error — the response still carries a successful `result` field with `isError=true`. An unknown id never mints a new job.
 
-**Disk-backed counters (issue #2262).** When the job result declares where its
-outputs land (`output_dir`, optionally `output_extensions`), `progress` is
-reconciled against the files actually on disk at read time: a handler that
-caches its counter cannot report `0` while frames are already written. The
-reconciled payload carries `counter_source` (`disk` or `reported`) and, when the
-two disagree, `reported_current`. `total` is never left below `current`.
+**Disk-backed counters (issue #2262).** When a job declares where its outputs
+land (`output_dir`, optionally `output_extensions`), `progress` is reconciled
+against the files actually on disk at read time: a handler that caches its
+counter cannot report `0` while frames are already written. The reconciled
+payload carries `counter_source` (`disk` or `reported`) and, when the two
+disagree, `reported_current`. `total` is never left below `current`.
+
+The output directory is read from the job's result once it reaches a terminal
+state, and — so that a **running** job is covered too, which is the shape
+#2262 describes — from the output directory declared in its launch arguments
+while it is still running. A job that declares none keeps its reported
+counter, and `counter_source` says so.
 
 Python example:
 
@@ -588,6 +594,7 @@ exactly one job with exactly one field — the field name may be anything
 (`job_id`, `render_id`, …), but a second field is rejected rather than
 registered, because a contract carries one argument and replaying it would
 drop the rest and poll the tool with a missing required input.
+
 Envelopes:
 
 ```json

@@ -55,9 +55,15 @@ pub fn is_terminal_job_status(status: &str) -> bool {
     TERMINAL_JOB_STATUSES.contains(&status)
 }
 
-/// Walk cap when counting outputs, so a symlink-heavy render tree cannot turn
-/// a status poll into an unbounded traversal.
+/// Walk cap when counting outputs, so a deep render tree cannot turn a status
+/// poll into an unbounded descent.
 const MAX_WALK_DEPTH: usize = 8;
+
+/// Entry cap when counting outputs, so a directory holding a very large
+/// number of files cannot turn one status poll into an unbounded scan. The
+/// count is a progress hint, so a saturated walk reports the cap and lets the
+/// caller carry on instead of blocking the poll.
+const MAX_WALK_ENTRIES: u64 = 50_000;
 
 /// Counter provenance recorded on a reconciled progress payload.
 pub const COUNTER_SOURCE_REPORTED: &str = "reported";
@@ -249,6 +255,10 @@ impl OutputCounter {
                 let Ok(file_type) = entry.file_type() else {
                     continue;
                 };
+                // `DirEntry::file_type` reports the entry itself, so a symlink
+                // to a directory is `is_symlink()` and is never descended
+                // into: the walk cannot loop, and symlinked outputs are simply
+                // not counted.
                 if file_type.is_dir() {
                     if depth + 1 < MAX_WALK_DEPTH {
                         stack.push((entry.path(), depth + 1));
@@ -258,6 +268,9 @@ impl OutputCounter {
                 {
                     total += 1;
                 }
+            }
+            if total >= MAX_WALK_ENTRIES {
+                return Some(MAX_WALK_ENTRIES);
             }
         }
         Some(total)
@@ -433,7 +446,11 @@ impl JobPollRegistry {
     /// Why `job_type` cannot be polled; `None` when it can.
     #[must_use]
     pub fn unregistered_reason(&self, job_type: Option<&str>) -> Option<UnregisteredReason> {
-        let job_type = job_type.map(str::trim).filter(|value| !value.is_empty())?;
+        // A missing job type is itself a reason the job cannot be polled; it
+        // must not read as "nothing wrong", which is what `None` means here.
+        let Some(job_type) = job_type.map(str::trim).filter(|value| !value.is_empty()) else {
+            return Some(UnregisteredReason::MissingJobType);
+        };
         if self.resolve(job_type).is_some() {
             return None;
         }
@@ -593,6 +610,24 @@ pub fn output_counter_from_result(result: &Value) -> Option<OutputCounter> {
     Some(OutputCounter::new(dir).with_extensions(extensions))
 }
 
+impl From<OutputCounter> for crate::job::JobOutputTarget {
+    fn from(counter: OutputCounter) -> Self {
+        Self {
+            dir: counter.dir.to_string_lossy().into_owned(),
+            extensions: counter.extensions,
+        }
+    }
+}
+
+/// Rebuild a counter from the output target captured at launch.
+///
+/// Lets a job that has not reached a terminal state — and so has no result to
+/// read — still reconcile its counters against disk (issue #2262).
+#[must_use]
+pub fn output_counter_from_target(target: &crate::job::JobOutputTarget) -> OutputCounter {
+    OutputCounter::new(&target.dir).with_extensions(target.extensions.iter().map(String::as_str))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -709,6 +744,22 @@ mod tests {
     }
 
     #[test]
+    fn output_counter_walk_is_bounded_by_entry_count() {
+        let dir = tempdir("cap");
+        for index in 0..(MAX_WALK_ENTRIES + 500) {
+            fs::write(dir.join(format!("frame.{index:06}.exr")), b"a").unwrap();
+        }
+
+        let counter = OutputCounter::new(&dir);
+        assert_eq!(
+            counter.count(),
+            Some(MAX_WALK_ENTRIES),
+            "a saturated walk reports the cap instead of scanning forever"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn registry_reports_unregistered_job_types_explicitly() {
         let registry = JobPollRegistry::new();
         assert!(registry.is_empty());
@@ -721,6 +772,16 @@ mod tests {
             "job_type_not_registered"
         );
         assert_eq!(registry.contract_value(None)["reason"], "job_type_missing");
+        // A missing job type is a reason the job cannot be polled, not
+        // "nothing wrong" — `None` must mean exactly that.
+        assert_eq!(
+            registry.unregistered_reason(None),
+            Some(UnregisteredReason::MissingJobType)
+        );
+        assert_eq!(
+            registry.unregistered_reason(Some("   ")),
+            Some(UnregisteredReason::MissingJobType)
+        );
 
         registry
             .register(JobPollRegistration::new(
