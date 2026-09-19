@@ -25,6 +25,12 @@ use std::process::{Command, Stdio};
 /// stops answering HTTP, in which case binding the port can never succeed and
 /// the only bounded recovery is to terminate the stale holder (issue #2405).
 ///
+/// Every PID the port table attributes to the listener is reported, so a
+/// socket shared through `SO_REUSEPORT` or by a pre-forking server (`nginx`,
+/// `httpd`) yields several PIDs rather than one arbitrary member of the
+/// group. Callers that need an unambiguous owner must check the length of the
+/// result and keep waiting when it is not exactly one.
+///
 /// Resolution is best-effort. An empty result means "no evidence", never
 /// "nobody holds the port" — callers must not treat it as permission to kill
 /// anything, only as a reason to keep waiting.
@@ -138,10 +144,10 @@ fn parse_listener_pids(table: &str, port: u16) -> Vec<u32> {
         if !row_local_address_matches_port(trimmed, port) {
             continue;
         }
-        if let Some(pid) = row_owning_pid(trimmed)
-            && !pids.contains(&pid)
-        {
-            pids.push(pid);
+        for pid in row_owning_pids(trimmed) {
+            if !pids.contains(&pid) {
+                pids.push(pid);
+            }
         }
     }
     pids
@@ -199,21 +205,34 @@ fn address_column_has_port(column: &str, suffix: &str) -> bool {
     }
 }
 
-fn row_owning_pid(row: &str) -> Option<u32> {
+/// Every PID one port-table row attributes to its socket, in document order.
+///
+/// A listener can legitimately have several owners: `SO_REUSEPORT` and
+/// pre-forking servers (`nginx`, `httpd`) share one listening socket across a
+/// worker group, and `ss -ltnp` then annotates the row with one tuple per
+/// member — `users:(("httpd",pid=2355,fd=4),("httpd",pid=1962,fd=4))`.
+/// Reporting a single member of that group would make the group look like a
+/// single unambiguous owner to callers that check `len() == 1`, so the whole
+/// group is returned instead and the caller keeps waiting (issue #2488).
+fn row_owning_pids(row: &str) -> Vec<u32> {
     // `ss -ltnp` only annotates `users:(...)` for sockets owned by the
     // current user; its last whitespace column is the peer address, so the
     // user annotation is the authoritative source there.
-    if let Some(pid) = pid_from_users_annotation(row) {
-        return Some(pid);
+    let pids = pids_from_users_annotation(row);
+    if !pids.is_empty() {
+        return pids;
     }
     if row.contains("users:(") {
-        // Annotated but unparseable — do not fall back to a positional guess.
-        return None;
+        // Annotated but no PID is readable — do not fall back to a positional
+        // guess.
+        return Vec::new();
     }
     row.split_whitespace()
         .next_back()
         .and_then(|column| column.parse::<u32>().ok())
         .filter(|pid| *pid > 0)
+        .into_iter()
+        .collect()
 }
 
 /// Extract listening PIDs for `port` from `lsof -Fpn` output.
@@ -261,14 +280,38 @@ fn parse_lsof_field_pids(table: &str, port: u16) -> Vec<u32> {
     pids
 }
 
-fn pid_from_users_annotation(row: &str) -> Option<u32> {
-    let marker = "pid=";
-    let start = row.rfind(marker)? + marker.len();
-    let digits: String = row[start..]
-        .chars()
-        .take_while(|ch| ch.is_ascii_digit())
-        .collect();
-    digits.parse::<u32>().ok().filter(|pid| *pid > 0)
+/// Every distinct PID in an `ss` `users:(...)` annotation, in document order.
+///
+/// An annotation is one `("name",pid=N,fd=F)` tuple per process that holds a
+/// reference to the socket, so the whole row is scanned rather than just its
+/// last `pid=` field. Duplicates collapse — the same PID can appear more than
+/// once through several file descriptors, and a repeated entry must not make
+/// one process look like several holders.
+///
+/// A `pid=` that is not followed by a positive number is skipped instead of
+/// aborting the scan, so one malformed tuple does not hide a valid owner
+/// earlier in the row.
+fn pids_from_users_annotation(row: &str) -> Vec<u32> {
+    const MARKER: &str = "pid=";
+    let mut pids = Vec::new();
+    let mut rest = row;
+    while let Some(offset) = rest.find(MARKER) {
+        let digits_start = offset + MARKER.len();
+        let digits: String = rest[digits_start..]
+            .chars()
+            .take_while(|ch| ch.is_ascii_digit())
+            .collect();
+        if let Some(pid) = digits.parse::<u32>().ok().filter(|pid| *pid > 0)
+            && !pids.contains(&pid)
+        {
+            pids.push(pid);
+        }
+        // `digits_start` is always past `offset`, so the scan advances past
+        // the marker even when the field carries no digits — otherwise a
+        // bare `pid=` would loop forever.
+        rest = &rest[digits_start + digits.len()..];
+    }
+    pids
 }
 
 #[cfg(test)]
@@ -314,6 +357,86 @@ LISTEN 0      128    0.0.0.0:59765        0.0.0.0:*         users:((\"dcc-mcp-se
         assert_eq!(parse_listener_pids(table, 19765), vec![778]);
         assert_eq!(parse_listener_pids(table, 59765), vec![779]);
         assert!(parse_listener_pids(table, 9766).is_empty());
+    }
+
+    /// Regression test for #2488: `ss -ltnp` annotates a listener shared by a
+    /// process group (`SO_REUSEPORT`, or pre-forking servers such as
+    /// `httpd`/`nginx`) with one `pid=` tuple per member. Returning only the
+    /// last of them made the group look like a single unambiguous owner, so a
+    /// caller checking `len() == 1` believed it had identified the holder.
+    #[test]
+    fn shared_listener_row_reports_every_pid_in_the_users_annotation() {
+        // Captured verbatim from `ss -ltnp` for a pre-forking server: two
+        // workers share one listening socket.
+        let table = "State  Recv-Q Send-Q Local Address:Port Peer Address:Port Process\n\
+LISTEN 0      128    0.0.0.0:9765         0.0.0.0:*         users:((\"httpd\",pid=2355,fd=4),(\"httpd\",pid=1962,fd=4))\n";
+
+        let pids = parse_listener_pids(table, 9765);
+        assert_eq!(
+            pids.len(),
+            2,
+            "both workers of a shared listener must be reported, not just the last"
+        );
+        assert!(pids.contains(&2355) && pids.contains(&1962), "got {pids:?}");
+        assert_ne!(
+            pids.len(),
+            1,
+            "a shared listener must never satisfy the single-owner invariant"
+        );
+    }
+
+    /// The caller side of the #2488 invariant: the reap decision requires
+    /// exactly one holder, so a shared listener authorizes nothing.
+    #[test]
+    fn multi_pid_listener_is_never_an_authorized_kill() {
+        let table = "State  Recv-Q Send-Q Local Address:Port Peer Address:Port Process\n\
+LISTEN 0      128    0.0.0.0:9765         0.0.0.0:*         users:((\"a\",pid=10,fd=3),(\"b\",pid=11,fd=3))\n";
+
+        let pids = parse_listener_pids(table, 9765);
+        assert_eq!(pids, vec![10, 11]);
+        // Mirrors the guard in `service_dead_port_holder_pid`: anything other
+        // than exactly one PID means "ambiguous, keep waiting".
+        assert!(
+            pids.len() != 1,
+            "two PIDs must not collapse into one authorized kill"
+        );
+        assert!(
+            pids.iter().all(|pid| *pid > 0),
+            "a zero PID is not evidence of ownership"
+        );
+    }
+
+    #[test]
+    fn repeated_pid_in_one_annotation_collapses_to_one_holder() {
+        // One process holding the socket through several file descriptors is
+        // still one holder; a duplicate entry must not look like a second
+        // process.
+        let table = "State  Recv-Q Send-Q Local Address:Port Peer Address:Port Process\n\
+LISTEN 0      128    0.0.0.0:9765         0.0.0.0:*         users:((\"a\",pid=10,fd=3),(\"a\",pid=10,fd=7))\n";
+
+        assert_eq!(parse_listener_pids(table, 9765), vec![10]);
+    }
+
+    #[test]
+    fn malformed_pid_field_does_not_hide_an_earlier_owner() {
+        // A truncated `pid=` at the end of the row must not discard the owner
+        // parsed before it, and must not fall back to a positional guess
+        // either (the row is annotated).
+        let table = "State  Recv-Q Send-Q Local Address:Port Peer Address:Port Process\n\
+LISTEN 0      128    0.0.0.0:9765         0.0.0.0:*         users:((\"a\",pid=10,fd=3),(\"b\",pid=,fd=4))\n";
+
+        assert_eq!(parse_listener_pids(table, 9765), vec![10]);
+    }
+
+    #[test]
+    fn users_annotation_without_any_pid_yields_no_holder() {
+        let table = "State  Recv-Q Send-Q Local Address:Port Peer Address:Port Process\n\
+LISTEN 0      128    0.0.0.0:9765         0.0.0.0:*         users:((\"a\",fd=3))\n";
+
+        assert!(
+            parse_listener_pids(table, 9765).is_empty(),
+            "an annotated row with no readable PID is unknown, never a guessed owner"
+        );
     }
 
     #[test]
