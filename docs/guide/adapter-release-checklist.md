@@ -140,9 +140,21 @@ window so a freshly published core is already resolvable from PyPI.
 Moving the trigger off `push` does not disable the guards that depend on
 release PRs: `release-please-divergence-gate.yml`, the core
 `release-please-pr-guard.yml`, and `release-please-lock-sync.yml` all run on
-`pull_request` / `pull_request_target`. Note that GitHub pauses scheduled
-workflows after 60 days of repository inactivity, so a dormant adapter needs a
-manual `workflow_dispatch` to resume its release train.
+`pull_request` / `pull_request_target`. Four consequences of a scheduled-only
+trigger are worth knowing up front:
+
+- The tag, GitHub Release and published artifacts land on the **first window
+after the release PR is merged**, not on the merge itself. GitHub queues and
+can drop scheduled runs under load, so treat "next window" as the contract and
+"24 hours" only as a typical figure.
+- GitHub **disables scheduled workflows after 60 days of repository
+inactivity**. New activity on the default branch (a push) is what lifts that
+pause; `workflow_dispatch` is a one-off manual run and does **not** re-arm the
+daily window on its own.
+- A dormant repository therefore needs a push, not just a dispatch, before its
+release train resumes on its own.
+- `workflow_dispatch` remains the way to release immediately, and is the only
+escape hatch when a window is delayed or dropped.
 
 ### Release-Please Setup
 
