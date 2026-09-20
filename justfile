@@ -274,6 +274,16 @@ docs-check:
     #!/usr/bin/env bash
     cd docs && npm ci && npm run docs:build
 
+# Mechanical documentation contract lint: heading structure, emoji policy, and
+# broken relative links. Read-only; never rewrites files.
+docs-lint:
+    python scripts/docs_lint.py .
+
+# Same lint plus the drift pass (documented flags/paths/identifiers that no
+# longer exist). Slower: it reads the whole tree to build a symbol corpus.
+docs-lint-symbols:
+    python scripts/docs_lint.py . --check-symbols
+
 # ── Lint ──────────────────────────────────────────────────────────────────────
 
 # Lint Python source (ruff check only)
