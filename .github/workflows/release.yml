@@ -1,8 +1,21 @@
 name: Release
 
+# Batched release cadence.
+#
+# release-please runs on a fixed daily window instead of on every push to main,
+# so a single version carries every feat/fix merged since the previous tag
+# rather than one version per merge. `workflow_dispatch` stays available as the
+# emergency release and asset-backfill channel.
+#
+# release-please creates tags from merged-but-untagged release PRs, so the
+# GitHub Release is cut on the first window after the release PR is merged
+# instead of on the merge push itself. The window runs before the downstream
+# adapter windows so a freshly published core is visible to them.
 on:
-  push:
-    branches: [main]
+  schedule:
+    # 01:13 UTC daily. Deliberately off the hour: GitHub queues scheduled runs
+    # and on-the-hour crons are the most delayed during peak load.
+    - cron: "13 1 * * *"
   workflow_dispatch:
     inputs:
       release_tag:
@@ -37,12 +50,14 @@ jobs:
       tag_name: ${{ steps.decide.outputs.tag_name }}
       version: ${{ steps.decide.outputs.version }}
     steps:
+      # `push` is retained below so the step keeps working if the push trigger
+      # is ever restored; the batch window is `schedule`.
       - uses: actions/checkout@v6
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' || github.event_name == 'schedule'
 
       - name: Classify push release state
         id: push-preflight
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' || github.event_name == 'schedule'
         env:
           GH_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
