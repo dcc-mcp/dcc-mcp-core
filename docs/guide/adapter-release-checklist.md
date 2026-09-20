@@ -111,6 +111,39 @@ smoke command in the adapter repository.
 
 - **Core mono-repo** tags the root package at `v<semver>` (e.g. `v0.18.0`).
 
+### Batched Release Window
+
+Run release-please on a fixed daily schedule instead of on every push to
+`main`, so one version carries every `feat` / `fix` merged since the previous
+tag instead of one version per merge. Keep `workflow_dispatch` as the
+emergency release and asset-backfill channel:
+
+```yaml
+on:
+  schedule:
+    # Pick an off-the-hour UTC minute: GitHub queues scheduled runs and
+    # on-the-hour crons are the most delayed during peak load.
+    - cron: "37 5 * * *"
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Existing release tag for a manual asset rebuild."
+        required: false
+        default: ""
+```
+
+Release-please builds releases from *merged, untagged* release PRs, so the
+GitHub Release is cut on the first window after the release PR is merged rather
+than on the merge push itself. Stagger each adapter window after the core
+window so a freshly published core is already resolvable from PyPI.
+
+Moving the trigger off `push` does not disable the guards that depend on
+release PRs: `release-please-divergence-gate.yml`, the core
+`release-please-pr-guard.yml`, and `release-please-lock-sync.yml` all run on
+`pull_request` / `pull_request_target`. Note that GitHub pauses scheduled
+workflows after 60 days of repository inactivity, so a dormant adapter needs a
+manual `workflow_dispatch` to resume its release train.
+
 ### Release-Please Setup
 
 Every adapter repository should include a `release-please-config.json`:
