@@ -10,6 +10,7 @@ from scripts.docs_lint import check_emoji
 from scripts.docs_lint import check_links
 from scripts.docs_lint import check_structure
 from scripts.docs_lint import check_symbols
+from scripts.docs_lint import fence_step
 from scripts.docs_lint import main
 
 
@@ -47,6 +48,34 @@ def test_duplicate_sibling_heading_warns_but_nested_repeat_does_not():
 
 def test_unclosed_code_fence_is_an_error():
     assert "structure/unclosed-code-fence" in _rules(check_structure("# T\n\n```python\nx = 1\n"))
+
+
+def test_fence_step_tracks_the_opener_marker():
+    # A fence opens on a valid marker and closes only on a matching run that is
+    # at least as long and carries nothing but whitespace after it.
+    assert fence_step("```python", None) == ("```", True)
+    assert fence_step("~~~json", None) == ("~~~", True)
+    assert fence_step("~~~", "```") == ("```", False)  # wrong character
+    assert fence_step("``", "```") == ("```", False)  # too short to be a fence
+    assert fence_step("```", "`````") == ("`````", False)  # shorter than the opener
+    assert fence_step("`````", "```") == (None, True)  # longer is a valid close
+    assert fence_step("``` js", "```") == ("```", False)  # closer must be bare
+    assert fence_step("    ```", None) == (None, False)  # indented block, not a fence
+    assert fence_step("# Heading", None) == (None, False)
+
+
+def test_fence_closes_only_on_a_matching_marker():
+    # Old behaviour toggled a boolean, so a ~~~ run closed a ``` block and the
+    # heading between the two was read as body text.
+    text = "# T\n\n```\n~~~\n# Not a heading\n```\n"
+    rules = _rules(check_structure(text))
+    assert "structure/unclosed-code-fence" not in rules
+    assert "structure/multiple-h1" not in rules
+
+
+def test_fence_closes_only_on_a_bare_or_longer_marker():
+    assert check_structure("# T\n\n`````\n```\n# Not a heading\n`````\n") == []
+    assert check_structure("# T\n\n```\n``` text\n# Not a heading\n```\n") == []
 
 
 def test_broken_toc_anchor_is_an_error():
@@ -123,6 +152,11 @@ def test_emoji_density_warns_only_above_threshold():
     assert "emoji/emoji-density" not in _rules(check_emoji(sparse, 0.10))
 
 
+def test_emoji_inside_a_fenced_block_is_not_counted():
+    lines = ["# T", "", "~~~", "```"] + ["\U0001f680"] * 30 + ["```", "~~~"]
+    assert "emoji/emoji-density" not in _rules(check_emoji("\n".join(lines) + "\n", 0.10))
+
+
 # --------------------------------------------------------------------------- #
 # Drift
 # --------------------------------------------------------------------------- #
@@ -191,6 +225,11 @@ def test_markdown_is_not_part_of_the_drift_corpus(tmp_path: Path):
 def test_fenced_code_blocks_are_not_checked(tmp_path: Path):
     index = _index(tmp_path)
     assert _drift_tokens("```\nghost_symbol\n```\n", index) == []
+
+
+def test_backtick_run_inside_a_tilde_block_is_content(tmp_path: Path):
+    index = _index(tmp_path)
+    assert _drift_tokens("~~~\n```\nghost_symbol\n~~~\n", index) == []
 
 
 # --------------------------------------------------------------------------- #

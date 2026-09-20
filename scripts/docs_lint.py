@@ -79,7 +79,14 @@ RE_KEYCAP = re.compile("[0-9#*]️")
 # --------------------------------------------------------------------------- #
 
 RE_ATX = re.compile(r"^(#{1,6})(\s+)(.*?)\s*$")
-RE_FENCE = re.compile(r"^\s*(```|~~~)")
+
+# A fenced code block opens on a run of three or more backticks or tildes (at
+# most three spaces of indentation) and closes on a run of the *same* character
+# that is at least as long as the opener and carries nothing but whitespace
+# after it. Capturing the marker -- rather than asking "is this a fence line?"
+# -- is what makes mixed and nested markers behave: a ``` run inside a ~~~~
+# block is content, and a ~~ run cannot close a ``` block.
+RE_FENCE = re.compile(r"^ {0,3}(?P<marker>`{3,}|~{3,})(?P<rest>.*)$")
 RE_LINK = re.compile(r"\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
 RE_ANCHOR = re.compile(r"\[[^\]]*\]\(#([^)\s]+)\)")
 RE_BACKTICK = re.compile(r"`([^`\n]+)`")
@@ -87,6 +94,33 @@ RE_URI_SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.\-]*:")
 
 # A backticked span is code; emoji inside code samples are content, not style.
 RE_CODE_SPAN = re.compile(r"`[^`\n]*`")
+
+
+def fence_step(line, open_marker):
+    """Advance the fenced-code state by one Markdown ``line``.
+
+    Return ``(open_marker, is_fence_line)``: the marker of the fence that is
+    open *after* ``line`` (``None`` outside a fence) and whether ``line`` was a
+    fence delimiter. Both delimiters are reported, so callers skip the closing
+    one too -- a closing delimiter is no more body text than the opener is.
+    """
+    match = RE_FENCE.match(line)
+    if match is None:
+        return open_marker, False
+    marker = match.group("marker")
+    rest = match.group("rest")
+    if open_marker is None:
+        # A backtick fence's info string may not contain a backtick
+        # (CommonMark); such a line is prose, not an opener. Tildes may.
+        if marker[0] == "`" and "`" in rest:
+            return None, False
+        return marker, True
+    if marker[0] != open_marker[0] or len(marker) < len(open_marker):
+        return open_marker, False
+    if rest.strip():
+        return open_marker, False
+    return None, True
+
 
 DEFAULT_EXCLUDE_DIRS = (
     ".git",
@@ -346,7 +380,7 @@ def check_structure(text):
     findings = []
     lines = text.split("\n")
 
-    in_fence = False
+    open_marker = None
     headings = []  # (line_no, level, title)
     h1_count = 0
     # Duplicate detection is scoped by ancestor path, not by whole file: a
@@ -356,10 +390,8 @@ def check_structure(text):
     seen_keys = {}
 
     for i, line in enumerate(lines, start=1):
-        if RE_FENCE.match(line):
-            in_fence = not in_fence
-            continue
-        if in_fence:
+        open_marker, is_fence_line = fence_step(line, open_marker)
+        if open_marker is not None or is_fence_line:
             continue
 
         match = RE_ATX.match(line.rstrip())
@@ -400,7 +432,7 @@ def check_structure(text):
                     }
                 )
 
-    if in_fence:
+    if open_marker is not None:
         findings.append(
             {
                 "rule": "structure/unclosed-code-fence",
@@ -447,17 +479,16 @@ def check_structure(text):
 def _check_anchors(lines, headings):
     """Return broken-TOC-anchor findings.
 
-    Re-walk the file with a local fence flag: the main loop leaves its flag set
-    on an unclosed fence, and reusing it silently skips every anchor after that.
+    Re-walk the file with a local fence marker: the main loop leaves its marker
+    set on an unclosed fence, and reusing it silently skips every anchor after
+    that.
     """
     findings = []
     known = set(_slug(title) for _, _, title in headings)
-    fence_open = False
+    open_marker = None
     for i, line in enumerate(lines, start=1):
-        if RE_FENCE.match(line):
-            fence_open = not fence_open
-            continue
-        if fence_open:
+        open_marker, is_fence_line = fence_step(line, open_marker)
+        if open_marker is not None or is_fence_line:
             continue
         for anchor in RE_ANCHOR.findall(line):
             if known and anchor.lower() not in known:
@@ -502,12 +533,10 @@ def check_emoji(text, max_density):
     pictographs = 0
     symbols = 0
 
-    in_fence = False
+    open_marker = None
     for i, line in enumerate(text.split("\n"), start=1):
-        if RE_FENCE.match(line):
-            in_fence = not in_fence
-            continue
-        if in_fence:
+        open_marker, is_fence_line = fence_step(line, open_marker)
+        if open_marker is not None or is_fence_line:
             continue
 
         is_heading = bool(RE_ATX.match(line.rstrip()))
@@ -557,12 +586,10 @@ def check_emoji(text, max_density):
 def check_symbols(text, index):
     """Return drift findings for documented flags, paths, and identifiers."""
     findings = []
-    in_fence = False
+    open_marker = None
     for i, line in enumerate(text.split("\n"), start=1):
-        if RE_FENCE.match(line):
-            in_fence = not in_fence
-            continue
-        if in_fence:
+        open_marker, is_fence_line = fence_step(line, open_marker)
+        if open_marker is not None or is_fence_line:
             continue
         for token in RE_BACKTICK.findall(line):
             token = token.strip()
