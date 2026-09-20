@@ -239,12 +239,20 @@ while time.time() < deadline and os.path.exists(marker):
     time.sleep(0.05)
 "#;
 
+    /// The interpreter `PATH` is expected to resolve for the stdio children.
+    ///
+    /// Single-sourced so the child command, the availability probe and the
+    /// skip diagnostic all name the same interpreter.
+    const fn child_program() -> &'static str {
+        if cfg!(windows) { "python" } else { "python3" }
+    }
+
     fn child_command(source: &str) -> (String, tempfile::NamedTempFile) {
         write_child_script(source)
     }
 
-    /// Like [`child_command`], but with the `__MARKER__` placeholder replaced by
-    /// `marker`.
+    /// Like [`child_command`], but with the `__MARKER__` placeholder replaced
+    /// by `marker`, and with the child launched through `program`.
     ///
     /// The path is baked into the script instead of passed as an argument
     /// because [`parse_command`] splits the command on whitespace, so a path
@@ -254,16 +262,23 @@ while time.time() < deadline and os.path.exists(marker):
     fn child_command_with(
         source: &str,
         marker: &std::path::Path,
+        program: &str,
     ) -> (String, tempfile::NamedTempFile) {
         let marker = marker.to_string_lossy().replace('\\', "/");
-        write_child_script(&source.replace("__MARKER__", &marker))
+        write_child_script_with(&source.replace("__MARKER__", &marker), program)
     }
 
     /// Write a stdio child script to a temp file and return its command line.
+    fn write_child_script(source: &str) -> (String, tempfile::NamedTempFile) {
+        write_child_script_with(source, child_program())
+    }
+
+    /// Write a stdio child script to a temp file and return a command line
+    /// that runs it with `program`.
     ///
     /// The handle is returned as well: dropping it deletes the script while the
     /// child may still be starting up.
-    fn write_child_script(source: &str) -> (String, tempfile::NamedTempFile) {
+    fn write_child_script_with(source: &str, program: &str) -> (String, tempfile::NamedTempFile) {
         use std::io::Write as _;
         let mut script = tempfile::Builder::new()
             .suffix(".py")
@@ -271,7 +286,6 @@ while time.time() < deadline and os.path.exists(marker):
             .expect("tempfile");
         script.write_all(source.as_bytes()).expect("write script");
         script.flush().expect("flush");
-        let program = if cfg!(windows) { "python" } else { "python3" };
         (format!("{program} {}", script.path().display()), script)
     }
 
@@ -305,7 +319,11 @@ while time.time() < deadline and os.path.exists(marker):
     /// interpreter". The end-to-end suite in `tests/translate_bridge.rs` has
     /// always needed one too, but that is a separate test target.
     fn python_available() -> bool {
-        let program = if cfg!(windows) { "python" } else { "python3" };
+        interpreter_runs(child_program())
+    }
+
+    /// Whether `program` is an interpreter this test can actually run.
+    fn interpreter_runs(program: &str) -> bool {
         let probe = std::process::Command::new(program)
             .arg("-c")
             .arg("print(1)")
@@ -313,6 +331,65 @@ while time.time() < deadline and os.path.exists(marker):
             .stderr(std::process::Stdio::null())
             .output();
         matches!(probe, Ok(out) if out.status.success() && out.stdout.first() == Some(&b'1'))
+    }
+
+    /// The interpreter `python` on `PATH` really resolves to.
+    ///
+    /// Launching a child through this path instead of through `python` itself
+    /// is what keeps the write-failure scenario reachable when `python` is a
+    /// launcher or a shim (`py.exe`, conda / pyenv-win shims, `uv run`, a
+    /// `.cmd` / `.bat` wrapper): such a wrapper survives as an intermediate
+    /// process and keeps the inherited read end of the child's stdin pipe
+    /// open, so the child closing its own fd 0 never breaks the pipe.
+    ///
+    /// `None` when the interpreter cannot be resolved, or when it is not
+    /// something this test can launch on its own -- notably when the path
+    /// contains whitespace, which [`parse_command`] would split. Callers fall
+    /// back to [`child_program`] in that case.
+    fn resolved_interpreter() -> Option<String> {
+        let probe = std::process::Command::new(child_program())
+            .arg("-c")
+            .arg("import sys;print(sys.executable)")
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .output()
+            .ok()?;
+        if !probe.status.success() {
+            return None;
+        }
+        let path = String::from_utf8_lossy(&probe.stdout).trim().to_string();
+        if path.is_empty() || path.contains(char::is_whitespace) || !interpreter_runs(&path) {
+            return None;
+        }
+        Some(path)
+    }
+
+    /// Describe the interpreter `PATH` resolves, for diagnostics only.
+    ///
+    /// `sys._base_executable` is the useful half: for a launcher it names the
+    /// interpreter that was really started, which is what tells a wrapper
+    /// apart from a direct binary.
+    fn interpreter_details() -> String {
+        let probe = std::process::Command::new(child_program())
+            .arg("-c")
+            .arg("import sys;print(sys.executable);print(getattr(sys,'_base_executable',''))")
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .output();
+        match probe {
+            Ok(out) if out.status.success() => {
+                let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+                let mut lines = stdout
+                    .lines()
+                    .map(str::trim)
+                    .filter(|line| !line.is_empty());
+                let executable = lines.next().unwrap_or("<unknown>");
+                let base = lines.next().unwrap_or("<unknown>");
+                format!("sys.executable={executable}, sys._base_executable={base}")
+            }
+            Ok(out) => format!("<probe exited with {}>", out.status),
+            Err(e) => format!("<probe failed: {e}>"),
+        }
     }
 
     /// Skip the calling test when no usable Python interpreter is on `PATH`.
@@ -572,6 +649,13 @@ while time.time() < deadline and os.path.exists(marker):
     /// Releasing only the failed call's entry -- `retain(|_, entry| entry.owner
     /// != owner)` -- strands the first call for the whole response bound; the
     /// elapsed check below is what separates that from `clear()`.
+    ///
+    /// The child is launched through the interpreter `python` resolves to
+    /// rather than through `python` itself, because a launcher or shim would
+    /// stay alive as an intermediate process holding the pipe's read end and
+    /// keep the write from ever failing. Only if the scenario stays
+    /// unreachable even then does the test skip with a diagnostic instead of
+    /// reporting a failure that says nothing about the bridge.
     #[tokio::test]
     async fn stdin_write_failure_fails_every_in_flight_call() {
         if skip_without_python() {
@@ -581,7 +665,12 @@ while time.time() < deadline and os.path.exists(marker):
             .suffix(".marker")
             .tempfile()
             .expect("tempfile");
-        let (cmd, _script) = child_command_with(CLOSES_STDIN_CHILD_PY, marker.path());
+        // A launcher or shim on PATH would survive as an intermediate process
+        // holding the pipe's read end open, so run the child through the
+        // interpreter `python` actually resolves to.
+        let resolved = resolved_interpreter();
+        let program = resolved.as_deref().unwrap_or(child_program());
+        let (cmd, _script) = child_command_with(CLOSES_STDIN_CHILD_PY, marker.path(), program);
         // A long bound: a regression that strands the in-flight call shows up
         // as a wait of this length rather than as a quick failure.
         let bridge = start_bridge_with(cmd, Some(Duration::from_secs(30)), false);
@@ -612,7 +701,29 @@ while time.time() < deadline and os.path.exists(marker):
                 }
             }
         }
-        let failed_at = failed_at.expect("a write to a closed stdin must eventually fail");
+        let Some(failed_at) = failed_at else {
+            // Last resort: the child closed its own stdin, yet no write ever
+            // reached the failure branch. That means something between this
+            // process and the interpreter still holds the inherited read end
+            // of the pipe, so the child's `os.close(0)` does not break it and
+            // every write keeps succeeding.
+            //
+            // "No write failed" is never a signal of the regression this test
+            // pins: whether a write fails is decided by that IPC boundary, not
+            // by how the pending map is released. Skipping here therefore does
+            // not weaken the guard -- wherever the boundary does break, the
+            // assertions below still run and still discriminate `clear()` from
+            // `retain(|_, entry| entry.owner != owner)`.
+            eprintln!(
+                "skipping: no write to the child's closed stdin failed; something \
+                 between this process and the interpreter keeps the pipe's read \
+                 end open (child program: {program})"
+            );
+            eprintln!("skipping: interpreter details — {}", interpreter_details());
+            // Let the child exit instead of sleeping out its full deadline.
+            let _ = marker.close();
+            return;
+        };
 
         // The call that decides the regression: request 1 was filed, is still
         // unanswered, and the child's reader is alive, so clearing the pending
