@@ -144,17 +144,21 @@ release PRs: `release-please-divergence-gate.yml`, the core
 trigger are worth knowing up front:
 
 - The tag, GitHub Release and published artifacts land on the **first window
-after the release PR is merged**, not on the merge itself. GitHub queues and
-can drop scheduled runs under load, so treat "next window" as the contract and
-"24 hours" only as a typical figure.
-- GitHub **disables scheduled workflows after 60 days of repository
-inactivity**. New activity on the default branch (a push) is what lifts that
-pause; `workflow_dispatch` is a one-off manual run and does **not** re-arm the
-daily window on its own.
-- A dormant repository therefore needs a push, not just a dispatch, before its
-release train resumes on its own.
-- `workflow_dispatch` remains the way to release immediately, and is the only
-escape hatch when a window is delayed or dropped.
+after the release PR is merged**, not on the merge itself. GitHub **delays**
+scheduled runs under load and can drop queued jobs, so treat "next window" as
+the contract and "24 hours" only as a typical figure.
+- In a **public** repository, GitHub **disables scheduled workflows after 60
+days without repository activity**. Re-arm the window by re-enabling the
+workflow (GitHub UI, REST API, or `gh workflow enable <workflow>`) or by
+committing a change to its `cron` schedule. A plain push does **not** lift the
+pause, and `workflow_dispatch` is a one-off run that does **not** re-arm the
+daily window.
+- A dormant repository therefore needs the workflow **re-enabled** — not just a
+push or a dispatch — before its release train resumes on its own. While the
+workflow is disabled, `workflow_dispatch` is unavailable too, so re-enabling is
+the only way out.
+- `workflow_dispatch` remains the way to release immediately, and is the escape
+hatch when a window is delayed or dropped.
 
 ### Release-Please Setup
 
