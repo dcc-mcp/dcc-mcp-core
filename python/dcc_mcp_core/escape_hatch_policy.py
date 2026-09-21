@@ -48,6 +48,8 @@ import logging
 import time
 from typing import Any
 from typing import Callable
+from typing import Optional
+from typing import Tuple
 
 from dcc_mcp_core.lifecycle_hooks import HookContext
 from dcc_mcp_core.lifecycle_hooks import HookDeny
@@ -74,8 +76,9 @@ RISK_KEY = "risk"
 DEFAULT_PROMOTION_THRESHOLD = 3
 PROMOTION_HINT_KEY = "escape_hatch_promotion_hint"
 
-# Bound for the in-process repeat tracker: keys are (dcc, tool, sha256) tuples
-# and the oldest entry is evicted once the bound is reached.
+# Bound for the in-process repeat tracker: keys are (dcc, tool, sha256, reuse_key)
+# tuples and the least-recently-repeated entry is evicted once the bound is
+# reached (every bump re-inserts the key, so the tracker behaves as an LRU).
 MAX_TRACKED_SCRIPTS = 256
 
 
@@ -93,6 +96,33 @@ class EscapeHatchInvocation:
     script_reuse_key: str | None = None
 
 
+def _script_identity(payload: dict[str, Any] | None) -> tuple[str | None, str | None]:
+    """Return ``(sha256, reuse_key)`` parsed from one hook payload.
+
+    Both hook handlers must resolve the script identity here so the
+    ``BEFORE_TOOL_CALL`` and ``AFTER_TOOL_CALL`` hints derive the *same*
+    ``candidate_id``; the durable query layer hashes ``reuse_key`` into the
+    identity too, so dropping it would silently fork the two ids.
+    """
+    data = payload or {}
+    script = data.get("materialized_script")
+    script_meta = script if isinstance(script, dict) else {}
+    return (
+        _script_sha256(data.get("script_sha256", script_meta.get("sha256"))),
+        _bounded_identifier(data.get("script_reuse_key", script_meta.get("reuse_key"))),
+    )
+
+
+def _make_key(dcc_name: str, tool_name: str, sha256: str, reuse_key: str | None) -> _ScriptKey:
+    """Build the repeat-tracking key.
+
+    The key is deliberately isomorphic with the candidate identity: every
+    dimension that ``escape_hatch_candidate_id`` hashes into the digest is
+    part of the key, so one counter can never feed two candidate ids.
+    """
+    return (dcc_name, tool_name, sha256, reuse_key)
+
+
 @dataclass(frozen=True)
 class EscapeHatchPromotionCandidate:
     """Advisory skill-promotion candidate for one repeated escape-hatch script.
@@ -108,8 +138,11 @@ class EscapeHatchPromotionCandidate:
     sha256: str
     dcc_name: str
     tool_name: str
+    reuse_key: str | None
     execution_count: int
     threshold: int
+    first_seen_ms: int
+    last_seen_ms: int
     suggested_skill_name: str
 
     def hint(self) -> str:
@@ -121,6 +154,10 @@ class EscapeHatchPromotionCandidate:
             f"candidate_id={self.candidate_id}, "
             f"suggested_skill_name={self.suggested_skill_name}."
         )
+
+
+# (dcc_name, tool_name, sha256, reuse_key) — isomorphic with the candidate identity.
+_ScriptKey = Tuple[str, str, str, Optional[str]]
 
 
 @dataclass(frozen=True)
@@ -162,7 +199,7 @@ class EscapeHatchPolicy:
         self._promotion_threshold = int(promotion_threshold)
         self._promotion_hints = bool(promotion_hints)
         self._observed: list[EscapeHatchInvocation] = []
-        self._repeats: dict[tuple[str, str, str], _ScriptRepeat] = {}
+        self._repeats: dict[_ScriptKey, _ScriptRepeat] = {}
 
     def install(self, hooks: LifecycleHooks) -> EscapeHatchPolicy:
         """Subscribe ``BEFORE_TOOL_CALL``/``AFTER_TOOL_CALL``; return ``self``."""
@@ -177,10 +214,14 @@ class EscapeHatchPolicy:
     def promotion_candidates(self) -> tuple[EscapeHatchPromotionCandidate, ...]:
         """Candidates whose repeat count already exceeds the threshold."""
         return tuple(
-            self._candidate(dcc_name, tool_name, sha256, repeat)
-            for (dcc_name, tool_name, sha256), repeat in self._repeats.items()
+            self._candidate(key, repeat)
+            for key, repeat in self._repeats.items()
             if repeat.count > self._promotion_threshold
         )
+
+    def tracked_script_count(self) -> int:
+        """How many distinct script identities the bounded tracker holds."""
+        return len(self._repeats)
 
     def _on_before_tool_call(self, ctx: HookContext) -> None:
         payload = ctx.payload or {}
@@ -203,21 +244,18 @@ class EscapeHatchPolicy:
 
         script = payload.get("materialized_script")
         script_meta = script if isinstance(script, dict) else {}
+        script_sha256, script_reuse_key = _script_identity(payload)
         invocation = EscapeHatchInvocation(
             dcc_name=ctx.dcc_name,
             tool_name=_str(payload.get("tool_name")),
             tool_role=role or ESCAPE_HATCH_ROLE,
             reason_category=_categorise_reason(reason),
             reason=reason,
-            script_sha256=_script_sha256(
-                payload.get("script_sha256", script_meta.get("sha256")),
-            ),
+            script_sha256=script_sha256,
             script_reused=_optional_bool(
                 payload.get("script_reused", script_meta.get("reused")),
             ),
-            script_reuse_key=_bounded_identifier(
-                payload.get("script_reuse_key", script_meta.get("reuse_key")),
-            ),
+            script_reuse_key=script_reuse_key,
         )
         self._observed.append(invocation)
         if self._telemetry_sink is not None:
@@ -227,8 +265,14 @@ class EscapeHatchPolicy:
                 logger.warning("[escape-hatch] telemetry sink failed: %s", exc)
 
         if invocation.script_sha256:
-            self._bump_repeat(ctx.dcc_name, invocation.tool_name, invocation.script_sha256)
-            self._attach_promotion_hint(ctx, invocation.script_sha256, invocation.tool_name)
+            key = _make_key(
+                ctx.dcc_name,
+                invocation.tool_name,
+                invocation.script_sha256,
+                invocation.script_reuse_key,
+            )
+            self._bump_repeat(key)
+            self._attach_promotion_hint(ctx, key)
 
     def _on_after_tool_call(self, ctx: HookContext) -> None:
         """Re-attach the promotion hint to the post-call payload.
@@ -238,16 +282,15 @@ class EscapeHatchPolicy:
         before-payload before the policy can see the script identity) still get
         it. The handler never vetoes: it is advisory-only.
         """
-        payload = ctx.payload or {}
-        script = payload.get("materialized_script")
-        script_meta = script if isinstance(script, dict) else {}
-        sha256 = _script_sha256(payload.get("script_sha256", script_meta.get("sha256")))
+        sha256, reuse_key = _script_identity(ctx.payload)
         if not sha256:
             return
-        self._attach_promotion_hint(ctx, sha256, _str(payload.get("tool_name")))
+        self._attach_promotion_hint(
+            ctx,
+            _make_key(ctx.dcc_name, _str(ctx.payload.get("tool_name")), sha256, reuse_key),
+        )
 
-    def _bump_repeat(self, dcc_name: str, tool_name: str, sha256: str) -> None:
-        key = (dcc_name, tool_name, sha256)
+    def _bump_repeat(self, key: _ScriptKey) -> None:
         now_ms = _now_ms()
         existing = self._repeats.get(key)
         if existing is None:
@@ -267,43 +310,37 @@ class EscapeHatchPolicy:
             last_seen_ms=now_ms,
         )
 
-    def _attach_promotion_hint(self, ctx: HookContext, sha256: str, tool_name: str) -> None:
+    def _attach_promotion_hint(self, ctx: HookContext, key: _ScriptKey) -> None:
         if not self._promotion_hints:
             return
-        repeat = self._repeats.get((ctx.dcc_name, tool_name, sha256))
+        repeat = self._repeats.get(key)
         if repeat is None or repeat.count <= self._promotion_threshold:
             return
         payload = ctx.payload
         if payload is None:
             return
         try:
-            payload[PROMOTION_HINT_KEY] = self._candidate(
-                ctx.dcc_name,
-                tool_name,
-                sha256,
-                repeat,
-            ).hint()
+            payload[PROMOTION_HINT_KEY] = self._candidate(key, repeat).hint()
         except Exception as exc:  # never let advisory output break a tool call
             logger.warning("[escape-hatch] promotion hint failed: %s", exc)
 
-    def _candidate(
-        self,
-        dcc_name: str,
-        tool_name: str,
-        sha256: str,
-        repeat: _ScriptRepeat,
-    ) -> EscapeHatchPromotionCandidate:
+    def _candidate(self, key: _ScriptKey, repeat: _ScriptRepeat) -> EscapeHatchPromotionCandidate:
+        dcc_name, tool_name, sha256, reuse_key = key
         return EscapeHatchPromotionCandidate(
             candidate_id=escape_hatch_candidate_id(
                 sha256=sha256,
                 dcc_name=dcc_name,
                 tool_name=tool_name,
+                reuse_key=reuse_key,
             ),
             sha256=sha256,
             dcc_name=dcc_name,
             tool_name=tool_name,
+            reuse_key=reuse_key,
             execution_count=repeat.count,
             threshold=self._promotion_threshold,
+            first_seen_ms=repeat.first_seen_ms,
+            last_seen_ms=repeat.last_seen_ms,
             suggested_skill_name=suggested_skill_name(dcc_name, tool_name, sha256),
         )
 
@@ -435,9 +472,12 @@ __all__ = [
     "DEFAULT_PROMOTION_THRESHOLD",
     "ESCAPE_HATCH_ROLE",
     "HOST_SCRIPT_RISK",
+    "MAX_TRACKED_SCRIPTS",
     "PROMOTION_HINT_KEY",
     "EscapeHatchInvocation",
     "EscapeHatchPolicy",
     "EscapeHatchPromotionCandidate",
+    "escape_hatch_candidate_id",
     "install_escape_hatch_policy",
+    "suggested_skill_name",
 ]

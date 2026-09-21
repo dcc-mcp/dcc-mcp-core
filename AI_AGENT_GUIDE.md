@@ -557,12 +557,14 @@ skill instead of re-running it: candidate_id=script:07f295ef…, suggested_skill
 as `HookDeny.hint` and adds no new response field type.
 - `candidate_id` is the same `script:<digest>` identity emitted by
   `ObservabilityQuery.get_repeated_scripts`, so an in-process hint and a durable audit candidate
-  describe the same script.
+  describe the same script. The identity covers `(dcc_name, tool_name, sha256, reuse_key)`, and
+  the repeat counter is keyed on exactly those four fields — one counter can never emit two
+  different ids.
 - `suggested_skill_name` is a deterministic, filesystem-safe name for the promoted skill.
 - `policy.promotion_candidates()` returns the current candidates; `policy.observed()` returns the
   recorded invocations. Both are read-only snapshots.
-- Only script identity is tracked (bounded at 256 entries, oldest evicted). Script bodies and
-  prompt text are never retained.
+- Only script identity is tracked (bounded at 256 entries; the least-recently-repeated entry is
+  evicted first). Script bodies and prompt text are never retained.
 
 **Turning it off.** Pass `promotion_hints=False` to keep counting but stop emitting hints, or
 do not install the policy at all — the hook registry stays opt-in and every dispatch is a

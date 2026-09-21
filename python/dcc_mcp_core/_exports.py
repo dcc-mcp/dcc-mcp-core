@@ -345,8 +345,11 @@ _ALL_LAZY: dict[str, str] = {
     "EscapeHatchInvocation": "dcc_mcp_core.escape_hatch_policy",
     "EscapeHatchPolicy": "dcc_mcp_core.escape_hatch_policy",
     "EscapeHatchPromotionCandidate": "dcc_mcp_core.escape_hatch_policy",
+    "MAX_TRACKED_SCRIPTS": "dcc_mcp_core.escape_hatch_policy",
     "PROMOTION_HINT_KEY": "dcc_mcp_core.escape_hatch_policy",
+    "escape_hatch_candidate_id": "dcc_mcp_core.escape_hatch_policy",
     "install_escape_hatch_policy": "dcc_mcp_core.escape_hatch_policy",
+    "suggested_skill_name": "dcc_mcp_core.escape_hatch_policy",
     # Capability graph (issue #1336)
     "CapabilityEdge": "dcc_mcp_core.capability_graph",
     "CapabilityGraph": "dcc_mcp_core.capability_graph",
