@@ -102,11 +102,23 @@ fmt-check:
 # weekly matrix once executed only 2345 of 4080 tests on Windows). Retries and
 # the slow-test ceiling live in `.config/nextest.toml`. A real regression is
 # still fatal — nextest exits non-zero once retries are exhausted.
+#
+# The four suites must also survive a failing predecessor: `just` aborts a recipe
+# at the first non-zero line, so a red `cargo nextest run --workspace` skipped the
+# ~72 `job-persist-sqlite` tests and both doctest passes. Each recipe line runs in
+# its own shell process, so the aggregation lives in committed scripts —
+# `scripts/test-rust.sh` / `scripts/test-rust.ps1` (keep the two in sync). Both run
+# all four suites and exit non-zero when any of them failed, so the gate stays red
+# on a real regression. A shebang recipe is not used because just resolves the
+# shebang interpreter path on Windows, where `/usr/bin/env` has no reliable
+# resolution.
+[unix]
 test-rust:
-    cargo nextest run --workspace --no-fail-fast
-    cargo nextest run -p dcc-mcp-job --features job-persist-sqlite --no-fail-fast
-    cargo test --workspace --doc
-    cargo test -p dcc-mcp-job --features job-persist-sqlite --doc
+    sh scripts/test-rust.sh
+
+[windows]
+test-rust:
+    powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/test-rust.ps1; exit $LASTEXITCODE
 
 # Rust test coverage via cargo-llvm-cov (install: cargo install cargo-llvm-cov)
 # Generates lcov.info; CI uploads to Codecov (set `files: coverage/lcov.info`).
