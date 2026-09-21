@@ -62,9 +62,11 @@ class can be silently disarmed by a typo.
 
 **4. The enforcement machinery already exists, split unevenly across the two
 boundaries.** Call arguments are validated against `input_schema` at dispatch:
-`select_strategy` returns a `SchemaValidator` whenever a `ToolMeta` is present
-and its schema is non-empty, and a `NoOpValidator` otherwise (no `ToolMeta`, an
-empty schema with `skip_empty_schema_validation` set, or the default schema).
+`select_strategy` returns a `NoOpValidator` when no `ToolMeta` is present, or
+when the schema is null, empty, or the default schema **and**
+`skip_empty_schema_validation` is set; every other case gets a
+`SchemaValidator`. Note that the default schema is folded into the same
+"empty" test, so it only reaches `NoOpValidator` when the flag is also set.
 `output_schema` is a first-class declaration field on `ToolDeclaration`, spelled
 `output_schema` in `tools.yaml` — the camel-case `outputSchema` is only the MCP
 wire spelling and is explicitly rejected as a `tools.yaml` key — but **no code
@@ -88,8 +90,9 @@ Add the missing member of the existing `dcc-mcp/<domain>-state@1` family.
 
 **Content.** The `schema_name` / `schema_version` identity pair every sibling
 carries, then `parts`, `hierarchy`, `meshes` (name, uv_sets, material,
-is_non_manifold, vertex_count, bounds), and `objects` (name, transform). Plus
-two fields the ad-hoc dict cannot express and the verdict depends on:
+is_non_manifold, vertex_count, bounds), and `objects` (name, transform, and an
+optional `euler` triple). Plus two fields the ad-hoc dict cannot express and
+the verdict depends on:
 `partial` (boolean) and `unavailable` (array of check names the adapter cannot
 report).
 
@@ -97,6 +100,12 @@ report).
 `unavailable` field is the point: without it, an adapter that cannot report UVs
 is indistinguishable from an asset that has them, and the gate reports success
 either way.
+
+`objects[*].euler` is optional but must be declared, because the Euler check
+skips any object that omits it. An adapter that follows a contract naming only
+`name` and `transform` would therefore pass the Euler check without a single
+value ever being compared. Declaring the member is what makes its absence a
+visible gap rather than a silent pass.
 
 **Cost.** One JSON Schema document plus one validator function plus tests,
 reusing `_check_schema_identity`, `_require_non_negative_int`, and the
@@ -109,8 +118,24 @@ revert. **Dependency.** None.
 
 This is the highest-value item in the RFC and the cheapest.
 
-**Content.** `additionalProperties: false`; an enumerated set of known checks;
-and a required `checks` array naming which checks the caller *intends* to run.
+**Content.** `additionalProperties: false`; a required `checks` array naming
+which checks the caller *intends* to run, with `minItems: 1`; and the per-check
+configuration keys the evaluator reads as top-level members of the spec:
+`required_parts`, `required_hierarchy`, `required_materials`,
+`min_uv_coverage`, `allow_non_manifold`, and `euler_max_abs_degrees`.
+
+An empty `checks` array is rejected. Under D3 an empty set has no `fail` and no
+`unknown` result to roll up, so it would collapse to `pass` — the exact
+silent-success class this RFC exists to remove.
+
+The configuration keys must be declared here or `additionalProperties: false`
+will reject the spec documents `validate_scene_vs_spec` already accepts today,
+which read those values from the top level of `spec` rather than from the
+`checks` entries. Their current defaults are the evaluator's own:
+`min_uv_coverage` 0.9, `allow_non_manifold` false, `euler_max_abs_degrees`
+360.0, and an empty list for each `required_*` key. Step 1 must carry these
+defaults forward so publishing the schema does not silently change the
+behaviour of an existing gate call.
 
 **Why.** A gate that can be silently misconfigured is worse than no gate. It
 does not merely fail to catch a defect — it manufactures a positive verdict,
@@ -155,7 +180,7 @@ D3 can ship earlier with key-absence detection alone.
 | Tool call arguments | Do not match `input_schema` | **Reject.** Unchanged; the dispatcher already does this. |
 | Spec document | Fails `model-spec@1` | **Reject** the gate call with an actionable error. Never return a verdict derived from a spec that could not be parsed. |
 | Scene export | Fails `model-state@1` | **Reject.** A malformed export is an adapter bug, not a modeling defect. |
-| Scene export | Declares `partial: true`, or a check is in `unavailable` | **Degrade** that check to `unknown`; overall `unknown`. |
+| Scene export | Declares `partial: true`, or a check is in `unavailable` | **Degrade** the affected check or checks to `unknown`; overall `unknown`. |
 | Scene vs spec | A check is violated | **Report** `fail`. Record it. Do not block the mutation. |
 | Write verb declaration | No paired state export or gate tool | **Reject in CI** via the declaration lint. |
 
