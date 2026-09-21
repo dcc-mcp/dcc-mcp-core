@@ -226,6 +226,7 @@ export default defineConfig({
                 { text: '0002: Event Bus & Webhooks', link: '/rfcs/0002-event-bus-and-webhooks' },
                 { text: '0003: Traffic Interception & Agent Debugging', link: '/rfcs/0003-traffic-interception-and-replay' },
                 { text: '0004: Modeling Spec Gate & Acceptance Contract', link: '/rfcs/0004-modeling-spec-gate' },
+                { text: '0005: Modeling Capability Ranking', link: '/rfcs/0005-modeling-capability-ranking-and-first-experiment' },
               ],
             }
           ]

@@ -24,6 +24,7 @@ explicit:
 | [0002](./0002-event-bus-and-webhooks.md) | Event Bus & Webhooks | Downstream DCC integrators need lifecycle, tool, and skill hooks without forking the server | Draft |
 | [0003](./0003-traffic-interception-and-replay.md) | Traffic Interception & Agent Debugging | Skill authors need opt-in protocol capture, replay, and diff tooling for empirical agent iteration | Draft |
 | [0004](./0004-modeling-spec-gate.md) | Modeling Spec Gate & Acceptance Contract | Modeling defects survive every machine stage and surface only at lookdev or compositing; the existing spec evaluator is untyped and never invoked | Draft |
+| [0005](./0005-modeling-capability-ranking-and-first-experiment.md) | Modeling Capability Ranking & First Experiment | Five modeling-quality capabilities compete for the same slot, and none of them can currently be shown to work | Draft |
 
 ## Dependency graph
 
@@ -34,14 +35,28 @@ explicit:
    |
    +-- depended on by --> 0003 (traffic interception)
                           traffic frames consume the EventBus
+
+0004 (spec gate) -- no code dependency; touches only the
+                   verification schema family and the
+                   declaration lint
+
+0005 (eval set) -- no code dependency; consumes the existing
+                  dcc_mcp_core.verification primitives and the
+                  ADR-019 experiment-event model
 ```
 
 0001 and 0002 can land in either order. 0003 is gated on 0002 P0, the
 `EventBus` primitive.
 
-0004 is independent of all three: it touches only the verification schema
-family and the declaration lint, and adds no runtime dependency on the
-event bus or on gateway election.
+0004 is independent of 0001 through 0003: it touches only the verification
+schema family and the declaration lint, and adds no runtime dependency on
+the event bus or on gateway election.
+
+0005 is independent of 0001 through 0004 and can land in any order relative
+to them. It is listed last only because it is the newest. It shares the
+verification surface with 0004 but adds no dependency on it: the spec gate
+declares what a modeling result must satisfy, while the eval set measures
+whether current code satisfies it.
 
 ## Recommended landing order
 
