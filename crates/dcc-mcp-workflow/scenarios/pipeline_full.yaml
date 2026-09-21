@@ -1,0 +1,76 @@
+# Full-pipeline benchmark scenario (issue #2270).
+#
+# Fixed six-stage pipeline — model → rig → animate → texture → render →
+# composite — used as the regression benchmark for the workflow executor.
+#
+# The `bench_stage_*` tool names are placeholders on purpose. The real
+# domain verbs (modelling, rigging, animation, ...) live in the per-adapter
+# repositories, not in `dcc-mcp-core`; core only requires that every tool
+# name passes `dcc_mcp_naming::validate_tool_name`, which
+# `WorkflowSpec::validate` enforces for each `tool` / `tool_remote` step.
+# Pair this scenario with `dcc_mcp_workflow::bench::FakeToolCaller`, which
+# serves those names without a DCC host.
+#
+# Stage latencies are NOT declared here: they come from the fake caller's
+# seeded latency table, so a run is byte-for-byte reproducible in CI and
+# measures the executor rather than a workstation.
+name: pipeline_full
+description: >-
+  Fixed six-stage pipeline used as the workflow-executor regression
+  benchmark. Reproducible without a DCC host.
+
+inputs:
+  type: object
+  properties:
+    asset:
+      type: string
+    frame_start:
+      type: integer
+    frame_end:
+      type: integer
+
+steps:
+  - id: model
+    kind: tool
+    tool: bench_stage_model
+    args:
+      asset: "{{inputs.asset}}"
+
+  - id: rig
+    kind: tool
+    tool: bench_stage_rig
+    args:
+      asset: "{{inputs.asset}}"
+      upstream: "{{steps.model.output.stage}}"
+
+  - id: animate
+    kind: tool
+    tool: bench_stage_animate
+    args:
+      asset: "{{inputs.asset}}"
+      frame_start: "{{inputs.frame_start}}"
+      frame_end: "{{inputs.frame_end}}"
+      upstream: "{{steps.rig.output.stage}}"
+
+  - id: texture
+    kind: tool
+    tool: bench_stage_texture
+    args:
+      asset: "{{inputs.asset}}"
+      upstream: "{{steps.animate.output.stage}}"
+
+  - id: render
+    kind: tool
+    tool: bench_stage_render
+    args:
+      asset: "{{inputs.asset}}"
+      frame_start: "{{inputs.frame_start}}"
+      frame_end: "{{inputs.frame_end}}"
+      upstream: "{{steps.texture.output.stage}}"
+
+  - id: composite
+    kind: tool
+    tool: bench_stage_composite
+    args:
+      asset: "{{inputs.asset}}"
+      upstream: "{{steps.render.output.stage}}"

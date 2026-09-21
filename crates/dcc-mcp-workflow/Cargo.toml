@@ -41,6 +41,11 @@ sha2.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["sync", "time", "rt", "rt-multi-thread", "macros", "test-util"] }
 dcc-mcp-models = { workspace = true, features = ["testing"] }
+criterion = { workspace = true }
+
+[[bench]]
+name = "pipeline_full"
+harness = false
 
 [features]
 default = []

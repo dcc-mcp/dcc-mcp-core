@@ -21,12 +21,14 @@
 //! | [`catalog`]     | `WorkflowCatalog` from skill metadata |
 //! | [`sqlite`]      | SQLite persistence for workflow runs (gated behind `job-persist-sqlite`) |
 //! | [`tools`]       | `workflows_*` built-in MCP tool metadata + handler wiring |
+//! | [`bench`]       | Host-free benchmarking scaffolding (fake tool caller + scenario) |
 //!
 //! See issue [#348](https://github.com/dcc-mcp/dcc-mcp-core/issues/348).
 
 #![deny(missing_docs)]
 
 pub mod approval;
+pub mod bench;
 pub mod callers;
 pub mod catalog;
 pub mod context;
@@ -49,6 +51,9 @@ pub mod tools;
 mod tests;
 
 pub use approval::{ApprovalGate, ApprovalResponse};
+pub use bench::{
+    FakeCallerConfig, FakeToolCaller, PIPELINE_SCENARIO, PIPELINE_STAGES, pipeline_spec,
+};
 pub use callers::{
     NullRemoteCaller, RemoteCaller, SharedRemoteCaller, SharedToolCaller, ToolCaller,
     ToolDispatcherCaller,
