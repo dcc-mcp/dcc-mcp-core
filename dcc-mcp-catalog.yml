@@ -15,6 +15,10 @@
 #   tags        - Searchable tags (list, optional)
 #   install.python_path      - Optional host Python interpreter for package install
 #   install.instructions_url - Raw adapter-maintained install.md for agent setup
+#   install.sop_version       - Install SOP schema version the runbook targets (optional, author-declared)
+#   install.sop_schema_digest - Lowercase hex SHA-256 of that SOP schema document (optional).
+#                               Anchors the schema file's bytes; it is not proof the
+#                               runbook conforms to that schema.
 
 version: "1"
 entries:
@@ -34,6 +38,8 @@ entries:
       sha256: "eb3d1dd71164a00ad44bf2ff7a1e6f58075885df225f99ebb9ee8a8dd00cea2b"
       entry_point: "dcc_mcp_kdenlive.cli:main"
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-kdenlive/b73753fda1d492b57e1805930f9c60a4b46d3510/install.md"
+      sop_version: 1
+      sop_schema_digest: "2b3a8a101384a5163c7569c4a2b0de6586c672c5ee291735f94334a33b7d37a0"
 
   - name: "dcc-mcp-core"
     description: "Foundational Rust + Python library for the DCC-MCP ecosystem"
@@ -74,6 +80,8 @@ entries:
       url: "https://files.pythonhosted.org/packages/98/cb/204ff09455e119520635592e039c1fa16b12824a54cc34850d12894356e7/dcc_mcp_maya-0.9.22-py3-none-any.whl"
       sha256: "b288c2bf95014f827d3833ef5af4f7c36b2ff8a465ac647f9feb2163bc44397b"
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-maya/main/install.md"
+      sop_version: 1
+      sop_schema_digest: "2b3a8a101384a5163c7569c4a2b0de6586c672c5ee291735f94334a33b7d37a0"
 
   - name: "dcc-mcp-blender"
     description: "Core Blender adapter for DCC-MCP — Blender add-on with in-process MCP server"

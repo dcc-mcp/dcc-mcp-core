@@ -152,6 +152,8 @@ mod tests {
             entry_point: None,
             instructions_url: None,
             adobe: None,
+            sop_version: None,
+            sop_schema_digest: None,
         }
     }
 

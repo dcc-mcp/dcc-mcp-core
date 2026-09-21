@@ -319,6 +319,8 @@ fn pinned_git_revision_marks_unchanged_version_as_outdated() {
             entry_point: None,
             instructions_url: None,
             adobe: None,
+            sop_version: None,
+            sop_schema_digest: None,
         }),
         maintainer: None,
         category: None,
@@ -375,6 +377,8 @@ fn immutable_git_commit_only_accepts_full_object_ids() {
         entry_point: None,
         instructions_url: None,
         adobe: None,
+        sop_version: None,
+        sop_schema_digest: None,
     };
     assert_eq!(immutable_git_commit(&install), None);
     install.ref_ = Some("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA".into());
@@ -400,6 +404,8 @@ fn git_install_rejects_mutable_ref_before_starting_git() {
         entry_point: None,
         instructions_url: None,
         adobe: None,
+        sop_version: None,
+        sop_schema_digest: None,
     };
 
     let error = install_from_git_command(&install, &destination).unwrap_err();
@@ -451,6 +457,8 @@ fn git_install_checks_out_the_declared_commit_detached() {
         entry_point: None,
         instructions_url: None,
         adobe: None,
+        sop_version: None,
+        sop_schema_digest: None,
     };
 
     install_from_git_command(&install, &destination).unwrap();
@@ -483,6 +491,8 @@ async fn zip_install_rejects_missing_or_invalid_sha_before_reading_archive() {
         entry_point: None,
         instructions_url: None,
         adobe: None,
+        sop_version: None,
+        sop_schema_digest: None,
     };
 
     let error = service

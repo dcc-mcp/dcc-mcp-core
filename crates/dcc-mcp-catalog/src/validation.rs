@@ -130,6 +130,8 @@ const MARKETPLACE_V2_SCHEMA_JSON: &str = r##"{
             "python_path": { "type": "string" },
             "entry_point": { "type": "string" },
             "instructions_url": { "type": "string" },
+            "sop_version": { "type": "integer", "minimum": 1 },
+            "sop_schema_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
             "adobe": {
               "type": "object",
               "required": ["product", "extensionType"],

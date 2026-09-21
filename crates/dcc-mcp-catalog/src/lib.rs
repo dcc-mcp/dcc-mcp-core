@@ -236,6 +236,24 @@ pub struct CatalogInstall {
     /// Agent-facing installation runbook, usually the adapter repo's raw install.md.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub instructions_url: Option<String>,
+    /// Install SOP schema version this adapter's runbook targets.
+    ///
+    /// Mirrors `INSTALL_SOP_SCHEMA_VERSION` from
+    /// `dcc_mcp_core.deployment.install_sop`. Absent means the adapter has not
+    /// reported a version yet, which keeps every pre-existing entry valid.
+    ///
+    /// This is a declaration by the adapter author, not a verified conformance
+    /// result: nothing here checks the runbook against the schema.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sop_version: Option<u32>,
+    /// Lowercase hex SHA-256 digest of the Install SOP schema *document*.
+    ///
+    /// Lets a consumer pin the exact schema bytes an adapter was authored
+    /// against instead of trusting [`CatalogInstall::sop_version`] alone. It
+    /// anchors the schema file's bytes only; it is not evidence that the
+    /// adapter's runbook conforms to that schema.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sop_schema_digest: Option<String>,
     /// Optional Adobe host plugin installation metadata for debug-link installs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub adobe: Option<CatalogAdobeInstall>,
@@ -915,6 +933,8 @@ entries:
                 entry_point: None,
                 instructions_url: Some("https://example.com/install.md".into()),
                 adobe: None,
+                sop_version: None,
+                sop_schema_digest: None,
             }),
             icon: None,
             showcase: None,
@@ -937,6 +957,8 @@ entries:
             entry_point: None,
             instructions_url: None,
             adobe: None,
+            sop_version: None,
+            sop_schema_digest: None,
         });
 
         assert!(validate_entry(&entry).is_err());
@@ -959,6 +981,8 @@ entries:
             entry_point: None,
             instructions_url: None,
             adobe: None,
+            sop_version: None,
+            sop_schema_digest: None,
         });
 
         assert!(validate_entry(&entry).is_err());
@@ -997,6 +1021,8 @@ entries:
                 entry_point: Some("dcc_mcp_maya.cli:main".into()),
                 instructions_url: None,
                 adobe: None,
+                sop_version: None,
+                sop_schema_digest: None,
             }),
             icon: None,
             showcase: None,
@@ -1052,6 +1078,11 @@ entries:
         );
     }
 
+    /// The digest of the Install SOP schema document (`adapter-install-sop-v1`),
+    /// matching `INSTALL_SOP_SCHEMA_VERSION = 1` in
+    /// `dcc_mcp_core.deployment.install_sop`.
+    const SOP_V1_DIGEST: &str = "2b3a8a101384a5163c7569c4a2b0de6586c672c5ee291735f94334a33b7d37a0";
+
     #[test]
     fn test_validate_entry_requires_pinned_pip_artifact() {
         let mut entry = CatalogEntry {
@@ -1081,6 +1112,8 @@ entries:
                 entry_point: None,
                 instructions_url: None,
                 adobe: None,
+                sop_version: None,
+                sop_schema_digest: None,
             }),
             icon: None,
             showcase: None,
@@ -1345,6 +1378,44 @@ entries:
                 "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-kdenlive/",
                 "b73753fda1d492b57e1805930f9c60a4b46d3510/install.md"
             ))
+        );
+
+        // Entries that adopted the Install SOP fields report them verbatim.
+        for name in ["dcc-mcp-kdenlive", "dcc-mcp-maya"] {
+            let install = entries
+                .iter()
+                .find(|entry| entry.name == name)
+                .and_then(|entry| entry.install.as_ref())
+                .unwrap_or_else(|| panic!("{name} must publish install metadata"));
+            assert_eq!(
+                install.sop_version,
+                Some(1),
+                "{name} must report Install SOP schema version 1"
+            );
+            assert_eq!(
+                install.sop_schema_digest.as_deref(),
+                Some(SOP_V1_DIGEST),
+                "{name} must pin the Install SOP schema digest"
+            );
+            assert!(
+                validate_entry(entries.iter().find(|entry| entry.name == name).unwrap()).is_ok(),
+                "{name} must validate with Install SOP metadata"
+            );
+        }
+
+        // Entries that did not adopt the fields keep working unchanged.
+        let legacy = entries
+            .iter()
+            .filter(|entry| {
+                entry
+                    .install
+                    .as_ref()
+                    .is_some_and(|install| install.sop_version.is_none())
+            })
+            .count();
+        assert!(
+            legacy > 0,
+            "the bundled catalog must keep entries that omit sop_version"
         );
 
         for name in ["dcc-mcp-tiled", "dcc-mcp-material-maker", "dcc-mcp-wwise"] {
