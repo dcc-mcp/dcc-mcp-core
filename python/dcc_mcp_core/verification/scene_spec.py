@@ -7,8 +7,24 @@ unbound materials, non-manifold geometry, out-of-bounds Euler — without
 shipping scene data to a model.
 
 The scene/spec shapes are documented in :mod:`dcc_mcp_core.verification` and
-kept intentionally permissive: adapters fill in what their host can report,
-and the validator only enforces the checks the caller asked for.
+kept intentionally permissive: adapters fill in what their host can report.
+
+Dispatch note: ``validate_scene_vs_spec`` runs **all six** checkers on every
+call. A spec's ``checks`` key (RFC 0004, D2) records which checks the caller
+*intends* to run, but it does not select anything yet -- it is metadata, not
+dispatch. Wiring ``checks`` into dispatch is a Step 1 code change, so no
+caller should read this module as promising that unlisted checks are skipped.
+
+Because every checker runs, an adapter that cannot populate a checker's input
+is expected to declare that check in the state export's ``unavailable`` field
+(RFC 0004, D1), so that once D3 lands the gap rolls up to ``unknown`` instead
+of passing silently.
+
+**This function does not read ``unavailable`` yet.** It only gains that
+behaviour when D3 ships; today a declared gap is still reported as ``pass``
+for that check. Listing a check in ``unavailable`` is therefore a contract
+obligation on the adapter's export, not a guarantee about the verdict this
+function returns now.
 """
 
 from __future__ import annotations
@@ -220,7 +236,7 @@ def validate_scene_vs_spec(scene: Dict[str, Any], spec: Dict[str, Any]) -> Scene
             "objects": [{"name": "body", "euler": [0.0, 0.0, 0.0]}],
         }
 
-    The spec requests which checks to enforce::
+    The spec carries the per-check configuration the evaluator reads::
 
         {
             "required_parts": ["body", "rotor_main"],
@@ -230,6 +246,10 @@ def validate_scene_vs_spec(scene: Dict[str, Any], spec: Dict[str, Any]) -> Scene
             "allow_non_manifold": false,
             "euler_max_abs_degrees": 360.0,
         }
+
+    Every entry in :data:`_CHECKERS` runs on every call, so the result's
+    ``checks`` list always has one entry per known check. A spec's own
+    ``checks`` key does not narrow this set -- see the module docstring.
 
     Returns a :class:`SceneSpecResult` with a ``passed`` boolean, one entry
     per executed check, and a ``failures`` list naming every violation.
