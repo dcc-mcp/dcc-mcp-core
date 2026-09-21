@@ -532,6 +532,74 @@ async fn resources_read_base64_encodes_non_utf8_skill_files() {
 
 // ── resources/directory/read ───────────────────────────────────────────────
 
+/// A symlink to a file inside the skill is part of the manifest and readable
+/// via `resources/read`, so the directory listing must not hide it. A symlink
+/// to a directory must still be reported as a directory, not as a file.
+#[cfg(unix)]
+#[tokio::test]
+async fn directory_read_lists_symlinked_files_that_the_manifest_contains() {
+    let tree = SkillTree::new();
+    let root = tree.skill("demo", "Demo skill");
+    tree.file("demo", "real.md", "real\n");
+    tree.file("demo", "scripts/run.py", "print(1)\n");
+    std::os::unix::fs::symlink(root.join("real.md"), root.join("alias.md"))
+        .expect("symlink to a file inside the skill");
+    std::os::unix::fs::symlink(root.join("scripts"), root.join("scripts-link"))
+        .expect("symlink to a directory inside the skill");
+
+    let h = harness_with_tree(tree, &[("demo", "Demo skill")]);
+
+    // The manifest advertises the symlinked file.
+    let listed = call(&h.service, "skills/list", Some(json!({}))).await;
+    let uris: Vec<&str> = result(&listed)["skills"][0]["resources"]
+        .as_array()
+        .expect("manifest")
+        .iter()
+        .map(|r| r["uri"].as_str().expect("uri"))
+        .collect();
+    assert!(uris.contains(&"skill://demo/alias.md"), "{uris:?}");
+
+    // So the directory listing must include it too.
+    let response = call(
+        &h.service,
+        "resources/directory/read",
+        Some(json!({"uri": "skill://demo"})),
+    )
+    .await;
+    let children = result(&response)["resources"].as_array().expect("array");
+    let by_uri: std::collections::HashMap<&str, &str> = children
+        .iter()
+        .map(|child| {
+            (
+                child["uri"].as_str().expect("uri"),
+                child["mimeType"].as_str().expect("mimeType"),
+            )
+        })
+        .collect();
+    assert_eq!(
+        by_uri.get("skill://demo/alias.md"),
+        Some(&"text/markdown"),
+        "symlinked file must be listed: {by_uri:?}"
+    );
+    // A symlink to a directory is not followed anywhere: the manifest skips
+    // it and `resources/read` cannot serve it, so the listing must omit it
+    // too rather than advertise a file that resolves to nothing.
+    assert!(
+        !by_uri.contains_key("skill://demo/scripts-link"),
+        "symlinked directories are not part of the skill: {by_uri:?}"
+    );
+    assert!(
+        !uris.contains(&"skill://demo/scripts-link"),
+        "manifest must skip symlinked directories: {uris:?}"
+    );
+    // The real directory is still listed.
+    assert_eq!(
+        by_uri.get("skill://demo/scripts"),
+        Some(&"inode/directory"),
+        "the real directory stays a directory: {by_uri:?}"
+    );
+}
+
 #[tokio::test]
 async fn directory_read_lists_direct_children_only() {
     let tree = SkillTree::new();

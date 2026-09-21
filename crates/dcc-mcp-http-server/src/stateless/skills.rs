@@ -367,8 +367,19 @@ fn directory_children(
             });
             continue;
         }
+        // `file_type()` does not follow symlinks, so a symlink-to-file would
+        // be skipped here while the manifest still advertises it and
+        // `resources/read` still serves it. Resolve through the same
+        // containment-checked helper so all three surfaces agree.
+        // Containment alone is not enough: it would also admit a
+        // symlink-to-directory as a file.
         if !file_type.is_file() {
-            continue;
+            let Some(resolved) = content::resolve_skill_file(skill_dir, &relative) else {
+                continue;
+            };
+            if !resolved.is_file() {
+                continue;
+            }
         }
         entries.push(McpResource {
             uri,
