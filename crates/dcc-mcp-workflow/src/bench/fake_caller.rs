@@ -632,8 +632,9 @@ mod tests {
             // The lower bound above is the hard contract. The upper bound is
             // deliberately loose: how tightly wall-clock tracks the model is
             // a property of the host's timer and its load, and that is what
-            // the (Linux-gated) p95 harness measures. A unit test may not
-            // assume a quiet machine.
+            // the p95 harness in `tests/pipeline_bench.rs` measures across
+            // 30 rounds. A unit test may not assume a quiet machine — it
+            // runs once, alongside every other test in the binary.
             assert!(
                 record.observed < record.intended + Duration::from_millis(100),
                 "{} overshot: {:?} vs {:?}",

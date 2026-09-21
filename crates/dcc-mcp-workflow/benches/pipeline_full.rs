@@ -33,15 +33,22 @@ use serde_json::json;
 /// Seed for the fake caller. Fixed so successive bench runs are comparable.
 const SEED: u64 = 0xC0FF_EE01;
 
-/// Keep the whole run inside the measurement budget. The simulated-latency
-/// case costs ~0.4 s per iteration, so the sample count — not the wall time
-/// — is what has to be bounded; `measurement_time` only matters for the
-/// zero-latency case, which is cheap enough to fill it many times over.
+/// Keep the whole run inside the 3 min measurement budget (the 20 min Sentry
+/// E2E job currently sets the pace for the workflow, so this is not the
+/// binding constraint).
 ///
-/// Budget: 10 samples of a ~0.4 s pipeline plus warm-up lands the whole
-/// `cargo bench` invocation around 15 s of measuring, well inside the 3 min
-/// ceiling (and far below the 20 min Sentry E2E job that currently sets the
-/// pace for the workflow).
+/// The two knobs are a **floor**, not a ceiling: criterion takes at least
+/// `sample_size` samples *and* runs for at least `measurement_time`, so the
+/// slower of the two wins per benchmark.
+///
+/// - `stages/simulated_latency` costs ~0.4 s per iteration, so 10 samples
+///   alone need ~4 s and `MEASUREMENT` never binds here. This is why the
+///   sample count is what we keep small, not the wall time.
+/// - `stages/executor_overhead` costs ~80 us per iteration, so it fills
+///   `MEASUREMENT` long before it reaches 10 samples and the time is what
+///   binds.
+///
+/// Measured total for this file: ~9 s (5.7 s + 3.0 s plus warm-up).
 ///
 /// 10 is criterion's recommended floor for a stable estimate; anything
 /// lower and it starts warning that the confidence interval is unreliable.
