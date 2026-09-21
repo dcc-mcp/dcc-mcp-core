@@ -334,6 +334,16 @@ _ALL_LAZY: dict[str, str] = {
     "ObservabilityOptions": "dcc_mcp_core.server",
     "ObservabilityQuery": "dcc_mcp_core.observability_query",
     "build_query_response": "dcc_mcp_core.observability_query",
+    # Skill promotion proposals (escape-hatch repetition -> advisory proposal)
+    "DECISION_MANUAL_REVIEW": "dcc_mcp_core.skill_promotion",
+    "DECISION_PROPOSE_SKILL": "dcc_mcp_core.skill_promotion",
+    "DEFAULT_PROMOTION_THRESHOLD": "dcc_mcp_core.skill_promotion",
+    "RECOMMENDED_ACTION_REVIEW_ONLY": "dcc_mcp_core.skill_promotion",
+    "SkillPromotionProposal": "dcc_mcp_core.skill_promotion",
+    "build_skill_promotion_proposal": "dcc_mcp_core.skill_promotion",
+    "build_skill_promotion_proposals": "dcc_mcp_core.skill_promotion",
+    "candidate_id_for_evidence": "dcc_mcp_core.skill_promotion",
+    "suggest_skill_name": "dcc_mcp_core.skill_promotion",
     "StandaloneMainThreadExecution": "dcc_mcp_core.server",
     # Lifecycle hooks (issue #1337)
     "HookContext": "dcc_mcp_core.lifecycle_hooks",

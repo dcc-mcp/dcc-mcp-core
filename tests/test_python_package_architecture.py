@@ -82,6 +82,10 @@ _LEGACY_TOP_LEVEL_MODULES = {
     "server_base",
     "sidecar",
     "skill",
+    # Advisory promotion proposals for repeated escape-hatch scripts. Kept at
+    # the root next to ``observability_query`` because it is the payload type
+    # for that query's response, not an independently owned capability.
+    "skill_promotion",
     "skill_reference_docs",
     "skills_helper",
     "spatial",
