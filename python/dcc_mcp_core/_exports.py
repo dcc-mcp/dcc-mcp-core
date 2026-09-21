@@ -335,9 +335,12 @@ _ALL_LAZY: dict[str, str] = {
     "ObservabilityQuery": "dcc_mcp_core.observability_query",
     "build_query_response": "dcc_mcp_core.observability_query",
     # Skill promotion proposals (escape-hatch repetition -> advisory proposal)
+    # NOTE: ``DEFAULT_PROMOTION_THRESHOLD`` is intentionally not re-exported here.
+    # ``escape_hatch_policy`` already owns that name in the public lazy-export
+    # table and both modules define it with the same value; a second entry would
+    # be silently dropped by the dict comprehension that builds ``_STABLE_LAZY``.
     "DECISION_MANUAL_REVIEW": "dcc_mcp_core.skill_promotion",
     "DECISION_PROPOSE_SKILL": "dcc_mcp_core.skill_promotion",
-    "DEFAULT_PROMOTION_THRESHOLD": "dcc_mcp_core.skill_promotion",
     "RECOMMENDED_ACTION_REVIEW_ONLY": "dcc_mcp_core.skill_promotion",
     "SkillPromotionProposal": "dcc_mcp_core.skill_promotion",
     "build_skill_promotion_proposal": "dcc_mcp_core.skill_promotion",
