@@ -15,6 +15,12 @@ pub const CACHEABLE_RESULT_METHODS: &[&str] = &[
     "resources/list",
     "resources/templates/list",
     "resources/read",
+    // `io.modelcontextprotocol/skills` (ext-skills stable). Both results
+    // extend `CacheableResult`, so `ttlMs` / `cacheScope` are REQUIRED.
+    // `resources/directory/read` extends only `PaginatedResult` and is
+    // deliberately absent.
+    "skills/list",
+    "skills/get",
 ];
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]

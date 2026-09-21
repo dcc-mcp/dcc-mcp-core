@@ -21,7 +21,8 @@ use tracing::debug;
 
 use dcc_mcp_jsonrpc::{
     DiscoverResult, JsonRpcRequest, JsonRpcResponse, PromptsCapability, ResourcesCapability,
-    SUPPORTED_MODERN_PROTOCOL_VERSIONS, ServerInfo, StatelessServerCapabilities, ToolsCapability,
+    SUPPORTED_MODERN_PROTOCOL_VERSIONS, ServerExtensionsCapability, ServerInfo,
+    SkillsExtensionCapability, StatelessServerCapabilities, ToolsCapability,
     complete_modern_result, error_codes,
 };
 
@@ -138,9 +139,56 @@ impl StatelessMcpService {
             "ping" => json!({"jsonrpc": "2.0", "id": id, "result": {}}),
             "tools/list" => self.handle_tools_list(id, req).await,
             "tools/call" => self.handle_tools_call(id, req).await,
-            "resources/list" | "resources/read" | "prompts/list" | "prompts/get" => {
-                match super::providers::handle_request(&self.state, &self.registry_context, req, id)
-                {
+            "skills/list" | "skills/get" | "resources/directory/read" => {
+                if !super::skills::extension_enabled(&self.state) {
+                    return StatelessDispatchOutcome::MethodNotFound(
+                        serde_json::to_value(JsonRpcResponse::method_not_found(
+                            Some(id),
+                            &req.method,
+                        ))
+                        .unwrap_or(Value::Null),
+                    );
+                }
+                let outcome = match req.method.as_str() {
+                    "skills/list" => {
+                        super::skills::handle_skills_list(&self.state, req, id.clone())
+                    }
+                    "skills/get" => super::skills::handle_skills_get(&self.state, req, id.clone()),
+                    _ => {
+                        super::skills::handle_resources_directory_read(&self.state, req, id.clone())
+                    }
+                };
+                match outcome {
+                    StatelessDispatchOutcome::Response(response) => response,
+                    outcome => return outcome,
+                }
+            }
+            "resources/read" => {
+                // `skill://` reads belong to the extension, which reports its
+                // own invalid-params messages.
+                match super::skills::handle_resources_read(&self.state, req, id.clone()) {
+                    Some(StatelessDispatchOutcome::Response(response)) => response,
+                    Some(outcome) => return outcome,
+                    None => {
+                        match super::providers::handle_request(
+                            &self.state,
+                            &self.registry_context,
+                            req,
+                            id.clone(),
+                        ) {
+                            StatelessDispatchOutcome::Response(response) => response,
+                            outcome => return outcome,
+                        }
+                    }
+                }
+            }
+            "resources/list" | "prompts/list" | "prompts/get" => {
+                match super::providers::handle_request(
+                    &self.state,
+                    &self.registry_context,
+                    req,
+                    id.clone(),
+                ) {
                     StatelessDispatchOutcome::Response(response) => response,
                     outcome => return outcome,
                 }
@@ -192,15 +240,21 @@ impl StatelessMcpService {
     }
 
     fn build_stateless_capabilities(&self) -> StatelessServerCapabilities {
+        // The Skills extension is served through `resources/read`, and the
+        // extension requires any server that declares it to also declare the
+        // `resources` capability. When no shared resource provider is
+        // configured the extension still serves the whole resources surface,
+        // so the capability is honest in both directions.
+        let skills_extension = super::skills::extension_enabled(&self.state);
+        let resources_enabled = self.state.features.enable_resources
+            && (self.registry_context.resource_provider.is_some() || skills_extension);
         StatelessServerCapabilities {
             // Stateless requests do not provide a subscription stream.
             // The final 2026 revision does not include the task wire surface.
             tools: Some(ToolsCapability {
                 list_changed: false,
             }),
-            resources: if self.state.features.enable_resources
-                && self.registry_context.resource_provider.is_some()
-            {
+            resources: if resources_enabled {
                 Some(ResourcesCapability {
                     subscribe: false,
                     list_changed: false,
@@ -217,6 +271,13 @@ impl StatelessMcpService {
             } else {
                 None
             },
+            extensions: skills_extension.then_some(ServerExtensionsCapability {
+                skills: Some(SkillsExtensionCapability {
+                    // `resources/directory/read` is implemented for every
+                    // directory inside a served skill, so it is declared.
+                    directory_read: true,
+                }),
+            }),
             ..Default::default()
         }
     }
@@ -409,6 +470,9 @@ mod tests {
         for enable_resources in [false, true] {
             for enable_prompts in [false, true] {
                 let mut svc = make_service();
+                // The skills extension is served through `resources/read`,
+                // so switch it off to isolate the provider-driven surface.
+                svc.state.features.enable_skills_extension = false;
                 svc.state.features.enable_resources = enable_resources;
                 svc.state.features.enable_prompts = enable_prompts;
                 let req = make_request("server/discover", json!("capabilities"), None);
@@ -423,11 +487,44 @@ mod tests {
         }
     }
 
+    /// Acceptance: `server/discover` carries both `resources` and the
+    /// `io.modelcontextprotocol/skills` extension.
+    #[tokio::test]
+    async fn discovery_declares_resources_and_the_skills_extension_together() {
+        let svc = make_service();
+        let req = make_request("server/discover", json!("capabilities"), None);
+        let resp = svc.handle_request(&req).await.expect("has id");
+        let capabilities = &resp["result"]["capabilities"];
+
+        assert!(capabilities["resources"].is_object(), "{capabilities}");
+        let skills = &capabilities["extensions"]["io.modelcontextprotocol/skills"];
+        assert_eq!(skills["directoryRead"], true, "{capabilities}");
+    }
+
+    /// A server must not declare an extension it does not serve.
+    #[tokio::test]
+    async fn discovery_omits_the_skills_extension_when_disabled() {
+        let mut svc = make_service();
+        svc.state.features.enable_skills_extension = false;
+        let req = make_request("server/discover", json!("capabilities"), None);
+        let resp = svc.handle_request(&req).await.expect("has id");
+        let capabilities = &resp["result"]["capabilities"];
+
+        assert!(capabilities.get("extensions").is_none(), "{capabilities}");
+        assert!(capabilities.get("resources").is_none(), "{capabilities}");
+    }
+
     #[tokio::test]
     async fn unadvertised_stateless_methods_remain_unsupported() {
-        let svc = make_service();
+        let mut svc = make_service();
+        // With the extension off, its methods are unknown methods and the
+        // resources surface follows the provider (absent here).
+        svc.state.features.enable_skills_extension = false;
         for method in [
             "resources/read",
+            "resources/directory/read",
+            "skills/list",
+            "skills/get",
             "prompts/get",
             "subscriptions/listen",
             "tasks/get",
@@ -441,6 +538,30 @@ mod tests {
                 "{method}"
             );
             assert!(resp.get("result").is_none(), "{method}");
+        }
+    }
+
+    /// With the extension declared, its three methods are recognized: a bad
+    /// URI is an invalid-params error, never an unknown method.
+    #[tokio::test]
+    async fn declared_skills_methods_are_recognized() {
+        let svc = make_service();
+        let cases = [
+            ("skills/list", json!({})),
+            ("skills/get", json!({"uri": "skill://nope/SKILL.md"})),
+            (
+                "resources/directory/read",
+                json!({"uri": "skill://nope/templates"}),
+            ),
+        ];
+        for (method, params) in cases {
+            let req = make_request(method, json!(method), Some(params));
+            let resp = svc.handle_request(&req).await.expect("has id");
+            assert_ne!(
+                resp["error"]["code"],
+                error_codes::METHOD_NOT_FOUND,
+                "{method}: {resp}"
+            );
         }
     }
 

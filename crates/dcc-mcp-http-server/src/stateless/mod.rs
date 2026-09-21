@@ -9,6 +9,9 @@
 //!   pipeline with `session_id = None` (Tool Registry / Dispatcher / Catalog
 //!   are not modified).
 //! - Reads `_meta` on every request for per-request client context.
+//! - Serves the `io.modelcontextprotocol/skills` extension (`skills/list`,
+//!   `skills/get`, `resources/directory/read` and `skill://` reads) from the
+//!   same catalog that backs the `*_skills` tools.
 //!
 //! ## Usage
 //!
@@ -30,5 +33,6 @@ mod meta;
 mod param_headers;
 mod providers;
 mod service;
+mod skills;
 
 pub use service::{StatelessDispatchOutcome, StatelessMcpService};

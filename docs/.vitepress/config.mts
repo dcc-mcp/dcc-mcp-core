@@ -163,6 +163,7 @@ export default defineConfig({
                 { text: 'Actions', link: '/api/actions' },
                 { text: 'Events', link: '/api/events' },
                 { text: 'Skills', link: '/api/skills' },
+                { text: 'Skills Extension (MCP)', link: '/api/skills-extension' },
                 { text: 'Protocols', link: '/api/protocols' },
                 { text: 'Transport', link: '/api/transport' },
                 { text: 'HTTP Server', link: '/api/http' },

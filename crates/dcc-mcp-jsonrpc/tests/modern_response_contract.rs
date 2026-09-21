@@ -60,7 +60,7 @@ fn official_discovery_fixture_uses_the_single_canonical_type() {
 
 #[test]
 fn modern_cache_fill_is_a_closed_method_set() {
-    assert_eq!(CACHEABLE_RESULT_METHODS.len(), 6);
+    assert_eq!(CACHEABLE_RESULT_METHODS.len(), 8);
     for method in [
         "server/discover",
         "tools/list",
@@ -68,6 +68,10 @@ fn modern_cache_fill_is_a_closed_method_set() {
         "resources/list",
         "resources/templates/list",
         "resources/read",
+        // io.modelcontextprotocol/skills — both results extend
+        // CacheableResult, so ttlMs / cacheScope are REQUIRED.
+        "skills/list",
+        "skills/get",
     ] {
         let result = stamp(method, json!({}));
         assert_eq!(result["resultType"], "complete", "{method}");
@@ -84,6 +88,8 @@ fn modern_cache_fill_is_a_closed_method_set() {
         "ping",
         "completion/complete",
         "custom/read",
+        // PaginatedResult only, never CacheableResult.
+        "resources/directory/read",
     ] {
         let result = stamp(method, json!({}));
         assert_eq!(result["resultType"], "complete");

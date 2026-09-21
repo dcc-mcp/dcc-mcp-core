@@ -20,9 +20,14 @@ pub(super) fn handle_request(
     request: &JsonRpcRequest,
     id: Value,
 ) -> StatelessDispatchOutcome {
+    // The Skills extension is served through the Resources primitive. With no
+    // shared resource provider configured it owns the whole resources surface,
+    // which keeps the declared `resources` capability honest.
+    let skills_extension = super::skills::extension_enabled(state);
     let enabled = match request.method.as_str() {
         "resources/list" | "resources/read" => {
-            state.features.enable_resources && context.resource_provider.is_some()
+            (state.features.enable_resources && context.resource_provider.is_some())
+                || skills_extension
         }
         "prompts/list" | "prompts/get" => {
             state.features.enable_prompts && context.prompt_provider.is_some()
@@ -81,12 +86,16 @@ fn dispatch(
             let provider = context
                 .resource_provider
                 .as_ref()
-                .filter(|_| state.features.enable_resources)
-                .ok_or_else(|| ProviderError::NotEnabled("Resources".into()))?;
+                .filter(|_| state.features.enable_resources);
             if request.method == "resources/list" {
                 let offset = list_offset(request)?;
-                let mut resources = provider.list_resources(&state.catalog);
+                let mut resources = match provider {
+                    Some(provider) => provider.list_resources(&state.catalog),
+                    None => Vec::new(),
+                };
+                resources.extend(super::skills::list_skill_resources(state));
                 resources.sort_by(|a, b| a.uri.cmp(&b.uri));
+                resources.dedup_by(|a, b| a.uri == b.uri);
                 let (resources, next_cursor) = page(resources, offset)?;
                 serialize(ListResourcesResult {
                     resources,
@@ -99,6 +108,13 @@ fn dispatch(
                 if params.uri.trim().is_empty() {
                     return Err(invalid_params());
                 }
+                // `skill://` reads are intercepted upstream by the skills
+                // extension; anything reaching this point is a provider URI.
+                // With the extension declared but no shared provider, only
+                // `skill://` URIs are served, so any other URI is an unknown
+                // resource, reported as -32602.
+                let provider =
+                    provider.ok_or_else(|| ProviderError::NotFound(params.uri.clone()))?;
                 serialize(provider.read_resource(&params.uri, &state.catalog)?)
             }
         }

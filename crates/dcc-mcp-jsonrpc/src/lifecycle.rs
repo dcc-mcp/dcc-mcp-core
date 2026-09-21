@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub use crate::discover::{DiscoverResult, TasksCapability};
+pub use crate::discover::{DiscoverResult, ServerExtensionsCapability, TasksCapability};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -142,6 +142,8 @@ pub struct ServerInfo {
 /// - `tasks` is a first-class field (not experimental)
 /// - `elicitation` is absent (handled via `InputRequiredResult` multi-turn)
 /// - `logging` is omitted (deprecated in 2026-07-28)
+/// - `extensions` carries MCP extensions such as
+///   [`SKILLS_EXTENSION_ID`](crate::SKILLS_EXTENSION_ID)
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct StatelessServerCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -153,6 +155,13 @@ pub struct StatelessServerCapabilities {
     /// Tasks are a first-class capability in 2026-07-28 (SEP-2663).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tasks: Option<TasksCapability>,
+    /// Declared MCP extensions, keyed by extension identifier.
+    ///
+    /// Declaring an extension is a promise to implement every method it
+    /// requires, so this is only populated for extensions this server
+    /// actually serves.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extensions: Option<ServerExtensionsCapability>,
     /// Vendor-extension capabilities.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub experimental: Option<serde_json::Value>,

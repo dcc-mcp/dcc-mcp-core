@@ -9,6 +9,7 @@ pub mod manager;
 pub mod paths;
 pub mod resolver;
 mod scanner;
+pub mod skill_content;
 pub mod validator;
 pub mod versioning;
 pub mod watcher;
@@ -37,6 +38,12 @@ pub use resolver::{
     validate_dependencies,
 };
 pub use scanner::SkillScanner;
+pub use skill_content::{
+    DIRECTORY_MIME_TYPE, MAX_SKILL_RESOURCE_ENTRIES, MAX_SKILL_TOTAL_BYTES, SKILL_MD_MIME_TYPE,
+    SKILL_URI_PREFIX, SKILL_URI_SCHEME, SkillFileEntry, SkillFileSet, SkillFrontmatter,
+    SkillManifest, SkillManifestError, build_skill_manifest, digest_bytes, mime_type_for,
+    parse_skill_uri, resolve_skill_file, skill_frontmatter, skill_uri,
+};
 pub use validator::{SkillValidationIssue, SkillValidationReport, validate_skill_dir};
 pub use versioning::{SkillVersionEntry, SkillVersionManifest, get_skill_version_manifest};
 pub use watcher::{SkillWatcher, WatcherError};
