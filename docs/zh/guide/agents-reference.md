@@ -587,3 +587,80 @@ issue #341 中采用的三层行为结构：一句现在时"是什么"摘要、
 `DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS=1`。该模式排除隐式的操作者目录（本地/平台
 默认目录、Marketplace 安装目录和 Admin 自定义目录），调用方显式路径、内置路径和
 `DCC_MCP_*_SKILL_PATHS` 环境路径仍然有效。
+
+---
+
+## 迭代 Playbook
+
+本节是「重复工作三步法」的规范性中文入口；英文权威章节是
+[英文权威章节](../../guide/agents-reference.md#iteration-playbook)。
+在 DCC 会话里反复做同一件事只有三种动作，每种都有现成机制。
+
+### 1. 复用已落盘脚本 —— 不要重发源码
+
+调用 `materialize_script(..., reuse=True, reuse_key="...")`，字节完全相同的重复调用会返回
+**同一个**宿主路径并带 `reused=True`，而不是再写一份：
+
+```text
+{root}/{dcc_type}/temp/{instance_id}/{session_id}/{script_id}{suffix}
+```
+
+- `root` 默认 `~/.dcc-mcp`；需要共享的宿主可见卷时用 `DCC_MCP_SCRIPT_MATERIALIZATION_ROOT` 覆盖。
+- `script_id` 是派生的、不是随机的：`reuse=True` 且给了 `reuse_key` 时为 `{reuse_key}_{sha256[:12]}`，
+  `reuse=True` 但没有 key 时为完整 `sha256`，`reuse=False` 时为 `{prefix}_{uuid}_{sha256[:12]}`。
+- 复用短路只在脚本**和**它的 JSON 元数据 sidecar 都存在、记录的 `sha256` 与新内容一致、
+  且条目未过期时触发。改动一个字节就会得到新的 `script_id` —— 这是有意为之：复用路径永远
+  指向你真正请求过的字节。
+
+消费方执行前必须复核：`resolve_materialized_script` 在路径不属于 materialization store 时
+返回 `None`，并且**失败即关闭**（fail closed），不会降级成「普通可信文件」——哈希/字节数/
+过期不匹配、元数据与 `file_path` 不一致、或路径逃出 root 时抛 `ValueError`；文件不存在时抛
+`FileNotFoundError`。不要捕获后继续执行。
+
+### 2. 只改 params —— 同一个 `file_path`，新的 `params`
+
+脚本落盘后，「改一个值」就是带上**同一个** `file_path` 和**新的** `params` 再调一次。不会
+重写文件，也不会再把源码传过边界。
+
+- 契约类型是 `FileBackedScriptExecutionParams`，携带 `file_path`、`params`、
+  `params_provided` 与 `parameters_schema`。
+- `parameters_schema` 由 `derive_script_parameters_schema` 从源码推导：它用 `ast` 解析模块
+  并检查 `main(**params)`，从不 import 或执行脚本。未标注、部分标注或不受支持的签名返回
+  `None`，调用方此时保持旧脚本语义，而不是呈现一个猜出来的契约。
+- 投递点是 `DccApiExecutor.execute_params`：只有 `params_provided` 为真时才带 `params` 跑
+  入口函数，否则退回普通执行。
+
+这里**没有 CLI flag，也没有 params 文件**。不要自己发明一个，也不要为了改一个参数重新
+materialize 一遍。
+
+### 3. 用 `workflows_resume` 续跑中断的工作流
+
+进程死亡时仍在运行的工作流会恢复成 `interrupted`。用 `workflows_resume` 续跑，而不是重放
+整条流程：
+
+```json
+{
+  "tool": "workflows_resume",
+  "arguments": {
+    "workflow_id": "0f9c2f1e-4b7a-4c8d-9e21-5a3f7c1d8e60",
+    "force_steps": ["qc"],
+    "expected_spec_hash": "abc123...",
+    "strict": true
+  }
+}
+```
+
+- `workflow_id` 必填。`force_steps` 会重跑指定步骤，即使它们已经是 `completed` —— 这是重做
+  已完成步骤的唯一方式。
+- `expected_spec_hash` 是调用方断言的规范 spec 的 SHA-256。默认 `strict=false` 时，哈希不
+  匹配只记一条警告并继续使用持久化的 spec；`strict=true` 时直接拒绝。
+- 成功返回 `workflow_id`、`root_job_id`、`status`（`pending`）、`resumed: true` 和回显的
+  `force_steps`；之后用 `workflows_get_status` 轮询。
+- 只有在执行器同时具备 `WorkflowStorage` **和** `job-persist-sqlite` feature 时才真正可用。
+  工具元数据是无条件注册的（所以 `tools/list` 会列出它），但没有该 feature 时 handler 不会
+  注册 —— 请把可用性当作部署属性，而不是 spec 属性。
+
+`workflows_resume` 是 Rust 侧的 MCP 工具：没有 Python 包装，也没有 CLI 子命令。通过 MCP
+`tools/call` 或 REST `/v1/call` 调用，目标服务器必须执行过
+`register_builtin_workflow_tools` 与 `register_workflow_handlers`。持久化运行的契约见
+[`workflows.md`](./workflows.md)。

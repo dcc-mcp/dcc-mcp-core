@@ -236,6 +236,41 @@ WorkflowExecutor::run(spec, inputs, parent)
 | `workflows_get_status` | 轮询终止状态 + 进度。 | `read_only_hint=true, idempotent_hint=true` |
 | `workflows_cancel` | 通过 `workflow_id` 取消运行（级联）。 | `destructive_hint=true, idempotent_hint=true` |
 | `workflows_lookup` | 目录搜索（只读）。 | `read_only_hint=true` |
+| `workflows_resume` | 从存储恢复已持久化的运行；跳过 `completed` 步骤；支持 `force_steps` + `expected_spec_hash`（#565）。需要 `WorkflowStorage`。 | `destructive_hint=true, idempotent_hint=true, open_world_hint=true` |
+
+### Resume (issue #565)
+
+对于能跨服务器重启存活的长流程，`workflows_resume` 会从第一个未完成的步骤重新驱动已持久化
+的 spec。执行器从 `WorkflowStorage` 读取持久化的 spec、inputs 与每步状态，用每个已记录
+`completed` 步骤的输出回填上下文（因此下游的 `steps.X.output` Mustache 引用仍然有效），
+然后继续向前执行 —— 每跳过一个步骤会发出一个 `step_skipped_resume` 事件。
+
+Wire shape:
+
+```jsonc
+{
+  "workflow_id": "<uuid>",
+  "force_steps": ["qc"],                 // 可选：即使已完成也重跑
+  "expected_spec_hash": "abc123...",     // 可选：调用方断言的哈希
+  "strict": true                          // 可选：哈希不匹配时拒绝
+}
+```
+
+`expected_spec_hash` 是规范 spec JSON 的 SHA-256 十六进制；可用
+`dcc_mcp_core::workflow::sqlite::compute_spec_hash` 计算。默认 `strict=false` 时，哈希不匹配
+只记一条 `WARN` 并继续使用持久化的 spec；`strict=true` 时恢复返回 `SpecChanged`，操作者必须
+先对账目录再重试。`force_steps` 是「下游修正后重跑这一步」的开关，也是重跑已 `completed`
+步骤的唯一方式。
+
+恢复要求执行器同时具备：
+
+- `WorkflowExecutorBuilder::storage(Arc<WorkflowStorage>)`，以及
+- `dcc-mcp-workflow/job-persist-sqlite` Cargo feature。
+
+没有 storage 时，`workflows_resume` 立即返回 `NoStorage`。
+
+Agent 侧的三步法（复用、仅改参数重跑、续跑）见
+[英文权威章节](../../guide/agents-reference.md#iteration-playbook)。
 
 ### 审批门控
 

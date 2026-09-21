@@ -318,6 +318,10 @@ Resume requires that the executor was built with both:
 
 Without storage, `workflows_resume` returns `NoStorage` immediately.
 
+For the agent-facing iteration loop that wraps this tool (script reuse, params-only
+reruns, resume), see
+[`agents-reference.md`](./agents-reference.md#iteration-playbook).
+
 ### Approval gating
 
 ```yaml

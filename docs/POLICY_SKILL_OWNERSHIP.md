@@ -146,3 +146,6 @@ Existing repositories with violations SHOULD:
 
 - Related: [ADR 003 — Thin-Harness Skill Authoring Pattern](./adr/003-thin-harness-skill-pattern.md)
 - See also: [Skills System](./guide/skills.md)
+- Related: script-reuse, params-only rerun, and workflow-resume guidance is normative in
+  [Agents Reference](./guide/agents-reference.md#iteration-playbook) — link to it from skill
+  documentation instead of restating it

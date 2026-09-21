@@ -1487,6 +1487,10 @@ using a generic local instance/session. New adapter APIs should prefer the
 structured descriptor so audit, replay, sandbox allowlists, and cleanup can use
 the same metadata.
 
+Re-running the same script is part of the [Iteration Playbook](#iteration-playbook):
+pass `reuse=True` with a stable `reuse_key` so a repeat call short-circuits
+instead of writing a second copy.
+
 `DccServerBase` adapters expose the same workflow as an agent-facing
 `materialize_script` MCP tool, discoverable through `search_tools` and callable
 through MCP `tools/call` or REST `/v1/call`. The tool accepts `content` (or
@@ -1756,7 +1760,9 @@ Key invariants:
 3. **Idempotency short-circuit happens *before* retry attempts.** A
    cache hit skips the step entirely; retries only guard live calls.
 4. **SQLite recovery flips non-terminal rows to `interrupted` — never
-   auto-resumes.** Resume is explicit opt-in via a separate tool.
+   auto-resumes.** Resume is explicit opt-in via a separate tool
+   (`workflows_resume`); see the [Iteration Playbook](#iteration-playbook)
+   for the call shape.
 5. **Approve gates block on `notifications/$/dcc.approveResponse`.**
    The HTTP handler for that notification calls
    `ApprovalGate::resolve(workflow_id, step_id, response)`.
@@ -1877,6 +1883,135 @@ Metric names live in [`docs/api/observability.md`](../api/observability.md);
 see there for Grafana PromQL examples. Counters advance from the
 `tools/call` wrapper in `handler.rs` — do not add recording sites
 elsewhere.
+
+---
+
+## Iteration Playbook
+
+Agent sessions in a DCC repeat the same three moves: re-run a script that
+already exists, change one value without rewriting the script, and pick a
+multi-step run back up after it died. Each move has a shipped mechanism. This
+section is the normative agent-facing entry point for all three.
+
+### 1. Reuse the materialized script — do not re-send source
+
+Call `materialize_script(..., reuse=True, reuse_key="...")` so a later call
+with identical bytes returns the **same** host path with `reused=True` instead
+of writing another copy:
+
+```text
+{root}/{dcc_type}/temp/{instance_id}/{session_id}/{script_id}{suffix}
+```
+
+- `root` defaults to `~/.dcc-mcp`; set `DCC_MCP_SCRIPT_MATERIALIZATION_ROOT`
+  when the script must live on a host-visible shared volume.
+- `script_id` is derived, never random, so the path is predictable:
+  `{reuse_key}_{sha256[:12]}` when `reuse=True` and a `reuse_key` is given,
+  the full `sha256` when `reuse=True` without one, and
+  `{prefix}_{uuid}_{sha256[:12]}` when `reuse=False`.
+- The reuse short-circuit fires only when the script **and** its JSON metadata
+  sidecar exist, the stored `sha256` equals the hash of the new content, and
+  the entry has not expired. Change a byte and you get a *new* script id under
+  the same `reuse_key` — that is deliberate: a reused path always points at the
+  bytes you actually asked for.
+
+Consumers re-verify before executing anything. `resolve_materialized_script`
+returns `None` when the path is not owned by the materialization store, and it
+**fails closed** rather than downgrading to a generic trusted file:
+`ValueError` on a hash/byte/expiry mismatch, on metadata that disagrees with
+`file_path`, or on a path that escapes the store root; `FileNotFoundError` when
+the file is gone. Do not swallow those and continue.
+
+```python
+from dcc_mcp_core import materialize_script
+
+script = materialize_script(
+    content,
+    dcc_type="maya",
+    instance_id="maya-2026-abcd",
+    session_id="mcp-session-1",
+    reuse=True,
+    reuse_key="create-sphere",
+    ttl_secs=3600,
+)
+# First call writes the file; an identical second call returns reused=True
+# with the same file_path. Pass script.file_path to the execution tool,
+# never the source text.
+```
+
+### 2. Iterate on params only — same `file_path`, new `params`
+
+Once a script is materialized, a "change one value" iteration is a call with
+the **same** `file_path` and a **new** `params` object. Nothing is rewritten
+and no source crosses the boundary again.
+
+- The contract type is `FileBackedScriptExecutionParams`. It carries
+  `file_path`, `params`, `params_provided`, and `parameters_schema` next to the
+  hash and byte-size metadata.
+- `parameters_schema` is produced by `derive_script_parameters_schema`, which
+  parses the module with `ast` and inspects `main(**params)`. It never imports
+  or executes the script. An untyped, partially typed, or unsupported signature
+  returns `None`, and callers then keep legacy script semantics instead of
+  presenting a guessed contract.
+- The dispatch point is `DccApiExecutor.execute_params`: the entrypoint runs
+  with `params` only when `params_provided` is set, and falls back to a plain
+  run otherwise.
+
+There is **no CLI flag and no params file** for this. Do not invent one, and do
+not re-materialize the script just to change an argument.
+
+```json
+{
+  "tool": "dcc_execute",
+  "arguments": {
+    "file_path": "~/.dcc-mcp/maya/temp/maya-2026-abcd/mcp-session-1/create-sphere_9f2c1b7d0e3a.py",
+    "params": { "radius": 4.0, "segments": 32 }
+  }
+}
+```
+
+Script-backed sidecar dispatch resolves its source through `script_path` and
+`source_file`, and fails with `no-source-file` when neither resolves. Pass the
+descriptor's `file_path` through every hop; an inline `code` fallback is not a
+reuse path.
+
+### 3. Resume an interrupted workflow with `workflows_resume`
+
+A workflow still in flight when the process died recovers as `interrupted`.
+Resume it through `workflows_resume` instead of replaying the whole run:
+
+```json
+{
+  "tool": "workflows_resume",
+  "arguments": {
+    "workflow_id": "0f9c2f1e-4b7a-4c8d-9e21-5a3f7c1d8e60",
+    "force_steps": ["qc"],
+    "expected_spec_hash": "abc123...",
+    "strict": true
+  }
+}
+```
+
+- `workflow_id` is required. `force_steps` re-runs the named steps even when
+  they already reached `completed` — it is the only way to redo a completed
+  step.
+- `expected_spec_hash` is the caller-asserted SHA-256 of the canonical spec.
+  With the default `strict=false` a mismatch logs a warning and continues with
+  the persisted spec; with `strict=true` the call refuses instead.
+- Success returns `workflow_id`, `root_job_id`, `status` (`pending`),
+  `resumed: true`, and the echoed `force_steps`. Poll the result with
+  `workflows_get_status`.
+- The tool is functional only when the executor was built with
+  `WorkflowStorage` **and** the `job-persist-sqlite` feature. Tool metadata is
+  registered unconditionally so `tools/list` advertises the surface, but the
+  handler is not registered without the feature — treat availability as a
+  deployment property, not a spec property.
+
+`workflows_resume` is a Rust-side MCP tool. It has no Python wrapper and no CLI
+subcommand: call it through MCP `tools/call` or REST `/v1/call` against a
+server that ran `register_builtin_workflow_tools` plus
+`register_workflow_handlers`. See [`docs/guide/workflows.md`](workflows.md) for
+the persisted-run contract.
 
 ---
 

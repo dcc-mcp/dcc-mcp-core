@@ -30,7 +30,7 @@ before falling back to raw scripting or scoped Computer Use.
 **Don't** call Maya/Blender/Python scripts directly — search once, follow the
 returned load/describe/call step, then invoke the typed tool.
 
-## 🚀 Agent Entry Strategy: CLI+REST (default) vs IDE MCP
+## Agent Entry Strategy: CLI+REST (default) vs IDE MCP
 
 **dcc-mcp-core offers two entry paths with a clear layered design. Choose based on your runtime:**
 
@@ -128,6 +128,7 @@ Start a new agent turn after installation.
 | AI-friendly index | `llms.txt` | When you need to *use* APIs |
 | Full index | `llms-full.txt` | When `llms.txt` lacks detail |
 | Detailed rules | [`docs/guide/agents-reference.md`](docs/guide/agents-reference.md) | Before writing code — traps, do/don't, code style |
+| Iteration loop | [`docs/guide/agents-reference.md#iteration-playbook`](docs/guide/agents-reference.md#iteration-playbook) | Script reuse, params-only reruns, workflow resume |
 | Conceptual docs | [`docs/guide/INDEX.md`](docs/guide/INDEX.md) + `docs/api/` | Building a new adapter or skill — see INDEX.md for topic list |
 | Skill authoring | [`dcc-mcp-skills-creator` on ClawHub](https://clawhub.ai/loonghao/skills/dcc-mcp-skills-creator) | Creating or modifying DCC-specific Skills |
 | Adapter developer guidance | [`dcc-mcp-creator` on ClawHub](https://clawhub.ai/loonghao/skills/dcc-mcp-creator) | Before creating or changing DCC adapter server/runtime wiring, dispatcher bridges, readiness, resources, gateway behavior, or core-escalation plans |
@@ -135,6 +136,22 @@ Start a new agent turn after installation.
 | Marketplace extension publishing | [`skills/marketplace-publish-extension/SKILL.md`](skills/marketplace-publish-extension/SKILL.md) | Before publishing a new skill package to the DCC-MCP marketplace |
 | Marketplace extension creation | [`skills/marketplace-create-extension/SKILL.md`](skills/marketplace-create-extension/SKILL.md) | Before creating a new marketplace extension package |
 | Gateway REST regressions (VRS) | [`tests/vrs/README.md`](tests/vrs/README.md) + `scripts/vrs_replay.py` | After gateway `/v1/*` or live-adapter bugs — add a JSONL trace per regression |
+
+---
+
+## Iteration Playbook
+
+Repeating work in a DCC host has one normative entry point:
+[`docs/guide/agents-reference.md`](docs/guide/agents-reference.md#iteration-playbook).
+
+1. **Re-run a script → reuse it.** Call `materialize_script(..., reuse=True, reuse_key="...")`
+   and pass the returned `file_path` back. A byte-identical repeat returns the same stable
+   path with `reused=True`; never re-send the source.
+2. **Change a value → change `params` only.** Re-send the same `file_path` with a new
+   `params` object. There is no CLI flag and no params file for this.
+3. **Recover a dead multi-step run → `workflows_resume`.** Pass `workflow_id`, plus optional
+   `force_steps` / `expected_spec_hash` / `strict`. Requires the executor to be built with
+   `WorkflowStorage` and the `job-persist-sqlite` feature.
 
 ---
 
@@ -157,7 +174,7 @@ Start a new agent turn after installation.
 
 **Why this project matters for AI agents**: dcc-mcp-core provides the **bridge between AI agents and DCC applications**. When you need to interact with Maya, Blender, Houdini, or any other DCC tool, **ALWAYS use dcc-mcp-core Skills** — they provide structured, validated, and safe MCP tools with built-in follow-up guidance.
 
-### 🎯 Skills-First Workflow (MEMORIZE THIS)
+### Skills-First Workflow (MEMORIZE THIS)
 
 **The default path for AI agents is CLI+REST through the gateway.** The per-DCC MCP server path is for IDE users and legacy setups.
 
