@@ -672,10 +672,27 @@ async fn test_challenger_recovers_live_but_service_dead_port_holder() {
 
     // The stale holder must be gone and the challenger must now serve the port
     // well enough to answer the readiness probe.
-    assert!(
-        !dcc_mcp_gateway_ensure::is_process_alive(holder.id()),
-        "the service-dead holder must not survive recovery"
-    );
+    //
+    // The holder is a child of this process, so on platforms that keep an
+    // exited child in the process table until its parent waits on it — macOS,
+    // where `kill -0` still succeeds for a zombie — the PID only disappears
+    // once we reap it. Reap while polling instead of asserting on a single
+    // instantaneous probe: the assertion then stays about recovery, not about
+    // process-table bookkeeping. The sibling assertion in
+    // `port_recovery_tests::service_dead_holder_is_reaped_and_the_port_is_released`
+    // does the same.
+    let reaped_deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        let _ = holder.try_wait();
+        if !dcc_mcp_gateway_ensure::is_process_alive(holder.id()) {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < reaped_deadline,
+            "the service-dead holder must not survive recovery"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
     assert_eq!(
         gateway_initialize_version(port).await.is_ok(),
         true,

@@ -96,9 +96,15 @@ fmt-check:
 # Run Rust unit/integration tests (nextest for unit/integration, cargo test for doctests).
 # nextest runs each test in its own process (≈2-3× faster on Windows-MSVC) but does
 # not run doctests, so we chain a `cargo test --doc` pass to preserve coverage.
+#
+# `--no-fail-fast` is required: nextest stops at the first failure by default,
+# so one flaky test silently skipped every remaining test in the run (the
+# weekly matrix once executed only 2345 of 4080 tests on Windows). Retries and
+# the slow-test ceiling live in `.config/nextest.toml`. A real regression is
+# still fatal — nextest exits non-zero once retries are exhausted.
 test-rust:
-    cargo nextest run --workspace
-    cargo nextest run -p dcc-mcp-job --features job-persist-sqlite
+    cargo nextest run --workspace --no-fail-fast
+    cargo nextest run -p dcc-mcp-job --features job-persist-sqlite --no-fail-fast
     cargo test --workspace --doc
     cargo test -p dcc-mcp-job --features job-persist-sqlite --doc
 
