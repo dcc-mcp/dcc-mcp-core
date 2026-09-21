@@ -23,6 +23,7 @@ explicit:
 | [0001](./0001-gateway-election-resilience.md) | Gateway Election Resilience | MCP clients dropping when a co-existing DCC starts; automatic failover when the gateway owner crashes; graceful handoff when the owner exits cleanly | Draft |
 | [0002](./0002-event-bus-and-webhooks.md) | Event Bus & Webhooks | Downstream DCC integrators need lifecycle, tool, and skill hooks without forking the server | Draft |
 | [0003](./0003-traffic-interception-and-replay.md) | Traffic Interception & Agent Debugging | Skill authors need opt-in protocol capture, replay, and diff tooling for empirical agent iteration | Draft |
+| [0004](./0004-modeling-spec-gate.md) | Modeling Spec Gate & Acceptance Contract | Modeling defects survive every machine stage and surface only at lookdev or compositing; the existing spec evaluator is untyped and never invoked | Draft |
 
 ## Dependency graph
 
@@ -37,6 +38,10 @@ explicit:
 
 0001 and 0002 can land in either order. 0003 is gated on 0002 P0, the
 `EventBus` primitive.
+
+0004 is independent of all three: it touches only the verification schema
+family and the declaration lint, and adds no runtime dependency on the
+event bus or on gateway election.
 
 ## Recommended landing order
 
