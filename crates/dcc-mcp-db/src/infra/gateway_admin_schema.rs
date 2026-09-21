@@ -122,8 +122,13 @@ CREATE TABLE IF NOT EXISTS script_promotion_counters (
 );
 -- #2253-E1: Durable agent-feedback reports so `dcc_feedback__report`
 -- submissions survive a gateway restart and stay queryable across instances.
--- `report_json` is the same object the per-DCC JSONL mirror writes, so the
--- SQLite read path and the JSONL fallback return identical admin entries.
+-- `report_json` is the object the per-DCC JSONL mirror writes plus the
+-- gateway-minted `id` / `timestamp` / `recorded_at` envelope. The admin read
+-- path merges both sources by `id` with this table winning, so the two are
+-- equivalent but not byte-identical.
+-- `occurred_at_ms` mirrors `recorded_at_ms`: the gateway only learns about a
+-- report when it is posted, so both mean "accepted by the gateway", and both
+-- retention pruning and the admin `range` cutoff are anchored on that instant.
 CREATE TABLE IF NOT EXISTS feedback_reports (
   id TEXT PRIMARY KEY NOT NULL,
   kind TEXT NOT NULL,

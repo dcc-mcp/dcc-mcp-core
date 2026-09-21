@@ -205,6 +205,15 @@ fn persist_feedback_report(gateway: &GatewayState, mut row: FeedbackReportRow, r
         };
         if let (Value::Object(extra), Value::Object(report)) = (&mut row.report, report) {
             extra.extend(report);
+            // Legacy `FeedbackReport` omits `dcc_type` entirely when the caller
+            // leaves it unset, while the column always stores the resolved value
+            // (`Submission::dcc_type` falls back to "gateway"). Without this
+            // backfill the row is selected by `?dcc=gateway` and then dropped by
+            // the admin reader's own `dcc_type` check, so a direct
+            // `POST /v1/feedback` caller could never see its report (#2253-E1).
+            if extra.get("dcc_type").is_none_or(Value::is_null) {
+                extra.insert("dcc_type".to_string(), Value::String(row.dcc_type.clone()));
+            }
         }
         lane.try_persist_feedback_report(&row);
     }

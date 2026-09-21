@@ -366,3 +366,153 @@ async fn feedback_reads_jsonl_mirror_when_sqlite_has_no_rows() {
     assert_eq!(body["total"], 1);
     assert_eq!(body["entries"][0]["id"], "legacy-mirror-row");
 }
+
+/// Post one report, then write the client-side JSONL mirror line for it.
+///
+/// This is the shape a Python client produces today: the gateway persists the
+/// row and the client mirrors it after receiving the 201, so the mirror carries
+/// a later `timestamp`. SQLite has to win that collision — otherwise `source`
+/// would claim the durable table served the response while every entry in it
+/// actually came from the mirror (#2253-E1).
+#[cfg(feature = "admin-persist-sqlite")]
+#[tokio::test]
+async fn sqlite_row_wins_when_the_jsonl_mirror_also_holds_the_report() {
+    use crate::gateway::admin::sqlite_lane::AdminSqliteLane;
+
+    let registry = tempfile::tempdir().unwrap();
+    let db_path = registry.path().join("admin.sqlite");
+
+    let feedback_id = {
+        let lane = AdminSqliteLane::spawn(db_path.clone(), 30).expect("spawn lane");
+        let mut gateway = make_gateway_state(registry.path());
+        gateway.admin_sqlite_lane = Some(lane);
+        let app = crate::gateway::router::build_gateway_router(gateway);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/feedback")
+                    .header(axum::http::header::CONTENT_TYPE, "application/json")
+                    .body(axum::body::Body::from(
+                        serde_json::to_vec(&json!({
+                            "tool_name": "maya.render.start",
+                            "intent": "Render a frame",
+                            "blocker": "Renderer unavailable",
+                            "severity": "blocked",
+                            "dcc_type": "maya",
+                        }))
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let bytes = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+        let receipt: Value = serde_json::from_slice(&bytes).unwrap();
+        // Dropping the router shuts the writer thread down and flushes the
+        // queue, so the row is durable before the mirror line is written.
+        receipt["feedback_id"].as_str().unwrap().to_string()
+    };
+
+    let feedback = feedback_dir(&registry);
+    std::fs::write(
+        feedback.join("maya-101.jsonl"),
+        format!(
+            "{}\n",
+            json!({
+                "id": feedback_id,
+                // The mirror is stamped after the receipt round-trip, so it is
+                // always newer than the row the gateway persisted.
+                "timestamp": now_secs() + 5.0,
+                "tool_name": "maya.render.start",
+                "intent": "Render a frame",
+                "blocker": "Renderer unavailable",
+                "severity": "blocked",
+                "dcc_type": "maya",
+                "mirror_only_marker": true,
+            })
+        ),
+    )
+    .unwrap();
+
+    let lane = AdminSqliteLane::spawn(db_path, 30).expect("respawn lane");
+    let state =
+        AdminState::new(make_gateway_state(registry.path())).with_admin_sqlite_lane(Some(lane));
+    let (status, body) = body_json(
+        build_admin_router(state),
+        "/api/feedback?range=all&limit=100",
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        body["source"], "sqlite",
+        "the mirror duplicate is dropped, so only durable rows are returned: {body}"
+    );
+    assert_eq!(body["total"], 1, "the report is not double-counted: {body}");
+    assert_eq!(body["deduplicated"], 1, "the mirror line is the duplicate");
+    assert_eq!(body["entries"][0]["id"], feedback_id);
+    assert_eq!(
+        body["entries"][0]["mirror_only_marker"],
+        Value::Null,
+        "the returned entry is the SQLite row, not the mirror line: {body}"
+    );
+    assert!(
+        body["entries"][0]["recorded_at"].is_string(),
+        "the SQLite envelope survives: {body}"
+    );
+}
+
+/// A legacy report that omits `dcc_type` is still findable on the SQLite path.
+///
+/// `FeedbackReport` skips the field when it is unset, so the legacy column
+/// falls back to `gateway` while the stored record would carry no `dcc_type`
+/// at all — which used to make the admin reader drop a row its own SQL had
+/// just selected (#2253-E1).
+#[cfg(feature = "admin-persist-sqlite")]
+#[tokio::test]
+async fn legacy_report_without_dcc_type_is_queryable_via_sqlite() {
+    use crate::gateway::admin::sqlite_lane::AdminSqliteLane;
+
+    let registry = tempfile::tempdir().unwrap();
+    let db_path = registry.path().join("admin.sqlite");
+
+    {
+        let lane = AdminSqliteLane::spawn(db_path.clone(), 30).expect("spawn lane");
+        let mut gateway = make_gateway_state(registry.path());
+        gateway.admin_sqlite_lane = Some(lane);
+        let app = crate::gateway::router::build_gateway_router(gateway);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/feedback")
+                    .header(axum::http::header::CONTENT_TYPE, "application/json")
+                    .body(axum::body::Body::from(
+                        serde_json::to_vec(&json!({
+                            "tool_name": "gateway.registry__list",
+                            "intent": "List the registry",
+                            "blocker": "The registry file was locked",
+                            "severity": "blocked",
+                        }))
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::CREATED);
+    }
+
+    let lane = AdminSqliteLane::spawn(db_path, 30).expect("respawn lane");
+    let state =
+        AdminState::new(make_gateway_state(registry.path())).with_admin_sqlite_lane(Some(lane));
+    let (status, body) = body_json(build_admin_router(state), "/api/feedback?dcc=gateway").await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["source"], "sqlite", "no JSONL mirror exists here");
+    assert_eq!(body["total"], 1, "?dcc=gateway finds the report: {body}");
+    assert_eq!(body["entries"][0]["dcc_type"], "gateway");
+    assert_eq!(body["entries"][0]["tool_name"], "gateway.registry__list");
+}
