@@ -515,6 +515,59 @@ def block_dangerous(ctx):
 server.register_lifecycle_hooks(hooks)
 ```
 
+#### Escape-Hatch Policy and Skill-Promotion Hints
+
+Generic scripting tools (`execute_python`, MaxScript-style eval, host script execution) are
+demoted by search ranking and gated at call time by `EscapeHatchPolicy`. Install it once per
+server; the helper accepts a `LifecycleHooks` registry **or** a server and returns the policy:
+
+```python
+from dcc_mcp_core import install_escape_hatch_policy
+
+# One-line host installation (creates and binds a registry if the server has none).
+policy = install_escape_hatch_policy(server)
+
+# Or install into your own registry, with tuning:
+policy = install_escape_hatch_policy(
+    hooks,
+    promotion_threshold=5,   # default 3
+    promotion_hints=True,    # default True; set False to silence hints
+)
+```
+
+**Deny behaviour.** Calling a tool with `tool_role="escape_hatch"` (or
+`risk="host_script_execution"`) without `meta.escape_hatch_reason` is rejected with a `HookDeny`
+whose `hint` tells you to search for a typed skill first. Denied calls are never counted as
+repeats.
+
+**Hint semantics.** Every justified escape-hatch call that carries a materialized
+`script_sha256` bumps an in-process repeat counter keyed by `(dcc_name, tool_name, sha256)`.
+Once a script has been run **more than** `promotion_threshold` times, the policy writes an
+advisory string into the hook payload under `PROMOTION_HINT_KEY`, and
+`dispatch_before_tool_call()` / `dispatch_after_tool_call()` return it to the host so it can be
+merged into the tool response. With the default threshold of 3 the hint first appears on the
+**fourth** run of the same script, and on every run after that:
+
+```text
+escape-hatch script 3f2a1b9c0d1e has now run 4 times (threshold 3); promote it to a typed
+skill instead of re-running it: candidate_id=script:07f295ef…, suggested_skill_name=maya-execute_python-3f2a1b9c.
+```
+
+- The hint is **advice, never a veto** — it reuses the same agent-facing remediation semantics
+as `HookDeny.hint` and adds no new response field type.
+- `candidate_id` is the same `script:<digest>` identity emitted by
+  `ObservabilityQuery.get_repeated_scripts`, so an in-process hint and a durable audit candidate
+  describe the same script.
+- `suggested_skill_name` is a deterministic, filesystem-safe name for the promoted skill.
+- `policy.promotion_candidates()` returns the current candidates; `policy.observed()` returns the
+  recorded invocations. Both are read-only snapshots.
+- Only script identity is tracked (bounded at 256 entries, oldest evicted). Script bodies and
+  prompt text are never retained.
+
+**Turning it off.** Pass `promotion_hints=False` to keep counting but stop emitting hints, or
+do not install the policy at all — the hook registry stays opt-in and every dispatch is a
+no-op when no registry is bound.
+
 ### 6. Agent Memory — Automatic Context Retention
 
 `MemoryRecorder` automatically records skill/tool outcomes and injects memory

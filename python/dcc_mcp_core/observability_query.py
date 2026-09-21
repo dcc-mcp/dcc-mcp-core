@@ -52,6 +52,12 @@ def _script_candidate_id(row: dict[str, Any]) -> str:
     return f"script:{digest}"
 
 
+# Public alias: the in-process escape-hatch promotion hint derives the same
+# ``script:`` identity so an advisory hint and a durable audit candidate can be
+# correlated without duplicating the digest algorithm.
+script_candidate_id = _script_candidate_id
+
+
 def build_query_response(
     query_type: str,
     data: dict[str, Any],
