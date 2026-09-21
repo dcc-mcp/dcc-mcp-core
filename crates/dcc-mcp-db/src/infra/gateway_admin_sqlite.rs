@@ -1261,4 +1261,66 @@ mod tests {
         assert!(events.iter().all(|event| event.contains("exp-a")));
         assert!(events.last().unwrap().contains("experiment.run.passed"));
     }
+
+    /// The `experiment_id` predicate must be applied in SQL ahead of `LIMIT`.
+    ///
+    /// Filtering in Rust after a bounded scan silently drops an experiment's
+    /// newest events once other experiments contribute more rows than the scan
+    /// window, which made a live experiment look empty.
+    #[test]
+    fn experiment_events_survive_a_flood_of_newer_foreign_events() {
+        let dir = tempdir().unwrap();
+        let db = dir.path().join("experiments.sqlite");
+        // Spawn the lane only to lay down the schema, then seed directly: the
+        // async lane uses a bounded try_send channel and drops events once it
+        // fills, which would mask the query behaviour under test.
+        drop(GatewayAdminSqliteLane::spawn(db.clone(), 30).expect("spawn"));
+
+        let mut conn = Connection::open(&db).expect("open");
+        let tx = conn.transaction().expect("transaction");
+        let seed = |tx: &rusqlite::Transaction<'_>,
+                    session: &str,
+                    event_type: &str,
+                    created_at_ms: i64,
+                    experiment_id: &str|
+         -> rusqlite::Result<()> {
+            let event_json = json!({
+                "session_id": session,
+                "event_type": event_type,
+                "created_at_ms": created_at_ms,
+                "experiment_id": experiment_id,
+            })
+            .to_string();
+            tx.execute(
+                "INSERT INTO session_events (session_id, event_type, created_at_ms, event_json)                  VALUES (?1, ?2, ?3, ?4)",
+                params![session, event_type, created_at_ms, event_json],
+            )?;
+            Ok(())
+        };
+
+        // The experiment under test is the oldest row in the timeline.
+        seed(&tx, "run-old", "experiment.created", 1, "exp-old").expect("seed");
+        // A second experiment floods the timeline with newer rows, far past any
+        // bounded scan window.
+        for index in 0..12_000_i64 {
+            seed(
+                &tx,
+                "run-noise",
+                "experiment.run.running",
+                100 + index,
+                "exp-noise",
+            )
+            .expect("seed noise");
+        }
+        tx.commit().expect("commit");
+
+        let reader = GatewayAdminSqliteReader::new(db);
+        let events = reader.list_experiment_events_json("exp-old", 10);
+        assert_eq!(
+            events.len(),
+            1,
+            "an experiment must stay visible regardless of newer foreign events"
+        );
+        assert!(events[0].contains("exp-old"));
+    }
 }

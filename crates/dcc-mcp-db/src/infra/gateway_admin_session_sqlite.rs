@@ -192,32 +192,26 @@ pub(super) fn list_experiment_events_json(
 ) -> Vec<String> {
     // ponytail: bounded scan avoids a second projection table; add an indexed
     // experiment_id column only after retained event volume makes this measurable.
+    // The predicate must live in SQL ahead of LIMIT: filtering in Rust after a
+    // bounded scan would drop an experiment's newest events whenever other
+    // experiments contributed more rows than the scan window.
     let mut stmt = match conn.prepare_cached(
-        "SELECT event_json FROM session_events WHERE event_type LIKE 'experiment.%' \
-         ORDER BY created_at_ms DESC, id DESC LIMIT 10000",
+        "SELECT event_json FROM session_events \
+         WHERE event_type LIKE 'experiment.%' \
+         AND json_extract(event_json, '$.experiment_id') = ?1 \
+         ORDER BY created_at_ms DESC, id DESC LIMIT ?2",
     ) {
         Ok(stmt) => stmt,
         Err(_) => return Vec::new(),
     };
-    let rows = stmt.query_map([], |row| row.get::<_, String>(0));
+    let rows = stmt.query_map(
+        params![experiment_id, limit.clamp(1, 1_000) as i64],
+        |row| row.get::<_, String>(0),
+    );
     let Ok(rows) = rows else {
         return Vec::new();
     };
-    let mut events = rows
-        .filter_map(Result::ok)
-        .filter(|event| {
-            serde_json::from_str::<serde_json::Value>(event)
-                .ok()
-                .and_then(|value| {
-                    value
-                        .get("experiment_id")
-                        .and_then(|value| value.as_str())
-                        .map(|value| value == experiment_id)
-                })
-                .unwrap_or(false)
-        })
-        .take(limit.clamp(1, 1_000))
-        .collect::<Vec<_>>();
+    let mut events = rows.filter_map(Result::ok).collect::<Vec<_>>();
     events.reverse();
     events
 }
