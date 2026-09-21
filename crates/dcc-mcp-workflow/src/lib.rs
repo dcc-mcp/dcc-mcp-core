@@ -21,7 +21,7 @@
 //! | [`catalog`]     | `WorkflowCatalog` from skill metadata |
 //! | [`sqlite`]      | SQLite persistence for workflow runs (gated behind `job-persist-sqlite`) |
 //! | [`tools`]       | `workflows_*` built-in MCP tool metadata + handler wiring |
-//! | [`bench`]       | Host-free benchmarking scaffolding (fake tool caller + scenario) |
+//! | [`bench`]       | Host-free benchmarking scaffolding (fake tool caller + scenario) — see the module docs for why it is public |
 //!
 //! See issue [#348](https://github.com/dcc-mcp/dcc-mcp-core/issues/348).
 

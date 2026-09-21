@@ -14,6 +14,21 @@
 //!   throughput trend.
 //!
 //! Neither is a PR merge gate on its own; see `.github/workflows`.
+//!
+//! # Why this is a public module and not feature-gated
+//!
+//! Both consumers are separate compilation units (an integration test and a
+//! criterion bench), so they can only reach this code through the crate's
+//! public API. Hiding it behind a cargo feature does not work: enabling a
+//! feature of the crate *under test* from its own dev-dependencies requires
+//! a self-referential dev-dependency, which is fragile and upsets feature
+//! unification.
+//!
+//! The cost is API surface, and it is small: nothing in the production
+//! executor references this module, so a release build that never calls it
+//! gets it eliminated as dead code. The upside is that the scenario and the
+//! latency model are shared verbatim between the regression harness and the
+//! benchmark, so the two cannot drift apart.
 
 pub mod fake_caller;
 
