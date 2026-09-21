@@ -117,10 +117,12 @@ therefore carries a hard constraint next to the optional member:
 > reported elsewhere or the check genuinely does not apply.
 
 That listing is the mechanism that converts a missing value into a visible
-gap. Under D3 an `unavailable` entry degrades the `euler` check to `unknown`
-and rolls the overall verdict up to `unknown`; a silently omitted `euler`
-still yields `pass`. `unavailable` already exists for precisely this purpose —
-the optional member declares the shape, `unavailable` declares the gap.
+gap. Under **D3/D4** — D4's table degrades any check named in `unavailable`
+to `unknown`, and D3's roll-up turns a single `unknown` into an overall
+`unknown` — declaring `euler` unavailable yields `unknown`; a silently
+omitted `euler` still yields `pass`. `unavailable` already exists for
+precisely this purpose: the optional member declares the shape, `unavailable`
+declares the gap.
 
 Note that the current evaluator does not yet read `unavailable`; it only
 consumes it once D3 lands. Until then this is a contract obligation on adapter

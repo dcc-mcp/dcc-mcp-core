@@ -17,8 +17,14 @@ caller should read this module as promising that unlisted checks are skipped.
 
 Because every checker runs, an adapter that cannot populate a checker's input
 is expected to declare that check in the state export's ``unavailable`` field
-(RFC 0004, D1 and D3) so the gap rolls up to ``unknown`` instead of passing
-silently.
+(RFC 0004, D1), so that once D3 lands the gap rolls up to ``unknown`` instead
+of passing silently.
+
+**This function does not read ``unavailable`` yet.** It only gains that
+behaviour when D3 ships; today a declared gap is still reported as ``pass``
+for that check. Listing a check in ``unavailable`` is therefore a contract
+obligation on the adapter's export, not a guarantee about the verdict this
+function returns now.
 """
 
 from __future__ import annotations
