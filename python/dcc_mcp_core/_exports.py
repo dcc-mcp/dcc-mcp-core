@@ -337,7 +337,6 @@ _ALL_LAZY: dict[str, str] = {
     # Skill promotion proposals (escape-hatch repetition -> advisory proposal)
     "DECISION_MANUAL_REVIEW": "dcc_mcp_core.skill_promotion",
     "DECISION_PROPOSE_SKILL": "dcc_mcp_core.skill_promotion",
-    "DEFAULT_PROMOTION_THRESHOLD": "dcc_mcp_core.skill_promotion",
     "RECOMMENDED_ACTION_REVIEW_ONLY": "dcc_mcp_core.skill_promotion",
     "SkillPromotionProposal": "dcc_mcp_core.skill_promotion",
     "build_skill_promotion_proposal": "dcc_mcp_core.skill_promotion",
