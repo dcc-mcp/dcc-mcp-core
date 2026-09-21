@@ -1,9 +1,15 @@
 # Install dcc-mcp-DCC_SLUG
 
+<!-- install-sop-version: 1 -->
+
 <!--
 Replace every `{placeholder}`. Keep this runbook aligned with executable tests
 and the adapter catalog instructions_url. Do not include workstation-specific
 paths, credentials, or unpublished artifacts.
+
+Keep the SOP version marker above. The catalog publisher parses it at the
+release commit and records install.sop_version for this adapter. Bump it only
+when this runbook adopts a new Install SOP version.
 -->
 
 This runbook installs, verifies, upgrades, and removes the DCC-MCP adapter for

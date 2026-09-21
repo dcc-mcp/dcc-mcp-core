@@ -104,6 +104,17 @@ The adapter catalog `instructions_url` must be:
 https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-<dcc>/main/install.md
 ```
 
+The runbook header must declare the Install SOP version it follows:
+
+```html
+<!-- install-sop-version: 1 -->
+```
+
+The value is an integer between `1` and `999999`; `1` is the current version.
+The catalog publisher parses that marker at the release commit and records
+`install.sop_version` for the adapter, so a malformed or out-of-range
+declaration fails the refresh instead of being dropped silently.
+
 The README links to `install.md`; it does not duplicate or weaken the runbook.
 
 ## 4. adapter_version & Readiness Boilerplate
