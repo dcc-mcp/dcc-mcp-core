@@ -65,6 +65,13 @@ async fn http_capabilities_match_provider_support_without_changing_legacy() {
                 let mut expected = json!({"tools": {"listChanged": false}});
                 if enable_resources {
                     expected["resources"] = json!({"subscribe": false, "listChanged": false});
+                    // The skills extension is served over the Resources
+                    // primitive, so a server advertising resources also
+                    // advertises the extension. It is implemented, so this
+                    // "advertises only implemented capabilities" contract
+                    // must list it.
+                    expected["extensions"] =
+                        json!({"io.modelcontextprotocol/skills": {"directoryRead": true}});
                 }
                 if enable_prompts {
                     expected["prompts"] = json!({"listChanged": false});
@@ -95,6 +102,9 @@ async fn http_capabilities_match_provider_support_without_changing_legacy() {
             )
             .await;
             let capabilities = &legacy["result"]["capabilities"];
+            // The extension is stateless-only; the legacy lifecycle never
+            // advertises it.
+            assert!(capabilities.get("extensions").is_none());
             assert_eq!(capabilities.get("resources").is_some(), enable_resources);
             assert_eq!(capabilities.get("prompts").is_some(), enable_prompts);
             assert_eq!(capabilities["tools"]["listChanged"], true);

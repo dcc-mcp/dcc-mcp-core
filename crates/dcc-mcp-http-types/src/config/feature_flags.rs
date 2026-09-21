@@ -42,6 +42,17 @@ pub struct FeatureFlags {
     #[serde(default = "default_true")]
     pub enable_prompts: bool,
 
+    /// Advertise the `io.modelcontextprotocol/skills` extension on the
+    /// 2026-07-28 stateless path, serving `skills/list`, `skills/get` and
+    /// `resources/directory/read` alongside the existing `*_skills` tools.
+    ///
+    /// The declaration also requires the `resources` capability, so this flag
+    /// is only honoured together with `enable_resources`. It has no effect on
+    /// the legacy session protocol: the extension is specified against base
+    /// revision 2026-07-28 or later.
+    #[serde(default = "default_true")]
+    pub enable_skills_extension: bool,
+
     /// Expose `artefact://` resources (issue #349).
     #[serde(default)]
     pub enable_artefact_resources: bool,
@@ -92,6 +103,7 @@ impl Default for FeatureFlags {
             bare_tool_names: true,
             enable_resources: true,
             enable_prompts: true,
+            enable_skills_extension: true,
             enable_artefact_resources: false,
             enable_job_notifications: true,
             shutdown_on_drop: false,

@@ -14,6 +14,25 @@ from dcc_mcp_core import McpHttpServer
 from dcc_mcp_core import ToolRegistry
 from dcc_mcp_core import create_skill_server
 
+# MCP methods whose result extends the base `CacheableResult` and must
+# therefore carry `ttlMs` / `cacheScope`. Mirrors
+# `dcc_mcp_jsonrpc::CACHEABLE_RESULT_METHODS` in the Rust crate: adding a
+# cacheable method server-side means adding it here too.
+_CACHEABLE_METHODS = frozenset(
+    {
+        "server/discover",
+        "tools/list",
+        "prompts/list",
+        "resources/list",
+        "resources/read",
+        # io.modelcontextprotocol/skills — both extend CacheableResult.
+        "skills/list",
+        "skills/get",
+        # `resources/directory/read` extends only PaginatedResult, so it is
+        # deliberately absent.
+    }
+)
+
 
 def _request(url, method, params=None, session=None, modern=True, expected_status=200):
     params = dict(params or {})
@@ -48,7 +67,10 @@ def _request(url, method, params=None, session=None, modern=True, expected_statu
                 result = body["result"]
                 assert result["resultType"] == "complete"
                 assert isinstance(result["_meta"]["io.modelcontextprotocol/serverInfo"], dict)
-                if method in ("server/discover", "resources/list", "resources/read", "prompts/list"):
+                if method in _CACHEABLE_METHODS:
+                    # `ttlMs` / `cacheScope` are REQUIRED on every result that
+                    # extends the base CacheableResult; they are a freshness
+                    # hint, so the server sets them to 0 / private.
                     assert result["ttlMs"] == 0
                     assert result["cacheScope"] == "private"
                 else:
@@ -113,9 +135,26 @@ def test_stateless_resource_list_and_read_use_the_registered_provider(provider_s
     url, session = provider_server
     legacy, _ = _request(url, "resources/list", session=session, modern=False)
     modern, _ = _request(url, "resources/list")
-    assert {row["uri"] for row in modern["result"]["resources"]} == {
-        row["uri"] for row in legacy["result"]["resources"]
-    }
+    legacy_uris = {row["uri"] for row in legacy["result"]["resources"]}
+    modern_uris = {row["uri"] for row in modern["result"]["resources"]}
+
+    # The registered provider's own resources must survive on both paths.
+    # Subset, not equality: the stateless path also advertises skills.
+    provider_uris = {"audit://recent", "scene://current", "scene://delta"}
+    assert provider_uris <= legacy_uris
+    assert provider_uris <= modern_uris
+
+    # The extension advertises exactly one entry per published skill — the
+    # skill's SKILL.md. Derive the expectation from skills/list instead of
+    # hard-coding a skill inventory, which would break whenever the catalog
+    # changes (same class of bug as hard-coding a shipped version number).
+    published, _ = _request(url, "skills/list")
+    expected_skill_uris = {entry["uri"] for entry in published["result"]["skills"]}
+    assert {uri for uri in modern_uris if uri.startswith("skill://")} == expected_skill_uris
+    # The legacy lifecycle has no extension, so it advertises no skills.
+    assert not [uri for uri in legacy_uris if uri.startswith("skill://")]
+    assert expected_skill_uris, "the fixture should publish at least one skill"
+
     assert any(row["uri"] == "scene://current" for row in modern["result"]["resources"])
     legacy, _ = _request(url, "resources/read", {"uri": "scene://current"}, session, modern=False)
     modern, _ = _request(url, "resources/read", {"uri": "scene://current"})

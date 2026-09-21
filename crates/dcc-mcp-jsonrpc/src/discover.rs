@@ -51,9 +51,53 @@ pub type ServerDiscoverResult = DiscoverResult;
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TasksCapability {}
 
+/// Extension identifier for the MCP Skills extension.
+///
+/// A server that declares it MUST implement `skills/list` and `skills/get`,
+/// and MUST also declare the `resources` capability.
+pub const SKILLS_EXTENSION_ID: &str = "io.modelcontextprotocol/skills";
+
+/// The `extensions` object of [`StatelessServerCapabilities`].
+///
+/// Keys are extension identifiers; each value is that extension's own
+/// settings object. Unknown extensions deserialize into `None` here rather
+/// than failing, so a server that does not implement an extension can still
+/// parse a peer's capabilities.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ServerExtensionsCapability {
+    /// `io.modelcontextprotocol/skills` — Skills over MCP (ext-skills).
+    #[serde(
+        rename = "io.modelcontextprotocol/skills",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub skills: Option<SkillsExtensionCapability>,
+}
+
+impl ServerExtensionsCapability {
+    /// Return `true` when no extension is declared and the object should be
+    /// omitted from the wire entirely.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.skills.is_none()
+    }
+}
+
+/// Settings for the [`SKILLS_EXTENSION_ID`] extension.
+///
+/// An empty object (all defaults) indicates support with no optional
+/// features.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SkillsExtensionCapability {
+    /// The server implements `resources/directory/read`. Clients MUST NOT
+    /// call that method when this is `false`.
+    pub directory_read: bool,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::StatelessServerCapabilities;
     use serde_json::json;
 
     // ── ServerDiscoverResult round-trip ─────────────────────────────────────
@@ -70,6 +114,7 @@ mod tests {
                 }),
                 prompts: Some(Discover2026PromptsCapability { list_changed: true }),
                 tasks: Some(TasksCapability {}),
+                extensions: None,
                 experimental: None,
             },
             instructions: Some("Direct DCC workflow".to_string()),
@@ -119,6 +164,67 @@ mod tests {
         assert_eq!(*caps, json!({}), "empty caps must be {{}}");
     }
 
+    // ── Skills extension declaration ──────────────────────────────────────
+
+    #[test]
+    fn skills_extension_serialises_under_its_dotted_identifier() {
+        let caps = StatelessServerCapabilities {
+            resources: Some(Discover2026ResourcesCapability::default()),
+            extensions: Some(ServerExtensionsCapability {
+                skills: Some(SkillsExtensionCapability {
+                    directory_read: true,
+                }),
+            }),
+            ..Default::default()
+        };
+        let json = serde_json::to_value(&caps).unwrap();
+
+        let skills = &json["extensions"][SKILLS_EXTENSION_ID];
+        assert_eq!(skills["directoryRead"], true, "got: {json}");
+        assert!(json["extensions"].get("skills").is_none());
+    }
+
+    #[test]
+    fn skills_extension_default_omits_optional_settings_object() {
+        let caps = StatelessServerCapabilities {
+            extensions: Some(ServerExtensionsCapability::default()),
+            ..Default::default()
+        };
+        let json = serde_json::to_value(&caps).unwrap();
+        // An empty extensions object is still a valid declaration.
+        assert_eq!(json["extensions"], json!({}), "got: {json}");
+        assert!(ServerExtensionsCapability::default().is_empty());
+    }
+
+    #[test]
+    fn undeclared_extensions_are_omitted_from_the_wire() {
+        let caps = StatelessServerCapabilities::default();
+        let json = serde_json::to_value(&caps).unwrap();
+        assert!(json.get("extensions").is_none(), "got: {json}");
+    }
+
+    #[test]
+    fn skills_extension_round_trips() {
+        let original = ServerExtensionsCapability {
+            skills: Some(SkillsExtensionCapability {
+                directory_read: true,
+            }),
+        };
+        let json = serde_json::to_string(&original).unwrap();
+        let recovered: ServerExtensionsCapability = serde_json::from_str(&json).unwrap();
+        assert_eq!(recovered.skills, original.skills);
+    }
+
+    #[test]
+    fn unknown_extensions_deserialize_without_failing() {
+        let caps: StatelessServerCapabilities = serde_json::from_str(
+            r#"{"extensions": {"io.modelcontextprotocol/ui": {"version": "1"}}}"#,
+        )
+        .expect("unknown extensions must not break parsing");
+        assert!(caps.extensions.is_some());
+        assert!(caps.extensions.unwrap().skills.is_none());
+    }
+
     #[test]
     fn server_discover_result_roundtrip() {
         let original = ServerDiscoverResult {
@@ -128,6 +234,7 @@ mod tests {
                 resources: None,
                 prompts: None,
                 tasks: Some(TasksCapability {}),
+                extensions: None,
                 experimental: Some(json!({"dcc-mcp": {"compactResponses": true}})),
             },
             instructions: None,

@@ -149,6 +149,24 @@ fn service(
     enable_resources: bool,
     enable_prompts: bool,
 ) -> StatelessMcpService {
+    service_with(
+        provider,
+        FeatureFlags {
+            enable_resources,
+            enable_prompts,
+            // The providers tests assert the shared-provider contract, so the
+            // skills extension is switched off to keep `resources` tied to the
+            // provider alone. `skills_tests.rs` covers the extension path.
+            enable_skills_extension: false,
+            ..FeatureFlags::default()
+        },
+    )
+}
+
+fn service_with(
+    provider: Option<Arc<FixtureProvider>>,
+    features: FeatureFlags,
+) -> StatelessMcpService {
     let registry = Arc::new(ToolRegistry::new());
     let dispatcher = Arc::new(ToolDispatcher::new((*registry).clone()));
     let catalog = Arc::new(SkillCatalog::new_with_dispatcher(
@@ -156,11 +174,7 @@ fn service(
         Arc::clone(&dispatcher),
     ));
     let state = ServerState::builder(registry, dispatcher, catalog)
-        .with_features(FeatureFlags {
-            enable_resources,
-            enable_prompts,
-            ..FeatureFlags::default()
-        })
+        .with_features(features)
         .build();
     let context = Arc::new(RegistryContext {
         resource_provider: provider
@@ -661,4 +675,72 @@ async fn discover_does_not_advertise_absent_resource_or_prompt_providers() {
     assert!(capabilities.get("resources").is_none());
     assert!(capabilities.get("prompts").is_none());
     assert!(capabilities.get("tasks").is_none());
+}
+
+/// The extension is served through `resources/read`, so declaring it forces
+/// the `resources` capability even with no shared provider wired up.
+#[tokio::test]
+async fn skills_extension_forces_the_resources_capability() {
+    for (enable_resources, enable_skills_extension) in
+        [(true, true), (true, false), (false, true), (false, false)]
+    {
+        let service = service_with(
+            None,
+            FeatureFlags {
+                enable_resources,
+                enable_skills_extension,
+                enable_prompts: false,
+                ..FeatureFlags::default()
+            },
+        );
+        let response = call(&service, "server/discover", None).await;
+        let capabilities = &response["result"]["capabilities"];
+
+        let expected = enable_resources && enable_skills_extension;
+        assert_eq!(
+            capabilities.get("resources").is_some(),
+            expected,
+            "resources={enable_resources}, skills={enable_skills_extension}: {capabilities}"
+        );
+        assert_eq!(
+            capabilities
+                .get("extensions")
+                .and_then(|extensions| extensions.get("io.modelcontextprotocol/skills"))
+                .is_some(),
+            expected,
+            "resources={enable_resources}, skills={enable_skills_extension}: {capabilities}"
+        );
+        if expected {
+            assert_eq!(
+                capabilities["extensions"]["io.modelcontextprotocol/skills"]["directoryRead"],
+                true
+            );
+        }
+    }
+}
+
+/// With the extension on and no shared provider, the resources surface is
+/// still fully served — a declared capability must never 404.
+#[tokio::test]
+async fn skills_extension_serves_resources_without_a_shared_provider() {
+    let service = service_with(
+        None,
+        FeatureFlags {
+            enable_resources: true,
+            enable_skills_extension: true,
+            enable_prompts: false,
+            ..FeatureFlags::default()
+        },
+    );
+    let response = call(&service, "resources/list", None).await;
+    assert!(response["result"]["resources"].is_array());
+
+    // A non-skill URI is not served, but the method itself is recognized.
+    let response = call(
+        &service,
+        "resources/read",
+        Some(json!({"uri": "scene://missing"})),
+    )
+    .await;
+    assert_eq!(response["error"]["code"], -32602);
 }

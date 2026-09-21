@@ -68,6 +68,8 @@ mod build;
         enable_artefact_resources => features.enable_artefact_resources: bool => [get, set],
         /// Advertise MCP prompts.
         enable_prompts => features.enable_prompts: bool => [get, set],
+        /// Advertise the MCP Skills extension on the 2026-07-28 stateless path.
+        enable_skills_extension => features.enable_skills_extension: bool => [get, set],
         /// Treat the standalone interpreter as the main-thread lane.
         standalone_main_thread_execution => features.standalone_main_thread_execution: bool => [get, set],
         /// Gateway election port.

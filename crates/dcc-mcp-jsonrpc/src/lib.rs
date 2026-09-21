@@ -23,6 +23,7 @@
 //! | `discover.rs`             | `ServerDiscoverResult` / `DiscoverCapabilities` / `TasksCapability` / `StatelessRequestMeta` (2026-07-28) |
 //! | `tools.rs`                | `ListToolsResult` / `McpTool` / `McpToolAnnotations` / `CallTool*` / `ToolContent` |
 //! | `resources.rs`            | `McpResource` / `ListResourcesResult` / `ReadResource*` / `ResourceContents` / `SubscribeResourceParams` + `RESOURCE_NOT_ENABLED_ERROR` |
+//! | `skills.rs`               | `io.modelcontextprotocol/skills` extension: `Skill` / `SkillResources` / `ListSkillsResult` / `GetSkill*` / `ReadResourceDirectory*` |
 //! | `prompts.rs`              | `McpPrompt` / `McpPromptArgument` / `ListPromptsResult` / `GetPrompt*` / `McpPromptMessage` / `McpPromptContent` |
 //! | `sse.rs`                  | `format_sse_event` + `encode_cursor` / `decode_cursor` pagination helpers |
 //! | `notification_builder.rs` | `NotificationBuilder` / `JsonRpcRequestBuilder` — fluent envelope construction (#484) |
@@ -38,13 +39,15 @@ mod notification_builder;
 mod param_headers;
 mod prompts;
 mod resources;
+mod skills;
 mod sse;
 mod standard_headers;
 mod tools;
 
 pub use discover::{
     Discover2026PromptsCapability, Discover2026ResourcesCapability, Discover2026ToolsCapability,
-    DiscoverCapabilities, DiscoverServerInfo, ServerDiscoverResult, StatelessClientInfo,
+    DiscoverCapabilities, DiscoverServerInfo, SKILLS_EXTENSION_ID, ServerDiscoverResult,
+    ServerExtensionsCapability, SkillsExtensionCapability, StatelessClientInfo,
     StatelessRequestMeta, TasksCapability,
 };
 pub use envelope::{
@@ -79,6 +82,11 @@ pub use prompts::{
 pub use resources::{
     ListResourcesResult, McpResource, RESOURCE_NOT_ENABLED_ERROR, ReadResourceParams,
     ReadResourceResult, ResourceContents, SubscribeResourceParams,
+};
+pub use skills::{
+    DYNAMIC_RESOURCES, GetSkillParams, GetSkillResult, ListSkillsResult,
+    RESOURCE_DIRECTORY_READ_METHOD, ReadResourceDirectoryParams, ReadResourceDirectoryResult,
+    SKILLS_GET_METHOD, SKILLS_LIST_METHOD, Skill, SkillResource, SkillResources,
 };
 pub use sse::{decode_cursor, encode_cursor, format_sse_event};
 pub use standard_headers::{decode_mcp_header_value, encode_mcp_header_value, mcp_name_source};
