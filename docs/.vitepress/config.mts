@@ -225,6 +225,7 @@ export default defineConfig({
                 { text: '0001: Gateway Election Resilience', link: '/rfcs/0001-gateway-election-resilience' },
                 { text: '0002: Event Bus & Webhooks', link: '/rfcs/0002-event-bus-and-webhooks' },
                 { text: '0003: Traffic Interception & Agent Debugging', link: '/rfcs/0003-traffic-interception-and-replay' },
+                { text: '0004: Modeling Spec Gate & Acceptance Contract', link: '/rfcs/0004-modeling-spec-gate' },
               ],
             }
           ]

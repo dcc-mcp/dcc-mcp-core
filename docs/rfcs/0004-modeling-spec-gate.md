@@ -1,6 +1,12 @@
-# RFC-0004: Modeling Spec Gate and Acceptance Contract
+# RFC 0004 - Modeling Spec Gate and Acceptance Contract
 
-Status: Proposed
+**Status**: Draft
+**Target repo**: `dcc-mcp-core` (consumed by downstream adapters through the flat `dcc-mcp-core` dependency)
+**Authors**: dcc-mcp-core contributors
+**Date**: 2026-09-21
+**Depends on**: None. This RFC touches only the verification schema family and the declaration lint, and adds no runtime dependency on RFC 0001-0003.
+
+---
 
 ## Summary
 
@@ -55,11 +61,16 @@ declares the `spec` argument as `{"type": "object"}`. A caller who misspells
 class can be silently disarmed by a typo.
 
 **4. The enforcement machinery already exists, split unevenly across the two
-boundaries.** Call arguments are validated against `input_schema` at dispatch
-(`select_strategy` selects a `SchemaValidator` for every non-empty schema).
-`output_schema` is a first-class declaration field — on `ToolDeclaration`, and
-as `output_schema` / `outputSchema` in `tools.yaml` — but **no code path
-validates a result against it**; every gateway construction site passes `None`.
+boundaries.** Call arguments are validated against `input_schema` at dispatch:
+`select_strategy` returns a `SchemaValidator` whenever a `ToolMeta` is present
+and its schema is non-empty, and a `NoOpValidator` otherwise (no `ToolMeta`, an
+empty schema with `skip_empty_schema_validation` set, or the default schema).
+`output_schema` is a first-class declaration field on `ToolDeclaration`, spelled
+`output_schema` in `tools.yaml` — the camel-case `outputSchema` is only the MCP
+wire spelling and is explicitly rejected as a `tools.yaml` key — but **no code
+path validates a result against it**; the gateway, gateway-core, and
+http-server builders all pass `None`, and the one call site that does pass a
+real schema (`script_materialization_tools`) is never validated against it.
 Separately, `dcc_mcp_core.verification.lint.find_unpaired_write_verbs` already
 implements a mechanical declaration rule that every write verb must ship a
 paired read-only state export. That lint is library-only: nothing invokes it in
@@ -122,7 +133,9 @@ adapter that exports nothing passes every check.
 per check and rolled up: any `fail` wins, otherwise any `unknown` wins,
 otherwise `pass`. Retain `passed` as `status == "pass"` for one migration
 window, the same deprecation shape ADR-022 used for the legacy `ToolResult`
-import.
+import: a behavior-compatible alias, one migration window, and a
+`DeprecationWarning` emitted on read so the remaining callers can be counted
+instead of guessed at when the window closes.
 
 **Why.** This follows an accepted precedent rather than inventing one.
 `production-acceptance-v1` ships `UNKNOWN`, `NOT_RUN`, `BLOCKED`, and
@@ -192,8 +205,19 @@ entirely is the wrong fix.
 **Narrow GO.** Enforce `output_schema` only for tools whose result *is* a
 versioned state export — the `dcc-mcp/*@1` family. Those are the documents other
 code consumes structurally, and silent shape drift in them is the class behind
-the evaluation's response-desync findings. Opt-in per tool, deny-by-default when
-absent, validated at the same site input is validated today.
+the evaluation's response-desync findings. Adoption is opt-in per tool: a tool
+that does not declare a state export is untouched, and one that does declare one
+is rejected when the declaration is absent or the result fails it. Validation
+runs at the same site input is validated today.
+
+**Current width: zero.** No tool in this tree is in the enforced set today —
+the four existing schema names appear only in `verification/schemas.py`, its
+re-exports, and tests, and no `skills/*/tools.yaml` declares `output_schema`.
+This decision is therefore sequenced last: it has no effect until D1 has landed
+and at least one adapter publishes a `dcc-mcp/model-state@1` export.
+
+**Dependency.** D1, plus at least one tool declaring a versioned state export.
+Land after D1 and D5.
 
 **NO-GO for all tools.** Mutation results are heterogeneous by design and
 ADR-022's envelope (`success`, `message`, `error`, `postcondition`, `_meta`) is
