@@ -2,6 +2,19 @@
   "$id": "https://dcc-mcp.github.io/schemas/adapter-install-sop-v1.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$defs": {
+    "catalog_provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "latest_checked"],
+      "properties": {
+        "source": { "enum": ["remote", "cache", "bundled", "explicit", "unavailable"] },
+        "latest_checked": { "type": "boolean" },
+        "sha256": { "type": "string", "pattern": "^[a-fA-F0-9]{64}$" },
+        "source_revision": { "type": "string", "pattern": "^[a-fA-F0-9]{40}$" },
+        "issued_at": { "type": "integer", "minimum": 0 },
+        "expires_at": { "type": "integer", "minimum": 0 }
+      }
+    },
     "file_edit": {
       "allOf": [
         {
@@ -163,6 +176,7 @@
     }
   },
   "properties": {
+    "catalog": { "$ref": "#/$defs/catalog_provenance" },
     "adapter_version": {
       "minLength": 1,
       "type": "string"
