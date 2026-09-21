@@ -13,6 +13,7 @@ use rusqlite::{Connection, ToSql, params, params_from_iter};
 use serde::Deserialize;
 use serde_json::json;
 
+use crate::domain::error::DbError;
 use crate::domain::feedback_report::{FeedbackReportInsert, FeedbackReportRow};
 use crate::domain::gateway_admin_audit::GatewayAdminAuditPersistedJson;
 use crate::domain::gateway_admin_deregistered::GatewayDeregisteredInstanceJson;
@@ -251,14 +252,6 @@ impl GatewayAdminSqliteReader {
             return Vec::new();
         };
         session::list_all_tool_calls_json(&conn, limit, session_id)
-    }
-
-    /// Most recently seen feedback reports, newest first, bounded by `limit`.
-    pub fn list_feedback_reports_json(&self, limit: usize) -> Vec<String> {
-        let Some(conn) = self.open_ro() else {
-            return Vec::new();
-        };
-        feedback::list_feedback_reports_json(&conn, limit)
     }
 
     /// Look up one report by its `(repo, fingerprint)` dedup key.
@@ -591,10 +584,12 @@ impl GatewayAdminSqliteLane {
     pub fn upsert_feedback_report(
         &self,
         row: &FeedbackReportInsert,
-    ) -> Result<FeedbackReportRow, String> {
+    ) -> Result<FeedbackReportRow, DbError> {
         let path = self.path();
-        let mut conn = Connection::open(path).map_err(|e| e.to_string())?;
-        conn.execute_batch(SCHEMA).map_err(|e| e.to_string())?;
+        let mut conn =
+            Connection::open(path).map_err(|error| DbError::Backend(error.to_string()))?;
+        conn.execute_batch(SCHEMA)
+            .map_err(|error| DbError::Backend(error.to_string()))?;
         feedback::upsert_feedback_report(&mut conn, row)
     }
 

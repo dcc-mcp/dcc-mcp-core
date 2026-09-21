@@ -8,6 +8,7 @@
 
 use rusqlite::{Connection, params};
 
+use crate::domain::error::DbError;
 use crate::domain::feedback_report::{FeedbackReportInsert, FeedbackReportRow};
 
 const FEEDBACK_REPORT_COLUMNS: &str = "id, repo, fingerprint, issues_url, route_rationale, dcc_type, \
@@ -35,18 +36,27 @@ fn row_to_feedback_report(row: &rusqlite::Row<'_>) -> rusqlite::Result<FeedbackR
 /// The `ON CONFLICT` clause is what makes ingest idempotent: the unique index
 /// turns a repeat report into an `occurrence_count` increment and a
 /// `last_seen_ms` refresh, leaving exactly one row per finding per repo.
+///
+/// `observed_at_ms` comes from the reporting host, so clocks can disagree or
+/// step backwards across instances. `first_seen_ms`/`last_seen_ms` are
+/// therefore clamped with `MIN`/`MAX` instead of overwritten, keeping the
+/// window monotonic. `list_feedback_reports` orders by `last_seen_ms DESC`,
+/// so an unclamped regression would reorder the list.
 pub(super) fn upsert_feedback_report(
     conn: &mut Connection,
     row: &FeedbackReportInsert,
-) -> Result<FeedbackReportRow, String> {
-    let tx = conn.transaction().map_err(|e| e.to_string())?;
+) -> Result<FeedbackReportRow, DbError> {
+    let tx = conn
+        .transaction()
+        .map_err(|error| DbError::Backend(error.to_string()))?;
     tx.execute(
         "INSERT INTO feedback_reports \
          (repo, fingerprint, issues_url, route_rationale, dcc_type, phase, severity, \
           first_seen_ms, last_seen_ms, occurrence_count, report_json) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8, 1, ?9) \
          ON CONFLICT (repo, fingerprint) DO UPDATE SET \
-           last_seen_ms = excluded.last_seen_ms, \
+           first_seen_ms = MIN(first_seen_ms, excluded.first_seen_ms), \
+           last_seen_ms = MAX(last_seen_ms, excluded.last_seen_ms), \
            occurrence_count = occurrence_count + 1, \
            issues_url = COALESCE(excluded.issues_url, issues_url), \
            route_rationale = COALESCE(excluded.route_rationale, route_rationale), \
@@ -66,9 +76,10 @@ pub(super) fn upsert_feedback_report(
             row.report_json,
         ],
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(|error| DbError::Backend(error.to_string()))?;
     let persisted = select_feedback_report(&tx, &row.repo, &row.fingerprint)?;
-    tx.commit().map_err(|e| e.to_string())?;
+    tx.commit()
+        .map_err(|error| DbError::Backend(error.to_string()))?;
     Ok(persisted)
 }
 
@@ -77,7 +88,7 @@ pub(super) fn select_feedback_report(
     conn: &Connection,
     repo: &str,
     fingerprint: &str,
-) -> Result<FeedbackReportRow, String> {
+) -> Result<FeedbackReportRow, DbError> {
     conn.query_row(
         &format!(
             "SELECT {FEEDBACK_REPORT_COLUMNS} FROM feedback_reports \
@@ -86,7 +97,7 @@ pub(super) fn select_feedback_report(
         params![repo, fingerprint],
         row_to_feedback_report,
     )
-    .map_err(|e| e.to_string())
+    .map_err(|error| DbError::Backend(error.to_string()))
 }
 
 /// Most recently seen reports, newest first, bounded by `limit`.
@@ -100,21 +111,6 @@ pub(super) fn list_feedback_reports(conn: &Connection, limit: usize) -> Vec<Feed
         Err(_) => return Vec::new(),
     };
     let rows = stmt.query_map(params![limit as i64], row_to_feedback_report);
-    let Ok(rows) = rows else {
-        return Vec::new();
-    };
-    rows.filter_map(|r| r.ok()).collect()
-}
-
-/// Raw `report_json` rows, newest first, bounded by `limit`.
-pub(super) fn list_feedback_reports_json(conn: &Connection, limit: usize) -> Vec<String> {
-    let mut stmt = match conn.prepare_cached(
-        "SELECT report_json FROM feedback_reports ORDER BY last_seen_ms DESC LIMIT ?1",
-    ) {
-        Ok(s) => s,
-        Err(_) => return Vec::new(),
-    };
-    let rows = stmt.query_map(params![limit as i64], |row| row.get::<_, String>(0));
     let Ok(rows) = rows else {
         return Vec::new();
     };
@@ -221,6 +217,43 @@ mod tests {
 
         assert_eq!(row.occurrence_count, 2);
         assert_eq!(lane.list_feedback_reports(10).len(), 1);
+    }
+
+    /// `observed_at_ms` comes from the reporting host, so a clock that steps
+    /// backwards (or trails another instance) must not drag `last_seen_ms`
+    /// back with it — the list view orders by `last_seen_ms DESC`.
+    #[test]
+    fn a_regressing_clock_does_not_move_the_seen_window_backwards() {
+        let dir = tempdir().unwrap();
+        let db = dir.path().join("f.sqlite");
+        let lane = GatewayAdminSqliteLane::spawn(db.clone(), 30).expect("spawn");
+        let fingerprint = format!("sha256:{}", "f".repeat(64));
+
+        let first = lane
+            .upsert_feedback_report(&report("dcc-mcp/dcc-mcp-maya", &fingerprint, 5_000))
+            .expect("first upsert");
+        // A second sighting that claims an earlier timestamp than the first.
+        let regressing = lane
+            .upsert_feedback_report(&report("dcc-mcp/dcc-mcp-maya", &fingerprint, 1_000))
+            .expect("regressing upsert");
+
+        assert_eq!(first.first_seen_ms, 5_000);
+        assert_eq!(
+            regressing.first_seen_ms, 1_000,
+            "the window widens backwards"
+        );
+        assert_eq!(
+            regressing.last_seen_ms, 5_000,
+            "last_seen_ms must not regress below the highest value already seen"
+        );
+        assert_eq!(regressing.occurrence_count, 2);
+
+        // And a later sighting still advances the window.
+        let advancing = lane
+            .upsert_feedback_report(&report("dcc-mcp/dcc-mcp-maya", &fingerprint, 9_000))
+            .expect("advancing upsert");
+        assert_eq!(advancing.last_seen_ms, 9_000);
+        assert_eq!(advancing.first_seen_ms, 1_000);
     }
 
     #[test]
