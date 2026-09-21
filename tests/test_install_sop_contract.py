@@ -125,7 +125,7 @@ def test_install_sop_schema_checkout_forces_the_canonical_git_blob_bytes(schema_
     assert resource["source"] == schema_path.as_posix()
     assert resource["canonical_url"] == canonical_url
     assert hashlib.sha256(git_blob).hexdigest() == resource["sha256"]
-    assert hashlib.sha256(schema_path.read_bytes()).hexdigest() == resource["sha256"]
+    assert hashlib.sha256((REPO_ROOT / schema_path).read_bytes()).hexdigest() == resource["sha256"]
 
 
 def test_install_sop_schema_live_pin_follows_the_current_artifact() -> None:
@@ -137,6 +137,7 @@ def test_install_sop_schema_live_pin_follows_the_current_artifact() -> None:
     assert resource["sha256"] == install_sop._INSTALL_SOP_SCHEMA_SHA256
     assert install_sop._INSTALL_SOP_SCHEMA_ID == INSTALL_SOP_SCHEMA_ID
     assert install_sop._SCHEMA_PATH.name == INSTALL_SOP_SCHEMA_PATH.name
+    assert install_sop._SCHEMA_PATH.name == f"adapter-install-sop-v{install_sop.INSTALL_SOP_SCHEMA_VERSION}.schema.json"
 
 
 def test_install_sop_v1_artifact_is_frozen_at_its_released_bytes() -> None:
@@ -171,7 +172,6 @@ def test_install_sop_v2_adds_only_the_optional_catalog_object() -> None:
     assert v2["$id"] == INSTALL_SOP_SCHEMA_ID
     assert v2["properties"]["schema_version"] == v1["properties"]["schema_version"]
     assert set(v2["required"]) == set(v1["required"])
-    assert v1["required"] <= v2["required"]
 
     added_properties = set(v2["properties"]) - set(v1["properties"])
     assert added_properties == {"catalog"}

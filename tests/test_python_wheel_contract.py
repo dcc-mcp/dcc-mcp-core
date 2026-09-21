@@ -22,9 +22,7 @@ _INSTALL_SOP_SCHEMA_SOURCES = [
     "python/dcc_mcp_core/schemas/adapter-install-sop-v1.schema.json",
     "python/dcc_mcp_core/schemas/adapter-install-sop-v2.schema.json",
 ]
-_INSTALL_SOP_SCHEMA_MEMBERS = [
-    "dcc_mcp_core/schemas/" + Path(source).name for source in _INSTALL_SOP_SCHEMA_SOURCES
-]
+_INSTALL_SOP_SCHEMA_MEMBERS = ["dcc_mcp_core/schemas/" + Path(source).name for source in _INSTALL_SOP_SCHEMA_SOURCES]
 _INSTALL_SOP_SCHEMA_GIT_BYTES = [
     subprocess.run(
         ["git", "cat-file", "blob", f"HEAD:{source}"],
@@ -75,9 +73,7 @@ def _write_wheel(
         archive.writestr(f"{package}/__init__.py", "")
         if distribution == "dcc-mcp-core":
             archive.writestr(_INSTALL_SOP_SCHEMA_MEMBER, install_sop_schema_bytes)
-            archive.writestr(
-                _INSTALL_SOP_SCHEMA_MEMBERS[0], legacy_install_sop_schema_bytes
-            )
+            archive.writestr(_INSTALL_SOP_SCHEMA_MEMBERS[0], legacy_install_sop_schema_bytes)
         if distribution == "dcc-mcp-core" and ui_control_contract == "canonical":
             archive.writestr(
                 "dcc_mcp_core/adapter_contracts.py",

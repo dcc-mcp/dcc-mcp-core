@@ -67,6 +67,12 @@ entries, and the same `schema_version` constraint.
   document version 1 keeps working unchanged.
 - A consumer that ignores unknown properties needs no change at all.
 
+Note on the constant name: `INSTALL_SOP_SCHEMA_VERSION` (now `2`) is the
+**artifact** revision — the `-vN` suffix of the published schema file. It is not
+the report document's `schema_version` field. Never copy it into a report:
+the schema pins `properties.schema_version` to the constant `1`, so a report
+emitted with `schema_version: 2` is rejected.
+
 The one caveat: `-v1` itself does not know about `catalog`. Validating a report
 that carries `catalog` against the frozen `-v1` artifact will not check its
 contents (the top-level schema does not forbid additional properties, so it will
