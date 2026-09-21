@@ -390,6 +390,14 @@ impl McpHttpConfig {
     pub fn set_instance_metadata(&mut self, v: HashMap<String, String>) {
         self.instance.instance_metadata = v;
     }
+    /// Arbitrary JSON-typed extras merged into the FileRegistry row.
+    pub fn instance_extras(&self) -> HashMap<String, serde_json::Value> {
+        self.instance.instance_extras.clone()
+    }
+    /// Replace the JSON-typed extras published on the FileRegistry row.
+    pub fn set_instance_extras(&mut self, v: HashMap<String, serde_json::Value>) {
+        self.instance.instance_extras = v;
+    }
     pub fn declared_capabilities(&self) -> Vec<String> {
         self.instance.declared_capabilities.clone()
     }
@@ -479,6 +487,23 @@ impl McpHttpConfig {
         V: Into<String>,
     {
         self.instance.instance_metadata = metadata
+            .into_iter()
+            .map(|(key, value)| (key.into(), value.into()))
+            .collect();
+        self
+    }
+
+    /// Builder: attach JSON-typed extras to the FileRegistry row (issue #2500).
+    ///
+    /// Unlike [`Self::with_instance_metadata`], values keep their JSON type,
+    /// so adapters can publish numbers, booleans and nested containers.
+    pub fn with_instance_extras<I, K, V>(mut self, extras: I) -> Self
+    where
+        I: IntoIterator<Item = (K, V)>,
+        K: Into<String>,
+        V: Into<serde_json::Value>,
+    {
+        self.instance.instance_extras = extras
             .into_iter()
             .map(|(key, value)| (key.into(), value.into()))
             .collect();

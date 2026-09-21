@@ -83,6 +83,23 @@ pub(crate) async fn start_gateway_runner(
         }
     };
 
+    let entry = build_registration_entry(config, port);
+
+    let metadata_provider = Some(build_metadata_provider(Arc::clone(live_meta)));
+    match runner.start(entry, metadata_provider).await {
+        Ok(handle) => Some(handle),
+        Err(err) => {
+            tracing::warn!("Gateway runner failed to start: {err}");
+            None
+        }
+    }
+}
+
+/// Build the `FileRegistry` row this server publishes.
+///
+/// Kept free of gateway wiring so the seeding rules can be unit-tested
+/// without starting a gateway.
+fn build_registration_entry(config: &McpHttpConfig, port: u16) -> ServiceEntry {
     let mut entry = ServiceEntry::new(
         resolve_registry_dcc_type(config.instance.dcc_type.as_deref()),
         config.server.host.to_string(),
@@ -98,15 +115,14 @@ pub(crate) async fn start_gateway_runner(
         .clone()
         .or_else(|| config.instance.dcc_type.clone());
     entry.metadata = config.instance.instance_metadata.clone();
-
-    let metadata_provider = Some(build_metadata_provider(Arc::clone(live_meta)));
-    match runner.start(entry, metadata_provider).await {
-        Ok(handle) => Some(handle),
-        Err(err) => {
-            tracing::warn!("Gateway runner failed to start: {err}");
-            None
-        }
-    }
+    entry.extras = config.instance.instance_extras.clone();
+    // A JSON null is a removal tombstone, not a stored value — see
+    // `LiveMetaInner::extras`. Persisting one here would publish the null to
+    // services.json and to every reader, only for the next heartbeat to send
+    // the same null back as a delete. Drop the tombstones from the seeded row
+    // but keep them in the live map, which still needs them as delete markers.
+    entry.extras.retain(|_, value| !value.is_null());
+    entry
 }
 
 fn build_metadata_provider(live_meta: LiveMeta) -> MetadataProvider {
@@ -118,6 +134,53 @@ fn build_metadata_provider(live_meta: LiveMeta) -> MetadataProvider {
             documents: guard.documents.clone(),
             display_name: guard.display_name.clone(),
             metadata: guard.metadata.clone(),
+            extras: guard.extras.clone(),
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    /// Issue #2500 — a `Null` in `instance_extras` is a removal tombstone, not a
+    /// value. The seeded registration row must not publish it: the heartbeat
+    /// would subsequently send the same null back as a delete, so persisting it
+    /// first would briefly expose a null to every reader and contradict the
+    /// getter, which filters tombstones out.
+    #[test]
+    fn registration_entry_drops_extras_tombstones() {
+        let mut config = McpHttpConfig::default();
+        config.instance.dcc_type = Some("auroraview".to_string());
+        config.set_instance_extras(HashMap::from([
+            ("host_dcc".to_string(), serde_json::json!("maya-2024")),
+            ("cdp_port".to_string(), serde_json::json!(9222)),
+            ("dropped".to_string(), serde_json::Value::Null),
+        ]));
+
+        let entry = build_registration_entry(&config, 18812);
+
+        assert_eq!(
+            entry.extras.get("host_dcc"),
+            Some(&serde_json::json!("maya-2024")),
+            "seeded values must be published"
+        );
+        assert_eq!(
+            entry.extras.get("cdp_port"),
+            Some(&serde_json::json!(9222)),
+            "types must survive the seed"
+        );
+        assert!(
+            !entry.extras.contains_key("dropped"),
+            "tombstones must not reach the registration row"
+        );
+    }
+
+    #[test]
+    fn registration_entry_without_extras_stays_empty() {
+        let config = McpHttpConfig::default();
+        let entry = build_registration_entry(&config, 18812);
+        assert!(entry.extras.is_empty());
+    }
 }

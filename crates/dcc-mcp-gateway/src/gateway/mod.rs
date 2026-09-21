@@ -113,6 +113,12 @@ pub struct LiveSnapshot {
     pub display_name: Option<String>,
     /// Arbitrary string metadata to merge into the FileRegistry row.
     pub metadata: HashMap<String, String>,
+    /// Arbitrary JSON-typed extras to merge into the FileRegistry row.
+    ///
+    /// Same purpose as `metadata` but type-preserving: numbers, booleans and
+    /// nested containers round-trip as JSON. `Value::Null` removes the key
+    /// (issue #2500).
+    pub extras: HashMap<String, serde_json::Value>,
 }
 
 /// Closure type for supplying live instance metadata to the heartbeat task.

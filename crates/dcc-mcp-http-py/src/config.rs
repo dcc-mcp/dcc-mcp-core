@@ -1,6 +1,7 @@
 //! Python-visible MCP HTTP server configuration.
 
 use super::*;
+use pyo3::types::PyDict;
 use std::collections::HashMap;
 
 mod build;
@@ -291,6 +292,36 @@ impl PyMcpHttpConfig {
     #[setter]
     fn set_registry_dir(&mut self, dir: Option<String>) {
         self.inner.gateway.registry_dir = dir.map(std::path::PathBuf::from);
+    }
+
+    /// JSON-typed extras published on this instance's FileRegistry row (issue #2500).
+    ///
+    /// Unlike ``instance_metadata`` — which is restricted to strings — values
+    /// keep their JSON type, so adapters can announce numbers, booleans and
+    /// nested containers. Seeded onto the row at registration time; use
+    /// :meth:`McpServerHandle.update_gateway_extras` for later updates.
+    #[getter]
+    fn instance_extras<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let dict = PyDict::new(py);
+        for (key, value) in &self.inner.instance_extras() {
+            // Skip JSON nulls: they are removal tombstones, not stored values.
+            if value.is_null() {
+                continue;
+            }
+            dict.set_item(
+                key,
+                dcc_mcp_pybridge::py_json::json_value_to_bound_py(py, value)?,
+            )?;
+        }
+        Ok(dict)
+    }
+
+    /// JSON-typed extras published on this instance's FileRegistry row (issue #2500).
+    #[setter]
+    fn set_instance_extras(&mut self, extras: &Bound<'_, PyDict>) -> PyResult<()> {
+        self.inner
+            .set_instance_extras(dcc_mcp_pybridge::py_json::py_dict_to_json_map(extras)?);
+        Ok(())
     }
 
     /// Listener spawn strategy (issue #303).

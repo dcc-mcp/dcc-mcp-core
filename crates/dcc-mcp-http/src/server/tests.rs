@@ -682,3 +682,35 @@ async fn trace_events_do_not_expose_request_secrets() {
     assert!(!trace.contains("private-header-value"), "{trace}");
     assert!(!trace.contains("private-query-value"), "{trace}");
 }
+
+// Issue #2500 — `update_live_extras` feeds the heartbeat merge patch. A
+// `Null` must be retained as a tombstone: the registry applies the snapshot as
+// a merge, so a key dropped locally would carry no delete instruction and the
+// row would keep serving the stale value.
+#[test]
+fn update_live_extras_merges_values_and_keeps_null_as_tombstone() {
+    let config = McpHttpConfig::default();
+    let server = McpHttpServer::new(Arc::new(ToolRegistry::new()), config);
+
+    server.update_live_extras(HashMap::from([
+        ("cdp_port".to_string(), serde_json::json!(9222)),
+        ("host_dcc".to_string(), serde_json::json!("maya-2024")),
+    ]));
+    // Clearing `cdp_port` must leave a Null marker behind.
+    server.update_live_extras(HashMap::from([(
+        "cdp_port".to_string(),
+        serde_json::Value::Null,
+    )]));
+
+    let live = server.live_meta.read();
+    assert_eq!(
+        live.extras.get("cdp_port"),
+        Some(&serde_json::Value::Null),
+        "a cleared key must stay in the live map as a removal tombstone"
+    );
+    assert_eq!(
+        live.extras.get("host_dcc"),
+        Some(&serde_json::json!("maya-2024")),
+        "unrelated extras must survive"
+    );
+}

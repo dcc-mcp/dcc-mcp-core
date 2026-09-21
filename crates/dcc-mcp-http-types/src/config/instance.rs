@@ -44,6 +44,18 @@ pub struct InstanceConfig {
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub instance_metadata: HashMap<String, String>,
 
+    /// Arbitrary JSON-typed extras recorded in `FileRegistry` (issue #2500).
+    ///
+    /// Type-preserving counterpart of [`Self::instance_metadata`]. Use it for
+    /// adapter-specific fields that are not strings — for example the
+    /// WebView / bridge keys `cdp_port` (int), `url`, `window_title` and
+    /// `host_dcc` published by an embedded browser panel.
+    ///
+    /// Extras are seeded onto the registry row at registration time and can
+    /// then be updated at runtime through the server handle.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub instance_extras: HashMap<String, serde_json::Value>,
+
     /// Capabilities declared by the DCC adapter hosting this server
     /// (issue #354).
     ///

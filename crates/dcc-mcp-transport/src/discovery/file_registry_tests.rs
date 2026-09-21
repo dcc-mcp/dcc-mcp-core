@@ -242,6 +242,106 @@ fn test_file_registry_update_instance_metadata_merges_and_clears_keys() {
     assert!(!updated.metadata.contains_key("remove_me"));
 }
 
+// Regression test for issue #2500: `ServiceEntry.extras` must have a write
+// path that preserves JSON types. Unlike `metadata`, an int stays an int and
+// nested containers survive the `services.json` round-trip.
+#[test]
+fn test_file_registry_update_instance_extras_keeps_json_types() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = FileRegistry::new(dir.path()).unwrap();
+
+    let mut entry = ServiceEntry::new("auroraview", "127.0.0.1", 18812);
+    entry
+        .extras
+        .insert("host_dcc".into(), serde_json::json!("maya-2024"));
+    entry
+        .extras
+        .insert("remove_me".into(), serde_json::json!(1));
+    let key = entry.key();
+    registry.register(entry).unwrap();
+
+    let mut extras = std::collections::HashMap::new();
+    extras.insert("cdp_port".into(), serde_json::json!(9222));
+    extras.insert("url".into(), serde_json::json!("http://localhost:3000"));
+    extras.insert("enabled".into(), serde_json::json!(true));
+    extras.insert(
+        "viewport".into(),
+        serde_json::json!({"width": 1920, "scale": 1.5}),
+    );
+    // Null clears the key, mirroring the empty-string rule for metadata.
+    extras.insert("remove_me".into(), serde_json::Value::Null);
+
+    assert!(registry.update_instance_extras(&key, &extras).unwrap());
+
+    let updated = registry.get(&key).unwrap();
+    assert_eq!(
+        updated.extras.get("cdp_port"),
+        Some(&serde_json::json!(9222))
+    );
+    assert_eq!(
+        updated.extras.get("url"),
+        Some(&serde_json::json!("http://localhost:3000"))
+    );
+    assert_eq!(
+        updated.extras.get("enabled"),
+        Some(&serde_json::json!(true))
+    );
+    assert_eq!(
+        updated.extras.get("viewport"),
+        Some(&serde_json::json!({"width": 1920, "scale": 1.5}))
+    );
+    // Unrelated and pre-existing extras survive the merge.
+    assert_eq!(
+        updated.extras.get("host_dcc"),
+        Some(&serde_json::json!("maya-2024"))
+    );
+    assert!(!updated.extras.contains_key("remove_me"));
+}
+
+// Issue #2500: extras must round-trip through services.json without being
+// coerced to strings — that type fidelity is the whole point of the field.
+#[test]
+fn test_file_registry_extras_round_trip_through_disk() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut entry = ServiceEntry::new("auroraview", "127.0.0.1", 18812);
+    entry
+        .extras
+        .insert("cdp_port".into(), serde_json::json!(9222));
+    entry
+        .extras
+        .insert("nested".into(), serde_json::json!(["a", 1, false]));
+    let key = entry.key();
+
+    {
+        let registry = FileRegistry::new(dir.path()).unwrap();
+        registry.register(entry).unwrap();
+    }
+
+    let reloaded = FileRegistry::new(dir.path()).unwrap();
+    let stored = reloaded
+        .get(&key)
+        .expect("entry survives a registry reload");
+    assert_eq!(
+        stored.extras.get("cdp_port"),
+        Some(&serde_json::json!(9222))
+    );
+    assert_eq!(
+        stored.extras.get("nested"),
+        Some(&serde_json::json!(["a", 1, false]))
+    );
+}
+
+#[test]
+fn test_file_registry_update_instance_extras_unknown_key_is_noop() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = FileRegistry::new(dir.path()).unwrap();
+    let entry = ServiceEntry::new("maya", "127.0.0.1", 18812);
+    let key = entry.key();
+
+    let extras = std::collections::HashMap::new();
+    assert!(!registry.update_instance_extras(&key, &extras).unwrap());
+}
+
 #[test]
 fn test_file_registry_cleanup_stale() {
     let dir = tempfile::tempdir().unwrap();
@@ -1033,12 +1133,17 @@ fn test_file_registry_update_snapshot_persists_complete_metadata_patch() {
         ),
         ("remove_me".to_string(), String::new()),
     ]);
+    let extras = std::collections::HashMap::from([
+        ("cdp_port".to_string(), serde_json::json!(9222)),
+        ("remove_me_extra".to_string(), serde_json::Value::Null),
+    ]);
     let snapshot = super::super::types::ServiceSnapshot {
         scene: Some("solar_system.hip"),
         version: Some("21.0"),
         documents: Some(&documents),
         display_name: Some("Houdini-Solar"),
         metadata: Some(&metadata),
+        extras: Some(&extras),
     };
     let transactions_before = registry
         .committed_write_transactions
@@ -1072,6 +1177,12 @@ fn test_file_registry_update_snapshot_persists_complete_metadata_patch() {
         Some("daemon-backed")
     );
     assert!(!updated.metadata.contains_key("remove_me"));
+    assert_eq!(
+        updated.extras.get("cdp_port"),
+        Some(&serde_json::json!(9222)),
+        "extras must keep their JSON type through the registry round-trip"
+    );
+    assert!(!updated.extras.contains_key("remove_me_extra"));
     assert!(updated.last_heartbeat > std::time::UNIX_EPOCH);
 }
 
