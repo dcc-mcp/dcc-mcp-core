@@ -30,6 +30,31 @@ struct TraceInsertMeta {
     started_at: u64,
 }
 
+/// Indexed columns extracted from the persisted feedback report envelope.
+///
+/// The full envelope is stored verbatim in `report_json`; these fields only feed
+/// the secondary indexes and the admin API's `dcc` / `severity` filters.
+#[derive(Deserialize)]
+struct FeedbackReportPersisted {
+    id: String,
+    kind: String,
+    #[serde(default)]
+    schema_version: i64,
+    #[serde(default)]
+    fingerprint: Option<String>,
+    severity: String,
+    dcc_type: String,
+    #[serde(default)]
+    instance_id: Option<String>,
+    #[serde(default)]
+    tool_slug: Option<String>,
+    recorded_at: String,
+    timestamp_ms: i64,
+    recorded_at_ms: i64,
+    /// The feedback record exactly as the per-DCC JSONL mirror writes it.
+    report: serde_json::Value,
+}
+
 #[derive(Clone)]
 pub struct GatewayAdminSqliteReader {
     path: PathBuf,
@@ -570,6 +595,50 @@ impl GatewayAdminSqliteReader {
         };
         list_script_promotion_counters_json(&conn, limit).unwrap_or_default()
     }
+    /// Raw `report_json` rows for persisted feedback, newest first, bounded by `limit`.
+    ///
+    /// `cutoff_ms` filters on `occurred_at_ms`; `dcc` / `severity` are
+    /// case-insensitive equality filters, matching the JSONL fallback path.
+    pub fn list_feedback_reports_json(
+        &self,
+        cutoff_ms: Option<i64>,
+        dcc: Option<&str>,
+        severity: Option<&str>,
+        limit: usize,
+    ) -> Vec<String> {
+        let Some(conn) = self.open_ro() else {
+            return Vec::new();
+        };
+        let mut sql = String::from("SELECT report_json FROM feedback_reports WHERE 1 = 1");
+        let mut values: Vec<Box<dyn ToSql>> = Vec::new();
+        if let Some(cutoff) = cutoff_ms {
+            sql.push_str(" AND occurred_at_ms >= ?");
+            values.push(Box::new(cutoff));
+        }
+        if let Some(value) = non_empty(dcc) {
+            sql.push_str(" AND dcc_type = ? COLLATE NOCASE");
+            values.push(Box::new(value.to_ascii_lowercase()));
+        }
+        if let Some(value) = non_empty(severity) {
+            sql.push_str(" AND severity = ? COLLATE NOCASE");
+            values.push(Box::new(value.to_ascii_lowercase()));
+        }
+        sql.push_str(" ORDER BY occurred_at_ms DESC, id DESC LIMIT ?");
+        values.push(Box::new(limit.clamp(1, 1_000) as i64));
+        let refs: Vec<&dyn ToSql> = values.iter().map(|value| value.as_ref()).collect();
+        let mut stmt = match conn.prepare_cached(&sql) {
+            Ok(s) => s,
+            Err(_) => return Vec::new(),
+        };
+        let rows = stmt.query_map(params_from_iter(refs), |row| {
+            let s: String = row.get(0)?;
+            Ok(s)
+        });
+        let Ok(rows) = rows else {
+            return Vec::new();
+        };
+        rows.filter_map(|row| row.ok()).collect()
+    }
 }
 
 enum PersistMsg {
@@ -591,6 +660,8 @@ enum PersistMsg {
     SessionUpsertJson(String),
     /// PIP-2751: Session lifecycle event (JSON-serialized).
     SessionEventJson(String),
+    /// #2253-E1: Agent feedback report (JSON-serialized).
+    FeedbackReportJson(String),
     /// #2297-A3: Repeat-counter bump (JSON-serialized ScriptPromotionBumpJson).
     ScriptPromotionBumpJson(String),
 }
@@ -752,6 +823,15 @@ impl GatewayAdminSqliteLane {
         }
     }
 
+    /// #2253-E1: Persist an agent feedback report.
+    pub fn try_persist_feedback_report_json(&self, json: &str) {
+        if let Ok(g) = self.inner.tx.lock()
+            && let Some(tx) = g.as_ref()
+        {
+            let _ = tx.try_send(PersistMsg::FeedbackReportJson(json.to_owned()));
+        }
+    }
+
     /// #2297-A3: Record one repeat observation of a materialised script.
     ///
     /// Fire-and-forget: the bump is applied by the writer thread, so the
@@ -910,6 +990,29 @@ fn writer_main(path: PathBuf, retention_days: u32, rx: Receiver<PersistMsg>) {
                     }
                 }
             }
+            PersistMsg::FeedbackReportJson(json) => {
+                if let Ok(report) = serde_json::from_str::<FeedbackReportPersisted>(&json)
+                    && let Err(e) = conn.execute(
+                        "INSERT OR REPLACE INTO feedback_reports                          (id, kind, schema_version, fingerprint, severity, dcc_type,                           instance_id, tool_slug, recorded_at, occurred_at_ms, recorded_at_ms,                           report_json)                          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                        params![
+                            report.id,
+                            report.kind,
+                            report.schema_version,
+                            report.fingerprint,
+                            report.severity,
+                            report.dcc_type,
+                            report.instance_id,
+                            report.tool_slug,
+                            report.recorded_at,
+                            report.timestamp_ms,
+                            report.recorded_at_ms,
+                            report.report.to_string(),
+                        ],
+                    )
+                {
+                    tracing::debug!(error = %e, "admin sqlite: feedback report insert failed");
+                }
+            }
             PersistMsg::SessionEventJson(json) => {
                 if let Ok(event) = serde_json::from_str::<serde_json::Value>(&json)
                     && let (Some(session_id), Some(event_type), Some(created_at_ms)) = (
@@ -961,6 +1064,10 @@ fn prune_old_rows(conn: &mut Connection, retention_days: u32) {
     );
     let _ = conn.execute(
         "DELETE FROM tool_calls WHERE started_at_ms < ?1",
+        params![cutoff],
+    );
+    let _ = conn.execute(
+        "DELETE FROM feedback_reports WHERE occurred_at_ms < ?1",
         params![cutoff],
     );
 }
@@ -1049,6 +1156,7 @@ fn sqlite_like_prefix(value: &str) -> String {
 #[cfg(all(test, feature = "gateway-admin-sqlite"))]
 mod tests {
     use super::*;
+    use serde_json::Value;
     use tempfile::tempdir;
 
     #[test]
@@ -1407,5 +1515,123 @@ mod tests {
         assert_eq!(events.len(), 3);
         assert!(events.iter().all(|event| event.contains("exp-a")));
         assert!(events.last().unwrap().contains("experiment.run.passed"));
+    }
+    fn feedback_row(id: &str, timestamp_ms: i64, dcc_type: &str, severity: &str) -> String {
+        json!({
+            "id": id,
+            "timestamp_ms": timestamp_ms,
+            "recorded_at_ms": timestamp_ms,
+            "recorded_at": "2026-09-21T17:22:56.000Z",
+            "kind": "finding",
+            "schema_version": 1,
+            "fingerprint": format!("sha256:{}", "a".repeat(64)),
+            "severity": severity,
+            "dcc_type": dcc_type,
+            "instance_id": "instance-1",
+            "tool_slug": "maya_scene__save",
+            "report": {
+                "id": id,
+                "timestamp": timestamp_ms as f64 / 1000.0,
+                "dcc_type": dcc_type,
+                "severity": severity,
+            },
+        })
+        .to_string()
+    }
+
+    #[test]
+    fn roundtrip_feedback_report_json() {
+        let dir = tempdir().unwrap();
+        let db = dir.path().join("feedback.sqlite");
+        let lane = GatewayAdminSqliteLane::spawn(db.clone(), 30).expect("spawn");
+        lane.try_persist_feedback_report_json(&feedback_row(
+            "fb-1",
+            1_700_000_000_000,
+            "maya",
+            "blocked",
+        ));
+        drop(lane);
+
+        let reader = GatewayAdminSqliteReader::new(db);
+        let rows = reader.list_feedback_reports_json(None, None, None, 10);
+        assert_eq!(rows.len(), 1, "report survives the writer thread shut down");
+        let stored: Value = serde_json::from_str(&rows[0]).unwrap();
+        assert_eq!(stored["id"], "fb-1");
+        assert_eq!(stored["dcc_type"], "maya");
+    }
+
+    #[test]
+    fn feedback_reports_are_ordered_newest_first() {
+        let dir = tempdir().unwrap();
+        let db = dir.path().join("feedback.sqlite");
+        let lane = GatewayAdminSqliteLane::spawn(db.clone(), 30).expect("spawn");
+        lane.try_persist_feedback_report_json(&feedback_row("fb-old", 1_000, "maya", "blocked"));
+        lane.try_persist_feedback_report_json(&feedback_row("fb-new", 2_000, "maya", "blocked"));
+        drop(lane);
+
+        let rows =
+            GatewayAdminSqliteReader::new(db).list_feedback_reports_json(None, None, None, 10);
+        let ids: Vec<String> = rows
+            .iter()
+            .filter_map(|row| serde_json::from_str::<Value>(row).ok())
+            .map(|row| row["id"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(ids, vec!["fb-new", "fb-old"]);
+    }
+
+    #[test]
+    fn feedback_reports_filter_by_cutoff_dcc_and_severity() {
+        let dir = tempdir().unwrap();
+        let db = dir.path().join("feedback.sqlite");
+        let lane = GatewayAdminSqliteLane::spawn(db.clone(), 30).expect("spawn");
+        lane.try_persist_feedback_report_json(&feedback_row("fb-old", 1_000, "maya", "blocked"));
+        lane.try_persist_feedback_report_json(&feedback_row("fb-new", 2_000, "maya", "degraded"));
+        lane.try_persist_feedback_report_json(&feedback_row(
+            "fb-houdini",
+            3_000,
+            "houdini",
+            "blocked",
+        ));
+        drop(lane);
+
+        let reader = GatewayAdminSqliteReader::new(db);
+        let ids = |rows: Vec<String>| -> Vec<String> {
+            rows.iter()
+                .filter_map(|row| serde_json::from_str::<Value>(row).ok())
+                .map(|row| row["id"].as_str().unwrap().to_string())
+                .collect()
+        };
+
+        assert_eq!(
+            ids(reader.list_feedback_reports_json(Some(2_000), None, None, 10)),
+            vec!["fb-houdini", "fb-new"]
+        );
+        assert_eq!(
+            ids(reader.list_feedback_reports_json(None, Some("houdini"), None, 10)),
+            vec!["fb-houdini"]
+        );
+        assert_eq!(
+            ids(reader.list_feedback_reports_json(None, None, Some("blocked"), 10)),
+            vec!["fb-houdini", "fb-old"]
+        );
+        // Filters are case-insensitive, matching the JSONL fallback path.
+        assert_eq!(
+            ids(reader.list_feedback_reports_json(None, Some("HOUDINI"), None, 10)),
+            vec!["fb-houdini"]
+        );
+    }
+
+    #[test]
+    fn feedback_reports_replace_on_retry() {
+        let dir = tempdir().unwrap();
+        let db = dir.path().join("feedback.sqlite");
+        let lane = GatewayAdminSqliteLane::spawn(db.clone(), 30).expect("spawn");
+        lane.try_persist_feedback_report_json(&feedback_row("fb-1", 1_000, "maya", "blocked"));
+        lane.try_persist_feedback_report_json(&feedback_row("fb-1", 1_000, "maya", "blocked"));
+        drop(lane);
+
+        let rows =
+            GatewayAdminSqliteReader::new(db).list_feedback_reports_json(None, None, None, 10);
+        assert_eq!(rows.len(), 1, "the same feedback_id is idempotent");
     }
 }

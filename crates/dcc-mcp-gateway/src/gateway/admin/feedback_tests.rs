@@ -252,3 +252,117 @@ async fn feedback_endpoint_rejects_unbounded_or_unknown_queries() {
         assert_eq!(body["error"]["kind"], "invalid-feedback-query");
     }
 }
+
+/// Post two findings, drop the gateway (simulating a restart), then read both
+/// back from a fresh admin state bound to the same SQLite file (#2253-E1).
+#[cfg(feature = "admin-persist-sqlite")]
+#[tokio::test]
+async fn feedback_survives_a_gateway_restart_via_sqlite() {
+    use crate::gateway::admin::sqlite_lane::AdminSqliteLane;
+
+    let registry = tempfile::tempdir().unwrap();
+    let db_path = registry.path().join("admin.sqlite");
+
+    {
+        let lane = AdminSqliteLane::spawn(db_path.clone(), 30).expect("spawn lane");
+        let mut gateway = make_gateway_state(registry.path());
+        gateway.admin_sqlite_lane = Some(lane);
+        let app = crate::gateway::router::build_gateway_router(gateway);
+
+        for intent in ["Render a frame", "Inspect the mesh"] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri("/v1/feedback")
+                        .header(axum::http::header::CONTENT_TYPE, "application/json")
+                        .body(axum::body::Body::from(
+                            serde_json::to_vec(&json!({
+                                "tool_name": "maya.render.start",
+                                "intent": intent,
+                                "blocker": "Renderer unavailable",
+                                "severity": "blocked",
+                                "dcc_type": "maya",
+                                "instance_id": "aaaaaaaa-0000-0000-0000-000000000000",
+                            }))
+                            .unwrap(),
+                        ))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::CREATED, "intent={intent}");
+        }
+        // Dropping the router and the lane shuts the writer thread down and
+        // flushes the queue — the same thing a process exit does.
+    }
+
+    let lane = AdminSqliteLane::spawn(db_path, 30).expect("respawn lane");
+    let state =
+        AdminState::new(make_gateway_state(registry.path())).with_admin_sqlite_lane(Some(lane));
+    let (status, body) = body_json(
+        build_admin_router(state),
+        "/api/feedback?range=all&limit=100",
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["success"], true);
+    assert_eq!(body["source"], "sqlite", "no JSONL mirror exists here");
+    assert_eq!(body["total"], 2, "both reports survive the restart: {body}");
+    assert_eq!(body["count"], 2);
+    assert!(
+        body["entries"][0]["timestamp"].as_f64() >= body["entries"][1]["timestamp"].as_f64(),
+        "entries are ordered newest first: {body}"
+    );
+    let ids: Vec<&str> = body["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| entry["id"].as_str().unwrap())
+        .collect();
+    assert_ne!(ids[0], ids[1], "each report keeps its own feedback_id");
+}
+
+/// The JSONL mirror stays readable when it holds rows SQLite does not (#2253-E1).
+#[cfg(feature = "admin-persist-sqlite")]
+#[tokio::test]
+async fn feedback_reads_jsonl_mirror_when_sqlite_has_no_rows() {
+    use crate::gateway::admin::sqlite_lane::AdminSqliteLane;
+
+    let registry = tempfile::tempdir().unwrap();
+    let feedback = feedback_dir(&registry);
+    let now = now_secs();
+    std::fs::write(
+        feedback.join("maya-101.jsonl"),
+        format!(
+            "{}\n",
+            json!({
+                "id": "legacy-mirror-row",
+                "timestamp": now - 5.0,
+                "tool_name": "maya.render.start",
+                "intent": "Render a frame",
+                "blocker": "Renderer unavailable",
+                "severity": "blocked",
+                "dcc_type": "maya"
+            })
+        ),
+    )
+    .unwrap();
+
+    let lane =
+        AdminSqliteLane::spawn(registry.path().join("admin.sqlite"), 30).expect("spawn lane");
+    let state =
+        AdminState::new(make_gateway_state(registry.path())).with_admin_sqlite_lane(Some(lane));
+    let (status, body) = body_json(
+        build_admin_router(state),
+        "/api/feedback?range=24h&limit=100",
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["source"], "registry-jsonl", "old rows stay visible");
+    assert_eq!(body["total"], 1);
+    assert_eq!(body["entries"][0]["id"], "legacy-mirror-row");
+}

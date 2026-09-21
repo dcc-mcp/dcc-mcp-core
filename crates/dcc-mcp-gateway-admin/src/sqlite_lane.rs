@@ -13,7 +13,7 @@ use std::path::PathBuf;
 use std::path::Path;
 use std::time::SystemTime;
 
-use crate::{AdminAuditRecord, DispatchTrace};
+use crate::{AdminAuditRecord, DispatchTrace, FeedbackReportRow};
 
 #[cfg(feature = "persist-sqlite")]
 use std::time::{Duration, UNIX_EPOCH};
@@ -224,6 +224,27 @@ impl AdminSqliteReader {
             .collect()
     }
 
+    /// #2253-E1: List persisted feedback reports, newest first.
+    ///
+    /// `cutoff` filters on the report timestamp; `dcc` / `severity` are
+    /// case-insensitive equality filters. Returns an empty vector when the
+    /// `feedback_reports` table is absent or unreadable so callers can fall
+    /// back to the per-DCC JSONL mirror.
+    #[must_use]
+    pub fn list_feedback_reports(
+        &self,
+        cutoff_ms: Option<i64>,
+        dcc: Option<&str>,
+        severity: Option<&str>,
+        limit: usize,
+    ) -> Vec<serde_json::Value> {
+        self.inner
+            .list_feedback_reports_json(cutoff_ms, dcc, severity, limit)
+            .into_iter()
+            .filter_map(|s| serde_json::from_str(&s).ok())
+            .collect()
+    }
+
     /// #2297-A3: Read one persisted repeat counter, if the key was observed.
     #[must_use]
     pub fn get_script_promotion_counter(
@@ -381,6 +402,13 @@ impl AdminSqliteLane {
     ) -> bool {
         self.inner
             .try_delete_agent_memory(id, layer, dcc_name, session_id, key_prefix)
+    }
+
+    /// #2253-E1: Persist an agent feedback report.
+    pub fn try_persist_feedback_report(&self, report: &FeedbackReportRow) {
+        if let Ok(json) = serde_json::to_string(report) {
+            self.inner.try_persist_feedback_report_json(&json);
+        }
     }
 }
 
@@ -580,6 +608,17 @@ impl AdminSqliteReader {
         vec![]
     }
 
+    #[must_use]
+    pub fn list_feedback_reports(
+        &self,
+        _cutoff_ms: Option<i64>,
+        _dcc: Option<&str>,
+        _severity: Option<&str>,
+        _limit: usize,
+    ) -> Vec<serde_json::Value> {
+        vec![]
+    }
+
     /// #2297-A3: no-op without `persist-sqlite`.
     #[must_use]
     pub fn get_script_promotion_counter(
@@ -649,6 +688,8 @@ impl AdminSqliteLane {
     ) -> bool {
         false
     }
+
+    pub fn try_persist_feedback_report(&self, _: &FeedbackReportRow) {}
 }
 
 #[cfg(not(feature = "persist-sqlite"))]
@@ -661,6 +702,7 @@ pub fn read_custom_skill_paths_for_startup(_: &Path) -> Vec<PathBuf> {
 mod tests {
     use super::{AdminSqliteLane, AdminSqliteReader};
     use crate::DispatchTrace;
+    use crate::{FeedbackReportRow, FeedbackSubmissionKind};
     use std::time::SystemTime;
     use tempfile::tempdir;
 
@@ -718,5 +760,62 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert_eq!(events[0]["event_type"], "recording.stopped");
         assert_eq!(events[0]["recording_id"], "rec-1");
+    }
+    fn feedback_row(
+        id: &str,
+        timestamp_ms: i64,
+        dcc_type: &str,
+        severity: &str,
+    ) -> FeedbackReportRow {
+        FeedbackReportRow {
+            id: id.to_string(),
+            timestamp_ms,
+            recorded_at_ms: timestamp_ms,
+            recorded_at: "2026-09-21T17:22:56.000Z".to_string(),
+            kind: FeedbackSubmissionKind::Finding,
+            schema_version: 1,
+            fingerprint: Some(format!("sha256:{}", "a".repeat(64))),
+            severity: severity.to_string(),
+            dcc_type: dcc_type.to_string(),
+            instance_id: Some("instance-1".to_string()),
+            tool_slug: Some("maya_scene__save".to_string()),
+            report: serde_json::json!({
+                "id": id,
+                "timestamp": timestamp_ms as f64 / 1000.0,
+                "dcc_type": dcc_type,
+                "severity": severity,
+            }),
+        }
+    }
+
+    #[test]
+    fn roundtrip_feedback_report() {
+        let dir = tempdir().unwrap();
+        let db = dir.path().join("feedback.sqlite");
+        let lane = AdminSqliteLane::spawn(db.clone(), 30).expect("spawn");
+        lane.try_persist_feedback_report(&feedback_row(
+            "fb-1",
+            1_700_000_000_000,
+            "maya",
+            "blocked",
+        ));
+        lane.try_persist_feedback_report(&feedback_row(
+            "fb-2",
+            1_700_000_000_500,
+            "houdini",
+            "degraded",
+        ));
+        drop(lane);
+
+        let reader = AdminSqliteReader::new(db);
+        let rows = reader.list_feedback_reports(None, None, None, 10);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0]["id"], "fb-2", "newest first");
+        assert_eq!(rows[1]["id"], "fb-1");
+        assert_eq!(rows[0]["dcc_type"], "houdini");
+
+        let maya_only = reader.list_feedback_reports(None, Some("maya"), None, 10);
+        assert_eq!(maya_only.len(), 1);
+        assert_eq!(maya_only[0]["id"], "fb-1");
     }
 }

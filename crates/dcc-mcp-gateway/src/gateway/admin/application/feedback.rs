@@ -15,6 +15,8 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 use super::super::state::AdminState;
+#[cfg(feature = "admin-persist-sqlite")]
+use crate::gateway::admin::sqlite_lane::AdminSqliteReader;
 
 const DEFAULT_LIMIT: usize = 100;
 const MAX_LIMIT: usize = 1_000;
@@ -62,9 +64,34 @@ struct FeedbackScan {
     skipped_invalid: usize,
     deduplicated: usize,
     files_scanned: usize,
+    /// Rows contributed by the durable `feedback_reports` table (#2253-E1).
+    sqlite_rows: usize,
+    /// Rows contributed by the per-DCC JSONL mirror.
+    jsonl_rows: usize,
 }
 
-/// `GET /admin/api/feedback` — aggregate bounded per-instance feedback JSONL.
+impl FeedbackScan {
+    /// `sqlite`, `registry-jsonl`, or `sqlite+registry-jsonl` when both contributed.
+    fn source(&self) -> &'static str {
+        match (self.sqlite_rows > 0, self.jsonl_rows > 0) {
+            (true, true) => "sqlite+registry-jsonl",
+            (true, false) => "sqlite",
+            (false, true) => "registry-jsonl",
+            (false, false) => "none",
+        }
+    }
+}
+
+/// Snapshot of the admin SQLite reader used to read durable feedback rows.
+///
+/// `None` when no lane is configured; the no-op reader returned without the
+/// `admin-persist-sqlite` feature yields no rows, so the JSONL mirror stays the
+/// only source in those builds.
+fn sqlite_reader(state: &AdminState) -> Option<AdminSqliteReader> {
+    state.admin_sqlite_lane.as_ref().map(|lane| lane.reader())
+}
+
+/// `GET /admin/api/feedback` — durable feedback rows, backfilled from the per-DCC JSONL mirror.
 pub(super) async fn handle_admin_feedback(
     State(state): State<AdminState>,
     Query(raw_query): Query<FeedbackQuery>,
@@ -75,8 +102,11 @@ pub(super) async fn handle_admin_feedback(
     };
     let feedback_dir = state.gateway.registry.registry_dir().join("feedback");
     let scan_query = query.clone();
-    let scan = match tokio::task::spawn_blocking(move || scan_feedback(&feedback_dir, &scan_query))
-        .await
+    let sqlite_reader = sqlite_reader(&state);
+    let scan = match tokio::task::spawn_blocking(move || {
+        scan_feedback(&feedback_dir, &scan_query, sqlite_reader.as_ref())
+    })
+    .await
     {
         Ok(Ok(scan)) => scan,
         Ok(Err(message)) => return read_error(message),
@@ -85,7 +115,7 @@ pub(super) async fn handle_admin_feedback(
 
     Json(json!({
         "success": true,
-        "source": "registry-jsonl",
+        "source": scan.source(),
         "total": scan.total,
         "count": scan.entries.len(),
         "truncated": scan.total > scan.entries.len(),
@@ -153,9 +183,61 @@ fn normalize_filter(name: &str, value: Option<String>) -> Result<Option<String>,
     Ok(Some(value))
 }
 
-fn scan_feedback(feedback_dir: &Path, query: &ValidatedQuery) -> Result<FeedbackScan, String> {
+/// Aggregate durable feedback rows (#2253-E1) and backfill from the JSONL mirror.
+///
+/// The `feedback_reports` table is the primary source: it survives a gateway
+/// restart and is queryable across instances. The per-DCC JSONL mirror is still
+/// scanned so reports written before this table existed (or by a build without
+/// `admin-persist-sqlite`) stay visible. Rows are de-duplicated by `id`, which
+/// is the gateway-minted `feedback_id` shared by both writers.
+fn scan_feedback(
+    feedback_dir: &Path,
+    query: &ValidatedQuery,
+    sqlite: Option<&AdminSqliteReader>,
+) -> Result<FeedbackScan, String> {
+    let mut candidates = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut deduplicated = 0;
+    let mut skipped_invalid = 0;
+    let mut sqlite_rows = 0;
+
+    if let Some(reader) = sqlite {
+        let cutoff_ms = query.cutoff.map(|cutoff| (cutoff * 1000.0) as i64);
+        let limit = query.limit.max(MAX_LIMIT);
+        for value in reader.list_feedback_reports(
+            cutoff_ms,
+            query.dcc.as_deref(),
+            query.severity.as_deref(),
+            limit,
+        ) {
+            let Value::Object(record) = value else {
+                skipped_invalid += 1;
+                continue;
+            };
+            match normalize_record(record, None, query) {
+                Err(()) => skipped_invalid += 1,
+                Ok(None) => {}
+                Ok(Some(entry)) => {
+                    if seen.insert(entry.id.clone()) {
+                        sqlite_rows += 1;
+                        candidates.push(entry);
+                    } else {
+                        deduplicated += 1;
+                    }
+                }
+            }
+        }
+    }
+
     if !feedback_dir.exists() {
-        return Ok(FeedbackScan::default());
+        return Ok(finish_scan(
+            candidates,
+            skipped_invalid,
+            deduplicated,
+            sqlite_rows,
+            0,
+            query.limit,
+        ));
     }
     let directory = std::fs::read_dir(feedback_dir)
         .map_err(|error| format!("could not read feedback directory: {error}"))?;
@@ -197,8 +279,6 @@ fn scan_feedback(feedback_dir: &Path, query: &ValidatedQuery) -> Result<Feedback
     }
     files.sort_by(|left, right| left.0.cmp(&right.0));
 
-    let mut candidates = Vec::new();
-    let mut skipped_invalid = 0;
     for (path, snapshot_bytes) in &files {
         scan_file(
             path,
@@ -208,6 +288,26 @@ fn scan_feedback(feedback_dir: &Path, query: &ValidatedQuery) -> Result<Feedback
             &mut skipped_invalid,
         )?;
     }
+
+    Ok(finish_scan(
+        candidates,
+        skipped_invalid,
+        deduplicated,
+        sqlite_rows,
+        files.len(),
+        query.limit,
+    ))
+}
+
+/// Sort newest-first, drop ids already contributed by SQLite, and apply the limit.
+fn finish_scan(
+    mut candidates: Vec<FeedbackEntry>,
+    skipped_invalid: usize,
+    mut deduplicated: usize,
+    sqlite_rows: usize,
+    files_scanned: usize,
+    limit: usize,
+) -> FeedbackScan {
     candidates.sort_by(|left, right| {
         right
             .timestamp
@@ -217,7 +317,7 @@ fn scan_feedback(feedback_dir: &Path, query: &ValidatedQuery) -> Result<Feedback
     });
 
     let mut seen = HashSet::new();
-    let mut deduplicated = 0;
+    let total_before = candidates.len();
     candidates.retain(|entry| {
         if seen.insert(entry.id.clone()) {
             true
@@ -229,16 +329,18 @@ fn scan_feedback(feedback_dir: &Path, query: &ValidatedQuery) -> Result<Feedback
     let total = candidates.len();
     let entries = candidates
         .into_iter()
-        .take(query.limit)
+        .take(limit)
         .map(|entry| entry.value)
         .collect();
-    Ok(FeedbackScan {
+    FeedbackScan {
         entries,
         total,
         skipped_invalid,
         deduplicated,
-        files_scanned: files.len(),
-    })
+        files_scanned,
+        sqlite_rows,
+        jsonl_rows: total_before - sqlite_rows - deduplicated,
+    }
 }
 
 fn scan_file(

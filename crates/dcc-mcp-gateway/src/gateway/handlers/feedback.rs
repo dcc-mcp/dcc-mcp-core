@@ -4,8 +4,10 @@ use axum::Json;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
+use dcc_mcp_gateway_admin::{FeedbackReportRow, FeedbackSubmissionKind};
 use dcc_mcp_models::{FeedbackReport, FindingV1};
 use serde_json::{Value, json};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::gateway::event_log::{EventKind, notify_updated, record_event};
 use crate::gateway::state::GatewayState;
@@ -25,6 +27,7 @@ pub async fn handle_v1_feedback(
 
     let feedback_id = uuid::Uuid::new_v4().to_string();
     let recorded_at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    let recorded_at_ms = now_millis();
     let dcc_type = submission.dcc_type();
     let instance_id = submission.instance_id();
     let event_context = json!({
@@ -42,6 +45,28 @@ pub async fn handle_v1_feedback(
         Some(event_context.to_string()),
     );
     notify_updated(&gateway.events_tx);
+    persist_feedback_report(
+        &gateway,
+        FeedbackReportRow {
+            id: feedback_id.clone(),
+            timestamp_ms: recorded_at_ms,
+            recorded_at_ms,
+            recorded_at: recorded_at.clone(),
+            kind: submission.kind(),
+            schema_version: submission.schema_version(),
+            fingerprint: submission.fingerprint(),
+            severity: submission.severity(),
+            dcc_type: dcc_type.to_string(),
+            instance_id: submission.report_instance_id(),
+            tool_slug: submission.tool_slug(),
+            report: json!({
+                "id": feedback_id,
+                "timestamp": recorded_at_ms as f64 / 1000.0,
+                "recorded_at": recorded_at,
+            }),
+        },
+        submission.report_value(),
+    );
     tracing::info!(
         feedback_id,
         severity = submission.severity(),
@@ -99,6 +124,42 @@ impl Submission {
         }
     }
 
+    fn kind(&self) -> FeedbackSubmissionKind {
+        match self {
+            Self::Finding(_) => FeedbackSubmissionKind::Finding,
+            Self::Legacy(_) => FeedbackSubmissionKind::Legacy,
+        }
+    }
+
+    fn schema_version(&self) -> i64 {
+        match self {
+            Self::Finding(finding) => i64::from(finding.schema_version),
+            Self::Legacy(_) => 0,
+        }
+    }
+
+    fn fingerprint(&self) -> Option<String> {
+        match self {
+            Self::Finding(finding) => Some(finding.fingerprint.clone()),
+            Self::Legacy(_) => None,
+        }
+    }
+
+    /// Instance id exactly as the report carries it — `None` when unscoped.
+    fn report_instance_id(&self) -> Option<String> {
+        match self {
+            Self::Finding(finding) => finding.evidence.instance_id.clone(),
+            Self::Legacy(report) => report.instance_id.clone(),
+        }
+    }
+
+    fn tool_slug(&self) -> Option<String> {
+        match self {
+            Self::Finding(finding) => finding.tool_slug.clone(),
+            Self::Legacy(report) => Some(report.tool_name.clone()),
+        }
+    }
+
     fn report_value(&self) -> Value {
         match self {
             Self::Finding(finding) => serde_json::to_value(finding),
@@ -119,6 +180,37 @@ fn parse_submission(body: Value) -> Result<Submission, String> {
             serde_json::from_value::<FeedbackReport>(body).map_err(|error| error.to_string())?;
         report.validate().map_err(|error| error.to_string())?;
         Ok(Submission::Legacy(report))
+    }
+}
+
+fn now_millis() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+/// Durable write for `POST /v1/feedback` (#2253-E1).
+///
+/// `report` is merged into the stored record so the SQLite row and the per-DCC
+/// JSONL mirror hold the same object; the admin API reads either one.
+///
+/// Persistence is best-effort: the receipt is returned even when no SQLite lane
+/// is configured (`admin-persist-sqlite` off) or the writer queue is saturated.
+fn persist_feedback_report(gateway: &GatewayState, mut row: FeedbackReportRow, report: Value) {
+    #[cfg(feature = "admin-persist-sqlite")]
+    {
+        let Some(lane) = gateway.admin_sqlite_lane.as_ref() else {
+            return;
+        };
+        if let (Value::Object(extra), Value::Object(report)) = (&mut row.report, report) {
+            extra.extend(report);
+        }
+        lane.try_persist_feedback_report(&row);
+    }
+    #[cfg(not(feature = "admin-persist-sqlite"))]
+    {
+        let _ = (gateway, &mut row, report);
     }
 }
 

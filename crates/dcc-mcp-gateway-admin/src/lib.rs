@@ -20,6 +20,7 @@ mod debug;
 pub mod domain;
 mod durable_store;
 mod experiments;
+mod feedback_report;
 mod governance;
 mod health;
 mod issue_report;
@@ -77,6 +78,7 @@ pub use experiments::{
     valid_experiment_id, validate_experiment_definition, validate_experiment_judge,
     validate_experiment_run,
 };
+pub use feedback_report::{FeedbackReportRow, FeedbackSubmissionKind};
 pub use governance::{
     GovernanceCaptureDecision, GovernanceMiddlewareState, governance_payload, governance_stats,
 };
