@@ -13,7 +13,13 @@ use std::collections::HashMap;
 /// Convert a Python object to a `serde_json::Value`.
 ///
 /// Extraction order matters — Python `bool` is a subclass of `int`,
-/// and `int` can be extracted as `f64`. So: bool → int → float → string.
+/// and `int` can be extracted as `f64`. So: bool → signed int → unsigned int →
+/// float → string.
+///
+/// The unsigned arm matters for values above `i64::MAX`: without it a large
+/// Python `int` would be captured by the `f64` arm and lose precision
+/// (issue #2500). Integers that exceed even `u64` still degrade to `f64`,
+/// because `serde_json` has no arbitrary-precision representation.
 pub fn py_any_to_json_value(obj: &Bound<'_, PyAny>) -> PyResult<serde_json::Value> {
     if obj.is_none() {
         return Ok(serde_json::Value::Null);
@@ -23,6 +29,9 @@ pub fn py_any_to_json_value(obj: &Bound<'_, PyAny>) -> PyResult<serde_json::Valu
     }
     if let Ok(i) = obj.extract::<i64>() {
         return Ok(serde_json::Value::Number(i.into()));
+    }
+    if let Ok(u) = obj.extract::<u64>() {
+        return Ok(serde_json::Value::Number(u.into()));
     }
     if let Ok(f) = obj.extract::<f64>() {
         // JSON does not support NaN/Infinity — fall back to Null
@@ -58,8 +67,15 @@ pub fn json_value_to_bound_py<'py>(
         serde_json::Value::Null => Ok(py.None().into_bound(py)),
         serde_json::Value::Bool(b) => Ok(PyBool::new(py, *b).to_owned().into_any()),
         serde_json::Value::Number(n) => {
+            // Order matters: try the signed range first, then the unsigned
+            // range, and only fall back to f64. Python ints are arbitrary
+            // precision, so u64 values above i64::MAX are exactly
+            // representable — without the `as_u64` arm they would silently
+            // degrade to an imprecise float (issue #2500).
             if let Some(i) = n.as_i64() {
                 Ok(i.into_pyobject(py)?.clone().into_any())
+            } else if let Some(u) = n.as_u64() {
+                Ok(u.into_pyobject(py)?.clone().into_any())
             } else if let Some(f) = n.as_f64() {
                 Ok(f.into_pyobject(py)?.clone().into_any())
             } else {
@@ -209,5 +225,60 @@ mod tests {
     fn test_json_loads_basic() {
         let val: serde_json::Value = serde_json::from_str(r#"{"key": "value"}"#).unwrap();
         assert_eq!(val["key"], "value");
+    }
+
+    // Issue #2500 — the extras API promises type preservation, and a u64 above
+    // i64::MAX is exactly the case that used to fall through to f64 and come
+    // back as an imprecise float.
+    mod number_conversion {
+        use super::*;
+
+        /// Round-trip `value` through Python and assert the exact integer survives.
+        fn assert_int_round_trip(value: serde_json::Value, expected: u64) {
+            Python::initialize();
+            Python::attach(|py| -> PyResult<()> {
+                let py_value = json_value_to_bound_py(py, &value)?;
+                let back = py_any_to_json_value(&py_value)?;
+                assert_eq!(
+                    back.as_u64(),
+                    Some(expected),
+                    "{expected} must round-trip as an exact integer, got {back}"
+                );
+                Ok(())
+            })
+            .unwrap();
+        }
+
+        #[test]
+        fn u64_above_i64_max_stays_exact() {
+            let too_big_for_i64 = i64::MAX as u64 + 1;
+            assert_int_round_trip(serde_json::json!(too_big_for_i64), too_big_for_i64);
+            assert_int_round_trip(serde_json::json!(u64::MAX), u64::MAX);
+        }
+
+        #[test]
+        fn signed_and_small_integers_stay_exact() {
+            Python::initialize();
+            Python::attach(|py| -> PyResult<()> {
+                let back = json_value_to_bound_py(py, &serde_json::json!(-1))?;
+                assert_eq!(py_any_to_json_value(&back)?, serde_json::json!(-1));
+
+                let back = json_value_to_bound_py(py, &serde_json::json!(9222))?;
+                assert_eq!(py_any_to_json_value(&back)?, serde_json::json!(9222));
+                Ok(())
+            })
+            .unwrap();
+        }
+
+        #[test]
+        fn floats_still_convert() {
+            Python::initialize();
+            Python::attach(|py| -> PyResult<()> {
+                let back = json_value_to_bound_py(py, &serde_json::json!(1.5))?;
+                assert_eq!(py_any_to_json_value(&back)?, serde_json::json!(1.5));
+                Ok(())
+            })
+            .unwrap();
+        }
     }
 }

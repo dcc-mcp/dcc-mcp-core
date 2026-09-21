@@ -1,5 +1,6 @@
 //! Service discovery — unified registry supporting file-based and future mDNS strategies.
 
+pub mod entry_patch;
 pub mod file_registry;
 mod file_registry_async;
 mod liveness;

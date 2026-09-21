@@ -338,12 +338,15 @@ are then visible to the `list_dcc_instances` MCP tool, to the gateway HTTP
 `dcc-mcp-cli`.
 
 ```python
-from dcc_mcp_core import McpHttpConfig, McpHttpServer
+from dcc_mcp_core import McpHttpConfig
+from dcc_mcp_core import McpHttpServer
+from dcc_mcp_core import ToolRegistry
 
-config = McpHttpConfig(port=18812, dcc_type="auroraview")
+config = McpHttpConfig(port=18812)
+config.dcc_type = "auroraview"
 config.instance_extras = {"host_dcc": "maya-2024"}  # seeded at registration
 
-server = McpHttpServer(config)
+server = McpHttpServer(ToolRegistry(), config)
 handle = server.start()
 
 # WebView panel announcing its DevTools endpoint and current URL:
@@ -359,6 +362,11 @@ handle.update_gateway_extras(
 # Passing None clears a single key and preserves the rest:
 handle.update_gateway_extras({"cdp_port": None})
 ```
+
+Note that `dcc_type` is set as an attribute rather than a constructor keyword:
+the exported `McpHttpConfig` is the native extension type, which exposes
+configuration as properties. `McpHttpServer` takes the action registry first
+and the config second.
 
 Use `McpHttpConfig.instance_extras` for values known at startup and
 `update_gateway_extras()` for everything that changes at runtime. Prefer

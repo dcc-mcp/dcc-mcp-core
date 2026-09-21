@@ -14,6 +14,7 @@ use dashmap::DashMap;
 use fs4::{FileExt, TryLockError};
 use tracing;
 
+use super::entry_patch;
 use super::liveness::{is_pid_alive, legacy_sidecar_host_pid};
 use super::registry_format::{RegistryParseError, parse_registry_entries};
 use super::types::{
@@ -781,28 +782,10 @@ impl FileRegistry {
         })
     }
 
-    /// Update scene and/or version metadata for a service, and refresh heartbeat.
-    ///
-    /// This is the primary way for a running instance to report that the user
-    /// has opened a different scene (e.g. switched documents in Photoshop) or
-    /// that the DCC version has changed.
-    pub fn update_metadata(
-        &self,
-        key: &ServiceKey,
-        scene: Option<&str>,
-        version: Option<&str>,
-    ) -> TransportResult<bool> {
-        self.update_snapshot(
-            key,
-            ServiceSnapshot {
-                scene,
-                version,
-                ..ServiceSnapshot::default()
-            },
-        )
-    }
-
     /// Apply live service metadata and refresh its heartbeat in one write transaction.
+    ///
+    /// The merge rules themselves live in [`super::entry_patch::apply_snapshot`];
+    /// this method only owns the write transaction around them.
     pub fn update_snapshot(
         &self,
         key: &ServiceKey,
@@ -812,121 +795,9 @@ impl FileRegistry {
             let Some(mut entry) = self.services.get_mut(key) else {
                 return Ok((false, false));
             };
-            let entry = entry.value_mut();
-            if let Some(scene) = snapshot.scene {
-                entry.scene = (!scene.is_empty()).then(|| scene.to_string());
-            }
-            if let Some(version) = snapshot.version {
-                entry.version = (!version.is_empty()).then(|| version.to_string());
-            }
-            if let Some(documents) = snapshot.documents {
-                entry.documents = documents
-                    .iter()
-                    .filter(|document| !document.is_empty())
-                    .cloned()
-                    .collect();
-            }
-            if let Some(display_name) = snapshot.display_name {
-                entry.display_name = (!display_name.is_empty()).then(|| display_name.to_string());
-            }
-            if let Some(metadata) = snapshot.metadata {
-                for (name, value) in metadata {
-                    if value.is_empty() {
-                        entry.metadata.remove(name);
-                    } else {
-                        entry.metadata.insert(name.clone(), value.clone());
-                    }
-                }
-            }
-            if let Some(extras) = snapshot.extras {
-                for (name, value) in extras {
-                    if value.is_null() {
-                        entry.extras.remove(name);
-                    } else {
-                        entry.extras.insert(name.clone(), value.clone());
-                    }
-                }
-            }
-            entry.touch();
+            entry_patch::apply_snapshot(entry.value_mut(), &snapshot);
             Ok((true, true))
         })
-    }
-
-    /// Update the active document, full document list, and optional display name.
-    ///
-    /// Designed for multi-document DCC applications (e.g. Photoshop, After Effects)
-    /// that can have several files open simultaneously. For single-document DCCs
-    /// (Maya, Blender, Houdini) it is equivalent to [`update_metadata`] with the
-    /// `scene` field, but also stores `pid` and `display_name` when provided.
-    ///
-    /// # Parameters
-    /// - `active_document` — the currently focused file; stored in `scene`.
-    ///   Pass `Some("")` to clear.
-    /// - `documents` — full list of open documents; replaces the previous list.
-    ///   Pass `&[]` to clear.
-    /// - `display_name` — human-readable instance label (e.g. `"PS-Marketing"`).
-    ///   Pass `Some("")` to clear.  `None` leaves the existing value unchanged.
-    ///
-    /// Always refreshes the heartbeat so the gateway does not mark the instance stale.
-    pub fn update_documents(
-        &self,
-        key: &ServiceKey,
-        active_document: Option<&str>,
-        documents: &[String],
-        display_name: Option<&str>,
-    ) -> TransportResult<bool> {
-        self.update_snapshot(
-            key,
-            ServiceSnapshot {
-                scene: active_document,
-                documents: Some(documents),
-                display_name,
-                ..ServiceSnapshot::default()
-            },
-        )
-    }
-
-    /// Merge arbitrary string metadata for a service and refresh heartbeat.
-    ///
-    /// Values are merged into [`ServiceEntry::metadata`]. Passing an empty value
-    /// removes that key, which gives embedders a small clearing mechanism
-    /// without replacing unrelated adapter metadata.
-    pub fn update_instance_metadata(
-        &self,
-        key: &ServiceKey,
-        metadata: &std::collections::HashMap<String, String>,
-    ) -> TransportResult<bool> {
-        self.update_snapshot(
-            key,
-            ServiceSnapshot {
-                metadata: Some(metadata),
-                ..ServiceSnapshot::default()
-            },
-        )
-    }
-
-    /// Merge arbitrary JSON-typed extras for a service and refresh heartbeat.
-    ///
-    /// This is the [`ServiceEntry::extras`] counterpart of
-    /// [`Self::update_instance_metadata`]. Unlike `metadata`, values keep
-    /// their JSON type — numbers, booleans, nested objects and arrays all
-    /// survive the `services.json` round-trip (issue #2500).
-    ///
-    /// Values are merged into [`ServiceEntry::extras`]. Passing
-    /// [`serde_json::Value::Null`] removes that key, which gives embedders a
-    /// small clearing mechanism without replacing unrelated adapter extras.
-    pub fn update_instance_extras(
-        &self,
-        key: &ServiceKey,
-        extras: &std::collections::HashMap<String, serde_json::Value>,
-    ) -> TransportResult<bool> {
-        self.update_snapshot(
-            key,
-            ServiceSnapshot {
-                extras: Some(extras),
-                ..ServiceSnapshot::default()
-            },
-        )
     }
 
     /// Set the registered service owner's OS process ID.
