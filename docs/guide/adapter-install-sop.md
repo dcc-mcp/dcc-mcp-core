@@ -355,6 +355,33 @@ https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-<dcc>/main/install.md
 
 Do not point the catalog at a weaker README or a mutable media/document host.
 
+### Install SOP version declaration
+
+The runbook MUST declare the Install SOP version it follows with one lightweight
+HTML comment marker in the document header (the first 4 KB):
+
+```html
+<!-- install-sop-version: 1 -->
+```
+
+The marker is the only adapter-owned signal the catalog publisher needs, so it
+reads no adapter package metadata to record the version. Rules:
+
+- The value MUST be an integer between `1` and `999999`. `1` is the current
+  version. Values outside that range are rejected as out of range.
+- One declaration per runbook. Repeating the same value is harmless; two
+  different values are an error.
+- A malformed declaration, for example `install-sop-version: v1`, fails the
+  catalog refresh instead of being dropped silently.
+- Omitting the marker is valid and leaves the catalog `install.sop_version`
+  field unset for that adapter.
+
+The publisher resolves the runbook at the release commit, parses this marker,
+and records `install.sop_version` on the published entry. A curated catalog
+`sop_version` MUST match the declared value; a mismatch is a publication error.
+Bump the marker only when the adapter's install contract actually adopts a new
+SOP version.
+
 ## CI acceptance
 
 At minimum, every adapter CI runs:

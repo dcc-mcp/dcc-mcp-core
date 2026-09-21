@@ -44,11 +44,15 @@ MAX_ARTIFACT_BYTES = 128 * 1024 * 1024
 MAX_EXPANDED_BYTES = 512 * 1024 * 1024
 MAX_ARCHIVE_MEMBERS = 20000
 MAX_INSTRUCTIONS_BYTES = 2 * 1024 * 1024
+MAX_SOP_HEADER_BYTES = 4 * 1024
+MAX_SOP_VERSION = 999999
 VALIDITY_SECONDS = 7 * 24 * 60 * 60
 QUARANTINE_REASON = "Release validation failed; installation is unavailable until a successful catalog refresh."
 _SHA = re.compile(r"[0-9a-fA-F]{40}\Z")
 _DIGEST = re.compile(r"(?:sha256:)?([0-9a-fA-F]{64})\Z")
 _NAME = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?\Z")
+_SOP_DECLARED = re.compile(rb"<!--\s*install-sop-version\s*:", re.IGNORECASE)
+_SOP_VERSION = re.compile(rb"<!--\s*install-sop-version\s*:\s*([0-9]{1,9})\s*-->", re.IGNORECASE)
 _HOSTS = frozenset(
     (
         "api.github.com",
@@ -281,6 +285,41 @@ def _release_commit(transport, repo: str, version: str) -> str:
     raise CatalogPreparationError("release tag does not resolve to a commit")
 
 
+def _declared_sop_version(data: bytes):
+    """Return the Install SOP version declared by a runbook, or None when absent.
+
+    The declaration is a lightweight HTML comment marker in the runbook header, so the
+    pin stage never needs another adapter-owned document to record it.
+    """
+    header = data[:MAX_SOP_HEADER_BYTES]
+    declared = _SOP_DECLARED.findall(header)
+    if not declared:
+        return None
+    parsed = _SOP_VERSION.findall(header)
+    values = {int(value) for value in parsed}
+    if len(values) != 1 or len(parsed) != len(declared):
+        raise CatalogPreparationError("install SOP version declaration is malformed or inconsistent")
+    version = values.pop()
+    if not 0 < version <= MAX_SOP_VERSION:
+        raise CatalogPreparationError("install SOP version declaration is out of range")
+    return version
+
+
+def _record_sop_version(entry: dict, data: bytes) -> None:
+    """Record the runbook's declared Install SOP version on the install entry."""
+    install = entry["install"]
+    declared = _declared_sop_version(data)
+    if "sop_version" in install:
+        curated = install["sop_version"]
+        if isinstance(curated, bool) or not isinstance(curated, int) or curated < 1:
+            raise CatalogPreparationError("curated install SOP version must be a positive integer")
+        if declared is not None and curated != declared:
+            raise CatalogPreparationError("install SOP version declaration differs from the catalog")
+        return
+    if declared is not None:
+        install["sop_version"] = declared
+
+
 def _pin_instructions(transport, entry: dict, commit=None) -> None:
     repo = _official_repo(entry)
     if commit is None:
@@ -292,6 +331,7 @@ def _pin_instructions(transport, entry: dict, commit=None) -> None:
         if not data.strip():
             raise CatalogPreparationError("canonical install instructions are empty")
         entry["install"]["instructions_url"] = canonical
+        _record_sop_version(entry, data)
         return
     current = entry["install"].get("instructions_url", "")
     prefix = "https://raw.githubusercontent.com/" + repo + "/"
@@ -303,9 +343,11 @@ def _pin_instructions(transport, entry: dict, commit=None) -> None:
     if any(part in (".", "..") for part in suffix[1].split("/")):
         raise CatalogPreparationError("invalid instructions path")
     pinned = base + suffix[1]
-    if not _fetch(transport, pinned, MAX_INSTRUCTIONS_BYTES).strip():
+    fallback = _fetch(transport, pinned, MAX_INSTRUCTIONS_BYTES)
+    if not fallback.strip():
         raise CatalogPreparationError("release-pinned instructions are empty")
     entry["install"]["instructions_url"] = pinned
+    _record_sop_version(entry, fallback)
 
 
 def prepare_catalog(

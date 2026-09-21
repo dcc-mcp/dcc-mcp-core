@@ -46,6 +46,9 @@ The release MUST conform to
       injection. Any unavailable live-host smoke is stated as a release gap.
 - [ ] Catalog `instructions_url` points to:
       `https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-<dcc>/main/install.md`.
+- [ ] Root `install.md` declares its Install SOP version with the header marker
+      `<!-- install-sop-version: 1 -->`, matching the SOP version the release
+      actually implements.
 
 Do not substitute a bespoke installer executable, prose-only next steps,
 delete-then-copy overwrite, or README-only instructions.

@@ -121,6 +121,81 @@ def test_prepares_exact_curated_wheel_and_release_pinned_instructions_without_im
     assert not any("latest" in call[0] for call in transport.calls)
 
 
+SOP_MARKER = b"<!-- install-sop-version: 1 -->"
+
+
+def test_release_pinned_runbook_declares_its_install_sop_version():
+    document, transport, _ = _fixture()
+    transport.responses[RAW_BASE + "install.md"] = b"# Install this release\n\n" + SOP_MARKER + b"\n"
+    assert _prepare(document, transport)["entries"][0]["install"]["sop_version"] == 1
+
+
+def test_runbook_without_a_sop_declaration_omits_the_field():
+    document, transport, _ = _fixture()
+    assert "sop_version" not in _prepare(document, transport)["entries"][0]["install"]
+
+
+def test_sop_version_recorded_through_the_pinned_fallback_document():
+    document, transport, _ = _fixture()
+    transport.responses[RAW_BASE + "install.md"] = None
+    transport.responses[RAW_BASE + "README.md"] = SOP_MARKER + b"\n# Release installation\n"
+    assert _prepare(document, transport)["entries"][0]["install"]["sop_version"] == 1
+
+
+def test_curated_sop_version_is_preserved_when_the_runbook_is_silent():
+    document, transport, _ = _fixture()
+    document["entries"][0]["install"]["sop_version"] = 1
+    assert _prepare(document, transport)["entries"][0]["install"]["sop_version"] == 1
+
+
+def test_repeated_identical_sop_declaration_is_harmless():
+    document, transport, _ = _fixture()
+    body = SOP_MARKER + b"\n# Install this release\n" + SOP_MARKER + b"\n"
+    transport.responses[RAW_BASE + "install.md"] = body
+    assert _prepare(document, transport)["entries"][0]["install"]["sop_version"] == 1
+
+
+def test_null_curated_sop_version_blocks_publication():
+    document, transport, _ = _fixture()
+    document["entries"][0]["install"]["sop_version"] = None
+    with pytest.raises(publisher.CatalogPreparationError, match="positive integer"):
+        _prepare(document, transport)
+
+
+@pytest.mark.parametrize(
+    "body,message",
+    [
+        (b"<!-- install-sop-version: v1 -->\n", "malformed"),
+        (b"<!-- install-sop-version: 1.2 -->\n", "malformed"),
+        (b"<!-- install-sop-version: 1 -->\n<!-- install-sop-version: 2 -->\n", "inconsistent"),
+        (b"<!-- install-sop-version: 0 -->\n", "out of range"),
+        (b"<!-- install-sop-version: 1000000 -->\n", "out of range"),
+    ],
+)
+def test_broken_sop_declaration_blocks_publication(body, message):
+    document, transport, _ = _fixture()
+    transport.responses[RAW_BASE + "install.md"] = b"# Install this release\n\n" + body
+    with pytest.raises(publisher.CatalogPreparationError, match=message):
+        _prepare(document, transport)
+
+
+def test_conflicting_curated_sop_version_blocks_publication():
+    document, transport, _ = _fixture()
+    install = document["entries"][0]["install"]
+    install["sop_version"] = 2
+    transport.responses[RAW_BASE + "install.md"] = SOP_MARKER + b"\n# Install this release\n"
+    with pytest.raises(publisher.CatalogPreparationError, match="differs from the catalog"):
+        _prepare(document, transport)
+
+
+def test_broken_sop_declaration_quarantines_only_the_offending_entry():
+    document, transport, _ = _fixture()
+    transport.responses[RAW_BASE + "install.md"] = b"<!-- install-sop-version: v1 -->\n"
+    payload = publisher.prepare_catalog(document, REVISION, 1, transport, quarantine_invalid=True)
+    assert payload["entries"][0]["policy"]["installation"] == "not_available"
+    assert "install" not in payload["entries"][0]
+
+
 def test_annotated_release_tag_and_pinned_document_fallback():
     document, transport, _ = _fixture()
     annotated_sha = "c" * 40

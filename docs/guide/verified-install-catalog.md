@@ -81,9 +81,15 @@ vx uv run --no-project --with pyyaml==6.0.2 \
 ```
 
 Validation checks each curated artifact against its immutable source, expected
-SHA-256, publication state, and package metadata. With `--quarantine-invalid`, a
-missing or yanked artifact, wrong checksum, invalid package metadata, unsupported
-active install contract, or failed package check emits a discovery entry with
+SHA-256, publication state, and package metadata. It also resolves each adapter's
+release-pinned `install.md`, parses the `<!-- install-sop-version: N -->` marker
+documented in [Adapter Install SOP v1](adapter-install-sop.md), and records
+`install.sop_version` on the entry. A runbook without the marker leaves the field
+unset; a malformed, inconsistent, out-of-range, or catalog-conflicting
+declaration is a validation failure rather than a silent drop. With
+`--quarantine-invalid`, a missing or yanked artifact, wrong checksum, invalid
+package metadata, unsupported active install contract, failed package check, or
+failed SOP version check emits a discovery entry with
 `policy.installation: not_available`, a safe explanation, and no executable
 install metadata. Other valid entries remain available. This allows a newly
 detected withdrawal to reach clients even when another package check fails.
