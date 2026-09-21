@@ -5,6 +5,7 @@ mod action_result;
 mod dcc_name;
 mod error;
 pub mod feedback;
+pub mod feedback_routing;
 mod instance_status;
 pub mod registry;
 pub mod session;
@@ -29,6 +30,10 @@ pub use feedback::{
     FINDING_V1_JSON_SCHEMA, FINDING_V1_SCHEMA_VERSION, FeedbackReport, FeedbackSeverity,
     FeedbackValidationError, FindingEvidenceV1, FindingPhase, FindingRedactionMode,
     FindingRedactionStatusV1, FindingReproV1, FindingSeverity, FindingV1, finding_fingerprint,
+};
+pub use feedback_routing::{
+    CORE_PACKAGE, FeedbackRoute, FeedbackRouteError, FeedbackRouteRationale, FeedbackRouteTarget,
+    SKILL_ROUTING_EVIDENCE_KEY, is_core_error_kind, route_finding,
 };
 pub use instance_status::{DispatchStatus, InstanceStatus, ServiceStatus};
 pub use registry::{DefaultRegistry, Registry, RegistryEntry, SearchQuery};

@@ -13,6 +13,7 @@ use rusqlite::{Connection, ToSql, params, params_from_iter};
 use serde::Deserialize;
 use serde_json::json;
 
+use crate::domain::feedback_report::{FeedbackReportInsert, FeedbackReportRow};
 use crate::domain::gateway_admin_audit::GatewayAdminAuditPersistedJson;
 use crate::domain::gateway_admin_deregistered::GatewayDeregisteredInstanceJson;
 use crate::domain::script_promotion::ScriptPromotionBumpJson;
@@ -490,6 +491,50 @@ impl GatewayAdminSqliteReader {
         rows.filter_map(|r| r.ok()).collect()
     }
 
+    /// Most recently seen feedback reports, newest first, bounded by `limit`.
+    pub fn list_feedback_reports_json(&self, limit: usize) -> Vec<String> {
+        let Some(conn) = self.open_ro() else {
+            return Vec::new();
+        };
+        let mut stmt = match conn.prepare_cached(
+            "SELECT report_json FROM feedback_reports ORDER BY last_seen_ms DESC LIMIT ?1",
+        ) {
+            Ok(s) => s,
+            Err(_) => return Vec::new(),
+        };
+        let rows = stmt.query_map(params![limit as i64], |row| row.get::<_, String>(0));
+        let Ok(rows) = rows else {
+            return Vec::new();
+        };
+        rows.filter_map(|r| r.ok()).collect()
+    }
+
+    /// Look up one report by its `(repo, fingerprint)` dedup key.
+    pub fn get_feedback_report(&self, repo: &str, fingerprint: &str) -> Option<FeedbackReportRow> {
+        let conn = self.open_ro()?;
+        select_feedback_report(&conn, repo, fingerprint).ok()
+    }
+
+    /// Most recently seen reports, newest first, bounded by `limit`.
+    pub fn list_feedback_reports(&self, limit: usize) -> Vec<FeedbackReportRow> {
+        let Some(conn) = self.open_ro() else {
+            return Vec::new();
+        };
+        let mut stmt = match conn.prepare_cached(
+            "SELECT id, repo, fingerprint, issues_url, route_rationale, dcc_type, phase, severity, \
+             first_seen_ms, last_seen_ms, occurrence_count, report_json \
+             FROM feedback_reports ORDER BY last_seen_ms DESC LIMIT ?1",
+        ) {
+            Ok(s) => s,
+            Err(_) => return Vec::new(),
+        };
+        let rows = stmt.query_map(params![limit as i64], row_to_feedback_report);
+        let Ok(rows) = rows else {
+            return Vec::new();
+        };
+        rows.filter_map(|r| r.ok()).collect()
+    }
+
     pub fn list_agent_memory_json(
         &self,
         layer: Option<&str>,
@@ -795,6 +840,41 @@ impl GatewayAdminSqliteLane {
             let _ = tx.try_send(PersistMsg::ScriptPromotionBumpJson(json.to_owned()));
         }
     }
+
+    /// Insert or collapse one feedback report and return the resulting row.
+    ///
+    /// Unlike the `try_persist_*` helpers this is **synchronous**: the gateway
+    /// needs `occurrence_count` and the row id to build its HTTP response, and
+    /// reading them back over the async lane would race the writer thread.
+    /// Opens its own connection to the same file (WAL permits concurrent
+    /// writers; SQLite serialises them).
+    pub fn upsert_feedback_report(
+        &self,
+        row: &FeedbackReportInsert,
+    ) -> Result<FeedbackReportRow, String> {
+        let path = self.path();
+        let mut conn = Connection::open(path).map_err(|e| e.to_string())?;
+        conn.execute_batch(SCHEMA).map_err(|e| e.to_string())?;
+        upsert_feedback_report(&mut conn, row)
+    }
+
+    /// Filesystem path of the admin SQLite database.
+    #[must_use]
+    pub fn path(&self) -> &Path {
+        &self.inner.reader.path
+    }
+
+    /// Look up one report by its dedup key without writing.
+    #[must_use]
+    pub fn get_feedback_report(&self, repo: &str, fingerprint: &str) -> Option<FeedbackReportRow> {
+        self.inner.reader.get_feedback_report(repo, fingerprint)
+    }
+
+    /// Most recently seen reports, newest first, bounded by `limit`.
+    #[must_use]
+    pub fn list_feedback_reports(&self, limit: usize) -> Vec<FeedbackReportRow> {
+        self.inner.reader.list_feedback_reports(limit)
+    }
 }
 
 fn writer_main(path: PathBuf, retention_days: u32, rx: Receiver<PersistMsg>) {
@@ -977,6 +1057,84 @@ fn writer_main(path: PathBuf, retention_days: u32, rx: Receiver<PersistMsg>) {
         }
     }
     let _ = conn.execute("PRAGMA optimize", []);
+}
+
+const FEEDBACK_REPORT_COLUMNS: &str = "id, repo, fingerprint, issues_url, route_rationale, dcc_type, \
+    phase, severity, first_seen_ms, last_seen_ms, occurrence_count, report_json";
+
+fn row_to_feedback_report(row: &rusqlite::Row<'_>) -> rusqlite::Result<FeedbackReportRow> {
+    Ok(FeedbackReportRow {
+        id: row.get(0)?,
+        repo: row.get(1)?,
+        fingerprint: row.get(2)?,
+        issues_url: row.get(3)?,
+        route_rationale: row.get(4)?,
+        dcc_type: row.get(5)?,
+        phase: row.get(6)?,
+        severity: row.get(7)?,
+        first_seen_ms: row.get(8)?,
+        last_seen_ms: row.get(9)?,
+        occurrence_count: row.get(10)?,
+        report_json: row.get(11)?,
+    })
+}
+
+/// Collapse one report onto its `(repo, fingerprint)` row, bumping the counter.
+///
+/// The `ON CONFLICT` clause is what makes ingest idempotent: the unique index
+/// turns a repeat report into an `occurrence_count` increment and a
+/// `last_seen_ms` refresh, leaving exactly one row per finding per repo.
+fn upsert_feedback_report(
+    conn: &mut Connection,
+    row: &FeedbackReportInsert,
+) -> Result<FeedbackReportRow, String> {
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    tx.execute(
+        "INSERT INTO feedback_reports \
+         (repo, fingerprint, issues_url, route_rationale, dcc_type, phase, severity, \
+          first_seen_ms, last_seen_ms, occurrence_count, report_json) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8, 1, ?9) \
+         ON CONFLICT (repo, fingerprint) DO UPDATE SET \
+           last_seen_ms = excluded.last_seen_ms, \
+           occurrence_count = occurrence_count + 1, \
+           issues_url = COALESCE(excluded.issues_url, issues_url), \
+           route_rationale = COALESCE(excluded.route_rationale, route_rationale), \
+           dcc_type = excluded.dcc_type, \
+           phase = excluded.phase, \
+           severity = excluded.severity, \
+           report_json = excluded.report_json",
+        params![
+            row.repo,
+            row.fingerprint,
+            row.issues_url,
+            row.route_rationale,
+            row.dcc_type,
+            row.phase,
+            row.severity,
+            row.observed_at_ms,
+            row.report_json,
+        ],
+    )
+    .map_err(|e| e.to_string())?;
+    let persisted = select_feedback_report(&tx, &row.repo, &row.fingerprint)?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(persisted)
+}
+
+fn select_feedback_report(
+    conn: &Connection,
+    repo: &str,
+    fingerprint: &str,
+) -> Result<FeedbackReportRow, String> {
+    conn.query_row(
+        &format!(
+            "SELECT {FEEDBACK_REPORT_COLUMNS} FROM feedback_reports \
+             WHERE repo = ?1 AND fingerprint = ?2"
+        ),
+        params![repo, fingerprint],
+        row_to_feedback_report,
+    )
+    .map_err(|e| e.to_string())
 }
 
 fn prune_old_rows(conn: &mut Connection, retention_days: u32) {
@@ -1445,5 +1603,120 @@ mod tests {
         assert_eq!(events.len(), 3);
         assert!(events.iter().all(|event| event.contains("exp-a")));
         assert!(events.last().unwrap().contains("experiment.run.passed"));
+    }
+
+    fn report(repo: &str, fingerprint: &str, seen_ms: i64) -> FeedbackReportInsert {
+        FeedbackReportInsert {
+            repo: repo.to_string(),
+            fingerprint: fingerprint.to_string(),
+            issues_url: Some(format!("https://github.com/{repo}/issues")),
+            route_rationale: Some("adapter_phase".to_string()),
+            dcc_type: "maya".to_string(),
+            phase: "dispatch".to_string(),
+            severity: "degraded".to_string(),
+            observed_at_ms: seen_ms,
+            report_json: format!("{{\"fingerprint\":\"{fingerprint}\"}}"),
+        }
+    }
+
+    #[test]
+    fn repeated_reports_collapse_into_one_row_with_a_counter() {
+        let dir = tempdir().unwrap();
+        let db = dir.path().join("f.sqlite");
+        let lane = GatewayAdminSqliteLane::spawn(db.clone(), 30).expect("spawn");
+        let fingerprint = format!("sha256:{}", "a".repeat(64));
+
+        for seen_ms in [1_000_i64, 2_000, 3_000] {
+            let row = lane
+                .upsert_feedback_report(&report("dcc-mcp/dcc-mcp-maya", &fingerprint, seen_ms))
+                .expect("upsert");
+            assert_eq!(row.occurrence_count, seen_ms / 1_000);
+            assert_eq!(row.first_seen_ms, 1_000);
+            assert_eq!(row.last_seen_ms, seen_ms);
+            assert_eq!(row.repo, "dcc-mcp/dcc-mcp-maya");
+        }
+
+        let stored = lane.list_feedback_reports(10);
+        assert_eq!(stored.len(), 1, "three reports must stay one row");
+        assert_eq!(stored[0].occurrence_count, 3);
+        assert_eq!(stored[0].last_seen_ms, 3_000);
+        assert_eq!(
+            stored[0].issues_url.as_deref(),
+            Some("https://github.com/dcc-mcp/dcc-mcp-maya/issues")
+        );
+        assert_eq!(stored[0].route_rationale.as_deref(), Some("adapter_phase"));
+    }
+
+    #[test]
+    fn upsert_keeps_the_row_id_stable_across_occurrences() {
+        let dir = tempdir().unwrap();
+        let db = dir.path().join("f.sqlite");
+        let lane = GatewayAdminSqliteLane::spawn(db.clone(), 30).expect("spawn");
+        let fingerprint = format!("sha256:{}", "b".repeat(64));
+
+        let first = lane
+            .upsert_feedback_report(&report("dcc-mcp/dcc-mcp-maya", &fingerprint, 10))
+            .expect("first upsert");
+        let second = lane
+            .upsert_feedback_report(&report("dcc-mcp/dcc-mcp-maya", &fingerprint, 20))
+            .expect("second upsert");
+
+        assert_eq!(first.id, second.id, "a repeat report reuses the row id");
+        assert_eq!(second.occurrence_count, 2);
+    }
+
+    #[test]
+    fn the_same_fingerprint_in_two_repos_stays_two_rows() {
+        let dir = tempdir().unwrap();
+        let db = dir.path().join("f.sqlite");
+        let lane = GatewayAdminSqliteLane::spawn(db.clone(), 30).expect("spawn");
+        let fingerprint = format!("sha256:{}", "c".repeat(64));
+
+        lane.upsert_feedback_report(&report("dcc-mcp/dcc-mcp-maya", &fingerprint, 10))
+            .expect("maya upsert");
+        lane.upsert_feedback_report(&report("dcc-mcp/dcc-mcp-core", &fingerprint, 10))
+            .expect("core upsert");
+
+        let stored = lane.list_feedback_reports(10);
+        assert_eq!(stored.len(), 2, "the dedup key is (repo, fingerprint)");
+    }
+
+    #[test]
+    fn unrouted_reports_dedup_under_the_empty_repo() {
+        let dir = tempdir().unwrap();
+        let db = dir.path().join("f.sqlite");
+        let lane = GatewayAdminSqliteLane::spawn(db.clone(), 30).expect("spawn");
+        let fingerprint = format!("sha256:{}", "d".repeat(64));
+        let unrouted = FeedbackReportInsert {
+            repo: String::new(),
+            issues_url: None,
+            route_rationale: None,
+            ..report("dcc-mcp/dcc-mcp-maya", &fingerprint, 10)
+        };
+
+        lane.upsert_feedback_report(&unrouted).expect("first");
+        let row = lane.upsert_feedback_report(&unrouted).expect("second");
+
+        assert_eq!(row.occurrence_count, 2);
+        assert_eq!(lane.list_feedback_reports(10).len(), 1);
+    }
+
+    #[test]
+    fn lookup_by_dedup_key_finds_the_collapsed_row() {
+        let dir = tempdir().unwrap();
+        let db = dir.path().join("f.sqlite");
+        let lane = GatewayAdminSqliteLane::spawn(db.clone(), 30).expect("spawn");
+        let fingerprint = format!("sha256:{}", "e".repeat(64));
+        lane.upsert_feedback_report(&report("dcc-mcp/dcc-mcp-maya", &fingerprint, 10))
+            .expect("upsert");
+
+        let found = lane
+            .get_feedback_report("dcc-mcp/dcc-mcp-maya", &fingerprint)
+            .expect("row exists");
+        assert_eq!(found.occurrence_count, 1);
+        assert!(
+            lane.get_feedback_report("dcc-mcp/other", &fingerprint)
+                .is_none()
+        );
     }
 }
