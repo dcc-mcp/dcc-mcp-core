@@ -904,6 +904,8 @@ mod tests {
             entry_point: Some("dcc_mcp_maya.cli:main".into()),
             instructions_url: None,
             adobe: None,
+            sop_version: None,
+            sop_schema_digest: None,
         };
         let entries = vec![catalog_entry("dcc-mcp-maya", &["maya"], Some(install))];
         let plan = InstallPlanner::plan(
@@ -1097,6 +1099,8 @@ mod tests {
             entry_point: None,
             instructions_url: Some("https://example.com/custom-install.md".into()),
             adobe: None,
+            sop_version: None,
+            sop_schema_digest: None,
         };
         let mut entry = catalog_entry("dcc-mcp-maya", &["maya"], Some(install));
         entry.url = Some("https://github.com/dcc-mcp/dcc-mcp-maya".into());
@@ -1134,6 +1138,8 @@ mod tests {
             entry_point: None,
             instructions_url: None,
             adobe: None,
+            sop_version: None,
+            sop_schema_digest: None,
         };
         let entries = vec![catalog_entry(
             "dcc-mcp-maya-mgear",
@@ -1176,6 +1182,8 @@ mod tests {
             entry_point: None,
             instructions_url: None,
             adobe: None,
+            sop_version: None,
+            sop_schema_digest: None,
         };
         let request = || InstallRequest {
             dcc_type: "maya".into(),
@@ -1235,6 +1243,8 @@ mod tests {
             entry_point: None,
             instructions_url: None,
             adobe: None,
+            sop_version: None,
+            sop_schema_digest: None,
         };
         let entry = |install| catalog_entry("dcc-mcp-maya", &["maya"], Some(install));
         let request = |version: Option<&str>| InstallRequest {
@@ -1327,6 +1337,8 @@ mod tests {
             entry_point: None,
             instructions_url: None,
             adobe: None,
+            sop_version: None,
+            sop_schema_digest: None,
         };
         let entries = vec![catalog_entry("dcc-mcp-maya", &["maya"], Some(install))];
         let plan = InstallPlanner::plan(
@@ -1375,6 +1387,8 @@ mod tests {
                 manifest_path: Some("manifest.json".into()),
                 target_subpath: None,
             }),
+            sop_version: None,
+            sop_schema_digest: None,
         };
         let plan = InstallPlanner::plan(
             &[catalog_entry(
@@ -1428,6 +1442,8 @@ mod tests {
             entry_point: Some("dcc_mcp_photoshop.cli:main".into()),
             instructions_url: None,
             adobe: None,
+            sop_version: None,
+            sop_schema_digest: None,
         };
         let mut skill_pack = catalog_entry("dcc-mcp-photoshop-skills", &["photoshop"], None);
         skill_pack.tags = vec!["skills".into(), "official".into()];
