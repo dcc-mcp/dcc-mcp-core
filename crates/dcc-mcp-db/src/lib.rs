@@ -22,9 +22,14 @@ pub use application::gateway_admin::{
     default_gateway_admin_sqlite_path, resolve_gateway_admin_sqlite_path,
 };
 pub use domain::env;
+pub use domain::env::ENV_SCRIPT_PROMOTION_MIN_REPEATS;
 pub use domain::error::DbError;
 pub use domain::gateway_admin_audit::GatewayAdminAuditPersistedJson;
 pub use domain::gateway_admin_deregistered::GatewayDeregisteredInstanceJson;
+pub use domain::script_promotion::{
+    DEFAULT_SCRIPT_PROMOTION_MIN_REPEATS, ScriptPromotionBumpJson, ScriptPromotionCounter,
+    ScriptPromotionPolicy, ScriptPromotionProposalState, UNKNOWN_DCC_TYPE,
+};
 pub use infra::file_log_merge::{
     default_gateway_log_dir, parse_gateway_file_log_line, read_gateway_log_dir_rows_recent,
 };

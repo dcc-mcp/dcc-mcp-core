@@ -11,3 +11,8 @@ pub const GATEWAY_ADMIN_SQLITE_FILENAME: &str = "gateway_admin.sqlite";
 
 /// Rolling file log directory for `dcc_mcp_logging` (`DCC_MCP_LOG_DIR`).
 pub const ENV_DCC_MCP_LOG_DIR: &str = "DCC_MCP_LOG_DIR";
+
+/// Repeat threshold at which a repeated escape-hatch script becomes a
+/// skill-promotion candidate (#2297-A3). Unparsable values fall back to the
+/// built-in default of 3.
+pub const ENV_SCRIPT_PROMOTION_MIN_REPEATS: &str = "DCC_MCP_SCRIPT_PROMOTION_MIN_REPEATS";

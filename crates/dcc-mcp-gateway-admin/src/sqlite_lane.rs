@@ -22,7 +22,13 @@ use std::time::{Duration, UNIX_EPOCH};
 use dcc_mcp_db::{
     GatewayAdminAuditPersistedJson, GatewayAdminSqliteLane as InnerLane,
     GatewayAdminSqliteReader as InnerReader, GatewayDeregisteredInstanceJson,
+    ScriptPromotionBumpJson, ScriptPromotionCounter,
 };
+
+// #2297-A3: the counter value object is pure data, so the no-op facade can
+// name it even when no SQLite driver is compiled in.
+#[cfg(not(feature = "persist-sqlite"))]
+use dcc_mcp_db::ScriptPromotionCounter;
 
 #[cfg(feature = "persist-sqlite")]
 #[derive(Clone)]
@@ -217,6 +223,29 @@ impl AdminSqliteReader {
             .filter_map(|s| serde_json::from_str(&s).ok())
             .collect()
     }
+
+    /// #2297-A3: Read one persisted repeat counter, if the key was observed.
+    #[must_use]
+    pub fn get_script_promotion_counter(
+        &self,
+        sha256: &str,
+        dcc_type: &str,
+        tool_name: &str,
+    ) -> Option<ScriptPromotionCounter> {
+        self.inner
+            .get_script_promotion_counter_json(sha256, dcc_type, tool_name)
+            .and_then(|s| serde_json::from_str(&s).ok())
+    }
+
+    /// #2297-A3: Read repeat counters, most recently bumped first.
+    #[must_use]
+    pub fn list_script_promotion_counters(&self, limit: usize) -> Vec<ScriptPromotionCounter> {
+        self.inner
+            .list_script_promotion_counters_json(limit)
+            .into_iter()
+            .filter_map(|s| serde_json::from_str(&s).ok())
+            .collect()
+    }
 }
 
 #[cfg(feature = "persist-sqlite")]
@@ -321,6 +350,16 @@ impl AdminSqliteLane {
     pub fn try_persist_tool_call_event(&self, event: &dcc_mcp_models::ToolCallEvent) {
         if let Ok(json) = serde_json::to_string(event) {
             self.inner.try_persist_tool_call_event_json(&json);
+        }
+    }
+
+    /// #2297-A3: Record one repeat observation of a materialised script.
+    ///
+    /// Idempotent per `(sha256, dcc_type, tool_name)`: repeat observations
+    /// bump the existing row instead of creating a new one.
+    pub fn try_bump_script_promotion_counter(&self, bump: &ScriptPromotionBumpJson) {
+        if let Ok(json) = serde_json::to_string(bump) {
+            self.inner.try_bump_script_promotion_counter_json(&json);
         }
     }
 
@@ -540,6 +579,23 @@ impl AdminSqliteReader {
     ) -> Vec<serde_json::Value> {
         vec![]
     }
+
+    /// #2297-A3: no-op without `persist-sqlite`.
+    #[must_use]
+    pub fn get_script_promotion_counter(
+        &self,
+        _sha256: &str,
+        _dcc_type: &str,
+        _tool_name: &str,
+    ) -> Option<ScriptPromotionCounter> {
+        None
+    }
+
+    /// #2297-A3: no-op without `persist-sqlite`.
+    #[must_use]
+    pub fn list_script_promotion_counters(&self, _limit: usize) -> Vec<ScriptPromotionCounter> {
+        vec![]
+    }
 }
 
 #[cfg(not(feature = "persist-sqlite"))]
@@ -569,6 +625,8 @@ impl AdminSqliteLane {
     }
 
     pub fn try_persist_session_event(&self, _: &serde_json::Value) {}
+
+    pub fn try_bump_script_promotion_counter(&self, _: &dcc_mcp_db::ScriptPromotionBumpJson) {}
 
     #[must_use]
     pub fn try_add_skill_path(&self, _: String) -> bool {

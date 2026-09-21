@@ -16,7 +16,7 @@ workspace = true
 axum.workspace = true
 chrono = { version = "0.4", features = ["serde"] }
 dcc-mcp-catalog.workspace = true
-dcc-mcp-db = { path = "../dcc-mcp-db", default-features = false, optional = true }
+dcc-mcp-db = { path = "../dcc-mcp-db", default-features = false }
 dcc-mcp-models.workspace = true
 dcc-mcp-transport.workspace = true
 parking_lot.workspace = true
@@ -29,7 +29,7 @@ workspace-hack = { version = "0.1", path = "../workspace-hack" }
 [features]
 default = []
 embed = []
-persist-sqlite = ["dep:dcc-mcp-db", "dcc-mcp-db/gateway-admin-sqlite"]
+persist-sqlite = ["dcc-mcp-db/gateway-admin-sqlite"]
 
 [build-dependencies]
 dunce = "1.0"

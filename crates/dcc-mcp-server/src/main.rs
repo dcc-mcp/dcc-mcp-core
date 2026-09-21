@@ -1150,6 +1150,9 @@ async fn run_server(args: ServerArgs) -> anyhow::Result<()> {
                 sqlite_retention_days: admin_retention,
                 skill_paths_snapshot,
                 skill_paths_reload: Some(catalog_discover_hook),
+                // #2297-A3: `None` defers to DCC_MCP_SCRIPT_PROMOTION_MIN_REPEATS
+                // and then to the default of 3.
+                script_promotion_min_repeats: None,
             },
             ..GatewayConfig::default()
         };

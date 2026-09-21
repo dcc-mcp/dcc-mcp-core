@@ -2,6 +2,8 @@
 
 use std::sync::Arc;
 
+use dcc_mcp_gateway_admin::{ScriptPromotionBumpJson, ScriptPromotionPolicy, UNKNOWN_DCC_TYPE};
+
 use crate::gateway::middleware::{AuditEntry, AuditSink};
 
 use super::super::sqlite_lane::AdminSqliteLane;
@@ -20,6 +22,10 @@ pub struct AdminAuditSink {
     durable_store: Option<DurableAuditStore>,
     sqlite_trace: Option<SqliteTracePersistFn>,
     sqlite_audit: Option<SqliteAuditPersistFn>,
+    /// #2297-A3: lane backing the durable repeat counter.
+    script_promotion_lane: Option<AdminSqliteLane>,
+    /// #2297-A3: configured repeat threshold; `None` uses the default (3).
+    script_promotion_min_repeats: Option<u32>,
 }
 
 impl AdminAuditSink {
@@ -33,6 +39,8 @@ impl AdminAuditSink {
             durable_store: None,
             sqlite_trace: None,
             sqlite_audit: None,
+            script_promotion_lane: None,
+            script_promotion_min_repeats: None,
         }
     }
 
@@ -49,14 +57,33 @@ impl AdminAuditSink {
     }
 
     /// Persist traces and audits to the admin SQLite lane using bounded sends.
+    ///
+    /// #2297-A3: also installs the durable repeat-counter bump, so every audit
+    /// carrying a materialised script identity updates
+    /// `script_promotion_counters` instead of the count being recomputed from
+    /// the audit log on demand.
     pub fn with_sqlite_lane(mut self, lane: AdminSqliteLane) -> Self {
         let trace_lane = lane.clone();
         self.sqlite_trace = Some(Arc::new(move |trace: &DispatchTrace| {
             trace_lane.try_persist_trace(trace);
         }));
+        let audit_lane = lane.clone();
         self.sqlite_audit = Some(Arc::new(move |record: &AdminAuditRecord| {
-            lane.try_persist_audit(record);
+            audit_lane.try_persist_audit(record);
         }));
+        self.script_promotion_lane = Some(lane);
+        self
+    }
+
+    /// #2297-A3: override the repeat threshold for promotion proposals.
+    ///
+    /// `None` falls back to `DCC_MCP_SCRIPT_PROMOTION_MIN_REPEATS` and then to
+    /// the built-in default of 3, matching the A1 proposal payload. Resolved
+    /// once here so the per-call audit path never reads the environment.
+    #[must_use]
+    pub fn with_script_promotion_min_repeats(mut self, min_repeats: Option<u32>) -> Self {
+        self.script_promotion_min_repeats =
+            Some(ScriptPromotionPolicy::resolve(min_repeats).min_repeats);
         self
     }
 }
@@ -111,6 +138,26 @@ impl AuditSink for AdminAuditSink {
         }
         if let Some(persist) = &self.sqlite_audit {
             persist(&record);
+        }
+        if let (Some(lane), Some(script)) = (
+            &self.script_promotion_lane,
+            record.script_execution.as_ref(),
+        ) {
+            let observed_at_ms = record
+                .timestamp
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0);
+            lane.try_bump_script_promotion_counter(&ScriptPromotionBumpJson {
+                sha256: script.sha256.clone(),
+                dcc_type: record
+                    .dcc_type
+                    .clone()
+                    .unwrap_or_else(|| UNKNOWN_DCC_TYPE.to_string()),
+                tool_name: record.action.clone(),
+                observed_at_ms,
+                min_repeats: self.script_promotion_min_repeats,
+            });
         }
         let mut buffer = self.log.lock();
         buffer.push(record);

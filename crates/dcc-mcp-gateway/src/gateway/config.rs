@@ -48,6 +48,13 @@ pub struct AdminPersistConfig {
     /// When set, invoked after admin API adds/removes a custom SQLite skill path
     /// so embedders can re-run `SkillCatalog::discover` without restarting the process.
     pub skill_paths_reload: Option<Arc<dyn Fn() + Send + Sync>>,
+
+    /// #2297-A3: repeat threshold at which an escape-hatch script is counted
+    /// as a skill-promotion candidate.
+    ///
+    /// `None` falls back to `DCC_MCP_SCRIPT_PROMOTION_MIN_REPEATS` and then to
+    /// the built-in default of `3`, matching the A1 proposal payload.
+    pub script_promotion_min_repeats: Option<u32>,
 }
 
 impl Default for AdminPersistConfig {
@@ -57,6 +64,7 @@ impl Default for AdminPersistConfig {
             sqlite_retention_days: 30,
             skill_paths_snapshot: Vec::new(),
             skill_paths_reload: None,
+            script_promotion_min_repeats: None,
         }
     }
 }
@@ -68,6 +76,7 @@ impl Clone for AdminPersistConfig {
             sqlite_retention_days: self.sqlite_retention_days,
             skill_paths_snapshot: self.skill_paths_snapshot.clone(),
             skill_paths_reload: self.skill_paths_reload.clone(),
+            script_promotion_min_repeats: self.script_promotion_min_repeats,
         }
     }
 }
