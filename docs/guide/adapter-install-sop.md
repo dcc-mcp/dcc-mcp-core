@@ -162,8 +162,8 @@ The same document is packaged as
 Schema artifacts are versioned as immutable `-vN` products. Once published, an
 artifact's bytes never change: a content change ships as the next revision and
 the previous one stays available. `adapter-install-sop-v1.schema.json` is
-**frozen** at the bytes released in core `0.20.14`–`0.20.29` (size 4261, sha256
-`3ca25788439917b4d4c0617230a762f9797756b5b54f45c8c4149f975b90f904`) and is no
+**frozen** at the bytes released in core `0.20.30`–`0.20.33` (size 4899, sha256
+`2b3a8a101384a5163c7569c4a2b0de6586c672c5ee291735f94334a33b7d37a0`) and is no
 longer modified. Both artifacts ship in the wheel. See
 [Install SOP v2 migration](adapter-install-sop-v2-migration.md) for the field
 delta and the adapter migration steps.
