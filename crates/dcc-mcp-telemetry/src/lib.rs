@@ -18,6 +18,7 @@
 //! | [`types`] | `TelemetryConfig`, `ToolMetrics`, `ExporterBackend`, span keys |
 //! | [`provider`] | Global provider init/shutdown, `tracer()` / `meter()` accessors |
 //! | [`recorder`] | `ToolRecorder` — per-action timing and success-rate metrics |
+//! | [`report`] | `BenchReport` / `StageReport` — serialisable benchmark exports |
 //! | [`span`] | Convenience `tracing` span helpers (`action_span`, etc.) |
 //!
 //! ## Quick Start
@@ -52,6 +53,7 @@
 pub mod error;
 pub mod provider;
 pub mod recorder;
+pub mod report;
 pub mod span;
 pub mod types;
 
@@ -65,6 +67,7 @@ pub mod prometheus;
 pub use error::TelemetryError;
 pub use provider::{init, is_initialized, meter, shutdown, tracer};
 pub use recorder::ToolRecorder;
+pub use report::{BenchReport, REPORT_SCHEMA_VERSION, StageReport};
 pub use types::{ExporterBackend, LogFormat, TelemetryConfig, ToolMetrics};
 
 #[cfg(feature = "prometheus")]
