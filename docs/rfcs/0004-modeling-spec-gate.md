@@ -107,6 +107,25 @@ skips any object that omits it. An adapter that follows a contract naming only
 value ever being compared. Declaring the member is what makes its absence a
 visible gap rather than a silent pass.
 
+Declaring the member is necessary but not sufficient. Marking `euler` optional
+only says a document may omit it; it does not oblige an adapter to fill it in,
+and `_check_euler` still skips any object whose `euler` is missing. The schema
+therefore carries a hard constraint next to the optional member:
+
+> **An adapter that cannot report `euler` for an object MUST list `euler` in
+> `unavailable`.** Omitting the member is only legal when the value really is
+> reported elsewhere or the check genuinely does not apply.
+
+That listing is the mechanism that converts a missing value into a visible
+gap. Under D3 an `unavailable` entry degrades the `euler` check to `unknown`
+and rolls the overall verdict up to `unknown`; a silently omitted `euler`
+still yields `pass`. `unavailable` already exists for precisely this purpose —
+the optional member declares the shape, `unavailable` declares the gap.
+
+Note that the current evaluator does not yet read `unavailable`; it only
+consumes it once D3 lands. Until then this is a contract obligation on adapter
+exports, not a behaviour change in `validate_scene_vs_spec`.
+
 **Cost.** One JSON Schema document plus one validator function plus tests,
 reusing `_check_schema_identity`, `_require_non_negative_int`, and the
 packaging convention in `dcc_mcp_core/schemas/`. No new machinery.
