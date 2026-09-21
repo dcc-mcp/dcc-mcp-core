@@ -1,4 +1,6 @@
 use super::*;
+use std::net::TcpStream;
+use std::sync::atomic::AtomicUsize;
 
 fn installed_package(name: &str, dcc: &str) -> InstalledMarketplacePackage {
     InstalledMarketplacePackage {
@@ -143,9 +145,73 @@ fn installed_state_keys_packages_by_name_and_generic_target() {
     );
 }
 
+/// Answer exactly one request on `stream` with `body`, then close cleanly.
+///
+/// The accept loop needs a non-blocking listener so it can observe the stop
+/// flag, and on Windows an accepted socket inherits that mode: `read` can
+/// return `WouldBlock` before the request bytes arrive. Answering an unread
+/// request and then dropping the socket leaves those bytes unread, and closing
+/// a socket with unread data makes Windows reset the connection — the client
+/// then fails with `WSAECONNABORTED` (10053) or
+/// `hyper::Error(Canceled, UnexpectedMessage)` instead of reading the catalog.
+///
+/// So this reads on a blocking socket until the request header block is
+/// complete and only counts the request then, and it drains the socket before
+/// closing so the response the client is still reading is never discarded by a
+/// reset.
+fn serve_catalog_once(mut stream: TcpStream, body: &str, request_count: &AtomicUsize) {
+    use std::io::{BufRead, Read, Write};
+    use std::net::Shutdown;
+    use std::sync::atomic::Ordering;
+
+    let _ = stream.set_nonblocking(false);
+    // Bounds both the header read below and the teardown drain.
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
+
+    let mut line = Vec::new();
+    let mut headers_complete = false;
+    {
+        let mut reader = std::io::BufReader::new(&mut stream);
+        loop {
+            line.clear();
+            match reader.read_until(b'\n', &mut line) {
+                // The client closed before finishing its request — nothing to serve.
+                Ok(0) => break,
+                // A blank line terminates the request header block.
+                Ok(_) if matches!(line.as_slice(), b"\r\n" | b"\n") => {
+                    headers_complete = true;
+                    break;
+                }
+                Ok(_) => {}
+                Err(_) => break,
+            }
+        }
+    }
+    if !headers_complete {
+        return;
+    }
+    request_count.fetch_add(1, Ordering::AcqRel);
+
+    let response = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        body.len(),
+        body
+    );
+    if stream.write_all(response.as_bytes()).is_err() {
+        return;
+    }
+    let _ = stream.flush();
+
+    // `Connection: close` only avoids a reset when the teardown is finished:
+    // drop the write side and read until the client closes, so no unread bytes
+    // are left to turn our FIN into an RST.
+    let _ = stream.shutdown(Shutdown::Write);
+    let mut drain = [0_u8; 256];
+    while matches!(stream.read(&mut drain), Ok(count) if count > 0) {}
+}
+
 #[tokio::test]
 async fn outdated_fetches_each_catalog_once() {
-    use std::io::{Read, Write};
     use std::net::{TcpListener, TcpStream};
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -178,20 +244,11 @@ async fn outdated_fetches_each_catalog_once() {
     let server = std::thread::spawn(move || {
         while !server_stopped.load(Ordering::Acquire) {
             match listener.accept() {
-                Ok((mut stream, _)) => {
+                Ok((stream, _)) => {
                     if server_stopped.load(Ordering::Acquire) {
                         break;
                     }
-                    let mut request = [0_u8; 2048];
-                    let _ = stream.read(&mut request);
-                    server_count.fetch_add(1, Ordering::AcqRel);
-                    write!(
-                        stream,
-                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                        body.len(),
-                        body
-                    )
-                    .unwrap();
+                    serve_catalog_once(stream, &body, &server_count);
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                     std::thread::sleep(Duration::from_millis(1));

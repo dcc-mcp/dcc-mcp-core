@@ -1,0 +1,34 @@
+# cargo-nextest configuration for the workspace.
+#
+# This repository runs ~4000 tests per OS in the weekly `Rust Full Matrix`
+# workflow and on every PR. Two properties of that run made it useless as a
+# regression signal:
+#
+# * nextest aborts the run at the first failure by default (fail-fast), so a
+#   single failing test skipped every remaining test — the 2026-09-21 run
+#   executed 2345/4080 tests on Windows and 1495/4074 on macOS.
+# * without `retries`, one flaky test turned a green suite red.
+#
+# `retries` absorbs transient flakes (a test that passes on retry is reported
+# as FLAKY, not as a failure), and `just test-rust` passes `--no-fail-fast` so
+# the rest of the suite still runs. A real regression still fails: retries are
+# exhausted, the test is reported as FAIL, and nextest exits non-zero, so the
+# workflow step fails. See the `justfile` for the invocation side.
+
+[profile.default]
+# A flaky test is retried up to 3 times before it is reported as failed.
+retries = 3
+
+# Print failing tests as they happen, and repeat flaky/failed tests in the
+# final summary so a retried flake stays visible instead of disappearing into
+# a green run.
+status-level = "fail"
+final-status-level = "flaky"
+failure-output = "final"
+
+# Report tests slower than 60s, and terminate one that has been slow for 10
+# consecutive periods (10 minutes) so a hung test cannot stall a
+# `--no-fail-fast` run indefinitely. The ceiling is deliberately far above the
+# slowest legitimate test: terminating a test that was merely slow would turn
+# a slow machine into a failure.
+slow-timeout = { period = "60s", terminate-after = 10 }
