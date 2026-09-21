@@ -329,6 +329,7 @@ fn instance_config_default_is_anonymous() {
     assert!(cfg.dcc_version.is_none());
     assert!(cfg.scene.is_none());
     assert!(cfg.instance_metadata.is_empty());
+    assert!(cfg.instance_extras.is_empty());
     assert!(cfg.declared_capabilities.is_empty());
 }
 
@@ -338,12 +339,20 @@ fn instance_config_round_trips() {
     metadata.insert("project".to_owned(), "shotpack".to_owned());
     metadata.insert("task".to_owned(), "lighting".to_owned());
 
+    // Issue #2500 — extras must keep their JSON type through the round-trip:
+    // a numeric cdp_port stays a number, it is never coerced to a string.
+    let mut extras = HashMap::new();
+    extras.insert("cdp_port".to_owned(), serde_json::json!(9222));
+    extras.insert("enabled".to_owned(), serde_json::json!(true));
+    extras.insert("url".to_owned(), serde_json::json!("http://localhost:3000"));
+
     let cfg = InstanceConfig {
         host_pid: Some(4242),
         dcc_type: Some("maya".into()),
         dcc_version: Some("2025.1".into()),
         scene: Some("/tmp/scene.ma".into()),
         instance_metadata: metadata.clone(),
+        instance_extras: extras.clone(),
         declared_capabilities: vec!["usd".into(), "scene.mutate".into()],
     };
     let s = serde_json::to_string(&cfg).unwrap();
@@ -353,6 +362,12 @@ fn instance_config_round_trips() {
     assert_eq!(back.dcc_version, cfg.dcc_version);
     assert_eq!(back.scene, cfg.scene);
     assert_eq!(back.instance_metadata, metadata);
+    assert_eq!(back.instance_extras, extras);
+    assert_eq!(
+        back.instance_extras.get("cdp_port"),
+        Some(&serde_json::json!(9222)),
+        "extras must stay JSON-typed, not stringified"
+    );
     assert_eq!(back.declared_capabilities, cfg.declared_capabilities);
 }
 

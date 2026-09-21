@@ -152,6 +152,16 @@ pub struct LiveMetaInner {
     pub display_name: Option<String>,
     /// Arbitrary string metadata merged into the FileRegistry row on heartbeat.
     pub metadata: HashMap<String, String>,
+    /// Arbitrary JSON-typed extras merged into the FileRegistry row on heartbeat.
+    ///
+    /// Type-preserving counterpart of `metadata` (issue #2500): numbers,
+    /// booleans and nested containers survive the `services.json`
+    /// round-trip.
+    ///
+    /// A `serde_json::Value::Null` entry is a pending-removal tombstone, not
+    /// a stored value: the heartbeat applies it as a delete against the
+    /// registry row and readers must filter it out.
+    pub extras: HashMap<String, serde_json::Value>,
 }
 
 pub type LiveMeta = Arc<RwLock<LiveMetaInner>>;
@@ -328,6 +338,7 @@ impl McpHttpServer {
         let live_meta: LiveMeta = Arc::new(RwLock::new(LiveMetaInner {
             scene: config.instance.scene.clone(),
             version: config.instance.dcc_version.clone(),
+            extras: config.instance.instance_extras.clone(),
             ..Default::default()
         }));
         Self {
@@ -358,6 +369,7 @@ impl McpHttpServer {
         let live_meta: LiveMeta = Arc::new(RwLock::new(LiveMetaInner {
             scene: config.instance.scene.clone(),
             version: config.instance.dcc_version.clone(),
+            extras: config.instance.instance_extras.clone(),
             ..Default::default()
         }));
         Self {
@@ -416,6 +428,27 @@ impl McpHttpServer {
             } else {
                 guard.metadata.insert(name, value);
             }
+        }
+    }
+
+    /// Merge arbitrary JSON-typed extras pushed to `FileRegistry` each heartbeat.
+    ///
+    /// Type-preserving counterpart of [`Self::update_live_metadata`] (issue
+    /// #2500). Values keep their JSON type, so adapters can publish numbers,
+    /// booleans and nested containers — for example the WebView / bridge keys
+    /// `cdp_port` (int), `url`, `window_title` and `host_dcc`.
+    ///
+    /// [`serde_json::Value::Null`] clears the matching key. Existing unrelated
+    /// keys remain unchanged.
+    ///
+    /// A `Null` is deliberately kept in the live map as a **tombstone**: the
+    /// heartbeat snapshot is a merge patch, so dropping the key locally would
+    /// leave nothing to tell the registry row that the key must be removed.
+    /// Readers filter tombstones out; see [`LiveMetaInner::extras`].
+    pub fn update_live_extras(&self, extras: HashMap<String, serde_json::Value>) {
+        let mut guard = self.live_meta.write();
+        for (name, value) in extras {
+            guard.extras.insert(name, value);
         }
     }
 

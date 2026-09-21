@@ -169,6 +169,13 @@ pub struct ServiceSnapshot<'a> {
     pub display_name: Option<&'a str>,
     /// Arbitrary metadata patch; empty values remove matching keys.
     pub metadata: Option<&'a HashMap<String, String>>,
+    /// Arbitrary JSON-typed extras patch (issue #2500).
+    ///
+    /// Values keep their JSON type — an `int` stays an `int` and nested
+    /// objects / arrays survive the `services.json` round-trip. Passing
+    /// [`serde_json::Value::Null`] removes the matching key, mirroring the
+    /// empty-string clearing rule used by `metadata`.
+    pub extras: Option<&'a HashMap<String, serde_json::Value>>,
 }
 
 /// A discovered DCC service instance.

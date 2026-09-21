@@ -838,6 +838,15 @@ impl FileRegistry {
                     }
                 }
             }
+            if let Some(extras) = snapshot.extras {
+                for (name, value) in extras {
+                    if value.is_null() {
+                        entry.extras.remove(name);
+                    } else {
+                        entry.extras.insert(name.clone(), value.clone());
+                    }
+                }
+            }
             entry.touch();
             Ok((true, true))
         })
@@ -891,6 +900,30 @@ impl FileRegistry {
             key,
             ServiceSnapshot {
                 metadata: Some(metadata),
+                ..ServiceSnapshot::default()
+            },
+        )
+    }
+
+    /// Merge arbitrary JSON-typed extras for a service and refresh heartbeat.
+    ///
+    /// This is the [`ServiceEntry::extras`] counterpart of
+    /// [`Self::update_instance_metadata`]. Unlike `metadata`, values keep
+    /// their JSON type — numbers, booleans, nested objects and arrays all
+    /// survive the `services.json` round-trip (issue #2500).
+    ///
+    /// Values are merged into [`ServiceEntry::extras`]. Passing
+    /// [`serde_json::Value::Null`] removes that key, which gives embedders a
+    /// small clearing mechanism without replacing unrelated adapter extras.
+    pub fn update_instance_extras(
+        &self,
+        key: &ServiceKey,
+        extras: &std::collections::HashMap<String, serde_json::Value>,
+    ) -> TransportResult<bool> {
+        self.update_snapshot(
+            key,
+            ServiceSnapshot {
+                extras: Some(extras),
                 ..ServiceSnapshot::default()
             },
         )

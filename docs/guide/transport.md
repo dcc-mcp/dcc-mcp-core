@@ -327,6 +327,44 @@ an upgrade boundary: loading and mutation fail with an explicit unsupported
 schema error, and the original `services.json` remains in place. Malformed
 JSON remains a separate corruption case and is quarantined as before.
 
+#### Writing `extras` from an adapter
+
+`extras` is the type-preserving counterpart of `metadata`: values keep their
+JSON type, so an `int` stays an `int` and nested containers survive the
+`services.json` round-trip. An adapter publishes extras through its server
+handle; they land in the registry row on the next heartbeat tick (≤ 5 s) and
+are then visible to the `list_dcc_instances` MCP tool, to the gateway HTTP
+`/instances` listing, and to :class:`ServiceEntry` consumers such as
+`dcc-mcp-cli`.
+
+```python
+from dcc_mcp_core import McpHttpConfig, McpHttpServer
+
+config = McpHttpConfig(port=18812, dcc_type="auroraview")
+config.instance_extras = {"host_dcc": "maya-2024"}  # seeded at registration
+
+server = McpHttpServer(config)
+handle = server.start()
+
+# WebView panel announcing its DevTools endpoint and current URL:
+handle.update_gateway_extras(
+    {
+        "url": "http://localhost:3000",
+        "cdp_port": 9222,
+        "window_title": "My Tool",
+    }
+)
+
+# Reading the row back keeps the JSON types — cdp_port is an int, not "9222".
+# Passing None clears a single key and preserves the rest:
+handle.update_gateway_extras({"cdp_port": None})
+```
+
+Use `McpHttpConfig.instance_extras` for values known at startup and
+`update_gateway_extras()` for everything that changes at runtime. Prefer
+`extras` over `metadata` whenever a value is not a string — `metadata` is
+typed `dict[str, str]` and would coerce `9222` into `"9222"`.
+
 ### ServiceStatus
 
 DCC service health status:

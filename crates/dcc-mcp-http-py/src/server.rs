@@ -1,6 +1,8 @@
 //! Handle returned by `McpHttpServer.start()`.
 
 use super::*;
+use dcc_mcp_pybridge::py_json::py_dict_to_json_map;
+use pyo3::types::PyDict;
 use std::collections::HashMap;
 use std::time::Duration;
 
@@ -221,6 +223,45 @@ impl PyServerHandle {
                 guard.metadata.insert(name, value);
             }
         }
+    }
+
+    /// Merge arbitrary JSON-typed extras into the FileRegistry row.
+    ///
+    /// Type-preserving counterpart of :meth:`update_gateway_metadata` (issue
+    /// #2500): values keep their JSON type, so ``int``, ``bool``, ``list``
+    /// and nested ``dict`` values all survive the ``services.json``
+    /// round-trip instead of being coerced to strings.
+    ///
+    /// Values land in ``ServiceEntry.extras`` on the next heartbeat tick
+    /// (≤ 5 s) and are then visible to ``list_dcc_instances`` and to the
+    /// gateway instance listing. Passing ``None`` clears the matching key
+    /// while preserving unrelated extras.
+    ///
+    /// Examples::
+    ///
+    ///     # WebView panel announcing its DevTools endpoint:
+    ///     handle.update_gateway_extras({
+    ///         "url": "http://localhost:3000",
+    ///         "cdp_port": 9222,
+    ///         "window_title": "My Tool",
+    ///         "host_dcc": "maya-2024",
+    ///     })
+    ///
+    ///     # Drop one key, keep the rest:
+    ///     handle.update_gateway_extras({"cdp_port": None})
+    ///
+    /// Args:
+    ///     extras: Mapping of extra keys to JSON-serializable values.
+    ///
+    /// Raises:
+    ///     TypeError: If ``extras`` is not a mapping.
+    fn update_gateway_extras(&self, extras: &Bound<'_, PyDict>) -> PyResult<()> {
+        let mut guard = self.live_meta.write();
+        // A ``None`` is stored as a JSON null tombstone rather than dropped
+        // here: the heartbeat publishes a *merge patch*, so a locally removed
+        // key would carry no instruction to delete it from the registry row.
+        guard.extras.extend(py_dict_to_json_map(extras)?);
+        Ok(())
     }
 
     fn __repr__(&self) -> String {

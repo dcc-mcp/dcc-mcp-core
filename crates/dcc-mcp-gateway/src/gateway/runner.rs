@@ -41,6 +41,13 @@ fn apply_live_snapshot(entry: &mut ServiceEntry, snapshot: &LiveSnapshot) {
             entry.metadata.insert(name.clone(), value.clone());
         }
     }
+    for (name, value) in &snapshot.extras {
+        if value.is_null() {
+            entry.extras.remove(name);
+        } else {
+            entry.extras.insert(name.clone(), value.clone());
+        }
+    }
     entry.touch();
 }
 
@@ -87,6 +94,7 @@ async fn refresh_or_republish_registration(
                     documents,
                     display_name,
                     metadata: Some(&snapshot.metadata),
+                    extras: Some(&snapshot.extras),
                 },
             )
         } else {
@@ -1466,6 +1474,42 @@ mod tests {
         .expect("challenger sentinel should appear after startup readback");
         challenger.abort();
         drop(occupied);
+    }
+
+    // Issue #2500 — the heartbeat path a Python adapter drives through
+    // `McpServerHandle.update_gateway_extras` must merge JSON-typed extras
+    // into the FileRegistry row and clear keys on `Value::Null`.
+    #[test]
+    fn apply_live_snapshot_merges_typed_extras_and_clears_on_null() {
+        let mut entry = ServiceEntry::new("auroraview", "127.0.0.1", 18812);
+        entry
+            .extras
+            .insert("host_dcc".to_string(), serde_json::json!("maya-2024"));
+        entry
+            .extras
+            .insert("remove_me".to_string(), serde_json::json!(1));
+
+        let mut extras = std::collections::HashMap::new();
+        extras.insert("cdp_port".to_string(), serde_json::json!(9222));
+        extras.insert("enabled".to_string(), serde_json::json!(true));
+        extras.insert("remove_me".to_string(), serde_json::Value::Null);
+
+        apply_live_snapshot(
+            &mut entry,
+            &LiveSnapshot {
+                extras,
+                ..LiveSnapshot::default()
+            },
+        );
+
+        assert_eq!(entry.extras.get("cdp_port"), Some(&serde_json::json!(9222)));
+        assert_eq!(entry.extras.get("enabled"), Some(&serde_json::json!(true)));
+        assert_eq!(
+            entry.extras.get("host_dcc"),
+            Some(&serde_json::json!("maya-2024")),
+            "unrelated extras must survive the merge"
+        );
+        assert!(!entry.extras.contains_key("remove_me"));
     }
 
     #[test]

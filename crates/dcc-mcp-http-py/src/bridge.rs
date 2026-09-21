@@ -405,6 +405,7 @@ pub fn py_create_skill_server(
     let live_meta = Arc::new(RwLock::new(LiveMetaInner {
         scene: cfg.scene().clone(),
         version: cfg.dcc_version().clone(),
+        extras: cfg.instance_extras(),
         ..Default::default()
     }));
     let resources = dcc_mcp_http::server::build_resource_registry(&cfg);

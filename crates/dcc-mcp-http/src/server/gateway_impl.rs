@@ -98,6 +98,7 @@ pub(crate) async fn start_gateway_runner(
         .clone()
         .or_else(|| config.instance.dcc_type.clone());
     entry.metadata = config.instance.instance_metadata.clone();
+    entry.extras = config.instance.instance_extras.clone();
 
     let metadata_provider = Some(build_metadata_provider(Arc::clone(live_meta)));
     match runner.start(entry, metadata_provider).await {
@@ -118,6 +119,7 @@ fn build_metadata_provider(live_meta: LiveMeta) -> MetadataProvider {
             documents: guard.documents.clone(),
             display_name: guard.display_name.clone(),
             metadata: guard.metadata.clone(),
+            extras: guard.extras.clone(),
         }
     })
 }

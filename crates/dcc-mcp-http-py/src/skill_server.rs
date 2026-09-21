@@ -89,6 +89,7 @@ impl PyMcpHttpServer {
         let live_meta = Arc::new(RwLock::new(LiveMetaInner {
             scene: cfg.scene().clone(),
             version: cfg.dcc_version().clone(),
+            extras: cfg.instance_extras(),
             ..Default::default()
         }));
         // Issue #730 — build the ResourceRegistry up-front and share it
