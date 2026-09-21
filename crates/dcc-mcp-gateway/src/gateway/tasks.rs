@@ -1114,7 +1114,9 @@ pub(crate) async fn start_gateway_tasks(
             )
             .with_trace_log(trace_log.clone());
             if let Some(ref lane) = sqlite_lane {
-                admin_sink = admin_sink.with_sqlite_lane(lane.clone());
+                admin_sink = admin_sink
+                    .with_sqlite_lane(lane.clone())
+                    .with_script_promotion_min_repeats(admin_persist.script_promotion_min_repeats);
             }
             if let Some(store) = durable_store.clone() {
                 admin_sink = admin_sink.with_durable_store(store);

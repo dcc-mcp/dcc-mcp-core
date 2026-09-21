@@ -53,6 +53,13 @@ pub use analytics::{
 pub use artifacts::{ArtifactFilter, artifact_payload, artifact_refs};
 pub use audit::{AdminAuditRecord, AuditLog};
 pub use debug::{DebugListQuery, debug_bundle_payload};
+// #2297-A3: repeat-counter contract for escape-hatch scripts. Re-exported from
+// `dcc-mcp-db` (the type itself carries no I/O) so gateway call sites compile
+// identically whether or not `persist-sqlite` is enabled.
+pub use dcc_mcp_db::{
+    DEFAULT_SCRIPT_PROMOTION_MIN_REPEATS, ScriptPromotionBumpJson, ScriptPromotionCounter,
+    ScriptPromotionPolicy, ScriptPromotionProposalState, UNKNOWN_DCC_TYPE,
+};
 pub use domain::agent_context::{
     AgentContext, AgentContextTrust, INTERNAL_AUTH_SUBJECT_HEADER, INTERNAL_FORWARDED_FOR_HEADER,
     INTERNAL_SOURCE_IP_HEADER, TRUST_AUTH, TRUST_HEADER, TRUST_SELF_REPORTED, TRUST_SERVER_DERIVED,

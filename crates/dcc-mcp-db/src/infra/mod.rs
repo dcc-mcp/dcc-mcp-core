@@ -4,3 +4,5 @@ pub mod file_log_merge;
 pub mod gateway_admin_schema;
 #[cfg(feature = "gateway-admin-sqlite")]
 pub mod gateway_admin_sqlite;
+#[cfg(feature = "gateway-admin-sqlite")]
+pub mod script_promotion_sqlite;

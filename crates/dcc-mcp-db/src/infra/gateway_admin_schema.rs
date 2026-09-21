@@ -104,6 +104,20 @@ CREATE TABLE IF NOT EXISTS session_events (
   event_json TEXT NOT NULL,
   created_at_ms INTEGER NOT NULL
 );
+-- #2297-A3: Durable repeat counter for escape-hatch scripts, replacing a
+-- per-query scan of the audit log. One row per (sha256, dcc_type, tool_name);
+-- `count` is bumped by an idempotent upsert and `proposal_state` flips to
+-- 'proposed' once the configured repeat threshold is reached.
+CREATE TABLE IF NOT EXISTS script_promotion_counters (
+  sha256 TEXT NOT NULL,
+  dcc_type TEXT NOT NULL,
+  tool_name TEXT NOT NULL,
+  count INTEGER NOT NULL,
+  first_seen_ms INTEGER NOT NULL,
+  last_seen_ms INTEGER NOT NULL,
+  proposal_state TEXT NOT NULL,
+  PRIMARY KEY (sha256, dcc_type, tool_name)
+);
 CREATE INDEX IF NOT EXISTS idx_traces_started ON traces(started_ms);
 CREATE INDEX IF NOT EXISTS idx_audits_ts ON audits(ts_ms);
 CREATE INDEX IF NOT EXISTS idx_deregistered_instances_ts ON deregistered_instances(ts_ms);
@@ -123,4 +137,6 @@ CREATE INDEX IF NOT EXISTS idx_sessions_parent ON sessions(parent_session_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_dcc ON sessions(dcc_type, started_at_ms);
 CREATE INDEX IF NOT EXISTS idx_session_events_session ON session_events(session_id, created_at_ms);
 CREATE INDEX IF NOT EXISTS idx_session_events_type ON session_events(event_type, created_at_ms);
+CREATE INDEX IF NOT EXISTS idx_script_promotion_counters_state
+  ON script_promotion_counters(proposal_state, last_seen_ms);
 "#;
