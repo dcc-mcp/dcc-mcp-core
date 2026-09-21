@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 
 from dcc_mcp_core._exports import _EXPERIMENTAL_LAZY
@@ -101,6 +102,40 @@ _LEGACY_TOP_LEVEL_MODULES = {
 def test_new_python_capabilities_do_not_grow_the_flat_namespace() -> None:
     current = {path.stem for path in _PACKAGE.glob("*.py")}
     assert current <= _LEGACY_TOP_LEVEL_MODULES
+
+
+def test_lazy_export_map_has_no_duplicate_keys() -> None:
+    """Guard the facade map against silently shadowed symbols.
+
+    ``_ALL_LAZY`` is the single source of truth for ``from dcc_mcp_core import X``.
+    A repeated key is accepted by Python (last write wins) and by every runtime
+    test, so only an explicit check catches it before it reaches ``main``.
+    """
+    tree = ast.parse((_PACKAGE / "_exports.py").read_text(encoding="utf-8"))
+    all_lazy = next(
+        node.value
+        for node in tree.body
+        if isinstance(node, (ast.Assign, ast.AnnAssign))
+        and getattr(node.targets[0] if isinstance(node, ast.Assign) else node.target, "id", None) == "_ALL_LAZY"
+        and isinstance(node.value, ast.Dict)
+    )
+
+    seen: dict[str, int] = {}
+    duplicates: dict[str, list[int]] = {}
+    for key in all_lazy.keys:
+        try:
+            name = ast.literal_eval(key)
+        except (ValueError, TypeError):
+            continue
+        if not isinstance(name, str):
+            continue
+        line = getattr(key, "lineno", 0)
+        if name in seen:
+            duplicates.setdefault(name, [seen[name]]).append(line)
+        else:
+            seen[name] = line
+
+    assert duplicates == {}, f"duplicate lazy export keys (first wins is NOT the behaviour): {duplicates}"
 
 
 def test_stable_exports_never_source_private_python_packages() -> None:
