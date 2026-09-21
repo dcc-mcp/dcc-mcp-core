@@ -60,9 +60,7 @@ def test_stateless_discovery_advertises_only_implemented_capabilities(enable_res
         # server that advertises resources also advertises the extension.
         # It is implemented, so `advertises_only_implemented_capabilities`
         # must list it.
-        expected["extensions"] = {
-            "io.modelcontextprotocol/skills": {"directoryRead": True}
-        }
+        expected["extensions"] = {"io.modelcontextprotocol/skills": {"directoryRead": True}}
     if enable_prompts:
         expected["prompts"] = {"listChanged": False}
     assert response["result"]["capabilities"] == expected
