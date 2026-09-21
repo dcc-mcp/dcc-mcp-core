@@ -56,6 +56,14 @@ RECOMMENDED_ACTION_REVIEW_ONLY = "human_review_only"
 _SKILL_NAME_PREFIX = "promoted"
 _NON_SLUG_RE = re.compile(r"[^a-z0-9]+")
 _MAX_SKILL_NAME_SLUG = 24
+
+# HARD CONSTRAINT: raising this constant is not enough by itself. The 8-hex
+# tail is only safe because a proposal is advisory — a human reads the name,
+# and two digests colliding in 8 hex chars is a review nuisance, not a silent
+# overwrite. If skill directories are ever CREATED AUTOMATICALLY from this
+# name, the tail MUST become the full 64-hex digest first: a truncated tail
+# would let two different scripts collide onto one directory and silently
+# clobber each other's files.
 _SHA256_DIGEST_CHARS = 8
 
 
@@ -194,7 +202,13 @@ def build_skill_promotion_proposal(
         ValueError: If ``threshold`` is not a positive integer.
 
     """
-    if isinstance(threshold, bool) or threshold < 1:
+    # ``bool`` is an ``int`` subclass, so it is excluded explicitly. Every
+    # other non-``int`` (1.9, "3", …) is rejected here instead of being
+    # silently truncated by ``int()`` below: truncation would promote a
+    # grouping earlier than the caller configured (1.9 would become 1).
+    if isinstance(threshold, bool) or not isinstance(threshold, int):
+        raise ValueError("threshold must be a positive integer")
+    if threshold < 1:
         raise ValueError("threshold must be a positive integer")
     sha256 = str(row.get("sha256", "")).strip().lower()
     dcc_type = row.get("dcc_type")
