@@ -16,14 +16,26 @@ from scripts.ci.smoke_zero_typing_extensions import _check_wheel_archive
 from scripts.ci.smoke_zero_typing_extensions import _is_default_requirement as smoke_is_default_requirement
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
-_INSTALL_SOP_SCHEMA_SOURCE = "python/dcc_mcp_core/schemas/adapter-install-sop-v1.schema.json"
-_INSTALL_SOP_SCHEMA_MEMBER = "dcc_mcp_core/schemas/adapter-install-sop-v1.schema.json"
-_INSTALL_SOP_SCHEMA_GIT_BYTES = subprocess.run(
-    ["git", "cat-file", "blob", f"HEAD:{_INSTALL_SOP_SCHEMA_SOURCE}"],
-    cwd=_REPO_ROOT,
-    check=True,
-    stdout=subprocess.PIPE,
-).stdout
+# The wheel ships every published install SOP artifact: `-v1` frozen at its
+# released bytes and `-v2` current.
+_INSTALL_SOP_SCHEMA_SOURCES = [
+    "python/dcc_mcp_core/schemas/adapter-install-sop-v1.schema.json",
+    "python/dcc_mcp_core/schemas/adapter-install-sop-v2.schema.json",
+]
+_INSTALL_SOP_SCHEMA_MEMBERS = [
+    "dcc_mcp_core/schemas/" + Path(source).name for source in _INSTALL_SOP_SCHEMA_SOURCES
+]
+_INSTALL_SOP_SCHEMA_GIT_BYTES = [
+    subprocess.run(
+        ["git", "cat-file", "blob", f"HEAD:{source}"],
+        cwd=_REPO_ROOT,
+        check=True,
+        stdout=subprocess.PIPE,
+    ).stdout
+    for source in _INSTALL_SOP_SCHEMA_SOURCES
+]
+_INSTALL_SOP_SCHEMA_MEMBER = _INSTALL_SOP_SCHEMA_MEMBERS[-1]
+_INSTALL_SOP_SCHEMA_GIT_BYTE_BLOB = _INSTALL_SOP_SCHEMA_GIT_BYTES[-1]
 
 
 def _write_wheel(
@@ -37,7 +49,8 @@ def _write_wheel(
     distribution: str = "dcc-mcp-core",
     extension_module: str = "dcc_mcp_core/_core",
     ui_control_contract: str = "canonical",
-    install_sop_schema_bytes: bytes = _INSTALL_SOP_SCHEMA_GIT_BYTES,
+    install_sop_schema_bytes: bytes = _INSTALL_SOP_SCHEMA_GIT_BYTE_BLOB,
+    legacy_install_sop_schema_bytes: bytes | None = None,
     requires_dist: list[str] | None = None,
     extra_members: list[str | zipfile.ZipInfo] | None = None,
 ) -> None:
@@ -62,6 +75,10 @@ def _write_wheel(
         archive.writestr(f"{package}/__init__.py", "")
         if distribution == "dcc-mcp-core":
             archive.writestr(_INSTALL_SOP_SCHEMA_MEMBER, install_sop_schema_bytes)
+            if legacy_install_sop_schema_bytes is not None:
+                archive.writestr(
+                    _INSTALL_SOP_SCHEMA_MEMBERS[0], legacy_install_sop_schema_bytes
+                )
         if distribution == "dcc-mcp-core" and ui_control_contract == "canonical":
             archive.writestr(
                 "dcc_mcp_core/adapter_contracts.py",
@@ -112,17 +129,45 @@ def test_core_wheel_rejects_legacy_app_ui_skill_with_new_python_contracts(tmp_pa
 
 def test_core_wheel_rejects_install_sop_schema_byte_drift(tmp_path: Path) -> None:
     wheel = tmp_path / "dcc_mcp_core-1.0.0-cp38-abi3-win_amd64.whl"
-    crlf_schema = _INSTALL_SOP_SCHEMA_GIT_BYTES.replace(b"\n", b"\r\n")
+    crlf_schema = _INSTALL_SOP_SCHEMA_GIT_BYTE_BLOB.replace(b"\n", b"\r\n")
     _write_wheel(
         wheel,
         pure=False,
         with_core=True,
         install_sop_schema_bytes=crlf_schema,
+        legacy_install_sop_schema_bytes=_INSTALL_SOP_SCHEMA_GIT_BYTES[0],
     )
 
     errors = validate_wheel(wheel, "abi3", "windows-x86_64", load_contract(_REPO_ROOT))
 
-    assert any("adapter-install-sop-v1.schema.json SHA-256" in error for error in errors)
+    assert any("adapter-install-sop-v2.schema.json SHA-256" in error for error in errors)
+
+
+def test_core_wheel_ships_every_published_install_sop_artifact(tmp_path: Path) -> None:
+    wheel = tmp_path / "dcc_mcp_core-1.0.0-cp38-abi3-win_amd64.whl"
+    _write_wheel(
+        wheel,
+        pure=False,
+        with_core=True,
+        legacy_install_sop_schema_bytes=_INSTALL_SOP_SCHEMA_GIT_BYTES[0],
+    )
+
+    errors = validate_wheel(wheel, "abi3", "windows-x86_64", load_contract(_REPO_ROOT))
+
+    assert not errors
+    with zipfile.ZipFile(wheel) as archive:
+        for member, expected in zip(_INSTALL_SOP_SCHEMA_MEMBERS, _INSTALL_SOP_SCHEMA_GIT_BYTES):
+            assert archive.read(member) == expected
+
+
+def test_core_wheel_rejects_missing_frozen_v1_artifact(tmp_path: Path) -> None:
+    wheel = tmp_path / "dcc_mcp_core-1.0.0-cp38-abi3-win_amd64.whl"
+    _write_wheel(wheel, pure=False, with_core=True)
+
+    errors = validate_wheel(wheel, "abi3", "windows-x86_64", load_contract(_REPO_ROOT))
+
+    assert any("missing required resource" in error for error in errors)
+    assert any("adapter-install-sop-v1.schema.json" in error for error in errors)
 
 
 def test_lite_py37_wheel_rejects_compiled_core(tmp_path: Path) -> None:

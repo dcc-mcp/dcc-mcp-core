@@ -14,7 +14,14 @@ import pytest
 from scripts.ci.python_support_contract import load_contract
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-INSTALL_SOP_SCHEMA_PATH = Path("python/dcc_mcp_core/schemas/adapter-install-sop-v1.schema.json")
+# The schema artifact the package validates against. Published `-vN` artifacts
+# are immutable, so `-v1` stays frozen at its released bytes and `-v2` carries
+# the additive `catalog` object.
+INSTALL_SOP_SCHEMA_PATH = Path("python/dcc_mcp_core/schemas/adapter-install-sop-v2.schema.json")
+FROZEN_V1_SCHEMA_PATH = Path("python/dcc_mcp_core/schemas/adapter-install-sop-v1.schema.json")
+FROZEN_V1_SCHEMA_SHA256 = "3ca25788439917b4d4c0617230a762f9797756b5b54f45c8c4149f975b90f904"
+FROZEN_V1_SCHEMA_ID = "https://dcc-mcp.github.io/schemas/adapter-install-sop-v1.schema.json"
+INSTALL_SOP_SCHEMA_ID = "https://dcc-mcp.github.io/schemas/adapter-install-sop-v2.schema.json"
 
 
 def _install_result_with_next_step(next_step: dict) -> dict:
@@ -60,8 +67,8 @@ def test_install_sop_schema_is_public_and_versioned() -> None:
     import dcc_mcp_core
     from dcc_mcp_core import deployment
 
-    assert dcc_mcp_core.INSTALL_SOP_SCHEMA_VERSION == 1
-    assert deployment.INSTALL_SOP_SCHEMA_VERSION == 1
+    assert dcc_mcp_core.INSTALL_SOP_SCHEMA_VERSION == 2
+    assert deployment.INSTALL_SOP_SCHEMA_VERSION == 2
     assert dcc_mcp_core.load_install_sop_schema is deployment.load_install_sop_schema
     assert dcc_mcp_core.validate_install_sop_report is deployment.validate_install_sop_report
     assert "load_install_sop_schema" in dcc_mcp_core.__all__
@@ -72,23 +79,42 @@ def test_install_sop_schema_is_public_and_versioned() -> None:
     schema = deployment.load_install_sop_schema()
 
     Draft202012Validator.check_schema(schema)
-    assert schema["$id"] == "https://dcc-mcp.github.io/schemas/adapter-install-sop-v1.schema.json"
+    assert schema["$id"] == INSTALL_SOP_SCHEMA_ID
+    # v2 only adds the optional `catalog` object, so the report document format
+    # is unchanged and documents still declare schema_version 1.
     assert schema["properties"]["schema_version"] == {"const": 1, "type": "integer"}
 
 
-def test_install_sop_schema_checkout_forces_the_canonical_git_blob_bytes() -> None:
-    from dcc_mcp_core.deployment import install_sop
-
-    contract = load_contract(REPO_ROOT)
-    resource = contract["distributions"]["dcc-mcp-core"]["wheel_resources"][0]
-    git_blob = subprocess.run(
-        ["git", "cat-file", "blob", f"HEAD:{INSTALL_SOP_SCHEMA_PATH.as_posix()}"],
+def _git_blob(path: Path) -> bytes:
+    return subprocess.run(
+        ["git", "cat-file", "blob", f"HEAD:{path.as_posix()}"],
         cwd=REPO_ROOT,
         check=True,
         stdout=subprocess.PIPE,
     ).stdout
+
+
+def _wheel_resource(contract: dict, member: str) -> dict:
+    resources = contract["distributions"]["dcc-mcp-core"]["wheel_resources"]
+    matches = [resource for resource in resources if resource["member"] == member]
+    assert len(matches) == 1, f"expected exactly one wheel resource for {member}"
+    return matches[0]
+
+
+@pytest.mark.parametrize(
+    ("schema_path", "canonical_url"),
+    [
+        (FROZEN_V1_SCHEMA_PATH, FROZEN_V1_SCHEMA_ID),
+        (INSTALL_SOP_SCHEMA_PATH, INSTALL_SOP_SCHEMA_ID),
+    ],
+)
+def test_install_sop_schema_checkout_forces_the_canonical_git_blob_bytes(schema_path, canonical_url) -> None:
+    contract = load_contract(REPO_ROOT)
+    member = "dcc_mcp_core/schemas/" + schema_path.name
+    resource = _wheel_resource(contract, member)
+    git_blob = _git_blob(schema_path)
     attributes = subprocess.run(
-        ["git", "check-attr", "eol", "--", INSTALL_SOP_SCHEMA_PATH.as_posix()],
+        ["git", "check-attr", "eol", "--", schema_path.as_posix()],
         cwd=REPO_ROOT,
         check=True,
         stdout=subprocess.PIPE,
@@ -96,10 +122,64 @@ def test_install_sop_schema_checkout_forces_the_canonical_git_blob_bytes() -> No
     ).stdout
 
     assert attributes.rstrip().endswith(": eol: lf")
-    assert resource["source"] == INSTALL_SOP_SCHEMA_PATH.as_posix()
-    assert resource["canonical_url"] == "https://dcc-mcp.github.io/schemas/adapter-install-sop-v1.schema.json"
+    assert resource["source"] == schema_path.as_posix()
+    assert resource["canonical_url"] == canonical_url
     assert hashlib.sha256(git_blob).hexdigest() == resource["sha256"]
+    assert hashlib.sha256(schema_path.read_bytes()).hexdigest() == resource["sha256"]
+
+
+def test_install_sop_schema_live_pin_follows_the_current_artifact() -> None:
+    from dcc_mcp_core.deployment import install_sop
+
+    contract = load_contract(REPO_ROOT)
+    resource = _wheel_resource(contract, "dcc_mcp_core/schemas/" + INSTALL_SOP_SCHEMA_PATH.name)
+
     assert resource["sha256"] == install_sop._INSTALL_SOP_SCHEMA_SHA256
+    assert install_sop._INSTALL_SOP_SCHEMA_ID == INSTALL_SOP_SCHEMA_ID
+    assert install_sop._SCHEMA_PATH.name == INSTALL_SOP_SCHEMA_PATH.name
+
+
+def test_install_sop_v1_artifact_is_frozen_at_its_released_bytes() -> None:
+    """`-v1` is a published artifact: its bytes must never change again.
+
+    core 0.20.30 rewrote this file in place, which invalidated every downstream
+    integrity anchor at once. The regression guard is a literal digest, not one
+    derived from the current file, so editing the file cannot keep it green.
+    """
+    frozen = REPO_ROOT / FROZEN_V1_SCHEMA_PATH
+
+    assert hashlib.sha256(frozen.read_bytes()).hexdigest() == FROZEN_V1_SCHEMA_SHA256
+    assert hashlib.sha256(_git_blob(FROZEN_V1_SCHEMA_PATH)).hexdigest() == FROZEN_V1_SCHEMA_SHA256
+
+    contract = load_contract(REPO_ROOT)
+    resource = _wheel_resource(contract, "dcc_mcp_core/schemas/adapter-install-sop-v1.schema.json")
+    assert resource["sha256"] == FROZEN_V1_SCHEMA_SHA256
+    assert resource["canonical_url"] == FROZEN_V1_SCHEMA_ID
+
+    schema = json.loads(frozen.read_text(encoding="utf-8"))
+    Draft202012Validator.check_schema(schema)
+    assert schema["$id"] == FROZEN_V1_SCHEMA_ID
+    assert "catalog" not in schema["properties"]
+    assert "catalog_provenance" not in schema["$defs"]
+
+
+def test_install_sop_v2_adds_only_the_optional_catalog_object() -> None:
+    """v2 must stay a superset of frozen v1 so the format remains compatible."""
+    v1 = json.loads((REPO_ROOT / FROZEN_V1_SCHEMA_PATH).read_text(encoding="utf-8"))
+    v2 = json.loads((REPO_ROOT / INSTALL_SOP_SCHEMA_PATH).read_text(encoding="utf-8"))
+
+    assert v2["$id"] == INSTALL_SOP_SCHEMA_ID
+    assert v2["properties"]["schema_version"] == v1["properties"]["schema_version"]
+    assert set(v2["required"]) == set(v1["required"])
+    assert v1["required"] <= v2["required"]
+
+    added_properties = set(v2["properties"]) - set(v1["properties"])
+    assert added_properties == {"catalog"}
+    assert "catalog" not in v2["required"]
+    assert set(v2["$defs"]) - set(v1["$defs"]) == {"catalog_provenance"}
+
+    for name, definition in v1["$defs"].items():
+        assert v2["$defs"][name] == definition
 
 
 def test_install_sop_schema_requires_agent_executable_results() -> None:
@@ -254,15 +334,15 @@ def test_install_sop_validator_enforces_full_draft_without_python_jsonschema(mon
             "schema_identity_mismatch",
         ),
         (
-            b'{"$id":"https://dcc-mcp.github.io/schemas/adapter-install-sop-v1.schema.json","$schema":"https://attacker.invalid/draft"}',
+            b'{"$id":"https://dcc-mcp.github.io/schemas/adapter-install-sop-v2.schema.json","$schema":"https://attacker.invalid/draft"}',
             "schema_dialect_mismatch",
         ),
         (
-            b'{"$id":"https://dcc-mcp.github.io/schemas/adapter-install-sop-v1.schema.json","$schema":"https://json-schema.org/draft/2020-12/schema","$ref":"file:///private/schema.json"}',
+            b'{"$id":"https://dcc-mcp.github.io/schemas/adapter-install-sop-v2.schema.json","$schema":"https://json-schema.org/draft/2020-12/schema","$ref":"file:///private/schema.json"}',
             "schema_external_ref",
         ),
         (
-            b'{"$id":"https://dcc-mcp.github.io/schemas/adapter-install-sop-v1.schema.json","$schema":"https://json-schema.org/draft/2020-12/schema","type":"object"}',
+            b'{"$id":"https://dcc-mcp.github.io/schemas/adapter-install-sop-v2.schema.json","$schema":"https://json-schema.org/draft/2020-12/schema","type":"object"}',
             "schema_digest_mismatch",
         ),
         (b"\xff", "schema_invalid_utf8"),
@@ -340,7 +420,7 @@ def test_install_sop_native_validator_rejects_untrusted_schema_and_duplicate_rep
         validator('{"$id":"x","$id":"y"}', "{}")
     with pytest.raises(ValueError, match=r"^install_sop_schema_external_ref$"):
         validator(
-            '{"$id":"https://dcc-mcp.github.io/schemas/adapter-install-sop-v1.schema.json",'
+            '{"$id":"https://dcc-mcp.github.io/schemas/adapter-install-sop-v2.schema.json",'
             '"$schema":"https://json-schema.org/draft/2020-12/schema",'
             '"$ref":"https://attacker.invalid/schema"}',
             "{}",
@@ -687,7 +767,7 @@ def test_adapter_onboarding_and_release_gate_the_install_sop() -> None:
     for text in (onboarding, release):
         assert "adapter-install-sop.md" in text
         assert "install|status|verify|uninstall|upgrade" in text
-        assert "adapter-install-sop-v1.schema.json" in text
+        assert "adapter-install-sop-v2.schema.json" in text
         assert "0/10/20/30/40/50" in text
         assert "instructions_url" in text
         assert "receipt" in text.lower()

@@ -156,13 +156,22 @@ review all command arguments against the active policy. A structurally valid
 `command` or `file_edit` is data to authorize, not permission to execute.
 
 The same document is packaged as
-`dcc_mcp_core/schemas/adapter-install-sop-v1.schema.json` with canonical id
-`https://dcc-mcp.github.io/schemas/adapter-install-sop-v1.schema.json`.
+`dcc_mcp_core/schemas/adapter-install-sop-v2.schema.json` with canonical id
+`https://dcc-mcp.github.io/schemas/adapter-install-sop-v2.schema.json`.
 
-The required top-level fields are stable for schema v1. Additive adapter fields
-are allowed. A consumer MUST reject an unsupported higher schema version with
-an upgrade diagnostic; it MUST NOT silently reinterpret, delete, or rewrite the
-result.
+Schema artifacts are versioned as immutable `-vN` products. Once published, an
+artifact's bytes never change: a content change ships as the next revision and
+the previous one stays available. `adapter-install-sop-v1.schema.json` is
+**frozen** at the bytes released in core `0.20.14`–`0.20.29` (size 4261, sha256
+`3ca25788439917b4d4c0617230a762f9797756b5b54f45c8c4149f975b90f904`) and is no
+longer modified. Both artifacts ship in the wheel. See
+[Install SOP v2 migration](adapter-install-sop-v2-migration.md) for the field
+delta and the adapter migration steps.
+
+The required top-level fields are stable across artifact revisions. Additive
+adapter fields are allowed. A consumer MUST reject an unsupported higher schema
+version with an upgrade diagnostic; it MUST NOT silently reinterpret, delete, or
+rewrite the result.
 
 For the Core CLI, `install --dcc-type <dcc> --json` remains a non-mutating plan
 with its existing plan shape. `install --dcc-type <dcc> --execute --json`

@@ -9,10 +9,19 @@ from jsonschema import Draft202012Validator
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
+# `-v1` is frozen at its released bytes and carries no catalog provenance; the
+# live install SOP artifact is `-v2`.
 SCHEMAS = [
     ROOT / "contracts/dcc-discovery-decision-v1.schema.json",
-    ROOT / "python/dcc_mcp_core/schemas/adapter-install-sop-v1.schema.json",
+    ROOT / "python/dcc_mcp_core/schemas/adapter-install-sop-v2.schema.json",
 ]
+
+
+def _current_wheel_resource(contract: dict) -> dict:
+    resources = contract["distributions"]["dcc-mcp-core"]["wheel_resources"]
+    matches = [resource for resource in resources if resource["member"].endswith("-v2.schema.json")]
+    assert len(matches) == 1, "expected exactly one current install SOP wheel resource"
+    return matches[0]
 
 
 def test_install_schema_pins_match_python_rust_and_distribution_contract():
@@ -24,7 +33,7 @@ def test_install_schema_pins_match_python_rust_and_distribution_contract():
     ]:
         assert '"' + digest + '"' in source.read_text(encoding="utf-8")
     contract = json.loads((ROOT / "compatibility/python.json").read_text(encoding="utf-8"))
-    assert contract["distributions"]["dcc-mcp-core"]["wheel_resources"][0]["sha256"] == digest
+    assert _current_wheel_resource(contract)["sha256"] == digest
 
 
 @pytest.mark.parametrize("schema_path", SCHEMAS)

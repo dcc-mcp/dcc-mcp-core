@@ -1,4 +1,9 @@
-//! Native validation for the canonical Install SOP v1 report contract.
+//! Native validation for the canonical Install SOP v2 report contract.
+//!
+//! The `-vN` suffix names the schema *artifact* revision. Published artifacts
+//! are immutable, so a content change ships as `-v(N+1)`; `-v1` is retained as
+//! a frozen historical artifact. The report document's own `schema_version`
+//! field is independent of this revision and remains 1.
 
 use std::fmt;
 
@@ -9,10 +14,10 @@ use serde::{Deserialize, Deserializer};
 use sha2::{Digest, Sha256};
 
 const INSTALL_SOP_SCHEMA_ID: &str =
-    "https://dcc-mcp.github.io/schemas/adapter-install-sop-v1.schema.json";
+    "https://dcc-mcp.github.io/schemas/adapter-install-sop-v2.schema.json";
 const INSTALL_SOP_SCHEMA_DIALECT: &str = "https://json-schema.org/draft/2020-12/schema";
 const INSTALL_SOP_SCHEMA_SHA256: &str =
-    "2b3a8a101384a5163c7569c4a2b0de6586c672c5ee291735f94334a33b7d37a0";
+    "daa5840e07c956d7c9269e5709d6993a3988b905f986c06e7c4c02f5023e9422";
 const DUPLICATE_JSON_KEY: &str = "duplicate_json_object_key";
 const MAX_VALIDATION_ERRORS: usize = 32;
 const MAX_DIAGNOSTIC_BYTES: usize = 512;
@@ -262,7 +267,7 @@ fn validate_install_sop_report_json(
     Ok(validation_diagnostics(&validator, &instance))
 }
 
-/// Validate report JSON against the byte-pinned Install SOP v1 schema.
+/// Validate report JSON against the byte-pinned Install SOP v2 schema.
 ///
 /// This private native primitive accepts schema bytes so the Python package and
 /// native wheel must agree on one canonical document before validation runs.
@@ -287,7 +292,7 @@ mod tests {
     };
 
     const INSTALL_SOP_SCHEMA: &str =
-        include_str!("../../../python/dcc_mcp_core/schemas/adapter-install-sop-v1.schema.json");
+        include_str!("../../../python/dcc_mcp_core/schemas/adapter-install-sop-v2.schema.json");
 
     #[test]
     fn reports_instance_and_schema_paths() {
@@ -326,7 +331,7 @@ mod tests {
         );
         assert_eq!(
             validate_install_sop_report_json(
-                r##"{"$id":"https://dcc-mcp.github.io/schemas/adapter-install-sop-v1.schema.json","$schema":"https://json-schema.org/draft/2020-12/schema","$ref":"https://attacker.invalid/schema"}"##,
+                r##"{"$id":"https://dcc-mcp.github.io/schemas/adapter-install-sop-v2.schema.json","$schema":"https://json-schema.org/draft/2020-12/schema","$ref":"https://attacker.invalid/schema"}"##,
                 "{}",
             ),
             Err("install_sop_schema_external_ref".to_owned())

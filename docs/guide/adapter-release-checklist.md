@@ -28,7 +28,9 @@ The release MUST conform to
       `dcc-mcp-<dcc> install|status|verify|uninstall|upgrade` with the uniform
       `--json --yes --dry-run --dcc-path --python` flags where applicable.
 - [ ] Every verb emits schema version 1 and validates against the packaged
-      `dcc_mcp_core/schemas/adapter-install-sop-v1.schema.json` resource.
+      `dcc_mcp_core/schemas/adapter-install-sop-v2.schema.json` resource
+      (`-v1` is frozen; see
+      [Install SOP v2 migration](adapter-install-sop-v2-migration.md)).
 - [ ] Exit codes keep the `0/10/20/30/40/50` mapping exported by
       `dcc_mcp_core.deployment`.
 - [ ] Install and upgrade stage changes, preserve the previous state until

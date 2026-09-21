@@ -17,9 +17,9 @@ use crate::domain::feedback_bundle::{
 
 const HOST_ERROR_PREFIX: &str = "dcc_mcp_core.host_errors: ";
 const MAX_INSTALL_REPORT_BYTES: usize = 256 * 1024;
-const INSTALL_SOP_V1_SCHEMA_JSON: &str = include_str!(concat!(
+const INSTALL_SOP_V2_SCHEMA_JSON: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../../python/dcc_mcp_core/schemas/adapter-install-sop-v1.schema.json"
+    "/../../python/dcc_mcp_core/schemas/adapter-install-sop-v2.schema.json"
 ));
 
 #[derive(Debug, Clone)]
@@ -141,7 +141,7 @@ fn read_install_execution_report(
     }
     let raw_report: Value = serde_json::from_slice(&bytes)
         .map_err(|_| FeedbackBundleServiceError::InstallReportInvalid)?;
-    let schema: Value = serde_json::from_str(INSTALL_SOP_V1_SCHEMA_JSON)
+    let schema: Value = serde_json::from_str(INSTALL_SOP_V2_SCHEMA_JSON)
         .map_err(|_| FeedbackBundleServiceError::InstallReportInvalid)?;
     let validator = jsonschema::options()
         .with_draft(jsonschema::Draft::Draft202012)
