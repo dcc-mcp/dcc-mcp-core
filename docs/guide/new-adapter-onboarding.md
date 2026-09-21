@@ -72,7 +72,7 @@ dcc-mcp-<dcc> install|status|verify|uninstall|upgrade
 ```
 
 All applicable verbs use `--json --yes --dry-run --dcc-path --python`, emit
-the packaged `dcc_mcp_core/schemas/adapter-install-sop-v1.schema.json`
+the packaged `dcc_mcp_core/schemas/adapter-install-sop-v2.schema.json`
 contract, and preserve the stable exit mapping `0/10/20/30/40/50`. Import the
 shared constants and schema from the ownership namespace:
 

@@ -9,7 +9,12 @@ from typing import Any
 from typing import Mapping
 import unicodedata
 
-INSTALL_SOP_SCHEMA_VERSION = 1
+# Revision of the published Install SOP schema artifact (`-vN`). Published
+# artifacts are immutable: a content change ships as the next revision, never as
+# an in-place rewrite. This is deliberately separate from the report document's
+# own `schema_version` field, which stays at 1 because v2 only adds the optional
+# `catalog` object.
+INSTALL_SOP_SCHEMA_VERSION = 2
 
 INSTALL_EXIT_OK = 0
 INSTALL_EXIT_PREFLIGHT = 10
@@ -27,13 +32,13 @@ INSTALL_EXIT_CODES = {
     "requires_restart": INSTALL_EXIT_REQUIRES_RESTART,
 }
 
-_INSTALL_SOP_SCHEMA_ID = "https://dcc-mcp.github.io/schemas/adapter-install-sop-v1.schema.json"
+_INSTALL_SOP_SCHEMA_ID = "https://dcc-mcp.github.io/schemas/adapter-install-sop-v2.schema.json"
 _INSTALL_SOP_SCHEMA_DIALECT = "https://json-schema.org/draft/2020-12/schema"
-_INSTALL_SOP_SCHEMA_SHA256 = "2b3a8a101384a5163c7569c4a2b0de6586c672c5ee291735f94334a33b7d37a0"
+_INSTALL_SOP_SCHEMA_SHA256 = "daa5840e07c956d7c9269e5709d6993a3988b905f986c06e7c4c02f5023e9422"
 _MAX_NATIVE_DIAGNOSTIC_BYTES = 512
 _MAX_NATIVE_DIAGNOSTICS_BYTES = 8192
 _MAX_SEMANTIC_ERRORS = 32
-_SCHEMA_PATH = Path(__file__).resolve().parent.parent / "schemas" / "adapter-install-sop-v1.schema.json"
+_SCHEMA_PATH = Path(__file__).resolve().parent.parent / "schemas" / "adapter-install-sop-v2.schema.json"
 
 
 class _DuplicateJsonKeyError(ValueError):
@@ -173,7 +178,7 @@ def _raise_native_runtime_error(code: str, cause: Exception | None = None) -> No
 
 
 def validate_install_sop_report(report: Mapping[str, Any]) -> None:
-    """Validate the canonical Install SOP v1 schema and bounded semantics.
+    """Validate the canonical Install SOP v2 schema and bounded semantics.
 
     Validation checks report structure, duplicate IDs, and control characters.
     It does not authorize command execution or filesystem targets; callers own
