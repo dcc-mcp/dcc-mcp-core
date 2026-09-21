@@ -19,7 +19,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 # the additive `catalog` object.
 INSTALL_SOP_SCHEMA_PATH = Path("python/dcc_mcp_core/schemas/adapter-install-sop-v2.schema.json")
 FROZEN_V1_SCHEMA_PATH = Path("python/dcc_mcp_core/schemas/adapter-install-sop-v1.schema.json")
-FROZEN_V1_SCHEMA_SHA256 = "3ca25788439917b4d4c0617230a762f9797756b5b54f45c8c4149f975b90f904"
+FROZEN_V1_SCHEMA_SHA256 = "2b3a8a101384a5163c7569c4a2b0de6586c672c5ee291735f94334a33b7d37a0"
 FROZEN_V1_SCHEMA_ID = "https://dcc-mcp.github.io/schemas/adapter-install-sop-v1.schema.json"
 INSTALL_SOP_SCHEMA_ID = "https://dcc-mcp.github.io/schemas/adapter-install-sop-v2.schema.json"
 
@@ -160,26 +160,35 @@ def test_install_sop_v1_artifact_is_frozen_at_its_released_bytes() -> None:
     schema = json.loads(frozen.read_text(encoding="utf-8"))
     Draft202012Validator.check_schema(schema)
     assert schema["$id"] == FROZEN_V1_SCHEMA_ID
-    assert "catalog" not in schema["properties"]
-    assert "catalog_provenance" not in schema["$defs"]
 
 
-def test_install_sop_v2_adds_only_the_optional_catalog_object() -> None:
-    """v2 must stay a superset of frozen v1 so the format remains compatible."""
+def test_install_sop_v2_is_a_compatible_revision_of_v1() -> None:
+    """v2 must stay a superset of frozen v1 so the format remains compatible.
+
+    The frozen `-v1` bytes already carry the optional `catalog` object, because core
+    0.20.30 shipped that content under the `-v1` id. `-v2` republishes exactly those
+    bytes under a new `$id`, so a v1 document validates unchanged against v2 and the
+    only structural difference is the identification of the artifact itself.
+    """
     v1 = json.loads((REPO_ROOT / FROZEN_V1_SCHEMA_PATH).read_text(encoding="utf-8"))
     v2 = json.loads((REPO_ROOT / INSTALL_SOP_SCHEMA_PATH).read_text(encoding="utf-8"))
 
     assert v2["$id"] == INSTALL_SOP_SCHEMA_ID
     assert v2["properties"]["schema_version"] == v1["properties"]["schema_version"]
     assert set(v2["required"]) == set(v1["required"])
+    assert v2["title"] != v1["title"]
 
-    added_properties = set(v2["properties"]) - set(v1["properties"])
-    assert added_properties == {"catalog"}
+    assert set(v2["properties"]) == set(v1["properties"])
     assert "catalog" not in v2["required"]
-    assert set(v2["$defs"]) - set(v1["$defs"]) == {"catalog_provenance"}
+    assert set(v2["$defs"]) == set(v1["$defs"])
+    assert "catalog" in v2["properties"]
+    assert "catalog_provenance" in v2["$defs"]
 
     for name, definition in v1["$defs"].items():
         assert v2["$defs"][name] == definition
+
+    for name, definition in v1["properties"].items():
+        assert v2["properties"][name] == definition
 
 
 def test_install_sop_schema_requires_agent_executable_results() -> None:
