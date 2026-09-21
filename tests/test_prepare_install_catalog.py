@@ -162,6 +162,13 @@ def test_null_curated_sop_version_blocks_publication():
         _prepare(document, transport)
 
 
+def test_curated_sop_version_above_the_supported_range_blocks_publication():
+    document, transport, _ = _fixture()
+    document["entries"][0]["install"]["sop_version"] = publisher.MAX_SOP_VERSION + 1
+    with pytest.raises(publisher.CatalogPreparationError, match="out of range"):
+        _prepare(document, transport)
+
+
 @pytest.mark.parametrize(
     "body,message",
     [
