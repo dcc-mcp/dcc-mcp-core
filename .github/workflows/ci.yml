@@ -605,9 +605,6 @@ jobs:
       - name: Lint (ruff)
         run: vx just lint-py
 
-      - name: Docs playbook coverage (agent-facing entry points)
-        run: vx just docs-lint-playbook
-
       - name: VRS replayer (dry-run trace validation)
         shell: bash
         run: |
@@ -616,6 +613,12 @@ jobs:
             "${{ steps.py314.outputs.python-path }}" scripts/vrs_replay.py \
               --base-url http://127.0.0.1:1 --dry-run --trace "$f"
           done
+
+      # Last on purpose: GitHub runs steps serially, so a check placed earlier
+      # would skip everything after it when it fails. Keeping this at the end
+      # means a red coverage gate cannot silently switch off VRS validation.
+      - name: Docs playbook coverage (agent-facing entry points)
+        run: vx just docs-lint-playbook
 
   # ── Released schema immutability gate ─────────────────────────────────────
   # A released `-vN` schema must never be rewritten in place. The four live

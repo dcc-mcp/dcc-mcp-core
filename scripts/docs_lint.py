@@ -834,14 +834,14 @@ def main(argv=None):
         # directory must not start failing because the repo manifest is out of
         # reach.
         if explicit_manifest:
-            report[Path(manifest_path).as_posix()] = [
+            report.setdefault(Path(manifest_path).as_posix(), []).append(
                 {
                     "rule": "content/playbook-manifest-unreadable",
                     "severity": "error",
                     "line": 0,
                     "message": f"cannot read playbook manifest: {manifest_error}",
                 }
-            ]
+            )
         entries = []
 
     if entries:
@@ -852,8 +852,12 @@ def main(argv=None):
             if _is_excluded(path, args.exclude_path):
                 continue
             findings = lint_file(path, args, index)
+            # Merge, never assign: a file listed in the manifest can also carry
+            # structure/link findings, and assigning here would silently drop
+            # the coverage findings recorded above -- exactly the defect this
+            # rule exists to report.
             if findings:
-                report[path.as_posix()] = findings
+                report.setdefault(path.as_posix(), []).extend(findings)
 
     if args.json:
         payload = {
