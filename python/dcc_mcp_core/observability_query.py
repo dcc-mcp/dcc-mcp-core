@@ -320,16 +320,26 @@ class ObservabilityQuery:
         ``decision == "propose_skill"``. It is independent of ``min_repeats`` so
         a caller can surface sub-threshold groupings for inspection.
         """
-        if isinstance(min_repeats, bool) or min_repeats < 2:
+        # ``bool`` is an ``int`` subclass, so it is excluded explicitly. Every
+        # other non-``int`` (2.9, "3", …) is rejected here instead of being
+        # silently truncated by ``int()``: truncation would widen the query
+        # beyond what the caller asked for (2.9 would become 2).
+        if isinstance(min_repeats, bool) or not isinstance(min_repeats, int):
             raise ValueError("min_repeats must be an integer greater than or equal to 2")
-        if isinstance(limit, bool) or limit < 1:
+        if min_repeats < 2:
+            raise ValueError("min_repeats must be an integer greater than or equal to 2")
+        if isinstance(limit, bool) or not isinstance(limit, int):
             raise ValueError("limit must be a positive integer")
-        if isinstance(promotion_threshold, bool) or promotion_threshold < 1:
+        if limit < 1:
+            raise ValueError("limit must be a positive integer")
+        if isinstance(promotion_threshold, bool) or not isinstance(promotion_threshold, int):
+            raise ValueError("promotion_threshold must be a positive integer")
+        if promotion_threshold < 1:
             raise ValueError("promotion_threshold must be a positive integer")
 
         params: dict[str, Any] = {
-            "min_repeats": int(min_repeats),
-            "limit": min(int(limit), 1000),
+            "min_repeats": min_repeats,
+            "limit": min(limit, 1000),
         }
         conditions = [
             "json_valid(audit_json)",
@@ -383,7 +393,7 @@ class ObservabilityQuery:
                     try:
                         rows = _repeated_script_rows_without_json1(
                             self._read_fn,
-                            min_repeats=int(min_repeats),
+                            min_repeats=min_repeats,
                             limit=params["limit"],
                             since_ms=since_ms,
                             until_ms=until_ms,
@@ -406,7 +416,7 @@ class ObservabilityQuery:
         scripts = [_repeated_script_evidence(row) for row in rows]
         proposals = build_skill_promotion_proposals(
             scripts,
-            threshold=int(promotion_threshold),
+            threshold=promotion_threshold,
         )
         # ``decision``/``recommended_action`` stay advisory-only constants so the
         # pre-existing contract is unchanged; the structured, threshold-aware

@@ -17,6 +17,7 @@ from typing import Any
 
 import pytest
 
+import dcc_mcp_core
 from dcc_mcp_core.batch import batch_dispatch
 from dcc_mcp_core.batch import generate_batch_id
 from dcc_mcp_core.observability_query import API_VERSION
@@ -563,6 +564,74 @@ class TestObservabilityQuery:
         assert evidence["session_count"] == 3
         assert evidence["reused_count"] == 1
         assert evidence["rematerialized_count"] == 2
+
+    @pytest.mark.parametrize(
+        "param,value",
+        [
+            ("min_repeats", 2.9),
+            ("min_repeats", 3.0),
+            ("min_repeats", "3"),
+            ("min_repeats", True),
+            ("limit", 2.9),
+            ("limit", 100.0),
+            ("limit", "3"),
+            ("limit", True),
+            ("promotion_threshold", 2.9),
+            ("promotion_threshold", 3.0),
+            ("promotion_threshold", "3"),
+            ("promotion_threshold", True),
+        ],
+    )
+    def test_non_integer_query_bounds_are_rejected(self, param: str, value: object) -> None:
+        """Non-integer bounds are rejected instead of silently truncated.
+
+        ``int()`` used to coerce 2.9 to 2, which widened the query beyond what
+        the caller configured (a grouping of 2 executions would match a
+        ``min_repeats`` of 2.9), so a wrong type must fail loudly.
+        """
+        query = ObservabilityQuery(read_json_fn=lambda _sql, _params: [])
+        kwargs: dict[str, Any] = {param: value}
+        with pytest.raises(ValueError):
+            query.get_repeated_scripts(**kwargs)
+
+    @pytest.mark.parametrize("param", ["min_repeats", "limit", "promotion_threshold"])
+    def test_non_integer_bounds_are_rejected_through_public_export(self, param: str) -> None:
+        """The public ``dcc_mcp_core.ObservabilityQuery`` export rejects them too."""
+        query = dcc_mcp_core.ObservabilityQuery(read_json_fn=lambda _sql, _params: [])
+        kwargs: dict[str, Any] = {param: 2.9}
+        with pytest.raises(ValueError):
+            query.get_repeated_scripts(**kwargs)
+
+    def test_integer_bounds_are_passed_through_verbatim(self) -> None:
+        """Valid integer bounds reach the query unchanged (no coercion, no truncation)."""
+        captured: list[dict[str, Any]] = []
+
+        def read(sql: str, params: dict[str, Any]) -> list[dict[str, Any]]:
+            captured.append(dict(params))
+            return []
+
+        response = ObservabilityQuery(read_json_fn=read).get_repeated_scripts(
+            min_repeats=7,
+            limit=42,
+            promotion_threshold=9,
+        )
+
+        assert captured[0]["min_repeats"] == 7
+        assert captured[0]["limit"] == 42
+        assert response["query_params"]["min_repeats"] == 7
+        assert response["query_params"]["limit"] == 42
+
+    def test_limit_is_capped_without_type_coercion(self) -> None:
+        """The 1000-row cap still applies to a valid integer ``limit``."""
+        captured: list[dict[str, Any]] = []
+
+        def read(sql: str, params: dict[str, Any]) -> list[dict[str, Any]]:
+            captured.append(dict(params))
+            return []
+
+        ObservabilityQuery(read_json_fn=read).get_repeated_scripts(min_repeats=2, limit=5000)
+
+        assert captured[0]["limit"] == 1000
 
 
 class TestCoverageStats:
