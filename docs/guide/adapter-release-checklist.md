@@ -2,7 +2,9 @@
 
 Use this checklist when cutting a release for any DCC-MCP adapter (Maya, Blender,
 Houdini, 3ds Max, Nuke, ZBrush, Photoshop, Unreal, custom studio tool). Follow it
-in order. Tick every box before merging the release PR.
+in order. Tick every box before merging the release PR. Items marked
+*(Recommended)* are advisory: they are written as plain bullets rather than
+boxes and are not part of the set that must be ticked.
 
 ## 0. Pre-Release Preparation
 
@@ -48,9 +50,20 @@ The release MUST conform to
       injection. Any unavailable live-host smoke is stated as a release gap.
 - [ ] Catalog `instructions_url` points to:
       `https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-<dcc>/main/install.md`.
-- [ ] Root `install.md` declares its Install SOP version with the header marker
-      `<!-- install-sop-version: 1 -->`, matching the SOP version the release
-      actually implements.
+- *(Recommended)* Root `install.md` declares its Install SOP version with the
+  header marker `<!-- install-sop-version: 1 -->`, matching the SOP version
+  the release actually implements. Omitting the declaration is still valid:
+  the catalog publisher then leaves `install.sop_version` unset for that
+  adapter. This item becomes mandatory once a consumer **requires**
+  `install.sop_version` to be present; a consumer that only reads the field
+  when it happens to be set does not promote this item. It also becomes
+  mandatory when a v2 of the Install SOP **runbook contract** asks adapters to
+  re-declare the `install-sop-version` marker. Adapters then get one release
+  cycle to adopt it, counted as a grace period: the item does not gate the
+  release that immediately follows the trigger, and gates every release after
+  that. Note that `adapter-install-sop-v2.schema.json` is the schema
+  *artifact* revision, not a runbook SOP version, so publishing it does not by
+  itself trigger this item.
 
 Do not substitute a bespoke installer executable, prose-only next steps,
 delete-then-copy overwrite, or README-only instructions.
