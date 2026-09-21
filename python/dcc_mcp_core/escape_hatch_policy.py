@@ -193,10 +193,16 @@ class EscapeHatchPolicy:
         promotion_threshold: int = DEFAULT_PROMOTION_THRESHOLD,
         promotion_hints: bool = True,
     ) -> None:
-        if isinstance(promotion_threshold, bool) or promotion_threshold < 1:
+        # ``bool`` is an ``int`` subclass, so it is excluded explicitly. Every
+        # other non-``int`` (1.9, "3", …) is rejected here instead of being
+        # silently truncated by ``int()``: truncation would move the hint to an
+        # earlier run than the caller configured (1.9 would become 1).
+        if isinstance(promotion_threshold, bool) or not isinstance(promotion_threshold, int):
+            raise ValueError("promotion_threshold must be a positive integer")
+        if promotion_threshold < 1:
             raise ValueError("promotion_threshold must be a positive integer")
         self._telemetry_sink = telemetry_sink
-        self._promotion_threshold = int(promotion_threshold)
+        self._promotion_threshold = promotion_threshold
         self._promotion_hints = bool(promotion_hints)
         self._observed: list[EscapeHatchInvocation] = []
         self._repeats: dict[_ScriptKey, _ScriptRepeat] = {}
