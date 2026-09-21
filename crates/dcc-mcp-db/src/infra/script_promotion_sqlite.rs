@@ -228,6 +228,98 @@ mod tests {
         );
     }
 
+    /// A first observation below the threshold is stored as `pending`.
+    ///
+    /// This pins the `INSERT` branch, which is the path every never-seen
+    /// script takes: `count` starts at `1` and the state comes from
+    /// [`ScriptPromotionPolicy::state_for`], not from the `DO UPDATE` clause.
+    /// The upsert half of that contract is guarded by
+    /// [`threshold_compares_the_count_being_stored`].
+    #[test]
+    fn single_bump_below_threshold_stays_pending() {
+        let conn = open();
+        let sha = "1".repeat(64);
+        bump_script_promotion_counter(&conn, &bump(&sha, "execute_python", Some(2))).expect("bump");
+
+        let counter = read(&conn, &sha, "execute_python");
+        assert_eq!(counter.count, 1, "one observation must store count = 1");
+        assert_eq!(
+            counter.proposal_state,
+            ScriptPromotionProposalState::Pending,
+            "count 1 is below min_repeats 2, so the counter stays pending"
+        );
+        assert!(!counter.is_candidate());
+    }
+
+    /// Positive control for [`single_bump_below_threshold_stays_pending`]:
+    /// the threshold semantics are not frozen as "always pending". With
+    /// `min_repeats = 1` the very first observation already reaches the
+    /// threshold, so the row must be promoted straight away.
+    #[test]
+    fn single_bump_at_threshold_one_is_proposed() {
+        let conn = open();
+        let sha = "2".repeat(64);
+        bump_script_promotion_counter(&conn, &bump(&sha, "execute_python", Some(1))).expect("bump");
+
+        let counter = read(&conn, &sha, "execute_python");
+        assert_eq!(counter.count, 1);
+        assert_eq!(
+            counter.proposal_state,
+            ScriptPromotionProposalState::Proposed,
+            "min_repeats 1 promotes on the first observation"
+        );
+        assert!(counter.is_candidate());
+    }
+
+    /// Off-by-one guard for the upsert's threshold comparison.
+    ///
+    /// SQLite evaluates the `DO UPDATE SET` expressions against the row as it
+    /// was **before** the update, so `WHEN count + 1 >= ?6` means "the count I
+    /// am about to store reaches the threshold". Two observations of a script
+    /// with `min_repeats = 3` must therefore still read `pending`: the stored
+    /// `count` is `2`, and `2 >= 3` is false.
+    ///
+    /// This is the discriminating case the counting tests cannot cover — at
+    /// `min_repeats = 2` with two bumps, and at `min_repeats = 5` with two
+    /// bumps, both readings of `count` agree. Here they do not:
+    ///
+    /// * reading the *written* value compares `2 + 1 >= 3` and promotes one
+    ///   observation early, failing the second assertion;
+    /// * dropping the `+ 1` after moving the state check behind the counter
+    ///   write compares the *old* value `2 >= 3` and never promotes, failing
+    ///   the third assertion.
+    #[test]
+    fn threshold_compares_the_count_being_stored() {
+        let conn = open();
+        let sha = "3".repeat(64);
+
+        bump_script_promotion_counter(&conn, &bump(&sha, "execute_python", Some(3))).expect("bump");
+        let counter = read(&conn, &sha, "execute_python");
+        assert_eq!(counter.count, 1);
+        assert_eq!(
+            counter.proposal_state,
+            ScriptPromotionProposalState::Pending,
+            "one observation is two short of min_repeats = 3"
+        );
+
+        bump_script_promotion_counter(&conn, &bump(&sha, "execute_python", Some(3))).expect("bump");
+        let counter = read(&conn, &sha, "execute_python");
+        assert_eq!(
+            (counter.count, counter.proposal_state),
+            (2, ScriptPromotionProposalState::Pending),
+            "two observations are still one short of min_repeats = 3"
+        );
+
+        bump_script_promotion_counter(&conn, &bump(&sha, "execute_python", Some(3))).expect("bump");
+        let counter = read(&conn, &sha, "execute_python");
+        assert_eq!(
+            (counter.count, counter.proposal_state),
+            (3, ScriptPromotionProposalState::Proposed),
+            "the third observation reaches min_repeats = 3"
+        );
+        assert!(counter.is_candidate());
+    }
+
     #[test]
     fn proposed_state_is_sticky() {
         let conn = open();
