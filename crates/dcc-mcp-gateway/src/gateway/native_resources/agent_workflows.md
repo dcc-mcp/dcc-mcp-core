@@ -298,6 +298,33 @@ links without exposing hidden reasoning or raw prompts.
 
 ---
 
+## Iteration Playbook (re-run, re-parameterize, resume)
+
+Most wasted tokens in a long session come from re-sending work the host already
+has. Three moves cover it:
+
+1. **Re-run a script — reuse the materialized path.** Call the backend
+   `materialize_script` tool with `reuse=true` and a stable `reuse_key`. The
+   path is derived (`{reuse_key}_{sha256[:12]}` under
+   `~/.dcc-mcp/<dcc_type>/temp/<instance_id>/<session_id>/`), so a
+   byte-identical repeat returns the same `file_path` with `reused=true`.
+   Pass **only** `file_path` to the execution tool afterwards — never the
+   source. A changed byte yields a new script id on purpose.
+2. **Change a value — send new `params` with the same `file_path`.** The
+   execution contract is `params` delivered to `main(**params)`; there is no
+   CLI flag and no params file. Do not re-materialize just to change an
+   argument, and do not inline `code` again.
+3. **Recover a dead multi-step run — `workflows_resume`.** Send `workflow_id`
+   plus optional `force_steps`, `expected_spec_hash`, and `strict`. It
+   re-drives the persisted run from the first non-completed step. The handler
+   exists only when the executor was built with `WorkflowStorage` and the
+   `job-persist-sqlite` feature, so a `tools/list` entry is not proof it will
+   run — fall back to `workflows_run` and report the interruption.
+
+Normative text: `docs/guide/agents-reference.md#iteration-playbook`.
+
+---
+
 ## Execution hints: affinity, async, timeouts
 
 `describe` (and tool metadata) may declare **`affinity`** (e.g. main thread vs worker), **`execution`** (sync vs async), **`jobStrategy`**, and **timeout** hints. **Follow them:** `chunked` means bounded host-event-loop steps, `isolated` means a durable process/service-owned operation, and absent/`monolithic` means one indivisible call. Never infer that arbitrary script code can be split. Main-thread tools must not be “worked around” from the client; async tools return a core job handle—poll the instance-routable `jobs_get_status`. Ignoring these hints produces duplicate or flaky work that looks like a gateway bug but is a contract violation.
@@ -340,4 +367,4 @@ The **`instance_id`** in the registry usually **changes**. Cached **`tool_slug`*
 3. If the same instance recovers, search for its indexed `jobs_get_status` and query the original core job. Use the typed status tool returned by an isolated operation for adapter-owned durable jobs.
 4. If owner/PID death or remote TTL expiry removed the row, wait for the DCC to be restarted explicitly, then rediscover by `dcc_type` plus scene/project metadata. Do not auto-launch a DCC unless the user has granted that authority.
 5. Run **`search(kind="tool")`** / **`POST /v1/search`** again and use the **new** `instance_id`; never reuse old slugs or direct MCP URLs. Re-**`describe`** schemas as needed.
-6. Core persistent jobs that were running at process death recover as `interrupted`. Resume only through an explicit tool contract; otherwise report interruption instead of silently replaying mutations.
+6. Core persistent jobs that were running at process death recover as `interrupted`. Resume only through an explicit tool contract — a persisted workflow re-drives from `workflows_resume` (see Iteration Playbook); otherwise report interruption instead of silently replaying mutations.

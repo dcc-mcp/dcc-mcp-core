@@ -3417,6 +3417,7 @@ Registered by `register_builtin_workflow_tools(&registry)` + bound by
 | `workflows_get_status` | Poll terminal status + progress. | `read_only_hint=true, idempotent_hint=true` |
 | `workflows_cancel` | Cancel a run by `workflow_id` (cascade). | `destructive_hint=true, idempotent_hint=true` |
 | `workflows_lookup` | Catalog search (read-only). | `read_only_hint=true` |
+| `workflows_resume` | Resume a persisted run; skips `completed` steps; honours `force_steps` + `expected_spec_hash` (#565). Requires `WorkflowStorage`. | `destructive_hint=true, idempotent_hint=true, open_world_hint=true` |
 
 ### Artefact hand-off (issue #349)
 
@@ -3615,6 +3616,25 @@ See `docs/guide/remote-server.md` for the Docker / systemd / k8s / reverse-proxy
 - Pre-flight: `vx just preflight` (check + clippy + fmt-check + test-rust)
 - Full CI: `vx just ci`
 - Release: [Release Please](https://github.com/googleapis/release-please) with Conventional Commits
+
+## Iteration Playbook
+
+Three moves cover almost every repeat in an agent session. Normative text:
+`docs/guide/agents-reference.md#iteration-playbook`.
+
+1. **Reuse a materialized script.** `materialize_script(content, dcc_type=..., instance_id=..., session_id=..., reuse=True, reuse_key="...")`
+   writes to `{root}/{dcc_type}/temp/{instance_id}/{session_id}/{script_id}{suffix}`; `script_id` is
+   derived as `{reuse_key}_{sha256[:12]}`, so a byte-identical repeat returns the same `file_path`
+   with `reused=True`. Root defaults to `~/.dcc-mcp` (`DCC_MCP_SCRIPT_MATERIALIZATION_ROOT`
+   overrides it). `resolve_materialized_script` re-verifies hash + expiry and fails closed.
+2. **Iterate on `params` only.** Re-send the same `file_path` with a new `params` object. The
+   contract is `FileBackedScriptExecutionParams` (`file_path`, `params`, `params_provided`,
+   `parameters_schema`); the schema is derived by `derive_script_parameters_schema`, which parses
+   `main(**params)` with `ast` and never executes the script. No CLI flag, no params file.
+3. **Resume an interrupted workflow.** `workflows_resume` takes `workflow_id` plus optional
+   `force_steps`, `expected_spec_hash`, and `strict`, re-drives the persisted run from the first
+   non-completed step, and returns `{ workflow_id, root_job_id, status: "pending", resumed: true, force_steps }`.
+   Requires `WorkflowStorage` + the `job-persist-sqlite` feature; the handler is not registered without it.
 
 ## AI Agent Tool Priority Guide
 

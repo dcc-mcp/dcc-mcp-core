@@ -479,6 +479,10 @@ When loading a skill, the catalog resolves which script backs each tool declarat
 3. If the skill has only one script, it backs all tools
 4. No handler registered (tool visible in registry but not executable)
 
+Re-running a resolved script is not a second lookup: keep the materialized `file_path`
+and change `params` instead. See
+[`agents-reference.md`](./agents-reference.md#iteration-playbook).
+
 ## Low-Level Skill Functions
 
 For simple one-shot scanning without progressive loading:
@@ -928,7 +932,8 @@ my-skill/
     └── depends.md    # YAML list of dependency skill names
 ```
 
-**`references/`** — Additional documentation that agents load on demand. Keep each file focused and small (< 2000 tokens recommended) to minimize context consumption. Reference files from SKILL.md body using relative paths: `See [reference guide](references/REFERENCE.md) for details.`
+**`references/`** — Additional documentation that agents load on demand. Keep each file focused and small (< 2000 tokens recommended) to minimize context consumption. Reference files from the SKILL.md body using relative paths, so agents can pull
+the detail on demand instead of paying for it up front.
 
 **`assets/`** — Static resources like document templates, configuration templates, images, or lookup tables. Not automatically loaded; agents access them when needed.
 

@@ -391,7 +391,7 @@ print(f'Loaded: {[s.name for s in skills]}')
 | File | Purpose |
 |------|---------|
 | `AGENTS.md` | AI agent navigation map — entry point, decision tables, top traps |
-| `docs/guide/agents-reference.md` | Detailed agent rules — traps, do/don't, code style, project-specific architecture |
+| `docs/guide/agents-reference.md` | Detailed agent rules — traps, do/don't, code style, project-specific architecture, iteration playbook |
 | `llms.txt` | Concise API reference for LLMs |
 | `llms-full.txt` | Comprehensive API reference with all examples |
 | `python/dcc_mcp_core/__init__.py` | Complete public API (380+ symbols, ground truth for imports) |
@@ -423,6 +423,24 @@ The library currently implements **MCP 2025-03-26** (Streamable HTTP). The ecosy
 | 2025-11-25 | Icon metadata, Tasks (experimental), Sampling with tool calls, JSON Schema 2020-12, enhanced OAuth | Planned |
 
 **AI Agents**: Do NOT implement draft features manually. Wait for `dcc-mcp-core` to expose them via `McpHttpServer`. Track progress at the GitHub repository.
+
+## Iteration Playbook
+
+Repeating work in a DCC host has three shipped moves. Full details live in the
+`Iteration Playbook` section of [`docs/guide/agents-reference.md`](../../../docs/guide/agents-reference.md#iteration-playbook).
+
+1. **Reuse a materialized script** — `materialize_script(..., reuse=True, reuse_key="...")`
+   returns a derived, stable `file_path` (`{reuse_key}_{sha256[:12]}` under
+   `~/.dcc-mcp/<dcc_type>/temp/<instance_id>/<session_id>/`); a byte-identical repeat comes back
+   with `reused=True` instead of writing a second copy. `resolve_materialized_script` re-verifies
+   hash + expiry and fails closed.
+2. **Change a value, not the script** — re-send the same `file_path` with a new `params` object.
+   The contract is `FileBackedScriptExecutionParams`; `params` is derived from `main(**params)` by
+   `derive_script_parameters_schema` (parsed with `ast`, never executed). No CLI flag, no params
+   file, no re-materialize.
+3. **Resume an interrupted workflow** — `workflows_resume` takes `workflow_id` plus optional
+   `force_steps` / `expected_spec_hash` / `strict`. It is Rust-only (MCP `tools/call` or REST
+   `/v1/call`) and needs `WorkflowStorage` + the `job-persist-sqlite` feature.
 
 ## Common Pitfalls
 

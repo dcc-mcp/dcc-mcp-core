@@ -2,7 +2,7 @@
 
 > **Quick orientation for AI agents**: This guide teaches you how to effectively use dcc-mcp-core to interact with DCC (Digital Content Creation) software like Maya, Blender, Houdini, etc.
 
-## 🎯 Core Philosophy: Skills-First
+## Core Philosophy: Skills-First
 
 **When interacting with DCC applications, ALWAYS prefer dcc-mcp-core Skills over raw CLI scripting or direct API calls.**
 
@@ -26,7 +26,7 @@ automation.
 | **Error Recovery** | Structured `error_result` with `prompt` suggestions | Unstructured stderr |
 | **Traceability** | Audit log + telemetry | None |
 
-## 🚀 Agent Entry Strategy: CLI+REST (default) vs IDE MCP
+## Agent Entry Strategy: CLI+REST (default) vs IDE MCP
 
 **As an AI agent, your default path is CLI+REST through the gateway.** Human IDE users continue using MCP configuration. The gateway serves both paths simultaneously.
 
@@ -203,7 +203,7 @@ and emits `SKILL.md`, `workflows/replay.workflow.yaml`, and
 drift. Never record raw prompts, credentials, reusable grants, global
 coordinates, or stale control ids.
 
-## 🚀 Quick Start Workflow
+## Quick Start Workflow
 
 ### Default Agent Path: CLI+REST
 
@@ -399,6 +399,24 @@ to the execution tool. The tool returns FileRef/path/hash/TTL/session metadata
 and never echoes raw source. Gateway traces and admin audit rows redact
 script-source input fields by default and keep the descriptor metadata instead.
 
+**Iteration Playbook (re-run, re-parameterize, resume).** Three moves cover almost every
+repeat in a session, and all three are already shipped:
+
+1. **Re-run the same script → reuse it.** Pass `reuse=True` with a stable `reuse_key` so the
+   path is derived (`{reuse_key}_{sha256[:12]}`) and a byte-identical repeat returns the same
+   `file_path` with `reused=True`. Consumers re-verify with `resolve_materialized_script`,
+   which fails closed on a hash or expiry mismatch instead of trusting a stale path.
+2. **Change one value → send new `params` with the same `file_path`.** The contract is
+   `FileBackedScriptExecutionParams`; `params` is delivered to `main(**params)` using the
+   schema derived by `derive_script_parameters_schema` (parsed, never executed). There is no
+   CLI flag and no params file — do not invent one, and do not re-materialize to change an
+   argument.
+3. **Recover a dead multi-step run → `workflows_resume`.** Send `workflow_id` plus optional
+   `force_steps`, `expected_spec_hash`, and `strict`. It re-drives the persisted run from the
+   first non-completed step and needs `WorkflowStorage` + the `job-persist-sqlite` feature.
+
+Full normative text: [`docs/guide/agents-reference.md`](docs/guide/agents-reference.md#iteration-playbook).
+
 Pure HTTP clients use the same REST endpoints directly: `POST /v1/search`, targeted `POST /v1/load_skill` or `POST /v1/describe` only when requested, `POST /v1/call`, and gateway `POST /v1/call_batch`. File failure feedback through gateway `POST /v1/feedback`; it remains available with zero live DCC instances and accepts last-known instance/request/job ids. Gateway REST returns compact TOON by default; send `Accept: application/json` or body `response_format: "json"` when a legacy JSON client needs compatibility. See `docs/guide/gateway.md` and `docs/guide/rest-api-surface.md`.
 
 ### Gateway workflow guide (`gateway://docs/agent-workflows`)
@@ -434,7 +452,7 @@ Use MCP resources for files, scene artefacts, thumbnails, diagnostics, and other
 
 When debugging routing, slow calls, or worker availability, use the elected gateway's read-only admin JSON APIs before guessing from logs: `GET /admin/api/instances`, `/tools`, `/calls`, `/traces`, `/traces/{request_id}`, `/stats?range=24h`, `/workers`, `/logs`, and `/health`. The `/logs` feed merges gateway contention events, on-disk `*.log` rows from `DCC_MCP_LOG_DIR` (or the platform default), and audited call summaries. The HTML dashboard remains `GET /admin`; disable it with `--no-admin`, `DCC_MCP_NO_ADMIN=true`, or `cfg.admin_enabled = False`. For restart-stable call/trace history, operators can set `DCC_MCP_GATEWAY_AUDIT_DIR` to persist `audit.jsonl` and `traces.jsonl`.
 
-## 📚 Key Concepts You Must Understand
+## Key Concepts You Must Understand
 
 ### 1. scan_and_load Returns a 2-Tuple
 
@@ -530,7 +548,7 @@ MemoryRecorder(store).install(hooks)  # wires 6 lifecycle events
 # BEFORE_SEARCH and BEFORE_TOOL_CALL auto-inject memory_summary
 ```
 
-## 🔧 Common Tasks — Which API to Use
+## Common Tasks — Which API to Use
 
 | Task | Use this API |
 |------|---------------|
@@ -548,7 +566,7 @@ MemoryRecorder(store).install(hooks)  # wires 6 lifecycle events
 | **Multi-DCC gateway** | `McpHttpConfig(gateway_port=9765)` |
 | **Long-lived cancellation support** | `check_cancelled()` / `check_dcc_cancelled()` |
 
-## 🎭 Skill Authoring for AI Agents
+## Skill Authoring for AI Agents
 
 When creating skills, optimize for AI agent discoverability:
 
@@ -593,7 +611,7 @@ tools:
       on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]
 ```
 
-## 🔴 Red Lines — Python 3.7 Support Policy
+## Red Lines — Python 3.7 Support Policy
 
 **dcc-mcp treats Python 3.7 as a long-term-support profile.** Removing it requires
 an accepted superseding ADR, a major release, at least 180 days of notice, and
@@ -609,7 +627,7 @@ This is a hard requirement — Maya 2022, Blender 2.83, and many DCC hosts embed
 
 If you are uncertain whether a change affects py37 compatibility, ask. Never assume "it probably works on 3.7 too."
 
-## 🚫 Top Traps — Memorize These
+## Top Traps — Memorize These
 
 1. **`scan_and_load` returns a 2-tuple** → `skills, skipped = scan_and_load(...)`
 2. **`success_result` kwargs become context** → `success_result("msg", count=5)` — never `context=`
@@ -622,7 +640,7 @@ If you are uncertain whether a change affects py37 compatibility, ask. Never ass
 9. **Lifecycle hooks: policy events veto, observation events don't** → `BEFORE_*` events propagate `HookDeny`; `AFTER_*` events swallow it
 10. **Agent memory: `install()` is mandatory** → `MemoryRecorder` does nothing until wired to `LifecycleHooks` via `.install(hooks)`
 
-## 📖 Further Reading
+## Further Reading
 
 - **Default entry skill**: [`dcc-mcp`](https://clawhub.ai/loonghao/skills/dcc-mcp) — install this public skill for CLI+REST DCC control
 - **CLI reference**: [`docs/guide/cli-reference.md`](docs/guide/cli-reference.md) — full `dcc-mcp-cli` command reference
@@ -635,7 +653,7 @@ If you are uncertain whether a change affects py37 compatibility, ask. Never ass
 - **Lifecycle hooks reference**: [`docs/guide/agents-reference.md#lifecycle-hooks-typed-observerpub-sub-1337`](docs/guide/agents-reference.md#lifecycle-hooks-typed-observerpub-sub-1337)
 - **Agent memory reference**: [`docs/guide/agents-reference.md#agent-memory-three-tier-1334`](docs/guide/agents-reference.md#agent-memory-three-tier-1334)
 
-## 💡 Pro Tips for AI Agents
+## Pro Tips for AI Agents
 
 1. **CLI+REST is your default path** — load `dcc-mcp`, search once, and follow `next_step`. Only fall back to MCP when running inside an IDE.
 2. **Always search before assuming** — use `dcc-mcp-cli search --query "..." --dcc-type ...` or `search_skills()` to discover relevant tools
@@ -656,6 +674,7 @@ If you are uncertain whether a change affects py37 compatibility, ask. Never ass
 12. **Enable agent memory for smarter searches** — `MemoryRecorder` auto-injects `memory_prefer_tools`/`memory_avoid_tools` so search ranking improves over time
 13. **Use `register_all_builtin_skills` for a complete baseline** — one call registers diagnostics, introspection, feedback, recipes, UI inspector, and script materialization tools
 14. **Read `_meta` for request-level context** — tools receive `params._meta.agent_context` (caller identity), `credential_profile` (env tier), `permission_hint` (read-only/read-write), and `project_scope` (data isolation). See [agents-reference.md](docs/guide/agents-reference.md#request-level-context-passthrough-_meta----pip-520) for patterns.
+15. **Iterate without re-sending source** — reuse a materialized `file_path` with `reuse_key`, change values by re-sending `params`, and recover interrupted runs with `workflows_resume`. See the [Iteration Playbook](docs/guide/agents-reference.md#iteration-playbook).
 
 ---
 
