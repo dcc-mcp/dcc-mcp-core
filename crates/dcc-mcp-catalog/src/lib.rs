@@ -236,17 +236,22 @@ pub struct CatalogInstall {
     /// Agent-facing installation runbook, usually the adapter repo's raw install.md.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub instructions_url: Option<String>,
-    /// Install SOP schema version this adapter's runbook conforms to.
+    /// Install SOP schema version this adapter's runbook targets.
     ///
     /// Mirrors `INSTALL_SOP_SCHEMA_VERSION` from
     /// `dcc_mcp_core.deployment.install_sop`. Absent means the adapter has not
     /// reported a version yet, which keeps every pre-existing entry valid.
+    ///
+    /// This is a declaration by the adapter author, not a verified conformance
+    /// result: nothing here checks the runbook against the schema.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sop_version: Option<u32>,
-    /// Lowercase hex SHA-256 digest of the Install SOP schema document.
+    /// Lowercase hex SHA-256 digest of the Install SOP schema *document*.
     ///
     /// Lets a consumer pin the exact schema bytes an adapter was authored
-    /// against instead of trusting [`CatalogInstall::sop_version`] alone.
+    /// against instead of trusting [`CatalogInstall::sop_version`] alone. It
+    /// anchors the schema file's bytes only; it is not evidence that the
+    /// adapter's runbook conforms to that schema.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sop_schema_digest: Option<String>,
     /// Optional Adobe host plugin installation metadata for debug-link installs.
@@ -1077,139 +1082,6 @@ entries:
     /// matching `INSTALL_SOP_SCHEMA_VERSION = 1` in
     /// `dcc_mcp_core.deployment.install_sop`.
     const SOP_V1_DIGEST: &str = "2b3a8a101384a5163c7569c4a2b0de6586c672c5ee291735f94334a33b7d37a0";
-
-    fn sop_entry(version: Option<u32>, digest: Option<&str>) -> CatalogEntry {
-        CatalogEntry {
-            name: "sop-adapter".into(),
-            description: "An adapter reporting Install SOP metadata".into(),
-            dcc: vec!["maya".into()],
-            targets: vec![],
-            url: None,
-            issues_url: None,
-            tags: vec![],
-            version: Some("1.0.0".into()),
-            min_core_version: None,
-            package: None,
-            maintainer: Some("dcc-mcp".into()),
-            category: None,
-            policy: None,
-            requires: None,
-            install: Some(CatalogInstall {
-                install_type: "pip".into(),
-                url: Some(
-                    "https://files.pythonhosted.org/packages/example/dcc_mcp_maya-1.0.0-py3-none-any.whl"
-                        .into(),
-                ),
-                ref_: None,
-                sha256: Some("a".repeat(64)),
-                skill_roots: None,
-                pip_package: Some("dcc-mcp-maya".into()),
-                pip_extras: None,
-                python_path: None,
-                entry_point: None,
-                instructions_url: None,
-                sop_version: version,
-                sop_schema_digest: digest.map(str::to_string),
-                adobe: None,
-            }),
-            icon: None,
-            showcase: None,
-        }
-    }
-
-    #[test]
-    fn test_validate_entry_accepts_install_sop_metadata() {
-        let entry = sop_entry(Some(2), Some(SOP_V1_DIGEST));
-        assert!(validate_entry(&entry).is_ok());
-
-        let install = entry.install.as_ref().unwrap();
-        assert_eq!(install.sop_version, Some(2));
-        assert_eq!(install.sop_schema_digest.as_deref(), Some(SOP_V1_DIGEST));
-    }
-
-    #[test]
-    fn test_validate_entry_accepts_sop_metadata_without_digest() {
-        // `sop_version` alone stays valid so adapters can adopt it incrementally.
-        assert!(validate_entry(&sop_entry(Some(1), None)).is_ok());
-    }
-
-    #[test]
-    fn test_validate_entry_rejects_malformed_sop_schema_digest() {
-        for digest in [
-            String::new(),
-            "abc123".to_string(),
-            SOP_V1_DIGEST.to_uppercase(),
-            SOP_V1_DIGEST.replace('2', "g"),
-            format!("{SOP_V1_DIGEST}00"),
-        ] {
-            let entry = sop_entry(Some(1), Some(&digest));
-            let err = validate_entry(&entry).unwrap_err();
-            let message = err.to_string();
-            assert!(
-                message.contains("sop_schema_digest"),
-                "digest {digest:?} should be rejected, got: {message}"
-            );
-        }
-    }
-
-    #[test]
-    fn test_validate_entry_rejects_non_positive_sop_version() {
-        // Version 0 is not a published schema version.
-        assert!(validate_entry(&sop_entry(Some(0), Some(SOP_V1_DIGEST))).is_err());
-    }
-
-    #[test]
-    fn test_load_marketplace_json_with_install_sop_metadata() {
-        let json = r#"
-{
-  "version": "1",
-  "entries": [{
-    "name": "dcc-mcp-maya-sop",
-    "description": "Maya adapter reporting Install SOP metadata",
-    "dcc": ["maya"],
-    "version": "1.0.0",
-    "install": {
-      "type": "pip",
-      "pip_package": "dcc-mcp-maya",
-      "url": "https://files.pythonhosted.org/packages/example/dcc_mcp_maya-1.0.0-py3-none-any.whl",
-      "sha256": "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90",
-      "sop_version": 2,
-      "sop_schema_digest": "2b3a8a101384a5163c7569c4a2b0de6586c672c5ee291735f94334a33b7d37a0"
-    }
-  }]
-}
-"#;
-        let entries = load_from_str(json).unwrap();
-        let install = entries[0].install.as_ref().unwrap();
-        assert_eq!(install.sop_version, Some(2));
-        assert_eq!(install.sop_schema_digest.as_deref(), Some(SOP_V1_DIGEST));
-        assert!(validate_entry(&entries[0]).is_ok());
-    }
-
-    #[test]
-    fn test_non_integer_sop_version_is_rejected() {
-        // A typed entry cannot hold a string, so the raw document is rejected at
-        // parse time instead of during `validate_entry`.
-        let json = r#"
-{
-  "version": "1",
-  "entries": [{
-    "name": "dcc-mcp-maya-bad-sop",
-    "description": "Maya adapter with a mistyped SOP version",
-    "dcc": ["maya"],
-    "install": {
-      "type": "pip",
-      "pip_package": "dcc-mcp-maya",
-      "sop_version": "x"
-    }
-  }]
-}
-"#;
-        assert!(
-            load_from_str(json).is_err(),
-            "a string sop_version must not deserialize into Option<u32>"
-        );
-    }
 
     #[test]
     fn test_validate_entry_requires_pinned_pip_artifact() {

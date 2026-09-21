@@ -15,8 +15,10 @@
 #   tags        - Searchable tags (list, optional)
 #   install.python_path      - Optional host Python interpreter for package install
 #   install.instructions_url - Raw adapter-maintained install.md for agent setup
-#   install.sop_version       - Install SOP schema version the runbook conforms to (optional)
-#   install.sop_schema_digest - Lowercase hex SHA-256 of that SOP schema document (optional)
+#   install.sop_version       - Install SOP schema version the runbook targets (optional, author-declared)
+#   install.sop_schema_digest - Lowercase hex SHA-256 of that SOP schema document (optional).
+#                               Anchors the schema file's bytes; it is not proof the
+#                               runbook conforms to that schema.
 
 version: "1"
 entries:
