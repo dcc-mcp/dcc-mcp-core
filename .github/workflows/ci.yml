@@ -614,6 +614,56 @@ jobs:
               --base-url http://127.0.0.1:1 --dry-run --trace "$f"
           done
 
+  # ── Released schema immutability gate ─────────────────────────────────────
+  # A released `-vN` schema must never be rewritten in place. The four live
+  # digest pins (compatibility/python.json, install_sop.py,
+  # schema_validation.rs and the catalog provenance cross-assert) are all
+  # derived from the current file, so a coordinated in-place edit keeps every
+  # one of them green. This job compares committed schema bytes against the
+  # digests registered in compatibility/schema-pins.json for released tags
+  # instead, which no amount of pin-following can satisfy.
+  released-schema-immutability:
+    name: Released schema immutability
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # `git cat-file blob <tag>:<path>` needs the release tags. The
+          # default depth-1 checkout fetches none of them, which would leave
+          # the gate skipped and therefore unenforced.
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - name: Install pytest
+        run: pip install pytest
+      - name: Verify released schema pins
+        shell: bash
+        run: |
+          set -euo pipefail
+          output_file="$(mktemp)"
+          trap 'rm -f "$output_file"' EXIT
+          set +e
+          python -m pytest tests/test_released_schema_immutability.py --noconftest \
+            -q --tb=short 2>&1 | tee "$output_file"
+          status="${PIPESTATUS[0]}"
+          set -e
+          if [[ "$status" -ne 0 ]]; then
+            echo "::error::released schema immutability gate failed"
+            exit 1
+          fi
+          # A skipped or empty gate is an unenforced gate. Refuse to pass on
+          # either, so a future checkout-config change cannot silently disable
+          # this check.
+          if grep -Eq '[0-9]+ skipped' "$output_file"; then
+            echo "::error::released schema immutability gate skipped tests; the gate must run"
+            exit 1
+          fi
+          if ! grep -Eq '[0-9]+ passed' "$output_file"; then
+            echo "::error::released schema immutability gate ran no tests"
+            exit 1
+          fi
+
   # ── Python 3.7 syntax gate ──────────────────────────────────────────────
   # Maya 2022 / Blender 2.83 embed Python 3.7; pure-Python modules must
   # remain syntax-compatible under the repository's explicit LTS policy. This

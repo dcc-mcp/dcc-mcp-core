@@ -1,0 +1,27 @@
+{
+  "$comment": "Release-anchored digests for published schema revisions. Enforced by tests/test_released_schema_immutability.py. See compatibility/README.md before editing.",
+  "schema_version": 1,
+  "pins": {
+    "https://dcc-mcp.github.io/schemas/adapter-install-sop-v1.schema.json": {
+      "path": "python/dcc_mcp_core/schemas/adapter-install-sop-v1.schema.json",
+      "released": {
+        "v0.20.29": "3ca25788439917b4d4c0617230a762f9797756b5b54f45c8c4149f975b90f904",
+        "v0.20.30": "2b3a8a101384a5163c7569c4a2b0de6586c672c5ee291735f94334a33b7d37a0"
+      }
+    },
+    "https://dcc-mcp.github.io/dcc-mcp-core/schemas/feedback-finding-v1.schema.json": {
+      "path": "python/dcc_mcp_core/schemas/feedback-finding-v1.schema.json",
+      "released": {
+        "v0.20.29": "30f653dd662bca7e5feb9f1f5a69d1935998030753edc1cc783b56b720540be7",
+        "v0.20.30": "30f653dd662bca7e5feb9f1f5a69d1935998030753edc1cc783b56b720540be7"
+      }
+    },
+    "https://dcc-mcp.dev/contracts/dcc-discovery-decision-v1.schema.json": {
+      "path": "contracts/dcc-discovery-decision-v1.schema.json",
+      "released": {
+        "v0.20.29": "e6b82bf8bfd14df585d4606d9ae26ab78b6455ad2c93486195a1d80a3889be9e",
+        "v0.20.30": "ec5cf3696cb989d3961bf686677f740e17bbd8eb42278edd00155b4041d65ffa"
+      }
+    }
+  }
+}
