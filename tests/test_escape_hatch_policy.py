@@ -370,6 +370,28 @@ class TestPromotionHint:
         with pytest.raises(ValueError):
             EscapeHatchPolicy(promotion_threshold=0)
 
+    @pytest.mark.parametrize("threshold", [1.9, 3.0, "3", True])
+    def test_non_integer_threshold_is_rejected(self, threshold: object) -> None:
+        """Non-integers must be rejected rather than truncated by ``int()``.
+
+        Truncating 1.9 to 1 would raise the promotion hint one run earlier than
+        the caller configured, so a wrong type must fail loudly.
+        """
+        with pytest.raises(ValueError):
+            EscapeHatchPolicy(promotion_threshold=threshold)
+
+    @pytest.mark.parametrize("threshold", [1.9, 3.0, "3", True])
+    def test_install_rejects_non_integer_threshold(self, threshold: object) -> None:
+        """The public ``install_escape_hatch_policy`` path rejects them too."""
+        with pytest.raises(ValueError):
+            install_escape_hatch_policy(LifecycleHooks(), promotion_threshold=threshold)
+
+    def test_integer_threshold_is_kept_verbatim(self) -> None:
+        """A valid integer threshold is stored without any coercion."""
+        policy = install_escape_hatch_policy(LifecycleHooks(), promotion_threshold=7)
+        assert policy._promotion_threshold == 7
+        assert isinstance(policy._promotion_threshold, int)
+
 
 class TestCandidateIdentityParity:
     """The in-process hint id must equal the durable query id (contract)."""
