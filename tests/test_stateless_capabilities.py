@@ -56,9 +56,18 @@ def test_stateless_discovery_advertises_only_implemented_capabilities(enable_res
     expected = {"tools": {"listChanged": False}}
     if enable_resources:
         expected["resources"] = {"subscribe": False, "listChanged": False}
+        # The skills extension is served over the Resources primitive, so a
+        # server that advertises resources also advertises the extension.
+        # It is implemented, so `advertises_only_implemented_capabilities`
+        # must list it.
+        expected["extensions"] = {
+            "io.modelcontextprotocol/skills": {"directoryRead": True}
+        }
     if enable_prompts:
         expected["prompts"] = {"listChanged": False}
     assert response["result"]["capabilities"] == expected
+    # The extension is stateless-only; the legacy lifecycle never sees it.
+    assert "extensions" not in legacy["result"]["capabilities"]
     assert ("resources" in legacy["result"]["capabilities"]) is enable_resources
     assert ("prompts" in legacy["result"]["capabilities"]) is enable_prompts
     assert legacy["result"]["capabilities"]["tools"]["listChanged"] is True

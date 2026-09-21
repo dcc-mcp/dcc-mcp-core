@@ -120,8 +120,10 @@ pub(super) fn handle_resources_directory_read(
             );
         }
     };
-    let Some(skill_dir) = skill_dir(state, skill_name) else {
-        return invalid_params(id, format!("No skill is served at {skill_name}"));
+    let skill_dir = match publishable_skill_dir(state, skill_name) {
+        Ok(Some(dir)) => dir,
+        Ok(None) => return invalid_params(id, format!("No skill is served at {skill_name}")),
+        Err(message) => return invalid_params(id, message),
     };
     // An empty relative path addresses the skill root directory itself.
     let directory = if relative.is_empty() {
@@ -201,7 +203,11 @@ pub(super) fn list_skill_resources(state: &ServerState) -> Vec<McpResource> {
     }
     let mut resources = Vec::new();
     for (name, dir) in catalog_skill_dirs(state) {
-        let Some(frontmatter) = skill_frontmatter(&dir) else {
+        // Share the publishability gate with `skills/list` so the two agree on
+        // which skills exist: a skill must not show up here while being absent
+        // from the listing. The gate is cheap — it reads only SKILL.md and
+        // directory metadata, never the skill's whole content.
+        let Ok(frontmatter) = content::check_publishable(&dir, &name) else {
             continue;
         };
         resources.push(McpResource {
@@ -275,7 +281,7 @@ fn skill_entry_for_uri(state: &ServerState, uri: &str) -> Result<Option<Skill>, 
             uri.trim()
         ));
     }
-    let Some(dir) = skill_dir(state, skill_name) else {
+    let Some(dir) = publishable_skill_dir(state, skill_name)? else {
         return Ok(None);
     };
     match content::build_skill_manifest(&dir, skill_name) {
@@ -291,7 +297,7 @@ fn read_skill_file(
     relative: &str,
     uri: &str,
 ) -> Result<ReadResourceResult, String> {
-    let Some(skill_dir) = skill_dir(state, skill_name) else {
+    let Some(skill_dir) = publishable_skill_dir(state, skill_name)? else {
         return Err(format!("No skill is served at {skill_name}"));
     };
     if relative.is_empty() {
@@ -327,6 +333,10 @@ fn read_skill_file(
 }
 
 /// Direct children of `directory` as resource descriptors.
+///
+/// `skill_dir` and `directory` are both canonical (see
+/// [`publishable_skill_dir`] and [`content::resolve_skill_file`]), so the
+/// prefix strip that builds each child URI is well defined.
 fn directory_children(
     skill_name: &str,
     skill_dir: &Path,
@@ -394,18 +404,32 @@ fn catalog_skill_dirs(state: &ServerState) -> Vec<(String, PathBuf)> {
     skills
 }
 
-fn skill_dir(state: &ServerState, skill_name: &str) -> Option<PathBuf> {
-    let metadata = state.catalog.get_skill(skill_name)?;
+/// Resolve a catalogued skill to its **canonical, publishable** directory.
+///
+/// `Ok(None)` means the catalog has no such skill; `Err` means the skill is
+/// catalogued but not publishable. Callers turn both into `-32602`, which is
+/// what the extension prescribes for "no skill is served at this URI" —
+/// including a skill that exists on disk but cannot be published.
+///
+/// The path is canonicalized so that later containment checks
+/// ([`content::resolve_skill_file`]) and the prefix stripping in
+/// [`directory_children`] all work against one stable baseline.
+fn publishable_skill_dir(state: &ServerState, skill_name: &str) -> Result<Option<PathBuf>, String> {
+    let metadata = match state.catalog.get_skill(skill_name) {
+        Some(metadata) => metadata,
+        None => return Ok(None),
+    };
     if metadata.skill_path.is_empty() {
-        return None;
+        return Ok(None);
     }
-    Some(PathBuf::from(metadata.skill_path))
-}
-
-fn skill_frontmatter(skill_dir: &Path) -> Option<dcc_mcp_skills::SkillFrontmatter> {
-    let path = skill_dir.join(dcc_mcp_skills::constants::SKILL_METADATA_FILE);
-    let text = std::fs::read_to_string(path).ok()?;
-    content::skill_frontmatter(&text)
+    let dir = PathBuf::from(metadata.skill_path);
+    match content::check_publishable(&dir, skill_name) {
+        Ok(_) => dir
+            .canonicalize()
+            .map(Some)
+            .map_err(|error| format!("skill `{skill_name}` is not readable: {error}")),
+        Err(error) => Err(format!("skill `{skill_name}` is not published: {error}")),
+    }
 }
 
 // ── Params / response helpers ──────────────────────────────────────────────

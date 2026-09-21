@@ -238,17 +238,94 @@ fn extract_frontmatter(content: &str) -> Option<&str> {
 /// `skill_name` is the catalog key for the skill and becomes the first URI
 /// path segment; the Skills extension requires it to equal `frontmatter.name`.
 ///
-/// Directory entries, symlinked directories, and files that cannot be read are
-/// handled as follows: unreadable files fail the whole manifest (a manifest
-/// with a missing entry would not be complete), while symlinked directories are
-/// not followed so a skill cannot escape its own root.
+/// The cheap publishability gate runs first, so a skill that cannot be
+/// published is rejected before any file content is hashed.
 pub fn build_skill_manifest(
     skill_dir: &Path,
     skill_name: &str,
 ) -> Result<SkillManifest, SkillManifestError> {
-    let mut files = Vec::new();
-    collect_files(skill_dir, skill_dir, &mut files)?;
+    let scan = scan_skill(skill_dir, skill_name)?;
 
+    let mut entries = Vec::with_capacity(scan.files.len());
+    for (relative, path) in &scan.files {
+        let bytes = std::fs::read(path).map_err(|error| SkillManifestError::UnreadableFile {
+            relative: relative.clone(),
+            reason: error.to_string(),
+        })?;
+        let size = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+        entries.push(SkillFileEntry {
+            uri: skill_uri(skill_name, relative),
+            digest: digest_bytes(&bytes),
+            size,
+            relative_path: relative.clone(),
+        });
+    }
+    entries.sort_by(|a, b| a.uri.cmp(&b.uri));
+
+    Ok(SkillManifest {
+        uri: skill_uri(skill_name, SKILL_METADATA_FILE),
+        frontmatter: scan.frontmatter,
+        resources: SkillFileSet::Files(entries),
+    })
+}
+
+/// Decide whether a skill may be published, without hashing any content.
+///
+/// Every extension surface shares this gate so they agree on which skills
+/// exist — `skills/list`, `skills/get`, the two resources handlers, and the
+/// skill entries contributed to `resources/list`. It checks everything that
+/// can be decided from directory metadata and `SKILL.md` alone: presence,
+/// frontmatter validity, name/description agreement, and the per-skill file
+/// count and total size limits.
+///
+/// Sharing the gate matters for consistency: a skill that is over the limits
+/// or has invalid frontmatter must fail the same way on every surface, not
+/// only on the ones that happen to compute a manifest.
+pub fn check_publishable(
+    skill_dir: &Path,
+    skill_name: &str,
+) -> Result<SkillFrontmatter, SkillManifestError> {
+    Ok(scan_skill(skill_dir, skill_name)?.frontmatter)
+}
+
+/// What a skill scan decides before any file content is hashed.
+struct SkillScan {
+    /// `(relative path, absolute path)` for every file in the skill.
+    files: Vec<(String, PathBuf)>,
+    frontmatter: SkillFrontmatter,
+}
+
+/// Walk the skill directory, enforce the limits, and parse its frontmatter.
+///
+/// Both limit checks run from directory metadata, before any file is read, so
+/// an over-sized skill costs one walk rather than a full hashing pass —
+/// `skills/list` would otherwise re-hash a rejected skill on every call.
+fn scan_skill(skill_dir: &Path, skill_name: &str) -> Result<SkillScan, SkillManifestError> {
+    let files = inventory(skill_dir)?;
+
+    let mut total_bytes: u64 = 0;
+    for (_, path) in &files {
+        let len = std::fs::metadata(path)
+            .map(|metadata| metadata.len())
+            .unwrap_or(0);
+        total_bytes = total_bytes.saturating_add(len);
+    }
+    if files.len() > MAX_SKILL_RESOURCE_ENTRIES || total_bytes > MAX_SKILL_TOTAL_BYTES {
+        return Err(SkillManifestError::ExceedsLimits {
+            entries: files.len(),
+            total_bytes,
+        });
+    }
+
+    let frontmatter = read_frontmatter(&files, skill_name)?;
+    Ok(SkillScan { files, frontmatter })
+}
+
+/// Read and validate the `SKILL.md` frontmatter of an inventoried skill.
+fn read_frontmatter(
+    files: &[(String, PathBuf)],
+    skill_name: &str,
+) -> Result<SkillFrontmatter, SkillManifestError> {
     let skill_md = files
         .iter()
         .find(|(relative, _)| relative == SKILL_METADATA_FILE)
@@ -256,8 +333,8 @@ pub fn build_skill_manifest(
         .ok_or(SkillManifestError::MissingSkillMd)?;
     let skill_md_bytes =
         std::fs::read(&skill_md).map_err(|_| SkillManifestError::MissingSkillMd)?;
-    let skill_md_text = String::from_utf8(skill_md_bytes.clone())
-        .map_err(|_| SkillManifestError::MissingSkillMd)?;
+    let skill_md_text =
+        String::from_utf8(skill_md_bytes).map_err(|_| SkillManifestError::MissingSkillMd)?;
     let frontmatter =
         skill_frontmatter(&skill_md_text).ok_or(SkillManifestError::MissingFrontmatter)?;
     if frontmatter.name() != Some(skill_name) {
@@ -271,43 +348,29 @@ pub fn build_skill_manifest(
             "frontmatter is missing the required `description` field".to_string(),
         ));
     }
-
-    let mut entries = Vec::with_capacity(files.len());
-    let mut total_bytes: u64 = 0;
-    for (relative, path) in &files {
-        let bytes = std::fs::read(path).map_err(|error| SkillManifestError::UnreadableFile {
-            relative: relative.clone(),
-            reason: error.to_string(),
-        })?;
-        let size = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
-        total_bytes = total_bytes.saturating_add(size);
-        entries.push(SkillFileEntry {
-            uri: skill_uri(skill_name, relative),
-            digest: digest_bytes(&bytes),
-            size,
-            relative_path: relative.clone(),
-        });
-    }
-    entries.sort_by(|a, b| a.uri.cmp(&b.uri));
-
-    if entries.len() > MAX_SKILL_RESOURCE_ENTRIES || total_bytes > MAX_SKILL_TOTAL_BYTES {
-        return Err(SkillManifestError::ExceedsLimits {
-            entries: entries.len(),
-            total_bytes,
-        });
-    }
-
-    Ok(SkillManifest {
-        uri: skill_uri(skill_name, SKILL_METADATA_FILE),
-        frontmatter,
-        resources: SkillFileSet::Files(entries),
-    })
+    Ok(frontmatter)
 }
 
-/// Collect regular files under `root` as `(relative path, absolute path)`.
+/// Collect regular files under `skill_dir` as `(relative path, absolute path)`.
 ///
-/// Symlinked directories are not followed: a skill must not be able to pull
-/// content from outside its own root into its manifest.
+/// The root is canonicalized first so containment checks have one stable
+/// baseline: a symlink is kept only when its canonical target stays inside the
+/// skill root, and symlinked directories are never followed. A skill therefore
+/// cannot pull content from outside its own directory into its manifest.
+fn inventory(skill_dir: &Path) -> Result<Vec<(String, PathBuf)>, SkillManifestError> {
+    let root = skill_dir
+        .canonicalize()
+        .map_err(|error| SkillManifestError::UnreadableFile {
+            relative: String::new(),
+            reason: error.to_string(),
+        })?;
+    let mut files = Vec::new();
+    collect_files(&root, &root, &mut files)?;
+    files.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(files)
+}
+
+/// Recursive half of [`inventory`]; `root` must already be canonical.
 fn collect_files(
     root: &Path,
     dir: &Path,
@@ -338,15 +401,14 @@ fn collect_files(
             }
         };
         if file_type.is_symlink() {
-            // A symlinked directory could walk the tree outside the skill root;
-            // a symlinked file is followed only when its target stays regular.
-            let Ok(metadata) = std::fs::metadata(&path) else {
+            // A symlink may point outside the skill root. Resolve it and keep
+            // the entry only when the canonical target is a regular file that
+            // still lives inside the root. Symlinked directories are never
+            // followed, so a link cannot walk the tree out of the skill.
+            let Ok(target) = path.canonicalize() else {
                 continue;
             };
-            if metadata.is_dir() {
-                continue;
-            }
-            if !metadata.is_file() {
+            if !target.is_file() || !target.starts_with(root) {
                 continue;
             }
         } else if file_type.is_dir() {
@@ -390,18 +452,35 @@ pub fn digest_bytes(bytes: &[u8]) -> String {
 
 /// Resolve a `skill://` file URI to a path inside `skill_dir`.
 ///
-/// Returns `None` when `relative` escapes the skill root (contains `..` or is
-/// absolute) so that a crafted URI cannot read outside the skill.
+/// Returns `None` when `relative` escapes the skill root, so a crafted URI
+/// cannot read outside the skill. The check is two-layered because either
+/// layer alone is insufficient:
+///
+/// - **Lexical** — each segment must be a plain file name. `..` is rejected,
+///   along with the Windows-specific escapes that a `/`-only split would miss:
+///   `\` is a separator on Windows, and a segment such as `C:` makes the path
+///   absolute and discards everything before it.
+/// - **Physical** — both sides are canonicalized and the result must be
+///   contained in the root. This resolves symlinks, so a symlink inside the
+///   skill that points outside is rejected rather than read.
+///
+/// The returned path is the canonical form of the target, not a lexical join.
 #[must_use]
 pub fn resolve_skill_file(skill_dir: &Path, relative: &str) -> Option<PathBuf> {
-    if relative.is_empty() || relative.starts_with('/') || relative.contains('\0') {
+    let resolved = join_within(skill_dir, relative)?;
+    contained_path(skill_dir, &resolved)
+}
+
+/// Lexically join `relative` under `skill_dir`, rejecting escaping segments.
+fn join_within(skill_dir: &Path, relative: &str) -> Option<PathBuf> {
+    if relative.is_empty() || relative.contains('\0') {
         return None;
     }
     let mut resolved = skill_dir.to_path_buf();
     for segment in relative.split('/') {
         match segment {
             "" | "." => continue,
-            ".." => return None,
+            segment if !is_safe_segment(segment) => return None,
             segment => resolved.push(segment),
         }
     }
@@ -409,6 +488,29 @@ pub fn resolve_skill_file(skill_dir: &Path, relative: &str) -> Option<PathBuf> {
         return None;
     }
     Some(resolved)
+}
+
+/// A segment must be a plain file name: no separators, no drive letters, no
+/// control characters. `..` is rejected here rather than by the caller.
+fn is_safe_segment(segment: &str) -> bool {
+    !segment.is_empty()
+        && segment != ".."
+        // `\` is a path separator on Windows; `:` introduces a drive letter
+        // or an NTFS alternate data stream.
+        && !segment.contains('\\')
+        && !segment.contains(':')
+        && !segment.chars().any(char::is_control)
+}
+
+/// Canonicalize both sides and require `candidate` to live under `root`.
+///
+/// Canonicalization is what turns a lexical check into a real one: it resolves
+/// symlinks and `.`/`..` as the filesystem will, so the containment test
+/// reflects the file actually reached rather than the path as written.
+fn contained_path(root: &Path, candidate: &Path) -> Option<PathBuf> {
+    let root = root.canonicalize().ok()?;
+    let candidate = candidate.canonicalize().ok()?;
+    candidate.starts_with(&root).then_some(candidate)
 }
 
 /// Guess the `mimeType` for a skill file from its extension.
@@ -552,6 +654,69 @@ mod tests {
         ));
     }
 
+    /// The shared gate accepts a publishable skill without hashing anything.
+    #[test]
+    fn check_publishable_accepts_a_valid_skill() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        write(
+            &root.join("SKILL.md"),
+            "---\nname: demo\ndescription: Demo\nlicense: MIT\n---\n",
+        );
+        let frontmatter = check_publishable(root, "demo").expect("publishable");
+        assert_eq!(frontmatter.name(), Some("demo"));
+        assert_eq!(
+            frontmatter.as_object()["license"],
+            Value::String("MIT".into())
+        );
+    }
+
+    /// The gate rejects exactly what the manifest would, so every extension
+    /// surface agrees on which skills exist.
+    #[test]
+    fn check_publishable_matches_manifest_eligibility() {
+        let cases: Vec<(&str, &str)> = vec![
+            ("good", "---\nname: demo\ndescription: Demo\n---\n"),
+            ("no-description", "---\nname: demo\n---\n"),
+            (
+                "name-mismatch",
+                "---\nname: other\ndescription: Demo\n---\n",
+            ),
+            ("no-frontmatter", "# just a body\n"),
+        ];
+        for (label, skill_md) in cases {
+            let dir = tempfile::tempdir().unwrap();
+            let root = dir.path();
+            write(&root.join("SKILL.md"), skill_md);
+            let gated = check_publishable(root, "demo").is_ok();
+            let manifested = build_skill_manifest(root, "demo").is_ok();
+            assert_eq!(gated, manifested, "{label}: gate and manifest disagree");
+        }
+        // A skill with no SKILL.md at all is rejected by both.
+        let dir = tempfile::tempdir().unwrap();
+        write(&dir.path().join("README.md"), "no skill here\n");
+        assert!(check_publishable(dir.path(), "demo").is_err());
+    }
+
+    /// Limits are enforced before any content is hashed: an over-sized skill
+    /// is rejected from metadata alone.
+    #[test]
+    fn check_publishable_rejects_over_limit_skills_before_hashing() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        write(
+            &root.join("SKILL.md"),
+            "---\nname: demo\ndescription: Demo\n---\n",
+        );
+        for index in 0..MAX_SKILL_RESOURCE_ENTRIES {
+            write(&root.join(format!("file-{index}.md")), "x");
+        }
+        assert!(matches!(
+            check_publishable(root, "demo"),
+            Err(SkillManifestError::ExceedsLimits { .. })
+        ));
+    }
+
     #[test]
     fn manifest_rejects_missing_skill_md() {
         let dir = tempfile::tempdir().unwrap();
@@ -603,14 +768,93 @@ mod tests {
     fn resolve_skill_file_refuses_to_escape_the_root() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
+        write(&root.join("references/GUIDE.md"), "guide\n");
+        // The result is canonical, so compare against the canonical form:
+        // on macOS a tempdir under /var canonicalizes to /private/var.
+        let canonical_root = root.canonicalize().unwrap();
         assert_eq!(
             resolve_skill_file(root, "references/GUIDE.md"),
-            Some(root.join("references/GUIDE.md"))
+            Some(canonical_root.join("references/GUIDE.md"))
         );
         assert_eq!(resolve_skill_file(root, "../SKILL.md"), None);
         assert_eq!(resolve_skill_file(root, "a/../../SKILL.md"), None);
         assert_eq!(resolve_skill_file(root, "/etc/passwd"), None);
         assert_eq!(resolve_skill_file(root, ""), None);
+    }
+
+    /// Windows treats `\` as a separator and `C:` as an absolute path, so a
+    /// `/`-only segment split is not enough. These are lexical rejections and
+    /// therefore platform independent.
+    #[test]
+    fn resolve_skill_file_rejects_windows_separators_and_drives() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        for traversal in [
+            r"..\..\windows\win.ini",
+            r"sub\..\..\secret",
+            "C:",
+            "C:\\windows\\win.ini",
+            "C:secret.txt",
+            r"a\b\\c",
+            "file:host/share",
+        ] {
+            assert_eq!(
+                resolve_skill_file(root, traversal),
+                None,
+                "{traversal} must be rejected"
+            );
+        }
+    }
+
+    /// A symlink inside the skill that points outside must not be readable.
+    #[cfg(unix)]
+    #[test]
+    fn resolve_skill_file_rejects_a_symlink_pointing_outside_the_root() {
+        let outside = tempfile::tempdir().unwrap();
+        let secret = outside.path().join("secret.txt");
+        std::fs::write(&secret, "classified\n").unwrap();
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        symlink_file(&secret, &root.join("leak.md"));
+        // A link to a sibling *inside* the root is still fine.
+        write(&root.join("real.md"), "real\n");
+        symlink_file(&root.join("real.md"), &root.join("alias.md"));
+
+        assert_eq!(resolve_skill_file(&root, "leak.md"), None);
+        assert_eq!(
+            resolve_skill_file(&root, "alias.md"),
+            Some(root.join("real.md")),
+            "an internal symlink resolves to its target"
+        );
+    }
+
+    /// An escaping symlink must also never enter the published manifest.
+    #[cfg(unix)]
+    #[test]
+    fn inventory_excludes_symlinks_that_escape_the_root() {
+        let outside = tempfile::tempdir().unwrap();
+        let secret = outside.path().join("secret.txt");
+        std::fs::write(&secret, "classified\n").unwrap();
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        write(
+            &root.join("SKILL.md"),
+            "---\nname: demo\ndescription: Demo\n---\n",
+        );
+        symlink_file(&secret, &root.join("leak.md"));
+
+        let files = inventory(&root).expect("inventory succeeds");
+        let relatives: Vec<&str> = files.iter().map(|(r, _)| r.as_str()).collect();
+        assert_eq!(relatives, vec!["SKILL.md"], "the escaping link is dropped");
+    }
+
+    /// Create a symlink. Unix-only: creating one on Windows requires elevated
+    /// privileges, so the symlink tests are gated to unix.
+    #[cfg(unix)]
+    fn symlink_file(target: &Path, link: &Path) {
+        std::os::unix::fs::symlink(target, link).expect("symlink");
     }
 
     #[test]

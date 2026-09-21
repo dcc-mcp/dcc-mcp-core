@@ -67,8 +67,12 @@ skill://<skill-name>/SKILL.md           the skill's entry point
 skill://<skill-name>/<relative-path>    any supporting file
 ```
 
-The final path segment of a skill URI is always the skill's `name` as declared
-in its `SKILL.md` frontmatter, so the name is recoverable from the URI alone.
+The **first** path segment is the skill's `name` as declared in its `SKILL.md`
+frontmatter, so the name is recoverable from the URI alone. The final segment
+is the file being addressed (`SKILL.md` for the entry point, otherwise the
+supporting file's own name), so it is not the skill name in general. A skill's
+root directory is the entry-point URI with the `/SKILL.md` suffix removed and
+no trailing slash — `skill://maya-geo`.
 
 ## `skills/list`
 
