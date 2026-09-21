@@ -313,6 +313,8 @@ def _record_sop_version(entry: dict, data: bytes) -> None:
         curated = install["sop_version"]
         if isinstance(curated, bool) or not isinstance(curated, int) or curated < 1:
             raise CatalogPreparationError("curated install SOP version must be a positive integer")
+        if curated > MAX_SOP_VERSION:
+            raise CatalogPreparationError("curated install SOP version is out of range")
         if declared is not None and curated != declared:
             raise CatalogPreparationError("install SOP version declaration differs from the catalog")
         return
