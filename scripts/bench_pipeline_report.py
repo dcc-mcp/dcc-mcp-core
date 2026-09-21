@@ -248,14 +248,10 @@ def evaluate(
         reasons: list[str] = []
         limit = budget.get("p95_duration_ms")
         if limit is not None and stage["p95_duration_ms"] > limit:
-            reasons.append(
-                "p95_duration_ms {:.6f} ms exceeds budget {:.6f} ms".format(stage["p95_duration_ms"], limit)
-            )
+            reasons.append("p95_duration_ms {:.6f} ms exceeds budget {:.6f} ms".format(stage["p95_duration_ms"], limit))
         floor = budget.get("min_success_rate")
         if floor is not None and stage["success_rate"] < floor - 1e-9:
-            reasons.append(
-                "success_rate {:.6f} below budget {:.6f}".format(stage["success_rate"], floor)
-            )
+            reasons.append("success_rate {:.6f} below budget {:.6f}".format(stage["success_rate"], floor))
         row["budget"] = dict(budget)
         row["status"] = "breach" if reasons else "pass"
         rows.append(row)
