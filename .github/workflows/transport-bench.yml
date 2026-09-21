@@ -5,6 +5,14 @@ name: Performance Benchmarks
 
 on:
   workflow_dispatch:
+    inputs:
+      budget-args:
+        description: >-
+          Extra arguments forwarded to scripts/bench_pipeline_report.py, e.g.
+          "--budget route_tool=0.001" to prove the budget gate fails when a
+          stage budget is set below the measured p95.
+        required: false
+        default: ""
   schedule:
     - cron: "17 3 * * 1"
 
@@ -69,3 +77,70 @@ jobs:
           name: gateway-discovery-criterion-report
           path: target/criterion/
           if-no-files-found: ignore
+
+  pipeline-bench:
+    name: Pipeline benchmark report
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: pipeline-bench
+
+      - uses: actions/setup-python@v6
+        with:
+          # The report script is Python 3.7-compatible (Maya 2022 LTS gate),
+          # but 3.7 is EOL and absent from ubuntu-latest images, so it runs on
+          # a maintained interpreter here. Syntax compatibility is enforced by
+          # the `py37-syntax-check` job in ci.yml.
+          python-version: "3.11"
+      - name: Install PyYAML
+        run: python -m pip install --upgrade pip pyyaml
+        shell: bash
+
+      # Records each MCP request-path stage under a ToolRecorder and exports
+      # the aggregated ToolMetrics as raw JSON. `RUST_LOG=warn` keeps the
+      # noop-exporter startup noise out of the log.
+      - name: Run pipeline stage benchmark
+        run: |
+          cargo run --release -p dcc-mcp-telemetry --example pipeline_bench -- \
+            --iterations 500 --output target/pipeline-bench-raw.json
+        shell: bash
+        env:
+          RUST_LOG: "warn"
+
+      # Turns the raw export into trendable pipeline-bench.json and applies the
+      # per-stage budgets. The scenario file is owned by the scenario work and
+      # is optional: when it is absent the report is still produced and the
+      # budget gate degrades to "skipped" instead of failing the job.
+      - name: Build pipeline-bench.json and apply stage budgets
+        env:
+          # Read through the environment so a dispatch input can never be
+          # interpolated into the shell script itself.
+          BUDGET_ARGS: ${{ inputs['budget-args'] }}
+        run: |
+          set -euo pipefail
+          args=(--metrics target/pipeline-bench-raw.json --output pipeline-bench.json)
+          if [ -f scenarios/pipeline_full.yaml ]; then
+            args+=(--scenario scenarios/pipeline_full.yaml)
+          else
+            echo "::notice::scenarios/pipeline_full.yaml is not present; reporting without per-stage budgets"
+          fi
+          if [ -n "${BUDGET_ARGS:-}" ]; then
+            echo "::notice::applying dispatch budget args: ${BUDGET_ARGS}"
+            # shellcheck disable=SC2206 -- intentional word splitting of operator-supplied args
+            read -r -a extra <<< "${BUDGET_ARGS}"
+            args+=("${extra[@]}")
+          fi
+          python scripts/bench_pipeline_report.py "${args[@]}"
+        shell: bash
+
+      - name: Upload pipeline-bench.json
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: pipeline-bench
+          path: pipeline-bench.json
+          if-no-files-found: error

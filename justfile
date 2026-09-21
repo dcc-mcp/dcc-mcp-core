@@ -130,6 +130,15 @@ rust-cov:
 bench:
     cargo bench -p dcc-mcp-transport
 
+budget-args := ""
+
+# Run the MCP request-path stage benchmark and write pipeline-bench.json
+# (extra report args: just bench-pipeline budget-args="--budget route_tool=0.05")
+bench-pipeline:
+    cargo run --release -p dcc-mcp-telemetry --example pipeline_bench -- \
+        --iterations 500 --output target/pipeline-bench-raw.json
+    python scripts/bench_pipeline_report.py {{ budget-args }}
+
 # Regenerate workspace-hack (run after dependency updates to fix CI)
 hakari-generate:
     cargo hakari generate

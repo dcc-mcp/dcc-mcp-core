@@ -33,6 +33,19 @@ pub enum TelemetryError {
     /// Internal telemetry error.
     #[error("internal telemetry error: {0}")]
     Internal(String),
+
+    /// A benchmark report could not be serialized or deserialized.
+    #[error("telemetry report serialization error: {0}")]
+    ReportSerialization(String),
+
+    /// A benchmark report could not be read from or written to disk.
+    #[error("telemetry report io error at {path}: {source}")]
+    ReportIo {
+        /// Path that could not be accessed.
+        path: String,
+        /// Underlying IO error.
+        source: std::io::Error,
+    },
 }
 
 impl From<opentelemetry_sdk::error::OTelSdkError> for TelemetryError {

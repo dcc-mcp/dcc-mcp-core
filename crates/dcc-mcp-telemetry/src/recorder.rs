@@ -16,6 +16,7 @@ use opentelemetry::metrics::{Counter, Histogram};
 use opentelemetry::{KeyValue, global};
 use tracing::instrument;
 
+use crate::report::BenchReport;
 use crate::types::{ToolMetrics, span_keys};
 
 // ── Duration store (in-memory) ────────────────────────────────────────────────
@@ -211,6 +212,16 @@ impl ToolRecorder {
                 p99_duration_ms: s.durations.percentile(99.0),
             })
             .collect()
+    }
+
+    /// Export every recorded action as a serialisable [`BenchReport`].
+    ///
+    /// The projection materialises [`ToolMetrics::success_rate`] as a field so
+    /// downstream trend tooling does not have to recompute it. Stage order
+    /// follows the in-memory hash map and is therefore unspecified; sort the
+    /// result when output stability matters.
+    pub fn report(&self) -> BenchReport {
+        BenchReport::from_metrics(self.all_metrics().iter())
     }
 
     /// Reset all in-memory statistics (does not affect OpenTelemetry counters).
