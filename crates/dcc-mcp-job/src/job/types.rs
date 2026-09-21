@@ -164,6 +164,23 @@ impl Job {
         }
     }
 
+    /// Wall-clock duration in milliseconds.
+    ///
+    /// `None` until the job starts; once running it is the elapsed time so
+    /// far, and for a terminal job it is the frozen
+    /// `completed_at - started_at`. Clamped at `0` so a clock adjustment
+    /// between the two timestamps cannot produce a negative duration.
+    ///
+    /// This is derived — there is no `duration_ms` field to drift out of
+    /// sync with the timestamps it comes from.
+    #[must_use]
+    pub fn duration_ms(&self) -> Option<i64> {
+        let started = self.started_at?;
+        let end = self.completed_at.unwrap_or(self.updated_at);
+        let ms = (end - started).num_milliseconds();
+        Some(ms.max(0))
+    }
+
     /// JSON status snapshot used by `jobs_get_status` (#319) and the async
     /// dispatch envelope returned by `tools/call` (#318).
     pub fn to_status_json(&self) -> serde_json::Value {
@@ -178,6 +195,7 @@ impl Job {
             "created_at": self.created_at,
             "started_at": self.started_at,
             "completed_at": self.completed_at,
+            "duration_ms": self.duration_ms(),
             "updated_at": self.updated_at,
         })
     }

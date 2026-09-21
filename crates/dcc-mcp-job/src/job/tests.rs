@@ -564,6 +564,54 @@ fn lifecycle_timestamps_survive_progress_and_completion() {
 }
 
 #[test]
+fn duration_ms_is_none_before_start_and_frozen_at_completion() {
+    let jm = JobManager::new();
+    let handle = jm.create("render.sequence");
+    let id = handle.read().id.clone();
+
+    // No start timestamp means there is nothing to measure from.
+    assert_eq!(handle.read().duration_ms(), None);
+
+    jm.start(&id).unwrap();
+    // Running: measured against `updated_at`, so it is non-negative but not
+    // yet frozen.
+    let running = handle
+        .read()
+        .duration_ms()
+        .expect("started job has a duration");
+    assert!(running >= 0, "duration must not be negative, got {running}");
+
+    jm.complete(&id, json!({"ok": true})).unwrap();
+    let job = handle.read();
+    let frozen = job.duration_ms().expect("completed job has a duration");
+    assert!(frozen >= 0);
+    // Once terminal the number is derived from the timestamps, so reading it
+    // twice gives the same answer.
+    assert_eq!(frozen, job.duration_ms().unwrap());
+}
+
+#[test]
+fn duration_ms_appears_in_status_json() {
+    let jm = JobManager::new();
+    let handle = jm.create("render.sequence");
+    let id = handle.read().id.clone();
+
+    // Absent while the job has never started.
+    assert!(handle.read().to_status_json()["duration_ms"].is_null());
+
+    jm.start(&id).unwrap();
+    jm.complete(&id, json!({"ok": true})).unwrap();
+    let status = handle.read().to_status_json();
+    let reported = status["duration_ms"]
+        .as_i64()
+        .expect("duration_ms is an integer once the job has run");
+    assert!(
+        reported >= 0,
+        "duration must not be negative, got {reported}"
+    );
+}
+
+#[test]
 fn cancel_before_start_requires_runner_acknowledgement() {
     let jm = JobManager::new();
     let handle = jm.create("slow.tool");
