@@ -41,12 +41,18 @@ const SEED: u64 = 0xC0FF_EE01;
 /// `sample_size` samples *and* runs for at least `measurement_time`, so the
 /// slower of the two wins per benchmark.
 ///
-/// - `stages/simulated_latency` costs ~0.4 s per iteration, so 10 samples
-///   alone need ~4 s and `MEASUREMENT` never binds here. This is why the
-///   sample count is what we keep small, not the wall time.
-/// - `stages/executor_overhead` costs ~80 us per iteration, so it fills
-///   `MEASUREMENT` long before it reaches 10 samples and the time is what
-///   binds.
+/// - `stages/simulated_latency` costs ~390 ms per iteration, and criterion
+///   reports `Collecting 10 samples in estimated 5.7 s`, so the sample count
+///   is what binds and `MEASUREMENT` never applies. This is why we keep the
+///   sample count small, not the wall time.
+/// - `stages/executor_overhead` costs ~0.1 ms per iteration, so it fills
+///   `MEASUREMENT` (3 s) after ~19k iterations, long before it reaches 10
+///   samples, and the time is what binds.
+///
+///   That ~0.1 ms figure is **host-dependent**: measured runs of this bench
+///   have landed anywhere between ~80 us and ~175 us. Only the order of
+///   magnitude matters here — it is ~3 orders below the simulated case, so
+///   the time knob wins either way.
 ///
 /// Measured total for this file: ~9 s (5.7 s + 3.0 s plus warm-up).
 ///
