@@ -5,7 +5,7 @@ Design goal: a daily documentation patrol must be *mechanical*. Rules that
 require taste ("this paragraph is unclear") produce noise and get ignored;
 rules that are checkable produce a diff a reviewer can accept or reject.
 
-Three rule families, mapped to the reported symptoms:
+Four rule families, mapped to the reported symptoms:
 
   A. structure  -- heading level jumps, duplicate sibling headings, multiple
      H1 in a body file, broken TOC anchors, unbalanced code fences, relative
@@ -16,6 +16,10 @@ Three rule families, mapped to the reported symptoms:
   C. drift      -- documented CLI flags, repository paths, and identifiers
      that no longer exist. Opt-in via ``--check-symbols`` because it has to
      read the whole tree to build its corpus.
+  D. content    -- agent-facing entry points that must teach the iteration
+     playbook and name ``workflows_resume``. The coverage set lives in a
+     manifest (``scripts/docs_lint_playbook_coverage.txt``), so adding an
+     entry point is a one-line change and not a rule change.
 
 Two design decisions that are easy to get wrong and expensive to re-learn:
 
@@ -37,6 +41,7 @@ Stdlib only, Python 3.7+ (organisation red line: keep 3.7 compatible).
 Usage:
     python scripts/docs_lint.py .
     python scripts/docs_lint.py . --check-symbols
+    python scripts/docs_lint.py . --playbook-only
     python scripts/docs_lint.py README.md docs/ --json
 """
 
@@ -177,6 +182,15 @@ CORPUS_SUFFIXES = frozenset(
 # Changelogs describe features that were added *and* removed; a drift finding
 # there is history, not staleness.
 DRIFT_EXEMPT_NAMES = frozenset({"changelog.md", "changelog"})
+
+# Agent-facing files that must teach the iteration playbook. The list itself is
+# data, not code: it lives beside the linter so widening coverage never means
+# editing a rule.
+PLAYBOOK_MANIFEST_DEFAULT = "scripts/docs_lint_playbook_coverage.txt"
+PLAYBOOK_MARKER_DEFAULT = "iteration playbook"
+PLAYBOOK_RESUME_SYMBOL = "workflows_resume"
+
+RE_PLAYBOOK_SEPARATOR = re.compile(r"[\s\-_]+")
 
 # --------------------------------------------------------------------------- #
 # Drift token shapes
@@ -628,6 +642,101 @@ def _drift_message(token, index):
 
 
 # --------------------------------------------------------------------------- #
+# Rule family D -- content
+# --------------------------------------------------------------------------- #
+
+# The playbook -- reuse a materialized script, iterate on params only, recover
+# with `workflows_resume` -- is a contract, not a style preference: an
+# agent-facing entry point that omits it regenerates code on every turn. Files
+# are named in a manifest rather than hardcoded here because the set of
+# agent-facing entry points grows with the product, and a rule that has to be
+# edited to gain coverage is a rule nobody extends.
+
+
+def load_playbook_manifest(path):
+    """Return ``(entries, error)`` for a playbook coverage manifest.
+
+    ``entries`` preserves file order with blank lines and ``#`` comments
+    dropped, so the manifest stays a readable diff and adding an entry point
+    is a one-line change. ``error`` is ``None`` when the file was readable.
+    """
+    try:
+        text = Path(path).read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        return [], str(exc)
+    entries = []
+    for line in text.split("\n"):
+        entry = line.strip()
+        if entry and not entry.startswith("#"):
+            entries.append(entry)
+    return entries, None
+
+
+def playbook_matcher(marker):
+    r"""Return a compiled regex matching ``marker`` across case and spacing.
+
+    "Iteration Playbook", "iteration-playbook", and a line-wrapped
+    "iteration\nplaybook" are one marker. An author should not have to
+    memorise the canonical spelling to satisfy a mechanical check.
+    """
+    words = [word for word in RE_PLAYBOOK_SEPARATOR.split(marker.strip()) if word]
+    if not words:
+        return re.compile(r"(?!)")
+    return re.compile(r"[\s\-_]+".join(re.escape(word) for word in words), re.IGNORECASE)
+
+
+def check_playbook_coverage(root, entries, marker=PLAYBOOK_MARKER_DEFAULT, resume_symbol=PLAYBOOK_RESUME_SYMBOL):
+    """Return ``{path: [finding, ...]}`` for manifest entries that fall short.
+
+    Each listed file has to do two things: point at the iteration playbook and
+    name the resume tool. Teaching reuse without `workflows_resume` is the
+    specific gap this rule exists to catch -- an interrupted run then gets
+    restarted from scratch instead of resumed.
+    """
+    marker_re = playbook_matcher(marker)
+    report = {}
+    for entry in entries:
+        path = Path(root) / entry
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            report[path.as_posix()] = [
+                {
+                    "rule": "content/playbook-coverage-missing-file",
+                    "severity": "error",
+                    "line": 0,
+                    "message": f"playbook manifest entry does not exist: {entry} ({exc})",
+                }
+            ]
+            continue
+
+        findings = []
+        if not marker_re.search(text):
+            findings.append(
+                {
+                    "rule": "content/playbook-coverage-missing-marker",
+                    "severity": "error",
+                    "line": 0,
+                    "message": f"agent-facing file does not mention the {marker!r} "
+                    f"(see docs/guide/agents-reference.md)",
+                }
+            )
+        if resume_symbol not in text:
+            findings.append(
+                {
+                    "rule": "content/playbook-coverage-missing-resume",
+                    "severity": "error",
+                    "line": 0,
+                    "message": f"agent-facing file never names `{resume_symbol}`; "
+                    f"an interrupted run then restarts from scratch",
+                }
+            )
+        if findings:
+            report[path.as_posix()] = findings
+    return report
+
+
+# --------------------------------------------------------------------------- #
 # Driver
 # --------------------------------------------------------------------------- #
 
@@ -686,6 +795,16 @@ def main(argv=None):
     parser.add_argument(
         "--fail-on", choices=("error", "warning"), default="error", help="minimum severity that sets exit code 1"
     )
+    parser.add_argument(
+        "--playbook-manifest",
+        default=None,
+        help=f"agent-facing coverage manifest to check (default: {PLAYBOOK_MANIFEST_DEFAULT} when it exists)",
+    )
+    parser.add_argument(
+        "--playbook-only",
+        action="store_true",
+        help="run only the playbook coverage pass; skip the per-file structure, emoji, and link rules",
+    )
     args = parser.parse_args(argv)
 
     exclude_dirs = set(d for d in args.exclude_dir.split(",") if d)
@@ -695,15 +814,46 @@ def main(argv=None):
         sys.stderr.write("no existing targets: {}\n".format(", ".join(missing)))
         return 2
 
-    index = RepoIndex(targets, exclude_dirs)
+    # Per-file rules need the repository index; the coverage pass reads only
+    # the manifest entries, so a scoped run skips the walk entirely.
+    index = None if args.playbook_only else RepoIndex(targets, exclude_dirs)
 
     report = {}
-    for path in _iter_files(targets, exclude_dirs):
-        if _is_excluded(path, args.exclude_path):
-            continue
-        findings = lint_file(path, args, index)
-        if findings:
-            report[path.as_posix()] = findings
+
+    # Manifest paths are resolved against the lint root, not the shell's
+    # working directory: linting a subdirectory must not silently swap in a
+    # coverage set that belongs to another tree.
+    base = Path(targets[0]) if Path(targets[0]).is_dir() else Path()
+    explicit_manifest = args.playbook_manifest is not None
+    manifest_path = args.playbook_manifest if explicit_manifest else base / PLAYBOOK_MANIFEST_DEFAULT
+    entries, manifest_error = load_playbook_manifest(manifest_path)
+    if manifest_error:
+        # A manifest named on the command line is a promise: when it cannot be
+        # read the run fails instead of silently dropping the gate. The default
+        # path is opportunistic -- linting a subdirectory from another working
+        # directory must not start failing because the repo manifest is out of
+        # reach.
+        if explicit_manifest:
+            report[Path(manifest_path).as_posix()] = [
+                {
+                    "rule": "content/playbook-manifest-unreadable",
+                    "severity": "error",
+                    "line": 0,
+                    "message": f"cannot read playbook manifest: {manifest_error}",
+                }
+            ]
+        entries = []
+
+    if entries:
+        report.update(check_playbook_coverage(base, entries))
+
+    if not args.playbook_only:
+        for path in _iter_files(targets, exclude_dirs):
+            if _is_excluded(path, args.exclude_path):
+                continue
+            findings = lint_file(path, args, index)
+            if findings:
+                report[path.as_posix()] = findings
 
     if args.json:
         payload = {

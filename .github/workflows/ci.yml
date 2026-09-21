@@ -605,6 +605,9 @@ jobs:
       - name: Lint (ruff)
         run: vx just lint-py
 
+      - name: Docs playbook coverage (agent-facing entry points)
+        run: vx just docs-lint-playbook
+
       - name: VRS replayer (dry-run trace validation)
         shell: bash
         run: |

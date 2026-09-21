@@ -311,6 +311,13 @@ docs-lint:
 docs-lint-symbols:
     python scripts/docs_lint.py . --check-symbols
 
+# Agent-facing coverage only: every file listed in the playbook manifest must
+# mention the iteration playbook and name `workflows_resume`. Scoped to that
+# one rule family so CI can gate these entry points without inheriting
+# unrelated findings from the full docs lint.
+docs-lint-playbook:
+    python scripts/docs_lint.py . --playbook-only --playbook-manifest scripts/docs_lint_playbook_coverage.txt
+
 # ── Lint ──────────────────────────────────────────────────────────────────────
 
 # Lint Python source (ruff check only)
