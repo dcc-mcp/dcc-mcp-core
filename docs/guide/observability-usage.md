@@ -76,6 +76,26 @@ stable hash of that canonical tuple. A candidate always has
 No API in this package promotes, publishes, or edits a skill automatically;
 the task owner must perform a separate human review and authorization step.
 
+Threshold-aware, agent-readable detail is additive. Each candidate carries a
+`proposal` sub-payload — the structured `SkillPromotionProposal` with
+`execution_count`, `session_count`, `suggested_skill_name`, the evaluated
+`threshold`, and `meets_threshold` — and the top-level
+`skill_promotion_proposals` list repeats the same proposals flat, so a consumer
+can skip `promotion_candidates` entirely. The `promotion_threshold` argument
+(default `3`) decides when `meets_threshold` turns true and the proposal's
+`decision` becomes `propose_skill`; it is independent of `min_repeats`, so
+sub-threshold groupings stay visible for inspection. The candidate-level
+`decision` remains `manual_review` for existing consumers — read
+`proposal["decision"]` for the threshold-aware verdict.
+
+```python
+result = query.get_repeated_scripts(min_repeats=2, promotion_threshold=3)
+
+for proposal in result["data"]["skill_promotion_proposals"]:
+    if proposal["meets_threshold"]:
+        print(proposal["suggested_skill_name"], proposal["execution_count"])
+```
+
 ### Session tree
 
 ```python
