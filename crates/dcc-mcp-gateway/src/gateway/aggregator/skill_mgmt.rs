@@ -5,6 +5,8 @@ use dcc_mcp_gateway_core::policy::GatewayPolicyOperation;
 use super::super::capability::{CapabilityRecord, tool_slug};
 use super::super::capability_service::safe_discovery_target;
 use super::super::http_registration::{entry_discovery_mcp_url, entry_mcp_url};
+use crate::gateway::resilience::GatewayResilienceState;
+use std::time::Duration;
 
 /// Dispatch a skill-management tool across backends.
 ///
@@ -269,7 +271,28 @@ Standalone `dcc-mcp-server` without `--app` registers as `dcc_type` from DCC_MCP
             let client = &gs.http_client;
             let resilience = &gs.resilience;
             let backend_timeout = gs.backend_timeout;
-            let params = json!({"name": tool, "arguments": args});
+
+            if tool == "list_skills" {
+                let futs = targets.iter().map(|entry| {
+                    let url = entry_mcp_url(entry);
+                    let page_args = backend_list_args(&args);
+                    async move {
+                        let collected = walk_backend_skill_pages(
+                            client,
+                            resilience,
+                            &url,
+                            &page_args,
+                            backend_timeout,
+                        )
+                        .await;
+                        (entry.instance_id, entry.dcc_type.clone(), collected)
+                    }
+                });
+                let results = join_all(futs).await;
+                return flatten_walked_skill_results(results, &args, &gs.policy);
+            }
+
+            let params = json!({"name": tool, "arguments": args.clone()});
             let futs = targets.iter().map(|entry| {
                 let url = entry_mcp_url(entry);
                 let params = params.clone();
@@ -289,9 +312,6 @@ Standalone `dcc-mcp-server` without `--app` registers as `dcc_type` from DCC_MCP
             });
             let results = join_all(futs).await;
 
-            if tool == "list_skills" {
-                return flatten_skill_list_results(results, &args, true, &gs.policy);
-            }
             if tool == "search_skills" {
                 return flatten_skill_list_results(results, &args, false, &gs.policy);
             }
@@ -335,6 +355,187 @@ Standalone `dcc-mcp-server` without `--app` registers as `dcc_type` from DCC_MCP
             )
         }
     }
+}
+
+/// Arguments forwarded to each backend for a fan-out `list_skills`.
+///
+/// Paging must happen once, on the merged result, not per host: if every
+/// backend applied the caller's `limit`/`offset` to its own catalogue, page 2
+/// would be "rows 25..50 of *each* host" and the merged pages would overlap
+/// and silently drop skills. So the fan-out asks every host for its complete
+/// (filtered) catalogue in every projected field — via bounded pages, see
+/// [`walk_backend_skill_pages`] — and [`flatten_walked_skill_results`] applies
+/// the caller's `limit`/`offset`/`fields` to the union (PIP-3407).
+fn backend_list_args(args: &Value) -> Value {
+    let mut forwarded = args.as_object().cloned().unwrap_or_default();
+    forwarded.remove("limit");
+    forwarded.remove("offset");
+    forwarded.insert(
+        "fields".to_string(),
+        json!(dcc_mcp_skills::catalog::list_projection::ALL_LIST_SKILLS_FIELDS),
+    );
+    Value::Object(forwarded)
+}
+
+/// Everything one backend reported for a walked `list_skills` fan-out.
+struct WalkedSkillList {
+    /// Skills in the backend's own order, across every page.
+    skills: Vec<Value>,
+    /// The backend's full catalogue size, for the per-instance summary.
+    total: usize,
+    /// Set when the walk failed; the instance is still reported.
+    error: Option<String>,
+}
+
+/// Walk one backend's `list_skills` catalogue with bounded pages.
+///
+/// The backends deliberately expose no unbounded mode — honouring an
+/// `unbounded` argument would have let any MCP client defeat the page bound
+/// this fan-out exists to enforce. Every host is instead drained page by page
+/// at [`MAX_LIST_SKILLS_LIMIT`] rows, following `next_offset` until the
+/// backend reports no truncation. A host whose catalogue fits in one page
+/// costs exactly the single round trip it did before.
+///
+/// The fan-out is stateless, so a caller that walks `n` pages of the merged
+/// union re-walks every host `n` times. Only hosts larger than one page pay
+/// for that, and the cost stays bounded — it is a constant factor on top of
+/// the round trips the union walk already makes.
+async fn walk_backend_skill_pages(
+    client: &reqwest::Client,
+    resilience: &GatewayResilienceState,
+    url: &str,
+    args: &Value,
+    backend_timeout: Duration,
+) -> WalkedSkillList {
+    use dcc_mcp_skills::catalog::list_projection::MAX_LIST_SKILLS_LIMIT;
+
+    let mut skills: Vec<Value> = Vec::new();
+    let mut total = 0usize;
+    let mut offset = 0usize;
+
+    loop {
+        let mut page_args = args.as_object().cloned().unwrap_or_default();
+        page_args.insert("offset".to_string(), json!(offset));
+        page_args.insert("limit".to_string(), json!(MAX_LIST_SKILLS_LIMIT));
+        let params = json!({"name": "list_skills", "arguments": Value::Object(page_args)});
+
+        let text = match call_backend(
+            client,
+            resilience,
+            url,
+            "tools/call",
+            Some(params),
+            None,
+            backend_timeout,
+        )
+        .await
+        {
+            Ok(value) => call_tool_text(&value)
+                .map(str::to_owned)
+                .unwrap_or_else(|| serde_json::to_string_pretty(&value).unwrap_or_default()),
+            Err(error) => {
+                return WalkedSkillList {
+                    skills,
+                    total,
+                    error: Some(error),
+                };
+            }
+        };
+
+        let Ok(parsed) = serde_json::from_str::<Value>(&text) else {
+            return WalkedSkillList {
+                skills,
+                total,
+                error: Some(text),
+            };
+        };
+
+        if let Some(items) = parsed.get("skills").and_then(Value::as_array) {
+            skills.extend(items.iter().cloned());
+        }
+        total = parsed
+            .get("total")
+            .and_then(Value::as_u64)
+            .map(|n| n as usize)
+            .unwrap_or(skills.len());
+
+        // Stop unless the backend offered a strictly later page: a repeated or
+        // decreasing `next_offset` would loop forever on a misbehaving host.
+        let next = match (
+            parsed.get("truncated").and_then(Value::as_bool),
+            parsed.get("next_offset").and_then(Value::as_u64),
+        ) {
+            (Some(true), Some(next)) if next as usize > offset => Some(next as usize),
+            _ => None,
+        };
+
+        match next {
+            Some(next) => offset = next,
+            None => {
+                return WalkedSkillList {
+                    skills,
+                    total,
+                    error: None,
+                };
+            }
+        }
+    }
+}
+
+/// Merge walked per-host `list_skills` results and apply the caller's page.
+///
+/// Counterpart to [`flatten_skill_list_results`] for the walked fan-out: the
+/// per-host pages have already been concatenated, so this only has to inject
+/// instance metadata, apply the policy filter, and project the union down to
+/// the caller's `limit`/`offset`/`fields`.
+fn flatten_walked_skill_results(
+    results: Vec<(Uuid, String, WalkedSkillList)>,
+    args: &Value,
+    policy: &crate::gateway::GatewayPolicy,
+) -> (String, bool) {
+    let mut skills: Vec<Value> = Vec::new();
+    let mut instances: Vec<Value> = Vec::new();
+    let mut ok_count = 0usize;
+
+    for (iid, dcc, walked) in results {
+        if let Some(error) = walked.error {
+            instances.push(json!({
+                "instance_id": iid.to_string(),
+                "instance_short": instance_short(&iid),
+                "dcc_type": dcc,
+                "skill_count": walked.skills.len(),
+                "error": error,
+            }));
+            continue;
+        }
+        ok_count += 1;
+        let before = skills.len();
+        for mut skill in walked.skills {
+            inject_instance_metadata(&mut skill, &iid, &dcc);
+            if skill_allowed_by_policy(policy, &skill) {
+                skills.push(skill);
+            }
+        }
+        instances.push(json!({
+            "instance_id": iid.to_string(),
+            "instance_short": instance_short(&iid),
+            "dcc_type": dcc,
+            "skill_count": skills.len() - before,
+            "total": walked.total,
+        }));
+    }
+
+    let payload = json!({
+        "skills": skills,
+        "total": skills.len(),
+        "instances": instances,
+    });
+    let payload =
+        dcc_mcp_skills::catalog::list_projection::project_list_skills_payload(payload, args);
+    (
+        serde_json::to_string_pretty(&payload).unwrap_or_default(),
+        ok_count == 0,
+    )
 }
 
 fn flatten_skill_list_results(
@@ -487,15 +688,15 @@ pub(crate) fn skill_management_tool_defs() -> Vec<Value> {
     vec![
         json!({
             "name": "list_skills",
-            "description": "List all skills across every live DCC instance. Returns a per-instance breakdown.",
+            "description": "List skills across every live DCC instance, merged into one bounded page (25 rows by default, 50 max) with a per-instance breakdown. When 'truncated' is true, pass offset=next_offset to continue; 'total' is the merged catalogue size across all instances.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "status": {"type": "string", "enum": ["all", "loaded", "unloaded", "pending_deps", "error"], "default": "all"},
                     "dcc":    {"type": "string", "description": "Restrict to one DCC type (maya, blender, …)"},
                     "dcc_type": {"type": "string", "description": "Alias for dcc (REST callers)."},
-                    "limit": {"type": "integer", "minimum": 1, "maximum": 50},
-                    "offset": {"type": "integer", "minimum": 0, "default": 0},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 50, "default": 25, "description": "Rows per page; hard cap 50."},
+                    "offset": {"type": "integer", "minimum": 0, "default": 0, "description": "Skip this many merged rows; use the previous page's next_offset."},
                     "fields": {"type": "array", "items": {"type": "string"}, "description": "Strict per-skill field allow-list; omit for compact mode."}
                 }
             }

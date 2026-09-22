@@ -54,11 +54,12 @@ pub fn build_core_tools_inner() -> Vec<McpTool> {
         },
         McpTool {
             name: "list_skills".to_string(),
-            description: "Lists discovered skills with load status (loaded, unloaded, error, skipped).\n\n\
-                          When to use: Browse availability or audit active skills. For ranked lookup, call search_skills instead.\n\n\
+            description: "Lists skills with load status (loaded, unloaded, error, skipped).\n\n\
+                          When to use: Browse availability or audit active skills. For ranked lookup, use search_skills.\n\n\
                           How to use:\n\
-                          - Pass status='loaded' for active skills, 'unloaded' for load candidates, or 'skipped' for rejected package diagnostics.\n\
-                          - Follow up with get_skill_info(skill_name=...) or load_skill(skill_name=...)."
+                          - status='loaded' for active skills, 'unloaded' for load candidates, 'skipped' for diagnostics.\n\
+                          - One bounded page (25 by default, 50 max). While 'truncated' is true, follow 'next_step' or pass offset=next_offset; 'total' is the full size.\n\
+                          - Then get_skill_info(skill_name=...) or load_skill(skill_name=...)."
                 .to_string(),
             input_schema: json!({
                 "type": "object",
@@ -78,13 +79,13 @@ pub fn build_core_tools_inner() -> Vec<McpTool> {
                         "type": "integer",
                         "minimum": 1,
                         "maximum": 50,
-                        "description": "Maximum skills to return when paginating (default: return all in compact projection)."
+                        "description": "Maximum skills to return (default 25, hard cap 50)."
                     },
                     "offset": {
                         "type": "integer",
                         "minimum": 0,
                         "default": 0,
-                        "description": "Skip this many skills after sorting by name."
+                        "description": "Skip this many skills after sorting by name; use the previous page's next_offset."
                     },
                     "fields": {
                         "type": "array",
