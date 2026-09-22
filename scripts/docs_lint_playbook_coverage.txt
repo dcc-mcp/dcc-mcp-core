@@ -1,0 +1,24 @@
+# Agent-facing entry points that must teach the iteration playbook.
+#
+# One repository-relative path per line. Blank lines and lines starting with
+# "#" are ignored, so extending coverage is a one-line change -- no rule code
+# edit required.
+#
+# Every listed file must satisfy two assertions (scripts/docs_lint.py, rule
+# family "content/playbook-coverage"):
+#
+#   1. it mentions the iteration playbook (reuse a materialized script,
+#      iterate on params only, never resend unchanged source), and
+#   2. it names `workflows_resume`, the tool that recovers an interrupted
+#      persisted run.
+#
+# Run `just docs-lint-playbook` (or `python scripts/docs_lint.py .
+# --playbook-only`) to check this list.
+
+AGENTS.md
+AI_AGENT_GUIDE.md
+llms.txt
+llms-full.txt
+.agents/skills/dcc-mcp-core/SKILL.md
+docs/guide/agents-reference.md
+crates/dcc-mcp-gateway/src/gateway/native_resources/agent_workflows.md

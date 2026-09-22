@@ -5,13 +5,19 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from scripts.docs_lint import PLAYBOOK_MANIFEST_DEFAULT
 from scripts.docs_lint import RepoIndex
 from scripts.docs_lint import check_emoji
 from scripts.docs_lint import check_links
+from scripts.docs_lint import check_playbook_coverage
 from scripts.docs_lint import check_structure
 from scripts.docs_lint import check_symbols
 from scripts.docs_lint import fence_step
+from scripts.docs_lint import load_playbook_manifest
 from scripts.docs_lint import main
+from scripts.docs_lint import playbook_matcher
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _rules(findings):
@@ -233,6 +239,125 @@ def test_backtick_run_inside_a_tilde_block_is_content(tmp_path: Path):
 
 
 # --------------------------------------------------------------------------- #
+# Content / playbook coverage
+# --------------------------------------------------------------------------- #
+
+
+def _write(root, name, text):
+    """Write ``text`` to ``root/name``, creating parent directories."""
+    path = root / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+def _covered_repo(root, manifest="AGENTS.md\nllms.txt\n"):
+    """Build a tree whose manifest entries all satisfy the coverage contract.
+
+    The manifest goes to the canonical default location, so these fixtures
+    exercise the same path `docs_lint.py` resolves on its own -- a manifest
+    parked anywhere else would leave the default-path code untested.
+    """
+    _write(
+        root,
+        "AGENTS.md",
+        "# Agents\n\n## Iteration Playbook\n\nReuse the script, then recover with `workflows_resume`.\n",
+    )
+    _write(root, "llms.txt", "- `workflows_resume` — recover an interrupted run\n\nSee the iteration playbook.\n")
+    _write(root, PLAYBOOK_MANIFEST_DEFAULT, manifest)
+    return root
+
+
+def test_manifest_entries_that_cover_the_playbook_pass(tmp_path: Path):
+    _covered_repo(tmp_path)
+    entries, error = load_playbook_manifest(tmp_path / PLAYBOOK_MANIFEST_DEFAULT)
+    assert error is None
+    assert entries == ["AGENTS.md", "llms.txt"]
+    assert check_playbook_coverage(tmp_path, entries) == {}
+
+
+def test_missing_marker_and_missing_resume_are_separate_errors(tmp_path: Path):
+    _write(tmp_path, "AGENTS.md", "# Agents\n\nReuse scripts. Recover with `workflows_resume`.\n")
+    _write(tmp_path, "llms.txt", "## Iteration Playbook\n\nReuse the materialized file.\n")
+    report = check_playbook_coverage(tmp_path, ["AGENTS.md", "llms.txt"])
+
+    assert _rules(report[(tmp_path / "AGENTS.md").as_posix()]) == ["content/playbook-coverage-missing-marker"]
+    assert _rules(report[(tmp_path / "llms.txt").as_posix()]) == ["content/playbook-coverage-missing-resume"]
+
+
+def test_entry_without_either_signal_reports_both(tmp_path: Path):
+    _write(tmp_path, "AGENTS.md", "# Agents\n\nNothing to see here.\n")
+    report = check_playbook_coverage(tmp_path, ["AGENTS.md"])
+    assert _rules(report[(tmp_path / "AGENTS.md").as_posix()]) == [
+        "content/playbook-coverage-missing-marker",
+        "content/playbook-coverage-missing-resume",
+    ]
+
+
+def test_manifest_entry_pointing_at_a_missing_file_is_an_error(tmp_path: Path):
+    report = check_playbook_coverage(tmp_path, ["docs/guide/agents-reference.md"])
+    rules = _rules(report[(tmp_path / "docs/guide/agents-reference.md").as_posix()])
+    assert rules == ["content/playbook-coverage-missing-file"]
+
+
+def test_manifest_ignores_comments_and_blank_lines(tmp_path: Path):
+    _covered_repo(tmp_path, manifest="# agent-facing entry points\n\nAGENTS.md\n\nllms.txt\n")
+    entries, error = load_playbook_manifest(tmp_path / PLAYBOOK_MANIFEST_DEFAULT)
+    assert error is None
+    assert entries == ["AGENTS.md", "llms.txt"]
+    assert check_playbook_coverage(tmp_path, entries) == {}
+
+
+def test_coverage_grows_by_editing_the_manifest_alone(tmp_path: Path):
+    # The point of the manifest: a new entry point joins the gate with one
+    # line of data and no change to the rule implementation.
+    _covered_repo(tmp_path, manifest="AGENTS.md\nllms.txt\n")
+    _write(tmp_path, "AI_AGENT_GUIDE.md", "# Guide\n\nNo playbook here.\n")
+    assert check_playbook_coverage(tmp_path, ["AGENTS.md", "llms.txt"]) == {}
+
+    _write(tmp_path, PLAYBOOK_MANIFEST_DEFAULT, "AGENTS.md\nllms.txt\nAI_AGENT_GUIDE.md\n")
+    entries, _ = load_playbook_manifest(tmp_path / PLAYBOOK_MANIFEST_DEFAULT)
+    report = check_playbook_coverage(tmp_path, entries)
+    assert list(report) == [(tmp_path / "AI_AGENT_GUIDE.md").as_posix()]
+
+
+def test_files_outside_the_manifest_are_never_checked(tmp_path: Path):
+    _covered_repo(tmp_path, manifest="AGENTS.md\n")
+    _write(tmp_path, "CHANGELOG.md", "# Changelog\n\nNo playbook, no resume tool, and that is fine.\n")
+    entries, _ = load_playbook_manifest(tmp_path / PLAYBOOK_MANIFEST_DEFAULT)
+    assert check_playbook_coverage(tmp_path, entries) == {}
+
+
+def test_marker_matching_ignores_case_and_separator():
+    matcher = playbook_matcher("iteration playbook")
+    for text in (
+        "Iteration Playbook",
+        "iteration playbook",
+        "Iteration-Playbook",
+        "iteration_playbook",
+        "the ITERATION\nplaybook section",
+    ):
+        assert matcher.search(text), text
+    assert not matcher.search("reuse materialized scripts")
+
+
+def test_unreadable_manifest_is_reported_not_swallowed(tmp_path: Path):
+    entries, error = load_playbook_manifest(tmp_path / "missing.txt")
+    assert entries == []
+    assert error
+
+
+def test_shipped_manifest_names_files_that_exist():
+    # Guards path drift: renaming an agent-facing entry point must update the
+    # manifest, otherwise the gate silently protects a file nobody reads.
+    entries, error = load_playbook_manifest(REPO_ROOT / PLAYBOOK_MANIFEST_DEFAULT)
+    assert error is None
+    assert entries, "the shipped playbook manifest must not be empty"
+    missing = [entry for entry in entries if not (REPO_ROOT / entry).is_file()]
+    assert missing == []
+
+
+# --------------------------------------------------------------------------- #
 # Driver / exit codes
 # --------------------------------------------------------------------------- #
 
@@ -269,6 +394,52 @@ def test_exclude_path_skips_matches(tmp_path: Path):
     (tmp_path / "vendor" / "README.md").write_text("# T\n\n[dead](missing.md)\n", encoding="utf-8")
     assert main([str(tmp_path)]) == 1
     assert main([str(tmp_path), "--exclude-path", "vendor/"]) == 0
+
+
+def test_main_playbook_only_passes_on_covered_manifest(tmp_path: Path):
+    _covered_repo(tmp_path)
+    manifest = str(tmp_path / PLAYBOOK_MANIFEST_DEFAULT)
+    assert main([str(tmp_path), "--playbook-only", "--playbook-manifest", manifest]) == 0
+
+
+def test_main_playbook_only_fails_on_uncovered_entry(tmp_path: Path):
+    _covered_repo(tmp_path)
+    _write(tmp_path, "llms.txt", "- `workflows_run` — start a run\n")
+    manifest = str(tmp_path / PLAYBOOK_MANIFEST_DEFAULT)
+    assert main([str(tmp_path), "--playbook-only", "--playbook-manifest", manifest]) == 1
+
+
+def test_main_playbook_only_skips_per_file_rules(tmp_path: Path):
+    # Scoping is what lets CI gate the manifest without inheriting every
+    # pre-existing structure/link finding in the tree.
+    _covered_repo(tmp_path)
+    _write(tmp_path, "broken.md", "# T\n\n[dead](missing.md)\n")
+    manifest = str(tmp_path / PLAYBOOK_MANIFEST_DEFAULT)
+    assert main([str(tmp_path), "--playbook-manifest", manifest]) == 1
+    assert main([str(tmp_path), "--playbook-only", "--playbook-manifest", manifest]) == 0
+
+
+def test_main_reports_a_missing_explicit_manifest(tmp_path: Path):
+    _write(tmp_path, "README.md", "# T\n\nBody.\n")
+    assert main([str(tmp_path), "--playbook-manifest", str(tmp_path / "gone.txt")]) == 1
+
+
+def test_main_without_a_manifest_skips_the_coverage_pass(tmp_path: Path):
+    # The default manifest is resolved against the lint root, so an unrelated
+    # tree with no manifest is not held to a coverage set it never opted into.
+    _write(tmp_path, "AGENTS.md", "# T\n\nNo playbook.\n")
+    assert main([str(tmp_path)]) == 0
+
+
+def test_default_manifest_is_resolved_against_the_lint_root(tmp_path: Path):
+    # Both directions matter: the default path is found relative to the lint
+    # root, and a manifest located there is actually enforced. Asserting only
+    # the clean case would still pass if the manifest were never read.
+    _covered_repo(tmp_path)
+    assert main([str(tmp_path)]) == 0
+
+    _write(tmp_path, "AGENTS.md", "# Agents\n\nNothing about the playbook here.\n")
+    assert main([str(tmp_path)]) == 1
 
 
 if __name__ == "__main__":
