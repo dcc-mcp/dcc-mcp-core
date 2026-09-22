@@ -64,12 +64,15 @@ pub(crate) fn enumerate_metadata_files(skill_dir: &Path) -> Vec<String> {
 /// additionally look like a skill name: kebab-case, at most 64 characters, no
 /// leading/trailing or consecutive hyphens (see [`crate::constants::is_valid_skill_name`]).
 ///
-/// Skill names are slugs, so any line that fails that shape is prose — an
+/// Skill names are slugs, so a line that fails that shape is prose — an
 /// un-commented heading, a stray prose word such as `Optional`, or a list item
 /// with interior whitespace. Treating such lines as names turned one
 /// descriptive sentence into a phantom dependency that failed resolution for
-/// every skill that declared it, and a name that is not a valid slug could
-/// never have resolved in the first place.
+/// every skill that declared it.
+///
+/// The check is a slug check, not a prose detector: a single lowercase word is
+/// shape-valid, so `optional` is still read as a dependency name. Authors must
+/// keep prose behind a `#` comment marker rather than rely on the shape check.
 fn parse_depends_line(line: &str) -> Option<String> {
     let trimmed = line.trim();
     if trimmed.is_empty() || trimmed.starts_with('#') {
@@ -81,7 +84,18 @@ fn parse_depends_line(line: &str) -> Option<String> {
         .unwrap_or(trimmed)
         .trim();
     if !is_valid_skill_name(name) {
-        tracing::debug!("Ignoring non-slug line in {DEPENDS_FILE}: {name:?}");
+        // Prose is expected in a file that documents itself, so lines with
+        // interior whitespace stay quiet. A single token, by contrast, reads
+        // like a dependency somebody meant to declare: dropping it silently
+        // would turn a loud resolution failure into a skill that quietly
+        // misses one dependency, so make it visible by default.
+        if name.split_whitespace().count() > 1 {
+            tracing::debug!("Ignoring prose line in {DEPENDS_FILE}: {name:?}");
+        } else {
+            tracing::warn!(
+                "Ignoring {DEPENDS_FILE} entry that is not a valid skill-name slug: {name:?}"
+            );
+        }
         return None;
     }
     Some(name.to_string())
