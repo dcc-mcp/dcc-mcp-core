@@ -15,12 +15,17 @@ on:
     branches: [main]
     paths:
       - "Cargo.toml"
+      - "Cargo.lock"
+      - "crates/**/Cargo.toml"
       - "pyproject.toml"
+      - "pkg/**/pyproject.toml"
       - "uv.lock"
+      - "CHANGELOG.md"
       - "release-please-config.json"
       - ".release-please-manifest.json"
       - "**/__version__.py"
       - "scripts/ci/check_uv_lock.py"
+      - "scripts/ci/check_lock_versions.py"
       - ".github/workflows/version-consistency.yml"
 
 permissions:
@@ -149,3 +154,7 @@ jobs:
         run: |
           python scripts/ci/check_uv_lock.py
           vx uv lock --check
+
+      - name: Check lockfile versions against declared versions
+        run: |
+          python scripts/ci/check_lock_versions.py
