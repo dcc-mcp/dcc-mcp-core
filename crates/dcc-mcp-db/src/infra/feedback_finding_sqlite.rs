@@ -5,9 +5,9 @@
 //! into [`FeedbackFindingRow`].
 //!
 //! `feedback_findings` is the #2253-E2 dedup aggregate. It is deliberately a
-//! different table from `feedback_reports` (#2253-E1, owned by
-//! `feedback_report_sqlite`), which is the durable per-submission log keyed by
-//! the gateway-minted `feedback_id`.
+//! different table from `feedback_reports` (#2253-E1), the durable
+//! per-submission log keyed by the gateway-minted `feedback_id` and persisted
+//! by the sibling E1 module.
 //!
 //! Extracted from `gateway_admin_sqlite` so both files stay inside the
 //! 1 500-line production Rust limit enforced by
@@ -18,10 +18,10 @@ use rusqlite::{Connection, params};
 use crate::domain::error::DbError;
 use crate::domain::feedback_finding::{FeedbackFindingInsert, FeedbackFindingRow};
 
-const FEEDBACK_REPORT_COLUMNS: &str = "id, repo, fingerprint, issues_url, route_rationale, dcc_type, \
+const FEEDBACK_FINDING_COLUMNS: &str = "id, repo, fingerprint, issues_url, route_rationale, dcc_type, \
     phase, severity, first_seen_ms, last_seen_ms, occurrence_count, report_json";
 
-fn row_to_feedback_report(row: &rusqlite::Row<'_>) -> rusqlite::Result<FeedbackFindingRow> {
+fn row_to_feedback_finding(row: &rusqlite::Row<'_>) -> rusqlite::Result<FeedbackFindingRow> {
     Ok(FeedbackFindingRow {
         id: row.get(0)?,
         repo: row.get(1)?,
@@ -98,11 +98,11 @@ pub(super) fn select_feedback_finding(
 ) -> Result<FeedbackFindingRow, DbError> {
     conn.query_row(
         &format!(
-            "SELECT {FEEDBACK_REPORT_COLUMNS} FROM feedback_findings \
+            "SELECT {FEEDBACK_FINDING_COLUMNS} FROM feedback_findings \
              WHERE repo = ?1 AND fingerprint = ?2"
         ),
         params![repo, fingerprint],
-        row_to_feedback_report,
+        row_to_feedback_finding,
     )
     .map_err(|error| DbError::Backend(error.to_string()))
 }
@@ -117,7 +117,7 @@ pub(super) fn list_feedback_findings(conn: &Connection, limit: usize) -> Vec<Fee
         Ok(s) => s,
         Err(_) => return Vec::new(),
     };
-    let rows = stmt.query_map(params![limit as i64], row_to_feedback_report);
+    let rows = stmt.query_map(params![limit as i64], row_to_feedback_finding);
     let Ok(rows) = rows else {
         return Vec::new();
     };
@@ -130,7 +130,7 @@ mod tests {
     use crate::infra::gateway_admin_sqlite::GatewayAdminSqliteLane;
     use tempfile::tempdir;
 
-    fn report(repo: &str, fingerprint: &str, seen_ms: i64) -> FeedbackFindingInsert {
+    fn finding(repo: &str, fingerprint: &str, seen_ms: i64) -> FeedbackFindingInsert {
         FeedbackFindingInsert {
             repo: repo.to_string(),
             fingerprint: fingerprint.to_string(),
@@ -153,7 +153,7 @@ mod tests {
 
         for seen_ms in [1_000_i64, 2_000, 3_000] {
             let row = lane
-                .upsert_feedback_finding(&report("dcc-mcp/dcc-mcp-maya", &fingerprint, seen_ms))
+                .upsert_feedback_finding(&finding("dcc-mcp/dcc-mcp-maya", &fingerprint, seen_ms))
                 .expect("upsert");
             assert_eq!(row.occurrence_count, seen_ms / 1_000);
             assert_eq!(row.first_seen_ms, 1_000);
@@ -180,10 +180,10 @@ mod tests {
         let fingerprint = format!("sha256:{}", "b".repeat(64));
 
         let first = lane
-            .upsert_feedback_finding(&report("dcc-mcp/dcc-mcp-maya", &fingerprint, 10))
+            .upsert_feedback_finding(&finding("dcc-mcp/dcc-mcp-maya", &fingerprint, 10))
             .expect("first upsert");
         let second = lane
-            .upsert_feedback_finding(&report("dcc-mcp/dcc-mcp-maya", &fingerprint, 20))
+            .upsert_feedback_finding(&finding("dcc-mcp/dcc-mcp-maya", &fingerprint, 20))
             .expect("second upsert");
 
         assert_eq!(first.id, second.id, "a repeat report reuses the row id");
@@ -197,9 +197,9 @@ mod tests {
         let lane = GatewayAdminSqliteLane::spawn(db.clone(), 30).expect("spawn");
         let fingerprint = format!("sha256:{}", "c".repeat(64));
 
-        lane.upsert_feedback_finding(&report("dcc-mcp/dcc-mcp-maya", &fingerprint, 10))
+        lane.upsert_feedback_finding(&finding("dcc-mcp/dcc-mcp-maya", &fingerprint, 10))
             .expect("maya upsert");
-        lane.upsert_feedback_finding(&report("dcc-mcp/dcc-mcp-core", &fingerprint, 10))
+        lane.upsert_feedback_finding(&finding("dcc-mcp/dcc-mcp-core", &fingerprint, 10))
             .expect("core upsert");
 
         let stored = lane.list_feedback_findings(10);
@@ -216,7 +216,7 @@ mod tests {
             repo: String::new(),
             issues_url: None,
             route_rationale: None,
-            ..report("dcc-mcp/dcc-mcp-maya", &fingerprint, 10)
+            ..finding("dcc-mcp/dcc-mcp-maya", &fingerprint, 10)
         };
 
         lane.upsert_feedback_finding(&unrouted).expect("first");
@@ -237,11 +237,11 @@ mod tests {
         let fingerprint = format!("sha256:{}", "f".repeat(64));
 
         let first = lane
-            .upsert_feedback_finding(&report("dcc-mcp/dcc-mcp-maya", &fingerprint, 5_000))
+            .upsert_feedback_finding(&finding("dcc-mcp/dcc-mcp-maya", &fingerprint, 5_000))
             .expect("first upsert");
         // A second sighting that claims an earlier timestamp than the first.
         let regressing = lane
-            .upsert_feedback_finding(&report("dcc-mcp/dcc-mcp-maya", &fingerprint, 1_000))
+            .upsert_feedback_finding(&finding("dcc-mcp/dcc-mcp-maya", &fingerprint, 1_000))
             .expect("regressing upsert");
 
         assert_eq!(first.first_seen_ms, 5_000);
@@ -257,7 +257,7 @@ mod tests {
 
         // And a later sighting still advances the window.
         let advancing = lane
-            .upsert_feedback_finding(&report("dcc-mcp/dcc-mcp-maya", &fingerprint, 9_000))
+            .upsert_feedback_finding(&finding("dcc-mcp/dcc-mcp-maya", &fingerprint, 9_000))
             .expect("advancing upsert");
         assert_eq!(advancing.last_seen_ms, 9_000);
         assert_eq!(advancing.first_seen_ms, 1_000);
@@ -269,7 +269,7 @@ mod tests {
         let db = dir.path().join("f.sqlite");
         let lane = GatewayAdminSqliteLane::spawn(db.clone(), 30).expect("spawn");
         let fingerprint = format!("sha256:{}", "e".repeat(64));
-        lane.upsert_feedback_finding(&report("dcc-mcp/dcc-mcp-maya", &fingerprint, 10))
+        lane.upsert_feedback_finding(&finding("dcc-mcp/dcc-mcp-maya", &fingerprint, 10))
             .expect("upsert");
 
         let found = lane
