@@ -589,6 +589,27 @@ jobs:
         with:
           version: "0.9.11"
           cache-key-prefix: "vx-tools-v0.9.7"
+      - name: Prepare FFmpeg for media smoke test
+        shell: bash
+        timeout-minutes: 6
+        run: |
+          # Populate vx's provider/version cache before pytest workers run, so
+          # the media smoke test does not have to provision ffmpeg itself and
+          # retry concurrently inside four xdist workers.
+          #
+          # Best effort on purpose: provisioning is a dependency of a single
+          # smoke test, and a runner that cannot reach the CDN must skip that
+          # test instead of failing the whole lane on infrastructure. The hard
+          # gate stays in `python37-native`, where the same step still exits 1.
+          for attempt in 1 2 3; do
+            if timeout 90s vx ffmpeg -version; then
+              exit 0
+            fi
+            echo "FFmpeg provisioning attempt ${attempt}/3 failed" >&2
+            if [ "$attempt" -lt 3 ]; then sleep 5; fi
+          done
+          echo "FFmpeg provisioning unavailable; the media smoke test will skip" >&2
+          exit 0
       - name: Download wheel
         uses: actions/download-artifact@v8
         with:

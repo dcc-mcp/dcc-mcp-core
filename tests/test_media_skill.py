@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from contextlib import suppress
+import functools
 import importlib.util
 import json
 from pathlib import Path
@@ -17,6 +18,30 @@ _SKILL_DIR = Path(__file__).parent.parent / "python" / "dcc_mcp_core" / "skills"
 _COMMON = _SKILL_DIR / "scripts" / "_media_common.py"
 _STATS = _SKILL_DIR / "scripts" / "_media_image_stats.py"
 _SEQUENCE_SCRIPT = _SKILL_DIR / "scripts" / "sequence_to_mp4.py"
+
+# `vx` resolves the ffmpeg build on first use, so finding the launcher on PATH
+# does not mean `vx ffmpeg` can run: a CDN or network failure only surfaces
+# when a smoke test actually invokes it. Probe once per process and cache the
+# answer, so an unavailable ffmpeg skips the smoke test instead of failing the
+# lane on infrastructure.
+_VX_FFMPEG_PROBE_TIMEOUT_SECS = 90
+
+
+@functools.lru_cache(maxsize=None)
+def _vx_ffmpeg_available():
+    """Whether ``vx ffmpeg`` can be provisioned and executed on this host."""
+    vx = shutil.which("vx")
+    if vx is None:
+        return False
+    try:
+        probe = subprocess.run(
+            [vx, "ffmpeg", "-version"],
+            capture_output=True,
+            timeout=_VX_FFMPEG_PROBE_TIMEOUT_SECS,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return probe.returncode == 0
 
 
 @contextmanager
@@ -402,7 +427,10 @@ def test_sequence_entrypoint_accepts_stdin_json(media_common, tmp_path, monkeypa
     assert result["context"]["command"][:2] == ["vx", "ffmpeg"]
 
 
-@pytest.mark.skipif(shutil.which("vx") is None, reason="vx is not available")
+@pytest.mark.skipif(
+    not _vx_ffmpeg_available(),
+    reason="vx cannot provision ffmpeg on this host",
+)
 def test_sequence_to_mp4_smoke_with_vx(tmp_path):
     _write_ppm(tmp_path / "frame_0001.ppm", (255, 0, 0))
     _write_ppm(tmp_path / "frame_0002.ppm", (0, 255, 0))
