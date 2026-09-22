@@ -578,6 +578,11 @@ mod tests {
         assert_eq!(rows.len(), 1, "three reports must stay one row");
         assert_eq!(rows[0].occurrence_count, 3);
         assert_eq!(rows[0].repo, "dcc-mcp/dcc-mcp-maya");
+        assert_eq!(
+            rows[0].issues_url.as_deref(),
+            Some("https://github.com/dcc-mcp/dcc-mcp-maya/issues"),
+            "the stored row must carry the resolved issues_url, not just the repo"
+        );
     }
 
     #[tokio::test]
