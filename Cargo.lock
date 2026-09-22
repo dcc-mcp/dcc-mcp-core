@@ -1931,6 +1931,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "dcc-mcp-skills-bench"
+version = "0.20.34"
+dependencies = [
+ "criterion",
+ "dcc-mcp-actions",
+ "dcc-mcp-gateway-search",
+ "dcc-mcp-models",
+ "dcc-mcp-skills",
+ "rand 0.10.1",
+ "serde",
+ "serde_json",
+ "workspace-hack",
+]
+
+[[package]]
 name = "dcc-mcp-telemetry"
 version = "0.20.34"
 dependencies = [
@@ -8569,6 +8584,7 @@ dependencies = [
  "ppv-lite86",
  "proc-macro2",
  "quote",
+ "rand 0.10.1",
  "rand 0.8.6",
  "rand 0.9.4",
  "rand_chacha 0.9.0",

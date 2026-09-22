@@ -7,6 +7,7 @@ members = [
     "crates/dcc-mcp-models",
     "crates/dcc-mcp-actions",
     "crates/dcc-mcp-skills",
+    "crates/dcc-mcp-skills-bench",
     "crates/dcc-mcp-protocols",
     "crates/dcc-mcp-jsonrpc",
     "crates/dcc-mcp-wire",
@@ -68,6 +69,7 @@ dcc-mcp-naming = { path = "crates/dcc-mcp-naming" }
 dcc-mcp-models = { path = "crates/dcc-mcp-models" }
 dcc-mcp-actions = { path = "crates/dcc-mcp-actions" }
 dcc-mcp-skills = { path = "crates/dcc-mcp-skills" }
+dcc-mcp-skills-bench = { path = "crates/dcc-mcp-skills-bench" }
 dcc-mcp-protocols = { path = "crates/dcc-mcp-protocols" }
 dcc-mcp-jsonrpc = { path = "crates/dcc-mcp-jsonrpc" }
 dcc-mcp-wire = { path = "crates/dcc-mcp-wire" }
@@ -155,7 +157,10 @@ tower = "0.5"
 tower-http = "0.6"
 tempfile = "3"
 sha2 = "0.11"
-rand = "0.10"
+# `chacha` pins corpus generation to a named generator (ChaCha8Rng). `StdRng`
+# makes no cross-version reproducibility guarantee, and the skills benchmark
+# needs its seeded corpus to be stable across `rand` patch bumps.
+rand = { version = "0.10", features = ["chacha"] }
 http = "1.0"
 futures = "0.3"
 async-trait = "0.1"

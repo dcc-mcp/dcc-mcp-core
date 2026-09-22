@@ -69,6 +69,7 @@ phf = { version = "0.11.3", features = ["macros"] }
 phf_shared = { version = "0.11.3" }
 ppv-lite86 = { version = "0.2.21", default-features = false, features = ["simd", "std"] }
 rand-274715c4dabd11b0 = { package = "rand", version = "0.9.4" }
+rand-93f6ce9d446188ac = { package = "rand", version = "0.10.1", features = ["chacha"] }
 rand-c38e5c1d305a1b54 = { package = "rand", version = "0.8.6", features = ["small_rng"] }
 rand_chacha = { version = "0.9.0", default-features = false, features = ["std"] }
 rand_core = { version = "0.6.4", default-features = false, features = ["std"] }
@@ -164,6 +165,7 @@ ppv-lite86 = { version = "0.2.21", default-features = false, features = ["simd",
 proc-macro2 = { version = "1.0.106" }
 quote = { version = "1.0.45" }
 rand-274715c4dabd11b0 = { package = "rand", version = "0.9.4" }
+rand-93f6ce9d446188ac = { package = "rand", version = "0.10.1", features = ["chacha"] }
 rand-c38e5c1d305a1b54 = { package = "rand", version = "0.8.6", features = ["small_rng"] }
 rand_chacha = { version = "0.9.0", default-features = false, features = ["std"] }
 rand_core = { version = "0.6.4", default-features = false, features = ["std"] }

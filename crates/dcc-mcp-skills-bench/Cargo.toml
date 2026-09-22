@@ -1,0 +1,31 @@
+[package]
+name = "dcc-mcp-skills-bench"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Reproducible skills benchmark: hit rate, query efficiency, and multi-DCC context growth"
+keywords = ["benchmark", "skills", "search", "regression"]
+categories = ["development-tools::testing"]
+
+[lints]
+workspace = true
+
+[dependencies]
+dcc-mcp-skills = { workspace = true }
+dcc-mcp-models = { workspace = true }
+dcc-mcp-actions = { workspace = true }
+dcc-mcp-gateway-search = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+rand = { workspace = true }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "skills_bench"
+harness = false

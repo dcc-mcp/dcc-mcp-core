@@ -1,0 +1,4243 @@
+{
+  "schema": "skills-corpus-v1",
+  "roots": [
+    "skills",
+    "examples/skills",
+    "python/dcc_mcp_core/skills",
+    "tests/fixtures/skills"
+  ],
+  "skills": [
+    {
+      "name": "asset-source",
+      "description": "Gateway skill for cross-DCC asset import — search and resolve assets into a validated AssetDescriptor (local path + attribution). Demo source returns static catalog entries; production sources can add download or remote resolution without changing the contract.",
+      "license": "MIT",
+      "compatibility": "",
+      "allowed-tools": [
+        "Bash",
+        "Read"
+      ],
+      "metadata": {
+        "dcc-mcp.dcc": "python",
+        "dcc-mcp.layer": "domain",
+        "dcc-mcp.stage": "source",
+        "dcc-mcp.version": "1.0.0",
+        "dcc-mcp.tags": [
+          "pipeline",
+          "asset-import",
+          "read-only"
+        ],
+        "dcc-mcp.search-hint": "search assets, find asset, resolve asset, asset descriptor, asset import source, cross-dcc asset",
+        "dcc-mcp.search-aliases": [
+          "asset search",
+          "find asset",
+          "resolve asset",
+          "asset catalog",
+          "import source",
+          "asset descriptor"
+        ],
+        "dcc-mcp.intent": "Search and resolve assets into a validated AssetDescriptor (local path + attribution) for cross-DCC import pipelines.",
+        "dcc-mcp.recall-context": {
+          "app_type": "python",
+          "domain": "asset",
+          "workflow_stage": "source",
+          "task_category": "query"
+        },
+        "dcc-mcp.preconditions": [],
+        "dcc-mcp.side-effects": {
+          "creates": false,
+          "modifies": false,
+          "file_output": false,
+          "targets": []
+        },
+        "dcc-mcp.produces": [
+          "asset_descriptor"
+        ],
+        "dcc-mcp.requires": [],
+        "dcc-mcp.tools": "tools.yaml"
+      },
+      "dcc": "python",
+      "tags": [
+        "pipeline",
+        "asset-import",
+        "read-only"
+      ],
+      "search-hint": "search assets, find asset, resolve asset, asset descriptor, asset import source, cross-dcc asset",
+      "search-aliases": [
+        "asset search",
+        "find asset",
+        "resolve asset",
+        "asset catalog",
+        "import source",
+        "asset descriptor"
+      ],
+      "tools": [
+        {
+          "name": "search_assets",
+          "description": "Search the asset catalog and return matching AssetDescriptor entries.",
+          "input_schema": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "query"
+            ],
+            "properties": {
+              "query": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Search query (asset name, id, or keyword)."
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 50,
+                "default": 10,
+                "description": "Maximum number of results to return."
+              }
+            }
+          },
+          "output_schema": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": [
+              "success"
+            ],
+            "properties": {
+              "success": {
+                "type": "boolean"
+              },
+              "message": {
+                "type": "string"
+              },
+              "context": {
+                "type": "object"
+              }
+            }
+          },
+          "read_only": true,
+          "destructive": false,
+          "idempotent": true,
+          "defer-loading": false,
+          "source_file": "scripts/search_assets.py",
+          "next-tools": {
+            "on-success": [],
+            "on-failure": []
+          },
+          "group": "",
+          "execution": "sync",
+          "timeout_hint_secs": 0,
+          "enforce_thread_affinity": true,
+          "annotations": {
+            "read_only_hint": true,
+            "destructive_hint": false,
+            "idempotent_hint": true,
+            "open_world_hint": true
+          },
+          "call_examples": [
+            {
+              "arguments": {
+                "query": "table",
+                "limit": 5
+              },
+              "note": "Search for table assets, return up to 5 results"
+            },
+            {
+              "arguments": {
+                "query": "chair"
+              },
+              "note": "Search for chair assets with default limit"
+            }
+          ]
+        }
+      ],
+      "version": "1.0.0",
+      "depends": [],
+      "scripts": [
+        "skills/asset-source/scripts/search_assets.py"
+      ],
+      "skill_path": "skills/asset-source",
+      "metadata_files": [],
+      "groups": [],
+      "layer": "domain",
+      "stage": "source"
+    },
+    {
+      "name": "async-render-example",
+      "description": "Example skill — demonstrates async execution affinity: long-running tools surface as deferredHint=true in MCP tools/list. Use as a reference when writing domain skills with render or simulation tools. Not intended for production use.",
+      "license": "MIT",
+      "compatibility": "Python 3.7+",
+      "allowed-tools": [],
+      "metadata": {
+        "dcc-mcp.dcc": "python",
+        "dcc-mcp.version": "1.0.0",
+        "dcc-mcp.layer": "example",
+        "dcc-mcp.search-hint": "async tool, long-running, deferred hint, timeout hint, render async, authoring reference",
+        "dcc-mcp.tags": "example, async, render, deferred",
+        "dcc-mcp.tools": "tools.yaml"
+      },
+      "dcc": "python",
+      "tags": [
+        "example",
+        "async",
+        "render",
+        "deferred"
+      ],
+      "search-hint": "async tool, long-running, deferred hint, timeout hint, render async, authoring reference",
+      "tools": [
+        {
+          "name": "render_frames",
+          "description": "Pretend to render a frame range. Long-running; the server surfaces `deferredHint: true` and `_meta.dcc.timeoutHintSecs`.",
+          "input_schema": null,
+          "read_only": false,
+          "destructive": false,
+          "idempotent": false,
+          "defer-loading": false,
+          "source_file": "",
+          "next-tools": {
+            "on-success": [],
+            "on-failure": []
+          },
+          "group": "",
+          "execution": "async",
+          "timeout_hint_secs": 600
+        },
+        {
+          "name": "quick_status",
+          "description": "Return the current (fake) render status. Fast, sync.",
+          "input_schema": null,
+          "read_only": false,
+          "destructive": false,
+          "idempotent": false,
+          "defer-loading": false,
+          "source_file": "",
+          "next-tools": {
+            "on-success": [],
+            "on-failure": []
+          },
+          "group": "",
+          "execution": "sync"
+        }
+      ],
+      "version": "1.0.0",
+      "depends": [],
+      "scripts": [
+        "examples/skills/async-render-example/scripts/quick_status.py",
+        "examples/skills/async-render-example/scripts/render_frames.py"
+      ],
+      "skill_path": "examples/skills/async-render-example",
+      "metadata_files": [],
+      "groups": [],
+      "layer": "example"
+    },
+    {
+      "name": "cancellable-loop",
+      "description": "Example skill — demonstrates cooperative cancellation inside a skill script loop using check_cancelled(). Use as a reference when writing long-running domain skills that must respond to notifications/cancelled. Not intended for production use.",
+      "license": "MIT",
+      "compatibility": "Python 3.7+",
+      "allowed-tools": [],
+      "metadata": {
+        "dcc-mcp.dcc": "python",
+        "dcc-mcp.version": "1.0.0",
+        "dcc-mcp.layer": "example",
+        "dcc-mcp.search-hint": "cancellation, cancel, long-running, cooperative, check_cancelled, abort, authoring reference",
+        "dcc-mcp.tags": "example, cancellation, long-running"
+      },
+      "dcc": "python",
+      "tags": [
+        "example",
+        "cancellation",
+        "long-running"
+      ],
+      "search-hint": "cancellation, cancel, long-running, cooperative, check_cancelled, abort, authoring reference",
+      "tools": [],
+      "version": "1.0.0",
+      "depends": [],
+      "scripts": [
+        "examples/skills/cancellable-loop/scripts/count.py"
+      ],
+      "skill_path": "examples/skills/cancellable-loop",
+      "metadata_files": [],
+      "groups": [],
+      "layer": "example"
+    },
+    {
+      "name": "clawhub-compat",
+      "description": "Example skill — demonstrates full compatibility with the ClawHub/OpenClaw skill format. Use as a reference when creating skills for both the dcc-mcp-core ecosystem and ClawHub marketplace. Not intended for production use — this is an authoring reference only.",
+      "license": "MIT",
+      "compatibility": "Requires curl binary on PATH",
+      "allowed-tools": [
+        "Bash",
+        "Read"
+      ],
+      "metadata": {
+        "openclaw": {
+          "requires": {
+            "env": [
+              "EXAMPLE_API_KEY"
+            ],
+            "bins": [
+              "curl"
+            ]
+          },
+          "primaryEnv": "EXAMPLE_API_KEY",
+          "emoji": "🦀",
+          "homepage": "https://github.com/dcc-mcp/dcc-mcp-core",
+          "install": [
+            {
+              "kind": "node",
+              "package": "prettier",
+              "bins": [
+                "prettier"
+              ]
+            }
+          ]
+        },
+        "dcc-mcp.dcc": "python",
+        "dcc-mcp.layer": "example",
+        "dcc-mcp.version": "1.0.0",
+        "dcc-mcp.search-hint": "clawhub, openclaw, marketplace, skill format, compatibility reference",
+        "dcc-mcp.tags": "example, clawhub, openclaw, compatibility"
+      },
+      "dcc": "python",
+      "tags": [
+        "example",
+        "clawhub",
+        "openclaw",
+        "compatibility"
+      ],
+      "search-hint": "clawhub, openclaw, marketplace, skill format, compatibility reference",
+      "tools": [],
+      "version": "1.0.0",
+      "depends": [],
+      "scripts": [
+        "examples/skills/clawhub-compat/scripts/fetch_api.sh",
+        "examples/skills/clawhub-compat/scripts/format_code.py"
+      ],
+      "skill_path": "examples/skills/clawhub-compat",
+      "metadata_files": [],
+      "groups": [],
+      "layer": "example"
+    },
+    {
+      "name": "dcc-cua",
+      "description": "Project-owned DCC-CUA routing skill for bounded application UI automation. Use this skill whenever the user says dcc-cua, DCC CUA, our dcc-cua, or 我们的 dcc-cua, including browser and other non-DCC UI tasks. These phrases are a hard route to the dcc-mcp project UI Control stack and take precedence over generic Codex/OpenAI Computer Use, the computer-use Skill, @oai/sky, and Browser/Chrome plugins. If DCC-CUA is unavailable, repair or report the project route; never silently fall back to a generic computer-use provider.",
+      "license": "MIT-0",
+      "compatibility": "",
+      "allowed-tools": [
+        "Bash",
+        "Read"
+      ],
+      "metadata": {
+        "openclaw": {
+          "emoji": "🖱️",
+          "homepage": "https://github.com/dcc-mcp/dcc-mcp-core/tree/main/skills/dcc-cua"
+        },
+        "dcc-mcp.dcc": "python",
+        "dcc-mcp.layer": "infrastructure",
+        "dcc-mcp.compatibility": "Cross-platform routing contract. The current DCC-CUA host is installed and verified through the official dcc-mcp-cli component manifest; exact platform capabilities remain runtime-discovered.",
+        "dcc-mcp.version": "0.1.0",
+        "dcc-mcp.search-hint": "dcc-cua DCC CUA dcc cua our dcc-cua our dcc cua 我们的 dcc-cua 我们的 dcc cua project-owned UI control browser DOM exact PID HWND computer use automation",
+        "dcc-mcp.tags": "dcc-cua, dcc-ui-control, ui-control, browser-dom, exact-window, computer-use, infrastructure"
+      },
+      "dcc": "python",
+      "tags": [
+        "dcc-cua",
+        "dcc-ui-control",
+        "ui-control",
+        "browser-dom",
+        "exact-window",
+        "computer-use",
+        "infrastructure"
+      ],
+      "search-hint": "dcc-cua DCC CUA dcc cua our dcc-cua our dcc cua 我们的 dcc-cua 我们的 dcc cua project-owned UI control browser DOM exact PID HWND computer use automation",
+      "tools": [],
+      "version": "0.1.0",
+      "depends": [],
+      "scripts": [],
+      "skill_path": "skills/dcc-cua",
+      "metadata_files": [],
+      "groups": [],
+      "layer": "infrastructure"
+    },
+    {
+      "name": "dcc-diagnostics",
+      "description": "Infrastructure skill — DCC-agnostic observability primitives: capture screenshots, query audit logs, inspect tool performance metrics, and monitor process health. Works in any DCC environment (Maya, Blender, Houdini, Unreal, etc.) or standalone Python. Use for debugging any skill failure or verifying DCC state. Not for primary task execution — use a domain skill for actual DCC operations.",
+      "license": "MIT",
+      "compatibility": "",
+      "allowed-tools": [],
+      "metadata": {
+        "dcc-mcp.dcc": "python",
+        "dcc-mcp.version": "1.0.0",
+        "dcc-mcp.layer": "infrastructure",
+        "dcc-mcp.search-hint": "screenshot, capture, audit log, metrics, performance, process monitor, diagnostics, debug, health check, observability",
+        "dcc-mcp.tags": "diagnostics, observability, screenshot, audit, metrics, debug, infrastructure",
+        "dcc-mcp.tools": "tools.yaml"
+      },
+      "dcc": "python",
+      "tags": [
+        "diagnostics",
+        "observability",
+        "screenshot",
+        "audit",
+        "metrics",
+        "debug",
+        "infrastructure"
+      ],
+      "search-hint": "screenshot, capture, audit log, metrics, performance, process monitor, diagnostics, debug, health check, observability",
+      "tools": [
+        {
+          "name": "screenshot",
+          "description": "Capture a screenshot of the current display or a specific window. Returns the image as a base64-encoded PNG. Useful for visual debugging — capture what's visible on screen when an error occurs.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "format": {
+                "type": "string",
+                "description": "Image format: 'png' (default), 'jpeg', or 'raw_bgra'",
+                "default": "png"
+              },
+              "scale": {
+                "type": "number",
+                "description": "Scale factor 0.0-1.0 (default 1.0 = native resolution). Use 0.5 to halve the size.",
+                "default": 1.0
+              },
+              "jpeg_quality": {
+                "type": "integer",
+                "description": "JPEG quality 0-100 (default 85). Only used when format is 'jpeg'.",
+                "default": 85
+              },
+              "window_title": {
+                "type": "string",
+                "description": "Capture only the window whose title contains this substring. If omitted, captures the full screen."
+              },
+              "save_path": {
+                "type": "string",
+                "description": "If provided, save the image to this file path in addition to returning base64."
+              },
+              "timeout_ms": {
+                "type": "integer",
+                "description": "Maximum milliseconds to wait for a frame (default 5000).",
+                "default": 5000
+              }
+            }
+          },
+          "read_only": true,
+          "destructive": false,
+          "idempotent": false,
+          "defer-loading": false,
+          "source_file": "scripts/screenshot.py",
+          "next-tools": {
+            "on-success": [],
+            "on-failure": [
+              "dcc_diagnostics__audit_log",
+              "dcc_diagnostics__process_status"
+            ]
+          },
+          "group": "",
+          "execution": "sync"
+        },
+        {
+          "name": "audit_log",
+          "description": "Query the dcc-mcp-core sandbox audit log — list recent action invocations, filter by outcome (success/denied), or search by action name. Helps diagnose why an action was blocked or what the agent did recently.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "filter": {
+                "type": "string",
+                "description": "Filter entries: 'all' (default), 'success', 'denied', or 'error'",
+                "default": "all"
+              },
+              "action_name": {
+                "type": "string",
+                "description": "Only return entries for this specific action name."
+              },
+              "limit": {
+                "type": "integer",
+                "description": "Maximum number of entries to return (default 50).",
+                "default": 50
+              }
+            }
+          },
+          "read_only": true,
+          "destructive": false,
+          "idempotent": true,
+          "defer-loading": false,
+          "source_file": "scripts/audit_log.py",
+          "next-tools": {
+            "on-success": [
+              "dcc_diagnostics__tool_metrics"
+            ],
+            "on-failure": []
+          },
+          "group": "",
+          "execution": "sync"
+        },
+        {
+          "name": "tool_metrics",
+          "description": "Show performance metrics for registered tools — invocation counts, success rates, average and P95/P99 latencies. Use to identify slow or failing tools.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "action_name": {
+                "type": "string",
+                "description": "If provided, return metrics only for this tool. Otherwise return all."
+              },
+              "sort_by": {
+                "type": "string",
+                "description": "Sort results by: 'name', 'invocations' (default), 'avg_ms', 'p95_ms', or 'failure_rate'",
+                "default": "invocations"
+              },
+              "limit": {
+                "type": "integer",
+                "description": "Maximum number of tools to return (default 20).",
+                "default": 20
+              }
+            }
+          },
+          "read_only": true,
+          "destructive": false,
+          "idempotent": true,
+          "defer-loading": false,
+          "source_file": "scripts/tool_metrics.py",
+          "next-tools": {
+            "on-success": [
+              "dcc_diagnostics__process_status"
+            ],
+            "on-failure": []
+          },
+          "group": "",
+          "execution": "sync"
+        },
+        {
+          "name": "process_status",
+          "description": "Check the health of tracked DCC processes — list running PIDs, check if a specific process is alive, and inspect crash recovery policy. Use when a DCC tool stops responding.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "pid": {
+                "type": "integer",
+                "description": "Check status of a specific process ID. If omitted, returns summary of all tracked processes."
+              }
+            }
+          },
+          "read_only": true,
+          "destructive": false,
+          "idempotent": true,
+          "defer-loading": false,
+          "source_file": "scripts/process_status.py",
+          "next-tools": {
+            "on-success": [],
+            "on-failure": [
+              "dcc_diagnostics__audit_log"
+            ]
+          },
+          "group": "",
+          "execution": "sync"
+        }
+      ],
+      "version": "1.0.0",
+      "depends": [],
+      "scripts": [
+        "examples/skills/dcc-diagnostics/scripts/audit_log.py",
+        "examples/skills/dcc-diagnostics/scripts/process_status.py",
+        "examples/skills/dcc-diagnostics/scripts/screenshot.py",
+        "examples/skills/dcc-diagnostics/scripts/tool_metrics.py"
+      ],
+      "skill_path": "examples/skills/dcc-diagnostics",
+      "metadata_files": [],
+      "groups": [],
+      "layer": "infrastructure"
+    },
+    {
+      "name": "example-layered-skill",
+      "description": "Example skill — reference implementation of the **internal** layered architecture pattern (Tools / Services / Utils) for complex skills with shared business logic. Use as a template when a skill outgrows a single scripts/execute.py file. Not intended for production use — see docs/guide/skills.md for the architectural guide.",
+      "license": "MIT",
+      "compatibility": "Python 3.8+",
+      "allowed-tools": [
+        "Bash",
+        "Read"
+      ],
+      "metadata": {
+        "dcc-mcp.dcc": "python",
+        "dcc-mcp.version": "1.0.0",
+        "dcc-mcp.layer": "example",
+        "dcc-mcp.search-hint": "layered architecture, complex skill, services, utils, tools, asset pipeline reference, authoring reference",
+        "dcc-mcp.tags": "example, architecture, layered, advanced, authoring reference",
+        "dcc-mcp.tools": "tools.yaml",
+        "dcc-mcp.prompts": "prompts/system.md"
+      },
+      "dcc": "python",
+      "tags": [
+        "example",
+        "architecture",
+        "layered",
+        "advanced",
+        "authoring reference"
+      ],
+      "search-hint": "layered architecture, complex skill, services, utils, tools, asset pipeline reference, authoring reference",
+      "tools": [
+        {
+          "name": "create_asset",
+          "description": "Create a new asset record on disk under the project root.",
+          "input_schema": {
+            "type": "object",
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Logical asset name (snake_case)"
+              },
+              "kind": {
+                "type": "string",
+                "description": "Asset kind (model, rig, anim, …)",
+                "default": "model"
+              }
+            }
+          },
+          "read_only": false,
+          "destructive": false,
+          "idempotent": false,
+          "defer-loading": false,
+          "source_file": "scripts/create_asset.py",
+          "next-tools": {
+            "on-success": [
+              "example_layered_skill__validate_asset"
+            ],
+            "on-failure": [
+              "dcc_diagnostics__audit_log"
+            ]
+          },
+          "group": "",
+          "execution": "sync",
+          "annotations": {
+            "read_only_hint": false,
+            "destructive_hint": false,
+            "idempotent_hint": false
+          }
+        },
+        {
+          "name": "publish_asset",
+          "description": "Publish an existing asset by promoting it to the publish/ directory.",
+          "input_schema": {
+            "type": "object",
+            "required": [
+              "asset_id"
+            ],
+            "properties": {
+              "asset_id": {
+                "type": "string",
+                "description": "Identifier returned by create_asset"
+              }
+            }
+          },
+          "read_only": false,
+          "destructive": false,
+          "idempotent": false,
+          "defer-loading": false,
+          "source_file": "scripts/publish_asset.py",
+          "next-tools": {
+            "on-success": [],
+            "on-failure": [
+              "dcc_diagnostics__audit_log"
+            ]
+          },
+          "group": "",
+          "execution": "sync",
+          "annotations": {
+            "read_only_hint": false,
+            "destructive_hint": false,
+            "idempotent_hint": true
+          }
+        },
+        {
+          "name": "validate_asset",
+          "description": "Validate an asset against project naming and structure rules.",
+          "input_schema": {
+            "type": "object",
+            "required": [
+              "asset_id"
+            ],
+            "properties": {
+              "asset_id": {
+                "type": "string",
+                "description": "Identifier returned by create_asset"
+              }
+            }
+          },
+          "read_only": false,
+          "destructive": false,
+          "idempotent": false,
+          "defer-loading": false,
+          "source_file": "scripts/validate_asset.py",
+          "next-tools": {
+            "on-success": [],
+            "on-failure": []
+          },
+          "group": "",
+          "execution": "sync",
+          "annotations": {
+            "read_only_hint": true,
+            "destructive_hint": false,
+            "idempotent_hint": true
+          }
+        }
+      ],
+      "version": "1.0.0",
+      "depends": [],
+      "scripts": [
+        "examples/skills/example-layered-skill/scripts/__init__.py",
+        "examples/skills/example-layered-skill/scripts/create_asset.py",
+        "examples/skills/example-layered-skill/scripts/publish_asset.py",
+        "examples/skills/example-layered-skill/scripts/validate_asset.py"
+      ],
+      "skill_path": "examples/skills/example-layered-skill",
+      "metadata_files": [],
+      "groups": [],
+      "prompts_file": "prompts/system.md",
+      "layer": "example"
+    },
+    {
+      "name": "ffmpeg-media",
+      "description": "Infrastructure skill — media conversion and processing via FFmpeg: convert video/audio formats, extract frames, resize, and transcode. Use when manipulating raw media files (mp4, mov, wav, image sequences) regardless of DCC context. Not for DCC-specific render output handling — use a domain pipeline skill for post-render processing tied to a specific DCC.",
+      "license": "MIT",
+      "compatibility": "Requires ffmpeg and ffprobe binaries on PATH",
+      "allowed-tools": [
+        "Bash",
+        "Read",
+        "Write"
+      ],
+      "metadata": {
+        "openclaw": {
+          "requires": {
+            "bins": [
+              "ffmpeg",
+              "ffprobe"
+            ]
+          },
+          "install": [
+            {
+              "kind": "brew",
+              "formula": "ffmpeg",
+              "bins": [
+                "ffmpeg",
+                "ffprobe"
+              ]
+            }
+          ],
+          "emoji": "🎬",
+          "homepage": "https://ffmpeg.org"
+        },
+        "dcc-mcp.dcc": "python",
+        "dcc-mcp.version": "1.0.0",
+        "dcc-mcp.layer": "infrastructure",
+        "dcc-mcp.search-hint": "ffmpeg, video transcode, audio convert, extract frames, resize video, image sequence, media processing",
+        "dcc-mcp.tags": "media, video, audio, ffmpeg, conversion, infrastructure",
+        "dcc-mcp.tools": "tools.yaml"
+      },
+      "dcc": "python",
+      "tags": [
+        "media",
+        "video",
+        "audio",
+        "ffmpeg",
+        "conversion",
+        "infrastructure"
+      ],
+      "search-hint": "ffmpeg, video transcode, audio convert, extract frames, resize video, image sequence, media processing",
+      "tools": [
+        {
+          "name": "convert",
+          "description": "Convert a media file to a different format",
+          "input_schema": {
+            "type": "object",
+            "required": [
+              "input",
+              "output"
+            ],
+            "properties": {
+              "input": {
+                "type": "string",
+                "description": "Input file path"
+              },
+              "output": {
+                "type": "string",
+                "description": "Output file path"
+              },
+              "codec": {
+                "type": "string",
+                "description": "Output codec (e.g. h264",
+                "vp9)": null
+              }
+            }
+          },
+          "read_only": false,
+          "destructive": false,
+          "idempotent": false,
+          "defer-loading": false,
+          "source_file": "scripts/convert.py",
+          "next-tools": {
+            "on-success": [],
+            "on-failure": []
+          },
+          "group": "",
+          "execution": "sync"
+        },
+        {
+          "name": "extract_frames",
+          "description": "Extract video frames as image files",
+          "input_schema": {
+            "type": "object",
+            "required": [
+              "input",
+              "output_dir"
+            ],
+            "properties": {
+              "input": {
+                "type": "string",
+                "description": "Input video path"
+              },
+              "output_dir": {
+                "type": "string",
+                "description": "Directory to save frames"
+              },
+              "fps": {
+                "type": "number",
+                "description": "Frames per second to extract",
+                "default 1": null
+              }
+            }
+          },
+          "read_only": false,
+          "destructive": false,
+          "idempotent": false,
+          "defer-loading": false,
+          "source_file": "scripts/extract_frames.py",
+          "next-tools": {
+            "on-success": [],
+            "on-failure": []
+          },
+          "group": "",
+          "execution": "sync"
+        }
+      ],
+      "version": "1.0.0",
+      "depends": [],
+      "scripts": [
+        "examples/skills/ffmpeg-media/scripts/convert.py",
+        "examples/skills/ffmpeg-media/scripts/probe.py",
+        "examples/skills/ffmpeg-media/scripts/thumbnail.py"
+      ],
+      "skill_path": "examples/skills/ffmpeg-media",
+      "metadata_files": [],
+      "groups": [],
+      "layer": "infrastructure"
+    },
+    {
+      "name": "forgecad-primitives",
+      "description": "ForgeCAD-style third-party skill — create basic CAD primitives (cube, cylinder, cone) inside a ForgeCAD-like environment. Used by the E2E multi-service test suite to validate third-party skill ecosystem discovery, loading, and invocation.",
+      "license": "MIT",
+      "compatibility": "Python 3.7+",
+      "allowed-tools": [
+        "Bash",
+        "Read"
+      ],
+      "metadata": {
+        "dcc-mcp.dcc": "forgecad",
+        "dcc-mcp.version": "1.0.0",
+        "dcc-mcp.layer": "domain",
+        "dcc-mcp.search-hint": "create cube, create cylinder, create cone, forgecad, cad primitives",
+        "dcc-mcp.tags": "forgecad, cad, geometry, primitives, domain",
+        "dcc-mcp.tools": "tools.yaml"
+      },
+      "dcc": "forgecad",
+      "tags": [
+        "forgecad",
+        "cad",
+        "geometry",
+        "primitives",
+        "domain"
+      ],
+      "search-hint": "create cube, create cylinder, create cone, forgecad, cad primitives",
+      "tools": [
+        {
+          "name": "create_cube",
+          "description": "Create a CAD cube with the given edge length",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "edge": {
+                "type": "number",
+                "description": "Cube edge length in model units",
+                "default": 1.0
+              },
+              "marker": {
+                "type": "string",
+                "description": "Unique marker proving which service handled the call",
+                "default": ""
+              }
+            }
+          },
+          "read_only": false,
+          "destructive": false,
+          "idempotent": false,
+          "defer-loading": false,
+          "source_file": "scripts/create_cube.py",
+          "next-tools": {
+            "on-success": [],
+            "on-failure": [
+              "dcc_diagnostics__audit_log"
+            ]
+          },
+          "group": "",
+          "execution": "sync"
+        },
+        {
+          "name": "create_cylinder",
+          "description": "Create a CAD cylinder with the given radius and height",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "radius": {
+                "type": "number",
+                "description": "Cylinder base radius",
+                "default": 1.0
+              },
+              "height": {
+                "type": "number",
+                "description": "Cylinder height",
+                "default": 2.0
+              },
+              "marker": {
+                "type": "string",
+                "description": "Unique marker proving which service handled the call",
+                "default": ""
+              }
+            }
+          },
+          "read_only": false,
+          "destructive": false,
+          "idempotent": true,
+          "defer-loading": false,
+          "source_file": "scripts/create_cylinder.py",
+          "next-tools": {
+            "on-success": [],
+            "on-failure": []
+          },
+          "group": "",
+          "execution": "sync"
+        }
+      ],
+      "version": "1.0.0",
+      "depends": [],
+      "scripts": [
+        "tests/fixtures/skills/forgecad-primitives/scripts/create_cube.py",
+        "tests/fixtures/skills/forgecad-primitives/scripts/create_cylinder.py"
+      ],
+      "skill_path": "tests/fixtures/skills/forgecad-primitives",
+      "metadata_files": [],
+      "groups": [],
+      "layer": "domain"
+    },
+    {
+      "name": "git-automation",
+      "description": "Infrastructure skill — Git repository analysis and automation: inspect commits, branches, diffs, and file history. Use when analysing a codebase, reviewing changes, or automating version control workflows independent of any DCC. Not for DCC asset versioning or Perforce operations — use a domain skill bound to the specific VCS for those.",
+      "license": "MIT",
+      "compatibility": "Requires git on PATH",
+      "allowed-tools": [
+        "Bash",
+        "Read"
+      ],
+      "metadata": {
+        "openclaw": {
+          "requires": {
+            "bins": [
+              "git"
+            ]
+          },
+          "emoji": "🔀",
+          "homepage": "https://git-scm.com"
+        },
+        "dcc-mcp.dcc": "python",
+        "dcc-mcp.version": "1.0.0",
+        "dcc-mcp.layer": "infrastructure",
+        "dcc-mcp.search-hint": "git commit, git diff, git branch, git log, version control, codebase analysis, git history",
+        "dcc-mcp.tags": "git, vcs, automation, devops, infrastructure",
+        "dcc-mcp.tools": "tools.yaml"
+      },
+      "dcc": "python",
+      "tags": [
+        "git",
+        "vcs",
+        "automation",
+        "devops",
+        "infrastructure"
+      ],
+      "search-hint": "git commit, git diff, git branch, git log, version control, codebase analysis, git history",
+      "tools": [
+        {
+          "name": "log",
+          "description": "Show recent commit history",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "limit": {
+                "type": "integer",
+                "description": "Number of commits to show",
+                "default": 20
+              },
+              "format": {
+                "type": "string",
+                "description": "Log format (oneline, short, full)",
+                "default": "oneline"
+              }
+            }
+          },
+          "read_only": true,
+          "destructive": false,
+          "idempotent": true,
+          "defer-loading": false,
+          "source_file": "scripts/log.py",
+          "next-tools": {
+            "on-success": [],
+            "on-failure": []
+          },
+          "group": "",
+          "execution": "sync"
+        },
+        {
+          "name": "diff",
+          "description": "Show changes between commits or working tree",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "from_ref": {
+                "type": "string",
+                "description": "Base commit/branch (default HEAD)"
+              },
+              "to_ref": {
+                "type": "string",
+                "description": "Target commit/branch"
+              }
+            }
+          },
+          "read_only": true,
+          "destructive": false,
+          "idempotent": true,
+          "defer-loading": false,
+          "source_file": "scripts/diff.py",
+          "next-tools": {
+            "on-success": [],
+            "on-failure": []
+          },
+          "group": "",
+          "execution": "sync"
+        }
+      ],
+      "version": "1.0.0",
+      "depends": [],
+      "scripts": [
+        "examples/skills/git-automation/scripts/changelog_gen.py",
+        "examples/skills/git-automation/scripts/repo_stats.py"
+      ],
+      "skill_path": "examples/skills/git-automation",
+      "metadata_files": [],
+      "groups": [],
+      "layer": "infrastructure"
+    },
+    {
+      "name": "hello-world",
+      "description": "Example skill — minimal greeting tool demonstrating the dcc-mcp-core skill system. Use only when testing a new skill installation or onboarding to the skill authoring workflow. Not intended for production use.",
+      "license": "MIT",
+      "compatibility": "Python 3.7+",
+      "allowed-tools": [
+        "Bash",
+        "Read"
+      ],
+      "metadata": {
+        "dcc-mcp.dcc": "python",
+        "dcc-mcp.version": "1.0.0",
+        "dcc-mcp.layer": "example",
+        "dcc-mcp.search-hint": "greeting, hello, example, demo, test skill, starter",
+        "dcc-mcp.tags": "example, beginner, demo"
+      },
+      "dcc": "python",
+      "tags": [
+        "example",
+        "beginner",
+        "demo"
+      ],
+      "search-hint": "greeting, hello, example, demo, test skill, starter",
+      "tools": [],
+      "version": "1.0.0",
+      "depends": [],
+      "scripts": [
+        "examples/skills/hello-world/scripts/greet.py"
+      ],
+      "skill_path": "examples/skills/hello-world",
+      "metadata_files": [],
+      "groups": [],
+      "layer": "example"
+    },
+    {
+      "name": "imagemagick-tools",
+      "description": "Infrastructure skill — image processing and manipulation via ImageMagick: resize, composite, convert formats, add watermarks. Use when batch-processing textures, thumbnails, or rendered images at the file level. Not for in-DCC texture or material editing — use a domain skill bound to the specific DCC for that.",
+      "license": "MIT",
+      "compatibility": "Requires ImageMagick (magick binary) on PATH",
+      "allowed-tools": [
+        "Bash",
+        "Read",
+        "Write"
+      ],
+      "metadata": {
+        "openclaw": {
+          "requires": {
+            "bins": [
+              "magick"
+            ]
+          },
+          "install": [
+            {
+              "kind": "brew",
+              "formula": "imagemagick",
+              "bins": [
+                "magick"
+              ]
+            }
+          ],
+          "emoji": "🖼️",
+          "homepage": "https://imagemagick.org"
+        },
+        "dcc-mcp.dcc": "python",
+        "dcc-mcp.version": "1.0.0",
+        "dcc-mcp.layer": "infrastructure",
+        "dcc-mcp.search-hint": "imagemagick, resize image, convert texture, composite, watermark, batch image, thumbnail",
+        "dcc-mcp.tags": "image, processing, imagemagick, texture, compositing, infrastructure",
+        "dcc-mcp.tools": "tools.yaml"
+      },
+      "dcc": "python",
+      "tags": [
+        "image",
+        "processing",
+        "imagemagick",
+        "texture",
+        "compositing",
+        "infrastructure"
+      ],
+      "search-hint": "imagemagick, resize image, convert texture, composite, watermark, batch image, thumbnail",
+      "tools": [
+        {
+          "name": "resize",
+          "description": "Resize an image to specified dimensions with fit mode control",
+          "input_schema": {
+            "type": "object",
+            "required": [
+              "input",
+              "output"
+            ],
+            "properties": {
+              "input": {
+                "type": "string",
+                "description": "Input image path"
+              },
+              "output": {
+                "type": "string",
+                "description": "Output image path"
+              },
+              "width": {
+                "type": "integer",
+                "description": "Target width in pixels"
+              },
+              "height": {
+                "type": "integer",
+                "description": "Target height in pixels"
+              },
+              "fit": {
+                "type": "string",
+                "enum": [
+                  "cover",
+                  "contain",
+                  "exact",
+                  "fill"
+                ],
+                "description": "Resize mode",
+                "default": "contain"
+              }
+            }
+          },
+          "read_only": false,
+          "destructive": false,
+          "idempotent": true,
+          "defer-loading": false,
+          "source_file": "scripts/resize.py",
+          "next-tools": {
+            "on-success": [],
+            "on-failure": []
+          },
+          "group": "",
+          "execution": "sync"
+        },
+        {
+          "name": "composite",
+          "description": "Composite (overlay) two images with a blend mode",
+          "input_schema": {
+            "type": "object",
+            "required": [
+              "base",
+              "overlay",
+              "output"
+            ],
+            "properties": {
+              "base": {
+                "type": "string",
+                "description": "Base image path"
+              },
+              "overlay": {
+                "type": "string",
+                "description": "Overlay image path"
+              },
+              "output": {
+                "type": "string",
+                "description": "Output image path"
+              },
+              "blend": {
+                "type": "string",
+                "enum": [
+                  "over",
+                  "multiply",
+                  "screen",
+                  "overlay",
+                  "dissolve"
+                ],
+                "description": "Blend mode",
+                "default": "over"
+              },
+              "opacity": {
+                "type": "number",
+                "description": "Overlay opacity (0.0-1.0)",
+                "default": 1.0
+              }
+            }
+          },
+          "read_only": false,
+          "destructive": false,
+          "idempotent": true,
+          "defer-loading": false,
+          "source_file": "scripts/composite.py",
+          "next-tools": {
+            "on-success": [],
+            "on-failure": []
+          },
+          "group": "",
+          "execution": "sync"
+        }
+      ],
+      "version": "1.0.0",
+      "depends": [],
+      "scripts": [
+        "examples/skills/imagemagick-tools/scripts/composite.py",
+        "examples/skills/imagemagick-tools/scripts/resize.py"
+      ],
+      "skill_path": "examples/skills/imagemagick-tools",
+      "metadata_files": [],
+      "groups": [],
+      "layer": "infrastructure"
+    },
+    {
+      "name": "marketplace-create-extension",
+      "description": "Infrastructure skill — scaffold a new marketplace extension package (SKILL.md + tools.yaml + scripts/) with MIT-0 licensing. Use when creating a publishable marketplace entry for any DCC host. Not for editing existing extensions or driving live DCC scenes — use domain skills for that.",
+      "license": "MIT-0",
+      "compatibility": "dcc-mcp-core 0.17+, Python 3.7+",
+      "allowed-tools": [
+        "Bash",
+        "Read",
+        "Write"
+      ],
+      "metadata": {
+        "openclaw": {
+          "homepage": "https://github.com/dcc-mcp/dcc-mcp-core/blob/main/skills/marketplace-create-extension/SKILL.md"
+        },
+        "dcc-mcp.dcc": "python",
+        "dcc-mcp.version": "0.18.9",
+        "dcc-mcp.layer": "infrastructure",
+        "dcc-mcp.search-hint": "create marketplace extension, scaffold extension package, new skill package, SKILL.md generator, marketplace entry, extension authoring",
+        "dcc-mcp.tags": "marketplace, extension, scaffolding, authoring, infrastructure",
+        "dcc-mcp.tools": "tools.yaml",
+        "dcc-mcp.skill-reference-docs": [
+          "references/*.md"
+        ]
+      },
+      "dcc": "python",
+      "tags": [
+        "marketplace",
+        "extension",
+        "scaffolding",
+        "authoring",
+        "infrastructure"
+      ],
+      "search-hint": "create marketplace extension, scaffold extension package, new skill package, SKILL.md generator, marketplace entry, extension authoring",
+      "tools": [
+        {
+          "name": "create",
+          "description": "Scaffold a new marketplace extension package. Generates SKILL.md (with MIT-0 license frontmatter), tools.yaml skeleton, and a scripts/ directory with a placeholder action script. The output follows the standard dcc-mcp skill layout.",
+          "input_schema": {
+            "type": "object",
+            "required": [
+              "name",
+              "description"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                "description": "Package name in kebab-case (e.g. \"my-maya-tools\"). Used as the output directory name and the SKILL.md `name` field."
+              },
+              "description": {
+                "type": "string",
+                "description": "Human-readable description of what the extension does. Written into the SKILL.md frontmatter and body."
+              },
+              "dcc_targets": {
+                "type": "array",
+                "description": "DCC applications this extension targets (e.g. [\"maya\", \"blender\"]). Use [\"python\"] for DCC-agnostic infrastructure extensions.",
+                "items": {
+                  "type": "string"
+                },
+                "default": []
+              },
+              "install_type": {
+                "type": "string",
+                "enum": [
+                  "git",
+                  "path",
+                  "zip"
+                ],
+                "default": "git",
+                "description": "Install source type for marketplace catalog entries."
+              },
+              "author": {
+                "type": "string",
+                "description": "Extension author or maintainer name. Written into the SKILL.md frontmatter."
+              },
+              "output_dir": {
+                "type": "string",
+                "default": ".",
+                "description": "Parent directory where the new extension package directory will be created. Defaults to the current working directory."
+              },
+              "version": {
+                "type": "string",
+                "default": "0.1.0",
+                "description": "Semantic version string for the extension."
+              },
+              "action_name": {
+                "type": "string",
+                "pattern": "^[a-z0-9]+(?:_[a-z0-9]+)*$",
+                "default": "run",
+                "description": "Snake_case name for the placeholder action script (e.g. \"run_export\"). Defaults to \"run\"."
+              }
+            },
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "success": {
+                "type": "boolean"
+              },
+              "message": {
+                "type": "string"
+              },
+              "context": {
+                "type": "object"
+              }
+            }
+          },
+          "read_only": false,
+          "destructive": false,
+          "idempotent": false,
+          "defer-loading": false,
+          "source_file": "scripts/create_extension.py",
+          "next-tools": {
+            "on-success": [
+              "dcc_mcp_skills_creator__validate_skill_dir"
+            ],
+            "on-failure": [
+              "dcc_diagnostics__audit_log"
+            ]
+          },
+          "group": "",
+          "execution": "sync",
+          "timeout_hint_secs": 30,
+          "enforce_thread_affinity": true,
+          "annotations": {
+            "read_only_hint": false,
+            "destructive_hint": false,
+            "idempotent_hint": false,
+            "open_world_hint": true,
+            "deferred_hint": false
+          }
+        }
+      ],
+      "version": "0.18.9",
+      "depends": [],
+      "scripts": [
+        "skills/marketplace-create-extension/scripts/create_extension.py"
+      ],
+      "skill_path": "skills/marketplace-create-extension",
+      "metadata_files": [],
+      "groups": [],
+      "layer": "infrastructure"
+    },
+    {
+      "name": "marketplace-publish-extension",
+      "description": "Infrastructure skill — publish (register/update) an extension package to a marketplace catalog. Reads the extension's SKILL.md frontmatter, constructs a CatalogEntry, and upserts it into the target marketplace.json. Optionally commits and pushes when the catalog source is a git repository. Use after scaffolding an extension with marketplace-create-extension. Not for installing or searching extensions — use marketplace-install or marketplace-search for that.",
+      "license": "MIT-0",
+      "compatibility": "dcc-mcp-core 0.17+, Python 3.7+",
+      "allowed-tools": [
+        "Bash",
+        "Read",
+        "Write"
+      ],
+      "metadata": {
+        "openclaw": {
+          "homepage": "https://github.com/dcc-mcp/dcc-mcp-core/blob/main/skills/marketplace-publish-extension/SKILL.md"
+        },
+        "dcc-mcp.dcc": "python",
+        "dcc-mcp.version": "0.18.9",
+        "dcc-mcp.layer": "infrastructure",
+        "dcc-mcp.search-hint": "publish extension, register extension, marketplace catalog, upsert catalog entry, marketplace.json, extension publishing, release to marketplace",
+        "dcc-mcp.tags": "marketplace, publishing, catalog, infrastructure",
+        "dcc-mcp.tools": "tools.yaml"
+      },
+      "dcc": "python",
+      "tags": [
+        "marketplace",
+        "publishing",
+        "catalog",
+        "infrastructure"
+      ],
+      "search-hint": "publish extension, register extension, marketplace catalog, upsert catalog entry, marketplace.json, extension publishing, release to marketplace",
+      "tools": [
+        {
+          "name": "publish",
+          "description": "Publish (register or update) an extension to a marketplace catalog. Reads the extension's SKILL.md frontmatter, builds a CatalogEntry, and upserts it into the target marketplace.json. When the catalog source is a local git repository, optionally commits and pushes the change. Returns the updated CatalogEntry and the marketplace.json path.",
+          "input_schema": {
+            "type": "object",
+            "required": [
+              "extension_dir",
+              "install_url"
+            ],
+            "properties": {
+              "extension_dir": {
+                "type": "string",
+                "description": "Absolute or relative path to the extension directory. Must contain a valid SKILL.md with dcc-mcp frontmatter metadata."
+              },
+              "marketplace_source": {
+                "type": "string",
+                "default": "dcc-mcp/marketplace",
+                "description": "Marketplace catalog source. Can be a local path to an existing marketplace.json or the directory that contains it, a GitHub slug like \"owner/repo\", or a full URL to a marketplace.json file."
+              },
+              "install_url": {
+                "type": "string",
+                "description": "Install source URL (Git repo URL, zip download URL, or local path). Written into the CatalogEntry install metadata and serialized as `source.url` for v1 marketplace catalogs."
+              },
+              "install_type": {
+                "type": "string",
+                "enum": [
+                  "git",
+                  "path",
+                  "zip"
+                ],
+                "default": "git",
+                "description": "Install source type for the CatalogEntry."
+              },
+              "install_ref": {
+                "type": "string",
+                "description": "Git revision for git-type installs. Every catalog requires a complete immutable 40-character commit object ID; branch and tag names are rejected at validation and installation boundaries."
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^(sha256:)?[0-9a-fA-F]{64}$",
+                "description": "Required archive digest for zip-type installs. The publisher and installer reject missing or malformed values before archive I/O."
+              },
+              "skill_roots": {
+                "type": "array",
+                "description": "Relative skill directories to install from the source. Repeatable CLI flag: --skill-root. Official catalogs must declare every installed root so examples and development-only skills stay out.",
+                "items": {
+                  "type": "string"
+                },
+                "default": []
+              },
+              "version": {
+                "type": "string",
+                "description": "Semantic version for the extension. Overrides the version read from SKILL.md metadata if provided."
+              },
+              "maintainer": {
+                "type": "string",
+                "description": "Extension maintainer name. Overrides the value read from SKILL.md metadata if provided."
+              },
+              "icon": {
+                "type": "string",
+                "description": "Icon path or URL for the CatalogEntry (e.g. \"icon.png\" or an absolute URL)."
+              },
+              "tags": {
+                "type": "array",
+                "description": "Additional tags to add to the CatalogEntry. Merged with tags already present in the entry and/or SKILL.md metadata.",
+                "items": {
+                  "type": "string"
+                },
+                "default": []
+              },
+              "min_core_version": {
+                "type": "string",
+                "description": "Minimum dcc-mcp-core version required by this extension. Written into the CatalogEntry `min_core_version` field and serialized as `minCoreVersion` for v1 marketplace catalogs."
+              },
+              "extension_url": {
+                "type": "string",
+                "description": "Canonical URL for the extension (homepage, docs, repo, etc.). Written into the CatalogEntry `url` field."
+              },
+              "commit": {
+                "type": "boolean",
+                "default": false,
+                "description": "When true and the marketplace_source resolves to a local git repository, stage the updated marketplace.json, commit it with a standardised message, and push to origin."
+              }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "install_type": {
+                      "const": "git"
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "install_ref"
+                  ],
+                  "properties": {
+                    "install_ref": {
+                      "pattern": "^[0-9a-fA-F]{40}$"
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "install_type": {
+                      "const": "zip"
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "sha256"
+                  ]
+                }
+              }
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "success": {
+                "type": "boolean"
+              },
+              "message": {
+                "type": "string"
+              },
+              "context": {
+                "type": "object"
+              }
+            }
+          },
+          "read_only": false,
+          "destructive": false,
+          "idempotent": false,
+          "defer-loading": false,
+          "source_file": "scripts/publish.py",
+          "next-tools": {
+            "on-success": [],
+            "on-failure": [
+              "dcc_diagnostics__audit_log"
+            ]
+          },
+          "group": "",
+          "execution": "sync",
+          "timeout_hint_secs": 60,
+          "enforce_thread_affinity": true,
+          "annotations": {
+            "read_only_hint": false,
+            "destructive_hint": false,
+            "idempotent_hint": true,
+            "open_world_hint": true,
+            "deferred_hint": false
+          }
+        }
+      ],
+      "version": "0.18.9",
+      "depends": [],
+      "scripts": [
+        "skills/marketplace-publish-extension/scripts/publish.py"
+      ],
+      "skill_path": "skills/marketplace-publish-extension",
+      "metadata_files": [],
+      "groups": [],
+      "layer": "infrastructure"
+    },
+    {
+      "name": "maya-geometry",
+      "description": "Domain skill — Maya geometry primitives: create spheres, cubes, cylinders; bevel, extrude, and merge polygon components. Use for individual geometry creation or editing operations inside Maya. Not for full asset export pipelines — use maya-pipeline for that. Not for USD scene inspection — use usd-tools for that.",
+      "license": "MIT",
+      "compatibility": "Maya 2022+, Python 3.7+",
+      "allowed-tools": [
+        "Bash",
+        "Read",
+        "Write"
+      ],
+      "metadata": {
+        "dcc-mcp.dcc": "maya",
+        "dcc-mcp.version": "1.0.0",
+        "dcc-mcp.layer": "domain",
+        "dcc-mcp.search-hint": "create sphere, create cube, bevel edges, extrude faces, polygon modeling, Maya mesh, 3D primitives, rigging joint",
+        "dcc-mcp.tags": "maya, geometry, modeling, polygon, domain",
+        "dcc-mcp.tools": "tools.yaml",
+        "dcc-mcp.groups": "groups.yaml"
+      },
+      "dcc": "maya",
+      "tags": [
+        "maya",
+        "geometry",
+        "modeling",
+        "polygon",
+        "domain"
+      ],
+      "search-hint": "create sphere, create cube, bevel edges, extrude faces, polygon modeling, Maya mesh, 3D primitives, rigging joint",
+      "tools": [
+        {
+          "name": "create_sphere",
+          "description": "Create a polygon sphere with the given radius and subdivisions",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "radius": {
+                "type": "number",
+                "description": "Sphere radius in Maya units",
+                "default": 1.0
+              },
+              "subdivisionsX": {
+                "type": "integer",
+                "description": "Subdivisions around the equator",
+                "default": 20
+              },
+              "subdivisionsY": {
+                "type": "integer",
+                "description": "Subdivisions from pole to pole",
+                "default": 20
+              }
+            }
+          },
+          "read_only": false,
+          "destructive": false,
+          "idempotent": false,
+          "defer-loading": false,
+          "source_file": "scripts/create_sphere.py",
+          "next-tools": {
+            "on-success": [
+              "maya_geometry__bevel_edges",
+              "maya_pipeline__export_usd"
+            ],
+            "on-failure": [
+              "dcc_diagnostics__screenshot",
+              "dcc_diagnostics__audit_log"
+            ]
+          },
+          "group": "modeling",
+          "execution": "sync",
+          "call_examples": [
+            {
+              "arguments": {
+                "radius": 5.0,
+                "subdivisionsX": 32,
+                "subdivisionsY": 32
+              },
+              "note": "Create a high-res sphere with 32x32 subdivisions"
+            }
+          ]
+        },
+        {
+          "name": "bevel_edges",
+          "description": "Apply bevel to selected polygon edges",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "offset": {
+                "type": "number",
+                "description": "Bevel offset distance",
+                "default": 0.1
+              },
+              "segments": {
+                "type": "integer",
+                "description": "Number of bevel segments",
+                "default": 1
+              }
+            }
+          },
+          "read_only": false,
+          "destructive": false,
+          "idempotent": false,
+          "defer-loading": false,
+          "source_file": "scripts/bevel_edges.py",
+          "next-tools": {
+            "on-success": [
+              "maya_pipeline__export_usd"
+            ],
+            "on-failure": [
+              "dcc_diagnostics__screenshot",
+              "dcc_diagnostics__audit_log"
+            ]
+          },
+          "group": "modeling",
+          "execution": "sync"
+        },
+        {
+          "name": "create_joint",
+          "description": "Create a skinning joint at the current selection (rigging group — inactive by default)",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Joint node name",
+                "default": "joint1"
+              }
+            }
+          },
+          "read_only": false,
+          "destructive": false,
+          "idempotent": false,
+          "defer-loading": false,
+          "source_file": "scripts/create_joint.py",
+          "next-tools": {
+            "on-success": [
+              "maya_geometry__create_sphere"
+            ],
+            "on-failure": [
+              "dcc_diagnostics__screenshot",
+              "dcc_diagnostics__audit_log"
+            ]
+          },
+          "group": "rigging",
+          "execution": "sync"
+        }
+      ],
+      "version": "1.0.0",
+      "depends": [],
+      "scripts": [
+        "examples/skills/maya-geometry/scripts/batch_rename.py",
+        "examples/skills/maya-geometry/scripts/create_joint.py",
+        "examples/skills/maya-geometry/scripts/create_sphere.py"
+      ],
+      "skill_path": "examples/skills/maya-geometry",
+      "metadata_files": [],
+      "groups": [
+        {
+          "name": "modeling",
+          "description": "Polygon modeling primitives and edits (always active by default)",
+          "tools": [
+            "create_sphere",
+            "bevel_edges"
+          ],
+          "default-active": true
+        },
+        {
+          "name": "rigging",
+          "description": "Skeleton and deformation tools (activate with activate_tool_group)",
+          "tools": [
+            "create_joint"
+          ],
+          "default-active": false
+        }
+      ],
+      "layer": "domain"
+    },
+    {
+      "name": "maya-pipeline",
+      "description": "Domain skill — Maya asset pipeline orchestration: set up project directory structures, export scenes to USD, and coordinate multi-step DCC workflows. Use when initialising a Maya project or exporting assets for a downstream pipeline. Not for raw geometry editing — use maya-geometry for that. Not for low-level USD file inspection — use usd-tools for that.",
+      "license": "MIT",
+      "compatibility": "Maya 2022+, Python 3.7+, requires usd-tools and maya-geometry skills",
+      "allowed-tools": [
+        "Bash",
+        "Read",
+        "Write"
+      ],
+      "metadata": {
+        "dcc-mcp.dcc": "maya",
+        "dcc-mcp.version": "2.0.0",
+        "dcc-mcp.layer": "domain",
+        "dcc-mcp.search-hint": "Maya project setup, export scene USD, asset pipeline, Maya export workflow, DCC pipeline orchestration",
+        "dcc-mcp.tags": "maya, pipeline, export, project setup, domain",
+        "dcc-mcp.tools": "tools.yaml",
+        "dcc-mcp.depends": "maya-geometry, usd-tools"
+      },
+      "dcc": "maya",
+      "tags": [
+        "maya",
+        "pipeline",
+        "export",
+        "project setup",
+        "domain"
+      ],
+      "search-hint": "Maya project setup, export scene USD, asset pipeline, Maya export workflow, DCC pipeline orchestration",
+      "tools": [
+        {
+          "name": "setup_project",
+          "description": "Create a Maya project directory structure with standard folders",
+          "input_schema": {
+            "type": "object",
+            "required": [
+              "project_path"
+            ],
+            "properties": {
+              "project_path": {
+                "type": "string",
+                "description": "Absolute path where the Maya project will be created"
+              },
+              "project_name": {
+                "type": "string",
+                "description": "Name of the Maya project"
+              }
+            }
+          },
+          "read_only": false,
+          "destructive": false,
+          "idempotent": true,
+          "defer-loading": false,
+          "source_file": "scripts/setup_project.py",
+          "next-tools": {
+            "on-success": [
+              "maya_geometry__create_sphere",
+              "maya_pipeline__export_usd"
+            ],
+            "on-failure": [
+              "dcc_diagnostics__audit_log"
+            ]
+          },
+          "group": "",
+          "execution": "sync"
+        },
+        {
+          "name": "export_usd",
+          "description": "Export the current Maya scene to a USD file",
+          "input_schema": {
+            "type": "object",
+            "required": [
+              "output_path"
+            ],
+            "properties": {
+              "output_path": {
+                "type": "string",
+                "description": "Destination USD file path (.usd, .usda, .usdz)"
+              },
+              "selection_only": {
+                "type": "boolean",
+                "description": "Export only selected objects",
+                "default": false
+              },
+              "animation": {
+                "type": "boolean",
+                "description": "Include animation data",
+                "default": true
+              }
+            }
+          },
+          "read_only": false,
+          "destructive": false,
+          "idempotent": false,
+          "defer-loading": false,
+          "source_file": "scripts/export_usd.py",
+          "next-tools": {
+            "on-success": [
+              "usd_tools__inspect",
+              "usd_tools__validate"
+            ],
+            "on-failure": [
+              "dcc_diagnostics__screenshot",
+              "dcc_diagnostics__audit_log"
+            ]
+          },
+          "group": "",
+          "execution": "sync"
+        }
+      ],
+      "version": "2.0.0",
+      "depends": [
+        "maya-geometry",
+        "usd-tools"
+      ],
+      "scripts": [
+        "examples/skills/maya-pipeline/scripts/export_usd.py",
+        "examples/skills/maya-pipeline/scripts/setup_project.py"
+      ],
+      "skill_path": "examples/skills/maya-pipeline",
+      "metadata_files": [
+        "examples/skills/maya-pipeline/metadata/depends.md",
+        "examples/skills/maya-pipeline/metadata/help.md",
+        "examples/skills/maya-pipeline/metadata/install.md",
+        "examples/skills/maya-pipeline/metadata/uninstall.md"
+      ],
+      "groups": [],
+      "layer": "domain"
+    },
+    {
+      "name": "media",
+      "description": "Infrastructure skill - DCC-agnostic media probing, transcoding, thumbnails, frame extraction, and image-sequence-to-MP4 conversion through vx-managed FFmpeg. Use when agents need to inspect or share render/playblast outputs. Not for arbitrary shell or vx execution - use typed media tools only.",
+      "license": "MIT",
+      "compatibility": "Uses vx on PATH; non-read-only media tools can bootstrap vx with the official install script.",
+      "allowed-tools": [],
+      "metadata": {
+        "dcc-mcp.dcc": "python",
+        "dcc-mcp.version": "0.1.0",
+        "dcc-mcp.layer": "infrastructure",
+        "dcc-mcp.search-hint": "media, ffmpeg, ffprobe, vx ffmpeg, image sequence, render output, playblast, mp4, transcode, extract frames, thumbnail, probe video",
+        "dcc-mcp.tags": "media, video, image-sequence, ffmpeg, ffprobe, vx, infrastructure, dcc-agnostic",
+        "dcc-mcp.tools": "tools.yaml"
+      },
+      "dcc": "python",
+      "tags": [
+        "media",
+        "video",
+        "image-sequence",
+        "ffmpeg",
+        "ffprobe",
+        "vx",
+        "infrastructure",
+        "dcc-agnostic"
+      ],
+      "search-hint": "media, ffmpeg, ffprobe, vx ffmpeg, image sequence, render output, playblast, mp4, transcode, extract frames, thumbnail, probe video",
+      "tools": [
+        {
+          "name": "probe",
+          "description": "Inspect a media file with vx-managed ffprobe and return format, stream, duration, size, codec, and frame-rate metadata. Read-only; does not modify the input.",
+          "input_schema": {
+            "type": "object",
+            "required": [
+              "input_path"
+            ],
+            "properties": {
+              "input_path": {
+                "type": "string",
+                "description": "Existing media file to inspect. Prefer an absolute path."
+              },
+              "timeout_secs": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 300,
+                "default": 30,
+                "description": "Maximum time to wait for ffprobe."
+              }
+            }
+          },
+          "read_only": true,
+          "destructive": false,
+          "idempotent": true,
+          "defer-loading": false,
+          "source_file": "scripts/probe.py",
+          "next-tools": {
+            "on-success": [],
+            "on-failure": []
+          },
+          "group": "",
+          "execution": "sync",
+          "timeout_hint_secs": 30,
+          "enforce_thread_affinity": true
+        },
+        {
+          "name": "image_stats",
+          "description": "Compute in-band image statistics — mean/min/max/stddev luma, a 16-bin luma histogram, and uniform-frame detection — for a media file (PNG, JPEG, EXR, ...) or the first frame of a video, using vx-managed ffmpeg. Flags near-black, blown-out, and blank/uniform frames without shipping pixels to the model. Read-only; does not modify the input.",
+          "input_schema": {
+            "type": "object",
+            "required": [
+              "input_path"
+            ],
+            "properties": {
+              "input_path": {
+                "type": "string",
+                "description": "Existing media file to inspect. Prefer an absolute path."
+              },
+              "sample_size": {
+                "type": "integer",
+                "minimum": 16,
+                "maximum": 4096,
+                "default": 256,
+                "description": "Square sample size used to downscale the frame before computing stats."
+              },
+              "timeout_secs": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 300,
+                "default": 30,
+                "description": "Maximum time to wait for ffmpeg."
+              }
+            }
+          },
+          "read_only": true,
+          "destructive": false,
+          "idempotent": true,
+          "defer-loading": false,
+          "source_file": "scripts/image_stats.py",
+          "next-tools": {
+            "on-success": [],
+            "on-failure": []
+          },
+          "group": "",
+          "execution": "sync",
+          "timeout_hint_secs": 30,
+          "enforce_thread_affinity": true
+        },
+        {
+          "name": "sequence_to_mp4",
+          "description": "Convert an image sequence from DCC render/playblast output into an MP4 video using vx-managed ffmpeg. Accepts either a printf-style input_pattern such as frame_%04d.png or input_dir plus frame_glob.",
+          "input_schema": {
+            "type": "object",
+            "required": [
+              "output_path"
+            ],
+            "properties": {
+              "input_pattern": {
+                "type": "string",
+                "description": "Printf-style or glob-style image sequence pattern."
+              },
+              "input_dir": {
+                "type": "string",
+                "description": "Directory containing frames when using frame_glob."
+              },
+              "frame_glob": {
+                "type": "string",
+                "default": "*.png",
+                "description": "Frame glob used with input_dir, for example frame_*.png."
+              },
+              "framerate": {
+                "type": "number",
+                "minimum": 0.001,
+                "maximum": 240,
+                "default": 24,
+                "description": "Input sequence frame rate."
+              },
+              "output_path": {
+                "type": "string",
+                "description": "Destination .mp4 path. Parent directory must exist."
+              },
+              "codec": {
+                "type": "string",
+                "enum": [
+                  "libx264",
+                  "libx265",
+                  "mpeg4"
+                ],
+                "default": "mpeg4",
+                "description": "Video codec allowlist. mpeg4 is the portable vx default."
+              },
+              "pix_fmt": {
+                "type": "string",
+                "enum": [
+                  "yuv420p",
+                  "yuv422p",
+                  "yuv444p"
+                ],
+                "default": "yuv420p",
+                "description": "Output pixel format allowlist."
+              },
+              "quality": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 51,
+                "default": 18,
+                "description": "FFmpeg quality value; libx264/libx265 use CRF, while mpeg4 maps to q:v."
+              },
+              "overwrite": {
+                "type": "boolean",
+                "default": false,
+                "description": "Set true to replace an existing output file."
+              },
+              "timeout_secs": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 3600,
+                "default": 300,
+                "description": "Maximum conversion time."
+              }
+            }
+          },
+          "read_only": false,
+          "destructive": false,
+          "idempotent": false,
+          "defer-loading": false,
+          "source_file": "scripts/sequence_to_mp4.py",
+          "next-tools": {
+            "on-success": [
+              "media__probe"
+            ],
+            "on-failure": [
+              "dcc_diagnostics__audit_log"
+            ]
+          },
+          "group": "",
+          "execution": "async",
+          "timeout_hint_secs": 300,
+          "enforce_thread_affinity": true
+        },
+        {
+          "name": "transcode",
+          "description": "Transcode a media file to another video/audio format with vx-managed ffmpeg using safe codec, pixel-format, audio, and overwrite allowlists.",
+          "input_schema": {
+            "type": "object",
+            "required": [
+              "input_path",
+              "output_path"
+            ],
+            "properties": {
+              "input_path": {
+                "type": "string",
+                "description": "Existing input media file. Prefer an absolute path."
+              },
+              "output_path": {
+                "type": "string",
+                "description": "Destination media file path. Parent directory must exist."
+              },
+              "video_codec": {
+                "type": "string",
+                "enum": [
+                  "libx264",
+                  "libx265",
+                  "mpeg4",
+                  "prores_ks",
+                  "copy"
+                ],
+                "default": "mpeg4",
+                "description": "Video codec allowlist. mpeg4 is the portable vx default."
+              },
+              "audio_codec": {
+                "type": "string",
+                "enum": [
+                  "aac",
+                  "copy",
+                  "none"
+                ],
+                "default": "aac",
+                "description": "Audio handling allowlist; none disables audio."
+              },
+              "pix_fmt": {
+                "type": "string",
+                "enum": [
+                  "yuv420p",
+                  "yuv422p",
+                  "yuv444p",
+                  "rgb24"
+                ],
+                "default": "yuv420p",
+                "description": "Output pixel format allowlist."
+              },
+              "quality": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 51,
+                "default": 18,
+                "description": "FFmpeg quality value; libx264/libx265 use CRF, while mpeg4/prores map to q:v."
+              },
+              "overwrite": {
+                "type": "boolean",
+                "default": false,
+                "description": "Set true to replace an existing output file."
+              },
+              "timeout_secs": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 3600,
+                "default": 300,
+                "description": "Maximum transcode time."
+              }
+            }
+          },
+          "read_only": false,
+          "destructive": false,
+          "idempotent": false,
+          "defer-loading": false,
+          "source_file": "scripts/transcode.py",
+          "next-tools": {
+            "on-success": [
+              "media__probe"
+            ],
+            "on-failure": [
+              "dcc_diagnostics__audit_log"
+            ]
+          },
+          "group": "",
+          "execution": "async",
+          "timeout_hint_secs": 300,
+          "enforce_thread_affinity": true
+        },
+        {
+          "name": "extract_frames",
+          "description": "Extract image frames from a video into an output directory using vx-managed ffmpeg. The output filename pattern is validated and must be a basename such as frame_%04d.png.",
+          "input_schema": {
+            "type": "object",
+            "required": [
+              "input_path",
+              "output_dir"
+            ],
+            "properties": {
+              "input_path": {
+                "type": "string",
+                "description": "Existing input media file. Prefer an absolute path."
+              },
+              "output_dir": {
+                "type": "string",
+                "description": "Directory to receive extracted frames."
+              },
+              "frame_pattern": {
+                "type": "string",
+                "default": "frame_%04d.png",
+                "description": "Output basename pattern containing a printf frame token."
+              },
+              "fps": {
+                "type": "number",
+                "minimum": 0.001,
+                "maximum": 240,
+                "description": "Optional output frames per second."
+              },
+              "overwrite": {
+                "type": "boolean",
+                "default": false,
+                "description": "Set true to replace matching existing frame files."
+              },
+              "create_output_dir": {
+                "type": "boolean",
+                "default": true,
+                "description": "Create output_dir when its parent exists."
+              },
+              "timeout_secs": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 3600,
+                "default": 300,
+                "description": "Maximum extraction time."
+              }
+            }
+          },
+          "read_only": false,
+          "destructive": false,
+          "idempotent": false,
+          "defer-loading": false,
+          "source_file": "scripts/extract_frames.py",
+          "next-tools": {
+            "on-success": [],
+            "on-failure": [
+              "dcc_diagnostics__audit_log"
+            ]
+          },
+          "group": "",
+          "execution": "async",
+          "timeout_hint_secs": 300,
+          "enforce_thread_affinity": true
+        },
+        {
+          "name": "thumbnail",
+          "description": "Extract one thumbnail image from a media file at a safe timestamp using vx-managed ffmpeg. Optionally scales to a requested width.",
+          "input_schema": {
+            "type": "object",
+            "required": [
+              "input_path",
+              "output_path"
+            ],
+            "properties": {
+              "input_path": {
+                "type": "string",
+                "description": "Existing input media file. Prefer an absolute path."
+              },
+              "output_path": {
+                "type": "string",
+                "description": "Destination thumbnail path. Parent directory must exist."
+              },
+              "time_seconds": {
+                "type": "number",
+                "minimum": 0,
+                "default": 0,
+                "description": "Timestamp in seconds."
+              },
+              "width": {
+                "type": "integer",
+                "minimum": 16,
+                "maximum": 8192,
+                "description": "Optional output width; height is preserved."
+              },
+              "quality": {
+                "type": "integer",
+                "minimum": 2,
+                "maximum": 31,
+                "default": 2,
+                "description": "FFmpeg still-image q:v value; lower is higher quality."
+              },
+              "overwrite": {
+                "type": "boolean",
+                "default": false,
+                "description": "Set true to replace an existing output image."
+              },
+              "timeout_secs": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 300,
+                "default": 30,
+                "description": "Maximum thumbnail extraction time."
+              }
+            }
+          },
+          "read_only": false,
+          "destructive": false,
+          "idempotent": false,
+          "defer-loading": false,
+          "source_file": "scripts/thumbnail.py",
+          "next-tools": {
+            "on-success": [
+              "media__probe"
+            ],
+            "on-failure": [
+              "dcc_diagnostics__audit_log"
+            ]
+          },
+          "group": "",
+          "execution": "sync",
+          "timeout_hint_secs": 30,
+          "enforce_thread_affinity": true
+        }
+      ],
+      "version": "0.1.0",
+      "depends": [],
+      "scripts": [
+        "python/dcc_mcp_core/skills/media/scripts/_media_common.py",
+        "python/dcc_mcp_core/skills/media/scripts/_media_image_stats.py",
+        "python/dcc_mcp_core/skills/media/scripts/_vx_bootstrap.py",
+        "python/dcc_mcp_core/skills/media/scripts/extract_frames.py",
+        "python/dcc_mcp_core/skills/media/scripts/image_stats.py",
+        "python/dcc_mcp_core/skills/media/scripts/probe.py",
+        "python/dcc_mcp_core/skills/media/scripts/sequence_to_mp4.py",
+        "python/dcc_mcp_core/skills/media/scripts/thumbnail.py",
+        "python/dcc_mcp_core/skills/media/scripts/transcode.py"
+      ],
+      "skill_path": "python/dcc_mcp_core/skills/media",
+      "metadata_files": [],
+      "groups": [],
+      "layer": "infrastructure"
+    },
+    {
+      "name": "mesh-ops",
+      "description": "Cross-adapter polygon modeling recipe pack for the shared cross-DCC modeling vocabulary. Structured RECIPES.yaml entries for primitive creation, hard-surface edits, topology cleanup, UV generation, radial arraying, and material assignment. Reusable by every DCC adapter's mesh-ops skill (maya, blender, houdini, 3dsmax, and custom hosts) before falling back to raw scripting.",
+      "license": "MIT",
+      "compatibility": "dcc-mcp-core 0.20.29+, Python 3.7+",
+      "allowed-tools": [
+        "Read"
+      ],
+      "metadata": {
+        "dcc-mcp.dcc": "any",
+        "dcc-mcp.layer": "domain",
+        "dcc-mcp.stage": "modeling",
+        "dcc-mcp.version": "1.0.0",
+        "dcc-mcp.tags": [
+          "modeling",
+          "mesh",
+          "polygon",
+          "topology",
+          "recipe",
+          "cross-dcc"
+        ],
+        "dcc-mcp.search-hint": "modeling recipe, mesh recipe, create primitive, bevel edges, extrude faces, inset, boolean, edge loop, merge vertices, triangulate, cleanup mesh, combine meshes, mirror, loft sections, lathe profile, radial array, auto UV, UV projection, assign material, set pivot",
+        "dcc-mcp.intent": "Look up a structured, DCC-agnostic modeling recipe before dispatching an adapter's mesh-ops tools.",
+        "dcc-mcp.side-effects": {
+          "modifies": false,
+          "creates": false,
+          "deletes": false,
+          "targets": []
+        },
+        "dcc-mcp.produces": [
+          "modeling_recipe"
+        ],
+        "dcc-mcp.requires": [],
+        "dcc-mcp.recipes": "RECIPES.yaml"
+      },
+      "dcc": "any",
+      "tags": [
+        "modeling",
+        "mesh",
+        "polygon",
+        "topology",
+        "recipe",
+        "cross-dcc"
+      ],
+      "search-hint": "modeling recipe, mesh recipe, create primitive, bevel edges, extrude faces, inset, boolean, edge loop, merge vertices, triangulate, cleanup mesh, combine meshes, mirror, loft sections, lathe profile, radial array, auto UV, UV projection, assign material, set pivot",
+      "tools": [],
+      "version": "1.0.0",
+      "depends": [],
+      "scripts": [],
+      "skill_path": "skills/mesh-ops",
+      "metadata_files": [],
+      "groups": [],
+      "layer": "domain",
+      "stage": "modeling",
+      "recipes_file": "RECIPES.yaml"
+    },
+    {
+      "name": "multi-script",
+      "description": "Example skill — demonstrates a skill with multiple script types (Python, Shell, Batch). Use as a reference when writing cross-platform skills. Not intended for production use — this is an authoring reference only.",
+      "license": "MIT",
+      "compatibility": "Python 3.7+; bash required on Linux/macOS; cmd on Windows",
+      "allowed-tools": [
+        "Bash",
+        "Read"
+      ],
+      "metadata": {
+        "dcc-mcp.dcc": "python",
+        "dcc-mcp.version": "1.0.0",
+        "dcc-mcp.layer": "example",
+        "dcc-mcp.search-hint": "multi-script, cross-platform, python shell batch, script types, authoring reference",
+        "dcc-mcp.tags": "example, multi-language, cross-platform",
+        "dcc-mcp.tools": "tools.yaml"
+      },
+      "dcc": "python",
+      "tags": [
+        "example",
+        "multi-language",
+        "cross-platform"
+      ],
+      "search-hint": "multi-script, cross-platform, python shell batch, script types, authoring reference",
+      "tools": [
+        {
+          "name": "action_python",
+          "description": "Runs the Python implementation of the action",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "message": {
+                "type": "string",
+                "description": "Message to process",
+                "default": "hello"
+              }
+            }
+          },
+          "read_only": true,
+          "destructive": false,
+          "idempotent": true,
+          "defer-loading": false,
+          "source_file": "scripts/action_python.py",
+          "next-tools": {
+            "on-success": [],
+            "on-failure": []
+          },
+          "group": "",
+          "execution": "sync"
+        },
+        {
+          "name": "action_shell",
+          "description": "Runs the Shell (bash) implementation of the action (Linux/macOS)",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "message": {
+                "type": "string",
+                "description": "Message to process",
+                "default": "hello"
+              }
+            }
+          },
+          "read_only": true,
+          "destructive": false,
+          "idempotent": true,
+          "defer-loading": false,
+          "source_file": "scripts/action_shell.sh",
+          "next-tools": {
+            "on-success": [],
+            "on-failure": []
+          },
+          "group": "",
+          "execution": "sync"
+        },
+        {
+          "name": "action_batch",
+          "description": "Runs the Batch (cmd) implementation of the action (Windows)",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "message": {
+                "type": "string",
+                "description": "Message to process",
+                "default": "hello"
+              }
+            }
+          },
+          "read_only": true,
+          "destructive": false,
+          "idempotent": true,
+          "defer-loading": false,
+          "source_file": "scripts/action_batch.bat",
+          "next-tools": {
+            "on-success": [],
+            "on-failure": []
+          },
+          "group": "",
+          "execution": "sync"
+        }
+      ],
+      "version": "1.0.0",
+      "depends": [],
+      "scripts": [
+        "examples/skills/multi-script/scripts/action_batch.bat",
+        "examples/skills/multi-script/scripts/action_python.py",
+        "examples/skills/multi-script/scripts/action_shell.sh"
+      ],
+      "skill_path": "examples/skills/multi-script",
+      "metadata_files": [],
+      "groups": [],
+      "layer": "example"
+    },
+    {
+      "name": "qt-ui-inspector",
+      "description": "Infrastructure skill — DCC-agnostic Qt UI introspection: list top-level windows, find widgets by name/class, describe widget properties, walk the widget tree, and poll for availability. Works in any DCC with a Qt binding (Maya, Blender, Houdini, Unreal, etc.). All tools are read-only and lazy-loaded.",
+      "license": "MIT",
+      "compatibility": "",
+      "allowed-tools": [],
+      "metadata": {
+        "dcc-mcp.dcc": "python",
+        "dcc-mcp.version": "\\\"1.0.0\\\"",
+        "dcc-mcp.layer": "infrastructure",
+        "dcc-mcp.search-hint": "\\\"qt ui, qt widgets, gui introspection, find widget, describe widget, list windows, snapshot tree, wait for widget, PySide, PyQt, qtpy\\\"",
+        "dcc-mcp.tags": "\\\"qt, ui, introspection, infrastructure, gui\\\"",
+        "dcc-mcp.tools": "tools.yaml"
+      },
+      "dcc": "python",
+      "tags": [
+        "\\\"qt",
+        "ui",
+        "introspection",
+        "infrastructure",
+        "gui\\\""
+      ],
+      "search-hint": "\\\"qt ui, qt widgets, gui introspection, find widget, describe widget, list windows, snapshot tree, wait for widget, PySide, PyQt, qtpy\\\"",
+      "tools": [
+        {
+          "name": "list_windows",
+          "description": "\\\"List every top-level Qt window with object name, class, visibility, geometry, and child count.\\\"",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "include_hidden": {
+                "type": "boolean",
+                "default": false
+              },
+              "max_results": {
+                "type": "integer",
+                "default": 64,
+                "minimum": 1,
+                "maximum": 256
+              }
+            }
+          },
+          "read_only": true,
+          "destructive": false,
+          "idempotent": false,
+          "defer-loading": false,
+          "source_file": "scripts/list_windows.py",
+          "next-tools": {
+            "on-success": [],
+            "on-failure": []
+          },
+          "group": "",
+          "execution": "sync"
+        },
+        {
+          "name": "find_widgets",
+          "description": "\\\"Locate Qt widgets by object name (exact/substring/regex), class name, and visibility. Bounded result count.\\\"",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "object_name": {
+                "type": "string"
+              },
+              "object_name_match": {
+                "type": "string",
+                "enum": [
+                  "exact",
+                  "substring",
+                  "regex"
+                ],
+                "default": "exact"
+              },
+              "class_name": {
+                "type": "string"
+              },
+              "visible_only": {
+                "type": "boolean",
+                "default": true
+              },
+              "max_results": {
+                "type": "integer",
+                "default": 64,
+                "minimum": 1,
+                "maximum": 1024
+              }
+            }
+          },
+          "read_only": true,
+          "destructive": false,
+          "idempotent": false,
+          "defer-loading": false,
+          "source_file": "scripts/find_widgets.py",
+          "next-tools": {
+            "on-success": [],
+            "on-failure": []
+          },
+          "group": "",
+          "execution": "sync"
+        },
+        {
+          "name": "describe_widget",
+          "description": "\\\"Return a single Qt widget's structured state - class, geometry, flags, accessible name/description, bounded property snapshot.\\\"",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "widget_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "widget_id"
+            ]
+          },
+          "read_only": true,
+          "destructive": false,
+          "idempotent": false,
+          "defer-loading": false,
+          "source_file": "scripts/describe_widget.py",
+          "next-tools": {
+            "on-success": [],
+            "on-failure": []
+          },
+          "group": "",
+          "execution": "sync"
+        },
+        {
+          "name": "snapshot_tree",
+          "description": "\\\"Walk the Qt widget tree under a root and return it as a JSON-safe tree with depth and node-count budgets.\\\"",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "root_widget_id": {
+                "type": "string"
+              },
+              "max_depth": {
+                "type": "integer",
+                "default": 4,
+                "minimum": 0,
+                "maximum": 16
+              },
+              "max_nodes": {
+                "type": "integer",
+                "default": 256,
+                "minimum": 1,
+                "maximum": 4096
+              }
+            }
+          },
+          "read_only": true,
+          "destructive": false,
+          "idempotent": false,
+          "defer-loading": false,
+          "source_file": "scripts/snapshot_tree.py",
+          "next-tools": {
+            "on-success": [],
+            "on-failure": []
+          },
+          "group": "",
+          "execution": "sync"
+        },
+        {
+          "name": "wait_for_widget",
+          "description": "\\\"Poll for a Qt widget by name/class with visible/enabled gates and bounded timeout.\\\"",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "object_name": {
+                "type": "string"
+              },
+              "class_name": {
+                "type": "string"
+              },
+              "visible": {
+                "type": "boolean",
+                "default": true
+              },
+              "enabled": {
+                "type": "boolean",
+                "default": true
+              },
+              "timeout_ms": {
+                "type": "integer",
+                "default": 5000,
+                "minimum": 0,
+                "maximum": 60000
+              },
+              "poll_interval_ms": {
+                "type": "integer",
+                "default": 100,
+                "minimum": 25
+              }
+            }
+          },
+          "read_only": true,
+          "destructive": false,
+          "idempotent": false,
+          "defer-loading": false,
+          "source_file": "scripts/wait_for_widget.py",
+          "next-tools": {
+            "on-success": [],
+            "on-failure": []
+          },
+          "group": "",
+          "execution": "sync"
+        }
+      ],
+      "version": "\\\"1.0.0\\\"",
+      "depends": [],
+      "scripts": [
+        "python/dcc_mcp_core/skills/qt-ui-inspector/scripts/describe_widget.py",
+        "python/dcc_mcp_core/skills/qt-ui-inspector/scripts/find_widgets.py",
+        "python/dcc_mcp_core/skills/qt-ui-inspector/scripts/list_windows.py",
+        "python/dcc_mcp_core/skills/qt-ui-inspector/scripts/snapshot_tree.py",
+        "python/dcc_mcp_core/skills/qt-ui-inspector/scripts/wait_for_widget.py"
+      ],
+      "skill_path": "python/dcc_mcp_core/skills/qt-ui-inspector",
+      "metadata_files": [],
+      "groups": [],
+      "layer": "infrastructure"
+    },
+    {
+      "name": "spatial-interchange",
+      "description": "Plan deterministic coordinate-axis and unit conversions between DCCs, engines, and interchange formats from explicit right/up/forward axes and meters-per-unit values.",
+      "license": "MIT",
+      "compatibility": "dcc-mcp-core 0.19.91+, Python 3.7+",
+      "allowed-tools": [],
+      "metadata": {
+        "dcc-mcp.dcc": "python",
+        "dcc-mcp.layer": "infrastructure",
+        "dcc-mcp.stage": "interchange",
+        "dcc-mcp.version": "1.0.0",
+        "dcc-mcp.tags": [
+          "pipeline",
+          "read-only",
+          "spatial",
+          "interchange"
+        ],
+        "dcc-mcp.search-hint": "coordinate conversion, axis conversion, unit conversion, handedness, DCC interchange, up axis, forward axis, meters per unit",
+        "dcc-mcp.intent": "Plan an auditable axis and unit conversion before importing or exporting DCC data.",
+        "dcc-mcp.side-effects": {
+          "creates": false,
+          "modifies": false,
+          "file_output": false,
+          "targets": []
+        },
+        "dcc-mcp.produces": [
+          "spatial_conversion_plan"
+        ],
+        "dcc-mcp.requires": [],
+        "dcc-mcp.tools": "tools.yaml",
+        "dcc-mcp.skill-reference-docs": [
+          "references/*.md"
+        ]
+      },
+      "dcc": "python",
+      "tags": [
+        "pipeline",
+        "read-only",
+        "spatial",
+        "interchange"
+      ],
+      "search-hint": "coordinate conversion, axis conversion, unit conversion, handedness, DCC interchange, up axis, forward axis, meters per unit",
+      "tools": [
+        {
+          "name": "plan_conversion",
+          "description": "Plan a source-to-target spatial conversion from explicit signed axes and meters per unit.",
+          "input_schema": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "source",
+              "target"
+            ],
+            "properties": {
+              "source": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "right",
+                  "up",
+                  "forward",
+                  "meters_per_unit"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "right": {
+                    "type": "string",
+                    "enum": [
+                      "+X",
+                      "-X",
+                      "+Y",
+                      "-Y",
+                      "+Z",
+                      "-Z"
+                    ]
+                  },
+                  "up": {
+                    "type": "string",
+                    "enum": [
+                      "+X",
+                      "-X",
+                      "+Y",
+                      "-Y",
+                      "+Z",
+                      "-Z"
+                    ]
+                  },
+                  "forward": {
+                    "type": "string",
+                    "enum": [
+                      "+X",
+                      "-X",
+                      "+Y",
+                      "-Y",
+                      "+Z",
+                      "-Z"
+                    ]
+                  },
+                  "meters_per_unit": {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  }
+                }
+              },
+              "target": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "right",
+                  "up",
+                  "forward",
+                  "meters_per_unit"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "right": {
+                    "type": "string",
+                    "enum": [
+                      "+X",
+                      "-X",
+                      "+Y",
+                      "-Y",
+                      "+Z",
+                      "-Z"
+                    ]
+                  },
+                  "up": {
+                    "type": "string",
+                    "enum": [
+                      "+X",
+                      "-X",
+                      "+Y",
+                      "-Y",
+                      "+Z",
+                      "-Z"
+                    ]
+                  },
+                  "forward": {
+                    "type": "string",
+                    "enum": [
+                      "+X",
+                      "-X",
+                      "+Y",
+                      "-Y",
+                      "+Z",
+                      "-Z"
+                    ]
+                  },
+                  "meters_per_unit": {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  }
+                }
+              },
+              "sample_point": {
+                "type": "array",
+                "minItems": 3,
+                "maxItems": 3,
+                "items": {
+                  "type": "number"
+                },
+                "description": "Optional source-space point to convert as a landmark check."
+              }
+            }
+          },
+          "output_schema": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": [
+              "success",
+              "message",
+              "context"
+            ],
+            "properties": {
+              "success": {
+                "type": "boolean"
+              },
+              "message": {
+                "type": "string"
+              },
+              "context": {
+                "type": "object",
+                "additionalProperties": true,
+                "required": [
+                  "source",
+                  "target",
+                  "axis_matrix",
+                  "position_scale",
+                  "position_matrix",
+                  "determinant",
+                  "orientation_reversing",
+                  "mesh_winding",
+                  "requires_tangent_handedness_flip",
+                  "matrix_convention"
+                ],
+                "properties": {
+                  "source": {
+                    "type": "object"
+                  },
+                  "target": {
+                    "type": "object"
+                  },
+                  "axis_matrix": {
+                    "type": "array",
+                    "minItems": 3,
+                    "maxItems": 3,
+                    "items": {
+                      "type": "array",
+                      "minItems": 3,
+                      "maxItems": 3,
+                      "items": {
+                        "type": "number"
+                      }
+                    }
+                  },
+                  "position_scale": {
+                    "type": "number"
+                  },
+                  "position_matrix": {
+                    "type": "array",
+                    "minItems": 4,
+                    "maxItems": 4,
+                    "items": {
+                      "type": "array",
+                      "minItems": 4,
+                      "maxItems": 4,
+                      "items": {
+                        "type": "number"
+                      }
+                    }
+                  },
+                  "determinant": {
+                    "type": "number"
+                  },
+                  "orientation_reversing": {
+                    "type": "boolean"
+                  },
+                  "mesh_winding": {
+                    "type": "string",
+                    "enum": [
+                      "preserve",
+                      "reverse"
+                    ]
+                  },
+                  "requires_tangent_handedness_flip": {
+                    "type": "boolean"
+                  },
+                  "matrix_convention": {
+                    "type": "string"
+                  },
+                  "converted_sample_point": {
+                    "type": "array",
+                    "minItems": 3,
+                    "maxItems": 3,
+                    "items": {
+                      "type": "number"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "read_only": true,
+          "destructive": false,
+          "idempotent": true,
+          "defer-loading": false,
+          "source_file": "scripts/plan_conversion.py",
+          "next-tools": {
+            "on-success": [],
+            "on-failure": []
+          },
+          "group": "",
+          "execution": "sync",
+          "timeout_hint_secs": 0,
+          "enforce_thread_affinity": true,
+          "annotations": {
+            "read_only_hint": true,
+            "destructive_hint": false,
+            "idempotent_hint": true,
+            "open_world_hint": false
+          },
+          "call_examples": [
+            {
+              "arguments": {
+                "source": {
+                  "name": "Blender model space",
+                  "right": "-X",
+                  "up": "+Z",
+                  "forward": "-Y",
+                  "meters_per_unit": 1.0
+                },
+                "target": {
+                  "name": "glTF 2.0",
+                  "right": "-X",
+                  "up": "+Y",
+                  "forward": "+Z",
+                  "meters_per_unit": 1.0
+                },
+                "sample_point": [
+                  1,
+                  2,
+                  3
+                ]
+              },
+              "note": "Plan Blender model-space axes to glTF and convert one landmark point."
+            },
+            {
+              "arguments": {
+                "source": {
+                  "name": "Unity",
+                  "right": "+X",
+                  "up": "+Y",
+                  "forward": "+Z",
+                  "meters_per_unit": 1.0
+                },
+                "target": {
+                  "name": "Unreal Engine",
+                  "right": "+Y",
+                  "up": "+Z",
+                  "forward": "+X",
+                  "meters_per_unit": 0.01
+                }
+              },
+              "note": "Plan Unity-to-Unreal axes and meter-to-centimeter position scaling."
+            }
+          ]
+        }
+      ],
+      "version": "1.0.0",
+      "depends": [],
+      "scripts": [
+        "skills/spatial-interchange/scripts/plan_conversion.py"
+      ],
+      "skill_path": "skills/spatial-interchange",
+      "metadata_files": [],
+      "groups": [],
+      "layer": "infrastructure",
+      "stage": "interchange"
+    },
+    {
+      "name": "typed-schema-demo",
+      "description": "Example skill — demonstrates zero-dependency JSON Schema derivation from Python dataclasses and type annotations (issue #242). Use as a reference when authoring typed handlers that should publish inputSchema / outputSchema without hand-writing JSON. Not intended for production use.",
+      "license": "MIT",
+      "compatibility": "Python 3.10+",
+      "allowed-tools": [],
+      "metadata": {
+        "dcc-mcp.dcc": "python",
+        "dcc-mcp.version": "1.0.0",
+        "dcc-mcp.layer": "example",
+        "dcc-mcp.search-hint": "structured schema, dataclass, json schema, inputSchema, outputSchema, typed handler, pydantic-free",
+        "dcc-mcp.tags": "example, schema, structured"
+      },
+      "dcc": "python",
+      "tags": [
+        "example",
+        "schema",
+        "structured"
+      ],
+      "search-hint": "structured schema, dataclass, json schema, inputSchema, outputSchema, typed handler, pydantic-free",
+      "tools": [],
+      "version": "1.0.0",
+      "depends": [],
+      "scripts": [
+        "examples/skills/typed-schema-demo/scripts/demo.py"
+      ],
+      "skill_path": "examples/skills/typed-schema-demo",
+      "metadata_files": [],
+      "groups": [],
+      "layer": "example"
+    },
+    {
+      "name": "ui-control",
+      "description": "Infrastructure skill for application UI observation, scoped action, waits, and CUA trajectory recording when a typed DCC tool cannot expose the needed interface. Use this skill when the user asks for CUA, UI Control, dcc-cua, or application UI automation in a DCC. Prefer typed DCC tools first and CDP for browsers; use the standalone dcc-cua backend for native applications.",
+      "license": "MIT",
+      "compatibility": "dcc-cua 0.4.0+, Python 3.7+",
+      "allowed-tools": [],
+      "metadata": {
+        "dcc-mcp.dcc": "python",
+        "dcc-mcp.version": "0.5.0",
+        "dcc-mcp.layer": "infrastructure",
+        "dcc-mcp.search-hint": "dcc ui control, ui control, UI Control, cua, CUA, dcc-cua, dcc cua, computer use, ui automation, chrome cdp, edge cdp, screenshot, click, type, keypress, scroll, wait, trajectory recording",
+        "dcc-mcp.tags": "ui-control, cua, dcc-cua, computer-use, ui-automation, chrome-cdp, diagnostics, infrastructure",
+        "dcc-mcp.tools": "tools.yaml"
+      },
+      "dcc": "python",
+      "tags": [
+        "ui-control",
+        "cua",
+        "dcc-cua",
+        "computer-use",
+        "ui-automation",
+        "chrome-cdp",
+        "diagnostics",
+        "infrastructure"
+      ],
+      "search-hint": "dcc ui control, ui control, UI Control, cua, CUA, dcc-cua, dcc cua, computer use, ui automation, chrome cdp, edge cdp, screenshot, click, type, keypress, scroll, wait, trajectory recording",
+      "tools": [
+        {
+          "name": "snapshot",
+          "description": "Capture a bounded ui_control snapshot from the scoped application window. Start here before UI actions; use the returned snapshot_id when acting so stale controls can be detected. On Windows, DccServerBase automatically supplies its trusted adapter PID/HWND/title context. Dedicated servers can bind the DCC through DCC_MCP_UI_CONTROL_PROCESS_ID or DCC_MCP_UI_CONTROL_WINDOW_HANDLE. A request title can narrow a trusted PID to one window, and all request scope can only narrow the binding. A locked, disconnected, or secure Windows desktop returns desktop_unavailable without ending the logical session. After unlock, discard old ids and take a fresh snapshot to restore the capsule. Coordinates belong only to this adapter host and DCC logon session; RDP/session or monitor topology, resolution, and DPI changes require a fresh snapshot. A bounded target may span monitors whose virtual-desktop origins are negative or whose DPI differs; action coordinates remain PNG-relative.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "session_id": {
+                "type": "string",
+                "description": "ui_control session id. Defaults to 'default'."
+              },
+              "process_id": {
+                "type": "integer",
+                "description": "Process id that owns the scoped application window."
+              },
+              "window_handle": {
+                "type": "integer",
+                "description": "Native handle of the scoped application window."
+              },
+              "window_title": {
+                "type": "string",
+                "description": "Title substring for the scoped application window."
+              },
+              "process_name": {
+                "type": "string",
+                "description": "Process name used to resolve the scoped application window."
+              },
+              "resume_computer_use": {
+                "type": "boolean",
+                "default": false,
+                "description": "Explicitly resume native DCC UI Control after the user stopped a session with Esc. Agents must leave this false unless the user asks to resume control."
+              },
+              "policy": {
+                "type": "object",
+                "description": "Optional ui_control policy override for this call."
+              }
+            }
+          },
+          "read_only": false,
+          "destructive": false,
+          "idempotent": false,
+          "defer-loading": false,
+          "source_file": "scripts/snapshot.py",
+          "requires_in_process": true,
+          "next-tools": {
+            "on-success": [
+              "ui_control__find",
+              "ui_control__act",
+              "ui_control__stop_computer_use"
+            ],
+            "on-failure": []
+          },
+          "group": "",
+          "execution": "sync",
+          "enforce_thread_affinity": true,
+          "annotations": {
+            "read_only_hint": false,
+            "destructive_hint": false,
+            "idempotent_hint": false,
+            "open_world_hint": false
+          }
+        },
+        {
+          "name": "recording_start",
+          "description": "Start CUA trajectory recording for the exact application session. The output directory must be absolute and is passed to the standalone CUA Host. Continue with scoped UI actions, then call recording_stop. Set record_video when the installed CUA driver should capture video evidence.",
+          "input_schema": {
+            "type": "object",
+            "required": [
+              "output_dir"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "session_id": {
+                "type": "string",
+                "description": "ui_control session id. Defaults to 'default'."
+              },
+              "process_id": {
+                "type": "integer",
+                "description": "Process id that owns the operator-bound exact window."
+              },
+              "window_handle": {
+                "type": "integer",
+                "description": "Native handle of the operator-bound exact window."
+              },
+              "window_title": {
+                "type": "string",
+                "description": "Title constraint that may only narrow the operator-bound scope."
+              },
+              "process_name": {
+                "type": "string",
+                "description": "Process-name constraint that may only narrow the operator-bound scope."
+              },
+              "output_dir": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096,
+                "description": "Absolute destination owned by this task grant."
+              },
+              "record_video": {
+                "type": "boolean",
+                "default": false,
+                "description": "Ask the CUA driver to include video evidence."
+              },
+              "policy": {
+                "type": "object",
+                "description": "Optional ui_control policy override for this call."
+              }
+            }
+          },
+          "read_only": false,
+          "destructive": false,
+          "idempotent": false,
+          "defer-loading": false,
+          "source_file": "scripts/recording_start.py",
+          "requires_in_process": true,
+          "next-tools": {
+            "on-success": [
+              "ui_control__act",
+              "ui_control__recording_state",
+              "ui_control__recording_stop"
+            ],
+            "on-failure": []
+          },
+          "group": "",
+          "execution": "sync",
+          "enforce_thread_affinity": true,
+          "annotations": {
+            "read_only_hint": false,
+            "destructive_hint": false,
+            "idempotent_hint": false,
+            "open_world_hint": false
+          }
+        },
+        {
+          "name": "recording_state",
+          "description": "Read the current CUA trajectory recording state for this exact application session.",
+          "input_schema": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "session_id": {
+                "type": "string",
+                "description": "ui_control session id. Defaults to 'default'."
+              },
+              "policy": {
+                "type": "object",
+                "description": "Optional ui_control policy override for this call."
+              }
+            }
+          },
+          "read_only": true,
+          "destructive": false,
+          "idempotent": true,
+          "defer-loading": false,
+          "source_file": "scripts/recording_state.py",
+          "requires_in_process": true,
+          "next-tools": {
+            "on-success": [
+              "ui_control__act",
+              "ui_control__recording_stop"
+            ],
+            "on-failure": []
+          },
+          "group": "",
+          "execution": "sync",
+          "enforce_thread_affinity": true,
+          "annotations": {
+            "read_only_hint": true,
+            "destructive_hint": false,
+            "idempotent_hint": true,
+            "open_world_hint": false
+          }
+        },
+        {
+          "name": "recording_stop",
+          "description": "Finalize CUA trajectory recording for this exact application session. Preserve the finalized output directory and structured recording state.",
+          "input_schema": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "session_id": {
+                "type": "string",
+                "description": "ui_control session id. Defaults to 'default'."
+              },
+              "policy": {
+                "type": "object",
+                "description": "Optional ui_control policy override for this call."
+              }
+            }
+          },
+          "read_only": false,
+          "destructive": false,
+          "idempotent": false,
+          "defer-loading": false,
+          "source_file": "scripts/recording_stop.py",
+          "requires_in_process": true,
+          "next-tools": {
+            "on-success": [
+              "ui_control__stop_computer_use"
+            ],
+            "on-failure": []
+          },
+          "group": "",
+          "execution": "sync",
+          "enforce_thread_affinity": true,
+          "annotations": {
+            "read_only_hint": false,
+            "destructive_hint": false,
+            "idempotent_hint": false,
+            "open_world_hint": false
+          }
+        },
+        {
+          "name": "find",
+          "description": "Locate controls in the scoped ui_control snapshot by query, role, label, or object name. Returns normalized UiControlNode matches. Native CUA pauses with desktop_unavailable while the interactive desktop is locked, disconnected, or secure.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "session_id": {
+                "type": "string",
+                "description": "ui_control session id. Defaults to 'default'."
+              },
+              "process_id": {
+                "type": "integer",
+                "description": "Process id that owns the scoped application window."
+              },
+              "window_handle": {
+                "type": "integer",
+                "description": "Native handle of the scoped application window."
+              },
+              "window_title": {
+                "type": "string",
+                "description": "Title substring for the scoped application window."
+              },
+              "process_name": {
+                "type": "string",
+                "description": "Process name used to resolve the scoped application window."
+              },
+              "query": {
+                "type": "string",
+                "description": "Text query matched against id, label, text, value, and object_name."
+              },
+              "role": {
+                "type": "string",
+                "description": "Control role filter, for example button, text_field, checkbox, or label."
+              },
+              "label": {
+                "type": "string",
+                "description": "Exact or case-insensitive label filter."
+              },
+              "object_name": {
+                "type": "string",
+                "description": "Host object/control name filter."
+              },
+              "limit": {
+                "type": "integer",
+                "description": "Maximum matches to return.",
+                "default": 10
+              },
+              "policy": {
+                "type": "object",
+                "description": "Optional ui_control policy override for this call."
+              }
+            }
+          },
+          "read_only": true,
+          "destructive": false,
+          "idempotent": true,
+          "defer-loading": false,
+          "source_file": "scripts/find.py",
+          "requires_in_process": true,
+          "next-tools": {
+            "on-success": [
+              "ui_control__act",
+              "ui_control__wait_for"
+            ],
+            "on-failure": []
+          },
+          "group": "",
+          "execution": "sync",
+          "timeout_hint_secs": 2,
+          "enforce_thread_affinity": true,
+          "annotations": {
+            "read_only_hint": true,
+            "destructive_hint": false,
+            "idempotent_hint": true,
+            "open_world_hint": false
+          }
+        },
+        {
+          "name": "act",
+          "description": "Perform one scoped semantic or DCC UI Control action. Supports control ids, snapshot coordinates, pointer paths, text, and key presses where the selected backend supports them. Request policy may narrow or deny raw input. Every Windows mutation requires an adapter/operator-bound PID/HWND so the visible capsule and user interruption monitor cover semantic UIA as well as raw input. Raw input is enabled by default inside that exact bound scope and can be disabled with DCC_MCP_CUA_ALLOW_RAW_INPUT=false. Windows hard-denies raw type: enter non-sensitive text only through semantic set_text with an exact control_id. Passwords, authentication codes, and other credential material require a user hand-off or a host-owned secure credential flow. The type action is backend-specific to mock/CDP and is not a portable Windows action. Windows keypress rejects ordinary printable, Shift-text, and AltGr-text input; use only navigation/control/function keys or genuine Ctrl/Alt shortcuts. Windows game_navigation is the separately governed game-canvas path: it accepts up to four simultaneous supported canvas keys or `+` chords and an optional 0..500 ms hold, while preserving the existing raw-text denial. For application menu bars, invoke_menu resolves an explicit native menu_path inside the exact bound window. Prefer it when semantic menu clicks or Alt mnemonics cannot prove that a Qt popup opened; it never guesses pixels and always requires a fresh snapshot for verification. For a custom-drawn DCC canvas or face control that has no semantic node, use a path from the latest snapshot for one drag; Ctrl, Shift, and Alt in keys are held as pointer modifiers. Snapshot again immediately afterward. get_window_state, restore_window, show_window, and activate_window are recovery operations for the same host-bound PID/HWND and do not require a prior snapshot. They cannot enumerate or target another process/window; restore/show/activate invalidate any prior snapshot and are audited. desktop_unavailable means no Windows UI input was sent; keep the logical session, stop issuing UI calls, and ask the user to unlock or reconnect. Take a fresh snapshot only after that happens. Never use coordinates from the gateway, another host, or another logon session.",
+          "input_schema": {
+            "type": "object",
+            "required": [
+              "action"
+            ],
+            "properties": {
+              "session_id": {
+                "type": "string",
+                "description": "ui_control session id. Defaults to 'default'."
+              },
+              "process_id": {
+                "type": "integer",
+                "description": "Process id that owns the scoped application window."
+              },
+              "window_handle": {
+                "type": "integer",
+                "description": "Native handle of the scoped application window."
+              },
+              "window_title": {
+                "type": "string",
+                "description": "Title substring for the scoped application window."
+              },
+              "process_name": {
+                "type": "string",
+                "description": "Process name used to resolve the scoped application window."
+              },
+              "control_id": {
+                "type": "string",
+                "description": "Optional control id returned by ui_control__snapshot or ui_control__find."
+              },
+              "action": {
+                "type": "string",
+                "enum": [
+                  "click",
+                  "move",
+                  "double_click",
+                  "scroll",
+                  "drag",
+                  "raw_coordinate_click",
+                  "type",
+                  "keypress",
+                  "game_navigation",
+                  "set_text",
+                  "toggle",
+                  "set_checked",
+                  "select_option",
+                  "focus",
+                  "keyboard_shortcut",
+                  "invoke_menu",
+                  "get_window_state",
+                  "restore_window",
+                  "show_window",
+                  "activate_window"
+                ],
+                "description": "Action kind to perform. type is backend-specific to mock/CDP and is hard denied by the Windows backend; use semantic set_text with an exact control_id for non-sensitive Windows text entry. Windows keypress cannot synthesize ordinary printable text. game_navigation accepts up to four simultaneous supported keys for a non-editable DCC or game canvas; it is not a text-entry action. invoke_menu uses menu_path and does not require a prior snapshot."
+              },
+              "intent": {
+                "type": "string",
+                "enum": [
+                  "observe",
+                  "activate",
+                  "navigate",
+                  "ordinary_edit",
+                  "login_or_permission",
+                  "upload",
+                  "move_or_rename",
+                  "transmit_sensitive_data",
+                  "delete_or_overwrite",
+                  "install_or_execute_download",
+                  "financial_transaction",
+                  "account_or_access_change",
+                  "external_communication",
+                  "terminal_or_run_dialog",
+                  "credential_or_authentication",
+                  "windows_security_or_privacy",
+                  "safety_bypass",
+                  "password_change",
+                  "escape_scope"
+                ],
+                "description": "Consequence classification hint. It can only raise the native host policy tier; host UIA/target/input classification remains authoritative."
+              },
+              "text": {
+                "type": "string",
+                "maxLength": 4096,
+                "description": "Non-sensitive text for semantic set_text with an exact control_id, or backend-specific mock/CDP type. Windows hard-denies raw type; passwords and authentication data require secure user/host hand-off."
+              },
+              "checked": {
+                "type": "boolean",
+                "description": "Explicit checked state for set_checked."
+              },
+              "x": {
+                "type": "number",
+                "description": "Horizontal coordinate in the latest screenshot from this adapter host/session."
+              },
+              "y": {
+                "type": "number",
+                "description": "Vertical coordinate in the latest screenshot from this adapter host/session."
+              },
+              "button": {
+                "type": "string",
+                "description": "Mouse button, such as left, middle, or right."
+              },
+              "scroll_x": {
+                "type": "integer",
+                "minimum": -2147483648,
+                "maximum": 2147483647,
+                "description": "Horizontal wheel delta; positive scrolls right and negative scrolls left."
+              },
+              "scroll_y": {
+                "type": "integer",
+                "minimum": -2147483648,
+                "maximum": 2147483647,
+                "description": "Vertical wheel delta; positive scrolls down and negative scrolls up."
+              },
+              "path": {
+                "type": "array",
+                "minItems": 2,
+                "maxItems": 256,
+                "description": "Ordered points from the latest screenshot on this adapter host/session. Use for custom-drawn controls only when semantic lookup fails; one native action consumes this observation.",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "x",
+                    "y"
+                  ],
+                  "properties": {
+                    "x": {
+                      "type": "number"
+                    },
+                    "y": {
+                      "type": "number"
+                    }
+                  }
+                }
+              },
+              "keys": {
+                "type": "array",
+                "maxItems": 16,
+                "description": "Windows keypress accepts navigation/control/function keys or genuine Ctrl/Alt shortcuts; Ctrl/Shift/Alt may also modify pointer actions. game_navigation accepts up to four simultaneous canvas keys, including letters, digits, modifiers, navigation, and F1-F24.",
+                "items": {
+                  "type": "string",
+                  "maxLength": 32
+                }
+              },
+              "menu_path": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 16,
+                "description": "Exact top-to-leaf native application menu labels for invoke_menu. Missing or ambiguous levels fail closed. Take a fresh snapshot and verify the popup or resulting application state after invocation.",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                }
+              },
+              "duration_ms": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 60000,
+                "description": "Optional drag duration, or visible system-cursor travel plus pointer-effect dwell for a non-drag pointer action, in milliseconds. For game_navigation it is an optional key hold and must be between 0 and 500 ms."
+              },
+              "snapshot_id": {
+                "type": "string",
+                "description": "Snapshot id from observation. A stale semantic control returns stale_control; stale native coordinates return stale_observation. Display topology, resolution, or DPI changes require a new id."
+              },
+              "policy": {
+                "type": "object",
+                "description": "Optional ui_control policy override for this call."
+              }
+            }
+          },
+          "read_only": false,
+          "destructive": false,
+          "idempotent": false,
+          "defer-loading": false,
+          "source_file": "scripts/act.py",
+          "requires_in_process": true,
+          "next-tools": {
+            "on-success": [
+              "ui_control__wait_for",
+              "ui_control__snapshot",
+              "ui_control__stop_computer_use"
+            ],
+            "on-failure": []
+          },
+          "group": "",
+          "execution": "sync",
+          "timeout_hint_secs": 130,
+          "enforce_thread_affinity": true,
+          "annotations": {
+            "read_only_hint": false,
+            "destructive_hint": true,
+            "idempotent_hint": false,
+            "open_world_hint": false
+          }
+        },
+        {
+          "name": "stop_computer_use",
+          "description": "Stop the native DCC UI Control session for one ui_control session id, remove its visible corner brackets/capsule, release the global input owner, and invalidate the latest observation. This remains safe while the desktop is unavailable and does not clear a Esc interruption latch.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "session_id": {
+                "type": "string",
+                "description": "ui_control session id. Defaults to 'default'."
+              }
+            }
+          },
+          "read_only": false,
+          "destructive": false,
+          "idempotent": true,
+          "defer-loading": false,
+          "source_file": "scripts/stop_computer_use.py",
+          "requires_in_process": true,
+          "next-tools": {
+            "on-success": [],
+            "on-failure": []
+          },
+          "group": "",
+          "execution": "sync",
+          "enforce_thread_affinity": true,
+          "annotations": {
+            "read_only_hint": false,
+            "destructive_hint": false,
+            "idempotent_hint": true,
+            "open_world_hint": false
+          }
+        },
+        {
+          "name": "wait_for",
+          "description": "Poll the scoped UI inside one tool call until a condition becomes true or times out. Use after ui_control__act before verifying with snapshot. A Windows lock, disconnect, or secure desktop pauses live UIA and returns desktop_unavailable; do not poll the lock screen.",
+          "input_schema": {
+            "type": "object",
+            "required": [
+              "condition"
+            ],
+            "properties": {
+              "session_id": {
+                "type": "string",
+                "description": "ui_control session id. Defaults to 'default'."
+              },
+              "process_id": {
+                "type": "integer",
+                "description": "Process id that owns the scoped application window."
+              },
+              "window_handle": {
+                "type": "integer",
+                "description": "Native handle of the scoped application window."
+              },
+              "window_title": {
+                "type": "string",
+                "description": "Title substring for the scoped application window."
+              },
+              "process_name": {
+                "type": "string",
+                "description": "Process name used to resolve the scoped application window."
+              },
+              "condition": {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "control_exists",
+                      "control_missing",
+                      "text_equals",
+                      "value_equals",
+                      "checked_equals",
+                      "enabled",
+                      "disabled",
+                      "focused"
+                    ]
+                  },
+                  "control_id": {
+                    "type": "string"
+                  },
+                  "query": {
+                    "type": "string"
+                  },
+                  "role": {
+                    "type": "string"
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "text": {
+                    "type": "string"
+                  },
+                  "value": {
+                    "type": "string"
+                  },
+                  "checked": {
+                    "type": "boolean"
+                  },
+                  "timeout_ms": {
+                    "type": "integer",
+                    "default": 5000,
+                    "minimum": 0,
+                    "maximum": 60000
+                  },
+                  "interval_ms": {
+                    "type": "integer",
+                    "default": 100
+                  }
+                }
+              },
+              "policy": {
+                "type": "object",
+                "description": "Optional ui_control policy override for this call."
+              }
+            }
+          },
+          "read_only": true,
+          "destructive": false,
+          "idempotent": false,
+          "defer-loading": false,
+          "source_file": "scripts/wait_for.py",
+          "requires_in_process": true,
+          "next-tools": {
+            "on-success": [
+              "ui_control__snapshot",
+              "ui_control__stop_computer_use"
+            ],
+            "on-failure": []
+          },
+          "group": "",
+          "execution": "sync",
+          "timeout_hint_secs": 65,
+          "enforce_thread_affinity": true,
+          "annotations": {
+            "read_only_hint": true,
+            "destructive_hint": false,
+            "idempotent_hint": false,
+            "open_world_hint": false
+          }
+        }
+      ],
+      "version": "0.5.0",
+      "depends": [],
+      "scripts": [
+        "python/dcc_mcp_core/skills/ui-control/scripts/_backend.py",
+        "python/dcc_mcp_core/skills/ui-control/scripts/_cdp_runtime.py",
+        "python/dcc_mcp_core/skills/ui-control/scripts/_chrome_backend.py",
+        "python/dcc_mcp_core/skills/ui-control/scripts/_cua_backend.py",
+        "python/dcc_mcp_core/skills/ui-control/scripts/_cua_cli_host_client.py",
+        "python/dcc_mcp_core/skills/ui-control/scripts/_cua_support.py",
+        "python/dcc_mcp_core/skills/ui-control/scripts/_entrypoint.py",
+        "python/dcc_mcp_core/skills/ui-control/scripts/_scenario.py",
+        "python/dcc_mcp_core/skills/ui-control/scripts/act.py",
+        "python/dcc_mcp_core/skills/ui-control/scripts/find.py",
+        "python/dcc_mcp_core/skills/ui-control/scripts/recording_start.py",
+        "python/dcc_mcp_core/skills/ui-control/scripts/recording_state.py",
+        "python/dcc_mcp_core/skills/ui-control/scripts/recording_stop.py",
+        "python/dcc_mcp_core/skills/ui-control/scripts/snapshot.py",
+        "python/dcc_mcp_core/skills/ui-control/scripts/stop_computer_use.py",
+        "python/dcc_mcp_core/skills/ui-control/scripts/wait_for.py"
+      ],
+      "skill_path": "python/dcc_mcp_core/skills/ui-control",
+      "metadata_files": [],
+      "groups": [],
+      "layer": "infrastructure"
+    },
+    {
+      "name": "usd-tools",
+      "description": "Infrastructure skill — low-level OpenUSD scene inspection and validation: read layer stacks, traverse prims, validate USD schemas. Use when working directly with raw USD files (usda, usdc, usdz) or verifying USD compliance. Not for Maya-specific USD export — use maya-pipeline__export_usd for that. Not for full DCC pipeline workflows — use a domain pipeline skill instead.",
+      "license": "Apache-2.0",
+      "compatibility": "Requires usdcat and usdchecker from the OpenUSD distribution",
+      "allowed-tools": [
+        "Bash",
+        "Read"
+      ],
+      "metadata": {
+        "openclaw": {
+          "requires": {
+            "bins": [
+              "usdcat",
+              "usdchecker"
+            ]
+          },
+          "emoji": "🎬",
+          "homepage": "https://openusd.org"
+        },
+        "dcc-mcp.dcc": "python",
+        "dcc-mcp.version": "1.0.0",
+        "dcc-mcp.layer": "infrastructure",
+        "dcc-mcp.search-hint": "USD stage, prim, schema validation, layer stack, usda, usdc, usdz, usdchecker, usdcat, raw USD file",
+        "dcc-mcp.tags": "usd, openusd, scene inspection, validation, infrastructure",
+        "dcc-mcp.tools": "tools.yaml"
+      },
+      "dcc": "python",
+      "tags": [
+        "usd",
+        "openusd",
+        "scene inspection",
+        "validation",
+        "infrastructure"
+      ],
+      "search-hint": "USD stage, prim, schema validation, layer stack, usda, usdc, usdz, usdchecker, usdcat, raw USD file",
+      "tools": [
+        {
+          "name": "inspect",
+          "description": "Print the contents of a USD file in human-readable form",
+          "input_schema": {
+            "type": "object",
+            "required": [
+              "file"
+            ],
+            "properties": {
+              "file": {
+                "type": "string",
+                "description": "Path to the USD file"
+              },
+              "flatten": {
+                "type": "boolean",
+                "description": "Flatten all layers",
+                "default false": null
+              }
+            }
+          },
+          "read_only": true,
+          "destructive": false,
+          "idempotent": true,
+          "defer-loading": false,
+          "source_file": "scripts/inspect.py",
+          "next-tools": {
+            "on-success": [],
+            "on-failure": []
+          },
+          "group": "",
+          "execution": "sync"
+        },
+        {
+          "name": "validate",
+          "description": "Run USD compliance checks on a file",
+          "input_schema": {
+            "type": "object",
+            "required": [
+              "file"
+            ],
+            "properties": {
+              "file": {
+                "type": "string",
+                "description": "Path to the USD file to validate"
+              }
+            }
+          },
+          "read_only": true,
+          "destructive": false,
+          "idempotent": true,
+          "defer-loading": false,
+          "source_file": "scripts/validate.py",
+          "next-tools": {
+            "on-success": [],
+            "on-failure": []
+          },
+          "group": "",
+          "execution": "sync"
+        }
+      ],
+      "version": "1.0.0",
+      "depends": [],
+      "scripts": [
+        "examples/skills/usd-tools/scripts/inspect.py",
+        "examples/skills/usd-tools/scripts/validate.py"
+      ],
+      "skill_path": "examples/skills/usd-tools",
+      "metadata_files": [],
+      "groups": [],
+      "layer": "infrastructure"
+    },
+    {
+      "name": "verification",
+      "description": "Cross-DCC verification toolset - deterministic capture review views, in-band image statistics, scene-vs-spec validation, and reference-vs-render comparison sheets. Pure Python, read-only, DCC-agnostic. Use to close the quality loop without shipping pixels to a model: flag white/near-black/gamma-broken frames from stats alone and catch missing-UV/missing-part exports before export. Not for scoring or aesthetic review - this toolset packages evidence and computes no scores.",
+      "license": "MIT",
+      "compatibility": "Uses ffmpeg/ffprobe on PATH (or via vx) only for non-PPM image decode and comparison-sheet compositing.",
+      "allowed-tools": [],
+      "metadata": {
+        "dcc-mcp.dcc": "python",
+        "dcc-mcp.version": "0.1.0",
+        "dcc-mcp.layer": "infrastructure",
+        "dcc-mcp.search-hint": "verification, capture, image stats, luma, histogram, comparison sheet, scene spec, uv coverage, blank frame, review views",
+        "dcc-mcp.tags": "verification, capture, image-stats, comparison-sheet, scene-spec, uv, dcc-agnostic",
+        "dcc-mcp.tools": "tools.yaml"
+      },
+      "dcc": "python",
+      "tags": [
+        "verification",
+        "capture",
+        "image-stats",
+        "comparison-sheet",
+        "scene-spec",
+        "uv",
+        "dcc-agnostic"
+      ],
+      "search-hint": "verification, capture, image stats, luma, histogram, comparison sheet, scene spec, uv coverage, blank frame, review views",
+      "tools": [
+        {
+          "name": "capture_review_views",
+          "description": "Emit the deterministic multi-view capture plan (front / side / top / three-quarter, fixed resolution, viewport-only) and, when captures are supplied, validate them against that plan. A capture on a hidden/blocked window or a blank/white/near-black frame fails loudly - never success.",
+          "input_schema": {
+            "type": "object",
+            "required": [],
+            "properties": {
+              "resolution": {
+                "type": "array",
+                "minItems": 2,
+                "maxItems": 2,
+                "items": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "default": [
+                  1920,
+                  1080
+                ],
+                "description": "Fixed capture resolution [width, height]."
+              },
+              "views": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "front",
+                    "side",
+                    "top",
+                    "three_quarter"
+                  ]
+                },
+                "default": [
+                  "front",
+                  "side",
+                  "top",
+                  "three_quarter"
+                ],
+                "description": "Views to plan/require. Order is preserved."
+              },
+              "captures": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                },
+                "description": "Optional list of capture results to validate against the plan."
+              }
+            }
+          },
+          "read_only": true,
+          "destructive": false,
+          "idempotent": true,
+          "defer-loading": false,
+          "source_file": "scripts/capture_review_views.py",
+          "next-tools": {
+            "on-success": [],
+            "on-failure": []
+          },
+          "group": "",
+          "execution": "sync",
+          "timeout_hint_secs": 10,
+          "enforce_thread_affinity": true
+        },
+        {
+          "name": "image_stats",
+          "description": "Compute in-band image statistics (mean luma, stddev, histogram, uniformity) for a capture without shipping pixels to the model, and flag the known-bad frames: white playblasts, near-black renders, and display-transform-less linear frames. PPM/PGM decode via the standard library; PNG/JPEG/EXR decode via ffmpeg.",
+          "input_schema": {
+            "type": "object",
+            "required": [
+              "input_path"
+            ],
+            "properties": {
+              "input_path": {
+                "type": "string",
+                "description": "Existing capture file. PPM/PGM, PNG, JPEG, or EXR."
+              },
+              "channels": {
+                "type": "integer",
+                "enum": [
+                  1,
+                  3
+                ],
+                "default": 3,
+                "description": "Pixel channels of raw PPM/PGM input (3 for PPM, 1 for PGM)."
+              },
+              "bins": {
+                "type": "integer",
+                "minimum": 2,
+                "maximum": 256,
+                "default": 16,
+                "description": "Luma histogram bucket count."
+              },
+              "timeout_secs": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 300,
+                "default": 30,
+                "description": "Maximum time to wait for ffmpeg decode."
+              }
+            }
+          },
+          "read_only": true,
+          "destructive": false,
+          "idempotent": true,
+          "defer-loading": false,
+          "source_file": "scripts/image_stats.py",
+          "next-tools": {
+            "on-success": [],
+            "on-failure": []
+          },
+          "group": "",
+          "execution": "sync",
+          "timeout_hint_secs": 30,
+          "enforce_thread_affinity": true
+        },
+        {
+          "name": "validate_scene_vs_spec",
+          "description": "Validate a normalised scene-state export against a written spec before export: hierarchy names, material bindings, per-mesh UV coverage, part existence, non-manifold geometry, and Euler bounds. Returns {passed, failures[]} and never mutates the scene.",
+          "input_schema": {
+            "type": "object",
+            "required": [
+              "scene",
+              "spec"
+            ],
+            "properties": {
+              "scene": {
+                "type": "object",
+                "description": "Normalised scene-state export (parts, hierarchy, meshes, objects)."
+              },
+              "spec": {
+                "type": "object",
+                "description": "Spec of required parts/hierarchy/materials, min_uv_coverage, and bounds."
+              },
+              "scene_path": {
+                "type": "string",
+                "description": "Alternative: JSON/YAML file path for the scene export."
+              },
+              "spec_path": {
+                "type": "string",
+                "description": "Alternative: JSON/YAML file path for the spec."
+              }
+            }
+          },
+          "read_only": true,
+          "destructive": false,
+          "idempotent": true,
+          "defer-loading": false,
+          "source_file": "scripts/validate_scene_vs_spec.py",
+          "next-tools": {
+            "on-success": [],
+            "on-failure": []
+          },
+          "group": "",
+          "execution": "sync",
+          "timeout_hint_secs": 10,
+          "enforce_thread_affinity": true
+        },
+        {
+          "name": "make_comparison_sheet",
+          "description": "Composite reference and render images side-by-side (or stacked) into one comparison sheet using ffmpeg hstack/vstack. Packages evidence and computes no scores. Fails loudly when any input is missing.",
+          "input_schema": {
+            "type": "object",
+            "required": [
+              "reference_path",
+              "render_paths",
+              "output_path"
+            ],
+            "properties": {
+              "reference_path": {
+                "type": "string",
+                "description": "Reference image path."
+              },
+              "render_paths": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Render/candidate image paths to place beside the reference."
+              },
+              "output_path": {
+                "type": "string",
+                "description": "Destination sheet path (.png or .jpg). Parent directory must exist."
+              },
+              "layout": {
+                "type": "string",
+                "enum": [
+                  "horizontal",
+                  "vertical"
+                ],
+                "default": "horizontal",
+                "description": "Stack direction; horizontal = side-by-side."
+              },
+              "overwrite": {
+                "type": "boolean",
+                "default": false,
+                "description": "Set true to replace an existing output file."
+              },
+              "timeout_secs": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 300,
+                "default": 30,
+                "description": "Maximum time to wait for ffmpeg."
+              }
+            }
+          },
+          "read_only": false,
+          "destructive": false,
+          "idempotent": false,
+          "defer-loading": false,
+          "source_file": "scripts/make_comparison_sheet.py",
+          "next-tools": {
+            "on-success": [],
+            "on-failure": []
+          },
+          "group": "",
+          "execution": "sync",
+          "timeout_hint_secs": 30,
+          "enforce_thread_affinity": true
+        }
+      ],
+      "version": "0.1.0",
+      "depends": [],
+      "scripts": [
+        "python/dcc_mcp_core/skills/verification/scripts/_common.py",
+        "python/dcc_mcp_core/skills/verification/scripts/capture_review_views.py",
+        "python/dcc_mcp_core/skills/verification/scripts/image_stats.py",
+        "python/dcc_mcp_core/skills/verification/scripts/make_comparison_sheet.py",
+        "python/dcc_mcp_core/skills/verification/scripts/validate_scene_vs_spec.py"
+      ],
+      "skill_path": "python/dcc_mcp_core/skills/verification",
+      "metadata_files": [],
+      "groups": [],
+      "layer": "infrastructure"
+    },
+    {
+      "name": "workflow",
+      "description": "Infrastructure skill — multi-step action orchestration: run a sequence of MCP tools in order, passing results between steps. Use when chaining two or more tools into a repeatable pipeline (select → rename → validate → export). Not for single-tool operations or DCC-specific business logic — use a domain skill for those.",
+      "license": "MIT",
+      "compatibility": "",
+      "allowed-tools": [],
+      "metadata": {
+        "dcc-mcp.dcc": "python",
+        "dcc-mcp.version": "1.0.0",
+        "dcc-mcp.layer": "infrastructure",
+        "dcc-mcp.search-hint": "chain, sequence, pipeline, multi-step, orchestration, workflow, batch, run steps, automate",
+        "dcc-mcp.tags": "workflow, orchestration, chain, pipeline, automation, infrastructure",
+        "dcc-mcp.tools": "tools.yaml"
+      },
+      "dcc": "python",
+      "tags": [
+        "workflow",
+        "orchestration",
+        "chain",
+        "pipeline",
+        "automation",
+        "infrastructure"
+      ],
+      "search-hint": "chain, sequence, pipeline, multi-step, orchestration, workflow, batch, run steps, automate",
+      "tools": [
+        {
+          "name": "run_chain",
+          "description": "Execute a sequence of actions in order via the dcc-mcp-core ToolDispatcher. Each step's output context is merged into the next step's parameters. On failure, the chain stops and reports which step failed and why.",
+          "input_schema": {
+            "type": "object",
+            "required": [
+              "steps"
+            ],
+            "properties": {
+              "steps": {
+                "type": "array",
+                "description": "Ordered list of steps to execute.",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "action"
+                  ],
+                  "properties": {
+                    "action": {
+                      "type": "string",
+                      "description": "Action name (e.g. 'maya_scene__list_objects')."
+                    },
+                    "params": {
+                      "type": "object",
+                      "description": "Parameters to pass to this action. Values from previous step context can be referenced using '{key}' syntax.",
+                      "default": {}
+                    },
+                    "stop_on_failure": {
+                      "type": "boolean",
+                      "description": "If true (default), abort the chain when this step fails.",
+                      "default": true
+                    },
+                    "label": {
+                      "type": "string",
+                      "description": "Human-readable label for this step (shown in results)."
+                    }
+                  }
+                }
+              },
+              "context": {
+                "type": "object",
+                "description": "Initial context values available to all steps via '{key}' interpolation.",
+                "default": {}
+              }
+            }
+          },
+          "read_only": false,
+          "destructive": false,
+          "idempotent": false,
+          "defer-loading": false,
+          "source_file": "scripts/run_chain.py",
+          "next-tools": {
+            "on-success": [],
+            "on-failure": []
+          },
+          "group": "",
+          "execution": "sync"
+        }
+      ],
+      "version": "1.0.0",
+      "depends": [],
+      "scripts": [
+        "examples/skills/workflow/scripts/run_chain.py"
+      ],
+      "skill_path": "examples/skills/workflow",
+      "metadata_files": [],
+      "groups": [],
+      "layer": "infrastructure"
+    }
+  ]
+}
