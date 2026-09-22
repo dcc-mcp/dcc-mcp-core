@@ -203,7 +203,7 @@ Every `McpHttpServer` emits a fixed set of built-in tools in `tools/list` in add
 | Tool | Purpose | Typical follow-up |
 |------|---------|-------------------|
 | `search_skills` | Ranked keyword search over discovered skills (name, description, search-hint, tags, tool names). **Start here** when you don't know the skill name. | `load_skill(skill_name=...)` |
-| `list_skills` | Flat dump of every discovered skill with load status. Use for browsing, not search. | `get_skill_info(...)` or `load_skill(...)` |
+| `list_skills` | Browsable page of discovered skills with load status (25 rows by default, 50 max). Returns `total`, `truncated` and `next_offset`; pass `offset=next_offset` to continue. Use for browsing, not search. | `get_skill_info(...)` or `load_skill(...)` |
 | `get_skill_info` | Full metadata + input schemas for one skill. | `load_skill(skill_name=...)` |
 | `load_skill` | Loads one or more skills; emits `tools/list_changed`. Idempotent. | Call the specific tool by name |
 | `unload_skill` | Unloads a skill; emits `tools/list_changed`. Idempotent. | `load_skill(...)` again if needed |

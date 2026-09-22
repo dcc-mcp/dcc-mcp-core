@@ -4,28 +4,78 @@ use serde_json::{Map, Value, json};
 
 use super::SkillSummary;
 
-/// Default page size when callers pass an explicit `limit`.
-pub const DEFAULT_LIST_SKILLS_LIMIT: usize = 10;
+/// Default page size when the caller passes no `limit`.
+///
+/// Aligned with the search path's `dcc_mcp_gateway_search::query::DEFAULT_LIMIT`
+/// so browsing and searching hand back comparable page sizes (PIP-3407).
+pub const DEFAULT_LIST_SKILLS_LIMIT: usize = 25;
 /// Hard cap for `limit`.
+///
+/// Kept below the search path's `MAX_LIMIT` (100) on purpose: a `list_skills`
+/// row is far heavier than a search hit (it carries `summary`, `stage` and
+/// `tool_count`), so the same cap would cost several times more context.
 pub const MAX_LIST_SKILLS_LIMIT: usize = 50;
 /// Default truncation length for `summary` / compact `description`.
+///
+/// Unchanged by PIP-3407: trimming it to 120 chars measured a further ~21%
+/// saving per page, but a clipped one-liner pushes the agent into an extra
+/// `get_skill_info` round trip to choose a skill, and that round trip costs
+/// far more than the ~500 tokens saved. Bounding the page is the fix; the
+/// per-row width stays readable.
 pub const DEFAULT_SUMMARY_CHARS: usize = 200;
 
 /// Fields included when `fields` is omitted (compact mode).
+///
+/// Slimmed in PIP-3407: this payload is fetched on nearly every discovery
+/// turn and its cost multiplies with the number of live DCC hosts, so the
+/// default carries only what an agent needs to *pick* a skill — identity
+/// (`name`, `dcc`), a one-line `summary`, and the cheap routing signals
+/// (`tool_count`, `status`, `stage`). Everything else stays reachable through
+/// the `fields` allow-list or `get_skill_info`.
 const COMPACT_FIELDS: &[&str] = &[
     "name",
-    "stage",
+    "dcc",
+    "summary",
     "tool_count",
+    "status",
+    "stage",
+    "missing_dependencies",
+];
+
+/// Argument that opts a single call out of paging.
+///
+/// Used by the gateway's `list_skills` fan-out: it has to page over the
+/// *merged* catalogue, so every host must send its complete list instead of
+/// its own first page. It is deliberately absent from the advertised tool
+/// schema — it is an internal hop flag and a deliberate escape hatch for
+/// callers that really do want every row.
+pub const UNBOUNDED_ARG: &str = "unbounded";
+
+/// Every field the projection can emit.
+///
+/// Used by the gateway's fan-out so each backend returns its full catalogue
+/// instead of its own compact page: paging has to happen once, on the merged
+/// result, otherwise every host applies `offset` to its own list and pages
+/// overlap (PIP-3407).
+pub const ALL_LIST_SKILLS_FIELDS: &[&str] = &[
+    "name",
+    "description",
+    "summary",
+    "search_hint",
+    "tags",
+    "dcc",
+    "version",
+    "tool_count",
+    "tool_names",
     "loaded",
     "status",
     "missing_dependencies",
     "scope",
-    "summary",
-    "dcc",
-    "version",
-    "layer",
-    "runtime_state",
     "implicit_invocation",
+    "layer",
+    "stage",
+    "runtime",
+    "runtime_state",
 ];
 
 fn truncate_chars(s: &str, max_chars: usize) -> String {
@@ -52,15 +102,21 @@ fn parse_offset(args: &Value) -> usize {
     args.get("offset").and_then(Value::as_u64).unwrap_or(0) as usize
 }
 
-fn parse_limit(args: &Value) -> Option<usize> {
-    args.get("limit").and_then(Value::as_u64).map(|n| {
-        let n = n as usize;
-        if n == 0 {
-            0
-        } else {
-            n.min(MAX_LIST_SKILLS_LIMIT)
-        }
-    })
+/// Resolve the effective page size.
+///
+/// A missing (or zero) `limit` falls back to [`DEFAULT_LIST_SKILLS_LIMIT`]
+/// instead of returning the whole catalogue: `list_skills` fans out across
+/// every live DCC host, so an unbounded default grows the tool result with
+/// the size of the whole studio (PIP-3407). `0` is treated as "unset" to
+/// match the search path (`SearchQuery::limit`).
+fn parse_limit(args: &Value) -> usize {
+    if args.get(UNBOUNDED_ARG).and_then(Value::as_bool) == Some(true) {
+        return usize::MAX;
+    }
+    match args.get("limit").and_then(Value::as_u64) {
+        None | Some(0) => DEFAULT_LIST_SKILLS_LIMIT,
+        Some(n) => (n as usize).min(MAX_LIST_SKILLS_LIMIT),
+    }
 }
 
 fn project_summary(summary: &SkillSummary, fields: &[String]) -> Value {
@@ -152,23 +208,33 @@ pub fn build_list_skills_response(mut summaries: Vec<SkillSummary>, args: &Value
     let limit = parse_limit(args);
     let fields = parse_fields(args);
 
-    let end = match limit {
-        Some(lim) => (offset + lim).min(total),
-        None => total,
-    };
+    let unbounded = limit == usize::MAX;
+    let end = offset.saturating_add(limit).min(total);
     let page: Vec<SkillSummary> = summaries[offset..end].to_vec();
-    let truncated = limit.is_some() && end < total;
-    let response_limit = limit.unwrap_or(page.len());
+    let next_offset = (end < total).then_some(end);
 
     let skills: Vec<Value> = page.iter().map(|s| project_summary(s, &fields)).collect();
 
-    json!({
+    // An unbounded call has no page size to report; echo the row count the
+    // way the pre-paging payload did.
+    let response_limit = if unbounded { page.len() } else { limit };
+    let mut payload = json!({
         "skills": skills,
         "total": total,
         "limit": response_limit,
         "offset": offset,
-        "truncated": truncated,
-    })
+        "truncated": next_offset.is_some(),
+    });
+    if let (Some(next_offset), Some(obj)) = (next_offset, payload.as_object_mut()) {
+        obj.insert("next_offset".into(), json!(next_offset));
+        obj.insert(
+            "next_step".into(),
+            json!(format!(
+                "More skills available: call list_skills with offset={next_offset} limit={response_limit}. Prefer search_skills with a query to jump straight to a skill by intent."
+            )),
+        );
+    }
+    payload
 }
 
 /// Re-project an aggregated gateway payload (`skills` array of objects).
@@ -317,6 +383,108 @@ mod tests {
         assert!(skill.get("tool_names").is_none());
         assert!(skill.get("tags").is_none());
         assert_eq!(payload["truncated"], false);
+        // Low-signal fields stay out of the default page (PIP-3407).
+        assert!(skill.get("version").is_none());
+        assert!(skill.get("scope").is_none());
+        assert!(skill.get("layer").is_none());
+        assert!(skill.get("runtime_state").is_none());
+        assert!(skill.get("tool_names").is_none());
+    }
+
+    #[test]
+    fn default_page_is_bounded_without_limit() {
+        let summaries: Vec<SkillSummary> = (0..100)
+            .map(|i| sample_summary(&format!("skill-{i:03}")))
+            .collect();
+        let payload = build_list_skills_response(summaries, &json!({}));
+        assert_eq!(
+            payload["skills"].as_array().unwrap().len(),
+            DEFAULT_LIST_SKILLS_LIMIT
+        );
+        assert_eq!(payload["limit"], DEFAULT_LIST_SKILLS_LIMIT);
+        assert_eq!(payload["total"], 100);
+        assert_eq!(payload["truncated"], true);
+        assert_eq!(payload["next_offset"], DEFAULT_LIST_SKILLS_LIMIT);
+        assert!(payload["next_step"].as_str().unwrap().contains("offset=25"));
+    }
+
+    #[test]
+    fn limit_zero_falls_back_to_default_page() {
+        let summaries: Vec<SkillSummary> = (0..3)
+            .map(|i| sample_summary(&format!("skill-{i}")))
+            .collect();
+        let payload = build_list_skills_response(summaries, &json!({"limit": 0}));
+        assert_eq!(payload["skills"].as_array().unwrap().len(), 3);
+        assert_eq!(payload["truncated"], false);
+        assert!(payload.get("next_offset").is_none());
+    }
+
+    #[test]
+    fn unbounded_flag_restores_the_full_list() {
+        // The gateway fan-out relies on this: it pages once, on the merged
+        // catalogue, so each host has to hand over everything it has.
+        let summaries: Vec<SkillSummary> = (0..70)
+            .map(|i| sample_summary(&format!("skill-{i:03}")))
+            .collect();
+        let payload = build_list_skills_response(
+            summaries,
+            &json!({
+                UNBOUNDED_ARG: true,
+                "fields": ALL_LIST_SKILLS_FIELDS,
+            }),
+        );
+        assert_eq!(payload["skills"].as_array().unwrap().len(), 70);
+        assert_eq!(payload["truncated"], false);
+        assert_eq!(payload["limit"], 70, "no page size to report");
+        assert!(payload.get("next_offset").is_none());
+        // Every projected column survives the hop, not just the compact set.
+        let row = &payload["skills"][0];
+        for field in ["name", "dcc", "summary", "description", "tool_names"] {
+            assert!(row.get(field).is_some(), "missing {field} in {row}");
+        }
+    }
+
+    #[test]
+    fn limit_is_clamped_to_the_hard_max() {
+        let summaries: Vec<SkillSummary> = (0..200)
+            .map(|i| sample_summary(&format!("skill-{i:03}")))
+            .collect();
+        let payload = build_list_skills_response(summaries, &json!({"limit": 10_000}));
+        assert_eq!(payload["limit"], MAX_LIST_SKILLS_LIMIT);
+        assert_eq!(
+            payload["skills"].as_array().unwrap().len(),
+            MAX_LIST_SKILLS_LIMIT
+        );
+    }
+
+    #[test]
+    fn pages_are_disjoint_and_cover_the_catalogue() {
+        let summaries: Vec<SkillSummary> = (0..47)
+            .map(|i| sample_summary(&format!("skill-{i:03}")))
+            .collect();
+        let mut seen: Vec<String> = Vec::new();
+        let mut offset = 0usize;
+        loop {
+            let payload = build_list_skills_response(summaries.clone(), &json!({"offset": offset}));
+            let names: Vec<String> = payload["skills"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(|v| v.get("name").and_then(Value::as_str))
+                .map(str::to_string)
+                .collect();
+            assert!(!names.is_empty());
+            seen.extend(names);
+            match payload.get("next_offset").and_then(Value::as_u64) {
+                Some(next) => offset = next as usize,
+                None => break,
+            }
+        }
+        assert_eq!(seen.len(), 47, "paging lost or duplicated rows");
+        let mut unique = seen.clone();
+        unique.sort();
+        unique.dedup();
+        assert_eq!(unique.len(), 47, "paging duplicated rows");
     }
 
     #[test]
@@ -330,6 +498,10 @@ mod tests {
         assert_eq!(page_a["skills"].as_array().unwrap().len(), 2);
         assert_eq!(page_b["skills"].as_array().unwrap().len(), 2);
         assert_eq!(page_a["limit"], 2);
+        assert_eq!(page_a["truncated"], true);
+        assert_eq!(page_a["next_offset"], 2);
+        assert_eq!(page_b["truncated"], true);
+        assert_eq!(page_b["next_offset"], 4);
         let names_a: Vec<_> = page_a["skills"]
             .as_array()
             .unwrap()

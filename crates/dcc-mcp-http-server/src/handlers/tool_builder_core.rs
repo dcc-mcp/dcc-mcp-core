@@ -58,6 +58,7 @@ pub fn build_core_tools_inner() -> Vec<McpTool> {
                           When to use: Browse availability or audit active skills. For ranked lookup, call search_skills instead.\n\n\
                           How to use:\n\
                           - Pass status='loaded' for active skills, 'unloaded' for load candidates, or 'skipped' for rejected package diagnostics.\n\
+                          - Returns one bounded page (25 rows by default, 50 max). When 'truncated' is true, follow 'next_step' / pass offset=next_offset for the next page; 'total' is the full catalogue size.\n\
                           - Follow up with get_skill_info(skill_name=...) or load_skill(skill_name=...)."
                 .to_string(),
             input_schema: json!({
@@ -78,13 +79,13 @@ pub fn build_core_tools_inner() -> Vec<McpTool> {
                         "type": "integer",
                         "minimum": 1,
                         "maximum": 50,
-                        "description": "Maximum skills to return when paginating (default: return all in compact projection)."
+                        "description": "Maximum skills to return (default 25, hard cap 50)."
                     },
                     "offset": {
                         "type": "integer",
                         "minimum": 0,
                         "default": 0,
-                        "description": "Skip this many skills after sorting by name."
+                        "description": "Skip this many skills after sorting by name; use the previous page's next_offset."
                     },
                     "fields": {
                         "type": "array",

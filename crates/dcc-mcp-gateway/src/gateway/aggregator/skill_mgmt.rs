@@ -269,7 +269,8 @@ Standalone `dcc-mcp-server` without `--app` registers as `dcc_type` from DCC_MCP
             let client = &gs.http_client;
             let resilience = &gs.resilience;
             let backend_timeout = gs.backend_timeout;
-            let params = json!({"name": tool, "arguments": args});
+            let backend_args = backend_list_args(tool, &args);
+            let params = json!({"name": tool, "arguments": backend_args});
             let futs = targets.iter().map(|entry| {
                 let url = entry_mcp_url(entry);
                 let params = params.clone();
@@ -335,6 +336,33 @@ Standalone `dcc-mcp-server` without `--app` registers as `dcc_type` from DCC_MCP
             )
         }
     }
+}
+
+/// Arguments forwarded to each backend for a fan-out `list_skills`.
+///
+/// Paging must happen once, on the merged result, not per host: if every
+/// backend applied the caller's `limit`/`offset` to its own catalogue, page 2
+/// would be "rows 25..50 of *each* host" and the merged pages would overlap
+/// and silently drop skills. So the fan-out asks every host for its complete
+/// (filtered) catalogue in every projected field, and
+/// [`flatten_skill_list_results`] applies the caller's `limit`/`offset`/`fields`
+/// to the union (PIP-3407).
+fn backend_list_args(tool: &str, args: &Value) -> Value {
+    if tool != "list_skills" {
+        return args.clone();
+    }
+    let mut forwarded = args.as_object().cloned().unwrap_or_default();
+    forwarded.remove("limit");
+    forwarded.remove("offset");
+    forwarded.insert(
+        "fields".to_string(),
+        json!(dcc_mcp_skills::catalog::list_projection::ALL_LIST_SKILLS_FIELDS),
+    );
+    forwarded.insert(
+        dcc_mcp_skills::catalog::list_projection::UNBOUNDED_ARG.to_string(),
+        json!(true),
+    );
+    Value::Object(forwarded)
 }
 
 fn flatten_skill_list_results(
@@ -487,15 +515,15 @@ pub(crate) fn skill_management_tool_defs() -> Vec<Value> {
     vec![
         json!({
             "name": "list_skills",
-            "description": "List all skills across every live DCC instance. Returns a per-instance breakdown.",
+            "description": "List skills across every live DCC instance, merged into one bounded page (25 rows by default, 50 max) with a per-instance breakdown. When 'truncated' is true, pass offset=next_offset to continue; 'total' is the merged catalogue size across all instances.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "status": {"type": "string", "enum": ["all", "loaded", "unloaded", "pending_deps", "error"], "default": "all"},
                     "dcc":    {"type": "string", "description": "Restrict to one DCC type (maya, blender, …)"},
                     "dcc_type": {"type": "string", "description": "Alias for dcc (REST callers)."},
-                    "limit": {"type": "integer", "minimum": 1, "maximum": 50},
-                    "offset": {"type": "integer", "minimum": 0, "default": 0},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 50, "default": 25, "description": "Rows per page; hard cap 50."},
+                    "offset": {"type": "integer", "minimum": 0, "default": 0, "description": "Skip this many merged rows; use the previous page's next_offset."},
                     "fields": {"type": "array", "items": {"type": "string"}, "description": "Strict per-skill field allow-list; omit for compact mode."}
                 }
             }

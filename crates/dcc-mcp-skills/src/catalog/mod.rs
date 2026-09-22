@@ -70,6 +70,7 @@ use crate::loader::SkippedSkillDiagnostic;
 mod catalog;
 mod groups;
 pub(crate) mod helpers;
+pub mod list_context;
 pub mod list_projection;
 
 // PyO3 bindings live in `crate::python::catalog`.
