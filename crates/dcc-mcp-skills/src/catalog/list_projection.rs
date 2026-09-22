@@ -243,6 +243,13 @@ pub fn project_list_skills_payload(mut payload: Value, args: &Value) -> Value {
     let Some(skills) = payload.get_mut("skills").and_then(Value::as_array_mut) else {
         return payload;
     };
+    // Stable tie-breaker for the merged gateway union. `build_list_skills_response`
+    // sorts by name with a *stable* sort, so rows sharing a name keep the order
+    // they arrived in — and that order is the gateway's fan-out order, which comes
+    // out of a `DashMap` and is not reproducible between calls (PIP-3432). Sort by
+    // the full host identity first so a name collision across hosts pages
+    // deterministically instead of reshuffling mid-walk.
+    skills.sort_by(|a, b| skill_row_key(a).cmp(&skill_row_key(b)));
     let summaries: Vec<SkillSummary> = skills.iter().filter_map(skill_summary_from_value).collect();
     let mut projected = build_list_skills_response(summaries, args);
     if let Some(instances) = payload.get("instances") {
@@ -261,6 +268,20 @@ pub fn project_list_skills_payload(mut payload: Value, args: &Value) -> Value {
             .map(|obj| obj.insert("skipped".into(), skipped.clone()));
     }
     projected
+}
+
+/// Sort key that keeps a merged, cross-host page reproducible.
+///
+/// `(name, _dcc_type, _instance_id)`: the annotations the gateway injects are
+/// the only stable identity a merged row carries, since two hosts may publish
+/// skills with the same name.
+fn skill_row_key(v: &Value) -> (&str, &str, &str) {
+    let str_field = |key: &str| v.get(key).and_then(Value::as_str).unwrap_or("");
+    (
+        str_field("name"),
+        str_field("_dcc_type"),
+        str_field("_instance_id"),
+    )
 }
 
 fn skill_summary_from_value(v: &Value) -> Option<SkillSummary> {
@@ -606,6 +627,86 @@ mod tests {
             .filter_map(|v| v.get("name").and_then(Value::as_str))
             .collect();
         assert!(names_a.iter().all(|n| !names_b.contains(n)));
+    }
+
+    #[test]
+    fn compact_row_omits_empty_missing_dependencies() {
+        // `missing_dependencies` is projected conditionally: most rows have
+        // none, and emitting an empty list on every row is pure context cost.
+        let mut broken = sample_summary("broken");
+        broken.missing_dependencies = vec!["dep-a".to_string()];
+        let payload = build_list_skills_response(vec![broken, sample_summary("ok")], &json!({}));
+        let skills = payload["skills"].as_array().unwrap();
+
+        let row = |name: &str| {
+            skills
+                .iter()
+                .find(|s| s["name"] == name)
+                .unwrap_or_else(|| panic!("{name} missing from the page"))
+                .clone()
+        };
+        assert_eq!(row("broken")["missing_dependencies"], json!(["dep-a"]));
+        assert!(
+            row("ok").get("missing_dependencies").is_none(),
+            "an empty dependency list should not be projected: {}",
+            row("ok")
+        );
+    }
+
+    #[test]
+    fn merged_rows_with_the_same_name_keep_a_stable_order() {
+        // The gateway merges rows from several hosts, and `build_list_skills_response`
+        // sorts by name with a *stable* sort — so without a tie-breaker the
+        // surviving order is the fan-out's `DashMap` iteration order (PIP-3432).
+        let row = |id: &str, dcc: &str, description: &str| {
+            json!({
+                "name": "shared",
+                "dcc": dcc,
+                "description": description,
+                "_dcc_type": dcc,
+                "_instance_id": id,
+            })
+        };
+        let payload = json!({
+            "skills": [
+                row("zzz", "maya", "second"),
+                row("aaa", "maya", "first"),
+            ],
+            "total": 2,
+        });
+        let projected = project_list_skills_payload(payload, &json!({"limit": 50}));
+        let summaries: Vec<&str> = projected["skills"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|s| s.get("summary").and_then(Value::as_str))
+            .collect();
+        assert_eq!(
+            summaries,
+            vec!["first", "second"],
+            "rows sharing name and dcc must order by instance id"
+        );
+
+        // `_dcc_type` outranks `_instance_id`, so host identity wins over id.
+        let payload = json!({
+            "skills": [
+                row("aaa", "maya", "maya"),
+                row("zzz", "blender", "blender"),
+            ],
+            "total": 2,
+        });
+        let projected = project_list_skills_payload(payload, &json!({"limit": 50}));
+        let dccs: Vec<&str> = projected["skills"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|s| s.get("dcc").and_then(Value::as_str))
+            .collect();
+        assert_eq!(
+            dccs,
+            vec!["blender", "maya"],
+            "rows sharing a name must order by host dcc before instance id"
+        );
     }
 
     #[test]

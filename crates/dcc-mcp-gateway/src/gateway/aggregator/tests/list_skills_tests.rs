@@ -8,16 +8,11 @@ use super::helpers::gateway_state_with_instances;
 use dcc_mcp_skills::catalog::list_projection::MAX_LIST_SKILLS_LIMIT;
 use serde_json::{Value, json};
 
-/// Backend that serves `count` skills through the real `list_skills`
-/// projection, recording every argument set the gateway forwards.
-async fn spawn_list_skills_backend(
-    dcc: &'static str,
-    count: usize,
-    seen: std::sync::Arc<std::sync::Mutex<Vec<Value>>>,
-) -> (u16, tokio::sync::oneshot::Sender<()>) {
-    use dcc_mcp_skills::catalog::{SkillSummary, list_projection::build_list_skills_response};
+/// `count` skills named `<dcc>-skill-<n>` for one host.
+fn host_summaries(dcc: &str, count: usize) -> Vec<dcc_mcp_skills::catalog::SkillSummary> {
+    use dcc_mcp_skills::catalog::SkillSummary;
 
-    let summaries: Vec<SkillSummary> = (0..count)
+    (0..count)
         .map(|i| SkillSummary {
             name: format!("{dcc}-skill-{i:03}"),
             description: "x".repeat(80),
@@ -37,7 +32,26 @@ async fn spawn_list_skills_backend(
             stage: Some("model".to_string()),
             runtime: None,
         })
-        .collect();
+        .collect()
+}
+
+/// Backend that serves `count` skills through the real `list_skills`
+/// projection, recording every argument set the gateway forwards.
+async fn spawn_list_skills_backend(
+    dcc: &'static str,
+    count: usize,
+    seen: std::sync::Arc<std::sync::Mutex<Vec<Value>>>,
+) -> (u16, tokio::sync::oneshot::Sender<()>) {
+    spawn_summary_backend(host_summaries(dcc, count), seen).await
+}
+
+/// Backend that serves an explicit summary set (so two hosts can publish
+/// colliding skill names) through the real `list_skills` projection.
+async fn spawn_summary_backend(
+    summaries: Vec<dcc_mcp_skills::catalog::SkillSummary>,
+    seen: std::sync::Arc<std::sync::Mutex<Vec<Value>>>,
+) -> (u16, tokio::sync::oneshot::Sender<()>) {
+    use dcc_mcp_skills::catalog::list_projection::build_list_skills_response;
 
     let app = axum::Router::new()
         .route(
@@ -84,6 +98,70 @@ async fn spawn_list_skills_backend(
     });
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     (port, shutdown_tx)
+}
+
+/// Backend that answers every `tools/call` with canned `list_skills` pages and
+/// an explicit MCP `isError` flag.
+///
+/// The real projection can never emit a truncated page without a usable
+/// cursor, so those misbehaving-host paths have to be driven by a scripted
+/// backend. `pages` is replayed in order; the last page repeats once the
+/// script runs out.
+async fn spawn_scripted_list_skills_backend(
+    pages: Vec<Value>,
+    is_error: bool,
+) -> (u16, tokio::sync::oneshot::Sender<()>) {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let calls = std::sync::Arc::new(AtomicUsize::new(0));
+    let app = axum::Router::new()
+        .route(
+            "/health",
+            axum::routing::get(|| async { axum::Json(json!({"ok": true})) }),
+        )
+        .route(
+            "/mcp",
+            axum::routing::post(move |axum::Json(body): axum::Json<Value>| {
+                let pages = pages.clone();
+                let calls = calls.clone();
+                async move {
+                    let index = calls.fetch_add(1, Ordering::SeqCst).min(pages.len() - 1);
+                    let text = serde_json::to_string(&pages[index]).unwrap();
+                    axum::Json(json!({
+                        "jsonrpc": "2.0",
+                        "id": body.get("id").cloned().unwrap_or(Value::Null),
+                        "result": {
+                            "content": [{"type": "text", "text": text}],
+                            "isError": is_error,
+                        }
+                    }))
+                }
+            }),
+        );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+    tokio::spawn(async move {
+        axum::serve(listener, app)
+            .with_graceful_shutdown(async {
+                let _ = shutdown_rx.await;
+            })
+            .await
+            .ok();
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    (port, shutdown_tx)
+}
+
+/// Pull the per-instance entry the fan-out reported for one `dcc_type`.
+fn instance_entry(payload: &Value, dcc: &str) -> Value {
+    payload["instances"]
+        .as_array()
+        .unwrap_or_else(|| panic!("no instances in {payload:#}"))
+        .iter()
+        .find(|entry| entry.get("dcc_type").and_then(Value::as_str) == Some(dcc))
+        .unwrap_or_else(|| panic!("no {dcc} instance in {payload:#}"))
+        .clone()
 }
 
 /// PIP-3407: a default `list_skills` fan-out must return one bounded page of
@@ -280,4 +358,313 @@ async fn list_skills_fanout_walks_a_host_larger_than_one_page() {
 
     let _ = stop_big.send(());
     let _ = stop_small.send(());
+}
+
+/// PIP-3432 (P2): a backend that reports `truncated: true` but offers no usable
+/// `next_offset` must be reported as a failed host, not merged as a short
+/// catalogue that looks complete. Otherwise the caller sees a partial union
+/// with `truncated: false` and no way to know skills went missing.
+#[tokio::test]
+async fn list_skills_fanout_rejects_truncation_without_a_usable_cursor() {
+    use std::sync::{Arc, Mutex};
+
+    let seen_good: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
+    let (port_good, stop_good) = spawn_list_skills_backend("maya", 5, seen_good.clone()).await;
+
+    // Every shape of unusable cursor a version-mismatched backend can emit:
+    // missing, non-numeric, repeated (== offset) and decreasing.
+    let broken_pages = vec![
+        json!({"skills": [{"name": "broken-1", "dcc": "blender"}], "total": 60, "truncated": true}),
+        json!({"skills": [], "total": 60, "truncated": true, "next_offset": "not-a-number"}),
+        json!({"skills": [], "total": 60, "truncated": true, "next_offset": 0}),
+    ];
+    let (port_bad, stop_bad) = spawn_scripted_list_skills_backend(broken_pages, false).await;
+
+    let (gs, _dir, _ids) =
+        gateway_state_with_instances(&[("maya", port_good), ("blender", port_bad)]).await;
+
+    for broken_page in [
+        "missing next_offset",
+        "non-numeric next_offset",
+        "repeated next_offset",
+    ] {
+        let (text, is_error) = crate::gateway::aggregator::skill_mgmt::skill_mgmt_dispatch(
+            &gs,
+            "list_skills",
+            &json!({}),
+        )
+        .await;
+        // One healthy host kept the fan-out from being a total failure.
+        assert!(!is_error, "{broken_page}: {text}");
+        let payload: Value = serde_json::from_str(&text).unwrap();
+
+        let blender = instance_entry(&payload, "blender");
+        let error = blender
+            .get("error")
+            .and_then(Value::as_str)
+            .unwrap_or_else(|| {
+                panic!("{broken_page}: blender was not reported as failed: {blender:#}")
+            });
+        assert!(
+            error.contains("usable next_offset"),
+            "{broken_page}: unexpected error text {error}"
+        );
+        assert!(
+            instance_entry(&payload, "maya").get("error").is_none(),
+            "{broken_page}: the healthy host must not be marked failed"
+        );
+
+        // The broken host's rows must not reach the merged catalogue, and the
+        // union must not claim to be complete at the wrong size.
+        let names: Vec<&str> = payload["skills"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|s| s.get("name").and_then(Value::as_str))
+            .collect();
+        assert_eq!(
+            names.len(),
+            5,
+            "{broken_page}: only the healthy host may be merged: {names:?}"
+        );
+        assert!(
+            names.iter().all(|n| n.starts_with("maya")),
+            "{broken_page}: broken-host rows leaked into the union: {names:?}"
+        );
+        assert_eq!(payload["total"], 5, "{broken_page}: {payload:#}");
+    }
+
+    let _ = stop_good.send(());
+    let _ = stop_bad.send(());
+}
+
+/// PIP-3432 (P2): a cursor that walks *backwards* is as unusable as a missing
+/// one — following it would loop forever, and stopping silently would drop
+/// everything past the current page.
+#[tokio::test]
+async fn list_skills_fanout_rejects_a_decreasing_cursor() {
+    use std::sync::{Arc, Mutex};
+
+    let seen_good: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
+    let (port_good, stop_good) = spawn_list_skills_backend("maya", 2, seen_good.clone()).await;
+    let (port_bad, stop_bad) = spawn_scripted_list_skills_backend(
+        vec![
+            json!({"skills": [{"name": "broken-1", "dcc": "blender"}], "total": 60, "truncated": true, "next_offset": 3}),
+            json!({"skills": [], "total": 60, "truncated": true, "next_offset": 2}),
+        ],
+        false,
+    )
+    .await;
+
+    let (gs, _dir, _ids) =
+        gateway_state_with_instances(&[("maya", port_good), ("blender", port_bad)]).await;
+
+    let (text, is_error) =
+        crate::gateway::aggregator::skill_mgmt::skill_mgmt_dispatch(&gs, "list_skills", &json!({}))
+            .await;
+    assert!(!is_error, "{text}");
+    let payload: Value = serde_json::from_str(&text).unwrap();
+
+    let blender = instance_entry(&payload, "blender");
+    let error = blender
+        .get("error")
+        .and_then(Value::as_str)
+        .unwrap_or_else(|| panic!("blender was not reported as failed: {blender:#}"));
+    assert!(
+        error.contains("usable next_offset"),
+        "unexpected error text {error}"
+    );
+    assert_eq!(
+        payload["total"], 2,
+        "only the healthy host may be merged: {payload:#}"
+    );
+
+    let _ = stop_good.send(());
+    let _ = stop_bad.send(());
+}
+
+/// PIP-3432 (P3): the fan-out used to read only the text of a backend result,
+/// so a host that flagged `isError: true` was counted as healthy and whatever
+/// it returned was merged into the catalogue.
+#[tokio::test]
+async fn list_skills_fanout_honours_the_backend_error_flag() {
+    use std::sync::{Arc, Mutex};
+
+    let seen_good: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
+    let (port_good, stop_good) = spawn_list_skills_backend("maya", 4, seen_good.clone()).await;
+    let (port_bad, stop_bad) = spawn_scripted_list_skills_backend(
+        vec![json!({
+            "skills": [{"name": "ghost-skill", "dcc": "blender"}],
+            "total": 1,
+            "truncated": false,
+        })],
+        true,
+    )
+    .await;
+
+    let (gs, _dir, _ids) =
+        gateway_state_with_instances(&[("maya", port_good), ("blender", port_bad)]).await;
+
+    let (text, is_error) =
+        crate::gateway::aggregator::skill_mgmt::skill_mgmt_dispatch(&gs, "list_skills", &json!({}))
+            .await;
+    assert!(!is_error, "{text}");
+    let payload: Value = serde_json::from_str(&text).unwrap();
+
+    let blender = instance_entry(&payload, "blender");
+    assert!(
+        blender.get("error").is_some(),
+        "an isError backend must be reported as failed: {blender:#}"
+    );
+    let names: Vec<&str> = payload["skills"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|s| s.get("name").and_then(Value::as_str))
+        .collect();
+    assert!(
+        !names.contains(&"ghost-skill"),
+        "a failed host's rows must not be merged: {names:?}"
+    );
+    assert_eq!(payload["total"], 4, "{payload:#}");
+
+    let _ = stop_good.send(());
+    let _ = stop_bad.send(());
+}
+
+/// PIP-3432 (P3): the same gap on the `search_skills` fan-out, which shares
+/// [`flatten_skill_list_results`] with the non-walked paths.
+#[tokio::test]
+async fn search_skills_fanout_honours_the_backend_error_flag() {
+    use std::sync::{Arc, Mutex};
+
+    let seen_good: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
+    let (port_good, stop_good) = spawn_list_skills_backend("maya", 3, seen_good.clone()).await;
+    let (port_bad, stop_bad) = spawn_scripted_list_skills_backend(
+        vec![json!({
+            "skills": [{"name": "ghost-skill", "dcc": "blender"}],
+            "total": 1,
+        })],
+        true,
+    )
+    .await;
+
+    let (gs, _dir, _ids) =
+        gateway_state_with_instances(&[("maya", port_good), ("blender", port_bad)]).await;
+
+    let (text, is_error) = crate::gateway::aggregator::skill_mgmt::skill_mgmt_dispatch(
+        &gs,
+        "search_skills",
+        &json!({"query": "skill"}),
+    )
+    .await;
+    assert!(!is_error, "{text}");
+    let payload: Value = serde_json::from_str(&text).unwrap();
+
+    let blender = instance_entry(&payload, "blender");
+    assert!(
+        blender.get("error").is_some(),
+        "an isError backend must be reported as failed: {blender:#}"
+    );
+    let names: Vec<&str> = payload["skills"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|s| s.get("name").and_then(Value::as_str))
+        .collect();
+    assert!(
+        !names.contains(&"ghost-skill"),
+        "a failed host's rows must not be merged: {names:?}"
+    );
+
+    let _ = stop_good.send(());
+    let _ = stop_bad.send(());
+}
+
+/// PIP-3432 (P3): two hosts publishing the same skill names must page in a
+/// reproducible order. The union is sorted by name only, and the fan-out order
+/// it would otherwise fall back to comes out of a `DashMap`, so without a
+/// tie-breaker on the host identity a walk can reshuffle mid-page.
+#[tokio::test]
+async fn list_skills_fanout_pages_same_named_skills_stably() {
+    use std::sync::{Arc, Mutex};
+
+    // More colliding names than one page, so the tie-breaker has to hold
+    // across a page boundary too.
+    let names: Vec<String> = (0..30).map(|i| format!("shared-skill-{i:03}")).collect();
+    let mut maya = host_summaries("maya", names.len());
+    let mut blender = host_summaries("blender", names.len());
+    for (index, name) in names.iter().enumerate() {
+        maya[index].name = name.clone();
+        blender[index].name = name.clone();
+    }
+
+    let seen_a: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
+    let seen_b: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
+    let (port_a, stop_a) = spawn_summary_backend(maya, seen_a.clone()).await;
+    let (port_b, stop_b) = spawn_summary_backend(blender, seen_b.clone()).await;
+    let (gs, _dir, _ids) =
+        gateway_state_with_instances(&[("maya", port_a), ("blender", port_b)]).await;
+
+    let mut rows: Vec<(String, String)> = Vec::new();
+    let mut offset = 0usize;
+    loop {
+        let (text, is_error) = crate::gateway::aggregator::skill_mgmt::skill_mgmt_dispatch(
+            &gs,
+            "list_skills",
+            &json!({"offset": offset}),
+        )
+        .await;
+        assert!(!is_error, "{text}");
+        let page: Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(page["total"], names.len() * 2, "{page:#}");
+        rows.extend(page["skills"].as_array().unwrap().iter().map(|row| {
+            (
+                row.get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+                row.get("dcc")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+            )
+        }));
+        match page.get("next_offset").and_then(Value::as_u64) {
+            Some(next) => offset = next as usize,
+            None => break,
+        }
+        assert!(
+            rows.len() <= names.len() * 2 + 25,
+            "walk is not terminating"
+        );
+    }
+
+    // Every (name, dcc) pair reached exactly once...
+    assert_eq!(rows.len(), names.len() * 2, "walk lost or duplicated rows");
+    let mut unique = rows.clone();
+    unique.sort();
+    unique.dedup();
+    assert_eq!(unique.len(), rows.len(), "walk duplicated rows");
+
+    // ...and the whole walk is ordered, so a name collision never reshuffles
+    // between pages.
+    let mut sorted = rows.clone();
+    sorted.sort();
+    assert_eq!(
+        rows, sorted,
+        "merged rows are not in a stable order: {rows:?}"
+    );
+    for pair in rows.windows(2) {
+        if pair[0].0 == pair[1].0 {
+            assert!(
+                pair[0].1 <= pair[1].1,
+                "same-named rows out of order: {:?}",
+                pair
+            );
+        }
+    }
+
+    let _ = stop_a.send(());
+    let _ = stop_b.send(());
 }

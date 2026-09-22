@@ -419,7 +419,7 @@ async fn walk_backend_skill_pages(
         page_args.insert("limit".to_string(), json!(MAX_LIST_SKILLS_LIMIT));
         let params = json!({"name": "list_skills", "arguments": Value::Object(page_args)});
 
-        let text = match call_backend(
+        let (text, call_failed) = match call_backend(
             client,
             resilience,
             url,
@@ -430,9 +430,19 @@ async fn walk_backend_skill_pages(
         )
         .await
         {
-            Ok(value) => call_tool_text(&value)
-                .map(str::to_owned)
-                .unwrap_or_else(|| serde_json::to_string_pretty(&value).unwrap_or_default()),
+            Ok(value) => {
+                // A backend that flags the call as failed must not be merged
+                // as a partial catalogue: honour the MCP `isError` flag
+                // instead of parsing whatever text came back (PIP-3432).
+                let is_error = value
+                    .get("isError")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                let text = call_tool_text(&value)
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| serde_json::to_string_pretty(&value).unwrap_or_default());
+                (text, is_error)
+            }
             Err(error) => {
                 return WalkedSkillList {
                     skills,
@@ -441,6 +451,14 @@ async fn walk_backend_skill_pages(
                 };
             }
         };
+
+        if call_failed {
+            return WalkedSkillList {
+                skills,
+                total,
+                error: Some(text),
+            };
+        }
 
         let Ok(parsed) = serde_json::from_str::<Value>(&text) else {
             return WalkedSkillList {
@@ -461,11 +479,26 @@ async fn walk_backend_skill_pages(
 
         // Stop unless the backend offered a strictly later page: a repeated or
         // decreasing `next_offset` would loop forever on a misbehaving host.
+        //
+        // A backend that *claims* truncation but hands back no usable cursor
+        // is a failure, not an early finish. Returning `Ok` here would merge
+        // the partial page into the union and report the host as healthy, so
+        // the caller would see a short catalogue that claims to be complete
+        // (PIP-3432).
         let next = match (
             parsed.get("truncated").and_then(Value::as_bool),
             parsed.get("next_offset").and_then(Value::as_u64),
         ) {
             (Some(true), Some(next)) if next as usize > offset => Some(next as usize),
+            (Some(true), _) => {
+                return WalkedSkillList {
+                    skills,
+                    total,
+                    error: Some(
+                        "backend reported truncation without a usable next_offset".to_string(),
+                    ),
+                };
+            }
             _ => None,
         };
 
@@ -551,11 +584,29 @@ fn flatten_skill_list_results(
     for (iid, dcc, res) in results {
         match res {
             Ok(value) => {
-                ok_count += 1;
                 let text = call_tool_text(&value)
                     .map(str::to_owned)
                     .unwrap_or_else(|| serde_json::to_string_pretty(&value).unwrap_or_default());
 
+                // A backend that flags the call as failed contributed nothing.
+                // Report it as an instance error instead of counting it as a
+                // healthy host and merging whatever text came back (PIP-3432).
+                if value
+                    .get("isError")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+                {
+                    instances.push(json!({
+                        "instance_id": iid.to_string(),
+                        "instance_short": instance_short(&iid),
+                        "dcc_type": dcc,
+                        "skill_count": 0,
+                        "error": text,
+                    }));
+                    continue;
+                }
+
+                ok_count += 1;
                 match serde_json::from_str::<Value>(&text) {
                     Ok(parsed) => {
                         let before = skills.len();

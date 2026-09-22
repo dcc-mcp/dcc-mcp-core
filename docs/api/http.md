@@ -222,7 +222,7 @@ Every `McpHttpServer` emits a fixed set of built-in tools in `tools/list` in add
 | `offset` | `0` | Rows to skip after sorting by name. Pass the previous page's `next_offset`. |
 | `status` | `all` | `loaded` for active skills, `unloaded` for load candidates, `skipped` for rejected-package diagnostics, `error` for failures. |
 | `include_skipped` | `false` | Include skipped-skill diagnostics with stable reason codes and suggested fixes. |
-| `fields` | compact set | Strict allow-list of per-skill columns. Omit for compact mode (`name`, `dcc`, `summary`, `tool_count`, `status`, `loaded`, `stage`). |
+| `fields` | compact set | Strict allow-list of per-skill columns. Omit for compact mode (`name`, `dcc`, `summary`, `tool_count`, `status`, `loaded`, `stage`, `missing_dependencies`). |
 
 Response fields:
 
@@ -232,6 +232,8 @@ Response fields:
 | `truncated` | `true` when more rows exist after this page. |
 | `next_offset` | Present only when `truncated` is true. Pass it as `offset` for the next page. |
 | `next_step` | Ready-to-follow instruction for the next page. |
+
+Compact columns are projected conditionally: a column is emitted only when the skill actually carries a value, so `missing_dependencies` (and, outside compact mode, `layer` / `runtime` / `runtime_state`) is **absent** rather than empty for most rows. Clients must treat these as optional, not as guaranteed keys.
 
 Walking the full catalogue:
 
