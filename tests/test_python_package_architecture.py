@@ -10,6 +10,52 @@ from dcc_mcp_core._exports import _STABLE_LAZY
 
 _PACKAGE = Path(__file__).resolve().parent.parent / "python" / "dcc_mcp_core"
 
+# Ownership pins for lazy exports that a silent re-source could move.
+#
+# ``test_lazy_export_map_has_no_duplicate_keys`` only catches repeated keys. A
+# key stays unique when its *value* is re-pointed at another module, and that
+# mutation is invisible to the AST guard, to ``ruff`` F601 and to the runtime:
+# ``DEFAULT_PROMOTION_THRESHOLD`` is defined as ``3`` by both
+# ``escape_hatch_policy`` and ``skill_promotion``, so re-sourcing it changes no
+# observable behaviour at all.
+#
+# A pin is only worth maintaining when the name is reachable from more than one
+# module: if a name lives in exactly one module, re-sourcing it raises
+# ``AttributeError`` on first access and cannot slip through. Every entry below
+# is therefore a symbol that another top-level namespace also exposes, which
+# keeps the table far smaller than a full snapshot of ``_ALL_LAZY`` while making
+# every silent re-source fail here instead.
+_LAZY_EXPORT_OWNERSHIP: dict[str, str] = {
+    # Defined independently by ``escape_hatch_policy`` and ``skill_promotion``
+    # (both ``3``); the escape-hatch policy owns the public name.
+    "DEFAULT_PROMOTION_THRESHOLD": "dcc_mcp_core.escape_hatch_policy",
+    # Also defined by ``constants``.
+    "ENV_EXCLUDE_STUBS_FROM_TOOLS_LIST": "dcc_mcp_core.server",
+    "ENV_LOG_DIR": "dcc_mcp_core._core",
+    # ``script_execution`` re-exports these from ``runtime``; re-sourcing them
+    # would move the public contract onto the internal namespaces.
+    "SceneDigestError": "dcc_mcp_core.script_execution",
+    "SceneDigestExecution": "dcc_mcp_core.script_execution",
+    "SceneDigestExecutionError": "dcc_mcp_core.script_execution",
+    "SceneDigestSnapshot": "dcc_mcp_core.script_execution",
+    "ScriptExecutionContext": "dcc_mcp_core.script_execution",
+    "StateDigestProvider": "dcc_mcp_core.script_execution",
+    "capture_state_digest": "dcc_mcp_core.script_execution",
+    "execute_with_state_digest": "dcc_mcp_core.script_execution",
+    "get_default_script_execution_context": "dcc_mcp_core.script_execution",
+    "register_state_digest_provider": "dcc_mcp_core.script_execution",
+    "reset_default_script_execution_context_for_tests": "dcc_mcp_core.script_execution",
+    "update_script_namespace": "dcc_mcp_core.script_execution",
+    # ``deployment`` owns these; ``install_lifecycle`` is the compatibility shim
+    # that still re-exports them.
+    "inspect_install_root": "dcc_mcp_core.deployment",
+    "plan_runtime_updates": "dcc_mcp_core.deployment",
+    "resolve_deployment_layout": "dcc_mcp_core.deployment",
+    "safe_remove_tree": "dcc_mcp_core.deployment",
+    "safe_replace_tree": "dcc_mcp_core.deployment",
+    "stop_runtime_entries": "dcc_mcp_core.deployment",
+}
+
 # Compatibility modules may be removed, but new capabilities must choose an
 # ownership-oriented subpackage instead of growing the root again.
 _LEGACY_TOP_LEVEL_MODULES = {
@@ -104,6 +150,24 @@ def test_new_python_capabilities_do_not_grow_the_flat_namespace() -> None:
     assert current <= _LEGACY_TOP_LEVEL_MODULES
 
 
+def _read_all_lazy_map() -> dict[str, str]:
+    """Parse ``_ALL_LAZY`` straight from the source tree.
+
+    Reading the AST rather than importing ``dcc_mcp_core._exports`` keeps these
+    guards honest when the installed wheel is older than the checkout, and keeps
+    them runnable on a pure-Python checkout with no built extension module.
+    """
+    tree = ast.parse((_PACKAGE / "_exports.py").read_text(encoding="utf-8"))
+    all_lazy = next(
+        node.value
+        for node in tree.body
+        if isinstance(node, (ast.Assign, ast.AnnAssign))
+        and getattr(node.targets[0] if isinstance(node, ast.Assign) else node.target, "id", None) == "_ALL_LAZY"
+        and isinstance(node.value, ast.Dict)
+    )
+    return {ast.literal_eval(key): ast.literal_eval(value) for key, value in zip(all_lazy.keys, all_lazy.values)}
+
+
 def test_lazy_export_map_has_no_duplicate_keys() -> None:
     """Guard the facade map against silently shadowed symbols.
 
@@ -144,6 +208,24 @@ def test_lazy_export_map_has_no_duplicate_keys() -> None:
             seen[name] = line
 
     assert duplicates == {}, f"duplicate lazy export keys (first wins is NOT the behaviour): {duplicates}"
+
+
+def test_ambiguous_lazy_exports_keep_their_owning_module() -> None:
+    """Guard the facade map against silently re-sourced symbols.
+
+    Unlike a duplicate key, pointing an existing key at a different module keeps
+    the map valid and keeps every runtime test green whenever the two modules
+    happen to agree on the value. ``_LAZY_EXPORT_OWNERSHIP`` pins the owning
+    module for exactly those symbols that another namespace also exposes, so the
+    next re-source has to be a deliberate edit to this table.
+    """
+    all_lazy = _read_all_lazy_map()
+    mismatched = {
+        name: {"expected": expected, "actual": all_lazy.get(name)}
+        for name, expected in _LAZY_EXPORT_OWNERSHIP.items()
+        if all_lazy.get(name) != expected
+    }
+    assert mismatched == {}, f"lazy exports re-sourced away from their owning module: {mismatched}"
 
 
 def test_stable_exports_never_source_private_python_packages() -> None:
