@@ -420,16 +420,6 @@ impl AdminSqliteLane {
         self.inner.upsert_feedback_finding(finding)
     }
 
-    /// #2253-E2: Look up one dedup row by its `(repo, fingerprint)` key.
-    #[must_use]
-    pub fn get_feedback_finding(
-        &self,
-        repo: &str,
-        fingerprint: &str,
-    ) -> Option<FeedbackFindingRow> {
-        self.inner.get_feedback_finding(repo, fingerprint)
-    }
-
     /// #2253-E2: Most recently seen dedup rows, newest first.
     #[must_use]
     pub fn list_feedback_findings(&self, limit: usize) -> Vec<FeedbackFindingRow> {

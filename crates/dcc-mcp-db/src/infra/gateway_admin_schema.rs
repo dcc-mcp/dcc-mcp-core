@@ -190,13 +190,23 @@ CREATE INDEX IF NOT EXISTS idx_feedback_reports_fingerprint ON feedback_reports(
 --
 -- Rows are bounded by the number of distinct `(repo, fingerprint)` pairs, not
 -- by submission volume: a repeat report bumps `occurrence_count` instead of
--- inserting. That bound holds only while fingerprints stay low-cardinality --
--- they are SHA-256 digests over a fixed finding schema
--- (`finding-v1/{owner}/{phase}/{subject}/{host_major}`), so a caller cannot
--- mint unlimited distinct values without also submitting genuinely distinct
--- findings. Rate limiting the route does not by itself bound this table; if
--- ingest volume ever makes row count a concern, cap by `last_seen_ms` or
--- evict low-`occurrence_count` rows rather than pruning on age alone.
+-- inserting. That bound is NOT self-enforcing, though -- the `fingerprint` on
+-- a finding is supplied by the caller and the server only checks its *shape*
+-- (`sha256:` + 64 lowercase hex digits, see `FindingV1::validate`); the
+-- server does not recompute it, so a caller can mint arbitrarily many
+-- distinct values and each one lands a new row. Verifying the digest
+-- server-side is not possible on this path either: `finding_fingerprint`
+-- takes the owning repo as its first input, and that repo is exactly what
+-- routing has to derive, so trusting the client-supplied fingerprint is the
+-- existing Finding v1 contract.
+--
+-- No bound on row count is therefore in effect today. The optional per-IP
+-- rate limit on the gateway ingress (`rate_limit_per_minute_per_ip`) is a
+-- growth-RATE limit, not a growth bound: when configured it throttles how fast
+-- one source IP can add rows, it does not stop the table from growing without
+-- limit over time or across many source IPs, and it is off unless configured.
+-- If row count ever becomes a concern, cap by `last_seen_ms` or evict
+-- low-`occurrence_count` rows rather than pruning on age alone.
 CREATE TABLE IF NOT EXISTS feedback_findings (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   repo TEXT NOT NULL DEFAULT '',
