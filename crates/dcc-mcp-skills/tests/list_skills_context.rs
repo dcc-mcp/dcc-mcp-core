@@ -139,7 +139,13 @@ fn pages_are_disjoint() {
     loop {
         let page = measure(&hosts, &json!({"offset": offsets.last().copied().unwrap()}));
         match page.next_offset {
-            Some(next) => offsets.push(next),
+            Some(next) => {
+                // Reject a repeated or decreasing offset here rather than
+                // spinning forever: the union walk must make progress.
+                let previous = *offsets.last().expect("initial offset");
+                assert!(next > previous, "next_offset did not advance");
+                offsets.push(next);
+            }
             None => break,
         }
     }

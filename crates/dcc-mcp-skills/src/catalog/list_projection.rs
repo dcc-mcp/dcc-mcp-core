@@ -42,21 +42,13 @@ const COMPACT_FIELDS: &[&str] = &[
     "missing_dependencies",
 ];
 
-/// Argument that opts a single call out of paging.
-///
-/// Used by the gateway's `list_skills` fan-out: it has to page over the
-/// *merged* catalogue, so every host must send its complete list instead of
-/// its own first page. It is deliberately absent from the advertised tool
-/// schema — it is an internal hop flag and a deliberate escape hatch for
-/// callers that really do want every row.
-pub const UNBOUNDED_ARG: &str = "unbounded";
-
 /// Every field the projection can emit.
 ///
-/// Used by the gateway's fan-out so each backend returns its full catalogue
-/// instead of its own compact page: paging has to happen once, on the merged
-/// result, otherwise every host applies `offset` to its own list and pages
-/// overlap (PIP-3407).
+/// Used by the gateway's fan-out so each backend returns every column of its
+/// catalogue: paging has to happen once, on the merged result, otherwise
+/// every host applies `offset` to its own list and pages overlap (PIP-3407).
+/// The gateway walks each host with bounded pages of
+/// [`MAX_LIST_SKILLS_LIMIT`] rows and follows `next_offset`.
 pub const ALL_LIST_SKILLS_FIELDS: &[&str] = &[
     "name",
     "description",
@@ -109,10 +101,13 @@ fn parse_offset(args: &Value) -> usize {
 /// every live DCC host, so an unbounded default grows the tool result with
 /// the size of the whole studio (PIP-3407). `0` is treated as "unset" to
 /// match the search path (`SearchQuery::limit`).
+///
+/// There is deliberately no opt-out. The gateway fan-out used to pass an
+/// `unbounded` argument so each host would hand over its whole catalogue in
+/// one hop, but that argument reached `tools/call` from any MCP client too,
+/// letting an ordinary caller defeat the very bound this module exists to
+/// enforce. The gateway now walks each host with bounded pages instead.
 fn parse_limit(args: &Value) -> usize {
-    if args.get(UNBOUNDED_ARG).and_then(Value::as_bool) == Some(true) {
-        return usize::MAX;
-    }
     match args.get("limit").and_then(Value::as_u64) {
         None | Some(0) => DEFAULT_LIST_SKILLS_LIMIT,
         Some(n) => (n as usize).min(MAX_LIST_SKILLS_LIMIT),
@@ -208,20 +203,16 @@ pub fn build_list_skills_response(mut summaries: Vec<SkillSummary>, args: &Value
     let limit = parse_limit(args);
     let fields = parse_fields(args);
 
-    let unbounded = limit == usize::MAX;
     let end = offset.saturating_add(limit).min(total);
     let page: Vec<SkillSummary> = summaries[offset..end].to_vec();
     let next_offset = (end < total).then_some(end);
 
     let skills: Vec<Value> = page.iter().map(|s| project_summary(s, &fields)).collect();
 
-    // An unbounded call has no page size to report; echo the row count the
-    // way the pre-paging payload did.
-    let response_limit = if unbounded { page.len() } else { limit };
     let mut payload = json!({
         "skills": skills,
         "total": total,
-        "limit": response_limit,
+        "limit": limit,
         "offset": offset,
         "truncated": next_offset.is_some(),
     });
@@ -230,7 +221,7 @@ pub fn build_list_skills_response(mut summaries: Vec<SkillSummary>, args: &Value
         obj.insert(
             "next_step".into(),
             json!(format!(
-                "More skills available: call list_skills with offset={next_offset} limit={response_limit}. Prefer search_skills with a query to jump straight to a skill by intent."
+                "More skills available: call list_skills with offset={next_offset} limit={limit}. Prefer search_skills with a query to jump straight to a skill by intent."
             )),
         );
     }
@@ -420,28 +411,76 @@ mod tests {
     }
 
     #[test]
-    fn unbounded_flag_restores_the_full_list() {
-        // The gateway fan-out relies on this: it pages once, on the merged
-        // catalogue, so each host has to hand over everything it has.
+    fn no_argument_can_defeat_the_page_bound() {
+        // The bound is the whole point of this module, so it must hold for
+        // every argument combination — including undocumented ones. An
+        // `unbounded` argument used to be honoured here and let any MCP
+        // client pull the entire catalogue in one call.
         let summaries: Vec<SkillSummary> = (0..70)
             .map(|i| sample_summary(&format!("skill-{i:03}")))
             .collect();
-        let payload = build_list_skills_response(
-            summaries,
-            &json!({
-                UNBOUNDED_ARG: true,
-                "fields": ALL_LIST_SKILLS_FIELDS,
-            }),
-        );
-        assert_eq!(payload["skills"].as_array().unwrap().len(), 70);
-        assert_eq!(payload["truncated"], false);
-        assert_eq!(payload["limit"], 70, "no page size to report");
-        assert!(payload.get("next_offset").is_none());
-        // Every projected column survives the hop, not just the compact set.
-        let row = &payload["skills"][0];
-        for field in ["name", "dcc", "summary", "description", "tool_names"] {
-            assert!(row.get(field).is_some(), "missing {field} in {row}");
+        // (arguments, expected page size) — an explicit `limit` is clamped to
+        // the hard cap, anything else falls back to the default page.
+        for (bypass, expected) in [
+            (json!({"unbounded": true}), DEFAULT_LIST_SKILLS_LIMIT),
+            (
+                json!({"unbounded": true, "limit": 10_000}),
+                MAX_LIST_SKILLS_LIMIT,
+            ),
+            (json!({"limit": 10_000}), MAX_LIST_SKILLS_LIMIT),
+            (
+                json!({"unbounded": true, "fields": ALL_LIST_SKILLS_FIELDS}),
+                DEFAULT_LIST_SKILLS_LIMIT,
+            ),
+        ] {
+            let payload = build_list_skills_response(summaries.clone(), &bypass);
+            let rows = payload["skills"].as_array().unwrap().len();
+            assert_eq!(
+                rows, expected,
+                "{bypass} produced {rows} rows, escaping the page bound"
+            );
+            assert!(rows < 70, "{bypass} returned the whole catalogue");
+            assert_eq!(payload["truncated"], true, "{bypass} hid the truncation");
+            assert_eq!(payload["next_offset"], expected);
         }
+    }
+
+    #[test]
+    fn pages_walk_the_whole_catalogue() {
+        // The gateway walks each host page by page, so a full traversal must
+        // yield every skill exactly once and carry every projected column.
+        let summaries: Vec<SkillSummary> = (0..70)
+            .map(|i| sample_summary(&format!("skill-{i:03}")))
+            .collect();
+        let mut offset = 0usize;
+        let mut seen: Vec<String> = Vec::new();
+        loop {
+            let payload = build_list_skills_response(
+                summaries.clone(),
+                &json!({
+                    "offset": offset,
+                    "limit": MAX_LIST_SKILLS_LIMIT,
+                    "fields": ALL_LIST_SKILLS_FIELDS,
+                }),
+            );
+            for row in payload["skills"].as_array().unwrap() {
+                for field in ["name", "dcc", "summary", "description", "tool_names"] {
+                    assert!(row.get(field).is_some(), "missing {field} in {row}");
+                }
+                seen.push(row["name"].as_str().unwrap().to_string());
+            }
+            match payload.get("next_offset").and_then(Value::as_u64) {
+                Some(next) => {
+                    let next = next as usize;
+                    assert!(next > offset, "next_offset did not advance");
+                    offset = next;
+                }
+                None => break,
+            }
+        }
+        assert_eq!(seen.len(), 70);
+        let unique: std::collections::BTreeSet<_> = seen.iter().collect();
+        assert_eq!(unique.len(), 70, "traversal repeated or dropped skills");
     }
 
     #[test]

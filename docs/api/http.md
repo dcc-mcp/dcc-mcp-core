@@ -203,7 +203,7 @@ Every `McpHttpServer` emits a fixed set of built-in tools in `tools/list` in add
 | Tool | Purpose | Typical follow-up |
 |------|---------|-------------------|
 | `search_skills` | Ranked keyword search over discovered skills (name, description, search-hint, tags, tool names). **Start here** when you don't know the skill name. | `load_skill(skill_name=...)` |
-| `list_skills` | Browsable page of discovered skills with load status (25 rows by default, 50 max). Returns `total`, `truncated` and `next_offset`; pass `offset=next_offset` to continue. Use for browsing, not search. | `get_skill_info(...)` or `load_skill(...)` |
+| `list_skills` | Browsable page of discovered skills with load status. Use for browsing, not search. | `get_skill_info(...)` or `load_skill(...)` |
 | `get_skill_info` | Full metadata + input schemas for one skill. | `load_skill(skill_name=...)` |
 | `load_skill` | Loads one or more skills; emits `tools/list_changed`. Idempotent. | Call the specific tool by name |
 | `unload_skill` | Unloads a skill; emits `tools/list_changed`. Idempotent. | `load_skill(...)` again if needed |
@@ -211,6 +211,41 @@ Every `McpHttpServer` emits a fixed set of built-in tools in `tools/list` in add
 | `deactivate_tool_group` | Collapses a tool group back to a stub to shrink the token footprint. | `activate_tool_group(...)` |
 | `search_tools` | Full-text search over active tools plus unloaded skill candidates, supports multi-word natural-language phrases. Returned without full schemas. | `get_skill_info(...)`, `load_skill(...)`, or call the matched active tool |
 | `list_roots` | Returns the filesystem roots the client advertised via `roots/list`. Rarely needed. | — |
+
+#### `list_skills` pagination contract {#list-skills-pagination}
+
+`list_skills` fans out across every live DCC host, so an unbounded result grows with the size of the whole studio rather than with what the caller asked for (PIP-3407). The response is therefore always a bounded page:
+
+| Argument | Default | Behaviour |
+|----------|---------|-----------|
+| `limit` | `25` | Page size. Clamped to a hard maximum of `50`; `0` is treated as unset. There is no way to request an unbounded page. |
+| `offset` | `0` | Rows to skip after sorting by name. Pass the previous page's `next_offset`. |
+| `status` | `all` | `loaded` for active skills, `unloaded` for load candidates, `skipped` for rejected-package diagnostics, `error` for failures. |
+| `include_skipped` | `false` | Include skipped-skill diagnostics with stable reason codes and suggested fixes. |
+| `fields` | compact set | Strict allow-list of per-skill columns. Omit for compact mode (`name`, `dcc`, `summary`, `tool_count`, `status`, `stage`). |
+
+Response fields:
+
+| Field | Meaning |
+|-------|---------|
+| `total` | Full catalogue size across all hosts, **not** the page size. |
+| `truncated` | `true` when more rows exist after this page. |
+| `next_offset` | Present only when `truncated` is true. Pass it as `offset` for the next page. |
+| `next_step` | Ready-to-follow instruction for the next page. |
+
+Walking the full catalogue:
+
+```python
+skills, offset = [], 0
+while True:
+    page = call("list_skills", {"offset": offset})
+    skills.extend(page["skills"])
+    if not page["truncated"]:
+        break
+    offset = page["next_offset"]
+```
+
+When the caller only knows the *intent* and not the name, call `search_skills(query=...)` instead — it is ranked and returns the best matches on the first page, which costs far less context than walking `list_skills`.
 
 ### Lazy-actions fast-path (opt-in)
 

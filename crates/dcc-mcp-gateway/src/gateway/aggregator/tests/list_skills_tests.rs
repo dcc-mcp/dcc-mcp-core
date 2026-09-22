@@ -5,6 +5,7 @@
 //! host and pages the union exactly once.
 
 use super::helpers::gateway_state_with_instances;
+use dcc_mcp_skills::catalog::list_projection::MAX_LIST_SKILLS_LIMIT;
 use serde_json::{Value, json};
 
 /// Backend that serves `count` skills through the real `list_skills`
@@ -115,19 +116,22 @@ async fn list_skills_fanout_pages_the_merged_catalogue() {
     assert_eq!(first["next_offset"], 25, "{first:#}");
     assert!(first["next_step"].as_str().is_some(), "{first:#}");
 
-    // Paging happens once, on the merged result: backends must not apply the
-    // caller's `limit`/`offset` to their own catalogue.
+    // Paging happens once, on the merged result: backends are drained with
+    // the gateway's own bounded page size, never with the *caller's*
+    // `limit`/`offset` applied to each host's own catalogue.
     for seen in [&seen_a, &seen_b, &seen_c] {
         let args = seen.lock().unwrap();
-        assert_eq!(args.len(), 1, "each backend called once per page");
-        assert!(
-            args[0].get("limit").is_none(),
-            "limit forwarded: {}",
+        assert_eq!(args.len(), 1, "a host this small fits in one page");
+        assert_eq!(
+            args[0].get("limit").and_then(Value::as_u64),
+            Some(MAX_LIST_SKILLS_LIMIT as u64),
+            "backend page must be the internal cap, not the caller's: {}",
             args[0]
         );
-        assert!(
-            args[0].get("offset").is_none(),
-            "offset forwarded: {}",
+        assert_eq!(
+            args[0].get("offset").and_then(Value::as_u64),
+            Some(0),
+            "the walk must start at the first page: {}",
             args[0]
         );
         assert!(
@@ -186,4 +190,94 @@ async fn list_skills_fanout_pages_the_merged_catalogue() {
     let _ = stop_a.send(());
     let _ = stop_b.send(());
     let _ = stop_c.send(());
+}
+
+/// A host whose catalogue is larger than one backend page must still be
+/// drained completely: the gateway walks each host with bounded pages and
+/// follows `next_offset`, so no skill may be dropped just because it lives
+/// past the first page of its own host.
+#[tokio::test]
+async fn list_skills_fanout_walks_a_host_larger_than_one_page() {
+    use std::sync::{Arc, Mutex};
+
+    let big = MAX_LIST_SKILLS_LIMIT * 2 + 7; // 107 skills -> 3 backend pages
+    let seen_big: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
+    let seen_small: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
+    let (port_big, stop_big) = spawn_list_skills_backend("maya", big, seen_big.clone()).await;
+    let (port_small, stop_small) =
+        spawn_list_skills_backend("blender", 12, seen_small.clone()).await;
+    let (gs, _dir, _ids) =
+        gateway_state_with_instances(&[("maya", port_big), ("blender", port_small)]).await;
+
+    let mut names: Vec<String> = Vec::new();
+    let mut offset = 0usize;
+    let mut rounds = 0usize;
+    loop {
+        rounds += 1;
+        let (text, is_error) = crate::gateway::aggregator::skill_mgmt::skill_mgmt_dispatch(
+            &gs,
+            "list_skills",
+            &json!({"offset": offset, "limit": MAX_LIST_SKILLS_LIMIT}),
+        )
+        .await;
+        assert!(!is_error, "{text}");
+        let page: Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(
+            page["total"].as_u64().unwrap() as usize,
+            big + 12,
+            "every page reports the merged catalogue size"
+        );
+        names.extend(
+            page["skills"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(|s| s.get("name").and_then(Value::as_str))
+                .map(str::to_string),
+        );
+        match page.get("next_offset").and_then(Value::as_u64) {
+            Some(next) => {
+                let next = next as usize;
+                assert!(next > offset, "next_offset did not advance");
+                offset = next;
+            }
+            None => break,
+        }
+        assert!(
+            names.len() <= big + 12 + MAX_LIST_SKILLS_LIMIT,
+            "not terminating"
+        );
+    }
+
+    let mut unique = names.clone();
+    unique.sort();
+    unique.dedup();
+    assert_eq!(
+        unique.len(),
+        big + 12,
+        "a host larger than one page lost or duplicated skills"
+    );
+
+    // The fan-out is stateless, so every caller page re-walks each host:
+    // the big host costs 3 bound pages per dispatch, the small one 1.
+    assert_eq!(
+        rounds,
+        3,
+        "{} skills at pages of {MAX_LIST_SKILLS_LIMIT}",
+        big + 12
+    );
+    let big_calls = seen_big.lock().unwrap().len();
+    let small_calls = seen_small.lock().unwrap().len();
+    assert_eq!(
+        big_calls,
+        3 * rounds,
+        "{big} skills need 3 bounded pages per dispatch"
+    );
+    assert_eq!(
+        small_calls, rounds,
+        "a host that fits one page must cost one request per dispatch"
+    );
+
+    let _ = stop_big.send(());
+    let _ = stop_small.send(());
 }

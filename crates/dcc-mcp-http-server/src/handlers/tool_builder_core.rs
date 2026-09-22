@@ -54,12 +54,12 @@ pub fn build_core_tools_inner() -> Vec<McpTool> {
         },
         McpTool {
             name: "list_skills".to_string(),
-            description: "Lists discovered skills with load status (loaded, unloaded, error, skipped).\n\n\
-                          When to use: Browse availability or audit active skills. For ranked lookup, call search_skills instead.\n\n\
+            description: "Lists skills with load status (loaded, unloaded, error, skipped).\n\n\
+                          When to use: Browse availability or audit active skills. For ranked lookup, use search_skills.\n\n\
                           How to use:\n\
-                          - Pass status='loaded' for active skills, 'unloaded' for load candidates, or 'skipped' for rejected package diagnostics.\n\
-                          - Returns one bounded page (25 rows by default, 50 max). When 'truncated' is true, follow 'next_step' / pass offset=next_offset for the next page; 'total' is the full catalogue size.\n\
-                          - Follow up with get_skill_info(skill_name=...) or load_skill(skill_name=...)."
+                          - status='loaded' for active skills, 'unloaded' for load candidates, 'skipped' for diagnostics.\n\
+                          - One bounded page (25 by default, 50 max). While 'truncated' is true, follow 'next_step' or pass offset=next_offset; 'total' is the full size.\n\
+                          - Then get_skill_info(skill_name=...) or load_skill(skill_name=...)."
                 .to_string(),
             input_schema: json!({
                 "type": "object",
