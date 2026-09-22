@@ -299,6 +299,12 @@ def test_resume_matcher_rejects_near_miss_identifiers():
         'call "workflows_resume" to continue',
         "see workflows_resume.",
         "run workflows_resume() now",
+        # CJK is a Unicode word character, so \w boundaries would reject a
+        # bilingual sentence that names the tool correctly. The docs in this
+        # repo are bilingual; that is a worse failure than letting an exotic
+        # `\u03b1workflows_resume` through.
+        "\u8bf7\u8c03\u7528workflows_resume\u6765\u6062\u590d",
+        "\uff08workflows_resume\uff09",
     ):
         assert matcher.search(text), text
     for text in (

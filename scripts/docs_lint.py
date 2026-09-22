@@ -695,6 +695,12 @@ def resume_matcher(symbol):
     catch. The characters real docs wrap the symbol in (backticks, quotes,
     dots, parens, slashes) are not word characters, so ``` `workflows_resume`
     ```, ``"workflows_resume"`` and ``workflows_resume.`` still count.
+
+    The boundary class is deliberately ASCII-only and not ``\w``: in Python 3
+    ``\w`` is Unicode-aware and CJK counts as word characters, so a bilingual
+    sentence such as ``请调用workflows_resume来恢复`` -- which names the tool
+    exactly as intended -- would be reported as missing it. Rejecting an
+    exotic ``\u03b1workflows_resume`` costs less than rejecting correct Chinese.
     """
     symbol = symbol.strip()
     if not symbol:
