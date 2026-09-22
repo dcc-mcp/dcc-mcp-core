@@ -539,6 +539,27 @@ def check_links(text, base_dir, index):
 # --------------------------------------------------------------------------- #
 
 
+def frontmatter_line_count(text):
+    """Return the number of lines taken by a leading YAML frontmatter block.
+
+    VitePress and most static site generators put page configuration here, and
+    that configuration legitimately contains emoji: a ``- icon:`` value is UI
+    chrome, not prose. Counting it as body text made every themed home page
+    trip ``emoji/emoji-density`` for a reason no author could act on, so the
+    block is treated the way a fenced block already is -- data, not content.
+
+    A frontmatter block must start on line 1 and close with a bare ``---`` or
+    ``...``; anything else is ordinary Markdown.
+    """
+    lines = text.split("\n")
+    if not lines or lines[0].strip() != "---":
+        return 0
+    for i in range(1, len(lines)):
+        if lines[i].strip() in ("---", "..."):
+            return i + 1
+    return 0
+
+
 def check_emoji(text, max_density):
     """Return emoji findings: headings must be plain, bodies must stay sparse."""
     findings = []
@@ -547,8 +568,13 @@ def check_emoji(text, max_density):
     pictographs = 0
     symbols = 0
 
+    # Page frontmatter is configuration; its emoji are not authorial style.
+    skip_through = frontmatter_line_count(text)
+
     open_marker = None
     for i, line in enumerate(text.split("\n"), start=1):
+        if i <= skip_through:
+            continue
         open_marker, is_fence_line = fence_step(line, open_marker)
         if open_marker is not None or is_fence_line:
             continue
