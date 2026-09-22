@@ -1,7 +1,9 @@
 //! Canonical DDL for the gateway admin SQLite database (single source of truth).
 
 /// Bootstrap script executed once per writer connection (WAL + tables + indexes).
-/// Schema version 2 — adds sessions, tool_calls, and session_events tables (PIP-2751).
+/// Schema version 4 — adds the feedback_reports table (#2253-E1).
+/// Version 3 added script_promotion_counters (#2297-A3); version 2 added
+/// sessions, tool_calls, and session_events (PIP-2751).
 pub const GATEWAY_ADMIN_SQLITE_DDL: &str = r#"
 PRAGMA journal_mode=WAL;
 PRAGMA synchronous=NORMAL;
@@ -118,6 +120,29 @@ CREATE TABLE IF NOT EXISTS script_promotion_counters (
   proposal_state TEXT NOT NULL,
   PRIMARY KEY (sha256, dcc_type, tool_name)
 );
+-- #2253-E1: Durable agent-feedback reports so `dcc_feedback__report`
+-- submissions survive a gateway restart and stay queryable across instances.
+-- `report_json` is the object the per-DCC JSONL mirror writes plus the
+-- gateway-minted `id` / `timestamp` / `recorded_at` envelope. The admin read
+-- path merges both sources by `id` with this table winning, so the two are
+-- equivalent but not byte-identical.
+-- `occurred_at_ms` mirrors `recorded_at_ms`: the gateway only learns about a
+-- report when it is posted, so both mean "accepted by the gateway", and both
+-- retention pruning and the admin `range` cutoff are anchored on that instant.
+CREATE TABLE IF NOT EXISTS feedback_reports (
+  id TEXT PRIMARY KEY NOT NULL,
+  kind TEXT NOT NULL,
+  schema_version INTEGER NOT NULL DEFAULT 0,
+  fingerprint TEXT,
+  severity TEXT NOT NULL,
+  dcc_type TEXT NOT NULL,
+  instance_id TEXT,
+  tool_slug TEXT,
+  recorded_at TEXT NOT NULL,
+  occurred_at_ms INTEGER NOT NULL,
+  recorded_at_ms INTEGER NOT NULL,
+  report_json TEXT NOT NULL
+);
 CREATE INDEX IF NOT EXISTS idx_traces_started ON traces(started_ms);
 CREATE INDEX IF NOT EXISTS idx_audits_ts ON audits(ts_ms);
 CREATE INDEX IF NOT EXISTS idx_deregistered_instances_ts ON deregistered_instances(ts_ms);
@@ -139,4 +164,9 @@ CREATE INDEX IF NOT EXISTS idx_session_events_session ON session_events(session_
 CREATE INDEX IF NOT EXISTS idx_session_events_type ON session_events(event_type, created_at_ms);
 CREATE INDEX IF NOT EXISTS idx_script_promotion_counters_state
   ON script_promotion_counters(proposal_state, last_seen_ms);
+CREATE INDEX IF NOT EXISTS idx_feedback_reports_occurred ON feedback_reports(occurred_at_ms);
+CREATE INDEX IF NOT EXISTS idx_feedback_reports_recorded ON feedback_reports(recorded_at_ms);
+CREATE INDEX IF NOT EXISTS idx_feedback_reports_dcc ON feedback_reports(dcc_type, occurred_at_ms);
+CREATE INDEX IF NOT EXISTS idx_feedback_reports_severity ON feedback_reports(severity, occurred_at_ms);
+CREATE INDEX IF NOT EXISTS idx_feedback_reports_fingerprint ON feedback_reports(fingerprint);
 "#;

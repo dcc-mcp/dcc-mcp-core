@@ -1,5 +1,7 @@
 //! Infrastructure: DDL and (future) drivers. Domain must not import from here.
 
+#[cfg(feature = "gateway-admin-sqlite")]
+pub mod feedback_report_sqlite;
 pub mod file_log_merge;
 pub mod gateway_admin_schema;
 #[cfg(feature = "gateway-admin-sqlite")]

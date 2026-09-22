@@ -1,7 +1,7 @@
 //! Persisted agent-feedback aggregation for the gateway admin API.
 
 use std::cmp::Ordering;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Read};
 use std::path::Path;
@@ -15,6 +15,7 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 use super::super::state::AdminState;
+use crate::gateway::admin::sqlite_lane::AdminSqliteReader;
 
 const DEFAULT_LIMIT: usize = 100;
 const MAX_LIMIT: usize = 1_000;
@@ -48,11 +49,38 @@ struct ValidatedQuery {
     limit: usize,
 }
 
+/// Where a candidate feedback row was read from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EntrySource {
+    /// Row read from the durable `feedback_reports` table (#2253-E1).
+    Sqlite,
+    /// Line read from the per-DCC JSONL mirror.
+    Jsonl,
+}
+
 #[derive(Debug)]
 struct FeedbackEntry {
     id: String,
     timestamp: f64,
+    source: EntrySource,
     value: Value,
+}
+
+impl FeedbackEntry {
+    /// `true` when `self` should be kept and `other` discarded for the same `id`.
+    ///
+    /// SQLite wins outright: it is the durable copy, and the client-side mirror
+    /// is written only after the receipt round-trip, so its `timestamp` is
+    /// always a little later. Ordering on timestamp alone would let the mirror
+    /// shadow the very row this issue exists to persist. Within one source the
+    /// newest row wins, which is the behavior the JSONL path always had.
+    fn preferred_over(&self, other: &Self) -> bool {
+        match (self.source, other.source) {
+            (EntrySource::Sqlite, EntrySource::Jsonl) => true,
+            (EntrySource::Jsonl, EntrySource::Sqlite) => false,
+            _ => self.timestamp >= other.timestamp,
+        }
+    }
 }
 
 #[derive(Debug, Default)]
@@ -62,9 +90,35 @@ struct FeedbackScan {
     skipped_invalid: usize,
     deduplicated: usize,
     files_scanned: usize,
+    /// Returned rows that came from the `feedback_reports` table (#2253-E1).
+    sqlite_rows: usize,
+    /// Returned rows that came from the per-DCC JSONL mirror.
+    jsonl_rows: usize,
 }
 
-/// `GET /admin/api/feedback` — aggregate bounded per-instance feedback JSONL.
+impl FeedbackScan {
+    /// `sqlite`, `registry-jsonl`, `sqlite+registry-jsonl` when both
+    /// contributed, or `none` when the response holds no rows.
+    fn source(&self) -> &'static str {
+        match (self.sqlite_rows > 0, self.jsonl_rows > 0) {
+            (true, true) => "sqlite+registry-jsonl",
+            (true, false) => "sqlite",
+            (false, true) => "registry-jsonl",
+            (false, false) => "none",
+        }
+    }
+}
+
+/// Snapshot of the admin SQLite reader used to read durable feedback rows.
+///
+/// `None` when no lane is configured; the no-op reader returned without the
+/// `admin-persist-sqlite` feature yields no rows, so the JSONL mirror stays the
+/// only source in those builds.
+fn sqlite_reader(state: &AdminState) -> Option<AdminSqliteReader> {
+    state.admin_sqlite_lane.as_ref().map(|lane| lane.reader())
+}
+
+/// `GET /admin/api/feedback` — durable feedback rows, backfilled from the per-DCC JSONL mirror.
 pub(super) async fn handle_admin_feedback(
     State(state): State<AdminState>,
     Query(raw_query): Query<FeedbackQuery>,
@@ -75,8 +129,11 @@ pub(super) async fn handle_admin_feedback(
     };
     let feedback_dir = state.gateway.registry.registry_dir().join("feedback");
     let scan_query = query.clone();
-    let scan = match tokio::task::spawn_blocking(move || scan_feedback(&feedback_dir, &scan_query))
-        .await
+    let sqlite_reader = sqlite_reader(&state);
+    let scan = match tokio::task::spawn_blocking(move || {
+        scan_feedback(&feedback_dir, &scan_query, sqlite_reader.as_ref())
+    })
+    .await
     {
         Ok(Ok(scan)) => scan,
         Ok(Err(message)) => return read_error(message),
@@ -85,7 +142,7 @@ pub(super) async fn handle_admin_feedback(
 
     Json(json!({
         "success": true,
-        "source": "registry-jsonl",
+        "source": scan.source(),
         "total": scan.total,
         "count": scan.entries.len(),
         "truncated": scan.total > scan.entries.len(),
@@ -153,9 +210,65 @@ fn normalize_filter(name: &str, value: Option<String>) -> Result<Option<String>,
     Ok(Some(value))
 }
 
-fn scan_feedback(feedback_dir: &Path, query: &ValidatedQuery) -> Result<FeedbackScan, String> {
+/// Aggregate durable feedback rows (#2253-E1) and backfill from the JSONL mirror.
+///
+/// The `feedback_reports` table is the primary source: it survives a gateway
+/// restart and is queryable across instances. The per-DCC JSONL mirror is still
+/// scanned so reports written before this table existed (or by a build without
+/// `admin-persist-sqlite`) stay visible. Rows are de-duplicated by `id`, which
+/// is the gateway-minted `feedback_id` shared by both writers.
+///
+/// When both writers hold the same `id` — the normal shape once a Python
+/// client mirrors a report it just posted — SQLite wins deterministically; see
+/// [`FeedbackEntry::preferred_over`].
+fn scan_feedback(
+    feedback_dir: &Path,
+    query: &ValidatedQuery,
+    sqlite: Option<&AdminSqliteReader>,
+) -> Result<FeedbackScan, String> {
+    let mut candidates = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut deduplicated = 0;
+    let mut skipped_invalid = 0;
+
+    if let Some(reader) = sqlite {
+        let cutoff_ms = query.cutoff.map(|cutoff| (cutoff * 1000.0) as i64);
+        // Over-fetch to the hard cap: each source only knows its own rows, so
+        // reading just `query.limit` from one source would drop rows that a
+        // newer row from the other source should have pushed into the window.
+        let limit = MAX_LIMIT;
+        for value in reader.list_feedback_reports(
+            cutoff_ms,
+            query.dcc.as_deref(),
+            query.severity.as_deref(),
+            limit,
+        ) {
+            let Value::Object(record) = value else {
+                skipped_invalid += 1;
+                continue;
+            };
+            match normalize_record(record, EntrySource::Sqlite, None, query) {
+                Err(()) => skipped_invalid += 1,
+                Ok(None) => {}
+                Ok(Some(entry)) => {
+                    if seen.insert(entry.id.clone()) {
+                        candidates.push(entry);
+                    } else {
+                        deduplicated += 1;
+                    }
+                }
+            }
+        }
+    }
+
     if !feedback_dir.exists() {
-        return Ok(FeedbackScan::default());
+        return Ok(finish_scan(
+            candidates,
+            skipped_invalid,
+            deduplicated,
+            0,
+            query.limit,
+        ));
     }
     let directory = std::fs::read_dir(feedback_dir)
         .map_err(|error| format!("could not read feedback directory: {error}"))?;
@@ -197,8 +310,6 @@ fn scan_feedback(feedback_dir: &Path, query: &ValidatedQuery) -> Result<Feedback
     }
     files.sort_by(|left, right| left.0.cmp(&right.0));
 
-    let mut candidates = Vec::new();
-    let mut skipped_invalid = 0;
     for (path, snapshot_bytes) in &files {
         scan_file(
             path,
@@ -208,6 +319,40 @@ fn scan_feedback(feedback_dir: &Path, query: &ValidatedQuery) -> Result<Feedback
             &mut skipped_invalid,
         )?;
     }
+
+    Ok(finish_scan(
+        candidates,
+        skipped_invalid,
+        deduplicated,
+        files.len(),
+        query.limit,
+    ))
+}
+
+/// Collapse rows that share an `id`, sort newest-first, apply the limit, and
+/// tally where the rows that survived actually came from.
+fn finish_scan(
+    candidates: Vec<FeedbackEntry>,
+    skipped_invalid: usize,
+    mut deduplicated: usize,
+    files_scanned: usize,
+    limit: usize,
+) -> FeedbackScan {
+    let mut best: HashMap<String, FeedbackEntry> = HashMap::new();
+    for entry in candidates {
+        match best.get_mut(&entry.id) {
+            Some(kept) if kept.preferred_over(&entry) => deduplicated += 1,
+            Some(kept) => {
+                deduplicated += 1;
+                *kept = entry;
+            }
+            None => {
+                best.insert(entry.id.clone(), entry);
+            }
+        }
+    }
+
+    let mut candidates: Vec<FeedbackEntry> = best.into_values().collect();
     candidates.sort_by(|left, right| {
         right
             .timestamp
@@ -215,30 +360,26 @@ fn scan_feedback(feedback_dir: &Path, query: &ValidatedQuery) -> Result<Feedback
             .unwrap_or(Ordering::Equal)
             .then_with(|| left.id.cmp(&right.id))
     });
-
-    let mut seen = HashSet::new();
-    let mut deduplicated = 0;
-    candidates.retain(|entry| {
-        if seen.insert(entry.id.clone()) {
-            true
-        } else {
-            deduplicated += 1;
-            false
-        }
-    });
     let total = candidates.len();
-    let entries = candidates
-        .into_iter()
-        .take(query.limit)
-        .map(|entry| entry.value)
-        .collect();
-    Ok(FeedbackScan {
+    let mut entries = Vec::with_capacity(total.min(limit));
+    let mut sqlite_rows = 0;
+    let mut jsonl_rows = 0;
+    for entry in candidates.into_iter().take(limit) {
+        match entry.source {
+            EntrySource::Sqlite => sqlite_rows += 1,
+            EntrySource::Jsonl => jsonl_rows += 1,
+        }
+        entries.push(entry.value);
+    }
+    FeedbackScan {
         entries,
         total,
         skipped_invalid,
         deduplicated,
-        files_scanned: files.len(),
-    })
+        files_scanned,
+        sqlite_rows,
+        jsonl_rows,
+    }
 }
 
 fn scan_file(
@@ -267,7 +408,7 @@ fn scan_file(
             *skipped_invalid += 1;
             continue;
         };
-        match normalize_record(record, source_dcc.as_deref(), query) {
+        match normalize_record(record, EntrySource::Jsonl, source_dcc.as_deref(), query) {
             Err(()) => *skipped_invalid += 1,
             Ok(None) => {}
             Ok(Some(entry)) => {
@@ -285,6 +426,7 @@ fn scan_file(
 
 fn normalize_record(
     mut record: Map<String, Value>,
+    source: EntrySource,
     source_dcc: Option<&str>,
     query: &ValidatedQuery,
 ) -> Result<Option<FeedbackEntry>, ()> {
@@ -331,6 +473,7 @@ fn normalize_record(
     Ok(Some(FeedbackEntry {
         id,
         timestamp,
+        source,
         value: Value::Object(record),
     }))
 }

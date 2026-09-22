@@ -16,6 +16,9 @@ use serde_json::json;
 use crate::domain::gateway_admin_audit::GatewayAdminAuditPersistedJson;
 use crate::domain::gateway_admin_deregistered::GatewayDeregisteredInstanceJson;
 use crate::domain::script_promotion::ScriptPromotionBumpJson;
+use crate::infra::feedback_report_sqlite::{
+    insert_feedback_report, list_feedback_reports_json, prune_feedback_reports,
+};
 use crate::infra::gateway_admin_schema::GATEWAY_ADMIN_SQLITE_DDL;
 use crate::infra::script_promotion_sqlite::{
     bump_script_promotion_counter, get_script_promotion_counter_json,
@@ -570,6 +573,24 @@ impl GatewayAdminSqliteReader {
         };
         list_script_promotion_counters_json(&conn, limit).unwrap_or_default()
     }
+    /// Raw `report_json` rows for persisted feedback, newest first, bounded by `limit`.
+    ///
+    /// `cutoff_ms` filters on `occurred_at_ms`; `dcc` / `severity` are
+    /// case-insensitive equality filters, matching the JSONL fallback path.
+    /// See [`crate::infra::feedback_report_sqlite`] for the SQL.
+    #[must_use]
+    pub fn list_feedback_reports_json(
+        &self,
+        cutoff_ms: Option<i64>,
+        dcc: Option<&str>,
+        severity: Option<&str>,
+        limit: usize,
+    ) -> Vec<String> {
+        let Some(conn) = self.open_ro() else {
+            return Vec::new();
+        };
+        list_feedback_reports_json(&conn, cutoff_ms, dcc, severity, limit).unwrap_or_default()
+    }
 }
 
 enum PersistMsg {
@@ -591,6 +612,8 @@ enum PersistMsg {
     SessionUpsertJson(String),
     /// PIP-2751: Session lifecycle event (JSON-serialized).
     SessionEventJson(String),
+    /// #2253-E1: Agent feedback report (JSON-serialized).
+    FeedbackReportJson(String),
     /// #2297-A3: Repeat-counter bump (JSON-serialized ScriptPromotionBumpJson).
     ScriptPromotionBumpJson(String),
 }
@@ -752,6 +775,15 @@ impl GatewayAdminSqliteLane {
         }
     }
 
+    /// #2253-E1: Persist an agent feedback report.
+    pub fn try_persist_feedback_report_json(&self, json: &str) {
+        if let Ok(g) = self.inner.tx.lock()
+            && let Some(tx) = g.as_ref()
+        {
+            let _ = tx.try_send(PersistMsg::FeedbackReportJson(json.to_owned()));
+        }
+    }
+
     /// #2297-A3: Record one repeat observation of a materialised script.
     ///
     /// Fire-and-forget: the bump is applied by the writer thread, so the
@@ -910,6 +942,11 @@ fn writer_main(path: PathBuf, retention_days: u32, rx: Receiver<PersistMsg>) {
                     }
                 }
             }
+            PersistMsg::FeedbackReportJson(json) => {
+                if let Err(e) = insert_feedback_report(&conn, &json) {
+                    tracing::debug!(error = %e, "admin sqlite: feedback report insert failed");
+                }
+            }
             PersistMsg::SessionEventJson(json) => {
                 if let Ok(event) = serde_json::from_str::<serde_json::Value>(&json)
                     && let (Some(session_id), Some(event_type), Some(created_at_ms)) = (
@@ -963,6 +1000,7 @@ fn prune_old_rows(conn: &mut Connection, retention_days: u32) {
         "DELETE FROM tool_calls WHERE started_at_ms < ?1",
         params![cutoff],
     );
+    let _ = prune_feedback_reports(conn, cutoff);
 }
 
 fn prune_deregistered_instances(conn: &mut Connection, keep: usize) {
