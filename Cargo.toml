@@ -7,6 +7,7 @@ members = [
     "crates/dcc-mcp-models",
     "crates/dcc-mcp-actions",
     "crates/dcc-mcp-skills",
+    "crates/dcc-mcp-skills-bench",
     "crates/dcc-mcp-protocols",
     "crates/dcc-mcp-jsonrpc",
     "crates/dcc-mcp-wire",
@@ -68,6 +69,7 @@ dcc-mcp-naming = { path = "crates/dcc-mcp-naming" }
 dcc-mcp-models = { path = "crates/dcc-mcp-models" }
 dcc-mcp-actions = { path = "crates/dcc-mcp-actions" }
 dcc-mcp-skills = { path = "crates/dcc-mcp-skills" }
+dcc-mcp-skills-bench = { path = "crates/dcc-mcp-skills-bench" }
 dcc-mcp-protocols = { path = "crates/dcc-mcp-protocols" }
 dcc-mcp-jsonrpc = { path = "crates/dcc-mcp-jsonrpc" }
 dcc-mcp-wire = { path = "crates/dcc-mcp-wire" }

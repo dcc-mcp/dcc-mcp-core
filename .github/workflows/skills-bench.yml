@@ -1,0 +1,104 @@
+name: Skills Benchmark
+
+# The skills benchmark is two different things and they are treated differently.
+#
+#   hit rate / context growth — deterministic, so they are PR merge gates.
+#   latency                   — hardware-dependent, so it is a scheduled trend
+#                               signal and never blocks a merge.
+#
+# See crates/dcc-mcp-skills-bench/src/thresholds.rs for why.
+
+on:
+  pull_request:
+    paths:
+      # Anything that can move ranking quality or discovery cost.
+      - "crates/dcc-mcp-gateway-search/**"
+      - "crates/dcc-mcp-skills/src/catalog/**"
+      - "crates/dcc-mcp-skills-bench/**"
+      - "benchmarks/skills/**"
+      - "skills/**"
+      - ".github/workflows/skills-bench.yml"
+  push:
+    branches:
+      - main
+  schedule:
+    # Weekly trend series for the efficiency dimension.
+    - cron: "41 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  hit-rate-gate:
+    name: Hit rate gate (300 skills)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: skills-bench
+
+      # The 300-skill corpus, `dcc`-filtered, against the thresholds in
+      # crates/dcc-mcp-skills-bench/src/thresholds.rs. Also asserts the two
+      # structural properties the split depends on.
+      - name: Run the hit-rate regression gate
+        run: |
+          cargo test --release -p dcc-mcp-skills-bench \
+            --test hit_rate_gate -- --test-threads 2
+        shell: bash
+
+      - name: Run the multi-DCC context gate
+        run: |
+          cargo test --release -p dcc-mcp-skills-bench --test context_gate
+        shell: bash
+
+      - name: Emit the benchmark report
+        run: |
+          cargo run --release -q -p dcc-mcp-skills-bench --bin skills-bench -- \
+            report --output skills-bench.json
+        shell: bash
+
+      - name: Upload the benchmark report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: skills-bench-report
+          path: skills-bench.json
+          if-no-files-found: ignore
+
+  latency-trend:
+    name: Query efficiency trend (not a gate)
+    # Latency moves with the machine, not with the code, so it only runs
+    # where a change over time is meaningful: main and the weekly schedule.
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: skills-bench
+
+      - name: Run the criterion query benchmarks
+        run: |
+          cargo bench -p dcc-mcp-skills-bench --bench skills_bench -- \
+            --sample-size 30 --measurement-time 5
+        shell: bash
+        env:
+          CRITERION_CI: "1"
+
+      - name: Upload the criterion HTML report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: skills-bench-criterion-report
+          path: target/criterion/
+          if-no-files-found: ignore
