@@ -13,13 +13,17 @@ use rusqlite::{Connection, ToSql, params, params_from_iter};
 use serde::Deserialize;
 use serde_json::json;
 
+use crate::domain::error::DbError;
+use crate::domain::feedback_finding::{FeedbackFindingInsert, FeedbackFindingRow};
 use crate::domain::gateway_admin_audit::GatewayAdminAuditPersistedJson;
 use crate::domain::gateway_admin_deregistered::GatewayDeregisteredInstanceJson;
 use crate::domain::script_promotion::ScriptPromotionBumpJson;
+use crate::infra::feedback_finding_sqlite as finding;
 use crate::infra::feedback_report_sqlite::{
     insert_feedback_report, list_feedback_reports_json, prune_feedback_reports,
 };
 use crate::infra::gateway_admin_schema::GATEWAY_ADMIN_SQLITE_DDL;
+use crate::infra::gateway_admin_session_sqlite as session;
 use crate::infra::script_promotion_sqlite::{
     bump_script_promotion_counter, get_script_promotion_counter_json,
     list_script_promotion_counters_json,
@@ -180,83 +184,13 @@ impl GatewayAdminSqliteReader {
         let Some(conn) = self.open_ro() else {
             return Vec::new();
         };
-        let mut sql = String::from(
-            "SELECT session_id, parent_session_id, dcc_type, instance_id, status, \
-             started_at_ms, last_activity_at_ms, ended_at_ms, end_reason_json, \
-             tool_call_count, error_count, core_version, adapter_version, build_sha \
-             FROM sessions WHERE 1 = 1",
-        );
-        let mut values: Vec<Box<dyn ToSql>> = Vec::new();
-        if let Some(value) = non_empty(dcc_type) {
-            sql.push_str(" AND dcc_type = ?");
-            values.push(Box::new(value.to_owned()));
-        }
-        if let Some(value) = non_empty(status) {
-            sql.push_str(" AND status = ?");
-            values.push(Box::new(value.to_owned()));
-        }
-        sql.push_str(" ORDER BY started_at_ms DESC LIMIT ?");
-        values.push(Box::new(limit.clamp(1, 10_000) as i64));
-        let refs: Vec<&dyn ToSql> = values.iter().map(|value| value.as_ref()).collect();
-        let mut stmt = match conn.prepare_cached(&sql) {
-            Ok(s) => s,
-            Err(_) => return Vec::new(),
-        };
-        let rows = stmt.query_map(params_from_iter(refs), |row| {
-            Ok(json!({
-                "session_id": row.get::<_, String>(0)?,
-                "parent_session_id": row.get::<_, Option<String>>(1)?,
-                "dcc_type": row.get::<_, String>(2)?,
-                "instance_id": row.get::<_, Option<String>>(3)?,
-                "status": row.get::<_, String>(4)?,
-                "started_at_ms": row.get::<_, i64>(5)?,
-                "last_activity_at_ms": row.get::<_, i64>(6)?,
-                "ended_at_ms": row.get::<_, Option<i64>>(7)?,
-                "end_reason_json": row.get::<_, Option<String>>(8)?,
-                "tool_call_count": row.get::<_, i64>(9)?,
-                "error_count": row.get::<_, i64>(10)?,
-                "core_version": row.get::<_, String>(11)?,
-                "adapter_version": row.get::<_, Option<String>>(12)?,
-                "build_sha": row.get::<_, Option<String>>(13)?,
-            })
-            .to_string())
-        });
-        let Ok(rows) = rows else {
-            return Vec::new();
-        };
-        rows.filter_map(|row| row.ok()).collect()
+        session::list_sessions_json(&conn, limit, dcc_type, status)
     }
 
     /// PIP-2751: Get a single session by id.
     pub fn get_session_json(&self, session_id: &str) -> Option<String> {
         let conn = self.open_ro()?;
-        conn.query_row(
-            "SELECT session_id, parent_session_id, dcc_type, instance_id, status, \
-             started_at_ms, last_activity_at_ms, ended_at_ms, end_reason_json, \
-             tool_call_count, error_count, core_version, adapter_version, build_sha \
-             FROM sessions WHERE session_id = ?1",
-            params![session_id],
-            |row| {
-                Ok(json!({
-                    "session_id": row.get::<_, String>(0)?,
-                    "parent_session_id": row.get::<_, Option<String>>(1)?,
-                    "dcc_type": row.get::<_, String>(2)?,
-                    "instance_id": row.get::<_, Option<String>>(3)?,
-                    "status": row.get::<_, String>(4)?,
-                    "started_at_ms": row.get::<_, i64>(5)?,
-                    "last_activity_at_ms": row.get::<_, i64>(6)?,
-                    "ended_at_ms": row.get::<_, Option<i64>>(7)?,
-                    "end_reason_json": row.get::<_, Option<String>>(8)?,
-                    "tool_call_count": row.get::<_, i64>(9)?,
-                    "error_count": row.get::<_, i64>(10)?,
-                    "core_version": row.get::<_, String>(11)?,
-                    "adapter_version": row.get::<_, Option<String>>(12)?,
-                    "build_sha": row.get::<_, Option<String>>(13)?,
-                })
-                .to_string())
-            },
-        )
-        .ok()
+        session::get_session_json(&conn, session_id)
     }
 
     /// PIP-2751: List session events for a given session, newest first.
@@ -264,21 +198,7 @@ impl GatewayAdminSqliteReader {
         let Some(conn) = self.open_ro() else {
             return Vec::new();
         };
-        let mut stmt = match conn.prepare_cached(
-            "SELECT event_json FROM session_events WHERE session_id = ?1 \
-             ORDER BY created_at_ms DESC LIMIT ?2",
-        ) {
-            Ok(s) => s,
-            Err(_) => return Vec::new(),
-        };
-        let rows = stmt.query_map(params![session_id, limit.clamp(1, 1_000) as i64], |row| {
-            let s: String = row.get(0)?;
-            Ok(s)
-        });
-        let Ok(rows) = rows else {
-            return Vec::new();
-        };
-        rows.filter_map(|r| r.ok()).collect()
+        session::list_session_events_json(&conn, session_id, limit)
     }
 
     /// Read one recording's ordered projection from the shared session timeline.
@@ -291,23 +211,7 @@ impl GatewayAdminSqliteReader {
         let Some(conn) = self.open_ro() else {
             return Vec::new();
         };
-        let mut stmt = match conn.prepare_cached(
-            "SELECT event_json FROM session_events \
-             WHERE session_id = ?1 AND event_type LIKE 'recording.%' \
-             AND json_extract(event_json, '$.recording_id') = ?2 \
-             ORDER BY id ASC LIMIT ?3",
-        ) {
-            Ok(stmt) => stmt,
-            Err(_) => return Vec::new(),
-        };
-        let rows = stmt.query_map(
-            params![session_id, recording_id, limit.clamp(1, 2_000) as i64],
-            |row| row.get(0),
-        );
-        let Ok(rows) = rows else {
-            return Vec::new();
-        };
-        rows.filter_map(Result::ok).collect()
+        session::list_recording_events_json(&conn, session_id, recording_id, limit)
     }
 
     /// Return recording starts whose latest lifecycle event is still `started`.
@@ -315,25 +219,7 @@ impl GatewayAdminSqliteReader {
         let Some(conn) = self.open_ro() else {
             return Vec::new();
         };
-        let mut stmt = match conn.prepare_cached(
-            "SELECT current.event_json FROM session_events AS current \
-             JOIN ( \
-               SELECT json_extract(event_json, '$.recording_id') AS recording_id, MAX(id) AS latest_id \
-               FROM session_events \
-               WHERE event_type IN ('recording.started', 'recording.stopped', 'recording.interrupted') \
-               GROUP BY recording_id \
-             ) AS latest ON latest.latest_id = current.id \
-             WHERE current.event_type = 'recording.started' \
-             ORDER BY current.id DESC LIMIT ?1",
-        ) {
-            Ok(stmt) => stmt,
-            Err(_) => return Vec::new(),
-        };
-        let rows = stmt.query_map(params![limit.clamp(1, 1_000) as i64], |row| row.get(0));
-        let Ok(rows) = rows else {
-            return Vec::new();
-        };
-        rows.filter_map(Result::ok).collect()
+        session::list_unfinished_recording_starts_json(&conn, limit)
     }
 
     /// List experiment definitions from the existing session event timeline.
@@ -341,18 +227,7 @@ impl GatewayAdminSqliteReader {
         let Some(conn) = self.open_ro() else {
             return Vec::new();
         };
-        let mut stmt = match conn.prepare_cached(
-            "SELECT event_json FROM session_events WHERE event_type = 'experiment.created' \
-             ORDER BY created_at_ms DESC, id DESC LIMIT ?1",
-        ) {
-            Ok(stmt) => stmt,
-            Err(_) => return Vec::new(),
-        };
-        let rows = stmt.query_map(params![limit.clamp(1, 1_000) as i64], |row| row.get(0));
-        let Ok(rows) = rows else {
-            return Vec::new();
-        };
-        rows.filter_map(Result::ok).collect()
+        session::list_experiments_json(&conn, limit)
     }
 
     /// Project all events for one experiment from the shared session timeline.
@@ -360,36 +235,7 @@ impl GatewayAdminSqliteReader {
         let Some(conn) = self.open_ro() else {
             return Vec::new();
         };
-        // ponytail: bounded scan avoids a second projection table; add an indexed
-        // experiment_id column only after retained event volume makes this measurable.
-        let mut stmt = match conn.prepare_cached(
-            "SELECT event_json FROM session_events WHERE event_type LIKE 'experiment.%' \
-             ORDER BY created_at_ms DESC, id DESC LIMIT 10000",
-        ) {
-            Ok(stmt) => stmt,
-            Err(_) => return Vec::new(),
-        };
-        let rows = stmt.query_map([], |row| row.get::<_, String>(0));
-        let Ok(rows) = rows else {
-            return Vec::new();
-        };
-        let mut events = rows
-            .filter_map(Result::ok)
-            .filter(|event| {
-                serde_json::from_str::<serde_json::Value>(event)
-                    .ok()
-                    .and_then(|value| {
-                        value
-                            .get("experiment_id")
-                            .and_then(|value| value.as_str())
-                            .map(|value| value == experiment_id)
-                    })
-                    .unwrap_or(false)
-            })
-            .take(limit.clamp(1, 1_000))
-            .collect::<Vec<_>>();
-        events.reverse();
-        events
+        session::list_experiment_events_json(&conn, experiment_id, limit)
     }
 
     /// PIP-2751: List tool calls for a given session, newest first.
@@ -397,44 +243,7 @@ impl GatewayAdminSqliteReader {
         let Some(conn) = self.open_ro() else {
             return Vec::new();
         };
-        let mut stmt = match conn.prepare_cached(
-            "SELECT request_id, session_id, parent_request_id, batch_id, tool_name, skill_name, \
-             dcc_type, instance_id, agent_id, transport, via_gateway, started_at_ms, \
-             duration_ms, success, error_message, error_kind, mcp_method, trace_id, span_id \
-             FROM tool_calls WHERE session_id = ?1 \
-             ORDER BY started_at_ms DESC LIMIT ?2",
-        ) {
-            Ok(s) => s,
-            Err(_) => return Vec::new(),
-        };
-        let rows = stmt.query_map(params![session_id, limit.clamp(1, 1_000) as i64], |row| {
-            Ok(json!({
-                "request_id": row.get::<_, String>(0)?,
-                "session_id": row.get::<_, String>(1)?,
-                "parent_request_id": row.get::<_, Option<String>>(2)?,
-                "batch_id": row.get::<_, Option<String>>(3)?,
-                "tool_name": row.get::<_, String>(4)?,
-                "skill_name": row.get::<_, Option<String>>(5)?,
-                "dcc_type": row.get::<_, Option<String>>(6)?,
-                "instance_id": row.get::<_, Option<String>>(7)?,
-                "agent_id": row.get::<_, Option<String>>(8)?,
-                "transport": row.get::<_, Option<String>>(9)?,
-                "via_gateway": row.get::<_, Option<i64>>(10)?,
-                "started_at_ms": row.get::<_, i64>(11)?,
-                "duration_ms": row.get::<_, i64>(12)?,
-                "success": row.get::<_, i64>(13)?,
-                "error_message": row.get::<_, Option<String>>(14)?,
-                "error_kind": row.get::<_, Option<String>>(15)?,
-                "mcp_method": row.get::<_, Option<String>>(16)?,
-                "trace_id": row.get::<_, Option<String>>(17)?,
-                "span_id": row.get::<_, Option<String>>(18)?,
-            })
-            .to_string())
-        });
-        let Ok(rows) = rows else {
-            return Vec::new();
-        };
-        rows.filter_map(|r| r.ok()).collect()
+        session::list_tool_calls_json(&conn, session_id, limit)
     }
 
     /// PIP-2751: List all tool calls, newest first, with optional session filter.
@@ -442,52 +251,25 @@ impl GatewayAdminSqliteReader {
         let Some(conn) = self.open_ro() else {
             return Vec::new();
         };
-        let mut sql = String::from(
-            "SELECT request_id, session_id, parent_request_id, batch_id, tool_name, skill_name, \
-             dcc_type, instance_id, agent_id, transport, via_gateway, started_at_ms, \
-             duration_ms, success, error_message, error_kind, mcp_method, trace_id, span_id \
-             FROM tool_calls WHERE 1 = 1",
-        );
-        let mut values: Vec<Box<dyn ToSql>> = Vec::new();
-        if let Some(value) = non_empty(session_id) {
-            sql.push_str(" AND session_id = ?");
-            values.push(Box::new(value.to_owned()));
-        }
-        sql.push_str(" ORDER BY started_at_ms DESC LIMIT ?");
-        values.push(Box::new(limit.clamp(1, 10_000) as i64));
-        let refs: Vec<&dyn ToSql> = values.iter().map(|value| value.as_ref()).collect();
-        let mut stmt = match conn.prepare_cached(&sql) {
-            Ok(s) => s,
-            Err(_) => return Vec::new(),
-        };
-        let rows = stmt.query_map(params_from_iter(refs), |row| {
-            Ok(json!({
-                "request_id": row.get::<_, String>(0)?,
-                "session_id": row.get::<_, String>(1)?,
-                "parent_request_id": row.get::<_, Option<String>>(2)?,
-                "batch_id": row.get::<_, Option<String>>(3)?,
-                "tool_name": row.get::<_, String>(4)?,
-                "skill_name": row.get::<_, Option<String>>(5)?,
-                "dcc_type": row.get::<_, Option<String>>(6)?,
-                "instance_id": row.get::<_, Option<String>>(7)?,
-                "agent_id": row.get::<_, Option<String>>(8)?,
-                "transport": row.get::<_, Option<String>>(9)?,
-                "via_gateway": row.get::<_, Option<i64>>(10)?,
-                "started_at_ms": row.get::<_, i64>(11)?,
-                "duration_ms": row.get::<_, i64>(12)?,
-                "success": row.get::<_, i64>(13)?,
-                "error_message": row.get::<_, Option<String>>(14)?,
-                "error_kind": row.get::<_, Option<String>>(15)?,
-                "mcp_method": row.get::<_, Option<String>>(16)?,
-                "trace_id": row.get::<_, Option<String>>(17)?,
-                "span_id": row.get::<_, Option<String>>(18)?,
-            })
-            .to_string())
-        });
-        let Ok(rows) = rows else {
+        session::list_all_tool_calls_json(&conn, limit, session_id)
+    }
+
+    /// Look up one report by its `(repo, fingerprint)` dedup key.
+    pub fn get_feedback_finding(
+        &self,
+        repo: &str,
+        fingerprint: &str,
+    ) -> Option<FeedbackFindingRow> {
+        let conn = self.open_ro()?;
+        finding::select_feedback_finding(&conn, repo, fingerprint).ok()
+    }
+
+    /// Most recently seen reports, newest first, bounded by `limit`.
+    pub fn list_feedback_findings(&self, limit: usize) -> Vec<FeedbackFindingRow> {
+        let Some(conn) = self.open_ro() else {
             return Vec::new();
         };
-        rows.filter_map(|r| r.ok()).collect()
+        finding::list_feedback_findings(&conn, limit)
     }
 
     pub fn list_agent_memory_json(
@@ -794,6 +576,47 @@ impl GatewayAdminSqliteLane {
         {
             let _ = tx.try_send(PersistMsg::ScriptPromotionBumpJson(json.to_owned()));
         }
+    }
+
+    /// Insert or collapse one feedback report and return the resulting row.
+    ///
+    /// Unlike the `try_persist_*` helpers this is **synchronous**: the gateway
+    /// needs `occurrence_count` and the row id to build its HTTP response, and
+    /// reading them back over the async lane would race the writer thread.
+    /// Opens its own connection to the same file (WAL permits concurrent
+    /// writers; SQLite serialises them).
+    pub fn upsert_feedback_finding(
+        &self,
+        row: &FeedbackFindingInsert,
+    ) -> Result<FeedbackFindingRow, DbError> {
+        let path = self.path();
+        let mut conn =
+            Connection::open(path).map_err(|error| DbError::Backend(error.to_string()))?;
+        conn.execute_batch(SCHEMA)
+            .map_err(|error| DbError::Backend(error.to_string()))?;
+        finding::upsert_feedback_finding(&mut conn, row)
+    }
+
+    /// Filesystem path of the admin SQLite database.
+    #[must_use]
+    pub fn path(&self) -> &Path {
+        &self.inner.reader.path
+    }
+
+    /// Look up one report by its dedup key without writing.
+    #[must_use]
+    pub fn get_feedback_finding(
+        &self,
+        repo: &str,
+        fingerprint: &str,
+    ) -> Option<FeedbackFindingRow> {
+        self.inner.reader.get_feedback_finding(repo, fingerprint)
+    }
+
+    /// Most recently seen reports, newest first, bounded by `limit`.
+    #[must_use]
+    pub fn list_feedback_findings(&self, limit: usize) -> Vec<FeedbackFindingRow> {
+        self.inner.reader.list_feedback_findings(limit)
     }
 }
 
@@ -1445,5 +1268,67 @@ mod tests {
         assert_eq!(events.len(), 3);
         assert!(events.iter().all(|event| event.contains("exp-a")));
         assert!(events.last().unwrap().contains("experiment.run.passed"));
+    }
+
+    /// The `experiment_id` predicate must be applied in SQL ahead of `LIMIT`.
+    ///
+    /// Filtering in Rust after a bounded scan silently drops an experiment's
+    /// newest events once other experiments contribute more rows than the scan
+    /// window, which made a live experiment look empty.
+    #[test]
+    fn experiment_events_survive_a_flood_of_newer_foreign_events() {
+        let dir = tempdir().unwrap();
+        let db = dir.path().join("experiments.sqlite");
+        // Spawn the lane only to lay down the schema, then seed directly: the
+        // async lane uses a bounded try_send channel and drops events once it
+        // fills, which would mask the query behaviour under test.
+        drop(GatewayAdminSqliteLane::spawn(db.clone(), 30).expect("spawn"));
+
+        let mut conn = Connection::open(&db).expect("open");
+        let tx = conn.transaction().expect("transaction");
+        let seed = |tx: &rusqlite::Transaction<'_>,
+                    session: &str,
+                    event_type: &str,
+                    created_at_ms: i64,
+                    experiment_id: &str|
+         -> rusqlite::Result<()> {
+            let event_json = json!({
+                "session_id": session,
+                "event_type": event_type,
+                "created_at_ms": created_at_ms,
+                "experiment_id": experiment_id,
+            })
+            .to_string();
+            tx.execute(
+                "INSERT INTO session_events (session_id, event_type, created_at_ms, event_json)                  VALUES (?1, ?2, ?3, ?4)",
+                params![session, event_type, created_at_ms, event_json],
+            )?;
+            Ok(())
+        };
+
+        // The experiment under test is the oldest row in the timeline.
+        seed(&tx, "run-old", "experiment.created", 1, "exp-old").expect("seed");
+        // A second experiment floods the timeline with newer rows, far past any
+        // bounded scan window.
+        for index in 0..12_000_i64 {
+            seed(
+                &tx,
+                "run-noise",
+                "experiment.run.running",
+                100 + index,
+                "exp-noise",
+            )
+            .expect("seed noise");
+        }
+        tx.commit().expect("commit");
+
+        let reader = GatewayAdminSqliteReader::new(db);
+        let events = reader.list_experiment_events_json("exp-old", 10);
+        assert_eq!(
+            events.len(),
+            1,
+            "an experiment must stay visible regardless of newer foreign events"
+        );
+        assert!(events[0].contains("exp-old"));
     }
 }

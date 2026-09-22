@@ -1,18 +1,34 @@
 //! Gateway-owned feedback endpoint.
 
+use std::sync::OnceLock;
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use axum::Json;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
+use dcc_mcp_catalog::CatalogEntry;
 use dcc_mcp_gateway_admin::{FeedbackReportRow, FeedbackSubmissionKind};
-use dcc_mcp_models::{FeedbackReport, FindingV1};
+use dcc_mcp_models::{
+    FeedbackReport, FeedbackRoute, FeedbackRouteTarget, FindingV1, route_finding,
+};
 use serde_json::{Value, json};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::gateway::event_log::{EventKind, notify_updated, record_event};
 use crate::gateway::state::GatewayState;
 
 const GATEWAY_EVENTS_URI: &str = "resources://gateway/events";
+
+fn now_millis() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+/// Catalog bundled into the binary so ingest routing never depends on a live
+/// marketplace fetch. Mirrors the CLI filing path, which uses the same file.
+const BUNDLED_CATALOG: &str = include_str!("../../../../../dcc-mcp-catalog.yml");
 
 /// `POST /v1/feedback` — record feedback without requiring a live DCC instance.
 pub async fn handle_v1_feedback(
@@ -45,6 +61,8 @@ pub async fn handle_v1_feedback(
         Some(event_context.to_string()),
     );
     notify_updated(&gateway.events_tx);
+    // #2253-E1: durable per-submission row. This is the raw submission log;
+    // the #2253-E2 dedup aggregate below is a separate table.
     persist_feedback_report(
         &gateway,
         FeedbackReportRow {
@@ -85,12 +103,142 @@ pub async fn handle_v1_feedback(
     if let Submission::Finding(finding) = &submission {
         receipt["schema_version"] = json!(finding.schema_version);
         receipt["fingerprint"] = json!(finding.fingerprint);
+        // Route at ingest so the persisted row carries its owner without a
+        // later CLI filing pass. Unroutable findings are still persisted,
+        // deduplicated under the empty repo.
+        let route = route_finding_for_ingest(finding);
+        if let Some(route) = &route {
+            receipt["routed"] = json!(true);
+            receipt["repo"] = json!(route.repo);
+            receipt["issues_url"] = json!(route.issues_url);
+            receipt["route_rationale"] = json!(route.rationale.as_str());
+        } else {
+            receipt["routed"] = json!(false);
+        }
+        if let Some(row) = persist_finding(&gateway, finding, route.as_ref()).await {
+            receipt["report_id"] = json!(row.id);
+            receipt["occurrence_count"] = json!(row.occurrence_count);
+            receipt["first_seen_ms"] = json!(row.first_seen_ms);
+            receipt["last_seen_ms"] = json!(row.last_seen_ms);
+            receipt["duplicate"] = json!(row.occurrence_count > 1);
+        }
     }
 
     correlate_response(
         (StatusCode::CREATED, Json(receipt)).into_response(),
         &headers,
     )
+}
+
+/// Resolve the owning issue tracker for one finding, or `None` when the finding
+/// cannot be routed deterministically.
+///
+/// Routing failure is not an ingest failure: the report is still stored so the
+/// finding is never silently dropped.
+fn route_finding_for_ingest(finding: &FindingV1) -> Option<FeedbackRoute> {
+    let targets = catalog_targets()
+        .iter()
+        .map(|entry| FeedbackRouteTarget::new(&entry.name, entry.issues_url.as_deref()))
+        .collect::<Vec<_>>();
+    match route_finding(finding, &targets) {
+        Ok(route) => Some(route),
+        Err(error) => {
+            tracing::debug!(
+                error = %error,
+                adapter = %finding.adapter,
+                phase = %finding.phase,
+                "feedback ingest: finding could not be routed"
+            );
+            None
+        }
+    }
+}
+
+/// One catalog entry reduced to the fields routing needs.
+struct CatalogTarget {
+    name: String,
+    issues_url: Option<String>,
+}
+
+/// Route targets derived from the bundled catalog, parsed once per process.
+///
+/// The CLI resolves the catalog once per process; without memoisation the
+/// gateway would re-parse the bundled YAML on every `POST /v1/feedback`.
+/// A catalog that fails to parse degrades to no targets, which leaves the
+/// finding unrouted rather than rejected.
+fn catalog_targets() -> &'static [CatalogTarget] {
+    static TARGETS: OnceLock<Vec<CatalogTarget>> = OnceLock::new();
+    TARGETS
+        .get_or_init(|| {
+            let entries: Vec<CatalogEntry> = match dcc_mcp_catalog::load_from_str(BUNDLED_CATALOG) {
+                Ok(entries) => entries,
+                Err(error) => {
+                    tracing::warn!(
+                        error = %error,
+                        "feedback ingest: bundled catalog failed to parse"
+                    );
+                    Vec::new()
+                }
+            };
+            entries
+                .into_iter()
+                .map(|entry| CatalogTarget {
+                    name: entry.name,
+                    issues_url: entry.issues_url,
+                })
+                .collect()
+        })
+        .as_slice()
+}
+
+/// Collapse the finding onto its `(repo, fingerprint)` row and return it.
+///
+/// Returns `None` when SQLite persistence is disabled or unavailable; ingest
+/// still succeeds in that case so the feedback endpoint keeps working.
+#[cfg(feature = "admin-persist-sqlite")]
+async fn persist_finding(
+    gateway: &GatewayState,
+    finding: &FindingV1,
+    route: Option<&FeedbackRoute>,
+) -> Option<dcc_mcp_db::FeedbackFindingRow> {
+    let lane = gateway.admin_sqlite_lane.as_ref()?.clone();
+    let report_json = serde_json::to_string(finding).ok()?;
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let insert = dcc_mcp_db::FeedbackFindingInsert {
+        repo: route.map(|route| route.repo.clone()).unwrap_or_default(),
+        fingerprint: finding.fingerprint.clone(),
+        issues_url: route.map(|route| route.issues_url.clone()),
+        route_rationale: route.map(|route| route.rationale.as_str().to_string()),
+        dcc_type: finding.dcc_type.clone(),
+        phase: finding.phase.to_string(),
+        severity: finding.severity.to_string(),
+        observed_at_ms: now_ms,
+        report_json,
+    };
+    // The upsert opens a connection, applies the whole DDL batch, and runs a
+    // write transaction. Under write contention SQLite waits out the busy
+    // timeout (5s by default), which would park a tokio worker thread for the
+    // duration, so the blocking call stays off the async executor.
+    match tokio::task::spawn_blocking(move || lane.upsert_feedback_finding(&insert)).await {
+        Ok(Ok(row)) => Some(row),
+        Ok(Err(error)) => {
+            tracing::warn!(error = %error, "feedback ingest: report persistence failed");
+            None
+        }
+        Err(error) => {
+            tracing::warn!(error = %error, "feedback ingest: persistence task panicked");
+            None
+        }
+    }
+}
+
+#[cfg(not(feature = "admin-persist-sqlite"))]
+async fn persist_finding(
+    _gateway: &GatewayState,
+    _finding: &FindingV1,
+    _route: Option<&FeedbackRoute>,
+) -> Option<dcc_mcp_db::FeedbackFindingRow> {
+    None
 }
 
 enum Submission {
@@ -183,20 +331,15 @@ fn parse_submission(body: Value) -> Result<Submission, String> {
     }
 }
 
-fn now_millis() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_millis() as i64)
-        .unwrap_or(0)
+fn correlate_response(mut response: Response, request_headers: &HeaderMap) -> Response {
+    if let Some(request_id) = request_headers.get("x-request-id") {
+        response
+            .headers_mut()
+            .insert("x-request-id", request_id.clone());
+    }
+    response
 }
 
-/// Durable write for `POST /v1/feedback` (#2253-E1).
-///
-/// `report` is merged into the stored record so the SQLite row and the per-DCC
-/// JSONL mirror hold the same object; the admin API reads either one.
-///
-/// Persistence is best-effort: the receipt is returned even when no SQLite lane
-/// is configured (`admin-persist-sqlite` off) or the writer queue is saturated.
 fn persist_feedback_report(gateway: &GatewayState, mut row: FeedbackReportRow, report: Value) {
     #[cfg(feature = "admin-persist-sqlite")]
     {
@@ -223,13 +366,19 @@ fn persist_feedback_report(gateway: &GatewayState, mut row: FeedbackReportRow, r
     }
 }
 
-fn correlate_response(mut response: Response, request_headers: &HeaderMap) -> Response {
-    if let Some(request_id) = request_headers.get("x-request-id") {
-        response
-            .headers_mut()
-            .insert("x-request-id", request_id.clone());
-    }
-    response
+fn invalid_feedback(message: String) -> Response {
+    (
+        StatusCode::BAD_REQUEST,
+        Json(json!({
+            "ok": false,
+            "success": false,
+            "error": {
+                "kind": "invalid-feedback",
+                "message": message,
+            }
+        })),
+    )
+        .into_response()
 }
 
 #[cfg(test)]
@@ -333,6 +482,104 @@ mod tests {
         assert_eq!(body["error"]["kind"], "invalid-feedback");
     }
 
+    fn routed_finding(phase: &str, adapter: &str) -> Value {
+        json!({
+            "schema_version": 1,
+            "fingerprint": format!("sha256:{}", "a".repeat(64)),
+            "dcc_type": "maya",
+            "adapter": adapter,
+            "adapter_version": "0.9.7",
+            "core_version": "0.20.11",
+            "host_version": "2024.1",
+            "os": "windows",
+            "phase": phase,
+            "severity": "degraded",
+            "tool_slug": "maya_scene__save",
+            "intent": "Save the scene",
+            "observed": "The save never completed",
+            "expected": "The scene is saved",
+            "repro": {"steps": ["Open a scene", "Call save"]},
+            "evidence": {"error_kind": "adapter_dispatch_failed", "request_id": "request-42"},
+            "redaction_status": {
+                "mode": "public-safe",
+                "redaction_markers_detected": false,
+                "raw_payloads_excluded": true
+            }
+        })
+    }
+
+    #[test]
+    fn dispatch_phase_routes_without_gateway_involvement() {
+        let finding: FindingV1 = serde_json::from_value(routed_finding("dispatch", "dcc-mcp-maya"))
+            .expect("finding parses");
+        let route = route_finding_for_ingest(&finding)
+            .expect("a dispatch finding for a catalog adapter routes");
+        assert_eq!(route.repo, "dcc-mcp/dcc-mcp-maya");
+        assert_eq!(
+            route.issues_url,
+            "https://github.com/dcc-mcp/dcc-mcp-maya/issues"
+        );
+        assert_eq!(route.rationale.as_str(), "adapter_phase");
+    }
+
+    #[test]
+    fn unroutable_findings_do_not_fail_ingest() {
+        let finding: FindingV1 =
+            serde_json::from_value(routed_finding("dispatch", "dcc-mcp-not-a-real-adapter"))
+                .expect("finding parses");
+        assert!(
+            route_finding_for_ingest(&finding).is_none(),
+            "an unknown adapter must not be routed, but must still be storable"
+        );
+    }
+
+    /// Acceptance: the same finding submitted three times keeps one row and
+    /// reports `occurrence_count == 3`.
+    #[cfg(feature = "admin-persist-sqlite")]
+    #[tokio::test]
+    async fn repeated_findings_collapse_into_one_row() {
+        let dir = tempfile::tempdir().unwrap();
+        let lane = crate::gateway::admin::sqlite_lane::AdminSqliteLane::spawn(
+            dir.path().join("admin.sqlite"),
+            30,
+        )
+        .expect("lane spawns");
+        let mut gateway = test_gateway_state("1.2.3");
+        gateway.admin_sqlite_lane = Some(lane.clone());
+        let app = crate::gateway::router::build_gateway_router(gateway.clone());
+        let body = routed_finding("dispatch", "dcc-mcp-maya");
+
+        for attempt in 1..=3 {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri("/v1/feedback")
+                        .header(axum::http::header::CONTENT_TYPE, "application/json")
+                        .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            let (status, receipt) = response_json(response).await;
+            assert_eq!(status, StatusCode::CREATED);
+            assert_eq!(receipt["occurrence_count"], attempt);
+            assert_eq!(receipt["duplicate"], attempt > 1);
+            assert_eq!(receipt["repo"], "dcc-mcp/dcc-mcp-maya");
+            assert_eq!(
+                receipt["issues_url"],
+                "https://github.com/dcc-mcp/dcc-mcp-maya/issues"
+            );
+            assert_eq!(receipt["route_rationale"], "adapter_phase");
+        }
+
+        let rows = lane.list_feedback_findings(10);
+        assert_eq!(rows.len(), 1, "three reports must stay one row");
+        assert_eq!(rows[0].occurrence_count, 3);
+        assert_eq!(rows[0].repo, "dcc-mcp/dcc-mcp-maya");
+    }
+
     #[tokio::test]
     async fn gateway_feedback_accepts_and_echoes_finding_v1_fingerprint() {
         let gateway = test_gateway_state("1.2.3");
@@ -384,19 +631,4 @@ mod tests {
                 .is_some_and(|reason| reason.contains("document_locked"))
         );
     }
-}
-
-fn invalid_feedback(message: String) -> Response {
-    (
-        StatusCode::BAD_REQUEST,
-        Json(json!({
-            "ok": false,
-            "success": false,
-            "error": {
-                "kind": "invalid-feedback",
-                "message": message,
-            }
-        })),
-    )
-        .into_response()
 }
