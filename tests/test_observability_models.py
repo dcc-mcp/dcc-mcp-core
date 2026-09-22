@@ -594,6 +594,47 @@ class TestObservabilityQuery:
         with pytest.raises(ValueError):
             query.get_repeated_scripts(**kwargs)
 
+    @pytest.mark.parametrize(
+        "param,value",
+        [
+            ("min_repeats", 1),
+            ("limit", 0),
+            ("promotion_threshold", 0),
+        ],
+    )
+    def test_query_bounds_below_the_minimum_are_rejected(self, param: str, value: int) -> None:
+        """An integer of the right type but below the documented minimum is rejected.
+
+        The lower bound used to be unreachable: the old guard tested the type and
+        the range in one ``if``, so a ``bool`` short-circuited before the bound
+        was ever evaluated. Splitting the guard exposed the branch, which is
+        what keeps a query meaningful — ``min_repeats=1`` returns every script
+        and ``limit=0`` returns an empty page.
+        """
+        query = ObservabilityQuery(read_json_fn=lambda _sql, _params: [])
+        kwargs: dict[str, Any] = {param: value}
+        with pytest.raises(ValueError, match=param):
+            query.get_repeated_scripts(**kwargs)
+
+    @pytest.mark.parametrize(
+        "param,value",
+        [
+            ("min_repeats", 2),
+            ("limit", 1),
+            ("promotion_threshold", 1),
+        ],
+    )
+    def test_query_bounds_at_the_minimum_are_accepted(self, param: str, value: int) -> None:
+        """The bound is exclusive, so the smallest documented value still works."""
+        query = ObservabilityQuery(read_json_fn=lambda _sql, _params: [])
+        kwargs: dict[str, Any] = {param: value}
+
+        # The point of the test: a value sitting exactly on the bound must not
+        # be rejected by the range guard.
+        response = query.get_repeated_scripts(**kwargs)
+
+        assert response["query_params"][param] == value
+
     @pytest.mark.parametrize("param", ["min_repeats", "limit", "promotion_threshold"])
     def test_non_integer_bounds_are_rejected_through_public_export(self, param: str) -> None:
         """The public ``dcc_mcp_core.ObservabilityQuery`` export rejects them too."""
