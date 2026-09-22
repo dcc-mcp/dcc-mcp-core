@@ -113,12 +113,20 @@ def test_lazy_export_map_has_no_duplicate_keys() -> None:
     """
     tree = ast.parse((_PACKAGE / "_exports.py").read_text(encoding="utf-8"))
     all_lazy = next(
-        node.value
-        for node in tree.body
-        if isinstance(node, (ast.Assign, ast.AnnAssign))
-        and getattr(node.targets[0] if isinstance(node, ast.Assign) else node.target, "id", None) == "_ALL_LAZY"
-        and isinstance(node.value, ast.Dict)
+        (
+            node.value
+            for node in tree.body
+            if isinstance(node, (ast.Assign, ast.AnnAssign))
+            and getattr(node.targets[0] if isinstance(node, ast.Assign) else node.target, "id", None) == "_ALL_LAZY"
+            and isinstance(node.value, ast.Dict)
+        ),
+        None,
     )
+    # Default keeps a future refactor of ``_ALL_LAZY`` (e.g. built by a helper
+    # instead of a module-level dict literal) reporting as a clean assertion
+    # failure rather than a bare ``StopIteration``.
+    if all_lazy is None:
+        raise AssertionError("no module-level _ALL_LAZY dict literal found in _exports.py")
 
     seen: dict[str, int] = {}
     duplicates: dict[str, list[int]] = {}

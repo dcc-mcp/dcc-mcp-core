@@ -150,12 +150,63 @@ class TestBuildProposal:
         json.dumps(payload)
 
     def test_rejects_invalid_threshold(self) -> None:
-        for bad in (0, -1, True):
+        # ``1.9`` and "3" used to be silently truncated to 1 and 3 by the
+        # ``int(threshold)`` call below the guard, contradicting the docstring.
+        for bad in (0, -1, True, False, 1.9, "3", None):
             try:
                 build_skill_promotion_proposal(_evidence_row(3), threshold=bad)
             except ValueError:
                 continue
             raise AssertionError(f"threshold={bad!r} should be rejected")
+
+    def test_rejects_non_integer_threshold_without_truncating(self) -> None:
+        """A fractional threshold must be refused, never floored to a lower bar."""
+        try:
+            build_skill_promotion_proposal(_evidence_row(3), threshold=1.9)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("threshold=1.9 should be rejected instead of truncated to 1")
+
+    def test_rejects_string_threshold(self) -> None:
+        try:
+            build_skill_promotion_proposal(_evidence_row(3), threshold="3")
+        except ValueError:
+            pass
+        else:
+            raise AssertionError('threshold="3" should be rejected instead of coerced to 3')
+
+    def test_accepts_plain_int_threshold(self) -> None:
+        """An exact ``int`` keeps working, including above the default."""
+        proposal = build_skill_promotion_proposal(_evidence_row(3), threshold=3)
+
+        assert proposal.threshold == 3
+        assert proposal.decision == DECISION_PROPOSE_SKILL
+        assert isinstance(proposal.threshold, int)
+
+    def test_threshold_validation_matches_escape_hatch_policy(self) -> None:
+        """Both call sites share DEFAULT_PROMOTION_THRESHOLD and must agree."""
+        from dcc_mcp_core.escape_hatch_policy import EscapeHatchPolicy
+
+        for value in (0, -1, True, False, 1.9, "3", None, 3):
+            try:
+                build_skill_promotion_proposal(_evidence_row(3), threshold=value)
+            except ValueError:
+                proposal_rejected = True
+            else:
+                proposal_rejected = False
+
+            try:
+                EscapeHatchPolicy(promotion_threshold=value)
+            except ValueError:
+                policy_rejected = True
+            else:
+                policy_rejected = False
+
+            assert proposal_rejected == policy_rejected, (
+                f"threshold={value!r} disagrees: skill_promotion rejected="
+                f"{proposal_rejected}, escape_hatch_policy rejected={policy_rejected}"
+            )
 
     def test_builds_one_proposal_per_row(self) -> None:
         proposals = build_skill_promotion_proposals([_evidence_row(3), _evidence_row(1)])
@@ -211,6 +262,23 @@ class TestQueryIntegration:
         assert proposal["decision"] == DECISION_MANUAL_REVIEW
         assert proposal["threshold"] == 5
         assert proposal["meets_threshold"] is False
+
+    def test_query_params_echo_the_promotion_threshold(self) -> None:
+        """``query_params`` must reproduce a call, so it echoes the threshold."""
+
+        def read(_sql: str, _params: dict[str, Any]) -> list[dict[str, Any]]:
+            return _audit_rows(4)
+
+        explicit = ObservabilityQuery(read_json_fn=read).get_repeated_scripts(
+            min_repeats=3,
+            promotion_threshold=7,
+        )
+        defaulted = ObservabilityQuery(read_json_fn=read).get_repeated_scripts(min_repeats=3)
+
+        assert explicit["query_params"]["promotion_threshold"] == 7
+        assert isinstance(explicit["query_params"]["promotion_threshold"], int)
+        assert defaulted["query_params"]["promotion_threshold"] == DEFAULT_PROMOTION_THRESHOLD
+        assert explicit["data"]["skill_promotion_proposals"][0]["threshold"] == 7
 
     def test_legacy_decision_keys_are_unchanged(self) -> None:
         def read(_sql: str, _params: dict[str, Any]) -> list[dict[str, Any]]:

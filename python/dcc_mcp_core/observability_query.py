@@ -340,6 +340,7 @@ class ObservabilityQuery:
         params: dict[str, Any] = {
             "min_repeats": min_repeats,
             "limit": min(limit, 1000),
+            "promotion_threshold": promotion_threshold,
         }
         conditions = [
             "json_valid(audit_json)",
