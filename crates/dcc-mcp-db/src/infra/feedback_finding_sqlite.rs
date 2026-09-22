@@ -5,7 +5,7 @@
 //! into [`FeedbackFindingRow`].
 //!
 //! `feedback_findings` is the #2253-E2 dedup aggregate. It is deliberately a
-//! different table from `feedback_findings` (#2253-E1, owned by
+//! different table from `feedback_reports` (#2253-E1, owned by
 //! `feedback_report_sqlite`), which is the durable per-submission log keyed by
 //! the gateway-minted `feedback_id`.
 //!

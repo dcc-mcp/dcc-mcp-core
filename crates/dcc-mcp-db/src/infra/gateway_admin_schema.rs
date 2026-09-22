@@ -182,12 +182,21 @@ CREATE INDEX IF NOT EXISTS idx_feedback_reports_fingerprint ON feedback_reports(
 -- the two contracts: E1 requires two submissions that share a fingerprint to
 -- remain two rows, while E2 requires them to become one.
 --
--- Retention: deliberately NOT touched by `prune_old_rows`, so
+-- Growth and retention: deliberately NOT touched by `prune_old_rows`, so
 -- `sqlite_retention_days` does not apply. Deleting a row would reset its
 -- `occurrence_count` and discard the evidence that a long-lived finding is
 -- still recurring, so time-based pruning here is a product decision rather than
--- a housekeeping default. The table is bounded by the number of distinct
--- `(repo, fingerprint)` findings rather than by submission volume.
+-- a housekeeping default.
+--
+-- Rows are bounded by the number of distinct `(repo, fingerprint)` pairs, not
+-- by submission volume: a repeat report bumps `occurrence_count` instead of
+-- inserting. That bound holds only while fingerprints stay low-cardinality --
+-- they are SHA-256 digests over a fixed finding schema
+-- (`finding-v1/{owner}/{phase}/{subject}/{host_major}`), so a caller cannot
+-- mint unlimited distinct values without also submitting genuinely distinct
+-- findings. Rate limiting the route does not by itself bound this table; if
+-- ingest volume ever makes row count a concern, cap by `last_seen_ms` or
+-- evict low-`occurrence_count` rows rather than pruning on age alone.
 CREATE TABLE IF NOT EXISTS feedback_findings (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   repo TEXT NOT NULL DEFAULT '',

@@ -28,7 +28,7 @@ pub struct FeedbackFindingInsert {
     pub report_json: String,
 }
 
-/// A persisted `feedback_reports` row.
+/// A persisted `feedback_findings` row.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FeedbackFindingRow {
     pub id: i64,
