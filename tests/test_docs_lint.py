@@ -14,6 +14,7 @@ from scripts.docs_lint import check_playbook_coverage
 from scripts.docs_lint import check_structure
 from scripts.docs_lint import check_symbols
 from scripts.docs_lint import fence_step
+from scripts.docs_lint import frontmatter_line_count
 from scripts.docs_lint import load_playbook_manifest
 from scripts.docs_lint import main
 from scripts.docs_lint import playbook_matcher
@@ -163,6 +164,37 @@ def test_emoji_density_warns_only_above_threshold():
 def test_emoji_inside_a_fenced_block_is_not_counted():
     lines = ["# T", "", "~~~", "```"] + ["\U0001f680"] * 30 + ["```", "~~~"]
     assert "emoji/emoji-density" not in _rules(check_emoji("\n".join(lines) + "\n", 0.10))
+
+
+def test_emoji_in_yaml_frontmatter_is_not_counted():
+    """A themed home page puts icons in frontmatter; that is chrome, not prose."""
+    icons = "\n".join(f"  - icon: \U0001f680\n    title: Feature {i}" for i in range(10))
+    text = "---\n" + icons + "\n---\n\n# Title\n\nPlain body line.\n"
+    assert "emoji/emoji-density" not in _rules(check_emoji(text, 0.10))
+
+
+def test_frontmatter_does_not_mask_real_body_emoji():
+    """Skipping frontmatter must not stop the rule firing on genuine prose."""
+    icons = "\n".join(f"  - icon: \U0001f680\n    title: Feature {i}" for i in range(10))
+    body = "\n".join(f"line {i} \U0001f680" for i in range(30))
+    text = "---\n" + icons + "\n---\n\n# Title\n\n" + body + "\n"
+    assert "emoji/emoji-density" in _rules(check_emoji(text, 0.10))
+
+
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        # Frontmatter must open on line 1 and close with a bare --- or ...
+        ("# Head\n\n---\n\nbody\n", 0),
+        ("---\ntitle: x\n---\nbody\n", 3),
+        ("---\ntitle: x\n...\nbody\n", 3),
+        # An unterminated block is not frontmatter; it is ordinary Markdown.
+        ("---\ntitle: x\nbody\n", 0),
+        ("\n---\ntitle: x\n---\n", 0),
+    ],
+)
+def test_frontmatter_line_count(text, expected):
+    assert frontmatter_line_count(text) == expected
 
 
 # --------------------------------------------------------------------------- #
