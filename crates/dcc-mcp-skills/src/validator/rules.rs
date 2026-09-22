@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::path::Path;
 
-use crate::constants::is_supported_extension;
+use crate::constants::{MAX_SKILL_NAME_LEN, is_supported_extension};
 use dcc_mcp_models::{SkillMetadata, ToolDeclaration};
 use serde_json::Value;
 
@@ -114,7 +114,7 @@ fn validate_frontmatter(
     }
 
     if !meta.name.is_empty() {
-        if meta.name.len() > 64 {
+        if meta.name.len() > MAX_SKILL_NAME_LEN {
             report.issues.push(SkillValidationIssue::error(
                 IssueCategory::Frontmatter,
                 format!("name exceeds 64 characters ({} chars)", meta.name.len()),

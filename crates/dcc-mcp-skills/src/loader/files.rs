@@ -2,6 +2,7 @@ use std::path::Path;
 
 use crate::constants::{
     DEPENDS_FILE, SKILL_METADATA_DIR, SKILL_SCRIPTS_DIR, is_supported_extension,
+    is_valid_skill_name,
 };
 use dcc_mcp_models::SkillMetadata;
 use dcc_mcp_paths::path_to_string;
@@ -59,11 +60,16 @@ pub(crate) fn enumerate_metadata_files(skill_dir: &Path) -> Vec<String> {
 
 /// Extract a dependency name from one line of `metadata/depends.md`.
 ///
-/// A dependency is a Markdown list item (`- name`) or a bare name. Both must
-/// be a single whitespace-free token: skill names are slugs, so a line with
-/// interior whitespace is prose, not a name. Treating every non-comment line
-/// as a name turned one descriptive sentence into a phantom dependency that
-/// failed resolution for every skill that declared it.
+/// A dependency is a Markdown list item (`- name`) or a bare name, and it must
+/// additionally look like a skill name: kebab-case, at most 64 characters, no
+/// leading/trailing or consecutive hyphens (see [`crate::constants::is_valid_skill_name`]).
+///
+/// Skill names are slugs, so any line that fails that shape is prose — an
+/// un-commented heading, a stray prose word such as `Optional`, or a list item
+/// with interior whitespace. Treating such lines as names turned one
+/// descriptive sentence into a phantom dependency that failed resolution for
+/// every skill that declared it, and a name that is not a valid slug could
+/// never have resolved in the first place.
 fn parse_depends_line(line: &str) -> Option<String> {
     let trimmed = line.trim();
     if trimmed.is_empty() || trimmed.starts_with('#') {
@@ -74,7 +80,8 @@ fn parse_depends_line(line: &str) -> Option<String> {
         .or_else(|| trimmed.strip_prefix("* "))
         .unwrap_or(trimmed)
         .trim();
-    if name.is_empty() || name.split_whitespace().count() > 1 {
+    if !is_valid_skill_name(name) {
+        tracing::debug!("Ignoring non-slug line in {DEPENDS_FILE}: {name:?}");
         return None;
     }
     Some(name.to_string())

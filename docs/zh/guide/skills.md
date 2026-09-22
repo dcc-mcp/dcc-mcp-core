@@ -349,6 +349,11 @@ deps = expand_transitive_dependencies(skills, "maya-animation")
 # ["maya-geometry"]
 ```
 
+`metadata/depends.md` 每行写一个依赖名，可以裸写（`maya-geometry`），也可以写成
+Markdown 列表项（`- maya-geometry`）。只有符合 skill 名 slug 形态的行才会被当作
+依赖——kebab-case、不超过 64 个字符、首尾无连字符且不含连续连字符。标题、散文以及
+含空格的列表项会被忽略，因此一个误写的单词不会变成无法解析的依赖。
+
 Catalog 发现阶段会把这些声明当作软依赖处理。若组合 Skill 依赖
 `maya-dev`，但扫描时 `maya-dev` 还没有被发现，组合 Skill 仍会出现在
 `search_skills()` / `list_skills()` 中，并带有 `status: "pending_deps"` 和

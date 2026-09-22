@@ -99,6 +99,9 @@ pub fn default_skill_paths_disabled() -> bool {
     env_flag_enabled(ENV_DISABLE_DEFAULT_SKILL_PATHS)
 }
 
+/// Maximum length of a skill name (slug), enforced by the skills validator.
+pub const MAX_SKILL_NAME_LEN: usize = 64;
+
 /// Subdirectory inside a skill package that holds executable scripts.
 pub const SKILL_SCRIPTS_DIR: &str = "scripts";
 
@@ -158,6 +161,27 @@ pub const SUPPORTED_SCRIPT_EXTENSIONS: &[(&str, &str)] = &[
     (".jsx", "javascript"),
     (".js", "javascript"),
 ];
+
+/// Return whether `name` matches the skill-name slug contract: kebab-case
+/// (ASCII lowercase letters and digits, single interior hyphens), at most
+/// [`MAX_SKILL_NAME_LEN`] characters, no leading/trailing hyphen.
+///
+/// This is the same shape [`crate::validator::validate_skill_dir`] enforces on
+/// `SKILL.md` frontmatter names. A dependency name that fails it can never
+/// resolve to a skill, so callers that read names out of free-form files (such
+/// as `metadata/depends.md`) use this to drop prose lines instead of turning
+/// them into phantom dependencies.
+#[must_use]
+pub fn is_valid_skill_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= MAX_SKILL_NAME_LEN
+        && name
+            .chars()
+            .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '-')
+        && !name.starts_with('-')
+        && !name.ends_with('-')
+        && !name.contains("--")
+}
 
 /// Normalize an extension to bare form (strip optional leading dot).
 fn normalize_ext(ext: &str) -> &str {
@@ -272,6 +296,40 @@ mod tests {
         assert_eq!(get_script_type(".bash"), Some("shell"));
         assert_eq!(get_script_type(".jsx"), Some("javascript"));
         assert_eq!(get_script_type(".js"), Some("javascript"));
+    }
+
+    #[test]
+    fn test_is_valid_skill_name_accepts_slugs() {
+        for name in ["maya-geometry", "usd", "dep-a", "maya2024", "a", "3d-print"] {
+            assert!(is_valid_skill_name(name), "expected {name} to be valid");
+        }
+        assert!(is_valid_skill_name(&"a".repeat(MAX_SKILL_NAME_LEN)));
+    }
+
+    #[test]
+    fn test_is_valid_skill_name_rejects_non_slugs() {
+        // Prose words, de-commented headings and list items with interior
+        // whitespace are the phantom-dependency shapes depends.md must drop.
+        for name in [
+            "",
+            "Optional",
+            "TODO",
+            "Dependencies",
+            "Skills that must be loaded",
+            "maya geometry",
+            "-maya-geometry",
+            "maya-geometry-",
+            "maya--geometry",
+            "maya_geometry",
+            "maya.geometry",
+            "maya/geometry",
+        ] {
+            assert!(
+                !is_valid_skill_name(name),
+                "expected {name:?} to be rejected"
+            );
+        }
+        assert!(!is_valid_skill_name(&"a".repeat(MAX_SKILL_NAME_LEN + 1)));
     }
 
     #[test]
