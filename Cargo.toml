@@ -157,7 +157,10 @@ tower = "0.5"
 tower-http = "0.6"
 tempfile = "3"
 sha2 = "0.11"
-rand = "0.10"
+# `chacha` pins corpus generation to a named generator (ChaCha8Rng). `StdRng`
+# makes no cross-version reproducibility guarantee, and the skills benchmark
+# needs its seeded corpus to be stable across `rand` patch bumps.
+rand = { version = "0.10", features = ["chacha"] }
 http = "1.0"
 futures = "0.3"
 async-trait = "0.1"

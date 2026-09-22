@@ -137,7 +137,10 @@ fn synthetic_catalogue(
     Vec<String>,
 ) {
     use rand::SeedableRng;
-    let mut rng = rand::rngs::StdRng::seed_from_u64(42);
+    // ChaCha8Rng, not StdRng: only a named generator is guaranteed to draw the
+    // same stream across `rand` releases, and `dcc-mcp-skills-bench` builds its
+    // corpus with the same seed. Both benches must see the same skills.
+    let mut rng = rand::rngs::ChaCha8Rng::seed_from_u64(42);
     let metas: Vec<SkillMetadata> = (0..n).map(|i| synthetic_skill(i, &mut rng)).collect();
     let names: Vec<String> = metas.iter().map(|m| m.name.clone()).collect();
     let fields: Vec<FieldTokens> = metas.iter().map(FieldTokens::from_metadata).collect();

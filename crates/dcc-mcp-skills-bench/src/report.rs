@@ -9,6 +9,7 @@
 use serde_json::{Value, json};
 
 use crate::context::ContextPoint;
+use crate::corpus::SCALE_300;
 use crate::run::{Evaluation, Group};
 use crate::synthetic::CORPUS_SCHEMA_VERSION;
 use crate::thresholds;
@@ -93,14 +94,27 @@ fn render_scale(evaluation: &Evaluation) -> String {
         ));
     }
 
-    if let Some(gate) = evaluation.gate_group() {
+    // Only the 300 scale is gated (see thresholds::MIN_TOP1_1000_INFORMATIVE).
+    // Printing a verdict for 1000 would invent a gate that does not exist.
+    if evaluation.scale == SCALE_300 {
+        if let Some(gate) = evaluation.gate_group() {
+            out.push_str(&format!(
+                "\ngate ({}): top-1 >= {:.0}%, top-5 >= {:.0}%, MRR@10 >= {:.0}% -> {}\n",
+                gate.name,
+                thresholds::MIN_TOP1_300 * 100.0,
+                thresholds::MIN_TOP5_300 * 100.0,
+                thresholds::MIN_MRR10_300 * 100.0,
+                if gate_passes(gate) { "PASS" } else { "FAIL" }
+            ));
+        }
+    } else {
         out.push_str(&format!(
-            "\ngate ({}): top-1 >= {:.0}%, top-5 >= {:.0}%, MRR@10 >= {:.0}% -> {}\n",
-            gate.name,
-            thresholds::MIN_TOP1_300 * 100.0,
-            thresholds::MIN_TOP5_300 * 100.0,
-            thresholds::MIN_MRR10_300 * 100.0,
-            if gate_passes(gate) { "PASS" } else { "FAIL" }
+            "\nscale {} is a trend signal: top-1 {:.1}% is reported, not gated\n",
+            evaluation.scale,
+            evaluation
+                .gate_group()
+                .map_or(0.0, |gate| gate.metrics.top1)
+                * 100.0
         ));
     }
 

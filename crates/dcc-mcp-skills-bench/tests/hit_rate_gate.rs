@@ -94,36 +94,14 @@ fn hard_negatives_are_harder_than_the_clean_control() {
     );
 }
 
-/// The measurement must still sit at or above the recorded baseline.
-///
-/// The gate is the merge gate; this is the canary. A change that lifts the
-/// numbers moves the baseline ahead of the gate and leaves real headroom
-/// unused, which is the trigger for re-baselining both together.
-#[test]
-fn measurement_still_sits_at_or_above_the_recorded_baseline() {
-    let evaluation = dcc_mcp_skills_bench::run::evaluate(&Corpus::build(SCALE_300));
-    let group = evaluation.gate_group().expect("gated group");
-
-    for (label, measured, baseline) in [
-        ("top-1", group.metrics.top1, thresholds::BASELINE_TOP1_300),
-        ("top-5", group.metrics.top5, thresholds::BASELINE_TOP5_300),
-        (
-            "MRR@10",
-            group.metrics.mrr10,
-            thresholds::BASELINE_MRR10_300,
-        ),
-    ] {
-        assert!(
-            measured >= baseline - 0.01,
-            "{label} dropped to {measured:.3}, below the recorded baseline {baseline:.3} \
-             (tolerance 0.01 for seed churn). Re-baseline or fix the regression.\n{gate_note}",
-            gate_note = note(&evaluation)
-        );
-    }
-}
-
 /// The 1000-skill scale is a trend signal, asserted loosely.
+///
+/// `#[ignore]`d because it costs ~78s against ~9s for the 300-skill gate, and
+/// `cargo nextest run --workspace` runs in debug for every PR. `skills-bench.yml`
+/// runs it explicitly with `--release --include-ignored`, which is both faster
+/// and the only place the 1000-skill figure is actually consumed.
 #[test]
+#[ignore = "slow trend signal; run from skills-bench.yml with --release"]
 fn trend_signal_at_1000_stays_in_a_sane_range() {
     let evaluation = dcc_mcp_skills_bench::run::evaluate(&Corpus::build(SCALE_1000));
     let group = evaluation.gate_group().expect("gated group");

@@ -259,7 +259,8 @@ fn build_twins(
     targets: &[String],
 ) -> (Vec<SkillMetadata>, Vec<HardNegative>) {
     let mut taken: HashSet<String> = base.iter().map(|skill| skill.name.clone()).collect();
-    let mut rng = rand::rngs::StdRng::seed_from_u64(synthetic::SEED ^ SAME_DCC_TWIN_INDEX as u64);
+    let mut rng =
+        rand::rngs::ChaCha8Rng::seed_from_u64(synthetic::SEED ^ SAME_DCC_TWIN_INDEX as u64);
     let mut twins = Vec::new();
     let mut negatives = Vec::new();
 

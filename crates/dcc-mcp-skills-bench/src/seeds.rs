@@ -224,13 +224,21 @@ mod tests {
         }
     }
 
+    /// Staleness check for the committed snapshot.
+    ///
+    /// `#[ignore]`d on purpose. The snapshot is harvested from four directories
+    /// of this repository, so any PR that touches a SKILL.md frontmatter
+    /// anywhere in them goes red here even when that PR has nothing to do with
+    /// the benchmark. That makes it a poor default gate but a good dedicated
+    /// one: `skills-bench.yml` runs it explicitly.
     #[test]
+    #[ignore = "whole-repo staleness gate; run from skills-bench.yml, not --workspace"]
     fn committed_snapshot_matches_a_live_harvest() {
         let committed = load_committed().expect("benchmarks/skills/seeds.json must be committed");
         let live = build_seed_set(&workspace_root());
         assert_eq!(
             committed.skills, live.skills,
-            "seeds.json is stale — rerun `skills-bench regenerate-seeds`"
+            "seeds.json is stale. Regenerate: cargo run -p dcc-mcp-skills-bench --bin skills-bench -- regenerate-seeds"
         );
     }
 }

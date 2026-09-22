@@ -17,6 +17,12 @@ on:
       - "crates/dcc-mcp-skills-bench/**"
       - "benchmarks/skills/**"
       - "skills/**"
+      # SkillMetadata field changes alter what the index actually contains.
+      - "crates/dcc-mcp-models/**"
+      # Root manifests: a dependency bump (notably `rand`) can change the seeded
+      # corpus without touching a line of benchmark code.
+      - "Cargo.toml"
+      - "Cargo.lock"
       - ".github/workflows/skills-bench.yml"
   push:
     branches:
@@ -48,20 +54,47 @@ jobs:
       # The 300-skill corpus, `dcc`-filtered, against the thresholds in
       # crates/dcc-mcp-skills-bench/src/thresholds.rs. Also asserts the two
       # structural properties the split depends on.
+      #
+      # `--locked` throughout: Cargo.lock is committed, and without it a
+      # manifest/lock mismatch would let cargo silently re-resolve and run the
+      # gate against a different dependency set than the one that was reviewed.
       - name: Run the hit-rate regression gate
         run: |
-          cargo test --release -p dcc-mcp-skills-bench \
-            --test hit_rate_gate -- --test-threads 2
+          cargo test --locked --release -p dcc-mcp-skills-bench \
+            --test hit_rate_gate -- --include-ignored --test-threads 2
         shell: bash
 
       - name: Run the multi-DCC context gate
         run: |
-          cargo test --release -p dcc-mcp-skills-bench --test context_gate
+          cargo test --locked --release -p dcc-mcp-skills-bench --test context_gate
+        shell: bash
+
+      # The library unit tests hold the corpus invariants (hard-negative shapes,
+      # workspace-relative seed paths, the pinned corpus digest). They are cheap
+      # enough to run here and keep the ignored staleness check company.
+      - name: Run the corpus invariant tests
+        run: |
+          cargo test --locked --release -p dcc-mcp-skills-bench --lib \
+            -- --include-ignored
+        shell: bash
+
+      # `committed_snapshot_matches_a_live_harvest` is #[ignore]d because it
+      # fails on any PR touching a SKILL.md, benchmark-related or not. Here it
+      # belongs: this is the workflow that owns the dataset.
+      - name: Check the committed seed snapshot is current
+        run: |
+          set -euo pipefail
+          if ! cargo test --locked --release -p dcc-mcp-skills-bench --lib -- --ignored --exact \\
+              seeds::tests::committed_snapshot_matches_a_live_harvest; then
+            echo "::error::benchmarks/skills/seeds.json is stale." \
+                 "Regenerate it with: cargo run -p dcc-mcp-skills-bench --bin skills-bench -- regenerate-seeds"
+            exit 1
+          fi
         shell: bash
 
       - name: Emit the benchmark report
         run: |
-          cargo run --release -q -p dcc-mcp-skills-bench --bin skills-bench -- \
+          cargo run --locked --release -q -p dcc-mcp-skills-bench --bin skills-bench -- \
             report --output skills-bench.json
         shell: bash
 
@@ -87,9 +120,13 @@ jobs:
         with:
           key: skills-bench
 
+      # Compile-and-smoke the bench so this path is actually exercised. The
+      # latency numbers stay ungated, but a bench that never runs is a bench
+      # that silently rots: a previous revision measured the wrong DCC shard
+      # for every query and no CI job could have caught it.
       - name: Run the criterion query benchmarks
         run: |
-          cargo bench -p dcc-mcp-skills-bench --bench skills_bench -- \
+          cargo bench --locked -p dcc-mcp-skills-bench --bench skills_bench -- \
             --sample-size 30 --measurement-time 5
         shell: bash
         env:

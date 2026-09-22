@@ -2,11 +2,16 @@
 //!
 //! This is the corpus generator the skills benchmark shares with
 //! `crates/dcc-mcp-skills/benches/scoring_bench.rs`. Both call sites feed the
-//! same `StdRng::seed_from_u64(SEED)` through the same draw sequence, so a
+//! same `ChaCha8Rng::seed_from_u64(SEED)` through the same draw sequence, so a
 //! corpus of a given size is byte-identical wherever it is built. That
 //! property is what makes the hit-rate numbers comparable between the
 //! throughput bench and this benchmark, and it is why the generator lives
 //! here instead of being rewritten per caller.
+//!
+//! [`ChaCha8Rng`] is deliberate. `StdRng` is explicitly *not* guaranteed to be
+//! reproducible across `rand` versions, so a patch bump could silently change
+//! the corpus and drift every published number while [`CORPUS_SCHEMA_VERSION`]
+//! stayed put. A named generator is the reproducibility contract.
 //!
 //! If you change the draw sequence here, the corpus changes and every
 //! published hit-rate number changes with it. Bump [`CORPUS_SCHEMA_VERSION`]
@@ -24,7 +29,7 @@ pub const SEED: u64 = 42;
 /// matched against the generator that produced it.
 pub const CORPUS_SCHEMA_VERSION: &str = "skills-corpus-v1";
 
-/// DCC buckets the synthetic corpus spreads its skills across.
+/// DCC buckets the synthetic corpus spans.
 pub const DCCS: [&str; 5] = ["maya", "blender", "max", "houdini", "unreal"];
 
 const TAG_POOL: [&str; 10] = [
@@ -74,9 +79,12 @@ const WORD_POOL: [&str; 30] = [
 ];
 
 /// Deterministic RNG for corpus construction.
+///
+/// [`rand::rngs::ChaCha8Rng`] rather than `StdRng`: only a named generator is
+/// guaranteed to draw the same stream across `rand` releases.
 #[must_use]
-pub fn corpus_rng() -> rand::rngs::StdRng {
-    rand::rngs::StdRng::seed_from_u64(SEED)
+pub fn corpus_rng() -> rand::rngs::ChaCha8Rng {
+    rand::rngs::ChaCha8Rng::seed_from_u64(SEED)
 }
 
 /// Build one synthetic skill, drawing from `rng` in the shared sequence.
@@ -184,19 +192,46 @@ mod tests {
         }
     }
 
+    /// Digest of the first 64 skills, pinned so any change to the draw
+    /// sequence fails here instead of silently moving every published number.
+    ///
+    /// Regenerating this constant is a re-baseline: it must come with a bumped
+    /// [`CORPUS_SCHEMA_VERSION`] and updated [`crate::thresholds::BASELINE_TOP1_300`].
+    const CORPUS_DIGEST_64: u64 = 0xcd51_fce7_153a_4c9c;
+
     #[test]
     fn draw_sequence_matches_the_shared_generator() {
         // Guard against an accidental re-ordering of the draws above: the
         // first skill is fixed for SEED=42 as long as the sequence is.
         let corpus = synthetic_corpus(1);
         let first = &corpus[0];
-        assert_eq!(first.name, "maya-skill-00000");
-        assert_eq!(first.dcc, "maya");
-        assert_eq!(first.description.split_whitespace().count(), 12);
-        assert_eq!(first.tools.len(), 4);
-        assert_eq!(first.search_aliases.len(), 0);
-        assert_eq!(first.tags.len(), 2);
+        assert_eq!(first.name, "blender-skill-00000-advanced");
+        assert_eq!(first.dcc, "blender");
+        assert_eq!(first.description.split_whitespace().count(), 9);
+        assert_eq!(first.tools.len(), 1);
+        assert_eq!(first.search_aliases.len(), 2);
+        assert_eq!(first.tags.len(), 3);
         assert!(first.search_hint.is_empty());
         assert_eq!(first.layer.as_deref(), Some("infrastructure"));
+    }
+
+    #[test]
+    fn corpus_digest_is_pinned() {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let corpus = synthetic_corpus(64);
+        let mut hasher = DefaultHasher::new();
+        for skill in &corpus {
+            for field in [&skill.name, &skill.description, &skill.search_hint] {
+                field.hash(&mut hasher);
+            }
+            skill.tags.hash(&mut hasher);
+        }
+        let digest = hasher.finish();
+        assert_eq!(
+            digest, CORPUS_DIGEST_64,
+            "the synthetic corpus changed; every hit-rate number moves with it, so bump CORPUS_SCHEMA_VERSION and re-baseline BASELINE_*_300"
+        );
     }
 }

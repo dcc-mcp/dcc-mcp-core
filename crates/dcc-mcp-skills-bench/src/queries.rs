@@ -276,13 +276,20 @@ fn literal_queries(target_name: &str, skip_truncated_tail: bool) -> Vec<String> 
 
 /// Remove one interior character so the query is a near-miss, not a typo of a
 /// separator.
+///
+/// Dropping a separator would merge two tokens into one that matches neither:
+/// `maya-skill-00000` would become `maya-skill00000`, whose tokens are
+/// `["maya", "skill00000"]`. That measures token merging rather than a
+/// single-character miss, so scan forward from the two-thirds point for the
+/// first alphanumeric character and drop that one instead.
 fn drop_one_character(name: &str) -> Option<String> {
     let chars: Vec<char> = name.chars().collect();
     if chars.len() < 5 {
         return None;
     }
     // Two thirds in: past the DCC prefix, inside the discriminating tail.
-    let index = chars.len() * 2 / 3;
+    let start = chars.len() * 2 / 3;
+    let index = (start..chars.len()).find(|index| chars[*index].is_alphanumeric())?;
     Some(chars[..index].iter().chain(&chars[index + 1..]).collect())
 }
 
@@ -510,7 +517,50 @@ mod tests {
     fn drop_one_character_keeps_the_name_recognisable() {
         let typo = drop_one_character("maya-mesh-ops").unwrap();
         assert_ne!(typo, "maya-mesh-ops");
-        assert!(typo.len() == "maya-mesh-ops".len() - 1);
+        assert_eq!(typo.len(), "maya-mesh-ops".len() - 1);
         assert_eq!(drop_one_character("abc"), None);
+    }
+
+    #[test]
+    fn drop_one_character_never_removes_a_separator() {
+        // The bug this guards: deleting a separator merges two tokens into one
+        // that matches neither, so the query stops being a near-miss.
+        for name in [
+            "maya-skill-00000",
+            "unreal-skill-00000",
+            "blender-skill-00000",
+            "max-skill-00000",
+            "houdini-skill-00000",
+            "maya-skill-00000-advanced",
+        ] {
+            let typo = drop_one_character(name).unwrap_or_else(|| panic!("no typo for {name}"));
+            assert_eq!(
+                typo.len(),
+                name.len() - 1,
+                "{name} -> {typo} did not drop exactly one character"
+            );
+            let name_chars: Vec<char> = name.chars().collect();
+            let typo_chars: Vec<char> = typo.chars().collect();
+            // Where the two first differ is where the character went. When they
+            // never differ the removed character was the last one, because zip
+            // only walks the overlapping prefix.
+            let removed_index = name_chars
+                .iter()
+                .zip(typo_chars.iter())
+                .position(|(before, after)| before != after)
+                .unwrap_or(name_chars.len() - 1);
+            let removed = name_chars[removed_index];
+            assert!(
+                removed.is_alphanumeric(),
+                "{name} -> {typo} removed the non-alphanumeric {removed:?}; \
+                 separators must survive or the query changes tokenisation"
+            );
+            // The token count must be unchanged: that is what "near-miss" means.
+            assert_eq!(
+                tokenize(name).len(),
+                tokenize(&typo).len(),
+                "{name} -> {typo} changed the token count"
+            );
+        }
     }
 }
