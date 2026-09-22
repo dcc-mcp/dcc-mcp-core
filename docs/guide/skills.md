@@ -906,6 +906,13 @@ deps = expand_transitive_dependencies(skills, "maya-animation")
 # ["maya-geometry"]
 ```
 
+`metadata/depends.md` lists one dependency per line, either bare
+(`maya-geometry`) or as a Markdown list item (`- maya-geometry`). Only lines
+shaped like a skill-name slug — kebab-case, at most 64 characters, no leading,
+trailing or consecutive hyphens — count as dependencies. Headings, prose and
+list items with interior whitespace are ignored, so a stray word can never
+become a dependency that fails to resolve.
+
 Dependency declarations are soft during catalog discovery. If a composition
 skill depends on `maya-dev` before that skill has been discovered, the
 composition skill still appears in `search_skills()` / `list_skills()` with
