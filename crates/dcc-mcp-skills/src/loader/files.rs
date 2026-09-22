@@ -57,7 +57,32 @@ pub(crate) fn enumerate_metadata_files(skill_dir: &Path) -> Vec<String> {
     })
 }
 
+/// Extract a dependency name from one line of `metadata/depends.md`.
+///
+/// A dependency is a Markdown list item (`- name`) or a bare name. Both must
+/// be a single whitespace-free token: skill names are slugs, so a line with
+/// interior whitespace is prose, not a name. Treating every non-comment line
+/// as a name turned one descriptive sentence into a phantom dependency that
+/// failed resolution for every skill that declared it.
+fn parse_depends_line(line: &str) -> Option<String> {
+    let trimmed = line.trim();
+    if trimmed.is_empty() || trimmed.starts_with('#') {
+        return None;
+    }
+    let name = trimmed
+        .strip_prefix("- ")
+        .or_else(|| trimmed.strip_prefix("* "))
+        .unwrap_or(trimmed)
+        .trim();
+    if name.is_empty() || name.split_whitespace().count() > 1 {
+        return None;
+    }
+    Some(name.to_string())
+}
+
 /// Parse metadata/depends.md and merge dependency names into meta.depends.
+///
+/// Blank lines, `#` headings and prose are skipped; see `parse_depends_line`.
 pub(crate) fn merge_depends_from_metadata(skill_dir: &Path, meta: &mut SkillMetadata) {
     let depends_path = skill_dir.join(SKILL_METADATA_DIR).join(DEPENDS_FILE);
     if !depends_path.is_file() {
@@ -73,13 +98,12 @@ pub(crate) fn merge_depends_from_metadata(skill_dir: &Path, meta: &mut SkillMeta
     };
 
     for line in content.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            continue;
-        }
-        let dep_name = trimmed.strip_prefix("- ").unwrap_or(trimmed).trim();
-        if !dep_name.is_empty() && !meta.depends.iter().any(|dep| dep == dep_name) {
-            meta.depends.push(dep_name.to_string());
+        let dep_name = match parse_depends_line(line) {
+            Some(dep_name) => dep_name,
+            None => continue,
+        };
+        if !meta.depends.iter().any(|dep| dep == &dep_name) {
+            meta.depends.push(dep_name);
         }
     }
 }
