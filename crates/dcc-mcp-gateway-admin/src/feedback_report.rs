@@ -1,7 +1,11 @@
 //! Persisted agent-feedback envelope for the gateway admin SQLite store (#2253-E1).
 //!
 //! The envelope mirrors the record the per-DCC JSONL mirror writes, so reading
-//! from SQLite or from the JSONL fallback yields identical admin API entries.
+//! from SQLite or from the JSONL fallback yields equivalent admin entries.
+//! The two are not byte-identical: the SQLite row carries an extra `recorded_at`
+//! envelope field, and its `timestamp` is the gateway accept time rather than
+//! the client's post-receipt stamp. When both hold the same id the admin reader
+//! prefers the SQLite row; see `FeedbackEntry::preferred_over`.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

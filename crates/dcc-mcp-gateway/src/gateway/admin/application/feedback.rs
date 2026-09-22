@@ -97,7 +97,8 @@ struct FeedbackScan {
 }
 
 impl FeedbackScan {
-    /// `sqlite`, `registry-jsonl`, or `sqlite+registry-jsonl` when both contributed.
+    /// `sqlite`, `registry-jsonl`, `sqlite+registry-jsonl` when both
+    /// contributed, or `none` when the response holds no rows.
     fn source(&self) -> &'static str {
         match (self.sqlite_rows > 0, self.jsonl_rows > 0) {
             (true, true) => "sqlite+registry-jsonl",

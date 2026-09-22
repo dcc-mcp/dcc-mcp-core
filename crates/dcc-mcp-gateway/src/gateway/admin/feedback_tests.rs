@@ -516,3 +516,32 @@ async fn legacy_report_without_dcc_type_is_queryable_via_sqlite() {
     assert_eq!(body["entries"][0]["dcc_type"], "gateway");
     assert_eq!(body["entries"][0]["tool_name"], "gateway.registry__list");
 }
+
+/// An empty result reports `source: none` rather than naming a source that
+/// contributed nothing.
+///
+/// Before this feature the field was hard-coded to `registry-jsonl`, so an
+/// empty response still claimed the mirror served it. Callers keying off
+/// `source` need the fourth value to be part of the contract.
+#[cfg(feature = "admin-persist-sqlite")]
+#[tokio::test]
+async fn empty_feedback_read_reports_no_source() {
+    use crate::gateway::admin::sqlite_lane::AdminSqliteLane;
+
+    let registry = tempfile::tempdir().unwrap();
+    let lane =
+        AdminSqliteLane::spawn(registry.path().join("admin.sqlite"), 30).expect("spawn lane");
+    let state =
+        AdminState::new(make_gateway_state(registry.path())).with_admin_sqlite_lane(Some(lane));
+    let (status, body) = body_json(
+        build_admin_router(state),
+        "/api/feedback?range=all&limit=100",
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["source"], "none", "nothing was read: {body}");
+    assert_eq!(body["total"], 0);
+    assert_eq!(body["count"], 0);
+    assert_eq!(body["entries"].as_array().unwrap().len(), 0);
+}
