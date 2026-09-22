@@ -107,12 +107,20 @@ pub fn harvest(root: &Path) -> Vec<SkillMetadata> {
 }
 
 /// Rewrite every absolute path under `root` to a workspace-relative one.
+///
+/// `metadata_files` is easy to miss because only a few skills carry it, which
+/// is exactly why it is listed explicitly here rather than discovered.
 fn relativise(mut skill: SkillMetadata, root: &Path) -> SkillMetadata {
     skill.skill_path = relativise_path(&skill.skill_path, root);
     skill.scripts = skill
         .scripts
         .iter()
         .map(|script| relativise_path(script, root))
+        .collect();
+    skill.metadata_files = skill
+        .metadata_files
+        .iter()
+        .map(|file| relativise_path(file, root))
         .collect();
     skill
 }
@@ -203,7 +211,10 @@ mod tests {
         // other checkout and would leak local directory layout.
         let root = workspace_root();
         for skill in harvest(&root) {
-            for path in std::iter::once(&skill.skill_path).chain(skill.scripts.iter()) {
+            let paths = std::iter::once(&skill.skill_path)
+                .chain(skill.scripts.iter())
+                .chain(skill.metadata_files.iter());
+            for path in paths {
                 assert!(
                     !Path::new(path).is_absolute(),
                     "{}: absolute path left in the snapshot: {path}",

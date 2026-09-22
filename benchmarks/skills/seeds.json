@@ -1882,10 +1882,10 @@
       ],
       "skill_path": "examples/skills/maya-pipeline",
       "metadata_files": [
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\examples/skills\\maya-pipeline\\metadata\\depends.md",
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\examples/skills\\maya-pipeline\\metadata\\help.md",
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\examples/skills\\maya-pipeline\\metadata\\install.md",
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\examples/skills\\maya-pipeline\\metadata\\uninstall.md"
+        "examples/skills/maya-pipeline/metadata/depends.md",
+        "examples/skills/maya-pipeline/metadata/help.md",
+        "examples/skills/maya-pipeline/metadata/install.md",
+        "examples/skills/maya-pipeline/metadata/uninstall.md"
       ],
       "groups": [],
       "layer": "domain"
