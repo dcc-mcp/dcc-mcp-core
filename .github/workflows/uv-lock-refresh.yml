@@ -1,0 +1,243 @@
+name: Refresh published lock pins
+
+# Why this workflow exists
+# ------------------------
+# `uv.lock` pins `dcc-mcp-core-semantic` and `dcc-mcp-server` as ordinary PyPI
+# registry packages: `pkg/*` is not part of the uv workspace and the root
+# `pyproject.toml` declares no `[tool.uv.sources]`, so the two pins only move
+# when something explicitly asks uv to re-resolve them. Nothing did, and the
+# pins silently sat on 0.20.12 across twelve releases.
+#
+# `scripts/ci/check_lock_versions.py` now detects that drift, but detection
+# alone leaves every release PR to trip its own gate once and a human to run
+# `uv lock --upgrade-package ...` by hand. This workflow closes the loop: it
+# moves the two pins to the newest published release on a schedule, so the lock
+# on `main` normally already tracks the latest published version.
+#
+# Safety properties
+# -----------------
+# * Idempotent — an up-to-date lock produces no diff, no commit and no PR.
+# * Scoped — `scripts/ci/uv_lock_refresh.py` fails the run when anything but
+#   the two allowed packages moves, when a cp37 wheel disappears, or when
+#   `requires-python` is narrowed. A surprising re-resolution is reported,
+#   never merged.
+# * Non-releasing — the commit type is `chore(lock)`, which release-please
+#   hides from the changelog and never turns into a version bump, so the
+#   release-please self-increment loop cannot restart through this path.
+# * Unrelated to the release trust boundary — this workflow never runs from
+#   `pull_request_target` and never executes the pinned validator ref used by
+#   `release-please-lock-sync.yml`.
+# * Signed as the repository owner — the refresh branch is pushed with the
+#   repository automation token, not with the short-lived workflow token, so
+#   the pull request triggers the normal CI gates instead of being skipped as
+#   a `GITHUB_TOKEN`-authored PR.
+# * No auto-merge — `main` enables auto-merge but requires no status checks
+#   and no review, so auto-merge would land on the first status event instead
+#   of waiting for the lanes that exercise the published wheels. The refresh
+#   PR stops at "open" and merging stays a human gate.
+# * Loud on failure — `scripts/ci/uv_lock_refresh.py` fails closed, which
+#   silently restores the very drift this workflow removes, so a failed run
+#   files an issue under the `uv-lock-refresh` label instead of only leaving
+#   a failed run behind.
+#
+# Residual timing note
+# --------------------
+# release-please opens the next release PR in the same 01:13Z window that
+# publishes the current version, so that PR starts one publish behind for
+# roughly a day and is rebuilt from `main` on the following window. Closing
+# that window would mean pushing lock changes onto the release PR branch
+# itself, which is deliberately out of scope here.
+
+on:
+  schedule:
+    # Daily at 03:47 UTC: off the hour, and after the 01:13Z release window so
+    # the version published that morning is already on PyPI when this runs.
+    - cron: "47 3 * * *"
+  workflow_dispatch:
+
+# Read-only on purpose. Every write in this workflow goes through the
+# repository automation token (`secrets.PERSONAL_ACCESS_TOKEN`): the branch
+# push uses a credential-store file after `-c credential.helper=` clears the
+# inherited helper, and `gh pr` / `gh issue` run with `GH_TOKEN` set to the
+# same token. The workflow token never writes anything, so it keeps read-only
+# scope.
+permissions:
+  contents: read
+
+concurrency:
+  group: uv-lock-refresh
+  cancel-in-progress: false
+
+env:
+  REFRESH_BRANCH: bot/uv-lock-refresh
+  REFRESH_TITLE: "chore(lock): refresh published dcc-mcp-server and dcc-mcp-core-semantic pins"
+  # Pinned on purpose: `uv lock` output follows the resolver version (lock
+  # revision, entry ordering, how much of the graph it re-resolves), so an
+  # unattended refresh is only reproducible against a fixed resolver. Bump
+  # this in a reviewed change rather than letting a floating `latest` move
+  # underneath the guard.
+  UV_VERSION: "0.11.16"
+  NOTIFY_LABEL: uv-lock-refresh
+
+jobs:
+  refresh:
+    name: Refresh published PyPI pins
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          persist-credentials: false
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - uses: loonghao/vx@v0.9.11
+        with:
+          version: "0.9.11"
+          cache-key-prefix: "vx-tools-v0.9.7"
+
+      - name: Re-resolve the two published pins
+        run: |
+          set -euo pipefail
+          cp uv.lock /tmp/uv.lock.before
+          vx uvx --from "uv==$UV_VERSION" uv lock --upgrade-package dcc-mcp-core-semantic --upgrade-package dcc-mcp-server
+          cp uv.lock /tmp/uv.lock.after
+
+      - name: Verify the refresh stayed scoped
+        run: python scripts/ci/uv_lock_refresh.py verify /tmp/uv.lock.before /tmp/uv.lock.after
+
+      - name: Verify the committed lock gates still pass
+        run: |
+          set -euo pipefail
+          python scripts/ci/check_uv_lock.py
+          python scripts/ci/check_lock_versions.py
+          vx uvx --from "uv==$UV_VERSION" uv lock --check
+
+      - name: Verify only uv.lock moved
+        run: |
+          set -euo pipefail
+          touched="$(git status --porcelain --untracked-files=no | grep -v ' uv\.lock$' || true)"
+          if [ -n "$touched" ]; then
+            echo "::error::the refresh touched files other than uv.lock:"
+            echo "$touched"
+            exit 1
+          fi
+
+      - name: Detect a lock change
+        id: diff
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- uv.lock; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "The two published pins already track the newest release; nothing to do."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            git diff --stat -- uv.lock
+          fi
+
+      - name: Open or update the refresh pull request
+        if: steps.diff.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          git config user.name "loonghao"
+          git config user.email "hal.long@outlook.com"
+          git switch -C "$REFRESH_BRANCH" HEAD
+          git add uv.lock
+          git commit --no-verify -m "$REFRESH_TITLE"
+
+          # The branch is rebuilt from `main` on every run, so the push is a
+          # force push; the lease still protects against a concurrent writer.
+          lease=()
+          remote_sha="$(git ls-remote origin "refs/heads/$REFRESH_BRANCH" | awk 'NR==1 {print $1}')"
+          if [ -n "$remote_sha" ]; then
+            lease=("--force-with-lease=refs/heads/$REFRESH_BRANCH:${remote_sha}")
+          fi
+
+          credential_file="$(mktemp)"
+          trap 'rm -f "$credential_file"' EXIT
+          chmod 600 "$credential_file"
+          printf 'https://x-access-token:%s@github.com\n' "$GH_TOKEN" > "$credential_file"
+          git -c credential.helper= \
+            -c credential.helper="store --file=${credential_file}" \
+            push "${lease[@]}" origin "HEAD:refs/heads/$REFRESH_BRANCH"
+
+          body_file="$(mktemp)"
+          cat > "$body_file" <<'BODY'
+          Automated `uv.lock` maintenance.
+
+          `dcc-mcp-core-semantic` and `dcc-mcp-server` are consumed from PyPI as
+          ordinary registry dependencies, so their pins only move when uv is asked
+          to re-resolve them explicitly. This refresh moves both pins to the newest
+          published release so `scripts/ci/check_lock_versions.py` keeps passing
+          without a manual `uv lock --upgrade-package` run.
+
+          - Changed: `uv.lock` only
+          - Packages: `dcc-mcp-core-semantic`, `dcc-mcp-server`
+          - Guards: `scripts/ci/uv_lock_refresh.py`, `scripts/ci/check_uv_lock.py`,
+            `scripts/ci/check_lock_versions.py`, `uv lock --check`
+          - Commit type: `chore(lock)`, which release-please hides and never bumps
+
+          The workflow is idempotent: an already-current lock produces no commit and
+          no pull request.
+          BODY
+
+          existing="$(gh pr list --state open --base main --head "$REFRESH_BRANCH" --json number --jq '.[0].number // empty')"
+          if [ -z "$existing" ]; then
+            gh pr create --base main --head "$REFRESH_BRANCH" --title "$REFRESH_TITLE" --body-file "$body_file"
+          else
+            echo "Refresh PR #$existing is already open; the push above updated it."
+          fi
+
+          # The pull request stops here on purpose. `main` carries no required
+          # status checks and no required review, so auto-merge would merge on
+          # the first status event instead of waiting for the lanes that
+          # actually exercise the published wheels. Merging stays a human gate.
+
+      - name: Report a failed refresh
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          # A failed refresh silently restores exactly the drift this workflow
+          # exists to remove, so it has to leave a visible trail instead of a
+          # failed run nobody is subscribed to.
+          if ! gh label list --limit 200 --json name --jq '.[].name' | grep -qx "$NOTIFY_LABEL"; then
+            gh label create "$NOTIFY_LABEL" \
+              --description "Scheduled uv.lock pin refresh needs attention" \
+              --color EDEDED >/dev/null || true
+          fi
+
+          existing="$(gh issue list --state open --label "$NOTIFY_LABEL" --json number --jq '.[0].number // empty')"
+          if [ -n "$existing" ]; then
+            echo "Refresh failure is already tracked by issue #$existing; not filing a duplicate."
+            exit 0
+          fi
+
+          gh issue create \
+            --title "uv.lock pin refresh failed on $(date -u +%Y-%m-%d)" \
+            --label "$NOTIFY_LABEL" \
+            --body-file - <<BODY
+          The scheduled \`uv.lock\` pin refresh failed. Until it is fixed the two
+          published pins (\`dcc-mcp-core-semantic\`, \`dcc-mcp-server\`) stop
+          tracking the newest release, which is the drift this workflow exists to
+          prevent.
+
+          - Run: $RUN_URL
+          - Resolver: uv $UV_VERSION
+
+          The guard fails closed, so no pull request was opened. Check the run log
+          for the failing step: an out-of-scope re-resolution, a dropped \`cp37\`
+          wheel, a narrowed \`requires-python\`, or a pin that moved backwards.
+          BODY
