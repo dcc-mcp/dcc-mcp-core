@@ -225,6 +225,16 @@ def test_workflow_does_not_auto_merge() -> None:
     assert "--auto" not in workflow
 
 
+def test_workflow_token_stays_read_only() -> None:
+    # Every write goes through secrets.PERSONAL_ACCESS_TOKEN; the workflow
+    # token must not carry write scopes it never exercises.
+    workflow = _workflow_body()
+
+    assert "contents: read" in workflow
+    assert "contents: write" not in workflow
+    assert "pull-requests: write" not in workflow
+
+
 def test_workflow_pins_the_resolver() -> None:
     workflow = _workflow_body()
 

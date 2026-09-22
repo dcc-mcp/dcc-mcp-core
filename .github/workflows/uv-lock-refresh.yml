@@ -55,9 +55,14 @@ on:
     - cron: "47 3 * * *"
   workflow_dispatch:
 
+# Read-only on purpose. Every write in this workflow goes through the
+# repository automation token (`secrets.PERSONAL_ACCESS_TOKEN`): the branch
+# push uses a credential-store file after `-c credential.helper=` clears the
+# inherited helper, and `gh pr` / `gh issue` run with `GH_TOKEN` set to the
+# same token. The workflow token never writes anything, so it keeps read-only
+# scope.
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 concurrency:
   group: uv-lock-refresh
@@ -150,10 +155,10 @@ jobs:
 
           # The branch is rebuilt from `main` on every run, so the push is a
           # force push; the lease still protects against a concurrent writer.
-          lease=""
+          lease=()
           remote_sha="$(git ls-remote origin "refs/heads/$REFRESH_BRANCH" | awk 'NR==1 {print $1}')"
           if [ -n "$remote_sha" ]; then
-            lease="--force-with-lease=refs/heads/$REFRESH_BRANCH:${remote_sha}"
+            lease=("--force-with-lease=refs/heads/$REFRESH_BRANCH:${remote_sha}")
           fi
 
           credential_file="$(mktemp)"
@@ -162,7 +167,7 @@ jobs:
           printf 'https://x-access-token:%s@github.com\n' "$GH_TOKEN" > "$credential_file"
           git -c credential.helper= \
             -c credential.helper="store --file=${credential_file}" \
-            push $lease origin "HEAD:refs/heads/$REFRESH_BRANCH"
+            push "${lease[@]}" origin "HEAD:refs/heads/$REFRESH_BRANCH"
 
           body_file="$(mktemp)"
           cat > "$body_file" <<'BODY'
