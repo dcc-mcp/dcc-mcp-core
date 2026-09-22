@@ -530,8 +530,21 @@ jobs:
         run: |
           # Populate vx's provider/version cache before pytest workers run.
           # Retry dependency provisioning only; never retry the encoding test.
+          #
+          # `timeout` is GNU coreutils: macOS runners ship neither it nor a
+          # preinstalled `gtimeout`, and an unknown command makes every
+          # attempt below fail while the step still reports success. Probe for
+          # one and otherwise fall back to the step-level `timeout-minutes`
+          # bound, which the runner always enforces.
+          if command -v timeout >/dev/null 2>&1; then
+            probe_ffmpeg() { timeout 90 vx ffmpeg -version; }
+          elif command -v gtimeout >/dev/null 2>&1; then
+            probe_ffmpeg() { gtimeout 90 vx ffmpeg -version; }
+          else
+            probe_ffmpeg() { vx ffmpeg -version; }
+          fi
           for attempt in 1 2 3; do
-            if timeout 90s vx ffmpeg -version; then
+            if probe_ffmpeg; then
               exit 0
             fi
             echo "FFmpeg provisioning attempt ${attempt}/3 failed" >&2
@@ -601,8 +614,21 @@ jobs:
           # smoke test, and a runner that cannot reach the CDN must skip that
           # test instead of failing the whole lane on infrastructure. The hard
           # gate stays in `python37-native`, where the same step still exits 1.
+          #
+          # `timeout` is GNU coreutils: macOS runners ship neither it nor a
+          # preinstalled `gtimeout`, and an unknown command makes every
+          # attempt below fail while the step still reports success. Probe for
+          # one and otherwise fall back to the step-level `timeout-minutes`
+          # bound, which the runner always enforces.
+          if command -v timeout >/dev/null 2>&1; then
+            probe_ffmpeg() { timeout 90 vx ffmpeg -version; }
+          elif command -v gtimeout >/dev/null 2>&1; then
+            probe_ffmpeg() { gtimeout 90 vx ffmpeg -version; }
+          else
+            probe_ffmpeg() { vx ffmpeg -version; }
+          fi
           for attempt in 1 2 3; do
-            if timeout 90s vx ffmpeg -version; then
+            if probe_ffmpeg; then
               exit 0
             fi
             echo "FFmpeg provisioning attempt ${attempt}/3 failed" >&2

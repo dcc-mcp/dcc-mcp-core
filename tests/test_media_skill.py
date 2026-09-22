@@ -44,6 +44,69 @@ def _vx_ffmpeg_available():
     return probe.returncode == 0
 
 
+@pytest.fixture
+def isolated_vx_probe():
+    """Give a test a clean process-wide ffmpeg probe cache.
+
+    The probe is memoised with ``lru_cache``, so a test that patches
+    ``shutil.which`` or ``subprocess.run`` would otherwise leak its answer
+    into every later test that consults the probe - including the media smoke
+    test's own skip decision.
+    """
+    _vx_ffmpeg_available.cache_clear()
+    try:
+        yield
+    finally:
+        _vx_ffmpeg_available.cache_clear()
+
+
+def test_vx_ffmpeg_probe_is_false_without_vx(isolated_vx_probe, monkeypatch):
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+
+    assert _vx_ffmpeg_available() is False
+
+
+def test_vx_ffmpeg_probe_is_false_when_ffmpeg_cannot_run(isolated_vx_probe, monkeypatch):
+    monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/vx")
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(args, 1, b"", b""),
+    )
+
+    assert _vx_ffmpeg_available() is False
+
+
+def test_vx_ffmpeg_probe_is_true_when_ffmpeg_runs(isolated_vx_probe, monkeypatch):
+    monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/vx")
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(args, 0, b"", b""),
+    )
+
+    assert _vx_ffmpeg_available() is True
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        subprocess.TimeoutExpired(cmd="vx ffmpeg -version", timeout=90),
+        OSError("vx exec failed"),
+    ],
+    ids=["timeout-expired", "os-error"],
+)
+def test_vx_ffmpeg_probe_swallows_subprocess_failures(isolated_vx_probe, monkeypatch, failure):
+    monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/vx")
+
+    def raise_failure(*args, **kwargs):
+        raise failure
+
+    monkeypatch.setattr(subprocess, "run", raise_failure)
+
+    assert _vx_ffmpeg_available() is False
+
+
 @contextmanager
 def _skill_script_import_context(script_path: Path):
     script_dir = str(script_path.resolve().parent)
@@ -427,11 +490,14 @@ def test_sequence_entrypoint_accepts_stdin_json(media_common, tmp_path, monkeypa
     assert result["context"]["command"][:2] == ["vx", "ffmpeg"]
 
 
-@pytest.mark.skipif(
-    not _vx_ffmpeg_available(),
-    reason="vx cannot provision ffmpeg on this host",
-)
 def test_sequence_to_mp4_smoke_with_vx(tmp_path):
+    # Deliberately a runtime skip, not a collection-time `skipif`: xdist runs
+    # collection on every worker (`--dist loadfile`), so a network probe placed
+    # there runs once per worker and can make worker collection results
+    # disagree - which xdist escalates into a whole-lane failure. At runtime
+    # the probe happens once, in the single worker that owns this file.
+    if not _vx_ffmpeg_available():
+        pytest.skip("vx cannot provision ffmpeg on this host")
     _write_ppm(tmp_path / "frame_0001.ppm", (255, 0, 0))
     _write_ppm(tmp_path / "frame_0002.ppm", (0, 255, 0))
     output = tmp_path / "smoke.mp4"
