@@ -117,7 +117,10 @@ fn validate_frontmatter(
         if meta.name.len() > MAX_SKILL_NAME_LEN {
             report.issues.push(SkillValidationIssue::error(
                 IssueCategory::Frontmatter,
-                format!("name exceeds 64 characters ({} chars)", meta.name.len()),
+                format!(
+                    "name exceeds {MAX_SKILL_NAME_LEN} characters ({} chars)",
+                    meta.name.len()
+                ),
             ));
         }
         if !meta

@@ -144,6 +144,23 @@ fn merge_ignores_list_items_with_interior_whitespace() {
     assert_eq!(meta.depends, vec!["dep-a"]);
 }
 
+/// Documented boundary: the shape check is a slug check, not a prose
+/// detector. A single lowercase word is shape-valid, so it is still read as a
+/// dependency name — authors must keep prose behind a `#` comment marker.
+/// Pinned here so the documented behaviour cannot drift silently.
+#[test]
+fn merge_accepts_lowercase_single_words_by_design() {
+    let tmp = tempfile::tempdir().unwrap();
+    let meta_dir = tmp.path().join(SKILL_METADATA_DIR);
+    std::fs::create_dir_all(&meta_dir).unwrap();
+    std::fs::write(meta_dir.join(DEPENDS_FILE), "optional\nnote\ndep-a\n").unwrap();
+
+    let mut meta = make_skill_with_deps(&[]);
+    merge_depends_from_metadata(tmp.path(), &mut meta);
+
+    assert_eq!(meta.depends, vec!["optional", "note", "dep-a"]);
+}
+
 #[test]
 fn merge_noop_when_no_file() {
     let tmp = tempfile::tempdir().unwrap();
