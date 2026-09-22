@@ -42,8 +42,11 @@ authors = [{name = "Your Name", email = "you@studio.com"}]
 license = {text = "MIT"}
 requires-python = ">=3.9"
 dependencies = [
-    # Pin core to the latest released minor, never to main.
-    "dcc-mcp-core>=0.18.0,<1.0.0",
+    # Pin core to the latest released minor, never to main. The floor must be a
+    # release that ships adapter-install-sop-v2.schema.json: the first core
+    # release cut after 0.20.33, which section 3 validates against. That release
+    # is not tagged yet, so pin its digest daa5840e… until it is published.
+    "dcc-mcp-core>=0.<latest_minor>.0,<1.0.0",
 ]
 
 [project.optional-dependencies]

@@ -10,7 +10,12 @@ boxes and are not part of the set that must be ticked.
 
 - [ ] Core dependency is pinned to `>=0.<latest_minor>.0,<1.0.0` in `pyproject.toml`.
       Use the latest *released* minor version of `dcc-mcp-core`, not `main`.
-      Example: `"dcc-mcp-core>=0.18.0,<1.0.0"`.
+      The floor must be a release that actually ships
+      `adapter-install-sop-v2.schema.json` — the first core release cut after
+      `0.20.33` — because Section 1 requires validating against that artifact.
+      A lower floor lets the adapter install a core that cannot satisfy the
+      checklist. That release is not tagged yet, so until it is, pin the v2
+      digest `daa5840e…` instead of a version.
 - [ ] `dcc-mcp-server` binary dependency (if used) also follows the same range.
 - [ ] Adapter `adapter_version` is set via `DccServerOptions.from_env(..., adapter_version=...)`
       and stamped into the gateway sentinel and file registry row.

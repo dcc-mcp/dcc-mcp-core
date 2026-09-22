@@ -29,6 +29,12 @@ Both artifacts describe the same document: `-v2` republishes the `-v1` bytes
 under a new `$id` and title, so the only content difference between them is that
 identification. `-v1` is frozen; `-v2` is where content changes go from here.
 
+Availability differs. `-v1` ships in every core release from `0.20.30` onward.
+`-v2` was merged to `main` after `0.20.33` was tagged, so **no published core
+release contains it yet**: it first ships in the core release cut after
+`0.20.33`. Until that release is published, anchor on the `-v2` digest above
+rather than on a version.
+
 Canonical ids:
 
 ```text
@@ -110,9 +116,12 @@ addition has to track `-v2`.
 2. Update any hard-coded digest to
    `daa5840e07c956d7c9269e5709d6993a3988b905f986c06e7c4c02f5023e9422`.
 
-3. If you pin per core version, record which core release first shipped `-v2`.
-   Digests alone are not a version policy: record that mapping rather than
-   probing both artifacts at runtime.
+3. If you pin per core version, record the mapping
+   `core >= <first core release after 0.20.33> -> v2`. `-v2` is not in any
+   tagged release yet, so keep the digest pin above for now and replace it with
+   that version bound once the release is published. Digests alone are not a
+   version policy: record that mapping rather than probing both artifacts at
+   runtime.
 
 ### If you pinned `2b3a8a101384a5163c7569c4a2b0de6586c672c5ee291735f94334a33b7d37a0`
 
