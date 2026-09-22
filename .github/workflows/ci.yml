@@ -299,6 +299,74 @@ jobs:
           CARGO_TARGET_DIR: target/semantic-backend-tests
         run: vx cargo test -p dcc-mcp-semantic --features fastembed-backend --lib
 
+  # ── Feature-gated Rust test matrix ────────────────────────────────────────
+  # `just test-rust` runs `cargo nextest run --workspace` with default features
+  # only, so crates whose `default = []` hides their behaviour behind opt-in
+  # features never execute their tests in CI. The admin dashboard and its
+  # SQLite persistence lane are exactly that case: they only compile and run
+  # under `admin` / `persist-sqlite`. This matrix runs those combinations on
+  # every PR, fanning out so the four suites build in parallel instead of
+  # extending the `rust-check` critical path.
+  #
+  # `admin` (without `persist-sqlite`) is covered on purpose: it is the
+  # feature set the release wheel is built with, and it is a different compile
+  # path from `admin-persist-sqlite`, so a regression can be red in one and
+  # green in the other.
+  rust-feature-tests:
+    name: Rust features (${{ matrix.label }})
+    needs: admin-ui-bundle
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: gateway admin-persist-sqlite
+            package: dcc-mcp-gateway
+            features: admin-persist-sqlite
+          - label: gateway admin
+            package: dcc-mcp-gateway
+            features: admin
+          - label: gateway-admin persist-sqlite
+            package: dcc-mcp-gateway-admin
+            features: persist-sqlite
+          - label: db gateway-admin-sqlite
+            package: dcc-mcp-db
+            features: gateway-admin-sqlite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: loonghao/vx@v0.9.11
+        with:
+          version: "0.9.11"
+          cache-key-prefix: "vx-tools-v0.9.7"
+      # `dcc-mcp-gateway-admin/src/generated/index.html` is git-ignored and
+      # `include_str!`-ed when the `embed` feature is on. Reuse the bundle the
+      # `admin-ui-bundle` job already built instead of paying for a second
+      # Node/npm install in every matrix leg.
+      - name: Download prebuilt admin UI bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: admin-ui-bundle
+          path: crates/dcc-mcp-gateway-admin/src/generated
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: rust-feature-${{ matrix.package }}-${{ matrix.features }}
+          shared-key: rust-feature-${{ runner.os }}
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+      - name: Feature-gated tests
+        env:
+          DCC_MCP_ADMIN_UI_PREBUILT: "1"
+        run: |
+          set -euo pipefail
+          vx cargo nextest run \
+            -p "${{ matrix.package }}" \
+            --features "${{ matrix.features }}" \
+            --no-fail-fast
+
   # ── Dependency policy gate (cargo-deny) ───────────────────────────────────
   # Independent of `rust-check` so its install of `cargo-deny` does not
   # bottleneck the slower clippy/nextest path. Catches: native-tls /
