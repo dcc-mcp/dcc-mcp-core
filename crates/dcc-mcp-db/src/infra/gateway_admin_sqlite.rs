@@ -14,14 +14,14 @@ use serde::Deserialize;
 use serde_json::json;
 
 use crate::domain::error::DbError;
-use crate::domain::feedback_report::{FeedbackReportInsert, FeedbackReportRow};
+use crate::domain::feedback_finding::{FeedbackFindingInsert, FeedbackFindingRow};
 use crate::domain::gateway_admin_audit::GatewayAdminAuditPersistedJson;
 use crate::domain::gateway_admin_deregistered::GatewayDeregisteredInstanceJson;
 use crate::domain::script_promotion::ScriptPromotionBumpJson;
+use crate::infra::feedback_finding_sqlite as finding;
 use crate::infra::feedback_report_sqlite::{
     insert_feedback_report, list_feedback_reports_json, prune_feedback_reports,
 };
-use crate::infra::gateway_admin_feedback_sqlite as feedback;
 use crate::infra::gateway_admin_schema::GATEWAY_ADMIN_SQLITE_DDL;
 use crate::infra::gateway_admin_session_sqlite as session;
 use crate::infra::script_promotion_sqlite::{
@@ -255,17 +255,21 @@ impl GatewayAdminSqliteReader {
     }
 
     /// Look up one report by its `(repo, fingerprint)` dedup key.
-    pub fn get_feedback_report(&self, repo: &str, fingerprint: &str) -> Option<FeedbackReportRow> {
+    pub fn get_feedback_finding(
+        &self,
+        repo: &str,
+        fingerprint: &str,
+    ) -> Option<FeedbackFindingRow> {
         let conn = self.open_ro()?;
-        feedback::select_feedback_report(&conn, repo, fingerprint).ok()
+        finding::select_feedback_finding(&conn, repo, fingerprint).ok()
     }
 
     /// Most recently seen reports, newest first, bounded by `limit`.
-    pub fn list_feedback_reports(&self, limit: usize) -> Vec<FeedbackReportRow> {
+    pub fn list_feedback_findings(&self, limit: usize) -> Vec<FeedbackFindingRow> {
         let Some(conn) = self.open_ro() else {
             return Vec::new();
         };
-        feedback::list_feedback_reports(&conn, limit)
+        finding::list_feedback_findings(&conn, limit)
     }
 
     pub fn list_agent_memory_json(
@@ -581,16 +585,16 @@ impl GatewayAdminSqliteLane {
     /// reading them back over the async lane would race the writer thread.
     /// Opens its own connection to the same file (WAL permits concurrent
     /// writers; SQLite serialises them).
-    pub fn upsert_feedback_report(
+    pub fn upsert_feedback_finding(
         &self,
-        row: &FeedbackReportInsert,
-    ) -> Result<FeedbackReportRow, DbError> {
+        row: &FeedbackFindingInsert,
+    ) -> Result<FeedbackFindingRow, DbError> {
         let path = self.path();
         let mut conn =
             Connection::open(path).map_err(|error| DbError::Backend(error.to_string()))?;
         conn.execute_batch(SCHEMA)
             .map_err(|error| DbError::Backend(error.to_string()))?;
-        feedback::upsert_feedback_report(&mut conn, row)
+        finding::upsert_feedback_finding(&mut conn, row)
     }
 
     /// Filesystem path of the admin SQLite database.
@@ -601,14 +605,18 @@ impl GatewayAdminSqliteLane {
 
     /// Look up one report by its dedup key without writing.
     #[must_use]
-    pub fn get_feedback_report(&self, repo: &str, fingerprint: &str) -> Option<FeedbackReportRow> {
-        self.inner.reader.get_feedback_report(repo, fingerprint)
+    pub fn get_feedback_finding(
+        &self,
+        repo: &str,
+        fingerprint: &str,
+    ) -> Option<FeedbackFindingRow> {
+        self.inner.reader.get_feedback_finding(repo, fingerprint)
     }
 
     /// Most recently seen reports, newest first, bounded by `limit`.
     #[must_use]
-    pub fn list_feedback_reports(&self, limit: usize) -> Vec<FeedbackReportRow> {
-        self.inner.reader.list_feedback_reports(limit)
+    pub fn list_feedback_findings(&self, limit: usize) -> Vec<FeedbackFindingRow> {
+        self.inner.reader.list_feedback_findings(limit)
     }
 }
 

@@ -24,7 +24,7 @@ pub use application::gateway_admin::{
 pub use domain::env;
 pub use domain::env::ENV_SCRIPT_PROMOTION_MIN_REPEATS;
 pub use domain::error::DbError;
-pub use domain::feedback_report::{FeedbackReportInsert, FeedbackReportRow};
+pub use domain::feedback_finding::{FeedbackFindingInsert, FeedbackFindingRow};
 pub use domain::gateway_admin_audit::GatewayAdminAuditPersistedJson;
 pub use domain::gateway_admin_deregistered::GatewayDeregisteredInstanceJson;
 pub use domain::script_promotion::{

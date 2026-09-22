@@ -1,6 +1,7 @@
 //! Gateway-owned feedback endpoint.
 
 use std::sync::OnceLock;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::Json;
 use axum::extract::State;
@@ -199,11 +200,11 @@ async fn persist_finding(
     gateway: &GatewayState,
     finding: &FindingV1,
     route: Option<&FeedbackRoute>,
-) -> Option<dcc_mcp_db::FeedbackReportRow> {
+) -> Option<dcc_mcp_db::FeedbackFindingRow> {
     let lane = gateway.admin_sqlite_lane.as_ref()?.clone();
     let report_json = serde_json::to_string(finding).ok()?;
     let now_ms = chrono::Utc::now().timestamp_millis();
-    let insert = dcc_mcp_db::FeedbackReportInsert {
+    let insert = dcc_mcp_db::FeedbackFindingInsert {
         repo: route.map(|route| route.repo.clone()).unwrap_or_default(),
         fingerprint: finding.fingerprint.clone(),
         issues_url: route.map(|route| route.issues_url.clone()),
@@ -218,7 +219,7 @@ async fn persist_finding(
     // write transaction. Under write contention SQLite waits out the busy
     // timeout (5s by default), which would park a tokio worker thread for the
     // duration, so the blocking call stays off the async executor.
-    match tokio::task::spawn_blocking(move || lane.upsert_feedback_report(&insert)).await {
+    match tokio::task::spawn_blocking(move || lane.upsert_feedback_finding(&insert)).await {
         Ok(Ok(row)) => Some(row),
         Ok(Err(error)) => {
             tracing::warn!(error = %error, "feedback ingest: report persistence failed");
@@ -236,7 +237,7 @@ async fn persist_finding(
     _gateway: &GatewayState,
     _finding: &FindingV1,
     _route: Option<&FeedbackRoute>,
-) -> Option<dcc_mcp_db::FeedbackReportRow> {
+) -> Option<dcc_mcp_db::FeedbackFindingRow> {
     None
 }
 
@@ -278,7 +279,6 @@ impl Submission {
         }
     }
 
-
     fn schema_version(&self) -> i64 {
         match self {
             Self::Finding(finding) => i64::from(finding.schema_version),
@@ -286,14 +286,12 @@ impl Submission {
         }
     }
 
-
     fn fingerprint(&self) -> Option<String> {
         match self {
             Self::Finding(finding) => Some(finding.fingerprint.clone()),
             Self::Legacy(_) => None,
         }
     }
-
 
     /// Instance id exactly as the report carries it — `None` when unscoped.
     fn report_instance_id(&self) -> Option<String> {
@@ -303,6 +301,12 @@ impl Submission {
         }
     }
 
+    fn tool_slug(&self) -> Option<String> {
+        match self {
+            Self::Finding(finding) => finding.tool_slug.clone(),
+            Self::Legacy(report) => Some(report.tool_name.clone()),
+        }
+    }
 
     fn report_value(&self) -> Value {
         match self {
@@ -570,7 +574,7 @@ mod tests {
             assert_eq!(receipt["route_rationale"], "adapter_phase");
         }
 
-        let rows = lane.list_feedback_reports(10);
+        let rows = lane.list_feedback_findings(10);
         assert_eq!(rows.len(), 1, "three reports must stay one row");
         assert_eq!(rows[0].occurrence_count, 3);
         assert_eq!(rows[0].repo, "dcc-mcp/dcc-mcp-maya");

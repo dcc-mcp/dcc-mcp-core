@@ -9,7 +9,6 @@
 
 use std::path::PathBuf;
 
-use std::path::Path;
 use std::time::SystemTime;
 
 use crate::{AdminAuditRecord, DispatchTrace, FeedbackReportRow};
@@ -19,7 +18,7 @@ use std::time::{Duration, UNIX_EPOCH};
 
 #[cfg(feature = "persist-sqlite")]
 use dcc_mcp_db::{
-    FeedbackReportInsert, FeedbackReportRow, GatewayAdminAuditPersistedJson,
+    FeedbackFindingInsert, FeedbackFindingRow, GatewayAdminAuditPersistedJson,
     GatewayAdminSqliteLane as InnerLane, GatewayAdminSqliteReader as InnerReader,
     GatewayDeregisteredInstanceJson, ScriptPromotionBumpJson, ScriptPromotionCounter,
 };
@@ -414,27 +413,27 @@ impl AdminSqliteLane {
     ///
     /// Synchronous because the caller needs the resulting id and
     /// `occurrence_count` to answer the ingest request.
-    pub fn upsert_feedback_report(
+    pub fn upsert_feedback_finding(
         &self,
-        finding: &FeedbackReportInsert,
-    ) -> Result<FeedbackReportRow, dcc_mcp_db::DbError> {
-        self.inner.upsert_feedback_report(finding)
+        finding: &FeedbackFindingInsert,
+    ) -> Result<FeedbackFindingRow, dcc_mcp_db::DbError> {
+        self.inner.upsert_feedback_finding(finding)
     }
 
     /// #2253-E2: Look up one dedup row by its `(repo, fingerprint)` key.
     #[must_use]
-    pub fn get_feedback_report(
+    pub fn get_feedback_finding(
         &self,
         repo: &str,
         fingerprint: &str,
-    ) -> Option<FeedbackReportRow> {
-        self.inner.get_feedback_report(repo, fingerprint)
+    ) -> Option<FeedbackFindingRow> {
+        self.inner.get_feedback_finding(repo, fingerprint)
     }
 
     /// #2253-E2: Most recently seen dedup rows, newest first.
     #[must_use]
-    pub fn list_feedback_reports(&self, limit: usize) -> Vec<FeedbackReportRow> {
-        self.inner.list_feedback_reports(limit)
+    pub fn list_feedback_findings(&self, limit: usize) -> Vec<FeedbackFindingRow> {
+        self.inner.list_feedback_findings(limit)
     }
 }
 
@@ -720,7 +719,7 @@ impl AdminSqliteLane {
 
 #[cfg(not(feature = "persist-sqlite"))]
 #[must_use]
-pub fn read_custom_skill_paths_for_startup(_: &Path) -> Vec<PathBuf> {
+pub fn read_custom_skill_paths_for_startup(_: &std::path::Path) -> Vec<PathBuf> {
     Vec::new()
 }
 
