@@ -152,9 +152,9 @@
       "version": "1.0.0",
       "depends": [],
       "scripts": [
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\skills\\asset-source\\scripts\\search_assets.py"
+        "skills/asset-source/scripts/search_assets.py"
       ],
-      "skill_path": "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\skills\\asset-source",
+      "skill_path": "skills/asset-source",
       "metadata_files": [],
       "groups": [],
       "layer": "domain",
@@ -220,10 +220,10 @@
       "version": "1.0.0",
       "depends": [],
       "scripts": [
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\examples/skills\\async-render-example\\scripts\\quick_status.py",
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\examples/skills\\async-render-example\\scripts\\render_frames.py"
+        "examples/skills/async-render-example/scripts/quick_status.py",
+        "examples/skills/async-render-example/scripts/render_frames.py"
       ],
-      "skill_path": "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\examples/skills\\async-render-example",
+      "skill_path": "examples/skills/async-render-example",
       "metadata_files": [],
       "groups": [],
       "layer": "example"
@@ -252,9 +252,9 @@
       "version": "1.0.0",
       "depends": [],
       "scripts": [
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\examples/skills\\cancellable-loop\\scripts\\count.py"
+        "examples/skills/cancellable-loop/scripts/count.py"
       ],
-      "skill_path": "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\examples/skills\\cancellable-loop",
+      "skill_path": "examples/skills/cancellable-loop",
       "metadata_files": [],
       "groups": [],
       "layer": "example"
@@ -309,10 +309,10 @@
       "version": "1.0.0",
       "depends": [],
       "scripts": [
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\examples/skills\\clawhub-compat\\scripts\\fetch_api.sh",
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\examples/skills\\clawhub-compat\\scripts\\format_code.py"
+        "examples/skills/clawhub-compat/scripts/fetch_api.sh",
+        "examples/skills/clawhub-compat/scripts/format_code.py"
       ],
-      "skill_path": "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\examples/skills\\clawhub-compat",
+      "skill_path": "examples/skills/clawhub-compat",
       "metadata_files": [],
       "groups": [],
       "layer": "example"
@@ -353,7 +353,7 @@
       "version": "0.1.0",
       "depends": [],
       "scripts": [],
-      "skill_path": "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\skills\\dcc-cua",
+      "skill_path": "skills/dcc-cua",
       "metadata_files": [],
       "groups": [],
       "layer": "infrastructure"
@@ -537,12 +537,12 @@
       "version": "1.0.0",
       "depends": [],
       "scripts": [
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\examples/skills\\dcc-diagnostics\\scripts\\audit_log.py",
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\examples/skills\\dcc-diagnostics\\scripts\\process_status.py",
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\examples/skills\\dcc-diagnostics\\scripts\\screenshot.py",
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\examples/skills\\dcc-diagnostics\\scripts\\tool_metrics.py"
+        "examples/skills/dcc-diagnostics/scripts/audit_log.py",
+        "examples/skills/dcc-diagnostics/scripts/process_status.py",
+        "examples/skills/dcc-diagnostics/scripts/screenshot.py",
+        "examples/skills/dcc-diagnostics/scripts/tool_metrics.py"
       ],
-      "skill_path": "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\examples/skills\\dcc-diagnostics",
+      "skill_path": "examples/skills/dcc-diagnostics",
       "metadata_files": [],
       "groups": [],
       "layer": "infrastructure"
@@ -686,12 +686,12 @@
       "version": "1.0.0",
       "depends": [],
       "scripts": [
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\examples/skills\\example-layered-skill\\scripts\\__init__.py",
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\examples/skills\\example-layered-skill\\scripts\\create_asset.py",
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\examples/skills\\example-layered-skill\\scripts\\publish_asset.py",
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\examples/skills\\example-layered-skill\\scripts\\validate_asset.py"
+        "examples/skills/example-layered-skill/scripts/__init__.py",
+        "examples/skills/example-layered-skill/scripts/create_asset.py",
+        "examples/skills/example-layered-skill/scripts/publish_asset.py",
+        "examples/skills/example-layered-skill/scripts/validate_asset.py"
       ],
-      "skill_path": "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\examples/skills\\example-layered-skill",
+      "skill_path": "examples/skills/example-layered-skill",
       "metadata_files": [],
       "groups": [],
       "prompts_file": "prompts/system.md",
@@ -824,11 +824,11 @@
       "version": "1.0.0",
       "depends": [],
       "scripts": [
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\examples/skills\\ffmpeg-media\\scripts\\convert.py",
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\examples/skills\\ffmpeg-media\\scripts\\probe.py",
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\examples/skills\\ffmpeg-media\\scripts\\thumbnail.py"
+        "examples/skills/ffmpeg-media/scripts/convert.py",
+        "examples/skills/ffmpeg-media/scripts/probe.py",
+        "examples/skills/ffmpeg-media/scripts/thumbnail.py"
       ],
-      "skill_path": "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\examples/skills\\ffmpeg-media",
+      "skill_path": "examples/skills/ffmpeg-media",
       "metadata_files": [],
       "groups": [],
       "layer": "infrastructure"
@@ -931,10 +931,10 @@
       "version": "1.0.0",
       "depends": [],
       "scripts": [
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\tests/fixtures/skills\\forgecad-primitives\\scripts\\create_cube.py",
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\tests/fixtures/skills\\forgecad-primitives\\scripts\\create_cylinder.py"
+        "tests/fixtures/skills/forgecad-primitives/scripts/create_cube.py",
+        "tests/fixtures/skills/forgecad-primitives/scripts/create_cylinder.py"
       ],
-      "skill_path": "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\tests/fixtures/skills\\forgecad-primitives",
+      "skill_path": "tests/fixtures/skills/forgecad-primitives",
       "metadata_files": [],
       "groups": [],
       "layer": "domain"
@@ -1037,10 +1037,10 @@
       "version": "1.0.0",
       "depends": [],
       "scripts": [
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\examples/skills\\git-automation\\scripts\\changelog_gen.py",
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\examples/skills\\git-automation\\scripts\\repo_stats.py"
+        "examples/skills/git-automation/scripts/changelog_gen.py",
+        "examples/skills/git-automation/scripts/repo_stats.py"
       ],
-      "skill_path": "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\examples/skills\\git-automation",
+      "skill_path": "examples/skills/git-automation",
       "metadata_files": [],
       "groups": [],
       "layer": "infrastructure"
@@ -1072,9 +1072,9 @@
       "version": "1.0.0",
       "depends": [],
       "scripts": [
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\examples/skills\\hello-world\\scripts\\greet.py"
+        "examples/skills/hello-world/scripts/greet.py"
       ],
-      "skill_path": "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\examples/skills\\hello-world",
+      "skill_path": "examples/skills/hello-world",
       "metadata_files": [],
       "groups": [],
       "layer": "example"
@@ -1235,10 +1235,10 @@
       "version": "1.0.0",
       "depends": [],
       "scripts": [
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\examples/skills\\imagemagick-tools\\scripts\\composite.py",
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\examples/skills\\imagemagick-tools\\scripts\\resize.py"
+        "examples/skills/imagemagick-tools/scripts/composite.py",
+        "examples/skills/imagemagick-tools/scripts/resize.py"
       ],
-      "skill_path": "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\examples/skills\\imagemagick-tools",
+      "skill_path": "examples/skills/imagemagick-tools",
       "metadata_files": [],
       "groups": [],
       "layer": "infrastructure"
@@ -1380,9 +1380,9 @@
       "version": "0.18.9",
       "depends": [],
       "scripts": [
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\skills\\marketplace-create-extension\\scripts\\create_extension.py"
+        "skills/marketplace-create-extension/scripts/create_extension.py"
       ],
-      "skill_path": "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\skills\\marketplace-create-extension",
+      "skill_path": "skills/marketplace-create-extension",
       "metadata_files": [],
       "groups": [],
       "layer": "infrastructure"
@@ -1579,9 +1579,9 @@
       "version": "0.18.9",
       "depends": [],
       "scripts": [
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\skills\\marketplace-publish-extension\\scripts\\publish.py"
+        "skills/marketplace-publish-extension/scripts/publish.py"
       ],
-      "skill_path": "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\skills\\marketplace-publish-extension",
+      "skill_path": "skills/marketplace-publish-extension",
       "metadata_files": [],
       "groups": [],
       "layer": "infrastructure"
@@ -1735,11 +1735,11 @@
       "version": "1.0.0",
       "depends": [],
       "scripts": [
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\examples/skills\\maya-geometry\\scripts\\batch_rename.py",
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\examples/skills\\maya-geometry\\scripts\\create_joint.py",
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\examples/skills\\maya-geometry\\scripts\\create_sphere.py"
+        "examples/skills/maya-geometry/scripts/batch_rename.py",
+        "examples/skills/maya-geometry/scripts/create_joint.py",
+        "examples/skills/maya-geometry/scripts/create_sphere.py"
       ],
-      "skill_path": "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\examples/skills\\maya-geometry",
+      "skill_path": "examples/skills/maya-geometry",
       "metadata_files": [],
       "groups": [
         {
@@ -1877,10 +1877,10 @@
         "usd-tools"
       ],
       "scripts": [
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\examples/skills\\maya-pipeline\\scripts\\export_usd.py",
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\examples/skills\\maya-pipeline\\scripts\\setup_project.py"
+        "examples/skills/maya-pipeline/scripts/export_usd.py",
+        "examples/skills/maya-pipeline/scripts/setup_project.py"
       ],
-      "skill_path": "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\examples/skills\\maya-pipeline",
+      "skill_path": "examples/skills/maya-pipeline",
       "metadata_files": [
         "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\examples/skills\\maya-pipeline\\metadata\\depends.md",
         "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\examples/skills\\maya-pipeline\\metadata\\help.md",
@@ -2315,17 +2315,17 @@
       "version": "0.1.0",
       "depends": [],
       "scripts": [
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\python/dcc_mcp_core/skills\\media\\scripts\\_media_common.py",
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\python/dcc_mcp_core/skills\\media\\scripts\\_media_image_stats.py",
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\python/dcc_mcp_core/skills\\media\\scripts\\_vx_bootstrap.py",
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\python/dcc_mcp_core/skills\\media\\scripts\\extract_frames.py",
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\python/dcc_mcp_core/skills\\media\\scripts\\image_stats.py",
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\python/dcc_mcp_core/skills\\media\\scripts\\probe.py",
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\python/dcc_mcp_core/skills\\media\\scripts\\sequence_to_mp4.py",
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\python/dcc_mcp_core/skills\\media\\scripts\\thumbnail.py",
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\python/dcc_mcp_core/skills\\media\\scripts\\transcode.py"
+        "python/dcc_mcp_core/skills/media/scripts/_media_common.py",
+        "python/dcc_mcp_core/skills/media/scripts/_media_image_stats.py",
+        "python/dcc_mcp_core/skills/media/scripts/_vx_bootstrap.py",
+        "python/dcc_mcp_core/skills/media/scripts/extract_frames.py",
+        "python/dcc_mcp_core/skills/media/scripts/image_stats.py",
+        "python/dcc_mcp_core/skills/media/scripts/probe.py",
+        "python/dcc_mcp_core/skills/media/scripts/sequence_to_mp4.py",
+        "python/dcc_mcp_core/skills/media/scripts/thumbnail.py",
+        "python/dcc_mcp_core/skills/media/scripts/transcode.py"
       ],
-      "skill_path": "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\python/dcc_mcp_core/skills\\media",
+      "skill_path": "python/dcc_mcp_core/skills/media",
       "metadata_files": [],
       "groups": [],
       "layer": "infrastructure"
@@ -2379,7 +2379,7 @@
       "version": "1.0.0",
       "depends": [],
       "scripts": [],
-      "skill_path": "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\skills\\mesh-ops",
+      "skill_path": "skills/mesh-ops",
       "metadata_files": [],
       "groups": [],
       "layer": "domain",
@@ -2490,11 +2490,11 @@
       "version": "1.0.0",
       "depends": [],
       "scripts": [
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\examples/skills\\multi-script\\scripts\\action_batch.bat",
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\examples/skills\\multi-script\\scripts\\action_python.py",
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\examples/skills\\multi-script\\scripts\\action_shell.sh"
+        "examples/skills/multi-script/scripts/action_batch.bat",
+        "examples/skills/multi-script/scripts/action_python.py",
+        "examples/skills/multi-script/scripts/action_shell.sh"
       ],
-      "skill_path": "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\examples/skills\\multi-script",
+      "skill_path": "examples/skills/multi-script",
       "metadata_files": [],
       "groups": [],
       "layer": "example"
@@ -2708,13 +2708,13 @@
       "version": "\\\"1.0.0\\\"",
       "depends": [],
       "scripts": [
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\python/dcc_mcp_core/skills\\qt-ui-inspector\\scripts\\describe_widget.py",
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\python/dcc_mcp_core/skills\\qt-ui-inspector\\scripts\\find_widgets.py",
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\python/dcc_mcp_core/skills\\qt-ui-inspector\\scripts\\list_windows.py",
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\python/dcc_mcp_core/skills\\qt-ui-inspector\\scripts\\snapshot_tree.py",
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\python/dcc_mcp_core/skills\\qt-ui-inspector\\scripts\\wait_for_widget.py"
+        "python/dcc_mcp_core/skills/qt-ui-inspector/scripts/describe_widget.py",
+        "python/dcc_mcp_core/skills/qt-ui-inspector/scripts/find_widgets.py",
+        "python/dcc_mcp_core/skills/qt-ui-inspector/scripts/list_windows.py",
+        "python/dcc_mcp_core/skills/qt-ui-inspector/scripts/snapshot_tree.py",
+        "python/dcc_mcp_core/skills/qt-ui-inspector/scripts/wait_for_widget.py"
       ],
-      "skill_path": "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\python/dcc_mcp_core/skills\\qt-ui-inspector",
+      "skill_path": "python/dcc_mcp_core/skills/qt-ui-inspector",
       "metadata_files": [],
       "groups": [],
       "layer": "infrastructure"
@@ -3054,9 +3054,9 @@
       "version": "1.0.0",
       "depends": [],
       "scripts": [
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\skills\\spatial-interchange\\scripts\\plan_conversion.py"
+        "skills/spatial-interchange/scripts/plan_conversion.py"
       ],
-      "skill_path": "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\skills\\spatial-interchange",
+      "skill_path": "skills/spatial-interchange",
       "metadata_files": [],
       "groups": [],
       "layer": "infrastructure",
@@ -3086,9 +3086,9 @@
       "version": "1.0.0",
       "depends": [],
       "scripts": [
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\examples/skills\\typed-schema-demo\\scripts\\demo.py"
+        "examples/skills/typed-schema-demo/scripts/demo.py"
       ],
-      "skill_path": "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\examples/skills\\typed-schema-demo",
+      "skill_path": "examples/skills/typed-schema-demo",
       "metadata_files": [],
       "groups": [],
       "layer": "example"
@@ -3754,24 +3754,24 @@
       "version": "0.5.0",
       "depends": [],
       "scripts": [
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\python/dcc_mcp_core/skills\\ui-control\\scripts\\_backend.py",
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\python/dcc_mcp_core/skills\\ui-control\\scripts\\_cdp_runtime.py",
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\python/dcc_mcp_core/skills\\ui-control\\scripts\\_chrome_backend.py",
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\python/dcc_mcp_core/skills\\ui-control\\scripts\\_cua_backend.py",
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\python/dcc_mcp_core/skills\\ui-control\\scripts\\_cua_cli_host_client.py",
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\python/dcc_mcp_core/skills\\ui-control\\scripts\\_cua_support.py",
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\python/dcc_mcp_core/skills\\ui-control\\scripts\\_entrypoint.py",
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\python/dcc_mcp_core/skills\\ui-control\\scripts\\_scenario.py",
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\python/dcc_mcp_core/skills\\ui-control\\scripts\\act.py",
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\python/dcc_mcp_core/skills\\ui-control\\scripts\\find.py",
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\python/dcc_mcp_core/skills\\ui-control\\scripts\\recording_start.py",
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\python/dcc_mcp_core/skills\\ui-control\\scripts\\recording_state.py",
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\python/dcc_mcp_core/skills\\ui-control\\scripts\\recording_stop.py",
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\python/dcc_mcp_core/skills\\ui-control\\scripts\\snapshot.py",
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\python/dcc_mcp_core/skills\\ui-control\\scripts\\stop_computer_use.py",
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\python/dcc_mcp_core/skills\\ui-control\\scripts\\wait_for.py"
+        "python/dcc_mcp_core/skills/ui-control/scripts/_backend.py",
+        "python/dcc_mcp_core/skills/ui-control/scripts/_cdp_runtime.py",
+        "python/dcc_mcp_core/skills/ui-control/scripts/_chrome_backend.py",
+        "python/dcc_mcp_core/skills/ui-control/scripts/_cua_backend.py",
+        "python/dcc_mcp_core/skills/ui-control/scripts/_cua_cli_host_client.py",
+        "python/dcc_mcp_core/skills/ui-control/scripts/_cua_support.py",
+        "python/dcc_mcp_core/skills/ui-control/scripts/_entrypoint.py",
+        "python/dcc_mcp_core/skills/ui-control/scripts/_scenario.py",
+        "python/dcc_mcp_core/skills/ui-control/scripts/act.py",
+        "python/dcc_mcp_core/skills/ui-control/scripts/find.py",
+        "python/dcc_mcp_core/skills/ui-control/scripts/recording_start.py",
+        "python/dcc_mcp_core/skills/ui-control/scripts/recording_state.py",
+        "python/dcc_mcp_core/skills/ui-control/scripts/recording_stop.py",
+        "python/dcc_mcp_core/skills/ui-control/scripts/snapshot.py",
+        "python/dcc_mcp_core/skills/ui-control/scripts/stop_computer_use.py",
+        "python/dcc_mcp_core/skills/ui-control/scripts/wait_for.py"
       ],
-      "skill_path": "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\python/dcc_mcp_core/skills\\ui-control",
+      "skill_path": "python/dcc_mcp_core/skills/ui-control",
       "metadata_files": [],
       "groups": [],
       "layer": "infrastructure"
@@ -3876,10 +3876,10 @@
       "version": "1.0.0",
       "depends": [],
       "scripts": [
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\examples/skills\\usd-tools\\scripts\\inspect.py",
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\examples/skills\\usd-tools\\scripts\\validate.py"
+        "examples/skills/usd-tools/scripts/inspect.py",
+        "examples/skills/usd-tools/scripts/validate.py"
       ],
-      "skill_path": "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\examples/skills\\usd-tools",
+      "skill_path": "examples/skills/usd-tools",
       "metadata_files": [],
       "groups": [],
       "layer": "infrastructure"
@@ -4134,13 +4134,13 @@
       "version": "0.1.0",
       "depends": [],
       "scripts": [
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\python/dcc_mcp_core/skills\\verification\\scripts\\_common.py",
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\python/dcc_mcp_core/skills\\verification\\scripts\\capture_review_views.py",
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\python/dcc_mcp_core/skills\\verification\\scripts\\image_stats.py",
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\python/dcc_mcp_core/skills\\verification\\scripts\\make_comparison_sheet.py",
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\python/dcc_mcp_core/skills\\verification\\scripts\\validate_scene_vs_spec.py"
+        "python/dcc_mcp_core/skills/verification/scripts/_common.py",
+        "python/dcc_mcp_core/skills/verification/scripts/capture_review_views.py",
+        "python/dcc_mcp_core/skills/verification/scripts/image_stats.py",
+        "python/dcc_mcp_core/skills/verification/scripts/make_comparison_sheet.py",
+        "python/dcc_mcp_core/skills/verification/scripts/validate_scene_vs_spec.py"
       ],
-      "skill_path": "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\python/dcc_mcp_core/skills\\verification",
+      "skill_path": "python/dcc_mcp_core/skills/verification",
       "metadata_files": [],
       "groups": [],
       "layer": "infrastructure"
@@ -4232,9 +4232,9 @@
       "version": "1.0.0",
       "depends": [],
       "scripts": [
-        "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\examples/skills\\workflow\\scripts\\run_chain.py"
+        "examples/skills/workflow/scripts/run_chain.py"
       ],
-      "skill_path": "P:\\monica\\pipeline-b65688e9ec3c\\pip-3408-6e3a2c50768a\\workdir\\dcc-mcp-core\\examples/skills\\workflow",
+      "skill_path": "examples/skills/workflow",
       "metadata_files": [],
       "groups": [],
       "layer": "infrastructure"

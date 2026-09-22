@@ -84,6 +84,12 @@ fn skill_dirs(root: &Path) -> Vec<PathBuf> {
 ///
 /// Directories the production loader rejects are skipped, not fatal: the seed
 /// set is a best-effort snapshot of what the repository ships.
+///
+/// Absolute paths are rewritten to workspace-relative ones before the skills
+/// are stored. The loader fills in `skill_path` and `scripts` with real
+/// filesystem paths, so without this the committed snapshot would carry the
+/// machine that generated it (`P:\\monica\\...` or `/home/runner/...`) and
+/// could never be reproduced anywhere else.
 #[must_use]
 pub fn harvest(root: &Path) -> Vec<SkillMetadata> {
     let mut skills = Vec::new();
@@ -91,13 +97,39 @@ pub fn harvest(root: &Path) -> Vec<SkillMetadata> {
         let dir = root.join(relative);
         for skill_dir in skill_dirs(&dir) {
             if let Some(metadata) = dcc_mcp_skills::parse_skill_md(&skill_dir) {
-                skills.push(metadata);
+                skills.push(relativise(metadata, root));
             }
         }
     }
     skills.sort_by(|a, b| a.name.cmp(&b.name));
     skills.dedup_by(|a, b| a.name == b.name);
     skills
+}
+
+/// Rewrite every absolute path under `root` to a workspace-relative one.
+fn relativise(mut skill: SkillMetadata, root: &Path) -> SkillMetadata {
+    skill.skill_path = relativise_path(&skill.skill_path, root);
+    skill.scripts = skill
+        .scripts
+        .iter()
+        .map(|script| relativise_path(script, root))
+        .collect();
+    skill
+}
+
+/// Strip the `root` prefix, keeping a `/`-separated relative path.
+///
+/// Paths that are already relative, or that fall outside the workspace, are
+/// left alone — the goal is reproducibility, not normalisation for its own
+/// sake.
+fn relativise_path(path: &str, root: &Path) -> String {
+    let candidate = Path::new(path);
+    let stripped = candidate.strip_prefix(root).unwrap_or(candidate);
+    stripped
+        .components()
+        .map(|part| part.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 /// Build the snapshot for `root`.
@@ -161,6 +193,23 @@ mod tests {
                 "{} has no description",
                 skill.name
             );
+        }
+    }
+
+    #[test]
+    fn harvested_paths_are_workspace_relative() {
+        // The snapshot is committed, so it must not carry the machine that
+        // produced it. Absolute paths would make it unreproducible on every
+        // other checkout and would leak local directory layout.
+        let root = workspace_root();
+        for skill in harvest(&root) {
+            for path in std::iter::once(&skill.skill_path).chain(skill.scripts.iter()) {
+                assert!(
+                    !Path::new(path).is_absolute(),
+                    "{}: absolute path left in the snapshot: {path}",
+                    skill.name
+                );
+            }
         }
     }
 
