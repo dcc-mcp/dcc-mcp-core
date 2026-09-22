@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import re
 import sys
 
 try:
@@ -39,6 +40,24 @@ except ModuleNotFoundError:  # pragma: no cover - exercised by the Python 3.7 CI
 
 ALLOWED_REFRESH_PACKAGES = ("dcc-mcp-core-semantic", "dcc-mcp-server")
 CP37_WHEEL_MARKER = "cp37"
+
+
+def version_key(value: str) -> tuple:
+    """Return a comparable numeric key for a PEP 440 / semver-ish version."""
+    key = []
+    for part in re.split(r"[.\-+]", value.strip()):
+        match = re.match(r"^(\d+)", part)
+        if match is None:
+            break
+        key.append(int(match.group(1)))
+    return tuple(key) or (0,)
+
+
+def _newest(counts: dict) -> str | None:
+    """Return the newest version recorded in a {version: count} mapping."""
+    if not counts:
+        return None
+    return max(counts, key=version_key)
 
 
 def _load_toml(path: Path) -> dict:
@@ -123,6 +142,14 @@ def verify_refresh(before: dict, after: dict, allowed: tuple = ALLOWED_REFRESH_P
     for name in sorted(allowed_names):
         if name in before_versions and not after_versions.get(name):
             errors.append(f"uv.lock refresh removed the {name!r} pin instead of moving it forward")
+            continue
+        before_newest = _newest(before_versions.get(name, {}))
+        after_newest = _newest(after_versions.get(name, {}))
+        if before_newest and after_newest and version_key(after_newest) < version_key(before_newest):
+            errors.append(
+                f"uv.lock refresh moved {name!r} backwards from {before_newest!r} to {after_newest!r}; "
+                "the pins must track the newest published version, never an older one"
+            )
     return errors
 
 

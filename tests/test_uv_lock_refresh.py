@@ -136,6 +136,17 @@ def test_removed_allowed_pin_fails() -> None:
     assert any("dcc-mcp-server" in error and "removed" in error for error in errors)
 
 
+def test_downgraded_allowed_pin_fails() -> None:
+    module = _load_module()
+    # `0.20.34` got yanked, so the resolver falls back to an older release.
+    rolled_back = _refreshed()
+    rolled_back[0] = ("dcc-mcp-core-semantic", "0.20.32", _semantic_wheels("0.20.32"))
+
+    errors = module.verify_refresh(_parse(_lock_text(packages=_baseline())), _parse(_lock_text(packages=rolled_back)))
+
+    assert any("backwards" in error and "dcc-mcp-core-semantic" in error for error in errors)
+
+
 def test_cli_verify_accepts_a_scoped_refresh(tmp_path: Path) -> None:
     module = _load_module()
     before = tmp_path / "before.lock"
@@ -202,6 +213,24 @@ def test_workflow_never_touches_the_pinned_validator_boundary() -> None:
     assert PINNED_VALIDATOR_REF not in workflow
     assert "pull_request_target" not in workflow
     assert "generated_lock_sync.py" not in workflow
+
+
+def test_workflow_does_not_auto_merge() -> None:
+    # `main` has no required status checks and no required review, so
+    # auto-merge would land on the first status event. The refresh must stop
+    # at "open" and let a human merge it.
+    workflow = _workflow_body()
+
+    assert "gh pr merge" not in workflow
+    assert "--auto" not in workflow
+
+
+def test_workflow_pins_the_resolver() -> None:
+    workflow = _workflow_body()
+
+    assert "UV_VERSION" in workflow
+    assert "uv==" in workflow
+    assert "timeout-minutes" in workflow
 
 
 def test_workflow_schedule_avoids_the_hour_and_the_release_window() -> None:
