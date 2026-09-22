@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -16,6 +17,7 @@ from scripts.docs_lint import fence_step
 from scripts.docs_lint import load_playbook_manifest
 from scripts.docs_lint import main
 from scripts.docs_lint import playbook_matcher
+from scripts.docs_lint import resume_matcher
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -285,6 +287,45 @@ def test_missing_marker_and_missing_resume_are_separate_errors(tmp_path: Path):
     assert _rules(report[(tmp_path / "llms.txt").as_posix()]) == ["content/playbook-coverage-missing-resume"]
 
 
+def test_resume_matcher_rejects_near_miss_identifiers():
+    # Substring matching let `workflows_resume_old` and `not_workflows_resume`
+    # satisfy the gate: a renamed, prefixed, or suffixed symbol is not the tool
+    # an agent can call, and passing it here is the false negative the rule
+    # exists to prevent. The punctuation docs actually wrap the symbol in is
+    # not a word character, so those forms must still count.
+    matcher = resume_matcher("workflows_resume")
+    for text in (
+        "recover with `workflows_resume`",
+        'call "workflows_resume" to continue',
+        "see workflows_resume.",
+        "run workflows_resume() now",
+        # CJK is a Unicode word character, so \w boundaries would reject a
+        # bilingual sentence that names the tool correctly. The docs in this
+        # repo are bilingual; that is a worse failure than letting an exotic
+        # `\u03b1workflows_resume` through.
+        "\u8bf7\u8c03\u7528workflows_resume\u6765\u6062\u590d",
+        "\uff08workflows_resume\uff09",
+    ):
+        assert matcher.search(text), text
+    for text in (
+        "workflows_resume_old",
+        "not_workflows_resume",
+        "xworkflows_resume",
+        "workflows_resumex",
+        "v2_workflows_resume",
+    ):
+        assert not matcher.search(text), text
+
+
+def test_near_miss_resume_symbols_do_not_satisfy_coverage(tmp_path: Path):
+    # End-to-end form of the above: the finding is reported, not swallowed.
+    _write(tmp_path, "old.md", "## Iteration Playbook\n\nRecover with `workflows_resume_old`.\n")
+    _write(tmp_path, "prefixed.md", "## Iteration Playbook\n\nRecover with not_workflows_resume.\n")
+    report = check_playbook_coverage(tmp_path, ["old.md", "prefixed.md"])
+    for name in ("old.md", "prefixed.md"):
+        assert _rules(report[(tmp_path / name).as_posix()]) == ["content/playbook-coverage-missing-resume"]
+
+
 def test_entry_without_either_signal_reports_both(tmp_path: Path):
     _write(tmp_path, "AGENTS.md", "# Agents\n\nNothing to see here.\n")
     report = check_playbook_coverage(tmp_path, ["AGENTS.md"])
@@ -429,6 +470,23 @@ def test_main_without_a_manifest_skips_the_coverage_pass(tmp_path: Path):
     # tree with no manifest is not held to a coverage set it never opted into.
     _write(tmp_path, "AGENTS.md", "# T\n\nNo playbook.\n")
     assert main([str(tmp_path)]) == 0
+
+
+def test_full_run_merges_coverage_and_per_file_findings(tmp_path: Path, capsys):
+    # A manifest entry is also an ordinary Markdown file, so its coverage
+    # findings and its structure/link findings must both survive: the per-file
+    # loop used to assign report[path] = findings and drop the coverage half.
+    # CI cannot catch that regression -- --playbook-only skips the loop.
+    _covered_repo(tmp_path)
+    _write(tmp_path, "AGENTS.md", "# Agents\n\nNothing here.\n\n[dead](missing.md)\n")
+    assert main([str(tmp_path), "--json"]) == 1
+    payload = json.loads(capsys.readouterr().out)
+    rules = sorted(f["rule"] for f in payload["findings"] if f["file"].endswith("AGENTS.md"))
+    assert rules == [
+        "content/playbook-coverage-missing-marker",
+        "content/playbook-coverage-missing-resume",
+        "drift/broken-relative-link",
+    ]
 
 
 def test_default_manifest_is_resolved_against_the_lint_root(tmp_path: Path):
