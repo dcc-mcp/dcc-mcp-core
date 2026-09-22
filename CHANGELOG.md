@@ -5,6 +5,49 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.34](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.33...v0.20.34) (2026-09-22)
+
+
+### Features
+
+* **catalog:** add sop_version and sop_schema_digest to CatalogInstall ([#2518](https://github.com/dcc-mcp/dcc-mcp-core/issues/2518)) ([b3180a3](https://github.com/dcc-mcp/dcc-mcp-core/commit/b3180a3941415e67520b10a5ad1eb4a625deea2b))
+* **ci:** record install SOP version from the release-pinned runbook ([#2515](https://github.com/dcc-mcp/dcc-mcp-core/issues/2515)) ([6ffc10a](https://github.com/dcc-mcp/dcc-mcp-core/commit/6ffc10ad38d2c5804085bbeadac6ae8574a09993))
+* **feedback:** dedup feedback ingest on fingerprint and persist the route ([b0e4286](https://github.com/dcc-mcp/dcc-mcp-core/commit/b0e4286c9053a35e22359e0754f422c5075221f7))
+* **feedback:** persist agent feedback to gateway admin SQLite ([aa1a70c](https://github.com/dcc-mcp/dcc-mcp-core/commit/aa1a70c68dd68775cc5fd01b5c2f665835397ab5)), closes [#2253](https://github.com/dcc-mcp/dcc-mcp-core/issues/2253)
+* **mcp:** serve skills over the io.modelcontextprotocol/skills extension ([48340d4](https://github.com/dcc-mcp/dcc-mcp-core/commit/48340d4642b43f591c05af66c136b0f2785cf814))
+* **observability:** add structured SkillPromotionProposal payload ([#2523](https://github.com/dcc-mcp/dcc-mcp-core/issues/2523)) ([94a46ad](https://github.com/dcc-mcp/dcc-mcp-core/commit/94a46ad77ed2d50245effa973e4f1f365ceab786))
+* **observability:** persist escape-hatch repeat counters with a configurable threshold ([7e7908c](https://github.com/dcc-mcp/dcc-mcp-core/commit/7e7908c898efda073eda88abfee2ec940537ac9d))
+* **policy:** expose escape-hatch skill-promotion hints to agents ([#2513](https://github.com/dcc-mcp/dcc-mcp-core/issues/2513)) ([88a9171](https://github.com/dcc-mcp/dcc-mcp-core/commit/88a91714e46cc65403634e7a3b91d60480bb2216))
+* **telemetry:** export trendable pipeline-bench.json with per-stage budgets ([#2516](https://github.com/dcc-mcp/dcc-mcp-core/issues/2516)) ([535ac3f](https://github.com/dcc-mcp/dcc-mcp-core/commit/535ac3f1fda3bbe28367f29884ec3f7aa9dd7c65))
+* **transport:** add a Python write path for ServiceEntry.extras ([#2508](https://github.com/dcc-mcp/dcc-mcp-core/issues/2508)) ([cd1163d](https://github.com/dcc-mcp/dcc-mcp-core/commit/cd1163db4704ebdf0f6a69ce8aa209ba1cc96a9d)), closes [#2500](https://github.com/dcc-mcp/dcc-mcp-core/issues/2500)
+* **workflow:** add host-free full-pipeline benchmark harness ([#2521](https://github.com/dcc-mcp/dcc-mcp-core/issues/2521)) ([f76defb](https://github.com/dcc-mcp/dcc-mcp-core/commit/f76defb577d1c2c569cfedd3c953a33e054e7449))
+
+
+### Bug Fixes
+
+* **exports:** remove duplicate DEFAULT_PROMOTION_THRESHOLD lazy export key ([9254937](https://github.com/dcc-mcp/dcc-mcp-core/commit/92549379ff64172fbd6b7bdaf3eb0ab70b3213eb))
+* **observability:** reject non-integer query bounds instead of truncating ([0803942](https://github.com/dcc-mcp/dcc-mcp-core/commit/08039428f496366f0a81cd488e385c49d6881008))
+* **policy:** reject non-integer promotion_threshold instead of truncating ([#2532](https://github.com/dcc-mcp/dcc-mcp-core/issues/2532)) ([5d4362c](https://github.com/dcc-mcp/dcc-mcp-core/commit/5d4362cf33a8b44f8e152e2d5d9da47207c111f0))
+* **promotion:** reject non-integer threshold and echo promotion_threshold in query_params ([ebe62a7](https://github.com/dcc-mcp/dcc-mcp-core/commit/ebe62a74bbaec4a7831a8f0f4bd58d92f670619b))
+* **schema:** restore released adapter-install-sop-v1 bytes ([dc9089f](https://github.com/dcc-mcp/dcc-mcp-core/commit/dc9089f48658d15abf00bfb5984587e9bbd979eb))
+
+
+### Documentation
+
+* **agents:** add an Iteration Playbook and surface workflows_resume ([#2517](https://github.com/dcc-mcp/dcc-mcp-core/issues/2517)) ([a36ddc1](https://github.com/dcc-mcp/dcc-mcp-core/commit/a36ddc1461116fa472ee49e636714fcfaa449811))
+* **feedback:** correct the feedback_findings growth rationale and clean up leftovers ([#2545](https://github.com/dcc-mcp/dcc-mcp-core/issues/2545)) ([e1e6c38](https://github.com/dcc-mcp/dcc-mcp-core/commit/e1e6c3897ae020daf9ad77ec2a7b049b11e5bf26))
+* **guide:** make the Install SOP version declaration recommended ([e677d95](https://github.com/dcc-mcp/dcc-mcp-core/commit/e677d959f8fa5bc0b895fa9ddbe0e9fef5fcc2e9))
+* **lint:** gate agent-facing playbook coverage in CI ([#2512](https://github.com/dcc-mcp/dcc-mcp-core/issues/2512)) ([fc018d5](https://github.com/dcc-mcp/dcc-mcp-core/commit/fc018d5345b51b54671c1953d704334986a4b147))
+* **observability:** document promotion proposals and register the ADR 031 root-module exception ([91b5dbc](https://github.com/dcc-mcp/dcc-mcp-core/commit/91b5dbc82dfe06ce3b1d53b33ee7257e0a8856cc))
+* **release:** correct the scheduled-window caveats in the adapter checklist ([#2503](https://github.com/dcc-mcp/dcc-mcp-core/issues/2503)) ([0a003ef](https://github.com/dcc-mcp/dcc-mcp-core/commit/0a003efaf911d9d3a89f2652ed2ac905f0a21be0))
+* **rfc:** add RFC 0004 modeling spec gate and acceptance contract ([#2511](https://github.com/dcc-mcp/dcc-mcp-core/issues/2511)) ([54adb70](https://github.com/dcc-mcp/dcc-mcp-core/commit/54adb70647122edaed3368efcd25a079a433cc29))
+* **rfc:** align scene_spec docstring with evaluator behavior and pin euler to unavailable ([d1de0d1](https://github.com/dcc-mcp/dcc-mcp-core/commit/d1de0d1b558cb8d1f94898bab4427b72a47cf973))
+* **rfc:** complete the model-spec and model-state contracts in RFC 0004 ([#2526](https://github.com/dcc-mcp/dcc-mcp-core/issues/2526)) ([9104f86](https://github.com/dcc-mcp/dcc-mcp-core/commit/9104f86eafaefbaa3273744ae976afea9691c5ce))
+* **rfc:** rank the modeling quality capabilities and select the first experiment ([346fafc](https://github.com/dcc-mcp/dcc-mcp-core/commit/346fafc4d8854614c5e644cc160f7c8d11b81a43))
+* **scripts:** add mechanical documentation contract linter ([#2502](https://github.com/dcc-mcp/dcc-mcp-core/issues/2502)) ([e0ccb17](https://github.com/dcc-mcp/dcc-mcp-core/commit/e0ccb174eda165004a61df53d81e520f9eb178ac))
+* **workflow:** correct stale comments in the pipeline benchmark harness ([d74c52f](https://github.com/dcc-mcp/dcc-mcp-core/commit/d74c52f998a92150add3bf961e8fa6cf01b7845b))
+* **workflow:** qualify host-dependent bench numbers in the harness comment ([d4f8cbe](https://github.com/dcc-mcp/dcc-mcp-core/commit/d4f8cbe1e4331a242992bef9e6623e2e181adda6))
+
 ## [0.20.33](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.32...v0.20.33) (2026-09-19)
 
 
