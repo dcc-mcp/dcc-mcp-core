@@ -333,13 +333,13 @@ pub fn seven_dcc_scenario(hosts: usize) -> Vec<(&'static str, usize)> {
 /// | page                                          | tokens |
 /// |---|---|
 /// | unbounded default page, 7 hosts (pre-PIP-3407) | 21,204 |
-/// | 25-row default page, 7 hosts (this fixture)    |  2,398 |
+/// | 25-row default page, 7 hosts (this fixture)    |  2,541 |
 /// | 25-row page, legacy 13-field projection        |  3,234 |
-/// | 50-row page (hard cap)                         |  4,745 |
+/// | 50-row page (hard cap)                         |  5,031 |
 ///
 /// The fixture is an upper bound: every synthetic skill carries a
 /// full-length description, so every `summary` hits the 200-character cap.
-/// `3,000` leaves ~25% headroom over the measured default page for future
+/// `3,000` leaves ~18% headroom over the measured default page for future
 /// field additions while staying an order of magnitude below the unbounded
 /// baseline. Raising it means either adding fields or accepting more context
 /// per discovery turn — the number is a budget, not a measurement.

@@ -32,12 +32,22 @@ pub const DEFAULT_SUMMARY_CHARS: usize = 200;
 /// (`name`, `dcc`), a one-line `summary`, and the cheap routing signals
 /// (`tool_count`, `status`, `stage`). Everything else stays reachable through
 /// the `fields` allow-list or `get_skill_info`.
+///
+/// `loaded` is part of the routing signals, not the heavy tail: it is the
+/// one field clients branch on without a second call (`list_skills` is the
+/// progressive-loading contract, see
+/// `tests/test_mcp_mcpcall_e2e.py::TestMcpcallProgressiveLoading`). It is
+/// redundant with `status == "loaded"` but was already public before
+/// PIP-3407, so dropping it silently here broke that contract. It costs one
+/// boolean per row (~4 tokens); the 13-field legacy set it replaced is still
+/// ~20% heavier.
 const COMPACT_FIELDS: &[&str] = &[
     "name",
     "dcc",
     "summary",
     "tool_count",
     "status",
+    "loaded",
     "stage",
     "missing_dependencies",
 ];
@@ -380,6 +390,48 @@ mod tests {
         assert!(skill.get("layer").is_none());
         assert!(skill.get("runtime_state").is_none());
         assert!(skill.get("tool_names").is_none());
+    }
+
+    #[test]
+    fn compact_default_keeps_the_loaded_flag() {
+        // `loaded` is the progressive-loading contract: clients branch on it
+        // from `list_skills` without a follow-up call, so slimming the
+        // projection may not drop it. It must agree with `status`.
+        let mut loaded = sample_summary("loaded-skill");
+        loaded.loaded = true;
+        loaded.status = "loaded".to_string();
+        let mut idle = sample_summary("idle-skill");
+        idle.loaded = false;
+        idle.status = "discovered".to_string();
+
+        let payload = build_list_skills_response(vec![loaded, idle], &json!({}));
+        let skills = payload["skills"].as_array().unwrap();
+
+        for skill in skills {
+            let name = skill["name"].as_str().unwrap();
+            let status = skill["status"].as_str().unwrap();
+            let loaded = skill
+                .get("loaded")
+                .and_then(Value::as_bool)
+                .unwrap_or_else(|| panic!("compact row {name} is missing 'loaded': {skill}"));
+            assert_eq!(
+                loaded,
+                status == "loaded",
+                "{name}: loaded={loaded} disagrees with status={status}"
+            );
+        }
+        // Rows come back sorted by name, so look each one up rather than
+        // relying on the order they were passed in.
+        let flag = |name: &str| {
+            skills
+                .iter()
+                .find(|s| s["name"] == name)
+                .unwrap_or_else(|| panic!("{name} missing from the page"))["loaded"]
+                .as_bool()
+                .unwrap()
+        };
+        assert_eq!(flag("loaded-skill"), true);
+        assert_eq!(flag("idle-skill"), false);
     }
 
     #[test]

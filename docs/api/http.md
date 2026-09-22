@@ -222,7 +222,7 @@ Every `McpHttpServer` emits a fixed set of built-in tools in `tools/list` in add
 | `offset` | `0` | Rows to skip after sorting by name. Pass the previous page's `next_offset`. |
 | `status` | `all` | `loaded` for active skills, `unloaded` for load candidates, `skipped` for rejected-package diagnostics, `error` for failures. |
 | `include_skipped` | `false` | Include skipped-skill diagnostics with stable reason codes and suggested fixes. |
-| `fields` | compact set | Strict allow-list of per-skill columns. Omit for compact mode (`name`, `dcc`, `summary`, `tool_count`, `status`, `stage`). |
+| `fields` | compact set | Strict allow-list of per-skill columns. Omit for compact mode (`name`, `dcc`, `summary`, `tool_count`, `status`, `loaded`, `stage`). |
 
 Response fields:
 
