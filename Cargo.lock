@@ -8584,6 +8584,7 @@ dependencies = [
  "ppv-lite86",
  "proc-macro2",
  "quote",
+ "rand 0.10.1",
  "rand 0.8.6",
  "rand 0.9.4",
  "rand_chacha 0.9.0",
