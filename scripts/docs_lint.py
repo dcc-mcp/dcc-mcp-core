@@ -685,6 +685,23 @@ def playbook_matcher(marker):
     return re.compile(r"[\s\-_]+".join(re.escape(word) for word in words), re.IGNORECASE)
 
 
+def resume_matcher(symbol):
+    r"""Return a compiled regex matching the resume symbol as a whole word.
+
+    The symbol is matched on word boundaries where ``_`` counts as a word
+    character: snake_case is one identifier, so ``workflows_resume_old`` and
+    ``not_workflows_resume`` are *not* the resume tool and must not satisfy the
+    rule -- a false negative here is exactly the failure the gate exists to
+    catch. The characters real docs wrap the symbol in (backticks, quotes,
+    dots, parens, slashes) are not word characters, so ``` `workflows_resume`
+    ```, ``"workflows_resume"`` and ``workflows_resume.`` still count.
+    """
+    symbol = symbol.strip()
+    if not symbol:
+        return re.compile(r"(?!)")
+    return re.compile(r"(?<![A-Za-z0-9_])" + re.escape(symbol) + r"(?![A-Za-z0-9_])")
+
+
 def check_playbook_coverage(root, entries, marker=PLAYBOOK_MARKER_DEFAULT, resume_symbol=PLAYBOOK_RESUME_SYMBOL):
     """Return ``{path: [finding, ...]}`` for manifest entries that fall short.
 
@@ -694,6 +711,7 @@ def check_playbook_coverage(root, entries, marker=PLAYBOOK_MARKER_DEFAULT, resum
     restarted from scratch instead of resumed.
     """
     marker_re = playbook_matcher(marker)
+    resume_re = resume_matcher(resume_symbol)
     report = {}
     for entry in entries:
         path = Path(root) / entry
@@ -721,7 +739,7 @@ def check_playbook_coverage(root, entries, marker=PLAYBOOK_MARKER_DEFAULT, resum
                     f"(see docs/guide/agents-reference.md)",
                 }
             )
-        if resume_symbol not in text:
+        if not resume_re.search(text):
             findings.append(
                 {
                     "rule": "content/playbook-coverage-missing-resume",
