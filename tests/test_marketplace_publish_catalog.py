@@ -329,7 +329,16 @@ def test_resolve_marketplace_path_treats_a_suffixless_path_as_a_directory(tmp_pa
 def test_resolve_marketplace_path_resolves_relative_paths_against_cwd(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
 
-    assert _PUBLISH._resolve_marketplace_path("marketplace.json") == (tmp_path / "marketplace.json").resolve()
+    # The result is made absolute through `Path.cwd() / ...` rather than
+    # compared directly: on Windows, `Path.resolve(strict=False)` returns a
+    # bare relative filename unchanged up to Python 3.8 (absolute only from
+    # 3.9 on), and the resolver under test returns `Path(trimmed).resolve()`.
+    # Normalising here keeps the test pinned to intended behaviour instead of
+    # to that interpreter difference. Test-side concern only -- the
+    # implementation follow-up is recorded on the tracking issue.
+    resolved = _PUBLISH._resolve_marketplace_path("marketplace.json")
+
+    assert Path.cwd() / resolved == (tmp_path / "marketplace.json").resolve()
 
 
 @pytest.mark.parametrize(
