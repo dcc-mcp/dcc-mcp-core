@@ -9,6 +9,13 @@ RELEASE_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "release.yml"
 PYPI_ACTION = "pypa/gh-action-pypi-publish@release/v1"
 GITHUB_RELEASE_ACTION = "softprops/action-gh-release@v3"
 CORE_BACKFILL_EXPRESSION = "github.event_name == 'workflow_dispatch' && inputs.release_tag != ''"
+ASSETS_BACKFILL_GUARD = " && inputs.backfill_assets != true"
+# The default GITHUB_TOKEN is refused on the release-update call that precedes
+# every asset upload, so the release PAT is handed to the action instead.
+GITHUB_RELEASE_TOKEN = "${{ secrets.PERSONAL_ACCESS_TOKEN || github.token }}"
+REUSE_RELEASE_ASSETS_EXPRESSION = (
+    "${{ github.event_name == 'workflow_dispatch' && inputs.release_tag != ''" + ASSETS_BACKFILL_GUARD + " }}"
+)
 
 
 def _release_jobs() -> dict:
@@ -32,21 +39,42 @@ def test_release_workflow_preserves_existing_github_release_assets() -> None:
         assert step["with"]["fail_on_unmatched_files"] is True
 
 
+def test_release_workflow_uploads_assets_with_the_release_token() -> None:
+    """Every Release upload must use the PAT, not the default GITHUB_TOKEN.
+
+    softprops/action-gh-release@v3 starts each upload with
+    PATCH /repos/{owner}/{repo}/releases/{release_id}. When the default token
+    is refused there, the whole asset set is dropped while every build still
+    reports success (PIP-3446: v0.20.34 shipped with 0 assets).
+    """
+    steps = _github_release_steps(_release_jobs())
+    assert len(steps) == 3
+    for step in steps:
+        assert step["with"]["token"] == GITHUB_RELEASE_TOKEN
+
+
 def test_release_workflow_manual_backfill_reuses_core_release_assets() -> None:
     build_wheels = _release_jobs()["build-wheels"]
-    assert build_wheels["with"]["reuse-release-assets"] == (
-        "${{ github.event_name == 'workflow_dispatch' && inputs.release_tag != '' }}"
-    )
+    assert build_wheels["with"]["reuse-release-assets"] == REUSE_RELEASE_ASSETS_EXPRESSION
+    """backfill_assets must re-run the build jobs that a core-only backfill skips."""
+    jobs = _release_jobs()
+    for job_id in ("build-admin-ui", "build-binaries", "build-semantic-wheels"):
+        condition = jobs[job_id]["if"]
+        assert f"!({CORE_BACKFILL_EXPRESSION}{ASSETS_BACKFILL_GUARD})" in condition
+
+    build_wheels = jobs["build-wheels"]
+    assert build_wheels["with"]["reuse-release-assets"] == REUSE_RELEASE_ASSETS_EXPRESSION
+    assert build_wheels["secrets"] == {"RELEASE_TOKEN": "${{ secrets.PERSONAL_ACCESS_TOKEN }}"}
 
 
 def test_manual_backfill_is_explicitly_core_only() -> None:
     jobs = _release_jobs()
     for job_id in ("build-admin-ui", "build-binaries", "build-semantic-wheels"):
         condition = jobs[job_id]["if"]
-        assert f"!({CORE_BACKFILL_EXPRESSION})" in condition
+        assert f"!({CORE_BACKFILL_EXPRESSION}{ASSETS_BACKFILL_GUARD})" in condition
 
     summary = jobs["publish"]["steps"][0]["run"]
-    assert f'core_backfill="${{{{ {CORE_BACKFILL_EXPRESSION} }}}}"' in summary
+    assert f'core_backfill="${{{{ {CORE_BACKFILL_EXPRESSION}{ASSETS_BACKFILL_GUARD} }}}}"' in summary
     assert 'server" != "skipped"' in summary
     assert 'semantic" != "skipped"' in summary
     assert 'release_assets" != "skipped"' in summary
