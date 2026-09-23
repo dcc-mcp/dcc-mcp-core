@@ -224,8 +224,10 @@ Sunset of the legacy protocol: **2026-12-15** (Phase 3), inside the
 
 1. **Detect, do not assume.** Send one `server/discover` with
    `MCP-Protocol-Version: 2026-07-28` and the matching `_meta` claim. If the
-   server answers, use the modern route. If it returns `-32022`, read
-   `data.supported` and retry with the highest mutually supported version.
+   server returns a successful discovery result, use the modern route. If it
+   returns `-32601`, send legacy `initialize` and use the legacy route. If it
+   returns `-32022`, read `data.supported` and retry with the highest mutually
+   supported version.
 2. **Send the required headers and `_meta` on every request.** There is no
    handshake to inherit them from.
 3. **Replace `initialize` with `server/discover`** and drop the `initialized`
