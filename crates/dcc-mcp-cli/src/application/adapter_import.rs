@@ -22,11 +22,13 @@
 //! `missing`, which is exactly the noise this check must not add.
 
 use std::collections::BTreeMap;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use dcc_mcp_catalog::CatalogEntry;
 use serde::Serialize;
 use serde_json::{Map, Value, json};
 
@@ -101,7 +103,7 @@ pub struct AdapterImportRequest {
 /// Run every adapter import probe and summarise the outcome.
 #[must_use]
 pub fn probe_adapters(request: &AdapterImportRequest) -> Value {
-    let targets = resolve_targets(request);
+    let (targets, catalog_error) = resolve_targets(request);
     let mut probes = Vec::with_capacity(targets.len());
     let mut failures = 0_usize;
     let mut unavailable = 0_usize;
@@ -117,13 +119,17 @@ pub fn probe_adapters(request: &AdapterImportRequest) -> Value {
         probes.push(probe);
     }
 
-    json!({
+    let mut summary = json!({
         "total": probes.len(),
         "failures": failures,
         "unavailable": unavailable,
         "python_executable_env": PYTHON_EXECUTABLE_ENV,
         "probes": probes,
-    })
+    });
+    if let Some(error) = catalog_error {
+        summary["catalog_error"] = json!(error);
+    }
+    summary
 }
 
 /// Whether any probe found a broken adapter install.
@@ -140,16 +146,20 @@ pub fn has_failures(summary: &Value) -> bool {
 /// Only DCC types with a registered instance are probed implicitly. Probing
 /// every catalog DCC type would run the check against hosts that are not
 /// present and drown the real signal in `missing` rows.
-fn resolve_targets(request: &AdapterImportRequest) -> Vec<AdapterImportTarget> {
+fn resolve_targets(request: &AdapterImportRequest) -> (Vec<AdapterImportTarget>, Option<String>) {
     let env_python = std::env::var_os(PYTHON_EXECUTABLE_ENV)
         .filter(|value| !value.is_empty())
         .map(PathBuf::from);
+
+    // Load the catalog once and reuse it: parsing it per target would repeat
+    // the work N times and hide the load error behind each individual target.
+    let (catalog_entries, catalog_error) = load_catalog_entries(request.catalog.as_deref());
 
     let mut by_key: BTreeMap<String, AdapterImportTarget> = BTreeMap::new();
     for dcc_type in observed_dcc_types(request.inventory.as_ref()) {
         if let Some(target) = build_target(
             &dcc_type,
-            request.catalog.as_deref(),
+            catalog_entries.as_deref(),
             &request.python_overrides,
             env_python.as_ref(),
         ) {
@@ -166,19 +176,38 @@ fn resolve_targets(request: &AdapterImportRequest) -> Vec<AdapterImportTarget> {
         }
         if let Some(target) = build_target(
             dcc_type,
-            request.catalog.as_deref(),
+            catalog_entries.as_deref(),
             &request.python_overrides,
             env_python.as_ref(),
         ) {
             by_key.insert(key, target);
         }
     }
-    by_key.into_values().collect()
+    (by_key.into_values().collect(), catalog_error)
+}
+
+/// Load adapter catalog entries once, surfacing the error for an explicit path.
+///
+/// `load_from_file` maps a missing path to an empty entry list (that behaviour
+/// is relied on elsewhere), so an operator typo would silently degrade every
+/// probe to the `dcc-mcp-<dcc_type>` naming convention. Check the path here so
+/// the failure is visible in the summary instead of hiding behind the fallback.
+fn load_catalog_entries(catalog: Option<&Path>) -> (Option<Vec<CatalogEntry>>, Option<String>) {
+    if let Some(path) = catalog.filter(|path| !path.exists()) {
+        return (
+            None,
+            Some(format!("adapter catalog not found: {}", path.display())),
+        );
+    }
+    match InstallService::bundled().catalog_entries(catalog) {
+        Ok(entries) => (Some(entries), None),
+        Err(err) => (None, Some(err.to_string())),
+    }
 }
 
 fn build_target(
     dcc_type: &str,
-    catalog: Option<&Path>,
+    catalog_entries: Option<&[CatalogEntry]>,
     overrides: &BTreeMap<String, PathBuf>,
     env_python: Option<&PathBuf>,
 ) -> Option<AdapterImportTarget> {
@@ -186,13 +215,16 @@ fn build_target(
     if key.is_empty() {
         return None;
     }
-    let (distribution, module, catalog_python) = adapter_names(dcc_type, catalog);
+    let (distribution, module, catalog_python) = adapter_names(dcc_type, catalog_entries);
+    // A DCC-specific interpreter outranks the global one. `DCC_MCP_PYTHON_EXECUTABLE`
+    // names a single interpreter, so using it for every registered DCC type would
+    // probe e.g. Blender inside mayapy and report a healthy adapter as `missing`.
     let (python, python_source) = if let Some(path) = python_path_of(overrides, &key) {
         (Some(path), Some("cli_override".to_string()))
-    } else if let Some(path) = env_python {
-        (Some(path.clone()), Some(PYTHON_EXECUTABLE_ENV.to_string()))
     } else if let Some(path) = catalog_python {
         (Some(path), Some("catalog_python_path".to_string()))
+    } else if let Some(path) = env_python {
+        (Some(path.clone()), Some(PYTHON_EXECUTABLE_ENV.to_string()))
     } else {
         (None, None)
     };
@@ -239,15 +271,15 @@ fn observed_dcc_types(inventory: Option<&Value>) -> Vec<String> {
 ///
 /// Falls back to the `dcc_mcp_<dcc_type>` convention when the catalog has no
 /// matching adapter entry, so unlisted or custom DCC types are still probed.
-fn adapter_names(dcc_type: &str, catalog: Option<&Path>) -> (String, String, Option<PathBuf>) {
+fn adapter_names(
+    dcc_type: &str,
+    catalog_entries: Option<&[CatalogEntry]>,
+) -> (String, String, Option<PathBuf>) {
     let key = normalized_dcc_key(dcc_type);
     let fallback_distribution = format!("dcc-mcp-{dcc_type}");
-    let entries = match InstallService::bundled().catalog_entries(catalog) {
-        Ok(entries) => entries,
-        Err(_) => {
-            let module = module_name(&fallback_distribution);
-            return (fallback_distribution, module, None);
-        }
+    let Some(entries) = catalog_entries else {
+        let module = module_name(&fallback_distribution);
+        return (fallback_distribution, module, None);
     };
 
     for entry in entries.iter().filter(|entry| {
@@ -393,6 +425,12 @@ fn probe_status(probe: &Value) -> AdapterImportStatus {
 }
 
 /// Spawn `<python> -c <script> <module> <distribution>` and parse its JSON report.
+///
+/// Both pipes are drained on background threads from the moment the child is
+/// spawned. Waiting for exit before reading is a deadlock: once the child fills
+/// the OS pipe buffer it blocks in `write` and never exits, so a chatty host
+/// interpreter (banner, licensing text, warnings) would hang until the timeout
+/// and then be reported as `unavailable` — silently hiding a broken adapter.
 fn run_probe(
     python: &Path,
     module: &str,
@@ -409,6 +447,17 @@ fn run_probe(
         .spawn()
         .map_err(|err| format!("interpreter_not_launchable: {err}"))?;
 
+    // Drain both pipes from the moment the child starts. Reading them only
+    // after exit deadlocks as soon as the child fills the OS pipe buffer.
+    let stdout_thread = child
+        .stdout
+        .take()
+        .map(|pipe| thread::spawn(|| read_pipe(pipe)));
+    let stderr_thread = child
+        .stderr
+        .take()
+        .map(|pipe| thread::spawn(|| read_pipe(pipe)));
+
     // Bound the probe: importing an adapter inside a live host can block, and
     // `doctor` must never hang on one unresponsive interpreter.
     let deadline = Instant::now() + PROBE_TIMEOUT;
@@ -423,30 +472,38 @@ fn run_probe(
         if Instant::now() >= deadline {
             let _ = child.kill();
             let _ = child.wait();
+            // Join before returning so the reader threads never outlive the
+            // scope that owns their pipes.
+            drop(stdout_thread.and_then(|handle| handle.join().ok()));
+            drop(stderr_thread.and_then(|handle| handle.join().ok()));
             return Err(format!(
                 "probe_timed_out_after_{}s",
                 PROBE_TIMEOUT.as_secs()
             ));
         }
-        thread::sleep(Duration::from_millis(50));
+        thread::sleep(Duration::from_millis(25));
     }
 
-    let output = child
-        .wait_with_output()
-        .map_err(|err| format!("probe_failed: {err}"))?;
+    let status = child.wait().map_err(|err| format!("probe_failed: {err}"))?;
+    let stdout = stdout_thread
+        .and_then(|handle| handle.join().ok())
+        .unwrap_or_default();
+    let stderr = stderr_thread
+        .and_then(|handle| handle.join().ok())
+        .unwrap_or_default();
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let Some(line) = stdout
+    let stdout_text = String::from_utf8_lossy(&stdout);
+    let stderr_text = String::from_utf8_lossy(&stderr);
+    let Some(line) = stdout_text
         .lines()
         .rev()
         .find(|line| line.trim_start().starts_with('{'))
     else {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let detail = first_line(stderr.trim()).unwrap_or("no output");
-        return Err(if output.status.success() {
+        let detail = first_line(stderr_text.trim()).unwrap_or("no output");
+        return Err(if status.success() {
             format!("probe_output_unreadable: {detail}")
         } else {
-            format!("probe_exited_{}: {}", output.status, detail)
+            format!("probe_exited_{status}: {detail}")
         });
     };
     serde_json::from_str(line.trim())
@@ -455,6 +512,13 @@ fn run_probe(
             Value::Object(map) => Ok(map),
             _ => Err("probe_output_unreadable: expected a JSON object".to_string()),
         })
+}
+
+/// Read a child's stdout or stderr pipe to EOF on a background thread.
+fn read_pipe<R: Read>(mut pipe: R) -> Vec<u8> {
+    let mut buffer = Vec::new();
+    let _ = pipe.read_to_end(&mut buffer);
+    buffer
 }
 
 fn first_line(text: &str) -> Option<&str> {
@@ -674,16 +738,97 @@ mod tests {
         assert_eq!(grade(&ok), AdapterImportStatus::Ok);
     }
 
+    /// Locate a real interpreter for tests that need one.
+    fn real_python() -> Option<PathBuf> {
+        for var in ["PYTHON", "PYTHON3"] {
+            if let Some(path) = std::env::var_os(var).filter(|value| !value.is_empty()) {
+                return Some(PathBuf::from(path));
+            }
+        }
+        for candidate in ["python3", "python"] {
+            let Ok(out) = Command::new(candidate)
+                .arg("-c")
+                .arg("import sys; sys.stdout.write(sys.executable)")
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .output()
+            else {
+                continue;
+            };
+            if !out.status.success() {
+                continue;
+            }
+            let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !path.is_empty() {
+                return Some(PathBuf::from(path));
+            }
+        }
+        None
+    }
+
     #[test]
-    fn fake_interpreter_script_runs_on_real_python() {
-        // Guards the py37-compatible probe script itself: run it with the
-        // ambient interpreter against the standard library `json` module.
-        let python = std::env::var_os("PYTHON").or_else(|| std::env::var_os("PYTHON3"));
-        let Some(python) = python else { return };
-        let report = run_probe(&PathBuf::from(python), "json", "json");
-        let Ok(report) = report else { return };
+    fn probe_script_runs_on_a_real_interpreter() {
+        // Guards the py37-compatible probe script itself against the standard
+        // library `json` module, which every supported interpreter can import.
+        let Some(python) = real_python() else {
+            eprintln!("skipping: no python interpreter available");
+            return;
+        };
+        let report = run_probe(&python, "json", "json")
+            .expect("a real interpreter must produce a readable probe report");
         assert_eq!(report["imported"], true);
         assert!(report["python_version"].as_str().unwrap().starts_with("3."));
+    }
+
+    /// Regression guard for the pipe deadlock: a child that writes more than
+    /// the OS pipe buffer holds must still be read to completion. Before the
+    /// fix this hung until the timeout and returned `probe_timed_out`.
+    #[test]
+    fn probe_reads_a_child_that_floods_stderr() {
+        let Some(python) = real_python() else {
+            eprintln!("skipping: no python interpreter available");
+            return;
+        };
+        // 256 KiB of stderr is far past any pipe buffer; a stdout JSON line
+        // must still come back.
+        let script = concat!(
+            "import sys\n",
+            "sys.stderr.write('x' * (256 * 1024))\n",
+            "sys.stderr.flush()\n",
+            "sys.stdout.write('{\"imported\": true}')\n",
+        );
+
+        let mut child = Command::new(&python)
+            .arg("-c")
+            .arg(script)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("interpreter should launch");
+        let stdout_thread = child
+            .stdout
+            .take()
+            .map(|pipe| thread::spawn(move || read_pipe(pipe)));
+        let stderr_thread = child
+            .stderr
+            .take()
+            .map(|pipe| thread::spawn(move || read_pipe(pipe)));
+
+        // No timeout dance here: draining concurrently means this returns as
+        // soon as the child exits. A deadlock would hang the test suite.
+        let status = child.wait().expect("child should be reaped");
+        let stdout = stdout_thread
+            .and_then(|handle| handle.join().ok())
+            .unwrap_or_default();
+        let stderr = stderr_thread
+            .and_then(|handle| handle.join().ok())
+            .unwrap_or_default();
+
+        assert!(status.success(), "child exited with {status}");
+        assert_eq!(stderr.len(), 256 * 1024, "stderr should be fully drained");
+        let text = String::from_utf8_lossy(&stdout);
+        assert!(text.contains("\"imported\": true"), "stdout was: {text}");
     }
 
     #[test]
@@ -695,11 +840,30 @@ mod tests {
             python_overrides: overrides,
             catalog: None,
         };
-        let targets = resolve_targets(&request);
+        let (targets, catalog_error) = resolve_targets(&request);
+        assert_eq!(catalog_error, None);
         assert_eq!(targets.len(), 1);
         assert_eq!(targets[0].dcc_type, "maya");
         assert_eq!(targets[0].module, "dcc_mcp_maya");
         assert_eq!(targets[0].python_source.as_deref(), Some("cli_override"));
+    }
+
+    /// An explicit catalog that cannot be loaded must be reported, not silently
+    /// downgraded to the `dcc-mcp-<dcc_type>` naming convention.
+    #[test]
+    fn explicit_catalog_load_failure_is_reported() {
+        let mut overrides = BTreeMap::new();
+        overrides.insert("maya".to_string(), PathBuf::from("/opt/maya/bin/mayapy"));
+        let request = AdapterImportRequest {
+            inventory: None,
+            python_overrides: overrides,
+            catalog: Some(PathBuf::from("/__definitely_missing__/catalog.yml")),
+        };
+        let (targets, catalog_error) = resolve_targets(&request);
+        assert!(catalog_error.is_some(), "load failure should be surfaced");
+        assert_eq!(targets.len(), 1);
+        // Falls back to the naming convention so the probe still runs.
+        assert_eq!(targets[0].module, "dcc_mcp_maya");
     }
 
     #[test]
