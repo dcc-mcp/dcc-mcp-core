@@ -365,6 +365,12 @@ def test_git_commit_and_push_against_a_real_repo_with_no_changes(tmp_path: Path,
     # `init.templateDir` would fail this test for reasons unrelated to the code
     # under test. System and global config are detached, and identity, signing,
     # and line endings are passed per invocation.
+    #
+    # The identity is ALSO written to the repository: the code under test shells
+    # out to a bare `git commit` with no `-c` overrides and no global config to
+    # fall back on, so the repository itself has to supply it. Relying on the
+    # per-invocation `-c` values here would leave that commit with no identity
+    # on runners that cannot derive one from the host.
     monkeypatch.setenv("LC_ALL", "C")
     monkeypatch.setenv("LANG", "C")
     monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
@@ -392,6 +398,8 @@ def test_git_commit_and_push_against_a_real_repo_with_no_changes(tmp_path: Path,
         )
 
     git("init", "--quiet")
+    git("config", "user.name", "loonghao")
+    git("config", "user.email", "hal.long@outlook.com")
     catalog = tmp_path / "marketplace.json"
     catalog.write_text(json.dumps({"version": "1", "entries": []}), encoding="utf-8")
     git("add", "marketplace.json")
