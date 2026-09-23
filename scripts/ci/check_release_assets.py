@@ -19,9 +19,10 @@ set is the only check that separates those three outcomes from a real
 release. It is deliberately run as its own job with ``always()`` so it also
 fires when the upload jobs were skipped rather than failed.
 
-The Python 3.7 requirement groups are part of the expected set on purpose
-(PIP-2519, red line until 2026-12-31): a Release without the ``cp37`` wheels
-is a failed release, not a degraded one.
+The Python 3.7 requirement groups are part of the expected set on purpose:
+the project still declares Python 3.7 support for the embedded DCC hosts
+that cannot upgrade, so a Release without the ``cp37`` wheels is a failed
+release, not a degraded one.
 """
 
 from __future__ import annotations
