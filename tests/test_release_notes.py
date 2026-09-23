@@ -15,6 +15,7 @@ SCRIPT_PATH = REPO_ROOT / "scripts" / "ci" / "check_release_notes.py"
 RELEASE_PR_GUARD_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "release-please-pr-guard.yml"
 RELEASE_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "release.yml"
 HIDDEN_TYPES = frozenset({"style", "chore", "test", "ci", "build"})
+VISIBLE_TYPES = frozenset({"feat", "fix", "docs", "perf", "refactor"})
 
 UNTYPED_SHA = "521df1fa2156d308b240228fd8ff4c11199bc0c9"
 POST_NOTES_SHAS = (
@@ -258,6 +259,48 @@ def test_untyped_commit_is_reported_as_mechanism_a() -> None:
     assert "[A:" in errors[0]
     assert "521df1fa" in errors[0]
     assert "0.20.34" in errors[0]
+
+
+def test_undeclared_type_is_reported_as_mechanism_a() -> None:
+    """A type release-please never declares is dropped, not merely missed.
+
+    Reporting it as mechanism B would tell the author to regenerate the release
+    PR, which cannot add an undeclared type to the notes.
+    """
+    checker = _load_checker_module()
+    commit = checker.Commit(sha="adabad4f" + "0" * 32, subject="bump: version 0.9.0 -> 0.10.0")
+
+    report = checker.check_commits([commit], "", HIDDEN_TYPES, visible_types=VISIBLE_TYPES, version="0.20.34")
+
+    assert report.undeclared == (commit,)
+    assert report.checked == ()
+    errors = checker.format_errors(report)
+    assert len(errors) == 1
+    assert "[A:undeclared-type]" in errors[0]
+    assert "docs/feat/fix/perf/refactor" in errors[0]
+
+
+def test_breaking_marker_exempts_an_undeclared_type() -> None:
+    """release-please renders breaking commits whatever their type is."""
+    checker = _load_checker_module()
+    commit = checker.Commit(sha="c4c51e71" + "0" * 32, subject="bump!: drop the legacy installer")
+
+    report = checker.check_commits([commit], "", HIDDEN_TYPES, visible_types=VISIBLE_TYPES, version="0.20.34")
+
+    assert report.undeclared == ()
+    assert report.checked == (commit,)
+    assert report.undocumented == (commit,)
+
+
+def test_undeclared_rule_is_inert_without_visible_types() -> None:
+    """Callers that pass no declared types keep the plain hidden/visible split."""
+    checker = _load_checker_module()
+    commit = checker.Commit(sha="adabad4f" + "0" * 32, subject="bump: version 0.9.0 -> 0.10.0")
+
+    report = checker.check_commits([commit], "", HIDDEN_TYPES, version="0.20.34")
+
+    assert report.undeclared == ()
+    assert report.checked == (commit,)
 
 
 def test_documented_commit_is_not_reported() -> None:

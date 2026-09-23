@@ -57,6 +57,9 @@ _COMPARE_RE = re.compile(r"^##\s+\[([^\]]+)\]\([^)]*compare/([^)\s]+)\.\.\.([^)\
 _VERSION_HEADING_RE = re.compile(r"^##\s+\[(\d[^\]]*)", re.MULTILINE)
 # ``<type>[(<scope>)][!]: <description>``
 _CONVENTIONAL_RE = re.compile(r"^([a-zA-Z]+)(\(.*\))?!?:")
+# A breaking-change marker (``feat!:`` / ``fix(api)!:``) makes release-please
+# render the commit even when its type is not declared in changelog-sections.
+_BREAKING_RE = re.compile(r"^[a-zA-Z]+(\(.*\))?!:")
 # The release commit itself: ``chore(main): release 0.20.34 (#2505)``.
 _RELEASE_COMMIT_RE = re.compile(r"^chore(\([^)]*\))?!?:\s*release\s+(\S+)", re.IGNORECASE)
 # Squash-merged commits and release note entries both carry the PR number.
@@ -105,19 +108,23 @@ class ReleaseNotesReport:
     release_commits: tuple[Commit, ...] = ()
     hidden: tuple[Commit, ...] = ()
     untyped: tuple[Commit, ...] = ()
+    undeclared: tuple[Commit, ...] = ()
     undocumented: tuple[Commit, ...] = ()
+    visible_types: frozenset[str] = frozenset()
 
     @property
     def failures(self) -> tuple[Commit, ...]:
         """Return every commit the gate rejects, mechanism A before B."""
-        return self.untyped + self.undocumented
+        return self.untyped + self.undeclared + self.undocumented
 
 
-def load_hidden_types(config_path: Path) -> frozenset[str]:
-    """Return the conventional-commit types release-please hides from notes.
+def load_changelog_types(config_path: Path) -> tuple[frozenset[str], frozenset[str]]:
+    """Return the ``(hidden, visible)`` types a release-please config declares.
 
     Read from ``changelog-sections`` instead of hard-coded so the gate cannot
-    disagree with the generator about what "intentionally absent" means.
+    disagree with the generator about what "intentionally absent" means. A type
+    the config never declares is also dropped by release-please, which makes it
+    a mechanism-A problem rather than a stale-notes problem.
     """
     try:
         payload = json.loads(config_path.read_text(encoding="utf-8"))
@@ -128,24 +135,39 @@ def load_hidden_types(config_path: Path) -> frozenset[str]:
     if not isinstance(sections, list):
         raise ReleaseNotesError(f"{config_path} declares no changelog-sections list")
 
-    hidden = set()
+    hidden: set[str] = set()
+    visible: set[str] = set()
     for section in sections:
-        if not isinstance(section, dict) or section.get("hidden") is not True:
+        if not isinstance(section, dict):
             continue
         type_name = section.get("type")
-        if isinstance(type_name, str) and type_name:
+        if not isinstance(type_name, str) or not type_name:
+            continue
+        if section.get("hidden") is True:
             hidden.add(type_name.lower())
+        else:
+            visible.add(type_name.lower())
     if not hidden:
         raise ReleaseNotesError(
             f"{config_path} declares no hidden changelog-sections; refusing to guess which types are absent on purpose"
         )
-    return frozenset(hidden)
+    return frozenset(hidden), frozenset(visible)
+
+
+def load_hidden_types(config_path: Path) -> frozenset[str]:
+    """Return the conventional-commit types release-please hides from notes."""
+    return load_changelog_types(config_path)[0]
 
 
 def commit_type(subject: str) -> str | None:
     """Return the lower-cased conventional-commit type of ``subject``."""
     match = _CONVENTIONAL_RE.match(subject)
     return match.group(1).lower() if match is not None else None
+
+
+def is_breaking(subject: str) -> bool:
+    """Return True when ``subject`` carries the ``!`` breaking-change marker."""
+    return _BREAKING_RE.match(subject) is not None
 
 
 def is_release_commit(subject: str) -> str | None:
@@ -235,14 +257,24 @@ def check_commits(
     notes: str,
     hidden_types: frozenset[str],
     *,
+    visible_types: frozenset[str] | None = None,
     version: str = "",
     prev_ref: str = "",
     release_ref: str = "",
 ) -> ReleaseNotesReport:
-    """Split a release window into documented, hidden, and missing commits."""
+    """Split a release window into documented, hidden, and missing commits.
+
+    ``visible_types`` are the types the release-please config declares with
+    ``hidden: false``. When given, a commit whose type the config never
+    declares is reported as mechanism A: release-please drops it for the same
+    reason it drops an untyped title, so "regenerate the release PR" would send
+    the author the wrong way. A breaking-change marker exempts the commit,
+    because release-please renders breaking commits regardless of their type.
+    """
     release_commits: list[Commit] = []
     hidden: list[Commit] = []
     untyped: list[Commit] = []
+    undeclared: list[Commit] = []
     undocumented: list[Commit] = []
     checked: list[Commit] = []
 
@@ -258,6 +290,10 @@ def check_commits(
         if type_name in hidden_types:
             hidden.append(commit)
             continue
+        if visible_types is not None and type_name not in visible_types and not is_breaking(commit.subject):
+            # Mechanism A: undeclared type, so the generator drops it too.
+            undeclared.append(commit)
+            continue
         checked.append(commit)
         if not is_documented(commit.sha, notes):
             # Mechanism B: visible type, but the notes snapshot predates it.
@@ -271,7 +307,9 @@ def check_commits(
         release_commits=tuple(release_commits),
         hidden=tuple(hidden),
         untyped=tuple(untyped),
+        undeclared=tuple(undeclared),
         undocumented=tuple(undocumented),
+        visible_types=visible_types if visible_types is not None else frozenset(),
     )
 
 
@@ -285,6 +323,14 @@ def format_errors(report: ReleaseNotesReport) -> list[str]:
             f"missing from the {label} release notes: the commit title has no conventional-commit type prefix, so "
             'release-please dropped it. Fix: retitle the commit/PR as "<type>(<scope>): ..." and regenerate the '
             f"release PR."
+        )
+    for commit in report.undeclared:
+        declared = "/".join(sorted(report.visible_types)) or "feat/fix/perf/refactor/docs"
+        errors.append(
+            f"[A:undeclared-type] {commit.short_sha} ({commit.pr_label}) {commit.subject!r} is user-visible but "
+            f"missing from the {label} release notes: its type is not declared in release-please-config.json "
+            f"changelog-sections, so release-please drops it and regenerating the release PR will not help. "
+            f"Fix: retitle the commit/PR with a declared type ({declared}), or declare the type in the config."
         )
     for commit in report.undocumented:
         errors.append(
@@ -387,7 +433,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     root = args.root
-    hidden_types = load_hidden_types(args.config or root / RELEASE_CONFIG_NAME)
+    hidden_types, visible_types = load_changelog_types(args.config or root / RELEASE_CONFIG_NAME)
     release_ref = args.release_tag or "HEAD"
 
     changelog_path = args.changelog or root / CHANGELOG_NAME
@@ -412,6 +458,7 @@ def main(argv: list[str] | None = None) -> int:
         read_commits(root, prev_ref, release_ref),
         "\n".join(sources),
         hidden_types,
+        visible_types=visible_types,
         version=version,
         prev_ref=prev_ref,
         release_ref=release_ref,
