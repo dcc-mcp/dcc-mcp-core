@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -7,6 +8,7 @@ use serde_json::Value;
 
 use super::output::{ExitCode, OutputFormat, OutputWriter, failure_envelope, to_json};
 
+use crate::application::adapter_import;
 use crate::application::call_attribution::{
     attach_agent_session_id, attach_batch_agent_session_id,
 };
@@ -138,6 +140,25 @@ fn apply_staged_update() -> bool {
             false
         }
     }
+}
+
+/// Parse repeatable `--adapter-python <dcc_type>=<python>` values.
+fn parse_adapter_python(raw: &[String]) -> anyhow::Result<BTreeMap<String, PathBuf>> {
+    let mut parsed = BTreeMap::new();
+    for entry in raw {
+        let (dcc_type, python) = entry.split_once('=').context(
+            "--adapter-python expects <dcc_type>=<python>, e.g. maya=/usr/autodesk/maya2026/bin/mayapy",
+        )?;
+        let dcc_type = dcc_type.trim();
+        let python = python.trim();
+        if dcc_type.is_empty() || python.is_empty() {
+            anyhow::bail!(
+                "--adapter-python expects <dcc_type>=<python> with both sides non-empty, got '{entry}'"
+            );
+        }
+        parsed.insert(dcc_type.to_ascii_lowercase(), PathBuf::from(python));
+    }
+    Ok(parsed)
 }
 
 fn restart_after_update() -> anyhow::Result<()> {
@@ -277,8 +298,23 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             registry_dir,
             gateway_host,
             gateway_port,
+            adapter_python,
+            adapter_catalog,
         } => {
-            run_doctor(doctor.request(registry_dir, Some(gateway_host), Some(gateway_port))).await?
+            let overrides = parse_adapter_python(&adapter_python)?;
+            let value = run_doctor(doctor.request_with_adapter_probes(
+                registry_dir,
+                Some(gateway_host),
+                Some(gateway_port),
+                overrides,
+                adapter_catalog,
+            ))
+            .await?;
+            // A broken adapter install is a real finding: surface it through the
+            // exit code instead of reporting `ok` for an unusable host.
+            failed =
+                adapter_import::has_failures(value.get("adapter_imports").unwrap_or(&Value::Null));
+            value
         }
         Command::List => control.list_instances().await?,
         Command::DccTypes {

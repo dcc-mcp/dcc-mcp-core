@@ -4,10 +4,12 @@
 //! selection, local registry inventory, daemon health, and gateway binary
 //! discovery state.
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use serde_json::{Map, Value, json};
 
+use crate::application::adapter_import::{self, AdapterImportRequest, probe_adapters};
 use crate::application::gateway_profile::{GatewayProfileStore, GatewayTarget};
 use crate::application::{gateway_ctrl, gateway_discovery, gateway_ensure, local_registry};
 use crate::domain::rest::Endpoint;
@@ -71,7 +73,25 @@ impl DoctorContext {
             require_gateway: self.require_gateway,
             gateway_host: gateway_host.unwrap_or_else(|| self.default_gateway_host.clone()),
             gateway_port: gateway_port.unwrap_or(self.default_gateway_port),
+            adapter_python: BTreeMap::new(),
+            adapter_catalog: None,
         }
+    }
+
+    /// Attach adapter import probe configuration to a request.
+    #[must_use]
+    pub fn request_with_adapter_probes(
+        &self,
+        registry_dir: Option<PathBuf>,
+        gateway_host: Option<String>,
+        gateway_port: Option<u16>,
+        adapter_python: BTreeMap<String, PathBuf>,
+        adapter_catalog: Option<PathBuf>,
+    ) -> DoctorRequest {
+        let mut request = self.request(registry_dir, gateway_host, gateway_port);
+        request.adapter_python = adapter_python;
+        request.adapter_catalog = adapter_catalog;
+        request
     }
 }
 
@@ -86,6 +106,10 @@ pub struct DoctorRequest {
     pub require_gateway: bool,
     pub gateway_host: String,
     pub gateway_port: u16,
+    /// Explicit `<dcc_type>=<python>` interpreter overrides for adapter probes.
+    pub adapter_python: BTreeMap<String, PathBuf>,
+    /// Explicit adapter catalog path; `None` uses the bundled release catalog.
+    pub adapter_catalog: Option<PathBuf>,
 }
 
 pub async fn run_doctor(request: DoctorRequest) -> anyhow::Result<Value> {
@@ -102,9 +126,15 @@ pub async fn run_doctor(request: DoctorRequest) -> anyhow::Result<Value> {
         start_opts: None,
     })
     .await;
-    let local_inventory = match local_registry::list_local_instances(registry_dir.clone()) {
+    let inventory = local_registry::list_local_instances(registry_dir.clone());
+    let adapter_imports = probe_adapters(&AdapterImportRequest {
+        inventory: inventory.as_ref().ok().cloned(),
+        python_overrides: request.adapter_python.clone(),
+        catalog: request.adapter_catalog.clone(),
+    });
+    let local_inventory = match &inventory {
         Ok(value) => {
-            let direct_control = direct_control_summary(&value);
+            let direct_control = direct_control_summary(value);
             json!({
                 "ok": true,
                 "source": value.get("source").cloned().unwrap_or(Value::Null),
@@ -122,7 +152,11 @@ pub async fn run_doctor(request: DoctorRequest) -> anyhow::Result<Value> {
     };
 
     Ok(json!({
-        "status": "ok",
+        "status": if adapter_import::has_failures(&adapter_imports) {
+            "degraded"
+        } else {
+            "ok"
+        },
         "cli": {
             "name": env!("CARGO_PKG_NAME"),
             "version": env!("CARGO_PKG_VERSION"),
@@ -144,6 +178,7 @@ pub async fn run_doctor(request: DoctorRequest) -> anyhow::Result<Value> {
             "registry_dir": registry_dir,
             "inventory": local_inventory,
         },
+        "adapter_imports": adapter_imports,
         "gateway": {
             "auto_start_enabled": request.auto_gateway_enabled,
             "default_base_url": format!(

@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use crate::domain::install_catalog::CatalogSource;
+use dcc_mcp_catalog::CatalogEntry;
 use thiserror::Error;
 
 use crate::domain::install::{
@@ -74,6 +75,17 @@ pub struct InstallService {
 }
 
 impl InstallService {
+    /// Adapter catalog entries from the bundled or explicitly supplied catalog.
+    ///
+    /// Read-only view for sibling application modules (e.g. the `doctor`
+    /// adapter-import probe) that need adapter package/interpreter metadata.
+    pub(crate) fn catalog_entries(
+        &self,
+        requested_path: Option<&Path>,
+    ) -> Result<Vec<CatalogEntry>, InstallError> {
+        self.load_entries(requested_path)
+    }
+
     #[must_use]
     pub fn new(default_catalog_path: PathBuf) -> Self {
         Self {

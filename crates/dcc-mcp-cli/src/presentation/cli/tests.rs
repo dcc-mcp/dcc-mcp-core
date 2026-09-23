@@ -914,6 +914,8 @@ fn gateway_endpoint_for_command_ensures_gateway_for_agent_control_commands() {
                 registry_dir: None,
                 gateway_host: "127.0.0.1".to_string(),
                 gateway_port: 9765,
+                adapter_python: Vec::new(),
+                adapter_catalog: None,
             },
             &local,
         )

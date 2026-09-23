@@ -1,3 +1,4 @@
+pub mod adapter_import;
 pub mod call_attribution;
 pub mod client;
 pub mod components;
