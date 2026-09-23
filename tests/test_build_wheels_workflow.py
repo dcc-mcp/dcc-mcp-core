@@ -117,7 +117,7 @@ def test_release_wheels_are_uploaded_once_after_every_build() -> None:
     upload = publish["steps"][upload_index]
     assert upload["uses"] == "softprops/action-gh-release@v3"
     # The default GITHUB_TOKEN is refused on the release-update call that
-    # precedes every asset upload (PIP-3446), so release.yml passes the
+    # precedes every asset upload, so release.yml passes the
     # release PAT through the reusable-workflow secret.
     assert upload["with"] == {
         "token": "${{ secrets.RELEASE_TOKEN || github.token }}",
