@@ -66,6 +66,7 @@ Documentation contract:
 | [tunnel-relay.md](tunnel-relay.md) | Zero-config remote MCP relay (`RelayServer` + tunnel agent) |
 | [production-deployment.md](production-deployment.md) | Production checklist: logging, health probes, monitoring |
 | [protocols.md](protocols.md) | MCP protocol types and versioning |
+| [mcp-2026-07-28-migration.md](mcp-2026-07-28-migration.md) | MCP 2026-07-28 stateless protocol: breaking changes, dual-protocol window, client and adapter upgrade steps |
 | [middleware.md](middleware.md) | Pluggable BeforeCall/AfterCall middleware chain: audit, quota, redaction |
 | [admin-ui.md](admin-ui.md) | Built-in embedded `/admin` dashboard (instances, tools, calls, traces, stats, workers, merged logs, health, durable JSONL audit/trace persistence) |
 | [analytics-dashboard.md](analytics-dashboard.md) | Analytics dashboard: KPIs, timeseries, heatmap, top tools, CSV/JSONL export |

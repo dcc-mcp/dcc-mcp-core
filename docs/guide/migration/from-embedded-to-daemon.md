@@ -12,6 +12,9 @@ multi-machine discovery source introduced by epic [#1367][epic].
 
 [epic]: https://github.com/dcc-mcp/dcc-mcp-core/issues/1367
 
+This page is about runtime topology. For the MCP wire-protocol upgrade, see
+[Migrating to MCP 2026-07-28](../mcp-2026-07-28-migration.md).
+
 ## When should you migrate?
 
 Staying on legacy embedded auto-gateway is reasonable only if:
