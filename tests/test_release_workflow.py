@@ -95,6 +95,23 @@ def test_backfill_assets_input_defaults_to_core_only() -> None:
     assert backfill_assets["required"] is False
 
 
+def test_release_workflow_verifies_the_published_asset_set() -> None:
+    jobs = _release_jobs()
+    verify = jobs["verify-release-assets"]
+
+    assert "always()" in verify["if"]
+    # The legacy core-only PyPI backfill deliberately leaves the existing
+    # Release untouched, so it is the one route without the gate.
+    assert f"!({CORE_BACKFILL_EXPRESSION}{ASSETS_BACKFILL_GUARD})" in verify["if"]
+    assert verify["needs"] == ["release-please", "publish-github-release-assets"]
+    # `publish` aggregates every publication route, so the gate is part of it.
+    assert "verify-release-assets" in jobs["publish"]["needs"]
+    assert 'assets_verified" != "success"' in jobs["publish"]["steps"][0]["run"]
+
+    script = next(step for step in verify["steps"] if "check_release_assets.py" in step.get("run", ""))
+    assert '--version "$RELEASE_VERSION"' in script["run"]
+
+
 def test_release_workflow_publishes_each_pypi_project_in_its_own_job() -> None:
     jobs = _release_jobs()
     expected = {
@@ -207,6 +224,7 @@ def test_release_workflow_keeps_github_release_safety_net_after_pypi_jobs() -> N
         "publish-server-pypi",
         "publish-semantic-pypi",
         "publish-github-release-assets",
+        "verify-release-assets",
     ]
     assert "always()" in summary["if"]
     run = summary["steps"][0]["run"]

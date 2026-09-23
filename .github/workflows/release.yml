@@ -945,6 +945,63 @@ jobs:
             dist-binaries/*
             dist-semantic/*
 
+  # ── Assert the Release actually shipped its assets ───────────────────────
+  #
+  # Job conclusions are not evidence. The 2026-09-21 and 2026-09-22 batch
+  # windows reported `success` while short-circuiting (no release created),
+  # and the v0.20.34 window cut a Release with **zero** assets because every
+  # upload step was refused with HTTP 403 and the safety-net job was skipped.
+  # Read the Release back from the API and assert the observable artefact.
+  #
+  # Skipped for the legacy core-only PyPI backfill, which deliberately leaves
+  # an existing Release untouched.
+  verify-release-assets:
+    needs: [release-please, publish-github-release-assets]
+    if: |
+      always() &&
+      needs.release-please.outputs.release_created == 'true' &&
+      !(github.event_name == 'workflow_dispatch' && inputs.release_tag != '' && inputs.backfill_assets != true)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      # Read-only probe, but reuse the release PAT so the check is not blinded
+      # by the same authorization gap that broke the uploads.
+      GH_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN || github.token }}
+      RELEASE_TAG: ${{ needs.release-please.outputs.tag_name }}
+      RELEASE_VERSION: ${{ needs.release-please.outputs.version }}
+    steps:
+      - name: Checkout workflow compatibility tooling
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .workflow-tools
+          sparse-checkout: |
+            scripts/ci
+          persist-credentials: false
+
+      - name: Read back the published Release
+        shell: bash
+        run: |
+          for attempt in $(seq 1 10); do
+            gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" > release.json
+            count=$(jq '.assets | length' release.json)
+            echo "attempt ${attempt}: ${count} assets"
+            if [ "$count" -gt 0 ]; then
+              break
+            fi
+            sleep 15
+          done
+          jq '{tag_name, draft, published_at, asset_count: (.assets | length)}' release.json
+
+      - name: Assert the Release asset set is complete
+        shell: bash
+        run: >-
+          python .workflow-tools/scripts/ci/check_release_assets.py
+          --tag "$RELEASE_TAG"
+          --version "$RELEASE_VERSION"
+          --payload release.json
+
   # ── Aggregate release publication status for branch protection / humans ──
   publish:
     needs:
@@ -953,6 +1010,7 @@ jobs:
       - publish-server-pypi
       - publish-semantic-pypi
       - publish-github-release-assets
+      - verify-release-assets
     if: always() && needs.release-please.outputs.release_created == 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -964,12 +1022,14 @@ jobs:
           server="${{ needs.publish-server-pypi.result }}"
           semantic="${{ needs.publish-semantic-pypi.result }}"
           release_assets="${{ needs.publish-github-release-assets.result }}"
+          assets_verified="${{ needs.verify-release-assets.result }}"
           core_backfill="${{ github.event_name == 'workflow_dispatch' && inputs.release_tag != '' && inputs.backfill_assets != true }}"
 
           echo "PyPI dcc-mcp-core: ${core}"
           echo "PyPI dcc-mcp-server: ${server}"
           echo "PyPI dcc-mcp-core-semantic: ${semantic}"
           echo "GitHub Release assets: ${release_assets}"
+          echo "Release asset verification: ${assets_verified}"
           echo "Core-only immutable backfill: ${core_backfill}"
 
           failed=0
@@ -989,6 +1049,10 @@ jobs:
             fi
             if [ "$release_assets" != "success" ]; then
               echo "::error::GitHub Release safety-net upload did not complete (result=${release_assets})."
+              failed=1
+            fi
+            if [ "$assets_verified" != "success" ]; then
+              echo "::error::GitHub Release asset verification failed (result=${assets_verified})."
               failed=1
             fi
           fi
