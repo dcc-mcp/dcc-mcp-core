@@ -126,45 +126,6 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Release decision: created=$release_created tag=$tag_name version=$version"
 
-      # TEMPORARY (PIP-3446) - diagnostic only, never fails the run, remove
-      # once the token question is settled.
-      #
-      # softprops/action-gh-release@v3 opens every upload with
-      # PATCH /repos/{owner}/{repo}/releases/{release_id}. When that call is
-      # forbidden the whole asset set is dropped even though the builds
-      # succeeded, so record which token can still update the release.
-      - name: Diagnose release-update token permission
-        if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PAT_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
-          RELEASE_TAG: ${{ inputs.release_tag }}
-        shell: bash
-        run: |
-          set +e
-          echo "::group::release-update token probe for ${RELEASE_TAG}"
-          gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" \
-            --jq '{id:.id,name:.name,target_commitish:.target_commitish,draft:.draft}' \
-            | tee release-probe.json
-          release_id="$(jq -r .id release-probe.json)"
-          name="$(jq -r .name release-probe.json)"
-          target="$(jq -r .target_commitish release-probe.json)"
-          echo "-- PATCH with GITHUB_TOKEN"
-          if gh api -X PATCH "repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
-            -f "name=${name}" -f "target_commitish=${target}" --jq .id; then
-            echo "GITHUB_TOKEN_PATCH=ok"
-          else
-            echo "GITHUB_TOKEN_PATCH=forbidden"
-          fi
-          echo "-- PATCH with PERSONAL_ACCESS_TOKEN"
-          if GH_TOKEN="$PAT_TOKEN" gh api -X PATCH "repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
-            -f "name=${name}" -f "target_commitish=${target}" --jq .id; then
-            echo "PAT_PATCH=ok"
-          else
-            echo "PAT_PATCH=forbidden"
-          fi
-          echo "::endgroup::"
 
   build-admin-ui:
     needs: [release-please]
