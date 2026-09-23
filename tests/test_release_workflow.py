@@ -16,6 +16,11 @@ GITHUB_RELEASE_TOKEN = "${{ secrets.PERSONAL_ACCESS_TOKEN || github.token }}"
 REUSE_RELEASE_ASSETS_EXPRESSION = (
     "${{ github.event_name == 'workflow_dispatch' && inputs.release_tag != ''" + ASSETS_BACKFILL_GUARD + " }}"
 )
+# Assets are only ever replaced for the explicit asset backfill. A normal
+# release must overwrite nothing, or the safety-net upload in
+# publish-github-release-assets would delete and re-upload every asset the
+# per-platform jobs just attached.
+OVERWRITE_FILES_EXPRESSION = "${{ github.event_name == 'workflow_dispatch' && inputs.backfill_assets == true }}"
 
 
 def _release_jobs() -> dict:
@@ -32,10 +37,19 @@ def _github_release_steps(jobs: dict) -> list[dict]:
 
 
 def test_release_workflow_preserves_existing_github_release_assets() -> None:
+    """Assets are preserved by default and replaced only for an asset backfill.
+
+    `softprops/action-gh-release@v3` silently skips any same-named asset when
+    `overwrite_files` is false and still exits 0, so an unconditional false
+    turns the opt-in backfill into a no-op that reports success while the
+    release keeps its old bytes. An unconditional true is just as wrong: the
+    safety-net upload would delete and re-upload every asset the per-platform
+    jobs just attached.
+    """
     steps = _github_release_steps(_release_jobs())
     assert len(steps) == 3
     for step in steps:
-        assert step["with"]["overwrite_files"] is False
+        assert step["with"]["overwrite_files"] == OVERWRITE_FILES_EXPRESSION
         assert step["with"]["fail_on_unmatched_files"] is True
 
 

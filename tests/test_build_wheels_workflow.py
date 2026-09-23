@@ -123,7 +123,9 @@ def test_release_wheels_are_uploaded_once_after_every_build() -> None:
         "token": "${{ secrets.RELEASE_TOKEN || github.token }}",
         "tag_name": "${{ inputs.release-tag-name }}",
         "files": "dist/*",
-        "overwrite_files": False,
+        # Replacing a same-named asset is opt-in: the caller decides, because
+        # only the asset backfill may overwrite an existing release.
+        "overwrite_files": "${{ inputs.overwrite-release-assets }}",
         "fail_on_unmatched_files": True,
     }
 
@@ -133,6 +135,21 @@ def test_callable_workflow_declares_the_release_token_secret() -> None:
     workflow = yaml_loads(BUILD_WHEELS_WORKFLOW.read_text(encoding="utf-8"))
     secrets = workflow["on"]["workflow_call"]["secrets"]
     assert secrets["RELEASE_TOKEN"]["required"] is False
+
+
+def test_asset_overwrite_is_opt_in_on_every_trigger() -> None:
+    """Both triggers default the overwrite input to false.
+
+    `workflow_dispatch` matters as much as `workflow_call`: a manual run of the
+    reusable workflow must not be able to clobber a published release by
+    omission.
+    """
+    workflow = yaml_loads(BUILD_WHEELS_WORKFLOW.read_text(encoding="utf-8"))
+    for trigger in ("workflow_dispatch", "workflow_call"):
+        overwrite = workflow["on"][trigger]["inputs"]["overwrite-release-assets"]
+        assert overwrite["type"] == "boolean"
+        assert overwrite["default"] is False
+        assert overwrite["required"] is False
 
 
 def test_python37_runtime_smokes_share_version_and_ref_bound_dependency_preparation() -> None:
