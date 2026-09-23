@@ -34,6 +34,10 @@ on:
         required: false
         type: boolean
         default: false
+    secrets:
+      RELEASE_TOKEN:
+        description: "Token used to upload wheels to the GitHub Release. Falls back to GITHUB_TOKEN when unset."
+        required: false
 
 concurrency:
   # Scope by the resolved checkout target so a release-driven build for tag
@@ -454,6 +458,12 @@ jobs:
       - name: Upload wheels to GitHub Release
         uses: softprops/action-gh-release@v3
         with:
+          # The default GITHUB_TOKEN is rejected with
+          # "Resource not accessible by integration" on the release-update call
+          # that precedes every asset upload (PIP-3446), which silently drops
+          # the whole asset set. release.yml passes the same token
+          # release-please uses to cut and publish the release.
+          token: ${{ secrets.RELEASE_TOKEN || github.token }}
           tag_name: ${{ inputs.release-tag-name }}
           files: dist/*
           overwrite_files: false

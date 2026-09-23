@@ -116,12 +116,23 @@ def test_release_wheels_are_uploaded_once_after_every_build() -> None:
 
     upload = publish["steps"][upload_index]
     assert upload["uses"] == "softprops/action-gh-release@v3"
+    # The default GITHUB_TOKEN is refused on the release-update call that
+    # precedes every asset upload (PIP-3446), so release.yml passes the
+    # release PAT through the reusable-workflow secret.
     assert upload["with"] == {
+        "token": "${{ secrets.RELEASE_TOKEN || github.token }}",
         "tag_name": "${{ inputs.release-tag-name }}",
         "files": "dist/*",
         "overwrite_files": False,
         "fail_on_unmatched_files": True,
     }
+
+
+def test_callable_workflow_declares_the_release_token_secret() -> None:
+    """Reusable workflows do not inherit secrets, so it must be declared."""
+    workflow = yaml_loads(BUILD_WHEELS_WORKFLOW.read_text(encoding="utf-8"))
+    secrets = workflow["on"]["workflow_call"]["secrets"]
+    assert secrets["RELEASE_TOKEN"]["required"] is False
 
 
 def test_python37_runtime_smokes_share_version_and_ref_bound_dependency_preparation() -> None:

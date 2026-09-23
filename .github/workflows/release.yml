@@ -28,6 +28,11 @@ on:
         required: false
         type: string
         default: ""
+      backfill_assets:
+        description: "With release_tag: rebuild and upload the GitHub Release asset set for that existing release instead of reusing it. Creates no new release and skips no PyPI route."
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
   group: release-${{ github.ref }}
@@ -121,11 +126,51 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Release decision: created=$release_created tag=$tag_name version=$version"
 
+      # TEMPORARY (PIP-3446) - diagnostic only, never fails the run, remove
+      # once the token question is settled.
+      #
+      # softprops/action-gh-release@v3 opens every upload with
+      # PATCH /repos/{owner}/{repo}/releases/{release_id}. When that call is
+      # forbidden the whole asset set is dropped even though the builds
+      # succeeded, so record which token can still update the release.
+      - name: Diagnose release-update token permission
+        if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PAT_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        shell: bash
+        run: |
+          set +e
+          echo "::group::release-update token probe for ${RELEASE_TAG}"
+          gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" \
+            --jq '{id:.id,name:.name,target_commitish:.target_commitish,draft:.draft}' \
+            | tee release-probe.json
+          release_id="$(jq -r .id release-probe.json)"
+          name="$(jq -r .name release-probe.json)"
+          target="$(jq -r .target_commitish release-probe.json)"
+          echo "-- PATCH with GITHUB_TOKEN"
+          if gh api -X PATCH "repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
+            -f "name=${name}" -f "target_commitish=${target}" --jq .id; then
+            echo "GITHUB_TOKEN_PATCH=ok"
+          else
+            echo "GITHUB_TOKEN_PATCH=forbidden"
+          fi
+          echo "-- PATCH with PERSONAL_ACCESS_TOKEN"
+          if GH_TOKEN="$PAT_TOKEN" gh api -X PATCH "repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
+            -f "name=${name}" -f "target_commitish=${target}" --jq .id; then
+            echo "PAT_PATCH=ok"
+          else
+            echo "PAT_PATCH=forbidden"
+          fi
+          echo "::endgroup::"
+
   build-admin-ui:
     needs: [release-please]
     if: |
       needs.release-please.outputs.release_created == 'true' &&
-      !(github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
+      !(github.event_name == 'workflow_dispatch' && inputs.release_tag != '' && inputs.backfill_assets != true)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -185,7 +230,7 @@ jobs:
     needs: [release-please, build-admin-ui]
     if: |
       needs.release-please.outputs.release_created == 'true' &&
-      !(github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
+      !(github.event_name == 'workflow_dispatch' && inputs.release_tag != '' && inputs.backfill_assets != true)
     strategy:
       fail-fast: false
       matrix:
@@ -381,6 +426,12 @@ jobs:
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v3
         with:
+          # The default GITHUB_TOKEN is rejected with
+          # "Resource not accessible by integration" on the release-update call
+          # that precedes every asset upload (PIP-3446), which silently drops
+          # the whole asset set. Use the same token release-please uses to cut
+          # and publish the release; fall back to GITHUB_TOKEN when unset.
+          token: ${{ secrets.PERSONAL_ACCESS_TOKEN || github.token }}
           tag_name: ${{ needs.release-please.outputs.tag_name }}
           overwrite_files: false
           fail_on_unmatched_files: true
@@ -413,7 +464,7 @@ jobs:
     needs: [release-please]
     if: |
       needs.release-please.outputs.release_created == 'true' &&
-      !(github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
+      !(github.event_name == 'workflow_dispatch' && inputs.release_tag != '' && inputs.backfill_assets != true)
     strategy:
       fail-fast: false
       matrix:
@@ -568,6 +619,12 @@ jobs:
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v3
         with:
+          # The default GITHUB_TOKEN is rejected with
+          # "Resource not accessible by integration" on the release-update call
+          # that precedes every asset upload (PIP-3446), which silently drops
+          # the whole asset set. Use the same token release-please uses to cut
+          # and publish the release; fall back to GITHUB_TOKEN when unset.
+          token: ${{ secrets.PERSONAL_ACCESS_TOKEN || github.token }}
           tag_name: ${{ needs.release-please.outputs.tag_name }}
           overwrite_files: false
           fail_on_unmatched_files: true
@@ -581,7 +638,9 @@ jobs:
     with:
       checkout-ref: ${{ needs.release-please.outputs.tag_name }}
       release-tag-name: ${{ needs.release-please.outputs.tag_name }}
-      reuse-release-assets: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag != '' }}
+      reuse-release-assets: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag != '' && inputs.backfill_assets != true }}
+    secrets:
+      RELEASE_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
 
   # ── Validate release metadata once before publishing artefacts ──
   validate-release-version:
@@ -910,6 +969,12 @@ jobs:
       - name: Upload artefacts to GitHub Release (safety net)
         uses: softprops/action-gh-release@v3
         with:
+          # The default GITHUB_TOKEN is rejected with
+          # "Resource not accessible by integration" on the release-update call
+          # that precedes every asset upload (PIP-3446), which silently drops
+          # the whole asset set. Use the same token release-please uses to cut
+          # and publish the release; fall back to GITHUB_TOKEN when unset.
+          token: ${{ secrets.PERSONAL_ACCESS_TOKEN || github.token }}
           tag_name: ${{ needs.release-please.outputs.tag_name }}
           overwrite_files: false
           fail_on_unmatched_files: true
@@ -938,7 +1003,7 @@ jobs:
           server="${{ needs.publish-server-pypi.result }}"
           semantic="${{ needs.publish-semantic-pypi.result }}"
           release_assets="${{ needs.publish-github-release-assets.result }}"
-          core_backfill="${{ github.event_name == 'workflow_dispatch' && inputs.release_tag != '' }}"
+          core_backfill="${{ github.event_name == 'workflow_dispatch' && inputs.release_tag != '' && inputs.backfill_assets != true }}"
 
           echo "PyPI dcc-mcp-core: ${core}"
           echo "PyPI dcc-mcp-server: ${server}"
