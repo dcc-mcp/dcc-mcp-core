@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -359,17 +360,42 @@ def test_git_commit_and_push_reports_a_push_failure(tmp_path: Path, monkeypatch)
 @pytest.mark.skipif(shutil.which("git") is None, reason="git is not available")
 def test_git_commit_and_push_against_a_real_repo_with_no_changes(tmp_path: Path, monkeypatch) -> None:
     """A clean tree must be reported as 'nothing to commit' instead of raising."""
+    # The setup below creates a real commit, so it must not inherit the ambient
+    # git configuration: a global/system `commit.gpgsign`, `core.hooksPath`, or
+    # `init.templateDir` would fail this test for reasons unrelated to the code
+    # under test. System and global config are detached, and identity, signing,
+    # and line endings are passed per invocation.
     monkeypatch.setenv("LC_ALL", "C")
     monkeypatch.setenv("LANG", "C")
-    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, capture_output=True)
-    subprocess.run(["git", "-C", str(tmp_path), "config", "user.name", "Test"], check=True, capture_output=True)
-    subprocess.run(
-        ["git", "-C", str(tmp_path), "config", "user.email", "test@example.invalid"], check=True, capture_output=True
-    )
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
+
+    def git(*args: str) -> None:
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(tmp_path),
+                "-c",
+                "user.name=loonghao",
+                "-c",
+                "user.email=hal.long@outlook.com",
+                "-c",
+                "commit.gpgsign=false",
+                "-c",
+                "core.autocrlf=false",
+                *args,
+            ],
+            check=True,
+            capture_output=True,
+            timeout=30,
+        )
+
+    git("init", "--quiet")
     catalog = tmp_path / "marketplace.json"
     catalog.write_text(json.dumps({"version": "1", "entries": []}), encoding="utf-8")
-    subprocess.run(["git", "-C", str(tmp_path), "add", "marketplace.json"], check=True, capture_output=True)
-    subprocess.run(["git", "-C", str(tmp_path), "commit", "-q", "-m", "init catalog"], check=True, capture_output=True)
+    git("add", "marketplace.json")
+    git("commit", "--quiet", "--no-verify", "-m", "init catalog")
 
     result = _PUBLISH._git_commit_and_push(tmp_path, "marketplace.json", "maya-pipeline-tools", False)
 
