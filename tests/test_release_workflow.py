@@ -16,6 +16,11 @@ GITHUB_RELEASE_TOKEN = "${{ secrets.PERSONAL_ACCESS_TOKEN || github.token }}"
 REUSE_RELEASE_ASSETS_EXPRESSION = (
     "${{ github.event_name == 'workflow_dispatch' && inputs.release_tag != ''" + ASSETS_BACKFILL_GUARD + " }}"
 )
+# Assets are only ever replaced for the explicit asset backfill. A normal
+# release must overwrite nothing, or the safety-net upload in
+# publish-github-release-assets would delete and re-upload every asset the
+# per-platform jobs just attached.
+OVERWRITE_FILES_EXPRESSION = "${{ github.event_name == 'workflow_dispatch' && inputs.backfill_assets == true }}"
 
 
 def _release_jobs() -> dict:
@@ -32,10 +37,19 @@ def _github_release_steps(jobs: dict) -> list[dict]:
 
 
 def test_release_workflow_preserves_existing_github_release_assets() -> None:
+    """Assets are preserved by default and replaced only for an asset backfill.
+
+    `softprops/action-gh-release@v3` silently skips any same-named asset when
+    `overwrite_files` is false and still exits 0, so an unconditional false
+    turns the opt-in backfill into a no-op that reports success while the
+    release keeps its old bytes. An unconditional true is just as wrong: the
+    safety-net upload would delete and re-upload every asset the per-platform
+    jobs just attached.
+    """
     steps = _github_release_steps(_release_jobs())
     assert len(steps) == 3
     for step in steps:
-        assert step["with"]["overwrite_files"] is False
+        assert step["with"]["overwrite_files"] == OVERWRITE_FILES_EXPRESSION
         assert step["with"]["fail_on_unmatched_files"] is True
 
 
@@ -45,7 +59,7 @@ def test_release_workflow_uploads_assets_with_the_release_token() -> None:
     softprops/action-gh-release@v3 starts each upload with
     PATCH /repos/{owner}/{repo}/releases/{release_id}. When the default token
     is refused there, the whole asset set is dropped while every build still
-    reports success (PIP-3446: v0.20.34 shipped with 0 assets).
+    reports success: v0.20.34 shipped with 0 assets.
     """
     steps = _github_release_steps(_release_jobs())
     assert len(steps) == 3
@@ -55,14 +69,6 @@ def test_release_workflow_uploads_assets_with_the_release_token() -> None:
 
 def test_release_workflow_manual_backfill_reuses_core_release_assets() -> None:
     build_wheels = _release_jobs()["build-wheels"]
-    assert build_wheels["with"]["reuse-release-assets"] == REUSE_RELEASE_ASSETS_EXPRESSION
-    """backfill_assets must re-run the build jobs that a core-only backfill skips."""
-    jobs = _release_jobs()
-    for job_id in ("build-admin-ui", "build-binaries", "build-semantic-wheels"):
-        condition = jobs[job_id]["if"]
-        assert f"!({CORE_BACKFILL_EXPRESSION}{ASSETS_BACKFILL_GUARD})" in condition
-
-    build_wheels = jobs["build-wheels"]
     assert build_wheels["with"]["reuse-release-assets"] == REUSE_RELEASE_ASSETS_EXPRESSION
     assert build_wheels["secrets"] == {"RELEASE_TOKEN": "${{ secrets.PERSONAL_ACCESS_TOKEN }}"}
 
@@ -78,6 +84,15 @@ def test_manual_backfill_is_explicitly_core_only() -> None:
     assert 'server" != "skipped"' in summary
     assert 'semantic" != "skipped"' in summary
     assert 'release_assets" != "skipped"' in summary
+
+
+def test_backfill_assets_input_defaults_to_core_only() -> None:
+    """`backfill_assets` is the opt-in that widens a core-only backfill."""
+    workflow = yaml_loads(RELEASE_WORKFLOW.read_text(encoding="utf-8"))
+    backfill_assets = workflow["on"]["workflow_dispatch"]["inputs"]["backfill_assets"]
+    assert backfill_assets["type"] == "boolean"
+    assert backfill_assets["default"] is False
+    assert backfill_assets["required"] is False
 
 
 def test_release_workflow_publishes_each_pypi_project_in_its_own_job() -> None:
