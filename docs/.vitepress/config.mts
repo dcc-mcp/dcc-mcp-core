@@ -83,6 +83,7 @@ export default defineConfig({
                 { text: 'Gateway', link: '/guide/gateway' },
                 { text: 'Gateway Diagnostics', link: '/guide/gateway-diagnostics' },
                 { text: 'Migration: Embedded → Daemon', link: '/guide/migration/from-embedded-to-daemon' },
+                { text: 'Migration: MCP 2026-07-28', link: '/guide/mcp-2026-07-28-migration' },
                 { text: 'Tunnel Relay', link: '/guide/tunnel-relay' },
                 { text: 'Remote Server', link: '/guide/remote-server' },
                 { text: 'Production Deployment', link: '/guide/production-deployment' },
