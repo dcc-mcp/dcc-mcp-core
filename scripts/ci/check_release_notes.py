@@ -92,6 +92,9 @@ import re
 import subprocess
 import sys
 
+CR = "\r"
+CRLF = CR + "\n"
+
 RELEASE_CONFIG_NAME = "release-please-config.json"
 CHANGELOG_NAME = "CHANGELOG.md"
 
@@ -176,6 +179,21 @@ class ReleaseNotesReport:
         return self.untyped + self.undeclared + self.undocumented
 
 
+def read_text_lf(path: Path) -> str:
+    """Read a UTF-8 file with explicit LF newline handling.
+
+    ``Path.read_text()`` translates CRLF to LF on the way in and the matching
+    ``Path.write_text()`` translates LF back to CRLF on the way out, so a
+    read/write round trip rewrites every LF file as CRLF on Windows. Reading
+    bytes and normalizing here keeps the newline handling explicit: this gate
+    only consumes text, and a future write path has to choose its own line
+    endings instead of inheriting the platform default.
+    """
+    data = path.read_bytes()
+    text = data.decode("utf-8-sig", errors="replace")
+    return text.replace(CRLF, "\n").replace(CR, "\n")
+
+
 def load_changelog_types(config_path: Path) -> tuple[frozenset[str], frozenset[str]]:
     """Return the ``(hidden, visible)`` types a release-please config declares.
 
@@ -185,7 +203,7 @@ def load_changelog_types(config_path: Path) -> tuple[frozenset[str], frozenset[s
     a mechanism-A problem rather than a stale-notes problem.
     """
     try:
-        payload = json.loads(config_path.read_text(encoding="utf-8"))
+        payload = json.loads(read_text_lf(config_path))
     except (OSError, ValueError) as exc:
         raise ReleaseNotesError(f"cannot read {config_path}: {exc}") from exc
 
@@ -494,7 +512,7 @@ def _read_notes_file(path: Path) -> str:
     if str(path) == "-":
         return sys.stdin.read()
     try:
-        return path.read_text(encoding="utf-8")
+        return read_text_lf(path)
     except OSError as exc:
         raise ReleaseNotesError(f"cannot read notes file {path}: {exc}") from exc
 
@@ -528,7 +546,7 @@ def main(argv: list[str] | None = None) -> int:
 
     changelog_path = args.changelog or root / CHANGELOG_NAME
     try:
-        changelog_text = changelog_path.read_text(encoding="utf-8")
+        changelog_text = read_text_lf(changelog_path)
     except OSError:
         changelog_text = ""
 

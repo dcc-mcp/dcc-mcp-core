@@ -26,7 +26,9 @@ def emit(outputs: dict[str, str]) -> None:
     output_path = os.environ.get("GITHUB_OUTPUT")
     lines = [f"{key}={value}" for key, value in outputs.items()]
     if output_path:
-        with Path(output_path).open("a", encoding="utf-8") as handle:
+        # newline="" keeps GitHub Actions step outputs LF-terminated instead of
+        # inheriting the runner line separator.
+        with Path(output_path).open("a", encoding="utf-8", newline="") as handle:
             handle.write("\n".join(lines))
             handle.write("\n")
     for line in lines:
