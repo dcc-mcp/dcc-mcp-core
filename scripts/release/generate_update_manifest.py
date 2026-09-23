@@ -75,7 +75,9 @@ def generate_manifest(
 
     out_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = out_dir / f"dcc-mcp-update-manifest-{platform}.json"
-    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    # Byte write on purpose: the manifest is consumed by an updater that compares
+    # published bytes, and Path.write_text() would rewrite it as CRLF on Windows.
+    manifest_path.write_bytes((json.dumps(manifest, indent=2) + "\n").encode("utf-8"))
 
     return manifest_path
 

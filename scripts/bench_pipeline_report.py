@@ -395,7 +395,9 @@ def main(argv: list[str] | None = None) -> int:
     output: Path = args.output
     if output.parent != Path():
         output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps(report, indent=2, sort_keys=False) + "\n", encoding="utf-8")
+    # write_bytes() keeps the trailing newline LF on every platform; Path.write_text()
+    # would translate it to CRLF on Windows.
+    output.write_bytes((json.dumps(report, indent=2, sort_keys=False) + "\n").encode("utf-8"))
 
     print_summary(report)
     print(f"wrote {output}")

@@ -144,17 +144,18 @@ def _verify_profile(profile: str) -> None:
         with tempfile.TemporaryDirectory() as skill_dir:
             skill_path = Path(skill_dir) / "public-smoke"
             skill_path.mkdir()
-            (skill_path / "SKILL.md").write_text(
-                "---\n"
-                "name: py37-public-smoke\n"
-                "description: Public factory discovery smoke\n"
-                "metadata:\n"
-                "  dcc-mcp:\n"
-                "    dcc: maya\n"
-                '    version: "1.2.3"  # smoke version\n'
-                "    tags: [py37, smoke]\n"
-                "---\n",
-                encoding="utf-8",
+            # Byte write on purpose: the skill front matter must stay LF, and
+            # Path.write_text() would translate it to CRLF on Windows.
+            (skill_path / "SKILL.md").write_bytes(
+                b"---\n"
+                b"name: py37-public-smoke\n"
+                b"description: Public factory discovery smoke\n"
+                b"metadata:\n"
+                b"  dcc-mcp:\n"
+                b"    dcc: maya\n"
+                b'    version: "1.2.3"  # smoke version\n'
+                b"    tags: [py37, smoke]\n"
+                b"---\n"
             )
             server = create_skill_server("maya", extra_paths=[skill_dir], accumulated=False)
             if getattr(server, "backend", None) != "sidecar":
