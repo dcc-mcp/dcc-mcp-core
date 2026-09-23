@@ -387,6 +387,15 @@ struct WalkedSkillList {
     error: Option<String>,
 }
 
+/// Hard ceiling on how many bounded pages one backend may be walked for.
+///
+/// `backend_timeout` bounds a single round trip, not the number of rounds, so
+/// without a page budget a host that keeps answering `truncated: true` with a
+/// strictly increasing `next_offset` would page forever (PIP-3435). The normal
+/// budget is derived from the backend's own reported `total`; this constant
+/// only caps hosts that claim a `total` large enough to be implausible.
+const MAX_BACKEND_SKILL_PAGES: usize = 64;
+
 /// Walk one backend's `list_skills` catalogue with bounded pages.
 ///
 /// The backends deliberately expose no unbounded mode — honouring an
@@ -400,6 +409,12 @@ struct WalkedSkillList {
 /// union re-walks every host `n` times. Only hosts larger than one page pay
 /// for that, and the cost stays bounded — it is a constant factor on top of
 /// the round trips the union walk already makes.
+///
+/// The walk is also bounded in *rounds*: it stops after
+/// `total / MAX_LIST_SKILLS_LIMIT + 1` pages (capped at
+/// [`MAX_BACKEND_SKILL_PAGES`]), which is exactly the number of pages a
+/// truthful `total` implies. A host that keeps demanding more is reported as
+/// failed rather than trusted to eventually stop.
 async fn walk_backend_skill_pages(
     client: &reqwest::Client,
     resilience: &GatewayResilienceState,
@@ -412,8 +427,10 @@ async fn walk_backend_skill_pages(
     let mut skills: Vec<Value> = Vec::new();
     let mut total = 0usize;
     let mut offset = 0usize;
+    let mut pages = 0usize;
 
     loop {
+        pages += 1;
         let mut page_args = args.as_object().cloned().unwrap_or_default();
         page_args.insert("offset".to_string(), json!(offset));
         page_args.insert("limit".to_string(), json!(MAX_LIST_SKILLS_LIMIT));
@@ -503,7 +520,24 @@ async fn walk_backend_skill_pages(
         };
 
         match next {
-            Some(next) => offset = next,
+            Some(next) => {
+                // A host needs at most `ceil(total / page size)` pages to
+                // deliver what it claims to hold; the +1 absorbs a `total`
+                // that rounds down to zero. Asking for more means the host is
+                // making up pages, so stop and report it instead of merging a
+                // catalogue that never ends (PIP-3435).
+                let budget = (total / MAX_LIST_SKILLS_LIMIT + 1).min(MAX_BACKEND_SKILL_PAGES);
+                if pages >= budget {
+                    return WalkedSkillList {
+                        skills,
+                        total,
+                        error: Some(format!(
+                            "backend kept paginating past its page budget of {budget} pages"
+                        )),
+                    };
+                }
+                offset = next;
+            }
             None => {
                 return WalkedSkillList {
                     skills,
@@ -532,11 +566,16 @@ fn flatten_walked_skill_results(
 
     for (iid, dcc, walked) in results {
         if let Some(error) = walked.error {
+            // A failed host contributes nothing to the union: its rows are
+            // deliberately dropped, so `skill_count` must report what the
+            // host *contributed* (0), not how many rows the walk had already
+            // collected. Otherwise `sum(instances[].skill_count)` no longer
+            // equals `total` (PIP-3435).
             instances.push(json!({
                 "instance_id": iid.to_string(),
                 "instance_short": instance_short(&iid),
                 "dcc_type": dcc,
-                "skill_count": walked.skills.len(),
+                "skill_count": 0,
                 "error": error,
             }));
             continue;
@@ -606,9 +645,13 @@ fn flatten_skill_list_results(
                     continue;
                 }
 
-                ok_count += 1;
+                // Only a host whose payload parsed counts as healthy. The
+                // increment used to sit before the parse, so a fan-out where
+                // every host answered with non-JSON text still returned
+                // `is_error = false` over an empty union (PIP-3435).
                 match serde_json::from_str::<Value>(&text) {
                     Ok(parsed) => {
+                        ok_count += 1;
                         let before = skills.len();
                         if let Some(items) = parsed.get("skills").and_then(Value::as_array) {
                             for item in items {

@@ -153,6 +153,110 @@ async fn spawn_scripted_list_skills_backend(
     (port, shutdown_tx)
 }
 
+/// Backend that answers every page with `truncated: true` and a strictly
+/// increasing `next_offset`, so the walk never terminates on its own.
+///
+/// Returns the request counter so a test can assert exactly where the page
+/// budget stopped the walk (PIP-3435).
+async fn spawn_forever_paging_backend(
+    total: usize,
+    page: usize,
+) -> (
+    u16,
+    tokio::sync::oneshot::Sender<()>,
+    std::sync::Arc<std::sync::atomic::AtomicUsize>,
+) {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let calls = std::sync::Arc::new(AtomicUsize::new(0));
+    let counter = calls.clone();
+    let app = axum::Router::new()
+        .route(
+            "/health",
+            axum::routing::get(|| async { axum::Json(json!({"ok": true})) }),
+        )
+        .route(
+            "/mcp",
+            axum::routing::post(move |axum::Json(body): axum::Json<Value>| {
+                let calls = calls.clone();
+                async move {
+                    let offset = body
+                        .get("params")
+                        .and_then(|p| p.get("arguments"))
+                        .and_then(|a| a.get("offset"))
+                        .and_then(Value::as_u64)
+                        .unwrap_or(0) as usize;
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    let text = serde_json::to_string(&json!({
+                        "skills": [{"name": format!("ghost-{offset}"), "dcc": "blender"}],
+                        "total": total,
+                        "truncated": true,
+                        "next_offset": offset + page,
+                    }))
+                    .unwrap();
+                    axum::Json(json!({
+                        "jsonrpc": "2.0",
+                        "id": body.get("id").cloned().unwrap_or(Value::Null),
+                        "result": {
+                            "content": [{"type": "text", "text": text}],
+                            "isError": false,
+                        }
+                    }))
+                }
+            }),
+        );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+    tokio::spawn(async move {
+        axum::serve(listener, app)
+            .with_graceful_shutdown(async {
+                let _ = shutdown_rx.await;
+            })
+            .await
+            .ok();
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    (port, shutdown_tx, counter)
+}
+
+/// Backend that answers every `tools/call` with a raw text payload the fan-out
+/// cannot parse — the shape a proxy error page or a plain-string tool result
+/// produces (PIP-3435).
+async fn spawn_raw_text_backend(text: &'static str) -> (u16, tokio::sync::oneshot::Sender<()>) {
+    let app = axum::Router::new()
+        .route(
+            "/health",
+            axum::routing::get(|| async { axum::Json(json!({"ok": true})) }),
+        )
+        .route(
+            "/mcp",
+            axum::routing::post(move |axum::Json(body): axum::Json<Value>| async move {
+                axum::Json(json!({
+                    "jsonrpc": "2.0",
+                    "id": body.get("id").cloned().unwrap_or(Value::Null),
+                    "result": {
+                        "content": [{"type": "text", "text": text}],
+                        "isError": false,
+                    }
+                }))
+            }),
+        );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+    tokio::spawn(async move {
+        axum::serve(listener, app)
+            .with_graceful_shutdown(async {
+                let _ = shutdown_rx.await;
+            })
+            .await
+            .ok();
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    (port, shutdown_tx)
+}
+
 /// Pull the per-instance entry the fan-out reported for one `dcc_type`.
 fn instance_entry(payload: &Value, dcc: &str) -> Value {
     payload["instances"]
@@ -664,6 +768,165 @@ async fn list_skills_fanout_pages_same_named_skills_stably() {
             );
         }
     }
+
+    let _ = stop_a.send(());
+    let _ = stop_b.send(());
+}
+
+/// PIP-3435 (P3): a failed host must report `skill_count: 0`.
+///
+/// It used to report how many rows the walk had already collected, but those
+/// rows are deliberately dropped from the union, so `skill_count` described a
+/// contribution that never reached the caller.
+#[tokio::test]
+async fn list_skills_failed_host_reports_zero_skill_count() {
+    use std::sync::{Arc, Mutex};
+
+    let seen_good: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
+    let (port_good, stop_good) = spawn_list_skills_backend("maya", 7, seen_good.clone()).await;
+    // Two collected rows and no usable cursor: the walk fails while holding
+    // rows the union is about to discard.
+    let (port_bad, stop_bad) = spawn_scripted_list_skills_backend(
+        vec![json!({
+            "skills": [
+                {"name": "dropped-1", "dcc": "blender"},
+                {"name": "dropped-2", "dcc": "blender"},
+            ],
+            "total": 60,
+            "truncated": true,
+        })],
+        false,
+    )
+    .await;
+
+    let (gs, _dir, _ids) =
+        gateway_state_with_instances(&[("maya", port_good), ("blender", port_bad)]).await;
+
+    let (text, is_error) =
+        crate::gateway::aggregator::skill_mgmt::skill_mgmt_dispatch(&gs, "list_skills", &json!({}))
+            .await;
+    assert!(!is_error, "{text}");
+    let payload: Value = serde_json::from_str(&text).unwrap();
+
+    let blender = instance_entry(&payload, "blender");
+    assert!(
+        blender.get("error").is_some(),
+        "blender must be reported as failed: {blender:#}"
+    );
+    assert_eq!(
+        blender.get("skill_count").and_then(Value::as_u64),
+        Some(0),
+        "a failed host contributes 0 rows, not the rows it collected: {blender:#}"
+    );
+
+    // The invariant the fix restores: every row in the union is accounted for
+    // by exactly one instance summary.
+    let summed: u64 = payload["instances"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| {
+            entry
+                .get("skill_count")
+                .and_then(Value::as_u64)
+                .unwrap_or(0)
+        })
+        .sum();
+    assert_eq!(
+        summed,
+        payload["total"].as_u64().unwrap(),
+        "sum(instances[].skill_count) must equal total: {payload:#}"
+    );
+
+    let _ = stop_good.send(());
+    let _ = stop_bad.send(());
+}
+
+/// PIP-3435 (P3): a host that keeps answering `truncated: true` with a
+/// strictly increasing `next_offset` must not page forever.
+///
+/// `backend_timeout` bounds one round trip, not the number of rounds, so
+/// without a page budget this walk never returns.
+#[tokio::test]
+async fn list_skills_walk_stops_at_the_page_budget() {
+    use std::sync::atomic::Ordering;
+    use std::sync::{Arc, Mutex};
+
+    let seen_good: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
+    let (port_good, stop_good) = spawn_list_skills_backend("maya", 3, seen_good.clone()).await;
+
+    // Claims a two-page catalogue, then offers another page on every request.
+    let total = MAX_LIST_SKILLS_LIMIT * 2;
+    let (port_bad, stop_bad, calls) =
+        spawn_forever_paging_backend(total, MAX_LIST_SKILLS_LIMIT).await;
+
+    let (gs, _dir, _ids) =
+        gateway_state_with_instances(&[("maya", port_good), ("blender", port_bad)]).await;
+
+    let (text, is_error) =
+        crate::gateway::aggregator::skill_mgmt::skill_mgmt_dispatch(&gs, "list_skills", &json!({}))
+            .await;
+    assert!(
+        !is_error,
+        "one healthy host keeps the fan-out usable: {text}"
+    );
+
+    // A truthful `total` of 100 at 50 rows a page is a two-page catalogue, so
+    // the budget is 100 / 50 + 1 = 3 pages.
+    let budget = total / MAX_LIST_SKILLS_LIMIT + 1;
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        budget,
+        "the walk did not stop at its page budget"
+    );
+
+    let payload: Value = serde_json::from_str(&text).unwrap();
+    let blender = instance_entry(&payload, "blender");
+    let error = blender
+        .get("error")
+        .and_then(Value::as_str)
+        .unwrap_or_else(|| panic!("blender was not reported as failed: {blender:#}"));
+    assert!(
+        error.contains("page budget"),
+        "unexpected error text {error}"
+    );
+    assert_eq!(
+        payload["total"], 3,
+        "only the healthy host may be merged: {payload:#}"
+    );
+
+    let _ = stop_good.send(());
+    let _ = stop_bad.send(());
+}
+
+/// PIP-3435 (P3): a fan-out where no host returned parseable text used to
+/// report success over an empty union — `ok_count` was incremented before the
+/// payload was parsed, so no host was ever counted as failed.
+#[tokio::test]
+async fn search_skills_reports_error_when_no_host_returns_json() {
+    let (port_a, stop_a) = spawn_raw_text_backend("not json at all").await;
+    let (port_b, stop_b) = spawn_raw_text_backend("<html>502 Bad Gateway</html>").await;
+    let (gs, _dir, _ids) =
+        gateway_state_with_instances(&[("maya", port_a), ("blender", port_b)]).await;
+
+    let (text, is_error) = crate::gateway::aggregator::skill_mgmt::skill_mgmt_dispatch(
+        &gs,
+        "search_skills",
+        &json!({"query": "skill"}),
+    )
+    .await;
+    assert!(
+        is_error,
+        "no host returned JSON, so the fan-out must not claim success: {text}"
+    );
+
+    let payload: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(payload["total"], 0, "{payload:#}");
+    assert_eq!(
+        payload["instances"].as_array().map(Vec::len),
+        Some(2),
+        "both hosts must be reported: {payload:#}"
+    );
 
     let _ = stop_a.send(());
     let _ = stop_b.send(());
