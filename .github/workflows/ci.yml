@@ -759,6 +759,24 @@ jobs:
       - name: Docs playbook coverage (agent-facing entry points)
         run: vx just docs-lint-playbook
 
+  line-endings:
+    name: Line endings
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      # Reads committed blobs instead of the working tree, so a contributor's
+      # core.autocrlf cannot hide a CRLF commit. .gitattributes pins *.py to LF;
+      # this job is the backstop for tooling that bypasses it, such as the
+      # Path.read_text()/Path.write_text() round trip that rewrote two files as
+      # CRLF in PR #2567.
+      - name: Reject CR bytes in tracked Python blobs
+        run: python scripts/ci/check_line_endings.py --root .
+
   # ── Released schema immutability gate ─────────────────────────────────────
   # A released `-vN` schema must never be rewritten in place. The four live
   # digest pins (compatibility/python.json, install_sop.py,
