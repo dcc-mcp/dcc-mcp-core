@@ -1,3 +1,9 @@
 .githooks/* text eol=lf
 python/dcc_mcp_core/schemas/*.schema.json text eol=lf
 crates/dcc-mcp-attestation/tests/fixtures/core-release.json -text
+
+# Python sources: normalize to LF on check-in and check out with LF.
+# Path.read_text()/Path.write_text() round trips rewrite LF files as CRLF on
+# Windows; scripts/ci/check_line_endings.py enforces the result in CI.
+# Later rules win, so append future `-text` exceptions below this line.
+*.py text eol=lf
