@@ -618,14 +618,38 @@ jobs:
           # `timeout` is GNU coreutils: macOS runners ship neither it nor a
           # preinstalled `gtimeout`, and an unknown command makes every
           # attempt below fail while the step still reports success. Probe for
-          # one and otherwise fall back to the step-level `timeout-minutes`
-          # bound, which the runner always enforces.
+          # one, and where none exists bound the process from the shell: vx's
+          # HTTP client carries no request timeout of its own, so a hanging
+          # probe is a real failure mode, and this step has no
+          # `continue-on-error`. Left unbounded a hang would be killed at
+          # `timeout-minutes` and take the whole lane down -- the opposite of
+          # what this step exists to prevent.
+          #
+          # The watchdog measures wall clock (`SECONDS`) rather than counting
+          # iterations: `sleep 1` can take longer than a second, and three
+          # drifted attempts would overrun the 6 minute step budget anyway.
+          # `kill`/`sleep`/`wait` are POSIX, so no coreutils are required, and
+          # `wait` stays last so the function's status is the probe's status.
           if command -v timeout >/dev/null 2>&1; then
             probe_ffmpeg() { timeout 90 vx ffmpeg -version; }
           elif command -v gtimeout >/dev/null 2>&1; then
             probe_ffmpeg() { gtimeout 90 vx ffmpeg -version; }
           else
-            probe_ffmpeg() { vx ffmpeg -version; }
+            probe_ffmpeg() {
+              vx ffmpeg -version &
+              local pid=$!
+              SECONDS=0
+              while kill -0 "$pid" 2>/dev/null; do
+                if [ "$SECONDS" -ge 90 ]; then
+                  kill "$pid" 2>/dev/null || :
+                  sleep 1
+                  kill -9 "$pid" 2>/dev/null || :
+                  break
+                fi
+                sleep 1
+              done
+              wait "$pid" 2>/dev/null
+            }
           fi
           for attempt in 1 2 3; do
             if probe_ffmpeg; then
