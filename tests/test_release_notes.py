@@ -153,6 +153,151 @@ def test_release_commit_is_skipped() -> None:
     assert report.failures == ()
 
 
+# ── breaking markers on hidden types ────────────────────────────────────────
+
+
+def test_the_breaking_capable_hidden_types_are_the_documented_table() -> None:
+    """The table in the module docstring and the constant must not drift apart."""
+    checker = _load_checker_module()
+
+    capable = checker.BREAKING_CAPABLE_HIDDEN_TYPES
+
+    assert capable == frozenset({"chore", "build"})
+    # An exception may only narrow the hidden set, never invent types.
+    assert capable < HIDDEN_TYPES
+
+
+@pytest.mark.parametrize("subject", ["test(skills)!: align fixtures", "style!: reformat", "ci!: gate the publish"])
+def test_a_breaking_marker_does_not_unhide_a_contributor_facing_type(subject: str) -> None:
+    """``test!`` / ``style!`` / ``ci!`` stay hidden even though the generator renders them.
+
+    The generator does publish these: ``conventional-changelog-conventionalcommits``
+    only discards a commit that carries no note. The gate still skips them, because
+    the breaking surface of a fixture, a formatter or a pipeline does not reach a
+    consumer of the published artefact. This is the deliberate under-report the
+    module docstring records, and the false-positive budget is what it buys.
+    """
+    checker = _load_checker_module()
+    commit = checker.Commit(sha="16d5c287" + "0" * 32, subject=subject)
+
+    report = checker.check_commits([commit], "", HIDDEN_TYPES)
+
+    assert report.hidden == (commit,)
+    assert report.failures == ()
+
+
+@pytest.mark.parametrize("subject", ["chore!: drop the Python 3.7 wheels", "build(wheel)!: drop the abi3 tag"])
+def test_a_breaking_marker_unhides_a_consumer_facing_type(subject: str) -> None:
+    """``chore!`` / ``build!`` reach downstream, so the gate cross-checks them."""
+    checker = _load_checker_module()
+    commit = checker.Commit(sha="ba5eba11" + "0" * 32, subject=subject)
+
+    report = checker.check_commits([commit], "", HIDDEN_TYPES)
+
+    assert report.hidden == ()
+    assert report.checked == (commit,)
+    # Not in the notes, so it is reported as a post-notes commit.
+    assert report.undocumented == (commit,)
+
+
+def test_a_documented_breaking_chore_is_not_reported() -> None:
+    """The generator renders these with the sha, so a real notes entry clears them."""
+    checker = _load_checker_module()
+    commit = checker.Commit(sha="ba5eba11" + "0" * 32, subject="chore!: drop the Python 3.7 wheels")
+    notes = "* **python:** drop the Python 3.7 wheels ([ba5eba1](https://github.com/o/r/commit/ba5eba110000000000000000000000000000000000))"
+
+    report = checker.check_commits([commit], notes, HIDDEN_TYPES)
+
+    assert report.checked == (commit,)
+    assert report.failures == ()
+
+
+def test_is_breaking_reads_the_title_marker() -> None:
+    checker = _load_checker_module()
+
+    assert checker.is_breaking("feat!: rewrite") is True
+    assert checker.is_breaking("fix(api)!: drop rows") is True
+    assert checker.is_breaking("chore!: drop wheels") is True
+    assert checker.is_breaking("chore: bump the lockfile") is False
+    assert checker.is_breaking("test(skills)!: align fixtures") is True
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "BREAKING CHANGE: Python 3.7 wheels are no longer published",
+        "BREAKING-CHANGE: Python 3.7 wheels are no longer published",
+        "some prose\n\nBREAKING CHANGE: the install layout moved\n",
+    ],
+)
+def test_is_breaking_reads_a_footer_in_the_body(body: str) -> None:
+    """A ``BREAKING CHANGE:`` footer is a breaking marker, like the ``!``.
+
+    The generator un-discards a commit for a footer exactly as it does for a
+    ``!``, so the gate reads both. See ``add-bang-notes.js``: the ``!`` is only
+    a shorthand for a footer the author did not write.
+    """
+    checker = _load_checker_module()
+
+    assert checker.is_breaking("chore: drop the Python 3.7 wheels", body) is True
+
+
+def test_is_breaking_ignores_a_body_without_a_footer() -> None:
+    checker = _load_checker_module()
+
+    assert checker.is_breaking("chore: bump the lockfile", "BREAKING near the start is not a footer") is False
+    assert checker.is_breaking("chore: bump the lockfile", "") is False
+
+
+def test_a_breaking_footer_unhides_a_consumer_facing_type() -> None:
+    """``chore:`` + footer is rendered by the generator, so it is checked."""
+    checker = _load_checker_module()
+    commit = checker.Commit(
+        sha="ba5eba11" + "0" * 32,
+        subject="chore: drop the Python 3.7 wheels",
+        body="CI only.\n\nBREAKING CHANGE: no more cp37 wheels\n",
+    )
+
+    report = checker.check_commits([commit], "", HIDDEN_TYPES)
+
+    assert report.hidden == ()
+    assert report.checked == (commit,)
+
+
+def test_a_breaking_footer_does_not_unhide_a_contributor_facing_type() -> None:
+    """Same policy as the ``!``: a fixture break is not a consumer break."""
+    checker = _load_checker_module()
+    commit = checker.Commit(
+        sha="16d5c287" + "0" * 32,
+        subject="test(skills): align the fixtures",
+        body="BREAKING CHANGE: fixtures must use the nested metadata form\n",
+    )
+
+    report = checker.check_commits([commit], "", HIDDEN_TYPES)
+
+    assert report.hidden == (commit,)
+    assert report.failures == ()
+
+
+def test_read_commits_carries_the_body_so_footers_are_visible(tmp_path: Path) -> None:
+    """A multi-line body must survive the round trip as one commit.
+
+    Bodies span lines, so records are NUL-delimited; newline splitting would
+    turn one commit with a body into several commits without one.
+    """
+    checker = _load_checker_module()
+    _write_git_repo(
+        tmp_path,
+        "chore: drop the Python 3.7 wheels\n\nBREAKING CHANGE: no more cp37 wheels\n",
+    )
+
+    commits = checker.read_commits(tmp_path, "HEAD~1", "HEAD")
+
+    assert len(commits) == 1
+    assert commits[0].subject == "chore: drop the Python 3.7 wheels"
+    assert checker.is_breaking(commits[0].subject, commits[0].body) is True
+
+
 # ── sha matching ────────────────────────────────────────────────────────────
 
 

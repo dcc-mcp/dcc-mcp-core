@@ -17,11 +17,60 @@ silence, and both were observed for real in v0.20.34:
     is inside the tag yet absent from the notes. ``dc0e6c21`` (PR #2547) and
     ``c4369107`` (PR #2548) were swallowed that way.
 
+Breaking markers and the types release-please hides
+--------------------------------------------------
+
 The gate stays quiet about the commit types release-please hides
 (``style`` / ``chore`` / ``test`` / ``ci`` / ``build``): those are absent from
 the notes by design, and flagging them would get the gate switched off. The
 hidden set is read from ``release-please-config.json`` so it can never drift
 from the generator.
+
+A breaking-change marker is a partial exception, because the generator does
+not actually hide a breaking commit. ``conventional-changelog-conventionalcommits``
+sets ``discard = false`` for any commit carrying a note, so a hidden type is
+only dropped when it carries none - its own source comment says "breaking
+changes attached to any type are still displayed", and it ships
+``add-bang-notes.js`` to synthesise that note for exactly this case:
+
+    // for the special case, test(system)!: hello world, where there is
+    // a '!' but no 'BREAKING CHANGE' in body
+
+Whether this gate follows the generator is decided per type by one question:
+**can this type carry a breaking change a downstream consumer can feel?**
+
+============  ==================  ===========================================
+type           ``!`` overrides     why
+============  ==================  ===========================================
+``chore``      **yes**             Build, dependency, packaging and
+                                   minimum-version policy (dropping a wheel,
+                                   a Python version, an install layout) land
+                                   on everyone who installs the package.
+``build``      **yes**             Same family: wheel tags, matrix layout and
+                                   packaging metadata are shipping surface.
+``test``       no                  Test fixtures and assertions. The only
+                                   breakage is contributor-side.
+``style``      no                  Formatting cannot change behaviour.
+``ci``         no                  Pipeline wiring. It gates contributors, not
+                                   consumers of a published artefact.
+============  ==================  ===========================================
+
+``test!`` and ``style!`` are a deliberate policy choice, not a claim about the
+generator: the generator *does* render them, so this gate under-reports those
+two types on purpose. What buys that tolerance is the false-positive budget -
+the only thing that keeps a release gate switched on. The full history holds
+exactly one such commit, ``16d5c287`` ``test(skills)!: align fixtures with
+nested metadata.dcc-mcp.* contract``, and it is a contributor-facing fixture
+migration, so it is the case the table exists to absorb rather than the case
+the table should chase.
+
+**Adding an exception.** Add the type to ``BREAKING_CAPABLE_HIDDEN_TYPES`` and
+re-run the full-history replay (every consecutive release-tag window) to prove
+the change adds zero new alarms. A new alarm is only acceptable when it names
+a commit a real downstream consumer can feel; if it names a fixture or
+formatting change, the table is wrong, not the commit. Do not widen the set to
+match the generator wholesale - ``test!`` is the counter-example that would
+cost an alarm and buy nothing.
 
 Notes are read from every source given with ``--notes-file`` (a release PR body,
 a published release body, stdin via ``-``) plus, when ``--include-changelog`` is
@@ -60,6 +109,14 @@ _CONVENTIONAL_RE = re.compile(r"^([a-zA-Z]+)(\(.*\))?!?:")
 # A breaking-change marker (``feat!:`` / ``fix(api)!:``) makes release-please
 # render the commit even when its type is not declared in changelog-sections.
 _BREAKING_RE = re.compile(r"^[a-zA-Z]+(\(.*\))?!:")
+# ``BREAKING CHANGE: ...`` / ``BREAKING-CHANGE: ...`` in the commit body. The
+# generator accepts a footer note exactly like a ``!``, so both are read.
+_BREAKING_FOOTER_RE = re.compile(r"^BREAKING[ -]CHANGE\s*:", re.MULTILINE)
+
+#: Hidden types whose breaking changes reach a downstream consumer. A ``!``
+#: (or a ``BREAKING CHANGE:`` footer) on these overrides the hidden section;
+#: on every other hidden type it does not. See the module docstring.
+BREAKING_CAPABLE_HIDDEN_TYPES = frozenset({"chore", "build"})
 # The release commit itself: ``chore(main): release 0.20.34 (#2505)``.
 _RELEASE_COMMIT_RE = re.compile(r"^chore(\([^)]*\))?!?:\s*release\s+(\S+)", re.IGNORECASE)
 # Squash-merged commits and release note entries both carry the PR number.
@@ -78,6 +135,7 @@ class Commit:
 
     sha: str
     subject: str
+    body: str = ""
 
     @property
     def short_sha(self) -> str:
@@ -165,9 +223,28 @@ def commit_type(subject: str) -> str | None:
     return match.group(1).lower() if match is not None else None
 
 
-def is_breaking(subject: str) -> bool:
-    """Return True when ``subject`` carries the ``!`` breaking-change marker."""
-    return _BREAKING_RE.match(subject) is not None
+def is_breaking(subject: str, body: str = "") -> bool:
+    """Return True when the commit carries a breaking-change marker.
+
+    Two spellings, because the generator accepts both and treats them alike: the
+    ``!`` marker in the title, and a ``BREAKING CHANGE:`` footer in the body. The
+    footer is only visible to a caller that has the body; a caller holding just a
+    subject keeps the title-only answer.
+    """
+    if _BREAKING_RE.match(subject) is not None:
+        return True
+    return bool(body) and _BREAKING_FOOTER_RE.search(body) is not None
+
+
+def is_user_visible_breaking(type_name: str, subject: str, body: str = "") -> bool:
+    """Return True when a hidden-type commit is breaking enough to be checked.
+
+    Hidden means "release-please leaves this out on purpose", and this gate honours
+    that. A breaking marker reverses the omission, but only for the types that can
+    carry a change a downstream consumer can feel - see
+    ``BREAKING_CAPABLE_HIDDEN_TYPES`` and the table in the module docstring.
+    """
+    return type_name in BREAKING_CAPABLE_HIDDEN_TYPES and is_breaking(subject, body)
 
 
 def is_release_commit(subject: str) -> str | None:
@@ -227,9 +304,15 @@ def newest_version(changelog_text: str) -> str | None:
 
 
 def read_commits(root: Path, prev_ref: str, release_ref: str) -> list[Commit]:
-    """Return the non-merge commits in ``prev_ref..release_ref``, newest first."""
+    """Return the non-merge commits in ``prev_ref..release_ref``, newest first.
+
+    Each record also carries the commit body, so a ``BREAKING CHANGE:`` footer
+    is visible to ``is_breaking()``. Records are NUL-delimited because a body
+    spans lines: splitting on newlines would cut every multi-line commit into
+    several bogus ones.
+    """
     completed = subprocess.run(
-        ["git", "log", f"{prev_ref}..{release_ref}", "--no-merges", "--format=%H%x09%s"],
+        ["git", "log", f"{prev_ref}..{release_ref}", "--no-merges", "--format=%H%x1f%s%x1f%b%x00"],
         cwd=str(root),
         capture_output=True,
         # Commit subjects carry typographic characters (em dashes, accents);
@@ -244,11 +327,11 @@ def read_commits(root: Path, prev_ref: str, release_ref: str) -> list[Commit]:
             f"git log {prev_ref}..{release_ref} failed in {root}: {completed.stderr.strip() or 'unknown error'}"
         )
     commits = []
-    for line in completed.stdout.splitlines():
-        if not line.strip():
+    for record in completed.stdout.split("\x00"):
+        if not record.strip():
             continue
-        sha, _, subject = line.partition("\t")
-        commits.append(Commit(sha=sha.strip(), subject=subject.strip()))
+        sha, subject, body, *_ = [*record.split("\x1f", 2), "", ""]
+        commits.append(Commit(sha=sha.strip(), subject=subject.strip(), body=body.strip()))
     return commits
 
 
@@ -270,6 +353,9 @@ def check_commits(
     reason it drops an untyped title, so "regenerate the release PR" would send
     the author the wrong way. A breaking-change marker exempts the commit,
     because release-please renders breaking commits regardless of their type.
+
+    A hidden type is exempt the other way round: the marker only pulls it back
+    into the checked set when ``is_user_visible_breaking`` accepts its type.
     """
     release_commits: list[Commit] = []
     hidden: list[Commit] = []
@@ -287,10 +373,14 @@ def check_commits(
             # Mechanism A: no type, so release-please never saw this commit.
             untyped.append(commit)
             continue
-        if type_name in hidden_types:
+        if type_name in hidden_types and not is_user_visible_breaking(type_name, commit.subject, commit.body):
             hidden.append(commit)
             continue
-        if visible_types is not None and type_name not in visible_types and not is_breaking(commit.subject):
+        if (
+            visible_types is not None
+            and type_name not in visible_types
+            and not is_breaking(commit.subject, commit.body)
+        ):
             # Mechanism A: undeclared type, so the generator drops it too.
             undeclared.append(commit)
             continue
