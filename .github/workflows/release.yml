@@ -984,7 +984,7 @@ jobs:
         shell: bash
         run: |
           for attempt in $(seq 1 10); do
-            gh api "repos/${{ github.repository }}/releases/tags/${{ env.RELEASE_TAG }}" > release.json
+            gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" > release.json
             count=$(jq '.assets | length' release.json)
             echo "attempt ${attempt}: ${count} assets"
             if [ "$count" -gt 0 ]; then
