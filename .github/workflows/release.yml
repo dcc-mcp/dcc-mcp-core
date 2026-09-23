@@ -605,10 +605,13 @@ jobs:
 
   # ── Validate release metadata once before publishing artefacts ──
   #
-  # Every publish job depends on this one, so a failure here blocks PyPI and
-  # the GitHub Release asset set. The release-notes cross-check rides along
-  # for the same reason: notes that silently omit a shipped commit are as
-  # much a broken release as a wrong version.
+  # The three PyPI publish jobs depend on this one, so a failure here blocks
+  # every PyPI publication. It intentionally does NOT gate the GitHub Release
+  # asset set: the per-platform build jobs upload their artefacts directly and
+  # publish-github-release-assets runs on always(), so assets land even when
+  # this job fails. The release-notes cross-check rides along for the same
+  # reason as the version check: notes that silently omit a shipped commit
+  # are as much a broken release as a wrong version.
   validate-release-version:
     needs: [release-please]
     if: needs.release-please.outputs.release_created == 'true'

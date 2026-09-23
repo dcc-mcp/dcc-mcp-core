@@ -210,7 +210,12 @@ def read_commits(root: Path, prev_ref: str, release_ref: str) -> list[Commit]:
         ["git", "log", f"{prev_ref}..{release_ref}", "--no-merges", "--format=%H%x09%s"],
         cwd=str(root),
         capture_output=True,
+        # Commit subjects carry typographic characters (em dashes, accents);
+        # decoding with the host locale turns a non-UTF-8 console into a crash
+        # whose exit code is indistinguishable from a real notes gap.
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     if completed.returncode != 0:
         raise ReleaseNotesError(
@@ -285,7 +290,9 @@ def format_errors(report: ReleaseNotesReport) -> list[str]:
         errors.append(
             f"[B:post-notes-commit] {commit.short_sha} ({commit.pr_label}) {commit.subject!r} is user-visible but "
             f"missing from the {label} release notes: it landed after the notes were last generated. Fix: regenerate "
-            f"the release PR before merging, or publish a release-body addendum citing {commit.short_sha}."
+            f"the release PR before merging, or publish a release-body addendum citing {commit.short_sha}. Once the "
+            f"tag exists neither works; re-run the release workflow with release_tag to republish assets, which "
+            f"skips this gate."
         )
     return errors
 
@@ -296,6 +303,8 @@ def _git_subject(root: Path, ref: str) -> str:
         cwd=str(root),
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     return completed.stdout.strip() if completed.returncode == 0 else ""
 
@@ -334,6 +343,8 @@ def _resolve_prev_ref(root: Path, changelog_text: str, version: str, release_ref
         cwd=str(root),
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     if completed.returncode == 0 and completed.stdout.strip():
         return completed.stdout.strip()

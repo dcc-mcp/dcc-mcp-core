@@ -292,6 +292,35 @@ def test_visible_commit_missing_from_notes_is_reported_as_mechanism_b() -> None:
     assert "PR #2548" in errors[0]
 
 
+def _write_git_repo(tmp_path: Path, subject: str) -> None:
+    """Create a two-commit repository whose tip carries ``subject``."""
+    subprocess.run(["git", "init", "-q"], cwd=str(tmp_path), check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "ci@example.com"], cwd=str(tmp_path), check=True)
+    subprocess.run(["git", "config", "user.name", "CI"], cwd=str(tmp_path), check=True)
+    (tmp_path / "file.txt").write_text("seed\n", encoding="utf-8")
+    subprocess.run(["git", "add", "file.txt"], cwd=str(tmp_path), check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "chore: seed"], cwd=str(tmp_path), check=True)
+    (tmp_path / "file.txt").write_text("seed\nmore\n", encoding="utf-8")
+    subprocess.run(["git", "add", "file.txt"], cwd=str(tmp_path), check=True)
+    subprocess.run(["git", "commit", "-q", "-m", subject], cwd=str(tmp_path), check=True)
+
+
+def test_read_commits_decodes_non_ascii_subjects_as_utf8(tmp_path: Path) -> None:
+    """Subjects hold typographic characters; decoding must not follow the locale.
+
+    A non-UTF-8 console turned the em dash in ``8a861522`` into a
+    UnicodeDecodeError whose exit code was indistinguishable from a real notes
+    gap, so read_commits pins UTF-8 instead of inheriting the host encoding.
+    """
+    checker = _load_checker_module()
+    _write_git_repo(tmp_path, "feat(verification): behavior verification contract \u2014 state export")
+
+    commits = checker.read_commits(tmp_path, "HEAD~1", "HEAD")
+
+    assert len(commits) == 1
+    assert commits[0].subject.endswith("contract \u2014 state export")
+
+
 def test_commit_pr_label_falls_back_when_no_pr_is_referenced() -> None:
     checker = _load_checker_module()
 
@@ -404,6 +433,35 @@ def test_replay_0_20_33_is_a_clean_baseline() -> None:
     )
 
 
+@pytest.mark.skipif(not _tag_present("v0.20.23"), reason="v0.20.23 tag is not available in this checkout")
+def test_replay_0_20_23_is_clean_across_a_wide_window(capsys) -> None:
+    """Noise guard: a 90-commit window with 8 hidden commits must stay silent.
+
+    The 0.20.32..0.20.33 baseline carries a single user-visible commit, so it
+    cannot detect a gate that simply reports everything it sees. This window is
+    the real false-positive guard.
+    """
+    checker = _load_checker_module()
+
+    assert (
+        checker.main(
+            ["--root", str(REPO_ROOT), "--prev-tag", "v0.20.22", "--release-tag", "v0.20.23", "--version", "0.20.23"]
+        )
+        == 0
+    )
+
+    commits = checker.read_commits(REPO_ROOT, "v0.20.22", "v0.20.23")
+    section = checker.changelog_section((REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8"), "0.20.23")
+    assert section is not None
+    report = checker.check_commits(
+        commits, section, checker.load_hidden_types(REPO_ROOT / "release-please-config.json")
+    )
+
+    assert len(report.hidden) == 8
+    assert len(report.checked) == 90
+    assert report.failures == ()
+
+
 @pytest.mark.skipif(not _tag_present("v0.20.34"), reason="v0.20.34 tag is not available in this checkout")
 def test_release_body_addendum_clears_the_mechanism_b_gaps(tmp_path: Path, capsys) -> None:
     checker = _load_checker_module()
@@ -455,9 +513,7 @@ def test_release_workflow_runs_the_notes_gate() -> None:
 
     assert "check_release_notes.py" in workflow
 
-
-def test_gate_script_passes_the_python37_syntax_scan() -> None:
-    """The gate ships to CI, so it must stay inside the Python 3.7 grammar."""
-    import ast
-
-    ast.parse(SCRIPT_PATH.read_text(encoding="utf-8"), feature_version=(3, 7))
+    # The py37 grammar guarantee lives in the `py37 syntax check` CI lane, which
+    # compiles scripts/ and tests/ with a real Python 3.7 interpreter. It is not
+    # re-checked here: ast.parse's feature_version only exists on Python 3.8+,
+    # so asserting it from inside the suite would fail on the py37 lane itself.
