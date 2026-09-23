@@ -604,6 +604,14 @@ jobs:
       RELEASE_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
 
   # ── Validate release metadata once before publishing artefacts ──
+  #
+  # The three PyPI publish jobs depend on this one, so a failure here blocks
+  # every PyPI publication. It intentionally does NOT gate the GitHub Release
+  # asset set: the per-platform build jobs upload their artefacts directly and
+  # publish-github-release-assets runs on always(), so assets land even when
+  # this job fails. The release-notes cross-check rides along for the same
+  # reason as the version check: notes that silently omit a shipped commit
+  # are as much a broken release as a wrong version.
   validate-release-version:
     needs: [release-please]
     if: needs.release-please.outputs.release_created == 'true'
@@ -611,8 +619,11 @@ jobs:
     permissions:
       contents: read
     steps:
+      # fetch-depth 0: the notes gate walks the history between the previous
+      # release tag and this one; a shallow clone cannot resolve the range.
       - uses: actions/checkout@v6
         with:
+          fetch-depth: 0
           ref: ${{ needs.release-please.outputs.tag_name }}
 
       - uses: actions/setup-python@v6
@@ -653,6 +664,43 @@ jobs:
                   if ver != release_version:
                       print(f"::warning::Cargo.lock:{name} has {ver}, expected {release_version}")
           PY
+
+      # Cross-check the notes against the commits the tag actually carries.
+      # Skipped on the immutable backfill path (release_tag set): that route
+      # republishes artefacts for an already-published release whose history
+      # cannot be retitled any more; an addendum on the release body is the
+      # only remediation there, and it is already applied where it applies.
+      - name: Collect the published release notes
+        if: github.event_name != 'workflow_dispatch' || inputs.release_tag == ''
+        env:
+          GH_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN || github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body > release-notes.md; then
+            echo "Read the published release body for $RELEASE_TAG"
+          else
+            echo "::warning::Could not read the release body for $RELEASE_TAG; checking the CHANGELOG section only"
+            rm -f release-notes.md
+          fi
+
+      - name: Cross-check the release notes against the release commits
+        if: github.event_name != 'workflow_dispatch' || inputs.release_tag == ''
+        env:
+          RELEASE_TAG: ${{ needs.release-please.outputs.tag_name }}
+          RELEASE_VERSION: ${{ needs.release-please.outputs.version }}
+        run: |
+          set -euo pipefail
+          notes_args=()
+          if [ -s release-notes.md ]; then
+            notes_args=(--notes-file release-notes.md)
+          fi
+          python scripts/ci/check_release_notes.py \
+            --release-tag "$RELEASE_TAG" \
+            --version "$RELEASE_VERSION" \
+            "${notes_args[@]}" \
+            --include-changelog
 
   # ── Publish dcc-mcp-core to PyPI ──
   publish-core-pypi:
