@@ -73,6 +73,17 @@ pub(crate) enum Command {
         /// Gateway port to probe without starting it.
         #[arg(long, default_value = "9765")]
         gateway_port: u16,
+        /// Probe one adapter's importability in a specific interpreter.
+        ///
+        /// Repeatable, `<dcc_type>=<python>`, e.g. `maya=/usr/autodesk/maya2026/bin/mayapy`.
+        /// Required to grade adapters when DCC_MCP_PYTHON_EXECUTABLE is unset: doctor
+        /// never guesses an ambient interpreter, because that reports false
+        /// "missing" rows for adapters installed into a host's own interpreter.
+        #[arg(long = "adapter-python", value_name = "DCC=PYTHON")]
+        adapter_python: Vec<String>,
+        /// Read a custom adapter catalog when resolving adapter package names.
+        #[arg(long, value_name = "PATH")]
+        adapter_catalog: Option<PathBuf>,
     },
     /// List live DCC instances from the local registry or selected gateway profile.
     List,

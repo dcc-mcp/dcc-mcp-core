@@ -156,6 +156,37 @@ current profile config, selected mode, registry directory and inventory, local
 direct-control readiness counts, gateway daemon status, and server binary
 path/source/version without launching or downloading anything.
 
+### Adapter import probes (`doctor`)
+
+An adapter can be installed and still be unusable. The common cause is an
+editable install whose source checkout was deleted: the `*.dist-info` survives,
+so distribution metadata still reports the adapter as installed while
+`import <module>` fails. `doctor` runs one real import probe per registered DCC
+type and grades it under `adapter_imports`:
+
+| `status` | Meaning |
+| --- | --- |
+| `ok` | Importable; versions agree or are not comparable. |
+| `missing` | No distribution metadata and no importable module. |
+| `unimportable` | Distribution metadata present, import failed — the broken-install case. |
+| `version_mismatch` | Importable, but module `__version__` differs from the distribution version. |
+| `unavailable` | The probe could not run. Never counted as an adapter failure. |
+
+`status` becomes `degraded` and the command exits non-zero when any probe is
+`missing`, `unimportable`, or `version_mismatch`.
+
+Probing needs the interpreter that actually hosts the adapter. `doctor` never
+guesses an ambient `python`, because that reports false `missing` rows for
+adapters installed into a DCC's own interpreter. Set one of:
+
+```bash
+dcc-mcp-cli doctor --adapter-python maya=/usr/autodesk/maya2026/bin/mayapy
+DCC_MCP_PYTHON_EXECUTABLE=/usr/autodesk/maya2026/bin/mayapy dcc-mcp-cli doctor
+```
+
+With neither configured, probes report `unavailable` with
+`reason: "no_interpreter"` and the overall `status` stays `ok`.
+
 ```bash
 dcc-mcp-cli dcc-types
 dcc-mcp-cli --output json dcc-types --dcc-type unreal
@@ -244,7 +275,7 @@ launching operation.
 | `feedback route <finding.json> [--catalog <path>] [--json]` | local Finding v1 + public catalog | Resolve a validated finding to `repo`, `issues_url`, and a stable rationale without starting a gateway or creating an issue. Missing or conflicting ownership metadata fails closed. |
 | `feedback bundle <finding.json> [--install-report <report.json>] [--dcc-pid <pid>] [--log-dir <path>] [--host-error-lines <1-200>] [--json]` | local Finding/doctor/host errors/Install SOP v1 report + optional `GET /v1/debug/issue-reports/{request_id}` | Assemble `dcc-mcp.feedback-bundle.v1` without auto-starting a Gateway. The Finding must already be marked public-safe. `--install-report` accepts one terminal, regular, non-symlink Install SOP v1 execution report up to 256 KiB, binds its DCC/core/adapter identity to the Finding, and projects only public-safe fields. Invalid or mismatched reports fail closed. Missing components remain explicit; `complete=true` only when every component is resolved. |
 | `feedback file <finding.json> [--catalog <path>] [--existing <number>\|--create] [--yes] [--json]` | local public-safe Finding + GitHub CLI | Route and deduplicate a Finding against open issues. The default is read-only and returns an executable `next_step`; execute that argv exactly after review and user authorization. A write binds the canonical Finding path, canonical catalog path or exact bundled sentinel, content SHA, fingerprint, and repository. Drift, bodies above 65,536 Unicode scalar values, exact conflicts, ambiguity, closed issues, tracker failures, or the bounded full-process-tree `gh` timeout stop the operation before mutation. |
-| `doctor [--registry-dir <path>] [--gateway-port <port>]` | local filesystem + gateway probe | Report profile config/current selection, effective control route and whether it is recorded by gateway stats, local registry readiness, daemon status, and server binary diagnostics without auto-starting services. |
+| `doctor [--registry-dir <path>] [--gateway-port <port>] [--adapter-python <dcc>=<python>] [--adapter-catalog <path>]` | local filesystem + gateway probe + adapter import probes | Report profile config/current selection, effective control route and whether it is recorded by gateway stats, local registry readiness, daemon status, server binary diagnostics, and per-DCC adapter import grades without auto-starting services. Repeated `--adapter-python` covers several DCC types; a probe that cannot run is `unavailable`, never a failure. |
 | `list [--gateway <profile>]` | local FileRegistry or `GET /v1/instances` | List live DCC instances. Defaults to local FileRegistry after ensuring the loopback gateway; remote profiles use the selected gateway. |
 | `search [-q\|--query <q>] [--instance-id <id>]` | local MCP `search_tools` or remote `POST /v1/search` | Search callable capabilities with the release-compatible query flag; current builds also accept positional natural-language words as an alternative. Optionally scope to a full UUID or unique prefix. |
 | `describe <tool-slug>` | local MCP `tools/list` or remote `POST /v1/describe` | Inspect a capability before calling it. |
