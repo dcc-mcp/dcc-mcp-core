@@ -25,3 +25,4 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 [dev-dependencies]
 tempfile.workspace = true
 dcc-mcp-test-utils = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

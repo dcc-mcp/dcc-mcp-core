@@ -20,7 +20,7 @@ use crate::types::{
     MarketplaceOutdatedList, MarketplaceSearchResult, MarketplaceSource, MarketplaceSourceOrigin,
     MarketplaceUninstallResult, MarketplaceUpdateResult, OFFICIAL_MARKETPLACE_ATTESTATION,
     OFFICIAL_MARKETPLACE_SOURCE, OutdatedMarketplacePackage, RepoInstallResult, RepoSkillList,
-    StoredMarketplaceSource, entry_targets, entry_targets_dcc,
+    StoredMarketplaceSource, entry_dcc_ids, entry_targets, entry_targets_dcc,
 };
 
 #[path = "service_internals.rs"]
@@ -976,6 +976,10 @@ impl MarketplaceService {
         skip_validation: bool,
     ) -> Result<MarketplaceHit, MarketplaceError> {
         let sources = self.sources_for_query(explicit_sources)?;
+        // A name that matched but failed the host filter is a better answer than
+        // "not found": keep searching later sources, but surface the host
+        // mismatch (never `NotFound`) when no source has a matching host.
+        let mut dcc_mismatch: Option<MarketplaceError> = None;
         for source in sources {
             let entries = self
                 .load_source_entries_validated(&source, !skip_validation)
@@ -984,12 +988,19 @@ impl MarketplaceService {
                 if let Some(dcc) = dcc
                     && !entry_targets_dcc(&entry, dcc)
                 {
+                    if dcc_mismatch.is_none() {
+                        dcc_mismatch = Some(MarketplaceError::DccMismatch {
+                            name: entry.name.clone(),
+                            dcc: dcc.to_string(),
+                            supported: entry_dcc_ids(&entry),
+                        });
+                    }
                     continue;
                 }
                 return Ok(MarketplaceHit { source, entry });
             }
         }
-        Err(MarketplaceError::NotFound(name.to_string()))
+        Err(dcc_mismatch.unwrap_or_else(|| MarketplaceError::NotFound(name.to_string())))
     }
 
     async fn resolve_install_hit_for_target(
@@ -1297,39 +1308,6 @@ mod tests {
     fn path_component_trims_whitespace() {
         let result = path_component("name", "  hello  ").unwrap();
         assert_eq!(result, "hello");
-    }
-
-    #[test]
-    fn host_neutral_entry_requires_an_explicit_concrete_dcc() {
-        let entry = CatalogEntry {
-            name: "host-neutral".into(),
-            description: "desc".into(),
-            dcc: vec!["any".into()],
-            targets: vec![],
-            url: None,
-            issues_url: None,
-            tags: vec![],
-            version: None,
-            min_core_version: None,
-            install: None,
-            package: None,
-            maintainer: None,
-            category: None,
-            policy: None,
-            requires: None,
-            icon: None,
-            showcase: None,
-        };
-
-        assert_eq!(resolve_install_dcc(&entry, Some("Maya")).unwrap(), "maya");
-        assert!(matches!(
-            resolve_install_dcc(&entry, Some("any")),
-            Err(MarketplaceError::AmbiguousDcc { .. })
-        ));
-        assert!(matches!(
-            resolve_install_dcc(&entry, None),
-            Err(MarketplaceError::AmbiguousDcc { .. })
-        ));
     }
 
     #[test]

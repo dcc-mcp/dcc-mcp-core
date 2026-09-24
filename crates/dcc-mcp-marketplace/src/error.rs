@@ -49,8 +49,14 @@ pub enum MarketplaceError {
         current: String,
     },
 
-    #[error("marketplace entry '{name}' targets multiple DCCs; pass --dcc")]
-    AmbiguousDcc { name: String },
+    #[error(
+        "marketplace entry '{name}' targets multiple DCCs; pass --dcc (supported: {})",
+        format_dcc_list(supported)
+    )]
+    AmbiguousDcc {
+        name: String,
+        supported: Vec<String>,
+    },
 
     #[error("installed package '{name}' targets multiple DCCs; pass --dcc")]
     AmbiguousInstalledDcc { name: String },
@@ -58,8 +64,15 @@ pub enum MarketplaceError {
     #[error("installed marketplace package '{0}' was not found")]
     InstalledPackageNotFound(String),
 
-    #[error("marketplace entry '{name}' does not target DCC '{dcc}'")]
-    DccMismatch { name: String, dcc: String },
+    #[error(
+        "marketplace entry '{name}' does not target DCC '{dcc}' (supported: {})",
+        format_dcc_list(supported)
+    )]
+    DccMismatch {
+        name: String,
+        dcc: String,
+        supported: Vec<String>,
+    },
 
     #[error("marketplace install type '{0}' is not supported yet")]
     UnsupportedInstallType(String),
@@ -105,4 +118,16 @@ pub enum MarketplaceError {
         "invalid marketplace {kind} '{value}'; use only ASCII letters, numbers, '.', '_' or '-'"
     )]
     InvalidPathComponent { kind: String, value: String },
+}
+
+/// Render the supported-DCC list carried by host-selection errors.
+///
+/// Errors that reject a DCC name must stay actionable: they name the hosts the
+/// entry actually declares instead of leaving the operator to guess whether the
+/// package name itself was wrong.
+fn format_dcc_list(dccs: &[String]) -> String {
+    if dccs.is_empty() {
+        return "none".to_string();
+    }
+    dccs.join(", ")
 }

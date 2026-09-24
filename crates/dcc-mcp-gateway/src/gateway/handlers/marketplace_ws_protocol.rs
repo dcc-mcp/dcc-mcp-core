@@ -207,6 +207,7 @@ mod tests {
         let err = dcc_mcp_marketplace::MarketplaceError::DccMismatch {
             name: "pkg".into(),
             dcc: "maya".into(),
+            supported: vec!["maya".into(), "blender".into()],
         };
         let (code, msg) = marketplace_error_to_rpc(&err);
         assert_eq!(code, MarketplaceErrorCode::DccMismatch.code());
