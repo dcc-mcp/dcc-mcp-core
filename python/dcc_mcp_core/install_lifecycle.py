@@ -41,6 +41,7 @@ from ._install_lifecycle_sidecar import launch_sidecar
 from ._install_lifecycle_sidecar import sidecar_host_rpc_dispatch_contract
 from ._path_util import to_resolved_path as _to_path
 from ._version_util import parse_semver as _parse_semver
+from .constants import ENV_ALLOW_USER_SITE
 from .constants import ENV_DEPLOYMENT_MODE
 from .constants import ENV_REZ_LOCAL_CACHE_ROOT
 
@@ -85,6 +86,14 @@ __all__ = [
     "stop_runtime_entries",
     "wait_for_sidecar_ready",
 ]
+
+
+_TRUTHY_ENV_TOKENS = frozenset({"1", "true", "yes", "on"})
+
+
+def _flag_enabled(value: Optional[str]) -> bool:
+    """Return whether an environment-style value carries a truthy token."""
+    return str(value or "").strip().lower() in _TRUTHY_ENV_TOKENS
 
 
 def _path_under(path: Optional[Path], root: Optional[Path]) -> bool:
@@ -147,6 +156,13 @@ def resolve_deployment_layout(
         _extend_unique(prepend_path, _package_path_entries(root))
 
     mode = _deployment_mode(environment, resolved)
+    environment_set = {DEPLOYMENT_MODE_ENV: mode}
+    # Close the resolve: a user-level site-packages directory on the host's
+    # sys.path silently shadows packages that are absent from the resolve, so
+    # hosts launched with this layout would import workstation-local copies of
+    # dcc_mcp_* modules. Set DCC_MCP_ALLOW_USER_SITE to opt out.
+    if not _flag_enabled(environment.get(ENV_ALLOW_USER_SITE)):
+        environment_set["PYTHONNOUSERSITE"] = "1"
     return {
         "success": True,
         "mode": mode,
@@ -158,9 +174,7 @@ def resolve_deployment_layout(
                 "PYTHONPATH": prepend_python,
                 "PATH": prepend_path,
             },
-            "set": {
-                DEPLOYMENT_MODE_ENV: mode,
-            },
+            "set": environment_set,
         },
     }
 

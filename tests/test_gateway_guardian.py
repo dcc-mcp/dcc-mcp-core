@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from http.client import BadStatusLine
 import json
+import logging
 import os
 from pathlib import Path
 import socket
@@ -182,6 +183,102 @@ def test_resolve_server_bin_prefers_explicit_env(monkeypatch, tmp_path):
     monkeypatch.setitem(sys.modules, "dcc_mcp_server", module)
 
     assert gg._resolve_server_bin() == str(explicit)
+
+
+def test_resolve_server_bin_prefers_path_over_python_import(monkeypatch, tmp_path):
+    """A binary on PATH wins over any importable ``dcc_mcp_server`` package.
+
+    Under a managed resolve PATH points at the resolved binary, while a Python
+    import can silently hit a stale user-level copy.
+    """
+    on_path = tmp_path / "resolved" / "dcc-mcp-server"
+    stale = tmp_path / "stale" / "dcc-mcp-server"
+    module = types.ModuleType("dcc_mcp_server")
+    module.binary_path = lambda: stale
+    module.__version__ = "9.9.9"
+
+    monkeypatch.delenv("DCC_MCP_SERVER_BIN", raising=False)
+    monkeypatch.setattr(gg.shutil, "which", lambda _name: str(on_path))
+    monkeypatch.setitem(sys.modules, "dcc_mcp_server", module)
+    monkeypatch.setattr(gg, "_SERVER_VERSION_DRIFT_WARNED", set())
+
+    assert gg._resolve_server_bin() == str(on_path)
+
+
+def test_resolve_server_bin_warns_when_falling_back_to_module(monkeypatch, tmp_path, caplog):
+    binary = tmp_path / "dcc-mcp-server"
+    binary.write_text("", encoding="utf-8")
+    module = types.ModuleType("dcc_mcp_server")
+    module.binary_path = lambda: binary
+
+    monkeypatch.delenv("DCC_MCP_SERVER_BIN", raising=False)
+    monkeypatch.setattr(gg.shutil, "which", lambda _name: None)
+    monkeypatch.setitem(sys.modules, "dcc_mcp_server", module)
+    monkeypatch.setattr(gg, "_SERVER_VERSION_DRIFT_WARNED", set())
+
+    with caplog.at_level(logging.WARNING, logger=gg.__name__):
+        resolved = gg._resolve_server_bin()
+
+    assert resolved == str(binary)
+    assert any("not on PATH" in record.getMessage() for record in caplog.records)
+
+
+def test_resolve_server_bin_warns_on_version_drift(monkeypatch, tmp_path, caplog):
+    """A major.minor mismatch between server and core is reported once."""
+    binary = tmp_path / "dcc-mcp-server"
+    binary.write_text("", encoding="utf-8")
+    module = types.ModuleType("dcc_mcp_server")
+    module.binary_path = lambda: binary
+    module.__version__ = "0.19.8"
+
+    monkeypatch.delenv("DCC_MCP_SERVER_BIN", raising=False)
+    monkeypatch.setattr(gg.shutil, "which", lambda _name: None)
+    monkeypatch.setitem(sys.modules, "dcc_mcp_server", module)
+    monkeypatch.setenv(gg.ENV_CORE_VERSION, "0.20.28")
+    monkeypatch.setattr(gg, "_SERVER_VERSION_DRIFT_WARNED", set())
+
+    with caplog.at_level(logging.WARNING, logger=gg.__name__):
+        gg._resolve_server_bin()
+        first = len(caplog.records)
+        gg._resolve_server_bin()
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert any("0.19.8" in message and "0.20.28" in message for message in messages)
+    # The second call must not repeat an already-reported drift pair.
+    assert len([m for m in messages if "0.19.8" in m and "0.20.28" in m]) == 1
+    assert first >= 1
+
+
+def test_resolve_server_bin_silent_when_versions_match(monkeypatch, tmp_path, caplog):
+    binary = tmp_path / "dcc-mcp-server"
+    binary.write_text("", encoding="utf-8")
+    module = types.ModuleType("dcc_mcp_server")
+    module.binary_path = lambda: binary
+    module.__version__ = "0.20.31"
+
+    monkeypatch.delenv("DCC_MCP_SERVER_BIN", raising=False)
+    monkeypatch.setattr(gg.shutil, "which", lambda _name: None)
+    monkeypatch.setitem(sys.modules, "dcc_mcp_server", module)
+    monkeypatch.setenv(gg.ENV_CORE_VERSION, "0.20.28")
+    monkeypatch.setattr(gg, "_SERVER_VERSION_DRIFT_WARNED", set())
+
+    with caplog.at_level(logging.WARNING, logger=gg.__name__):
+        gg._resolve_server_bin()
+
+    assert not [record for record in caplog.records if "does not match" in record.getMessage()]
+
+
+def test_resolve_server_bin_warns_when_nothing_found(monkeypatch, caplog):
+    monkeypatch.delenv("DCC_MCP_SERVER_BIN", raising=False)
+    monkeypatch.setattr(gg.shutil, "which", lambda _name: None)
+    monkeypatch.setitem(sys.modules, "dcc_mcp_server", None)
+    monkeypatch.setattr(gg, "_SERVER_VERSION_DRIFT_WARNED", set())
+
+    with caplog.at_level(logging.WARNING, logger=gg.__name__):
+        resolved = gg._resolve_server_bin()
+
+    assert resolved == "dcc-mcp-server"
+    assert any("unavailable" in record.getMessage() for record in caplog.records)
 
 
 def test_ensure_gateway_daemon_spawns_and_becomes_healthy(tmp_path, monkeypatch):

@@ -37,6 +37,16 @@ dependencies = [
     # Maya 2022 / Blender 2.83 embed Python 3.7; the py37-lite wheel ships
     # pure-Python code only and users install dcc-mcp-server separately when
     # their platform provides a compatible binary wheel.
+    #
+    # Same-batch contract: dcc-mcp-core and dcc-mcp-server ship from one
+    # release, so a deployment must pair them at the same major.minor. The
+    # floor is deliberately older than the current release because the matching
+    # wheel only exists on PyPI after release-please publishes it. The runtime
+    # enforces the pairing: the gateway bootstrap prefers the binary on PATH
+    # (the resolved environment) over the importable dcc_mcp_server package and
+    # logs a WARNING when their major.minor differs. Keep this declaration in
+    # place — a rez/venv resolve that omits dcc-mcp-server makes hosts import a
+    # workstation-local copy instead.
     "dcc-mcp-server>=0.18.17,<1.0.0",
 ]
 

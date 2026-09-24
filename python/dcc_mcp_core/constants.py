@@ -10,6 +10,10 @@ whole codebase.
 from __future__ import annotations
 
 ENV_API_KEY: str = "DCC_MCP_API_KEY"
+# Opt out of the user site-packages isolation that managed (Rez/pip) deployment
+# layouts enable. Set to a truthy value when a host legitimately needs packages
+# installed under the user site directory.
+ENV_ALLOW_USER_SITE: str = "DCC_MCP_ALLOW_USER_SITE"
 ENV_ASSET: str = "DCC_MCP_ASSET"
 ENV_ASSET_TYPE: str = "DCC_MCP_ASSET_TYPE"
 ENV_CONTEXT_BUNDLE: str = "DCC_MCP_CONTEXT_BUNDLE"
@@ -130,6 +134,7 @@ __all__ = [
     "CATEGORY_INTROSPECT",
     "CATEGORY_RECIPES",
     "CATEGORY_WORKFLOWS",
+    "ENV_ALLOW_USER_SITE",
     "ENV_API_KEY",
     "ENV_ASSET",
     "ENV_ASSET_TYPE",

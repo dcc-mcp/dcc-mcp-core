@@ -93,6 +93,41 @@ The helper reads `REZ_<PACKAGE>_ROOT` variables such as
 contract; do not embed workstation-specific package-cache paths in adapter
 startup scripts.
 
+### Closed Resolves
+
+`PYTHONPATH` is prepended, not exclusive: a host that still has its
+user-level site directory on `sys.path` will import any `dcc_mcp_*` module that
+is absent from the resolve from that unmanaged directory. The layout therefore
+also sets `PYTHONNOUSERSITE=1` so the resolve stays closed. Apply the whole
+`environment` block — `prepend` **and** `set` — when launching the host:
+
+```python
+import os
+
+layout = resolve_deployment_layout(adapter_package="dcc_mcp_maya")
+os.environ["PYTHONPATH"] = os.pathsep.join(
+    [*layout["environment"]["prepend"]["PYTHONPATH"], os.environ.get("PYTHONPATH", "")]
+)
+os.environ["PATH"] = os.pathsep.join(
+    [*layout["environment"]["prepend"]["PATH"], os.environ.get("PATH", "")]
+)
+os.environ.update(layout["environment"]["set"])
+```
+
+Set `DCC_MCP_ALLOW_USER_SITE=1` in the incoming environment to opt out when a
+host legitimately needs packages installed under the user site directory.
+
+Two consequences worth checking when a host reports an unexpected version:
+
+- `dcc-mcp-server` must come from the same release batch as `dcc-mcp-core`. A
+  major/minor mismatch is logged as a warning by the gateway bootstrap, which
+  resolves the binary from `PATH` (the resolved environment) before falling back
+  to the `dcc_mcp_server` Python package. Set `DCC_MCP_SERVER_BIN` to override.
+- `dcc-mcp-cli` is a standalone Rust binary shipped in the release bundles, not
+  a Python package. There is no `dcc_mcp_cli` module: `import dcc_mcp_cli`
+  always fails inside a host, and this is expected. Invoke the binary from the
+  resolved environment's `PATH` instead.
+
 ## Import-Light Sidecar Launch
 
 DCC plugins that run at application startup can build or launch the per-DCC
