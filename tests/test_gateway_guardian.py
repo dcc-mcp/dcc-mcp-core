@@ -13,6 +13,7 @@ import types
 
 import pytest
 
+import dcc_mcp_core._server._gateway_server_bin as gsb
 import dcc_mcp_core._server.gateway_guardian as gg
 
 
@@ -168,7 +169,7 @@ def test_resolve_server_bin_uses_packaged_binary_when_path_missing(monkeypatch, 
     module.binary_path = lambda: binary
 
     monkeypatch.delenv("DCC_MCP_SERVER_BIN", raising=False)
-    monkeypatch.setattr(gg.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(gsb.shutil, "which", lambda _name: None)
     monkeypatch.setitem(sys.modules, "dcc_mcp_server", module)
 
     assert gg._resolve_server_bin() == str(binary)
@@ -198,9 +199,9 @@ def test_resolve_server_bin_prefers_path_over_python_import(monkeypatch, tmp_pat
     module.__version__ = "9.9.9"
 
     monkeypatch.delenv("DCC_MCP_SERVER_BIN", raising=False)
-    monkeypatch.setattr(gg.shutil, "which", lambda _name: str(on_path))
+    monkeypatch.setattr(gsb.shutil, "which", lambda _name: str(on_path))
     monkeypatch.setitem(sys.modules, "dcc_mcp_server", module)
-    monkeypatch.setattr(gg, "_SERVER_VERSION_DRIFT_WARNED", set())
+    monkeypatch.setattr(gsb, "_SERVER_VERSION_DRIFT_WARNED", set())
 
     assert gg._resolve_server_bin() == str(on_path)
 
@@ -212,9 +213,9 @@ def test_resolve_server_bin_warns_when_falling_back_to_module(monkeypatch, tmp_p
     module.binary_path = lambda: binary
 
     monkeypatch.delenv("DCC_MCP_SERVER_BIN", raising=False)
-    monkeypatch.setattr(gg.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(gsb.shutil, "which", lambda _name: None)
     monkeypatch.setitem(sys.modules, "dcc_mcp_server", module)
-    monkeypatch.setattr(gg, "_SERVER_VERSION_DRIFT_WARNED", set())
+    monkeypatch.setattr(gsb, "_SERVER_VERSION_DRIFT_WARNED", set())
 
     with caplog.at_level(logging.WARNING, logger=gg.__name__):
         resolved = gg._resolve_server_bin()
@@ -232,10 +233,10 @@ def test_resolve_server_bin_warns_on_version_drift(monkeypatch, tmp_path, caplog
     module.__version__ = "0.19.8"
 
     monkeypatch.delenv("DCC_MCP_SERVER_BIN", raising=False)
-    monkeypatch.setattr(gg.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(gsb.shutil, "which", lambda _name: None)
     monkeypatch.setitem(sys.modules, "dcc_mcp_server", module)
-    monkeypatch.setenv(gg.ENV_CORE_VERSION, "0.20.28")
-    monkeypatch.setattr(gg, "_SERVER_VERSION_DRIFT_WARNED", set())
+    monkeypatch.setenv(gsb.ENV_CORE_VERSION, "0.20.28")
+    monkeypatch.setattr(gsb, "_SERVER_VERSION_DRIFT_WARNED", set())
 
     with caplog.at_level(logging.WARNING, logger=gg.__name__):
         gg._resolve_server_bin()
@@ -257,10 +258,10 @@ def test_resolve_server_bin_silent_when_versions_match(monkeypatch, tmp_path, ca
     module.__version__ = "0.20.31"
 
     monkeypatch.delenv("DCC_MCP_SERVER_BIN", raising=False)
-    monkeypatch.setattr(gg.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(gsb.shutil, "which", lambda _name: None)
     monkeypatch.setitem(sys.modules, "dcc_mcp_server", module)
-    monkeypatch.setenv(gg.ENV_CORE_VERSION, "0.20.28")
-    monkeypatch.setattr(gg, "_SERVER_VERSION_DRIFT_WARNED", set())
+    monkeypatch.setenv(gsb.ENV_CORE_VERSION, "0.20.28")
+    monkeypatch.setattr(gsb, "_SERVER_VERSION_DRIFT_WARNED", set())
 
     with caplog.at_level(logging.WARNING, logger=gg.__name__):
         gg._resolve_server_bin()
@@ -270,9 +271,9 @@ def test_resolve_server_bin_silent_when_versions_match(monkeypatch, tmp_path, ca
 
 def test_resolve_server_bin_warns_when_nothing_found(monkeypatch, caplog):
     monkeypatch.delenv("DCC_MCP_SERVER_BIN", raising=False)
-    monkeypatch.setattr(gg.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(gsb.shutil, "which", lambda _name: None)
     monkeypatch.setitem(sys.modules, "dcc_mcp_server", None)
-    monkeypatch.setattr(gg, "_SERVER_VERSION_DRIFT_WARNED", set())
+    monkeypatch.setattr(gsb, "_SERVER_VERSION_DRIFT_WARNED", set())
 
     with caplog.at_level(logging.WARNING, logger=gg.__name__):
         resolved = gg._resolve_server_bin()

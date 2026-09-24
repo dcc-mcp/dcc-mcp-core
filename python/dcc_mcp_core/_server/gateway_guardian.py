@@ -4,14 +4,11 @@ from __future__ import annotations
 
 import contextlib
 from http.client import HTTPException
-import importlib
 import json
 import logging
 import os
 from pathlib import Path
 import random
-import shutil
-import sys
 import threading
 import time
 from typing import Any
@@ -20,10 +17,14 @@ from urllib.error import HTTPError
 from urllib.error import URLError
 from urllib.request import Request
 from urllib.request import urlopen
-import uuid
 
+from dcc_mcp_core._server._gateway_registry import _read_gateway_version_from_registry
+from dcc_mcp_core._server._gateway_registry import _read_managed_gateway_version_from_registry
+from dcc_mcp_core._server._gateway_registry import _resolve_registry_dir
+from dcc_mcp_core._server._gateway_registry import _write_sentinel_entry
+from dcc_mcp_core._server._gateway_server_bin import _get_core_version
+from dcc_mcp_core._server._gateway_server_bin import _resolve_server_bin
 from dcc_mcp_core._version_util import parse_semver as _parse_semver
-from dcc_mcp_core.constants import ENV_CORE_VERSION
 from dcc_mcp_core.constants import ENV_DCC_TYPE
 from dcc_mcp_core.constants import ENV_GATEWAY_ENSURE_TIMEOUT_SECS
 from dcc_mcp_core.constants import ENV_GATEWAY_GUARDIAN_FAILURES
@@ -36,11 +37,9 @@ from dcc_mcp_core.constants import ENV_GATEWAY_LAUNCH_LOCK_STALE_SECS
 from dcc_mcp_core.constants import ENV_GATEWAY_PERSIST
 from dcc_mcp_core.constants import ENV_GATEWAY_PORT
 from dcc_mcp_core.constants import ENV_REGISTRY_DIR
-from dcc_mcp_core.constants import ENV_SERVER_BIN
 from dcc_mcp_core.daemon_launch import launch_detached
 from dcc_mcp_core.env import env_float
 from dcc_mcp_core.env import env_int
-from dcc_mcp_core.install_lifecycle import default_registry_dir
 
 logger = logging.getLogger(__name__)
 
@@ -154,114 +153,6 @@ def _request_gateway_yield(
         return 200 <= int(getattr(err, "code", 0)) < 300
     except (URLError, OSError, ValueError):
         return False
-
-
-def _server_bin_from_module() -> str:
-    """Last-resort lookup through the importable ``dcc_mcp_server`` package.
-
-    This path can resolve a copy that is *not* part of the current environment
-    (a stale user-level install, for example), so callers treat it as a
-    degraded outcome and log at WARNING level.
-    """
-    try:
-        binary_path = importlib.import_module("dcc_mcp_server").binary_path
-    except Exception as exc:
-        logger.warning("dcc_mcp_server.binary_path unavailable: %s", exc)
-        return ""
-    try:
-        return str(binary_path())
-    except Exception as exc:
-        logger.warning("dcc_mcp_server.binary_path failed: %s", exc)
-        return ""
-
-
-def _server_module_version() -> str:
-    """Return ``dcc_mcp_server.__version__`` when the package is importable."""
-    module = sys.modules.get("dcc_mcp_server")
-    if module is None:
-        try:
-            module = importlib.import_module("dcc_mcp_server")
-        except Exception:
-            return ""
-    return str(getattr(module, "__version__", "") or "")
-
-
-# Version pairs already reported, so a periodic re-ensure does not flood logs.
-_SERVER_VERSION_DRIFT_WARNED: set = set()
-
-
-def _warn_on_server_version_drift() -> None:
-    """Warn once per process when ``dcc_mcp_server`` drifts from core.
-
-    A managed deployment resolves ``dcc-mcp-core`` and ``dcc-mcp-server`` from
-    the same batch. A major.minor mismatch means at least one of the two came
-    from outside the resolve (typically a user-level site-packages copy), which
-    used to fail silently.
-    """
-    server_version = _server_module_version()
-    if not server_version:
-        return
-    core_version = _get_core_version()
-    server_semver = _parse_semver(server_version)
-    core_semver = _parse_semver(core_version)
-    if server_semver is None or core_semver is None:
-        return
-    if server_semver[:2] == core_semver[:2]:
-        return
-    key = (server_version, core_version)
-    if key in _SERVER_VERSION_DRIFT_WARNED:
-        return
-    _SERVER_VERSION_DRIFT_WARNED.add(key)
-    logger.warning(
-        "dcc_mcp_server %s does not match dcc-mcp-core %s: the same major.minor "
-        "is required because both ship from one release. The server most likely "
-        "comes from an unmanaged location (for example user-level "
-        "site-packages) instead of the resolved environment.",
-        server_version,
-        core_version,
-    )
-
-
-def _resolve_server_bin() -> str:
-    """Locate the ``dcc-mcp-server`` binary, preferring managed locations.
-
-    Resolution order, deliberately putting the unmanaged lookup last:
-
-    1. ``DCC_MCP_SERVER_BIN`` — explicit operator override.
-    2. ``shutil.which("dcc-mcp-server")`` — the PATH of the current environment.
-       Under a managed (Rez/pip) deployment this is the resolved binary.
-    3. ``dcc_mcp_server.binary_path()`` — a Python import, which can silently
-       hit a copy that is not part of the resolve.
-
-    Reaching step 3, or finding nothing at all, is logged at WARNING so the gap
-    is observable instead of silent.
-    """
-    explicit = (os.environ.get(ENV_SERVER_BIN) or "").strip()
-    if explicit:
-        return explicit
-    found = shutil.which("dcc-mcp-server")
-    if found:
-        _warn_on_server_version_drift()
-        return found
-    logger.warning(
-        "dcc-mcp-server is not on PATH; falling back to the dcc_mcp_server "
-        "Python package, which may resolve to an unmanaged install."
-    )
-    from_module = _server_bin_from_module()
-    if from_module:
-        _warn_on_server_version_drift()
-        return from_module
-    logger.warning(
-        "dcc-mcp-server binary unavailable; set %s to an explicit path.",
-        ENV_SERVER_BIN,
-    )
-    return "dcc-mcp-server"
-
-
-def _resolve_registry_dir(registry_dir: str | None) -> Path:
-    if registry_dir:
-        return Path(registry_dir).expanduser()
-    return Path(default_registry_dir()).expanduser()
 
 
 class _LaunchLock:
@@ -882,201 +773,3 @@ def _is_newer_version(candidate: str, current: str) -> bool:
     candidate_semver = _parse_semver(candidate)
     current_semver = _parse_semver(current)
     return candidate_semver is not None and current_semver is not None and candidate_semver > current_semver
-
-
-def _get_core_version() -> str:
-    """Return the dcc-mcp-core version string.
-
-    Checks ``DCC_MCP_CORE_VERSION`` env var first, then tries to read from the
-    installed ``dcc_mcp_core`` package metadata.
-    """
-    env_version = (os.environ.get(ENV_CORE_VERSION) or "").strip()
-    if env_version:
-        return env_version
-    try:
-        from importlib.metadata import version as _pkg_version
-
-        return _pkg_version("dcc-mcp-core")
-    except Exception:
-        return "0.0.0-dev"
-
-
-# ── Sentinel entry helper (for version-aware takeover) ──
-
-
-@contextlib.contextmanager
-def _registry_write_lock(path: Path):
-    """Take the same first-byte lock covered by Rust ``services.lock``."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a+b") as handle:
-        handle.seek(0)
-        if os.name == "nt":
-            import msvcrt
-
-            msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
-
-            def unlock():
-                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
-
-        else:
-            import fcntl
-
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-
-            def unlock():
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-
-        try:
-            yield
-        finally:
-            handle.seek(0)
-            with contextlib.suppress(OSError):
-                unlock()
-
-
-def _write_sentinel_entry(
-    registry_dir: str | None,
-    *,
-    gateway_host: str,
-    gateway_port: int,
-    crate_version: str,
-    adapter_version: str | None = None,
-    adapter_dcc: str | None = None,
-) -> bool:
-    """Write a sentinel entry to the file registry to trigger gateway yield.
-
-    The running gateway's 15 s cleanup loop calls ``has_newer_sentinel`` and
-    will voluntarily yield when a newer version sentinel is found.
-
-    Returns True if the sentinel was written; False on error.
-    """
-    import json as _json
-
-    registry_path = _resolve_registry_dir(registry_dir)
-    services_file = registry_path / "services.json"
-    now = time.time()
-    sentinel_entry: dict[str, object] = {
-        "dcc_type": "__gateway__",
-        "instance_id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"dcc-mcp://gateway/{gateway_host}:{gateway_port}")),
-        "host": gateway_host,
-        "port": gateway_port,
-        "version": crate_version,
-        "registered_at": now,
-        "last_heartbeat": now,
-        "status": "available",
-    }
-    if adapter_version:
-        sentinel_entry["adapter_version"] = adapter_version
-    if adapter_dcc:
-        sentinel_entry["adapter_dcc"] = adapter_dcc
-
-    try:
-        with _registry_write_lock(registry_path / "services.lock"):
-            raw = services_file.read_text(encoding="utf-8") if services_file.exists() else ""
-            data = _json.loads(raw) if raw.strip() else []
-            if isinstance(data, list):
-                data = [e for e in data if not (isinstance(e, dict) and e.get("dcc_type") == "__gateway__")]
-                data.append(sentinel_entry)
-            elif isinstance(data, dict):
-                data[f"__gateway__:{gateway_host}:{gateway_port}"] = sentinel_entry
-            else:
-                data = [sentinel_entry]
-            temp_file = registry_path / f".tmp.{os.getpid()}.guardian.json"
-            temp_file.write_text(_json.dumps(data, indent=2), encoding="utf-8")
-            temp_file.replace(services_file)
-        return True
-    except Exception:
-        return False
-
-
-def _read_gateway_version_from_registry(
-    registry_dir: str | None,
-    *,
-    gateway_host: str,
-    gateway_port: int,
-) -> str | None:
-    """Read the running gateway's version from the file registry sentinel entry.
-
-    Returns the version string if found, or None.
-    """
-    import json as _json
-
-    try:
-        registry_path = _resolve_registry_dir(registry_dir)
-        services_file = registry_path / "services.json"
-        if not services_file.exists():
-            return None
-        raw = services_file.read_text(encoding="utf-8")
-        data = _json.loads(raw) if raw.strip() else []
-    except Exception:
-        return None
-
-    # The FileRegistry stores entries in either list or dict format.
-    if isinstance(data, dict):
-        sentinel_key = f"__gateway__:{gateway_host}:{gateway_port}"
-        entry = data.get(sentinel_key)
-        if isinstance(entry, dict):
-            version = entry.get("version")
-            if isinstance(version, str):
-                return version
-        return None
-
-    if isinstance(data, list):
-        for entry in data:
-            if not isinstance(entry, dict):
-                continue
-            if entry.get("dcc_type") == "__gateway__":
-                if entry.get("host") != gateway_host:
-                    continue
-                try:
-                    if int(entry.get("port", 0)) != int(gateway_port):
-                        continue
-                except (TypeError, ValueError):
-                    continue
-                version = entry.get("version")
-                if isinstance(version, str):
-                    return version
-    return None
-
-
-def _read_managed_gateway_version_from_registry(
-    registry_dir: str | None,
-    *,
-    gateway_host: str,
-    gateway_port: int,
-) -> str | None:
-    """Return the version only for a process-owned Rust gateway sentinel."""
-    import json as _json
-
-    try:
-        services_file = _resolve_registry_dir(registry_dir) / "services.json"
-        raw = services_file.read_text(encoding="utf-8")
-        data = _json.loads(raw) if raw.strip() else []
-    except Exception:
-        return None
-
-    entries: list[object]
-    if isinstance(data, dict):
-        sentinel_key = f"__gateway__:{gateway_host}:{gateway_port}"
-        entries = [data.get(sentinel_key)]
-    elif isinstance(data, list):
-        entries = data
-    else:
-        return None
-
-    for entry in entries:
-        if not isinstance(entry, dict) or entry.get("dcc_type") != "__gateway__":
-            continue
-        if entry.get("host") != gateway_host:
-            continue
-        try:
-            if int(entry.get("port", 0)) != int(gateway_port):
-                continue
-            pid = int(entry.get("pid", 0))
-        except (TypeError, ValueError):
-            continue
-        instance_id = entry.get("instance_id")
-        version = entry.get("version")
-        if pid > 0 and isinstance(instance_id, str) and instance_id and isinstance(version, str):
-            return version
-    return None
