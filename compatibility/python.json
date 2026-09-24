@@ -85,6 +85,10 @@
     "dcc-mcp-core-semantic": {
       "pyproject": "pkg/dcc-mcp-core-semantic/pyproject.toml",
       "support_profile": "lts"
+    },
+    "dcc-mcp-cli": {
+      "pyproject": "pkg/dcc-mcp-cli-bin/pyproject.toml",
+      "support_profile": "lts"
     }
   },
   "optional_dependencies": {

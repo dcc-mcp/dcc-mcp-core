@@ -1,0 +1,75 @@
+# PyPI distribution for the `dcc-mcp-cli` Rust binary.
+#
+# Unlike `pkg/dcc-mcp-server-bin`, this wrapper does NOT ship the raw
+# executable: PyPI meters a project's total storage (10 GB by default) and the
+# deflated archive costs roughly a third of the raw binary per release. The
+# wheel therefore embeds the same `dcc-mcp-cli-<version>-<platform>.zip` the
+# GitHub Release publishes and unpacks it into the environment's scripts
+# directory on first use.
+#
+# The unpack step is what keeps the component contract intact: the running
+# process is the real binary, so `current_exe.parent()` is the scripts
+# directory and `dcc-mcp-cli components ensure dcc-cua` installs its companion
+# executable as a sibling.
+
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "dcc-mcp-cli"
+version = "0.20.34"  # x-release-please-version
+description = "Standalone dcc-mcp-cli binary — DCC-MCP install, gateway and component control (Rust)"
+readme = "README.md"
+license = {text = "MIT"}
+# The bootstrap is pure Python that runs unchanged on Maya 2022's embedded
+# interpreter, and the binary it unpacks has no CPython ABI dependency, so the
+# project's Python 3.7 floor applies here too.
+requires-python = ">=3.7"
+keywords = ["dcc", "mcp", "cli", "installer", "gateway", "maya", "blender", "houdini"]
+authors = [
+    {name = "Hal Long", email = "hal.long@outlook.com"},
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Rust",
+    "Topic :: Software Development",
+    "Topic :: Multimedia :: Graphics :: 3D Modeling",
+    "Topic :: System :: Systems Administration",
+]
+# The wrapper needs nothing at runtime: it unpacks a self-contained binary.
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["build>=1.2", "hatchling>=1.25", "wheel>=0.46"]
+
+[project.scripts]
+dcc-mcp-cli = "dcc_mcp_cli:main"
+
+[project.urls]
+Homepage = "https://github.com/dcc-mcp/dcc-mcp-core"
+Repository = "https://github.com/dcc-mcp/dcc-mcp-core"
+Issues = "https://github.com/dcc-mcp/dcc-mcp-core/issues"
+
+# ── hatchling ───────────────────────────────────────────────────────────────
+[tool.hatch.build]
+# `_payload/` holds the platform archive staged by
+# scripts/release/build_cli_wrapper_wheel.py. It is git-ignored (never commit a
+# 15 MB binary) but must still land in the wheel.
+artifacts = ["python/dcc_mcp_cli/_payload"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["python/dcc_mcp_cli"]

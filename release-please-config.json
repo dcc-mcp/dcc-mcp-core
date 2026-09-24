@@ -36,6 +36,15 @@
           "jsonpath": "$.project.version"
         },
         {
+          "type": "toml",
+          "path": "pkg/dcc-mcp-cli-bin/pyproject.toml",
+          "jsonpath": "$.project.version"
+        },
+        {
+          "type": "generic",
+          "path": "pkg/dcc-mcp-cli-bin/python/dcc_mcp_cli/__init__.py"
+        },
+        {
           "type": "generic",
           "path": "python/dcc_mcp_core/_core.pyi"
         },

@@ -590,6 +590,87 @@ jobs:
           fail_on_unmatched_files: true
           files: pkg/dcc-mcp-core-semantic/wheels/*.whl
 
+  # ── Build the dcc-mcp-cli PyPI wrapper wheels (issue PIP-3593) ──
+  #
+  # `pkg/dcc-mcp-cli-bin` ships the compressed release archive instead of the
+  # raw executable so a release costs ~66 MB of the PyPI project budget rather
+  # than ~165 MB. The archive already built by `build-binaries` is embedded
+  # verbatim; the wheel unpacks it into the install environment's scripts
+  # directory on first use, which is what keeps
+  # `dcc-mcp-cli components ensure dcc-cua` working (the companion executable
+  # is installed as a sibling of `current_exe`).
+  #
+  # One runner builds all three platforms: nothing here compiles, so the only
+  # per-platform work is the PEP 600 tag derived from each archive.
+  build-cli-wheels:
+    needs: [release-please, build-binaries]
+    if: |
+      needs.release-please.outputs.release_created == 'true' &&
+      needs.build-binaries.result == 'success' &&
+      !(github.event_name == 'workflow_dispatch' && inputs.release_tag != '' && inputs.backfill_assets != true)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install wheel build tooling
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "build>=1.2" "hatchling>=1.25" "wheel>=0.46"
+
+      - name: Download release CLI archives
+        uses: actions/download-artifact@v8
+        with:
+          pattern: server-binary-*
+          path: dist-binaries
+          merge-multiple: true
+
+      - name: Build wrapper wheels
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ needs.release-please.outputs.version }}"
+          for platform in linux-x86_64 macos-universal2 windows-x86_64; do
+            python scripts/release/build_cli_wrapper_wheel.py \
+              --version "$version" \
+              --platform "$platform" \
+              --zip "dist-binaries/dcc-mcp-cli-$version-$platform.zip" \
+              --out-dir "$PWD/dist-cli"
+          done
+
+      - name: Retag wrapper wheels
+        run: python scripts/release/cli_wheel_tags.py retag --wheel-dir dist-cli
+
+      - name: Validate wrapper wheels
+        run: >-
+          python scripts/release/cli_wheel_tags.py validate
+          --wheel-dir dist-cli
+          --version "${{ needs.release-please.outputs.version }}"
+
+      - name: Upload wrapper wheel artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-wheel-all
+          path: dist-cli/*.whl
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          # See the note in build-binaries: GITHUB_TOKEN is rejected on the
+          # release-update call that precedes every asset upload.
+          token: ${{ secrets.PERSONAL_ACCESS_TOKEN || github.token }}
+          tag_name: ${{ needs.release-please.outputs.tag_name }}
+          overwrite_files: ${{ github.event_name == 'workflow_dispatch' && inputs.backfill_assets == true }}
+          fail_on_unmatched_files: true
+          files: dist-cli/*.whl
+
   # ── Build and validate wheels when release-please creates a release ──
   build-wheels:
     needs: [release-please]
@@ -880,6 +961,64 @@ jobs:
           print-hash: true
           skip-existing: true
 
+  # ── Publish dcc-mcp-cli to PyPI (issue PIP-3593) ──
+  publish-cli-pypi:
+    needs: [release-please, validate-release-version, build-cli-wheels]
+    if: |
+      needs.release-please.outputs.release_created == 'true' &&
+      needs.validate-release-version.result == 'success' &&
+      needs.build-cli-wheels.result == 'success'
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/dcc-mcp-cli
+    permissions:
+      id-token: write
+      actions: read
+      contents: read
+    steps:
+      - name: Download dcc-mcp-cli wheel artefacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: cli-wheel-all
+          path: dist-cli
+          merge-multiple: true
+
+      - name: List dcc-mcp-cli artefacts
+        run: ls -la dist-cli/
+
+      # Same PyPI total-size budget gate as publish-core-pypi - fail before
+      # upload instead of leaving a partially published release. The wrapper
+      # embeds a compressed archive precisely to keep this budget lasting.
+      - name: Checkout workflow compatibility tooling
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .workflow-tools
+          sparse-checkout: |
+            scripts/ci
+          persist-credentials: false
+
+      - name: Check PyPI project size budget
+        shell: bash
+        run: >-
+          python .workflow-tools/scripts/ci/check_pypi_project_size.py
+          --package dcc-mcp-cli
+          --dist-dir dist-cli
+
+      # The PyPI project must have a Trusted Publisher for:
+      # Owner = dcc-mcp, Repo = dcc-mcp-core, Workflow = release.yml,
+      # Environment = pypi, Project = dcc-mcp-cli.
+      # `dcc-mcp-cli` is a new project: register a *pending* publisher so the
+      # first OIDC upload creates it, no API token involved.
+      - name: Upload dcc-mcp-cli to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist-cli
+          verbose: true
+          print-hash: true
+          skip-existing: true
+
   # ── Keep GitHub Release assets complete even if PyPI rejects one package ──
   publish-github-release-assets:
     needs:
@@ -1057,6 +1196,7 @@ jobs:
       - publish-core-pypi
       - publish-server-pypi
       - publish-semantic-pypi
+      - publish-cli-pypi
       - publish-github-release-assets
       - verify-release-assets
     if: always() && needs.release-please.outputs.release_created == 'true'
@@ -1069,6 +1209,7 @@ jobs:
           core="${{ needs.publish-core-pypi.result }}"
           server="${{ needs.publish-server-pypi.result }}"
           semantic="${{ needs.publish-semantic-pypi.result }}"
+          cli="${{ needs.publish-cli-pypi.result }}"
           release_assets="${{ needs.publish-github-release-assets.result }}"
           assets_verified="${{ needs.verify-release-assets.result }}"
           core_backfill="${{ github.event_name == 'workflow_dispatch' && inputs.release_tag != '' && inputs.backfill_assets != true }}"
@@ -1076,6 +1217,7 @@ jobs:
           echo "PyPI dcc-mcp-core: ${core}"
           echo "PyPI dcc-mcp-server: ${server}"
           echo "PyPI dcc-mcp-core-semantic: ${semantic}"
+          echo "PyPI dcc-mcp-cli: ${cli}"
           echo "GitHub Release assets: ${release_assets}"
           echo "Release asset verification: ${assets_verified}"
           echo "Core-only immutable backfill: ${core_backfill}"
@@ -1086,13 +1228,13 @@ jobs:
               echo "::error::Core PyPI backfill failed (result=${core})."
               failed=1
             fi
-            if [ "$server" != "skipped" ] || [ "$semantic" != "skipped" ] || [ "$release_assets" != "skipped" ]; then
+            if [ "$server" != "skipped" ] || [ "$semantic" != "skipped" ] || [ "$cli" != "skipped" ] || [ "$release_assets" != "skipped" ]; then
               echo "::error::Core-only backfill unexpectedly ran another publication route."
               failed=1
             fi
           else
-            if [ "$core" != "success" ] || [ "$server" != "success" ] || [ "$semantic" != "success" ]; then
-              echo "::error::PyPI upload failed (core=${core} server=${server} semantic=${semantic})."
+            if [ "$core" != "success" ] || [ "$server" != "success" ] || [ "$semantic" != "success" ] || [ "$cli" != "success" ]; then
+              echo "::error::PyPI upload failed (core=${core} server=${server} semantic=${semantic} cli=${cli})."
               failed=1
             fi
             if [ "$release_assets" != "success" ]; then
