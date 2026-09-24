@@ -30,10 +30,18 @@ _SCAN_ROOTS = (
     _REPO_ROOT / "tests",
     _REPO_ROOT / "examples",
     _REPO_ROOT / "scripts",
+    # Sources shipped inside the auxiliary PyPI distributions (dcc-mcp-server,
+    # dcc-mcp-core-semantic, dcc-mcp-cli). Each declares Requires-Python >=3.7,
+    # so a Maya 2022 host can install the wheel and import these modules.
+    _REPO_ROOT / "pkg",
 )
 _SKIP_NAMES = frozenset({"_core.pyi"})
 # Launchers that only run on the developer/CI Python (3.8+), not inside cp37 wheels.
 _SKIP_RELATIVE = frozenset({"scripts/run_with_py37.py"})
+# Inside ``pkg/`` only the installed package sources matter; their ``tests/``
+# directories run on the developer interpreter and never reach a wheel.
+_PKG_SCAN_ROOT = _REPO_ROOT / "pkg"
+_SKIP_DIR_PARTS = frozenset({"tests", "__pycache__"})
 
 
 def _iter_py_files() -> Iterator[Path]:
@@ -45,6 +53,8 @@ def _iter_py_files() -> Iterator[Path]:
                 continue
             rel = path.relative_to(_REPO_ROOT).as_posix()
             if rel in _SKIP_RELATIVE:
+                continue
+            if root == _PKG_SCAN_ROOT and _SKIP_DIR_PARTS.intersection(path.relative_to(root).parts):
                 continue
             yield path
 
