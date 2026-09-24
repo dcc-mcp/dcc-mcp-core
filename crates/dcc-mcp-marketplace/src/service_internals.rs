@@ -19,7 +19,7 @@ use crate::git_command;
 use crate::source::normalise_source;
 use crate::types::{
     InstalledMarketplacePackage, MarketplaceSource, MarketplaceSourceConfig,
-    MarketplaceSourceOrigin, entry_targets_dcc,
+    MarketplaceSourceOrigin, entry_dcc_ids, entry_targets_dcc,
 };
 
 pub const ENV_MARKETPLACE_SOURCES: &str = "DCC_MCP_MARKETPLACE_SOURCES";
@@ -151,45 +151,47 @@ pub fn save_config(path: &Path, config: &MarketplaceSourceConfig) -> Result<(), 
     write_atomic(path, &text)
 }
 
+/// Resolve the DCC directory an entry is installed into.
+///
+/// Resolution rules:
+///
+/// - An explicit `--dcc` wins whenever the entry targets it. `"any"` is the
+///   host-neutral wildcard an entry declares about itself, so `--dcc any` is a
+///   concrete, valid request for host-neutral entries rather than an
+///   ambiguous one.
+/// - Without `--dcc`, an entry declaring exactly one DCC resolves to it. That
+///   includes the host-neutral `"any"`: the entry already says it is not tied
+///   to a specific host, so it installs into the `any` directory instead of
+///   demanding a host name the catalog never advertised.
+/// - Entries declaring several hosts stay ambiguous and must be disambiguated
+///   explicitly; every rejection lists the hosts the entry supports.
 pub fn resolve_install_dcc(
     entry: &CatalogEntry,
     requested: Option<&str>,
 ) -> Result<String, MarketplaceError> {
     if let Some(dcc) = requested {
         let dcc_name = path_component("DCC name", dcc)?.to_lowercase();
-        if dcc_name == "any" {
-            return Err(MarketplaceError::AmbiguousDcc {
-                name: entry.name.clone(),
-            });
-        }
         if entry_targets_dcc(entry, &dcc_name) {
             return Ok(dcc_name);
         }
         return Err(MarketplaceError::DccMismatch {
             name: entry.name.clone(),
             dcc: dcc.to_string(),
+            supported: entry_dcc_ids(entry),
         });
     }
 
-    if entry.dcc.iter().any(|dcc| dcc.eq_ignore_ascii_case("any")) {
-        return Err(MarketplaceError::AmbiguousDcc {
-            name: entry.name.clone(),
-        });
+    let dccs = entry_dcc_ids(entry);
+    for dcc in &dccs {
+        path_component("DCC name", dcc)?;
     }
-
-    let mut dccs: Vec<String> = entry
-        .dcc
-        .iter()
-        .map(|dcc| path_component("DCC name", dcc).map(|s| s.to_lowercase()))
-        .collect::<Result<_, _>>()?;
-    dccs.sort();
-    dccs.dedup();
-    match dccs.as_slice() {
-        [dcc] => Ok(dcc.clone()),
-        _ => Err(MarketplaceError::AmbiguousDcc {
-            name: entry.name.clone(),
-        }),
+    if let [dcc] = dccs.as_slice() {
+        return Ok(dcc.clone());
     }
+    Err(MarketplaceError::AmbiguousDcc {
+        name: entry.name.clone(),
+        supported: dccs,
+    })
 }
 
 pub fn ensure_entry_installable(entry: &CatalogEntry) -> Result<(), MarketplaceError> {

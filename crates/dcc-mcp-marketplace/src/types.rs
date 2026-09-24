@@ -3,6 +3,8 @@
 //! These are the canonical types used by both the CLI and the Gateway admin
 //! panel. The Gateway maps them to HTTP response types in its own adapter layer.
 
+use std::collections::HashSet;
+
 use dcc_mcp_catalog::{
     CatalogComponent, CatalogEntry, CatalogPackageFormat, CatalogTarget, CatalogTargetKind,
 };
@@ -301,6 +303,26 @@ pub fn entry_targets_dcc(entry: &CatalogEntry, dcc: &str) -> bool {
         target.kind == CatalogTargetKind::Dcc
             && (target.id.eq_ignore_ascii_case("any") || target.id.eq_ignore_ascii_case(dcc))
     })
+}
+
+/// Collect the DCC ids an entry declares, lowercased and deduplicated.
+///
+/// Declaration order is preserved so error text matches the order the catalog
+/// advertises. Host-selection failures use this list to tell the operator which
+/// hosts the entry supports, so a rejected `--dcc` never looks like a
+/// misspelled name.
+pub fn entry_dcc_ids(entry: &CatalogEntry) -> Vec<String> {
+    let mut dccs: Vec<String> = entry_targets(entry)
+        .into_iter()
+        .filter(|target| target.kind == CatalogTargetKind::Dcc)
+        .map(|target| target.id.to_lowercase())
+        .collect();
+    if dccs.is_empty() {
+        dccs = entry.dcc.iter().map(|dcc| dcc.to_lowercase()).collect();
+    }
+    let mut seen = HashSet::new();
+    dccs.retain(|dcc| seen.insert(dcc.clone()));
+    dccs
 }
 
 pub fn entry_targets(entry: &CatalogEntry) -> Vec<CatalogTarget> {

@@ -20,7 +20,7 @@ use crate::types::{
     MarketplaceOutdatedList, MarketplaceSearchResult, MarketplaceSource, MarketplaceSourceOrigin,
     MarketplaceUninstallResult, MarketplaceUpdateResult, OFFICIAL_MARKETPLACE_ATTESTATION,
     OFFICIAL_MARKETPLACE_SOURCE, OutdatedMarketplacePackage, RepoInstallResult, RepoSkillList,
-    StoredMarketplaceSource, entry_targets, entry_targets_dcc,
+    StoredMarketplaceSource, entry_dcc_ids, entry_targets, entry_targets_dcc,
 };
 
 #[path = "service_internals.rs"]
@@ -976,6 +976,10 @@ impl MarketplaceService {
         skip_validation: bool,
     ) -> Result<MarketplaceHit, MarketplaceError> {
         let sources = self.sources_for_query(explicit_sources)?;
+        // A name that matched but failed the host filter is a better answer than
+        // "not found": keep searching later sources, but surface the host
+        // mismatch (never `NotFound`) when no source has a matching host.
+        let mut dcc_mismatch: Option<MarketplaceError> = None;
         for source in sources {
             let entries = self
                 .load_source_entries_validated(&source, !skip_validation)
@@ -984,12 +988,19 @@ impl MarketplaceService {
                 if let Some(dcc) = dcc
                     && !entry_targets_dcc(&entry, dcc)
                 {
+                    if dcc_mismatch.is_none() {
+                        dcc_mismatch = Some(MarketplaceError::DccMismatch {
+                            name: entry.name.clone(),
+                            dcc: dcc.to_string(),
+                            supported: entry_dcc_ids(&entry),
+                        });
+                    }
                     continue;
                 }
                 return Ok(MarketplaceHit { source, entry });
             }
         }
-        Err(MarketplaceError::NotFound(name.to_string()))
+        Err(dcc_mismatch.unwrap_or_else(|| MarketplaceError::NotFound(name.to_string())))
     }
 
     async fn resolve_install_hit_for_target(
@@ -1299,12 +1310,11 @@ mod tests {
         assert_eq!(result, "hello");
     }
 
-    #[test]
-    fn host_neutral_entry_requires_an_explicit_concrete_dcc() {
-        let entry = CatalogEntry {
-            name: "host-neutral".into(),
+    fn catalog_entry(name: &str, dcc: &[&str]) -> CatalogEntry {
+        CatalogEntry {
+            name: name.into(),
             description: "desc".into(),
-            dcc: vec!["any".into()],
+            dcc: dcc.iter().map(|dcc| (*dcc).to_string()).collect(),
             targets: vec![],
             url: None,
             issues_url: None,
@@ -1319,17 +1329,157 @@ mod tests {
             requires: None,
             icon: None,
             showcase: None,
-        };
+        }
+    }
 
+    #[test]
+    fn host_neutral_entry_installs_under_any_when_any_is_requested() {
+        let entry = catalog_entry("host-neutral", &["any"]);
+        assert_eq!(resolve_install_dcc(&entry, Some("any")).unwrap(), "any");
+    }
+
+    #[test]
+    fn host_neutral_entry_installs_under_any_without_an_explicit_dcc() {
+        let entry = catalog_entry("host-neutral", &["any"]);
+        assert_eq!(resolve_install_dcc(&entry, None).unwrap(), "any");
+    }
+
+    #[test]
+    fn host_neutral_entry_still_honours_a_concrete_dcc() {
+        let entry = catalog_entry("host-neutral", &["any"]);
         assert_eq!(resolve_install_dcc(&entry, Some("Maya")).unwrap(), "maya");
-        assert!(matches!(
-            resolve_install_dcc(&entry, Some("any")),
-            Err(MarketplaceError::AmbiguousDcc { .. })
-        ));
-        assert!(matches!(
-            resolve_install_dcc(&entry, None),
-            Err(MarketplaceError::AmbiguousDcc { .. })
-        ));
+    }
+
+    #[test]
+    fn multi_host_entry_reports_supported_dccs_when_a_host_is_requested() {
+        let entry = catalog_entry("multi-host", &["maya", "blender"]);
+        let err = resolve_install_dcc(&entry, Some("any")).unwrap_err();
+
+        assert!(matches!(err, MarketplaceError::DccMismatch { .. }), "{err}");
+        let message = err.to_string();
+        assert!(message.contains("maya, blender"), "{message}");
+        // The caller already passed --dcc, so asking for it again is a dead end.
+        assert!(!message.contains("pass --dcc"), "{message}");
+    }
+
+    #[test]
+    fn multi_host_entry_without_a_dcc_flag_lists_supported_hosts() {
+        let entry = catalog_entry("multi-host", &["maya", "blender"]);
+        let err = resolve_install_dcc(&entry, None).unwrap_err();
+
+        assert!(
+            matches!(err, MarketplaceError::AmbiguousDcc { .. }),
+            "{err}"
+        );
+        assert!(err.to_string().contains("maya, blender"), "{err}");
+        assert_eq!(resolve_install_dcc(&entry, Some("maya")).unwrap(), "maya");
+    }
+
+    #[tokio::test]
+    async fn resolve_install_hit_reports_dcc_mismatch_instead_of_not_found() {
+        let temp = tempfile::tempdir().unwrap();
+        let catalog_path = temp.path().join("marketplace.json");
+        let catalog = serde_json::json!({
+            "version": "1",
+            "entries": [catalog_entry("dcc-asset-kenney", &["maya", "blender"])],
+        });
+        fs::write(
+            &catalog_path,
+            serde_json::to_string_pretty(&catalog).unwrap(),
+        )
+        .unwrap();
+        let service = MarketplaceService::new(temp.path().join("root"));
+
+        let err = service
+            .resolve_install_hit(
+                "dcc-asset-kenney",
+                Some("openusd"),
+                vec![catalog_path.display().to_string()],
+                true,
+            )
+            .await
+            .unwrap_err();
+
+        assert!(matches!(err, MarketplaceError::DccMismatch { .. }), "{err}");
+        let message = err.to_string();
+        assert!(message.contains("dcc-asset-kenney"), "{message}");
+        assert!(message.contains("maya, blender"), "{message}");
+        assert!(!message.contains("was not found"), "{message}");
+    }
+
+    #[tokio::test]
+    async fn install_places_a_host_neutral_entry_in_the_any_directory() {
+        let temp = tempfile::tempdir().unwrap();
+        let skill_src = temp.path().join("skill-src");
+        fs::create_dir_all(&skill_src).unwrap();
+        fs::write(skill_src.join("SKILL.md"), "# host neutral\n").unwrap();
+        let catalog_path = temp.path().join("marketplace.json");
+        let entry = serde_json::json!({
+            "name": "dcc-mcp-cache-inspector",
+            "description": "host neutral entry",
+            "dcc": ["any"],
+            "install": {
+                "type": "path",
+                "url": skill_src.display().to_string(),
+            },
+        });
+        let catalog = serde_json::json!({
+            "version": "1",
+            "entries": [entry],
+        });
+        fs::write(
+            &catalog_path,
+            serde_json::to_string_pretty(&catalog).unwrap(),
+        )
+        .unwrap();
+        let root = temp.path().join("root");
+        let service = MarketplaceService::new(root.clone());
+
+        let result = service
+            .install(
+                "dcc-mcp-cache-inspector".into(),
+                None,
+                vec![catalog_path.display().to_string()],
+                false,
+                true,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(result.dcc, "any");
+        assert_eq!(
+            result.skill_search_path,
+            root.join("any").display().to_string()
+        );
+        assert!(root.join("any").join("dcc-mcp-cache-inspector").is_dir());
+    }
+
+    #[tokio::test]
+    async fn resolve_install_hit_still_reports_not_found_for_unknown_names() {
+        let temp = tempfile::tempdir().unwrap();
+        let catalog_path = temp.path().join("marketplace.json");
+        let catalog = serde_json::json!({
+            "version": "1",
+            "entries": [catalog_entry("dcc-asset-kenney", &["maya"])],
+        });
+        fs::write(
+            &catalog_path,
+            serde_json::to_string_pretty(&catalog).unwrap(),
+        )
+        .unwrap();
+        let service = MarketplaceService::new(temp.path().join("root"));
+
+        let err = service
+            .resolve_install_hit(
+                "does-not-exist",
+                None,
+                vec![catalog_path.display().to_string()],
+                true,
+            )
+            .await
+            .unwrap_err();
+
+        assert!(matches!(err, MarketplaceError::NotFound(_)), "{err}");
     }
 
     #[test]
