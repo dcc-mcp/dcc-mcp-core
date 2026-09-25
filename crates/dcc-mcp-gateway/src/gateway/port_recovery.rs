@@ -177,4 +177,6 @@ pub(crate) fn port_holder_resolution_available() -> bool {
 
 #[cfg(test)]
 #[path = "port_recovery_tests.rs"]
-mod port_recovery_tests;
+// `pub(crate)` so the challenger recovery test in `gateway::tests` can reuse
+// the same race-free holder handshake instead of re-implementing it.
+pub(crate) mod port_recovery_tests;
