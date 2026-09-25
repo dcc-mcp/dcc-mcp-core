@@ -5,6 +5,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.35](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.34...v0.20.35) (2026-09-25)
+
+
+### Features
+
+* **cli:** probe adapter importability in doctor ([a0e754e](https://github.com/dcc-mcp/dcc-mcp-core/commit/a0e754e0421b58e09982b85b74df51b6be6c0a3e))
+* **cli:** publish dcc-mcp-cli to PyPI as a three-platform wheel ([#2573](https://github.com/dcc-mcp/dcc-mcp-core/issues/2573)) ([859fb14](https://github.com/dcc-mcp/dcc-mcp-core/commit/859fb1497728a517007a0eb2f3893b209761470c))
+* **release:** assert the published Release carries its full asset set ([#2558](https://github.com/dcc-mcp/dcc-mcp-core/issues/2558)) ([8ad1f75](https://github.com/dcc-mcp/dcc-mcp-core/commit/8ad1f75f187eccec74f8ac7b80c76d771788ce7c))
+* **skills:** add reproducible skills benchmark with hit-rate and context gates ([#2553](https://github.com/dcc-mcp/dcc-mcp-core/issues/2553)) ([1fd8941](https://github.com/dcc-mcp/dcc-mcp-core/commit/1fd8941c39428ac038dcecde015e22fff135417b))
+
+
+### Bug Fixes
+
+* **gateway:** close remaining list_skills fan-out review findings ([c0074ca](https://github.com/dcc-mcp/dcc-mcp-core/commit/c0074ca88c390ec6af9b605153fc6df15609c8de))
+* **gateway:** report server binary resolution once per process ([#2575](https://github.com/dcc-mcp/dcc-mcp-core/issues/2575)) ([5ead700](https://github.com/dcc-mcp/dcc-mcp-core/commit/5ead700e802b9d4a46229666f5f313c571042e10))
+* **gateway:** resolve dcc-mcp-server from the managed environment ([#2572](https://github.com/dcc-mcp/dcc-mcp-core/issues/2572)) ([e1232ca](https://github.com/dcc-mcp/dcc-mcp-core/commit/e1232ca341817cbfaee2b910d5be6f3f67b43da2))
+* **marketplace:** install host-neutral entries and report DCC mismatch ([2662478](https://github.com/dcc-mcp/dcc-mcp-core/commit/2662478f475ba574d41e8741ecf4ec7648681d38))
+* **release:** let the asset backfill replace existing release assets ([#2559](https://github.com/dcc-mcp/dcc-mcp-core/issues/2559)) ([82cf2d6](https://github.com/dcc-mcp/dcc-mcp-core/commit/82cf2d62c2266324ae9c8859e599742cc8533b4e))
+* **release:** upload GitHub Release assets with the release PAT ([#2557](https://github.com/dcc-mcp/dcc-mcp-core/issues/2557)) ([d79cf3e](https://github.com/dcc-mcp/dcc-mcp-core/commit/d79cf3efcfa04a309020dca78487dd66aef6ec7c))
+* **skill-discovery:** discover host-neutral marketplace skills from &lt;root&gt;/any ([#2574](https://github.com/dcc-mcp/dcc-mcp-core/issues/2574)) ([141c901](https://github.com/dcc-mcp/dcc-mcp-core/commit/141c901447d017cc3263d46c20a6e0d61562aa58))
+* **skills:** reject non-slug lines when parsing depends.md ([388741a](https://github.com/dcc-mcp/dcc-mcp-core/commit/388741ac3c2129d55b0b20539faa62104d3862fa))
+* **skills:** reject prose lines when parsing metadata/depends.md ([68b5709](https://github.com/dcc-mcp/dcc-mcp-core/commit/68b570909e5fc565a862309d4a15381366c8c06d))
+* **skills:** state the depends.md slug-check boundary, warn on dropped entries ([50e08be](https://github.com/dcc-mcp/dcc-mcp-core/commit/50e08be5e86a8836725a399163cae4471425c2d3))
+
+
+### Code Refactoring
+
+* **gateway:** move the guardian patrol loop into its own module ([70d9056](https://github.com/dcc-mcp/dcc-mcp-core/commit/70d905614211bc21c61f0a2f787c3cefc41ee0ad))
+
+
+### Documentation
+
+* add MCP 2026-07-28 migration guide ([#2564](https://github.com/dcc-mcp/dcc-mcp-core/issues/2564)) ([7fd29da](https://github.com/dcc-mcp/dcc-mcp-core/commit/7fd29da909de509345705e8e77ea9a9fc650ef61))
+* **guide:** correct the core version floor for install SOP v2 ([#2552](https://github.com/dcc-mcp/dcc-mcp-core/issues/2552)) ([be97216](https://github.com/dcc-mcp/dcc-mcp-core/commit/be97216b0ee2988b849aa1f9e928b90bdd5adab8))
+* **lint:** skip YAML frontmatter in the emoji rules ([b891a72](https://github.com/dcc-mcp/dcc-mcp-core/commit/b891a724678f49545a7855ea0f8c2c3bbbd6f53a))
+
 ## [0.20.34](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.33...v0.20.34) (2026-09-22)
 
 
