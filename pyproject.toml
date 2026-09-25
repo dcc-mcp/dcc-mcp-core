@@ -116,6 +116,16 @@ Issues = "https://github.com/dcc-mcp/dcc-mcp-core/issues"
 Changelog = "https://github.com/dcc-mcp/dcc-mcp-core/blob/main/CHANGELOG.md"
 "Release Notes" = "https://github.com/dcc-mcp/dcc-mcp-core/releases"
 
+# VFX Reference Platform alignment. `core` is imported inside Python 3.7 hosts
+# (Maya 2022 and friends) and inside CY2026 hosts, so it is checked against both
+# tiers: every runtime dependency has to resolve to a release that installs on
+# Python 3.7 and to a release inside the CY2026 baseline. Dependencies that only
+# hold on newer interpreters must carry an environment marker instead. See
+# config/vfx-platform-baseline.json and scripts/ci/check_vfx_baseline.py.
+[tool.dcc-mcp.vfx-platform]
+year = ["CY2026", "py37"]
+host = "core"
+
 [tool.maturin]
 python-source = "python"
 module-name = "dcc_mcp_core._core"

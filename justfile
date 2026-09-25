@@ -337,6 +337,10 @@ check-py37-syntax:
 check-python-support:
     python scripts/ci/check_python_support.py
 
+# Verify declared dependencies match the VFX Platform baseline for the declared host.
+check-vfx-baseline:
+    python scripts/ci/check_vfx_baseline.py
+
 # Auto-fix Python lint issues and format
 lint-py-fix:
     ruff check --fix python/dcc_mcp_core/ tests/ examples/ scripts/

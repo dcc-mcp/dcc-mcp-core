@@ -1,0 +1,189 @@
+{
+  "schema_version": 1,
+  "source": {
+    "name": "VFX Reference Platform",
+    "url": "https://vfxplatform.com/",
+    "retrieved_at": "2026-09-25",
+    "method": "The official table was fetched and parsed; values under tiers[*].official are transcribed from it.",
+    "notes": [
+      "Dependency baselines align to the VFX Platform year of the target host, not to one organisation-wide year.",
+      "USD and OpenImageIO have no row in the official table. They are NOT in this baseline; pin them from the host DCC's embedded version or the USD release policy instead."
+    ]
+  },
+  "na_components": {
+    "usd": "Not listed in the official VFX Reference Platform table (CY2024-CY2027 columns verified). Pin from the host DCC's embedded USD.",
+    "openimageio": "Not listed in the official VFX Reference Platform table (CY2024-CY2027 columns verified). Pin from the host DCC or the OIIO release policy."
+  },
+  "tiers": {
+    "CY2026": {
+      "label": "Current VFX Reference Platform host tier",
+      "python": "3.13.x",
+      "python_version": "3.13.0",
+      "official": {
+        "gcc": "14.2",
+        "glibc": "2.34",
+        "python": "3.13.x",
+        "pyqt": "6.8.x",
+        "pyside": "6.8.x",
+        "qt": "6.8.x",
+        "aces": "2.0",
+        "alembic": "1.8.x",
+        "boost": "1.88",
+        "fbx": "2020.2 - 2020.latest",
+        "imath": "3.2.x",
+        "numpy": "2.3.x",
+        "onemkl": "2025",
+        "onetbb": "2023.x",
+        "opencolorio": "2.5.x",
+        "openexr": "3.4.x",
+        "opensubdiv": "3.7.x",
+        "openvdb": "13.x",
+        "ptex": "2.4.x",
+        "cpp_api": "C++20",
+        "windows_sdk": "10.0.22621 or later",
+        "minimum_platform_toolset": "Visual Studio build tools v14.44 or later",
+        "minimum_deployment_target": "14.0"
+      },
+      "components": {
+        "numpy": {
+          "pypi": "numpy",
+          "floor": "2.3.0",
+          "ceiling": "2.3.999",
+          "specifier": ">=2.3,<2.4"
+        },
+        "pyside": {
+          "pypi": "pyside6",
+          "floor": "6.8.0",
+          "ceiling": "6.8.999",
+          "specifier": ">=6.8,<6.9"
+        },
+        "pyside_essentials": {
+          "pypi": "pyside6-essentials",
+          "floor": "6.8.0",
+          "ceiling": "6.8.999",
+          "specifier": ">=6.8,<6.9"
+        },
+        "pyqt": {
+          "pypi": "pyqt6",
+          "floor": "6.8.0",
+          "ceiling": "6.8.999",
+          "specifier": ">=6.8,<6.9"
+        },
+        "openexr": {
+          "pypi": null,
+          "floor": "3.4.0",
+          "ceiling": "3.4.999",
+          "specifier": ">=3.4,<3.5",
+          "note": "C++ library in the VFX table. Not tracked as a Python dependency."
+        },
+        "opencolorio": {
+          "pypi": null,
+          "floor": "2.5.0",
+          "ceiling": "2.5.999",
+          "specifier": ">=2.5,<2.6",
+          "note": "C++ library in the VFX table. Not tracked as a Python dependency."
+        },
+        "ptex": {
+          "pypi": null,
+          "floor": "2.4.0",
+          "ceiling": "2.4.999",
+          "specifier": ">=2.4,<2.5",
+          "note": "C++ library in the VFX table. Not tracked as a Python dependency."
+        },
+        "boost": {
+          "pypi": null,
+          "floor": "1.88",
+          "ceiling": "1.88",
+          "specifier": "==1.88",
+          "note": "C++ library in the VFX table. Not tracked as a Python dependency."
+        },
+        "qt": {
+          "pypi": null,
+          "floor": "6.8.0",
+          "ceiling": "6.8.999",
+          "specifier": ">=6.8,<6.9",
+          "note": "C++ library in the VFX table. Not tracked as a Python dependency."
+        },
+        "alembic": {
+          "pypi": null,
+          "floor": "1.8.0",
+          "ceiling": "1.8.999",
+          "specifier": ">=1.8,<1.9",
+          "note": "C++ library in the VFX table. Not tracked as a Python dependency."
+        },
+        "imath": {
+          "pypi": null,
+          "floor": "3.2.0",
+          "ceiling": "3.2.999",
+          "specifier": ">=3.2,<3.3",
+          "note": "C++ library in the VFX table. Not tracked as a Python dependency."
+        },
+        "opensubdiv": {
+          "pypi": null,
+          "floor": "3.7.0",
+          "ceiling": "3.7.999",
+          "specifier": ">=3.7,<3.8",
+          "note": "C++ library in the VFX table. Not tracked as a Python dependency."
+        },
+        "openvdb": {
+          "pypi": null,
+          "floor": "13.0",
+          "ceiling": "13.999",
+          "specifier": ">=13,<14",
+          "note": "C++ library in the VFX table. Not tracked as a Python dependency."
+        }
+      }
+    },
+    "py37": {
+      "label": "Python 3.7 host tier (VFX Reference Platform CY2021 / CY2022 band)",
+      "python": "3.7.17",
+      "python_version": "3.7.17",
+      "derivation": "Per the per-host-year ruling, this tier is defined operationally: every component takes the HIGHEST release that still supports Python 3.7, read from PyPI requires_python metadata. That is what 'aligned to the host's year' means for a py37 host.",
+      "derivation_probe": "for each candidate version, admit it when Version('3.7.17') is in SpecifierSet(release.requires_python); take the maximum.",
+      "components": {
+        "numpy": {
+          "pypi": "numpy",
+          "floor": null,
+          "ceiling": "1.21.6",
+          "specifier": "<=1.21.6",
+          "verified": "numpy 1.21.6 is the last release whose requires_python admits 3.7; numpy 1.22 requires >=3.8."
+        },
+        "pyside": {
+          "pypi": "pyside6",
+          "floor": null,
+          "ceiling": "6.5.3",
+          "specifier": "<=6.5.3",
+          "verified": "PySide6 6.5.3 is the last release whose requires_python admits 3.7."
+        },
+        "pyside_essentials": {
+          "pypi": "pyside6-essentials",
+          "floor": null,
+          "ceiling": "6.5.3",
+          "specifier": "<=6.5.3",
+          "verified": "PySide6-Essentials 6.5.3 is the last release whose requires_python admits 3.7."
+        },
+        "pyside2": {
+          "pypi": "pyside2",
+          "floor": null,
+          "ceiling": "5.15.2.1",
+          "specifier": "<=5.15.2.1",
+          "verified": "PySide2 5.15.2.1 is the last release whose requires_python admits 3.7."
+        },
+        "pyqt": {
+          "pypi": "pyqt6",
+          "floor": null,
+          "ceiling": "6.6.0",
+          "specifier": "<=6.6.0",
+          "verified": "PyQt6 6.6.0 is the last release publishing a cp37-abi3 wheel. 6.6.1 still declares requires_python>=3.6.1 but ships only cp38-abi3, and 6.7.0 raises the requirement to >=3.8, so the wheel tag is the binding constraint here rather than the metadata."
+        }
+      }
+    }
+  },
+  "python37_floor": {
+    "floor": ">=3.7",
+    "expires": "2026-12-31",
+    "policy": "The Python 3.7 floor is locked until the expiry date. Raising requires-python, narrowing the CI matrix, or deleting py37 wheels/jobs is forbidden before then.",
+    "constrained_hosts": ["core", "maya", "houdini", "unreal", "3dsmax"],
+    "exempt_hosts": ["blender", "photoshop", "openusd", "zbrush"]
+  }
+}
