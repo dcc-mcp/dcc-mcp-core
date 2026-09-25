@@ -6,7 +6,7 @@ from conftest import REPO_ROOT
 from dcc_mcp_core import yaml_loads
 
 RELEASE_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "release.yml"
-PYPI_ACTION = "pypa/gh-action-pypi-publish@release/v1"
+PYPI_ACTION = "pypa/gh-action-pypi-publish"
 GITHUB_RELEASE_ACTION = "softprops/action-gh-release@v3"
 CORE_BACKFILL_EXPRESSION = "github.event_name == 'workflow_dispatch' && inputs.release_tag != ''"
 ASSETS_BACKFILL_GUARD = " && inputs.backfill_assets != true"
@@ -28,8 +28,20 @@ def _release_jobs() -> dict:
     return workflow["jobs"]
 
 
+def _uses_action(step: dict, action: str) -> bool:
+    """Report whether ``step`` invokes ``action``, whatever ref pins it.
+
+    The publish action moved from the mutable ``release/v1`` tag to an immutable
+    commit SHA with a ``# v1.14.2`` trailing comment, so the ref is not a stable
+    identifier to compare against.
+    """
+
+    uses = str(step.get("uses") or "")
+    return uses.split("#", 1)[0].strip().startswith(f"{action}@")
+
+
 def _pypi_steps(job: dict) -> list[dict]:
-    return [step for step in job.get("steps", []) if step.get("uses") == PYPI_ACTION]
+    return [step for step in job.get("steps", []) if _uses_action(step, PYPI_ACTION)]
 
 
 def _github_release_steps(jobs: dict) -> list[dict]:
@@ -187,7 +199,7 @@ def test_core_pypi_publish_validates_complete_distribution_set_before_upload() -
     validate_index = next(
         index for index, step in enumerate(steps) if "check_release_distribution_set.py" in step.get("run", "")
     )
-    upload_index = next(index for index, step in enumerate(steps) if step.get("uses") == PYPI_ACTION)
+    upload_index = next(index for index, step in enumerate(steps) if _uses_action(step, PYPI_ACTION))
 
     assert validate_index < upload_index
     assert "--dist-dir dist" in steps[validate_index]["run"]
