@@ -19,6 +19,11 @@ import zipfile
 from dcc_mcp_cli import _bootstrap
 import pytest
 
+#: Stand-in for the released binary. Deliberately NOT a shebang script:
+#: the bootstrap treats a leading "#!" as proof that pip's console script
+#: has replaced the unpacked binary.
+NATIVE_BINARY = b"\x7fELF\x02\x01\x01\x00 synthetic stand-in for the release binary\n"
+
 
 @pytest.fixture
 def payload_dir_path(tmp_path):
@@ -33,7 +38,7 @@ def payload(payload_dir_path, monkeypatch):
     payload_dir.mkdir(exist_ok=True)
     archive = payload_dir / "dcc-mcp-cli-9.9.9-linux-x86_64.zip"
     with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as archive_file:
-        archive_file.writestr("dcc-mcp-cli", b"#!/bin/sh\nexit 0\n")
+        archive_file.writestr("dcc-mcp-cli", NATIVE_BINARY)
     metadata = {
         "schema_version": 1,
         "distribution": "dcc-mcp-cli",
@@ -127,6 +132,74 @@ def test_version_bump_forces_a_reunpack(payload, payload_dir_path, bin_dir):
     second = _bootstrap.resolve_binary()
     assert second == first
     assert second.read_bytes() != b"stale"
+
+
+def test_reinstalled_console_launcher_forces_a_reunpack(payload, bin_dir, monkeypatch):
+    """Reinstalling the same version must not leave a launcher in place.
+
+    `pip install --force-reinstall dcc-mcp-cli==X` rewrites the console
+    script over the unpacked binary. The marker is not in the distribution
+    RECORD, so it survives and still names the right version: only the
+    launcher fingerprint can tell the two files apart. Trusting the marker
+    would make `_execute` execv the launcher, re-enter `main()` and hang
+    the CLI in an infinite loop with no output.
+    """
+    # The collision only exists on POSIX, where the unpack may reuse the
+    # console script's own name. Pin that name so the test covers the fix on
+    # every platform instead of skipping on Windows.
+    monkeypatch.setattr(_bootstrap, "_binary_names", lambda: ("dcc-mcp-cli", "dcc-mcp-cli-bin"))
+
+    first = _bootstrap.resolve_binary()
+    marker = json.loads(_bootstrap.marker_path(bin_dir).read_text(encoding="utf-8"))
+    assert marker["binary_size"] == len(NATIVE_BINARY)
+
+    # Same size as the recorded binary, so only the shebang can reject it.
+    launcher = b"#!" + b"x" * (marker["binary_size"] - 2)
+    first.write_bytes(launcher)
+
+    second = _bootstrap.resolve_binary()
+    assert second == first
+    assert second.read_bytes() == NATIVE_BINARY
+
+
+def test_binary_replaced_by_a_different_file_forces_a_reunpack(payload, bin_dir, monkeypatch):
+    """A binary whose size no longer matches the marker is re-unpacked."""
+    monkeypatch.setattr(_bootstrap, "_binary_names", lambda: ("dcc-mcp-cli", "dcc-mcp-cli-bin"))
+
+    first = _bootstrap.resolve_binary()
+    first.write_text("not the binary at all", encoding="utf-8")
+
+    second = _bootstrap.resolve_binary()
+    assert second.read_bytes() == NATIVE_BINARY
+
+
+def test_marker_without_a_size_fingerprint_still_rejects_launchers(payload, bin_dir, monkeypatch):
+    """A marker written before the fingerprint existed is still checked."""
+    monkeypatch.setattr(_bootstrap, "_binary_names", lambda: ("dcc-mcp-cli", "dcc-mcp-cli-bin"))
+
+    first = _bootstrap.resolve_binary()
+    marker_path = _bootstrap.marker_path(bin_dir)
+    marker = json.loads(marker_path.read_text(encoding="utf-8"))
+    del marker["binary_size"]
+    marker_path.write_text(json.dumps(marker), encoding="utf-8")
+
+    first.write_bytes(b"#!/usr/bin/env python\n")
+
+    assert _bootstrap.resolve_binary().read_bytes() == NATIVE_BINARY
+
+
+def test_missing_archive_digest_is_reported(payload, payload_dir_path, bin_dir):
+    """A payload without `archive_sha256` is refused, as documented.
+
+    `stage_payload()` always records the digest, so its absence means the
+    wheel was not built by the release script. Skipping the check silently
+    would contradict the function's own docstring.
+    """
+    del payload["archive_sha256"]
+    rewrite_payload(payload_dir_path, payload)
+
+    with pytest.raises(_bootstrap.PayloadError, match="archive_sha256"):
+        _bootstrap.resolve_binary()
 
 
 def test_archive_digest_mismatch_is_rejected(payload, payload_dir_path, bin_dir):

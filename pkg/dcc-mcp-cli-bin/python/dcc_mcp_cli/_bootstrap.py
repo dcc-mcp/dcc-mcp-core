@@ -53,6 +53,10 @@ PACKAGE_MANAGER_NAME = "pypi"
 _PAYLOAD_SCHEMA_VERSION = 1
 _COPY_CHUNK_BYTES = 1024 * 1024
 _EXECUTABLE_MODE = 0o755
+#: Python console-script launchers start with a shebang. A native binary
+#: never does, which is how a reinstalled launcher is told apart from the
+#: binary it replaced.
+_LAUNCHER_MAGIC = b"#!"
 
 
 class PayloadError(RuntimeError):
@@ -176,26 +180,71 @@ def marker_path(directory: Path) -> Path:
     return directory / PACKAGE_MANAGER_MARKER
 
 
-def _marker_matches(directory: Path, payload: dict) -> bool:
-    """Report whether ``directory`` already holds this exact payload version."""
+def _read_marker(directory: Path) -> dict | None:
+    """Return the package-manager marker in ``directory``, if it parses."""
     path = marker_path(directory)
     try:
         marker = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        return False
-    if not isinstance(marker, dict):
-        return False
+        return None
+    return marker if isinstance(marker, dict) else None
+
+
+def _marker_matches(marker: dict, payload: dict) -> bool:
+    """Report whether ``marker`` was written for this exact payload version."""
     return marker.get("version") == payload.get("version") and marker.get("platform") == payload.get("platform")
+
+
+def _is_launcher(path: Path) -> bool:
+    """Report whether ``path`` looks like a Python console-script launcher.
+
+    Reinstalling the *same* wheel version rewrites the pip-generated console
+    script over the unpacked binary. The marker is not part of the
+    distribution RECORD, so it survives that reinstall and would otherwise
+    vouch for a file that is a launcher again: :func:`_execute` would then
+    ``execv`` it, re-enter ``main()`` and loop forever without output.
+    """
+    try:
+        with path.open("rb") as stream:
+            return stream.read(len(_LAUNCHER_MAGIC)) == _LAUNCHER_MAGIC
+    except OSError:
+        return True
+
+
+def _binary_is_intact(path: Path, marker: dict) -> bool:
+    """Report whether ``path`` still holds the binary ``marker`` describes.
+
+    Args:
+        path: Candidate binary sitting next to the marker.
+        marker: Parsed package-manager marker.
+
+    Returns:
+        ``True`` when the file is neither a console-script launcher nor a
+        differently sized file than the one that was unpacked.
+
+    """
+    if _is_launcher(path):
+        return False
+    recorded = marker.get("binary_size")
+    if not isinstance(recorded, int) or isinstance(recorded, bool):
+        # Marker written before the fingerprint existed: fall back to the
+        # launcher check alone so an older installation is not orphaned.
+        return True
+    try:
+        return path.stat().st_size == recorded
+    except OSError:
+        return False
 
 
 def _find_existing(payload: dict) -> Path | None:
     """Return an already unpacked binary matching ``payload``, if any."""
     for directory in candidate_dirs():
-        if not _marker_matches(directory, payload):
+        marker = _read_marker(directory)
+        if marker is None or not _marker_matches(marker, payload):
             continue
         for name in _binary_names():
             candidate = directory / name
-            if candidate.is_file():
+            if candidate.is_file() and _binary_is_intact(candidate, marker):
                 return candidate
     return None
 
@@ -254,6 +303,10 @@ def _write_marker(directory: Path, payload: dict, binary_name: str) -> None:
         "platform": payload["platform"],
         "binary": binary_name,
     }
+    # Fingerprint the unpacked binary so a reinstall that restores the pip
+    # console script cannot be mistaken for a healthy installation.
+    with contextlib.suppress(OSError):
+        marker["binary_size"] = (directory / binary_name).stat().st_size
     directory.mkdir(parents=True, exist_ok=True)
     temporary = directory / (PACKAGE_MANAGER_MARKER + ".tmp")
     temporary.write_text(json.dumps(marker, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -272,7 +325,7 @@ def _archive_digest(archive: Path, expected: str | None) -> None:
 
     """
     if not expected:
-        return
+        raise PayloadError(f"{archive.name} has no archive_sha256 in {PAYLOAD_METADATA}; rebuild the wrapper wheel")
     digest = hashlib.sha256()
     with archive.open("rb") as stream:
         for chunk in iter(lambda: stream.read(_COPY_CHUNK_BYTES), b""):
