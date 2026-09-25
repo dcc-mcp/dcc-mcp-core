@@ -858,7 +858,7 @@ jobs:
           --dist-dir dist
 
       - name: Upload dcc-mcp-core to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
         with:
           packages-dir: dist
           verbose: true
@@ -913,7 +913,7 @@ jobs:
       # Owner = dcc-mcp, Repo = dcc-mcp-core, Workflow = release.yml,
       # Environment = pypi, Project = dcc-mcp-server.
       - name: Upload dcc-mcp-server to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
         with:
           packages-dir: dist-server
           verbose: true
@@ -968,7 +968,7 @@ jobs:
       # Owner = dcc-mcp, Repo = dcc-mcp-core, Workflow = release.yml,
       # Environment = pypi, Project = dcc-mcp-core-semantic.
       - name: Upload dcc-mcp-core-semantic to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
         with:
           packages-dir: dist-semantic
           verbose: true
@@ -1026,7 +1026,7 @@ jobs:
       # `dcc-mcp-cli` is a new project: register a *pending* publisher so the
       # first OIDC upload creates it, no API token involved.
       - name: Upload dcc-mcp-cli to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
         with:
           packages-dir: dist-cli
           verbose: true
