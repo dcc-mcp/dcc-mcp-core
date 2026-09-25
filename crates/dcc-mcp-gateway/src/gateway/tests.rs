@@ -588,38 +588,12 @@ async fn test_challenger_recovers_live_but_service_dead_port_holder() {
         return;
     }
     let dir = tempfile::tempdir().unwrap();
-    let occupied = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let port = occupied.local_addr().unwrap().port();
 
-    let mut holder = std::process::Command::new(std::env::current_exe().unwrap())
-        .args([
-            "gateway::port_recovery::port_recovery_tests::port_holder_child_process",
-            "--exact",
-            "--nocapture",
-        ])
-        .env("DCC_MCP_TEST_PORT_HOLDER_PORT", port.to_string())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .expect("spawn service-dead port holder");
-    drop(occupied);
-
-    // Wait until the holder owns the port, then prove it is service-dead:
-    // the bind fails and the readiness probe never turns green.
-    let hold_deadline = tokio::time::Instant::now() + Duration::from_secs(10);
-    loop {
-        if dcc_mcp_gateway_ensure::listener_pids_on_port(port)
-            .first()
-            .is_some_and(|pid| dcc_mcp_gateway_ensure::is_process_alive(*pid))
-        {
-            break;
-        }
-        assert!(
-            tokio::time::Instant::now() < hold_deadline,
-            "holder never bound port {port}"
-        );
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
+    // The holder owns port selection and reports the port it bound, so this
+    // test cannot inherit the bind/close race the handshake used to have;
+    // see `port_recovery::port_recovery_tests`.
+    let (port, mut holder) =
+        crate::gateway::port_recovery::port_recovery_tests::spawn_service_dead_port_holder().await;
 
     // Attribute the holder to this deployment the way a real autolaunch does,
     // so the recovery path is allowed to terminate it.
