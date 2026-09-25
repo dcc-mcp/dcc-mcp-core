@@ -77,6 +77,38 @@ Marketplace **源**是指向目录文件的命名引用。源持久化存储在 
 
 完整参数参考：[cli-reference.md](cli-reference.md#marketplace)。
 
+### 多宿主编排：一次安装，多宿主共享
+
+声明多个宿主的条目（如 `dcc: ["maya", "blender", "houdini"]`）携带的是同一份
+所有宿主都能加载的内容，因此 `marketplace install` 只写**一份**：
+
+```bash
+# 不指定宿主，或显式使用共享落点的写法，安装结果相同
+dcc-mcp-cli marketplace install dcc-asset-polyhaven
+dcc-mcp-cli marketplace install dcc-asset-polyhaven --dcc all
+```
+
+| 条目声明                  | `--dcc`                        | 落点                        |
+|---------------------------|--------------------------------|-----------------------------|
+| 单个宿主（`["maya"]`）    | 省略，或 `maya`                | `marketplace/maya/<name>/`  |
+| 多个宿主                  | 省略、`all` 或 `any`           | `marketplace/any/<name>/`   |
+| 宿主无关（`["any"]`）     | 省略、`all`、`any` 或具体宿主  | `marketplace/any/<name>/`，或指定宿主目录 |
+
+共享目录 `any` 本来就在每个宿主的 skill 搜索路径里，所以一份副本即可被所有宿主
+发现；某个宿主自己的副本仍然存在时，对该宿主的优先级更高。对只声明单个具体宿主
+的条目，`--dcc all` 会被拒绝：这类条目与宿主绑定，仍落在自己的目录里。
+
+宿主确实会加载共享包，因此 `marketplace list-installed --dcc <host>` 会列出它们，
+`marketplace uninstall <name> --dcc <host>` 也能移除它们。
+
+在此行为之前安装的包会在每个宿主目录下各留一份。安装共享副本时，这些路径会以
+`superseded` 出现在安装 JSON 里；它们会继续遮蔽共享副本并继续占用磁盘，直到被
+移除：
+
+```bash
+dcc-mcp-cli marketplace uninstall dcc-asset-polyhaven --dcc maya
+```
+
 ## 包结构
 
 安装命令继续兼容单 Skill 包和已有 Bundle；当包根目录存在 `plugin.json`
@@ -311,7 +343,8 @@ Marketplace 面板反映与 CLI 相同的来源配置。来源管理功能通过
 
 两种界面共享同一套已安装包状态。已知准确 ID 时，CLI 用户可用
 `marketplace install <name> --dcc <dcc> --reload` 一次完成安装和运行时刷新；
-单 DCC 包还可省略 `--dcc`。Admin UI 在后端报告 `reload_required` 时会自动触发
+单 DCC 包可省略 `--dcc`，声明多宿主包同样可以省略，此时只安装一份到所有宿主
+都会搜索的共享目录。Admin UI 在后端报告 `reload_required` 时会自动触发
 相同刷新。更新和卸载如需立即生效，仍单独运行 `reload-skills`。
 
 ## 参见

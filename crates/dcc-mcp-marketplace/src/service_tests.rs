@@ -627,9 +627,48 @@ fn host_neutral_entry_still_honours_a_concrete_dcc() {
 }
 
 #[test]
-fn multi_host_entry_reports_supported_dccs_when_a_host_is_requested() {
+fn multi_host_entry_installs_once_into_the_shared_directory() {
     let entry = catalog_entry("multi-host", &["maya", "blender"]);
-    let err = resolve_install_dcc(&entry, Some("any")).unwrap_err();
+
+    // No --dcc: one install serves every declared host.
+    assert_eq!(resolve_install_dcc(&entry, None).unwrap(), "any");
+    // `--dcc all` and `--dcc any` ask for the same shared landing spot.
+    assert_eq!(resolve_install_dcc(&entry, Some("all")).unwrap(), "any");
+    assert_eq!(resolve_install_dcc(&entry, Some("Any")).unwrap(), "any");
+    // A concrete host is still honoured for callers who want the copy local.
+    assert_eq!(
+        resolve_install_dcc(&entry, Some("blender")).unwrap(),
+        "blender"
+    );
+}
+
+#[test]
+fn a_host_named_like_the_shared_alias_keeps_its_own_name() {
+    // The catalog owns its host ids, so `all` is only an alias when no host
+    // claims the name.
+    let entry = catalog_entry("all-host", &["all"]);
+    assert_eq!(resolve_install_dcc(&entry, Some("all")).unwrap(), "all");
+    assert_eq!(resolve_install_dcc(&entry, None).unwrap(), "all");
+}
+
+#[test]
+fn host_specific_entry_rejects_a_shared_dcc_request() {
+    let entry = catalog_entry("maya-only", &["maya"]);
+
+    for request in ["all", "any"] {
+        let err = resolve_install_dcc(&entry, Some(request)).unwrap_err();
+        assert!(matches!(err, MarketplaceError::DccMismatch { .. }), "{err}");
+        assert!(err.to_string().contains("maya"), "{err}");
+    }
+    // The entry installs into its own host directory, shared or not.
+    assert_eq!(resolve_install_dcc(&entry, None).unwrap(), "maya");
+    assert_eq!(resolve_install_dcc(&entry, Some("maya")).unwrap(), "maya");
+}
+
+#[test]
+fn multi_host_entry_still_rejects_an_unsupported_host() {
+    let entry = catalog_entry("multi-host", &["maya", "blender"]);
+    let err = resolve_install_dcc(&entry, Some("houdini")).unwrap_err();
 
     assert!(matches!(err, MarketplaceError::DccMismatch { .. }), "{err}");
     let message = err.to_string();
@@ -639,16 +678,14 @@ fn multi_host_entry_reports_supported_dccs_when_a_host_is_requested() {
 }
 
 #[test]
-fn multi_host_entry_without_a_dcc_flag_lists_supported_hosts() {
-    let entry = catalog_entry("multi-host", &["maya", "blender"]);
+fn entry_without_any_dcc_stays_ambiguous() {
+    let entry = catalog_entry("unscoped", &[]);
     let err = resolve_install_dcc(&entry, None).unwrap_err();
 
     assert!(
         matches!(err, MarketplaceError::AmbiguousDcc { .. }),
         "{err}"
     );
-    assert!(err.to_string().contains("maya, blender"), "{err}");
-    assert_eq!(resolve_install_dcc(&entry, Some("maya")).unwrap(), "maya");
 }
 
 #[tokio::test]
@@ -756,4 +793,235 @@ async fn resolve_install_hit_still_reports_not_found_for_unknown_names() {
         .unwrap_err();
 
     assert!(matches!(err, MarketplaceError::NotFound(_)), "{err}");
+}
+
+// ── shared (host-neutral) installs for multi-host entries ────────────────────
+
+/// Build a catalog file with a `path` install pointing at `skill_src`.
+fn write_path_catalog(
+    catalog_path: &std::path::Path,
+    skill_src: &std::path::Path,
+    name: &str,
+    dcc: &[&str],
+) {
+    let entry = serde_json::json!({
+        "name": name,
+        "description": "shared install fixture",
+        "dcc": dcc,
+        "version": "1.0.0",
+        "install": {
+            "type": "path",
+            "url": skill_src.display().to_string(),
+        },
+    });
+    let catalog = serde_json::json!({ "version": "1", "entries": [entry] });
+    fs::write(
+        catalog_path,
+        serde_json::to_string_pretty(&catalog).unwrap(),
+    )
+    .unwrap();
+}
+
+#[tokio::test]
+async fn installing_a_multi_host_entry_places_one_copy_in_the_shared_directory() {
+    let temp = tempfile::tempdir().unwrap();
+    let skill_src = temp.path().join("skill-src");
+    fs::create_dir_all(&skill_src).unwrap();
+    fs::write(skill_src.join("SKILL.md"), "# shared\n").unwrap();
+    let catalog_path = temp.path().join("marketplace.json");
+    write_path_catalog(
+        &catalog_path,
+        &skill_src,
+        "dcc-asset-polyhaven",
+        &["maya", "blender", "houdini", "3dsmax"],
+    );
+    let root = temp.path().join("root");
+    let service = MarketplaceService::new(root.clone());
+    let sources = vec![catalog_path.display().to_string()];
+
+    let result = service
+        .install(
+            "dcc-asset-polyhaven".into(),
+            None,
+            sources.clone(),
+            false,
+            true,
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(result.dcc, "any");
+    assert_eq!(
+        result.skill_search_path,
+        root.join("any").display().to_string()
+    );
+    assert!(root.join("any").join("dcc-asset-polyhaven").is_dir());
+    // One tree, not one copy per declared host.
+    for dcc in ["maya", "blender", "houdini", "3dsmax"] {
+        assert!(
+            !root.join(dcc).exists(),
+            "{} should not receive its own copy",
+            dcc
+        );
+    }
+    assert!(result.superseded.is_empty());
+
+    // One ledger entry, visible from every declared host.
+    assert_eq!(service.list_installed(None).unwrap().count, 1);
+    for dcc in ["maya", "blender", "houdini", "3dsmax"] {
+        assert_eq!(
+            service.list_installed(Some(dcc)).unwrap().count,
+            1,
+            "{} should resolve the shared install",
+            dcc
+        );
+    }
+}
+
+#[tokio::test]
+async fn shared_install_reports_the_per_host_copies_it_supersedes() {
+    let temp = tempfile::tempdir().unwrap();
+    let skill_src = temp.path().join("skill-src");
+    fs::create_dir_all(&skill_src).unwrap();
+    fs::write(skill_src.join("SKILL.md"), "# shared\n").unwrap();
+    let catalog_path = temp.path().join("marketplace.json");
+    write_path_catalog(
+        &catalog_path,
+        &skill_src,
+        "dcc-asset-polyhaven",
+        &["maya", "blender"],
+    );
+    let root = temp.path().join("root");
+    let service = MarketplaceService::new(root.clone());
+    let sources = vec![catalog_path.display().to_string()];
+
+    // Legacy state: one copy per host, as installs before this change produced.
+    for dcc in ["maya", "blender"] {
+        service
+            .install(
+                "dcc-asset-polyhaven".into(),
+                Some(dcc.to_string()),
+                sources.clone(),
+                false,
+                true,
+            )
+            .await
+            .unwrap();
+        assert!(root.join(dcc).join("dcc-asset-polyhaven").is_dir());
+    }
+
+    let result = service
+        .install(
+            "dcc-asset-polyhaven".into(),
+            Some("all".into()),
+            sources,
+            false,
+            true,
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(result.dcc, "any");
+    let mut superseded = result.superseded.clone();
+    superseded.sort();
+    let expected = vec![
+        root.join("blender")
+            .join("dcc-asset-polyhaven")
+            .display()
+            .to_string(),
+        root.join("maya")
+            .join("dcc-asset-polyhaven")
+            .display()
+            .to_string(),
+    ];
+    assert_eq!(superseded, expected);
+    // Reporting never deletes: the host-specific copies stay until removed.
+    assert!(root.join("maya").join("dcc-asset-polyhaven").is_dir());
+}
+
+#[tokio::test]
+async fn uninstall_by_host_removes_the_shared_install() {
+    let temp = tempfile::tempdir().unwrap();
+    let skill_src = temp.path().join("skill-src");
+    fs::create_dir_all(&skill_src).unwrap();
+    fs::write(skill_src.join("SKILL.md"), "# shared\n").unwrap();
+    let catalog_path = temp.path().join("marketplace.json");
+    write_path_catalog(
+        &catalog_path,
+        &skill_src,
+        "dcc-asset-polyhaven",
+        &["maya", "blender"],
+    );
+    let root = temp.path().join("root");
+    let service = MarketplaceService::new(root.clone());
+
+    service
+        .install(
+            "dcc-asset-polyhaven".into(),
+            None,
+            vec![catalog_path.display().to_string()],
+            false,
+            true,
+        )
+        .await
+        .unwrap();
+
+    let result = service.uninstall("dcc-asset-polyhaven", "maya").unwrap();
+
+    assert!(result.uninstalled);
+    assert_eq!(result.dcc, "any");
+    assert!(!root.join("any").join("dcc-asset-polyhaven").exists());
+    assert_eq!(service.list_installed(None).unwrap().count, 0);
+}
+
+#[tokio::test]
+async fn shared_install_survives_an_update_lookup() {
+    let temp = tempfile::tempdir().unwrap();
+    let skill_src = temp.path().join("skill-src");
+    fs::create_dir_all(&skill_src).unwrap();
+    fs::write(skill_src.join("SKILL.md"), "# shared\n").unwrap();
+    let catalog_path = temp.path().join("marketplace.json");
+    write_path_catalog(
+        &catalog_path,
+        &skill_src,
+        "dcc-asset-polyhaven",
+        &["maya", "blender"],
+    );
+    let service = MarketplaceService::new(temp.path().join("root"));
+    let sources = vec![catalog_path.display().to_string()];
+
+    // `update` re-resolves the entry with the dcc stored in the ledger (`any`);
+    // the host filter must not reject it as a mismatch.
+    let hit = service
+        .resolve_install_hit("dcc-asset-polyhaven", Some("any"), sources, true)
+        .await
+        .unwrap();
+    assert_eq!(hit.entry.name, "dcc-asset-polyhaven");
+}
+
+#[tokio::test]
+async fn host_specific_entry_still_installs_into_its_own_directory() {
+    let temp = tempfile::tempdir().unwrap();
+    let skill_src = temp.path().join("skill-src");
+    fs::create_dir_all(&skill_src).unwrap();
+    fs::write(skill_src.join("SKILL.md"), "# maya only\n").unwrap();
+    let catalog_path = temp.path().join("marketplace.json");
+    write_path_catalog(&catalog_path, &skill_src, "dcc-mcp-maya-skills", &["maya"]);
+    let root = temp.path().join("root");
+    let service = MarketplaceService::new(root.clone());
+
+    let result = service
+        .install(
+            "dcc-mcp-maya-skills".into(),
+            None,
+            vec![catalog_path.display().to_string()],
+            false,
+            true,
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(result.dcc, "maya");
+    assert!(root.join("maya").join("dcc-mcp-maya-skills").is_dir());
+    assert!(!root.join("any").exists());
 }

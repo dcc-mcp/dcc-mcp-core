@@ -18,8 +18,9 @@ use crate::error::MarketplaceError;
 use crate::git_command;
 use crate::source::normalise_source;
 use crate::types::{
-    InstalledMarketplacePackage, MarketplaceSource, MarketplaceSourceConfig,
-    MarketplaceSourceOrigin, entry_dcc_ids, entry_targets_dcc,
+    HOST_NEUTRAL_DCC, InstalledMarketplacePackage, MarketplaceSource, MarketplaceSourceConfig,
+    MarketplaceSourceOrigin, entry_dcc_ids, entry_targets_dcc, is_host_neutral_dcc,
+    is_shared_dcc_request,
 };
 
 pub const ENV_MARKETPLACE_SOURCES: &str = "DCC_MCP_MARKETPLACE_SOURCES";
@@ -155,43 +156,74 @@ pub fn save_config(path: &Path, config: &MarketplaceSourceConfig) -> Result<(), 
 ///
 /// Resolution rules:
 ///
-/// - An explicit `--dcc` wins whenever the entry targets it. `"any"` is the
-///   host-neutral wildcard an entry declares about itself, so `--dcc any` is a
-///   concrete, valid request for host-neutral entries rather than an
-///   ambiguous one.
-/// - Without `--dcc`, an entry declaring exactly one DCC resolves to it. That
-///   includes the host-neutral `"any"`: the entry already says it is not tied
-///   to a specific host, so it installs into the `any` directory instead of
-///   demanding a host name the catalog never advertised.
-/// - Entries declaring several hosts stay ambiguous and must be disambiguated
-///   explicitly; every rejection lists the hosts the entry supports.
+/// - An explicit `--dcc <host>` wins whenever the entry targets it. `"any"`
+///   and `"all"` are not host names: they request the shared host-neutral
+///   landing spot.
+/// - An entry declaring exactly one host resolves to it, with or without
+///   `--dcc`. That includes the host-neutral `"any"`: the entry already says
+///   it is not tied to a specific host, so it installs into the shared
+///   directory instead of demanding a host name the catalog never advertised.
+/// - An entry declaring several hosts installs **once** into the shared
+///   directory. Every declared host already lists that directory in its skill
+///   search path, so one copy serves all of them; requiring `--dcc` here only
+///   produced N byte-identical copies of one tree.
+/// - `--dcc any|all` on an entry that declares a single concrete host is a
+///   mismatch: the entry is host-specific, so it still lands in its own host
+///   directory. Every rejection lists the hosts the entry supports.
+/// - A host id the catalog declares under that exact name wins over the
+///   `any`/`all` alias: the catalog owns its host ids, so a host genuinely
+///   called `all` stays installable under its own name.
 pub fn resolve_install_dcc(
     entry: &CatalogEntry,
     requested: Option<&str>,
 ) -> Result<String, MarketplaceError> {
+    let dccs = entry_dcc_ids(entry);
+    for dcc in &dccs {
+        path_component("DCC name", dcc)?;
+    }
+
     if let Some(dcc) = requested {
         let dcc_name = path_component("DCC name", dcc)?.to_lowercase();
+        if dccs.contains(&dcc_name) {
+            return Ok(dcc_name);
+        }
+        if is_shared_dcc_request(&dcc_name) {
+            return shared_install_dcc(&dccs).ok_or_else(|| MarketplaceError::DccMismatch {
+                name: entry.name.clone(),
+                dcc: dcc.to_string(),
+                supported: dccs,
+            });
+        }
         if entry_targets_dcc(entry, &dcc_name) {
             return Ok(dcc_name);
         }
         return Err(MarketplaceError::DccMismatch {
             name: entry.name.clone(),
             dcc: dcc.to_string(),
-            supported: entry_dcc_ids(entry),
+            supported: dccs,
         });
     }
 
-    let dccs = entry_dcc_ids(entry);
-    for dcc in &dccs {
-        path_component("DCC name", dcc)?;
+    match dccs.as_slice() {
+        [dcc] => Ok(dcc.clone()),
+        _ if dccs.len() > 1 => Ok(HOST_NEUTRAL_DCC.to_string()),
+        _ => Err(MarketplaceError::AmbiguousDcc {
+            name: entry.name.clone(),
+            supported: dccs,
+        }),
     }
-    if let [dcc] = dccs.as_slice() {
-        return Ok(dcc.clone());
+}
+
+/// The shared landing spot for an entry, when it has one.
+///
+/// An entry qualifies when it already declares itself host-neutral, or when it
+/// declares several hosts: either way a single install serves every host that
+/// can load it.
+fn shared_install_dcc(dccs: &[String]) -> Option<String> {
+    if dccs.len() > 1 || dccs.iter().any(|dcc| is_host_neutral_dcc(dcc)) {
+        return Some(HOST_NEUTRAL_DCC.to_string());
     }
-    Err(MarketplaceError::AmbiguousDcc {
-        name: entry.name.clone(),
-        supported: dccs,
-    })
+    None
 }
 
 pub fn ensure_entry_installable(entry: &CatalogEntry) -> Result<(), MarketplaceError> {

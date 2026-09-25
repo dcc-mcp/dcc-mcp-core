@@ -741,9 +741,26 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                             .install(name, dcc, sources, force, skip_validation)
                             .await?
                     };
-                    let installed_dcc = installed.dcc.clone();
+                    // A shared install is loaded by every host, so the reload
+                    // targets all of them. The pseudo-host `any` would match no
+                    // live instance: the selectors compare host names exactly.
+                    let installed_dcc = (!dcc_mcp_marketplace::is_host_neutral_dcc(&installed.dcc))
+                        .then(|| installed.dcc.clone());
                     let skill_reload = installed.activation
                         == dcc_mcp_marketplace::MarketplaceActivation::SkillReload;
+                    if !installed.superseded.is_empty() {
+                        eprintln!(
+                            "note: {} installs into the shared directory; per-host copies still \
+                             shadow it and still cost disk: {}",
+                            installed.name,
+                            installed.superseded.join(", ")
+                        );
+                        eprintln!(
+                            "      remove them with: dcc-mcp-cli marketplace uninstall {} --dcc \
+                             <host>",
+                            installed.name
+                        );
+                    }
                     let mut value = to_json(installed)?;
                     if reload && skill_reload {
                         let (reloaded_value, reload_failed) =
@@ -774,7 +791,11 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                             id: dcc.clone().unwrap_or_default(),
                         }
                     };
-                    let installed_dcc = installed_target.id.clone();
+                    // Host-neutral packages are recorded under `any`, which no
+                    // live instance is named; refresh every host instead.
+                    let installed_dcc =
+                        (!dcc_mcp_marketplace::is_host_neutral_dcc(&installed_target.id))
+                            .then(|| installed_target.id.clone());
                     let result = service.uninstall_for_target(&name, &installed_target)?;
                     let skill_reload = result.activation
                         == dcc_mcp_marketplace::MarketplaceActivation::SkillReload;
