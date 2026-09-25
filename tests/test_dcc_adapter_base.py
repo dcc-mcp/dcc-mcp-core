@@ -999,6 +999,75 @@ class TestDccServerBase:
 
         assert str(marketplace_dcc_dir) in paths
 
+    def test_collect_skill_search_paths_includes_host_neutral_marketplace_dir(self, tmp_path, monkeypatch):
+        """Host-neutral entries install into ``<marketplace_root>/any`` and must be discoverable."""
+        monkeypatch.delenv("DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS", raising=False)
+        server = self._make_server(tmp_path)
+        marketplace_root = tmp_path / "marketplace"
+        host_neutral_dir = marketplace_root / "any"
+        host_neutral_dir.mkdir(parents=True)
+        (host_neutral_dir / "dcc-mcp-cache-inspector").mkdir()
+        monkeypatch.setenv("DCC_MCP_MARKETPLACE_INSTALL_ROOT", str(marketplace_root))
+
+        paths = server.collect_skill_search_paths(include_bundled=False, filter_existing=True)
+
+        assert str(host_neutral_dir) in paths
+
+    def test_collect_skill_search_paths_omits_absent_host_neutral_marketplace_dir(self, tmp_path, monkeypatch):
+        """``<marketplace_root>/any`` is not added when it does not exist."""
+        monkeypatch.delenv("DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS", raising=False)
+        server = self._make_server(tmp_path)
+        marketplace_root = tmp_path / "marketplace"
+        marketplace_root.mkdir(parents=True)
+        monkeypatch.setenv("DCC_MCP_MARKETPLACE_INSTALL_ROOT", str(marketplace_root))
+
+        paths = server.collect_skill_search_paths(include_bundled=False, filter_existing=True)
+
+        assert str(marketplace_root / "any") not in paths
+
+    def test_collect_skill_search_paths_prefers_host_specific_marketplace_dir(self, tmp_path, monkeypatch):
+        """Host-specific marketplace skills keep priority over host-neutral ones."""
+        monkeypatch.delenv("DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS", raising=False)
+        server = self._make_server(tmp_path)
+        marketplace_root = tmp_path / "marketplace"
+        host_dir = marketplace_root / "fake-dcc"
+        host_neutral_dir = marketplace_root / "any"
+        host_dir.mkdir(parents=True)
+        host_neutral_dir.mkdir(parents=True)
+        monkeypatch.setenv("DCC_MCP_MARKETPLACE_INSTALL_ROOT", str(marketplace_root))
+
+        paths = server.collect_skill_search_paths(include_bundled=False, filter_existing=True)
+
+        assert paths.index(str(host_dir)) < paths.index(str(host_neutral_dir))
+        assert paths.count(str(host_dir)) == 1
+        assert paths.count(str(host_neutral_dir)) == 1
+
+    def test_collect_skill_search_paths_host_neutral_dir_deduplicated_for_any_host(self, tmp_path, monkeypatch):
+        """A host literally named ``any`` must not register the same directory twice."""
+        monkeypatch.delenv("DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS", raising=False)
+        server = self._make_server(tmp_path, dcc_name="any")
+        marketplace_root = tmp_path / "marketplace"
+        host_neutral_dir = marketplace_root / "any"
+        host_neutral_dir.mkdir(parents=True)
+        monkeypatch.setenv("DCC_MCP_MARKETPLACE_INSTALL_ROOT", str(marketplace_root))
+
+        paths = server.collect_skill_search_paths(include_bundled=False, filter_existing=True)
+
+        assert paths.count(str(host_neutral_dir)) == 1
+
+    def test_collect_skill_search_paths_hermetic_mode_excludes_host_neutral_dir(self, tmp_path, monkeypatch):
+        """``DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS=1`` also hides the host-neutral directory."""
+        server = self._make_server(tmp_path)
+        marketplace_root = tmp_path / "marketplace"
+        host_neutral_dir = marketplace_root / "any"
+        host_neutral_dir.mkdir(parents=True)
+        monkeypatch.setenv("DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS", "1")
+        monkeypatch.setenv("DCC_MCP_MARKETPLACE_INSTALL_ROOT", str(marketplace_root))
+
+        paths = server.collect_skill_search_paths(include_bundled=False, filter_existing=True)
+
+        assert str(host_neutral_dir) not in paths
+
     def test_collect_skill_search_paths_hermetic_mode_excludes_operator_roots(self, tmp_path, monkeypatch):
         server = self._make_server(tmp_path)
         explicit = tmp_path / "explicit"

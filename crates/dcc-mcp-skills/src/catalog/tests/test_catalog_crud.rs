@@ -169,6 +169,60 @@ fn test_search_and_detail_surface_runtime_state_without_loading() {
     );
 }
 
+/// Host-specific marketplace roots are listed before the shared host-neutral
+/// `any` root, so a skill installed under both must resolve to the
+/// host-specific copy. `discover()` already did this (it skips names it has
+/// seen); before the loader de-duplicated by name, `rediscover()` overwrote
+/// the entry with the last candidate found and flipped the winner on every
+/// explicit refresh. This pins the behaviour for both entry points.
+#[test]
+fn test_rediscover_keeps_highest_priority_root_for_duplicate_names() {
+    let tmp = tempfile::tempdir().unwrap();
+    let host_root = tmp.path().join("maya");
+    let neutral_root = tmp.path().join("any");
+    write_skill_dir(&host_root, "shared-name", "maya");
+    write_skill_dir(&neutral_root, "shared-name", "any");
+
+    // Search-path order: host-specific root first, host-neutral last.
+    let paths = vec![
+        host_root.to_string_lossy().to_string(),
+        neutral_root.to_string_lossy().to_string(),
+    ];
+    let expected = host_root.join("shared-name").to_string_lossy().to_string();
+
+    let catalog = make_test_catalog();
+    catalog.discover(Some(&paths), Some("maya"));
+    assert_eq!(
+        catalog
+            .get_skill_info("shared-name")
+            .expect("discovered skill")
+            .skill_path,
+        expected,
+        "discover() must keep the host-specific copy"
+    );
+
+    // The refresh path must agree with the initial discovery path.
+    catalog.rediscover(Some(&paths), Some("maya"));
+    assert_eq!(
+        catalog
+            .get_skill_info("shared-name")
+            .expect("rediscovered skill")
+            .skill_path,
+        expected,
+        "rediscover() must not let the host-neutral copy overwrite the host-specific one"
+    );
+
+    // De-duplication is by name, so only one entry exists.
+    assert_eq!(
+        catalog
+            .list_skills(None)
+            .iter()
+            .filter(|s| s.name == "shared-name")
+            .count(),
+        1
+    );
+}
+
 #[test]
 fn test_rediscover_removes_missing_skill_and_registered_tools() {
     let tmp = tempfile::tempdir().unwrap();

@@ -215,11 +215,36 @@ fn resolve_dependencies_soft(
 pub(crate) fn load_all_skills(dirs: &[String]) -> (Vec<SkillMetadata>, Vec<String>) {
     let mut skills = Vec::new();
     let mut skipped = Vec::new();
+    // The catalog keys skills by name, so two directories claiming the same
+    // name are one skill with two candidates, not two skills. Keep the first
+    // occurrence: `dirs` follows the skill search path order, so an earlier
+    // root (a host-specific marketplace directory) outranks a later one (the
+    // shared host-neutral `any` directory).
+    //
+    // Without this, `SkillCatalog::discover` picks the first (it skips names
+    // already present) but `SkillCatalog::rediscover` overwrites the entry
+    // with the last one found, so the same process resolves a name collision
+    // differently before and after an explicit refresh.
+    //
+    // A shadowed directory still parsed successfully, so it is deliberately
+    // not reported through `skipped`: strict mode treats `skipped` as a
+    // load failure and would reject an otherwise valid duplicate.
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     for dir_str in dirs {
         let dir = Path::new(dir_str);
         match parse_skill_md_with_diagnostic(dir) {
-            Ok(meta) => skills.push(meta),
+            Ok(meta) => {
+                if seen.insert(meta.name.clone()) {
+                    skills.push(meta);
+                } else {
+                    tracing::debug!(
+                        skill_name = %meta.name,
+                        shadowed_directory = %dir_str,
+                        "Duplicate skill name from a lower-priority search root; keeping the first occurrence."
+                    );
+                }
+            }
             Err(diagnostic) => {
                 tracing::warn!(
                     directory = %dir_str,
