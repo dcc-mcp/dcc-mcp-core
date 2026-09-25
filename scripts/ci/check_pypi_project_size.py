@@ -24,6 +24,7 @@ import json
 from pathlib import Path
 import sys
 from typing import Mapping
+import urllib.error
 import urllib.request
 
 DEFAULT_LIMIT_GB = 10
@@ -78,11 +79,40 @@ def parse_gb(value: str) -> float:
 
 
 def fetch_pypi_files(package: str, json_url: str) -> dict:
-    """Return {filename: size_bytes} for every file of *package* on PyPI."""
+    """Return {filename: size_bytes} for every file of *package* on PyPI.
+
+    A project that has never been published yields an empty mapping. PyPI's
+    JSON API answers 404 until the first successful upload, so treating that
+    status as an error would block exactly the release the preflight is meant
+    to protect: there is no storage to budget for a project that owns nothing.
+    Every other status (and every transport failure) still fails the run, so a
+    network hiccup or an API change cannot be mistaken for "nothing published".
+
+    Args:
+        package: PyPI project name.
+        json_url: JSON API URL template with a ``{package}`` placeholder.
+
+    Returns:
+        Mapping of filename to size in bytes; empty for an unpublished project.
+
+    Raises:
+        RuntimeError: if the metadata cannot be fetched for any reason other
+            than the project not existing yet.
+
+    """
     url = json_url.format(package=package)
     try:
         with urllib.request.urlopen(url, timeout=60) as response:
             payload = json.loads(response.read())
+    except urllib.error.HTTPError as exc:
+        if exc.code != 404:
+            raise RuntimeError(f"could not fetch PyPI metadata for {package!r} from {url}: {exc}") from exc
+        print(
+            f"::warning::{package!r} is not published on PyPI yet ({url} returned 404); "
+            "counting its current storage usage as 0 bytes",
+            file=sys.stderr,
+        )
+        return {}
     except Exception as exc:  # pragma: no cover - network path
         raise RuntimeError(f"could not fetch PyPI metadata for {package!r} from {url}: {exc}") from exc
     files = {}
