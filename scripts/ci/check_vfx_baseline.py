@@ -34,7 +34,9 @@ try:
     from packaging.version import InvalidVersion
     from packaging.version import Version
 except ImportError as exc:  # pragma: no cover - environment guard
-    raise SystemExit(f"packaging is required to run this check: {exc}") from exc
+    raise SystemExit(
+        f'packaging is required to run this check ({exc}); install it with: pip install "packaging>=23.0"'
+    ) from exc
 
 
 BASELINE_FILENAME = "vfx-platform-baseline.json"

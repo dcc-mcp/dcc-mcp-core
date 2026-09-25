@@ -866,6 +866,10 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.14"
+      # Not preinstalled on a bare setup-python runner. Installed explicitly so
+      # the gate never depends on whatever else happens to be in the image.
+      - name: Install packaging
+        run: pip install "packaging>=23.0"
       - name: Check declared dependencies against the baseline
         run: python scripts/ci/check_vfx_baseline.py
       - name: Resolve the py37 tier against a Python 3.7 interpreter
