@@ -132,6 +132,9 @@ class SkillDiscoveryController:
                 # named ``any``, so the host-specific directory never resolves to them
                 # and they stay invisible unless the shared directory is listed too.
                 # Host-specific is listed first so it wins on a name collision.
+                # The winner is actually decided in the Rust loader, which keeps
+                # the first skill for a given name; this ordering is what makes
+                # "first" mean "host-specific".
                 for marketplace_dir in (
                     marketplace_root / owner._dcc_name.lower(),
                     marketplace_root / MARKETPLACE_HOST_NEUTRAL_DIR,
