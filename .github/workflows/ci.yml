@@ -851,6 +851,58 @@ jobs:
             exit 1
           fi
 
+  # ── VFX Platform dependency baseline gate ───────────────────────────────
+  # Every repository declares which VFX Platform year(s) it aligns to and which
+  # host it targets. A dependency that cannot resolve inside the declared
+  # baseline fails the build instead of silently drifting to whatever pip picks
+  # up that day. The second step proves the py37 tier is real: it resolves the
+  # dependency set against a Python 3.7 interpreter, because a declaration can
+  # claim 3.7 support while still resolving to a wheel that has none.
+  vfx-baseline:
+    name: VFX Platform baseline
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - name: Check declared dependencies against the baseline
+        run: python scripts/ci/check_vfx_baseline.py
+      - name: Resolve the py37 tier against a Python 3.7 interpreter
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import pathlib, tomllib
+
+          doc = tomllib.loads(pathlib.Path("pyproject.toml").read_text(encoding="utf-8"))
+          decl = doc.get("tool", {}).get("dcc-mcp", {}).get("vfx-platform", {})
+          years = decl.get("year")
+          if isinstance(years, str):
+              years = [years]
+          if "py37" not in (years or []):
+              print("repository does not declare the py37 tier; skipping resolution")
+              raise SystemExit(0)
+          pathlib.Path("py37-targets.txt").write_text("py37\n", encoding="utf-8")
+          PY
+          if [[ ! -s py37-targets.txt ]]; then
+            echo "py37 tier not declared; nothing to resolve"
+            exit 0
+          fi
+          pip install "uv>=0.5"
+          # Deliberately limited to the platforms that publish dcc-mcp-server
+          # wheels. aarch64-manylinux_2_28 has none, so resolving it would fail
+          # for a packaging reason unrelated to the baseline.
+          for platform in x86_64-manylinux_2_28 windows macos; do
+            echo "::group::resolve --python-version 3.7 --python-platform $platform"
+            uv pip compile pyproject.toml \
+              --python-version 3.7 \
+              --python-platform "$platform" \
+              --no-cache \
+              --quiet
+            echo "::endgroup::"
+          done
+          echo "py37 tier resolves for every runtime dependency"
+
   # ── Python 3.7 syntax gate ──────────────────────────────────────────────
   # Maya 2022 / Blender 2.83 embed Python 3.7; pure-Python modules must
   # remain syntax-compatible under the repository's explicit LTS policy. This
