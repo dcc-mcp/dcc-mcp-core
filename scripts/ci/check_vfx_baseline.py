@@ -25,7 +25,15 @@ from pathlib import Path
 import sys
 from typing import Any
 
-import tomllib
+try:  # Python 3.11+
+    import tomllib
+except ModuleNotFoundError:  # Python <= 3.10 (the 3.7 LTS floor included)
+    try:
+        import tomli as tomllib
+    except ModuleNotFoundError as exc:  # pragma: no cover - environment guard
+        raise SystemExit(
+            f'tomli is required to run this check on Python < 3.11 ({exc}); install it with: pip install "tomli>=1.0"'
+        ) from exc
 
 try:
     from packaging.markers import Marker

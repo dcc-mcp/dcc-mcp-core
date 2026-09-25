@@ -20,6 +20,7 @@ from check_vfx_baseline import BASELINE_FILENAME
 from check_vfx_baseline import component_index
 from check_vfx_baseline import evaluate
 from check_vfx_baseline import load_baseline
+from check_vfx_baseline import load_pyproject
 from check_vfx_baseline import repository_root
 
 REPO_ROOT = repository_root()
@@ -106,10 +107,7 @@ def test_missing_host_is_an_error(baseline):
 
 def test_core_repository_declares_both_tiers():
     """The real pyproject in this repo must declare its alignment."""
-    import tomllib
-
-    with (REPO_ROOT / "pyproject.toml").open("rb") as handle:
-        pyproject = tomllib.load(handle)
+    pyproject = load_pyproject(REPO_ROOT / "pyproject.toml")
     decl = pyproject["tool"]["dcc-mcp"]["vfx-platform"]
     assert set(decl["year"]) == {"CY2026", "py37"}
     assert decl["host"] == "core"
