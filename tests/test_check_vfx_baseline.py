@@ -149,10 +149,10 @@ def test_range_below_the_tier_floor_fails(baseline):
     name, body = first_pypi_component(baseline, "CY2026", with_floor=True)
     floor = body["floor"]
     major = floor.split(".")[0]
-    # A range capped strictly below the tier floor can never satisfy the tier.
+    # A range capped strictly below the tier floor shares no version with it.
     requirement = f"{body['pypi']}>={int(major) - 1},<{floor}"
     errors, _ = evaluate(declare("CY2026", dependencies=[requirement]), baseline)
-    assert any(f"CY2026/{name}" in e and "floor" in e for e in errors)
+    assert any(f"CY2026/{name}" in e and "admits no version inside" in e for e in errors)
 
 
 def test_range_above_the_py37_ceiling_fails(baseline):
@@ -179,6 +179,57 @@ def test_marker_can_exempt_a_dependency_from_a_tier(baseline):
     assert not any(f"py37/{name}" in e for e in errors)
 
 
+def test_exact_pin_inside_the_tier_range_passes(baseline):
+    """An exact pin is the most common declaration and must not be rejected.
+
+    The predicate tests range overlap, not containment of the tier endpoints:
+    an exact pin lands inside the range without ever containing its floor.
+    """
+    _, body = first_pypi_component(baseline, "CY2026", with_floor=True)
+    pin = f"{body['pypi']}=={body['floor']}"
+    errors, _ = evaluate(declare("CY2026", dependencies=[pin]), baseline)
+    assert not errors, errors
+
+
+def test_compatible_release_operator_inside_the_tier_passes(baseline):
+    _, body = first_pypi_component(baseline, "CY2026", with_floor=True)
+    errors, _ = evaluate(declare("CY2026", dependencies=[f"{body['pypi']}~={body['floor']}"]), baseline)
+    assert not errors, errors
+
+
+def test_exact_pin_below_a_ceiling_only_tier_passes(baseline):
+    """py37 tiers are ceiling-only; a pin under the ceiling is valid.
+
+    pyside2==5.15.2 is the standard pin for Maya 2022 hosts, which is exactly
+    the audience this tier exists to serve.
+    """
+    components = baseline["tiers"]["py37"]["components"]
+    body = components.get("pyside2")
+    if body is None:  # pragma: no cover - guard for baseline reshuffles
+        pytest.skip("pyside2 entry not present to exercise the Maya 2022 pin")
+    errors, _ = evaluate(declare("py37", dependencies=[f"{body['pypi']}==5.15.2"]), baseline)
+    assert not errors, errors
+
+
+def test_sub_range_inside_the_tier_passes(baseline):
+    """A range strictly inside the tier overlaps it without touching an endpoint."""
+    _, body = first_pypi_component(baseline, "CY2026", with_floor=True)
+    floor = body["floor"]
+    parts = floor.split(".")
+    narrowed = f"{parts[0]}.{parts[1]}.{int(parts[2]) + 1}"
+    requirement = f"{body['pypi']}>={floor},<{narrowed}"
+    errors, _ = evaluate(declare("CY2026", dependencies=[requirement]), baseline)
+    assert not errors, errors
+
+
+def test_range_entirely_above_an_exact_pin_tier_fails(baseline):
+    _, body = first_pypi_component(baseline, "CY2026", with_floor=True)
+    major = body["floor"].split(".")[0]
+    requirement = f"{body['pypi']}>=999{major}.0"
+    errors, _ = evaluate(declare("CY2026", dependencies=[requirement]), baseline)
+    assert errors
+
+
 def test_open_upper_bound_warns_without_failing(baseline):
     name, body = first_pypi_component(baseline, "CY2026", with_floor=True)
     requirement = f"{body['pypi']}>={body['floor']}"
@@ -193,6 +244,19 @@ def test_open_upper_bound_can_be_made_strict(baseline):
     doc["tool"]["dcc-mcp"]["vfx-platform"]["strict_upper_bound"] = True
     errors, _ = evaluate(doc, baseline)
     assert any(f"CY2026/{name}" in e and "open above" in e for e in errors)
+
+
+def test_component_without_bounds_is_never_silently_checked(baseline):
+    """A component with neither floor nor ceiling validates nothing.
+
+    Guards against reintroducing a no-op entry: the py37 pyqt row once shipped
+    null bounds, which accepted pyqt6>=6.9 even though no such release has a
+    cp37 wheel.
+    """
+    for tier_name, tier in baseline["tiers"].items():
+        for name, body in tier.get("components", {}).items():
+            unbounded = body.get("floor") is None and body.get("ceiling") is None
+            assert not unbounded, f"{tier_name}/{name} has no bounds and checks nothing"
 
 
 def test_component_index_maps_only_tracked_distributions(baseline):

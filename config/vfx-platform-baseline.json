@@ -172,9 +172,9 @@
         "pyqt": {
           "pypi": "pyqt6",
           "floor": null,
-          "ceiling": null,
-          "specifier": null,
-          "note": "PyQt6 has no release supporting Python 3.7. A py37 host must use PyQt5 or PySide2 instead."
+          "ceiling": "6.6.0",
+          "specifier": "<=6.6.0",
+          "verified": "PyQt6 6.6.0 is the last release publishing a cp37-abi3 wheel. 6.6.1 still declares requires_python>=3.6.1 but ships only cp38-abi3, and 6.7.0 raises the requirement to >=3.8, so the wheel tag is the binding constraint here rather than the metadata."
         }
       }
     }

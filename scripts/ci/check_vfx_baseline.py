@@ -138,39 +138,124 @@ def _parse_bound(value: Any) -> Version | None:
         return None
 
 
+def _compatible_release_upper(version: Version) -> Version:
+    """Return the exclusive upper bound a PEP 440 ``~=`` specifier implies.
+
+    ``~=1.4.5`` means ``>=1.4.5, ==1.4.*`` so it stops below ``1.5``, and
+    ``~=2.2`` means ``>=2.2, ==2.*`` so it stops below ``3``. Drop the last
+    release segment and bump the one before it.
+    """
+    prefix = list(version.release[:-1])
+    if not prefix:  # pragma: no cover - ``~=`` always carries a segment to drop
+        return Version(f"{version.major + 1}")
+    prefix[-1] += 1
+    return Version(".".join(str(part) for part in prefix))
+
+
+def _version_bounds(specifier: SpecifierSet) -> tuple[tuple[Version, bool] | None, tuple[Version, bool] | None]:
+    """Reduce a specifier set to (lower, upper) bounds.
+
+    Each bound is a ``(version, inclusive)`` pair, or ``None`` when unbounded.
+    Constraints are intersected, so the tightest bound wins.
+
+    ``!=`` is deliberately ignored: a single excluded version almost never
+    removes an otherwise valid overlap, and honouring it would require union
+    arithmetic for no practical benefit here.
+    """
+    lower: tuple[Version, bool] | None = None
+    upper: tuple[Version, bool] | None = None
+
+    def raise_lower(candidate: tuple[Version, bool]) -> None:
+        nonlocal lower
+        if lower is None or candidate[0] > lower[0] or (candidate[0] == lower[0] and not candidate[1]):
+            lower = candidate
+
+    def lower_upper(candidate: tuple[Version, bool]) -> None:
+        nonlocal upper
+        if upper is None or candidate[0] < upper[0] or (candidate[0] == upper[0] and not candidate[1]):
+            upper = candidate
+
+    for spec in specifier:
+        operand = spec.operator
+        raw = spec.version
+        if operand in ("==", "===", "~=", ">=", ">", "<=", "<"):
+            try:
+                version = Version(raw)
+            except InvalidVersion:  # pragma: no cover - defensive
+                continue
+        if operand == "==" or operand == "===":
+            raise_lower((version, True))
+            lower_upper((version, True))
+        elif operand == "~=":
+            raise_lower((version, True))
+            lower_upper((_compatible_release_upper(version), False))
+        elif operand == ">=":
+            raise_lower((version, True))
+        elif operand == ">":
+            raise_lower((version, False))
+        elif operand == "<=":
+            lower_upper((version, True))
+        elif operand == "<":
+            lower_upper((version, False))
+    return lower, upper
+
+
+def _ranges_overlap(
+    first: tuple[tuple[Version, bool] | None, tuple[Version, bool] | None],
+    second: tuple[tuple[Version, bool] | None, tuple[Version, bool] | None],
+) -> bool:
+    """Return True when two (lower, upper) bounded ranges share a version."""
+    lower_a, upper_a = first
+    lower_b, upper_b = second
+
+    def above_floor(lower, upper) -> bool:
+        # The candidate range's lower bound must not sit past the other's ceiling.
+        if lower is None or upper is None:
+            return True
+        if lower[0] < upper[0]:
+            return True
+        return lower[0] == upper[0] and lower[1] and upper[1]
+
+    return above_floor(lower_a, upper_b) and above_floor(lower_b, upper_a)
+
+
 def check_requirement(req: Requirement, component: dict[str, Any], tier_name: str) -> list[str]:
-    """Return error strings when a requirement cannot satisfy a tier's range."""
+    """Return error strings when a requirement cannot satisfy a tier's range.
+
+    The test is range overlap, not containment of the tier's endpoints. An exact
+    pin such as ``numpy==2.3.2`` is valid inside the CY2026 ``2.3.x`` tier even
+    though it does not contain that tier's floor, and ``pyside2==5.15.2`` is
+    valid below the py37 ceiling of ``5.15.2.1``.
+    """
     floor = _parse_bound(component.get("floor"))
     ceiling = _parse_bound(component.get("ceiling"))
     if floor is None and ceiling is None:
         return []
 
-    specifier = req.specifier
-    errors: list[str] = []
+    tier_lower = (floor, True) if floor is not None else None
+    tier_upper = (ceiling, True) if ceiling is not None else None
+    expected = component.get("specifier")
 
-    # A floor-bounded tier needs at least one admissible version at or above it.
-    if floor is not None:
-        if not specifier.contains(floor, prereleases=True):
-            upper = f",<={ceiling}" if ceiling is not None else ""
-            errors.append(
-                f"'{req}' does not admit the {tier_name} floor {floor}; "
-                f"expected a range that includes {component.get('specifier') or f'>={floor}{upper}'}"
-            )
-        elif ceiling is not None and not specifier.contains(ceiling, prereleases=True):
-            errors.append(
-                f"'{req}' excludes the {tier_name} target {ceiling}; "
-                f"expected a range that includes {component.get('specifier') or f'>={floor},<={ceiling}'}"
-            )
-    elif ceiling is not None and not specifier.contains(ceiling, prereleases=True):
-        # py37-style tier: only an upper bound is meaningful. The declared range
-        # must still admit a version that installs on that interpreter.
-        errors.append(
+    if _ranges_overlap(_version_bounds(req.specifier), (tier_lower, tier_upper)):
+        return []
+
+    # Build the message from the shape of the tier so it names a real range.
+    if floor is not None and ceiling is not None:
+        described = expected or f">={floor},<={ceiling}"
+    elif floor is not None:
+        described = expected or f">={floor}"
+    else:
+        described = expected or f"<={ceiling}"
+
+    if floor is None:
+        detail = (
             f"'{req}' cannot resolve to a {tier_name}-installable version; "
             f"the highest release supporting that interpreter is {ceiling} "
-            f"(expected a range admitting {component.get('specifier') or f'<={ceiling}'})"
+            f"(expected a range overlapping {described})"
         )
-
-    return errors
+    else:
+        detail = f"'{req}' admits no version inside the {tier_name} range {described}"
+    return [detail]
 
 
 def open_upper_bound(req: Requirement, component: dict[str, Any], tier_name: str) -> bool:
@@ -180,8 +265,11 @@ def open_upper_bound(req: Requirement, component: dict[str, Any], tier_name: str
         return False
     # Only floor-bearing tiers have a meaningful upper bound to leak past;
     # for a py37-style tier the ceiling alone already fails the error check.
-    probe = Version(f"{ceiling.major + 1}.0.0")
-    return req.specifier.contains(probe, prereleases=True)
+    # Probe both the next minor and the next major: a ceiling of 2.3.999 means
+    # the tier stops at 2.3.x, so `>=2.3,<3` already drifts into 2.4 even though
+    # it excludes 3.0.0.
+    probes = [Version(f"{ceiling.major}.{ceiling.minor + 1}.0"), Version(f"{ceiling.major + 1}.0.0")]
+    return any(req.specifier.contains(probe, prereleases=True) for probe in probes)
 
 
 def component_index(tier: dict[str, Any]) -> dict[str, tuple[str, dict[str, Any]]]:
@@ -195,12 +283,6 @@ def component_index(tier: dict[str, Any]) -> dict[str, tuple[str, dict[str, Any]
             continue
         index[normalize(str(pypi))] = (name, body)
     return index
-
-
-def tier_for_python(tier: dict[str, Any]) -> SpecifierSet | None:
-    """Return the interpreter range a tier demands, when it declares one."""
-    value = tier.get("requires_python_floor")
-    return SpecifierSet(str(value)) if value else None
 
 
 def collect_requirements(pyproject: dict[str, Any]) -> list[Requirement]:
@@ -273,9 +355,6 @@ def evaluate(pyproject: dict[str, Any], baseline: dict[str, Any]) -> tuple[list[
         tier = tiers[year]
         python_version = tier_python_version(tier)
         index = component_index(tier)
-
-        if requires_python and not tier_for_python(tier):
-            pass  # Tier declares no interpreter requirement; nothing to assert.
 
         for req in requirements:
             if not marker_applies(req.marker, python_version):
