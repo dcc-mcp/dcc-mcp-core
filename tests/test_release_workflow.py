@@ -35,7 +35,6 @@ def _uses_action(step: dict, action: str) -> bool:
     commit SHA with a ``# v1.14.2`` trailing comment, so the ref is not a stable
     identifier to compare against.
     """
-
     uses = str(step.get("uses") or "")
     return uses.split("#", 1)[0].strip().startswith(f"{action}@")
 
