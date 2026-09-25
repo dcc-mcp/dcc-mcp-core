@@ -278,6 +278,31 @@ def test_release_workflow_builds_cli_wrapper_wheels_from_the_release_archives() 
     assert upload["with"]["path"] == "dist-cli/*.whl"
 
 
+def test_release_workflow_gives_every_platform_its_own_wheel_output_directory() -> None:
+    """Each platform must build into a directory no other platform writes to.
+
+    hatchling names every build ``dcc_mcp_cli-<version>-py3-none-any.whl``
+    because the wrapper carries no compiled extension. Looping the three
+    platforms over one output directory therefore overwrites the first wheel
+    with the second, and the build script finds no *new* file and exits 1 with
+    "expected exactly one wrapper wheel, got []" - which in turn skips
+    ``publish-cli-pypi`` and fails every release. The wheel has to be retagged
+    before it joins the shared directory, or the next build overwrites it by
+    name.
+    """
+    build = _release_jobs()["build-cli-wheels"]
+    build_step = next(step for step in build["steps"] if step.get("name") == "Build wrapper wheels")
+    run = build_step["run"]
+
+    assert 'out="$PWD/dist-cli-build/$platform"' in run
+    assert '--out-dir "$out"' in run
+    # Shared-directory builds would silently collide on the second platform.
+    assert '--out-dir "$PWD/dist-cli"' not in run
+    # Retag inside the loop, then move: the tag is what makes the names unique.
+    assert 'cli_wheel_tags.py retag --wheel-dir "$out"' in run
+    assert 'mv "$out"/*.whl "$PWD/dist-cli/"' in run
+
+
 def test_release_workflow_builds_deployable_zips_per_platform() -> None:
     jobs = _release_jobs()
     build = jobs["build-binaries"]

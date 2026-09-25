@@ -632,19 +632,33 @@ jobs:
           path: dist-binaries
           merge-multiple: true
 
+      # hatchling names every build `dcc_mcp_cli-<version>-py3-none-any.whl`,
+      # so the three platforms must not share one output directory: the
+      # second build overwrites the first wheel, and `build_wheel()` then
+      # finds no *new* file and fails with "expected exactly one wrapper
+      # wheel, got []". Each platform therefore builds into its own
+      # directory, is retagged there (which renames it to its PEP 600 tag)
+      # and only then joins the shared directory, where the three names
+      # are distinct by construction.
       - name: Build wrapper wheels
         shell: bash
         run: |
           set -euo pipefail
           version="${{ needs.release-please.outputs.version }}"
+          mkdir -p "$PWD/dist-cli"
           for platform in linux-x86_64 macos-universal2 windows-x86_64; do
+            out="$PWD/dist-cli-build/$platform"
             python scripts/release/build_cli_wrapper_wheel.py \
               --version "$version" \
               --platform "$platform" \
               --zip "dist-binaries/dcc-mcp-cli-$version-$platform.zip" \
-              --out-dir "$PWD/dist-cli"
+              --out-dir "$out"
+            python scripts/release/cli_wheel_tags.py retag --wheel-dir "$out"
+            mv "$out"/*.whl "$PWD/dist-cli/"
           done
 
+      # Idempotent safety net: re-stamps the tag each wheel already carries,
+      # so a wheel that reached dist-cli untagged cannot slip through.
       - name: Retag wrapper wheels
         run: python scripts/release/cli_wheel_tags.py retag --wheel-dir dist-cli
 

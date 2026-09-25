@@ -32,10 +32,13 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - name: Install pytest
+      # `build` + `hatchling` + `wheel` let the suite build real wrapper
+      # wheels from synthetic archives: the release job's per-platform loop is
+      # a runtime filename collision that YAML-text assertions cannot see.
+      - name: Install pytest and wheel build tooling
         run: |
           python -m pip install --upgrade pip
-          python -m pip install pytest
+          python -m pip install pytest "build>=1.2" "hatchling>=1.25" "wheel>=0.46"
       - name: Test the dcc-mcp-cli bootstrap
         env:
           PYTHONPATH: pkg/dcc-mcp-cli-bin/python
