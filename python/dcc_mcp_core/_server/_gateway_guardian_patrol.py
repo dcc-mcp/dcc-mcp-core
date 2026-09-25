@@ -127,12 +127,33 @@ class GatewayDaemonGuardian:
         self._publish({"ok": True, "reason": "guardian_started", "guardian_running": True})
         return True
 
-    def stop(self, timeout: float = 1.0) -> None:
+    def stop(self, timeout: float = 1.0) -> bool:
+        """Signal the patrol loop to exit and wait for it.
+
+        Returns ``True`` when the patrol thread was observed to actually finish
+        within *timeout*. A thread that is still alive is deliberately kept in
+        ``self._thread`` so :meth:`status` keeps reporting the running guardian
+        instead of hiding a leaked patrol thread. Clearing the reference on a
+        timed-out join made a still-probing thread invisible to every liveness
+        check while it kept calling into whatever the next test patched on the
+        guardian module.
+        """
         self._stop.set()
-        if self._thread is not None:
-            self._thread.join(timeout=max(timeout, 0.0))
-            self._thread = None
-        self._publish({"ok": True, "reason": "guardian_stopped", "guardian_running": False})
+        thread = self._thread
+        stopped = True
+        if thread is not None:
+            thread.join(timeout=max(timeout, 0.0))
+            stopped = not thread.is_alive()
+            if stopped:
+                self._thread = None
+        self._publish(
+            {
+                "ok": True,
+                "reason": "guardian_stopped",
+                "guardian_running": not stopped,
+            }
+        )
+        return stopped
 
     def status(self) -> dict[str, Any]:
         with self._lock:

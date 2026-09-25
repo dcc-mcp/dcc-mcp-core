@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 from http.client import BadStatusLine
 import json
 import logging
@@ -40,6 +41,43 @@ def _wait_until(predicate, *, timeout: float = 10.0, interval: float = 0.01) -> 
             return True
         time.sleep(interval)
     return predicate()
+
+
+def _install_scoped_readiness_probe(monkeypatch, *, host, port, healthy_after):
+    """Patch ``gg._is_application_ready`` with a thread- and endpoint-scoped stub.
+
+    The patrol loop resolves its helpers through the ``gateway_guardian`` module on
+    every probe (see ``_guardian()``), so patching a seam on that module also
+    redirects patrol threads leaked by earlier tests. With a plain counter-driven
+    stub those foreign probes spend the budget before this test's own first probe
+    runs, and ``ensure_gateway_daemon`` short-circuits to ``already_healthy``
+    instead of ``spawned``.
+
+    The stub is therefore scoped twice over:
+
+    * only *host*/*port* is answered at all; every other endpoint stays down.
+    * only calls made by the thread that installed the stub consume the budget;
+      probes from any other thread are answered ``False`` without counting.
+    """
+    owner = threading.get_ident()
+    endpoint = (host, int(port))
+    counts: dict[int, int] = {}
+    lock = threading.Lock()
+
+    def _is_application_ready(h, p, timeout=0.5, **_kwargs):
+        if (h, int(p)) != endpoint:
+            return False
+        ident = threading.get_ident()
+        with lock:
+            count = counts.get(ident, 0) + 1
+            counts[ident] = count
+        if ident != owner:
+            # Foreign (possibly leaked) prober: never healthy, never counted.
+            return False
+        return count >= healthy_after
+
+    monkeypatch.setattr(gg, "_is_application_ready", _is_application_ready)
+    return counts
 
 
 class _Resp:
@@ -361,22 +399,19 @@ def test_resolve_server_bin_skips_drift_check_when_path_supplies_binary(monkeypa
 
 
 def test_ensure_gateway_daemon_spawns_and_becomes_healthy(tmp_path, monkeypatch):
-    state = {"calls": 0}
+    _install_scoped_readiness_probe(monkeypatch, host="127.0.0.1", port=9876, healthy_after=3)
 
-    def _urlopen(*_args, **_kwargs):
-        state["calls"] += 1
-        if state["calls"] < 3:
-            raise OSError("down")
-        return _Resp()
-
+    owner = threading.get_ident()
     seen = {}
 
     def _launch_detached(cmd, **kwargs):
+        if threading.get_ident() != owner:
+            # A leaked patrol thread must not overwrite what this test recorded.
+            return {"ok": True, "pid": 1}
         seen["cmd"] = cmd
         seen["env"] = kwargs.get("env", {})
         return {"ok": True, "pid": 1}
 
-    monkeypatch.setattr(gg, "urlopen", _urlopen)
     monkeypatch.setattr(gg, "launch_detached", _launch_detached)
     monkeypatch.setattr(gg, "_resolve_server_bin", lambda: "dcc-mcp-server")
     monkeypatch.setenv("DCC_MCP_GATEWAY_PORT", "9876")
@@ -396,6 +431,49 @@ def test_ensure_gateway_daemon_spawns_and_becomes_healthy(tmp_path, monkeypatch)
     assert seen["env"]["DCC_MCP_REGISTRY_DIR"] == str(tmp_path)
     assert seen["env"]["DCC_MCP_DCC_TYPE"] == "photoshop"
     assert not (tmp_path / "gateway-launch.lock").exists()
+
+
+def test_ensure_gateway_daemon_ignores_probes_from_foreign_threads(tmp_path, monkeypatch):
+    """A concurrent prober must not spend this test's readiness budget.
+
+    Regression guard for the ``already_healthy``/``spawned`` flake: the patrol loop
+    resolves its helpers through the guardian module, so a patrol thread leaked by
+    an earlier test hits whatever seam a later test patches. A shared counter-driven
+    stub lets those foreign probes answer this test's first probe, and
+    ``ensure_gateway_daemon`` returns ``already_healthy`` instead of ``spawned``.
+    """
+    _install_scoped_readiness_probe(monkeypatch, host="127.0.0.1", port=9876, healthy_after=3)
+    monkeypatch.setattr(gg, "launch_detached", lambda cmd, **_kwargs: {"ok": True, "pid": 1})
+    monkeypatch.setattr(gg, "_resolve_server_bin", lambda: "dcc-mcp-server")
+
+    stop_probing = threading.Event()
+    foreign_probes = []
+
+    def _foreign_prober():
+        while not stop_probing.is_set():
+            with contextlib.suppress(Exception):
+                gg._is_application_ready("127.0.0.1", 9876, timeout=0.05)
+            foreign_probes.append(1)
+            stop_probing.wait(0.001)
+
+    prober = threading.Thread(target=_foreign_prober, name="leaked-guardian-prober", daemon=True)
+    prober.start()
+    try:
+        result = gg.ensure_gateway_daemon(
+            gateway_host="127.0.0.1",
+            gateway_port=9876,
+            registry_dir=str(tmp_path),
+            dcc_type="photoshop",
+            timeout_secs=2.0,
+        )
+    finally:
+        stop_probing.set()
+        prober.join(timeout=5.0)
+
+    assert not prober.is_alive()
+    assert foreign_probes, "regression guard needs a competing prober to be meaningful"
+    assert result["ok"] is True
+    assert result["reason"] == "spawned"
 
 
 def test_ensure_gateway_daemon_spawn_failure_returns_embedded_fallback_reason(monkeypatch, tmp_path):
@@ -446,16 +524,8 @@ def test_ensure_gateway_daemon_lock_loser_succeeds_when_gateway_becomes_healthy(
     """Lock loser waits and succeeds if the winner brings the gateway healthy."""
     (tmp_path / "gateway-launch.lock").write_text("busy", encoding="utf-8")
 
-    probe_count = {"n": 0}
-
-    def _urlopen(*_args, **_kwargs):
-        probe_count["n"] += 1
-        # First probe fails, second and later succeed (winner finishes launch)
-        if probe_count["n"] < 2:
-            raise OSError("down")
-        return _Resp()
-
-    monkeypatch.setattr(gg, "urlopen", _urlopen)
+    # First probe fails, second and later succeed (winner finishes launch).
+    _install_scoped_readiness_probe(monkeypatch, host="127.0.0.1", port=9765, healthy_after=2)
     monkeypatch.setattr(
         gg,
         "launch_detached",
@@ -502,23 +572,19 @@ def test_ensure_gateway_daemon_recovers_stale_launch_lock(tmp_path, monkeypatch)
     stale_time = time.time() - 120
     os.utime(lock_path, (stale_time, stale_time))
 
-    state = {"calls": 0}
+    _install_scoped_readiness_probe(monkeypatch, host="127.0.0.1", port=9765, healthy_after=3)
 
-    def _urlopen(*_args, **_kwargs):
-        state["calls"] += 1
-        if state["calls"] < 3:
-            raise OSError("down")
-        return _Resp()
-
+    owner = threading.get_ident()
     seen = {}
 
     def _launch_detached(cmd, **kwargs):
+        if threading.get_ident() != owner:
+            return {"ok": True, "pid": 1}
         seen["cmd"] = cmd
         seen["env"] = kwargs.get("env", {})
         return {"ok": True, "pid": 1}
 
     monkeypatch.setenv("DCC_MCP_GATEWAY_LAUNCH_LOCK_STALE_SECS", "1")
-    monkeypatch.setattr(gg, "urlopen", _urlopen)
     monkeypatch.setattr(gg, "launch_detached", _launch_detached)
     monkeypatch.setattr(gg, "_resolve_server_bin", lambda: "dcc-mcp-server")
 
@@ -816,11 +882,13 @@ def test_guardian_run_catches_crash_and_increments_crash_count(monkeypatch):
             timeout=30.0,
         ), "Expected guardian crash status to be published"
     finally:
-        guardian.stop(timeout=2.0)
+        stopped = guardian.stop(timeout=2.0)
 
     status = guardian.status()
     assert status["crash_count"] >= 1, f"Expected crash_count >= 1, got {status['crash_count']}"
-    # Guardian must report running=False after stop.
+    # Guardian must report running=False after stop, and ``stop`` must say so: a
+    # patrol thread still probing after this test would pollute later tests.
+    assert stopped is True, "guardian patrol thread outlived stop(timeout=2.0)"
     assert status["guardian_running"] is False
 
 
@@ -862,11 +930,43 @@ def test_guardian_run_continues_after_exception(monkeypatch):
         assert crash_reported.wait(timeout=10.0), "Expected guardian crash status to be published"
         assert continued_after_crash.wait(timeout=10.0), "Expected guardian loop to continue probing"
     finally:
-        guardian.stop(timeout=2.0)
+        stopped = guardian.stop(timeout=2.0)
 
     # The loop survived the first crash and continued probing
     assert len(calls) >= 2, f"Expected >= 2 probe calls, got {len(calls)}"
     assert guardian.status()["crash_count"] >= 1
+    assert stopped is True, "guardian patrol thread outlived stop(timeout=2.0)"
+    assert guardian.status()["guardian_running"] is False
+
+
+def test_guardian_stop_keeps_a_thread_that_refuses_to_exit_visible():
+    """``stop()`` must not hide a patrol thread that is still running.
+
+    Clearing ``_thread`` on a timed-out join made a live prober invisible to every
+    liveness check while it kept probing through the guardian module, which is the
+    leak that fed the shared-probe-counter flake.
+    """
+    guardian = gg.GatewayDaemonGuardian(
+        gateway_host="127.0.0.1",
+        gateway_port=9765,
+        registry_dir=None,
+        dcc_type="stuck-test",
+        probe_interval_secs=0.05,
+    )
+    release = threading.Event()
+
+    def _blocked_run():
+        release.wait(30.0)
+
+    guardian._thread = threading.Thread(target=_blocked_run, name="stuck-guardian", daemon=True)
+    guardian._thread.start()
+    try:
+        assert guardian.stop(timeout=0.05) is False
+        assert guardian.status()["guardian_running"] is True
+    finally:
+        release.set()
+        guardian._thread.join(timeout=5.0)
+        guardian._thread = None
 
 
 def test_build_gateway_daemon_command_includes_persist_flags(monkeypatch, tmp_path):
@@ -915,34 +1015,18 @@ def test_build_gateway_daemon_command_respects_custom_server_bin(monkeypatch, tm
 
 
 def test_ensure_gateway_daemon_spawn_includes_persist_flags(tmp_path, monkeypatch):
-    state = {"calls": 0}
+    _install_scoped_readiness_probe(monkeypatch, host="127.0.0.1", port=9876, healthy_after=3)
 
-    class _Resp:
-        status = 200
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_exc):
-            return False
-
-        def read(self):
-            return b'{"ok": true}'
-
-    def _urlopen(*_args, **_kwargs):
-        state["calls"] += 1
-        if state["calls"] < 3:
-            raise OSError("down")
-        return _Resp()
-
+    owner = threading.get_ident()
     seen: dict = {}
 
     def _launch_detached(cmd, **kwargs):
+        if threading.get_ident() != owner:
+            return {"ok": True, "pid": 99}
         seen["cmd"] = cmd
         seen["env"] = kwargs.get("env", {})
         return {"ok": True, "pid": 99}
 
-    monkeypatch.setattr(gg, "urlopen", _urlopen)
     monkeypatch.setattr(gg, "launch_detached", _launch_detached)
     monkeypatch.setattr(gg, "_resolve_server_bin", lambda: "dcc-mcp-server")
     result = gg.ensure_gateway_daemon(
@@ -973,7 +1057,7 @@ def test_launch_gateway_daemon_is_alias(monkeypatch):
     assert result["reason"] == "already_healthy"
 
 
-def _make_runtime_controller(monkeypatch, **owner_attrs):
+def _make_runtime_controller(**owner_attrs):
     """Build a thin ServerRuntimeController with a mock owner."""
     # Import here to avoid circular import issues in test collection.
     from dcc_mcp_core._server.runtime import ServerRuntimeController
@@ -1000,13 +1084,28 @@ def _make_runtime_controller(monkeypatch, **owner_attrs):
     return ServerRuntimeController(mock_owner), mock_owner
 
 
-def test_start_guardian_replaces_dead_guardian(monkeypatch):
+@pytest.fixture
+def runtime_controller():
+    """Build a ServerRuntimeController whose guardian threads are always torn down.
+
+    ``start_gateway_guardian_if_needed`` starts a real patrol thread plus a real
+    watchdog thread. Without teardown both outlive the test and keep probing
+    through the guardian module while later tests patch that module.
+    """
+    ctrl, owner = _make_runtime_controller()
+    try:
+        yield ctrl, owner
+    finally:
+        ctrl.stop_gateway_guardian()
+
+
+def test_start_guardian_replaces_dead_guardian(monkeypatch, runtime_controller):
     """P1: start_gateway_guardian_if_needed replaces a dead guardian."""
     monkeypatch.setattr(gg, "_is_application_ready", lambda *a, **k: False)
     monkeypatch.setattr(gg, "ensure_gateway_daemon", lambda **kw: {"ok": True, "reason": "spawned"})
     monkeypatch.setattr(gg, "_resolve_server_bin", lambda: "dcc-mcp-server")
 
-    ctrl, owner = _make_runtime_controller(monkeypatch)
+    ctrl, owner = runtime_controller
 
     # Start the guardian normally.
     ctrl.start_gateway_guardian_if_needed()
@@ -1027,13 +1126,13 @@ def test_start_guardian_replaces_dead_guardian(monkeypatch):
     assert new_guardian.status()["guardian_running"] is True
 
 
-def test_guardian_watchdog_detects_dead_guardian(monkeypatch):
+def test_guardian_watchdog_detects_dead_guardian(monkeypatch, runtime_controller):
     """P1: Watchdog loop detects dead guardian and triggers restart."""
     monkeypatch.setattr(gg, "_is_application_ready", lambda *a, **k: False)
     monkeypatch.setattr(gg, "ensure_gateway_daemon", lambda **kw: {"ok": True, "reason": "spawned"})
     monkeypatch.setattr(gg, "_resolve_server_bin", lambda: "dcc-mcp-server")
 
-    ctrl, owner = _make_runtime_controller(monkeypatch)
+    ctrl, owner = runtime_controller
 
     # Start the guardian.
     ctrl.start_gateway_guardian_if_needed()
@@ -1072,7 +1171,7 @@ def test_ensure_gateway_daemon_if_needed_retries_before_fallback(monkeypatch):
     # Speed up retries in tests
     monkeypatch.setattr(rt_mod, "_RETRY_INTERVAL_SECS", 0.01)
 
-    ctrl, owner = _make_runtime_controller(monkeypatch)
+    ctrl, owner = _make_runtime_controller()
     result = ctrl.ensure_gateway_daemon_if_needed()
 
     # Should have attempted 1 + 2 = 3 times
@@ -1098,7 +1197,7 @@ def test_ensure_gateway_daemon_if_needed_succeeds_on_retry(monkeypatch):
     monkeypatch.setattr(rt_mod, "ensure_gateway_daemon", _ensure)
     monkeypatch.setattr(rt_mod, "_RETRY_INTERVAL_SECS", 0.01)
 
-    ctrl, owner = _make_runtime_controller(monkeypatch)
+    ctrl, owner = _make_runtime_controller()
     result = ctrl.ensure_gateway_daemon_if_needed()
 
     assert call_count == 3, f"Expected 3 attempts, got {call_count}"
@@ -1117,7 +1216,7 @@ def test_strict_gateway_raises_instead_of_fallback(monkeypatch):
     monkeypatch.setattr(rt_mod, "_RETRY_INTERVAL_SECS", 0.01)
     monkeypatch.setenv("DCC_MCP_STRICT_GATEWAY", "1")
 
-    ctrl, owner = _make_runtime_controller(monkeypatch)
+    ctrl, owner = _make_runtime_controller()
 
     try:
         ctrl.ensure_gateway_daemon_if_needed()
@@ -1138,7 +1237,7 @@ def test_strict_gateway_via_owner_attribute(monkeypatch):
     monkeypatch.setattr(rt_mod, "ensure_gateway_daemon", _ensure)
     monkeypatch.setattr(rt_mod, "_RETRY_INTERVAL_SECS", 0.01)
 
-    ctrl, owner = _make_runtime_controller(monkeypatch)
+    ctrl, owner = _make_runtime_controller()
     owner._strict_gateway = True
 
     try:
@@ -1158,7 +1257,7 @@ def test_strict_gateway_happy_path_works_normally(monkeypatch):
     monkeypatch.setattr(rt_mod, "ensure_gateway_daemon", _ensure)
     monkeypatch.setenv("DCC_MCP_STRICT_GATEWAY", "1")
 
-    ctrl, owner = _make_runtime_controller(monkeypatch)
+    ctrl, owner = _make_runtime_controller()
     result = ctrl.ensure_gateway_daemon_if_needed()
 
     assert result is True
@@ -1537,13 +1636,13 @@ def test_watchdog_interval_env_invalid_falls_back(monkeypatch):
     assert rt_mod._resolve_watchdog_interval() == 15.0
 
 
-def test_watchdog_immediate_retry_on_guardian_death(monkeypatch):
+def test_watchdog_immediate_retry_on_guardian_death(monkeypatch, runtime_controller):
     """PIP-1416: watchdog immediately probes the new guardian after restart."""
     monkeypatch.setattr(gg, "_is_application_ready", lambda *a, **k: False)
     monkeypatch.setattr(gg, "ensure_gateway_daemon", lambda **kw: {"ok": True, "reason": "spawned"})
     monkeypatch.setattr(gg, "_resolve_server_bin", lambda: "dcc-mcp-server")
 
-    ctrl, owner = _make_runtime_controller(monkeypatch)
+    ctrl, owner = runtime_controller
 
     # Start the guardian.
     ctrl.start_gateway_guardian_if_needed()
