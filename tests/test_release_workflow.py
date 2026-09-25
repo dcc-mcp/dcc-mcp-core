@@ -46,8 +46,11 @@ def test_release_workflow_preserves_existing_github_release_assets() -> None:
     safety-net upload would delete and re-upload every asset the per-platform
     jobs just attached.
     """
+    # One upload step per asset-producing job: build-binaries,
+    # build-semantic-wheels and build-cli-wheels attach their own artefacts,
+    # and publish-github-release-assets is the safety net.
     steps = _github_release_steps(_release_jobs())
-    assert len(steps) == 3
+    assert len(steps) == 4
     for step in steps:
         assert step["with"]["overwrite_files"] == OVERWRITE_FILES_EXPRESSION
         assert step["with"]["fail_on_unmatched_files"] is True
@@ -62,7 +65,7 @@ def test_release_workflow_uploads_assets_with_the_release_token() -> None:
     reports success: v0.20.34 shipped with 0 assets.
     """
     steps = _github_release_steps(_release_jobs())
-    assert len(steps) == 3
+    assert len(steps) == 4
     for step in steps:
         assert step["with"]["token"] == GITHUB_RELEASE_TOKEN
 
@@ -75,7 +78,7 @@ def test_release_workflow_manual_backfill_reuses_core_release_assets() -> None:
 
 def test_manual_backfill_is_explicitly_core_only() -> None:
     jobs = _release_jobs()
-    for job_id in ("build-admin-ui", "build-binaries", "build-semantic-wheels"):
+    for job_id in ("build-admin-ui", "build-binaries", "build-semantic-wheels", "build-cli-wheels"):
         condition = jobs[job_id]["if"]
         assert f"!({CORE_BACKFILL_EXPRESSION}{ASSETS_BACKFILL_GUARD})" in condition
 
@@ -136,6 +139,15 @@ def test_release_workflow_publishes_each_pypi_project_in_its_own_job() -> None:
             "artifact_path": "dist-semantic",
             "packages_dir": "dist-semantic",
         },
+        # The dcc-mcp-cli wrapper wheels are built once for all platforms and
+        # published from a single artefact, hence the non-glob pattern.
+        "publish-cli-pypi": {
+            "needs": ["release-please", "validate-release-version", "build-cli-wheels"],
+            "url": "https://pypi.org/p/dcc-mcp-cli",
+            "artifact_pattern": "cli-wheel-all",
+            "artifact_path": "dist-cli",
+            "packages_dir": "dist-cli",
+        },
     }
 
     for job_id, config in expected.items():
@@ -166,7 +178,7 @@ def test_release_workflow_publishes_each_pypi_project_in_its_own_job() -> None:
             "skip-existing": True,
         }
 
-    assert sum(len(_pypi_steps(job)) for job in jobs.values()) == 3
+    assert sum(len(_pypi_steps(job)) for job in jobs.values()) == 4
 
 
 def test_core_pypi_publish_validates_complete_distribution_set_before_upload() -> None:
@@ -223,6 +235,7 @@ def test_release_workflow_keeps_github_release_safety_net_after_pypi_jobs() -> N
         "publish-core-pypi",
         "publish-server-pypi",
         "publish-semantic-pypi",
+        "publish-cli-pypi",
         "publish-github-release-assets",
         "verify-release-assets",
     ]
@@ -231,7 +244,63 @@ def test_release_workflow_keeps_github_release_safety_net_after_pypi_jobs() -> N
     assert "needs.publish-core-pypi.result" in run
     assert "needs.publish-server-pypi.result" in run
     assert "needs.publish-semantic-pypi.result" in run
+    assert "needs.publish-cli-pypi.result" in run
     assert "needs.publish-github-release-assets.result" in run
+    # A new route must also be gated, or it can fail silently.
+    assert 'cli" != "success"' in run
+    assert 'cli" != "skipped"' in run
+
+
+def test_release_workflow_builds_cli_wrapper_wheels_from_the_release_archives() -> None:
+    """The PyPI wrapper wheels are derived from the archives build-binaries uploads.
+
+    Nothing in that job compiles, so it runs once on a single runner and loops
+    over the three platforms. It must depend on ``build-binaries`` (the source
+    of the archives) and stamp each wheel with a platform tag before upload,
+    or pip would resolve a Linux binary onto Windows.
+    """
+    jobs = _release_jobs()
+    build = jobs["build-cli-wheels"]
+
+    assert build["runs-on"] == "ubuntu-latest"
+    assert build["needs"] == ["release-please", "build-binaries"]
+
+    runs = "\n".join(step.get("run", "") for step in build["steps"])
+    assert "scripts/release/build_cli_wrapper_wheel.py" in runs
+    assert "scripts/release/cli_wheel_tags.py retag" in runs
+    assert "scripts/release/cli_wheel_tags.py validate" in runs
+    assert '--platform "$platform"' in runs
+    for platform in ("linux-x86_64", "macos-universal2", "windows-x86_64"):
+        assert platform in runs
+
+    upload = next(step for step in build["steps"] if step.get("uses") == "actions/upload-artifact@v4")
+    assert upload["with"]["name"] == "cli-wheel-all"
+    assert upload["with"]["path"] == "dist-cli/*.whl"
+
+
+def test_release_workflow_gives_every_platform_its_own_wheel_output_directory() -> None:
+    """Each platform must build into a directory no other platform writes to.
+
+    hatchling names every build ``dcc_mcp_cli-<version>-py3-none-any.whl``
+    because the wrapper carries no compiled extension. Looping the three
+    platforms over one output directory therefore overwrites the first wheel
+    with the second, and the build script finds no *new* file and exits 1 with
+    "expected exactly one wrapper wheel, got []" - which in turn skips
+    ``publish-cli-pypi`` and fails every release. The wheel has to be retagged
+    before it joins the shared directory, or the next build overwrites it by
+    name.
+    """
+    build = _release_jobs()["build-cli-wheels"]
+    build_step = next(step for step in build["steps"] if step.get("name") == "Build wrapper wheels")
+    run = build_step["run"]
+
+    assert 'out="$PWD/dist-cli-build/$platform"' in run
+    assert '--out-dir "$out"' in run
+    # Shared-directory builds would silently collide on the second platform.
+    assert '--out-dir "$PWD/dist-cli"' not in run
+    # Retag inside the loop, then move: the tag is what makes the names unique.
+    assert 'cli_wheel_tags.py retag --wheel-dir "$out"' in run
+    assert 'mv "$out"/*.whl "$PWD/dist-cli/"' in run
 
 
 def test_release_workflow_builds_deployable_zips_per_platform() -> None:

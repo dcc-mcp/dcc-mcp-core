@@ -166,7 +166,26 @@ application. Host semantics still belong in adapters and pipeline Skills.
 ## Quick start: operate a DCC
 
 `dcc-mcp-cli` is the preferred control path for every shell-capable agent.
-If it is missing, obtain the user's consent, install the public `dcc-mcp`
+
+If you have a Python toolchain, one command installs it on Linux, macOS and
+Windows:
+
+~~~bash
+uvx dcc-mcp-cli --version      # run it without installing
+
+# or install it into a managed tool environment
+uv tool install dcc-mcp-cli
+pipx install dcc-mcp-cli
+
+# or into the current environment
+pip install dcc-mcp-cli
+~~~
+
+Package-manager installs are managed by the package manager: upgrade with
+`uv tool upgrade dcc-mcp-cli` (or `pip install --upgrade dcc-mcp-cli`) rather
+than `dcc-mcp-cli update apply`, which is disabled for those builds.
+
+Otherwise, obtain the user's consent, install the public `dcc-mcp`
 Skill below, and run its bundled verified helper from the Skill directory:
 
 ~~~bash

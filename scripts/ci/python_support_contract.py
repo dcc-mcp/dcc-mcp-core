@@ -95,6 +95,7 @@ def validate_contract(contract: dict[str, Any]) -> None:
         "dcc-mcp-core": "pyproject.toml",
         "dcc-mcp-server": "pkg/dcc-mcp-server-bin/pyproject.toml",
         "dcc-mcp-core-semantic": "pkg/dcc-mcp-core-semantic/pyproject.toml",
+        "dcc-mcp-cli": "pkg/dcc-mcp-cli-bin/pyproject.toml",
     }
     if not isinstance(distributions, dict) or set(distributions) != set(expected_distributions):
         raise ContractError("all released Python distributions must be declared")

@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import io
+import json
 from pathlib import Path
+import urllib.error
 
 import pytest
 from scripts.ci.check_pypi_project_size import GIB
@@ -12,6 +15,7 @@ from scripts.ci.check_pypi_project_size import STORAGE_LIMITS_DOC
 from scripts.ci.check_pypi_project_size import Artifact
 from scripts.ci.check_pypi_project_size import build_report
 from scripts.ci.check_pypi_project_size import collect_dist_artifacts
+from scripts.ci.check_pypi_project_size import fetch_pypi_files
 from scripts.ci.check_pypi_project_size import parse_gb
 from scripts.ci.check_pypi_project_size import render_failure
 from scripts.ci.check_pypi_project_size import render_summary
@@ -172,3 +176,70 @@ def test_parse_gb_rejects_invalid_values() -> None:
 
     assert parse_gb("10") == 10.0
     assert parse_gb("0.5") == 0.5
+
+
+def _http_error(code: int) -> urllib.error.HTTPError:
+    return urllib.error.HTTPError("https://pypi.org/pypi/pkg/json", code, "boom", {}, None)
+
+
+def test_fetch_pypi_files_reads_every_release(monkeypatch) -> None:
+    """Sizes are collected across all releases of a project."""
+    payload = json.dumps(
+        {"releases": {"1.0": [{"filename": "a.whl", "size": 10}], "2.0": [{"filename": "b.whl", "size": 20}]}}
+    ).encode("utf-8")
+
+    monkeypatch.setattr("urllib.request.urlopen", lambda url, timeout=None: io.BytesIO(payload))
+
+    assert fetch_pypi_files("dcc-mcp-core", "https://pypi.org/pypi/{package}/json") == {
+        "a.whl": 10,
+        "b.whl": 20,
+    }
+
+
+def test_fetch_pypi_files_treats_404_as_unpublished(monkeypatch, capsys) -> None:
+    """A project that has never been published uses 0 bytes.
+
+    PyPI answers 404 for a project with no releases. Failing that request
+    would block the very first publish of a new distribution - and the
+    first publish is the only one that can ever see the 404.
+    """
+    monkeypatch.setattr("urllib.request.urlopen", lambda url, timeout=None: (_ for _ in ()).throw(_http_error(404)))
+
+    assert fetch_pypi_files("dcc-mcp-cli", "https://pypi.org/pypi/{package}/json") == {}
+    assert "404" in capsys.readouterr().err
+
+
+def test_fetch_pypi_files_still_fails_on_other_statuses(monkeypatch) -> None:
+    """Any status other than 404 is a real failure, not an empty project."""
+    monkeypatch.setattr("urllib.request.urlopen", lambda url, timeout=None: (_ for _ in ()).throw(_http_error(503)))
+
+    with pytest.raises(RuntimeError, match="dcc-mcp-cli"):
+        fetch_pypi_files("dcc-mcp-cli", "https://pypi.org/pypi/{package}/json")
+
+
+def test_fetch_pypi_files_still_fails_on_transport_errors(monkeypatch) -> None:
+    """A DNS or TLS failure must not be mistaken for an empty project."""
+    monkeypatch.setattr(
+        "urllib.request.urlopen", lambda url, timeout=None: (_ for _ in ()).throw(OSError("no route to host"))
+    )
+
+    with pytest.raises(RuntimeError, match="no route to host"):
+        fetch_pypi_files("dcc-mcp-cli", "https://pypi.org/pypi/{package}/json")
+
+
+def test_unpublished_project_fits_the_budget(tmp_path: Path) -> None:
+    """The gate a first release has to pass: 0 current bytes, all files new."""
+    wheel = tmp_path / "dcc_mcp_cli-0.1.0-py3-none-manylinux_2_17_x86_64.whl"
+    wheel.write_bytes(b"x" * 100)
+
+    report = build_report(
+        package="dcc-mcp-cli",
+        pypi_files={},
+        artifacts=collect_dist_artifacts(tmp_path),
+        limit_bytes=10 * GIB,
+        warn_headroom_bytes=GIB,
+    )
+
+    assert not report.over_budget
+    assert report.current_bytes == 0
+    assert [a.filename for a in report.to_add] == [wheel.name]

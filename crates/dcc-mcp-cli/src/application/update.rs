@@ -1,6 +1,7 @@
 use dcc_mcp_updater::Updater;
 use serde_json::Value;
 
+use crate::application::package_manager::PackageManagerMarker;
 use crate::domain::rest::Endpoint;
 
 mod cache;
@@ -59,7 +60,15 @@ impl UpdateService {
     }
 
     /// Check for and apply an update (download + stage for next launch).
+    ///
+    /// Returns a `managed_by_package_manager` envelope instead of downloading
+    /// when the binary belongs to a package manager: replacing `current_exe`
+    /// would silently undo the version the manager installed.
     pub async fn apply_update(&self, confirmed: bool) -> anyhow::Result<Value> {
+        if let Some(marker) = crate::application::package_manager::detect() {
+            return Ok(package_managed_payload(&marker));
+        }
+
         let info = match self.updater.check_update().await {
             Ok(info) => info,
             Err(error) => {
@@ -201,7 +210,11 @@ fn enrich_check_payload(
             },
         }),
     );
-    object.insert("update_policy".into(), update_policy(&binary_name));
+    let manager = crate::application::package_manager::detect().map(|marker| marker.manager);
+    object.insert(
+        "update_policy".into(),
+        update_policy(&binary_name, manager.as_deref()),
+    );
     payload
 }
 
@@ -213,15 +226,43 @@ pub(super) fn mark_cached(mut payload: Value, cache_age_secs: u64) -> Value {
     payload
 }
 
-fn update_policy(binary_name: &str) -> Value {
+/// Describe how an update may be applied for one binary.
+///
+/// `manager` is passed in rather than re-detected so callers can describe a
+/// package-managed install without one being present on the current process.
+fn update_policy(binary_name: &str, manager: Option<&str>) -> Value {
     let is_cli = binary_name == CLI_BINARY_NAME;
+    let apply_supported = is_cli && manager.is_none();
     serde_json::json!({
         "requires_user_confirmation": true,
-        "apply_supported_by_this_command": is_cli,
-        "apply_command": is_cli.then_some("dcc-mcp-cli update apply --yes"),
+        "apply_supported_by_this_command": apply_supported,
+        "apply_command": apply_supported.then_some("dcc-mcp-cli update apply --yes"),
         "staged_for_next_launch": true,
         "running_server_restarted": false,
+        "managed_by_package_manager": manager,
     })
+}
+
+/// Build the envelope returned when a package manager owns the binary.
+fn package_managed_payload(marker: &PackageManagerMarker) -> Value {
+    let payload = serde_json::json!({
+        "status": "blocked",
+        "error": "managed_by_package_manager",
+        "update_available": false,
+        "binary_name": CLI_BINARY_NAME,
+        "current_version": CLI_VERSION,
+        "message": marker.blocked_message(),
+        "package_manager": {
+            "manager": marker.manager,
+            "distribution": marker.distribution,
+            "installed_version": marker.version,
+            "marker": crate::application::package_manager::MARKER_FILE_NAME,
+        },
+    });
+    let mut payload = enrich_check_payload(payload, true, "live", unix_timestamp());
+    payload["update_policy"] = update_policy(CLI_BINARY_NAME, Some(&marker.manager));
+    payload["version_status"] = Value::String("managed_by_package_manager".into());
+    payload
 }
 
 fn platform_target() -> String {
@@ -265,6 +306,39 @@ mod tests {
             "dcc-mcp-cli update apply --yes"
         );
         assert_eq!(payload["update_policy"]["running_server_restarted"], false);
+    }
+
+    #[test]
+    fn package_managed_checks_disable_apply() {
+        let marker = crate::application::package_manager::PackageManagerMarker {
+            schema_version: crate::application::package_manager::MARKER_SCHEMA_VERSION,
+            distribution: "dcc-mcp-cli".into(),
+            manager: "pypi".into(),
+            version: "0.20.34".into(),
+            platform: "windows-x86_64".into(),
+            binary: "dcc-mcp-cli-bin.exe".into(),
+        };
+
+        let payload = package_managed_payload(&marker);
+
+        assert_eq!(payload["status"], "blocked");
+        assert_eq!(payload["error"], "managed_by_package_manager");
+        assert_eq!(payload["version_status"], "managed_by_package_manager");
+        assert_eq!(payload["update_available"], false);
+        assert_eq!(payload["package_manager"]["manager"], "pypi");
+        assert_eq!(payload["package_manager"]["installed_version"], "0.20.34");
+        // Agents must not be told to run a command that will be refused.
+        assert_eq!(
+            payload["update_policy"]["apply_supported_by_this_command"],
+            false
+        );
+        assert!(payload["update_policy"]["apply_command"].is_null());
+        assert!(
+            payload["message"]
+                .as_str()
+                .unwrap()
+                .contains("package manager")
+        );
     }
 
     #[test]
