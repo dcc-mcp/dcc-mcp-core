@@ -119,10 +119,13 @@ host legitimately needs packages installed under the user site directory.
 
 Two consequences worth checking when a host reports an unexpected version:
 
-- `dcc-mcp-server` must come from the same release batch as `dcc-mcp-core`. A
-  major/minor mismatch is logged as a warning by the gateway bootstrap, which
-  resolves the binary from `PATH` (the resolved environment) before falling back
-  to the `dcc_mcp_server` Python package. Set `DCC_MCP_SERVER_BIN` to override.
+- `dcc-mcp-server` must come from the same release batch as `dcc-mcp-core`. The
+  gateway bootstrap resolves the binary from `PATH` (the resolved environment)
+  before falling back to the `dcc_mcp_server` Python package, and it warns once
+  per process when the fallback's `major.minor` differs from core. The warning
+  is only raised for the fallback: a binary taken from `PATH` carries no
+  importable version, so comparing the package version against it would name a
+  copy that never runs. Set `DCC_MCP_SERVER_BIN` to override the lookup.
 - `dcc-mcp-cli` is a standalone Rust binary shipped in the release bundles, not
   a Python package. There is no `dcc_mcp_cli` module: `import dcc_mcp_cli`
   always fails inside a host, and this is expected. Invoke the binary from the

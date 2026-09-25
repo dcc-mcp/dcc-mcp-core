@@ -945,6 +945,88 @@ def test_resolve_deployment_layout_can_opt_out_of_user_site_isolation(tmp_path: 
     assert "PYTHONNOUSERSITE" not in result["environment"]["set"]
 
 
+_USER_SITE_STATE_CODE = (
+    "import site, sys\nprint(1 if site.ENABLE_USER_SITE else 0)\nprint(site.getusersitepackages())\n"
+)
+
+_USER_SITE_ON_PATH_CODE = "import site, sys\nprint(1 if site.getusersitepackages() in sys.path else 0)\n"
+
+
+def _pinned_user_site_env(tmp_path: Path) -> dict:
+    """Return an env whose user site directory lives under *tmp_path*.
+
+    ``site`` only puts the user site directory on ``sys.path`` when it exists,
+    so the helper materialises a throwaway one under *tmp_path* instead of
+    writing into the real user site directory.
+    """
+    env = {**os.environ, "PYTHONUSERBASE": str(tmp_path / "userbase")}
+    probe = subprocess.run(
+        [sys.executable, "-c", _USER_SITE_STATE_CODE],
+        capture_output=True,
+        text=True,
+        check=True,
+        env=env,
+    )
+    enabled, user_site = probe.stdout.splitlines()
+    if enabled.strip() != "1":
+        pytest.skip("this interpreter disables the user site directory")
+    Path(user_site.strip()).mkdir(parents=True, exist_ok=True)
+    return env
+
+
+def _apply_layout_environment(base: dict, layout: dict) -> dict:
+    """Apply a deployment layout's ``environment`` block to a child env."""
+    env = dict(base)
+    for name, entries in layout["environment"]["prepend"].items():
+        merged = [*entries, env.get(name, "")]
+        env[name] = os.pathsep.join(entry for entry in merged if entry)
+    env.update(layout["environment"]["set"])
+    return env
+
+
+def _user_site_on_child_sys_path(env: dict) -> bool:
+    probe = subprocess.run(
+        [sys.executable, "-c", _USER_SITE_ON_PATH_CODE],
+        capture_output=True,
+        text=True,
+        check=True,
+        env=env,
+    )
+    return probe.stdout.strip() == "1"
+
+
+def test_resolve_deployment_layout_closes_the_user_site_in_a_real_host(tmp_path: Path) -> None:
+    """The layout must close the resolve, not just declare ``PYTHONNOUSERSITE``.
+
+    The dict-level assertion proves the flag is present. This launches a real
+    interpreter with the whole ``environment`` block applied and checks the
+    observable effect: the user site directory is off ``sys.path``, so a host
+    cannot import a workstation-local copy of a package missing from the
+    resolve.
+    """
+    base_env = _pinned_user_site_env(tmp_path)
+    if not _user_site_on_child_sys_path(base_env):
+        pytest.skip("the user site directory is not on sys.path here")
+
+    layout = lifecycle.resolve_deployment_layout(adapter_package="dcc_mcp_maya", env=base_env)
+
+    assert _user_site_on_child_sys_path(_apply_layout_environment(base_env, layout)) is False
+
+
+def test_resolve_deployment_layout_opt_out_reopens_the_user_site_in_a_real_host(tmp_path: Path) -> None:
+    """``DCC_MCP_ALLOW_USER_SITE`` must keep the user site reachable in a host."""
+    base_env = {
+        **_pinned_user_site_env(tmp_path),
+        lifecycle.ENV_ALLOW_USER_SITE: "1",
+    }
+    if not _user_site_on_child_sys_path(base_env):
+        pytest.skip("the user site directory is not on sys.path here")
+
+    layout = lifecycle.resolve_deployment_layout(adapter_package="dcc_mcp_maya", env=base_env)
+
+    assert _user_site_on_child_sys_path(_apply_layout_environment(base_env, layout)) is True
+
+
 def test_resolve_deployment_layout_uses_cache_root_before_packages_exist(tmp_path: Path) -> None:
     cache_root = tmp_path / "ext"
     (cache_root / "dcc_mcp_core" / "python").mkdir(parents=True)
