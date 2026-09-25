@@ -46,8 +46,10 @@ os.environ.update(layout["environment"]["set"])
 
 - `dcc-mcp-server` 必须与 `dcc-mcp-core` 来自同一发布批次。网关引导会先按
   `PATH`（即解析后的环境）查找二进制，只有在找不到时才回退到
-  `dcc_mcp_server` Python 包；两者 major/minor 不一致时会记录 warning。可用
-  `DCC_MCP_SERVER_BIN` 显式覆盖。
+  `dcc_mcp_server` Python 包；回退版本的 `major.minor` 与 core 不一致时，每
+  个进程记录一次 warning。该检查只针对回退路径：来自 `PATH` 的二进制没有可
+  导入的版本信息，拿包版本去比对只会指向一个不会被执行的副本。可用
+  `DCC_MCP_SERVER_BIN` 显式覆盖查找结果。
 - `dcc-mcp-cli` 是发布包里附带的独立 Rust 二进制，不是 Python 包。不存在
   `dcc_mcp_cli` 模块，宿主内 `import dcc_mcp_cli` 必然失败，这是预期行为；
   请改为调用解析环境中 `PATH` 上的该二进制。

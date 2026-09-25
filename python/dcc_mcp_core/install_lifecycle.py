@@ -88,6 +88,12 @@ __all__ = [
 ]
 
 
+# Third copy of the repo's truthy-token convention next to ``env.env_flag``
+# and ``_server.tools_list_policy.env_truthy``. Both of those read
+# ``os.environ`` directly, while this module parses a caller-supplied layout
+# environment that is not necessarily the current process environment, so the
+# predicate has to take the value as an argument. Keep the token set aligned
+# with the other two if it ever changes.
 _TRUTHY_ENV_TOKENS = frozenset({"1", "true", "yes", "on"})
 
 
