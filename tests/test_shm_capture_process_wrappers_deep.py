@@ -13,10 +13,10 @@ from __future__ import annotations
 
 import json
 import os
-import time
 
 import pytest
 
+from _support.watcher import wait_for_event
 from dcc_mcp_core import BooleanWrapper
 from dcc_mcp_core import CaptureFrame
 from dcc_mcp_core import Capturer
@@ -685,9 +685,10 @@ class TestPyProcessWatcherTrackAndPoll:
         pid = _current_pid()
         w.track(pid, "self")
         w.start()
-        time.sleep(0.35)
-        events = w.poll_events()
-        w.stop()
+        try:
+            events = wait_for_event(w, "heartbeat")
+        finally:
+            w.stop()
         assert isinstance(events, list)
 
     def test_poll_events_has_at_least_one_heartbeat(self):
@@ -695,9 +696,10 @@ class TestPyProcessWatcherTrackAndPoll:
         pid = _current_pid()
         w.track(pid, "self")
         w.start()
-        time.sleep(0.35)
-        events = w.poll_events()
-        w.stop()
+        try:
+            events = wait_for_event(w, "heartbeat")
+        finally:
+            w.stop()
         assert len(events) >= 1
         types = [e["type"] for e in events]
         assert "heartbeat" in types
@@ -707,9 +709,10 @@ class TestPyProcessWatcherTrackAndPoll:
         pid = _current_pid()
         w.track(pid, "self")
         w.start()
-        time.sleep(0.25)
-        events = w.poll_events()
-        w.stop()
+        try:
+            events = wait_for_event(w, "heartbeat")
+        finally:
+            w.stop()
         hb = next((e for e in events if e["type"] == "heartbeat"), None)
         assert hb is not None
         assert hb["pid"] == pid
@@ -719,9 +722,10 @@ class TestPyProcessWatcherTrackAndPoll:
         pid = _current_pid()
         w.track(pid, "watcher-test")
         w.start()
-        time.sleep(0.25)
-        events = w.poll_events()
-        w.stop()
+        try:
+            events = wait_for_event(w, "heartbeat")
+        finally:
+            w.stop()
         hb = next((e for e in events if e["type"] == "heartbeat"), None)
         assert hb is not None
         assert hb["name"] == "watcher-test"
@@ -731,11 +735,11 @@ class TestPyProcessWatcherTrackAndPoll:
         pid = _current_pid()
         w.track(pid, "self")
         w.start()
-        time.sleep(0.25)
-        w.poll_events()  # drain
-        events2 = w.poll_events()
-        w.stop()
-        # second poll immediately should have 0 new events
+        try:
+            wait_for_event(w, "heartbeat")  # drain
+            events2 = w.poll_events()
+        finally:
+            w.stop()
         assert isinstance(events2, list)
 
     def test_untrack_removes_from_watched(self):

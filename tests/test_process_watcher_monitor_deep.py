@@ -16,6 +16,7 @@ import time
 
 import pytest
 
+from _support.watcher import wait_for_event
 from dcc_mcp_core import PyProcessMonitor
 from dcc_mcp_core import PyProcessWatcher
 
@@ -123,10 +124,11 @@ class TestPyProcessWatcherPollEvents:
         w = PyProcessWatcher()
         w.add_watch(SELF_PID, "self")
         w.start()
-        time.sleep(0.05)
-        events = w.poll_events()
-        assert isinstance(events, list)
-        w.stop()
+        try:
+            events = wait_for_event(w, "heartbeat")
+            assert isinstance(events, list)
+        finally:
+            w.stop()
         w.remove_watch(SELF_PID)
 
     def test_poll_events_empty_when_no_watches(self):
@@ -147,12 +149,13 @@ class TestPyProcessWatcherPollEvents:
         w = PyProcessWatcher()
         w.add_watch(SELF_PID, "self")
         w.start()
-        time.sleep(0.05)
-        w.poll_events()
-        # Second poll should return empty (events consumed)
-        events2 = w.poll_events()
-        assert isinstance(events2, list)
-        w.stop()
+        try:
+            wait_for_event(w, "heartbeat")
+            # Second poll should return empty (events consumed)
+            events2 = w.poll_events()
+            assert isinstance(events2, list)
+        finally:
+            w.stop()
         w.remove_watch(SELF_PID)
 
 
