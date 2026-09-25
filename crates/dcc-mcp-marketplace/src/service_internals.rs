@@ -184,7 +184,7 @@ pub fn resolve_install_dcc(
 
     if let Some(dcc) = requested {
         let dcc_name = path_component("DCC name", dcc)?.to_lowercase();
-        if dccs.iter().any(|id| *id == dcc_name) {
+        if dccs.contains(&dcc_name) {
             return Ok(dcc_name);
         }
         if is_shared_dcc_request(&dcc_name) {
