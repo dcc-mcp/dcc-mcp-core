@@ -590,8 +590,8 @@ async fn test_challenger_recovers_live_but_service_dead_port_holder() {
     let dir = tempfile::tempdir().unwrap();
 
     // The holder owns port selection and reports the port it bound, so this
-    // test cannot inherit the bind/close race the handshake used to have
-    // (#3650); see `port_recovery::port_recovery_tests`.
+    // test cannot inherit the bind/close race the handshake used to have;
+    // see `port_recovery::port_recovery_tests`.
     let (port, mut holder) =
         crate::gateway::port_recovery::port_recovery_tests::spawn_service_dead_port_holder().await;
 

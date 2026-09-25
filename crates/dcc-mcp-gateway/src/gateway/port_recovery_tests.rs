@@ -4,7 +4,7 @@ use super::*;
 
 use crate::gateway::runner::{ResidentGatewayHealth, probe_resident_gateway_health};
 
-// ── Holder-child handshake (#2405, hardened in #3650) ─────────────
+// ── Holder-child handshake (#2405) ───────────────────────────────
 //
 // The child owns port selection: it binds, then announces the port it
 // actually got on stdout, and the parent waits for that line. Earlier
@@ -13,7 +13,7 @@ use crate::gateway::runner::{ResidentGatewayHealth, probe_resident_gateway_healt
 // had no mechanism to win: when the parent's `close()` lost by a few
 // milliseconds the child died on `EADDRINUSE`/`WSAEACCES` behind
 // `Stdio::null()` and the parent timed out reporting an opaque
-// "port holder child never bound port N" (#3650).
+// "port holder child never bound port N".
 //
 // Readiness is proven twice: the child says which port it bound, and a real
 // `TcpStream::connect` shows something accepts connections there. Neither
@@ -30,6 +30,8 @@ const HOLDER_CHILD_PORT_ENV: &str = "DCC_MCP_TEST_PORT_HOLDER_PORT";
 const HOLDER_READY_PREFIX: &str = "PORT_HOLDER_READY";
 /// `<prefix> <error>` — the child could not bind; the parent retries.
 const HOLDER_BIND_FAILED_PREFIX: &str = "PORT_HOLDER_BIND_FAILED";
+/// Overrides the per-attempt readiness budget, in milliseconds.
+const HOLDER_READY_TIMEOUT_ENV: &str = "DCC_MCP_TEST_PORT_HOLDER_READY_TIMEOUT_MS";
 
 /// Spawn a service-dead holder child and wait until that child is serving
 /// the port it reports.
@@ -37,8 +39,8 @@ async fn start_service_dead_holder() -> (u16, std::process::Child) {
     spawn_service_dead_port_holder().await
 }
 
-/// Regression for the handshake race that turned `Rust coverage` red on main
-/// (#3650).
+/// Regression for the handshake race that turned the coverage lane red on
+/// main.
 ///
 /// The old helper bound an ephemeral port in the parent, spawned the child
 /// and only then closed the parent listener. Whenever the parent's `close()`
@@ -99,9 +101,45 @@ fn holder_handshake_lines_are_classified() {
         ),
         "a malported port must fail loudly instead of hanging the suite"
     );
+    // libtest writes `test <name> ... ` without a trailing newline when it
+    // runs a single test thread, and `--nocapture` then appends the child's
+    // output to that same line. The signal must survive being prefixed.
+    assert!(
+        matches!(
+            parse_holder_line("test some::child ... PORT_HOLDER_READY 45123"),
+            Some(HolderSignal::Ready(45123))
+        ),
+        "a readiness line prefixed by the libtest banner must still be read"
+    );
+    assert!(
+        matches!(
+            parse_holder_line("test some::child ... PORT_HOLDER_BIND_FAILED os error 10048"),
+            Some(HolderSignal::BindFailed(_))
+        ),
+        "a bind failure prefixed by the libtest banner must still be read"
+    );
     // libtest banners share the child's stdout and are never readiness.
     assert!(parse_holder_line("running 1 test").is_none());
+    assert!(parse_holder_line("test some::child ... ok").is_none());
     assert!(parse_holder_line("").is_none());
+}
+
+/// The readiness budget is the only knob a local reproduction has, so its
+/// resolution is pinned without touching the process environment (which the
+/// other holder tests read concurrently).
+#[test]
+fn ready_timeout_override_is_honoured() {
+    let default = Duration::from_secs(20);
+    assert_eq!(ready_timeout_from(None), default);
+    assert_eq!(
+        ready_timeout_from(Some("1500")),
+        Duration::from_millis(1500)
+    );
+    // Unparsable or non-positive overrides fall back instead of failing every
+    // run with a zero budget.
+    assert_eq!(ready_timeout_from(Some("soon")), default);
+    assert_eq!(ready_timeout_from(Some("0")), default);
+    assert_eq!(ready_timeout_from(Some("-5")), default);
 }
 
 #[test]
@@ -301,24 +339,48 @@ async fn spawn_service_dead_port_holder_on(
     /// Each attempt lets the kernel pick a different ephemeral port, so a
     /// collision is retried away instead of failing the suite.
     const ATTEMPTS: usize = 3;
-    /// Per-attempt readiness budget. An instrumented coverage binary takes
-    /// seconds to exec, so this is deliberately generous; it only bounds a
-    /// genuinely broken child.
-    const READY_TIMEOUT: Duration = Duration::from_secs(20);
 
+    let ready_timeout = self::ready_timeout();
     let mut last_failure = String::from("no attempt was made");
     for _ in 0..ATTEMPTS {
         let mut child = spawn_port_holder(preferred_port);
-        match wait_for_port_holder_ready(&mut child, READY_TIMEOUT).await {
+        match wait_for_port_holder_ready(&mut child, ready_timeout).await {
             Ok(port) => return (port, child),
             Err(failure) => {
-                last_failure = failure;
                 let _ = child.kill();
-                let _ = child.wait();
+                // Surface the exit status too: a child that died says far more
+                // about why than the parent's own deadline ever can.
+                last_failure = match child.wait() {
+                    Ok(status) => format!("{failure} (child exit status: {status})"),
+                    Err(_) => failure,
+                };
             }
         }
     }
     panic!("service-dead port holder never became ready after {ATTEMPTS} attempts: {last_failure}");
+}
+
+/// How long one child gets to report the port it bound.
+///
+/// The default is deliberately generous — an instrumented coverage binary can
+/// take seconds to exec — and `DCC_MCP_TEST_PORT_HOLDER_READY_TIMEOUT_MS`
+/// overrides it so a local reproduction can trade patience for a fast failure
+/// without editing the test.
+fn ready_timeout() -> Duration {
+    ready_timeout_from(std::env::var(HOLDER_READY_TIMEOUT_ENV).ok().as_deref())
+}
+
+/// Resolve the readiness budget from one optional raw override.
+///
+/// An unparsable or non-positive value falls back to the default: a zero
+/// budget would fail every run, and nothing about the override is worth that.
+fn ready_timeout_from(raw: Option<&str>) -> Duration {
+    const DEFAULT_READY_TIMEOUT: Duration = Duration::from_secs(20);
+
+    raw.and_then(|raw| raw.trim().parse::<u64>().ok())
+        .filter(|millis| *millis > 0)
+        .map(Duration::from_millis)
+        .unwrap_or(DEFAULT_READY_TIMEOUT)
 }
 
 /// Spawn a helper process that binds a port and accepts connections without
@@ -417,8 +479,11 @@ async fn wait_for_port_holder_ready(
                 },
                 Err(std::sync::mpsc::TryRecvError::Empty) => break,
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    // The child is gone: say so immediately, with its exit
+                    // status, instead of waiting out the deadline.
                     return Err(format!(
-                        "holder child exited before reporting a port (stdout: {chatter:?})\nchild stderr:\n{}",
+                        "holder child exited before reporting a port (exit status: {}, stdout: {chatter:?})\nchild stderr:\n{}",
+                        child_exit_status(child),
                         stderr_snapshot(&stderr_transcript)
                     ));
                 }
@@ -443,18 +508,31 @@ enum HolderSignal {
 }
 
 /// Classify one stdout line from the holder child; `None` is unrelated output.
+///
+/// The prefix is looked up anywhere in the line, not only at its start.
+/// libtest writes the `test <name> ... ` banner **without** a trailing newline
+/// when it runs a single test thread (`--test-threads=1`, or a 1 vCPU runner
+/// where that is the default), and `--nocapture` then appends the child's own
+/// output to that same line. Anchoring on the start of the line loses the
+/// signal entirely and turns every attempt into a full timeout.
 fn parse_holder_line(line: &str) -> Option<HolderSignal> {
     let line = line.trim();
-    if let Some(port) = line.strip_prefix(HOLDER_READY_PREFIX) {
-        return match port.trim().parse::<u16>() {
+    if let Some(port) = payload_after_prefix(line, HOLDER_READY_PREFIX) {
+        return match port.parse::<u16>() {
             Ok(port) => Some(HolderSignal::Ready(port)),
             Err(_) => Some(HolderSignal::BindFailed(format!(
                 "malformed port in {line:?}"
             ))),
         };
     }
-    line.strip_prefix(HOLDER_BIND_FAILED_PREFIX)
-        .map(|error| HolderSignal::BindFailed(error.trim().to_string()))
+    payload_after_prefix(line, HOLDER_BIND_FAILED_PREFIX)
+        .map(|error| HolderSignal::BindFailed(error.to_string()))
+}
+
+/// Payload that follows `prefix` anywhere in `line`, trimmed.
+fn payload_after_prefix<'a>(line: &'a str, prefix: &str) -> Option<&'a str> {
+    let start = line.find(prefix)?;
+    Some(line[start + prefix.len()..].trim())
 }
 
 /// Prove that `port` accepts connections, so readiness never rests on the
@@ -473,6 +551,15 @@ async fn confirm_holder_listening(port: u16) -> Result<u16, String> {
         Err(_) => Err(format!(
             "holder child reported port {port} but connecting to it timed out"
         )),
+    }
+}
+
+/// The child's exit status, for a failure message. Only called once the child
+/// is known to have closed its stdout, so this cannot block on a live holder.
+fn child_exit_status(child: &mut std::process::Child) -> String {
+    match child.wait() {
+        Ok(status) => status.to_string(),
+        Err(error) => format!("<unknown: {error}>"),
     }
 }
 
@@ -545,7 +632,7 @@ fn port_holder_child_process() {
 ///
 /// The fallback is the point: this child used to be handed a port the parent
 /// had only just closed, so its `bind()` raced the parent's `close()` and lost
-/// on loaded CI runners (#3650).
+/// on loaded CI runners.
 fn bind_holder_listener(preferred_port: Option<u16>) -> std::io::Result<std::net::TcpListener> {
     let Some(port) = preferred_port else {
         return std::net::TcpListener::bind(("127.0.0.1", 0));
@@ -564,9 +651,13 @@ fn bind_holder_listener(preferred_port: Option<u16>) -> std::io::Result<std::net
 
 /// Report one handshake line to the parent and flush it immediately: the
 /// parent waits on this line, and the child runs forever afterwards.
+///
+/// The leading newline cuts any unterminated libtest banner (`test <name> ... `
+/// is written without a trailing newline on a single test thread) so the line
+/// also stays readable on its own for a human running the child by hand.
 fn announce(prefix: &str, payload: &str) {
     use std::io::Write;
 
-    println!("{prefix} {payload}");
+    println!("\n{prefix} {payload}");
     let _ = std::io::stdout().flush();
 }
