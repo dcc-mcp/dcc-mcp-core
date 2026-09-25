@@ -926,6 +926,23 @@ def test_resolve_deployment_layout_uses_rez_env_roots(tmp_path: Path) -> None:
         str((maya_root / "python").resolve()),
     ]
     assert result["environment"]["prepend"]["PATH"] == [str((server_root / "bin").resolve())]
+    # A managed resolve must stay closed: user-level site-packages would
+    # otherwise shadow packages that are absent from the resolve.
+    assert result["environment"]["set"]["PYTHONNOUSERSITE"] == "1"
+
+
+def test_resolve_deployment_layout_can_opt_out_of_user_site_isolation(tmp_path: Path) -> None:
+    core_root = tmp_path / "dcc_mcp_core"
+    (core_root / "python").mkdir(parents=True)
+    env = {
+        "REZ_USED_RESOLVE": "dcc_mcp_core",
+        "REZ_DCC_MCP_CORE_ROOT": str(core_root),
+        "DCC_MCP_ALLOW_USER_SITE": "1",
+    }
+
+    result = lifecycle.resolve_deployment_layout(adapter_package="dcc_mcp_maya", env=env)
+
+    assert "PYTHONNOUSERSITE" not in result["environment"]["set"]
 
 
 def test_resolve_deployment_layout_uses_cache_root_before_packages_exist(tmp_path: Path) -> None:

@@ -19,6 +19,39 @@ path_entries = layout["environment"]["prepend"]["PATH"]
 
 辅助工具读取 `REZ_DCC_MCP_CORE_ROOT`、`REZ_DCC_MCP_SERVER_ROOT` 和 `REZ_DCC_MCP_MAYA_ROOT` 等变量。应将解析后的 Rez 环境视为部署契约，不要在适配器启动脚本中写入工作站专用的包缓存路径。
 
+### 封闭解析
+
+`PYTHONPATH` 只是前置追加，并非独占：如果宿主的 `sys.path` 上仍保留用户级
+site 目录，那么任何不在解析结果里的 `dcc_mcp_*` 模块都会从该未纳管目录被
+导入。因此布局同时会设置 `PYTHONNOUSERSITE=1`，让解析保持封闭。启动宿主时
+请应用完整的 `environment` 区块（`prepend` **与** `set`）：
+
+```python
+import os
+
+layout = resolve_deployment_layout(adapter_package="dcc_mcp_maya")
+os.environ["PYTHONPATH"] = os.pathsep.join(
+    [*layout["environment"]["prepend"]["PYTHONPATH"], os.environ.get("PYTHONPATH", "")]
+)
+os.environ["PATH"] = os.pathsep.join(
+    [*layout["environment"]["prepend"]["PATH"], os.environ.get("PATH", "")]
+)
+os.environ.update(layout["environment"]["set"])
+```
+
+若宿主确实需要用户级 site 目录里的包，可在传入环境中设置
+`DCC_MCP_ALLOW_USER_SITE=1` 退出该行为。
+
+宿主报告版本异常时，有两点值得先检查：
+
+- `dcc-mcp-server` 必须与 `dcc-mcp-core` 来自同一发布批次。网关引导会先按
+  `PATH`（即解析后的环境）查找二进制，只有在找不到时才回退到
+  `dcc_mcp_server` Python 包；两者 major/minor 不一致时会记录 warning。可用
+  `DCC_MCP_SERVER_BIN` 显式覆盖。
+- `dcc-mcp-cli` 是发布包里附带的独立 Rust 二进制，不是 Python 包。不存在
+  `dcc_mcp_cli` 模块，宿主内 `import dcc_mcp_cli` 必然失败，这是预期行为；
+  请改为调用解析环境中 `PATH` 上的该二进制。
+
 ## 轻量 sidecar 启动
 
 DCC 插件可以在应用启动钩子里构造或启动每个 DCC 对应的 sidecar，
