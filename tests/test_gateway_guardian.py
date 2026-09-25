@@ -644,6 +644,33 @@ def test_launch_lock_acquire_single_attempt_no_loop(tmp_path, monkeypatch):
     assert lock_path.exists()
 
 
+def test_gateway_daemon_guardian_is_re_exported_from_the_patrol_module(monkeypatch):
+    """The patrol loop lives in its own module, reachable from the guardian.
+
+    The three guardian helpers the patrol calls must still be resolved through
+    the guardian module, or ``monkeypatch.setattr(gg, ...)`` stops steering the
+    loop and the whole suite silently tests a mock-free path.
+    """
+    import dcc_mcp_core._server._gateway_guardian_patrol as patrol
+
+    assert gg.GatewayDaemonGuardian is patrol.GatewayDaemonGuardian
+    assert patrol._guardian() is gg
+
+    calls = []
+    monkeypatch.setattr(gg, "_is_application_ready", lambda *_a, **_k: False)
+    monkeypatch.setattr(gg, "ensure_gateway_daemon", lambda **kwargs: calls.append(kwargs) or {"ok": True})
+    guardian = gg.GatewayDaemonGuardian(
+        gateway_host="127.0.0.1",
+        gateway_port=9765,
+        registry_dir=None,
+        dcc_type="maya",
+        failure_threshold=1,
+    )
+
+    assert guardian.probe_once()["ok"] is True
+    assert len(calls) == 1
+
+
 def test_gateway_daemon_guardian_restarts_after_failure_threshold(monkeypatch):
     monkeypatch.setattr(gg, "_is_application_ready", lambda *_a, **_k: False)
     calls = []
