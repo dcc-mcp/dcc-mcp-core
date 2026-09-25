@@ -1327,3 +1327,91 @@ fn marketplace_install_accepts_dcc_all_for_a_multi_host_entry() {
     assert_eq!(installed["installed"], true);
     assert_eq!(installed["dcc"], "any");
 }
+
+/// A shared install is loaded by every host, so `--reload` must refresh all
+/// live instances. Passing the pseudo-host `any` down to the instance selector
+/// matches nothing, which used to fail the reload and the whole command.
+#[test]
+fn marketplace_shared_install_reloads_every_live_instance() {
+    let tmp = TempDir::new().unwrap();
+    let fixture = spawn_local_mcp_fixture();
+    let registry_path = tmp.path().join("registry");
+    let registry = FileRegistry::new(&registry_path).unwrap();
+    // Two hosts are live; a shared package must reach both.
+    for dcc in ["maya", "blender"] {
+        let mut entry = ServiceEntry::new(dcc, "127.0.0.1", 0);
+        entry
+            .metadata
+            .insert("mcp_url".to_string(), fixture.mcp_url());
+        registry.register(entry).unwrap();
+    }
+
+    let skill_dir = write_skill(
+        tmp.path(),
+        "source-skill",
+        "---\nname: dcc-asset-polyhaven\ndescription: Poly Haven CC0 assets\n---\n",
+    );
+    let catalog_path = tmp.path().join("marketplace.json");
+    std::fs::write(
+        &catalog_path,
+        serde_json::to_string_pretty(&json!({
+            "version": "1",
+            "entries": [{
+                "name": "dcc-asset-polyhaven",
+                "description": "Search and download Poly Haven CC0 assets",
+                "dcc": ["maya", "blender"],
+                "version": "0.1.0",
+                "install": {"type": "path", "url": skill_dir.to_string_lossy()}
+            }]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let source = catalog_path.to_string_lossy().to_string();
+    let sources_file = tmp
+        .path()
+        .join("sources.json")
+        .to_string_lossy()
+        .to_string();
+    let install_root = tmp
+        .path()
+        .join("marketplace-root")
+        .to_string_lossy()
+        .to_string();
+    let registry_dir = registry_path.to_string_lossy().to_string();
+    let profiles_file = tmp
+        .path()
+        .join("gateway-profiles.json")
+        .to_string_lossy()
+        .to_string();
+    let envs = [
+        ("DCC_MCP_MARKETPLACE_SOURCES_FILE", sources_file.as_str()),
+        ("DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES", "1"),
+        ("DCC_MCP_MARKETPLACE_INSTALL_ROOT", install_root.as_str()),
+        ("DCC_MCP_REGISTRY_DIR", registry_dir.as_str()),
+        ("DCC_MCP_GATEWAY_PROFILES_FILE", profiles_file.as_str()),
+        ("DCC_MCP_GATEWAY_PROFILE", "local"),
+        ("DCC_MCP_BASE_URL", ""),
+        ("DCC_MCP_CLI_NO_AUTO_GATEWAY", "true"),
+    ];
+
+    let installed = run_json_with_env(
+        &[
+            "marketplace",
+            "install",
+            "dcc-asset-polyhaven",
+            "--source",
+            &source,
+            "--reload",
+        ],
+        &envs,
+    );
+
+    assert_eq!(installed["installed"], true);
+    assert_eq!(installed["dcc"], "any");
+    // The reload reached both live hosts instead of failing on `any`.
+    assert_eq!(installed["reload_required"], false, "{installed}");
+    assert_eq!(installed["reload"]["reloaded"], true, "{installed}");
+    assert_eq!(installed["reload"]["count"], 2, "{installed}");
+}

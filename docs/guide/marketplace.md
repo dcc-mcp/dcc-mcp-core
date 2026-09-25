@@ -305,10 +305,11 @@ dcc-mcp-cli marketplace add-repo dcc-mcp/dcc-mcp-maya --commit <40-hex-commit> -
 3. **Parse**: reads plugin metadata plus each Skill's `name`, `description`, and
    optional `metadata.dcc-mcp.dcc`.
 4. **Select**: installs every valid Skill in an Agent Plugin as one package. A
-   multi-Skill plugin needs `--dcc` unless all Skills declare the same DCC or
-   the entry declares several hosts, which installs once into the shared
-   directory (see
-   [One Install for Every Declared Host](#one-install-for-every-declared-host)).
+   multi-Skill plugin needs `--dcc` unless all Skills declare the same DCC.
+   Shared install for multi-host entries applies to `marketplace install` only
+   (see
+   [One Install for Every Declared Host](#one-install-for-every-declared-host));
+   `add-repo` always needs an explicit host.
 5. **Install**: copies each Skill to
    `~/.dcc-mcp/marketplace/<dcc>/<skill-name>/` and writes one package manifest
    under `.packages/<plugin-name>/`.
