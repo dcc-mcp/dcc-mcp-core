@@ -34,6 +34,9 @@ pub(crate) enum MarketplaceAction {
     },
     Install {
         name: String,
+        /// Host to install for. Omit it, or pass `all`, to install an entry
+        /// that declares several hosts once into the shared directory every
+        /// host searches instead of copying it per host.
         #[arg(long)]
         dcc: Option<String>,
         #[arg(long, conflicts_with = "dcc")]
@@ -57,6 +60,8 @@ pub(crate) enum MarketplaceAction {
         reload: bool,
     },
     ListInstalled {
+        /// Host to list. Packages installed into the shared directory are
+        /// listed for every host, because every host loads them.
         #[arg(long)]
         dcc: Option<String>,
         #[arg(long, conflicts_with = "dcc")]

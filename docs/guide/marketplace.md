@@ -87,6 +87,43 @@ Set `DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES=1` to disable the built-in source.
 
 Full argument reference: [cli-reference.md](cli-reference.md#marketplace).
 
+### One Install for Every Declared Host
+
+An entry that declares several hosts — `dcc: ["maya", "blender", "houdini"]` —
+ships a single tree that all of those hosts can load, so `marketplace install`
+writes it **once**. Both of these install the same package:
+
+```bash
+# No host given, or the explicit shared-install spelling.
+dcc-mcp-cli marketplace install dcc-asset-polyhaven
+dcc-mcp-cli marketplace install dcc-asset-polyhaven --dcc all
+```
+
+| Entry declares          | `--dcc`                          | Landing spot                  |
+|-------------------------|----------------------------------|-------------------------------|
+| One host (`["maya"]`)   | omitted, or `maya`               | `marketplace/maya/<name>/`    |
+| Several hosts           | omitted, `all`, or `any`         | `marketplace/any/<name>/`     |
+| Host-neutral (`["any"]`)| omitted, `all`, `any`, or a host | `marketplace/any/<name>/`, or the named host |
+
+The shared `any` directory is already part of every host's skill search path,
+so one copy is found by all of them, and a host-specific copy still outranks it
+for that host. `--dcc all` on an entry that declares a single concrete host is
+rejected: such an entry is host-specific and keeps landing in its own
+directory.
+
+Because a host really does load shared packages, `marketplace list-installed
+--dcc <host>` reports them and `marketplace uninstall <name> --dcc <host>`
+removes them.
+
+Packages installed before this behaviour existed left one copy per host behind.
+Installing the shared copy reports those paths in the install JSON as
+`superseded`; they keep shadowing the shared copy — and keep costing disk —
+until they are removed:
+
+```bash
+dcc-mcp-cli marketplace uninstall dcc-asset-polyhaven --dcc maya
+```
+
 ## Package Shapes
 
 The install command accepts all existing single-Skill packages and bundles.
@@ -268,7 +305,10 @@ dcc-mcp-cli marketplace add-repo dcc-mcp/dcc-mcp-maya --commit <40-hex-commit> -
 3. **Parse**: reads plugin metadata plus each Skill's `name`, `description`, and
    optional `metadata.dcc-mcp.dcc`.
 4. **Select**: installs every valid Skill in an Agent Plugin as one package. A
-   multi-Skill plugin needs `--dcc` unless all Skills declare the same DCC.
+   multi-Skill plugin needs `--dcc` unless all Skills declare the same DCC or
+   the entry declares several hosts, which installs once into the shared
+   directory (see
+   [One Install for Every Declared Host](#one-install-for-every-declared-host)).
 5. **Install**: copies each Skill to
    `~/.dcc-mcp/marketplace/<dcc>/<skill-name>/` and writes one package manifest
    under `.packages/<plugin-name>/`.
@@ -445,7 +485,8 @@ future phase.
 Both interfaces share the same installed package state. For a known exact ID,
 CLI users can install and refresh running adapters in one command with
 `marketplace install <name> --dcc <dcc> --reload`; `--dcc` is optional for a
-single-DCC package. The Admin UI triggers the same refresh automatically when
+single-DCC package, and for a multi-host package, which then installs once into
+the shared directory every host searches. The Admin UI triggers the same refresh automatically when
 its backend reports `reload_required`. Updates and uninstalls still use the
 standalone `reload-skills` command when a live refresh is needed, unless CLI
 uninstall uses `--reload`. The CLI also performs a short read-only update check

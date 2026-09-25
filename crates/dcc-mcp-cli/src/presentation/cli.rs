@@ -744,6 +744,19 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                     let installed_dcc = installed.dcc.clone();
                     let skill_reload = installed.activation
                         == dcc_mcp_marketplace::MarketplaceActivation::SkillReload;
+                    if !installed.superseded.is_empty() {
+                        eprintln!(
+                            "note: {} installs into the shared directory; per-host copies still \
+                             shadow it and still cost disk: {}",
+                            installed.name,
+                            installed.superseded.join(", ")
+                        );
+                        eprintln!(
+                            "      remove them with: dcc-mcp-cli marketplace uninstall {} --dcc \
+                             <host>",
+                            installed.name
+                        );
+                    }
                     let mut value = to_json(installed)?;
                     if reload && skill_reload {
                         let (reloaded_value, reload_failed) =

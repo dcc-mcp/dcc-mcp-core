@@ -86,6 +86,13 @@ pub struct MarketplaceInstallResult {
     pub source: MarketplaceSource,
     pub entry: CatalogEntry,
     pub install_type: String,
+    /// Per-host installs that this install replaces, for entries that now land
+    /// in the shared host-neutral directory.
+    ///
+    /// Older per-host copies keep shadowing the shared one until they are
+    /// removed, so the paths are reported instead of deleted silently.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub superseded: Vec<String>,
     /// Immutable git revision that was actually installed, when the source supplies one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resolved_commit: Option<String>,
@@ -294,6 +301,31 @@ pub struct RepoInstallResult {
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
+/// Directory name of the shared, host-neutral install landing spot.
+///
+/// Every host lists this directory in its skill search path, so a package
+/// installed here is visible to all of them. No host is named `any`, which is
+/// what makes the directory safe to reserve for shared installs.
+pub const HOST_NEUTRAL_DCC: &str = "any";
+
+/// Operator spellings that request the shared, host-neutral landing spot.
+///
+/// `all` reads naturally from the CLI ("install once for every host") and
+/// resolves to the same directory as `any`.
+pub const SHARED_DCC_REQUESTS: [&str; 2] = [HOST_NEUTRAL_DCC, "all"];
+
+/// True when `dcc` names the shared host-neutral landing spot.
+pub fn is_host_neutral_dcc(dcc: &str) -> bool {
+    dcc.eq_ignore_ascii_case(HOST_NEUTRAL_DCC)
+}
+
+/// True when an operator-supplied `--dcc` asks for the shared landing spot.
+pub fn is_shared_dcc_request(dcc: &str) -> bool {
+    SHARED_DCC_REQUESTS
+        .iter()
+        .any(|request| dcc.eq_ignore_ascii_case(request))
+}
+
 /// Check whether `entry` targets the given DCC type (case-insensitive).
 ///
 /// `any` is the host-neutral wildcard used by Skills that can be loaded into a
@@ -301,8 +333,17 @@ pub struct RepoInstallResult {
 pub fn entry_targets_dcc(entry: &CatalogEntry, dcc: &str) -> bool {
     entry_targets(entry).iter().any(|target| {
         target.kind == CatalogTargetKind::Dcc
-            && (target.id.eq_ignore_ascii_case("any") || target.id.eq_ignore_ascii_case(dcc))
+            && (is_host_neutral_dcc(&target.id) || target.id.eq_ignore_ascii_case(dcc))
     })
+}
+
+/// Check whether an installed package is visible to `dcc`.
+///
+/// Host-neutral packages live in the shared directory that every host lists in
+/// its skill search path, so a host-scoped query must report them even though
+/// the ledger stores `any` rather than the requested host name.
+pub fn package_serves_dcc(package: &InstalledMarketplacePackage, dcc: &str) -> bool {
+    is_host_neutral_dcc(&package.dcc) || package.dcc.eq_ignore_ascii_case(dcc)
 }
 
 /// Collect the DCC ids an entry declares, lowercased and deduplicated.

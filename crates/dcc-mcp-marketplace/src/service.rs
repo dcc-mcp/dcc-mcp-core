@@ -20,7 +20,8 @@ use crate::types::{
     MarketplaceOutdatedList, MarketplaceSearchResult, MarketplaceSource, MarketplaceSourceOrigin,
     MarketplaceUninstallResult, MarketplaceUpdateResult, OFFICIAL_MARKETPLACE_ATTESTATION,
     OFFICIAL_MARKETPLACE_SOURCE, OutdatedMarketplacePackage, RepoInstallResult, RepoSkillList,
-    StoredMarketplaceSource, entry_dcc_ids, entry_targets, entry_targets_dcc,
+    StoredMarketplaceSource, entry_dcc_ids, entry_targets, entry_targets_dcc, is_host_neutral_dcc,
+    is_shared_dcc_request, package_serves_dcc,
 };
 
 #[path = "service_internals.rs"]
@@ -349,6 +350,7 @@ impl MarketplaceService {
             }
         };
         let resolved_commit = resolved_git_commit(&install, &final_path);
+        let superseded = self.superseded_host_installs(&package_name, &dcc);
 
         let package = InstalledMarketplacePackage {
             name: package_name.clone(),
@@ -391,9 +393,36 @@ impl MarketplaceService {
             entry: hit.entry,
             install_type: install.install_type.clone(),
             resolved_commit,
+            superseded,
             reload_required: true,
             activation: MarketplaceActivation::SkillReload,
         })
+    }
+
+    /// Per-host installs that a shared install replaces.
+    ///
+    /// Entries that used to require `--dcc <host>` leave one copy per host
+    /// behind. A host-specific directory outranks the shared one in the skill
+    /// search path, so the leftovers keep shadowing the new shared install and
+    /// keep costing disk until they are removed. They are reported, never
+    /// deleted: removing a working host-specific copy is the operator's call.
+    fn superseded_host_installs(&self, package_name: &str, dcc: &str) -> Vec<String> {
+        if !is_host_neutral_dcc(dcc) {
+            return Vec::new();
+        }
+        let Ok(state) = self.load_installed_state() else {
+            return Vec::new();
+        };
+        state
+            .packages
+            .into_iter()
+            .filter(|package| {
+                package.name == package_name
+                    && !is_host_neutral_dcc(&package.dcc)
+                    && Path::new(&package.path).exists()
+            })
+            .map(|package| package.path)
+            .collect()
     }
 
     /// Install a package for a generic target (`dcc:maya`, `application:excel`,
@@ -515,6 +544,7 @@ impl MarketplaceService {
             entry: hit.entry,
             install_type: install.install_type,
             resolved_commit: None,
+            superseded: Vec::new(),
             reload_required: false,
             activation: MarketplaceActivation::None,
         })
@@ -563,12 +593,24 @@ impl MarketplaceService {
         dcc: &str,
     ) -> Result<MarketplaceUninstallResult, MarketplaceError> {
         let name = path_component("package name", name)?;
-        let dcc_root = self.dcc_dir(dcc);
-        let installed = self
-            .load_installed_state()?
-            .packages
-            .into_iter()
-            .find(|package| package.name == name && package.dcc.eq_ignore_ascii_case(dcc));
+        let packages = self.load_installed_state()?.packages;
+        // A host-specific copy is the one the requested host actually loads, so
+        // it is removed in preference to a shared copy of the same package.
+        let installed = packages
+            .iter()
+            .find(|package| package.name == name && package.dcc.eq_ignore_ascii_case(dcc))
+            .or_else(|| {
+                packages
+                    .iter()
+                    .find(|package| package.name == name && package_serves_dcc(package, dcc))
+            })
+            .cloned();
+        // Removal must run against the directory the package really lives in: a
+        // shared install sits under `any`, not under the requested host.
+        let installed_dcc = installed
+            .as_ref()
+            .map_or_else(|| dcc.to_string(), |package| package.dcc.clone());
+        let dcc_root = self.dcc_dir(&installed_dcc);
         let dest = installed
             .as_ref()
             .map(|package| PathBuf::from(&package.path))
@@ -591,14 +633,14 @@ impl MarketplaceService {
         } else {
             false
         };
-        let removed_state = self.remove_installed(&name, dcc)?;
+        let removed_state = self.remove_installed(&name, &installed_dcc)?;
         Ok(MarketplaceUninstallResult {
             uninstalled: removed_files || removed_state,
             name,
-            dcc: dcc.to_string(),
+            dcc: installed_dcc.clone(),
             target: CatalogTarget {
                 kind: CatalogTargetKind::Dcc,
-                id: dcc.to_string(),
+                id: installed_dcc,
             },
             path: dest.display().to_string(),
             removed_state,
@@ -669,8 +711,10 @@ impl MarketplaceService {
         dcc: Option<&str>,
     ) -> Result<MarketplaceInstalledList, MarketplaceError> {
         let mut packages = self.load_installed_state()?.packages;
+        // Shared installs are visible to every host, so a host filter keeps
+        // them instead of hiding the package the host actually loads.
         if let Some(dcc) = dcc {
-            packages.retain(|package| package.dcc.eq_ignore_ascii_case(dcc));
+            packages.retain(|package| package_serves_dcc(package, dcc));
         }
         Ok(MarketplaceInstalledList {
             dcc: dcc.map(String::from),
@@ -689,7 +733,10 @@ impl MarketplaceService {
     ) -> Result<MarketplaceInstalledList, MarketplaceError> {
         let mut packages = self.load_installed_state()?.packages;
         if let Some(target) = target {
-            packages.retain(|package| package.target == *target);
+            packages.retain(|package| match target.kind {
+                CatalogTargetKind::Dcc => package_serves_dcc(package, &target.id),
+                _ => package.target == *target,
+            });
         }
         Ok(MarketplaceInstalledList {
             dcc: None,
@@ -985,7 +1032,12 @@ impl MarketplaceService {
                 .load_source_entries_validated(&source, !skip_validation)
                 .await?;
             if let Some(entry) = dcc_mcp_catalog::describe(&entries, name) {
+                // `any`/`all` request the shared landing spot, which is
+                // host-agnostic by definition, so they never fail a host
+                // filter. Updates rely on this: the ledger stores the shared
+                // install under `any`, not under the host the user runs.
                 if let Some(dcc) = dcc
+                    && !is_shared_dcc_request(dcc)
                     && !entry_targets_dcc(&entry, dcc)
                 {
                     if dcc_mismatch.is_none() {

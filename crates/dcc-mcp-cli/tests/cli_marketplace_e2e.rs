@@ -1897,3 +1897,191 @@ fn marketplace_installs_and_uninstalls_cua_profile_through_exact_cli() {
     assert!(lines[1].starts_with("profile install "));
     assert_eq!(lines[2], "profile uninstall the-bazaar --confirm");
 }
+
+/// An entry that declares several hosts installs once into the shared
+/// directory instead of asking the operator to repeat the install per host.
+#[test]
+fn marketplace_installs_a_multi_host_entry_once_into_the_shared_directory() {
+    let tmp = TempDir::new().unwrap();
+    let skill_dir = write_skill(
+        tmp.path(),
+        "source-skill",
+        "---\nname: dcc-asset-polyhaven\ndescription: Poly Haven assets\n---\n",
+    );
+    std::fs::write(
+        skill_dir.join("tools.yaml"),
+        "tools:\n  - name: search\n    description: Search\n",
+    )
+    .unwrap();
+    let catalog_path = tmp.path().join("marketplace.json");
+    let catalog = json!({
+        "version": "1",
+        "entries": [{
+            "name": "dcc-asset-polyhaven",
+            "description": "Search and download Poly Haven CC0 assets",
+            "dcc": ["maya", "blender", "houdini", "3dsmax"],
+            "version": "0.1.0",
+            "install": {
+                "type": "path",
+                "url": skill_dir.to_string_lossy()
+            }
+        }]
+    });
+    std::fs::write(
+        &catalog_path,
+        serde_json::to_string_pretty(&catalog).unwrap(),
+    )
+    .unwrap();
+
+    let source = catalog_path.to_string_lossy().to_string();
+    let config_path = tmp
+        .path()
+        .join("sources.json")
+        .to_string_lossy()
+        .to_string();
+    let install_root = tmp.path().join("marketplace-root");
+    let install_root_value = install_root.to_string_lossy().to_string();
+    let envs = [
+        ("DCC_MCP_MARKETPLACE_SOURCES_FILE", config_path.as_str()),
+        ("DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES", "1"),
+        (
+            "DCC_MCP_MARKETPLACE_INSTALL_ROOT",
+            install_root_value.as_str(),
+        ),
+    ];
+
+    // No --dcc: the install must succeed instead of asking for one.
+    let installed = run_json_with_env(
+        &[
+            "marketplace",
+            "install",
+            "dcc-asset-polyhaven",
+            "--source",
+            &source,
+        ],
+        &envs,
+    );
+    assert_eq!(installed["installed"], true);
+    assert_eq!(installed["dcc"], "any");
+    assert_eq!(installed["target"]["id"], "any");
+    // Nothing was installed per host before, so nothing is superseded.
+    assert!(installed.get("superseded").is_none(), "{installed}");
+    assert!(
+        installed["skill_search_path"]
+            .as_str()
+            .unwrap()
+            .ends_with("any")
+    );
+    let installed_path = installed["path"].as_str().unwrap();
+    assert!(
+        std::path::Path::new(installed_path)
+            .join("SKILL.md")
+            .is_file()
+    );
+
+    // One tree only: no per-host copy is written for any declared host.
+    for dcc in ["maya", "blender", "houdini", "3dsmax"] {
+        assert!(
+            !install_root.join(dcc).exists(),
+            "{dcc} must not receive its own copy"
+        );
+    }
+    assert!(
+        install_root
+            .join("any")
+            .join("dcc-asset-polyhaven")
+            .is_dir()
+    );
+
+    // One ledger entry covers every declared host.
+    let all = run_json_with_env(&["marketplace", "list-installed"], &envs);
+    assert_eq!(all["count"], 1);
+    for dcc in ["maya", "blender", "houdini", "3dsmax"] {
+        let listed = run_json_with_env(&["marketplace", "list-installed", "--dcc", dcc], &envs);
+        assert_eq!(
+            listed["count"], 1,
+            "{dcc} should resolve the shared install"
+        );
+        assert_eq!(listed["packages"][0]["name"], "dcc-asset-polyhaven");
+    }
+
+    // A host can remove the shared install by naming the host it runs.
+    let uninstalled = run_json_with_env(
+        &[
+            "marketplace",
+            "uninstall",
+            "dcc-asset-polyhaven",
+            "--dcc",
+            "blender",
+        ],
+        &envs,
+    );
+    assert_eq!(uninstalled["uninstalled"], true);
+    assert_eq!(uninstalled["dcc"], "any");
+    assert_eq!(uninstalled["removed_files"], true);
+    assert!(!std::path::Path::new(installed_path).exists());
+    let listed = run_json_with_env(&["marketplace", "list-installed"], &envs);
+    assert_eq!(listed["count"], 0);
+}
+
+/// `--dcc all` is the explicit spelling of the same shared install.
+#[test]
+fn marketplace_install_accepts_dcc_all_for_a_multi_host_entry() {
+    let tmp = TempDir::new().unwrap();
+    let skill_dir = write_skill(
+        tmp.path(),
+        "source-skill",
+        "---\nname: dcc-asset-polyhaven\ndescription: Poly Haven assets\n---\n",
+    );
+    let catalog_path = tmp.path().join("marketplace.json");
+    let catalog = json!({
+        "version": "1",
+        "entries": [{
+            "name": "dcc-asset-polyhaven",
+            "description": "Search and download Poly Haven CC0 assets",
+            "dcc": ["maya", "blender"],
+            "version": "0.1.0",
+            "install": {
+                "type": "path",
+                "url": skill_dir.to_string_lossy()
+            }
+        }]
+    });
+    std::fs::write(
+        &catalog_path,
+        serde_json::to_string_pretty(&catalog).unwrap(),
+    )
+    .unwrap();
+
+    let source = catalog_path.to_string_lossy().to_string();
+    let config_path = tmp
+        .path()
+        .join("sources.json")
+        .to_string_lossy()
+        .to_string();
+    let install_root = tmp
+        .path()
+        .join("marketplace-root")
+        .to_string_lossy()
+        .to_string();
+    let envs = [
+        ("DCC_MCP_MARKETPLACE_SOURCES_FILE", config_path.as_str()),
+        ("DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES", "1"),
+        ("DCC_MCP_MARKETPLACE_INSTALL_ROOT", install_root.as_str()),
+    ];
+
+    let installed = run_json_with_env(
+        &[
+            "marketplace",
+            "install",
+            "dcc-asset-polyhaven",
+            "--dcc",
+            "all",
+            "--source",
+            &source,
+        ],
+        &envs,
+    );
+    assert_eq!(installed["installed"], true);
+    assert_eq!(installed["dcc"], "any");
+}
