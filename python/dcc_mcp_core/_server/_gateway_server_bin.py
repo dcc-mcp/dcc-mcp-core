@@ -145,6 +145,9 @@ def _warn_on_version_mismatch(server_version: str, reason: str) -> None:
     ``reason`` names which measurement produced *server_version*, because the
     two measurements point at different root causes and an operator reading the
     log has to know which one fired.
+
+    An unknown core version is not a mismatch: it is absent evidence, so no
+    line is logged (see ``_get_core_version``).
     """
     core_version = _get_core_version()
     server_semver = _parse_semver(server_version)
@@ -239,10 +242,17 @@ def _resolve_server_bin() -> str:
 
 
 def _get_core_version() -> str:
-    """Return the dcc-mcp-core version string.
+    """Return the dcc-mcp-core version string, or ``""`` when unknown.
 
     Checks ``DCC_MCP_CORE_VERSION`` env var first, then tries to read from the
     installed ``dcc_mcp_core`` package metadata.
+
+    An unresolvable version is reported as empty rather than as a ``0.0.0-dev``
+    placeholder. A placeholder parses as ``(0, 0, 0)``, so every drift
+    comparison measured a real server binary against a version that was never
+    claimed -- and reported a mismatch that does not exist on every host whose
+    core ships without distribution metadata. Callers treat ``""`` as unknown
+    and skip the comparison instead.
     """
     env_version = (os.environ.get(ENV_CORE_VERSION) or "").strip()
     if env_version:
@@ -252,4 +262,4 @@ def _get_core_version() -> str:
 
         return _pkg_version("dcc-mcp-core")
     except Exception:
-        return "0.0.0-dev"
+        return ""
