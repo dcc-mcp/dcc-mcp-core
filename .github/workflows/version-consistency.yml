@@ -156,5 +156,10 @@ jobs:
           vx uv lock --check
 
       - name: Check lockfile versions against declared versions
+        env:
+          # The gate reads this to allow a release-please PR one extra release
+          # of lock tolerance: its pins cannot move until the scheduled
+          # refresh lands, which happens after this PR opens.
+          GITHUB_HEAD_REF: ${{ github.head_ref }}
         run: |
           python scripts/ci/check_lock_versions.py

@@ -18,8 +18,18 @@ Two independent invariants are enforced, one per lockfile.
     PR is declaring: resolution reads the index, not this checkout. The
     enforceable invariant is therefore that the lock must not fall behind the
     newest *already released* version. That floor is read from ``CHANGELOG.md``
-    with the in-flight version excluded, so a release PR is only required to
-    sit one release behind, while a lock left several releases stale fails.
+    with the in-flight version excluded, so a lock left several releases stale
+    fails.
+
+    A release-please PR gets one extra release of tolerance. The pins only
+    move when ``uv`` re-resolves them against the index, which
+    ``uv-lock-refresh.yml`` does on a daily schedule through a pull request
+    that stays open for a human to merge. Release-please opens the next release
+    PR hours before that refresh lands, so at PR birth the lock is legitimately
+    one published release behind -- the same distance ``main`` always sits at,
+    because ``main`` excludes its own declared version from the floor. Without
+    the extra step the gate fires on every release PR by construction, not
+    because anything drifted.
 
 Both checks are read-only and never rewrite a lockfile, so they cannot narrow
 ``requires-python`` or drop Python 3.7 markers.
@@ -27,6 +37,7 @@ Both checks are read-only and never rewrite a lockfile, so they cannot narrow
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import re
 import sys
@@ -35,6 +46,13 @@ try:
     import tomllib
 except ModuleNotFoundError:  # pragma: no cover - exercised by the Python 3.7 CI lane
     import tomli as tomllib
+
+# Release-please names its PR branches after the target branch and component,
+# e.g. ``release-please--branches--main--components--dcc-mcp-core``.
+RELEASE_PR_REF_PREFIX = "release-please--"
+# ``GITHUB_HEAD_REF`` is the head branch of a pull request run; ``GITHUB_REF``
+# is the fallback for branch pushes, where it is ``refs/heads/<branch>``.
+RELEASE_PR_REF_ENV_VARS = ("GITHUB_HEAD_REF", "GITHUB_REF")
 
 _RELEASE_HEADING_RE = re.compile(r"^## \[([^\]]+)\]", re.MULTILINE)
 
@@ -54,12 +72,35 @@ def _version_key(value: str) -> tuple:
     return tuple(key) or (0,)
 
 
-def _newest_released_except(released: list[str], excluded: str) -> str | None:
-    """Return the newest released version that is not the in-flight version."""
-    candidates = [version for version in released if version != excluded and _version_key(version)]
+def _newest_released_except(released: list[str], excluded: str, *also_excluded: str) -> str | None:
+    """Return the newest released version that is not one of the excluded ones."""
+    skip = {excluded, *also_excluded}
+    candidates = [version for version in released if version not in skip and _version_key(version)]
     if not candidates:
         return None
     return max(candidates, key=_version_key)
+
+
+def _is_release_pr_ref(ref: str | None) -> bool:
+    """Report whether a git ref belongs to a release-please PR branch."""
+    if not ref:
+        return False
+    # ``GITHUB_REF`` carries a fully qualified ``refs/heads/<branch>`` ref on
+    # pushes, and ``refs/pull/<n>/merge`` on pull request runs; only the branch
+    # form is unqualified here.
+    if ref.startswith("refs/heads/"):
+        ref = ref[len("refs/heads/") :]
+    return ref.startswith(RELEASE_PR_REF_PREFIX)
+
+
+def _release_pr_ref(env: dict[str, str] | None = None) -> str | None:
+    """Return the branch ref the gate is running against, or ``None`` in CI."""
+    environment = os.environ if env is None else env
+    for name in RELEASE_PR_REF_ENV_VARS:
+        value = environment.get(name)
+        if value:
+            return value
+    return None
 
 
 def _locked_versions(lock: dict) -> dict:
@@ -127,8 +168,13 @@ def check_cargo_lock_versions(root: Path) -> list[str]:
     return errors
 
 
-def check_uv_lock_published_versions(root: Path) -> list[str]:
-    """Return errors for ``pkg/`` distributions pinned behind the last release."""
+def check_uv_lock_published_versions(root: Path, *, release_pr: bool = False) -> list[str]:
+    """Return errors for ``pkg/`` distributions pinned behind the last release.
+
+    ``release_pr`` grants one extra release of tolerance, matching the
+    distance a release-please PR legitimately sits behind the newest published
+    wheels while the scheduled refresh is still in flight.
+    """
     lock_path = root / "uv.lock"
     pkg_dir = root / "pkg"
     if not lock_path.exists() or not pkg_dir.is_dir():
@@ -160,6 +206,11 @@ def check_uv_lock_published_versions(root: Path) -> list[str]:
         if floor is None:
             # No earlier release to measure against, so every pin is valid.
             continue
+        if release_pr:
+            # Drop one more release so a release PR is measured the same way
+            # ``main`` is. ``or floor`` keeps the stricter floor when no older
+            # release is left to fall back to.
+            floor = _newest_released_except(released, declared, floor) or floor
 
         newest = max(versions, key=_version_key)
         if _version_key(newest) < _version_key(floor):
@@ -176,7 +227,12 @@ def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     root = Path(args[0]) if args else Path.cwd()
 
-    errors = check_cargo_lock_versions(root) + check_uv_lock_published_versions(root)
+    # Only the branch name can say that the pins are still waiting on the
+    # scheduled refresh. Outside CI both variables are unset, so a local run
+    # and ``main`` keep the strict gate.
+    release_pr = _is_release_pr_ref(_release_pr_ref())
+
+    errors = check_cargo_lock_versions(root) + check_uv_lock_published_versions(root, release_pr=release_pr)
     if errors:
         for error in errors:
             print(f"::error::{error}", file=sys.stderr)
