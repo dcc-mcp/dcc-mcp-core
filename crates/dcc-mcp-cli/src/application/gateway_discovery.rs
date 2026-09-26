@@ -184,8 +184,12 @@ fn probe_binary_version(path: &std::path::Path) -> (Option<String>, Option<Strin
 
 /// Look for `dcc-mcp-server` (or `.exe` on Windows) in the same directory
 /// as the current executable.
+///
+/// The executable is resolved first so a symlinked launch (WinGet portable
+/// exposes the CLI through `Microsoft\WinGet\Links`) looks beside the real
+/// binary, which is where a sibling install would have put the server.
 fn find_in_same_dir() -> Option<PathBuf> {
-    let current_exe = std::env::current_exe().ok()?;
+    let current_exe = crate::application::current_exe::current_exe().ok()?;
     let exe_dir = current_exe.parent()?;
     let candidate = exe_dir.join(GATEWAY_BINARY_NAME_WITH_EXT);
     if candidate.is_file() {

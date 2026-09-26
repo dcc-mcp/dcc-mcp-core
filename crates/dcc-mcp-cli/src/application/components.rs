@@ -62,9 +62,14 @@ pub struct ComponentService {
 }
 
 impl ComponentService {
+    /// Bind to the running executable.
+    ///
+    /// The path is resolved through [`crate::application::current_exe`] so a
+    /// symlinked launch (WinGet portable `Links`, a Homebrew-style shim)
+    /// places components beside the real binary instead of beside the link.
     pub fn for_current_process() -> anyhow::Result<Self> {
         Self::new(
-            std::env::current_exe().context("cannot resolve the dcc-mcp-cli executable")?,
+            crate::application::current_exe::current_exe()?,
             current_target()?,
         )
     }
@@ -575,6 +580,71 @@ mod tests {
                 }],
             },
         }
+    }
+
+    /// Create `link` as a file symlink to `target`.
+    fn symlink_file(target: &Path, link: &Path) -> std::io::Result<()> {
+        #[cfg(windows)]
+        {
+            std::os::windows::fs::symlink_file(target, link)
+        }
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(target, link)
+        }
+    }
+
+    /// Reproduce the WinGet portable launch: the real binary sits in the
+    /// package directory, `PATH` only carries a symlink in `Links`.
+    fn winget_style_layout(root: &Path) -> Option<(PathBuf, PathBuf)> {
+        let package_dir = root.join("Packages").join("DccMcp.DccMcpCli_abc123");
+        let links_dir = root.join("Links");
+        std::fs::create_dir_all(&package_dir).unwrap();
+        std::fs::create_dir_all(&links_dir).unwrap();
+
+        let package_exe = package_dir.join("dcc-mcp-cli.exe");
+        std::fs::write(&package_exe, b"real binary").unwrap();
+        let link_exe = links_dir.join("dcc-mcp-cli.exe");
+        symlink_file(&package_exe, &link_exe).ok()?;
+
+        Some((package_exe, link_exe))
+    }
+
+    #[test]
+    fn symlinked_launch_places_the_component_beside_the_real_binary() {
+        // Regression: `std::env::current_exe()` reports the WinGet `Links`
+        // symlink, so an unresolved `parent()` reported an installed
+        // component as `missing` and re-installed it next to the link.
+        let root = tempfile::tempdir().unwrap();
+        let Some((package_exe, link_exe)) = winget_style_layout(root.path()) else {
+            return;
+        };
+        let target = "x86_64-pc-windows-msvc";
+
+        let via_real_path = ComponentService::new(
+            crate::application::current_exe::resolve(&package_exe),
+            target,
+        )
+        .unwrap();
+        let via_symlink =
+            ComponentService::new(crate::application::current_exe::resolve(&link_exe), target)
+                .unwrap();
+
+        let expected = resolve_dir(via_real_path.component_path().unwrap().parent().unwrap());
+        let actual = resolve_dir(via_symlink.component_path().unwrap().parent().unwrap());
+        assert_eq!(actual, expected);
+        assert!(
+            !via_symlink
+                .component_path()
+                .unwrap()
+                .to_string_lossy()
+                .contains("Links"),
+            "the component must not be looked up inside the Links directory"
+        );
+    }
+
+    fn resolve_dir(path: &Path) -> PathBuf {
+        std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
     }
 
     #[test]

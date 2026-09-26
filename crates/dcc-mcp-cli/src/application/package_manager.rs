@@ -77,13 +77,23 @@ impl PackageManagerMarker {
 }
 
 /// Return the marker path that governs the executable at `current_exe`.
+///
+/// `current_exe` is used as given; pass a resolved path (see
+/// [`crate::application::current_exe::resolve`]) when it may be a symlink.
 pub fn marker_path_for(current_exe: &Path) -> Option<PathBuf> {
     Some(current_exe.parent()?.join(MARKER_FILE_NAME))
 }
 
 /// Read and validate the marker beside `current_exe`, if it exists.
+///
+/// `current_exe` is resolved first, so a package manager that exposes the
+/// binary through a symlink (WinGet portable links it from
+/// `Microsoft\WinGet\Links`) is still detected from the marker it wrote next
+/// to the real binary. Without this the "package-managed installs must not
+/// self-update" rule silently stops applying.
 pub fn read_marker_for(current_exe: &Path) -> Option<PackageManagerMarker> {
-    let path = marker_path_for(current_exe)?;
+    let resolved = crate::application::current_exe::resolve(current_exe);
+    let path = marker_path_for(&resolved)?;
     let raw = fs::read_to_string(&path).ok()?;
     let marker: PackageManagerMarker = serde_json::from_str(&raw).ok()?;
     (marker.schema_version == MARKER_SCHEMA_VERSION).then_some(marker)
@@ -126,6 +136,42 @@ mod tests {
         assert_eq!(marker.manager, "pypi");
         assert_eq!(marker.version, "0.20.34");
         assert_eq!(marker.binary, "dcc-mcp-cli-bin.exe");
+    }
+
+    /// Create `link` as a file symlink to `target`.
+    fn symlink_file(target: &Path, link: &Path) -> std::io::Result<()> {
+        #[cfg(windows)]
+        {
+            std::os::windows::fs::symlink_file(target, link)
+        }
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(target, link)
+        }
+    }
+
+    #[test]
+    fn marker_is_detected_through_a_symlinked_executable() {
+        // WinGet portable: PATH carries `...\WinGet\Links\dcc-mcp-cli.exe`,
+        // the marker is written beside the real binary under `Packages`.
+        let root = tempfile::tempdir().unwrap();
+        let package_dir = root.path().join("Packages").join("DccMcp.DccMcpCli_abc123");
+        let links_dir = root.path().join("Links");
+        fs::create_dir_all(&package_dir).unwrap();
+        fs::create_dir_all(&links_dir).unwrap();
+
+        let package_exe = package_dir.join("dcc-mcp-cli.exe");
+        fs::write(&package_exe, b"real binary").unwrap();
+        fs::write(package_dir.join(MARKER_FILE_NAME), marker_json("winget")).unwrap();
+
+        let link_exe = links_dir.join("dcc-mcp-cli.exe");
+        if symlink_file(&package_exe, &link_exe).is_err() {
+            // Symlinks need Developer Mode or admin rights on Windows.
+            return;
+        }
+
+        let marker = read_marker_for(&link_exe).expect("marker must survive the symlink");
+        assert_eq!(marker.manager, "winget");
     }
 
     #[test]
