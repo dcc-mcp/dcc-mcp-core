@@ -1440,6 +1440,7 @@ export type MarketplaceErrorKind =
   | 'already_installed'
   | 'dcc_mismatch'
   | 'ambiguous_dcc'
+  | 'no_declared_dcc'
   | 'missing_install'
   | 'unsupported_install_type'
   | 'missing_skill'

@@ -352,6 +352,10 @@ pub fn package_serves_dcc(package: &InstalledMarketplacePackage, dcc: &str) -> b
 /// advertises. Host-selection failures use this list to tell the operator which
 /// hosts the entry supports, so a rejected `--dcc` never looks like a
 /// misspelled name.
+///
+/// The `entry.dcc` fallback is deliberately kept: `resolve_install_dcc` uses
+/// this list as the install target for entries installed without `--dcc`, so
+/// dropping the fallback would turn installable entries into ambiguous ones.
 pub fn entry_dcc_ids(entry: &CatalogEntry) -> Vec<String> {
     let mut dccs: Vec<String> = entry_targets(entry)
         .into_iter()
@@ -366,18 +370,40 @@ pub fn entry_dcc_ids(entry: &CatalogEntry) -> Vec<String> {
     dccs
 }
 
+/// The full set of targets an entry declares.
+///
+/// `dcc` and `targets` are independent catalog fields and the schema does not
+/// make them exclusive, so an entry may declare both. When it does, **both are
+/// honoured**: `targets` lead (the catalog's own ordering) and any `dcc` entry
+/// not already listed follows in declaration order.
+///
+/// Returning `targets` alone made the two views of one entry disagree —
+/// `entry_dcc_ids` reported `maya` while `entry_targets_dcc` rejected it, so a
+/// host-mismatch error recommended a host the install path then refused.
+/// Merging here fixes the criterion, so the `dcc` fallback in
+/// [`entry_dcc_ids`] stays in place without owning resolution on its own.
 pub fn entry_targets(entry: &CatalogEntry) -> Vec<CatalogTarget> {
-    if !entry.targets.is_empty() {
-        return entry.targets.clone();
+    if entry.targets.is_empty() {
+        return entry
+            .dcc
+            .iter()
+            .map(|id| CatalogTarget {
+                kind: CatalogTargetKind::Dcc,
+                id: id.clone(),
+            })
+            .collect();
     }
-    entry
-        .dcc
-        .iter()
-        .map(|id| CatalogTarget {
+    let mut targets = entry.targets.clone();
+    for id in &entry.dcc {
+        let target = CatalogTarget {
             kind: CatalogTargetKind::Dcc,
             id: id.clone(),
-        })
-        .collect()
+        };
+        if !targets.contains(&target) {
+            targets.push(target);
+        }
+    }
+    targets
 }
 
 pub fn parse_target(value: &str) -> Result<CatalogTarget, MarketplaceTargetParseError> {

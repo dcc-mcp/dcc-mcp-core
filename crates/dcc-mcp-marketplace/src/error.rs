@@ -1,5 +1,6 @@
 //! Unified error types for marketplace operations.
 
+use dcc_mcp_catalog::CatalogTarget;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -58,8 +59,26 @@ pub enum MarketplaceError {
         supported: Vec<String>,
     },
 
-    #[error("installed package '{name}' targets multiple DCCs; pass --dcc")]
-    AmbiguousInstalledDcc { name: String },
+    #[error(
+        "installed package '{name}' targets multiple DCCs; pass --dcc (supported: {})",
+        format_dcc_list(supported)
+    )]
+    AmbiguousInstalledDcc {
+        name: String,
+        supported: Vec<String>,
+    },
+
+    /// An entry that declares no host at all.
+    ///
+    /// Split out from [`MarketplaceError::AmbiguousDcc`] because the two cases
+    /// are not the same failure: "several hosts, pick one" is actionable, while
+    /// "no host declared" means `--dcc` can never succeed. Rendering both under
+    /// one message produced `targets multiple DCCs ... (supported: none)`.
+    #[error("{}", format_no_declared_dcc(name, targets))]
+    NoDeclaredDcc {
+        name: String,
+        targets: Vec<CatalogTarget>,
+    },
 
     #[error("installed marketplace package '{0}' was not found")]
     InstalledPackageNotFound(String),
@@ -130,4 +149,25 @@ fn format_dcc_list(dccs: &[String]) -> String {
         return "none".to_string();
     }
     dccs.join(", ")
+}
+
+/// Render the host-selection failure for an entry that declares no DCC.
+///
+/// Non-DCC targets are listed when the entry has any: they are the installable
+/// surface the entry does offer, so the message points at `--target` instead of
+/// asking for a `--dcc` value that no entry could satisfy.
+fn format_no_declared_dcc(name: &str, targets: &[CatalogTarget]) -> String {
+    if targets.is_empty() {
+        return format!(
+            "marketplace entry '{name}' declares no DCC and no target; it cannot be installed"
+        );
+    }
+    let declared = targets
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "marketplace entry '{name}' declares no DCC; install it with --target (declared: {declared})"
+    )
 }
