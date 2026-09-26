@@ -189,8 +189,10 @@ mod tests {
         // prevents. A path that cannot be read losslessly is left alone.
         use std::os::windows::ffi::OsStringExt;
 
-        // "C:\" + lone surrogate + "dcc-mcp-cli.exe"
-        let mut wide: Vec<u16> = "C:\\".encode_utf16().collect();
+        // Verbatim prefix + lone surrogate: the prefix is what makes the bug
+        // reachable. Without it strip_prefix() never matches and the test
+        // would pass even with the bug present.
+        let mut wide: Vec<u16> = r"\\?\C:\".encode_utf16().collect();
         wide.push(0xD800);
         wide.extend("dcc-mcp-cli.exe".encode_utf16());
         let path = PathBuf::from(std::ffi::OsString::from_wide(&wide));
