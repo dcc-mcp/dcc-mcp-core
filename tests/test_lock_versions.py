@@ -154,6 +154,110 @@ def test_uv_lock_behind_last_released_version_fails(tmp_path: Path) -> None:
     assert "uv lock --upgrade-package dcc-mcp-server" in errors[0]
 
 
+def test_uv_lock_on_release_pr_allows_one_release_behind(tmp_path: Path) -> None:
+    checker = _load_checker_module()
+    # The state release-please PR #2585 was born in: the PR declares 0.20.36
+    # and writes its changelog heading, while the pins still track 0.20.34
+    # because the scheduled refresh lands hours later.
+    _write_changelog(tmp_path, ["0.20.36", "0.20.35", "0.20.34"])
+    _write_uv_pkg(
+        tmp_path,
+        pkg_dir="dcc-mcp-server-bin",
+        name="dcc-mcp-server",
+        declared="0.20.36",
+        lock_version="0.20.34",
+    )
+
+    assert checker.check_uv_lock_published_versions(tmp_path, release_pr=True) == []
+
+
+def test_uv_lock_off_release_pr_rejects_one_release_behind(tmp_path: Path) -> None:
+    checker = _load_checker_module()
+    # The same lock state, measured off a release branch, is still drift: this
+    # is the guardrail the release tolerance must not quietly remove.
+    _write_changelog(tmp_path, ["0.20.36", "0.20.35", "0.20.34"])
+    _write_uv_pkg(
+        tmp_path,
+        pkg_dir="dcc-mcp-server-bin",
+        name="dcc-mcp-server",
+        declared="0.20.36",
+        lock_version="0.20.34",
+    )
+
+    errors = checker.check_uv_lock_published_versions(tmp_path)
+
+    assert len(errors) == 1
+    assert "0.20.34" in errors[0]
+    assert "0.20.35" in errors[0]
+
+
+def test_uv_lock_on_release_pr_still_reports_several_releases_stale(tmp_path: Path) -> None:
+    checker = _load_checker_module()
+    _write_changelog(tmp_path, ["0.20.36", "0.20.35", "0.20.34"])
+    _write_uv_pkg(
+        tmp_path,
+        pkg_dir="dcc-mcp-server-bin",
+        name="dcc-mcp-server",
+        declared="0.20.36",
+        lock_version="0.20.12",
+    )
+
+    errors = checker.check_uv_lock_published_versions(tmp_path, release_pr=True)
+
+    assert len(errors) == 1
+    assert "0.20.12" in errors[0]
+
+
+@pytest.mark.parametrize(
+    ("ref", "expected"),
+    [
+        ("release-please--branches--main--components--dcc-mcp-core", True),
+        ("refs/heads/release-please--branches--main", True),
+        # A branch that merely mentions release-please is not a release PR.
+        ("fix/release-please--branches--main", False),
+        ("task/dcc-mcp-core-release-please-pr-2585", False),
+        ("main", False),
+        ("", False),
+        (None, False),
+    ],
+)
+def test_is_release_pr_ref_matches_release_please_branches(tmp_path: Path, ref, expected: bool) -> None:
+    checker = _load_checker_module()
+
+    assert checker._is_release_pr_ref(ref) is expected
+
+
+@pytest.mark.parametrize(
+    ("env", "expected"),
+    [
+        ({"GITHUB_HEAD_REF": "release-please--branches--main"}, True),
+        # A branch push only carries a fully qualified GITHUB_REF.
+        ({"GITHUB_REF": "refs/heads/release-please--branches--main"}, True),
+        ({"GITHUB_HEAD_REF": "task/whatever"}, False),
+        # Outside CI neither variable is set, so the strict gate applies.
+        ({}, False),
+    ],
+)
+def test_main_reads_release_pr_state_from_the_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, env: dict, expected: bool
+) -> None:
+    checker = _load_checker_module()
+    _write_changelog(tmp_path, ["0.20.36", "0.20.35", "0.20.34"])
+    _write_uv_pkg(
+        tmp_path,
+        pkg_dir="dcc-mcp-server-bin",
+        name="dcc-mcp-server",
+        declared="0.20.36",
+        lock_version="0.20.34",
+    )
+    for name in checker.RELEASE_PR_REF_ENV_VARS:
+        monkeypatch.delenv(name, raising=False)
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+
+    assert checker.main([str(tmp_path)]) == (0 if expected else 1)
+
+
 def test_uv_lock_without_earlier_release_is_skipped(tmp_path: Path) -> None:
     checker = _load_checker_module()
     _write_changelog(tmp_path, ["0.20.34"])
