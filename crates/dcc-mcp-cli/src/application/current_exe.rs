@@ -57,12 +57,19 @@ pub fn resolve(path: &Path) -> PathBuf {
 /// Both forms address the same file; the verbatim form only additionally
 /// bypasses the legacy 260-character limit, which install directories do not
 /// reach. `\\?\UNC\server\share` is turned back into `\\server\share`.
+///
+/// A path that is not valid UTF-8 is returned untouched: `to_string_lossy()`
+/// would swap ill-formed UTF-16 (lone surrogates) for U+FFFD and hand back a
+/// path that does not exist, which is the same silent misplacement this
+/// module exists to prevent. Keeping the `\\?\` prefix costs nothing there.
 #[cfg(windows)]
 fn without_verbatim_prefix(path: &Path) -> PathBuf {
     const VERBATIM: &str = r"\\?\";
     const VERBATIM_UNC: &str = r"\\?\UNC\";
 
-    let raw = path.to_string_lossy();
+    let Some(raw) = path.to_str() else {
+        return path.to_path_buf();
+    };
     if let Some(rest) = raw.strip_prefix(VERBATIM_UNC) {
         return PathBuf::from(format!(r"\\{rest}"));
     }
@@ -171,5 +178,24 @@ mod tests {
             without_verbatim_prefix(Path::new(r"C:\Tools\dcc-mcp-cli.exe")),
             PathBuf::from(r"C:\Tools\dcc-mcp-cli.exe")
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn non_utf8_paths_keep_the_canonicalized_value() {
+        // Regression: `to_string_lossy()` would replace the lone surrogate
+        // with U+FFFD, and `strip_prefix` would still match — producing a
+        // path that does not exist, i.e. the very misplacement this module
+        // prevents. A path that cannot be read losslessly is left alone.
+        use std::os::windows::ffi::OsStringExt;
+
+        // "C:\" + lone surrogate + "dcc-mcp-cli.exe"
+        let mut wide: Vec<u16> = "C:\\".encode_utf16().collect();
+        wide.push(0xD800);
+        wide.extend("dcc-mcp-cli.exe".encode_utf16());
+        let path = PathBuf::from(std::ffi::OsString::from_wide(&wide));
+
+        assert!(path.to_str().is_none(), "test needs a non-UTF-8 path");
+        assert_eq!(without_verbatim_prefix(&path), path);
     }
 }
