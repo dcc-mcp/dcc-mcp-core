@@ -18,7 +18,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dcc-mcp-cli"
-version = "0.20.35"  # x-release-please-version
+version = "0.20.36"  # x-release-please-version
 description = "Standalone dcc-mcp-cli binary — DCC-MCP install, gateway and component control (Rust)"
 readme = "README.md"
 license = {text = "MIT"}

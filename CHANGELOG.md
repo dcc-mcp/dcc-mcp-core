@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.36](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.35...v0.20.36) (2026-09-26)
+
+
+### Features
+
+* **ci:** gate dependencies on the VFX Platform baseline ([761bae7](https://github.com/dcc-mcp/dcc-mcp-core/commit/761bae7f6ba4f78e5271e9cac41ffa452cc117a7))
+* **marketplace:** install multi-host entries once into the shared directory ([#2582](https://github.com/dcc-mcp/dcc-mcp-core/issues/2582)) ([4911b4e](https://github.com/dcc-mcp/dcc-mcp-core/commit/4911b4ef6a84c613874053466fb62ce5bf788f97))
+
+
+### Bug Fixes
+
+* **ci:** allow one published release of lock drift on release-please PRs ([368553e](https://github.com/dcc-mcp/dcc-mcp-core/commit/368553e2e83497967425b7f9f692acb2a87a43f1))
+* **gateway:** keep a live guardian patrol thread visible after stop ([#2581](https://github.com/dcc-mcp/dcc-mcp-core/issues/2581)) ([00ce3a2](https://github.com/dcc-mcp/dcc-mcp-core/commit/00ce3a2b001156b502bf98c07b568866926b6ad5))
+
 ## [0.20.35](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.34...v0.20.35) (2026-09-25)
 
 
