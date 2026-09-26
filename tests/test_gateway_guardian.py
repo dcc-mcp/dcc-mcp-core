@@ -1752,10 +1752,41 @@ def test_ensure_gateway_daemon_skips_takeover_when_gateway_newer(monkeypatch, tm
 
 def test_try_version_takeover_returns_none_when_dev_version(monkeypatch, tmp_path):
     """P0-3: _try_version_takeover returns None when version is 0.0.0-dev."""
-    # 0.0.0-dev is the default when package metadata is unavailable.
-    # _get_core_version should return this in test environment.
+    # An unresolvable core version is now "" (unknown), not "0.0.0-dev".
+    # The dev placeholder only reaches the guard when it is set explicitly,
+    # e.g. through DCC_MCP_CORE_VERSION.
     monkeypatch.setattr(gg, "_get_core_version", lambda: "0.0.0-dev")
     monkeypatch.setattr(gg, "_read_gateway_version_from_registry", lambda *a, **k: "0.18.0")
+    monkeypatch.setattr(gg, "_is_application_ready", lambda *a, **k: True)
+
+    result = gg._try_version_takeover(
+        gateway_host="127.0.0.1",
+        gateway_port=9765,
+        registry_dir=str(tmp_path),
+        dcc_type="maya",
+        timeout_secs=15.0,
+        gateway_persist=False,
+        gateway_idle_timeout_secs=None,
+        server_bin=None,
+    )
+    assert result is None
+
+
+def test_try_version_takeover_returns_none_when_core_version_is_unknown(monkeypatch, tmp_path):
+    """P0-3: _try_version_takeover returns None when the core version is unknown.
+
+    This is the branch production actually takes: an unresolvable core version
+    is reported as an empty string rather than as a ``0.0.0-dev`` placeholder,
+    so the guard bails out on the falsy left-hand branch. The registry lookup
+    is patched to fail on purpose -- the guard must short-circuit before any
+    version comparison happens, not merely end up at the same result.
+    """
+    monkeypatch.setattr(gg, "_get_core_version", lambda: "")
+    monkeypatch.setattr(
+        gg,
+        "_read_gateway_version_from_registry",
+        lambda *a, **k: pytest.fail("unknown core version must short-circuit before version lookup"),
+    )
     monkeypatch.setattr(gg, "_is_application_ready", lambda *a, **k: True)
 
     result = gg._try_version_takeover(
