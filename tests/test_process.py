@@ -15,6 +15,7 @@ import os
 import pytest
 
 # Import local modules
+from _support.watcher import wait_for_event
 import dcc_mcp_core
 
 # ── PyProcessMonitor ──────────────────────────────────────────────────────────
@@ -416,65 +417,53 @@ class TestPyProcessWatcher:
 
     def test_poll_events_returns_list(self) -> None:
         """poll_events() always returns a list (empty or non-empty)."""
-        import time
-
         watcher = dcc_mcp_core.PyProcessWatcher(poll_interval_ms=100)
         pid = os.getpid()
         watcher.track(pid, "self")
         watcher.start()
         try:
-            time.sleep(0.35)  # allow at least 3 polls
-            events = watcher.poll_events()
+            events = wait_for_event(watcher, "heartbeat")
             assert isinstance(events, list)
         finally:
             watcher.stop()
 
     def test_poll_events_heartbeat_structure(self) -> None:
         """Heartbeat events should have required keys."""
-        import time
-
         watcher = dcc_mcp_core.PyProcessWatcher(poll_interval_ms=100)
         pid = os.getpid()
         watcher.track(pid, "self")
         watcher.start()
         try:
-            time.sleep(0.35)
-            events = watcher.poll_events()
+            events = wait_for_event(watcher, "heartbeat")
         finally:
             watcher.stop()
 
         heartbeats = [e for e in events if e.get("type") == "heartbeat"]
-        if heartbeats:  # may be empty if the OS is very slow
-            hb = heartbeats[0]
-            assert "pid" in hb
-            assert "name" in hb
-            assert "new_status" in hb
-            assert hb["pid"] == pid
-            assert hb["name"] == "self"
+        assert heartbeats, "watcher produced no heartbeat event"
+        hb = heartbeats[0]
+        assert "pid" in hb
+        assert "name" in hb
+        assert "new_status" in hb
+        assert hb["pid"] == pid
+        assert hb["name"] == "self"
 
     def test_poll_events_drains_queue(self) -> None:
         """Second poll_events() call returns empty list (queue was drained).
 
-        Stop the watcher before draining and then give the background loop a
-        brief grace window to finish any in-flight poll iteration; otherwise a
-        last heartbeat can land in the queue between ``stop()`` and the second
-        ``poll_events()``. We drain whatever the watcher pushed during that
-        window, then assert the *next* drain is empty — that's the contract
-        ``poll_events`` actually offers.
+        Wait for a heartbeat instead of sleeping so the first drain always has
+        something to consume. ``stop()`` joins the background drain task, so no
+        further event can be pushed afterwards: the queue holds a finite batch,
+        one drain clears it, and the *next* drain is therefore guaranteed empty
+        without any grace window.
         """
-        import time
-
         watcher = dcc_mcp_core.PyProcessWatcher(poll_interval_ms=100)
         watcher.track(os.getpid(), "self")
         watcher.start()
         try:
-            time.sleep(0.25)
-            watcher.poll_events()  # first drain
+            wait_for_event(watcher, "heartbeat")  # first drain
         finally:
             watcher.stop()
-        # Settle: ensure no in-flight poll iteration is mid-push.
-        time.sleep(0.2)
-        watcher.poll_events()  # absorb any last in-flight events
+        watcher.poll_events()  # absorb the last in-flight batch
         events_after_settle = watcher.poll_events()
         assert events_after_settle == []
 

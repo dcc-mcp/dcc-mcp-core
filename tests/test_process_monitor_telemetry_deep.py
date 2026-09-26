@@ -10,6 +10,7 @@ import time
 
 import pytest
 
+from _support.watcher import wait_for_event
 from dcc_mcp_core import PyProcessMonitor
 from dcc_mcp_core import PyProcessWatcher
 from dcc_mcp_core import TelemetryConfig
@@ -209,9 +210,10 @@ class TestPyProcessWatcherDeep:
         watcher = PyProcessWatcher(poll_interval_ms=50)
         watcher.track(os.getpid(), "self")
         watcher.start()
-        time.sleep(0.2)
-        events = watcher.poll_events()
-        watcher.stop()
+        try:
+            events = wait_for_event(watcher, "heartbeat")
+        finally:
+            watcher.stop()
         assert isinstance(events, list)
         # Should have at least some heartbeat events
         assert len(events) >= 1
@@ -220,9 +222,10 @@ class TestPyProcessWatcherDeep:
         watcher = PyProcessWatcher(poll_interval_ms=50)
         watcher.track(os.getpid(), "self")
         watcher.start()
-        time.sleep(0.15)
-        events = watcher.poll_events()
-        watcher.stop()
+        try:
+            events = wait_for_event(watcher, "heartbeat")
+        finally:
+            watcher.stop()
         for ev in events:
             assert "type" in ev
             assert "pid" in ev
@@ -236,10 +239,11 @@ class TestPyProcessWatcherDeep:
         watcher = PyProcessWatcher(poll_interval_ms=50)
         watcher.track(os.getpid(), "self")
         watcher.start()
-        time.sleep(0.15)
-        _events = watcher.poll_events()  # drain
-        events2 = watcher.poll_events()  # should be empty immediately
-        watcher.stop()
+        try:
+            wait_for_event(watcher, "heartbeat")  # drain
+            events2 = watcher.poll_events()  # should be empty immediately
+        finally:
+            watcher.stop()
         assert isinstance(events2, list)
 
     def test_watcher_start_is_idempotent(self):

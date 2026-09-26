@@ -12,6 +12,7 @@ import time
 
 import pytest
 
+from _support.watcher import wait_for_event
 from dcc_mcp_core import DccCapabilities
 from dcc_mcp_core import DccInfo
 from dcc_mcp_core import InputValidator
@@ -636,18 +637,20 @@ class TestPyProcessWatcher:
             w = PyProcessWatcher(poll_interval_ms=100)
             w.track(os.getpid(), "self")
             w.start()
-            time.sleep(0.4)
-            events = w.poll_events()
-            w.stop()
+            try:
+                events = wait_for_event(w, "heartbeat")
+            finally:
+                w.stop()
             assert isinstance(events, list)
 
         def test_poll_events_has_heartbeat_type(self):
             w = PyProcessWatcher(poll_interval_ms=100)
             w.track(os.getpid(), "self")
             w.start()
-            time.sleep(0.5)
-            events = w.poll_events()
-            w.stop()
+            try:
+                events = wait_for_event(w, "heartbeat")
+            finally:
+                w.stop()
             types = {e.get("type") for e in events}
             assert "heartbeat" in types
 
@@ -681,10 +684,11 @@ class TestPyProcessWatcher:
             w = PyProcessWatcher(poll_interval_ms=100)
             w.track(os.getpid(), "self")
             w.start()
-            time.sleep(0.4)
-            events1 = w.poll_events()
-            events2 = w.poll_events()
-            w.stop()
+            try:
+                events1 = wait_for_event(w, "heartbeat")
+                events2 = w.poll_events()
+            finally:
+                w.stop()
             assert len(events1) > 0
             # second drain may be empty or small
             assert isinstance(events2, list)
