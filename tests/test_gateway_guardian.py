@@ -23,15 +23,29 @@ def _reset_server_bin_warning_ledgers():
     """Give every test a process-fresh warning ledger.
 
     Both ledgers are module-level, so a test that trips a once-per-process
-    warning would otherwise silence that warning for every test after it.
+    warning would otherwise silence that warning for every test after it. The
+    binary-version probe cache is reset for the same reason: without it a probe
+    recorded by one test would be replayed to every test after it.
     """
     saved_drift = gsb._SERVER_VERSION_DRIFT_WARNED
     saved_resolution = gsb._SERVER_BIN_WARNED
+    saved_probe_cache = gsb._SERVER_BINARY_VERSION_CACHE
     gsb._SERVER_VERSION_DRIFT_WARNED = set()
     gsb._SERVER_BIN_WARNED = set()
+    gsb._SERVER_BINARY_VERSION_CACHE = {}
     yield
     gsb._SERVER_VERSION_DRIFT_WARNED = saved_drift
     gsb._SERVER_BIN_WARNED = saved_resolution
+    gsb._SERVER_BINARY_VERSION_CACHE = saved_probe_cache
+
+
+def _fake_version_probe(output, error=None):
+    """Stand in for ``_probe_server_binary_version`` with canned output."""
+
+    def _probe(command, env):
+        return output, error
+
+    return _probe
 
 
 def _wait_until(predicate, *, timeout: float = 10.0, interval: float = 0.01) -> bool:
@@ -375,11 +389,11 @@ def test_resolve_server_bin_reports_an_unavailable_binary_once_per_process(monke
     assert len([message for message in messages if "binary_path unavailable" in message]) == 1
 
 
-def test_resolve_server_bin_skips_drift_check_when_path_supplies_binary(monkeypatch, tmp_path, caplog):
+def test_resolve_server_bin_skips_module_drift_check_when_path_supplies_binary(monkeypatch, tmp_path, caplog):
     """A PATH hit says nothing about the importable module's version.
 
-    Comparing them would report drift for a copy that never runs, so the check
-    only applies when the package itself supplies the binary.
+    Comparing them would report drift for a copy that never runs, so the module
+    version is only consulted when the package itself supplies the binary.
     """
     on_path = tmp_path / "resolved" / "dcc-mcp-server"
     module = types.ModuleType("dcc_mcp_server")
@@ -390,12 +404,118 @@ def test_resolve_server_bin_skips_drift_check_when_path_supplies_binary(monkeypa
     monkeypatch.setattr(gsb.shutil, "which", lambda _name: str(on_path))
     monkeypatch.setitem(sys.modules, "dcc_mcp_server", module)
     monkeypatch.setenv(gsb.ENV_CORE_VERSION, "0.20.28")
+    monkeypatch.setattr(gsb, "_probe_server_binary_version", _fake_version_probe(None))
 
     with caplog.at_level(logging.WARNING, logger=gsb.__name__):
         resolved = gg._resolve_server_bin()
 
     assert resolved == str(on_path)
     assert not [record for record in caplog.records if "does not match" in record.getMessage()]
+
+
+def test_resolve_server_bin_warns_on_binary_version_drift_from_path(monkeypatch, tmp_path, caplog):
+    """A PATH binary is judged by its own ``--version``, reported once.
+
+    This is the hardening behind PIP-3605: the binary that PATH hands back can
+    come from a different release batch than this core, and the stale-copy
+    failure class (PIP-3592) is invisible unless the executable is measured
+    directly.
+    """
+    on_path = tmp_path / "resolved" / "dcc-mcp-server"
+    module = types.ModuleType("dcc_mcp_server")
+    module.binary_path = lambda: tmp_path / "unused" / "dcc-mcp-server"
+    module.__version__ = "0.20.28"
+
+    monkeypatch.delenv("DCC_MCP_SERVER_BIN", raising=False)
+    monkeypatch.setattr(gsb.shutil, "which", lambda _name: str(on_path))
+    monkeypatch.setitem(sys.modules, "dcc_mcp_server", module)
+    monkeypatch.setenv(gsb.ENV_CORE_VERSION, "0.20.28")
+    monkeypatch.setattr(gsb, "_probe_server_binary_version", _fake_version_probe("dcc-mcp-server 0.19.8"))
+
+    with caplog.at_level(logging.WARNING, logger=gsb.__name__):
+        gg._resolve_server_bin()
+        gg._resolve_server_bin()
+        gg._resolve_server_bin()
+
+    messages = [record.getMessage() for record in caplog.records]
+    drift = [message for message in messages if "does not match" in message]
+    assert len(drift) == 1
+    # Both versions, and a cause that names the real measurement (the binary,
+    # not the importable package).
+    assert "0.19.8" in drift[0] and "0.20.28" in drift[0]
+    assert "reported by the binary found on PATH" in drift[0]
+
+
+def test_resolve_server_bin_silent_when_path_binary_version_matches(monkeypatch, tmp_path, caplog):
+    """A PATH binary from the same release batch reports nothing."""
+    on_path = tmp_path / "resolved" / "dcc-mcp-server"
+    module = types.ModuleType("dcc_mcp_server")
+    module.binary_path = lambda: tmp_path / "unused" / "dcc-mcp-server"
+    module.__version__ = "0.19.8"
+
+    monkeypatch.delenv("DCC_MCP_SERVER_BIN", raising=False)
+    monkeypatch.setattr(gsb.shutil, "which", lambda _name: str(on_path))
+    monkeypatch.setitem(sys.modules, "dcc_mcp_server", module)
+    monkeypatch.setenv(gsb.ENV_CORE_VERSION, "0.20.28")
+    monkeypatch.setattr(gsb, "_probe_server_binary_version", _fake_version_probe("dcc-mcp-server 0.20.31"))
+
+    with caplog.at_level(logging.WARNING, logger=gsb.__name__):
+        resolved = gg._resolve_server_bin()
+
+    assert resolved == str(on_path)
+    assert not [record for record in caplog.records if "does not match" in record.getMessage()]
+
+
+def test_resolve_server_bin_ignores_an_unprobeable_path_binary(monkeypatch, tmp_path, caplog):
+    """A binary that cannot report a version must not log or delay anything.
+
+    ``--version`` is best effort: an old binary without the flag, a non-
+    executable path, or a timeout all leave the version unknown rather than
+    inventing a signal.
+    """
+    on_path = tmp_path / "resolved" / "dcc-mcp-server"
+
+    monkeypatch.delenv("DCC_MCP_SERVER_BIN", raising=False)
+    monkeypatch.setattr(gsb.shutil, "which", lambda _name: str(on_path))
+    monkeypatch.setitem(sys.modules, "dcc_mcp_server", None)
+    monkeypatch.setenv(gsb.ENV_CORE_VERSION, "0.20.28")
+    monkeypatch.setattr(
+        gsb,
+        "_probe_server_binary_version",
+        _fake_version_probe(None, error="running --version failed: timed out"),
+    )
+
+    with caplog.at_level(logging.WARNING, logger=gsb.__name__):
+        resolved = gg._resolve_server_bin()
+
+    assert resolved == str(on_path)
+    assert not caplog.records
+
+
+def test_resolve_server_bin_probes_a_path_binary_once_per_process(monkeypatch, tmp_path):
+    """The guardian patrol re-resolves, so the probe must not re-spawn.
+
+    Resolution runs on a ~5s timer; an unhealthy host would otherwise pay a
+    subprocess per cycle for an answer that cannot change.
+    """
+    on_path = tmp_path / "resolved" / "dcc-mcp-server"
+    calls = []
+
+    def _probe(command, env):
+        calls.append(command)
+        return "dcc-mcp-server 0.20.31", None
+
+    monkeypatch.delenv("DCC_MCP_SERVER_BIN", raising=False)
+    monkeypatch.setattr(gsb.shutil, "which", lambda _name: str(on_path))
+    monkeypatch.setitem(sys.modules, "dcc_mcp_server", None)
+    monkeypatch.setenv(gsb.ENV_CORE_VERSION, "0.20.28")
+    monkeypatch.setattr(gsb, "_probe_server_binary_version", _probe)
+
+    gg._resolve_server_bin()
+    gg._resolve_server_bin()
+    gg._resolve_server_bin()
+
+    assert calls == [str(on_path)]
 
 
 def test_ensure_gateway_daemon_spawns_and_becomes_healthy(tmp_path, monkeypatch):
