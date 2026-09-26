@@ -49,6 +49,8 @@ impl ErrorResponse {
             dcc_mcp_marketplace::MarketplaceError::AlreadyInstalled { .. } => "already_installed",
             dcc_mcp_marketplace::MarketplaceError::DccMismatch { .. } => "dcc_mismatch",
             dcc_mcp_marketplace::MarketplaceError::AmbiguousDcc { .. } => "ambiguous_dcc",
+            dcc_mcp_marketplace::MarketplaceError::AmbiguousInstalledDcc { .. } => "ambiguous_dcc",
+            dcc_mcp_marketplace::MarketplaceError::NoDeclaredDcc { .. } => "no_declared_dcc",
             dcc_mcp_marketplace::MarketplaceError::MissingInstall(_) => "missing_install",
             dcc_mcp_marketplace::MarketplaceError::UnsupportedInstallType(_) => {
                 "unsupported_install_type"
@@ -335,6 +337,8 @@ pub async fn handle_marketplace_update(
 mod tests {
     use dcc_mcp_catalog::CatalogEntry;
 
+    use super::ErrorResponse;
+
     #[test]
     fn entry_targets_dcc_matches_case_insensitive() {
         let entry = CatalogEntry {
@@ -359,5 +363,37 @@ mod tests {
         assert!(dcc_mcp_marketplace::entry_targets_dcc(&entry, "Maya"));
         assert!(dcc_mcp_marketplace::entry_targets_dcc(&entry, "BLENDER"));
         assert!(!dcc_mcp_marketplace::entry_targets_dcc(&entry, "houdini"));
+    }
+
+    #[test]
+    fn host_selection_errors_map_to_stable_kinds() {
+        // Host-selection failures must not fall through to `internal_error`:
+        // the admin UI branches on `kind` to decide which recovery to offer.
+        let cases = [
+            (
+                dcc_mcp_marketplace::MarketplaceError::AmbiguousDcc {
+                    name: "entry".into(),
+                    supported: vec!["maya".into()],
+                },
+                "ambiguous_dcc",
+            ),
+            (
+                dcc_mcp_marketplace::MarketplaceError::AmbiguousInstalledDcc {
+                    name: "entry".into(),
+                    supported: vec!["maya".into()],
+                },
+                "ambiguous_dcc",
+            ),
+            (
+                dcc_mcp_marketplace::MarketplaceError::NoDeclaredDcc {
+                    name: "entry".into(),
+                    targets: vec![],
+                },
+                "no_declared_dcc",
+            ),
+        ];
+        for (err, expected) in cases {
+            assert_eq!(ErrorResponse::from_error(&err).kind, expected);
+        }
     }
 }

@@ -673,7 +673,10 @@ impl MarketplaceService {
         match dccs.as_slice() {
             [dcc] => Ok(dcc.clone()),
             [] => Err(MarketplaceError::InstalledPackageNotFound(name)),
-            _ => Err(MarketplaceError::AmbiguousInstalledDcc { name }),
+            _ => Err(MarketplaceError::AmbiguousInstalledDcc {
+                name,
+                supported: dccs.to_vec(),
+            }),
         }
     }
 

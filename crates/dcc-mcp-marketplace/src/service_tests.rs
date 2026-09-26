@@ -117,8 +117,30 @@ fn resolve_installed_dcc_requires_a_host_for_ambiguous_packages() {
 
     assert!(matches!(
         service.resolve_installed_dcc("shared-tools", None),
-        Err(MarketplaceError::AmbiguousInstalledDcc { name }) if name == "shared-tools"
+        Err(MarketplaceError::AmbiguousInstalledDcc { name, .. }) if name == "shared-tools"
     ));
+}
+
+#[test]
+fn ambiguous_installed_dcc_lists_the_hosts_it_is_installed_under() {
+    // Uninstall/update rejections must name the selectable hosts exactly like
+    // the install path does, otherwise `--dcc` is a guess.
+    let temp = tempfile::tempdir().unwrap();
+    let service = MarketplaceService::new(temp.path().to_path_buf());
+    for dcc in ["maya", "blender"] {
+        service
+            .upsert_installed(installed_package("shared-tools", dcc))
+            .unwrap();
+    }
+
+    let err = service
+        .resolve_installed_dcc("shared-tools", None)
+        .unwrap_err();
+    let message = err.to_string();
+    assert!(message.contains("supported: blender, maya"), "{message}");
+    // Same phrasing as the install-side `AmbiguousDcc`.
+    assert!(message.contains("pass --dcc"), "{message}");
+    assert!(message.contains("targets multiple DCCs"), "{message}");
 }
 
 #[test]
@@ -608,6 +630,23 @@ fn catalog_entry(name: &str, dcc: &[&str]) -> CatalogEntry {
     }
 }
 
+/// Entry builder for the `dcc` + `targets` combination the catalog schema allows.
+fn catalog_entry_with_targets(
+    name: &str,
+    dcc: &[&str],
+    targets: &[(CatalogTargetKind, &str)],
+) -> CatalogEntry {
+    let mut entry = catalog_entry(name, dcc);
+    entry.targets = targets
+        .iter()
+        .map(|(kind, id)| CatalogTarget {
+            kind: *kind,
+            id: (*id).to_string(),
+        })
+        .collect();
+    entry
+}
+
 #[test]
 fn host_neutral_entry_installs_under_any_when_any_is_requested() {
     let entry = catalog_entry("host-neutral", &["any"]);
@@ -678,14 +717,121 @@ fn multi_host_entry_still_rejects_an_unsupported_host() {
 }
 
 #[test]
-fn entry_without_any_dcc_stays_ambiguous() {
+fn entry_without_any_dcc_reports_that_no_host_is_declared() {
+    // "targets multiple DCCs ... (supported: none)" contradicted itself; an
+    // entry with no host at all is a different failure from an ambiguous one.
     let entry = catalog_entry("unscoped", &[]);
     let err = resolve_install_dcc(&entry, None).unwrap_err();
 
     assert!(
-        matches!(err, MarketplaceError::AmbiguousDcc { .. }),
+        matches!(err, MarketplaceError::NoDeclaredDcc { .. }),
         "{err}"
     );
+    let message = err.to_string();
+    assert!(message.contains("declares no DCC"), "{message}");
+    assert!(!message.contains("targets multiple DCCs"), "{message}");
+    assert!(!message.contains("supported: none"), "{message}");
+}
+
+#[test]
+fn entry_with_only_non_dcc_targets_points_at_the_target_it_does_declare() {
+    let entry = catalog_entry_with_targets(
+        "app-only",
+        &[],
+        &[(CatalogTargetKind::Application, "photoshop")],
+    );
+    let err = resolve_install_dcc(&entry, None).unwrap_err();
+
+    assert!(
+        matches!(err, MarketplaceError::NoDeclaredDcc { .. }),
+        "{err}"
+    );
+    let message = err.to_string();
+    assert!(message.contains("application:photoshop"), "{message}");
+    assert!(message.contains("--target"), "{message}");
+}
+
+#[test]
+fn dcc_declared_alongside_non_dcc_targets_stays_selectable() {
+    // `dcc` and `targets` are independent fields: an entry may declare both.
+    // Both must resolve, otherwise the error lists a host the install path
+    // then refuses.
+    let entry = catalog_entry_with_targets(
+        "mixed",
+        &["maya"],
+        &[(CatalogTargetKind::Application, "photoshop")],
+    );
+
+    assert!(entry_targets_dcc(&entry, "maya"));
+    assert_eq!(entry_dcc_ids(&entry), vec!["maya".to_string()]);
+    assert_eq!(resolve_install_dcc(&entry, Some("maya")).unwrap(), "maya");
+    assert_eq!(resolve_install_dcc(&entry, None).unwrap(), "maya");
+    // The application target keeps working too.
+    assert!(entry_targets(&entry).contains(&CatalogTarget {
+        kind: CatalogTargetKind::Application,
+        id: "photoshop".into(),
+    }));
+}
+
+#[test]
+fn dcc_declared_alongside_dcc_targets_is_merged_without_duplicates() {
+    let entry = catalog_entry_with_targets(
+        "merged",
+        &["maya", "blender"],
+        &[
+            (CatalogTargetKind::Dcc, "blender"),
+            (CatalogTargetKind::Game, "the-bazaar"),
+        ],
+    );
+
+    let targets = entry_targets(&entry);
+    assert_eq!(
+        targets,
+        vec![
+            CatalogTarget {
+                kind: CatalogTargetKind::Dcc,
+                id: "blender".into(),
+            },
+            CatalogTarget {
+                kind: CatalogTargetKind::Game,
+                id: "the-bazaar".into(),
+            },
+            CatalogTarget {
+                kind: CatalogTargetKind::Dcc,
+                id: "maya".into(),
+            },
+        ]
+    );
+    assert_eq!(entry_dcc_ids(&entry), vec!["blender", "maya"]);
+}
+
+#[tokio::test]
+async fn resolve_install_hit_accepts_a_host_declared_under_dcc_but_not_targets() {
+    let temp = tempfile::tempdir().unwrap();
+    let catalog_path = temp.path().join("marketplace.json");
+    let entry = catalog_entry_with_targets(
+        "dcc-asset-mixed",
+        &["maya"],
+        &[(CatalogTargetKind::Application, "photoshop")],
+    );
+    let catalog = serde_json::json!({ "version": "1", "entries": [entry] });
+    fs::write(
+        &catalog_path,
+        serde_json::to_string_pretty(&catalog).unwrap(),
+    )
+    .unwrap();
+    let service = MarketplaceService::new(temp.path().join("root"));
+
+    let hit = service
+        .resolve_install_hit(
+            "dcc-asset-mixed",
+            Some("maya"),
+            vec![catalog_path.display().to_string()],
+            true,
+        )
+        .await
+        .unwrap();
+    assert_eq!(hit.entry.name, "dcc-asset-mixed");
 }
 
 #[tokio::test]

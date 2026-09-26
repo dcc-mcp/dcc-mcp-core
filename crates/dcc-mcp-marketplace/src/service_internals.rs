@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use dcc_mcp_catalog::{self, CatalogEntry, CatalogInstall};
+use dcc_mcp_catalog::{self, CatalogEntry, CatalogInstall, CatalogTargetKind};
 use semver::Version;
 use sha2::{Digest, Sha256};
 
@@ -19,7 +19,7 @@ use crate::git_command;
 use crate::source::normalise_source;
 use crate::types::{
     HOST_NEUTRAL_DCC, InstalledMarketplacePackage, MarketplaceSource, MarketplaceSourceConfig,
-    MarketplaceSourceOrigin, entry_dcc_ids, entry_targets_dcc, is_host_neutral_dcc,
+    MarketplaceSourceOrigin, entry_dcc_ids, entry_targets, entry_targets_dcc, is_host_neutral_dcc,
     is_shared_dcc_request,
 };
 
@@ -206,6 +206,15 @@ pub fn resolve_install_dcc(
 
     match dccs.as_slice() {
         [dcc] => Ok(dcc.clone()),
+        // No host declared: `--dcc` cannot satisfy this entry at all, so it is
+        // reported separately instead of as "multiple DCCs (supported: none)".
+        [] => Err(MarketplaceError::NoDeclaredDcc {
+            name: entry.name.clone(),
+            targets: entry_targets(entry)
+                .into_iter()
+                .filter(|target| target.kind != CatalogTargetKind::Dcc)
+                .collect(),
+        }),
         _ if dccs.len() > 1 => Ok(HOST_NEUTRAL_DCC.to_string()),
         _ => Err(MarketplaceError::AmbiguousDcc {
             name: entry.name.clone(),
