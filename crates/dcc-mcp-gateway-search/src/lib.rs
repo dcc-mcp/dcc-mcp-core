@@ -42,7 +42,7 @@ pub use policy::{
     apply_rank_policy, evaluate_fallback, is_fallback_target, layer_multiplier,
     path_source_multiplier,
 };
-pub use probe::{CLI_BIN, CUA_BIN, CliCuaProbe, PROBE_TIMEOUT};
+pub use probe::{CLI_BIN, CUA_BIN, CliCuaProbe, PROBE_TIMEOUT, PathCuaProbe};
 pub use query::{
     DEFAULT_LIMIT, MAX_LIMIT, RANKER_VERSION, SearchHit, SearchMode, SearchPage, SearchQuery,
 };

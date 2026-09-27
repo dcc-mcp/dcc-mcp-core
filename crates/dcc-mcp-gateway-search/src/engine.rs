@@ -36,10 +36,11 @@ pub fn search_page_with_fallback<R: SearchRecord + Clone>(
     query: &SearchQuery,
     probe: &dyn CuaRuntimeProbe,
 ) -> SearchPage<R> {
-    let hits = rank_all(records, query);
-    // `records.len()` is the true candidate count, so an empty index is never
-    // reported as "no skill can do this".
-    let fallback = resolve_fallback_among(&hits, &fallback_query_text(query), records.len(), probe);
+    let (hits, candidates) = rank_all_counted(records, query);
+    // `candidates` is the post-filter count, so neither an empty index nor a
+    // query-side filter that excluded every row is mistaken for "no skill can
+    // do this".
+    let fallback = resolve_fallback_among(&hits, &fallback_query_text(query), candidates, probe);
     paginate(hits, query, fallback)
 }
 
@@ -51,6 +52,15 @@ pub fn search_page_with_fallback<R: SearchRecord + Clone>(
 /// The criteria and thresholds live in [`crate::policy`]; this function only
 /// adapts a ranked page to them and, when they fire, asks `probe` whether the
 /// route is actually usable.
+///
+/// # Empty pages
+///
+/// This convenience overload derives the candidate count from `hits.len()`, so
+/// an empty page reads as "nothing was eligible" and never fires. It therefore
+/// cannot produce [`crate::policy::FALLBACK_REASON_NO_CANDIDATE`]. Callers that
+/// can see the candidate set — which is the only way to distinguish "nothing
+/// matched" from "nothing was eligible" — must use
+/// [`resolve_fallback_among`].
 #[must_use]
 pub fn resolve_fallback<R: SearchRecord>(
     hits: &[SearchHit<R>],
@@ -187,6 +197,101 @@ fn paginate<R: SearchRecord + Clone>(
         limit: effective_limit,
         fallback,
     }
+}
+
+/// Rank every matching record, also reporting how many rows survived filtering.
+///
+/// Scoring and ordering are identical to [`rank_all`]. The extra value is the
+/// number of rows eligible to be scored, after the query's own `dcc_type` /
+/// `dcc_types` / `instance_id` / `loaded_only` / `tags` / `exclude_tags`
+/// filters but before scoring.
+///
+/// The fallback route needs it: a filter that excluded every row is not
+/// evidence that nothing can serve the request, and this count is the only way
+/// to tell the two apart. See [`resolve_fallback_among`].
+#[must_use]
+pub fn rank_all_counted<R: SearchRecord + Clone>(
+    records: &[R],
+    query: &SearchQuery,
+) -> (Vec<SearchHit<R>>, usize) {
+    (rank_all(records, query), count_candidates(records, query))
+}
+
+/// Number of rows eligible to be scored, after the query's scope filters.
+///
+/// Covers the filters that make a row *ineligible*: `dcc_type` / `dcc_types` /
+/// `instance_id` / `loaded_only` / `tags` / `tags_any` / `exclude_tags`.
+///
+/// `min_score` is deliberately excluded: it is applied after scoring and only
+/// decides whether a hit is good enough to return, so it does not shrink the
+/// eligible set. A bar nothing clears means "nothing here was good enough",
+/// which is still worth routing on.
+///
+/// Mirrors the candidate filter in [`rank_all`]. Kept as a second pass so the
+/// ranking path keeps its current shape; the extra linear scan is paid only by
+/// callers that ask for the count.
+fn count_candidates<R: SearchRecord>(records: &[R], query: &SearchQuery) -> usize {
+    let dcc_filter = query
+        .dcc_type
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_ascii_lowercase);
+    let dcc_types: Vec<String> = query
+        .dcc_types
+        .iter()
+        .map(|t| t.trim().to_ascii_lowercase())
+        .filter(|t| !t.is_empty())
+        .collect();
+    let tags_filter: Vec<String> = query
+        .tags
+        .iter()
+        .map(|t| t.trim().to_ascii_lowercase())
+        .filter(|t| !t.is_empty())
+        .collect();
+    let tags_any: Vec<String> = query
+        .tags_any
+        .iter()
+        .map(|t| t.trim().to_ascii_lowercase())
+        .filter(|t| !t.is_empty())
+        .collect();
+    let exclude_tags: Vec<String> = query
+        .exclude_tags
+        .iter()
+        .map(|t| t.trim().to_ascii_lowercase())
+        .filter(|t| !t.is_empty())
+        .collect();
+
+    records
+        .iter()
+        .filter(|r| {
+            dcc_filter.is_none() && dcc_types.is_empty()
+                || dcc_filter
+                    .as_deref()
+                    .is_some_and(|f| r.dcc_type().eq_ignore_ascii_case(f))
+                || dcc_types
+                    .iter()
+                    .any(|d| r.dcc_type().eq_ignore_ascii_case(d))
+        })
+        .filter(|r| query.instance_id.is_none_or(|iid| r.instance_id() == iid))
+        .filter(|r| query.loaded_only != Some(true) || r.loaded())
+        .filter(|r| {
+            tags_filter
+                .iter()
+                .all(|t| r.tags().iter().any(|rt| rt.to_ascii_lowercase() == *t))
+        })
+        .filter(|r| {
+            tags_any.is_empty()
+                || tags_any
+                    .iter()
+                    .any(|t| r.tags().iter().any(|rt| rt.to_ascii_lowercase() == *t))
+        })
+        .filter(|r| {
+            !exclude_tags
+                .iter()
+                .any(|ex| r.tags().iter().any(|rt| rt.to_ascii_lowercase() == *ex))
+        })
+        .count()
 }
 
 /// Rank every matching record without applying pagination limits or offsets.

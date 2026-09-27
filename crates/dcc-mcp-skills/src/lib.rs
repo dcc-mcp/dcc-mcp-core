@@ -19,6 +19,11 @@ pub(crate) mod python;
 
 pub use catalog::{SkillCatalog, SkillDetail, SkillState, SkillSummary};
 pub use feedback::{SkillFeedback, get_skill_feedback, record_skill_feedback};
+// Re-exported so MCP/REST surfaces can build a `dcc-cua` availability probe
+// without taking a direct dependency on the search crate (PIP-3702).
+pub use dcc_mcp_gateway_search::{
+    CuaRuntimeProbe, CuaRuntimeState, PathCuaProbe, SearchFallback as SkillFallback,
+};
 pub use gui_executable::{GuiExecutableHint, correct_python_executable, is_gui_executable};
 pub use loader::{
     LoadResult, LoadResultWithSources, SkippedSkillDiagnostic, diagnose_skipped_skill_dir,

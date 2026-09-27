@@ -79,6 +79,12 @@ pub enum CuaRuntimeState {
     /// Installed and version-compatible, but not answering. `components ensure`
     /// may repair it.
     NotResponding,
+    /// The binary is present but liveness was not checked — no probe ran.
+    ///
+    /// The route is still the answer: it is named and the caller is told to
+    /// run the official preflight before use. This exists so a search handler
+    /// can offer the route without spawning a subprocess per request.
+    Unverified,
     /// Not installed at all. Installing requires explicit authorization.
     Missing,
     /// Installed but rejected by `components status` (for example a target or
@@ -89,10 +95,20 @@ pub enum CuaRuntimeState {
 }
 
 impl CuaRuntimeState {
-    /// Whether a caller may act on the recommendation right now.
+    /// Whether the route is confirmed usable right now.
     #[must_use]
     pub fn is_usable(self) -> bool {
         matches!(self, Self::Ready)
+    }
+
+    /// Whether the advice is still worth giving, as opposed to a blocker.
+    ///
+    /// `Unverified` is actionable: the route is named and correct, the caller
+    /// just has to run the official preflight first. Everything else that is
+    /// not `Ready` is a blocker that must be repaired or reported.
+    #[must_use]
+    pub fn is_actionable(self) -> bool {
+        matches!(self, Self::Ready | Self::Unverified)
     }
 
     /// One-line explanation used when the route is blocked.
@@ -100,6 +116,9 @@ impl CuaRuntimeState {
     pub fn blocker(self) -> &'static str {
         match self {
             Self::Ready => "dcc-cua is ready",
+            Self::Unverified => {
+                "dcc-cua is present but liveness was not checked; run `dcc-mcp-cli components status dcc-cua` and `dcc-cua ping` before use"
+            }
             Self::NotResponding => {
                 "dcc-cua is installed but not responding; run `dcc-mcp-cli components ensure dcc-cua --yes` when repair is authorized"
             }
@@ -208,11 +227,22 @@ pub fn build_fallback(trigger: FallbackTrigger, runtime: CuaRuntimeState) -> Sea
         }
     };
 
-    let (blocked, blocked_reason, message) = if runtime.is_usable() {
+    let (blocked, blocked_reason, message) = if runtime.is_actionable() {
+        let tail = if runtime.is_usable() {
+            String::new()
+        } else {
+            // Unverified: still the right route, just confirm it first.
+            format!(
+                " Run the official preflight before use — {}.",
+                runtime.blocker()
+            )
+        };
         (
             false,
             None,
-            format!("{why}; route the task to `{FALLBACK_SKILL}` (project-owned UI control)."),
+            format!(
+                "{why}; route the task to `{FALLBACK_SKILL}` (project-owned UI control).{tail}"
+            ),
         )
     } else {
         (

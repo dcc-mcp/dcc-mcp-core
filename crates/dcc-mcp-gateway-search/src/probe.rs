@@ -78,6 +78,71 @@ impl CuaRuntimeProbe for CliCuaProbe {
     }
 }
 
+/// Spawn-free probe: is the `dcc-cua` binary resolvable on `PATH`?
+///
+/// This is the probe for callers on a request hot path, such as an MCP search
+/// handler. It answers the one question that can be answered without starting a
+/// process — is the component installed at all — and reports
+/// [`CuaRuntimeState::Unverified`] rather than pretending to have confirmed
+/// liveness. A search request must not pay three subprocess spawns to answer a
+/// routing question.
+///
+/// Callers that need real liveness use [`CliCuaProbe`] instead, off the hot
+/// path.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct PathCuaProbe;
+
+impl PathCuaProbe {
+    #[must_use]
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl CuaRuntimeProbe for PathCuaProbe {
+    fn probe(&self) -> CuaRuntimeState {
+        if dcc_cua_on_path() {
+            CuaRuntimeState::Unverified
+        } else {
+            CuaRuntimeState::Missing
+        }
+    }
+}
+
+/// Resolve `dcc-cua` on `PATH` without spawning anything.
+///
+/// `PATHEXT` is honoured on Windows, where a bare `dcc-cua` entry is not
+/// executable but `dcc-cua.exe` is.
+fn dcc_cua_on_path() -> bool {
+    let Some(path_var) = std::env::var_os("PATH") else {
+        return false;
+    };
+    let extensions: Vec<String> = if cfg!(windows) {
+        std::env::var("PATHEXT")
+            .unwrap_or_else(|_| String::from(".EXE;.CMD;.BAT;.COM"))
+            .split(';')
+            .filter(|ext| !ext.is_empty())
+            .map(str::to_ascii_uppercase)
+            .collect()
+    } else {
+        Vec::new()
+    };
+
+    for dir in std::env::split_paths(&path_var) {
+        let candidate = dir.join(CUA_BIN);
+        if candidate.is_file() {
+            return true;
+        }
+        for ext in &extensions {
+            let with_ext = dir.join(format!("{CUA_BIN}{ext}"));
+            if with_ext.is_file() {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 /// Run `dcc-mcp-cli components status dcc-cua` and return its `status` field.
 fn component_status(timeout: Duration) -> Option<String> {
     let output = run(CLI_BIN, &["components", "status", "dcc-cua"], timeout)?;
@@ -89,14 +154,14 @@ fn component_status(timeout: Duration) -> Option<String> {
     Some(value.get("status")?.as_str()?.to_string())
 }
 
-/// Confirm the installed runtime answers `manifest` and `ping`.
+/// Confirm the installed runtime answers `ping`.
+///
+/// `components status` already validates the binary and reads its manifest
+/// (`dcc-mcp-cli/src/application/components.rs`), so re-running `manifest` here
+/// would be a second identical subprocess for no new information. Worst case
+/// for a full probe is therefore two spawns, not three.
 fn runtime_answers(timeout: Duration) -> bool {
-    let manifest = run(CUA_BIN, &["manifest"], timeout);
-    let ping = run(CUA_BIN, &["ping"], timeout);
-    matches!(
-        (manifest, ping),
-        (Some(m), Some(p)) if m.status.success() && p.status.success()
-    )
+    run(CUA_BIN, &["ping"], timeout).is_some_and(|out| out.status.success())
 }
 
 /// Spawn `program` with `args`, collecting output under a hard timeout.
@@ -105,13 +170,22 @@ fn runtime_answers(timeout: Duration) -> bool {
 /// does not finish in time — all of which mean "we could not determine the
 /// state", never "the runtime is unusable".
 fn run(program: &str, args: &[&str], timeout: Duration) -> Option<std::process::Output> {
-    let mut child = Command::new(program)
+    let mut command = Command::new(program);
+    command
         .args(args)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .ok()?;
+        .stderr(std::process::Stdio::null());
+    // `dcc-mcp-cli` / `dcc-cua` are console-subsystem binaries. Spawning them
+    // from a background gateway or sidecar would flash a console window on the
+    // user's desktop. Same fix as dcc-mcp-core#1738.
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    let mut child = command.spawn().ok()?;
 
     // Poll instead of blocking forever: a wedged component binary must not
     // wedge the search request that asked about it.

@@ -6,6 +6,7 @@ use crate::mcp_tool_catalog::parse_scope_label;
 use crate::rmcp_registry_context::RegistryContext;
 use crate::server_state::ServerState;
 use dcc_mcp_jsonrpc::CallToolResult;
+use dcc_mcp_skills::PathCuaProbe;
 
 use super::super::helpers::notify_tools_changed;
 use crate::mcp_tool_list_builder::group_stub_name;
@@ -469,10 +470,21 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_search_skills(
 
     let query_opt = if query.is_empty() { None } else { Some(query) };
     let scope_label = scope_filter.map(|scope| scope.label());
-    let matches =
-        state
-            .catalog
-            .search_skills(query_opt, &tags, dcc_filter, scope_filter, Some(limit));
+    // PIP-3702: use the fallback-aware variant so an unanswerable request gets
+    // an explicit route instead of an empty array with no next step.
+    //
+    // `PathCuaProbe` resolves the binary on PATH and spawns nothing: this is a
+    // per-request handler and must not pay for subprocess liveness checks. Real
+    // liveness stays the caller's job, per the official component contract.
+    let page = state.catalog.search_skills_with_fallback(
+        query_opt,
+        &tags,
+        dcc_filter,
+        scope_filter,
+        Some(limit),
+        &PathCuaProbe::new(),
+    );
+    let matches = page.hits;
     let remaining = limit.saturating_sub(matches.len());
     let skipped_matches: Vec<_> = state
         .catalog
@@ -485,6 +497,22 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_search_skills(
         .collect();
 
     if matches.is_empty() && skipped_matches.is_empty() {
+        // PIP-3702: an empty retrieval now carries the CUA route. Prefer it over
+        // the bare "no skills found" string, which left the agent with no next
+        // step. Never suggest a generic computer-use provider.
+        if let Some(fallback) = page.fallback {
+            let result = json!({
+                "total": 0,
+                "skill_total": 0,
+                "skipped_count": 0,
+                "query": query,
+                "skills": [],
+                "skipped": [],
+                "fallback": fallback,
+            });
+            return CallToolResult::text(serde_json::to_string(&result).unwrap_or_default());
+        }
+
         let text = if query.is_empty()
             && tags.is_empty()
             && dcc_filter.is_none()
@@ -522,7 +550,7 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_search_skills(
         })
         .collect();
 
-    let result = json!({
+    let mut result = json!({
         "total": matches.len() + skipped_matches.len(),
         "skill_total": matches.len(),
         "skipped_count": skipped_matches.len(),
@@ -530,6 +558,15 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_search_skills(
         "skills": compact_skills,
         "skipped": skipped_matches
     });
+
+    // PIP-3702: when no retrieved skill can do the job, return an explicit route
+    // to the project-owned `dcc-cua` skill with a reason code instead of an
+    // empty result array with no next step.
+    if let Some(fallback) = page.fallback
+        && let Some(obj) = result.as_object_mut()
+    {
+        obj.insert("fallback".to_string(), json!(fallback));
+    }
 
     CallToolResult::text(serde_json::to_string(&result).unwrap_or_default())
 }

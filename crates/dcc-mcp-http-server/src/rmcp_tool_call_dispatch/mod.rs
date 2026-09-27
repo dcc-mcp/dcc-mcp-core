@@ -314,6 +314,90 @@ mod tests {
         text
     }
 
+    /// PIP-3702 end-to-end: the fallback must be visible on the MCP surface,
+    /// not just inside the library. An empty retrieval with no route attached
+    /// is the exact behaviour this work set out to replace.
+    #[tokio::test]
+    async fn search_skills_returns_the_cua_route_when_nothing_can_serve_it() {
+        let registry = Arc::new(ToolRegistry::new());
+        let dispatcher = Arc::new(ToolDispatcher::new((*registry).clone()));
+        let catalog = Arc::new(SkillCatalog::new_with_dispatcher(
+            Arc::clone(&registry),
+            Arc::clone(&dispatcher),
+        ));
+        catalog.add_skill(SkillMetadata {
+            name: "maya-shot-export".to_string(),
+            description: "Export the current Maya shot".to_string(),
+            dcc: "maya".to_string(),
+            tools: vec![ToolDeclaration {
+                name: "maya_shot_export".to_string(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        });
+        let state = ServerState::builder(registry, dispatcher, catalog).build();
+
+        // Nothing in the catalog matches this at all.
+        let unanswerable = dispatch_rmcp_tool_call(
+            &state,
+            &ready_context(),
+            None,
+            "search_skills",
+            // A query with no lexical overlap at all, so retrieval is empty
+            // rather than merely weak. The weak-match case is covered by the
+            // low-confidence reason code in the search crate's own tests.
+            Some(json!({
+                "query": "zzqx jjvvw",
+                "limit": 20
+            })),
+            None,
+        )
+        .await
+        .expect("search_skills dispatch should succeed");
+        let payload = result_text_json(&unanswerable);
+        assert_eq!(
+            payload["skill_total"], 0,
+            "precondition: nothing in the catalog serves this request"
+        );
+
+        let fallback = &payload["fallback"];
+        assert!(
+            !fallback.is_null(),
+            "the MCP surface must forward the route to the caller: {payload}"
+        );
+        assert_eq!(fallback["skill"], "dcc-cua");
+        assert!(
+            fallback["reason"].is_string(),
+            "the caller needs a reason code to explain the route: {fallback}"
+        );
+        assert!(
+            fallback["preflight"].is_array(),
+            "the caller needs the official component commands: {fallback}"
+        );
+        assert!(
+            !fallback["message"].as_str().unwrap_or_default().is_empty(),
+            "the caller needs one sentence to hand to the user: {fallback}"
+        );
+
+        // A request the catalog can answer carries no advice at all.
+        let answerable = dispatch_rmcp_tool_call(
+            &state,
+            &ready_context(),
+            None,
+            "search_skills",
+            Some(json!({"query": "maya shot export", "limit": 20})),
+            None,
+        )
+        .await
+        .expect("search_skills dispatch should succeed");
+        let answerable_payload = result_text_json(&answerable);
+        assert_eq!(answerable_payload["skill_total"], 1);
+        assert!(
+            answerable_payload["fallback"].is_null(),
+            "an answered request must not advertise the route: {answerable_payload}"
+        );
+    }
+
     #[tokio::test]
     async fn search_tools_keeps_loaded_skill_search_hints_discoverable() {
         let registry = Arc::new(ToolRegistry::new());

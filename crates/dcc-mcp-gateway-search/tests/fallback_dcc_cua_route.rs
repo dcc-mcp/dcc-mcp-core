@@ -155,6 +155,64 @@ fn an_empty_index_is_not_reported_as_no_skill_can_do_this() {
 }
 
 #[test]
+fn a_query_side_filter_that_excluded_everything_is_not_no_candidate() {
+    // Regression: the candidate count must survive the query's own filters
+    // (`dcc_type`, `instance_id`, `loaded_only`, `tags`, `min_score`), not just
+    // count the rows handed in. Otherwise "the caller filtered everything out"
+    // is reported as "no skill can do this".
+    let mut records = corpus();
+    records[0].dcc_type = "maya".to_string();
+    records[1].dcc_type = "maya".to_string();
+
+    let page = search_page_with_fallback(
+        &records,
+        &SearchQuery {
+            query: "click through the vendor wizard".to_string(),
+            dcc_type: Some("unreal".to_string()),
+            ..Default::default()
+        },
+        ready_probe(),
+    );
+
+    assert!(page.hits.is_empty());
+    assert!(
+        page.fallback.is_none(),
+        "a dcc filter that excluded every row is not evidence that no skill can serve the request"
+    );
+}
+
+#[test]
+fn min_score_is_a_quality_bar_not_a_scope_filter() {
+    // `min_score` is applied after scoring and does not shrink the eligible
+    // set, so a bar nothing clears still means "nothing here was good enough" —
+    // which IS worth routing on. Contrast with `dcc_type` / `instance_id` /
+    // `loaded_only` / `tags`, which make rows ineligible before scoring and
+    // therefore must not trigger the route.
+    let page = search_page_with_fallback(
+        &corpus(),
+        &SearchQuery {
+            query: "export".to_string(),
+            min_score: Some(u32::MAX),
+            ..Default::default()
+        },
+        ready_probe(),
+    );
+
+    assert!(page.hits.is_empty(), "precondition: nothing clears the bar");
+    let fallback = page.fallback.expect("nothing met the caller's quality bar");
+    assert_eq!(fallback.reason, FALLBACK_REASON_NO_CANDIDATE);
+}
+
+#[test]
+fn empty_pages_never_fire_through_the_convenience_overload() {
+    // Documented limitation: `resolve_fallback` derives the candidate count
+    // from the page, so an empty page cannot yield `no_candidate`. Callers that
+    // can see the candidate set use `resolve_fallback_among`.
+    let page: Vec<dcc_mcp_gateway_search::SearchHit<Row>> = Vec::new();
+    assert!(dcc_mcp_gateway_search::resolve_fallback(&page, "wizard", ready_probe()).is_none());
+}
+
+#[test]
 fn an_empty_candidate_set_is_never_a_routing_decision() {
     // `resolve_fallback` only sees a ranked page, so it cannot tell "nothing
     // matched" from "nothing was eligible". Callers that filter before
