@@ -78,15 +78,24 @@ pub const FALLBACK_REASON_CUA_UNAVAILABLE: &str = "cua_runtime_unavailable";
 ///
 /// | query set | top-1 score | fires below 16 |
 /// |---|---|---|
-/// | GUI-only tasks no skill can serve (n=12) | 5–15, median 10 | 12 / 12 |
-/// | authored `search-hint` queries the corpus answers (n=26) | 8 and up | 6 / 26 |
+/// | GUI-only tasks no skill can serve (n=10) | 5–15 | 10 / 10 |
+/// | authored `search-hint` queries the corpus answers (n=26) | 8 and up | 9 / 26 |
 /// | skill-name queries (n=26) | 52 and up | 0 / 26 |
 ///
 /// This family shows the two distributions **overlapping in the 8–15 band**.
-/// The false positives are entirely generic one- and two-word queries
-/// (`greeting`, `chain`, `screenshot`, `USD stage`) — a property of the corpus,
-/// not of the ranker: S1's vocabulary work raises those scores and clears them
-/// at this same threshold.
+/// The 9 / 26 false positives are reproduced by
+/// `tests/fallback_threshold_calibration.rs`; they are:
+///
+/// `greeting` (8), `layered architecture` (8), `modeling recipe` (9),
+/// `USD stage` (10), `create sphere` (10), `chain` (11), `cancellation` (14),
+/// `screenshot` (14), `structured schema` (15).
+///
+/// Note that these are **not** all generic one- and two-word queries —
+/// `create sphere`, `structured schema`, `modeling recipe` and `layered
+/// architecture` are domain-bearing multi-word queries, and `create sphere` is
+/// a task the corpus can genuinely answer. The low scores are a property of
+/// the corpus, not of the ranker: S1's vocabulary work raises them and clears
+/// them at this same threshold.
 ///
 /// **Reading the two together:** the gate is a recall-versus-noise trade-off,
 /// not a clean separation. It is deliberately biased toward recall. The

@@ -6,11 +6,12 @@
 //! ranking `search_skills` returns, and that a caller that ignores the advice
 //! still gets byte-identical hits.
 
-use super::fixtures::{make_test_catalog, make_test_skill};
+use super::fixtures::{add_skill_with_scope, make_test_catalog, make_test_skill};
 use dcc_mcp_gateway_search::{
     CuaRuntimeState, FALLBACK_REASON_NO_CANDIDATE, FALLBACK_REASON_NO_EXECUTABLE_INTERFACE,
     FALLBACK_SKILL, StaticCuaProbe,
 };
+use dcc_mcp_models::SkillScope;
 
 const READY: StaticCuaProbe = StaticCuaProbe::new(CuaRuntimeState::Ready);
 const MISSING: StaticCuaProbe = StaticCuaProbe::new(CuaRuntimeState::Missing);
@@ -170,6 +171,34 @@ fn a_filter_that_excluded_everything_is_not_reported_as_no_candidate() {
     assert!(
         result.fallback.is_none(),
         "a shard filter that excluded every row is not a routing decision"
+    );
+}
+
+#[test]
+fn a_scope_filter_that_excluded_everything_is_not_a_routing_decision() {
+    // Regression: `scope` is applied post-ranking, so the candidate count must
+    // account for it. Otherwise "the caller asked for a scope with nothing in
+    // it" is reported as "no skill can do this".
+    let catalog = make_test_catalog();
+    add_skill_with_scope(
+        &catalog,
+        make_test_skill("maya-export-fbx", "maya", &["export_fbx"]),
+        SkillScope::Repo,
+    );
+
+    let result = catalog.search_skills_with_fallback(
+        Some("zzqx jjvvw"),
+        &[],
+        None,
+        Some(SkillScope::Admin),
+        None,
+        &READY,
+    );
+
+    assert!(result.hits.is_empty());
+    assert!(
+        result.fallback.is_none(),
+        "a scope filter that excluded every row is not a routing decision"
     );
 }
 

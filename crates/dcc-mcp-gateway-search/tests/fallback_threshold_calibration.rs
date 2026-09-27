@@ -151,11 +151,19 @@ fn every_gui_only_query_falls_below_the_gate() {
 }
 
 #[test]
-fn the_documented_overlap_still_exists() {
+fn the_false_positive_rate_stays_bounded() {
     // The gate is a recall/noise trade-off, not a clean separation: authored
-    // `search-hint` queries overlap the GUI-only band. Assert that the overlap
-    // is real and bounded, so a corpus change that eliminates it (or makes it
-    // total) forces the default to be re-measured rather than left stale.
+    // `search-hint` queries overlap the GUI-only band (9/26 at the time of
+    // writing).
+    //
+    // This asserts an UPPER bound, not a lower one. An improvement that lifts
+    // those queries over the gate is the expected direction of travel, so a
+    // lower bound here would turn a good PR red. A regression — the scorer
+    // degrading until most authored queries miss — still fails.
+    //
+    // The lower end of the calibration (name queries must clear the gate,
+    // GUI-only queries must fall below it) is pinned by the other two tests.
+    const MAX_FALSE_POSITIVE_RATIO: f64 = 0.5;
     let records = corpus();
     let gui_max = GUI_ONLY
         .iter()
@@ -187,15 +195,12 @@ fn the_documented_overlap_still_exists() {
     );
     let below = hints.iter().filter(|h| top1(h, &records) < GATE).count();
 
+    let allowed = (hints.len() as f64 * MAX_FALSE_POSITIVE_RATIO) as usize;
     assert!(
-        below > 0,
-        "the documented overlap is gone: no authored query falls below the gate \
-         (gui_max={gui_max}). The trade-off section in policy.rs is now wrong."
-    );
-    assert!(
-        below < hints.len(),
-        "every authored query now falls below the gate ({below}/{}); the gate is \
-         misfiring wholesale and must be re-measured",
+        below <= allowed,
+        "authored queries are missing the gate wholesale: {below}/{} fall below \
+         {GATE} (allowed at most {allowed}, gui_max={gui_max}). The scorer has \
+         degraded and the gate must be re-measured.",
         hints.len()
     );
 }

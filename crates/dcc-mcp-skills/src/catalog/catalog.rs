@@ -274,15 +274,28 @@ impl SkillCatalog {
         );
         // ── 3b. Explicit dcc-cua fallback (PIP-3702) ──
         //
-        // Judged on the *ranked* hits, before the scope filter and the limit,
-        // so a caller-side narrowing can never manufacture a fallback. The
-        // criteria themselves live in `dcc-mcp-gateway-search::policy`.
+        // Judged on the *ranked* hits, before the limit, so a page-size
+        // narrowing can never manufacture a fallback. The criteria themselves
+        // live in `dcc-mcp-gateway-search::policy`.
         let fallback: Option<SearchFallback> = probe.and_then(|probe| {
-            // `prefiltered.len()` is the true candidate count. Zero means the
-            // shard/tag/dcc filters excluded everything, or the catalog is
-            // empty — a discovery or configuration problem, not evidence that
-            // no skill can do the job.
-            resolve_fallback_among(&ranked_hits, q_trim, prefiltered.len(), probe)
+            // Candidates that survive *every* narrowing the caller asked for,
+            // including `scope`. The scope filter is applied post-ranking, so
+            // `prefiltered.len()` alone would over-count: a `scope=` that
+            // matched nothing would look like "no skill can do this" when it
+            // is really the caller's own filter. Zero means the shard/tag/dcc
+            // /scope filters excluded everything, or the catalog is empty — a
+            // discovery or configuration problem, not a routing decision.
+            let candidates = match scope {
+                None => prefiltered.len(),
+                Some(scope_filter) => {
+                    let label = scope_filter.label();
+                    prefiltered
+                        .iter()
+                        .filter(|entry| entry.value().scope.label().eq_ignore_ascii_case(label))
+                        .count()
+                }
+            };
+            resolve_fallback_among(&ranked_hits, q_trim, candidates, probe)
         });
         let ranked: Vec<SkillSummary> = ranked_hits
             .into_iter()
