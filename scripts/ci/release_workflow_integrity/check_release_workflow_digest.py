@@ -146,8 +146,17 @@ def _normalize_run(value: typing.Any) -> str:
     both edits invisible to the digest, so none of them are normalized. Only
     CRLF and lone CR are folded, which is what keeps the digest identical
     across Windows and Linux checkouts of the same commit.
+
+    Non-string values are refused rather than coerced. ``str(value)`` would give
+    ``run: true`` and ``run: 'true'`` one digest, and ``run: 123`` and
+    ``run: '123'`` another: two different documents collapsing into one digest
+    is a hole in a fail-closed control, however unlikely the input. No workflow
+    in the supported repositories uses a non-string ``run``, so this refuses
+    malformed input without moving any existing digest.
     """
-    return str(value).replace("\r\n", "\n").replace("\r", "\n")
+    if not isinstance(value, str):
+        raise DriftError(f"run blocks must be strings, got {value.__class__.__name__}")
+    return value.replace("\r\n", "\n").replace("\r", "\n")
 
 
 def _canonicalize(value: typing.Any, key: str = "") -> typing.Any:

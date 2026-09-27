@@ -318,6 +318,42 @@ def test_comment_line_inside_a_run_block_is_detected(tmp_path):
     assert release_workflow_digest(original) != release_workflow_digest(commented)
 
 
+def test_non_string_run_values_are_rejected(tmp_path):
+    """The canonical form must not fold two different documents into one digest.
+
+    Coercing with ``str(value)`` would give ``run: true`` and ``run: 'true'``
+    the same digest, and ``run: 123`` and ``run: '123'`` another. Neither
+    unquoted form is valid Actions syntax, so this is not exploitable today, but
+    a fail-closed control refuses malformed input instead of collapsing it.
+    """
+    boolean = _write(
+        tmp_path / "boolean.yml",
+        MINIMAL_WORKFLOW.replace("      - run: echo publish\n", "      - run: true\n"),
+    )
+    numeric = _write(
+        tmp_path / "numeric.yml",
+        MINIMAL_WORKFLOW.replace("      - run: echo publish\n", "      - run: 123\n"),
+    )
+    quoted = _write(
+        tmp_path / "quoted.yml",
+        MINIMAL_WORKFLOW.replace("      - run: echo publish\n", '      - run: "true"\n'),
+    )
+    quoted_other = _write(
+        tmp_path / "quoted_other.yml",
+        MINIMAL_WORKFLOW.replace("      - run: echo publish\n", '      - run: "True"\n'),
+    )
+
+    with pytest.raises(DriftError, match="run blocks must be strings"):
+        release_workflow_digest(boolean)
+
+    with pytest.raises(DriftError, match="run blocks must be strings"):
+        release_workflow_digest(numeric)
+
+    # The string forms stay usable and remain distinct from each other.
+    assert len(release_workflow_digest(quoted)) == 64
+    assert release_workflow_digest(quoted) != release_workflow_digest(quoted_other)
+
+
 @pytest.mark.skipif(
     sys.platform == "win32" or shutil.which("bash") is None,
     reason="the bash proof needs POSIX argv handling; Windows bash builds mangle a multi-line -c argument",

@@ -14,13 +14,22 @@ are tested here:
 
 from __future__ import annotations
 
-from pathlib import Path
+import pathlib
 import subprocess
 import sys
 
 import pytest
 
-from conftest import REPO_ROOT
+# Same guard as the sibling suite, for the same reason: this module drives the
+# checker and the installer in subprocesses, so it needs PyYAML too. Skipping
+# keeps a lane without PyYAML green instead of failing collection.
+yaml = pytest.importorskip("yaml", reason="the release workflow digest checker needs PyYAML")
+
+# Derived from this file rather than imported from conftest so the module runs
+# under `--noconftest`, which is how the release-workflow-integrity job invokes
+# it: that job installs only pytest and PyYAML, and tests/conftest.py imports
+# the compiled dcc_mcp_core extension at module scope.
+REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 KIT_DIR = REPO_ROOT / "scripts" / "ci" / "release_workflow_integrity"
 INSTALLER = KIT_DIR / "install_release_workflow_integrity.py"
@@ -48,7 +57,7 @@ jobs:
 """
 
 
-def _make_repository(tmp_path: Path) -> Path:
+def _make_repository(tmp_path: pathlib.Path) -> pathlib.Path:
     target = tmp_path / "repository"
     workflow = target / ".github" / "workflows"
     workflow.mkdir(parents=True)
@@ -56,7 +65,7 @@ def _make_repository(tmp_path: Path) -> Path:
     return target
 
 
-def _install(target: Path, *extra: str) -> subprocess.CompletedProcess:
+def _install(target: pathlib.Path, *extra: str) -> subprocess.CompletedProcess:
     return subprocess.run(
         [sys.executable, str(INSTALLER), "--target", str(target), *extra],
         capture_output=True,
@@ -64,7 +73,7 @@ def _install(target: Path, *extra: str) -> subprocess.CompletedProcess:
     )
 
 
-def _check(target: Path) -> subprocess.CompletedProcess:
+def _check(target: pathlib.Path) -> subprocess.CompletedProcess:
     return subprocess.run(
         [sys.executable, str(target / "scripts" / "ci" / "check_release_workflow_digest.py")],
         capture_output=True,
@@ -74,11 +83,12 @@ def _check(target: Path) -> subprocess.CompletedProcess:
 
 def test_installed_kit_files_match_the_templates() -> None:
     """A local edit to one repository's copy must not fork the kit silently."""
+    """A local edit to one repository's copy must not fork the kit silently."""
     assert INSTALLED_CHECKER.read_bytes() == TEMPLATE_CHECKER.read_bytes()
     assert INSTALLED_TEST.read_bytes() == TEMPLATE_TEST.read_bytes()
 
 
-def test_installer_populates_an_empty_repository(tmp_path: Path) -> None:
+def test_installer_populates_an_empty_repository(tmp_path: pathlib.Path) -> None:
     target = _make_repository(tmp_path)
 
     result = _install(target)
@@ -94,7 +104,7 @@ def test_installer_populates_an_empty_repository(tmp_path: Path) -> None:
     assert "integrity ok" in check.stdout
 
 
-def test_installed_check_fails_closed_on_a_real_change(tmp_path: Path) -> None:
+def test_installed_check_fails_closed_on_a_real_change(tmp_path: pathlib.Path) -> None:
     """The ported check has to bind the workflow, not merely agree with it once."""
     target = _make_repository(tmp_path)
     assert _install(target).returncode == 0
@@ -110,7 +120,7 @@ def test_installed_check_fails_closed_on_a_real_change(tmp_path: Path) -> None:
     assert "drifted" in check.stderr
 
 
-def test_installed_check_ignores_cosmetic_drift(tmp_path: Path) -> None:
+def test_installed_check_ignores_cosmetic_drift(tmp_path: pathlib.Path) -> None:
     """A reformat must not page a reviewer: only meaning moves the digest."""
     target = _make_repository(tmp_path)
     assert _install(target).returncode == 0
@@ -138,7 +148,7 @@ on:
     assert check.returncode == 0, check.stderr
 
 
-def test_installer_keeps_existing_files_without_force(tmp_path: Path) -> None:
+def test_installer_keeps_existing_files_without_force(tmp_path: pathlib.Path) -> None:
     target = _make_repository(tmp_path)
     assert _install(target).returncode == 0
 
@@ -152,7 +162,7 @@ def test_installer_keeps_existing_files_without_force(tmp_path: Path) -> None:
     assert "kept" in result.stdout
 
 
-def test_installer_force_restores_the_kit_copy(tmp_path: Path) -> None:
+def test_installer_force_restores_the_kit_copy(tmp_path: pathlib.Path) -> None:
     target = _make_repository(tmp_path)
     assert _install(target).returncode == 0
 
@@ -163,7 +173,7 @@ def test_installer_force_restores_the_kit_copy(tmp_path: Path) -> None:
     assert installed_checker.read_bytes() == TEMPLATE_CHECKER.read_bytes()
 
 
-def test_installer_refuses_a_target_without_a_release_workflow(tmp_path: Path) -> None:
+def test_installer_refuses_a_target_without_a_release_workflow(tmp_path: pathlib.Path) -> None:
     target = tmp_path / "empty"
     target.mkdir()
 
@@ -174,7 +184,7 @@ def test_installer_refuses_a_target_without_a_release_workflow(tmp_path: Path) -
 
 
 @pytest.mark.skipif(sys.version_info < (3, 8), reason="the installer reports paths with the 3.8+ repr")
-def test_installer_accepts_a_custom_workflow_path(tmp_path: Path) -> None:
+def test_installer_accepts_a_custom_workflow_path(tmp_path: pathlib.Path) -> None:
     """A non-default workflow path is snapshotable; binding it needs one edit.
 
     The installed checker resolves ``RELEASE_WORKFLOW`` from its own location,
@@ -187,7 +197,7 @@ def test_installer_accepts_a_custom_workflow_path(tmp_path: Path) -> None:
     workflow.mkdir(parents=True)
     (workflow / "publish.yml").write_text(MINIMAL_WORKFLOW, encoding="utf-8")
 
-    result = _install(target, "--workflow", str(Path("ci") / "publish.yml"))
+    result = _install(target, "--workflow", str(pathlib.Path("ci") / "publish.yml"))
 
     assert result.returncode == 0, result.stderr
     snapshot = target / "scripts" / "ci" / "approved_release_workflow.yml"
