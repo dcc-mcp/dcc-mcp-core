@@ -199,6 +199,12 @@ known-first-party = ["dcc_mcp_core"]
 "python/dcc_mcp_core/install_lifecycle_cli.py" = ["UP006", "UP007", "UP045"]
 "python/dcc_mcp_core/ui_control_server.py" = ["UP045"]
 "scripts/check_py37_syntax.py" = ["UP032"]  # intentional: f-strings are syntax errors on 3.7; verified by py37-syntax-check CI job. Enforced in CI via check-py37-syntax job.
+# Python 3.7 (Maya 2022) compat: the release workflow digest kit is shared
+# byte-for-byte with adapter repositories and keeps typing.Dict in annotations.
+"scripts/ci/check_release_workflow_digest.py" = ["UP006"]
+"scripts/ci/release_workflow_integrity/check_release_workflow_digest.py" = ["UP006"]
+# Mirrors the tests/*.py exemption: this is the template copy of a test module.
+"scripts/ci/release_workflow_integrity/test_release_workflow_integrity.py" = ["D103", "D202"]
 "__init__.py" = ["F401"]
 "tests/test_metadata_registration.py" = ["UP006", "UP007", "UP045"]
 "tests/test_cua_cli.py" = ["UP006"]
