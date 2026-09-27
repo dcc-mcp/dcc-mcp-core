@@ -1,6 +1,14 @@
 # AI Agent Guide — dcc-mcp-core
 
-> **Quick orientation for AI agents**: This guide teaches you how to effectively use dcc-mcp-core to interact with DCC (Digital Content Creation) software like Maya, Blender, Houdini, etc.
+> **Quick orientation for AI agents**: This guide teaches you how to effectively use
+> dcc-mcp-core to interact with DCC (Digital Content Creation) software like Maya,
+> Blender, Houdini, etc.
+>
+> **Division of labour** — this is a *how-to tutorial*.
+> [../../AGENTS.md](../../AGENTS.md) is the **single normative source** for repo rules,
+> commands, PR/merge policy, and traps; it is the only agent contract file at the repo
+> root. Where the two overlap, **`AGENTS.md` wins**. Vendor-specific notes belong under
+> `docs/integrations/`, not as extra root `*.md` files.
 
 ## Core Philosophy: Skills-First
 
@@ -88,7 +96,7 @@ that the binary matches the release manifest. This helper is the bootstrap
 trust boundary; after installation, gateway-driven updates additionally verify
 the release workflow's detached Sigstore provenance. If the Skill is unavailable,
 [download the official installer to a local file, inspect it, and then execute
-that file](docs/guide/getting-started.md#cli-from-the-dcc-mcp-skill). Never pipe
+that file](getting-started.md#cli-from-the-dcc-mcp-skill). Never pipe
 a remote installer directly into a shell or bypass the machine's script
 execution policy.
 
@@ -415,7 +423,7 @@ repeat in a session, and all three are already shipped:
    `force_steps`, `expected_spec_hash`, and `strict`. It re-drives the persisted run from the
    first non-completed step and needs `WorkflowStorage` + the `job-persist-sqlite` feature.
 
-Full normative text: [`docs/guide/agents-reference.md`](docs/guide/agents-reference.md#iteration-playbook).
+Full normative text: [`docs/guide/agents-reference.md`](agents-reference.md#iteration-playbook).
 
 Pure HTTP clients use the same REST endpoints directly: `POST /v1/search`, targeted `POST /v1/load_skill` or `POST /v1/describe` only when requested, `POST /v1/call`, and gateway `POST /v1/call_batch`. File failure feedback through gateway `POST /v1/feedback`; it remains available with zero live DCC instances and accepts last-known instance/request/job ids. Gateway REST returns compact TOON by default; send `Accept: application/json` or body `response_format: "json"` when a legacy JSON client needs compatibility. See `docs/guide/gateway.md` and `docs/guide/rest-api-surface.md`.
 
@@ -698,15 +706,15 @@ If you are uncertain whether a change affects py37 compatibility, ask. Never ass
 ## Further Reading
 
 - **Default entry skill**: [`dcc-mcp`](https://clawhub.ai/loonghao/skills/dcc-mcp) — install this public skill for CLI+REST DCC control
-- **CLI reference**: [`docs/guide/cli-reference.md`](docs/guide/cli-reference.md) — full `dcc-mcp-cli` command reference
-- **Navigation map**: [`AGENTS.md`](AGENTS.md) — start here for detailed rules
-- **API index**: [`llms.txt`](llms.txt) — compressed API reference for AI agents
-- **Skill authoring guide**: [`docs/guide/skills.md`](docs/guide/skills.md) — current SKILL.md + sibling-file pattern
-- **Skill ownership policy**: [`docs/POLICY_SKILL_OWNERSHIP.md`](docs/POLICY_SKILL_OWNERSHIP.md) — avoid duplicating bundled adapter file-operation skills
-- **Bundled examples**: [`examples/skills/`](examples/skills/) — complete SKILL.md packages
-- **Detailed traps**: [`docs/guide/agents-reference.md`](docs/guide/agents-reference.md)
-- **Lifecycle hooks reference**: [`docs/guide/agents-reference.md#lifecycle-hooks-typed-observerpub-sub-1337`](docs/guide/agents-reference.md#lifecycle-hooks-typed-observerpub-sub-1337)
-- **Agent memory reference**: [`docs/guide/agents-reference.md#agent-memory-three-tier-1334`](docs/guide/agents-reference.md#agent-memory-three-tier-1334)
+- **CLI reference**: [`docs/guide/cli-reference.md`](cli-reference.md) — full `dcc-mcp-cli` command reference
+- **Navigation map**: [`AGENTS.md`](../../AGENTS.md) — start here for detailed rules
+- **API index**: [`llms.txt`](../../llms.txt) — compressed API reference for AI agents
+- **Skill authoring guide**: [`docs/guide/skills.md`](skills.md) — current SKILL.md + sibling-file pattern
+- **Skill ownership policy**: [`docs/POLICY_SKILL_OWNERSHIP.md`](../POLICY_SKILL_OWNERSHIP.md) — avoid duplicating bundled adapter file-operation skills
+- **Bundled examples**: [`examples/skills/`](../../examples/skills/) — complete SKILL.md packages
+- **Detailed traps**: [`docs/guide/agents-reference.md`](agents-reference.md)
+- **Lifecycle hooks reference**: [`docs/guide/agents-reference.md#lifecycle-hooks-typed-observerpub-sub-1337`](agents-reference.md#lifecycle-hooks-typed-observerpub-sub-1337)
+- **Agent memory reference**: [`docs/guide/agents-reference.md#agent-memory-three-tier-1334`](agents-reference.md#agent-memory-three-tier-1334)
 
 ## Pro Tips for AI Agents
 
@@ -728,8 +736,8 @@ If you are uncertain whether a change affects py37 compatibility, ask. Never ass
 11. **Wire lifecycle hooks for policy control** — use `BEFORE_TOOL_CALL` + `HookDeny` to block dangerous operations without modifying tool code
 12. **Enable agent memory for smarter searches** — `MemoryRecorder` auto-injects `memory_prefer_tools`/`memory_avoid_tools` so search ranking improves over time
 13. **Use `register_all_builtin_skills` for a complete baseline** — one call registers diagnostics, introspection, feedback, recipes, UI inspector, and script materialization tools
-14. **Read `_meta` for request-level context** — tools receive `params._meta.agent_context` (caller identity), `credential_profile` (env tier), `permission_hint` (read-only/read-write), and `project_scope` (data isolation). See [agents-reference.md](docs/guide/agents-reference.md#request-level-context-passthrough-_meta----pip-520) for patterns.
-15. **Iterate without re-sending source** — reuse a materialized `file_path` with `reuse_key`, change values by re-sending `params`, and recover interrupted runs with `workflows_resume`. See the [Iteration Playbook](docs/guide/agents-reference.md#iteration-playbook).
+14. **Read `_meta` for request-level context** — tools receive `params._meta.agent_context` (caller identity), `credential_profile` (env tier), `permission_hint` (read-only/read-write), and `project_scope` (data isolation). See [agents-reference.md](agents-reference.md#request-level-context-passthrough-_meta----pip-520) for patterns.
+15. **Iterate without re-sending source** — reuse a materialized `file_path` with `reuse_key`, change values by re-sending `params`, and recover interrupted runs with `workflows_resume`. See the [Iteration Playbook](agents-reference.md#iteration-playbook).
 
 ---
 

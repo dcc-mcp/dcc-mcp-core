@@ -204,7 +204,7 @@ from dcc_mcp_core import (
 - [CLI 参考](/zh/guide/cli-reference) —— `dcc-mcp-server`、`dcc-mcp-tunnel-relay`、`dcc-mcp-tunnel-agent` 的完整旗标 + 典型部署场景
 - [网关争用与调试](/zh/guide/gateway-diagnostics) —— 多实例竞争、选举、心跳、ghost 清除、故障排查手册
 - [`AGENTS.md`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/AGENTS.md) —— AI Agent 接入核心规则
-- [`AI_AGENT_GUIDE.md`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/AI_AGENT_GUIDE.md) —— AI Agent 使用 dcc-mcp-core 的最佳实践
+- [`docs/guide/ai-agent-guide.md`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/docs/guide/ai-agent-guide.md) —— AI Agent 使用 dcc-mcp-core 的最佳实践
 
 ## 相关项目
 

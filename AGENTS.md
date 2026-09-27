@@ -3,11 +3,13 @@
 > **Navigation map, not a reference manual.**
 > Follow the links; don't read everything upfront. Keep detailed API guidance
 > in `llms.txt` / `llms-full.txt` and detailed human-readable explanations in
-> `docs/guide/*`. Agent-specific files (`CLAUDE.md`, `GEMINI.md`, `COPILOT.md`,
-> `CODEBUDDY.md`) intentionally point back here.
+> `docs/guide/*`. This file is the **only** agent contract file at the repo root
+> — `CLAUDE.md` / `GEMINI.md` / `COPILOT.md` / `CODEBUDDY.md` / `CURSOR.md` /
+> `ANTHROPIC.md` / `OPENAI.md` / `.cursorrules` are deliberately absent. Agents
+> that look for a vendor-named entry point should read this file.
 > Detailed rules, traps, and code examples → [`docs/guide/agents-reference.md`](docs/guide/agents-reference.md)
 
-**🤖 New to this project?** Start with [`AI_AGENT_GUIDE.md`](AI_AGENT_GUIDE.md) — a dedicated guide teaching AI agents how to effectively use dcc-mcp-core.
+**🤖 New to this project?** Start with [`docs/guide/ai-agent-guide.md`](docs/guide/ai-agent-guide.md) — a dedicated guide teaching AI agents how to effectively use dcc-mcp-core.
 
 ## ⚡ Critical: Skills-First Philosophy
 
@@ -124,7 +126,7 @@ Start a new agent turn after installation.
 | Layer | File | When to read it |
 |-------|------|-----------------|
 | Navigation | `AGENTS.md` (this file) | First contact |
-| AI agent entry-point stubs | `CLAUDE.md`, `GEMINI.md`, `COPILOT.md`, `CODEBUDDY.md` | Thin shims — each file just redirects its respective agent to **this** `AGENTS.md`. Edit them **only** to record agent-specific divergences; keep all shared guidance here so it stays single-sourced. |
+| AI agent tutorial | [`docs/guide/ai-agent-guide.md`](docs/guide/ai-agent-guide.md) | How to *use* dcc-mcp-core effectively — workflow, key concepts, common tasks, skill authoring |
 | AI-friendly index | `llms.txt` | When you need to *use* APIs |
 | Full index | `llms-full.txt` | When `llms.txt` lacks detail |
 | Detailed rules | [`docs/guide/agents-reference.md`](docs/guide/agents-reference.md) | Before writing code — traps, do/don't, code style |
@@ -251,7 +253,7 @@ Gateway resources/prompts:
   PR.
 
 **API surface** — read in this order:
-1. 🆕 **[`AI_AGENT_GUIDE.md`](AI_AGENT_GUIDE.md)** — **START HERE** for using dcc-mcp-core effectively
+1. 🆕 **[`docs/guide/ai-agent-guide.md`](docs/guide/ai-agent-guide.md)** — **START HERE** for using dcc-mcp-core effectively
 2. `llms.txt` — compact AI-friendly API index
 3. `llms-full.txt` — complete AI-friendly API index
 4. `python/dcc_mcp_core/__init__.py` — every top-level Python re-export
@@ -664,6 +666,7 @@ docs/            # human-readable guides + API reference
 - Don't add per-crate `*Error` enums → **return `DccMcpError` via `From` impls** (#488)
 - Don't break Python 3.7 support → **it is an LTS profile; native Linux + Windows cp37 gates are required, and py37-lite is not a substitute. See ADR 011 and `compatibility/python.json`**
 - Don't manually bump versions → **Release Please handles this**
+- Don't add `CLAUDE.md` / `GEMINI.md` / `COPILOT.md` / `CODEBUDDY.md` / `CURSOR.md` / `ANTHROPIC.md` / `OPENAI.md` / `.cursorrules` at the repo root → **`AGENTS.md` is the single source; `tests/test_agent_instruction_files.py` fails the build if extras reappear**
 - Don't hardcode scope strings → **use `SkillScope` when introspecting from Python and `SkillMetadata` methods for policy checks**
 - Don't add a generic `utils` / `common` / `helpers` crate → **route helpers to their owner: domain crate, `dcc-mcp-paths`, `dcc-mcp-logging`, or `dcc-mcp-pybridge`** ([rationale](docs/guide/agents-reference.md#workspace-boundary-rationale))
 
