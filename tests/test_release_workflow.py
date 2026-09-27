@@ -71,14 +71,9 @@ def test_pypi_publish_action_is_pinned_to_a_commit_sha() -> None:
     """
     steps = [step for job in _release_jobs().values() for step in _pypi_steps(job)]
     assert steps, f"no {PYPI_ACTION} step found in {RELEASE_WORKFLOW.name}"
-    bad = [
-        (step, _pypi_ref(step))
-        for step in steps
-        if not re.fullmatch(r"[0-9a-f]{40}", _pypi_ref(step))
-    ]
-    assert not bad, (
-        f"{PYPI_ACTION} must be pinned to a 40-hex commit SHA, not a mutable ref: "
-        + "; ".join(f"{ref!r} ({step.get('name') or step.get('uses')})" for step, ref in bad)
+    bad = [(step, _pypi_ref(step)) for step in steps if not re.fullmatch(r"[0-9a-f]{40}", _pypi_ref(step))]
+    assert not bad, f"{PYPI_ACTION} must be pinned to a 40-hex commit SHA, not a mutable ref: " + "; ".join(
+        f"{ref!r} ({step.get('name') or step.get('uses')})" for step, ref in bad
     )
 
 

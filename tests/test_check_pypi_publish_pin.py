@@ -8,7 +8,8 @@ are pinned here rather than left to be discovered by a real revert.
 
 from __future__ import annotations
 
-from scripts.check_pypi_publish_pin import HEX40_RE, scan_text
+from scripts.check_pypi_publish_pin import HEX40_RE
+from scripts.check_pypi_publish_pin import scan_text
 
 PINNED_SHA = "dc37677b2e1c63e2034f94d8a5b11f265b73ba33"
 
@@ -45,7 +46,7 @@ def test_a_version_tag_is_rejected() -> None:
 
 def test_a_commented_out_uses_line_is_ignored() -> None:
     """A commented-out invocation is documentation, not an invocation."""
-    text = f"      # - uses: pypa/gh-action-pypi-publish@release/v1\n"
+    text = "      # - uses: pypa/gh-action-pypi-publish@release/v1\n"
     assert _refs(text) == []
 
 
