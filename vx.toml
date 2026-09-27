@@ -8,28 +8,12 @@ python = "3.12"
 rust = "1.95"
 uv = "latest"
 
-[scripts]
-admin-build = "just admin-build"
-build = "just build"
-build-release = "cargo build --release"
-check = "just check"
-ci = "just ci"
-clean = "just clean"
-clippy = "just clippy"
-default = "just default"
-dev = "just dev"
-doc = "cargo doc"
-docs-check = "just docs-check"
-fmt = "just fmt"
-fmt-check = "just fmt-check"
-format = "cargo fmt"
-install = "just install"
-lint = "just lint"
-lint-fix = "just lint-fix"
-lint-py = "just lint-py"
-lint-py-fix = "just lint-py-fix"
-preflight = "just preflight"
-test = "just test"
-test-cov = "just test-cov"
-test-rust = "just test-rust"
-typecheck = "uv run mypy ."
+# No [scripts] here on purpose: every entry duplicated a justfile recipe, so
+# the two copies drifted silently whenever a recipe was renamed. Run
+# `just <recipe>` instead.
+#
+# Four entries were not verbatim `just xxx` mirrors and are handled explicitly:
+#   `typecheck`     (`uv run mypy .`)        -> new `typecheck` recipe
+#   `build-release` (`cargo build --release`) -> new `build-release` recipe
+#   `doc`           (`cargo doc`)            -> new `doc` recipe
+#   `format`        (`cargo fmt`)            -> covered by `fmt` (`cargo fmt --all`)

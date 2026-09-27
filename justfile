@@ -149,6 +149,12 @@ hakari-verify:
 
 # ── Standalone binaries ─────────────────────────────────────────────────────
 
+# Build the whole workspace in release mode (Rust artifacts only — no wheel).
+# Moved here from `vx.toml [scripts]`, where it duplicated nothing and therefore
+# survived every justfile rename without anyone noticing.
+build-release:
+    cargo build --release
+
 # Build dcc-mcp-cli for the current platform
 build-cli:
     cargo build --release -p dcc-mcp-cli
@@ -296,6 +302,12 @@ stubgen-check:
 
 # ── Docs ──────────────────────────────────────────────────────────────────────
 
+# Generate Rust API documentation (`target/doc`).
+# Moved here from `vx.toml [scripts]`. Distinct from `docs-check`, which builds
+# the VitePress site under `docs/`.
+doc:
+    cargo doc
+
 # Check VitePress docs build (catches dead links, syntax errors)
 docs-check:
     #!/usr/bin/env bash
@@ -324,6 +336,13 @@ docs-lint-playbook:
 lint-py:
     ruff check python/dcc_mcp_core/ tests/ examples/ scripts/
     ruff format --check python/dcc_mcp_core/ tests/ examples/ scripts/
+
+# Static type-check the Python sources. mypy is configured in
+# `pyproject.toml [tool.mypy]` and installed via the `dev` extra.
+# Moved here from `vx.toml [scripts]` (`typecheck = "uv run mypy ."`), which was
+# one of four entries in that table that were not `just xxx` mirrors.
+typecheck:
+    uv run mypy .
 
 # Lint bundled, example, and fixture skills with the built production CLI
 lint-skills: build-cli
