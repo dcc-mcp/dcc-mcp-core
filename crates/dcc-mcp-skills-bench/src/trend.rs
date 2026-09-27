@@ -1141,10 +1141,9 @@ mod tests {
     fn the_trend_markdown_names_all_three_dimensions() {
         let current = point("2026-02-02", fingerprint(26), 100);
         let mut with_hit_rate = current.clone();
-        with_hit_rate.hit_rate.insert(
-            TRACKED_LATENCY_GROUPS[0].to_string(),
-            HitRateSample::new(0.80, 0.85, 0.82),
-        );
+        with_hit_rate
+            .hit_rate
+            .insert(TRACKED_LATENCY_GROUPS[0].to_string(), passing_hit_rate());
         let report = compare(
             &history(vec![point("2026-01-26", fingerprint(26), 100)]),
             &with_hit_rate,
@@ -1175,13 +1174,25 @@ mod tests {
         assert!(text.contains("open an issue for latency triage"), "{text}");
     }
 
+    /// Hit rates that clear the gate, derived from the thresholds themselves.
+    ///
+    /// The gate moves when the corpus does — S1 (PIP-3701) raised top-1 from
+    /// 74% to 87.8% — so a literal here would fail the next time it moves for
+    /// a reason that has nothing to do with what this test is about.
+    fn passing_hit_rate() -> HitRateSample {
+        HitRateSample::new(
+            (thresholds::MIN_TOP1_300 + 1.0) / 2.0,
+            (thresholds::MIN_TOP5_300 + 1.0) / 2.0,
+            (thresholds::MIN_MRR10_300 + 1.0) / 2.0,
+        )
+    }
+
     #[test]
     fn only_the_gated_group_gets_a_hit_rate_verdict() {
         let mut current = point("2026-02-02", fingerprint(26), 100);
-        current.hit_rate.insert(
-            TRACKED_LATENCY_GROUPS[0].to_string(),
-            HitRateSample::new(0.80, 0.85, 0.82),
-        );
+        current
+            .hit_rate
+            .insert(TRACKED_LATENCY_GROUPS[0].to_string(), passing_hit_rate());
         current.hit_rate.insert(
             TRACKED_LATENCY_GROUPS[1].to_string(),
             HitRateSample::new(0.30, 0.40, 0.35),
