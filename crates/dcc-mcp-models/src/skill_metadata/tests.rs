@@ -686,3 +686,31 @@ fn test_tool_declaration_schema_null_when_omitted() {
     assert!(meta.tools[0].input_schema.is_null());
     assert!(meta.tools[0].output_schema.is_null());
 }
+
+/// `enforce_thread_affinity` used to be dropped by
+/// `skip_serializing_if = Not`, so an explicit `false` came back as `true`
+/// after one serialize/parse cycle. That made the skills-benchmark seed
+/// snapshot compare unequal to a live harvest of the same skills.
+#[test]
+fn enforce_thread_affinity_round_trips_through_json() {
+    for (json, expected) in [
+        (r#"{"name":"t","thread-affinity":"main"}"#, true),
+        (
+            r#"{"name":"t","thread-affinity":"main","enforce_thread_affinity":false}"#,
+            false,
+        ),
+        (r#"{"name":"t"}"#, false),
+    ] {
+        let parsed: ToolDeclaration = serde_json::from_str(json).expect("parses");
+        assert_eq!(
+            parsed.enforce_thread_affinity, expected,
+            "default for {json}"
+        );
+        let serialized = serde_json::to_string(&parsed).expect("serialises");
+        let reparsed: ToolDeclaration = serde_json::from_str(&serialized).expect("reparses");
+        assert_eq!(
+            reparsed.enforce_thread_affinity, expected,
+            "round trip changed the value for {json}: {serialized}"
+        );
+    }
+}
