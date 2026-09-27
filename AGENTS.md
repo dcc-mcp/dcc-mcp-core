@@ -3,10 +3,11 @@
 > **Navigation map, not a reference manual.**
 > Follow the links; don't read everything upfront. Keep detailed API guidance
 > in `llms.txt` / `llms-full.txt` and detailed human-readable explanations in
-> `docs/guide/*`. This file is the **only** agent contract file at the repo root
-> — `CLAUDE.md` / `GEMINI.md` / `COPILOT.md` / `CODEBUDDY.md` / `CURSOR.md` /
-> `ANTHROPIC.md` / `OPENAI.md` / `.cursorrules` are deliberately absent. Agents
-> that look for a vendor-named entry point should read this file.
+> `docs/guide/*`. **This file is the only agent contract file at the repository
+> root** — see [Agent Contract Files](#agent-contract-files). `CLAUDE.md` /
+> `GEMINI.md` / `COPILOT.md` / `CODEBUDDY.md` / `CURSOR.md` / `ANTHROPIC.md` /
+> `OPENAI.md` / `.cursorrules` are deliberately absent; agents that look for a
+> vendor-named entry point should read this file.
 > Detailed rules, traps, and code examples → [`docs/guide/agents-reference.md`](docs/guide/agents-reference.md)
 
 **🤖 New to this project?** Start with [`docs/guide/ai-agent-guide.md`](docs/guide/ai-agent-guide.md) — a dedicated guide teaching AI agents how to effectively use dcc-mcp-core.
@@ -120,6 +121,28 @@ Start a new agent turn after installation.
   force-push so the diff collapses to just the new work.
 - Final history on `main` must be linear: every PR lands as one (or a
   few) clean commits on top of `main`, no "Merge branch …" noise.
+
+## Agent Contract Files
+
+`AGENTS.md` is the **only** agent contract file at the repository root. It is the
+native instruction file for Codex, OpenCode, Cursor, GitHub Copilot, Windsurf,
+Cline, Roo Code, Kiro, Trae, and Augment, and Claude Code falls back to it when
+no `CLAUDE.md` exists. `CLAUDE.md`, `GEMINI.md`, `COPILOT.md`, and `CODEBUDDY.md`
+have been removed — they were byte-identical shims whose only unique line was
+their own filename, and every statement in them already lives below.
+
+**Gemini CLI exception:** Gemini CLI defaults its context file to `GEMINI.md`. To
+make it read `AGENTS.md`, set `context.fileName` once in `~/.gemini/settings.json`:
+
+```json
+{
+  "context": {
+    "fileName": ["AGENTS.md", "GEMINI.md"]
+  }
+}
+```
+
+---
 
 ## Document Hierarchy
 
