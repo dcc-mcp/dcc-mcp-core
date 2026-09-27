@@ -10,8 +10,9 @@ absent so guidance cannot drift across N hand-maintained copies.
 from __future__ import annotations
 
 from pathlib import Path
-import pytest
 import subprocess
+
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 # `AGENTS.md` is the single agent contract file at the repository root. Every
@@ -41,6 +42,7 @@ FORBIDDEN_TRACKED_PREFIXES = (
     ".multica/",
     ".agent_context/",
 )
+
 
 def _tracked_files() -> list[str]:
     """Return git-tracked paths, or ``[]`` when this is not a git checkout.
