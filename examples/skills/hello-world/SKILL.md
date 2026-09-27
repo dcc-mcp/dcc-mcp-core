@@ -10,6 +10,11 @@ allowed-tools: Bash Read
 metadata:
   dcc-mcp:
     dcc: python
+    recall-context:
+      app_type: python
+      domain: example
+      workflow_stage: bootstrap
+      task_category: query
     version: "1.0.0"
     layer: example
     search-hint: "greeting, hello, example, demo, test skill, starter"

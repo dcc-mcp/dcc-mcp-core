@@ -10,6 +10,11 @@ license: MIT
 metadata:
   dcc-mcp:
     dcc: python
+    recall-context:
+      app_type: python
+      domain: ui-automation
+      workflow_stage: diagnostics
+      task_category: query
     version: \"1.0.0\"
     layer: infrastructure
     search-hint: \"qt ui, qt widgets, gui introspection, find widget, describe widget, list windows, snapshot tree, wait for widget, PySide, PyQt, qtpy\"

@@ -12,6 +12,11 @@ license: MIT
 metadata:
   dcc-mcp:
     dcc: python
+    recall-context:
+      app_type: python
+      domain: diagnostics
+      workflow_stage: diagnostics
+      task_category: diagnose
     version: "1.1.0"
     layer: infrastructure
     search-hint: "error report, error log, failure, debug, maya error, blender error, houdini error, tool failed, mcp tool execution failed, screenshot, capture, audit log, metrics, performance, process monitor, diagnostics, health check, observability, job failed, job history, log file"

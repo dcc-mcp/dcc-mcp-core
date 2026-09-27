@@ -11,6 +11,11 @@ allowed-tools: Bash Read
 metadata:
   dcc-mcp:
     dcc: python
+    recall-context:
+      app_type: python
+      domain: marketplace
+      workflow_stage: authoring
+      task_category: query
     layer: example
     version: "1.0.0"
     search-hint: "clawhub, openclaw, marketplace, skill format, compatibility reference"

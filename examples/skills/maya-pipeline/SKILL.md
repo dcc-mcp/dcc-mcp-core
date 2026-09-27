@@ -12,6 +12,11 @@ allowed-tools: Bash Read Write
 metadata:
   dcc-mcp:
     dcc: maya
+    recall-context:
+      app_type: maya
+      domain: pipeline
+      workflow_stage: pipeline
+      task_category: export
     version: "2.0.0"
     layer: domain
     search-hint: "Maya project setup, export scene USD, asset pipeline, Maya export workflow, DCC pipeline orchestration"

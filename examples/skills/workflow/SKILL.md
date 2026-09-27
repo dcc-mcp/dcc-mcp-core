@@ -10,6 +10,11 @@ license: MIT
 metadata:
   dcc-mcp:
     dcc: python
+    recall-context:
+      app_type: python
+      domain: workflow
+      workflow_stage: pipeline
+      task_category: automate
     version: "1.0.0"
     layer: infrastructure
     search-hint: "chain, sequence, pipeline, multi-step, orchestration, workflow, batch, run steps, automate"

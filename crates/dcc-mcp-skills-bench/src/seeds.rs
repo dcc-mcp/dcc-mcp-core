@@ -182,6 +182,29 @@ pub fn seeds() -> Vec<SkillMetadata> {
     }
 }
 
+/// Every real seed: this repository's shipped skills plus the pinned
+/// cross-adapter harvest.
+///
+/// This is what the corpus is built from. The local snapshot alone is 26
+/// skills, which at `SCALE_300` leaves the synthetic generator filling nine
+/// rows in ten — the measurement then describes the filler, not the
+/// catalogue. See [`crate::adapters`].
+///
+/// The adapter snapshot is optional: a checkout that has lost or not yet
+/// generated it still benchmarks, on the local seeds alone, rather than
+/// failing. `adapters::tests::adapter_snapshot_is_committed_and_current`
+/// is what stops that from happening silently.
+#[must_use]
+pub fn all_seeds() -> Vec<SkillMetadata> {
+    let mut skills = seeds();
+    if let Some(set) = crate::adapters::load_committed() {
+        skills.extend(set.skills);
+    }
+    skills.sort_by(|a, b| a.name.cmp(&b.name));
+    skills.dedup_by(|a, b| a.name == b.name);
+    skills
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -9,6 +9,11 @@ compatibility: "dcc-mcp-core 0.19.91+, Python 3.7+"
 metadata:
   dcc-mcp:
     dcc: python
+    recall-context:
+      app_type: any
+      domain: interchange
+      workflow_stage: interchange
+      task_category: query
     layer: infrastructure
     stage: interchange
     version: "1.0.0"

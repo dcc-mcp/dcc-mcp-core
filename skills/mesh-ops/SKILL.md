@@ -13,6 +13,11 @@ allowed-tools: ["Read"]
 metadata:
   dcc-mcp:
     dcc: any
+    recall-context:
+      app_type: any
+      domain: modeling
+      workflow_stage: modeling
+      task_category: query
     layer: domain
     stage: modeling
     version: "1.0.0"

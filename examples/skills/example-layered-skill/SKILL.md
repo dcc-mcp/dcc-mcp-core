@@ -12,6 +12,11 @@ allowed-tools: Bash Read
 metadata:
   dcc-mcp:
     dcc: python
+    recall-context:
+      app_type: python
+      domain: authoring
+      workflow_stage: authoring
+      task_category: query
     version: "1.0.0"
     layer: example
     search-hint: "layered architecture, complex skill, services, utils, tools, asset pipeline reference, authoring reference"

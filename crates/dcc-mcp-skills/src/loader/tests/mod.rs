@@ -12,6 +12,7 @@ mod test_merge_depends;
 mod test_metadata_compat;
 mod test_next_tools;
 mod test_parse_skill_md;
+mod test_recall_context_field;
 mod test_scan_and_load;
 mod test_scan_and_load_lenient;
 mod test_scan_and_load_strict;

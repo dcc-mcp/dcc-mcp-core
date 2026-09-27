@@ -23,6 +23,11 @@ metadata:
     homepage: https://ffmpeg.org
   dcc-mcp:
     dcc: python
+    recall-context:
+      app_type: python
+      domain: media
+      workflow_stage: interchange
+      task_category: export
     version: "1.0.0"
     layer: infrastructure
     search-hint: "ffmpeg, video transcode, audio convert, extract frames, resize video, image sequence, media processing"

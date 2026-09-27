@@ -417,6 +417,7 @@ fn non_spec_top_level_suggestion(offending: &[String]) -> String {
             "branding" => "metadata.dcc-mcp.branding",
             "links" => "metadata.dcc-mcp.links",
             "example-prompts" | "example_prompts" => "metadata.dcc-mcp.example-prompts",
+            "recall-context" | "recall_context" => "metadata.dcc-mcp.recall-context",
             _ => "metadata.dcc-mcp.<key>",
         };
         replacements.push(format!("{key} -> {replacement}"));
@@ -591,6 +592,22 @@ fn apply_dcc_mcp_metadata_overrides(
             }
             "example-prompts" | "example_prompts" => {
                 meta.example_prompts = parse_csv_or_list(&value);
+            }
+            "recall-context" | "recall_context" => {
+                // Structured discovery context (`app_type`, `domain`,
+                // `workflow_stage`, `task_category`) — issues #1335 / #1336.
+                //
+                // Before PIP-3701 this key was authored in SKILL.md but fell
+                // through to the `unknown key` arm below, so shipped skills
+                // measured 0% RecallContext coverage even where the
+                // frontmatter declared all four fields. Parsing it here is
+                // what makes the coverage measurable at all.
+                if let Ok(ctx) =
+                    serde_yaml_ng::from_value::<dcc_mcp_models::RecallContext>(value.clone())
+                    && !ctx.is_empty()
+                {
+                    meta.recall_context = Some(ctx);
+                }
             }
             _ => {
                 tracing::debug!(

@@ -13,6 +13,11 @@ allowed-tools: Bash Read
 metadata:
   dcc-mcp:
     dcc: python
+    recall-context:
+      app_type: python
+      domain: ui-automation
+      workflow_stage: automation
+      task_category: mutate
     layer: infrastructure
     compatibility: Cross-platform routing contract. The current DCC-CUA host is installed and verified through the official dcc-mcp-cli component manifest; exact platform capabilities remain runtime-discovered.
     version: "0.1.0"

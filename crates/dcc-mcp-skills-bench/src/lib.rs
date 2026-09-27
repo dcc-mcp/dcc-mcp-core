@@ -18,7 +18,16 @@
 //! ```text
 //! cargo run --release -p dcc-mcp-skills-bench --bin skills-bench -- report
 //! cargo run --release -p dcc-mcp-skills-bench --bin skills-bench -- regenerate-seeds
+//! cargo run --release -p dcc-mcp-skills-bench --bin skills-bench -- harvest-adapters
 //! ```
+//!
+//! # Where the corpus comes from
+//!
+//! [`seeds`] harvests the skills this repository ships; [`adapters`] harvests
+//! the pinned catalogues of the DCC adapter repositories. Both snapshots are
+//! committed, so a run never depends on the working tree or on the network.
+//! [`synthetic`] fills the rest, and [`recall`] measures how much structured
+//! discovery metadata the real part carries.
 //!
 //! # Reading the numbers
 //!
@@ -29,10 +38,12 @@
 
 #![forbid(unsafe_code)]
 
+pub mod adapters;
 pub mod context;
 pub mod corpus;
 pub mod metrics;
 pub mod queries;
+pub mod recall;
 pub mod report;
 pub mod run;
 pub mod seeds;
@@ -42,4 +53,5 @@ pub mod thresholds;
 pub use corpus::Corpus;
 pub use metrics::{HitRates, Latency};
 pub use queries::{Query, QueryKind};
+pub use recall::RecallCoverage;
 pub use run::{Evaluation, Filter};

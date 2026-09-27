@@ -1,5 +1,5 @@
 {
-  "schema": "skills-corpus-v1",
+  "schema": "skills-corpus-v2",
   "roots": [
     "skills",
     "examples/skills",
@@ -158,7 +158,13 @@
       "metadata_files": [],
       "groups": [],
       "layer": "domain",
-      "stage": "source"
+      "stage": "source",
+      "recall_context": {
+        "app_type": "python",
+        "domain": "asset",
+        "workflow_stage": "source",
+        "task_category": "query"
+      }
     },
     {
       "name": "async-render-example",
@@ -168,6 +174,12 @@
       "allowed-tools": [],
       "metadata": {
         "dcc-mcp.dcc": "python",
+        "dcc-mcp.recall-context": {
+          "app_type": "python",
+          "domain": "rendering",
+          "workflow_stage": "authoring",
+          "task_category": "mutate"
+        },
         "dcc-mcp.version": "1.0.0",
         "dcc-mcp.layer": "example",
         "dcc-mcp.search-hint": "async tool, long-running, deferred hint, timeout hint, render async, authoring reference",
@@ -226,7 +238,13 @@
       "skill_path": "examples/skills/async-render-example",
       "metadata_files": [],
       "groups": [],
-      "layer": "example"
+      "layer": "example",
+      "recall_context": {
+        "app_type": "python",
+        "domain": "rendering",
+        "workflow_stage": "authoring",
+        "task_category": "mutate"
+      }
     },
     {
       "name": "cancellable-loop",
@@ -236,6 +254,12 @@
       "allowed-tools": [],
       "metadata": {
         "dcc-mcp.dcc": "python",
+        "dcc-mcp.recall-context": {
+          "app_type": "python",
+          "domain": "runtime",
+          "workflow_stage": "authoring",
+          "task_category": "query"
+        },
         "dcc-mcp.version": "1.0.0",
         "dcc-mcp.layer": "example",
         "dcc-mcp.search-hint": "cancellation, cancel, long-running, cooperative, check_cancelled, abort, authoring reference",
@@ -257,7 +281,13 @@
       "skill_path": "examples/skills/cancellable-loop",
       "metadata_files": [],
       "groups": [],
-      "layer": "example"
+      "layer": "example",
+      "recall_context": {
+        "app_type": "python",
+        "domain": "runtime",
+        "workflow_stage": "authoring",
+        "task_category": "query"
+      }
     },
     {
       "name": "clawhub-compat",
@@ -292,6 +322,12 @@
           ]
         },
         "dcc-mcp.dcc": "python",
+        "dcc-mcp.recall-context": {
+          "app_type": "python",
+          "domain": "marketplace",
+          "workflow_stage": "authoring",
+          "task_category": "query"
+        },
         "dcc-mcp.layer": "example",
         "dcc-mcp.version": "1.0.0",
         "dcc-mcp.search-hint": "clawhub, openclaw, marketplace, skill format, compatibility reference",
@@ -315,7 +351,13 @@
       "skill_path": "examples/skills/clawhub-compat",
       "metadata_files": [],
       "groups": [],
-      "layer": "example"
+      "layer": "example",
+      "recall_context": {
+        "app_type": "python",
+        "domain": "marketplace",
+        "workflow_stage": "authoring",
+        "task_category": "query"
+      }
     },
     {
       "name": "dcc-cua",
@@ -332,6 +374,12 @@
           "homepage": "https://github.com/dcc-mcp/dcc-mcp-core/tree/main/skills/dcc-cua"
         },
         "dcc-mcp.dcc": "python",
+        "dcc-mcp.recall-context": {
+          "app_type": "python",
+          "domain": "ui-automation",
+          "workflow_stage": "automation",
+          "task_category": "mutate"
+        },
         "dcc-mcp.layer": "infrastructure",
         "dcc-mcp.compatibility": "Cross-platform routing contract. The current DCC-CUA host is installed and verified through the official dcc-mcp-cli component manifest; exact platform capabilities remain runtime-discovered.",
         "dcc-mcp.version": "0.1.0",
@@ -356,7 +404,13 @@
       "skill_path": "skills/dcc-cua",
       "metadata_files": [],
       "groups": [],
-      "layer": "infrastructure"
+      "layer": "infrastructure",
+      "recall_context": {
+        "app_type": "python",
+        "domain": "ui-automation",
+        "workflow_stage": "automation",
+        "task_category": "mutate"
+      }
     },
     {
       "name": "dcc-diagnostics",
@@ -366,6 +420,12 @@
       "allowed-tools": [],
       "metadata": {
         "dcc-mcp.dcc": "python",
+        "dcc-mcp.recall-context": {
+          "app_type": "python",
+          "domain": "diagnostics",
+          "workflow_stage": "diagnostics",
+          "task_category": "diagnose"
+        },
         "dcc-mcp.version": "1.0.0",
         "dcc-mcp.layer": "infrastructure",
         "dcc-mcp.search-hint": "screenshot, capture, audit log, metrics, performance, process monitor, diagnostics, debug, health check, observability",
@@ -545,7 +605,13 @@
       "skill_path": "examples/skills/dcc-diagnostics",
       "metadata_files": [],
       "groups": [],
-      "layer": "infrastructure"
+      "layer": "infrastructure",
+      "recall_context": {
+        "app_type": "python",
+        "domain": "diagnostics",
+        "workflow_stage": "diagnostics",
+        "task_category": "diagnose"
+      }
     },
     {
       "name": "example-layered-skill",
@@ -558,6 +624,12 @@
       ],
       "metadata": {
         "dcc-mcp.dcc": "python",
+        "dcc-mcp.recall-context": {
+          "app_type": "python",
+          "domain": "authoring",
+          "workflow_stage": "authoring",
+          "task_category": "query"
+        },
         "dcc-mcp.version": "1.0.0",
         "dcc-mcp.layer": "example",
         "dcc-mcp.search-hint": "layered architecture, complex skill, services, utils, tools, asset pipeline reference, authoring reference",
@@ -695,7 +767,13 @@
       "metadata_files": [],
       "groups": [],
       "prompts_file": "prompts/system.md",
-      "layer": "example"
+      "layer": "example",
+      "recall_context": {
+        "app_type": "python",
+        "domain": "authoring",
+        "workflow_stage": "authoring",
+        "task_category": "query"
+      }
     },
     {
       "name": "ffmpeg-media",
@@ -729,6 +807,12 @@
           "homepage": "https://ffmpeg.org"
         },
         "dcc-mcp.dcc": "python",
+        "dcc-mcp.recall-context": {
+          "app_type": "python",
+          "domain": "media",
+          "workflow_stage": "interchange",
+          "task_category": "export"
+        },
         "dcc-mcp.version": "1.0.0",
         "dcc-mcp.layer": "infrastructure",
         "dcc-mcp.search-hint": "ffmpeg, video transcode, audio convert, extract frames, resize video, image sequence, media processing",
@@ -831,7 +915,13 @@
       "skill_path": "examples/skills/ffmpeg-media",
       "metadata_files": [],
       "groups": [],
-      "layer": "infrastructure"
+      "layer": "infrastructure",
+      "recall_context": {
+        "app_type": "python",
+        "domain": "media",
+        "workflow_stage": "interchange",
+        "task_category": "export"
+      }
     },
     {
       "name": "forgecad-primitives",
@@ -844,6 +934,12 @@
       ],
       "metadata": {
         "dcc-mcp.dcc": "forgecad",
+        "dcc-mcp.recall-context": {
+          "app_type": "forgecad",
+          "domain": "modeling",
+          "workflow_stage": "authoring",
+          "task_category": "mutate"
+        },
         "dcc-mcp.version": "1.0.0",
         "dcc-mcp.layer": "domain",
         "dcc-mcp.search-hint": "create cube, create cylinder, create cone, forgecad, cad primitives",
@@ -937,7 +1033,13 @@
       "skill_path": "tests/fixtures/skills/forgecad-primitives",
       "metadata_files": [],
       "groups": [],
-      "layer": "domain"
+      "layer": "domain",
+      "recall_context": {
+        "app_type": "forgecad",
+        "domain": "modeling",
+        "workflow_stage": "authoring",
+        "task_category": "mutate"
+      }
     },
     {
       "name": "git-automation",
@@ -959,6 +1061,12 @@
           "homepage": "https://git-scm.com"
         },
         "dcc-mcp.dcc": "python",
+        "dcc-mcp.recall-context": {
+          "app_type": "python",
+          "domain": "automation",
+          "workflow_stage": "pipeline",
+          "task_category": "mutate"
+        },
         "dcc-mcp.version": "1.0.0",
         "dcc-mcp.layer": "infrastructure",
         "dcc-mcp.search-hint": "git commit, git diff, git branch, git log, version control, codebase analysis, git history",
@@ -1043,7 +1151,13 @@
       "skill_path": "examples/skills/git-automation",
       "metadata_files": [],
       "groups": [],
-      "layer": "infrastructure"
+      "layer": "infrastructure",
+      "recall_context": {
+        "app_type": "python",
+        "domain": "automation",
+        "workflow_stage": "pipeline",
+        "task_category": "mutate"
+      }
     },
     {
       "name": "hello-world",
@@ -1056,6 +1170,12 @@
       ],
       "metadata": {
         "dcc-mcp.dcc": "python",
+        "dcc-mcp.recall-context": {
+          "app_type": "python",
+          "domain": "example",
+          "workflow_stage": "bootstrap",
+          "task_category": "query"
+        },
         "dcc-mcp.version": "1.0.0",
         "dcc-mcp.layer": "example",
         "dcc-mcp.search-hint": "greeting, hello, example, demo, test skill, starter",
@@ -1077,7 +1197,13 @@
       "skill_path": "examples/skills/hello-world",
       "metadata_files": [],
       "groups": [],
-      "layer": "example"
+      "layer": "example",
+      "recall_context": {
+        "app_type": "python",
+        "domain": "example",
+        "workflow_stage": "bootstrap",
+        "task_category": "query"
+      }
     },
     {
       "name": "imagemagick-tools",
@@ -1109,6 +1235,12 @@
           "homepage": "https://imagemagick.org"
         },
         "dcc-mcp.dcc": "python",
+        "dcc-mcp.recall-context": {
+          "app_type": "python",
+          "domain": "imaging",
+          "workflow_stage": "interchange",
+          "task_category": "mutate"
+        },
         "dcc-mcp.version": "1.0.0",
         "dcc-mcp.layer": "infrastructure",
         "dcc-mcp.search-hint": "imagemagick, resize image, convert texture, composite, watermark, batch image, thumbnail",
@@ -1241,7 +1373,13 @@
       "skill_path": "examples/skills/imagemagick-tools",
       "metadata_files": [],
       "groups": [],
-      "layer": "infrastructure"
+      "layer": "infrastructure",
+      "recall_context": {
+        "app_type": "python",
+        "domain": "imaging",
+        "workflow_stage": "interchange",
+        "task_category": "mutate"
+      }
     },
     {
       "name": "marketplace-create-extension",
@@ -1258,6 +1396,12 @@
           "homepage": "https://github.com/dcc-mcp/dcc-mcp-core/blob/main/skills/marketplace-create-extension/SKILL.md"
         },
         "dcc-mcp.dcc": "python",
+        "dcc-mcp.recall-context": {
+          "app_type": "python",
+          "domain": "marketplace",
+          "workflow_stage": "authoring",
+          "task_category": "mutate"
+        },
         "dcc-mcp.version": "0.18.9",
         "dcc-mcp.layer": "infrastructure",
         "dcc-mcp.search-hint": "create marketplace extension, scaffold extension package, new skill package, SKILL.md generator, marketplace entry, extension authoring",
@@ -1385,7 +1529,13 @@
       "skill_path": "skills/marketplace-create-extension",
       "metadata_files": [],
       "groups": [],
-      "layer": "infrastructure"
+      "layer": "infrastructure",
+      "recall_context": {
+        "app_type": "python",
+        "domain": "marketplace",
+        "workflow_stage": "authoring",
+        "task_category": "mutate"
+      }
     },
     {
       "name": "marketplace-publish-extension",
@@ -1402,6 +1552,12 @@
           "homepage": "https://github.com/dcc-mcp/dcc-mcp-core/blob/main/skills/marketplace-publish-extension/SKILL.md"
         },
         "dcc-mcp.dcc": "python",
+        "dcc-mcp.recall-context": {
+          "app_type": "python",
+          "domain": "marketplace",
+          "workflow_stage": "publishing",
+          "task_category": "export"
+        },
         "dcc-mcp.version": "0.18.9",
         "dcc-mcp.layer": "infrastructure",
         "dcc-mcp.search-hint": "publish extension, register extension, marketplace catalog, upsert catalog entry, marketplace.json, extension publishing, release to marketplace",
@@ -1584,7 +1740,13 @@
       "skill_path": "skills/marketplace-publish-extension",
       "metadata_files": [],
       "groups": [],
-      "layer": "infrastructure"
+      "layer": "infrastructure",
+      "recall_context": {
+        "app_type": "python",
+        "domain": "marketplace",
+        "workflow_stage": "publishing",
+        "task_category": "export"
+      }
     },
     {
       "name": "maya-geometry",
@@ -1598,6 +1760,12 @@
       ],
       "metadata": {
         "dcc-mcp.dcc": "maya",
+        "dcc-mcp.recall-context": {
+          "app_type": "maya",
+          "domain": "modeling",
+          "workflow_stage": "authoring",
+          "task_category": "mutate"
+        },
         "dcc-mcp.version": "1.0.0",
         "dcc-mcp.layer": "domain",
         "dcc-mcp.search-hint": "create sphere, create cube, bevel edges, extrude faces, polygon modeling, Maya mesh, 3D primitives, rigging joint",
@@ -1760,7 +1928,13 @@
           "default-active": false
         }
       ],
-      "layer": "domain"
+      "layer": "domain",
+      "recall_context": {
+        "app_type": "maya",
+        "domain": "modeling",
+        "workflow_stage": "authoring",
+        "task_category": "mutate"
+      }
     },
     {
       "name": "maya-pipeline",
@@ -1774,6 +1948,12 @@
       ],
       "metadata": {
         "dcc-mcp.dcc": "maya",
+        "dcc-mcp.recall-context": {
+          "app_type": "maya",
+          "domain": "pipeline",
+          "workflow_stage": "pipeline",
+          "task_category": "export"
+        },
         "dcc-mcp.version": "2.0.0",
         "dcc-mcp.layer": "domain",
         "dcc-mcp.search-hint": "Maya project setup, export scene USD, asset pipeline, Maya export workflow, DCC pipeline orchestration",
@@ -1888,7 +2068,13 @@
         "examples/skills/maya-pipeline/metadata/uninstall.md"
       ],
       "groups": [],
-      "layer": "domain"
+      "layer": "domain",
+      "recall_context": {
+        "app_type": "maya",
+        "domain": "pipeline",
+        "workflow_stage": "pipeline",
+        "task_category": "export"
+      }
     },
     {
       "name": "media",
@@ -1898,6 +2084,12 @@
       "allowed-tools": [],
       "metadata": {
         "dcc-mcp.dcc": "python",
+        "dcc-mcp.recall-context": {
+          "app_type": "python",
+          "domain": "media",
+          "workflow_stage": "interchange",
+          "task_category": "export"
+        },
         "dcc-mcp.version": "0.1.0",
         "dcc-mcp.layer": "infrastructure",
         "dcc-mcp.search-hint": "media, ffmpeg, ffprobe, vx ffmpeg, image sequence, render output, playblast, mp4, transcode, extract frames, thumbnail, probe video",
@@ -2328,7 +2520,13 @@
       "skill_path": "python/dcc_mcp_core/skills/media",
       "metadata_files": [],
       "groups": [],
-      "layer": "infrastructure"
+      "layer": "infrastructure",
+      "recall_context": {
+        "app_type": "python",
+        "domain": "media",
+        "workflow_stage": "interchange",
+        "task_category": "export"
+      }
     },
     {
       "name": "mesh-ops",
@@ -2340,6 +2538,12 @@
       ],
       "metadata": {
         "dcc-mcp.dcc": "any",
+        "dcc-mcp.recall-context": {
+          "app_type": "any",
+          "domain": "modeling",
+          "workflow_stage": "modeling",
+          "task_category": "query"
+        },
         "dcc-mcp.layer": "domain",
         "dcc-mcp.stage": "modeling",
         "dcc-mcp.version": "1.0.0",
@@ -2384,6 +2588,12 @@
       "groups": [],
       "layer": "domain",
       "stage": "modeling",
+      "recall_context": {
+        "app_type": "any",
+        "domain": "modeling",
+        "workflow_stage": "modeling",
+        "task_category": "query"
+      },
       "recipes_file": "RECIPES.yaml"
     },
     {
@@ -2397,6 +2607,12 @@
       ],
       "metadata": {
         "dcc-mcp.dcc": "python",
+        "dcc-mcp.recall-context": {
+          "app_type": "python",
+          "domain": "automation",
+          "workflow_stage": "authoring",
+          "task_category": "mutate"
+        },
         "dcc-mcp.version": "1.0.0",
         "dcc-mcp.layer": "example",
         "dcc-mcp.search-hint": "multi-script, cross-platform, python shell batch, script types, authoring reference",
@@ -2497,7 +2713,13 @@
       "skill_path": "examples/skills/multi-script",
       "metadata_files": [],
       "groups": [],
-      "layer": "example"
+      "layer": "example",
+      "recall_context": {
+        "app_type": "python",
+        "domain": "automation",
+        "workflow_stage": "authoring",
+        "task_category": "mutate"
+      }
     },
     {
       "name": "qt-ui-inspector",
@@ -2507,6 +2729,12 @@
       "allowed-tools": [],
       "metadata": {
         "dcc-mcp.dcc": "python",
+        "dcc-mcp.recall-context": {
+          "app_type": "python",
+          "domain": "ui-automation",
+          "workflow_stage": "diagnostics",
+          "task_category": "query"
+        },
         "dcc-mcp.version": "\\\"1.0.0\\\"",
         "dcc-mcp.layer": "infrastructure",
         "dcc-mcp.search-hint": "\\\"qt ui, qt widgets, gui introspection, find widget, describe widget, list windows, snapshot tree, wait for widget, PySide, PyQt, qtpy\\\"",
@@ -2717,7 +2945,13 @@
       "skill_path": "python/dcc_mcp_core/skills/qt-ui-inspector",
       "metadata_files": [],
       "groups": [],
-      "layer": "infrastructure"
+      "layer": "infrastructure",
+      "recall_context": {
+        "app_type": "python",
+        "domain": "ui-automation",
+        "workflow_stage": "diagnostics",
+        "task_category": "query"
+      }
     },
     {
       "name": "spatial-interchange",
@@ -2727,6 +2961,12 @@
       "allowed-tools": [],
       "metadata": {
         "dcc-mcp.dcc": "python",
+        "dcc-mcp.recall-context": {
+          "app_type": "any",
+          "domain": "interchange",
+          "workflow_stage": "interchange",
+          "task_category": "query"
+        },
         "dcc-mcp.layer": "infrastructure",
         "dcc-mcp.stage": "interchange",
         "dcc-mcp.version": "1.0.0",
@@ -3060,7 +3300,13 @@
       "metadata_files": [],
       "groups": [],
       "layer": "infrastructure",
-      "stage": "interchange"
+      "stage": "interchange",
+      "recall_context": {
+        "app_type": "any",
+        "domain": "interchange",
+        "workflow_stage": "interchange",
+        "task_category": "query"
+      }
     },
     {
       "name": "typed-schema-demo",
@@ -3070,6 +3316,12 @@
       "allowed-tools": [],
       "metadata": {
         "dcc-mcp.dcc": "python",
+        "dcc-mcp.recall-context": {
+          "app_type": "python",
+          "domain": "authoring",
+          "workflow_stage": "authoring",
+          "task_category": "query"
+        },
         "dcc-mcp.version": "1.0.0",
         "dcc-mcp.layer": "example",
         "dcc-mcp.search-hint": "structured schema, dataclass, json schema, inputSchema, outputSchema, typed handler, pydantic-free",
@@ -3091,7 +3343,13 @@
       "skill_path": "examples/skills/typed-schema-demo",
       "metadata_files": [],
       "groups": [],
-      "layer": "example"
+      "layer": "example",
+      "recall_context": {
+        "app_type": "python",
+        "domain": "authoring",
+        "workflow_stage": "authoring",
+        "task_category": "query"
+      }
     },
     {
       "name": "ui-control",
@@ -3101,6 +3359,12 @@
       "allowed-tools": [],
       "metadata": {
         "dcc-mcp.dcc": "python",
+        "dcc-mcp.recall-context": {
+          "app_type": "python",
+          "domain": "ui-automation",
+          "workflow_stage": "automation",
+          "task_category": "mutate"
+        },
         "dcc-mcp.version": "0.5.0",
         "dcc-mcp.layer": "infrastructure",
         "dcc-mcp.search-hint": "dcc ui control, ui control, UI Control, cua, CUA, dcc-cua, dcc cua, computer use, ui automation, chrome cdp, edge cdp, screenshot, click, type, keypress, scroll, wait, trajectory recording",
@@ -3774,7 +4038,13 @@
       "skill_path": "python/dcc_mcp_core/skills/ui-control",
       "metadata_files": [],
       "groups": [],
-      "layer": "infrastructure"
+      "layer": "infrastructure",
+      "recall_context": {
+        "app_type": "python",
+        "domain": "ui-automation",
+        "workflow_stage": "automation",
+        "task_category": "mutate"
+      }
     },
     {
       "name": "usd-tools",
@@ -3797,6 +4067,12 @@
           "homepage": "https://openusd.org"
         },
         "dcc-mcp.dcc": "python",
+        "dcc-mcp.recall-context": {
+          "app_type": "python",
+          "domain": "usd",
+          "workflow_stage": "interchange",
+          "task_category": "query"
+        },
         "dcc-mcp.version": "1.0.0",
         "dcc-mcp.layer": "infrastructure",
         "dcc-mcp.search-hint": "USD stage, prim, schema validation, layer stack, usda, usdc, usdz, usdchecker, usdcat, raw USD file",
@@ -3882,7 +4158,13 @@
       "skill_path": "examples/skills/usd-tools",
       "metadata_files": [],
       "groups": [],
-      "layer": "infrastructure"
+      "layer": "infrastructure",
+      "recall_context": {
+        "app_type": "python",
+        "domain": "usd",
+        "workflow_stage": "interchange",
+        "task_category": "query"
+      }
     },
     {
       "name": "verification",
@@ -3892,6 +4174,12 @@
       "allowed-tools": [],
       "metadata": {
         "dcc-mcp.dcc": "python",
+        "dcc-mcp.recall-context": {
+          "app_type": "python",
+          "domain": "verification",
+          "workflow_stage": "verification",
+          "task_category": "verify"
+        },
         "dcc-mcp.version": "0.1.0",
         "dcc-mcp.layer": "infrastructure",
         "dcc-mcp.search-hint": "verification, capture, image stats, luma, histogram, comparison sheet, scene spec, uv coverage, blank frame, review views",
@@ -4143,7 +4431,13 @@
       "skill_path": "python/dcc_mcp_core/skills/verification",
       "metadata_files": [],
       "groups": [],
-      "layer": "infrastructure"
+      "layer": "infrastructure",
+      "recall_context": {
+        "app_type": "python",
+        "domain": "verification",
+        "workflow_stage": "verification",
+        "task_category": "verify"
+      }
     },
     {
       "name": "workflow",
@@ -4153,6 +4447,12 @@
       "allowed-tools": [],
       "metadata": {
         "dcc-mcp.dcc": "python",
+        "dcc-mcp.recall-context": {
+          "app_type": "python",
+          "domain": "workflow",
+          "workflow_stage": "pipeline",
+          "task_category": "automate"
+        },
         "dcc-mcp.version": "1.0.0",
         "dcc-mcp.layer": "infrastructure",
         "dcc-mcp.search-hint": "chain, sequence, pipeline, multi-step, orchestration, workflow, batch, run steps, automate",
@@ -4237,7 +4537,13 @@
       "skill_path": "examples/skills/workflow",
       "metadata_files": [],
       "groups": [],
-      "layer": "infrastructure"
+      "layer": "infrastructure",
+      "recall_context": {
+        "app_type": "python",
+        "domain": "workflow",
+        "workflow_stage": "pipeline",
+        "task_category": "automate"
+      }
     }
   ]
 }

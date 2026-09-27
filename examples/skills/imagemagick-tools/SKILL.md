@@ -22,6 +22,11 @@ metadata:
     homepage: https://imagemagick.org
   dcc-mcp:
     dcc: python
+    recall-context:
+      app_type: python
+      domain: imaging
+      workflow_stage: interchange
+      task_category: mutate
     version: "1.0.0"
     layer: infrastructure
     search-hint: "imagemagick, resize image, convert texture, composite, watermark, batch image, thumbnail"

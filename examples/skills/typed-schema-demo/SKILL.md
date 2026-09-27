@@ -10,6 +10,11 @@ compatibility: Python 3.10+
 metadata:
   dcc-mcp:
     dcc: python
+    recall-context:
+      app_type: python
+      domain: authoring
+      workflow_stage: authoring
+      task_category: query
     version: "1.0.0"
     layer: example
     search-hint: "structured schema, dataclass, json schema, inputSchema, outputSchema, typed handler, pydantic-free"

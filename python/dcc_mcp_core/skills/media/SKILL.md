@@ -10,6 +10,11 @@ compatibility: Uses vx on PATH; non-read-only media tools can bootstrap vx with 
 metadata:
   dcc-mcp:
     dcc: python
+    recall-context:
+      app_type: python
+      domain: media
+      workflow_stage: interchange
+      task_category: export
     version: "0.1.0"
     layer: infrastructure
     search-hint: "media, ffmpeg, ffprobe, vx ffmpeg, image sequence, render output, playblast, mp4, transcode, extract frames, thumbnail, probe video"

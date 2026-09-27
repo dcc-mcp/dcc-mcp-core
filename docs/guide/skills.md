@@ -973,6 +973,35 @@ Parsed from agentskills.io `SKILL.md` frontmatter plus sibling files referenced 
 | `compatibility` | `str` | Environment requirements, max 500 chars (agentskills.io spec) |
 | `allowed_tools` | `List[str]` | Pre-approved tools (agentskills.io spec, experimental) |
 | `external_deps` | `str \| None` | External dependency declaration as JSON string (MCP servers, env vars, binaries). Set via `md.external_deps = json.dumps(deps)`, read via `json.loads(md.external_deps)`. See [Skill Scopes & Policies](skill-scopes-policies.md) for the full schema. |
+| `recall_context` | `RecallContext \| None` | Structured discovery context from `metadata.dcc-mcp.recall-context` — `app_type`, `domain`, `workflow_stage`, `task_category`. All four fields are optional; a missing field is `None` ("unknown"). See [Recall Context](#recall-context) below. |
+
+## Recall Context
+
+`metadata.dcc-mcp.recall-context` tells discovery where a capability lives in
+the DCC universe, so the ranker can separate candidates on structured signal
+instead of text similarity alone. Every field is optional — a skill that does
+not opt in loads exactly as before:
+
+```yaml
+metadata:
+  dcc-mcp:
+    dcc: maya
+    recall-context:
+      app_type: maya          # "maya", "blender", "houdini", "any", …
+      domain: modeling        # "modeling", "rigging", "rendering", "io", "diagnostics", …
+      workflow_stage: authoring   # adapter-owned vocabulary
+      task_category: mutate   # "query", "mutate", "export", "import", "diagnose", …
+```
+
+`app_type` and `domain` are free strings, but keep them to one token from a
+small vocabulary: the value is only useful if two skills that belong together
+spell it the same way. `workflow_stage` is owned by the adapter (Maya uses
+`bootstrap` / `scene` / `authoring` / `interchange` / `pipeline`); core stays
+vocabulary-agnostic.
+
+Core's own shipped skills all four fields set, and
+`dcc-mcp-skills-bench` reports coverage for the whole real seed pool so the
+number cannot silently fall. See `benchmarks/skills/README.md`.
 
 ## Tool Groups (Progressive Exposure)
 

@@ -12,6 +12,11 @@ allowed-tools: Bash Read Write
 metadata:
   dcc-mcp:
     dcc: python
+    recall-context:
+      app_type: python
+      domain: marketplace
+      workflow_stage: authoring
+      task_category: mutate
     version: "0.18.9"  # x-release-please-version
     layer: infrastructure
     search-hint: >-
