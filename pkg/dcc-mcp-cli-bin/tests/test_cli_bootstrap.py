@@ -24,6 +24,11 @@ import pytest
 #: has replaced the unpacked binary.
 NATIVE_BINARY = b"\x7fELF\x02\x01\x01\x00 synthetic stand-in for the release binary\n"
 
+#: Stand-in for a newer release applied by `dcc-mcp-cli update`. Deliberately
+#: a different length: a self-update replaces the binary in place and the
+#: replacement is never the same size as the one the wheel unpacked.
+NEWER_BINARY = b"\x7fELF\x02\x01\x01\x00 synthetic stand-in for the NEWER release binary\n"
+
 
 @pytest.fixture
 def payload_dir_path(tmp_path):
@@ -162,8 +167,15 @@ def test_reinstalled_console_launcher_forces_a_reunpack(payload, bin_dir, monkey
     assert second.read_bytes() == NATIVE_BINARY
 
 
-def test_binary_replaced_by_a_different_file_forces_a_reunpack(payload, bin_dir, monkeypatch):
-    """A binary whose size no longer matches the marker is re-unpacked."""
+def test_binary_replaced_by_a_foreign_file_forces_a_reunpack(payload, bin_dir, monkeypatch):
+    """A file that is not an executable at all is re-unpacked.
+
+    A size mismatch alone must not trigger this: `dcc-mcp-cli update`
+    replaces the binary in place and the replacement is never the same
+    length, so rejecting it would undo the update. What still has to be
+    re-unpacked is a file that is not a native executable, which is what a
+    foreign or clobbered file looks like.
+    """
     monkeypatch.setattr(_bootstrap, "_binary_names", lambda: ("dcc-mcp-cli", "dcc-mcp-cli-bin"))
 
     first = _bootstrap.resolve_binary()
@@ -171,6 +183,39 @@ def test_binary_replaced_by_a_different_file_forces_a_reunpack(payload, bin_dir,
 
     second = _bootstrap.resolve_binary()
     assert second.read_bytes() == NATIVE_BINARY
+
+
+def test_self_updated_binary_survives_the_next_launch(payload, bin_dir, monkeypatch):
+    """A staged self-update is not re-unpacked on the next wrapper launch.
+
+    Regression: the marker fingerprinted the size of the binary the wheel
+    unpacked, so the differently sized binary a self-update left behind read
+    as a damaged install and the wrapper silently restored the old one.
+    """
+    monkeypatch.setattr(_bootstrap, "_binary_names", lambda: ("dcc-mcp-cli", "dcc-mcp-cli-bin"))
+
+    first = _bootstrap.resolve_binary()
+    # The next launch replaces the running binary in place with a newer
+    # release, which is never the same length as the unpacked one.
+    first.write_bytes(NEWER_BINARY)
+
+    second = _bootstrap.resolve_binary()
+    assert second == first
+    assert second.read_bytes() == NEWER_BINARY
+
+
+def test_self_updated_binary_refreshes_the_recorded_size(payload, bin_dir, monkeypatch):
+    """Accepting a self-updated binary re-records its size in the marker."""
+    monkeypatch.setattr(_bootstrap, "_binary_names", lambda: ("dcc-mcp-cli", "dcc-mcp-cli-bin"))
+
+    first = _bootstrap.resolve_binary()
+    first.write_bytes(NEWER_BINARY)
+    _bootstrap.resolve_binary()
+
+    marker = json.loads(_bootstrap.marker_path(bin_dir).read_text(encoding="utf-8"))
+    assert marker["binary_size"] == len(NEWER_BINARY)
+    # The wrapper matches the marker against the wheel payload by version.
+    assert marker["version"] == "9.9.9"
 
 
 def test_marker_without_a_size_fingerprint_still_rejects_launchers(payload, bin_dir, monkeypatch):

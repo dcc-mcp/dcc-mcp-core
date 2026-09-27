@@ -2,8 +2,8 @@
 //!
 //! Several features treat "the directory next to the executable" as the
 //! install boundary: the `dcc-cua` companion component lands beside it, the
-//! package-manager marker that disables self-update is read from beside it,
-//! and the gateway binary is looked up beside it.
+//! package-manager provenance marker is read from beside it, and the gateway
+//! binary is looked up beside it.
 //!
 //! Package managers are free to expose the binary through a symlink instead of
 //! putting it where `PATH` points. WinGet portable installs are the common
@@ -16,7 +16,7 @@
 //! i.e. the symlink, so every `parent()` derived from it lands in the Links
 //! directory: `dcc-cua` is reported `missing` even when it is installed next
 //! to the real binary, and the package-manager marker is never found — which
-//! silently re-enables self-update for a package-managed install.
+//! silently hides that this copy was installed by a package manager.
 //!
 //! [`current_exe`] resolves the link first so all of those agree on one
 //! directory. This mirrors what the updater crate already does when it stages

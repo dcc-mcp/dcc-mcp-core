@@ -14,8 +14,9 @@ properties fall out of that choice:
   dcc-cua`` installs its companion executable as a sibling of
   ``current_exe``, so a single directory keeps the component contract intact.
 * The unpacked binary is package-manager owned. A marker file next to it
-  (``dcc-mcp-cli.package-manager.json``) tells the CLI that self-update is
-  disabled and that upgrades belong to the package manager.
+  (``dcc-mcp-cli.package-manager.json``) records that provenance, so the CLI
+  can report which manager installed this copy and which version that manager
+  still has on record.
 """
 
 from __future__ import annotations
@@ -57,6 +58,20 @@ _EXECUTABLE_MODE = 0o755
 #: never does, which is how a reinstalled launcher is told apart from the
 #: binary it replaced.
 _LAUNCHER_MAGIC = b"#!"
+
+#: Leading bytes of the executable formats the CLI is released as. Any of
+#: them is accepted regardless of the host platform: a wheel always ships the
+#: platform it was built for, but a reinstall of the *same* wheel version is
+#: caught by the launcher check above, not by matching the host here.
+_NATIVE_MAGICS = (
+    b"\x7fELF",  # Linux / most Unix
+    b"MZ",  # Windows PE
+    b"\xca\xfe\xba\xbe",  # macOS universal (fat) binary
+    b"\xcf\xfa\xed\xfe",  # macOS x86_64 / arm64
+    b"\xce\xfa\xed\xfe",  # macOS 32-bit
+    b"\xfe\xed\xfa\xcf",  # macOS big-endian 64-bit
+    b"\xfe\xed\xfa\xce",  # macOS big-endian 32-bit
+)
 
 
 class PayloadError(RuntimeError):
@@ -211,6 +226,26 @@ def _is_launcher(path: Path) -> bool:
         return True
 
 
+def _is_native_executable(path: Path) -> bool:
+    """Report whether ``path`` starts with a native executable header.
+
+    Args:
+        path: Candidate binary sitting next to the marker.
+
+    Returns:
+        ``True`` when the first bytes are the magic of one of the executable
+        formats the CLI is released as. A console script, a text file and a
+        foreign data file all lack them.
+
+    """
+    try:
+        with path.open("rb") as stream:
+            header = stream.read(max(len(magic) for magic in _NATIVE_MAGICS))
+    except OSError:
+        return False
+    return any(header.startswith(magic) for magic in _NATIVE_MAGICS)
+
+
 def _binary_is_intact(path: Path, marker: dict) -> bool:
     """Report whether ``path`` still holds the binary ``marker`` describes.
 
@@ -219,8 +254,19 @@ def _binary_is_intact(path: Path, marker: dict) -> bool:
         marker: Parsed package-manager marker.
 
     Returns:
-        ``True`` when the file is neither a console-script launcher nor a
-        differently sized file than the one that was unpacked.
+        ``True`` when the file is still usable: it is not a console-script
+        launcher, and it either matches the recorded fingerprint or is a
+        native executable.
+
+        A size mismatch on its own is not damage. ``dcc-mcp-cli update
+        apply`` stages a newer binary and the next launch replaces the file
+        in place, and the replacement is never the same length as the one
+        the wheel unpacked. Rejecting it would re-unpack the wheel's older
+        binary and silently undo the update on the very next wrapper
+        launch, so a differently sized file is accepted while it still
+        looks like a real executable. Launchers stay rejected on their own
+        (see :func:`_is_launcher`) and a file that is not an executable at
+        all is still re-unpacked.
 
     """
     if _is_launcher(path):
@@ -231,9 +277,11 @@ def _binary_is_intact(path: Path, marker: dict) -> bool:
         # launcher check alone so an older installation is not orphaned.
         return True
     try:
-        return path.stat().st_size == recorded
+        if path.stat().st_size == recorded:
+            return True
     except OSError:
         return False
+    return _is_native_executable(path)
 
 
 def _find_existing(payload: dict) -> Path | None:
@@ -245,8 +293,38 @@ def _find_existing(payload: dict) -> Path | None:
         for name in _binary_names():
             candidate = directory / name
             if candidate.is_file() and _binary_is_intact(candidate, marker):
+                _refresh_size_fingerprint(directory, marker, candidate)
                 return candidate
     return None
+
+
+def _refresh_size_fingerprint(directory: Path, marker: dict, binary: Path) -> None:
+    """Re-record the binary size when a self-update made it go stale.
+
+    A staged self-update replaces the binary without touching the marker, so
+    the fingerprint stays at the size the wheel unpacked. Rewriting it keeps
+    the fingerprint meaningful for the next launch instead of leaving it
+    permanently behind.
+
+    The write is best effort: an install directory the current user cannot
+    write to must not stop the CLI from launching.
+
+    Args:
+        directory: Directory holding the marker and the binary.
+        marker: Parsed package-manager marker.
+        binary: Binary whose size should be recorded.
+
+    """
+    recorded = marker.get("binary_size")
+    try:
+        actual = binary.stat().st_size
+    except OSError:
+        return
+    if recorded == actual and not isinstance(recorded, bool):
+        return
+    updated = dict(marker)
+    updated["binary_size"] = actual
+    _write_marker_file(directory, updated)
 
 
 def _extract(archive: Path, member: str, destination: Path) -> None:
@@ -307,10 +385,25 @@ def _write_marker(directory: Path, payload: dict, binary_name: str) -> None:
     # console script cannot be mistaken for a healthy installation.
     with contextlib.suppress(OSError):
         marker["binary_size"] = (directory / binary_name).stat().st_size
+    _write_marker_file(directory, marker)
+
+
+def _write_marker_file(directory: Path, marker: dict) -> None:
+    """Write ``marker`` into ``directory``, replacing it atomically.
+
+    Args:
+        directory: Directory that owns the unpacked binary.
+        marker: Marker contents to persist.
+
+    """
     directory.mkdir(parents=True, exist_ok=True)
     temporary = directory / (PACKAGE_MANAGER_MARKER + ".tmp")
-    temporary.write_text(json.dumps(marker, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    temporary.replace(marker_path(directory))
+    with contextlib.suppress(OSError):
+        temporary.write_text(json.dumps(marker, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        temporary.replace(marker_path(directory))
+        return
+    with contextlib.suppress(OSError):
+        temporary.unlink()
 
 
 def _archive_digest(archive: Path, expected: str | None) -> None:

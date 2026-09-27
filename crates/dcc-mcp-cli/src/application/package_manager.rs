@@ -1,15 +1,19 @@
-//! Detection for package-manager-owned installations.
+//! Provenance for package-manager-owned installations.
 //!
-//! `dcc-mcp-cli update apply` replaces `current_exe` on the next launch. When a
-//! package manager owns that file, replacing it fights the manager's version
-//! authority: `pip install --upgrade dcc-mcp-cli` and a self-applied binary
-//! update would keep overwriting each other. Package-managed installations must
-//! therefore upgrade through the package manager, which is what Homebrew's
-//! packaging policy requires as well.
+//! Package managers that install `dcc-mcp-cli` (the PyPI wrapper in
+//! `pkg/dcc-mcp-cli-bin`, WinGet, Homebrew taps, ...) drop a marker file next
+//! to the binary they unpack. It records *who* installed this copy and *which*
+//! file in the directory is the real binary: on Windows the pip-generated
+//! console script stays the running image, so the wrapper unpacks the
+//! executable as `dcc-mcp-cli-bin.exe` beside it.
 //!
-//! The GitHub Release build keeps self-update. The PyPI wrapper
-//! (`pkg/dcc-mcp-cli-bin`) writes a marker file next to the binary it unpacks,
-//! and that marker is the contract between the two:
+//! The marker is provenance, not a lock. `dcc-mcp-cli update apply` stays
+//! enabled for **every** install, package-managed ones included, because
+//! updating through the CLI is the supported flow everywhere. Self-update
+//! replaces the running binary in place, so afterwards the version the manager
+//! records no longer matches the file on disk; the CLI reports that as an
+//! advisory and names the manager's own upgrade command. Re-running that
+//! command (or reinstalling the wheel) restores the recorded version.
 //!
 //! ```json
 //! {
@@ -29,7 +33,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use anyhow::{Context, bail};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 /// Marker file written by package managers that install this CLI.
 pub const MARKER_FILE_NAME: &str = "dcc-mcp-cli.package-manager.json";
@@ -54,26 +60,92 @@ pub struct PackageManagerMarker {
 }
 
 impl PackageManagerMarker {
-    /// Human-readable instruction shown when self-update is refused.
+    /// Human-readable way to bring the manager's own record back in sync.
+    ///
+    /// Self-update is never refused, so this is not an alternative to
+    /// `dcc-mcp-cli update apply`: it is the optional follow-up that makes
+    /// the manager's metadata agree with the binary that is now on disk.
     pub fn upgrade_hint(&self) -> String {
         match self.manager.as_str() {
             "pypi" => "upgrade it with your Python package manager, for example \
                        `uv tool upgrade dcc-mcp-cli`, `pipx upgrade dcc-mcp-cli`, or \
                        `pip install --upgrade dcc-mcp-cli`"
                 .to_string(),
-            other => format!("upgrade it through {other} instead of `dcc-mcp-cli update apply`"),
+            other => format!("re-install or upgrade this package through {other}"),
         }
     }
 
-    /// Message returned by `dcc-mcp-cli update apply`.
-    pub fn blocked_message(&self) -> String {
+    /// Advisory returned by `dcc-mcp-cli update apply` after staging an update.
+    ///
+    /// Package-managed installs self-update too, so this does not refuse
+    /// anything: it tells the caller which version the manager still records,
+    /// because the staged update will move the binary past that record.
+    pub fn advisory_message(&self) -> String {
         format!(
-            "dcc-mcp-cli {} is managed by the {} package manager; {}",
-            self.version,
+            "the update will replace this binary in place on the next launch; the {} package manager \
+             will still record version {}. To re-sync its metadata afterwards, {}",
             self.manager,
+            self.version,
             self.upgrade_hint()
         )
     }
+}
+
+/// Re-record the binary fingerprint after a staged self-update replaced it.
+///
+/// `dcc-mcp-cli update apply` stages a newer binary and the next launch
+/// replaces `current_exe` with it. The PyPI wrapper installed beside it
+/// fingerprints the file it unpacked by size, so a marker left untouched
+/// reads as a damaged install: the next wrapper launch re-unpacks the
+/// wheel's older binary and silently undoes the update, with no error for
+/// the user. Re-record the size of the file that is now on disk instead.
+///
+/// `version` is deliberately left at the version the package manager
+/// recorded. The wrapper matches a marker against the wheel payload by
+/// version, so rewriting it to the self-updated version would make the
+/// marker stop matching and trigger exactly the re-unpack this prevents.
+/// The drift stays visible through [`PackageManagerMarker::advisory_message`].
+///
+/// Unknown marker keys are preserved, so a marker written by a newer wrapper
+/// keeps any field this build does not know about.
+///
+/// `current_exe` is resolved first, so a package manager that exposes the
+/// binary through a symlink updates the marker beside the real binary.
+pub fn record_self_updated_size(current_exe: &Path) -> anyhow::Result<()> {
+    let resolved = crate::application::current_exe::resolve(current_exe);
+    let path = marker_path_for(&resolved).context("cannot place a package manager marker")?;
+    if !path.is_file() {
+        // Direct install: nothing fingerprints the binary, so there is
+        // nothing to keep in sync.
+        return Ok(());
+    }
+
+    let raw =
+        fs::read_to_string(&path).with_context(|| format!("cannot read {}", path.display()))?;
+    let mut marker: serde_json::Map<String, Value> = serde_json::from_str(&raw)
+        .with_context(|| format!("{} is not a JSON object", path.display()))?;
+
+    let size = fs::metadata(&resolved)
+        .with_context(|| format!("cannot stat {}", resolved.display()))?
+        .len();
+    marker.insert("binary_size".into(), Value::from(size));
+    write_marker(&path, &marker)
+}
+
+/// Write `marker` to `path`, replacing it in one step.
+///
+/// The temporary file sits beside the target so the replace is atomic within
+/// one filesystem, matching how the PyPI wrapper writes the same marker.
+fn write_marker(path: &Path, marker: &serde_json::Map<String, Value>) -> anyhow::Result<()> {
+    let serialized = serde_json::to_string_pretty(marker).context("cannot serialize the marker")?;
+    let temporary = path.with_extension("json.tmp");
+    fs::write(&temporary, format!("{serialized}\n"))
+        .with_context(|| format!("cannot write {}", temporary.display()))?;
+    if let Err(error) = fs::rename(&temporary, path) {
+        let _ = fs::remove_file(&temporary);
+        bail!("cannot replace {}: {error}", path.display());
+    }
+    Ok(())
 }
 
 /// Return the marker path that governs the executable at `current_exe`.
@@ -89,8 +161,8 @@ pub fn marker_path_for(current_exe: &Path) -> Option<PathBuf> {
 /// `current_exe` is resolved first, so a package manager that exposes the
 /// binary through a symlink (WinGet portable links it from
 /// `Microsoft\WinGet\Links`) is still detected from the marker it wrote next
-/// to the real binary. Without this the "package-managed installs must not
-/// self-update" rule silently stops applying.
+/// to the real binary. Without this the provenance marker next to the real
+/// binary would never be found.
 pub fn read_marker_for(current_exe: &Path) -> Option<PackageManagerMarker> {
     let resolved = crate::application::current_exe::resolve(current_exe);
     let path = marker_path_for(&resolved)?;
@@ -201,20 +273,134 @@ mod tests {
     }
 
     #[test]
-    fn pypi_marker_explains_how_to_upgrade() {
+    fn pypi_marker_explains_how_to_re_sync() {
         let marker: PackageManagerMarker = serde_json::from_str(&marker_json("pypi")).unwrap();
         let hint = marker.upgrade_hint();
         assert!(hint.contains("uv tool upgrade dcc-mcp-cli"), "{hint}");
-        assert!(
-            marker
-                .blocked_message()
-                .contains("managed by the pypi package manager")
-        );
+
+        let advisory = marker.advisory_message();
+        assert!(advisory.contains("pypi"), "{advisory}");
+        assert!(advisory.contains("0.20.34"), "{advisory}");
+        // The advisory must not read like a refusal.
+        assert!(!advisory.contains("blocked"), "{advisory}");
     }
 
     #[test]
     fn unknown_manager_still_names_itself() {
         let marker: PackageManagerMarker = serde_json::from_str(&marker_json("winget")).unwrap();
         assert!(marker.upgrade_hint().contains("winget"));
+    }
+
+    #[test]
+    fn advisory_points_at_re_syncing_not_at_another_command() {
+        // Self-update is the supported flow, so the advisory must not send
+        // the caller to a different command instead of `update apply`.
+        for manager in ["winget", "homebrew", "pypi"] {
+            let marker: PackageManagerMarker = serde_json::from_str(&marker_json(manager)).unwrap();
+            let hint = marker.upgrade_hint();
+            assert!(!hint.contains("instead of"), "{hint}");
+            let advisory = marker.advisory_message();
+            assert!(!advisory.contains("applied in place;"), "{advisory}");
+            assert!(advisory.contains("will replace"), "{advisory}");
+        }
+    }
+
+    /// Write `marker_json` into `dir` and return the marker path.
+    fn write_marker_file(dir: &Path, extra: serde_json::Value) -> PathBuf {
+        let mut marker: serde_json::Map<String, serde_json::Value> =
+            serde_json::from_str(&marker_json("pypi")).unwrap();
+        let extra = extra.as_object().expect("extra fields must be an object");
+        for (key, value) in extra {
+            marker.insert(key.clone(), value.clone());
+        }
+        let path = dir.join(MARKER_FILE_NAME);
+        fs::write(&path, serde_json::to_string_pretty(&marker).unwrap()).unwrap();
+        path
+    }
+
+    #[test]
+    fn self_update_refreshes_the_recorded_binary_size() {
+        let dir = tempfile::tempdir().unwrap();
+        let exe = dir.path().join("dcc-mcp-cli");
+        // 51 is the size the wheel unpacked, before the updater replaced it.
+        let marker_path = write_marker_file(dir.path(), serde_json::json!({"binary_size": 51}));
+        fs::write(&exe, b"unpacked binary").unwrap();
+
+        // The staged update lands a differently sized binary in place.
+        fs::write(&exe, b"a newer release binary, never the same length").unwrap();
+
+        record_self_updated_size(&exe).unwrap();
+
+        let marker: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&marker_path).unwrap()).unwrap();
+        let expected = fs::metadata(&exe).unwrap().len();
+        assert_eq!(marker["binary_size"], serde_json::json!(expected));
+        assert_ne!(marker["binary_size"], serde_json::json!(51));
+    }
+
+    #[test]
+    fn self_update_keeps_the_version_the_wrapper_matches_on() {
+        let dir = tempfile::tempdir().unwrap();
+        let exe = dir.path().join("dcc-mcp-cli");
+        let marker_path = write_marker_file(
+            dir.path(),
+            serde_json::json!({"binary_size": 51, "version": "9.9.9"}),
+        );
+        fs::write(&exe, b"a newer release binary").unwrap();
+
+        record_self_updated_size(&exe).unwrap();
+
+        let marker: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&marker_path).unwrap()).unwrap();
+        // The wrapper matches the marker against the wheel payload by version,
+        // so rewriting it would trigger the re-unpack this prevents.
+        assert_eq!(marker["version"], serde_json::json!("9.9.9"));
+        assert_eq!(marker["platform"], serde_json::json!("windows-x86_64"));
+    }
+
+    #[test]
+    fn self_update_preserves_unknown_marker_keys() {
+        let dir = tempfile::tempdir().unwrap();
+        let exe = dir.path().join("dcc-mcp-cli");
+        let marker_path = write_marker_file(
+            dir.path(),
+            serde_json::json!({"binary_size": 51, "from_a_newer_wrapper": true}),
+        );
+        fs::write(&exe, b"a newer release binary").unwrap();
+
+        record_self_updated_size(&exe).unwrap();
+
+        let marker: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&marker_path).unwrap()).unwrap();
+        assert_eq!(marker["from_a_newer_wrapper"], serde_json::json!(true));
+    }
+
+    #[test]
+    fn direct_install_has_nothing_to_refresh() {
+        let dir = tempfile::tempdir().unwrap();
+        let exe = dir.path().join("dcc-mcp-cli");
+        fs::write(&exe, b"binary").unwrap();
+
+        // No marker beside the binary: nothing fingerprints it.
+        record_self_updated_size(&exe).unwrap();
+        assert!(!dir.path().join(MARKER_FILE_NAME).exists());
+    }
+
+    #[test]
+    fn refreshing_a_marker_never_leaves_a_temporary_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let exe = dir.path().join("dcc-mcp-cli");
+        write_marker_file(dir.path(), serde_json::json!({"binary_size": 51}));
+        fs::write(&exe, b"a newer release binary").unwrap();
+
+        record_self_updated_size(&exe).unwrap();
+
+        let leftovers: Vec<_> = fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.file_name())
+            .filter(|name| name.to_string_lossy().ends_with(".tmp"))
+            .collect();
+        assert!(leftovers.is_empty(), "left behind {leftovers:?}");
     }
 }

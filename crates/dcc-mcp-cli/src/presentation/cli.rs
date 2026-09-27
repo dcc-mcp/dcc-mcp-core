@@ -127,17 +127,19 @@ pub async fn run() -> anyhow::Result<()> {
 }
 
 fn apply_staged_update() -> bool {
-    // A package manager owns this binary (see application::package_manager):
-    // replacing it would undo the version the manager installed, so a staged
-    // update is left in place and never applied.
-    if crate::application::package_manager::detect().is_some() {
-        return false;
-    }
-
     // Apply any staged binary update before running commands (CLI restart
-    // is the user's next invocation after `update apply`).
+    // is the user's next invocation after `update apply`). Package-managed
+    // installs are not excluded: `dcc-mcp-cli update` is the supported flow
+    // everywhere, and the replacement lands on the running binary. See
+    // application::package_manager for the provenance marker and the
+    // metadata drift it reports.
     match dcc_mcp_updater::Updater::apply_staged_update(env!("CARGO_PKG_NAME")) {
         Ok(true) => {
+            if let Err(e) = refresh_marker_after_update() {
+                // Never fatal: the replacement already landed, so failing to
+                // re-record it only costs an extra unpack on a later launch.
+                eprintln!("warning: could not refresh the package manager marker: {e}");
+            }
             eprintln!("info: staged binary update applied; restarting");
             true
         }
@@ -147,6 +149,16 @@ fn apply_staged_update() -> bool {
             false
         }
     }
+}
+
+/// Keep the package manager marker in sync with a binary that was replaced.
+///
+/// Only package-managed installs keep a marker, and only those installs have
+/// a wrapper that fingerprints the binary, so a direct install has nothing to
+/// update and the helper stays quiet.
+fn refresh_marker_after_update() -> anyhow::Result<()> {
+    let executable = crate::application::current_exe::current_exe()?;
+    crate::application::package_manager::record_self_updated_size(&executable)
 }
 
 /// Parse repeatable `--adapter-python <dcc_type>=<python>` values.
