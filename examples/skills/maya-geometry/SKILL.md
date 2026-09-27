@@ -12,6 +12,11 @@ allowed-tools: Bash Read Write
 metadata:
   dcc-mcp:
     dcc: maya
+    recall-context:
+      app_type: maya
+      domain: modeling
+      workflow_stage: authoring
+      task_category: mutate
     version: "1.0.0"
     layer: domain
     search-hint: "create sphere, create cube, bevel edges, extrude faces, polygon modeling, Maya mesh, 3D primitives, rigging joint"

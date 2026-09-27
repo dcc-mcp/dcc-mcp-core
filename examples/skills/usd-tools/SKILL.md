@@ -19,6 +19,11 @@ metadata:
     homepage: https://openusd.org
   dcc-mcp:
     dcc: python
+    recall-context:
+      app_type: python
+      domain: usd
+      workflow_stage: interchange
+      task_category: query
     version: "1.0.0"
     layer: infrastructure
     search-hint: "USD stage, prim, schema validation, layer stack, usda, usdc, usdz, usdchecker, usdcat, raw USD file"

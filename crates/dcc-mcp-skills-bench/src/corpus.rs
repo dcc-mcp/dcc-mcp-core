@@ -90,7 +90,7 @@ impl Corpus {
     /// Build the corpus for `scale` (see [`SCALE_300`] / [`SCALE_1000`]).
     #[must_use]
     pub fn build(scale: usize) -> Self {
-        let seeds = crate::seeds::seeds();
+        let seeds = crate::seeds::all_seeds();
         let seed_names: HashSet<String> = seeds.iter().map(|s| s.name.clone()).collect();
         let seeds_len = seeds.len();
 
@@ -181,6 +181,42 @@ impl Corpus {
         })
     }
 
+    /// Whether `name` is itself a skill in the catalogue.
+    #[must_use]
+    pub fn has_name(&self, name: &str) -> bool {
+        self.by_name.contains_key(name)
+    }
+
+    /// Whether the truncated-tail literal variant of `name` has no single
+    /// right answer (PIP-3701).
+    ///
+    /// `literal_queries` drops the last `-` segment of the target's name, so
+    /// `blender-camera` yields `"blender"`. That is a fine query in a
+    /// catalogue with one Blender skill. In the cross-adapter seed pool it is
+    /// not: `near_name` truncates every two-segment name to its host, so the
+    /// corpus contains a skill literally called `blender`, and dozens of
+    /// two-segment Blender skills each emit a `"blender"` query that that one
+    /// twin answers. Grading those measures a contradiction the corpus
+    /// created, not a ranking decision — the same reason the injected-twin
+    /// case was already skipped.
+    ///
+    /// The two halves of this rule are the same check seen from both sides:
+    /// [`Self::has_near_name_twin`] catches the twin this target shares a
+    /// prefix with, and the `has_name` half catches a twin injected for a
+    /// *different* target that happens to collide — which is what happens
+    /// once the real pool has more two-segment names than there are hosts.
+    #[must_use]
+    pub fn truncated_tail_is_unanswerable(&self, name: &str) -> bool {
+        if self.has_near_name_twin(name) {
+            return true;
+        }
+        let segments: Vec<&str> = name.split('-').filter(|part| !part.is_empty()).collect();
+        if segments.len() < 2 {
+            return false;
+        }
+        self.has_name(&segments[..segments.len() - 1].join("-"))
+    }
+
     /// A [`SkillCatalog`] holding this corpus, ready to search.
     #[must_use]
     pub fn catalog(&self) -> SkillCatalog {
@@ -198,33 +234,57 @@ fn dedup_by_name(skills: &mut Vec<SkillMetadata>) {
     skills.retain(|skill| seen.insert(skill.name.clone()));
 }
 
-/// Pick the `chosen` query targets: every real seed first, then an even spread
-/// across the synthetic remainder.
+/// Pick the `chosen` query targets: an even spread across the real seeds
+/// first, then an even spread across the synthetic remainder.
+///
+/// The seed spread is the part PIP-3701 added. Seeds used to be taken with
+/// `.take(chosen)`, which was fine while there were 26 of them and `chosen`
+/// was 45 — every seed was a target. With the cross-adapter harvest the seed
+/// pool is several times `chosen`, and the pool is sorted by name, so taking
+/// a prefix would sample the alphabetically-first hosts (all of `3dsmax-*`
+/// and most of `blender-*`) and never query the rest. Even spread keeps the
+/// sample representative of the whole pool.
 fn select_targets(base: &[SkillMetadata], seeds_len: usize, chosen: usize) -> Vec<String> {
     if chosen == 0 {
         return Vec::new();
     }
-    let mut targets: Vec<String> = base
-        .iter()
-        .take(seeds_len.min(chosen))
-        .map(|skill| skill.name.clone())
-        .collect();
+    let seeds = &base[..seeds_len.min(base.len())];
+    let mut targets: Vec<String> = even_spread(seeds, |skill| skill.name.clone(), chosen);
 
     let synthetic = &base[seeds_len.min(base.len())..];
     if synthetic.is_empty() {
         return targets;
     }
     let remaining = chosen.saturating_sub(targets.len());
+    if remaining == 0 {
+        return targets;
+    }
     // Even spread (`step`) keeps the sample representative of the whole
     // synthetic range instead of clustering at its start.
-    let step = (synthetic.len() / remaining.max(1)).max(1);
-    for index in (0..synthetic.len()).step_by(step) {
-        if targets.len() >= chosen {
-            break;
-        }
-        targets.push(synthetic[index].name.clone());
-    }
+    targets.extend(even_spread(
+        synthetic,
+        |skill| skill.name.clone(),
+        remaining,
+    ));
     targets
+}
+
+/// Pick up to `limit` names spread evenly across `skills`.
+///
+/// Fewer than `limit` skills yields all of them, in order. Even spread keeps
+/// the sample representative of the whole range instead of clustering at its
+/// start — which matters because every pool the corpus samples is sorted by
+/// name, so a prefix would over-sample the alphabetically-first hosts.
+fn even_spread<T>(skills: &[T], name: impl Fn(&T) -> String, limit: usize) -> Vec<String> {
+    if limit == 0 || skills.is_empty() {
+        return Vec::new();
+    }
+    let step = (skills.len() / limit).max(1);
+    (0..skills.len())
+        .step_by(step)
+        .take(limit)
+        .map(|index| name(&skills[index]))
+        .collect()
 }
 
 /// Pick up to `limit` clean control targets: an even spread across the base,
@@ -241,15 +301,7 @@ fn select_clean_targets(
         .iter()
         .filter(|skill| !exclude.contains(&skill.name))
         .collect();
-    if candidates.is_empty() {
-        return Vec::new();
-    }
-    let step = (candidates.len() / limit).max(1);
-    (0..candidates.len())
-        .step_by(step)
-        .take(limit)
-        .map(|index| candidates[index].name.clone())
-        .collect()
+    even_spread(&candidates, |skill| skill.name.clone(), limit)
 }
 
 /// Build the twins for `targets`, skipping any that would collide with a name
@@ -316,14 +368,24 @@ fn near_name_twin(target: &SkillMetadata, rng: &mut impl rand::RngExt) -> Option
 /// bodies never reuse a base skill's exact text by accident.
 const SAME_DCC_TWIN_INDEX: usize = 900_000;
 
-/// Drop the last `-` segment, or extend with `-lite` when too short to trim.
-/// Either way one name is a prefix of the other.
+/// Drop the last `-` segment, so the twin is always *shorter* than its target.
+///
+/// PIP-3701 removed the `segments.len() == 2` arm that appended `-lite`
+/// instead of trimming. A longer twin is a trap the corpus sets and then
+/// grades: for a target `cancellable-loop` the plain `"cancellable loop"`
+/// query matches the target and the twin `cancellable-loop-lite` equally, and
+/// the extra token wins, so the pair has no single right answer. Trimming
+/// keeps the prefix relation — the doc contract of
+/// [`HardNegativeKind::SameDccNearName`] — while leaving the full-name query
+/// decidable: the target carries every token of the query plus one more.
+///
+/// The truncated-tail literal variant is the twin's own name either way, and
+/// [`crate::queries::literal_queries`] already suppresses it for a target
+/// that carries a prefix twin.
 fn near_name(name: &str) -> Option<String> {
     let segments: Vec<&str> = name.split('-').filter(|part| !part.is_empty()).collect();
-    if segments.len() >= 3 {
+    if segments.len() >= 2 {
         Some(segments[..segments.len() - 1].join("-"))
-    } else if segments.len() == 2 {
-        Some(format!("{name}-lite"))
     } else {
         None
     }
@@ -456,9 +518,13 @@ mod tests {
     }
 
     #[test]
-    fn near_name_derives_both_directions() {
+    fn near_name_always_trims_to_a_proper_prefix() {
+        // The twin is shorter than its target, so a query built from the
+        // target's full name has one right answer. The `-lite` arm PIP-3701
+        // deleted produced a *longer* twin that outranked its own target on
+        // the plain name query — a pair with no decidable answer.
         assert_eq!(near_name("maya-mesh-ops").as_deref(), Some("maya-mesh"));
-        assert_eq!(near_name("maya-rig").as_deref(), Some("maya-rig-lite"));
+        assert_eq!(near_name("maya-rig").as_deref(), Some("maya"));
         assert_eq!(near_name("solo").as_deref(), None);
     }
 

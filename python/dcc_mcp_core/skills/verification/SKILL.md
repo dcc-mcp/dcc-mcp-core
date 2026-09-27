@@ -13,6 +13,11 @@ compatibility: Uses ffmpeg/ffprobe on PATH (or via vx) only for non-PPM image de
 metadata:
   dcc-mcp:
     dcc: python
+    recall-context:
+      app_type: python
+      domain: verification
+      workflow_stage: verification
+      task_category: verify
     version: "0.1.0"
     layer: infrastructure
     search-hint: "verification, capture, image stats, luma, histogram, comparison sheet, scene spec, uv coverage, blank frame, review views"

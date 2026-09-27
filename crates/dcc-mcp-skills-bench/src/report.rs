@@ -10,6 +10,7 @@ use serde_json::{Value, json};
 
 use crate::context::ContextPoint;
 use crate::corpus::SCALE_300;
+use crate::recall::{FIELDS, RecallCoverage};
 use crate::run::{Evaluation, Group};
 use crate::synthetic::CORPUS_SCHEMA_VERSION;
 use crate::thresholds;
@@ -26,17 +27,57 @@ fn us(duration: std::time::Duration) -> String {
 
 /// Render the whole report as text.
 #[must_use]
-pub fn render_text(evaluations: &[Evaluation], curve: &[ContextPoint]) -> String {
+pub fn render_text(
+    evaluations: &[Evaluation],
+    curve: &[ContextPoint],
+    recall: &RecallCoverage,
+) -> String {
     let mut out = String::new();
     out.push_str(&format!(
         "skills benchmark — corpus schema {CORPUS_SCHEMA_VERSION}\n"
     ));
+    out.push_str(&render_recall(recall));
 
     for evaluation in evaluations {
         out.push_str(&render_scale(evaluation));
     }
     out.push_str(&render_curve(curve));
     out
+}
+
+/// How much structured discovery metadata the real seed pool carries.
+///
+/// Reported rather than gated on the ranker: it answers "how much signal does
+/// discovery have to work with", which a hit rate alone cannot separate from
+/// a scorer change.
+fn render_recall(recall: &RecallCoverage) -> String {
+    let mut out = String::new();
+    out.push_str("\n=== recall context coverage (real seeds — synthetic filler has none)\n");
+    out.push_str("field                covered   total   share\n");
+    for field in FIELDS {
+        let covered = recall.field(field);
+        out.push_str(&format!(
+            "{field:<20} {:>8} {:>7} {}\n",
+            covered,
+            recall.skills,
+            pct(share(covered, recall.skills))
+        ));
+    }
+    out.push_str(&format!(
+        "all four fields: {:.1}% of slots populated; {:.1}% of skills carry a recall-context block\n",
+        recall.field_coverage() * 100.0,
+        recall.context_coverage() * 100.0
+    ));
+    out
+}
+
+/// `covered / total`, or 0 for an empty pool.
+fn share(covered: usize, total: usize) -> f64 {
+    if total == 0 {
+        0.0
+    } else {
+        covered as f64 / total as f64
+    }
 }
 
 fn render_scale(evaluation: &Evaluation) -> String {
@@ -160,9 +201,14 @@ fn render_curve(curve: &[ContextPoint]) -> String {
 
 /// Render the whole report as JSON.
 #[must_use]
-pub fn render_json(evaluations: &[Evaluation], curve: &[ContextPoint]) -> Value {
+pub fn render_json(
+    evaluations: &[Evaluation],
+    curve: &[ContextPoint],
+    recall: &RecallCoverage,
+) -> Value {
     json!({
         "corpus_schema": CORPUS_SCHEMA_VERSION,
+        "recall_coverage": recall,
         "token_estimator": "dcc-mcp-byte4-v1",
         "thresholds": {
             "min_top1_300": thresholds::MIN_TOP1_300,
@@ -185,18 +231,36 @@ mod tests {
     #[test]
     fn text_report_covers_every_dimension() {
         let evaluation = crate::run::evaluate(&Corpus::build(SCALE_300));
-        let text = render_text(std::slice::from_ref(&evaluation), &crate::context::scan());
+        let text = render_text(
+            std::slice::from_ref(&evaluation),
+            &crate::context::scan(),
+            &RecallCoverage::measure(&crate::seeds::all_seeds()),
+        );
         assert!(text.contains("hit rate"));
         assert!(text.contains("query efficiency"));
         assert!(text.contains("context growth"));
         assert!(text.contains("dcc_filtered/all"));
         assert!(text.contains("unfiltered/all"));
+        assert!(text.contains("recall context coverage"));
+    }
+
+    #[test]
+    fn recall_section_reports_every_field() {
+        let coverage = RecallCoverage::measure(&crate::seeds::all_seeds());
+        let text = render_recall(&coverage);
+        for field in FIELDS {
+            assert!(text.contains(field), "missing field row for {field}");
+        }
     }
 
     #[test]
     fn json_report_is_serialisable() {
         let evaluation = crate::run::evaluate(&Corpus::build(SCALE_300));
-        let value = render_json(std::slice::from_ref(&evaluation), &crate::context::scan());
+        let value = render_json(
+            std::slice::from_ref(&evaluation),
+            &crate::context::scan(),
+            &RecallCoverage::measure(&crate::seeds::all_seeds()),
+        );
         assert!(value.get("scales").is_some());
         assert!(value.get("context_curve").is_some());
         let _ = serde_json::to_string(&value).expect("serialisable");

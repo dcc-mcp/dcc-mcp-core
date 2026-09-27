@@ -10,6 +10,11 @@ compatibility: Python 3.7+
 metadata:
   dcc-mcp:
     dcc: python
+    recall-context:
+      app_type: python
+      domain: runtime
+      workflow_stage: authoring
+      task_category: query
     version: "1.0.0"
     layer: example
     search-hint: "cancellation, cancel, long-running, cooperative, check_cancelled, abort, authoring reference"

@@ -10,6 +10,11 @@ compatibility: Python 3.7+
 metadata:
   dcc-mcp:
     dcc: python
+    recall-context:
+      app_type: python
+      domain: rendering
+      workflow_stage: authoring
+      task_category: mutate
     version: "1.0.0"
     layer: example
     search-hint: "async tool, long-running, deferred hint, timeout hint, render async, authoring reference"

@@ -13,24 +13,69 @@
 //!
 //! # Where these numbers come from
 //!
-//! They are the measured baseline, minus roughly two and a half points of margin:
+//! They are the measured baseline, minus two and a half points of margin:
 //!
 //! | metric | measured at 300, `dcc`-filtered | gate |
 //! |---|---|---|
-//! | top-1  | 76.5% ([`BASELINE_TOP1_300`]) | 74% |
-//! | top-5  | 82.8% ([`BASELINE_TOP5_300`]) | 80% |
-//! | MRR@10 | 79.5% ([`BASELINE_MRR10_300`]) | 77% |
+//! | top-1  | 90.3% ([`BASELINE_TOP1_300`]) | 87.8% |
+//! | top-5  | 96.8% ([`BASELINE_TOP5_300`]) | 94.3% |
+//! | MRR@10 | 93.2% ([`BASELINE_MRR10_300`]) | 90.7% |
 //!
-//! The baseline already moved once. Reviewing the first submission caught that
-//! the corpus was not reproducible (`StdRng` carries no cross-version
-//! guarantee, now `ChaCha8Rng`) and that some literal queries deleted a
-//! separator instead of a letter. Both changed the corpus, so both moved every
-//! number.
+//! # The baseline moved because the corpus moved (PIP-3701)
 //!
-//! The margin is not slack for a sloppy ranker — it is room for the corpus to
-//! move. The 26 real seeds are harvested from this repository, so every skill
-//! someone ships changes the measurement slightly. Four points absorbs that
-//! without absorbing a real regression.
+//! The 76.5 / 82.8 / 79.5 baseline below this section's predecessor was a
+//! property of a corpus that was 26 real skills and 274 rows of filler drawn
+//! from a 30-word pool. Three things changed, all of them corpus work, none
+//! of them a change to the scorer:
+//!
+//! 1. **The real seed pool grew from 26 to 197.** [`crate::adapters`] harvests
+//!    the pinned skill catalogues of seven DCC adapter repositories. At
+//!    `SCALE_300` the catalogue is now mostly real, so the number describes
+//!    retrieval over a real catalogue rather than over filler.
+//! 2. **Filler got a fingerprint.** Every synthetic skill owns three
+//!    `{noun}{Form}` compounds derived from its index (see
+//!    [`crate::synthetic::fingerprints`]). Descriptive query classes used to
+//!    exist for the 26 real seeds only; at `SCALE_1000` they now cover 300 of
+//!    300 targets instead of 167.
+//! 3. **Three contradictory ground-truth cases were removed.** These are the
+//!    ones worth reading twice, because they are the only changes that touch
+//!    what is graded rather than what is in the catalogue:
+//!
+//!    * A two-segment name used to get a *longer* twin (`cancellable-loop` →
+//!      `cancellable-loop-lite`), which outranked its own target on the plain
+//!      name query. [`crate::corpus::near_name`] now always trims, so the
+//!      target keeps every token of the query plus one more.
+//!    * The truncated-tail literal variant is suppressed when the truncated
+//!      form is *any* catalogue skill, not only this target's injected twin
+//!      ([`crate::corpus::Corpus::truncated_tail_is_unanswerable`]). With a
+//!      real catalogue there are dozens of two-segment names per host and one
+//!      `blender` twin, so without this the corpus emitted the same
+//!      unanswerable `"blender"` query for every Blender skill.
+//!    * Intent queries open with a fixed `"i need to "`, whose `to` collided
+//!      with the name token of any `*-import-to-scene` skill.
+//!
+//!    Each of those removed a query whose correct answer the corpus itself
+//!    had made ambiguous. None of them removed a query class, and none of
+//!    them changed how a query is scored.
+//!
+//! # Why the gate is not 85 / 90 / 87
+//!
+//! PIP-3701 asked for `top-1 >= 85%`, `top-5 >= 90%`, `MRR@10 >= 87%`. The
+//! measured baseline clears all three, so those numbers are reachable — but
+//! they are not what is committed, because a gate is defined by its margin
+//! and this file's convention is two and a half points. Sitting the gate on
+//! the requested round numbers would leave five to seven points of slack, and
+//! `gates_leave_a_small_positive_margin` exists precisely to reject that:
+//! slack that wide hides a real ranking regression. Baseline minus 2.5 lands
+//! at 87.8 / 94.3 / 90.7, which is *stricter* than the requested gate and
+//! still clears it.
+//!
+//! # The margin is not slack for a sloppy ranker
+//!
+//! It is room for the corpus to move. The real seeds are harvested from seven
+//! pinned repositories plus this one, so every skill someone ships, and every
+//! deliberate re-harvest, changes the measurement slightly. Two and a half
+//! points absorbs that without absorbing a real regression.
 //!
 //! # There is exactly one gate
 //!
@@ -42,32 +87,29 @@
 //! That distinction matters. An earlier revision added a canary asserting
 //! `measured >= baseline - 0.01`, which silently became the real gate at
 //! 77.1 / 81.5 / 79.3: an order of magnitude tighter than the declared gate,
-//! and the first thing to fail on exactly the seed churn the four-point margin
-//! exists to absorb. Two thresholds for one metric means the tighter one wins,
-//! so there is now one.
+//! and the first thing to fail on exactly the seed churn the margin exists to
+//! absorb. Two thresholds for one metric means the tighter one wins, so there
+//! is now one.
 //!
-//! # Why not the 85 / 95 / 90 originally suggested
+//! # Known limitation: the hard/clean split is weak under the `dcc` filter
 //!
-//! Those targets were set before anything was measured, and the first
-//! measurement does not reach them. The gap is a property of the corpus as
-//! much as of the ranker: the synthetic filler draws its descriptions from a
-//! 30-word pool, so most of its skills have no vocabulary that distinguishes
-//! them from their neighbours, and a query built from their own words has no
-//! single right answer. Descriptive query classes are only emitted for targets
-//! that clear [`crate::queries::MAX_ANSWERABLE_DF`], which in practice means
-//! the real seeds.
-//!
-//! Raising these numbers is therefore corpus work, not threshold work: give
-//! the filler skills distinguishable content and hold the ranker to a higher
-//! bar. Until then the gate still does its job — it fails on any change that
-//! moves ranking quality down by more than the margin.
+//! `dcc_filtered/hard_negative` now measures *above* `dcc_filtered/clean`
+//! (95.0% vs 86.8%). That is a consequence of point 3 above: a target with an
+//! injected prefix twin loses its ambiguous truncated-tail query, while a
+//! clean target keeps one whenever the real catalogue happens to contain a
+//! natural near-neighbour (`blender-geometry` vs `blender-geometry-nodes`).
+//! The `hard_negative` / `clean` comparison therefore no longer isolates the
+//! injected twins under the `dcc` filter. It still holds unfiltered, where
+//! cross-DCC twins compete (84.1% vs 84.3%), which is the split
+//! `hard_negatives_are_harder_than_the_clean_control` asserts on. Reworking
+//! the split so it means the same thing in both is follow-up work.
 
 /// Minimum top-1 hit rate at [`crate::corpus::SCALE_300`], `dcc`-filtered.
-pub const MIN_TOP1_300: f64 = 0.74;
+pub const MIN_TOP1_300: f64 = 0.878;
 /// Minimum top-5 hit rate at [`crate::corpus::SCALE_300`], `dcc`-filtered.
-pub const MIN_TOP5_300: f64 = 0.80;
+pub const MIN_TOP5_300: f64 = 0.943;
 /// Minimum MRR@10 at [`crate::corpus::SCALE_300`], `dcc`-filtered.
-pub const MIN_MRR10_300: f64 = 0.77;
+pub const MIN_MRR10_300: f64 = 0.907;
 
 /// Minimum top-1 hit rate at [`crate::corpus::SCALE_1000`], `dcc`-filtered.
 ///
@@ -99,11 +141,11 @@ pub const MAX_MARGINAL_CONTEXT_TOKENS: i64 = 200;
 /// Nothing asserts the measurement against these. They exist so the gate has
 /// a documented origin and so `gates_sit_below_the_baseline` can catch a gate
 /// that has drifted above what the code actually achieves.
-pub const BASELINE_TOP1_300: f64 = 0.765;
+pub const BASELINE_TOP1_300: f64 = 0.903;
 /// See [`BASELINE_TOP1_300`].
-pub const BASELINE_TOP5_300: f64 = 0.828;
+pub const BASELINE_TOP5_300: f64 = 0.968;
 /// See [`BASELINE_TOP1_300`].
-pub const BASELINE_MRR10_300: f64 = 0.795;
+pub const BASELINE_MRR10_300: f64 = 0.932;
 
 #[cfg(test)]
 mod tests {

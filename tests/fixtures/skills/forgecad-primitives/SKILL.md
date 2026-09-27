@@ -11,6 +11,11 @@ allowed-tools: Bash Read
 metadata:
   dcc-mcp:
     dcc: forgecad
+    recall-context:
+      app_type: forgecad
+      domain: modeling
+      workflow_stage: authoring
+      task_category: mutate
     version: "1.0.0"
     layer: domain
     search-hint: "create cube, create cylinder, create cone, forgecad, cad primitives"

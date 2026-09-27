@@ -4,12 +4,18 @@ Seed corpus for [`crates/dcc-mcp-skills-bench`](../../crates/dcc-mcp-skills-benc
 
 ## What is in here
 
-`seeds.json` — the real skills harvested from this repository, parsed with the
-production loader (`dcc_mcp_skills::parse_skill_md`) so each entry carries the
-same fields the ranker sees at runtime: SKILL.md frontmatter plus the sibling
-`tools.yaml` tool declarations.
+| file | what it holds |
+|---|---|
+| `seeds.json` | real skills harvested from **this** repository |
+| `adapters.json` | real skills harvested from seven pinned DCC adapter repositories |
 
-Seeds are harvested from these workspace-relative roots:
+Both are parsed with the production loader (`dcc_mcp_skills::parse_skill_md`),
+so every entry carries the same fields the ranker sees at runtime: SKILL.md
+frontmatter plus the sibling `tools.yaml` tool declarations.
+
+### `seeds.json`
+
+Harvested from these workspace-relative roots:
 
 | root | why |
 |---|---|
@@ -18,34 +24,69 @@ Seeds are harvested from these workspace-relative roots:
 | `python/dcc_mcp_core/skills/` | bundled Python-side skills |
 | `tests/fixtures/skills/` | loader edge cases, useful as ranking stress cases |
 
-The corpus is *not* only these seeds. They are the real part; the benchmark
-fills the rest with the deterministic synthetic generator (seed 42) to reach
-the 300 and 1000 scales. That split is deliberate — a catalogue of entirely
-synthetic skills measures how well the scorer separates `maya-skill-00001`
-from `blender-skill-00002`, which the DCC prefix alone can do.
+### `adapters.json`
+
+Harvested from the roots listed in
+[`adapters::adapter_sources`](../../crates/dcc-mcp-skills-bench/src/adapters.rs),
+each pinned to a full commit SHA. See that module for why the snapshot is
+committed rather than cloned at benchmark time, and for the refresh command.
+
+## Why there are two files
+
+`seeds.json` is a live harvest: `committed_snapshot_matches_a_live_harvest`
+fails whenever a SKILL.md in the four roots above changes, so a shipped skill
+cannot silently drift out of the benchmark. That makes it the right gate for
+this repository's own skills.
+
+`adapters.json` cannot work that way — it is harvested from other repositories,
+so a live re-harvest would make this repository's CI depend on seven
+repositories' HEADs and on the network. It is instead pinned by commit and
+refreshed deliberately.
 
 ## Regenerating
 
 ```bash
+# This repository's own skills — run whenever a SKILL.md changes.
 cargo run -p dcc-mcp-skills-bench --bin skills-bench -- regenerate-seeds
-```
 
-Regenerate whenever skills are added or their frontmatter changes. There is a
-test (`seeds::tests::committed_snapshot_matches_a_live_harvest`) that fails
-when the snapshot is stale, so a changed skill cannot silently drift out of
-the benchmark.
+# The pinned adapter catalogues — needs network and git; run only on purpose.
+cargo run -p dcc-mcp-skills-bench --bin skills-bench -- harvest-adapters
+```
 
 ## Versioning
 
 The dataset and the bench crate evolve in the same commit — there is no pinned
-core version and no external repository to keep in sync. `schema` in
-`seeds.json` carries `CORPUS_SCHEMA_VERSION`; a snapshot whose schema does not
-match the generator is treated as absent and regenerated rather than used.
+core version and no external repository to keep in sync. `schema` in both files
+carries `CORPUS_SCHEMA_VERSION`; a snapshot whose schema does not match the
+generator is treated as absent and regenerated (or ignored, for the adapter
+snapshot) rather than used.
+
+## Recall context coverage
+
+The benchmark reports `RecallContext` coverage over the real seed pool — the
+share of the `app_type` / `domain` / `workflow_stage` / `task_category` slots
+that are actually populated. It is a reported measurement, not a hit-rate gate:
+it says how much structured signal discovery has to work with.
+
+The gate that *is* enforced lives in
+[`recall::tests::shipped_core_skills_carry_recall_context`](../../crates/dcc-mcp-skills-bench/src/recall.rs)
+and covers the skills **this repository ships** (≥ 90% of field slots). Adapter
+repositories are measured and reported but cannot be fixed from here; their
+`SKILL.md` frontmatter lives in their own repositories.
+
+Note that `recall-context` was authored in SKILL.md long before anything read
+it: before PIP-3701 the loader dropped the key, so coverage was 0% even on
+skills that declared all four fields. Measuring the field and parsing it had to
+land together.
 
 ## When this moves out
 
 The issue that created this benchmark set a split condition: extract the
-dataset into its own repository once it exceeds 10 MB, or once a real cross-adapter
-device matrix is needed. The bench crate stays in `dcc-mcp-core` either way —
-it has to, because it drives `dcc-mcp-gateway-search` through its Rust API
-rather than over HTTP.
+dataset into its own repository once it exceeds 10 MB, or once a real
+cross-adapter device matrix is needed. The bench crate stays in
+`dcc-mcp-core` either way — it has to, because it drives
+`dcc-mcp-gateway-search` through its Rust API rather than over HTTP.
+
+Current size: **3.0 MB** (`adapters.json` 2.8 MB, `seeds.json` 161 kB), so the
+10 MB condition is not met and nothing is split. Re-check with
+`du -sh benchmarks/skills` whenever the adapter snapshot is refreshed.

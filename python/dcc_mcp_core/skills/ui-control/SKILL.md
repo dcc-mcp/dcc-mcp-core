@@ -11,6 +11,11 @@ compatibility: "dcc-cua 0.4.0+, Python 3.7+"
 metadata:
   dcc-mcp:
     dcc: python
+    recall-context:
+      app_type: python
+      domain: ui-automation
+      workflow_stage: automation
+      task_category: mutate
     version: "0.5.0"
     layer: infrastructure
     search-hint: "dcc ui control, ui control, UI Control, cua, CUA, dcc-cua, dcc cua, computer use, ui automation, chrome cdp, edge cdp, screenshot, click, type, keypress, scroll, wait, trajectory recording"

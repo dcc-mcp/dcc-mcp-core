@@ -10,6 +10,11 @@ allowed-tools: Bash Read
 metadata:
   dcc-mcp:
     dcc: python
+    recall-context:
+      app_type: python
+      domain: automation
+      workflow_stage: authoring
+      task_category: mutate
     version: "1.0.0"
     layer: example
     search-hint: "multi-script, cross-platform, python shell batch, script types, authoring reference"

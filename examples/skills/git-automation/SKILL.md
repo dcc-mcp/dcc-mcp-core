@@ -18,6 +18,11 @@ metadata:
     homepage: https://git-scm.com
   dcc-mcp:
     dcc: python
+    recall-context:
+      app_type: python
+      domain: automation
+      workflow_stage: pipeline
+      task_category: mutate
     version: "1.0.0"
     layer: infrastructure
     search-hint: "git commit, git diff, git branch, git log, version control, codebase analysis, git history"

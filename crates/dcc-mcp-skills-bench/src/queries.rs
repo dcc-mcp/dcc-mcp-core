@@ -143,6 +143,14 @@ pub fn tokenize(text: &str) -> Vec<String> {
         .collect()
 }
 
+/// Fixed phrasing every intent query opens with.
+///
+/// Part of the query text but not part of the query *content*, so the
+/// name-freedom check strips it first: `houdini-import-to-scene` tokenises to
+/// include `to`, and without the prefix the invariant test would flag the
+/// template's own grammar as a name leak.
+pub const INTENT_PREFIX: &str = "i need to ";
+
 /// Terms of the skill name, used to keep intent queries name-free.
 fn name_terms(skill: &SkillMetadata) -> Vec<String> {
     tokenize(&skill.name)
@@ -191,7 +199,10 @@ pub fn build_queries_with_coverage(corpus: &Corpus) -> (Vec<Query>, Coverage) {
             has_hard_negative,
         };
 
-        let literal = literal_queries(target_name, corpus.has_near_name_twin(target_name));
+        let literal = literal_queries(
+            target_name,
+            corpus.truncated_tail_is_unanswerable(target_name),
+        );
         if !literal.is_empty() {
             coverage.literal += 1;
         }
@@ -237,10 +248,12 @@ pub fn build_queries(corpus: &Corpus) -> Vec<Query> {
 /// An agent types skill names from memory: separators, casing and word order
 /// are all unreliable, and the tail of a long name is the first thing to go.
 ///
-/// `skip_truncated_tail` suppresses the tail-dropped variant when the corpus
-/// injected a prefix-neighbour twin: the truncated form *is* that twin's name,
-/// so grading the target against it would measure a contradiction the corpus
-/// created rather than a ranking decision.
+/// `skip_truncated_tail` suppresses the tail-dropped variant when the
+/// truncated form is itself a catalogue skill — see
+/// [`Corpus::truncated_tail_is_unanswerable`]. The truncated string is then
+/// another skill's name, so the query has no single right answer and grading
+/// the target against it would measure a contradiction the corpus created
+/// rather than a ranking decision.
 fn literal_queries(target_name: &str, skip_truncated_tail: bool) -> Vec<String> {
     let segments: Vec<&str> = target_name
         .split('-')
@@ -415,7 +428,7 @@ fn intent_query(skill: &SkillMetadata, distinct: &Distinctiveness) -> Option<Str
     }
     // Phrase it as a request rather than a keyword list, and never name the
     // skill or its DCC — that is what makes it an intent query.
-    Some(format!("i need to {}", picked.join(" ")))
+    Some(format!("{INTENT_PREFIX}{}", picked.join(" ")))
 }
 
 #[cfg(test)]
@@ -431,9 +444,13 @@ mod tests {
                 continue;
             }
             let skill = corpus.get(&query.expected).unwrap();
+            let content = query
+                .text
+                .strip_prefix(INTENT_PREFIX)
+                .unwrap_or(&query.text);
             for term in name_terms(skill) {
                 assert!(
-                    !tokenize(&query.text).iter().any(|t| t == &term),
+                    !tokenize(content).iter().any(|t| t == &term),
                     "intent query {:?} leaks name term {term:?}",
                     query.text
                 );
