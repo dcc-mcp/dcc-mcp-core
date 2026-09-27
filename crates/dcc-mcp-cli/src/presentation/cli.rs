@@ -135,6 +135,11 @@ fn apply_staged_update() -> bool {
     // metadata drift it reports.
     match dcc_mcp_updater::Updater::apply_staged_update(env!("CARGO_PKG_NAME")) {
         Ok(true) => {
+            if let Err(e) = refresh_marker_after_update() {
+                // Never fatal: the replacement already landed, so failing to
+                // re-record it only costs an extra unpack on a later launch.
+                eprintln!("warning: could not refresh the package manager marker: {e}");
+            }
             eprintln!("info: staged binary update applied; restarting");
             true
         }
@@ -144,6 +149,16 @@ fn apply_staged_update() -> bool {
             false
         }
     }
+}
+
+/// Keep the package manager marker in sync with a binary that was replaced.
+///
+/// Only package-managed installs keep a marker, and only those installs have
+/// a wrapper that fingerprints the binary, so a direct install has nothing to
+/// update and the helper stays quiet.
+fn refresh_marker_after_update() -> anyhow::Result<()> {
+    let executable = crate::application::current_exe::current_exe()?;
+    crate::application::package_manager::record_self_updated_size(&executable)
 }
 
 /// Parse repeatable `--adapter-python <dcc_type>=<python>` values.

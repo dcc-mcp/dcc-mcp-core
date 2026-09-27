@@ -59,13 +59,15 @@ impl UpdateService {
         ))
     }
 
-    /// Check for and apply an update (download + stage for next launch).
+    /// Check for and stage an update (download + verify; applied on relaunch).
     ///
     /// Self-update is enabled for every install, package-managed ones
-    /// included: `dcc-mcp-cli update` replaces the running binary in place and
-    /// is the supported flow everywhere. When a package manager installed this
-    /// copy, the result carries an advisory naming the version that manager
-    /// still records, because it no longer matches the binary on disk.
+    /// included: `dcc-mcp-cli update` replaces the running binary on the next
+    /// launch and is the supported flow everywhere. Nothing has been applied
+    /// yet when this returns, so the payload says `staged` and the advisory
+    /// speaks in the future tense. When a package manager installed this copy,
+    /// the result carries an advisory naming the version that manager still
+    /// records, because the staged update will move the binary past it.
     pub async fn apply_update(&self, confirmed: bool) -> anyhow::Result<Value> {
         let package_manager = crate::application::package_manager::detect();
 
@@ -251,8 +253,8 @@ fn update_policy(binary_name: &str, manager: Option<&str>) -> Value {
 /// Describe the package manager that installed this copy.
 ///
 /// Attached to a staged self-update so callers can re-sync the manager's
-/// metadata: the update replaced the binary in place, so the version the
-/// manager recorded is now behind.
+/// metadata: the update will replace the binary in place on the next
+/// launch, so the version the manager recorded falls behind it.
 fn package_manager_advisory(marker: &PackageManagerMarker) -> Value {
     serde_json::json!({
         "manager": marker.manager,

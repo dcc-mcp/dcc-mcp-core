@@ -75,17 +75,22 @@ through the CLI is the supported flow everywhere. The bootstrap writes
 it as *provenance*, not as a lock, and uses it to report which manager
 installed the copy and which version that manager still has on record.
 
-Because the update replaces the binary in place, the manager's own metadata
-falls behind the binary on disk. `update apply` says so and names the command
-that re-syncs it:
+Because the update replaces the binary on the next launch, the manager's own
+metadata falls behind the binary on disk. `update apply` has not applied
+anything yet — it stages the update — so the advisory says so and names the
+command that re-syncs the metadata afterwards:
 
 ```json
 "package_manager": {
   "manager": "pypi",
   "recorded_version": "0.20.34",
-  "advisory": "applied in place; the pypi package manager still records version 0.20.34. ..."
+  "advisory": "the update will replace this binary in place on the next launch; the pypi package manager will still record version 0.20.34. ..."
 }
 ```
+
+The marker records the size of the binary it unpacked, and the CLI updates
+that record when it applies a staged self-update, so the replacement is not
+mistaken for a damaged install and re-unpacked from the wheel.
 
 Re-sync the manager's metadata at any time — it also restores the packaged
 binary if you prefer the manager to own the version:
