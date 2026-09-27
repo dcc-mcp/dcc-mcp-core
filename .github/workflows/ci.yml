@@ -536,6 +536,15 @@ jobs:
       - name: Install Python 3.7 test toolchain
         if: matrix.full_suite || runner.os == 'Windows'
         run: python scripts/ci/install_python37_test_toolchain.py
+      # Test-only dependency of the release workflow digest check. Not declared
+      # in `compatibility/python.json` on purpose: that contract is generated
+      # into the native matrix and the Python support projections, and adding a
+      # tool there changes the attested py37 toolchain. 6.0.1 is the last
+      # PyYAML release that supports the Python 3.7 LTS gate.
+      - name: Install PyYAML for the Python 3.7 full suite
+        if: matrix.full_suite
+        shell: bash
+        run: python -m pip install "pyyaml==6.0.1"
       - name: Run trusted validator Python 3.7 contract
         if: runner.os == 'Windows'
         run: >-
@@ -693,9 +702,9 @@ jobs:
         run: |
           pip install dist/*.whl
           if [[ "${{ matrix.os }}" == "ubuntu-latest" && "${{ matrix.python-version }}" == "3.14" ]]; then
-            pip install pytest pytest-cov jsonschema
+            pip install pytest pytest-cov jsonschema pyyaml
           else
-            pip install pytest pytest-xdist jsonschema
+            pip install pytest pytest-xdist jsonschema pyyaml
           fi
         shell: bash
       - name: Test with coverage
