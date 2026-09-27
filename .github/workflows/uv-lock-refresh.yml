@@ -40,13 +40,18 @@ name: Refresh published lock pins
 #   files an issue under the `uv-lock-refresh` label instead of only leaving
 #   a failed run behind.
 #
-# Residual timing note
-# --------------------
-# release-please opens the next release PR in the same 01:13Z window that
-# publishes the current version, so that PR starts one publish behind for
-# roughly a day and is rebuilt from `main` on the following window. Closing
-# that window would mean pushing lock changes onto the release PR branch
-# itself, which is deliberately out of scope here.
+# Release PR coupling
+# -------------------
+# A refresh PR against `main` is not the commit that merges next: the release
+# PR is, and it carries whatever the lock held when release-please last rebuilt
+# it -- one publish behind, because release-please raises every declared
+# version and writes its changelog heading in a single commit while the pins
+# can only follow the index. Merging it exported that stale lock to `main`
+# every release, and `main` stayed red until somebody merged the refresh PR.
+#
+# The `workflow_run` trigger below closes that gap: as soon as a release run
+# finishes publishing, this workflow moves the pins on the pending release PR
+# too, so the version bump and the pin refresh reach `main` as one change.
 
 on:
   schedule:
@@ -54,6 +59,13 @@ on:
     # the version published that morning is already on PyPI when this runs.
     - cron: "47 3 * * *"
   workflow_dispatch:
+  workflow_run:
+    # Publish-driven instead of clock-driven: the release window's start time
+    # drifts with GitHub's scheduling delay, so a cron cannot be placed
+    # reliably after the wheels land. This fires on every completed release run
+    # and the job itself filters for success.
+    workflows: ["Release"]
+    types: [completed]
 
 # Read-only on purpose. Every write in this workflow goes through the
 # repository automation token (`secrets.PERSONAL_ACCESS_TOKEN`): the branch
@@ -84,6 +96,9 @@ jobs:
     name: Refresh published PyPI pins
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # A failed or cancelled release run publishes nothing, so there is no new
+    # version for the pins to track.
+    if: github.event_name != 'workflow_run' or github.event.workflow_run.conclusion == 'success'
     steps:
       - name: Checkout main
         uses: actions/checkout@v6
@@ -200,6 +215,80 @@ jobs:
           # status checks and no required review, so auto-merge would merge on
           # the first status event instead of waiting for the lanes that
           # actually exercise the published wheels. Merging stays a human gate.
+
+      - name: Move the pins on the pending release pull request
+        if: steps.diff.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # The pull request above refreshes `main`; this step refreshes the
+          # commit that actually merges next. release-please raises every
+          # declared version and writes its changelog heading in one commit,
+          # so the release PR inherits whatever the lock held when it was last
+          # rebuilt -- one publish behind by construction. Pushing the same
+          # refresh here makes the version bump and the pin refresh a single
+          # change, so merging the release PR cannot hand `main` a lock that is
+          # already behind the release it just declared.
+          pr_number="$(
+            gh pr list --state open --base main --limit 100 \
+              --json number,title,headRefName,isCrossRepository,isDraft \
+              --jq '[.[] | select((.isCrossRepository | not) and (.isDraft | not) and
+                                  (.headRefName | startswith("release-please--branches--main")) and
+                                  (.title | startswith("chore(main): release "))) | .number] | .[0] // empty'
+          )"
+          if [ -z "$pr_number" ]; then
+            echo "No pending release-please PR; the refresh pull request alone carries the pins."
+            exit 0
+          fi
+
+          head_ref="$(gh pr view "$pr_number" --json headRefName --jq .headRefName)"
+          echo "Pending release PR #$pr_number on $head_ref; refreshing its pins as well."
+
+          git fetch --no-tags origin "refs/heads/$head_ref"
+          git checkout --detach FETCH_HEAD
+
+          cp uv.lock /tmp/uv.lock.release.before
+          vx uvx --from "uv==$UV_VERSION" uv lock --upgrade-package dcc-mcp-core-semantic --upgrade-package dcc-mcp-server
+          cp uv.lock /tmp/uv.lock.release.after
+          python scripts/ci/uv_lock_refresh.py verify /tmp/uv.lock.release.before /tmp/uv.lock.release.after
+
+          if git diff --quiet -- uv.lock; then
+            echo "PR #$pr_number already tracks the newest published pins."
+            exit 0
+          fi
+
+          # The gate on the release PR is the proof the refresh landed: with the
+          # pins on the newest published release it passes without the one
+          # release of window tolerance. A failure is reported rather than
+          # fatal -- the release PR stays inside the tolerance and its own CI
+          # reruns the gate on every push.
+          python scripts/ci/check_lock_versions.py || \
+            echo "::warning::PR #$pr_number still sits inside the release-window tolerance"
+
+          git config user.name "loonghao"
+          git config user.email "hal.long@outlook.com"
+          git add uv.lock
+          git commit --no-verify -m "$REFRESH_TITLE"
+
+          # The branch belongs to release-please, which force-pushes it whenever
+          # it rebuilds the PR, so the lease is taken against the live remote
+          # head instead of the fetched one.
+          lease=()
+          remote_sha="$(git ls-remote origin "refs/heads/$head_ref" | awk 'NR==1 {print $1}')"
+          if [ -n "$remote_sha" ]; then
+            lease=("--force-with-lease=refs/heads/${head_ref}:${remote_sha}")
+          fi
+
+          credential_file="$(mktemp)"
+          trap 'rm -f "$credential_file"' EXIT
+          chmod 600 "$credential_file"
+          printf 'https://x-access-token:%s@github.com\n' "$GH_TOKEN" > "$credential_file"
+          git -c credential.helper= \
+            -c credential.helper="store --file=${credential_file}" \
+            push "${lease[@]}" origin "HEAD:refs/heads/$head_ref"
 
       - name: Report a failed refresh
         if: failure()
