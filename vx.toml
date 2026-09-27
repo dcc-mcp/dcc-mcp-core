@@ -1,14 +1,12 @@
 [tools]
 just = "latest"
-maturin = "latest"
+# artifact class: the maturin version ends up in the built wheel, so it is
+# pinned to a minor line instead of floating on `latest`.
+maturin = "1.15"
 node = "22"
 python = "3.12"
 rust = "1.95"
 uv = "latest"
-
-[settings]
-cache_duration = "7d"
-auto_install = true
 
 [scripts]
 admin-build = "just admin-build"
