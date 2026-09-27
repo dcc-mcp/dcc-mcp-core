@@ -469,10 +469,14 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_search_skills(
 
     let query_opt = if query.is_empty() { None } else { Some(query) };
     let scope_label = scope_filter.map(|scope| scope.label());
-    let matches =
-        state
-            .catalog
-            .search_skills(query_opt, &tags, dcc_filter, scope_filter, Some(limit));
+    let page = state.catalog.search_skills_with_fallback(
+        query_opt,
+        &tags,
+        dcc_filter,
+        scope_filter,
+        Some(limit),
+    );
+    let matches = page.summaries;
     let remaining = limit.saturating_sub(matches.len());
     let skipped_matches: Vec<_> = state
         .catalog
@@ -485,6 +489,22 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_search_skills(
         .collect();
 
     if matches.is_empty() && skipped_matches.is_empty() {
+        // PIP-3702: an empty retrieval now carries the CUA route. Prefer it
+        // over the bare "no skills found" string, which left the agent with no
+        // next step, and never suggest a generic computer-use provider.
+        if let Some(fallback) = page.fallback {
+            let result = json!({
+                "total": 0,
+                "skill_total": 0,
+                "skipped_count": 0,
+                "query": query,
+                "skills": [],
+                "skipped": [],
+                "fallback": fallback,
+            });
+            return CallToolResult::text(serde_json::to_string(&result).unwrap_or_default());
+        }
+
         let text = if query.is_empty()
             && tags.is_empty()
             && dcc_filter.is_none()
@@ -522,7 +542,7 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_search_skills(
         })
         .collect();
 
-    let result = json!({
+    let mut result = json!({
         "total": matches.len() + skipped_matches.len(),
         "skill_total": matches.len(),
         "skipped_count": skipped_matches.len(),
@@ -530,6 +550,15 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_search_skills(
         "skills": compact_skills,
         "skipped": skipped_matches
     });
+
+    // PIP-3702: when no retrieved skill can do the job, return an explicit
+    // route to the project-owned `dcc-cua` skill with a reason code instead of
+    // an empty result array with no next step.
+    if let Some(fallback) = page.fallback
+        && let Some(obj) = result.as_object_mut()
+    {
+        obj.insert("fallback".to_string(), json!(fallback));
+    }
 
     CallToolResult::text(serde_json::to_string(&result).unwrap_or_default())
 }
@@ -661,4 +690,80 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_deactivate_tool_group(
         })
         .to_string(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use dcc_mcp_actions::ToolDispatcher;
+    use dcc_mcp_actions::registry::ToolRegistry;
+    use dcc_mcp_models::{SkillMetadata, ToolDeclaration};
+
+    use dcc_mcp_skills::SkillCatalog;
+    use serde_json::{Value, json};
+
+    use super::handle_search_skills;
+
+    use crate::server_state::ServerState;
+
+    fn state_with_one_skill() -> ServerState {
+        let registry = Arc::new(ToolRegistry::new());
+        let dispatcher = Arc::new(ToolDispatcher::new((*registry).clone()));
+        let catalog = Arc::new(SkillCatalog::new_with_dispatcher(
+            Arc::clone(&registry),
+            Arc::clone(&dispatcher),
+        ));
+        catalog.add_skill(SkillMetadata {
+            name: "maya-shot-export".to_string(),
+            description: "Export the current maya shot".to_string(),
+            dcc: "maya".to_string(),
+            tools: vec![ToolDeclaration {
+                name: "export_shot".to_string(),
+                description: "Export the current shot".to_string(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        });
+        ServerState::builder(registry, dispatcher, catalog).build()
+    }
+
+    fn result_text_json(result: &dcc_mcp_jsonrpc::CallToolResult) -> Value {
+        let Some(dcc_mcp_jsonrpc::ToolContent::Text { text }) = result.content.first() else {
+            panic!("expected text content, got {result:?}");
+        };
+        serde_json::from_str(text).expect("handler text should be JSON")
+    }
+
+    #[test]
+    fn search_skills_returns_a_cua_fallback_instead_of_a_bare_empty_result() {
+        let state = state_with_one_skill();
+
+        // A request no skill can answer must carry the route, not an empty
+        // array with no next step.
+        let payload = result_text_json(&handle_search_skills(
+            &state,
+            &json!({"query": "zzqqxx unrelated application request"}),
+        ));
+        assert_eq!(payload["skill_total"], 0);
+        assert_eq!(payload["fallback"]["target"], "dcc-cua");
+        assert_eq!(payload["fallback"]["reason"], "low_confidence");
+        assert!(
+            payload["fallback"]["message"]
+                .as_str()
+                .is_some_and(|message| !message.is_empty()),
+            "the caller needs a one-line explanation: {payload}"
+        );
+
+        // A request that retrieval can answer stays silent.
+        let found = result_text_json(&handle_search_skills(
+            &state,
+            &json!({"query": "maya shot export"}),
+        ));
+        assert_eq!(found["skill_total"], 1);
+        assert!(
+            found.get("fallback").is_none(),
+            "a confident hit must not be routed: {found}"
+        );
+    }
 }

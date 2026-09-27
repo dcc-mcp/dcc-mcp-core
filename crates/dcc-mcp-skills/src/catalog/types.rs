@@ -260,3 +260,23 @@ impl SkillSummary {
         format!("SkillSummary(name={:?}, loaded={})", self.name, self.loaded)
     }
 }
+
+// ── Search result envelope ──
+
+/// Ranked skill search result plus CUA routing advice.
+///
+/// Returned by
+/// [`SkillCatalog::search_skills_with_fallback`](crate::SkillCatalog::search_skills_with_fallback).
+/// `fallback` is `None` whenever retrieval found a usable answer, so callers
+/// that only want the ranked list can keep using
+/// [`SkillCatalog::search_skills`].
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct SkillSearchPage {
+    pub summaries: Vec<SkillSummary>,
+    /// Routing advice when no retrieved skill can do the job.
+    ///
+    /// Always names the project-owned `dcc-cua` route; it never proposes a
+    /// generic computer-use provider.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<dcc_mcp_gateway_search::SearchFallback>,
+}

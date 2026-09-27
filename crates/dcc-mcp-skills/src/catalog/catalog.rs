@@ -1,5 +1,9 @@
 use super::*;
-use dcc_mcp_gateway_search::{SearchQuery as RankingQuery, SearchRecord, rank_all};
+use dcc_mcp_gateway_search::{
+    CuaRouteStatus, FALLBACK_REPAIR_COMMAND, FALLBACK_TARGET_SKILL, SearchQuery as RankingQuery,
+    SearchRecord, evaluate_fallback, rank_all,
+};
+use dcc_mcp_models::{SkillRuntimeDescriptor, SkillRuntimeKind, SkillRuntimeState};
 
 #[derive(Clone)]
 struct SkillSearchRecord<'a> {
@@ -62,6 +66,40 @@ impl SearchRecord for SkillSearchRecord<'_> {
     fn rank_scope(&self) -> u8 {
         self.scope as u8
     }
+
+    fn has_executable_interface(&self) -> bool {
+        // `tools` is the sibling `tools.yaml` declaration list. A skill with an
+        // empty list is guidance-only or routes through a runtime, so there is
+        // nothing here for an agent to invoke.
+        !self.metadata.tools.is_empty()
+    }
+}
+
+/// Resolve the project-owned CUA route for the fallback contract.
+///
+/// Reuses the official runtime descriptor machinery (`metadata.dcc-mcp.runtimes`
+/// resolution) instead of inventing a second probe: the companion executable is
+/// looked up on `PATH`, exactly as a declared `type: binary` runtime would be.
+/// No process is spawned and nothing is downloaded.
+fn cua_route_status() -> CuaRouteStatus {
+    let probe = SkillRuntimeDescriptor {
+        name: FALLBACK_TARGET_SKILL.to_string(),
+        kind: SkillRuntimeKind::Binary,
+        binary: Some(FALLBACK_TARGET_SKILL.to_string()),
+        optional: false,
+        guidance: Some(FALLBACK_REPAIR_COMMAND.to_string()),
+        ..Default::default()
+    };
+    let report = probe.resolve();
+    match report.state {
+        SkillRuntimeState::Available => CuaRouteStatus::Ready,
+        SkillRuntimeState::Degraded | SkillRuntimeState::Missing => CuaRouteStatus::Unavailable {
+            detail: format!(
+                "`{FALLBACK_TARGET_SKILL}` was not found on PATH (resolved runtime state: {:?})",
+                report.state
+            ),
+        },
+    }
 }
 
 fn ranking_tokens(metadata: &SkillMetadata, fields: &scoring::FieldTokens) -> Vec<String> {
@@ -104,6 +142,25 @@ impl SkillCatalog {
         scope: Option<SkillScope>,
         limit: Option<usize>,
     ) -> Vec<SkillSummary> {
+        self.search_skills_with_fallback(query, tags, dcc, scope, limit)
+            .summaries
+    }
+
+    /// [`Self::search_skills`] plus CUA routing advice (PIP-3702).
+    ///
+    /// When no retrieved skill can do the job, `fallback` carries an explicit
+    /// route to the project-owned `dcc-cua` UI-control skill together with a
+    /// reason code, so the caller can explain the outcome instead of presenting
+    /// an empty list with no next step. It is `None` whenever retrieval found a
+    /// usable answer.
+    pub fn search_skills_with_fallback(
+        &self,
+        query: Option<&str>,
+        tags: &[&str],
+        dcc: Option<&str>,
+        scope: Option<SkillScope>,
+        limit: Option<usize>,
+    ) -> SkillSearchPage {
         // ── 0. dcc shard fast-path (PIP-2470) ──
         //
         // When `dcc` is specified, use the per-dcc shard to narrow the
@@ -117,7 +174,9 @@ impl SkillCatalog {
         let shard = match &dcc_key {
             Some(key) => match self.dcc_shards.get(key) {
                 Some(shard) => Some(shard),
-                None => return Vec::new(),
+                // No skills exist for this DCC: a filter miss, not a failed
+                // retrieval, so no fallback is offered.
+                None => return SkillSearchPage::default(),
             },
             None => None,
         };
@@ -153,11 +212,16 @@ impl SkillCatalog {
                     .cmp(scope_a)
                     .then_with(|| summary_a.name.cmp(&summary_b.name))
             });
-            return summaries
-                .into_iter()
-                .map(|(_, summary)| summary)
-                .take(limit.unwrap_or(usize::MAX))
-                .collect();
+            return SkillSearchPage {
+                summaries: summaries
+                    .into_iter()
+                    .map(|(_, summary)| summary)
+                    .take(limit.unwrap_or(usize::MAX))
+                    .collect(),
+                // Discovery mode: everything is listed, nothing was retrieved,
+                // so there is nothing to fall back from.
+                fallback: None,
+            };
         }
 
         // ── 2. Pre-filter by tags/dcc ──
@@ -203,7 +267,7 @@ impl SkillCatalog {
                 search_tokens: ranking_tokens(&entry.value().metadata, &entry.value().field_tokens),
             })
             .collect();
-        let ranked: Vec<SkillSummary> = rank_all(
+        let ranked_hits = rank_all(
             &records,
             &RankingQuery {
                 query: q_trim.to_string(),
@@ -214,10 +278,27 @@ impl SkillCatalog {
                 },
                 ..RankingQuery::default()
             },
-        )
-        .into_iter()
-        .map(|hit| helpers::skill_entry_to_summary(prefiltered[hit.record.index].value()))
-        .collect();
+        );
+
+        // ── 3b. CUA fallback contract (PIP-3702) ──
+        //
+        // Decided on the ranked hits, before the scope filter and the cap: an
+        // explicit caller narrowing that happens to empty the page is not a
+        // retrieval failure. The cheap predicate runs first so the route probe
+        // (a PATH lookup) is skipped whenever retrieval has an answer.
+        //
+        // Skipped entirely when there was nothing to search: a catalog with no
+        // skills is a scan-path problem, not a task no skill can do.
+        let policy = dcc_mcp_gateway_search::FallbackPolicy::default();
+        let fallback = (!records.is_empty())
+            .then(|| dcc_mcp_gateway_search::fallback_reason(&ranked_hits, policy))
+            .flatten()
+            .and_then(|_| evaluate_fallback(&ranked_hits, &cua_route_status(), policy));
+
+        let ranked: Vec<SkillSummary> = ranked_hits
+            .into_iter()
+            .map(|hit| helpers::skill_entry_to_summary(prefiltered[hit.record.index].value()))
+            .collect();
 
         // ── 4. Scope filter (post-ranking) ──
         let filtered: Vec<SkillSummary> = match scope {
@@ -232,9 +313,12 @@ impl SkillCatalog {
         };
 
         // ── 5. Limit ──
-        match limit {
-            None => filtered,
-            Some(n) => filtered.into_iter().take(n).collect(),
+        SkillSearchPage {
+            summaries: match limit {
+                None => filtered,
+                Some(n) => filtered.into_iter().take(n).collect(),
+            },
+            fallback,
         }
     }
 

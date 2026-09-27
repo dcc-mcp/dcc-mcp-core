@@ -3,6 +3,8 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::policy::{CuaRouteStatus, FallbackPolicy, SearchFallback};
+
 /// Which scoring strategy to use for a search.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -50,6 +52,20 @@ pub struct SearchQuery {
     pub limit: Option<u32>,
     pub offset: Option<u32>,
     pub mode: SearchMode,
+    /// Availability of the project-owned `dcc-cua` route, reported by the
+    /// caller's preflight.
+    ///
+    /// Not a wire field: the search crate performs no I/O, so the caller
+    /// decides this. Defaults to [`CuaRouteStatus::Unprobed`], which reports
+    /// the route as [`crate::FallbackStatus::Unverified`] rather than ready.
+    #[serde(skip)]
+    pub cua_route: CuaRouteStatus,
+    /// Overrides the default CUA fallback gate. `None` uses
+    /// [`FallbackPolicy::default`].
+    ///
+    /// Not a wire field: the gate is a server-side policy, not a client knob.
+    #[serde(skip)]
+    pub fallback_policy: Option<FallbackPolicy>,
 }
 
 /// Default page size for `search_tools`.
@@ -104,4 +120,11 @@ pub struct SearchPage<R> {
     pub total: u32,
     pub offset: u32,
     pub limit: u32,
+    /// Routing advice when retrieval has no executable answer.
+    ///
+    /// `None` on the happy path. When set, the caller can relay
+    /// [`SearchFallback::message`] to the user instead of presenting an empty
+    /// result array with no next step.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<SearchFallback>,
 }

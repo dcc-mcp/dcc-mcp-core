@@ -17,7 +17,7 @@ pub mod watcher;
 #[cfg(feature = "python-bindings")]
 pub(crate) mod python;
 
-pub use catalog::{SkillCatalog, SkillDetail, SkillState, SkillSummary};
+pub use catalog::{SkillCatalog, SkillDetail, SkillSearchPage, SkillState, SkillSummary};
 pub use feedback::{SkillFeedback, get_skill_feedback, record_skill_feedback};
 pub use gui_executable::{GuiExecutableHint, correct_python_executable, is_gui_executable};
 pub use loader::{

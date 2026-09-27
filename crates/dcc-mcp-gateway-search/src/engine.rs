@@ -1,10 +1,11 @@
 //! Pure search pipeline: filter → score → sort → paginate.
 
+use crate::policy::SearchFallback;
 use crate::query::{DEFAULT_LIMIT, MAX_LIMIT, SearchHit, SearchMode, SearchPage, SearchQuery};
 use crate::ranking::{FuzzyScorer, Scorer, SubstringScorer};
 use crate::record::SearchRecord;
 use crate::{LAYER_DOMAIN, LAYER_EXAMPLE, LAYER_INFRASTRUCTURE, LAYER_THIN_HARNESS};
-use crate::{RankPolicy, apply_rank_policy};
+use crate::{RankPolicy, apply_rank_policy, evaluate_fallback};
 
 /// Rank `records` against `query` and return the first page of hits.
 #[must_use]
@@ -31,7 +32,26 @@ pub fn search_page<R: SearchRecord + Clone>(records: &[R], query: &SearchQuery) 
         total,
         offset,
         limit: effective_limit,
+        fallback: fallback_advice(&hits, query),
     }
+}
+
+/// CUA routing advice for one ranked result set.
+///
+/// Skipped when the query carried no search clause: an unfiltered listing
+/// scores every row at 0, which is a browse, not a failed retrieval.
+fn fallback_advice<R: SearchRecord>(
+    hits: &[SearchHit<R>],
+    query: &SearchQuery,
+) -> Option<SearchFallback> {
+    if !query_clauses(query).iter().any(|c| !c.is_empty()) {
+        return None;
+    }
+    evaluate_fallback(
+        hits,
+        &query.cua_route,
+        query.fallback_policy.unwrap_or_default(),
+    )
 }
 
 /// Rank every matching record without applying pagination limits or offsets.
@@ -41,7 +61,6 @@ pub fn search_page<R: SearchRecord + Clone>(records: &[R], query: &SearchQuery) 
 /// catalogs that must not inherit the gateway's [`MAX_LIMIT`] page cap.
 #[must_use]
 pub fn rank_all<R: SearchRecord + Clone>(records: &[R], query: &SearchQuery) -> Vec<SearchHit<R>> {
-    let qnorm = query.query.trim().to_ascii_lowercase();
     let dcc_filter = query
         .dcc_type
         .as_deref()
@@ -76,16 +95,7 @@ pub fn rank_all<R: SearchRecord + Clone>(records: &[R], query: &SearchQuery) -> 
         .collect();
     let scene = query.scene_hint.as_deref().map(|s| s.to_ascii_lowercase());
 
-    let mut clauses: Vec<String> = Vec::new();
-    if !qnorm.is_empty() {
-        clauses.push(qnorm.clone());
-    }
-    for o in &query.or_queries {
-        let t = o.trim().to_ascii_lowercase();
-        if !t.is_empty() && !clauses.contains(&t) {
-            clauses.push(t);
-        }
-    }
+    let clauses = query_clauses(query);
     let has_clauses = !clauses.is_empty();
     let explicit_layer = query.tags.iter().any(|tag| {
         matches!(
@@ -243,6 +253,22 @@ fn rank_multi<R: SearchRecord + Clone, S: Scorer>(
         .collect()
 }
 
+/// Lowercased, de-duplicated, non-empty search clauses for `query`.
+fn query_clauses(query: &SearchQuery) -> Vec<String> {
+    let mut clauses: Vec<String> = Vec::new();
+    let primary = query.query.trim().to_ascii_lowercase();
+    if !primary.is_empty() {
+        clauses.push(primary);
+    }
+    for o in &query.or_queries {
+        let t = o.trim().to_ascii_lowercase();
+        if !t.is_empty() && !clauses.contains(&t) {
+            clauses.push(t);
+        }
+    }
+    clauses
+}
+
 fn effective_limit(limit: Option<u32>) -> u32 {
     match limit {
         None => DEFAULT_LIMIT,
@@ -254,6 +280,7 @@ fn effective_limit(limit: Option<u32>) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::policy::{CuaRouteStatus, FALLBACK_TARGET_SKILL, FallbackReason, FallbackStatus};
     use serde::{Deserialize, Serialize};
     use uuid::Uuid;
 
@@ -553,10 +580,70 @@ mod tests {
             total: 300,
             offset: 25,
             limit: 25,
+            fallback: None,
         };
         let s = serde_json::to_string(&page).unwrap();
         let back: SearchPage<Row> = serde_json::from_str(&s).unwrap();
         assert_eq!(back.total, 300);
+    }
+
+    #[test]
+    fn fallback_is_omitted_from_the_wire_when_absent() {
+        let page = SearchPage::<Row> {
+            hits: vec![],
+            total: 0,
+            offset: 0,
+            limit: 25,
+            fallback: None,
+        };
+        let s = serde_json::to_string(&page).unwrap();
+        assert!(!s.contains("fallback"), "unexpected key: {s}");
+    }
+
+    #[test]
+    fn no_clause_browse_never_triggers_the_fallback() {
+        // An unfiltered listing scores every row at 0; that is a browse, not a
+        // failed retrieval, so it must not be routed to the CUA fallback.
+        let records = vec![mk(
+            "m.1.tool",
+            "maya_tools__tool",
+            "A matching catalog tool.",
+            &[],
+            true,
+        )];
+        let page = search_page(
+            &records,
+            &SearchQuery {
+                cua_route: CuaRouteStatus::Ready,
+                ..SearchQuery::default()
+            },
+        );
+        assert!(!page.hits.is_empty());
+        assert_eq!(page.fallback, None);
+    }
+
+    #[test]
+    fn unmatched_query_routes_to_the_project_cua_route() {
+        let records = vec![mk(
+            "m.1.tool",
+            "maya_tools__tool",
+            "A matching catalog tool.",
+            &[],
+            true,
+        )];
+        let page = search_page(
+            &records,
+            &SearchQuery {
+                query: "zzzqqq-nonexistent-request".into(),
+                cua_route: CuaRouteStatus::Ready,
+                ..SearchQuery::default()
+            },
+        );
+        assert!(page.hits.is_empty());
+        let fallback = page.fallback.expect("fallback for an empty retrieval");
+        assert_eq!(fallback.target, FALLBACK_TARGET_SKILL);
+        assert_eq!(fallback.reason, FallbackReason::LowConfidence);
+        assert_eq!(fallback.status, FallbackStatus::Ready);
     }
 
     #[test]

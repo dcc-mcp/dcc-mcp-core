@@ -22,10 +22,13 @@ mod record;
 
 pub use engine::{rank_all, search, search_page};
 pub use policy::{
+    CuaRouteStatus, FALLBACK_INTERFACE_SCAN, FALLBACK_MIN_TOP1_SCORE, FALLBACK_PREFLIGHT,
+    FALLBACK_REPAIR_COMMAND, FALLBACK_TARGET_SKILL, FallbackPolicy, FallbackReason, FallbackStatus,
     LAYER_DOMAIN, LAYER_EXAMPLE, LAYER_INFRASTRUCTURE, LAYER_THIN_HARNESS,
     PATH_SOURCE_ADMIN_CUSTOM, PATH_SOURCE_BUNDLED, PATH_SOURCE_ENV_VAR, PATH_SOURCE_EXPLICIT_ARG,
-    PATH_SOURCE_LOCAL_DEV, PATH_SOURCE_PLATFORM, PATH_SOURCE_UNKNOWN, RankPolicy,
-    apply_rank_policy, layer_multiplier, path_source_multiplier,
+    PATH_SOURCE_LOCAL_DEV, PATH_SOURCE_PLATFORM, PATH_SOURCE_UNKNOWN, RankPolicy, SearchFallback,
+    apply_rank_policy, evaluate_fallback, fallback_reason, layer_multiplier,
+    path_source_multiplier,
 };
 pub use query::{
     DEFAULT_LIMIT, MAX_LIMIT, RANKER_VERSION, SearchHit, SearchMode, SearchPage, SearchQuery,

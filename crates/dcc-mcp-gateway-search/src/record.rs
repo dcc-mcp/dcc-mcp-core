@@ -59,4 +59,13 @@ pub trait SearchRecord {
     fn rank_scope(&self) -> u8 {
         0
     }
+    /// Whether the row declares at least one callable interface — a
+    /// `tools.yaml` entry, a tool declaration, or an equivalent.
+    ///
+    /// Rows that cannot answer report `true`: an unknown surface must never
+    /// trigger the CUA fallback. Only a row that positively declares "I have
+    /// nothing to invoke" routes to [`crate::FALLBACK_TARGET_SKILL`].
+    fn has_executable_interface(&self) -> bool {
+        true
+    }
 }

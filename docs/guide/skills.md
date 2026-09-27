@@ -609,6 +609,50 @@ by a known layer name through `tags=` (case-insensitive), e.g.
 The raw shared-scorer order is honoured inside the filtered slice.
 :::
 
+### When retrieval has no answer: the CUA fallback route
+
+Some requests have no callable answer — the target host exposes only a GUI, or
+nothing in the catalog matches at all. `search_skills` no longer answers those
+with a bare empty list: it returns a `fallback` object naming the project-owned
+`dcc-cua` UI-control route and a reason code explaining why.
+
+```json
+{
+  "target": "dcc-cua",
+  "reason": "low_confidence",
+  "status": "ready",
+  "top_score": 5,
+  "message": "No skill scored at or above 12 for this request (best score: 5). Route the task to the project-owned 'dcc-cua' UI-control route instead of browsing unrelated skills.",
+  "preflight": [
+    "dcc-mcp-cli components status dcc-cua",
+    "dcc-cua manifest",
+    "dcc-cua ping"
+  ]
+}
+```
+
+| Field | Meaning |
+|-------|---------|
+| `target` | Always `dcc-cua`. Never a generic computer-use provider. |
+| `reason` | `low_confidence` — nothing scored above the confidence gate. `no_executable_interface` — the best matches declare no tools, so there is nothing to invoke. |
+| `status` | `ready` — route verified. `unverified` — run `preflight` before handing work over. `blocked` — the route is unusable; `blocker` and `repair` say what to fix. |
+| `preflight` | Read-only checks from the official component contract. |
+
+Two rules govern the route, both from `skills/dcc-cua/SKILL.md`:
+
+- **It is a routing rule, not a ranking tweak.** `dcc-cua` carries
+  `layer: infrastructure` and stays damped to × 0.35 in neutral discovery on
+  purpose, so it never pollutes ordinary results. It is offered only after
+  ranking, never by raising its coefficient.
+- **Never substitute the provider.** When `status` is `blocked`, repair the
+  project route or report the blocker. Do not fall back to generic
+  Codex/OpenAI Computer Use, the `computer-use` Skill, `@oai/sky`, or a browser
+  plugin unless the user explicitly asks for one.
+
+The gate lives in `crates/dcc-mcp-gateway-search/src/policy.rs`
+(`FALLBACK_MIN_TOP1_SCORE`, `FallbackPolicy`) and is measured against the real
+scorer, so it is tunable in one place rather than at each call site.
+
 ### Description pattern: explicit negative routing
 
 The `description` field must follow a 3-part structure that tells agents both

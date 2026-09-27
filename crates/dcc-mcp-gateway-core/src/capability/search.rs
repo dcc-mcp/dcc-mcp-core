@@ -168,6 +168,7 @@ mod tests {
             total: 300,
             offset: 25,
             limit: 25,
+            fallback: None,
         };
         let s = serde_json::to_string(&page).unwrap();
         let back: SearchPage = serde_json::from_str(&s).unwrap();
