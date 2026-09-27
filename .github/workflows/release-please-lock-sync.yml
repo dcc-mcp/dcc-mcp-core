@@ -131,7 +131,103 @@ jobs:
           set -euo pipefail
           git -C ../trusted-lock-validator show "$TRUSTED_VALIDATOR_REF:scripts/ci/generated_lock_sync.py" | python -I - generate
 
+      # Generation runs `cargo update -w`, `cargo hakari generate` and
+      # `vx uv lock`, which take long enough that release automation can merge
+      # the pull request underneath them. The generated commit can then no
+      # longer be pushed to a branch that is gone, and the old code answered
+      # that with `preflight`'s "pull request is no longer an open PR targeting
+      # main" and exit 1. Because this job is not a required check, the locks
+      # were lost silently and only resurfaced as red lanes on `main`.
+      #
+      # Decide where the generated artifacts can still land *before* any
+      # identity check can fail: on the pull request branch when it is still
+      # open, or on `main` through a repair pull request when it was merged.
+      - name: Resolve generated lock target
+        id: target
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_SHA: ${{ env.PR_HEAD_SHA || github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          payload="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")"
+
+          # Read the facts through a fixed-order mapfile rather than `eval`:
+          # branch names come from the API and must never reach the shell as
+          # code. A block scalar cannot hold dedented Python, so the extractor
+          # is a single-line program. `tr -d` keeps the comparison honest when
+          # the checkout carries CRLF endings, which `mapfile -t` would keep.
+          mapfile -t facts < <(printf '%s' "$payload" | python -c "import json, sys; p = json.load(sys.stdin); print(p.get('state') or ''); print('true' if p.get('merged') else 'false'); print((p.get('base') or {}).get('ref') or ''); print((p.get('head') or {}).get('sha') or '')" | tr -d '\r')
+          state="${facts[0]}"
+          merged="${facts[1]}"
+          base_ref="${facts[2]}"
+          live_head="${facts[3]}"
+
+          if [ "$merged" = "true" ]; then
+            echo "target=main" >> "$GITHUB_OUTPUT"
+            echo "::warning::pull request #$PR_NUMBER was merged while the generated lock metadata was produced; the generated commit cannot be pushed to the branch and will be repaired on main instead."
+          elif [ "$state" != "open" ]; then
+            echo "target=abort" >> "$GITHUB_OUTPUT"
+            echo "reason=pull request #$PR_NUMBER is $state without being merged, so there is no branch left to carry the generated locks" >> "$GITHUB_OUTPUT"
+          elif [ "$base_ref" != "main" ]; then
+            echo "target=abort" >> "$GITHUB_OUTPUT"
+            echo "reason=pull request #$PR_NUMBER no longer targets main (base is $base_ref)" >> "$GITHUB_OUTPUT"
+          elif [ "$live_head" != "$PR_HEAD_SHA" ]; then
+            echo "target=abort" >> "$GITHUB_OUTPUT"
+            echo "reason=pull request #$PR_NUMBER head advanced from $PR_HEAD_SHA to $live_head while the locks were generated" >> "$GITHUB_OUTPUT"
+          else
+            echo "target=pr" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Report an unrepairable generated lock target
+        if: steps.target.outputs.target == 'abort'
+        run: |
+          # Loud on purpose: a silent exit is what let the 0.20.35 locks reach
+          # main unsynced.
+          echo "::error::${{ steps.target.outputs.reason }}"
+          exit 1
+
+      - name: Checkout the merge target branch
+        if: steps.target.outputs.target == 'main'
+        uses: actions/checkout@v6
+        with:
+          # `pull_request_target` resolves the default checkout to the base
+          # branch, which is where the generated locks now have to land.
+          ref: ${{ github.event.pull_request.base.ref }}
+          path: main-checkout
+          persist-credentials: false
+
+      - name: Repair main after the merge race
+        if: steps.target.outputs.target == 'main'
+        uses: ./.github/actions/generated-lock-repair
+        with:
+          token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+          workdir: main-checkout
+
+      - name: Announce the repair on the merged pull request
+        if: steps.target.outputs.target == 'main'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          # The generated locks could not be pushed here, so leave the reason
+          # where a human will look for it instead of only in a run log.
+          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file - <<BODY
+          The generated lock metadata for this pull request was finished after the
+          merge, so it could not be pushed to the branch. The same locks were
+          regenerated on \`main\` and opened as a repair pull request from
+          \`bot/generated-lock-repair\` instead.
+
+          See run $RUN_URL.
+          BODY
+
       - name: Revalidate pull request identity and generated diff
+        if: steps.target.outputs.target == 'pr'
         env:
           GH_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -148,6 +244,7 @@ jobs:
 
       - name: Commit and push changes
         id: commit
+        if: steps.target.outputs.target == 'pr'
         working-directory: pull-request
         run: |
           if git diff --quiet -- Cargo.lock uv.lock crates/workspace-hack/Cargo.toml; then

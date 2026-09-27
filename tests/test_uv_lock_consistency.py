@@ -383,7 +383,11 @@ def test_generated_lock_workflow_is_read_only_until_fixed_push() -> None:
     assert "pinned, self-contained object" in pin["run"]
     assert "git -C trusted-lock-validator cat-file -e" in pin["run"]
     checkouts = [step for step in job["steps"] if step.get("uses", "").startswith("actions/checkout@")]
-    assert len(checkouts) == 2
+    # Three checkouts: the pinned validator, the pull request head, and the
+    # base branch used only when the pull request was merged underneath
+    # generation. The third reads the base branch, never pull request content,
+    # so it adds no untrusted source to this job.
+    assert len(checkouts) == 3
     checkout = checkouts[0]
     assert checkout["with"]["path"] == "trusted-lock-validator"
     assert checkout["with"]["persist-credentials"] is False
@@ -391,6 +395,12 @@ def test_generated_lock_workflow_is_read_only_until_fixed_push() -> None:
     assert pr_checkout["name"] == "Checkout pull request head"
     assert pr_checkout["with"]["path"] == "pull-request"
     assert pr_checkout["with"]["persist-credentials"] is False
+    main_checkout = checkouts[2]
+    assert main_checkout["name"] == "Checkout the merge target branch"
+    assert main_checkout["with"]["path"] == "main-checkout"
+    assert main_checkout["with"]["persist-credentials"] is False
+    assert main_checkout["with"]["ref"] == "${{ github.event.pull_request.base.ref }}"
+    assert main_checkout["if"] == "steps.target.outputs.target == 'main'"
     remote_check = next(step for step in job["steps"] if step.get("name") == "Validate checkout remote")
     assert (
         "git -C ../trusted-lock-validator show" in remote_check["run"]
