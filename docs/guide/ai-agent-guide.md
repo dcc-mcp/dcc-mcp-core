@@ -5,7 +5,7 @@
 > Blender, Houdini, etc.
 >
 > **Division of labour** — this is a *how-to tutorial*.
-> [../../AGENTS.md](../../AGENTS.md) is the **single normative source** for repo rules,
+> [AGENTS.md](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/AGENTS.md) is the **single normative source** for repo rules,
 > commands, PR/merge policy, and traps; it is the only agent contract file at the repo
 > root. Where the two overlap, **`AGENTS.md` wins**. Vendor-specific notes belong under
 > `docs/integrations/`, not as extra root `*.md` files.
@@ -707,11 +707,11 @@ If you are uncertain whether a change affects py37 compatibility, ask. Never ass
 
 - **Default entry skill**: [`dcc-mcp`](https://clawhub.ai/loonghao/skills/dcc-mcp) — install this public skill for CLI+REST DCC control
 - **CLI reference**: [`docs/guide/cli-reference.md`](cli-reference.md) — full `dcc-mcp-cli` command reference
-- **Navigation map**: [`AGENTS.md`](../../AGENTS.md) — start here for detailed rules
-- **API index**: [`llms.txt`](../../llms.txt) — compressed API reference for AI agents
+- **Navigation map**: [`AGENTS.md`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/AGENTS.md) — start here for detailed rules
+- **API index**: [`llms.txt`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/llms.txt) — compressed API reference for AI agents
 - **Skill authoring guide**: [`docs/guide/skills.md`](skills.md) — current SKILL.md + sibling-file pattern
 - **Skill ownership policy**: [`docs/POLICY_SKILL_OWNERSHIP.md`](../POLICY_SKILL_OWNERSHIP.md) — avoid duplicating bundled adapter file-operation skills
-- **Bundled examples**: [`examples/skills/`](../../examples/skills/) — complete SKILL.md packages
+- **Bundled examples**: [`examples/skills/`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/examples/skills/) — complete SKILL.md packages
 - **Detailed traps**: [`docs/guide/agents-reference.md`](agents-reference.md)
 - **Lifecycle hooks reference**: [`docs/guide/agents-reference.md#lifecycle-hooks-typed-observerpub-sub-1337`](agents-reference.md#lifecycle-hooks-typed-observerpub-sub-1337)
 - **Agent memory reference**: [`docs/guide/agents-reference.md#agent-memory-three-tier-1334`](agents-reference.md#agent-memory-three-tier-1334)
