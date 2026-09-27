@@ -1,0 +1,224 @@
+tools:
+  - name: replay_capabilities
+    description: Report which RenderDoc backends this adapter can reach — the renderdoccmd headless baseline and the renderdoc.pyd deep replay backend driven through qrenderdoc — plus the capability groups they unlock (inspect, debug, perf, ext) and how to enable a missing one. Use before deep replay tools to confirm availability rather than discovering it through a failure. Not a capture probe — use renderdoc_inspect__describe_capture for one capture's own replay flags.
+    input_schema:
+      type: object
+      properties: {}
+      additionalProperties: false
+    output_schema: {type: object}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 30
+    source_file: scripts/replay_capabilities.py
+    next-tools:
+      on-success: [renderdoc_inspect__describe_capture]
+      on-failure: [dcc_diagnostics__audit_log]
+  - name: describe_capture
+    description: Open one .rdc capture for replay and report RenderDoc's own view of it — API pipeline type, renderer and vendor, per-capture replay capability flags (pixel history, shader debugging, local or degraded replay), frame information, resource, texture, buffer, root-action and total-action counts, and first/last event IDs. Use as the first step of any replay workflow to learn the capture size before paging. Not for chunk-level offline triage — use renderdoc_analysis__inspect_capture.
+    input_schema:
+      type: object
+      required: [capture_file]
+      properties:
+        capture_file: {type: string, minLength: 1, maxLength: 1000}
+      additionalProperties: false
+    output_schema: {type: object}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: async
+    affinity: any
+    timeout_hint_secs: 300
+    source_file: scripts/describe_capture.py
+    next-tools:
+      on-success: [renderdoc_inspect__list_actions, renderdoc_inspect__list_resources]
+      on-failure: [renderdoc_analysis__inspect_capture, dcc_diagnostics__audit_log]
+  - name: list_actions
+    description: Walk the RenderDoc action tree and return a flat, paged list of actions with event ID, action ID, parent event ID, depth, resolved name, action flags, index and instance counts, and child count. Supports max_depth, name_filter substring search, flag_filter matching against decoded action flag names, offset, and limit. Use for event and draw traversal, marker region discovery, and locating the event ID other replay tools need. Not for GPU timing or pipeline state.
+    input_schema:
+      type: object
+      required: [capture_file]
+      properties:
+        capture_file: {type: string, minLength: 1, maxLength: 1000}
+        parent_event_id: {type: integer, minimum: 1}
+        max_depth: {type: integer, minimum: 0, maximum: 32, default: 32}
+        name_filter: {type: string, maxLength: 200}
+        flag_filter: {type: string, maxLength: 100}
+        offset: {type: integer, minimum: 0, maximum: 10000000, default: 0}
+        limit: {type: integer, minimum: 1, maximum: 20000, default: 200}
+      additionalProperties: false
+    output_schema: {type: object}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: async
+    affinity: any
+    timeout_hint_secs: 300
+    source_file: scripts/list_actions.py
+    next-tools:
+      on-success: [renderdoc_inspect__get_action, renderdoc_inspect__get_pipeline_state]
+      on-failure: [renderdoc_inspect__describe_capture, dcc_diagnostics__audit_log]
+  - name: get_action
+    description: Return full detail for one RenderDoc event — resolved name, custom name, decoded action flags, index, vertex, instance and draw offsets, dispatch dimensions and base, colour outputs, depth output, and copy source and destination. Use to inspect a single draw, dispatch, copy, or marker found through list_actions. Not for the resources bound at that event — use renderdoc_inspect__get_pipeline_state.
+    input_schema:
+      type: object
+      required: [capture_file, event_id]
+      properties:
+        capture_file: {type: string, minLength: 1, maxLength: 1000}
+        event_id: {type: integer, minimum: 1}
+      additionalProperties: false
+    output_schema: {type: object}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: async
+    affinity: any
+    timeout_hint_secs: 300
+    source_file: scripts/get_action.py
+    next-tools:
+      on-success: [renderdoc_inspect__get_pipeline_state, renderdoc_inspect__get_resource_usage]
+      on-failure: [renderdoc_inspect__list_actions, dcc_diagnostics__audit_log]
+  - name: list_resources
+    description: List the resources in one capture with resource ID, name, type, byte size, and — for textures — width, height, depth, array size, mip count, format name, and dimension. Supports resource_type and name_filter substring search, offset, and limit. Use to find the resource ID other replay tools need. Not for per-event bindings — use renderdoc_inspect__get_pipeline_state.
+    input_schema:
+      type: object
+      required: [capture_file]
+      properties:
+        capture_file: {type: string, minLength: 1, maxLength: 1000}
+        resource_type: {type: string, maxLength: 100}
+        name_filter: {type: string, maxLength: 200}
+        offset: {type: integer, minimum: 0, maximum: 10000000, default: 0}
+        limit: {type: integer, minimum: 1, maximum: 5000, default: 200}
+      additionalProperties: false
+    output_schema: {type: object}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: async
+    affinity: any
+    timeout_hint_secs: 300
+    source_file: scripts/list_resources.py
+    next-tools:
+      on-success: [renderdoc_inspect__get_resource_usage, renderdoc_inspect__get_texture_data]
+      on-failure: [renderdoc_inspect__describe_capture, dcc_diagnostics__audit_log]
+  - name: get_resource_usage
+    description: Report every event that uses one resource, with the RenderDoc usage role for each (vertex buffer, index buffer, colour target, depth target, shader resource, constant buffer, copy source or destination, and so on). Supports offset and limit paging when a resource is used by many events. Use to answer which draw touched a texture or buffer. Not for the values stored in the resource — use renderdoc_inspect__get_buffer_data or renderdoc_inspect__get_texture_data.
+    input_schema:
+      type: object
+      required: [capture_file, resource_id]
+      properties:
+        capture_file: {type: string, minLength: 1, maxLength: 1000}
+        resource_id: {type: integer, minimum: 1}
+        offset: {type: integer, minimum: 0, maximum: 10000000, default: 0}
+        limit: {type: integer, minimum: 1, maximum: 5000, default: 200}
+      additionalProperties: false
+    output_schema: {type: object}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: async
+    affinity: any
+    timeout_hint_secs: 300
+    source_file: scripts/get_resource_usage.py
+    next-tools:
+      on-success: [renderdoc_inspect__get_action, renderdoc_inspect__get_pipeline_state]
+      on-failure: [renderdoc_inspect__list_resources, dcc_diagnostics__audit_log]
+  - name: get_pipeline_state
+    description: Move the replay to one event and report the full pipeline state — bound shader resource ID, entry point, and encoding per stage; index buffer; vertex buffers and vertex inputs; colour and depth output targets; viewport and scissor; colour blends, depth-test, and rasterizer state; and read-only, read-write, and constant-block bindings per stage. Use to understand what a draw was about to do. Not for shader source, reflection signatures, or constant buffer values — use renderdoc_inspect__get_shader_info.
+    input_schema:
+      type: object
+      required: [capture_file, event_id]
+      properties:
+        capture_file: {type: string, minLength: 1, maxLength: 1000}
+        event_id: {type: integer, minimum: 1}
+      additionalProperties: false
+    output_schema: {type: object}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: async
+    affinity: any
+    timeout_hint_secs: 300
+    source_file: scripts/get_pipeline_state.py
+    next-tools:
+      on-success: [renderdoc_inspect__get_shader_info, renderdoc_inspect__get_resource_usage]
+      on-failure: [renderdoc_inspect__list_actions, dcc_diagnostics__audit_log]
+  - name: get_shader_info
+    description: Return reflection for one shader stage at one event — shader resource ID, entry point, stage, encoding, input and output signatures, constant blocks, read-only and read-write resources, and samplers. Set include_source for embedded shader source files, include_disassembly for RenderDoc disassembly (optionally with disassembly_target), and include_constant_buffers to read the bound constant buffers back with per-variable decoded values. Use to inspect what a shader declares and which constant values it sees. Not for stepping through shader execution.
+    input_schema:
+      type: object
+      required: [capture_file]
+      properties:
+        capture_file: {type: string, minLength: 1, maxLength: 1000}
+        event_id: {type: integer, minimum: 1}
+        stage: {type: string, enum: [Vertex, Hull, Domain, Geometry, Pixel, Compute], default: Pixel}
+        include_source: {type: boolean, default: false}
+        include_disassembly: {type: boolean, default: false}
+        include_constant_buffers: {type: boolean, default: false}
+        variable_limit: {type: integer, minimum: 1, maximum: 256, default: 64}
+        disassembly_target: {type: string, maxLength: 200}
+      additionalProperties: false
+    output_schema: {type: object}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: async
+    affinity: any
+    timeout_hint_secs: 300
+    source_file: scripts/get_shader_info.py
+    next-tools:
+      on-success: [renderdoc_inspect__get_pipeline_state, renderdoc_inspect__get_buffer_data]
+      on-failure: [renderdoc_inspect__get_pipeline_state, dcc_diagnostics__audit_log]
+  - name: get_texture_data
+    description: Read one texture resource of a capture. Set output_file to export it through RenderDoc's own texture export — the extension selects the format (png, jpg, bmp, tga, dds, exr, hdr, or raw) — and set include_pixels to read the raw subresource bytes back with a hex preview. Supports mip, slice, and sample selection, an optional type_cast (Typeless, Float, UNorm, SNorm, UNormSRGB, UScaled, SScaled, UInt, SInt, Depth), and preview_bytes. At least one of output_file or include_pixels is required. Not for the embedded capture thumbnail — use renderdoc_analysis__export_thumbnail.
+    input_schema:
+      type: object
+      required: [capture_file, resource_id]
+      properties:
+        capture_file: {type: string, minLength: 1, maxLength: 1000}
+        resource_id: {type: integer, minimum: 1}
+        output_file: {type: string, minLength: 1, maxLength: 1000}
+        include_pixels: {type: boolean, default: false}
+        mip: {type: integer, minimum: 0, maximum: 64, default: 0}
+        slice_index: {type: integer, minimum: 0, maximum: 65535, default: 0}
+        sample: {type: integer, minimum: 0, maximum: 65535, default: 0}
+        type_cast: {type: string, maxLength: 32, default: Typeless}
+        preview_bytes: {type: integer, minimum: 0, maximum: 4096, default: 256}
+      additionalProperties: false
+    output_schema: {type: object}
+    read_only: false
+    destructive: false
+    idempotent: true
+    execution: async
+    affinity: any
+    timeout_hint_secs: 300
+    source_file: scripts/get_texture_data.py
+    next-tools:
+      on-success: [renderdoc_inspect__list_resources, renderdoc_inspect__get_resource_usage]
+      on-failure: [renderdoc_inspect__list_resources, dcc_diagnostics__audit_log]
+  - name: get_buffer_data
+    description: Read a byte range of one buffer resource and return its length, a hex preview, a base64 preview, and optionally the full bytes written to output_file. Use to inspect constant buffers, vertex buffers, and index buffers, or to verify values reported by renderdoc_inspect__get_shader_info.
+    input_schema:
+      type: object
+      required: [capture_file, resource_id]
+      properties:
+        capture_file: {type: string, minLength: 1, maxLength: 1000}
+        resource_id: {type: integer, minimum: 1}
+        offset: {type: integer, minimum: 0, default: 0}
+        length: {type: integer, minimum: 0, maximum: 1073741824, default: 0}
+        preview_bytes: {type: integer, minimum: 0, maximum: 4096, default: 256}
+        output_file: {type: string, maxLength: 1000}
+      additionalProperties: false
+    output_schema: {type: object}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: async
+    affinity: any
+    timeout_hint_secs: 300
+    source_file: scripts/get_buffer_data.py
+    next-tools:
+      on-success: [renderdoc_inspect__get_resource_usage, renderdoc_inspect__get_shader_info]
+      on-failure: [renderdoc_inspect__list_resources, dcc_diagnostics__audit_log]

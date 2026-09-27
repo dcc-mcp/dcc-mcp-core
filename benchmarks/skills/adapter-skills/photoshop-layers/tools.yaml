@@ -1,0 +1,161 @@
+tools:
+- name: create_layer
+  description: Create a new pixel, group, or adjustment layer in the active document.
+  source_file: scripts/create_layer.py
+  execution: sync
+  read_only: false
+  destructive: false
+  idempotent: false
+  input_schema:
+    type: object
+    properties:
+      name:
+        type: string
+        description: Layer name (default "Layer").
+        default: Layer
+      layer_type:
+        type: string
+        description: '"pixel" (default) or "group".'
+        default: pixel
+    additionalProperties: false
+- name: delete_layer
+  description: Delete a named layer from the active document.
+  source_file: scripts/delete_layer.py
+  execution: sync
+  read_only: false
+  destructive: true
+  idempotent: false
+  input_schema:
+    type: object
+    properties:
+      name:
+        type: string
+        description: Exact name of the layer to delete.
+    additionalProperties: false
+    required:
+    - name
+- name: duplicate_layer
+  description: Duplicate a named layer, optionally giving the duplicate a new name.
+  source_file: scripts/duplicate_layer.py
+  execution: sync
+  read_only: false
+  destructive: false
+  idempotent: false
+  input_schema:
+    type: object
+    properties:
+      name:
+        type: string
+        description: Exact name of the source layer.
+      new_name:
+        type: string
+        description: Optional name for the duplicate; if omitted Photoshop appends " copy" automatically.
+        default: ''
+    additionalProperties: false
+    required:
+    - name
+- name: rename_layer
+  description: Rename a layer in the active document.
+  source_file: scripts/rename_layer.py
+  execution: sync
+  read_only: false
+  destructive: false
+  idempotent: true
+  input_schema:
+    type: object
+    properties:
+      name:
+        type: string
+        description: Current name of the layer.
+      new_name:
+        type: string
+        description: New name to assign.
+    additionalProperties: false
+    required:
+    - name
+    - new_name
+- name: set_layer_opacity
+  description: Set the opacity (0-100) of a named layer.
+  source_file: scripts/set_layer_opacity.py
+  execution: sync
+  read_only: false
+  destructive: false
+  idempotent: true
+  input_schema:
+    type: object
+    properties:
+      name:
+        type: string
+        description: Exact layer name.
+      opacity:
+        type: number
+        description: Opacity value 0 (transparent) to 100 (opaque).
+    additionalProperties: false
+    required:
+    - name
+    - opacity
+- name: set_layer_visibility
+  description: Show or hide a named layer.
+  source_file: scripts/set_layer_visibility.py
+  execution: sync
+  read_only: false
+  destructive: false
+  idempotent: true
+  input_schema:
+    type: object
+    properties:
+      name:
+        type: string
+        description: Exact layer name.
+      visible:
+        type: boolean
+        description: '``True`` to show, ``False`` to hide.'
+    additionalProperties: false
+    required:
+    - name
+    - visible
+- name: set_layer_blend_mode
+  description: Set the blend mode of a named layer (normal, multiply, screen, overlay, etc.).
+  source_file: scripts/set_layer_blend_mode.py
+  execution: sync
+  read_only: false
+  destructive: false
+  idempotent: true
+  input_schema:
+    type: object
+    properties:
+      name:
+        type: string
+        description: Exact layer name.
+      blend_mode:
+        type: string
+        description: Blend mode string, e.g. ``"multiply"``, ``"screen"``, ``"overlay"``, ``"soft_light"``, ``"normal"``.
+    additionalProperties: false
+    required:
+    - name
+    - blend_mode
+- name: fill_layer
+  description: Fill a layer with a solid color (hex or RGB) or transparent.
+  source_file: scripts/fill_layer.py
+  execution: sync
+  read_only: false
+  destructive: false
+  idempotent: true
+  input_schema:
+    type: object
+    properties:
+      name:
+        type: string
+        description: Exact layer name.
+      color:
+        type: string
+        description: Fill color as a hex string (e.g. ``"#ff0000"`` for red) or ``"transparent"`` to clear.  Default is white
+          ``"#ffffff"``.
+        default: '#ffffff'
+      opacity:
+        type: number
+        description: Fill opacity 0-100 (default 100).
+        default: 100.0
+    additionalProperties: false
+    required:
+    - name

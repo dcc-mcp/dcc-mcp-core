@@ -1,0 +1,73 @@
+tools:
+- name: get_document_info
+  description: Get metadata about the active Photoshop document (name, size, resolution, color mode)
+  source_file: scripts/get_document_info.py
+  execution: sync
+  read_only: true
+  destructive: false
+  idempotent: true
+  input_schema:
+    type: object
+    properties: {}
+    additionalProperties: false
+- name: list_documents
+  description: List all currently open Photoshop documents with metadata (name, path, dimensions)
+  source_file: scripts/list_documents.py
+  execution: sync
+  read_only: true
+  destructive: false
+  idempotent: true
+  input_schema:
+    type: object
+    properties: {}
+    additionalProperties: false
+- name: open_document
+  description: Open an existing local image or Photoshop document and make it active
+  source_file: scripts/open_document.py
+  execution: sync
+  read_only: false
+  destructive: false
+  idempotent: false
+  input_schema:
+    type: object
+    required:
+    - path
+    properties:
+      path:
+        type: string
+        description: Absolute path to a local image or Photoshop document.
+    additionalProperties: false
+- name: list_layers
+  description: List all layers in the active Photoshop document. Set include_hidden=false to exclude hidden layers.
+  source_file: scripts/list_layers.py
+  execution: sync
+  read_only: true
+  destructive: false
+  idempotent: true
+  input_schema:
+    type: object
+    properties:
+      include_hidden:
+        type: boolean
+        description: 'Whether to include hidden layers (default: True).'
+        default: true
+    additionalProperties: false
+- name: close_document
+  description: Close a Photoshop document by ID or the active document. Optionally save before closing.
+  source_file: scripts/close_document.py
+  execution: sync
+  read_only: false
+  destructive: true
+  idempotent: false
+  input_schema:
+    type: object
+    properties:
+      document_id:
+        type: integer
+        description: Document ID to close.  If ``None``, closes the active document.
+        default: null
+      save:
+        type: boolean
+        description: If ``True``, saves changes before closing. Default ``False``.
+        default: false
+    additionalProperties: false

@@ -1,0 +1,82 @@
+tools:
+- name: apply_gaussian_blur
+  description: Apply Gaussian Blur filter to the active layer
+  source_file: scripts/apply_gaussian_blur.py
+  execution: sync
+  read_only: false
+  destructive: false
+  idempotent: true
+  input_schema:
+    type: object
+    properties:
+      radius:
+        type: number
+        description: Blur radius in pixels.
+    additionalProperties: false
+    required:
+    - radius
+- name: apply_high_pass
+  description: Apply High Pass filter to the active layer
+  source_file: scripts/apply_high_pass.py
+  execution: sync
+  read_only: false
+  destructive: false
+  idempotent: true
+  input_schema:
+    type: object
+    properties:
+      radius:
+        type: number
+        description: Filter radius in pixels.
+    additionalProperties: false
+    required:
+    - radius
+- name: apply_sharpen
+  description: Apply Sharpen filter to the active layer
+  source_file: scripts/apply_sharpen.py
+  execution: sync
+  read_only: false
+  destructive: false
+  idempotent: true
+  input_schema:
+    type: object
+    properties: {}
+    additionalProperties: false
+- name: apply_smart_blur
+  description: Apply Smart Blur filter with radius and threshold
+  source_file: scripts/apply_smart_blur.py
+  execution: sync
+  read_only: false
+  destructive: false
+  idempotent: true
+  input_schema:
+    type: object
+    properties:
+      radius:
+        type: number
+        description: Blur radius in pixels.
+      threshold:
+        type: number
+        description: Edge threshold. Areas with tonal difference below this value are blurred; areas above it are preserved.
+          Default 0.0.
+        default: 0.0
+    additionalProperties: false
+    required:
+    - radius
+- name: apply_filter
+  description: Apply a generic filter by method name with optional arguments
+  source_file: scripts/apply_filter.py
+  execution: sync
+  read_only: false
+  destructive: false
+  idempotent: true
+  input_schema:
+    type: object
+    properties:
+      method:
+        type: string
+        description: 'Name of the filter method on ``layer.filters`` (e.g. ``"apply_gaussian_blur"``). **kwargs: Keyword arguments
+          forwarded to the filter method.'
+    additionalProperties: false
+    required:
+    - method

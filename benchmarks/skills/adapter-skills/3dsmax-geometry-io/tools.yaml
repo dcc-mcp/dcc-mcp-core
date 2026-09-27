@@ -1,0 +1,314 @@
+tools:
+  - name: validate_geometry_file
+    description: >-
+      Validate that an existing geometry file path is readable and has a
+      supported import format.
+    source_file: action_validate_geometry_file.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      required: [file_path]
+      additionalProperties: false
+      properties:
+        file_path:
+          type: string
+          minLength: 1
+          description: Existing geometry file path to validate.
+        expected_format:
+          type: string
+          enum: [fbx, obj, "3ds"]
+          description: Optional format that must match the file extension.
+    output_schema:
+      type: object
+      additionalProperties: true
+      properties:
+        success: {type: boolean}
+        status: {type: string}
+        message: {type: string}
+        data: {type: object}
+    timeout_hint_secs: 5
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+
+    intent: "Check that a geometry file exists and has a supported format."
+    tool_role: read_only
+    risk: low
+    search_aliases: ["validate_geometry_file", "validate geometry file", "validate geometry file"]
+    side_effects:
+      creates: false
+      modifies: false
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: []
+    produces: ['validation_result']
+  - name: import_fbx
+    description: >-
+      Import an FBX file into the current scene and return created node
+      identifiers plus any recoverable option warnings.
+    source_file: action_import_fbx.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      required: [file_path]
+      additionalProperties: false
+      properties:
+        file_path:
+          type: string
+          minLength: 1
+          description: Existing .fbx file path to import.
+        mode:
+          type: string
+          enum: [create, merge, exmerge]
+          default: merge
+          description: FBX import mode.
+        units:
+          type: string
+          enum: [mm, cm, dm, m, km, in, ft, yd]
+          description: Optional FBX ConvertUnit value.
+        up_axis:
+          type: string
+          enum: [Y, Z]
+          description: Optional FBX UpAxis value.
+        include_animation:
+          type: boolean
+          default: true
+          description: Whether to import animation from the FBX file.
+    output_schema:
+      type: object
+      additionalProperties: true
+      properties:
+        success: {type: boolean}
+        status: {type: string}
+        message: {type: string}
+        data: {type: object}
+    timeout_hint_secs: 60
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+      open_world_hint: false
+
+    intent: "Import an FBX file into the scene with configurable options."
+    tool_role: action
+    risk: medium
+    search_aliases: ["import_fbx", "import fbx", "import fbx"]
+    side_effects:
+      creates: false
+      modifies: true
+      deletes: false
+      exports: false
+      imports: true
+      file_output: false
+      render: false
+      targets: []
+    produces: ['scene_nodes']
+  - name: import_geometry
+    description: >-
+      Import a supported geometry file using the format inferred from the file
+      extension, with FBX options applied for FBX inputs.
+    source_file: action_import_geometry.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      required: [file_path]
+      additionalProperties: false
+      properties:
+        file_path:
+          type: string
+          minLength: 1
+          description: Existing geometry file path to import.
+        format:
+          type: string
+          enum: [fbx, obj, "3ds"]
+          description: Optional format that must match the file extension.
+        mode:
+          type: string
+          enum: [create, merge, exmerge]
+          default: merge
+          description: FBX import mode when importing FBX files.
+    output_schema:
+      type: object
+      additionalProperties: true
+      properties:
+        success: {type: boolean}
+        status: {type: string}
+        message: {type: string}
+        data: {type: object}
+    timeout_hint_secs: 60
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+      open_world_hint: false
+
+    intent: "Import a geometry file with format auto-detection."
+    tool_role: action
+    risk: medium
+    search_aliases: ["import_geometry", "import geometry", "import geometry"]
+    side_effects:
+      creates: false
+      modifies: true
+      deletes: false
+      exports: false
+      imports: true
+      file_output: false
+      render: false
+      targets: []
+    produces: ['scene_nodes']
+  - name: export_fbx
+    description: >-
+      Export selected nodes or the whole scene to FBX with output path and
+      overwrite validation.
+    source_file: action_export_fbx.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      required: [output_path]
+      additionalProperties: false
+      properties:
+        output_path:
+          type: string
+          minLength: 1
+          description: Target .fbx file path.
+        selected_only:
+          type: boolean
+          default: false
+          description: Export current selection only when true.
+        overwrite:
+          type: boolean
+          default: false
+          description: Replace an existing output file when true.
+        units:
+          type: string
+          enum: [mm, cm, dm, m, km, in, ft, yd]
+          description: Optional FBX ConvertUnit value.
+        up_axis:
+          type: string
+          enum: [Y, Z]
+          description: Optional FBX UpAxis value.
+        include_animation:
+          type: boolean
+          default: true
+          description: Whether to export animation.
+        embed_textures:
+          type: boolean
+          default: false
+          description: Whether to embed textures in the FBX file.
+        ascii:
+          type: boolean
+          default: false
+          description: Export FBX as ASCII when true.
+    output_schema:
+      type: object
+      additionalProperties: true
+      properties:
+        success: {type: boolean}
+        status: {type: string}
+        message: {type: string}
+        data: {type: object}
+    timeout_hint_secs: 60
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+      open_world_hint: false
+
+    intent: "Export scene nodes or selection to an FBX file."
+    tool_role: action
+    risk: medium
+    search_aliases: ["export_fbx", "export fbx", "export fbx"]
+    side_effects:
+      creates: false
+      modifies: false
+      deletes: false
+      exports: true
+      imports: false
+      file_output: true
+      render: false
+      targets: ["scene_nodes"]
+    produces:
+      - "file:fbx"
+  - name: export_obj
+    description: >-
+      Export selected nodes or the whole scene to OBJ with output path and
+      overwrite validation.
+    source_file: action_export_obj.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      required: [output_path]
+      additionalProperties: false
+      properties:
+        output_path:
+          type: string
+          minLength: 1
+          description: Target .obj file path.
+        selected_only:
+          type: boolean
+          default: false
+          description: Export current selection only when true.
+        overwrite:
+          type: boolean
+          default: false
+          description: Replace an existing output file when true.
+    output_schema:
+      type: object
+      additionalProperties: true
+      properties:
+        success: {type: boolean}
+        status: {type: string}
+        message: {type: string}
+        data: {type: object}
+    timeout_hint_secs: 60
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+      open_world_hint: false
+
+    intent: "Export scene nodes or selection to an OBJ file."
+    tool_role: action
+    risk: medium
+    search_aliases: ["export_obj", "export obj", "export obj"]
+    side_effects:
+      creates: false
+      modifies: false
+      deletes: false
+      exports: true
+      imports: false
+      file_output: true
+      render: false
+      targets: ["scene_nodes"]
+    produces:
+      - "file:obj"

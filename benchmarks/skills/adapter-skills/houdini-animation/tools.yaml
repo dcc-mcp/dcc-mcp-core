@@ -1,0 +1,355 @@
+tools:
+  - name: get_timeline
+    description: Read current frame, frame/playback range, and FPS (canonical timeline query).
+    source_file: scripts/get_timeline.py
+    execution: sync
+    affinity: main
+    group: timeline
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+    input_schema:
+      type: object
+      properties: {}
+  - name: set_timeline
+    description: >-
+      Set current frame, frame range, playback range, and FPS. Canonical
+      timeline setter (prefer over automation set_frame_range for live edits).
+    source_file: scripts/set_timeline.py
+    execution: sync
+    affinity: main
+    group: timeline
+    read_only: false
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: true
+    input_schema:
+      type: object
+      properties:
+        current_frame:
+          type: number
+        frame_range:
+          type: array
+          items: {type: number}
+          minItems: 2
+          maxItems: 2
+        playback_range:
+          type: array
+          items: {type: number}
+          minItems: 2
+          maxItems: 2
+        fps:
+          type: number
+  - name: set_keyframe
+    description: Set a value or expression keyframe on a node parameter at a frame.
+    source_file: scripts/set_keyframe.py
+    execution: sync
+    affinity: main
+    group: keyframes
+    read_only: false
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: true
+    input_schema:
+      type: object
+      required: [node_path, parm_name, frame]
+      properties:
+        node_path:
+          type: string
+        parm_name:
+          type: string
+        frame:
+          type: number
+        value:
+          type: number
+        expression:
+          type: string
+        language:
+          type: string
+          enum: [hscript, python]
+          default: hscript
+        interpolation:
+          type: string
+          description: >-
+            Optional segment interpolation starting at this numeric value key.
+            Omit to preserve Houdini's default.
+          enum: [bezier, linear, constant]
+  - name: get_keyframes
+    description: List keyframes on a node parameter (frame, value, expression).
+    source_file: scripts/get_keyframes.py
+    execution: sync
+    affinity: main
+    group: keyframes
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+    input_schema:
+      type: object
+      required: [node_path, parm_name]
+      properties:
+        node_path:
+          type: string
+        parm_name:
+          type: string
+  - name: delete_keyframes
+    description: Delete all keyframes on a parameter, or only those in a frame range.
+    source_file: scripts/delete_keyframes.py
+    execution: sync
+    affinity: main
+    group: keyframes
+    read_only: false
+    destructive: true
+    idempotent: true
+    annotations:
+      read_only_hint: false
+      destructive_hint: true
+      idempotent_hint: true
+    input_schema:
+      type: object
+      required: [node_path, parm_name]
+      properties:
+        node_path:
+          type: string
+        parm_name:
+          type: string
+        frame_range:
+          type: array
+          items: {type: number}
+          minItems: 2
+          maxItems: 2
+  - name: list_animated_parms
+    description: List parameters on a node that are keyframed or time-dependent.
+    source_file: scripts/list_animated_parms.py
+    execution: sync
+    affinity: main
+    group: channels
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+    input_schema:
+      type: object
+      required: [node_path]
+      properties:
+        node_path:
+          type: string
+  - name: validate_loop_contract
+    description: >-
+      Bounded, read-only OBJ animation-loop validation for a playback range of
+      unique samples. Temporarily reads the first three frames plus end-step,
+      end, and virtual end+step; restores the original frame; and reports both
+      end-vs-start duplicate and end+step-vs-start periodic deltas, plus
+      velocity/acceleration residuals, without inspecting or cooking geometry.
+    source_file: scripts/validate_loop_contract.py
+    execution: sync
+    affinity: main
+    group: validation
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+    input_schema:
+      type: object
+      additionalProperties: false
+      required: [node_paths, start_frame, end_frame]
+      properties:
+        node_paths:
+          type: array
+          description: Unique OBJ node paths to validate; geometry is never inspected.
+          items:
+            type: string
+            pattern: '^/obj/\S+$'
+            maxLength: 512
+          minItems: 1
+          maxItems: 64
+          uniqueItems: true
+        start_frame:
+          type: number
+          minimum: -1000000
+          maximum: 1000000
+        end_frame:
+          type: number
+          description: Last unique playback sample; the validator also reads end_frame + sample_step.
+          minimum: -1000000
+          maximum: 1000000
+        sample_step:
+          type: number
+          exclusiveMinimum: 0
+          maximum: 1000
+          default: 1.0
+        tolerances:
+          type: object
+          additionalProperties: false
+          properties:
+            matrix_max_abs: {type: number, minimum: 0, default: 0.0001}
+            translation: {type: number, minimum: 0, default: 0.0001}
+            angular_degrees: {type: number, minimum: 0, default: 0.1}
+            scale: {type: number, minimum: 0, default: 0.0001}
+            linear_velocity: {type: number, minimum: 0, default: 0.001}
+            angular_velocity_degrees: {type: number, minimum: 0, default: 0.5}
+            linear_acceleration: {type: number, minimum: 0, default: 0.01}
+            angular_acceleration_degrees: {type: number, minimum: 0, default: 2.0}
+        max_expression_chars:
+          type: integer
+          minimum: 0
+          maximum: 512
+          default: 160
+  - name: get_channel_info
+    description: >-
+      Inspect a parameter channel: expression, language, keyframe count, time
+      dependence, current value.
+    source_file: scripts/get_channel_info.py
+    execution: sync
+    affinity: main
+    group: channels
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+    input_schema:
+      type: object
+      required: [node_path, parm_name]
+      properties:
+        node_path:
+          type: string
+        parm_name:
+          type: string
+  - name: export_channels
+    description: Export keyframe data for parameters to a JSON file.
+    source_file: scripts/export_channels.py
+    execution: sync
+    affinity: main
+    group: channels
+    read_only: false
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: true
+    input_schema:
+      type: object
+      required: [node_path, parm_names, output_path]
+      properties:
+        node_path:
+          type: string
+        parm_names:
+          type: array
+          items: {type: string}
+          minItems: 1
+        output_path:
+          type: string
+  - name: import_channels
+    description: Apply a JSON channel dump (from export_channels) onto a node.
+    source_file: scripts/import_channels.py
+    execution: sync
+    affinity: main
+    group: channels
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+    input_schema:
+      type: object
+      required: [input_path]
+      properties:
+        input_path:
+          type: string
+        node_path:
+          type: string
+          description: Optional retarget node; defaults to the dump's node_path.
+  - name: bake_channels
+    description: >-
+      Sample evaluated parameter values per frame and write constant keyframes
+      (bounded by a hard frame cap). Async.
+    source_file: scripts/bake_channels.py
+    execution: async
+    affinity: main
+    timeout_hint_secs: 600
+    group: bake
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+    input_schema:
+      type: object
+      required: [node_path, parm_names, frame_range]
+      properties:
+        node_path:
+          type: string
+        parm_names:
+          type: array
+          items: {type: string}
+          minItems: 1
+        frame_range:
+          type: array
+          items: {type: number}
+          minItems: 2
+          maxItems: 2
+        step:
+          type: number
+          default: 1.0
+  - name: cache_simulation
+    description: >-
+      Bake a simulation/cache by rendering a ROP (filecache/dop/geometry) over a
+      frame range. UI and headless Houdini default to an isolated job and return
+      its adapter job_id directly; pass background=false only for intentional
+      foreground execution.
+    source_file: scripts/cache_simulation.py
+    execution: sync
+    affinity: main
+    group: bake
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+    input_schema:
+      type: object
+      required: [rop_path]
+      properties:
+        rop_path:
+          type: string
+        frame_range:
+          type: array
+          items: {type: number}
+          minItems: 2
+          maxItems: 3
+        background:
+          type: boolean
+          description: >-
+            Explicitly select isolated hython (true) or foreground (false)
+            execution. When omitted, UI and headless Houdini use an isolated
+            job. Headless isolation uses a job-owned temporary HIP snapshot
+            without saving the source scene.

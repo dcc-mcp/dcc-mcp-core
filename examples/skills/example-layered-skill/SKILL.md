@@ -11,6 +11,11 @@ compatibility: Python 3.8+
 allowed-tools: Bash Read
 metadata:
   dcc-mcp:
+    recall-context:
+      app_type: python
+      domain: architecture
+      workflow_stage: reference
+      task_category: query
     dcc: python
     version: "1.0.0"
     layer: example

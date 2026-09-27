@@ -1,0 +1,49 @@
+tools:
+  - name: analyze_scene_complexity
+    description: Count nodes and high-cost scene features. Parameters are validated again by the Godot host.
+    input_schema: {"type":"object","properties":{},"additionalProperties":true}
+    output_schema: {type: object}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    source_file: scripts/dispatch.py
+  - name: analyze_signal_flow
+    description: Map edited-scene signal flow. Parameters are validated again by the Godot host.
+    input_schema: {"type":"object","properties":{},"additionalProperties":true}
+    output_schema: {type: object}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    source_file: scripts/dispatch.py
+  - name: find_unused_resources
+    description: Find project resources with no text references. Parameters are validated again by the Godot host.
+    input_schema: {"type":"object","properties":{},"additionalProperties":true}
+    output_schema: {type: object}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    source_file: scripts/dispatch.py
+  - name: get_project_statistics
+    description: Return project file, scene, script, and resource counts. Parameters are validated again by the Godot host.
+    input_schema: {"type":"object","properties":{},"additionalProperties":true}
+    output_schema: {type: object}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    source_file: scripts/dispatch.py

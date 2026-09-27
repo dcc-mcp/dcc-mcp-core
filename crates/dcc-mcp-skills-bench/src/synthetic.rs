@@ -1,23 +1,42 @@
 //! Synthetic skill corpus generation (PIP-3408).
 //!
-//! This is the corpus generator the skills benchmark shares with
-//! `crates/dcc-mcp-skills/benches/scoring_bench.rs`. Both call sites feed the
-//! same `ChaCha8Rng::seed_from_u64(SEED)` through the same draw sequence, so a
-//! corpus of a given size is byte-identical wherever it is built. That
-//! property is what makes the hit-rate numbers comparable between the
-//! throughput bench and this benchmark, and it is why the generator lives
-//! here instead of being rewritten per caller.
+//! The benchmark starts from the real skills this repository ships (see
+//! [`crate::seeds`]) and only *fills* up to the target corpus size with
+//! synthetic rows. This module is that filler.
+//!
+//! # Why the filler owns real vocabulary
+//!
+//! An earlier revision drew every description from a shared 30-word pool and
+//! named every skill `<dcc>-skill-<n>`. That made the filler unanswerable in
+//! two distinct ways, and both of them depressed the measured hit rate for
+//! reasons that had nothing to do with the ranker:
+//!
+//! * A truncated-tail literal query for `maya-skill-00042` is `"maya skill"`,
+//!   which every `maya-skill-*` in the corpus matches equally. There is no
+//!   right answer to grade against.
+//! * Because every description used the same 30 words, no descriptive term was
+//!   rare enough to identify one skill, so paraphrase and intent queries were
+//!   only ever generated for the ~26 real seeds.
+//!
+//! The filler therefore draws from a structured vocabulary — domain object,
+//! action, qualifier, host — so each skill has a lexical fingerprint of its
+//! own and its name is answerable at every prefix.
 //!
 //! [`ChaCha8Rng`] is deliberate. `StdRng` is explicitly *not* guaranteed to be
 //! reproducible across `rand` versions, so a patch bump could silently change
 //! the corpus and drift every published number while [`CORPUS_SCHEMA_VERSION`]
 //! stayed put. A named generator is the reproducibility contract.
 //!
+//! `crates/dcc-mcp-skills/benches/scoring_bench.rs` keeps its own copy of a
+//! synthetic generator and shares only [`SEED`]. That is fine: it measures
+//! throughput, so it needs a stable corpus of the right size, not the same
+//! text this benchmark grades against.
+//!
 //! If you change the draw sequence here, the corpus changes and every
 //! published hit-rate number changes with it. Bump [`CORPUS_SCHEMA_VERSION`]
 //! and re-baseline the gates in [`crate::thresholds`].
 
-use dcc_mcp_models::{SkillMetadata, ToolDeclaration};
+use dcc_mcp_models::{RecallContext, SkillMetadata, ToolDeclaration};
 use rand::SeedableRng;
 
 /// RNG seed shared with `scoring_bench.rs`.
@@ -27,7 +46,7 @@ pub const SEED: u64 = 42;
 ///
 /// The benchmark report echoes this value, so a stored baseline can be
 /// matched against the generator that produced it.
-pub const CORPUS_SCHEMA_VERSION: &str = "skills-corpus-v1";
+pub const CORPUS_SCHEMA_VERSION: &str = "skills-corpus-v2";
 
 /// DCC buckets the synthetic corpus spans.
 pub const DCCS: [&str; 5] = ["maya", "blender", "max", "houdini", "unreal"];
@@ -45,37 +64,33 @@ const TAG_POOL: [&str; 10] = [
     "layout",
 ];
 
-const WORD_POOL: [&str; 30] = [
-    "create",
-    "edit",
-    "manage",
-    "process",
-    "export",
-    "import",
-    "generate",
-    "apply",
-    "transform",
-    "analyse",
-    "compute",
-    "render",
-    "polygon",
-    "mesh",
-    "curve",
-    "surface",
-    "volume",
-    "light",
-    "camera",
-    "material",
-    "texture",
-    "shader",
-    "bone",
-    "skin",
-    "blend",
-    "shape",
-    "morph",
-    "deform",
-    "simulate",
-    "bake",
+/// Domain objects a DCC skill operates on.
+const OBJECTS: [&str; 24] = [
+    "mesh", "curve", "surface", "volume", "pointcloud", "voxel", "skeleton",
+    "joint", "blendshape", "nurb", "camera", "light", "material", "shader",
+    "texture", "uv", "hair", "cloth", "particle", "rig", "proxy", "cache",
+    "layout", "instance",
+];
+
+/// Operations a DCC skill performs on its object.
+const ACTIONS: [&str; 24] = [
+    "retopologise", "subdivide", "bevel", "sweep", "loft", "deform", "mirror",
+    "scatter", "boolean", "unwrap", "bake", "cache", "simulate", "constrain",
+    "skin", "morph", "instance", "sequence", "composite", "denoise",
+    "relight", "quantise", "validate", "stream",
+];
+
+/// Optional trailing qualifier that separates sibling skills.
+const QUALIFIERS: [&str; 12] = [
+    "batch", "interactive", "export", "import", "diagnose", "preview",
+    "delta", "archive", "lod", "template", "realtime", "offline",
+];
+
+/// Words carrying an object's material or look-dev character.
+const LOOK_WORDS: [&str; 12] = [
+    "lambert", "specular", "emissive", "translucent", "anisotropic",
+    "subsurface", "displacement", "normal", "roughness", "metallic",
+    "ambient", "occlusion",
 ];
 
 /// Deterministic RNG for corpus construction.
@@ -89,50 +104,56 @@ pub fn corpus_rng() -> rand::rngs::ChaCha8Rng {
 
 /// Build one synthetic skill, drawing from `rng` in the shared sequence.
 pub fn synthetic_skill(i: usize, rng: &mut impl rand::RngExt) -> SkillMetadata {
-    let dcc = DCCS[rng.random_range(0..DCCS.len())];
-    let mut name = format!("{dcc}-skill-{i:05}");
-    if rng.random_bool(0.2) {
-        name.push_str("-advanced");
-    }
+    let look = LOOK_WORDS[rng.random_range(0..LOOK_WORDS.len())];
+    let tag = TAG_POOL[rng.random_range(0..TAG_POOL.len())];
 
-    let tag_count = rng.random_range(1..=3);
-    let mut tags: Vec<String> = (0..tag_count)
-        .map(|_| TAG_POOL[rng.random_range(0..TAG_POOL.len())].to_string())
-        .collect();
-    tags.sort();
-    tags.dedup();
+    // The head is derived from `i` by mixed radix, not drawn. Random draws
+    // collide: at 1000 skills a random (dcc, object, action, qualifier)
+    // quadruple repeats an existing combination often enough to break the
+    // uniqueness guarantee below, and a shared name prefix is exactly the
+    // ambiguity that made the old `<dcc>-skill-<n>` naming unanswerable.
+    let (qi, rest) = (i % QUALIFIERS.len(), i / QUALIFIERS.len());
+    let (ai, rest) = (rest % ACTIONS.len(), rest / ACTIONS.len());
+    let (oi, rest) = (rest % OBJECTS.len(), rest / OBJECTS.len());
+    let (di, _rest) = (rest % DCCS.len(), rest / DCCS.len());
+    let (dcc, object, action, qualifier) = (
+        DCCS[di],
+        OBJECTS[oi],
+        ACTIONS[ai],
+        QUALIFIERS[qi],
+    );
 
-    let desc_len = rng.random_range(3..=12);
-    let description: String = (0..desc_len)
-        .map(|_| WORD_POOL[rng.random_range(0..WORD_POOL.len())])
-        .collect::<Vec<_>>()
-        .join(" ");
+    // Every prefix of the name is discriminating: the head spans four
+    // independent vocabularies, and the ordinal tail only carries once
+    // 5 * 24 * 24 * 12 = 34_560 skills exist — far beyond either scale.
+    let name = format!("{dcc}-{object}-{action}-{qualifier}-{i:05}");
 
-    let search_hint = if rng.random_bool(0.5) {
-        let hint_len = rng.random_range(1..=5);
-        (0..hint_len)
-            .map(|_| WORD_POOL[rng.random_range(0..WORD_POOL.len())])
-            .collect::<Vec<_>>()
-            .join(" ")
-    } else {
-        String::new()
-    };
+    // The fingerprint terms (object / action / qualifier) are what make the
+    // skill answerable, so they lead the description rather than being
+    // diluted by shared vocabulary. `look` and `tag` come from small pools and
+    // are deliberately the *minority* of the text.
+    let description = format!(
+        "{action} {object} {qualifier} workflow for {dcc} {tag} tasks: \
+         {action} each {object} target, check {qualifier} {look} output, \
+         and report {object} {action} deltas"
+    );
+    let search_hint = format!("{dcc} {object} {action} {qualifier}");
+    let tags = vec![tag.to_string(), object.to_string(), dcc.to_string()];
 
     let tool_count = rng.random_range(1..=4);
     let tools: Vec<ToolDeclaration> = (0..tool_count)
         .map(|t| ToolDeclaration {
-            name: format!("{name}-tool-{t}"),
-            description: (0..rng.random_range(2..=6))
-                .map(|_| WORD_POOL[rng.random_range(0..WORD_POOL.len())])
-                .collect::<Vec<_>>()
-                .join(" "),
+            name: format!("{action}_{object}_{t}"),
+            description: format!(
+                "{action} the {object} {look} layer and report {qualifier} {tag} deltas"
+            ),
             ..Default::default()
         })
         .collect();
 
     let alias_count = rng.random_range(0..=2);
     let search_aliases: Vec<String> = (0..alias_count)
-        .map(|_| format!("alias-{}-{}", name, rng.random_range(0..999)))
+        .map(|a| format!("{object}-{action}-{a}"))
         .collect();
 
     let layer = match rng.random_range(0u8..100) {
@@ -153,6 +174,12 @@ pub fn synthetic_skill(i: usize, rng: &mut impl rand::RngExt) -> SkillMetadata {
         tools,
         search_aliases,
         layer,
+        recall_context: Some(RecallContext {
+            app_type: Some(dcc.to_string()),
+            domain: Some(tag.to_string()),
+            workflow_stage: Some(object.to_string()),
+            task_category: Some(action.to_string()),
+        }),
         ..Default::default()
     }
 }
@@ -170,6 +197,61 @@ pub fn synthetic_corpus(n: usize) -> Vec<SkillMetadata> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every synthetic skill must be separable from every other one by name
+    /// alone, at every prefix. The old `<dcc>-skill-<n>` scheme failed this:
+    /// the truncated-tail query for `maya-skill-00042` is `"maya skill"`,
+    /// matched by every other `maya-skill-*`, so the query had no right
+    /// answer and dragged the measured hit rate down for a corpus reason
+    /// rather than a ranking one.
+    #[test]
+    fn names_are_unique_before_the_ordinal_tail() {
+        let corpus = synthetic_corpus(1000);
+        let mut fingerprints: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for skill in &corpus {
+            let segments: Vec<&str> = skill.name.split('-').collect();
+            // Drop the numeric tail: what is left must still be unique.
+            let head = segments[..segments.len() - 1].join("-");
+            assert!(
+                fingerprints.insert(head.clone()),
+                "name prefix `{head}` is shared by more than one skill"
+            );
+        }
+    }
+
+    #[test]
+    fn descriptions_are_not_drawn_from_a_shared_pool() {
+        // The property the old 30-word pool destroyed: a description term
+        // that identifies one skill. Sample the corpus and require that the
+        // median skill owns at least one term no other skill uses.
+        let corpus = synthetic_corpus(300);
+        let mut df: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+        for skill in &corpus {
+            for term in skill
+                .description
+                .split(|c: char| !c.is_alphanumeric())
+                .filter(|t| t.len() > 1)
+            {
+                *df.entry(term).or_insert(0) += 1;
+            }
+        }
+        let unique_terms = corpus
+            .iter()
+            .map(|skill| {
+                skill
+                    .description
+                    .split(|c: char| !c.is_alphanumeric())
+                    .filter(|term| df.get(term).copied().unwrap_or(0) <= 2)
+                    .count()
+            })
+            .min()
+            .unwrap_or(0);
+        assert!(
+            unique_terms >= 2,
+            "every synthetic skill must own at least two uncommon terms, \
+             the weakest owns {unique_terms}"
+        );
+    }
 
     #[test]
     fn corpus_is_deterministic_and_prefix_stable() {
@@ -192,12 +274,27 @@ mod tests {
         }
     }
 
+    #[test]
+    fn synthetic_skills_carry_a_complete_recall_context() {
+        let corpus = synthetic_corpus(64);
+        for skill in &corpus {
+            let ctx = skill
+                .recall_context
+                .as_ref()
+                .expect("synthetic skills must populate recall_context");
+            assert!(ctx.app_type.is_some());
+            assert!(ctx.domain.is_some());
+            assert!(ctx.workflow_stage.is_some());
+            assert!(ctx.task_category.is_some());
+        }
+    }
+
     /// Digest of the first 64 skills, pinned so any change to the draw
     /// sequence fails here instead of silently moving every published number.
     ///
     /// Regenerating this constant is a re-baseline: it must come with a bumped
     /// [`CORPUS_SCHEMA_VERSION`] and updated [`crate::thresholds::BASELINE_TOP1_300`].
-    const CORPUS_DIGEST_64: u64 = 0xcd51_fce7_153a_4c9c;
+    const CORPUS_DIGEST_64: u64 = 0x84dd_1c65_b9b1_7fc0;
 
     #[test]
     fn draw_sequence_matches_the_shared_generator() {
@@ -205,14 +302,15 @@ mod tests {
         // first skill is fixed for SEED=42 as long as the sequence is.
         let corpus = synthetic_corpus(1);
         let first = &corpus[0];
-        assert_eq!(first.name, "blender-skill-00000-advanced");
-        assert_eq!(first.dcc, "blender");
-        assert_eq!(first.description.split_whitespace().count(), 9);
+        assert_eq!(first.name, "maya-mesh-retopologise-batch-00000");
+        assert_eq!(first.dcc, "maya");
         assert_eq!(first.tools.len(), 1);
         assert_eq!(first.search_aliases.len(), 2);
         assert_eq!(first.tags.len(), 3);
-        assert!(first.search_hint.is_empty());
-        assert_eq!(first.layer.as_deref(), Some("infrastructure"));
+        assert_eq!(first.layer.as_deref(), Some("domain"));
+        // The fingerprint terms lead the description, so a descriptive query
+        // built from them has exactly one right answer.
+        assert!(first.description.starts_with("retopologise mesh batch"));
     }
 
     #[test]

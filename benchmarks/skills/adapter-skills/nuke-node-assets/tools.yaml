@@ -1,0 +1,199 @@
+tools:
+  - name: gizmo_create_from_group
+    description: >-
+      Publish an existing Group as a registered, versioned Gizmo under the
+      configured isolated plugin root. Executable callbacks are rejected.
+    input_schema:
+      type: object
+      required: [group_node, gizmo_id, version, display_name, exposed_knobs, input_contract, conflict_policy]
+      properties:
+        group_node: {type: string, minLength: 1}
+        gizmo_id:
+          type: string
+          pattern: "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$"
+        version:
+          type: string
+          pattern: "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+        display_name: {type: string, minLength: 1}
+        exposed_knobs:
+          type: array
+          items:
+            type: object
+            required: [name, target_node, target_knob, type, default]
+            properties:
+              name: {type: string, pattern: "^[A-Za-z][A-Za-z0-9_]*$"}
+              label: {type: string}
+              target_node: {type: string, minLength: 1}
+              target_knob: {type: string, minLength: 1}
+              type: {type: string, enum: [float, integer, boolean, string, color]}
+              default: {}
+              minimum: {type: number}
+              maximum: {type: number}
+            additionalProperties: false
+        input_contract:
+          type: array
+          items:
+            type: object
+            required: [name, required]
+            properties:
+              name: {type: string, pattern: "^[A-Za-z][A-Za-z0-9_]*$"}
+              required: {type: boolean}
+            additionalProperties: false
+        conflict_policy: {type: string, enum: [fail, replace_same_version, write_versioned]}
+      additionalProperties: false
+    read_only: false
+    destructive: true
+    idempotent: false
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 60
+    source_file: scripts/gizmo_create_from_group.py
+
+  - name: gizmo_instantiate
+    description: >-
+      Instantiate a registered Gizmo by stable id/version with named inputs and
+      typed, range-checked public-knob overrides.
+    input_schema:
+      type: object
+      required: [gizmo_id]
+      properties:
+        gizmo_id:
+          type: string
+          pattern: "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$"
+        version:
+          type: string
+          pattern: "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+        input_nodes:
+          type: object
+          default: {}
+          additionalProperties: {type: string, minLength: 1}
+        knob_overrides:
+          type: object
+          default: {}
+          additionalProperties: true
+        node_name: {type: string, pattern: "^[A-Za-z][A-Za-z0-9_]*$"}
+        xpos: {type: integer}
+        ypos: {type: integer}
+      additionalProperties: false
+    read_only: false
+    destructive: false
+    idempotent: false
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 60
+    source_file: scripts/gizmo_instantiate.py
+
+  - name: gizmo_validate
+    description: >-
+      Validate a registered Gizmo hash, interface, dependencies, forbidden
+      code, isolated load, optional representative render, and channel contract.
+    input_schema:
+      type: object
+      required: [gizmo_id]
+      properties:
+        gizmo_id:
+          type: string
+          pattern: "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$"
+        version:
+          type: string
+          pattern: "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+        input_nodes:
+          type: object
+          default: {}
+          additionalProperties: {type: string, minLength: 1}
+        representative_frame: {type: integer, minimum: 0, default: 1}
+        render_output_path: {type: string, description: Optional absolute representative-frame output path.}
+      additionalProperties: false
+    read_only: false
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 120
+    source_file: scripts/gizmo_validate.py
+
+  - name: package_gizmo
+    description: >-
+      Collapse explicit nodes into a Group, expose selected internal knobs,
+      attach version metadata, and save the Group as a reusable .gizmo file.
+    input_schema:
+      type: object
+      required: [node_names, gizmo_name, output_path]
+      properties:
+        node_names:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: {type: string, minLength: 1}
+        gizmo_name:
+          type: string
+          pattern: "^[A-Za-z][A-Za-z0-9_]*$"
+        output_path:
+          type: string
+          description: Absolute destination path ending in .gizmo.
+        version:
+          type: string
+          minLength: 1
+          default: "1.0.0"
+        exposed_knobs:
+          type: array
+          default: []
+          items:
+            type: object
+            required: [name, target_node, target_knob]
+            properties:
+              name: {type: string, pattern: "^[A-Za-z][A-Za-z0-9_]*$"}
+              label: {type: string}
+              target_node: {type: string, minLength: 1}
+              target_knob: {type: string, minLength: 1}
+            additionalProperties: false
+        overwrite:
+          type: boolean
+          default: false
+          description: Refuse existing or concurrently-created destinations unless explicitly true.
+    read_only: false
+    destructive: true
+    idempotent: false
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 60
+    source_file: scripts/package_gizmo.py
+
+  - name: instantiate_gizmo
+    description: Load a .gizmo file, create an instance, and set public knob values.
+    input_schema:
+      type: object
+      required: [gizmo_path]
+      properties:
+        gizmo_path:
+          type: string
+          description: Absolute path to an existing .gizmo file.
+        node_name:
+          type: string
+          pattern: "^[A-Za-z][A-Za-z0-9_]*$"
+        knob_values:
+          type: object
+          default: {}
+          additionalProperties: true
+    read_only: false
+    destructive: false
+    idempotent: false
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 60
+    source_file: scripts/instantiate_gizmo.py
+
+  - name: inspect_gizmo
+    description: Inspect a Gizmo instance manifest, exposed knobs, child nodes, and error state.
+    input_schema:
+      type: object
+      required: [node_name]
+      properties:
+        node_name: {type: string, minLength: 1}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 30
+    source_file: scripts/inspect_gizmo.py

@@ -1,0 +1,21 @@
+tools:
+- name: execute_action
+  description: Execute a named Photoshop Action from an Action Set via batchPlay.
+  source_file: scripts/execute_action.py
+  execution: sync
+  read_only: false
+  destructive: false
+  idempotent: false
+  input_schema:
+    type: object
+    properties:
+      action:
+        type: string
+        description: Name of the Action to execute.
+      action_set:
+        type: string
+        description: Name of the Action Set containing the Action. Default ``"Default"``.
+        default: Default
+    additionalProperties: false
+    required:
+    - action

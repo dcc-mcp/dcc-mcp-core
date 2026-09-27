@@ -11,6 +11,11 @@ compatibility: Maya 2022+, Python 3.7+
 allowed-tools: Bash Read Write
 metadata:
   dcc-mcp:
+    recall-context:
+      app_type: maya
+      domain: modeling
+      workflow_stage: authoring
+      task_category: mutate
     dcc: maya
     version: "1.0.0"
     layer: domain

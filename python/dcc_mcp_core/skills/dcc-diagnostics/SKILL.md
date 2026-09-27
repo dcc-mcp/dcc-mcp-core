@@ -11,6 +11,11 @@ description: >-
 license: MIT
 metadata:
   dcc-mcp:
+    recall-context:
+      app_type: python
+      domain: diagnostics
+      workflow_stage: diagnostics
+      task_category: diagnose
     dcc: python
     version: "1.1.0"
     layer: infrastructure

@@ -17,6 +17,11 @@ metadata:
     emoji: "🔀"
     homepage: https://git-scm.com
   dcc-mcp:
+    recall-context:
+      app_type: python
+      domain: vcs
+      workflow_stage: pipeline
+      task_category: query
     dcc: python
     version: "1.0.0"
     layer: infrastructure

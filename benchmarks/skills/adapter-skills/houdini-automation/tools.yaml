@@ -1,0 +1,250 @@
+tools:
+  - name: run_python_file
+    description: >-
+      Execute an existing Python file inside Houdini with `hou`, `args`, and
+      `context` pre-bound. Mutates the session according to the script. Inline
+      stdout, stderr, and result payloads are bounded; optional overflow
+      artifacts retain the complete UTF-8 output with byte counts and SHA-256.
+    input_schema:
+      type: object
+      required: [file_path]
+      properties:
+        file_path:
+          type: string
+          description: "Path to an existing Python file."
+        args:
+          type: array
+          items: {}
+          default: []
+          description: "Optional positional values exposed as args."
+        context:
+          type: object
+          additionalProperties: true
+          description: "Optional globals exposed as context and merged into the script namespace."
+        working_directory:
+          type: string
+          description: "Optional working directory while the script runs."
+        output_mode:
+          type: string
+          enum: [summary, structured, full]
+          default: full
+          description: >-
+            `full` preserves the legacy string result, `structured` returns a
+            JSON-safe result when possible, and `summary` omits inline bodies.
+        max_stdout_chars:
+          type: integer
+          minimum: 0
+          maximum: 1000000
+          default: 4000
+          description: "Maximum stdout characters returned inline."
+        max_stderr_chars:
+          type: integer
+          minimum: 0
+          maximum: 1000000
+          default: 4000
+          description: "Maximum stderr characters returned inline, including failure tracebacks."
+        max_result_chars:
+          type: integer
+          minimum: 0
+          maximum: 1000000
+          default: 8000
+          description: "Maximum serialized result characters returned inline."
+        spill_overflow_to_artifact:
+          type: boolean
+          default: true
+          description: >-
+            Persist complete truncated output to temporary UTF-8 artifacts and
+            return path, character count, byte count, and SHA-256 metadata.
+    read_only: false
+    destructive: true
+    idempotent: false
+    execution: sync
+    affinity: main
+    requires_in_process: true
+    enforce_thread_affinity: false
+    timeout_hint_secs: 0
+    source_file: scripts/run_python_file.py
+    tool_role: escape_hatch
+    risk: host_script_execution
+    search_aliases: [run python file, execute script, run hou script file]
+    produces: [scene_state]
+    annotations:
+      read_only_hint: false
+      destructive_hint: true
+      idempotent_hint: false
+    next-tools:
+      on-failure:
+        - houdini_scripting__get_session_info
+
+  - name: set_frame_range
+    description: "Set Houdini timeline frame range and optional current frame."
+    input_schema:
+      type: object
+      required: [start_frame, end_frame]
+      properties:
+        start_frame:
+          type: number
+          description: "Timeline start frame."
+        end_frame:
+          type: number
+          description: "Timeline end frame."
+        current_frame:
+          type: number
+          description: "Optional frame to set after updating the range."
+    read_only: false
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 30
+    source_file: scripts/set_frame_range.py
+    tool_role: action
+    risk: low
+    search_aliases: [set frame range, timeline range, playback range, current frame]
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: true
+
+  - name: save_hip_file
+    description: >-
+      Save the current Houdini hip file, optionally to a new path, through a
+      sibling temporary file and atomic target replacement. In graphical
+      Houdini, verify the dirty flag and fall back to a direct Save As when HOM
+      requires it to mark the scene clean; the result reports whether the final
+      write remained atomic and the observable unsaved state.
+    input_schema:
+      type: object
+      properties:
+        file_path:
+          type: string
+          description: "Optional destination hip path. Omit to save the current file."
+    read_only: false
+    destructive: false
+    idempotent: false
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 120
+    source_file: scripts/save_hip_file.py
+    tool_role: action
+    risk: medium
+    search_aliases: [save hip, atomic save hip, save scene, write hip file, save as]
+    produces: ["file:hip"]
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+
+  - name: load_hip_file
+    description: "Load a Houdini hip file into the current session. Destructive to the open scene."
+    input_schema:
+      type: object
+      required: [file_path]
+      properties:
+        file_path:
+          type: string
+          description: "Existing .hip/.hiplc/.hipnc file to load."
+        suppress_save_prompt:
+          type: boolean
+          default: true
+          description: "Suppress Houdini save prompts when loading."
+    read_only: false
+    destructive: true
+    idempotent: false
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 120
+    source_file: scripts/load_hip_file.py
+    tool_role: destructive
+    risk: high
+    search_aliases: [load hip, open scene, open hip file, replace scene]
+    annotations:
+      read_only_hint: false
+      destructive_hint: true
+      idempotent_hint: false
+
+  - name: build_node_chain
+    description: >-
+      Prevalidate and atomically build a small Houdini node chain from
+      structured node specs and connections. Supports dry-run, one-step undo,
+      explicit rollback evidence, post-cook scene readback, and compact
+      created/connected/parameter summaries.
+    input_schema:
+      type: object
+      required: [parent_path, nodes]
+      properties:
+        parent_path:
+          type: string
+          description: "Parent network path for all nodes."
+        nodes:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [node_type]
+            properties:
+              node_type:
+                type: string
+              node_name:
+                type: string
+                description: "Optional unique Houdini node name. Must not already exist under the parent."
+              ref:
+                type: string
+                description: >-
+                  Optional recipe-local unique reference for connections. Uses
+                  node_name when omitted, or node_<index> when both are omitted.
+              parameters:
+                type: object
+                additionalProperties: true
+        connections:
+          type: array
+          items:
+            type: object
+            required: [input, output]
+            properties:
+              input:
+                type: string
+                description: "Planned ref/name/path or existing node name/path receiving the connection."
+              output:
+                type: string
+                description: "Planned ref/name/path or existing node name/path providing the connection."
+              input_index:
+                type: integer
+                minimum: 0
+                default: 0
+              output_index:
+                type: integer
+                minimum: 0
+                default: 0
+        layout:
+          type: boolean
+          default: true
+        cook_last:
+          type: boolean
+          default: true
+        dry_run:
+          type: boolean
+          default: false
+          description: >-
+            Validate the complete recipe and return predicted affected paths
+            without creating nodes, opening an undo group, laying out, or cooking.
+    read_only: false
+    destructive: false
+    idempotent: false
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 300
+    source_file: scripts/build_node_chain.py
+    tool_role: action
+    risk: medium
+    search_aliases: [build node chain, atomic network, dry run node recipe, create network, node recipe, chain nodes]
+    produces: [node_network]
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+    next-tools:
+      on-success:
+        - houdini_nodes__layout_children
+      on-failure:
+        - houdini_scene__get_scene_info

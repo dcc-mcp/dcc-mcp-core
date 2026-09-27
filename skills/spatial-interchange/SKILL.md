@@ -8,6 +8,11 @@ license: "MIT"
 compatibility: "dcc-mcp-core 0.19.91+, Python 3.7+"
 metadata:
   dcc-mcp:
+    recall-context:
+      app_type: python
+      domain: interchange
+      workflow_stage: interchange
+      task_category: query
     dcc: python
     layer: infrastructure
     stage: interchange

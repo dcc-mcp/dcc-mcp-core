@@ -10,6 +10,11 @@ compatibility: Python 3.7+
 allowed-tools: Bash Read
 metadata:
   dcc-mcp:
+    recall-context:
+      app_type: forgecad
+      domain: modeling
+      workflow_stage: authoring
+      task_category: mutate
     dcc: forgecad
     version: "1.0.0"
     layer: domain

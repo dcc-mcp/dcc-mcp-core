@@ -1,0 +1,533 @@
+tools:
+  - name: attach_project
+    description: "Attach a project checkout and optional extra paths to Blender's sys.path."
+    source_file: scripts/attach_project.py
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 0
+    input_schema:
+      type: object
+      additionalProperties: false
+      required: [project_root]
+      properties:
+        project_root:
+          type: string
+          minLength: 1
+        extra_paths:
+          type: array
+          items:
+            type: string
+    output_schema:
+      type: object
+      additionalProperties: true
+      required: [success]
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        context:
+          type: object
+    read_only: false
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: true
+
+  - name: reload_modules
+    description: "Reload explicit Python modules or loaded modules matching a package prefix."
+    source_file: scripts/reload_modules.py
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 30
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        module_names:
+          type: array
+          items:
+            type: string
+        package_prefix:
+          type: string
+    output_schema:
+      type: object
+      additionalProperties: true
+      required: [success]
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        context:
+          type: object
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+      open_world_hint: true
+
+  - name: run_check
+    description: "Run a named in-process development diagnostic check with a timeout."
+    source_file: scripts/run_check.py
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 30
+    input_schema:
+      type: object
+      additionalProperties: false
+      required: [command_name]
+      properties:
+        command_name:
+          type: string
+          enum: [import_module, python_environment, addon_status, sleep]
+        args:
+          type: object
+          additionalProperties: true
+        timeout_secs:
+          type: number
+          default: 30
+    output_schema:
+      type: object
+      additionalProperties: true
+      required: [success]
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        context:
+          type: object
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+      open_world_hint: true
+
+  - name: run_entrypoint
+    description: "Import a module and call a named function for reproducible development checks."
+    source_file: scripts/run_entrypoint.py
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 30
+    input_schema:
+      type: object
+      additionalProperties: false
+      required: [module, function]
+      properties:
+        module:
+          type: string
+          minLength: 1
+        function:
+          type: string
+          minLength: 1
+        args:
+          description: JSON value passed as kwargs for objects, positional args for arrays, or one argument otherwise.
+    output_schema:
+      type: object
+      additionalProperties: true
+      required: [success]
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        context:
+          type: object
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+      open_world_hint: true
+
+  - name: run_script
+    description: "Run a Python script file inside Blender for explicit development/test entrypoints."
+    source_file: scripts/run_script.py
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 30
+    input_schema:
+      type: object
+      additionalProperties: false
+      required: [path]
+      properties:
+        path:
+          type: string
+          minLength: 1
+        args:
+          description: JSON value exposed to the script as ARGS; arrays also populate sys.argv.
+    output_schema:
+      type: object
+      additionalProperties: true
+      required: [success]
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        context:
+          type: object
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+      open_world_hint: true
+
+  - name: list_addons
+    description: "List Blender add-ons with installed, loaded, enabled, and metadata state."
+    source_file: scripts/list_addons.py
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 0
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        filter:
+          type: string
+    output_schema:
+      type: object
+      additionalProperties: true
+      required: [success]
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        context:
+          type: object
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+
+  - name: get_addon_status
+    description: "Return structured status for one Blender add-on module."
+    source_file: scripts/get_addon_status.py
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 0
+    input_schema:
+      type: object
+      additionalProperties: false
+      required: [addon_module]
+      properties:
+        addon_module:
+          type: string
+          minLength: 1
+    output_schema:
+      type: object
+      additionalProperties: true
+      required: [success]
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        context:
+          type: object
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+
+  - name: enable_addon
+    description: "Enable a Blender add-on and return before/after state."
+    source_file: scripts/enable_addon.py
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 30
+    input_schema:
+      type: object
+      additionalProperties: false
+      required: [addon_module]
+      properties:
+        addon_module:
+          type: string
+          minLength: 1
+    output_schema:
+      type: object
+      additionalProperties: true
+      required: [success]
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        context:
+          type: object
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+      open_world_hint: false
+
+  - name: disable_addon
+    description: "Disable a Blender add-on and return before/after state."
+    source_file: scripts/disable_addon.py
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 30
+    input_schema:
+      type: object
+      additionalProperties: false
+      required: [addon_module]
+      properties:
+        addon_module:
+          type: string
+          minLength: 1
+    output_schema:
+      type: object
+      additionalProperties: true
+      required: [success]
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        context:
+          type: object
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+      open_world_hint: false
+
+  - name: capture_ui_snapshot
+    description: "Capture structured Blender UI/window/screen metadata without screenshots."
+    source_file: scripts/capture_ui_snapshot.py
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 0
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        area_filter:
+          type: string
+    output_schema:
+      type: object
+      additionalProperties: true
+      required: [success]
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        context:
+          type: object
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+
+  - name: find_ui_elements
+    description: "Find screen, area, region, and space metadata matching a UI query."
+    source_file: scripts/find_ui_elements.py
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 0
+    input_schema:
+      type: object
+      additionalProperties: false
+      required: [query]
+      properties:
+        query:
+          type: string
+          minLength: 1
+        area_filter:
+          type: string
+    output_schema:
+      type: object
+      additionalProperties: true
+      required: [success]
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        context:
+          type: object
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+
+  - name: start_debug_server
+    description: "Start an optional debugpy listener for Blender development debugging."
+    source_file: scripts/start_debug_server.py
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 30
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        host:
+          type: string
+          default: "127.0.0.1"
+        port:
+          type: integer
+          default: 5678
+    output_schema:
+      type: object
+      additionalProperties: true
+      required: [success]
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        context:
+          type: object
+    read_only: false
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: true
+
+  - name: get_python_environment
+    description: "Return Blender Python, sys.path, platform, and package environment diagnostics."
+    source_file: scripts/get_python_environment.py
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 0
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        include_sys_path:
+          type: boolean
+          default: true
+    output_schema:
+      type: object
+      additionalProperties: true
+      required: [success]
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        context:
+          type: object
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+
+  - name: install_addon
+    description: "Install a Blender add-on from a .py file or a .zip bundle, optionally enabling it."
+    source_file: scripts/install_addon.py
+    execution: sync
+    affinity: main
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        file_path:
+          type: string
+          minLength: 1
+          description: A .py single-file add-on or a .zip bundle to install.
+        addon_module:
+          type: string
+          minLength: 1
+          description: Expected module name after install. Blender derives one from the file name, but an explicit name is safer for archives.
+        overwrite:
+          type: boolean
+          default: false
+          description: Replace an already installed copy of the same add-on.
+        enable:
+          type: boolean
+          default: true
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+      open_world_hint: true
+
+  - name: remove_addon
+    description: "Disable and uninstall a Blender add-on."
+    source_file: scripts/remove_addon.py
+    execution: sync
+    affinity: main
+    input_schema:
+      type: object
+      additionalProperties: false
+      required: [addon_module]
+      properties:
+        addon_module:
+          type: string
+          minLength: 1
+    read_only: false
+    destructive: true
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: true
+      idempotent_hint: false
+      open_world_hint: false
+
+  - name: refresh_addons
+    description: "Rescan the add-on paths so newly installed add-ons become visible. Reports the add-on count before and after."
+    source_file: scripts/refresh_addons.py
+    execution: sync
+    affinity: main
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties: {}
+    read_only: false
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false

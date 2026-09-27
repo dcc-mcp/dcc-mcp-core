@@ -1,0 +1,113 @@
+tools:
+  - name: list_export_presets
+    description: "List export presets stored on the current Blender scene."
+    source_file: scripts/list_export_presets.py
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 0
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties: {}
+    output_schema: &preset_result_schema
+      type: object
+      additionalProperties: true
+      required: [success]
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        context:
+          type: object
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+
+  - name: save_export_preset
+    description: "Save reusable export options on the current Blender scene."
+    source_file: scripts/save_export_preset.py
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 0
+    input_schema:
+      type: object
+      additionalProperties: false
+      required: [name, format, options]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          description: Preset name.
+        format:
+          type: string
+          enum: [fbx, obj, gltf, usd, alembic]
+          description: Export format.
+        options:
+          type: object
+          additionalProperties: true
+          description: Export operator options.
+    output_schema: *preset_result_schema
+    read_only: false
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+
+  - name: load_export_preset
+    description: "Load a scene-stored export preset."
+    source_file: scripts/load_export_preset.py
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 0
+    input_schema:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          description: Preset name.
+    output_schema: *preset_result_schema
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+
+  - name: delete_export_preset
+    description: "Delete a scene-stored export preset."
+    source_file: scripts/delete_export_preset.py
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 0
+    input_schema:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          description: Preset name.
+    output_schema: *preset_result_schema
+    read_only: false
+    destructive: true
+    idempotent: true
+    annotations:
+      read_only_hint: false
+      destructive_hint: true
+      idempotent_hint: true
+      open_world_hint: false

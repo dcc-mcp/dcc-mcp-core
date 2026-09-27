@@ -1,0 +1,73 @@
+tools:
+  - name: ping
+    description: Prove read-only Nuke host and main-thread readiness.
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties: {}
+    output_schema:
+      type: object
+      required: [ready, dcc, host_version, gui]
+      properties:
+        ready: {type: boolean}
+        dcc: {type: string, const: nuke}
+        host_version: {type: string}
+        gui: {type: boolean}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    job_strategy: monolithic
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 5
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+    tags: [read-only, diagnostics]
+    source_file: scripts/ping.py
+  - name: host_flavor
+    description: >-
+      Report the running Nuke entry point (nuke, nukex, or nukestudio) and the
+      capability surface it provides. Read-only; use it to decide whether
+      Studio-only skills can load before calling `load_skill`.
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties: {}
+    output_schema:
+      type: object
+      required: [flavor, dcc, capabilities, signals]
+      properties:
+        flavor: {type: string, enum: [nuke, nukex, nukestudio]}
+        dcc: {type: string, const: nuke}
+        gui: {type: boolean}
+        host_version: {type: string}
+        executable: {type: string}
+        hiero_importable: {type: boolean}
+        signals:
+          type: array
+          items: {type: string}
+        capabilities:
+          type: array
+          items: {type: string}
+        studio_capabilities:
+          type: array
+          items: {type: string}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    job_strategy: monolithic
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 5
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+    tags: [read-only, diagnostics, host-flavor]
+    source_file: scripts/host_flavor.py

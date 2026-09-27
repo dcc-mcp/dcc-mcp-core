@@ -12,6 +12,11 @@ compatibility: "dcc-mcp-core 0.20.29+, Python 3.7+"
 allowed-tools: ["Read"]
 metadata:
   dcc-mcp:
+    recall-context:
+      app_type: any
+      domain: modeling
+      workflow_stage: authoring
+      task_category: mutate
     dcc: any
     layer: domain
     stage: modeling

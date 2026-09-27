@@ -1,0 +1,120 @@
+tools:
+  - name: preflight_plugins
+    description: Inspect the enabled Unreal plugins required for a typed adapter capability without changing the project.
+    source_file: scripts/preflight_plugins.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: false
+    timeout_hint_secs: 30
+    read_only: true
+    destructive: false
+    idempotent: true
+    input_schema:
+      type: object
+      required: [capability]
+      properties:
+        capability:
+          type: string
+          enum: [static_groom_import, usd_import, movie_render_queue, speedtree_import]
+          description: Adapter capability whose required plugins should be inspected.
+    next-tools:
+      on-failure: [dcc_diagnostics__audit_log]
+
+  - name: configure_plugins
+    description: Plan current-project plugin enablement with installed/default/runtime states, or apply after independent core user elicitation. Never restarts the editor. Unsupported consent fails closed.
+    source_file: scripts/configure_plugins.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 120
+    read_only: false
+    destructive: true
+    idempotent: false
+    input_schema:
+      type: object
+      required: [capability]
+      properties:
+        capability:
+          type: string
+          enum: [static_groom_import, usd_import, movie_render_queue, speedtree_import]
+        mode:
+          type: string
+          enum: [plan, apply]
+          default: plan
+        expected_sha256:
+          type: string
+          description: Project descriptor SHA256 from the reviewed plan; required in apply mode. This is not consent.
+          default: ""
+    output_schema:
+      type: object
+      properties:
+        success: {type: boolean}
+        message: {type: string}
+        context: {type: object}
+    next-tools:
+      on-success: [unreal_automation__preflight_plugins]
+      on-failure: [unreal_automation__configure_plugins]
+
+  - name: mcp_self_check
+    description: Validate the active MCP server, bundled skills, registered tools, and HTTP readiness without restarting the server.
+    source_file: scripts/mcp_self_check.py
+    execution: sync
+    affinity: any
+    enforce_thread_affinity: false
+    timeout_hint_secs: 30
+    read_only: true
+    destructive: false
+    idempotent: true
+    input_schema:
+      type: object
+      properties:
+        check_http:
+          type: boolean
+          description: Also probe /health and /v1/readyz on the active server URL.
+          default: true
+    next-tools:
+      on-success: [unreal_automation__list_automation_tests]
+      on-failure: [dcc_diagnostics__audit_log]
+
+  - name: list_automation_tests
+    description: List Unreal native Automation tests registered in the current editor session.
+    source_file: scripts/list_automation_tests.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: false
+    timeout_hint_secs: 30
+    read_only: true
+    destructive: false
+    idempotent: true
+    input_schema:
+      type: object
+      properties:
+        filter:
+          type: string
+          description: Optional substring filter matched against test name, display name, or full path.
+          default: ""
+    next-tools:
+      on-success: [unreal_automation__queue_automation_tests]
+      on-failure: [dcc_diagnostics__audit_log]
+
+  - name: queue_automation_tests
+    description: Queue Unreal native Automation tests through the editor console command Automation RunTests.
+    source_file: scripts/queue_automation_tests.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: false
+    timeout_hint_secs: 30
+    read_only: false
+    destructive: false
+    idempotent: false
+    input_schema:
+      type: object
+      required: [filter]
+      properties:
+        filter:
+          type: string
+          minLength: 1
+          description: Automation test name or filter, such as DccMcp.Smoke or Project.Functional.
+    next-tools:
+      on-success: [unreal_automation__list_automation_tests]
+      on-failure: [dcc_diagnostics__audit_log]

@@ -1,0 +1,316 @@
+tools:
+  - name: get_color_management
+    description: Read the active 3ds Max scene color-management mode, OCIO config, rendering space, status, and verified frame-buffer display/view transform.
+    source_file: action_get_color_management.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema: {type: object, additionalProperties: false, properties: {}}
+    output_schema:
+      type: object
+      additionalProperties: true
+      properties:
+        success: {type: boolean}
+        status: {type: string}
+        message: {type: string}
+        data: {type: object}
+    timeout_hint_secs: 10
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations: {read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false}
+    search_aliases: ["get color management", "inspect ocio", "ocio status"]
+
+  - name: set_color_management
+    description: Configure the supplied OCIO config and optionally set a native, verified frame-buffer display/view transform.
+    source_file: action_set_color_management.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      required: [ocio_config_path]
+      additionalProperties: false
+      properties:
+        ocio_config_path: {type: string, minLength: 1}
+        rendering_color_space: {type: string, minLength: 1, default: ACEScg}
+        data_color_space: {type: string, minLength: 1, default: Raw}
+        lock_settings: {type: boolean, default: true}
+        display:
+          type: string
+          minLength: 1
+          description: Optional native OCIO display name; requires view_transform and is validated against ColorPipelineMgr.
+        view_transform:
+          type: string
+          minLength: 1
+          description: Optional native OCIO view name for the selected display; requires display.
+    output_schema:
+      type: object
+      additionalProperties: true
+      properties:
+        success: {type: boolean}
+        status: {type: string}
+        message: {type: string}
+        data: {type: object}
+    timeout_hint_secs: 30
+    read_only: false
+    destructive: false
+    idempotent: true
+    annotations: {read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: false}
+    search_aliases: ["set color management", "configure ocio", "set rendering color space", "set display transform", "set view transform"]
+
+  - name: setup_hdr_lighting
+    description: >-
+      Load an HDR/EXR image as the environment/background map and set up a
+      renderer-compatible three-point light rig. Arnold lights are verified
+      through native host readback before the environment changes. Returns the
+      bitmap info, rig details, and any warnings.
+    source_file: action_setup_hdr_lighting.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      required: [hdri_path]
+      additionalProperties: false
+      properties:
+        hdri_path:
+          type: string
+          minLength: 1
+          description: Path to the HDR/EXR image file.
+        name_prefix:
+          type: string
+          default: Review
+          description: Prefix for the three-point light rig names.
+        intensity:
+          type: number
+          default: 1.0
+          description: Environment map intensity multiplier.
+        rotation:
+          type: number
+          default: 0.0
+          description: Environment map rotation angle in degrees.
+        target_position:
+          type: array
+          minItems: 3
+          maxItems: 3
+          items: {type: number}
+          description: Optional target for light rig aim point.
+        distance:
+          type: number
+          default: 100.0
+          description: Distance from target for light rig placement.
+        renderer:
+          type: string
+          enum: [auto, vray, arnold, standard]
+          default: auto
+          description: Renderer family for the HDRI bitmap. 'auto' detects the active renderer.
+        use_renderer_bitmap:
+          type: boolean
+          description: Force (or skip) the renderer-native bitmap such as VRayBitmap. Defaults to the active renderer.
+        map_type:
+          type: string
+          enum: [angular, cubic, spherical, mirrored_ball, max_standard]
+          description: V-Ray HDRI projection type.
+        gamma:
+          type: number
+          minimum: 0
+          description: HDRI gamma override on the renderer bitmap.
+        color_space:
+          type: string
+          minLength: 1
+          description: HDRI color space on the renderer bitmap.
+        horizontal_rotation:
+          type: number
+          description: HDRI horizontal rotation in degrees on the renderer bitmap.
+        create_rig:
+          type: boolean
+          default: true
+          description: Create the supporting three-point light rig.
+    output_schema:
+      type: object
+      additionalProperties: true
+      properties:
+        success: {type: boolean}
+        status: {type: string}
+        message: {type: string}
+        data: {type: object}
+    timeout_hint_secs: 30
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations: {read_only_hint: false, destructive_hint: false, idempotent_hint: false, open_world_hint: false}
+
+    intent: "Set up HDR environment lighting, renderer HDRI projection, and supporting light rig."
+    tool_role: action
+    risk: medium
+    search_aliases: ["setup_hdr_lighting", "setup hdr lighting", "hdr environment", "environment lighting", "vray hdri", "vray dome"]
+    side_effects:
+      creates: true
+      modifies: true
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: ['scene_node', 'environment']
+    produces:
+      - 'environment_lighting'
+
+  - name: set_hdri_rotation
+    description: Rotate the active HDR environment, optionally inserting a linear native key at one frame.
+    source_file: action_set_hdri_rotation.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      required: [rotation]
+      additionalProperties: false
+      properties:
+        rotation:
+          type: number
+          description: Horizontal environment rotation in degrees.
+        frame:
+          type: number
+          description: Optional frame at which to insert a linear rotation key.
+    output_schema:
+      type: object
+      additionalProperties: true
+      properties:
+        success: {type: boolean}
+        status: {type: string}
+        message: {type: string}
+        data: {type: object}
+    timeout_hint_secs: 10
+    read_only: false
+    destructive: false
+    idempotent: true
+    annotations: {read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: false}
+    search_aliases: ["set hdri rotation", "rotate environment", "lighting turntable"]
+
+  - name: preview_material
+    description: >-
+      Create a test sphere, apply a named scene material, and report the
+      viewport-visible result. Useful for quick lookdev iteration before
+      applying to the final geometry.
+    source_file: action_preview_material.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      required: [material_name]
+      additionalProperties: false
+      properties:
+        material_name:
+          type: string
+          minLength: 1
+          description: Name of an existing scene material.
+        preview_type:
+          type: string
+          default: sphere
+          enum: [sphere, quad]
+          description: Type of test geometry to create.
+    output_schema:
+      type: object
+      additionalProperties: true
+      properties:
+        success: {type: boolean}
+        status: {type: string}
+        message: {type: string}
+        data: {type: object}
+    timeout_hint_secs: 15
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations: {read_only_hint: false, destructive_hint: false, idempotent_hint: false, open_world_hint: false}
+
+    intent: "Create a test geometry object with a material applied for lookdev preview."
+    tool_role: action
+    risk: low
+    search_aliases: ["preview_material", "preview material", "material preview", "lookdev preview"]
+    side_effects:
+      creates: true
+      modifies: true
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: ['scene_node', 'materials']
+    produces:
+      - 'material_preview'
+
+  - name: assign_renderer_material
+    description: >-
+      Detect the active renderer (Arnold, V-Ray, Scanline), create or find
+      a suitable material class, apply it to named nodes, and return a summary.
+    source_file: action_assign_renderer_material.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      required: [material_name]
+      additionalProperties: false
+      properties:
+        material_name:
+          type: string
+          minLength: 1
+          description: Name for the new material.
+        renderer_type:
+          type: string
+          enum: [auto, arnold, vray, scanline]
+          default: auto
+          description: Target renderer. 'auto' detects the current active renderer.
+        base_color:
+          type: array
+          minItems: 3
+          maxItems: 3
+          items: {type: number, minimum: 0, maximum: 255}
+          description: Base/diffuse RGB color (0-255).
+        roughness:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: Surface roughness (0 = smooth, 1 = rough).
+        metalness:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: Metalness (0 = dielectric, 1 = metal).
+        node_names:
+          type: array
+          items: {type: string, minLength: 1}
+          description: Target node names. Uses current selection when omitted.
+    output_schema:
+      type: object
+      additionalProperties: true
+      properties:
+        success: {type: boolean}
+        status: {type: string}
+        message: {type: string}
+        data: {type: object}
+    timeout_hint_secs: 15
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations: {read_only_hint: false, destructive_hint: false, idempotent_hint: false, open_world_hint: false}
+
+    intent: "Create and assign a renderer-appropriate material to scene nodes."
+    tool_role: action
+    risk: medium
+    search_aliases: ["assign_renderer_material", "assign renderer material", "arnold material", "vray material"]
+    side_effects:
+      creates: true
+      modifies: true
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: ['scene_node', 'materials']
+    produces:
+      - 'material'
+      - 'material_assignment'

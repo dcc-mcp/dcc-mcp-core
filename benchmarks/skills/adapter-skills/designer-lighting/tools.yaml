@@ -1,0 +1,122 @@
+tools:
+- name: list_light_recipes
+  description: 'List lighting-response map recipes with the Designer node type each
+    one resolves to in this session. Read-only.'
+  input_schema:
+    type: object
+    additionalProperties: false
+    properties:
+      expected_graph_uid:
+        type: string
+        maxLength: 256
+  output_schema:
+    type: object
+    required:
+    - success
+    - message
+    properties:
+      success:
+        type: boolean
+      message:
+        type: string
+      context:
+        type: object
+  read_only: true
+  destructive: false
+  idempotent: true
+  execution: sync
+  affinity: main
+  timeout_hint_secs: 30
+  source_file: scripts/list_light_recipes.py
+  annotations:
+    read_only_hint: true
+    destructive_hint: false
+    idempotent_hint: true
+  call_examples:
+  - arguments: {}
+    note: Check which normal, AO, curvature, and thickness node types this Designer build advertises.
+- name: bake_lighting_maps
+  description: 'Derive lighting-response maps from one height or mask source port and
+    export them with header verification. Designer has no light transport; these maps
+    encode surface response for a downstream renderer.'
+  input_schema:
+    type: object
+    additionalProperties: false
+    required:
+    - output_dir
+    - source_node
+    - source_property
+    - maps
+    - expected_graph_uid
+    properties:
+      output_dir:
+        type: string
+        maxLength: 4096
+      source_node:
+        type: string
+        maxLength: 128
+        pattern: ^[A-Za-z0-9_-]+$
+      source_property:
+        type: string
+        maxLength: 128
+        pattern: ^\$?[A-Za-z][A-Za-z0-9_.-]*$
+      maps:
+        type: array
+        minItems: 1
+        maxItems: 6
+        items:
+          type: string
+          maxLength: 64
+          pattern: ^[a-z][a-z0-9_]*$
+      max_resolution:
+        type: integer
+        enum:
+        - 256
+        - 512
+        - 1024
+        - 2048
+        - 4096
+        default: 2048
+      spacing:
+        type: number
+        minimum: 0
+        maximum: 10000
+        default: 160
+      expected_graph_uid:
+        type: string
+        maxLength: 256
+  output_schema:
+    type: object
+    required:
+    - success
+    - message
+    properties:
+      success:
+        type: boolean
+      message:
+        type: string
+      context:
+        type: object
+  read_only: false
+  destructive: false
+  idempotent: false
+  execution: async
+  affinity: main
+  timeout_hint_secs: 600
+  source_file: scripts/bake_lighting_maps.py
+  annotations:
+    read_only_hint: false
+    destructive_hint: false
+    idempotent_hint: false
+  call_examples:
+  - arguments:
+      output_dir: D:/work/crate/lighting
+      source_node: '1581078951'
+      source_property: output
+      maps:
+      - normal_from_height
+      - ambient_occlusion
+      - curvature
+      expected_graph_uid: d3f1c2a4-0000-0000-0000-000000000000
+      max_resolution: 2048
+    note: Bake normal, AO, and curvature from the height output of node 1581078951.

@@ -1,0 +1,181 @@
+tools:
+  - name: create_cop_network
+    description: Create or reuse a COP/Copernicus image-processing network.
+    source_file: scripts/create_cop_network.py
+    execution: sync
+    affinity: main
+    group: network
+    read_only: false
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: true
+    input_schema:
+      type: object
+      required: [parent_path]
+      properties:
+        parent_path:
+          type: string
+          description: Existing SOP network such as /obj/geo1; creates a modern copnet.
+        network_name:
+          type: string
+          default: copnet1
+  - name: create_cop_node
+    description: Create a typed COP filter node, set bounded parameters, and wire existing input nodes.
+    source_file: scripts/create_cop_node.py
+    execution: sync
+    affinity: main
+    group: authoring
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+    input_schema:
+      type: object
+      required: [network_path, filter_type]
+      properties:
+        network_path:
+          type: string
+        filter_type:
+          type: string
+          description: Alias or Houdini COP node type.
+        node_name:
+          type: string
+        input_nodes:
+          type: array
+          items: {type: string}
+        parameters:
+          type: object
+  - name: inspect_cop_network
+    description: Inspect COP children and input connections without cooking or mutating the network.
+    source_file: scripts/inspect_cop_network.py
+    execution: sync
+    affinity: main
+    group: inspect
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+    input_schema:
+      type: object
+      required: [network_path]
+      properties:
+        network_path:
+          type: string
+  - name: validate_cop_network
+    description: Inspect cached COP node errors without cooking; reports validation scope.
+    source_file: scripts/validate_cop_network.py
+    execution: sync
+    affinity: main
+    group: inspect
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+    input_schema:
+      type: object
+      required: [network_path]
+      properties:
+        network_path:
+          type: string
+  - name: build_composite_chain
+    description: Build a sequential Copernicus composite chain (filters with Copernicus aliases) in one call.
+    source_file: scripts/build_composite_chain.py
+    execution: sync
+    affinity: main
+    group: authoring
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+    input_schema:
+      type: object
+      required: [network_path, steps]
+      additionalProperties: false
+      properties:
+        network_path:
+          type: string
+          description: Absolute path of a Copernicus network.
+        steps:
+          type: array
+          description: Ordered chain steps, each wired into the previous one; at most 16.
+          minItems: 1
+          maxItems: 16
+          items:
+            type: object
+            required: [filter_type]
+            additionalProperties: false
+            properties:
+              filter_type:
+                type: string
+                description: Copernicus node type or alias, such as file, blur, composite or output.
+              node_name:
+                type: string
+              parameters:
+                type: object
+                description: Bounded Houdini parameter name to value overrides.
+        source_path:
+          type: string
+          description: Absolute path of an existing node wired into the first step's input 0.
+  - name: cook_cop_node
+    description: Cook a Copernicus node and report cached errors, warnings and cook state.
+    source_file: scripts/cook_cop_node.py
+    execution: sync
+    affinity: main
+    group: inspect
+    read_only: false
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: true
+    input_schema:
+      type: object
+      required: [node_path]
+      additionalProperties: false
+      properties:
+        node_path:
+          type: string
+          description: Absolute path of a Copernicus node.
+        force:
+          type: boolean
+          default: true
+  - name: inspect_cop_output
+    description: Resolve a Copernicus output path and verify whether that artifact exists on disk.
+    source_file: scripts/inspect_cop_output.py
+    execution: sync
+    affinity: main
+    group: inspect
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+    input_schema:
+      type: object
+      required: [node_path]
+      additionalProperties: false
+      properties:
+        node_path:
+          type: string
+          description: Absolute path of a Copernicus output node.
+        output_path:
+          type: string
+          description: Explicit path to verify; when omitted the node's output parameter is probed.

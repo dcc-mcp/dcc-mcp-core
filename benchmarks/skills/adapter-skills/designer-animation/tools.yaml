@@ -1,0 +1,170 @@
+tools:
+- name: list_animation_parameters
+  description: 'Report time-like Designer inputs (time, frame, phase, speed, duration,
+    animation, offset) with their current values. Read-only name-matched discovery;
+    Designer has no timeline track.'
+  input_schema:
+    type: object
+    additionalProperties: false
+    properties:
+      expected_graph_uid:
+        type: string
+        maxLength: 256
+      scan_nodes:
+        type: boolean
+        default: true
+      max_nodes:
+        type: integer
+        minimum: 1
+        maximum: 1000
+        default: 200
+  output_schema:
+    type: object
+    required:
+    - success
+    - message
+    properties:
+      success:
+        type: boolean
+      message:
+        type: string
+      context:
+        type: object
+  read_only: true
+  destructive: false
+  idempotent: true
+  execution: sync
+  affinity: main
+  timeout_hint_secs: 60
+  source_file: scripts/list_animation_parameters.py
+  annotations:
+    read_only_hint: true
+    destructive_hint: false
+    idempotent_hint: true
+  call_examples:
+  - arguments:
+      scan_nodes: true
+      max_nodes: 200
+    note: Find time-like inputs you can sweep to produce an ordered frame set.
+- name: bake_animation_frames
+  description: 'Sweep one time-like parameter across a bounded range and export one
+    header-verified texture per step as an ordered frame set. Designer has no timeline
+    or keyframes; frame rate is a downstream playback choice.'
+  input_schema:
+    type: object
+    additionalProperties: false
+    required:
+    - output_dir
+    - node_id
+    - parameter
+    - start
+    - stop
+    - count
+    - outputs
+    - expected_graph_uid
+    properties:
+      output_dir:
+        type: string
+        maxLength: 4096
+        description: Fresh directory; refused when it already exists.
+      node_id:
+        type: string
+        maxLength: 128
+        pattern: ^[A-Za-z0-9_-]+$
+      parameter:
+        type: string
+        maxLength: 128
+        pattern: ^\$?[A-Za-z][A-Za-z0-9_.-]*$
+        description: 'Time-like input discovered by list_animation_parameters.'
+      value_type:
+        type: string
+        enum:
+        - float
+        - int
+        default: float
+      start:
+        type: number
+        minimum: -1000000
+        maximum: 1000000
+      stop:
+        type: number
+        minimum: -1000000
+        maximum: 1000000
+      count:
+        type: integer
+        minimum: 1
+        maximum: 64
+      outputs:
+        type: array
+        minItems: 1
+        maxItems: 8
+        items:
+          type: object
+          additionalProperties: false
+          required:
+          - name
+          - node_id
+          - property
+          properties:
+            name:
+              type: string
+              maxLength: 128
+              pattern: ^[A-Za-z][A-Za-z0-9_]{0,127}$
+            node_id:
+              type: string
+              maxLength: 128
+              pattern: ^[A-Za-z0-9_-]+$
+            property:
+              type: string
+              maxLength: 128
+              pattern: ^\$?[A-Za-z][A-Za-z0-9_.-]*$
+      max_resolution:
+        type: integer
+        enum:
+        - 256
+        - 512
+        - 1024
+        - 2048
+        - 4096
+        default: 2048
+      expected_graph_uid:
+        type: string
+        maxLength: 256
+  output_schema:
+    type: object
+    required:
+    - success
+    - message
+    properties:
+      success:
+        type: boolean
+      message:
+        type: string
+      context:
+        type: object
+  read_only: false
+  destructive: false
+  idempotent: false
+  execution: async
+  affinity: main
+  timeout_hint_secs: 600
+  source_file: scripts/bake_animation_frames.py
+  annotations:
+    read_only_hint: false
+    destructive_hint: false
+    idempotent_hint: false
+  call_examples:
+  - arguments:
+      output_dir: D:/work/lava/frames
+      node_id: '1581078951'
+      parameter: time
+      start: 0
+      stop: 1
+      count: 24
+      outputs:
+      - name: lava
+        node_id: '1581078951'
+        property: output
+      expected_graph_uid: d3f1c2a4-0000-0000-0000-000000000000
+      max_resolution: 1024
+    note: Bake twenty-four ordered frames by sweeping a time input from 0 to 1.

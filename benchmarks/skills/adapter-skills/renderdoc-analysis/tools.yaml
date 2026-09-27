@@ -1,0 +1,531 @@
+tools:
+  - name: inspect_capture
+    description: Convert one .rdc capture to temporary XML and summarize stable header, chunk metadata, Draw/Dispatch count, frame-work count, Present count, and frame-content status. Use for offline triage and identifying readable but unusable no-work captures. Not for GPU performance conclusions or high-level drawcall reconstruction.
+    input_schema:
+      type: object
+      required: [capture_file]
+      properties:
+        capture_file: {type: string, minLength: 1, maxLength: 1000}
+        representative_limit: {type: integer, minimum: 0, maximum: 100, default: 20}
+      additionalProperties: false
+    output_schema: {type: object}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: async
+    affinity: any
+    timeout_hint_secs: 180
+    source_file: scripts/inspect_capture.py
+    next-tools:
+      on-success: [renderdoc_analysis__export_thumbnail, renderdoc_analysis__export_timeline]
+      on-failure: [renderdoc_capture__get_version, dcc_diagnostics__audit_log]
+  - name: export_thumbnail
+    description: Export the embedded capture thumbnail as PNG, JPG, BMP, or TGA. Use for visual review artifacts. Not for replaying or rendering arbitrary capture resources.
+    input_schema:
+      type: object
+      required: [capture_file, output_file]
+      properties:
+        capture_file: {type: string, minLength: 1, maxLength: 1000}
+        output_file: {type: string, minLength: 1, maxLength: 1000}
+        max_size: {type: integer, minimum: 0, maximum: 16384, default: 0}
+      additionalProperties: false
+    output_schema: {type: object}
+    read_only: false
+    destructive: false
+    idempotent: true
+    execution: async
+    affinity: any
+    timeout_hint_secs: 120
+    source_file: scripts/export_thumbnail.py
+    next-tools:
+      on-success: [renderdoc_analysis__inspect_capture]
+      on-failure: [renderdoc_capture__get_version, dcc_diagnostics__audit_log]
+  - name: export_drawcall_resources
+    description: Export pixel-shader texture resources actually used by one RenderDoc event.
+    input_schema:
+      type: object
+      required: [capture_file, event_id, output_dir]
+      properties:
+        capture_file: {type: string, minLength: 1, maxLength: 1000}
+        event_id: {type: integer, minimum: 1}
+        output_dir: {type: string, minLength: 1, maxLength: 1000}
+      additionalProperties: false
+    output_schema: {type: object}
+    read_only: false
+    destructive: false
+    idempotent: true
+    execution: async
+    affinity: any
+    timeout_hint_secs: 300
+    source_file: scripts/export_drawcall_resources.py
+    next-tools:
+      on-success: [renderdoc_analysis__inspect_capture]
+      on-failure: [renderdoc_capture__get_version, dcc_diagnostics__audit_log]
+  - name: convert_capture
+    description: Convert one .rdc capture to another RenderDoc serialised format — xml for structured offline inspection, or chrome.json for timeline tooling. The output extension must match the chosen format. Use when you need a converted artifact at a path you control. Not for replay-driven inspection — use renderdoc-replay.
+    input_schema:
+      type: object
+      required: [capture_file, output_file]
+      properties:
+        capture_file: {type: string, minLength: 1, maxLength: 1000}
+        output_file: {type: string, minLength: 1, maxLength: 1000}
+        convert_format: {type: string, enum: [xml, chrome.json], default: xml}
+      additionalProperties: false
+    output_schema: {type: object}
+    read_only: false
+    destructive: false
+    idempotent: true
+    execution: async
+    affinity: any
+    timeout_hint_secs: 180
+    source_file: scripts/convert_capture.py
+    next-tools:
+      on-success: [renderdoc_analysis__inspect_capture]
+      on-failure: [renderdoc_capture__get_version, dcc_diagnostics__audit_log]
+  - name: export_timeline
+    description: Export capture events as Chrome profiler JSON. Use for timeline tooling and CI artifacts. Not for authoritative GPU duration measurement.
+    input_schema:
+      type: object
+      required: [capture_file, output_file]
+      properties:
+        capture_file: {type: string, minLength: 1, maxLength: 1000}
+        output_file: {type: string, minLength: 1, maxLength: 1000}
+      additionalProperties: false
+    output_schema: {type: object}
+    read_only: false
+    destructive: false
+    idempotent: true
+    execution: async
+    affinity: any
+    timeout_hint_secs: 180
+    source_file: scripts/export_timeline.py
+    next-tools:
+      on-success: [renderdoc_analysis__inspect_capture]
+      on-failure: [renderdoc_capture__get_version, dcc_diagnostics__audit_log]
+  - name: sample_pixel_region
+    description: >-
+      Sample a rectangular region of one texture or render target on a grid and report per sample its
+      coordinates and decoded channel values, plus per-channel min, max, and mean over the samples.
+      event_id replays to that event first, so the readback is the target's contents at that point in the
+      frame. Requires an uncompressed numeric format: block-compressed, packed, and special formats come
+      back as a structured unsupported result naming the reason instead of sampled zeros. The grid decides
+      how much of the region is read, so a grid coarser than the region makes the statistics a sampled
+      estimate, which the payload reports in estimate and estimate_method. Use before reasoning about what
+      a region contains, and as the primitive diagnose_pixel_values scans. Not for one pixel's value - use
+      renderdoc_inspect__get_texture_data with include_pixels, or renderdoc_debug__pick_pixel to find
+      which draw touched it.
+    input_schema:
+      type: object
+      required: [capture_file, resource_id]
+      properties:
+        capture_file: {type: string, minLength: 1, maxLength: 1000}
+        resource_id: {type: integer, minimum: 1}
+        x: {type: integer, minimum: 0, maximum: 65535, default: 0}
+        y: {type: integer, minimum: 0, maximum: 65535, default: 0}
+        width: {type: integer, minimum: 1, maximum: 65536}
+        height: {type: integer, minimum: 1, maximum: 65536}
+        grid_x: {type: integer, minimum: 1, maximum: 64, default: 1}
+        grid_y: {type: integer, minimum: 1, maximum: 64, default: 1}
+        mip: {type: integer, minimum: 0, maximum: 64, default: 0}
+        slice_index: {type: integer, minimum: 0, maximum: 65535, default: 0}
+        sample: {type: integer, minimum: 0, maximum: 65535, default: 0}
+        event_id: {type: integer, minimum: 1}
+        max_samples: {type: integer, minimum: 1, maximum: 4096, default: 256}
+      additionalProperties: false
+    output_schema: {type: object}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: async
+    affinity: any
+    timeout_hint_secs: 300
+    source_file: scripts/sample_pixel_region.py
+    next-tools:
+      on-success: [renderdoc_analysis__diagnose_pixel_values, renderdoc_inspect__get_texture_data]
+      on-failure: [renderdoc_inspect__replay_capabilities, dcc_diagnostics__audit_log]
+  - name: diagnose_pixel_values
+    description: Scan a region of one texture or render target for NaN, Inf, negative, and out-of-band float values, returning per check how many values matched, up to max_anomalies coordinates per check, per-channel statistics, and an overall anomaly texel count. event_id replays to that event first. NaN and Inf only exist in a floating-point format and a negative value is only a signal in one, so an integer format reports each check as not applicable with the reason rather than as four zeros. Regions larger than max_texels are scanned with a stride, and the payload then reports the stride, the sampled flag, and the estimate method. Use to find where a frame starts producing garbage before debugging a single pixel. Not for why one pixel has the value it has - use renderdoc_debug__pixel_history.
+    input_schema:
+      type: object
+      required: [capture_file, resource_id]
+      properties:
+        capture_file: {type: string, minLength: 1, maxLength: 1000}
+        resource_id: {type: integer, minimum: 1}
+        x: {type: integer, minimum: 0, maximum: 65535, default: 0}
+        y: {type: integer, minimum: 0, maximum: 65535, default: 0}
+        width: {type: integer, minimum: 1, maximum: 65536}
+        height: {type: integer, minimum: 1, maximum: 65536}
+        checks:
+          type: array
+          items: {type: string, enum: [nan, inf, negative, precision]}
+          maxItems: 4
+        mip: {type: integer, minimum: 0, maximum: 64, default: 0}
+        slice_index: {type: integer, minimum: 0, maximum: 65535, default: 0}
+        sample: {type: integer, minimum: 0, maximum: 65535, default: 0}
+        event_id: {type: integer, minimum: 1}
+        max_anomalies: {type: integer, minimum: 1, maximum: 256, default: 32}
+        max_texels: {type: integer, minimum: 1, maximum: 2000000, default: 2000000}
+      additionalProperties: false
+    output_schema: {type: object}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: async
+    affinity: any
+    timeout_hint_secs: 300
+    source_file: scripts/diagnose_pixel_values.py
+    next-tools:
+      on-success: [renderdoc_debug__pixel_history, renderdoc_analysis__sample_pixel_region]
+      on-failure: [renderdoc_inspect__replay_capabilities, dcc_diagnostics__audit_log]
+  - name: get_frame_overview
+    description: >-
+      Report what one capture contains in a single replay - API and frame properties, action counts broken
+      into draws, dispatches, and clears, the root-level pass structure with per-pass draw, index, and
+      output-target load, the largest textures and the format histogram, whether this driver exposes
+      counters and whether one of them carries GPU duration, the debug messages a replay to the last event
+      produced, and the structural signals worth acting on, such as a degraded replay, a frame with no
+      draws, a driver with counters but no duration counter, or one texture that dominates texture memory.
+      Pass triangle counts are derived from API draw parameters and the signals are thresholds over
+      structure: both are reported as estimates in estimate_fields and in the summary, and neither is a
+      measurement. Use as the first call on an unfamiliar capture. Not for per-draw cost - use
+      renderdoc_perf__get_action_timing.
+    input_schema:
+      type: object
+      required: [capture_file]
+      properties:
+        capture_file: {type: string, minLength: 1, maxLength: 1000}
+        max_passes: {type: integer, minimum: 1, maximum: 512, default: 32}
+        max_textures: {type: integer, minimum: 1, maximum: 256, default: 8}
+        max_actions_per_pass: {type: integer, minimum: 0, maximum: 256, default: 5}
+        max_messages: {type: integer, minimum: 0, maximum: 256, default: 8}
+        include_debug_messages: {type: boolean, default: true}
+      additionalProperties: false
+    output_schema: {type: object}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: async
+    affinity: any
+    timeout_hint_secs: 300
+    source_file: scripts/get_frame_overview.py
+    next-tools:
+      on-success: [renderdoc_analysis__analyze_render_passes, renderdoc_perf__get_action_timing]
+      on-failure: [renderdoc_inspect__replay_capabilities, dcc_diagnostics__audit_log]
+  - name: get_draw_call_state
+    description: Snapshot everything one draw executed with in one call - the action itself with its depth and parent event id, the full pipeline state for that event, and the bound shader stages with their reflection, signatures, constant blocks, and resource bindings. stages defaults to the stages the pipeline state reports as bound; include_constant_buffers and include_source widen the shader payload at the cost of size. One stage this capture cannot reflect is reported as an errored entry while the other stages are still returned. Use when the question is what this draw was actually running with. Not for stepping through what the shader did to one pixel - use renderdoc_debug__debug_pixel.
+    input_schema:
+      type: object
+      required: [capture_file, event_id]
+      properties:
+        capture_file: {type: string, minLength: 1, maxLength: 1000}
+        event_id: {type: integer, minimum: 1}
+        stages:
+          type: array
+          items: {type: string, enum: [Vertex, Hull, Domain, Geometry, Pixel, Compute]}
+          maxItems: 6
+        include_constant_buffers: {type: boolean, default: false}
+        include_source: {type: boolean, default: false}
+        variable_limit: {type: integer, minimum: 1, maximum: 256, default: 64}
+      additionalProperties: false
+    output_schema: {type: object}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: async
+    affinity: any
+    timeout_hint_secs: 300
+    source_file: scripts/get_draw_call_state.py
+    next-tools:
+      on-success: [renderdoc_inspect__get_shader_info, renderdoc_debug__debug_pixel]
+      on-failure: [renderdoc_inspect__replay_capabilities, dcc_diagnostics__audit_log]
+  - name: analyze_render_passes
+    description: Report the frame's pass structure from the action tree alone, without a counter - one entry per pass with its event range, action, draw, dispatch, and clear counts, index and instance totals, output and depth targets, and an optional list of its actions. pass_depth picks the tree level that counts as a pass, 0 being the root actions; name_filter narrows the list without a second replay. Triangle counts are derived from the API draw parameters, so they are estimates listed in estimate_fields and repeated in the summary. Use to see where the frame's work clusters and which pass owns a target. Not for how long a pass took - use renderdoc_analysis__get_pass_timing.
+    input_schema:
+      type: object
+      required: [capture_file]
+      properties:
+        capture_file: {type: string, minLength: 1, maxLength: 1000}
+        pass_depth: {type: integer, minimum: 0, maximum: 32, default: 0}
+        max_depth: {type: integer, minimum: 0, maximum: 32, default: 32}
+        name_filter: {type: string, maxLength: 200}
+        max_actions_per_pass: {type: integer, minimum: 0, maximum: 256, default: 8}
+        offset: {type: integer, minimum: 0, maximum: 10000000, default: 0}
+        limit: {type: integer, minimum: 1, maximum: 5000, default: 200}
+      additionalProperties: false
+    output_schema: {type: object}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: async
+    affinity: any
+    timeout_hint_secs: 300
+    source_file: scripts/analyze_render_passes.py
+    next-tools:
+      on-success: [renderdoc_analysis__get_pass_timing, renderdoc_analysis__analyze_state_changes]
+      on-failure: [renderdoc_inspect__replay_capabilities, dcc_diagnostics__audit_log]
+  - name: analyze_state_changes
+    description: Compare adjacent draws' pipeline state and report what changed between each pair, plus the runs of consecutive draws that share an identical state fingerprint and were therefore batchable. The fingerprint covers primitive topology, graphics and compute pipeline objects, per-stage shaders, output and depth targets, vertex and index buffers, viewport and scissor size, blend and depth enables, and cull mode. A section this capture's replay does not expose is reported as null and as an unavailable section rather than dropped, and the walk is bounded by max_events because each draw costs one state read. Use to find redundant state switches. Not for what a single draw was running with - use renderdoc_analysis__get_draw_call_state.
+    input_schema:
+      type: object
+      required: [capture_file]
+      properties:
+        capture_file: {type: string, minLength: 1, maxLength: 1000}
+        first_event_id: {type: integer, minimum: 1}
+        last_event_id: {type: integer, minimum: 1}
+        max_events: {type: integer, minimum: 2, maximum: 256, default: 64}
+        max_changes: {type: integer, minimum: 1, maximum: 5000, default: 200}
+        min_run_length: {type: integer, minimum: 2, maximum: 100000, default: 2}
+        max_depth: {type: integer, minimum: 0, maximum: 32, default: 32}
+      additionalProperties: false
+    output_schema: {type: object}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: async
+    affinity: any
+    timeout_hint_secs: 300
+    source_file: scripts/analyze_state_changes.py
+    next-tools:
+      on-success: [renderdoc_analysis__get_draw_call_state, renderdoc_perf__get_action_timing]
+      on-failure: [renderdoc_inspect__replay_capabilities, dcc_diagnostics__audit_log]
+  - name: get_pass_timing
+    description: >-
+      Report GPU duration per pass by joining this driver's timing counter onto the action tree, with each
+      pass's share of the frame, its timed and untimed action counts, and its slowest actions. pass_depth
+      picks the tree level that counts as a pass, 0 being the root actions. A pass reports its own counter
+      sample when the driver sampled it and the sum of its timed actions otherwise, and the method used is
+      reported per pass so a derived number is never read as a measured one. Requires a timing counter:
+      when this driver exposes none the result says so and lists the counters that are available instead
+      of reporting a frame of zero-duration passes. Use after renderdoc_perf__list_counters when you want
+      to pin counter_id. Not for the pass structure without durations - use
+      renderdoc_analysis__analyze_render_passes.
+    input_schema:
+      type: object
+      required: [capture_file]
+      properties:
+        capture_file: {type: string, minLength: 1, maxLength: 1000}
+        counter_id: {type: integer, minimum: 0}
+        pass_depth: {type: integer, minimum: 0, maximum: 32, default: 0}
+        max_depth: {type: integer, minimum: 0, maximum: 32, default: 32}
+        slowest_actions: {type: integer, minimum: 0, maximum: 100, default: 3}
+        offset: {type: integer, minimum: 0, maximum: 10000000, default: 0}
+        limit: {type: integer, minimum: 1, maximum: 5000, default: 200}
+      additionalProperties: false
+    output_schema: {type: object}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: async
+    affinity: any
+    timeout_hint_secs: 300
+    source_file: scripts/get_pass_timing.py
+    next-tools:
+      on-success: [renderdoc_perf__get_action_timing, renderdoc_analysis__analyze_render_passes]
+      on-failure: [renderdoc_perf__list_counters, dcc_diagnostics__audit_log]
+
+  - name: diff_draws
+    group: verify
+    description: >-
+      Compare one region of one texture or render target between two events of the same capture and report
+      PSNR, mean and max absolute difference, a per-channel breakdown, the share of texels over a
+      threshold, an approximate SSIM, and separate NaN and Inf counts, with an optional difference heatmap
+      export. One replay is reused and moved between the two events, so this is the cheap half of the diff
+      pair. PSNR is reported with its basis - bit depth, channels, and where max_value came from - and two
+      identical regions report identical=true instead of an infinite PSNR. The SSIM here is an
+      approximation over 8x8 blocks with a box window on a sampling grid, reported as ssim_approx with its
+      block size, window, and grid step so it is never mistaken for the standard 11x11 Gaussian SSIM.
+      Requires an uncompressed numeric format; block-compressed, packed, and special formats come back as
+      a structured unsupported result naming the reason. Use for "did this draw change the target?" and as
+      the pixel half of a CI assertion gate. Not for two different captures - use
+      renderdoc_analysis__diff_captures.
+    input_schema:
+      type: object
+      required: [capture_file, event_id_a, event_id_b, resource_id]
+      properties:
+        capture_file: {type: string, minLength: 1, maxLength: 1000}
+        event_id_a: {type: integer, minimum: 1}
+        event_id_b: {type: integer, minimum: 1}
+        resource_id: {type: integer, minimum: 1}
+        x: {type: integer, minimum: 0, maximum: 65535}
+        y: {type: integer, minimum: 0, maximum: 65535}
+        width: {type: integer, minimum: 1, maximum: 65535}
+        height: {type: integer, minimum: 1, maximum: 65535}
+        mip: {type: integer, minimum: 0, maximum: 64, default: 0}
+        slice_index: {type: integer, minimum: 0, maximum: 65535, default: 0}
+        sample: {type: integer, minimum: 0, maximum: 65535, default: 0}
+        max_texels: {type: integer, minimum: 1024, maximum: 8000000, default: 1000000}
+        channels: {type: array, items: {type: integer, minimum: 0, maximum: 3}, maxItems: 4}
+        max_value: {type: number, exclusiveMinimum: 0}
+        threshold: {type: number, exclusiveMinimum: 0}
+        ssim_grid_step: {type: integer, minimum: 1, maximum: 4096, default: 8}
+        output_file: {type: string, minLength: 1, maxLength: 1000}
+      additionalProperties: false
+    output_schema: {type: object}
+    read_only: false
+    destructive: false
+    idempotent: true
+    execution: async
+    affinity: any
+    timeout_hint_secs: 300
+    source_file: scripts/diff_draws.py
+    next-tools:
+      on-success: [renderdoc_analysis__sample_pixel_region, renderdoc_analysis__diagnose_pixel_values]
+      on-failure: [renderdoc_inspect__replay_capabilities, dcc_diagnostics__audit_log]
+  - name: diff_captures
+    group: verify
+    description: >-
+      Compare one region of one texture or render target between two captures and report PSNR, mean and
+      max absolute difference, a per-channel breakdown, the share of texels over a threshold, an
+      approximate SSIM, and separate NaN and Inf counts, with an optional difference heatmap export. Each
+      capture is replayed in its own process, because a RenderDoc replay context holds one capture at a
+      time; the texels are handed over through a temporary directory and compared in bounded chunks. The
+      second replay is allowed to fail on its own and is then reported as a one-sided unsupported_capture
+      result, so a capture that will not open is never compared against nothing. match_by picks how the
+      two captures are lined up: event_id for a known id, index for the nth draw, name for the draw with
+      that name. A size, format, or API mismatch returns comparable=false with the reason instead of
+      raising; force compares the region the two sides have in common anyway. PSNR carries its basis -
+      bit depth, channels, and where max_value came from - and two identical regions report identical=true
+      rather than an infinite PSNR. ssim_approx is an approximation over 8x8 blocks with a box window on a
+      sampling grid and is reported with its block size, window, and grid step. Use for regression checks
+      across builds and as the pixel half of a CI assertion gate. Not for two events of one capture - use
+      renderdoc_analysis__diff_draws.
+    input_schema:
+      type: object
+      required: [capture_file, other_capture_file, resource_id]
+      properties:
+        capture_file: {type: string, minLength: 1, maxLength: 1000}
+        other_capture_file: {type: string, minLength: 1, maxLength: 1000}
+        resource_id: {type: integer, minimum: 1}
+        match_by: {type: string, enum: [event_id, index, name], default: event_id}
+        event_id: {type: integer, minimum: 1}
+        event_index: {type: integer, minimum: 0, maximum: 10000000}
+        event_name: {type: string, minLength: 1, maxLength: 1000}
+        other_resource_id: {type: integer, minimum: 1}
+        x: {type: integer, minimum: 0, maximum: 65535}
+        y: {type: integer, minimum: 0, maximum: 65535}
+        width: {type: integer, minimum: 1, maximum: 65535}
+        height: {type: integer, minimum: 1, maximum: 65535}
+        mip: {type: integer, minimum: 0, maximum: 64, default: 0}
+        slice_index: {type: integer, minimum: 0, maximum: 65535, default: 0}
+        sample: {type: integer, minimum: 0, maximum: 65535, default: 0}
+        max_texels: {type: integer, minimum: 1024, maximum: 8000000, default: 1000000}
+        channels: {type: array, items: {type: integer, minimum: 0, maximum: 3}, maxItems: 4}
+        max_value: {type: number, exclusiveMinimum: 0}
+        threshold: {type: number, exclusiveMinimum: 0}
+        ssim_grid_step: {type: integer, minimum: 1, maximum: 4096, default: 8}
+        output_file: {type: string, minLength: 1, maxLength: 1000}
+        force: {type: boolean, default: false}
+      additionalProperties: false
+    output_schema: {type: object}
+    read_only: false
+    destructive: false
+    idempotent: true
+    execution: async
+    affinity: any
+    timeout_hint_secs: 600
+    source_file: scripts/diff_captures.py
+    next-tools:
+      on-success: [renderdoc_analysis__sample_pixel_region, renderdoc_analysis__diagnose_pixel_values]
+      on-failure: [renderdoc_inspect__replay_capabilities, dcc_diagnostics__audit_log]
+  - name: assert_pixels
+    group: verify
+    description: >-
+      Assert that the difference between two draws of one capture, or between two captures, stays
+      inside thresholds you supply, and report the pass/fail verdict with the measured value for
+      every threshold checked. This is the CI gate built on top of diff_draws and diff_captures: it
+      delegates the measurement to them so there is one implementation of the comparison, then turns
+      the numbers into a verdict. At least one of max_mean_abs_diff, min_psnr, or
+      max_failed_pixel_ratio is required, because a gate with no criterion always passes. Two
+      identical regions satisfy any min_psnr, since their PSNR is infinite. When the two sides
+      cannot be compared the result reports evaluable=false rather than passing or failing, so a
+      setup problem never reads as a green build. NaN and Inf texels are excluded from the metrics
+      and reported under non_finite rather than gated on, since they are not one of the thresholds
+      this tool enforces. Use as the pixel half of a CI assertion gate. Not for inspecting the
+      numbers without a verdict - use renderdoc_analysis__diff_draws or
+      renderdoc_analysis__diff_captures.
+    input_schema:
+      type: object
+      required: [capture_file, resource_id]
+      properties:
+        capture_file: {type: string, minLength: 1, maxLength: 1000}
+        resource_id: {type: integer, minimum: 1}
+        max_mean_abs_diff: {type: number, minimum: 0}
+        min_psnr: {type: number, minimum: 0}
+        max_failed_pixel_ratio: {type: number, minimum: 0, maximum: 1}
+        other_capture_file: {type: string, minLength: 1, maxLength: 1000}
+        event_id_a: {type: integer, minimum: 1}
+        event_id_b: {type: integer, minimum: 1}
+        match_by: {type: string, enum: [event_id, index, name], default: event_id}
+        event_id: {type: integer, minimum: 1}
+        event_index: {type: integer, minimum: 0, maximum: 10000000}
+        event_name: {type: string, minLength: 1, maxLength: 1000}
+        other_resource_id: {type: integer, minimum: 1}
+        x: {type: integer, minimum: 0, maximum: 65535}
+        y: {type: integer, minimum: 0, maximum: 65535}
+        width: {type: integer, minimum: 1, maximum: 65535}
+        height: {type: integer, minimum: 1, maximum: 65535}
+        mip: {type: integer, minimum: 0, maximum: 64, default: 0}
+        slice_index: {type: integer, minimum: 0, maximum: 65535, default: 0}
+        sample: {type: integer, minimum: 0, maximum: 65535, default: 0}
+        max_texels: {type: integer, minimum: 1024, maximum: 8000000, default: 1000000}
+        channels: {type: array, items: {type: integer, minimum: 0, maximum: 3}, maxItems: 4}
+        max_value: {type: number, exclusiveMinimum: 0}
+        threshold: {type: number, exclusiveMinimum: 0}
+        ssim_grid_step: {type: integer, minimum: 1, maximum: 4096, default: 8}
+        output_file: {type: string, minLength: 1, maxLength: 1000}
+        force: {type: boolean, default: false}
+      additionalProperties: false
+    output_schema: {type: object}
+    read_only: false
+    destructive: false
+    idempotent: true
+    execution: async
+    affinity: any
+    timeout_hint_secs: 600
+    source_file: scripts/assert_pixels.py
+    next-tools:
+      on-success: [renderdoc_analysis__diff_draws, renderdoc_analysis__diff_captures]
+      on-failure: [renderdoc_inspect__replay_capabilities, dcc_diagnostics__audit_log]
+  - name: assert_state
+    group: verify
+    description: >-
+      Assert that the pipeline state of two events matches, and report every key that differs with
+      its before and after values. Compare two events of one capture in a single replay, or two
+      captures with two replays, because a RenderDoc replay context holds one capture at a time.
+      ignore_keys names the state sections to leave out, which is how a gate tolerates changes it
+      expects, such as a bindless descriptor or a per-frame resource id; keys named there are
+      reported in ignored_keys so an ignored change is never invisible. A key you name that is not
+      in the fingerprint is reported in unknown_ignore_keys rather than silently accepted, since
+      that is usually a typo. The compared fingerprint is the same one analyze_state_changes uses,
+      so a state difference this tool reports is a state switch that tool would have counted. A
+      section one replay exposes and the other does not is reported as a difference with null on
+      the missing side. Use as the state half of a CI assertion gate. Not for which switches across
+      a whole frame were avoidable - use renderdoc_analysis__analyze_state_changes.
+    input_schema:
+      type: object
+      required: [capture_file]
+      properties:
+        capture_file: {type: string, minLength: 1, maxLength: 1000}
+        event_id_a: {type: integer, minimum: 1}
+        event_id_b: {type: integer, minimum: 1}
+        other_capture_file: {type: string, minLength: 1, maxLength: 1000}
+        match_by: {type: string, enum: [event_id, index, name], default: event_id}
+        event_id: {type: integer, minimum: 1}
+        event_index: {type: integer, minimum: 0, maximum: 10000000}
+        event_name: {type: string, minLength: 1, maxLength: 1000}
+        ignore_keys:
+          type: array
+          items: {type: string, minLength: 1, maxLength: 200}
+          maxItems: 64
+      additionalProperties: false
+    output_schema: {type: object}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: async
+    affinity: any
+    timeout_hint_secs: 300
+    source_file: scripts/assert_state.py
+    next-tools:
+      on-success: [renderdoc_inspect__get_pipeline_state, renderdoc_analysis__analyze_state_changes]
+      on-failure: [renderdoc_inspect__replay_capabilities, dcc_diagnostics__audit_log]

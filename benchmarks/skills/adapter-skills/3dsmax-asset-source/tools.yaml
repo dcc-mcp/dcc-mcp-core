@@ -1,0 +1,67 @@
+tools:
+  - name: search_assets
+    description: "Search the asset catalog and return matching AssetDescriptor entries."
+    source_file: action_search_assets.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 10
+    input_schema:
+      type: object
+      additionalProperties: false
+      required: [query]
+      properties:
+        query:
+          type: string
+          minLength: 1
+          description: Search query (asset name, id, or keyword).
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 50
+          default: 10
+          description: Maximum number of results to return.
+    output_schema:
+      type: object
+      additionalProperties: true
+      required: [success]
+      properties:
+        success:
+          type: boolean
+        status:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: true
+    intent: "Search the asset catalog and return matching AssetDescriptor entries."
+    tool_role: read_only
+    risk: low
+    search_aliases: ["search_assets", "search assets", "find asset", "asset catalog", "asset source"]
+    side_effects:
+      creates: false
+      modifies: false
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: []
+    produces:
+      - "asset_descriptor"
+    call_examples:
+      - arguments:
+          query: "table"
+          limit: 5
+        note: "Search for table assets, return up to 5 results"
+      - arguments:
+          query: "robot"
+        note: "Search for robot assets with default limit"

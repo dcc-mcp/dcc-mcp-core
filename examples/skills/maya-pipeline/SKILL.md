@@ -11,6 +11,11 @@ compatibility: Maya 2022+, Python 3.7+, requires usd-tools and maya-geometry ski
 allowed-tools: Bash Read Write
 metadata:
   dcc-mcp:
+    recall-context:
+      app_type: maya
+      domain: pipeline
+      workflow_stage: pipeline
+      task_category: export
     dcc: maya
     version: "2.0.0"
     layer: domain

@@ -1,0 +1,314 @@
+tools:
+  - name: inspect_scene
+    description: Return a bounded active Unity scene hierarchy up to eight levels deep with session-scoped GameObject instance IDs. Use immediately before choosing targets and lower max_nodes for smaller responses. Not for project metadata; use inspect_project.
+    input_schema:
+      type: object
+      properties:
+        max_nodes: {type: integer, minimum: 1, maximum: 5000, default: 1000}
+      additionalProperties: false
+    output_schema: {type: object}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    source_file: scripts/inspect_scene.py
+    next-tools:
+      on-success: [unity_scene__create_game_object, unity_scene__set_transform]
+      on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]
+  - name: create_game_object
+    description: Create one undoable GameObject in the active Unity scene. Use a parent instance ID from a fresh inspect_scene result, or omit it for a scene root. Not for prefab or asset creation.
+    input_schema:
+      type: object
+      required: [name]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 120}
+        parent_instance_id:
+          description: Opaque Unity object ID from inspect_scene; integer input remains accepted for compatibility.
+          oneOf:
+            - {type: string, pattern: "^-?[0-9]+$", maxLength: 20}
+            - {type: integer}
+          default: 0
+      additionalProperties: false
+    output_schema: {type: object}
+    read_only: false
+    destructive: false
+    idempotent: false
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    source_file: scripts/create_game_object.py
+    next-tools:
+      on-success: [unity_scene__set_transform, unity_scene__save_scene]
+      on-failure: [unity_scene__inspect_scene, dcc_diagnostics__audit_log]
+  - name: inspect_game_object
+    description: Inspect one GameObject from a fresh scene snapshot, returning identity, state, child count, and attached component types. Does not expose arbitrary serialized fields.
+    input_schema:
+      type: object
+      required: [instance_id]
+      properties:
+        instance_id:
+          oneOf:
+            - {type: string, pattern: "^-?[0-9]+$", maxLength: 20}
+            - {type: integer}
+      additionalProperties: false
+    output_schema: {type: object}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    source_file: scripts/inspect_game_object.py
+    next-tools: [unity_scene__inspect_scene]
+  - name: delete_game_object
+    description: Delete one GameObject from the active scene through Unity Undo. Use only an instance ID from a fresh scene inspection and save explicitly afterward.
+    input_schema:
+      type: object
+      required: [instance_id]
+      properties:
+        instance_id:
+          oneOf:
+            - {type: string, pattern: "^-?[0-9]+$", maxLength: 20}
+            - {type: integer}
+      additionalProperties: false
+    output_schema: {type: object}
+    read_only: false
+    destructive: true
+    idempotent: false
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    source_file: scripts/delete_game_object.py
+    next-tools: [unity_scene__inspect_scene, unity_scene__save_scene]
+  - name: set_transform
+    description: Set selected world position, world Euler rotation, or local scale on a Unity GameObject through Undo. Use a session-scoped instance ID from a fresh inspect_scene. Not for RectTransform layout properties.
+    input_schema:
+      type: object
+      required: [instance_id]
+      properties:
+        instance_id:
+          description: Opaque Unity object ID from inspect_scene; integer input remains accepted for compatibility.
+          oneOf:
+            - {type: string, pattern: "^-?[0-9]+$", maxLength: 20}
+            - {type: integer}
+        position:
+          type: array
+          items: {type: number}
+          minItems: 3
+          maxItems: 3
+        rotation_euler:
+          type: array
+          items: {type: number}
+          minItems: 3
+          maxItems: 3
+        scale:
+          type: array
+          items: {type: number}
+          minItems: 3
+          maxItems: 3
+      anyOf:
+        - required: [position]
+        - required: [rotation_euler]
+        - required: [scale]
+      additionalProperties: false
+    output_schema: {type: object}
+    read_only: false
+    destructive: true
+    idempotent: true
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    source_file: scripts/set_transform.py
+    next-tools:
+      on-success: [unity_scene__save_scene, unity_scene__inspect_scene]
+      on-failure: [unity_scene__inspect_scene, dcc_diagnostics__audit_log]
+  - name: save_scene
+    description: Save all currently open Unity scenes. Use after verified scene mutations. Not for importing assets; use refresh_assets.
+    input_schema: {type: object, properties: {}, additionalProperties: false}
+    output_schema: {type: object}
+    read_only: false
+    destructive: true
+    idempotent: true
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    source_file: scripts/save_scene.py
+    next-tools:
+      on-success: [unity_scene__inspect_scene]
+      on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]
+  - name: list_components
+    description: Inspect components of one fresh GameObject instance ID and obtain domain-scoped
+      opaque handles.
+    input_schema:
+      type: object
+      properties:
+        instance_id:
+          oneOf:
+          - type: string
+            pattern: "^-?[0-9]+$"
+            maxLength: 20
+          - type: integer
+      required:
+      - instance_id
+      additionalProperties: false
+    output_schema:
+      type: object
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    source_file: scripts/list_components.py
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+      deferred_hint: false
+  - name: inspect_component
+    description: Inspect bounded serialized properties and a compare-and-swap fingerprint.
+      Unsupported kinds are read-only.
+    input_schema:
+      type: object
+      properties:
+        component_id:
+          type: string
+          minLength: 32
+          maxLength: 32
+        max_properties:
+          type: integer
+          minimum: 1
+          maximum: 1000
+          default: 200
+      required:
+      - component_id
+      additionalProperties: false
+    output_schema:
+      type: object
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    source_file: scripts/inspect_component.py
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+      deferred_hint: false
+  - name: add_component
+    description: Add one exact fully qualified Component type through Unity Undo to
+      a loaded scene object.
+    input_schema:
+      type: object
+      properties:
+        object_id:
+          type: string
+          minLength: 32
+          maxLength: 32
+        type_name:
+          type: string
+          minLength: 1
+          maxLength: 256
+      required:
+      - object_id
+      - type_name
+      additionalProperties: false
+    output_schema:
+      type: object
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    source_file: scripts/add_component.py
+    annotations:
+      read_only_hint: false
+      destructive_hint: true
+      idempotent_hint: false
+      open_world_hint: false
+      deferred_hint: false
+  - name: remove_component
+    description: Remove one Component through Undo with optional fingerprint precondition;
+      Transform removal is rejected.
+    input_schema:
+      type: object
+      properties:
+        component_id:
+          type: string
+          minLength: 32
+          maxLength: 32
+        expected_fingerprint:
+          type: string
+          minLength: 64
+          maxLength: 64
+      required:
+      - component_id
+      additionalProperties: false
+    output_schema:
+      type: object
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    source_file: scripts/remove_component.py
+    annotations:
+      read_only_hint: false
+      destructive_hint: true
+      idempotent_hint: false
+      open_world_hint: false
+      deferred_hint: false
+  - name: set_component_properties
+    description: Stage and validate serialized values, apply with Undo, then return
+      normalized readback. No implicit saves. Arrays support existing element paths
+      only.
+    input_schema:
+      type: object
+      properties:
+        component_id:
+          type: string
+          minLength: 32
+          maxLength: 32
+        expected_fingerprint:
+          type: string
+          minLength: 64
+          maxLength: 64
+        properties:
+          type: array
+          minItems: 1
+          maxItems: 64
+          items:
+            type: object
+            required:
+            - path
+            - value
+            properties:
+              path:
+                type: string
+                minLength: 1
+                maxLength: 512
+              value: {}
+            additionalProperties: false
+      required:
+      - component_id
+      - properties
+      additionalProperties: false
+    output_schema:
+      type: object
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    source_file: scripts/set_component_properties.py
+    annotations:
+      read_only_hint: false
+      destructive_hint: true
+      idempotent_hint: false
+      open_world_hint: false
+      deferred_hint: false

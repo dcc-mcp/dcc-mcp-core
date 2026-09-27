@@ -1,0 +1,146 @@
+tools:
+  - name: inspect_layer_compositing
+    description: >-
+      Inspect one Painter layer's compositing state - visibility, opacity, blending mode, and mask state - and report which compositing capabilities the running host exposes.
+    input_schema:
+      type: object
+      additionalProperties: false
+      required: [layer_uid]
+      properties:
+        layer_uid:
+          type: integer
+          minimum: 0
+        texture_set:
+          type: string
+          minLength: 1
+          maxLength: 256
+        stack:
+          type: string
+          maxLength: 256
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: async
+    affinity: main
+    timeout_hint_secs: 30
+    source_file: scripts/inspect_layer_compositing.py
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+  - name: set_layer_visibility
+    description: Show or hide one Painter layer and confirm the new visibility by host readback.
+    input_schema:
+      type: object
+      additionalProperties: false
+      required: [layer_uid]
+      properties:
+        layer_uid:
+          type: integer
+          minimum: 0
+        visible:
+          type: boolean
+          default: true
+        texture_set:
+          type: string
+          minLength: 1
+          maxLength: 256
+        stack:
+          type: string
+          maxLength: 256
+    read_only: false
+    destructive: false
+    idempotent: true
+    execution: async
+    affinity: main
+    timeout_hint_secs: 30
+    source_file: scripts/set_layer_visibility.py
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+    next-tools:
+      on-success:
+        - painter_compositing__inspect_layer_compositing
+      on-failure:
+        - painter_project__list_layer_stack
+  - name: set_layer_opacity
+    description: Set one Painter layer's opacity on the unit interval and confirm it by host readback.
+    input_schema:
+      type: object
+      additionalProperties: false
+      required: [layer_uid, opacity]
+      properties:
+        layer_uid:
+          type: integer
+          minimum: 0
+        opacity:
+          type: number
+          minimum: 0
+          maximum: 1
+        texture_set:
+          type: string
+          minLength: 1
+          maxLength: 256
+        stack:
+          type: string
+          maxLength: 256
+    read_only: false
+    destructive: false
+    idempotent: true
+    execution: async
+    affinity: main
+    timeout_hint_secs: 30
+    source_file: scripts/set_layer_opacity.py
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+    next-tools:
+      on-success:
+        - painter_compositing__inspect_layer_compositing
+      on-failure:
+        - painter_project__list_layer_stack
+  - name: set_layer_blending_mode
+    description: >-
+      Set one Painter layer's blending mode by name, resolved against the blending-mode enum the running host exposes, and confirm it by readback.
+    input_schema:
+      type: object
+      additionalProperties: false
+      required: [layer_uid, blending_mode]
+      properties:
+        layer_uid:
+          type: integer
+          minimum: 0
+        blending_mode:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: Painter blending-mode name, for example Multiply or Passthrough. Use inspect_layer_compositing to read valid names.
+        texture_set:
+          type: string
+          minLength: 1
+          maxLength: 256
+        stack:
+          type: string
+          maxLength: 256
+    read_only: false
+    destructive: false
+    idempotent: true
+    execution: async
+    affinity: main
+    timeout_hint_secs: 30
+    source_file: scripts/set_layer_blending_mode.py
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+    next-tools:
+      on-success:
+        - painter_compositing__inspect_layer_compositing
+      on-failure:
+        - painter_compositing__inspect_layer_compositing

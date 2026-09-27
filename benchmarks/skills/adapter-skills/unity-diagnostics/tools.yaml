@@ -1,0 +1,143 @@
+tools:
+  - name: ping
+    description: Prove that the Unity bridge and Editor main-thread update loop can execute a fresh request. Use for install verification and readiness recovery; transport connection alone is insufficient.
+    input_schema:
+      type: object
+      properties: {}
+      additionalProperties: false
+    output_schema:
+      type: object
+      required: [success, message, prompt, error, context]
+      properties:
+        success: {type: boolean}
+        message: {type: string}
+        prompt: {type: [string, "null"]}
+        error: {type: [string, "null"]}
+        context:
+          type: object
+          required: [host_dispatch_ready]
+          properties:
+            host_dispatch_ready: {type: boolean, const: true}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 10
+    source_file: scripts/ping.py
+    next-tools:
+      on-success: [unity_project__inspect_project]
+      on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]
+  - name: read_console
+    description: Return a bounded, chronological snapshot of Unity Console messages captured since the Editor package loaded. Filter by severity and use after operations or failures. Not for historical logs from before package initialization.
+    input_schema:
+      type: object
+      properties:
+        limit: {type: integer, minimum: 1, maximum: 200, default: 100}
+        severity: {type: string, enum: [all, error, warning, log], default: all}
+      additionalProperties: false
+    output_schema: {type: object}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    source_file: scripts/read_console.py
+    next-tools:
+      on-success: [unity_project__inspect_project, unity_scene__inspect_scene]
+      on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]
+  - name: inspect_job
+    description: Read the persisted state of one Unity mutating job by request_id. States are queued, running, succeeded, or failed; failed jobs are not automatically retried.
+    input_schema:
+      type: object
+      required: [request_id]
+      properties:
+        request_id:
+          type: string
+          pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+      additionalProperties: false
+    output_schema:
+      type: object
+      required: [success, message, prompt, error, context]
+      properties:
+        success: {type: boolean}
+        message: {type: string}
+        prompt: {type: [string, "null"]}
+        error: {type: [string, "null"]}
+        context:
+          type: object
+          properties:
+            state: {type: string, enum: [queued, running, succeeded, failed]}
+            phase: {type: string}
+      allOf:
+        - if:
+            properties:
+              success: {const: true}
+            required: [success]
+          then:
+            properties:
+              context:
+                required: [state, phase]
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+      deferred_hint: false
+    source_file: scripts/inspect_job.py
+    next-tools:
+      on-success: [unity_diagnostics__read_console]
+      on-failure: [unity_diagnostics__read_console, dcc_diagnostics__audit_log]
+  - name: capture_game_view
+    description: Queue an active, unpaused Play-Mode-only Game View PNG capture to a fixed request-specific path below Builds/DccMcp/Captures and keep the Core job open until completion. The Editor focuses Game View, waits for a rendered frame, and succeeds only after Unity decodes a nonzero PNG within the 32-MiB, 8192-pixel-per-axis, and 32M-pixel limits.
+    input_schema:
+      type: object
+      required: [request_id]
+      properties:
+        request_id:
+          type: string
+          pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+      additionalProperties: false
+    output_schema:
+      type: object
+      required: [success, message, prompt, error, context]
+      properties:
+        success: {type: boolean}
+        message: {type: string}
+        prompt: {type: [string, "null"]}
+        error: {type: [string, "null"]}
+        context:
+          type: object
+          properties:
+            state: {type: string, enum: [queued, running, succeeded, failed]}
+            phase: {type: string}
+      allOf:
+        - if:
+            properties:
+              success: {const: true}
+            required: [success]
+          then:
+            properties:
+              context:
+                required: [state, phase]
+    execution: async
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 3600
+    annotations:
+      read_only_hint: false
+      destructive_hint: true
+      idempotent_hint: true
+      open_world_hint: false
+      deferred_hint: false
+    source_file: scripts/capture_game_view.py
+    next-tools:
+      on-success: [unity_diagnostics__inspect_job]
+      on-failure: [unity_diagnostics__read_console, dcc_diagnostics__audit_log]

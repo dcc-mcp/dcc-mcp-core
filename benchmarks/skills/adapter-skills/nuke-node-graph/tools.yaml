@@ -1,0 +1,90 @@
+tools:
+  - name: create_node
+    description: Create one available Nuke node class without clearing or replacing existing graph nodes.
+    input_schema:
+      type: object
+      required: [node_class]
+      additionalProperties: false
+      properties:
+        node_class: {type: string, minLength: 1, maxLength: 128}
+        name: {type: string, minLength: 1, maxLength: 128}
+        x: {type: integer, minimum: -1000000, maximum: 1000000}
+        y: {type: integer, minimum: -1000000, maximum: 1000000}
+    read_only: false
+    destructive: false
+    idempotent: false
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 30
+    source_file: scripts/create_node.py
+  - name: delete_node
+    description: Delete one exact Nuke node and verify its absence.
+    input_schema:
+      type: object
+      required: [node_name]
+      additionalProperties: false
+      properties:
+        node_name: {type: string, minLength: 1, maxLength: 128}
+    read_only: false
+    destructive: true
+    idempotent: false
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 30
+    source_file: scripts/delete_node.py
+  - name: connect_input
+    description: Connect or explicitly disconnect one bounded input index with rollback on failed readback.
+    input_schema:
+      type: object
+      required: [node_name, input_index]
+      additionalProperties: false
+      properties:
+        node_name: {type: string, minLength: 1, maxLength: 128}
+        input_index: {type: integer, minimum: 0, maximum: 63}
+        source_node_name:
+          type: [string, "null"]
+          minLength: 1
+          maxLength: 128
+          description: Exact source node name, or null to disconnect the input.
+    read_only: false
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 30
+    source_file: scripts/connect_input.py
+  - name: get_knob
+    description: Read one static non-executable knob as a bounded JSON value.
+    input_schema:
+      type: object
+      required: [node_name, knob_name]
+      additionalProperties: false
+      properties:
+        node_name: {type: string, minLength: 1, maxLength: 128}
+        knob_name: {type: string, minLength: 1, maxLength: 128}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 15
+    source_file: scripts/get_knob.py
+  - name: set_knob
+    description: Set one static non-executable knob and require a matching value readback.
+    input_schema:
+      type: object
+      required: [node_name, knob_name, value]
+      additionalProperties: false
+      properties:
+        node_name: {type: string, minLength: 1, maxLength: 128}
+        knob_name: {type: string, minLength: 1, maxLength: 128}
+        value:
+          description: Bounded JSON scalar, array, or object accepted by the target static knob.
+          type: ["null", boolean, integer, number, string, array, object]
+    read_only: false
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 30
+    source_file: scripts/set_knob.py

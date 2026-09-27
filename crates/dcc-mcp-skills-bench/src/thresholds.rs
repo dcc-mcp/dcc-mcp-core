@@ -15,22 +15,52 @@
 //!
 //! They are the measured baseline, minus roughly two and a half points of margin:
 //!
-//! | metric | measured at 300, `dcc`-filtered | gate |
-//! |---|---|---|
-//! | top-1  | 76.5% ([`BASELINE_TOP1_300`]) | 74% |
-//! | top-5  | 82.8% ([`BASELINE_TOP5_300`]) | 80% |
-//! | MRR@10 | 79.5% ([`BASELINE_MRR10_300`]) | 77% |
+//! | metric | measured at 300, `dcc`-filtered | gate | margin |
+//! |---|---|---|---|
+//! | top-1  | 87.3% ([`BASELINE_TOP1_300`]) | 85% | 2.3 |
+//! | top-5  | 93.5% ([`BASELINE_TOP5_300`]) | 90% | 3.5 |
+//! | MRR@10 | 90.2% ([`BASELINE_MRR10_300`]) | 87% | 3.2 |
 //!
-//! The baseline already moved once. Reviewing the first submission caught that
-//! the corpus was not reproducible (`StdRng` carries no cross-version
-//! guarantee, now `ChaCha8Rng`) and that some literal queries deleted a
-//! separator instead of a letter. Both changed the corpus, so both moved every
-//! number.
+//! The baseline has moved twice, and both times the cause was the corpus, not
+//! the ranker.
+//!
+//! 1. Reviewing the first submission caught that the corpus was not
+//!    reproducible (`StdRng` carries no cross-version guarantee, now
+//!    `ChaCha8Rng`) and that some literal queries deleted a separator instead
+//!    of a letter. That left top-1 at 76.5%.
+//! 2. `skills-corpus-v2` (PIP-3701) fixed two ways the filler was
+//!    unanswerable, which is what moved top-1 from 76.5% to 86.9%. See
+//!    [`crate::synthetic`] for the detail; in short:
+//!    * Names went from `<dcc>-skill-<n>` to a four-vocabulary head plus an
+//!      ordinal. The old truncated-tail query for `maya-skill-00042` is
+//!      `"maya skill"`, which every `maya-skill-*` matched equally, so 36 of
+//!      the 108 failures had no right answer at all.
+//!    * Descriptions stopped drawing from a shared 30-word pool, so each
+//!      filler skill owns identifying terms. Paraphrase/intent coverage went
+//!      from 26 targets to 77.
+//!    * Real seeds went from 26 to 140 by vendoring adapter-repo SKILL.md
+//!      content.
 //!
 //! The margin is not slack for a sloppy ranker — it is room for the corpus to
-//! move. The 26 real seeds are harvested from this repository, so every skill
-//! someone ships changes the measurement slightly. Four points absorbs that
-//! without absorbing a real regression.
+//! move. The real seeds are harvested from this repository and from vendored
+//! adapter skills, so every skill someone ships changes the measurement
+//! slightly. Two and a half points absorbs that without absorbing a real
+//! regression.
+//!
+//! # What the corpus still cannot measure
+//!
+//! Two known limits, recorded so nobody reads these numbers as stronger than
+//! they are:
+//!
+//! * `RecallContext` (`app_type` / `domain` / `workflow_stage` /
+//!   `task_category`) is now populated on the corpus, but the production
+//!   ranker does not read it. Coverage therefore cannot move the hit rate
+//!   today; it is groundwork for the structured-signal work that follows.
+//! * A near-name hard negative whose name is a *superstring* of its target
+//!   (`cancellable-loop-lite` beside `cancellable-loop`) still wins the
+//!   target's own full-name query. The corpus deliberately keeps those pairs
+//!   — the ambiguity is real, not an artefact to be tuned away — so they are
+//!   a standing ranker finding rather than something to widen the gate over.
 //!
 //! # There is exactly one gate
 //!
@@ -63,11 +93,11 @@
 //! moves ranking quality down by more than the margin.
 
 /// Minimum top-1 hit rate at [`crate::corpus::SCALE_300`], `dcc`-filtered.
-pub const MIN_TOP1_300: f64 = 0.74;
+pub const MIN_TOP1_300: f64 = 0.85;
 /// Minimum top-5 hit rate at [`crate::corpus::SCALE_300`], `dcc`-filtered.
-pub const MIN_TOP5_300: f64 = 0.80;
+pub const MIN_TOP5_300: f64 = 0.90;
 /// Minimum MRR@10 at [`crate::corpus::SCALE_300`], `dcc`-filtered.
-pub const MIN_MRR10_300: f64 = 0.77;
+pub const MIN_MRR10_300: f64 = 0.87;
 
 /// Minimum top-1 hit rate at [`crate::corpus::SCALE_1000`], `dcc`-filtered.
 ///
@@ -99,11 +129,11 @@ pub const MAX_MARGINAL_CONTEXT_TOKENS: i64 = 200;
 /// Nothing asserts the measurement against these. They exist so the gate has
 /// a documented origin and so `gates_sit_below_the_baseline` can catch a gate
 /// that has drifted above what the code actually achieves.
-pub const BASELINE_TOP1_300: f64 = 0.765;
+pub const BASELINE_TOP1_300: f64 = 0.873;
 /// See [`BASELINE_TOP1_300`].
-pub const BASELINE_TOP5_300: f64 = 0.828;
+pub const BASELINE_TOP5_300: f64 = 0.935;
 /// See [`BASELINE_TOP1_300`].
-pub const BASELINE_MRR10_300: f64 = 0.795;
+pub const BASELINE_MRR10_300: f64 = 0.902;
 
 #[cfg(test)]
 mod tests {
@@ -170,6 +200,16 @@ mod tests {
             );
         }
     }
+
+    /// The S1 acceptance targets (PIP-3701): top-1 >= 0.85, top-5 >= 0.90,
+    /// MRR@10 >= 0.87. All three are reached on the measured `skills-corpus-v2`
+    /// baseline, so they are asserted rather than left as a comment — a later
+    /// corpus edit that quietly settles for less should fail here.
+    const _: () = {
+        assert!(MIN_TOP1_300 >= 0.85);
+        assert!(MIN_TOP5_300 >= 0.90);
+        assert!(MIN_MRR10_300 >= 0.87);
+    };
 
     #[test]
     fn context_cap_matches_the_list_skills_harness() {

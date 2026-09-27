@@ -1,0 +1,80 @@
+tools:
+  - name: inspect_runtime
+    description: Inspect Toolbag version, GPU, trace backend, scene bounds, active camera, counts, and relevant preferences.
+    source_file: scripts/inspect_runtime.py
+    input_schema: {type: object, properties: {}, additionalProperties: false}
+    output_schema: {type: object}
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 30
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+      deferred_hint: false
+    next-tools:
+      on-success: [marmoset_diagnostics__validate_assets, marmoset_lookdev__inspect_materials]
+
+  - name: validate_assets
+    description: Check material texture references and report missing local files without changing the scene.
+    source_file: scripts/validate_assets.py
+    input_schema:
+      type: object
+      properties:
+        max_materials: {type: integer, minimum: 1, maximum: 5000, default: 500}
+      additionalProperties: false
+    output_schema: {type: object}
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: true
+      deferred_hint: false
+    next-tools:
+      on-success: [marmoset_lookdev__inspect_materials]
+
+  - name: set_display_tooltips
+    description: Set Toolbag's persistent displayTooltips preference explicitly.
+    source_file: scripts/set_display_tooltips.py
+    input_schema:
+      type: object
+      required: [enabled]
+      properties:
+        enabled: {type: boolean}
+      additionalProperties: false
+    output_schema: {type: object}
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 30
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+      deferred_hint: false
+    call_examples:
+      - arguments: {enabled: false}
+        note: Disable tooltips when the host package is missing its tooltip database.
+
+  - name: free_unused_resources
+    description: Ask Toolbag to release retained but unused resources after large batch or lookdev operations.
+    source_file: scripts/free_unused_resources.py
+    input_schema: {type: object, properties: {}, additionalProperties: false}
+    output_schema: {type: object}
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+      deferred_hint: false

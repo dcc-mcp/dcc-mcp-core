@@ -1,0 +1,230 @@
+tools:
+  - name: list_cameras
+    description: List camera nodes under a network with resolution and focal length.
+    source_file: scripts/list_cameras.py
+    execution: sync
+    affinity: main
+    group: camera
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+    input_schema:
+      type: object
+      properties:
+        parent_path:
+          type: string
+          default: /obj
+  - name: create_camera
+    description: Create a camera node with optional transform, resolution, and focal.
+    source_file: scripts/create_camera.py
+    execution: sync
+    affinity: main
+    group: camera
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+    input_schema:
+      type: object
+      properties:
+        parent_path:
+          type: string
+          default: /obj
+        name:
+          type: string
+        translate:
+          type: array
+          items: {type: number}
+          minItems: 3
+          maxItems: 3
+        rotate:
+          type: array
+          items: {type: number}
+          minItems: 3
+          maxItems: 3
+        resolution:
+          type: array
+          items: {type: integer}
+          minItems: 2
+          maxItems: 2
+        focal:
+          type: number
+  - name: update_camera
+    description: Update an existing camera's transform, resolution, and focal length.
+    source_file: scripts/update_camera.py
+    execution: sync
+    affinity: main
+    group: camera
+    read_only: false
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: true
+    input_schema:
+      type: object
+      required: [camera_path]
+      properties:
+        camera_path:
+          type: string
+        translate:
+          type: array
+          items: {type: number}
+          minItems: 3
+          maxItems: 3
+        rotate:
+          type: array
+          items: {type: number}
+          minItems: 3
+          maxItems: 3
+        resolution:
+          type: array
+          items: {type: integer}
+          minItems: 2
+          maxItems: 2
+        focal:
+          type: number
+  - name: frame_view
+    description: >-
+      Frame a node and/or activate a camera in the Scene Viewer, applying the
+      camera last and reporting active_camera. UI-aware: returns framed=false
+      with a warning when headless. Refuses geometry above the default viewport
+      primitive budget unless the caller explicitly overrides the safety gate.
+    source_file: scripts/frame_view.py
+    execution: sync
+    affinity: main
+    group: view
+    read_only: false
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: true
+    input_schema:
+      type: object
+      properties:
+        node_path:
+          type: string
+        camera_path:
+          type: string
+        max_primitive_count:
+          type: integer
+          minimum: 1
+          default: 1000000
+          description: Maximum primitive count that may be framed without an explicit override.
+        allow_heavy_geometry:
+          type: boolean
+          default: false
+          description: Explicitly allow framing geometry above max_primitive_count.
+  - name: get_view_state
+    description: Report the active Scene Viewer camera and viewport (read-only, UI-aware).
+    source_file: scripts/get_view_state.py
+    execution: sync
+    affinity: main
+    group: view
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+    input_schema:
+      type: object
+      properties: {}
+  - name: create_light
+    description: >-
+      Create an hlight node (point/distant/sphere/environment/...) with typed
+      intensity, color, exposure, and transform.
+    source_file: scripts/create_light.py
+    execution: sync
+    affinity: main
+    group: light
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+    input_schema:
+      type: object
+      properties:
+        parent_path:
+          type: string
+          default: /obj
+        light_type:
+          type: string
+          enum: [point, line, grid, disk, sphere, tube, geometry, distant, sun, environment]
+          default: point
+        name:
+          type: string
+        intensity:
+          type: number
+        color:
+          type: array
+          items: {type: number}
+          minItems: 3
+          maxItems: 3
+        exposure:
+          type: number
+        translate:
+          type: array
+          items: {type: number}
+          minItems: 3
+          maxItems: 3
+        rotate:
+          type: array
+          items: {type: number}
+          minItems: 3
+          maxItems: 3
+  - name: update_light
+    description: Update an existing hlight's intensity/color/exposure/type/transform.
+    source_file: scripts/update_light.py
+    execution: sync
+    affinity: main
+    group: light
+    read_only: false
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: true
+    input_schema:
+      type: object
+      required: [light_path]
+      properties:
+        light_path:
+          type: string
+        intensity:
+          type: number
+        color:
+          type: array
+          items: {type: number}
+          minItems: 3
+          maxItems: 3
+        exposure:
+          type: number
+        light_type:
+          type: string
+          enum: [point, line, grid, disk, sphere, tube, geometry, distant, sun, environment]
+        translate:
+          type: array
+          items: {type: number}
+          minItems: 3
+          maxItems: 3
+        rotate:
+          type: array
+          items: {type: number}
+          minItems: 3
+          maxItems: 3

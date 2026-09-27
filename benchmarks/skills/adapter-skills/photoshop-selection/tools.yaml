@@ -1,0 +1,165 @@
+tools:
+- name: get_selection
+  description: Get current selection bounds (top, left, bottom, right)
+  source_file: scripts/get_selection.py
+  execution: sync
+  read_only: true
+  destructive: false
+  idempotent: true
+  input_schema:
+    type: object
+    properties: {}
+    additionalProperties: false
+- name: select_all
+  description: Select the entire canvas
+  source_file: scripts/select_all.py
+  execution: sync
+  read_only: false
+  destructive: false
+  idempotent: true
+  input_schema:
+    type: object
+    properties: {}
+    additionalProperties: false
+- name: deselect
+  description: Deselect any active selection
+  source_file: scripts/deselect.py
+  execution: sync
+  read_only: false
+  destructive: false
+  idempotent: true
+  input_schema:
+    type: object
+    properties: {}
+    additionalProperties: false
+- name: select_rectangle
+  description: Create a rectangular selection (top, left, bottom, right in pixels)
+  source_file: scripts/select_rectangle.py
+  execution: sync
+  read_only: false
+  destructive: false
+  idempotent: true
+  input_schema:
+    type: object
+    properties:
+      top:
+        type: number
+        description: Top edge in pixels.
+      left:
+        type: number
+        description: Left edge in pixels.
+      bottom:
+        type: number
+        description: Bottom edge in pixels.
+      right:
+        type: number
+        description: Right edge in pixels.
+    additionalProperties: false
+    required:
+    - top
+    - left
+    - bottom
+    - right
+- name: select_ellipse
+  description: Create an elliptical selection (top, left, bottom, right in pixels)
+  source_file: scripts/select_ellipse.py
+  execution: sync
+  read_only: false
+  destructive: false
+  idempotent: true
+  input_schema:
+    type: object
+    properties:
+      top:
+        type: number
+        description: Top edge in pixels.
+      left:
+        type: number
+        description: Left edge in pixels.
+      bottom:
+        type: number
+        description: Bottom edge in pixels.
+      right:
+        type: number
+        description: Right edge in pixels.
+    additionalProperties: false
+    required:
+    - top
+    - left
+    - bottom
+    - right
+- name: inverse_selection
+  description: Invert the current selection
+  source_file: scripts/inverse_selection.py
+  execution: sync
+  read_only: false
+  destructive: false
+  idempotent: true
+  input_schema:
+    type: object
+    properties: {}
+    additionalProperties: false
+- name: expand_selection
+  description: Expand the current selection by N pixels
+  source_file: scripts/expand_selection.py
+  execution: sync
+  read_only: false
+  destructive: false
+  idempotent: true
+  input_schema:
+    type: object
+    properties:
+      by:
+        type: number
+        description: Number of pixels to expand the selection.
+    additionalProperties: false
+    required:
+    - by
+- name: contract_selection
+  description: Contract the current selection by N pixels
+  source_file: scripts/contract_selection.py
+  execution: sync
+  read_only: false
+  destructive: false
+  idempotent: true
+  input_schema:
+    type: object
+    properties:
+      by:
+        type: number
+        description: Number of pixels to contract the selection.
+    additionalProperties: false
+    required:
+    - by
+- name: feather_selection
+  description: Feather the current selection by N pixels
+  source_file: scripts/feather_selection.py
+  execution: sync
+  read_only: false
+  destructive: false
+  idempotent: true
+  input_schema:
+    type: object
+    properties:
+      by:
+        type: number
+        description: Feather radius in pixels.
+    additionalProperties: false
+    required:
+    - by
+- name: save_selection
+  description: Save the current selection as a named alpha channel
+  source_file: scripts/save_selection.py
+  execution: sync
+  read_only: false
+  destructive: false
+  idempotent: false
+  input_schema:
+    type: object
+    properties:
+      channel_name:
+        type: string
+        description: Name for the saved channel. If None or empty, Photoshop assigns a default name.
+    additionalProperties: false
+    required:
+    - channel_name

@@ -1,0 +1,74 @@
+tools:
+  - name: create_geometry_collection
+    description: Convert a Static Mesh into a clustered Chaos Geometry Collection, splitting disconnected mesh islands into dynamic fragments.
+    source_file: scripts/create_geometry_collection.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: false
+    timeout_hint_secs: 120
+    read_only: false
+    destructive: false
+    idempotent: false
+    input_schema:
+      type: object
+      required: [static_mesh_path, collection_name]
+      properties:
+        static_mesh_path:
+          type: string
+          minLength: 1
+          description: Static Mesh object or package path to convert.
+        destination_path:
+          type: string
+          default: /Game/GeometryCollections
+          description: Content Browser folder for the Geometry Collection.
+        collection_name:
+          type: string
+          minLength: 1
+          description: Name for the new Geometry Collection asset.
+        damage_threshold:
+          type: number
+          exclusiveMinimum: 0
+          default: 1000.0
+          description: Chaos strain required to break the root cluster.
+    next-tools:
+      on-success: [unreal_chaos__spawn_geometry_collection_actor]
+      on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]
+
+  - name: spawn_geometry_collection_actor
+    description: Spawn a Chaos Geometry Collection actor with a damage threshold in the current level.
+    source_file: scripts/spawn_geometry_collection_actor.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: false
+    timeout_hint_secs: 60
+    read_only: false
+    destructive: false
+    idempotent: false
+    input_schema:
+      type: object
+      required: [geometry_collection_path]
+      properties:
+        geometry_collection_path:
+          type: string
+          minLength: 1
+          description: Geometry Collection object or package path to spawn.
+        location_x:
+          type: number
+          default: 0.0
+        location_y:
+          type: number
+          default: 0.0
+        location_z:
+          type: number
+          default: 0.0
+        damage_threshold:
+          type: number
+          exclusiveMinimum: 0
+          default: 1000.0
+        label:
+          type: string
+          default: ""
+          description: Optional World Outliner label.
+    next-tools:
+      on-success: [unreal_runtime__start_physics_simulation]
+      on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]

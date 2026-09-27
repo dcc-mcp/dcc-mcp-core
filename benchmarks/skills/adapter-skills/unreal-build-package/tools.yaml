@@ -1,0 +1,158 @@
+tools:
+  - name: build_plugin_package
+    description: >-
+      Build an installable DccMcpUnreal plugin ZIP from a source checkout.
+      When to use: package this adapter for an Unreal version.
+      How to use: provide repository_root and ue_root, then poll the async job.
+    source_file: scripts/build_plugin_package.py
+    execution: async
+    affinity: any
+    enforce_thread_affinity: true
+    timeout_hint_secs: 7200
+    read_only: false
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: true
+    input_schema:
+      type: object
+      required: [repository_root, ue_root]
+      properties:
+        repository_root:
+          type: string
+          minLength: 1
+          description: Source checkout containing packaging/build_distributable.py.
+        ue_root:
+          type: string
+          minLength: 1
+          description: Unreal Engine installation root containing Engine/.
+        mode:
+          type: string
+          enum: [native, source, python-only]
+          default: native
+        python_executable:
+          type: string
+          default: ""
+          description: External Python executable; defaults to Unreal's bundled Python.
+        core_wheel:
+          type: string
+          default: ""
+          description: Optional local dcc-mcp-core wheel to vendor instead of downloading one.
+        core_spec:
+          type: string
+          default: "dcc-mcp-core>=0.20.13,<1.0.0"
+        vctoolchain_version:
+          type: string
+          default: ""
+          description: Optional MSVC toolchain version passed to UnrealBuildTool.
+    output_schema:
+      type: object
+      required: [success, message, context]
+      additionalProperties: true
+    call_examples:
+      - arguments:
+          repository_root: "G:/PycharmProjects/github/dcc-mcp-unreal"
+          ue_root: "C:/Program Files/Epic Games/UE_5.8"
+          mode: native
+        note: Build the native UE 5.8 plugin archive.
+    next-tools:
+      on-failure: [dcc_diagnostics__audit_log]
+
+  - name: package_project_executable
+    description: >-
+      Compile, cook, stage, and prepare a saved Unreal project as a Windows archive,
+      installer, SteamPipe build, or WeGame submission folder.
+      When to use: create a distributable Win64 build without publishing it.
+      How to use: provide the .uproject, output directory, and release profile, then poll the async job.
+    source_file: scripts/package_project_executable.py
+    execution: async
+    affinity: any
+    enforce_thread_affinity: true
+    timeout_hint_secs: 10800
+    read_only: false
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+    input_schema:
+      type: object
+      required: [project_path, output_directory]
+      properties:
+        project_path:
+          type: string
+          minLength: 1
+          description: Absolute path to a saved .uproject file.
+        output_directory:
+          type: string
+          minLength: 1
+          description: Directory that receives the archived Windows build.
+        ue_root:
+          type: string
+          default: ""
+          description: Unreal Engine root; inferred from the live editor when omitted.
+        configuration:
+          type: string
+          enum: [Development, Shipping]
+          default: Shipping
+        target_platform:
+          type: string
+          enum: [Win64]
+          default: Win64
+        release_profile:
+          type: string
+          enum: [archive, installer, steam, wegame]
+          default: archive
+          description: Output contract; installer requires Inno Setup, steam requires app/depot IDs.
+        product_name:
+          type: string
+          default: ""
+          description: Display name; defaults to the .uproject stem.
+        product_version:
+          type: string
+          default: "1.0.0"
+        publisher:
+          type: string
+          default: ""
+          description: Installer publisher; defaults to product_name.
+        installer_compiler_path:
+          type: string
+          default: ""
+          description: Optional Inno Setup 6 ISCC.exe path; auto-detected when omitted.
+        steam_app_id:
+          type: string
+          default: ""
+          description: Required numeric Steam AppID for the steam profile.
+        steam_depot_id:
+          type: string
+          default: ""
+          description: Required numeric Steam DepotID for the steam profile.
+    output_schema:
+      type: object
+      required: [success, message, context]
+      additionalProperties: true
+    call_examples:
+      - arguments:
+          project_path: "D:/UnrealProjects/MyGame/MyGame.uproject"
+          output_directory: "D:/Builds/MyGame-Win64"
+          configuration: Shipping
+          release_profile: installer
+          product_name: My Game
+          product_version: 1.0.0
+        note: Produce a Windows Setup executable with Unreal prerequisites.
+      - arguments:
+          project_path: "D:/UnrealProjects/MyGame/MyGame.uproject"
+          output_directory: "D:/Builds/MyGame-Steam"
+          configuration: Shipping
+          release_profile: steam
+          steam_app_id: "123456"
+          steam_depot_id: "123457"
+        note: Produce preview-only SteamPipe build scripts without uploading.
+    next-tools:
+      on-failure: [dcc_diagnostics__audit_log]
+

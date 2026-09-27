@@ -1,0 +1,51 @@
+tools:
+  - name: create_wrinkle_brush
+    description: >-
+      Create and activate a DamStandard-based wrinkle crease brush, then save
+      it as a ZBP file. Quietly replaces an existing output file while
+      restoring it if ZBrush fails to save the new brush.
+    source_file: scripts/wrinkle_brush.py
+    execution: sync
+    affinity: any
+    group: core
+    annotations:
+      destructive_hint: true
+      read_only_hint: false
+      idempotent_hint: true
+    input_schema:
+      type: object
+      required: [output_path]
+      properties:
+        output_path:
+          type: string
+          description: Path ending in .ZBP; its parent directory must exist.
+    next-tools:
+      on-success:
+        - zbrush_brush__load_wrinkle_brush
+      on-failure:
+        - zbrush_scripting__get_session_info
+
+  - name: load_wrinkle_brush
+    description: >-
+      Load a wrinkle brush ZBP without opening a picker and reapply its required
+      ZSub, intensity, focal-shift, draw-size, and LazyMouse settings.
+    source_file: scripts/wrinkle_brush.py
+    execution: sync
+    affinity: any
+    group: core
+    annotations:
+      destructive_hint: true
+      read_only_hint: false
+      idempotent_hint: true
+    input_schema:
+      type: object
+      required: [brush_path]
+      properties:
+        brush_path:
+          type: string
+          description: Existing .ZBP brush file to load.
+    next-tools:
+      on-success:
+        - zbrush_scene__get_scene_info
+      on-failure:
+        - zbrush_scripting__get_session_info

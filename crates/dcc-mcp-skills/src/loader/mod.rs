@@ -592,6 +592,20 @@ fn apply_dcc_mcp_metadata_overrides(
             "example-prompts" | "example_prompts" => {
                 meta.example_prompts = parse_csv_or_list(&value);
             }
+            "recall-context" | "recall_context" => {
+                // Structured discovery signal (issue #1335). Every field is
+                // optional and a missing value means "unknown", so an empty
+                // mapping is not an error — only a shape mismatch is, and that
+                // is reported rather than silently dropped.
+                match serde_yaml_ng::from_value::<dcc_mcp_models::RecallContext>(value.clone()) {
+                    Ok(ctx) if !ctx.is_empty() => meta.recall_context = Some(ctx),
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!(
+                        "skill {}: ignoring malformed metadata.dcc-mcp.recall-context: {e}",
+                        meta.name
+                    ),
+                }
+            }
             _ => {
                 tracing::debug!(
                     "skill {}: unknown metadata.dcc-mcp.{} key — ignoring",

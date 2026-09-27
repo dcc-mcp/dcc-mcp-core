@@ -1,0 +1,139 @@
+tools:
+  - name: audit_audi_asset
+    description: Audit the live BP_AudiA5 assembly, mesh density, materials, bounds, and ground contact.
+    source_file: scripts/audit_audi_asset.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: false
+    timeout_hint_secs: 45
+    read_only: true
+    destructive: false
+    idempotent: true
+    input_schema:
+      type: object
+      properties:
+        actor_name:
+          type: string
+          default: BP_AudiA5
+    output_schema:
+      type: object
+      additionalProperties: true
+    next-tools:
+      on-success: [unreal_automotive_rain_film__build_audi_rain_film]
+      on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]
+
+  - name: build_audi_rain_film
+    description: Build or rebuild the dedicated Audi rain-film level, Niagara particle fields, HDRI lighting, cameras, and sequence.
+    source_file: scripts/build_audi_rain_film.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: false
+    timeout_hint_secs: 180
+    read_only: false
+    destructive: true
+    idempotent: true
+    input_schema:
+      type: object
+      properties:
+        rain_density:
+          type: integer
+          default: 720
+          minimum: 240
+          maximum: 1600
+        preview_width:
+          type: integer
+          default: 1920
+          minimum: 960
+          maximum: 3840
+        preview_height:
+          type: integer
+          default: 1080
+          minimum: 540
+          maximum: 2160
+    output_schema:
+      type: object
+      additionalProperties: true
+    call_examples:
+      - arguments:
+          rain_density: 900
+          preview_width: 1920
+          preview_height: 1080
+        note: High-density rain with a 1080p validation still.
+    next-tools:
+      on-success: [unreal_automotive_rain_film__render_audi_phase_stills]
+      on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]
+
+  - name: render_audi_phase_stills
+    description: Render five representative day, dusk, night, storm-wash, and dawn frames for visual acceptance.
+    source_file: scripts/render_audi_phase_stills.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: false
+    timeout_hint_secs: 30
+    read_only: false
+    destructive: true
+    idempotent: false
+    input_schema:
+      type: object
+      properties:
+        output_directory:
+          type: string
+          default: "F:/dcc-mcp-tester/AutomotiveConfigurator58/Renders/phase_qa"
+        width:
+          type: integer
+          default: 1920
+          minimum: 960
+          maximum: 3840
+        height:
+          type: integer
+          default: 1080
+          minimum: 540
+          maximum: 2160
+        temporal_samples:
+          type: integer
+          default: 4
+          minimum: 1
+          maximum: 16
+    output_schema:
+      type: object
+      additionalProperties: true
+    next-tools:
+      on-success: [unreal_automotive_rain_film__render_audi_rain_film]
+      on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]
+
+  - name: render_audi_rain_film
+    description: Start a 4K PNG Movie Render Queue render of the Audi rain promotional sequence.
+    source_file: scripts/render_audi_rain_film.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: false
+    timeout_hint_secs: 30
+    read_only: false
+    destructive: true
+    idempotent: false
+    input_schema:
+      type: object
+      properties:
+        output_directory:
+          type: string
+          default: "F:/dcc-mcp-tester/AutomotiveConfigurator58/Renders/4k_frames"
+        width:
+          type: integer
+          default: 3840
+          minimum: 1920
+          maximum: 7680
+        height:
+          type: integer
+          default: 2160
+          minimum: 1080
+          maximum: 4320
+        temporal_samples:
+          type: integer
+          default: 16
+          minimum: 1
+          maximum: 32
+    output_schema:
+      type: object
+      additionalProperties: true
+    next-tools:
+      on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]

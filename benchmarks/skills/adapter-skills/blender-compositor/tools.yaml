@@ -1,0 +1,323 @@
+tools:
+  - name: setup_compositor_tree
+    description: "Enable scene.use_nodes and optionally build a Render Layers -> Composite compositor tree."
+    source_file: scripts/setup_compositor_tree.py
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 0
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        scene_name:
+          type: string
+          minLength: 1
+          description: Target scene; defaults to the active scene.
+        template:
+          type: string
+          enum: [default, empty]
+          default: default
+          description: default wires Render Layers -> Composite; empty only enables the compositor.
+        clear:
+          type: boolean
+          default: false
+          description: Remove every existing node before applying the template.
+    output_schema: &compositor_result_schema
+      type: object
+      additionalProperties: true
+      required: [success]
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        context:
+          type: object
+    # clear=true drops every existing node, so this is destructive even though
+    # the non-clearing path only adds nodes. Keep a dedicated annotations block:
+    # the shared anchor below is reused by non-destructive tools.
+    read_only: false
+    destructive: true
+    idempotent: true
+    annotations:
+      read_only_hint: false
+      destructive_hint: true
+      idempotent_hint: true
+      open_world_hint: false
+
+  - name: set_compositor_enabled
+    description: "Enable or disable compositor nodes for a scene without changing the graph."
+    source_file: scripts/set_compositor_enabled.py
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 0
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        scene_name:
+          type: string
+          minLength: 1
+        enabled:
+          type: boolean
+          default: true
+    output_schema: *compositor_result_schema
+    read_only: false
+    destructive: false
+    idempotent: true
+    annotations: &mutating_idempotent_annotations
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+
+  - name: clear_compositor_tree
+    description: "Remove every node and link from the scene compositor tree."
+    source_file: scripts/clear_compositor_tree.py
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 0
+    input_schema: &scene_schema
+      type: object
+      additionalProperties: false
+      properties:
+        scene_name:
+          type: string
+          minLength: 1
+    output_schema: *compositor_result_schema
+    read_only: false
+    destructive: true
+    idempotent: true
+    annotations:
+      read_only_hint: false
+      destructive_hint: true
+      idempotent_hint: true
+      open_world_hint: false
+
+  - name: create_compositor_node
+    description: "Create a compositor node by Blender id, UI label, or alias (for example CompositorNodeDenoise, Denoise, or denoise)."
+    source_file: scripts/create_compositor_node.py
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 0
+    input_schema:
+      type: object
+      additionalProperties: false
+      required: [node_type]
+      properties:
+        node_type:
+          type: string
+          minLength: 1
+          description: Blender id, label, or alias; use list_compositor_node_types to discover values.
+        name:
+          type: string
+          minLength: 1
+        location:
+          type: array
+          minItems: 2
+          maxItems: 2
+          items:
+            type: number
+        scene_name:
+          type: string
+          minLength: 1
+    output_schema: *compositor_result_schema
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations: &mutating_annotations
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+      open_world_hint: false
+
+  - name: delete_compositor_node
+    description: "Delete a node from the scene compositor tree."
+    source_file: scripts/delete_compositor_node.py
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 0
+    input_schema:
+      type: object
+      additionalProperties: false
+      required: [node_name]
+      properties:
+        node_name:
+          type: string
+          minLength: 1
+        scene_name:
+          type: string
+          minLength: 1
+    output_schema: *compositor_result_schema
+    read_only: false
+    destructive: true
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: true
+      idempotent_hint: false
+      open_world_hint: false
+
+  - name: connect_compositor_nodes
+    description: "Connect a compositor node output socket to an input socket."
+    source_file: scripts/connect_compositor_nodes.py
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 0
+    input_schema:
+      type: object
+      additionalProperties: false
+      required: [from_node, from_socket, to_node, to_socket]
+      properties:
+        from_node:
+          type: string
+          minLength: 1
+        from_socket:
+          type: string
+          minLength: 1
+        to_node:
+          type: string
+          minLength: 1
+        to_socket:
+          type: string
+          minLength: 1
+        scene_name:
+          type: string
+          minLength: 1
+    output_schema: *compositor_result_schema
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations: *mutating_annotations
+
+  - name: disconnect_compositor_nodes
+    description: "Disconnect compositor node links by link id or endpoint fields."
+    source_file: scripts/disconnect_compositor_nodes.py
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 0
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        scene_name:
+          type: string
+          minLength: 1
+        link_id:
+          type: string
+          minLength: 1
+        from_node:
+          type: string
+          minLength: 1
+        from_socket:
+          type: string
+          minLength: 1
+        to_node:
+          type: string
+          minLength: 1
+        to_socket:
+          type: string
+          minLength: 1
+    output_schema: *compositor_result_schema
+    read_only: false
+    destructive: true
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: true
+      idempotent_hint: false
+      open_world_hint: false
+
+  - name: set_compositor_node_value
+    description: "Set an input socket default value on a compositor node."
+    source_file: scripts/set_compositor_node_value.py
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 0
+    input_schema:
+      type: object
+      additionalProperties: false
+      required: [node_name, socket, value]
+      properties:
+        node_name:
+          type: string
+          minLength: 1
+        socket:
+          type: string
+          minLength: 1
+        value:
+          description: JSON value to assign to the socket.
+        scene_name:
+          type: string
+          minLength: 1
+    output_schema: *compositor_result_schema
+    read_only: false
+    destructive: false
+    idempotent: true
+    annotations: *mutating_idempotent_annotations
+
+  - name: get_compositor_node_value
+    description: "Read one socket value or all socket values for a compositor node."
+    source_file: scripts/get_compositor_node_value.py
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 0
+    input_schema:
+      type: object
+      additionalProperties: false
+      required: [node_name]
+      properties:
+        node_name:
+          type: string
+          minLength: 1
+        socket:
+          type: string
+          minLength: 1
+        scene_name:
+          type: string
+          minLength: 1
+    output_schema: *compositor_result_schema
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations: &read_only_annotations
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+
+  - name: list_compositor_node_links
+    description: "List every link in the scene compositor tree."
+    source_file: scripts/list_compositor_node_links.py
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 0
+    input_schema: *scene_schema
+    output_schema: *compositor_result_schema
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations: *read_only_annotations
+
+  - name: list_compositor_node_types
+    description: "List supported compositor node types with Blender ids, labels, and aliases."
+    source_file: scripts/list_compositor_node_types.py
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 0
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        category:
+          type: string
+          enum: [input, output, color, filter, matte, converter, vector, group]
+        search:
+          type: string
+          minLength: 1
+          description: Case-insensitive substring match on id, label, or alias.
+    output_schema: *compositor_result_schema
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations: *read_only_annotations

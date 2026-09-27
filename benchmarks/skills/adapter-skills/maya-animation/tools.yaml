@@ -1,0 +1,651 @@
+tools:
+- name: bake_constraints
+  execution: sync
+  affinity: main
+  group: animation
+  description: Bake constraints in the current Maya scene.
+  input_schema:
+    type: object
+    properties:
+      objects:
+        oneOf:
+        - type: string
+        - type: array
+          items:
+            type: string
+          minItems: 1
+      start_frame:
+        type: number
+        default: 1.0
+      end_frame:
+        type: number
+        default: 120.0
+      sample_by:
+        type: number
+        default: 1.0
+      remove_constraints:
+        type: boolean
+        default: false
+- name: bake_simulation
+  description: Bake simulation / constraints to keyframes on objects
+  execution: sync
+  affinity: main
+  group: animation
+  input_schema:
+    type: object
+    properties:
+      objects:
+        oneOf:
+        - type: string
+        - type: array
+          items:
+            type: string
+          minItems: 1
+      start_frame:
+        type: number
+        default: 1.0
+      end_frame:
+        type: number
+        default: 120.0
+      sample_by:
+        type: number
+        default: 1.0
+- name: delete_keyframes
+  description: Delete keyframes from an object within an optional frame range
+  execution: sync
+  affinity: main
+  annotations:
+    destructive_hint: true
+    idempotent_hint: true
+  group: animation
+  input_schema:
+    type: object
+    properties:
+      object_name:
+        type: string
+      attributes:
+        oneOf:
+        - type: string
+        - type: array
+          items:
+            type: string
+          minItems: 1
+      attribute:
+        type: string
+      start_frame:
+        type: number
+      end_frame:
+        type: number
+      start_time:
+        type: number
+      end_time:
+        type: number
+    required:
+    - object_name
+- name: export_animation_curves
+  execution: sync
+  affinity: main
+  annotations:
+    read_only_hint: true
+    idempotent_hint: true
+  group: animation
+  description: Export animation curves from the Maya scene to a host path. Pass an
+    absolute or workspace-relative file path; the parent directory must exist and
+    be writable. Use for backup or transfer of curve data — verify disk space on long
+    takes.
+  input_schema:
+    type: object
+    properties:
+      object_name:
+        type: string
+      file_path:
+        type: string
+      attributes:
+        oneOf:
+        - type: string
+        - type: array
+          items:
+            type: string
+          minItems: 1
+      start_frame:
+        type: number
+      end_frame:
+        type: number
+    required:
+    - object_name
+    - file_path
+- name: get_current_time
+  description: Get the current frame number
+  execution: sync
+  affinity: main
+  annotations:
+    read_only_hint: true
+    idempotent_hint: true
+  group: animation
+  input_schema:
+    type: object
+    additionalProperties: false
+- name: get_anim_curves
+  description: Read bounded animation curves with values, tangents, infinity modes,
+    and redundant key counts.
+  execution: async
+  affinity: main
+  timeout_hint_secs: 30
+  annotations:
+    read_only_hint: true
+    destructive_hint: false
+    idempotent_hint: true
+    open_world_hint: false
+  group: animation
+  input_schema:
+    type: object
+    additionalProperties: false
+    required:
+    - targets
+    properties:
+      targets:
+        type: array
+        minItems: 1
+        maxItems: 128
+        uniqueItems: true
+        items:
+          type: string
+          minLength: 3
+          maxLength: 385
+          pattern: ^[^.]+\.[^.]+$
+  output_schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    type: object
+    additionalProperties: false
+    required:
+    - success
+    - message
+    - error
+    - prompt
+    - context
+    properties:
+      success:
+        type: boolean
+      message:
+        type: string
+      error:
+        type:
+        - string
+        - 'null'
+      prompt:
+        type:
+        - string
+        - 'null'
+      context:
+        type: object
+    allOf:
+    - if:
+        properties:
+          success:
+            const: true
+        required:
+        - success
+      then:
+        properties:
+          error:
+            type: 'null'
+          context:
+            type: object
+            additionalProperties: false
+            required:
+            - schema
+            - fps
+            - curves
+            - curve_count
+            - total_key_count
+            properties:
+              schema:
+                type: string
+                const: dcc-mcp/anim-curves@1
+              fps:
+                type: number
+                exclusiveMinimum: 0
+              curves:
+                type: array
+                minItems: 1
+                maxItems: 256
+                items:
+                  type: object
+                  additionalProperties: false
+                  required:
+                  - target
+                  - keys
+                  - pre_infinity
+                  - post_infinity
+                  - key_count
+                  properties:
+                    target:
+                      type: string
+                    keys:
+                      type: array
+                      maxItems: 4096
+                      items:
+                        type: object
+                        additionalProperties: false
+                        required:
+                        - t
+                        - v
+                        - in
+                        - out
+                        properties:
+                          t:
+                            type: number
+                          v:
+                            type: number
+                          in:
+                            type: string
+                          out:
+                            type: string
+                    pre_infinity:
+                      type: string
+                      enum:
+                      - constant
+                      - linear
+                      - cycle
+                      - cycle_relative
+                      - oscillate
+                    post_infinity:
+                      type: string
+                      enum:
+                      - constant
+                      - linear
+                      - cycle
+                      - cycle_relative
+                      - oscillate
+                    key_count:
+                      type: integer
+                      minimum: 0
+                      maximum: 4096
+              curve_count:
+                type: integer
+                minimum: 1
+                maximum: 256
+              total_key_count:
+                type: integer
+                minimum: 0
+                maximum: 65536
+    - if:
+        properties:
+          success:
+            const: false
+        required:
+        - success
+      then:
+        properties:
+          error:
+            type: string
+            minLength: 1
+- name: get_frame_range
+  execution: sync
+  affinity: main
+  annotations:
+    read_only_hint: true
+    idempotent_hint: true
+  group: animation
+  description: Get the scene animation frame range without modifying the Maya scene.
+  input_schema:
+    type: object
+    additionalProperties: false
+- name: get_keyframes
+  description: Get all keyframe times for an object / attribute
+  execution: sync
+  affinity: main
+  annotations:
+    read_only_hint: true
+    idempotent_hint: true
+  group: animation
+  input_schema:
+    type: object
+    properties:
+      object_name:
+        type: string
+      attribute:
+        type: string
+    required:
+    - object_name
+- name: import_animation_curves
+  execution: sync
+  affinity: main
+  group: animation
+  description: Import animation curves from a file on disk into the Maya scene. Source
+    path must exist (expand ~ and env vars first); prefer absolute paths. On failure,
+    check file format and Maya version compatibility before retrying.
+  input_schema:
+    type: object
+    properties:
+      file_path:
+        type: string
+      target_object:
+        type: string
+      merge:
+        type: boolean
+        default: true
+    required:
+    - file_path
+- name: list_animation_curves
+  execution: sync
+  affinity: main
+  annotations:
+    read_only_hint: true
+    idempotent_hint: true
+  group: animation
+  description: List animation curves without modifying the Maya scene.
+  input_schema:
+    type: object
+    properties:
+      object_name:
+        type: string
+      attribute:
+        type: string
+    required:
+    - object_name
+- name: query_scene_time_info
+  execution: sync
+  affinity: main
+  annotations:
+    read_only_hint: true
+    idempotent_hint: true
+  group: animation
+  description: Query scene time settings without modifying the Maya scene.
+  input_schema:
+    type: object
+    additionalProperties: false
+- name: set_animation_curve_tangent
+  execution: sync
+  affinity: main
+  annotations:
+    idempotent_hint: true
+  group: animation
+  description: Set animation curve tangents in the current Maya scene.
+  input_schema:
+    type: object
+    properties:
+      object_name:
+        type: string
+      attribute:
+        type: string
+      frame:
+        type: number
+      tangent_type:
+        type: string
+        default: auto
+      in_tangent_type:
+        type: string
+      out_tangent_type:
+        type: string
+    required:
+    - object_name
+    - attribute
+- name: set_current_time
+  description: Set the current frame number
+  execution: sync
+  affinity: main
+  annotations:
+    idempotent_hint: true
+  group: animation
+  input_schema:
+    type: object
+    properties:
+      frame:
+        type: number
+    required:
+    - frame
+- name: set_keyframe
+  description: Set a keyframe on an object at the given time
+  execution: sync
+  affinity: main
+  annotations:
+    idempotent_hint: true
+  group: animation
+  input_schema:
+    type: object
+    properties:
+      object_name:
+        type: string
+      attribute:
+        type: string
+      attributes:
+        oneOf:
+        - type: string
+        - type: array
+          items:
+            type: string
+          minItems: 1
+      time:
+        type: number
+      value:
+        type: number
+    required:
+    - object_name
+- name: set_keyframes
+  description: Set one bounded animation curve on multiple objects and verify every
+    key value and requested tangent.
+  execution: async
+  affinity: main
+  timeout_hint_secs: 60
+  annotations:
+    read_only_hint: false
+    destructive_hint: true
+    idempotent_hint: true
+    open_world_hint: false
+  group: animation
+  input_schema:
+    type: object
+    additionalProperties: false
+    required:
+    - objects
+    - attribute
+    - keys
+    properties:
+      objects:
+        type: array
+        minItems: 1
+        maxItems: 32
+        uniqueItems: true
+        items:
+          type: string
+          minLength: 1
+          maxLength: 256
+      attribute:
+        type: string
+        minLength: 1
+        maxLength: 128
+        pattern: ^[A-Za-z_][A-Za-z0-9_]*$
+      keys:
+        type: array
+        minItems: 1
+        maxItems: 512
+        items:
+          type: object
+          additionalProperties: false
+          required:
+          - time
+          - value
+          properties:
+            time:
+              type: number
+            value:
+              type: number
+            in_tangent:
+              type: string
+              enum:
+              - auto
+              - clamped
+              - fast
+              - fixed
+              - flat
+              - linear
+              - plateau
+              - slow
+              - smooth
+              - spline
+              - step
+              - stepnext
+            out_tangent:
+              type: string
+              enum:
+              - auto
+              - clamped
+              - fast
+              - fixed
+              - flat
+              - linear
+              - plateau
+              - slow
+              - smooth
+              - spline
+              - step
+              - stepnext
+  output_schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    type: object
+    additionalProperties: false
+    required:
+    - success
+    - message
+    - error
+    - prompt
+    - context
+    properties:
+      success:
+        type: boolean
+      message:
+        type: string
+      error:
+        type:
+        - string
+        - 'null'
+      prompt:
+        type:
+        - string
+        - 'null'
+      context:
+        type: object
+    allOf:
+    - if:
+        properties:
+          success:
+            const: true
+        required:
+        - success
+      then:
+        properties:
+          error:
+            type: 'null'
+          context:
+            type: object
+            additionalProperties: false
+            required:
+            - schema
+            - fps
+            - curves
+            - curve_count
+            - verified_key_count
+            properties:
+              schema:
+                type: string
+                const: dcc-mcp/anim-curves@1
+              fps:
+                type: number
+                exclusiveMinimum: 0
+              curves:
+                type: array
+                minItems: 1
+                maxItems: 32
+                items:
+                  type: object
+                  additionalProperties: false
+                  required:
+                  - target
+                  - keys
+                  - pre_infinity
+                  - post_infinity
+                  - key_count
+                  properties:
+                    target:
+                      type: string
+                    keys:
+                      type: array
+                      minItems: 1
+                      maxItems: 512
+                      items:
+                        type: object
+                        additionalProperties: false
+                        required:
+                        - t
+                        - v
+                        - in
+                        - out
+                        properties:
+                          t:
+                            type: number
+                          v:
+                            type: number
+                          in:
+                            type: string
+                          out:
+                            type: string
+                    pre_infinity:
+                      type: string
+                      enum:
+                      - constant
+                      - linear
+                      - cycle
+                      - cycle_relative
+                      - oscillate
+                    post_infinity:
+                      type: string
+                      enum:
+                      - constant
+                      - linear
+                      - cycle
+                      - cycle_relative
+                      - oscillate
+                    key_count:
+                      type: integer
+                      minimum: 1
+                      maximum: 512
+              curve_count:
+                type: integer
+                minimum: 1
+                maximum: 32
+              verified_key_count:
+                type: integer
+                minimum: 1
+                maximum: 4096
+    - if:
+        properties:
+          success:
+            const: false
+        required:
+        - success
+      then:
+        properties:
+          error:
+            type: string
+            minLength: 1
+- name: set_timeline
+  description: Set the playback and animation timeline range
+  execution: sync
+  affinity: main
+  annotations:
+    idempotent_hint: true
+  group: animation
+  input_schema:
+    type: object
+    properties:
+      start_frame:
+        type: number
+        default: 1.0
+      end_frame:
+        type: number
+        default: 120.0
+      min_frame:
+        type: number
+      max_frame:
+        type: number

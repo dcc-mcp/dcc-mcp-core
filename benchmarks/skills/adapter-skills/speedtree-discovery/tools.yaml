@@ -1,0 +1,144 @@
+tools:
+  - name: inspect_capabilities
+    description: Report implemented export tools and unsupported Modeler editing features without requiring a GUI binding. This is implementation coverage, not a live host or license probe.
+    input_schema: {type: object, properties: {}, additionalProperties: false}
+    output_schema: {type: object}
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+    execution: sync
+    affinity: any
+    enforce_thread_affinity: true
+    timeout_hint_secs: 10
+    source_file: scripts/inspect_capabilities.py
+  - name: inspect_runtime
+    description: Report the exact SpeedTree process binding and the currently supported read-only/live capability state.
+    input_schema:
+      type: object
+      required: [pid, window_handle]
+      properties:
+        pid: {type: integer, minimum: 1}
+        window_handle: {type: integer, minimum: 1}
+        executable: {type: string, minLength: 1}
+        version: {type: string, minLength: 1}
+      additionalProperties: false
+    output_schema: {type: object}
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+    execution: sync
+    affinity: any
+    enforce_thread_affinity: true
+    timeout_hint_secs: 10
+    source_file: scripts/inspect_runtime.py
+    next-tools:
+      on-success: [speedtree_discovery__discover_content, speedtree_discovery__inspect_asset]
+  - name: discover_content
+    description: Discover official .spm samples and Games/VFX export presets below an operator-selected SpeedTree root.
+    input_schema:
+      type: object
+      required: [speedtree_root]
+      properties:
+        speedtree_root: {type: string, minLength: 1, maxLength: 4096}
+      additionalProperties: false
+    output_schema: {type: object}
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+    execution: sync
+    affinity: any
+    enforce_thread_affinity: true
+    timeout_hint_secs: 30
+    source_file: scripts/discover_content.py
+    next-tools:
+      on-success: [speedtree_discovery__inspect_asset, speedtree_discovery__plan_export]
+  - name: inspect_asset
+    description: Return a SHA-256 fingerprint and safe metadata for one supported SpeedTree or exported asset.
+    input_schema:
+      type: object
+      required: [asset_path]
+      properties:
+        asset_path: {type: string, minLength: 1, maxLength: 4096}
+        preview_bytes: {type: integer, minimum: 0, maximum: 4096, default: 512}
+      additionalProperties: false
+    output_schema: {type: object}
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+    execution: sync
+    affinity: any
+    enforce_thread_affinity: true
+    timeout_hint_secs: 30
+    source_file: scripts/inspect_asset.py
+    next-tools:
+      on-success: [speedtree_discovery__plan_export]
+  - name: plan_export
+    description: Validate a source, official export preset, and output directory without running or mutating the export.
+    input_schema:
+      type: object
+      required: [source_path, preset_path, output_dir]
+      properties:
+        source_path: {type: string, minLength: 1, maxLength: 4096}
+        preset_path: {type: string, minLength: 1, maxLength: 4096}
+        output_dir: {type: string, minLength: 1, maxLength: 4096}
+        format: {type: string, minLength: 1, maxLength: 32}
+      additionalProperties: false
+    output_schema: {type: object}
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+    execution: sync
+    affinity: any
+    enforce_thread_affinity: true
+    timeout_hint_secs: 30
+    source_file: scripts/plan_export.py
+    next-tools:
+      on-success: [speedtree_discovery__inspect_asset]
+  - name: inspect_preset
+    description: Read an official .ini export preset's sections and option names without applying or changing it.
+    input_schema:
+      type: object
+      required: [preset_path]
+      properties:
+        preset_path: {type: string, minLength: 1, maxLength: 4096}
+      additionalProperties: false
+    output_schema: {type: object}
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+    execution: sync
+    affinity: any
+    enforce_thread_affinity: true
+    timeout_hint_secs: 10
+    source_file: scripts/inspect_preset.py
+  - name: inspect_unreal_project
+    description: Read the Unreal project descriptor and report DccMcpUnreal and SpeedTreeImporter plugin state.
+    input_schema:
+      type: object
+      required: [project_file]
+      properties:
+        project_file: {type: string, minLength: 1, maxLength: 4096}
+      additionalProperties: false
+    output_schema: {type: object}
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+    execution: sync
+    affinity: any
+    enforce_thread_affinity: true
+    timeout_hint_secs: 10
+    source_file: scripts/inspect_unreal_project.py

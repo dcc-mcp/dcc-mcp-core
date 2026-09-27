@@ -1,0 +1,324 @@
+tools:
+  - name: add_driver
+    description: "Add a driver on an animatable property of an object."
+    source_file: scripts/add_driver.py
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 0
+    input_schema:
+      type: object
+      additionalProperties: false
+      required: [object_name, data_path]
+      properties:
+        object_name:
+          type: string
+          minLength: 1
+        data_path:
+          type: string
+          minLength: 1
+          description: "RNA data path of the property to drive (e.g. 'location.x', 'scale.z')."
+        driver_type:
+          type: string
+          enum: [SCRIPTED, AVERAGE, SUM, MIN, MAX]
+          default: SCRIPTED
+        expression:
+          type: string
+          default: ""
+          description: "Python expression used when driver_type is SCRIPTED."
+        array_index:
+          type: integer
+          default: 0
+          minimum: 0
+          description: "0-based component index for array properties."
+        use_self:
+          type: boolean
+          default: false
+          description: "Expose 'self' in the driver expression namespace."
+    output_schema:
+      type: object
+      additionalProperties: true
+      required: [success]
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        context:
+          type: object
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+      open_world_hint: false
+
+  - name: set_driver_expression
+    description: "Update the expression and/or type of an existing driver."
+    source_file: scripts/set_driver_expression.py
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 0
+    input_schema:
+      type: object
+      additionalProperties: false
+      required: [object_name, data_path, expression]
+      properties:
+        object_name:
+          type: string
+          minLength: 1
+        data_path:
+          type: string
+          minLength: 1
+        expression:
+          type: string
+        array_index:
+          type: integer
+          default: 0
+          minimum: 0
+        driver_type:
+          type: string
+          enum: [SCRIPTED, AVERAGE, SUM, MIN, MAX]
+        use_self:
+          type: boolean
+    output_schema:
+      type: object
+      additionalProperties: true
+      required: [success]
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        context:
+          type: object
+    read_only: false
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+
+  - name: remove_driver
+    description: "Remove a driver from an animatable property."
+    source_file: scripts/remove_driver.py
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 0
+    input_schema:
+      type: object
+      additionalProperties: false
+      required: [object_name, data_path]
+      properties:
+        object_name:
+          type: string
+          minLength: 1
+        data_path:
+          type: string
+          minLength: 1
+        array_index:
+          type: integer
+          default: 0
+          minimum: 0
+    output_schema:
+      type: object
+      additionalProperties: true
+      required: [success]
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        context:
+          type: object
+    read_only: false
+    destructive: true
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: true
+      idempotent_hint: false
+      open_world_hint: false
+
+  - name: list_drivers
+    description: "List all drivers on an object or on every object in the scene."
+    source_file: scripts/list_drivers.py
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 0
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        object_name:
+          type: string
+          minLength: 1
+          description: "Limit results to this object; omit to list drivers for all objects."
+    output_schema:
+      type: object
+      additionalProperties: true
+      required: [success]
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        context:
+          type: object
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+
+  - name: add_driver_variable
+    description: "Add a variable to an existing driver that the expression can reference."
+    source_file: scripts/add_driver_variable.py
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 0
+    input_schema:
+      type: object
+      additionalProperties: false
+      required: [object_name, data_path, variable_name]
+      properties:
+        object_name:
+          type: string
+          minLength: 1
+        data_path:
+          type: string
+          minLength: 1
+        variable_name:
+          type: string
+          minLength: 1
+          description: "Name used in the expression (e.g. 'var', 'angle')."
+        variable_type:
+          type: string
+          enum: [SINGLE_PROP, TRANSFORMS, ROTATION_DIFF, LOC_DIFF]
+          default: SINGLE_PROP
+        array_index:
+          type: integer
+          default: 0
+          minimum: 0
+        target_object:
+          type: string
+          description: "Name of the object the variable reads from."
+        target_data_path:
+          type: string
+          description: "RNA data path on target_object (required for SINGLE_PROP)."
+        target_bone:
+          type: string
+          description: "Bone name on target_object (for TRANSFORMS)."
+        transform_type:
+          type: string
+          description: "Transform channel, e.g. LOC_X, ROT_Y (for TRANSFORMS)."
+    output_schema:
+      type: object
+      additionalProperties: true
+      required: [success]
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        context:
+          type: object
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+      open_world_hint: false
+
+  - name: remove_driver_variable
+    description: "Remove a named variable from an existing driver."
+    source_file: scripts/remove_driver_variable.py
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 0
+    input_schema:
+      type: object
+      additionalProperties: false
+      required: [object_name, data_path, variable_name]
+      properties:
+        object_name:
+          type: string
+          minLength: 1
+        data_path:
+          type: string
+          minLength: 1
+        variable_name:
+          type: string
+          minLength: 1
+        array_index:
+          type: integer
+          default: 0
+          minimum: 0
+    output_schema:
+      type: object
+      additionalProperties: true
+      required: [success]
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        context:
+          type: object
+    read_only: false
+    destructive: true
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: true
+      idempotent_hint: false
+      open_world_hint: false
+
+  - name: evaluate_driver_expression
+    description: "Return the current evaluated value of a driver at the scene frame."
+    source_file: scripts/evaluate_driver_expression.py
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 0
+    input_schema:
+      type: object
+      additionalProperties: false
+      required: [object_name, data_path]
+      properties:
+        object_name:
+          type: string
+          minLength: 1
+        data_path:
+          type: string
+          minLength: 1
+        array_index:
+          type: integer
+          default: 0
+          minimum: 0
+    output_schema:
+      type: object
+      additionalProperties: true
+      required: [success]
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        context:
+          type: object
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false

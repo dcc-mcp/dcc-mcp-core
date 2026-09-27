@@ -1,0 +1,124 @@
+tools:
+  - name: inspect_project
+    description: Return active After Effects project and item metadata.
+    input_schema: {type: object, properties: {}}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 30
+    source_file: scripts/inspect_project.py
+  - name: list_compositions
+    description: List compositions in the active After Effects project.
+    input_schema: {type: object, properties: {}}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 30
+    source_file: scripts/list_compositions.py
+  - name: save_project
+    description: Save the After Effects project to an explicit absolute .aep path.
+    input_schema:
+      type: object
+      required: [path]
+      properties: {path: {type: string, description: Absolute .aep output path.}}
+    read_only: false
+    destructive: true
+    idempotent: false
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 60
+    source_file: scripts/save_project.py
+  - name: create_motion_intro
+    description: Open an AE template, apply title text, background footage, and optional audio, save a project copy, and render it.
+    input_schema:
+      type: object
+      required: [template_path, project_path, output_path]
+      properties:
+        template_path: {type: string, description: Absolute source .aep template path.}
+        project_path: {type: string, description: Absolute destination .aep path.}
+        output_path: {type: string, description: Absolute rendered media path.}
+        title: {type: string, default: DCC-MCP}
+        subtitle: {type: string, default: One protocol. Every creative app.}
+        footage_paths:
+          type: array
+          description: Absolute stock-video paths imported and moved behind the title layers.
+          items: {type: string}
+          default: []
+        audio_paths:
+          type: array
+          items: {type: string}
+          default: []
+    read_only: false
+    destructive: true
+    idempotent: false
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 600
+    source_file: scripts/create_motion_intro.py
+  - name: open_project
+    description: Open an existing After Effects .aep project from an absolute path.
+    input_schema:
+      type: object
+      required: [path]
+      properties: {path: {type: string, description: Absolute existing .aep path.}}
+    read_only: false
+    destructive: true
+    idempotent: false
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 60
+    source_file: scripts/open_project.py
+  - name: list_project_items
+    description: List or find project items, compositions, footage, folders, and selected items.
+    input_schema:
+      type: object
+      properties:
+        kind: {type: string, enum: [all, composition, footage, folder, selected], default: all}
+        item_id: {description: Optional item identifier.}
+        name: {type: string, description: Optional exact item name.}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 30
+    source_file: scripts/list_project_items.py
+  - name: import_file
+    description: Import footage or an image sequence into the active After Effects project.
+    input_schema:
+      type: object
+      required: [path]
+      properties:
+        path: {type: string, description: Absolute existing input path.}
+        sequence: {type: boolean, default: false}
+        force_alphabetical: {type: boolean, default: false}
+    read_only: false
+    destructive: false
+    idempotent: false
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 60
+    source_file: scripts/import_file.py
+  - name: create_composition
+    description: Create a composition with explicit dimensions, duration, and frame rate.
+    input_schema:
+      type: object
+      required: [name, width, height, duration, frame_rate]
+      properties:
+        name: {type: string}
+        width: {type: integer, minimum: 1}
+        height: {type: integer, minimum: 1}
+        duration: {type: number, exclusiveMinimum: 0}
+        frame_rate: {type: number, exclusiveMinimum: 0}
+        pixel_aspect: {type: number, exclusiveMinimum: 0, default: 1.0}
+    read_only: false
+    destructive: false
+    idempotent: false
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 30
+    source_file: scripts/create_composition.py

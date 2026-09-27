@@ -1,0 +1,181 @@
+tools:
+  - name: attach_project
+    description: Add a local Python project root to sys.path for tool development.
+    source_file: scripts/attach_project.py
+    execution: sync
+    affinity: any
+    group: dev-project
+    read_only: false
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: true
+    input_schema:
+      type: object
+      required: [project_root]
+      properties:
+        project_root:
+          type: string
+  - name: reload_modules
+    description: Hot-reload Python modules by prefix and/or explicit name without restarting Houdini.
+    source_file: scripts/reload_modules.py
+    execution: sync
+    affinity: any
+    group: dev-project
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+    input_schema:
+      type: object
+      properties:
+        prefix:
+          type: string
+        modules:
+          type: array
+          items: {type: string}
+        reimport:
+          type: boolean
+          default: false
+  - name: run_entrypoint
+    description: Import and call a module:function entrypoint and capture stdout/stderr/traceback.
+    source_file: scripts/run_entrypoint.py
+    execution: sync
+    affinity: main
+    group: dev-run
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+    input_schema:
+      type: object
+      required: [entrypoint]
+      properties:
+        entrypoint:
+          type: string
+          description: "module:function or module.function"
+        args:
+          type: array
+        kwargs:
+          type: object
+        reload:
+          type: boolean
+          default: true
+  - name: run_script
+    description: Run a project-local .py script and capture stdout/stderr/traceback.
+    source_file: scripts/run_script.py
+    execution: sync
+    affinity: main
+    group: dev-run
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+    input_schema:
+      type: object
+      required: [script_path]
+      properties:
+        script_path:
+          type: string
+  - name: start_debugpy
+    description: Start a debugpy listener on an explicit host/port with safe defaults and already-running detection.
+    source_file: scripts/start_debugpy.py
+    execution: sync
+    affinity: any
+    group: dev-debug
+    read_only: false
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: true
+    input_schema:
+      type: object
+      properties:
+        host:
+          type: string
+          default: 127.0.0.1
+        port:
+          type: integer
+          default: 5678
+  - name: introspect_hom
+    description: >-
+      Introspect HOM objects (members, signature), node-type categories, and
+      available node types for agent planning (read-only).
+    source_file: scripts/introspect_hom.py
+    execution: sync
+    affinity: main
+    group: dev-introspect
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+    input_schema:
+      type: object
+      properties:
+        target:
+          type: string
+          description: e.g. hou.Node or hou.node
+        category:
+          type: string
+          description: e.g. Sop, Object, Driver
+        name_filter:
+          type: string
+        limit:
+          type: integer
+          default: 200
+  - name: ui_snapshot
+    description: Snapshot the current desktop, available desktops, and pane-tab types (headless-safe).
+    source_file: scripts/ui_snapshot.py
+    execution: sync
+    affinity: main
+    group: dev-ui
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+    input_schema:
+      type: object
+      properties: {}
+  - name: ui_action
+    description: >-
+      Trigger a small, safe UI action (set_desktop, display_message, cook_meta);
+      returns supported=false in headless hython.
+    source_file: scripts/ui_action.py
+    execution: sync
+    affinity: main
+    group: dev-ui
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+    input_schema:
+      type: object
+      required: [action]
+      properties:
+        action:
+          type: string
+          enum: [set_desktop, display_message, cook_meta]
+        value:
+          type: string

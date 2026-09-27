@@ -1,0 +1,290 @@
+tools:
+  - name: get_status
+    description: Return bounded Premiere, active-project, active-sequence, and AME status.
+    input_schema:
+      type: object
+      properties: {}
+      additionalProperties: false
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 15
+    source_file: scripts/get_status.py
+  - name: inspect_project
+    description: Inspect the active project, active sequence, and bounded selected project items.
+    input_schema:
+      type: object
+      properties: {}
+      additionalProperties: false
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 30
+    source_file: scripts/inspect_project.py
+  - name: list_sequences
+    description: List a bounded page of sequences in the active Premiere project.
+    input_schema:
+      type: object
+      properties:
+        offset: {type: integer, minimum: 0, maximum: 1000000, default: 0}
+        limit: {type: integer, minimum: 1, maximum: 1000, default: 200}
+      additionalProperties: false
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 30
+    source_file: scripts/list_sequences.py
+  - name: inspect_sequence
+    description: Inspect one sequence with bounded tracks, clips, and markers.
+    input_schema:
+      type: object
+      properties:
+        sequence: {oneOf: [{type: string, minLength: 1, maxLength: 512}, {type: integer}]}
+        include_clips: {type: boolean, default: true}
+        clip_limit: {type: integer, minimum: 1, maximum: 2000, default: 500}
+      additionalProperties: false
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 30
+    source_file: scripts/inspect_sequence.py
+  - name: list_project_items
+    description: Search and page through a bounded scan of project items and bins.
+    input_schema:
+      type: object
+      properties:
+        query: {type: string, minLength: 1, maxLength: 256}
+        item_type: {type: string, minLength: 1, maxLength: 64}
+        offset: {type: integer, minimum: 0, maximum: 1000000, default: 0}
+        limit: {type: integer, minimum: 1, maximum: 1000, default: 200}
+        scan_limit: {type: integer, minimum: 1, maximum: 10000, default: 5000}
+      additionalProperties: false
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 30
+    source_file: scripts/list_project_items.py
+  - name: list_selected_clips
+    description: List a bounded set of clips selected in one sequence.
+    input_schema:
+      type: object
+      properties:
+        sequence: {oneOf: [{type: string, minLength: 1, maxLength: 512}, {type: integer}]}
+      additionalProperties: false
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 30
+    source_file: scripts/list_selected_clips.py
+  - name: create_bin
+    description: Create one project bin under the root or an explicitly selected parent bin.
+    input_schema:
+      type: object
+      required: [name]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 256}
+        parent: {oneOf: [{type: string, minLength: 1, maxLength: 1024}, {type: integer}]}
+        make_unique: {type: boolean, default: true}
+      additionalProperties: false
+    read_only: false
+    destructive: false
+    idempotent: false
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 30
+    source_file: scripts/create_bin.py
+  - name: import_media
+    description: Import up to 100 allowlisted local media files into a project bin.
+    input_schema:
+      type: object
+      required: [paths]
+      properties:
+        paths:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items: {type: string, minLength: 1, maxLength: 4096}
+        target_bin: {oneOf: [{type: string, minLength: 1, maxLength: 1024}, {type: integer}]}
+        as_numbered_stills: {type: boolean, default: false}
+      additionalProperties: false
+    read_only: false
+    destructive: false
+    idempotent: false
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 120
+    source_file: scripts/import_media.py
+  - name: create_sequence
+    description: Create one sequence, optionally from an allowlisted Premiere sequence preset.
+    input_schema:
+      type: object
+      required: [name]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 256}
+        preset_path: {type: string, minLength: 1, maxLength: 4096}
+      additionalProperties: false
+    read_only: false
+    destructive: false
+    idempotent: false
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 60
+    source_file: scripts/create_sequence.py
+  - name: insert_project_item
+    description: Ripple-insert one project item at a bounded sequence time and track index.
+    input_schema:
+      type: object
+      required: [project_item]
+      properties:
+        project_item: {oneOf: [{type: string, minLength: 1, maxLength: 1024}, {type: integer}]}
+        sequence: {oneOf: [{type: string, minLength: 1, maxLength: 512}, {type: integer}]}
+        time: {type: number, minimum: 0, default: 0}
+        video_track: {type: integer, minimum: 0, maximum: 127, default: 0}
+        audio_track: {type: integer, minimum: 0, maximum: 127, default: 0}
+        limit_shift: {type: boolean, default: false}
+      additionalProperties: false
+    read_only: false
+    destructive: false
+    idempotent: false
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 60
+    source_file: scripts/insert_project_item.py
+  - name: overwrite_project_item
+    description: Overwrite one project item at a bounded sequence time and track index.
+    input_schema:
+      type: object
+      required: [project_item]
+      properties:
+        project_item: {oneOf: [{type: string, minLength: 1, maxLength: 1024}, {type: integer}]}
+        sequence: {oneOf: [{type: string, minLength: 1, maxLength: 512}, {type: integer}]}
+        time: {type: number, minimum: 0, default: 0}
+        video_track: {type: integer, minimum: 0, maximum: 127, default: 0}
+        audio_track: {type: integer, minimum: 0, maximum: 127, default: 0}
+        limit_shift: {type: boolean, default: false}
+      additionalProperties: false
+    read_only: false
+    destructive: true
+    idempotent: false
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 60
+    source_file: scripts/overwrite_project_item.py
+  - name: create_marker
+    description: Create one typed marker on a sequence at an explicit non-negative time.
+    input_schema:
+      type: object
+      required: [name, start]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 256}
+        start: {type: number, minimum: 0}
+        sequence: {oneOf: [{type: string, minLength: 1, maxLength: 512}, {type: integer}]}
+        comments: {type: string, minLength: 1, maxLength: 4096}
+        duration: {type: number, exclusiveMinimum: 0}
+        marker_type: {type: string, minLength: 1, maxLength: 64}
+      additionalProperties: false
+    read_only: false
+    destructive: false
+    idempotent: false
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 30
+    source_file: scripts/create_marker.py
+  - name: save_project
+    description: Save the active Premiere project and report local file evidence when available.
+    input_schema:
+      type: object
+      properties: {}
+      additionalProperties: false
+    read_only: false
+    destructive: true
+    idempotent: true
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 60
+    source_file: scripts/save_project.py
+  - name: save_project_as
+    description: Save and verify an allowlisted .prproj copy with explicit overwrite controls.
+    input_schema:
+      type: object
+      required: [path]
+      properties:
+        path: {type: string, minLength: 1, maxLength: 4096}
+        overwrite: {type: boolean, default: false}
+        create_parents: {type: boolean, default: false}
+      additionalProperties: false
+    read_only: false
+    destructive: true
+    idempotent: false
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 120
+    source_file: scripts/save_project_as.py
+  - name: list_encoder_presets
+    description: List a bounded page of encoder presets reported by Premiere.
+    input_schema:
+      type: object
+      properties:
+        offset: {type: integer, minimum: 0, maximum: 1000000, default: 0}
+        limit: {type: integer, minimum: 1, maximum: 1000, default: 200}
+      additionalProperties: false
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 30
+    source_file: scripts/list_encoder_presets.py
+  - name: queue_sequence_export
+    description: Queue a sequence export in AME using allowlisted output and .epr preset paths.
+    input_schema:
+      type: object
+      required: [output_path, preset_path]
+      properties:
+        output_path: {type: string, minLength: 1, maxLength: 4096}
+        preset_path: {type: string, minLength: 1, maxLength: 4096}
+        sequence: {oneOf: [{type: string, minLength: 1, maxLength: 512}, {type: integer}]}
+        overwrite: {type: boolean, default: false}
+        create_parents: {type: boolean, default: false}
+        start_queue_immediately: {type: boolean, default: true}
+      additionalProperties: false
+    read_only: false
+    destructive: true
+    idempotent: false
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 120
+    source_file: scripts/queue_sequence_export.py
+  - name: export_frame
+    description: Export and hash one allowlisted still image from a sequence time.
+    input_schema:
+      type: object
+      required: [output_path, time]
+      properties:
+        output_path: {type: string, minLength: 1, maxLength: 4096}
+        time: {type: number, minimum: 0}
+        sequence: {oneOf: [{type: string, minLength: 1, maxLength: 512}, {type: integer}]}
+        width: {type: integer, minimum: 1, maximum: 16384}
+        height: {type: integer, minimum: 1, maximum: 16384}
+        overwrite: {type: boolean, default: false}
+        create_parents: {type: boolean, default: false}
+      additionalProperties: false
+    read_only: false
+    destructive: true
+    idempotent: false
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 120
+    source_file: scripts/export_frame.py

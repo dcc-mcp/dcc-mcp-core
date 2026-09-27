@@ -1,0 +1,227 @@
+tools:
+  - name: ping
+    description: Verify the Toolbag bridge and return host, GPU, and active-scene metadata.
+    source_file: scripts/ping.py
+    input_schema: {type: object, properties: {}, additionalProperties: false}
+    output_schema: {type: object}
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 10
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+      deferred_hint: false
+
+  - name: inspect_scene
+    description: Return a bounded snapshot of the active Toolbag scene and selected objects.
+    source_file: scripts/inspect_scene.py
+    input_schema:
+      type: object
+      properties:
+        max_objects:
+          type: integer
+          minimum: 1
+          maximum: 5000
+          default: 500
+      additionalProperties: false
+    output_schema: {type: object}
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 30
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+      deferred_hint: false
+    next-tools:
+      on-success: [marmoset_scene__import_model, marmoset_scene__render_camera]
+      on-failure: [marmoset_scene__ping]
+
+  - name: import_model
+    description: Import one existing model file into the active Toolbag scene.
+    source_file: scripts/import_model.py
+    input_schema:
+      type: object
+      required: [path]
+      properties:
+        path:
+          type: string
+          minLength: 1
+          description: Existing absolute model file path supported by Toolbag.
+      additionalProperties: false
+    output_schema: {type: object}
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 120
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+      open_world_hint: true
+      deferred_hint: false
+    call_examples:
+      - arguments: {path: "C:/assets/prop.fbx"}
+        note: Import one FBX into the current scene.
+    next-tools:
+      on-success: [marmoset_scene__inspect_scene, marmoset_scene__save_scene]
+      on-failure: [marmoset_scene__inspect_scene, marmoset_scene__ping]
+
+  - name: create_pbr_material
+    description: Create and assign a Toolbag PBR material from explicit texture-map paths.
+    source_file: scripts/create_pbr_material.py
+    input_schema:
+      type: object
+      required:
+        - material_name
+        - object_uid
+        - base_color_path
+        - normal_path
+        - roughness_path
+        - metalness_path
+        - occlusion_path
+      properties:
+        material_name: {type: string, minLength: 1}
+        object_uid: {type: string, minLength: 1}
+        base_color_path: {type: string, minLength: 1}
+        normal_path: {type: string, minLength: 1}
+        roughness_path: {type: string, minLength: 1}
+        metalness_path: {type: string, minLength: 1}
+        occlusion_path: {type: string, minLength: 1}
+        include_children: {type: boolean, default: true}
+      additionalProperties: false
+    output_schema: {type: object}
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 120
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+      open_world_hint: true
+      deferred_hint: false
+    next-tools:
+      on-success: [marmoset_scene__inspect_scene, marmoset_scene__save_scene]
+      on-failure: [marmoset_scene__inspect_scene, marmoset_scene__ping]
+
+  - name: set_visibility
+    description: Set visibility for an explicit bounded list of Toolbag object UIDs.
+    source_file: scripts/set_visibility.py
+    input_schema:
+      type: object
+      required: [object_uids, visible]
+      properties:
+        object_uids:
+          type: array
+          minItems: 1
+          maxItems: 1000
+          uniqueItems: true
+          items: {type: string, minLength: 1}
+        visible: {type: boolean}
+      additionalProperties: false
+    output_schema: {type: object}
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 30
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+      deferred_hint: false
+    next-tools:
+      on-success: [marmoset_scene__inspect_scene]
+      on-failure: [marmoset_scene__inspect_scene, marmoset_scene__ping]
+
+  - name: save_scene
+    description: Save the active Toolbag scene to its current path or an absolute .tbscene path.
+    source_file: scripts/save_scene.py
+    input_schema:
+      type: object
+      properties:
+        path:
+          type: string
+          description: Absolute .tbscene path; required when the active scene is unsaved.
+      additionalProperties: false
+    output_schema: {type: object}
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 120
+    annotations:
+      read_only_hint: false
+      destructive_hint: true
+      idempotent_hint: true
+      open_world_hint: true
+      deferred_hint: false
+    call_examples:
+      - arguments: {path: "C:/scenes/lookdev.tbscene"}
+        note: Save the current Toolbag scene to an explicit path.
+    next-tools:
+      on-success: [marmoset_scene__inspect_scene]
+      on-failure: [marmoset_scene__inspect_scene, marmoset_scene__ping]
+
+  - name: render_camera
+    description: Render one Toolbag camera to an absolute image path using explicit bounded settings.
+    source_file: scripts/render_camera.py
+    input_schema:
+      type: object
+      required: [path]
+      properties:
+        path:
+          type: string
+          minLength: 1
+          description: Absolute PNG, JPG, TGA, PSD, or EXR output path.
+        width:
+          type: integer
+          minimum: -1
+          maximum: 16384
+          default: -1
+          description: Use -1 for the scene render setting; zero is invalid.
+        height:
+          type: integer
+          minimum: -1
+          maximum: 16384
+          default: -1
+          description: Use -1 for the scene render setting; zero is invalid.
+        sampling:
+          type: integer
+          minimum: -1
+          maximum: 4096
+          default: -1
+          description: Use -1 for the scene render setting; zero is invalid.
+        transparency: {type: boolean, default: false}
+        camera:
+          type: string
+          description: Camera name; omit to use Toolbag's main camera.
+      additionalProperties: false
+    output_schema: {type: object}
+    execution: async
+    job_strategy: monolithic
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 600
+    annotations:
+      read_only_hint: false
+      destructive_hint: true
+      idempotent_hint: true
+      open_world_hint: true
+      deferred_hint: true
+    call_examples:
+      - arguments:
+          path: "C:/renders/lookdev.png"
+          width: 1920
+          height: 1080
+          sampling: 64
+          transparency: false
+        note: Render the main camera to a 1080p PNG.
+    next-tools:
+      on-success: [marmoset_scene__inspect_scene]
+      on-failure: [marmoset_scene__ping, marmoset_scene__inspect_scene]

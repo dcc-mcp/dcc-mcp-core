@@ -1,0 +1,717 @@
+tools:
+  - name: inspect_project
+    description: Return Unity project identity, editor version and readiness state, active scene, and enabled build scenes. Use before project-sensitive work and stop mutations while Unity reports compiling, updating, or playing. Not for hierarchy inspection; use inspect_scene.
+    input_schema: {type: object, properties: {}, additionalProperties: false}
+    output_schema: {type: object}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    source_file: scripts/inspect_project.py
+    next-tools:
+      on-success: [unity_scene__inspect_scene, unity_project__refresh_assets]
+      on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]
+  - name: refresh_assets
+    description: Ask Unity AssetDatabase to discover and import changed project assets. Use after external file changes. Not for saving scene edits; use save_scene.
+    input_schema: {type: object, properties: {}, additionalProperties: false}
+    output_schema: {type: object}
+    read_only: false
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    source_file: scripts/refresh_assets.py
+    next-tools:
+      on-success: [unity_project__inspect_project]
+      on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]
+  - name: search_assets
+    description: Search imported Unity assets by AssetDatabase query and return bounded GUID, path, and main asset type results.
+    input_schema:
+      type: object
+      required: [query]
+      properties:
+        query: {type: string, minLength: 1, maxLength: 256}
+        max_results: {type: integer, minimum: 1, maximum: 500, default: 100}
+      additionalProperties: false
+    output_schema: {type: object}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    source_file: scripts/search_assets.py
+    next-tools: [unity_project__read_text_asset, unity_scene__inspect_scene]
+  - name: configure_sprite_importer
+    description: Import one existing PNG below Assets and configure it as a single Unity Sprite with mipmaps disabled, alpha transparency enabled, and clamp wrapping. Use after external sprite generation; this does not edit image pixels or accept paths outside the project.
+    input_schema:
+      type: object
+      required: [path]
+      properties:
+        path:
+          type: string
+          maxLength: 512
+          pattern: '^Assets(?:/(?!\.{1,2}(?:/|$))[^/\\]+)+\.png$'
+        pixels_per_unit:
+          type: integer
+          minimum: 1
+          maximum: 10000
+          default: 100
+        filter_mode:
+          type: string
+          enum: [point, bilinear]
+          default: bilinear
+      additionalProperties: false
+    output_schema: {type: object}
+    read_only: false
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    source_file: scripts/configure_sprite_importer.py
+    next-tools:
+      on-success: [unity_project__inspect_project]
+      on-failure: [unity_diagnostics__read_console, dcc_diagnostics__audit_log]
+  - name: read_text_asset
+    description: Read one bounded UTF-8 source text asset below Assets without following reparse points. Accepted extensions are cs, json, txt, shader, cginc, asmdef, xml, uss, and uxml. Not for binary assets or arbitrary project files.
+    input_schema:
+      type: object
+      required: [path]
+      properties:
+        path:
+          type: string
+          maxLength: 512
+          pattern: '^Assets(?:/(?!\.{1,2}(?:/|$))[^/\\]+)+\.(?:cs|json|txt|shader|cginc|asmdef|xml|uss|uxml)$'
+      additionalProperties: false
+    output_schema: {type: object}
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+      deferred_hint: false
+    source_file: scripts/read_text_asset.py
+    next-tools:
+      on-success: [unity_project__upsert_text_asset]
+      on-failure: [unity_diagnostics__read_console, dcc_diagnostics__audit_log]
+  - name: upsert_text_asset
+    description: Queue an atomic CAS-protected UTF-8 source write below Assets. Requires the operator-owned DCC_MCP_UNITY_ALLOW_SOURCE_WRITES=1 environment gate; expected_sha256 is absent for create or the current lowercase digest for update. The Core job remains open until Unity reports succeeded or failed, never synthetic completion.
+    input_schema:
+      type: object
+      required: [request_id, path, content, expected_sha256]
+      properties:
+        request_id:
+          type: string
+          pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+        path:
+          type: string
+          maxLength: 512
+          pattern: '^Assets(?:/(?!\.{1,2}(?:/|$))[^/\\]+)+\.(?:cs|json|txt|shader|cginc|asmdef|xml|uss|uxml)$'
+        content:
+          type: string
+          maxLength: 262144
+          description: UTF-8 payload; the wrapper and Editor reject JSON-unsafe control characters and enforce a 256 KiB encoded-byte ceiling so worst-case escaping stays inside the bridge limit.
+        expected_sha256:
+          type: string
+          pattern: '^(?:absent|[0-9a-f]{64})$'
+      additionalProperties: false
+    output_schema:
+      type: object
+      required: [success, message, prompt, error, context]
+      properties:
+        success: {type: boolean}
+        message: {type: string}
+        prompt: {type: [string, "null"]}
+        error: {type: [string, "null"]}
+        context:
+          type: object
+          properties:
+            state: {type: string, enum: [queued, running, succeeded, failed]}
+            phase: {type: string}
+      allOf:
+        - if:
+            properties:
+              success: {const: true}
+            required: [success]
+          then:
+            properties:
+              context:
+                required: [state, phase]
+    execution: async
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 3600
+    annotations:
+      read_only_hint: false
+      destructive_hint: true
+      idempotent_hint: true
+      open_world_hint: false
+      deferred_hint: false
+    source_file: scripts/upsert_text_asset.py
+    next-tools:
+      on-success: [unity_diagnostics__inspect_job]
+      on-failure: [unity_diagnostics__read_console, dcc_diagnostics__audit_log]
+  - name: refresh_and_compile
+    description: Queue AssetDatabase refresh and keep the Core job open across domain reload until Unity becomes idle, reporting script compilation failure instead of claiming completion early. Use inspect_job with the same request_id only for reconnect or audit recovery.
+    input_schema:
+      type: object
+      required: [request_id]
+      properties:
+        request_id:
+          type: string
+          pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+      additionalProperties: false
+    output_schema:
+      type: object
+      required: [success, message, prompt, error, context]
+      properties:
+        success: {type: boolean}
+        message: {type: string}
+        prompt: {type: [string, "null"]}
+        error: {type: [string, "null"]}
+        context:
+          type: object
+          properties:
+            state: {type: string, enum: [queued, running, succeeded, failed]}
+            phase: {type: string}
+      allOf:
+        - if:
+            properties:
+              success: {const: true}
+            required: [success]
+          then:
+            properties:
+              context:
+                required: [state, phase]
+    execution: async
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 3600
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+      deferred_hint: false
+    source_file: scripts/refresh_and_compile.py
+    next-tools:
+      on-success: [unity_diagnostics__inspect_job]
+      on-failure: [unity_diagnostics__read_console, dcc_diagnostics__audit_log]
+  - name: set_play_mode
+    description: Queue entry to or exit from Play Mode, persist status across domain reload, and keep the Core job open until Unity observes the requested state. Use inspect_job with the same request_id only for reconnect or audit recovery; use true to play and false to return to Edit Mode.
+    input_schema:
+      type: object
+      required: [request_id, play]
+      properties:
+        request_id:
+          type: string
+          pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+        play: {type: boolean}
+      additionalProperties: false
+    output_schema:
+      type: object
+      required: [success, message, prompt, error, context]
+      properties:
+        success: {type: boolean}
+        message: {type: string}
+        prompt: {type: [string, "null"]}
+        error: {type: [string, "null"]}
+        context:
+          type: object
+          properties:
+            state: {type: string, enum: [queued, running, succeeded, failed]}
+            phase: {type: string}
+      allOf:
+        - if:
+            properties:
+              success: {const: true}
+            required: [success]
+          then:
+            properties:
+              context:
+                required: [state, phase]
+    execution: async
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 3600
+    annotations:
+      read_only_hint: false
+      destructive_hint: true
+      idempotent_hint: true
+      open_world_hint: false
+      deferred_hint: false
+    source_file: scripts/set_play_mode.py
+    next-tools:
+      on-success: [unity_diagnostics__inspect_job]
+      on-failure: [unity_diagnostics__read_console, dcc_diagnostics__audit_log]
+  - name: build_windows_player
+    description: Queue a Windows x64 player build from exactly the enabled saved EditorBuildSettings scenes into a new request-specific directory below Builds/DccMcp. The Core job remains open while Unity persistently switches the active target when needed; dirty enabled scenes are rejected and existing outputs are never overwritten.
+    input_schema:
+      type: object
+      required: [request_id]
+      properties:
+        request_id:
+          type: string
+          pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+      additionalProperties: false
+    output_schema:
+      type: object
+      required: [success, message, prompt, error, context]
+      properties:
+        success: {type: boolean}
+        message: {type: string}
+        prompt: {type: [string, "null"]}
+        error: {type: [string, "null"]}
+        context:
+          type: object
+          properties:
+            state: {type: string, enum: [queued, running, succeeded, failed]}
+            phase: {type: string}
+      allOf:
+        - if:
+            properties:
+              success: {const: true}
+            required: [success]
+          then:
+            properties:
+              context:
+                required: [state, phase]
+    execution: async
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 3600
+    annotations:
+      read_only_hint: false
+      destructive_hint: true
+      idempotent_hint: true
+      open_world_hint: false
+      deferred_hint: false
+    source_file: scripts/build_windows_player.py
+    next-tools:
+      on-success: [unity_diagnostics__inspect_job]
+      on-failure: [unity_diagnostics__read_console, dcc_diagnostics__audit_log]
+  - name: build_android_player
+    description: Queue an Android APK or AAB build from exactly the enabled saved EditorBuildSettings scenes into a new request-specific directory below Builds/DccMcp. The job persists across target switching and domain reload, fails closed when Android support or required signing is unavailable, restores the app-bundle setting, and never accepts signing secrets.
+    input_schema:
+      type: object
+      required: [request_id, artifact_kind]
+      properties:
+        request_id:
+          type: string
+          pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+        artifact_kind:
+          type: string
+          enum: [apk, aab]
+      additionalProperties: false
+    output_schema:
+      type: object
+      required: [success, message, prompt, error, context]
+      properties:
+        success: {type: boolean}
+        message: {type: string}
+        prompt: {type: [string, "null"]}
+        error: {type: [string, "null"]}
+        context:
+          type: object
+          properties:
+            state: {type: string, enum: [queued, running, succeeded, failed]}
+            phase: {type: string}
+            result:
+              type: object
+              required: [target, artifact_kind, build_report_outcome, errors, warnings, duration_seconds, scenes]
+              properties:
+                target: {const: android}
+                artifact_kind: {type: string, enum: [apk, aab]}
+                build_report_outcome: {type: string}
+                errors: {type: integer, minimum: 0}
+                warnings: {type: integer, minimum: 0}
+                duration_seconds: {type: number, minimum: 0}
+                relative_path: {type: string}
+                bytes: {type: integer, minimum: 1}
+                sha256: {type: string, pattern: '^[0-9a-f]{64}$'}
+                scenes:
+                  type: array
+                  minItems: 1
+                  items: {type: string}
+              allOf:
+                - if:
+                    properties:
+                      build_report_outcome: {const: Succeeded}
+                    required: [build_report_outcome]
+                  then:
+                    required: [relative_path, bytes, sha256]
+          allOf:
+            - if:
+                properties:
+                  state: {const: succeeded}
+                required: [state]
+              then:
+                required: [result]
+      allOf:
+        - if:
+            properties:
+              success: {const: true}
+            required: [success]
+          then:
+            properties:
+              context:
+                required: [state, phase]
+    execution: async
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 3600
+    annotations:
+      read_only_hint: false
+      destructive_hint: true
+      idempotent_hint: true
+      open_world_hint: false
+      deferred_hint: false
+    source_file: scripts/build_android_player.py
+    next-tools:
+      on-success: [unity_diagnostics__inspect_job]
+      on-failure: [unity_diagnostics__read_console, dcc_diagnostics__audit_log]
+  - name: run_tests
+    description: Queue the installed Unity Test Framework in EditMode or PlayMode, keep the Core job open until completion, and write request-scoped NUnit XML below Builds/DccMcp/Tests. Optional test_names are exact fully-qualified test or fixture names; at most 128 are accepted. Verify result.outcome and counts; zero matched tests fail closed. This does not launch a second Unity process or accept command-line arguments.
+    input_schema:
+      type: object
+      required: [request_id, test_mode]
+      properties:
+        request_id:
+          type: string
+          pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+        test_mode:
+          type: string
+          enum: [edit_mode, play_mode]
+        test_names:
+          type: array
+          maxItems: 128
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 512
+            pattern: '^[^\x00-\x1f\x7f]+$'
+          default: []
+      additionalProperties: false
+    output_schema:
+      type: object
+      required: [success, message, prompt, error, context]
+      properties:
+        success: {type: boolean}
+        message: {type: string}
+        prompt: {type: [string, "null"]}
+        error: {type: [string, "null"]}
+        context:
+          type: object
+          properties:
+            state: {type: string, enum: [queued, running, succeeded, failed]}
+            phase: {type: string}
+      allOf:
+        - if:
+            properties:
+              success: {const: true}
+            required: [success]
+          then:
+            properties:
+              context:
+                required: [state, phase]
+    execution: async
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 3600
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+      deferred_hint: false
+    source_file: scripts/run_tests.py
+    next-tools:
+      on-success: [unity_diagnostics__inspect_job]
+      on-failure: [unity_diagnostics__read_console, dcc_diagnostics__audit_log]
+  - name: enumerate_android_devices
+    description: Enumerate Android devices with redacted serials and authorization state.
+      No device is selected implicitly.
+    input_schema:
+      type: object
+      properties: {}
+      required: []
+      additionalProperties: false
+    output_schema:
+      type: object
+    execution: async
+    job_strategy: monolithic
+    affinity: any
+    enforce_thread_affinity: true
+    timeout_hint_secs: 300
+    source_file: scripts/enumerate_android_devices.py
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+      deferred_hint: false
+  - name: install_android_apk
+    description: Install the exact APK from a completed Unity build, then verify the
+      installed base APK SHA-256. Reusing request_id returns the receipt without repeating
+      installation.
+    input_schema:
+      type: object
+      properties:
+        request_id:
+          type: string
+          format: uuid
+        build_request_id:
+          type: string
+          format: uuid
+        device_id:
+          type: string
+          pattern: ^[0-9a-f]{32}$
+      required:
+      - request_id
+      - build_request_id
+      - device_id
+      additionalProperties: false
+    output_schema:
+      type: object
+    execution: async
+    job_strategy: monolithic
+    affinity: any
+    enforce_thread_affinity: true
+    timeout_hint_secs: 300
+    source_file: scripts/install_android_apk.py
+    annotations:
+      read_only_hint: false
+      destructive_hint: true
+      idempotent_hint: true
+      open_world_hint: false
+      deferred_hint: false
+  - name: launch_android_package
+    description: Launch the verified built package launcher activity on one authorized
+      device. No arbitrary activity or shell command.
+    input_schema:
+      type: object
+      properties:
+        request_id:
+          type: string
+          format: uuid
+        build_request_id:
+          type: string
+          format: uuid
+        device_id:
+          type: string
+          pattern: ^[0-9a-f]{32}$
+      required:
+      - request_id
+      - build_request_id
+      - device_id
+      additionalProperties: false
+    output_schema:
+      type: object
+    execution: async
+    job_strategy: monolithic
+    affinity: any
+    enforce_thread_affinity: true
+    timeout_hint_secs: 300
+    source_file: scripts/launch_android_package.py
+    annotations:
+      read_only_hint: false
+      destructive_hint: true
+      idempotent_hint: true
+      open_world_hint: false
+      deferred_hint: false
+  - name: stop_android_package
+    description: Stop the verified built package and check stopped state on one selected
+      device.
+    input_schema:
+      type: object
+      properties:
+        request_id:
+          type: string
+          format: uuid
+        build_request_id:
+          type: string
+          format: uuid
+        device_id:
+          type: string
+          pattern: ^[0-9a-f]{32}$
+      required:
+      - request_id
+      - build_request_id
+      - device_id
+      additionalProperties: false
+    output_schema:
+      type: object
+    execution: async
+    job_strategy: monolithic
+    affinity: any
+    enforce_thread_affinity: true
+    timeout_hint_secs: 300
+    source_file: scripts/stop_android_package.py
+    annotations:
+      read_only_hint: false
+      destructive_hint: true
+      idempotent_hint: true
+      open_world_hint: false
+      deferred_hint: false
+  - name: grant_android_permission
+    description: Grant one explicitly requested permission declared by the verified
+      installed package and read back its granted state.
+    input_schema:
+      type: object
+      properties:
+        request_id:
+          type: string
+          format: uuid
+        build_request_id:
+          type: string
+          format: uuid
+        device_id:
+          type: string
+          pattern: ^[0-9a-f]{32}$
+        permission:
+          type: string
+          pattern: ^android\.permission\.[A-Z_]+$
+      required:
+      - request_id
+      - build_request_id
+      - device_id
+      - permission
+      additionalProperties: false
+    output_schema:
+      type: object
+    execution: async
+    job_strategy: monolithic
+    affinity: any
+    enforce_thread_affinity: true
+    timeout_hint_secs: 300
+    source_file: scripts/grant_android_permission.py
+    annotations:
+      read_only_hint: false
+      destructive_hint: true
+      idempotent_hint: true
+      open_world_hint: false
+      deferred_hint: false
+  - name: read_android_logcat
+    description: Capture bounded main-process Logcat for the verified built package,
+      optionally waiting for a literal marker. Crash/ANR summary covers captured process
+      logs only.
+    input_schema:
+      type: object
+      properties:
+        request_id:
+          type: string
+          format: uuid
+        build_request_id:
+          type: string
+          format: uuid
+        device_id:
+          type: string
+          pattern: ^[0-9a-f]{32}$
+        marker:
+          type: string
+          minLength: 1
+          maxLength: 256
+        timeout_seconds:
+          type: integer
+          minimum: 1
+          maximum: 30
+          default: 10
+      required:
+      - request_id
+      - build_request_id
+      - device_id
+      additionalProperties: false
+    output_schema:
+      type: object
+    execution: async
+    job_strategy: monolithic
+    affinity: any
+    enforce_thread_affinity: true
+    timeout_hint_secs: 300
+    source_file: scripts/read_android_logcat.py
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+      deferred_hint: false
+  - name: capture_android_screenshot
+    description: Capture a bounded PNG screenshot on the exact device after verifying
+      the installed build. Return dimensions, bytes, SHA-256 and request-scoped artifact
+      path.
+    input_schema:
+      type: object
+      properties:
+        request_id:
+          type: string
+          format: uuid
+        build_request_id:
+          type: string
+          format: uuid
+        device_id:
+          type: string
+          pattern: ^[0-9a-f]{32}$
+      required:
+      - request_id
+      - build_request_id
+      - device_id
+      additionalProperties: false
+    output_schema:
+      type: object
+    execution: async
+    job_strategy: monolithic
+    affinity: any
+    enforce_thread_affinity: true
+    timeout_hint_secs: 300
+    source_file: scripts/capture_android_screenshot.py
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+      deferred_hint: false
+  - name: inspect_mobile_input
+    description: Identify an uploaded game/project and return the Android or iOS test
+      route without opening, extracting, installing, signing, or launching it. Supports
+      Unity projects, APK/AAB, IPA/Xcode, and Windows EXE classification.
+    input_schema:
+      type: object
+      required:
+      - path
+      properties:
+        path:
+          type: string
+          minLength: 1
+          maxLength: 4096
+        target_platform:
+          type: string
+          enum:
+          - android
+          - ios
+          default: android
+      additionalProperties: false
+    output_schema:
+      type: object
+    execution: sync
+    affinity: any
+    enforce_thread_affinity: true
+    source_file: scripts/inspect_mobile_input.py
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+      deferred_hint: false

@@ -1,0 +1,190 @@
+tools:
+  - name: debug_capabilities
+    description: Report whether the renderdoc.pyd deep replay backend is reachable, and — when given capture_file — RenderDoc's own per-capture replay flags (pixel_history, shader_debugging, post_vs_data) plus a per-tool verdict for pick_pixel, pixel_history, debug_pixel, debug_vertex, debug_thread, and export_mesh. Use before any other tool in this skill so a missing backend is discovered deliberately rather than through a failure. Not for one capture's size or action counts — use renderdoc_inspect__describe_capture.
+    input_schema:
+      type: object
+      properties:
+        capture_file: {type: string, minLength: 1, maxLength: 1000}
+      additionalProperties: false
+    output_schema: {type: object}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 300
+    source_file: scripts/debug_capabilities.py
+    next-tools:
+      on-success: [renderdoc_debug__pick_pixel, renderdoc_inspect__list_actions]
+      on-failure: [renderdoc_inspect__replay_capabilities, dcc_diagnostics__audit_log]
+  - name: pick_pixel
+    description: Report the last draw that landed on one pixel of one texture at one event — the draw is resolved from the pixel history as the last modification that passed the depth and stencil tests, and comes back with its event ID, primitive ID, fragment index, the value before and after its write, and the value the shader produced, plus the failure flags (depth test, stencil test, scissor clip, backface cull, shader discard, unbound pixel shader) that explain why a later write did not land. Also returns the pixel's current contents as a PixelValue, which carries no event identity of its own. Requires a capture whose replay supports pixel history. Use to attribute one pixel to one draw before stepping its shader. Not for the full list of writes — use renderdoc_debug__pixel_history.
+    input_schema:
+      type: object
+      required: [capture_file, resource_id, x, y]
+      properties:
+        capture_file: {type: string, minLength: 1, maxLength: 1000}
+        resource_id: {type: integer, minimum: 1}
+        x: {type: integer, minimum: 0, maximum: 1048576}
+        y: {type: integer, minimum: 0, maximum: 1048576}
+        event_id: {type: integer, minimum: 1}
+        mip: {type: integer, minimum: 0, maximum: 64, default: 0}
+        slice_index: {type: integer, minimum: 0, maximum: 65535, default: 0}
+        sample: {type: integer, minimum: 0, maximum: 65535, default: 0}
+        type_cast: {type: string, maxLength: 32, default: Typeless}
+      additionalProperties: false
+    output_schema: {type: object}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: async
+    affinity: any
+    timeout_hint_secs: 300
+    source_file: scripts/pick_pixel.py
+    next-tools:
+      on-success: [renderdoc_debug__pixel_history, renderdoc_debug__debug_pixel]
+      on-failure: [renderdoc_debug__debug_capabilities, dcc_diagnostics__audit_log]
+  - name: pixel_history
+    description: Walk every event that modified one pixel of one texture and report, per modification, the event ID, primitive ID, fragment index, whether it passed, the decoded failure flags, and the value before the write, after the write, and as the shader produced it. Supports limit paging. Use to find which draw or clear is responsible for a wrong pixel and why a later write did not stick. Not for stepping through shader instructions — use renderdoc_debug__debug_pixel.
+    input_schema:
+      type: object
+      required: [capture_file, resource_id, x, y]
+      properties:
+        capture_file: {type: string, minLength: 1, maxLength: 1000}
+        resource_id: {type: integer, minimum: 1}
+        x: {type: integer, minimum: 0, maximum: 1048576}
+        y: {type: integer, minimum: 0, maximum: 1048576}
+        event_id: {type: integer, minimum: 1}
+        limit: {type: integer, minimum: 1, maximum: 5000, default: 200}
+        mip: {type: integer, minimum: 0, maximum: 64, default: 0}
+        slice_index: {type: integer, minimum: 0, maximum: 65535, default: 0}
+        sample: {type: integer, minimum: 0, maximum: 65535, default: 0}
+        type_cast: {type: string, maxLength: 32, default: Typeless}
+      additionalProperties: false
+    output_schema: {type: object}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: async
+    affinity: any
+    timeout_hint_secs: 300
+    source_file: scripts/pixel_history.py
+    next-tools:
+      on-success: [renderdoc_debug__debug_pixel, renderdoc_inspect__get_action]
+      on-failure: [renderdoc_debug__debug_capabilities, dcc_diagnostics__audit_log]
+  - name: debug_pixel
+    description: Step the pixel shader that shaded one pixel, returning the trace RenderDoc recorded — stage, step count, and per step the step index, next instruction, decoded event flags, and register changes, plus the shader inputs and source variables. Set detail to summary for the trace shape only, or trace for the steps; sample, primitive, and view select which invocation of a multi-sampled or multi-view draw to debug, and max_steps bounds the payload. Requires a capture whose replay supports shader debugging. Not for the list of writes to the pixel — use renderdoc_debug__pixel_history.
+    input_schema:
+      type: object
+      required: [capture_file, x, y]
+      properties:
+        capture_file: {type: string, minLength: 1, maxLength: 1000}
+        x: {type: integer, minimum: 0, maximum: 1048576}
+        y: {type: integer, minimum: 0, maximum: 1048576}
+        event_id: {type: integer, minimum: 1}
+        sample: {type: integer, minimum: 0, maximum: 65535, default: 0}
+        primitive: {type: integer, minimum: 0, maximum: 1073741824, default: 0}
+        view: {type: integer, minimum: 0, maximum: 65535, default: 0}
+        max_steps: {type: integer, minimum: 1, maximum: 20000, default: 200}
+        detail: {type: string, enum: [trace, summary], default: trace}
+      additionalProperties: false
+    output_schema: {type: object}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: async
+    affinity: any
+    timeout_hint_secs: 300
+    source_file: scripts/debug_pixel.py
+    next-tools:
+      on-success: [renderdoc_inspect__get_shader_info, renderdoc_debug__pixel_history]
+      on-failure: [renderdoc_debug__debug_capabilities, dcc_diagnostics__audit_log]
+  - name: debug_vertex
+    description: Step the vertex shader for one vertex of one instance, returning the same trace shape as debug_pixel — stage, step count, per-step next instruction and register changes, shader inputs, and source variables. vertex_index selects the vertex, instance the instance, index the position in the index buffer, and view the view to debug; RenderDoc takes exactly these four selectors and applies no drawcall offsets itself, so fold the draw's vertex and instance offsets into vertex_index, instance, and index first — renderdoc_inspect__get_action reports them. Requires a capture whose replay supports shader debugging. Not for pixel shader stepping — use renderdoc_debug__debug_pixel.
+    input_schema:
+      type: object
+      required: [capture_file]
+      properties:
+        capture_file: {type: string, minLength: 1, maxLength: 1000}
+        event_id: {type: integer, minimum: 1}
+        vertex_index: {type: integer, minimum: 0, maximum: 1073741824, default: 0}
+        instance: {type: integer, minimum: 0, maximum: 65535, default: 0}
+        index: {type: integer, minimum: 0, maximum: 1073741824, default: 0}
+        view: {type: integer, minimum: 0, maximum: 65535, default: 0}
+        max_steps: {type: integer, minimum: 1, maximum: 20000, default: 200}
+        detail: {type: string, enum: [trace, summary], default: trace}
+      additionalProperties: false
+    output_schema: {type: object}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: async
+    affinity: any
+    timeout_hint_secs: 300
+    source_file: scripts/debug_vertex.py
+    next-tools:
+      on-success: [renderdoc_debug__export_mesh, renderdoc_inspect__get_shader_info]
+      on-failure: [renderdoc_debug__debug_capabilities, dcc_diagnostics__audit_log]
+  - name: debug_thread
+    description: Step one compute shader invocation, returning the same trace shape as debug_pixel — stage, step count, per-step next instruction and register changes, shader inputs, and source variables. group_id selects the workgroup as three integers and thread_id the thread within it, so a specific lane of a specific dispatch can be debugged. Requires a capture whose replay supports shader debugging. Not for pixel or vertex shader stepping — use renderdoc_debug__debug_pixel or renderdoc_debug__debug_vertex.
+    input_schema:
+      type: object
+      required: [capture_file]
+      properties:
+        capture_file: {type: string, minLength: 1, maxLength: 1000}
+        event_id: {type: integer, minimum: 1}
+        group_id:
+          type: array
+          items: {type: integer, minimum: 0, maximum: 1073741824}
+          minItems: 0
+          maxItems: 3
+          default: [0, 0, 0]
+        thread_id:
+          type: array
+          items: {type: integer, minimum: 0, maximum: 1073741824}
+          minItems: 0
+          maxItems: 3
+          default: [0, 0, 0]
+        max_steps: {type: integer, minimum: 1, maximum: 20000, default: 200}
+        detail: {type: string, enum: [trace, summary], default: trace}
+      additionalProperties: false
+    output_schema: {type: object}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: async
+    affinity: any
+    timeout_hint_secs: 300
+    source_file: scripts/debug_thread.py
+    next-tools:
+      on-success: [renderdoc_inspect__get_shader_info, renderdoc_inspect__get_action]
+      on-failure: [renderdoc_debug__debug_capabilities, dcc_diagnostics__audit_log]
+  - name: export_mesh
+    description: Export the post-VS geometry of one event to disk — output_file must end in .obj for a Wavefront mesh or .json for vertices and indices as JSON — and report the vertex and index counts, topology, vertex format, stride, and resource IDs, plus a short vertex preview. stage selects the post-VS stage (VSIn, VSOut, GSOut, TaskOut, MeshOut), instance and view select which instance and view to fetch, and max_vertices bounds the export. Requires a capture whose replay supports post-VS data. Not for pipeline state or vertex buffer bindings — use renderdoc_inspect__get_pipeline_state.
+    input_schema:
+      type: object
+      required: [capture_file, output_file]
+      properties:
+        capture_file: {type: string, minLength: 1, maxLength: 1000}
+        output_file: {type: string, minLength: 1, maxLength: 1000}
+        event_id: {type: integer, minimum: 1}
+        stage:
+          type: string
+          enum: [VSIn, VSOut, GSOut, TaskOut, MeshOut]
+          default: VSOut
+        instance: {type: integer, minimum: 0, maximum: 65535, default: 0}
+        view: {type: integer, minimum: 0, maximum: 65535, default: 0}
+        max_vertices: {type: integer, minimum: 1, maximum: 4096, default: 4096}
+        preview_vertices: {type: integer, minimum: 0, maximum: 64, default: 8}
+      additionalProperties: false
+    output_schema: {type: object}
+    read_only: false
+    destructive: false
+    idempotent: true
+    execution: async
+    affinity: any
+    timeout_hint_secs: 300
+    source_file: scripts/export_mesh.py
+    next-tools:
+      on-success: [renderdoc_debug__debug_vertex, renderdoc_inspect__get_pipeline_state]
+      on-failure: [renderdoc_debug__debug_capabilities, dcc_diagnostics__audit_log]

@@ -1,0 +1,30 @@
+tools:
+  - name: upsert_text2_label
+    description: Create or update one bounded static Text2 label using global_font_scale with deterministic layout readback.
+    input_schema:
+      type: object
+      required: [node_name, text, font_size_px, x, y, box_x, box_y, box_width, box_height]
+      additionalProperties: false
+      properties:
+        node_name: {type: string, minLength: 1, maxLength: 128, pattern: "^[A-Za-z_][A-Za-z0-9_.:-]{0,127}$"}
+        text:
+          type: string
+          minLength: 1
+          maxLength: 4096
+          pattern: '^[^\[\]\\\x00-\x1F\x7F-\x9F]*$'
+        font_size_px: {type: number, minimum: 1.0, maximum: 4096.0}
+        x: {type: integer, minimum: -1000000, maximum: 1000000}
+        y: {type: integer, minimum: -1000000, maximum: 1000000}
+        box_x: {type: number, minimum: -1000000.0, maximum: 1000000.0}
+        box_y: {type: number, minimum: -1000000.0, maximum: 1000000.0}
+        box_width: {type: number, minimum: 1.0, maximum: 1000000.0}
+        box_height: {type: number, minimum: 1.0, maximum: 1000000.0}
+        horizontal_justify: {type: string, enum: [left, center, right], default: left}
+        vertical_justify: {type: string, enum: [top, center, bottom, baseline], default: baseline}
+    read_only: false
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 30
+    source_file: scripts/upsert_text2_label.py

@@ -1,0 +1,1611 @@
+tools:
+  - name: get_mesh_topology
+    description: Summarize vertex, edge, and face counts for explicit mesh targets.
+    source_file: action_get_mesh_topology.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        node_names: {type: array, items: {type: string, minLength: 1}}
+        handles: {type: array, items: {type: integer}}
+        use_selection: {type: boolean, default: false}
+    output_schema:
+      type: object
+      additionalProperties: true
+      properties:
+        success: {type: boolean}
+        status: {type: string}
+        message: {type: string}
+        data: {type: object}
+    timeout_hint_secs: 10
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+
+    intent: "Summarize vertex, edge, and face counts for mesh targets."
+    tool_role: read_only
+    risk: low
+    search_aliases: ["get_mesh_topology", "get mesh topology", "mesh topology"]
+    side_effects:
+      creates: false
+      modifies: false
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: ['scene_nodes']
+    produces: ['mesh_topology']
+  - name: get_selected_mesh_topology
+    description: Summarize topology for the current mesh selection.
+    source_file: action_get_selected_mesh_topology.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties: {}
+    output_schema:
+      type: object
+      additionalProperties: true
+      properties:
+        success: {type: boolean}
+        status: {type: string}
+        message: {type: string}
+        data: {type: object}
+    timeout_hint_secs: 10
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+
+    intent: "Summarize topology for the current mesh selection."
+    tool_role: read_only
+    risk: low
+    search_aliases: ["get_selected_mesh_topology", "get selected mesh topology", "selected mesh topology"]
+    side_effects:
+      creates: false
+      modifies: false
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: []
+    produces: ['mesh_topology']
+  - name: get_smoothing_groups
+    description: Summarize smoothing group usage for explicit mesh targets.
+    source_file: action_get_smoothing_groups.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        node_names: {type: array, items: {type: string, minLength: 1}}
+        handles: {type: array, items: {type: integer}}
+        use_selection: {type: boolean, default: false}
+    output_schema:
+      type: object
+      additionalProperties: true
+      properties:
+        success: {type: boolean}
+        status: {type: string}
+        message: {type: string}
+        data: {type: object}
+    timeout_hint_secs: 10
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+
+    intent: "Summarize smoothing group usage on mesh targets."
+    tool_role: read_only
+    risk: low
+    search_aliases: ["get_smoothing_groups", "get smoothing groups", "smoothing groups"]
+    side_effects:
+      creates: false
+      modifies: false
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: ['scene_nodes']
+    produces: ['smoothing_groups']
+  - name: get_modifier_stack
+    description: >-
+      Summarize modifier stack entries for explicit mesh targets, including each
+      modifier's parameters and viewport/render enable state. Properties that
+      cannot be read are reported in the entry's `unreadable` field.
+    source_file: action_get_modifier_stack.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        node_names: {type: array, items: {type: string, minLength: 1}}
+        handles: {type: array, items: {type: integer}}
+        use_selection: {type: boolean, default: false}
+        include_parameters: {type: boolean, default: true, description: Read each modifier's parameters into a `parameters` mapping.}
+        property_names: {type: array, items: {type: string, minLength: 1}, description: Restrict the read to these modifier property names.}
+    output_schema:
+      type: object
+      additionalProperties: true
+      properties:
+        success: {type: boolean}
+        status: {type: string}
+        message: {type: string}
+        data: {type: object}
+    timeout_hint_secs: 10
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+
+    intent: "Summarize modifier stack entries and their parameters on mesh targets."
+    tool_role: read_only
+    risk: low
+    search_aliases: ["get_modifier_stack", "get modifier stack", "modifier stack", "inspect_modifier_properties", "modifier parameters"]
+    side_effects:
+      creates: false
+      modifies: false
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: ['scene_nodes']
+    produces: ['modifier_list', 'modifier_parameters']
+  - name: add_modifier
+    description: >-
+      Add an arbitrary modifier class to explicit mesh targets by class name, with
+      optional properties applied and verified after instantiation.
+    source_file: action_add_modifier.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      required: [modifier_class]
+      additionalProperties: false
+      properties:
+        modifier_class: {type: string, minLength: 1, description: "3ds Max modifier class name, for example TurboSmooth, Bend, or Edit_Poly."}
+        properties: {type: object, additionalProperties: true, description: Properties applied to the new modifier and verified by read-back.}
+        node_names: {type: array, items: {type: string, minLength: 1}}
+        handles: {type: array, items: {type: integer}}
+        use_selection: {type: boolean, default: false}
+    output_schema:
+      type: object
+      additionalProperties: true
+      properties:
+        success: {type: boolean}
+        status: {type: string}
+        message: {type: string}
+        data: {type: object}
+    timeout_hint_secs: 30
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+      open_world_hint: false
+
+    intent: "Add an arbitrary modifier class to mesh targets with optional verified properties."
+    tool_role: action
+    risk: medium
+    search_aliases: ["add_modifier", "add modifier", "apply modifier"]
+    side_effects:
+      creates: true
+      modifies: true
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: ['scene_nodes', 'modifier']
+    produces: ['modifier_stack']
+  - name: remove_modifier
+    description: >-
+      Remove a modifier by name or 1-based index from explicit mesh targets. The
+      modifier is resolved on every target before anything is removed.
+    source_file: action_remove_modifier.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        node_names: {type: array, items: {type: string, minLength: 1}}
+        handles: {type: array, items: {type: integer}}
+        use_selection: {type: boolean, default: false}
+        modifier_name: {type: string, minLength: 1}
+        modifier_index: {type: integer, minimum: 1}
+    output_schema:
+      type: object
+      additionalProperties: true
+      properties:
+        success: {type: boolean}
+        status: {type: string}
+        message: {type: string}
+        data: {type: object}
+    timeout_hint_secs: 30
+    read_only: false
+    destructive: true
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: true
+      idempotent_hint: false
+      open_world_hint: false
+
+    intent: "Remove a modifier from mesh targets by name or index."
+    tool_role: action
+    risk: medium
+    search_aliases: ["remove_modifier", "remove modifier", "delete modifier"]
+    side_effects:
+      creates: false
+      modifies: true
+      deletes: true
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: ['scene_nodes', 'modifier']
+    produces: ['modifier_stack']
+    undo:
+      supported: true
+      granularity: per_node
+      notes: >-
+        One host undo entry per node in the response; pass that count to `undo_last`.
+
+  - name: set_modifier_state
+    description: >-
+      Enable or disable a modifier with separate viewport and render granularity.
+      Every flag is verified by read-back.
+    source_file: action_set_modifier_state.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        node_names: {type: array, items: {type: string, minLength: 1}}
+        handles: {type: array, items: {type: integer}}
+        use_selection: {type: boolean, default: false}
+        modifier_name: {type: string, minLength: 1}
+        modifier_index: {type: integer, minimum: 1}
+        enabled: {type: boolean, description: Overall enable state of the modifier.}
+        enabled_in_views: {type: boolean, description: Enable the modifier in the viewport only.}
+        enabled_in_render: {type: boolean, description: Enable the modifier at render time only.}
+    output_schema:
+      type: object
+      additionalProperties: true
+      properties:
+        success: {type: boolean}
+        status: {type: string}
+        message: {type: string}
+        data: {type: object}
+    timeout_hint_secs: 30
+    read_only: false
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+
+    intent: "Enable or disable a modifier in the viewport and at render time."
+    tool_role: action
+    risk: low
+    search_aliases: ["set_modifier_state", "set modifier state", "toggle modifier", "enable modifier", "disable modifier"]
+    side_effects:
+      creates: false
+      modifies: true
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: ['scene_nodes', 'modifier']
+    produces: ['modifier_stack']
+  - name: set_modifier_property
+    description: >-
+      Set properties on a modifier for one object or many. Each property is written,
+      read back, and compared, so a rejected property fails the call.
+    source_file: action_set_modifier_property.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      required: [properties]
+      additionalProperties: false
+      properties:
+        properties: {type: object, minProperties: 1, additionalProperties: true, description: Mapping of modifier property names to values.}
+        node_names: {type: array, items: {type: string, minLength: 1}}
+        handles: {type: array, items: {type: integer}}
+        use_selection: {type: boolean, default: false}
+        modifier_name: {type: string, minLength: 1}
+        modifier_index: {type: integer, minimum: 1}
+    output_schema:
+      type: object
+      additionalProperties: true
+      properties:
+        success: {type: boolean}
+        status: {type: string}
+        message: {type: string}
+        data: {type: object}
+    timeout_hint_secs: 30
+    read_only: false
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+
+    intent: "Set verified properties on a modifier across one or many objects."
+    tool_role: action
+    risk: medium
+    search_aliases: ["set_modifier_property", "set modifier property", "modifier parameters", "set modifier parameters"]
+    side_effects:
+      creates: false
+      modifies: true
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: ['scene_nodes', 'modifier']
+    produces: ['modifier_stack']
+  - name: collapse_modifier_stack
+    description: >-
+      Collapse the whole modifier stack of explicit mesh targets. Irreversible; the
+      stack is re-read afterwards to confirm it actually shrank.
+    source_file: action_collapse_modifier_stack.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        node_names: {type: array, items: {type: string, minLength: 1}}
+        handles: {type: array, items: {type: integer}}
+        use_selection: {type: boolean, default: false}
+    output_schema:
+      type: object
+      additionalProperties: true
+      properties:
+        success: {type: boolean}
+        status: {type: string}
+        message: {type: string}
+        data: {type: object}
+    timeout_hint_secs: 60
+    read_only: false
+    destructive: true
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: true
+      idempotent_hint: false
+      open_world_hint: false
+
+    intent: "Collapse the modifier stack of mesh targets into the base object."
+    tool_role: action
+    risk: high
+    search_aliases: ["collapse_modifier_stack", "collapse modifier stack", "collapse stack"]
+    side_effects:
+      creates: false
+      modifies: true
+      deletes: true
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: ['scene_nodes', 'modifier']
+    produces: ['scene_nodes']
+    undo:
+      supported: true
+      granularity: per_node
+      notes: >-
+        Reversible only through the host stack: one entry per node, and the history is lost when the session ends.
+
+  - name: make_modifier_unique
+    description: >-
+      Break modifier instancing so one node's modifier can be edited independently.
+      Resolved on every target before anything is changed.
+    source_file: action_make_modifier_unique.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        node_names: {type: array, items: {type: string, minLength: 1}}
+        handles: {type: array, items: {type: integer}}
+        use_selection: {type: boolean, default: false}
+        modifier_name: {type: string, minLength: 1}
+        modifier_index: {type: integer, minimum: 1}
+    output_schema:
+      type: object
+      additionalProperties: true
+      properties:
+        success: {type: boolean}
+        status: {type: string}
+        message: {type: string}
+        data: {type: object}
+    timeout_hint_secs: 30
+    read_only: false
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+
+    intent: "Make an instanced modifier unique on mesh targets."
+    tool_role: action
+    risk: medium
+    search_aliases: ["make_modifier_unique", "make modifier unique", "de-instance modifier"]
+    side_effects:
+      creates: false
+      modifies: true
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: ['scene_nodes', 'modifier']
+    produces: ['modifier_stack']
+  - name: triangulate_meshes
+    description: Triangulate explicit mesh targets using a reversible modifier where available.
+    source_file: action_triangulate_meshes.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        node_names: {type: array, items: {type: string, minLength: 1}}
+        handles: {type: array, items: {type: integer}}
+        use_selection: {type: boolean, default: false}
+    output_schema:
+      type: object
+      additionalProperties: true
+      properties:
+        success: {type: boolean}
+        status: {type: string}
+        message: {type: string}
+        data: {type: object}
+    timeout_hint_secs: 30
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+      open_world_hint: false
+
+    intent: "Triangulate mesh targets using a reversible modifier."
+    tool_role: action
+    risk: medium
+    search_aliases: ["triangulate_meshes", "triangulate meshes", "triangulate meshes"]
+    side_effects:
+      creates: false
+      modifies: true
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: ['scene_nodes']
+    produces: ['scene_nodes']
+  - name: cleanup_meshes
+    description: Run focused cleanup checks on explicit mesh targets.
+    source_file: action_cleanup_meshes.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        node_names: {type: array, items: {type: string, minLength: 1}}
+        handles: {type: array, items: {type: integer}}
+        use_selection: {type: boolean, default: false}
+        weld_threshold: {type: number, minimum: 0, description: Optional weld threshold for hosts that support it.}
+    output_schema:
+      type: object
+      additionalProperties: true
+      properties:
+        success: {type: boolean}
+        status: {type: string}
+        message: {type: string}
+        data: {type: object}
+    timeout_hint_secs: 30
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+      open_world_hint: false
+
+    intent: "Run focused cleanup checks like welding on mesh targets."
+    tool_role: action
+    risk: medium
+    search_aliases: ["cleanup_meshes", "cleanup meshes", "cleanup meshes"]
+    side_effects:
+      creates: false
+      modifies: true
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: ['scene_nodes']
+    produces: ['scene_nodes']
+  - name: attach_meshes
+    description: Attach source meshes into one explicit target mesh.
+    source_file: action_attach_meshes.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        target_name: {type: string, minLength: 1}
+        target_handle: {type: integer}
+        source_names: {type: array, items: {type: string, minLength: 1}}
+        source_handles: {type: array, items: {type: integer}}
+    output_schema:
+      type: object
+      additionalProperties: true
+      properties:
+        success: {type: boolean}
+        status: {type: string}
+        message: {type: string}
+        data: {type: object}
+    timeout_hint_secs: 30
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+      open_world_hint: false
+
+    intent: "Attach source meshes into one explicit target mesh."
+    tool_role: action
+    risk: medium
+    search_aliases: ["attach_meshes", "attach meshes", "attach meshes"]
+    side_effects:
+      creates: false
+      modifies: true
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: ['scene_nodes']
+    produces: ['scene_nodes']
+  - name: detach_selected_faces
+    description: Detach explicit faces or the current face selection into a separate node.
+    source_file: action_detach_selected_faces.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        node_name: {type: string, minLength: 1}
+        handle: {type: integer}
+        face_indices: {type: array, items: {type: integer, minimum: 1}}
+        use_current_face_selection: {type: boolean, default: false}
+        detach_name: {type: string, minLength: 1, default: DetachedMesh}
+    output_schema:
+      type: object
+      additionalProperties: true
+      properties:
+        success: {type: boolean}
+        status: {type: string}
+        message: {type: string}
+        data: {type: object}
+    timeout_hint_secs: 30
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+      open_world_hint: false
+
+    intent: "Detach faces into a separate mesh node."
+    tool_role: action
+    risk: medium
+    search_aliases: ["detach_selected_faces", "detach selected faces", "detach selected faces"]
+    side_effects:
+      creates: false
+      modifies: true
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: ['scene_nodes']
+    produces: ['scene_nodes']
+  - name: apply_subdivision
+    description: Add a subdivision modifier to explicit mesh targets.
+    source_file: action_apply_subdivision.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        node_names: {type: array, items: {type: string, minLength: 1}}
+        handles: {type: array, items: {type: integer}}
+        use_selection: {type: boolean, default: false}
+        iterations: {type: integer, minimum: 0, maximum: 6, default: 1}
+        render_iterations: {type: integer, minimum: 0, maximum: 6}
+    output_schema:
+      type: object
+      additionalProperties: true
+      properties:
+        success: {type: boolean}
+        status: {type: string}
+        message: {type: string}
+        data: {type: object}
+    timeout_hint_secs: 30
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+      open_world_hint: false
+
+    intent: "Add a subdivision modifier with configurable iterations."
+    tool_role: action
+    risk: medium
+    search_aliases: ["apply_subdivision", "apply subdivision", "apply subdivision"]
+    side_effects:
+      creates: false
+      modifies: true
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: ['scene_nodes']
+    produces: ['scene_nodes']
+  - name: create_proxy_meshes
+    description: Duplicate explicit meshes and add a proxy reduction modifier where available.
+    source_file: action_create_proxy_meshes.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        node_names: {type: array, items: {type: string, minLength: 1}}
+        handles: {type: array, items: {type: integer}}
+        use_selection: {type: boolean, default: false}
+        reduction_percent: {type: number, minimum: 1, maximum: 100, default: 50}
+        name_suffix: {type: string, default: _proxy}
+    output_schema:
+      type: object
+      additionalProperties: true
+      properties:
+        success: {type: boolean}
+        status: {type: string}
+        message: {type: string}
+        data: {type: object}
+    timeout_hint_secs: 30
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+      open_world_hint: false
+
+    intent: "Duplicate meshes and add a proxy reduction modifier."
+    tool_role: action
+    risk: medium
+    search_aliases: ["create_proxy_meshes", "create proxy meshes", "proxy meshes"]
+    side_effects:
+      creates: true
+      modifies: false
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: ['scene_nodes']
+    produces: ['scene_nodes']
+  - name: set_explicit_normals
+    description: Set explicit normal data for explicit mesh targets.
+    source_file: action_set_explicit_normals.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      required: [normal]
+      additionalProperties: false
+      properties:
+        node_names: {type: array, items: {type: string, minLength: 1}}
+        handles: {type: array, items: {type: integer}}
+        use_selection: {type: boolean, default: false}
+        normal:
+          type: array
+          minItems: 3
+          maxItems: 3
+          items: {type: number}
+    output_schema:
+      type: object
+      additionalProperties: true
+      properties:
+        success: {type: boolean}
+        status: {type: string}
+        message: {type: string}
+        data: {type: object}
+    timeout_hint_secs: 30
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+      open_world_hint: false
+
+    intent: "Set explicit normal vectors on mesh targets."
+    tool_role: action
+    risk: medium
+    search_aliases: ["set_explicit_normals", "set explicit normals", "explicit normals"]
+    side_effects:
+      creates: false
+      modifies: true
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: ['scene_nodes']
+    produces: ['scene_nodes']
+  - name: clear_explicit_normals
+    description: Clear explicit normal data for explicit mesh targets.
+    source_file: action_clear_explicit_normals.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        node_names: {type: array, items: {type: string, minLength: 1}}
+        handles: {type: array, items: {type: integer}}
+        use_selection: {type: boolean, default: false}
+    output_schema:
+      type: object
+      additionalProperties: true
+      properties:
+        success: {type: boolean}
+        status: {type: string}
+        message: {type: string}
+        data: {type: object}
+    timeout_hint_secs: 30
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+      open_world_hint: false
+
+    intent: "Clear explicit normal data on mesh targets."
+    tool_role: action
+    risk: medium
+    search_aliases: ["clear_explicit_normals", "clear explicit normals", "clear explicit normals"]
+    side_effects:
+      creates: false
+      modifies: true
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: ['scene_nodes']
+    produces: ['scene_nodes']
+  - name: assign_smoothing_group
+    description: Assign a smoothing group to explicit mesh targets and optional face indices.
+    source_file: action_assign_smoothing_group.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      required: [smoothing_group]
+      additionalProperties: false
+      properties:
+        node_names: {type: array, items: {type: string, minLength: 1}}
+        handles: {type: array, items: {type: integer}}
+        use_selection: {type: boolean, default: false}
+        smoothing_group: {type: integer, minimum: 1, maximum: 32}
+        face_indices: {type: array, items: {type: integer, minimum: 1}}
+    output_schema:
+      type: object
+      additionalProperties: true
+      properties:
+        success: {type: boolean}
+        status: {type: string}
+        message: {type: string}
+        data: {type: object}
+    timeout_hint_secs: 30
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+      open_world_hint: false
+
+    intent: "Assign a smoothing group number to mesh targets."
+    tool_role: action
+    risk: medium
+    search_aliases: ["assign_smoothing_group", "assign smoothing group", "assign smoothing group"]
+    side_effects:
+      creates: false
+      modifies: true
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: ['scene_nodes']
+    produces: ['scene_nodes']
+  - name: boolean_operation
+    description: >-
+      Run a boolean union, intersection, subtraction, or cut through the
+      native Boolean / ProBoolean object, then re-adjust it later: swap an
+      operand, extract one into its own node, or remove one without rebuilding
+      the stack. The boolean mode and the registered operand count are both
+      read back, so a mode or operand the host did not register fails the call
+      instead of being reported as a warning on a successful result.
+    source_file: action_boolean_operation.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        action:
+          type: string
+          enum:
+            [
+              create,
+              set_operation,
+              add_operands,
+              set_operand,
+              extract_operand,
+              remove_operand,
+              read,
+            ]
+          default: read
+          description: >-
+            create builds a new boolean from base_node plus operands; the
+            other actions re-adjust an existing boolean node.
+        operation:
+          type: string
+          enum: [union, intersection, subtraction, cut]
+          description: Boolean mode; required for create and set_operation.
+        node_name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Existing boolean node for every action except create.
+        handle:
+          type: integer
+          description: Existing boolean handle for every action except create.
+        base_node:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: >-
+            For create, the node whose geometry is the first operand. Required
+            for create.
+        operands:
+          type: array
+          minItems: 1
+          maxItems: 64
+          description: >-
+            Operand node names, or objects of the form {"node_name": "..."} or
+            {"handle": 123}. Required for create, add_operands, and
+            set_operand.
+          items:
+            oneOf:
+              - type: string
+                minLength: 1
+                maxLength: 255
+              - type: object
+                additionalProperties: false
+                minProperties: 1
+                maxProperties: 2
+                properties:
+                  node_name:
+                    type: string
+                    minLength: 1
+                    maxLength: 255
+                  name:
+                    type: string
+                    minLength: 1
+                    maxLength: 255
+                  handle:
+                    type: integer
+        operand_index:
+          type: integer
+          minimum: 1
+          maximum: 4096
+          description: >-
+            1-based operand slot for set_operand, extract_operand, and
+            remove_operand.
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Optional scene node name for a created boolean node.
+    output_schema:
+      type: object
+      additionalProperties: true
+      properties:
+        success:
+          type: boolean
+        status:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+    timeout_hint_secs: 30
+    read_only: false
+    destructive: true
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: true
+      idempotent_hint: false
+      open_world_hint: false
+    intent: "Run a native boolean and re-adjust its operands with verified readback."
+    tool_role: action
+    risk: high
+    search_aliases:
+      ["boolean_operation", "boolean", "union", "intersection", "subtract"]
+    side_effects:
+      creates: true
+      modifies: true
+      deletes: true
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: ["scene_node:mesh", "modifier_stack"]
+    produces: ['scene_nodes']
+    undo:
+      supported: true
+      granularity: batch_call
+      notes: >-
+        One call performs several host writes with no undo hold, so the
+        grouping cannot be queried. Node creation, mode write, and one registration per operand.
+        Undo once, re-read the reported nodes or knots, then repeat while
+        the scene still differs.
+    call_examples:
+      - arguments:
+          action: create
+          operation: subtraction
+          base_node: wall_block
+          operands: ["window_opening"]
+          name: wall_with_opening
+        note: "Subtract window_opening from wall_block through a native boolean"
+
+  - name: create_mesh
+    description: >-
+      Build one Editable Poly node from explicit world-space vertices and
+      ordered faces. Every vertex is read back and compared against what was
+      requested, so a host that moved, merged, or dropped a vertex fails the
+      call instead of returning a mesh that only looks right. Faces with more
+      than three vertices are fan-triangulated and the split is reported.
+    source_file: action_create_mesh.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      additionalProperties: false
+      required: [vertices, faces]
+      properties:
+        vertices:
+          type: array
+          minItems: 3
+          maxItems: 10000
+          description: >-
+            World-space vertex positions, one [x, y, z] triple per vertex.
+          items:
+            type: array
+            minItems: 3
+            maxItems: 3
+            items: {type: number}
+        faces:
+          type: array
+          minItems: 1
+          maxItems: 10000
+          description: >-
+            Faces as 1-based indices into vertices, in winding order. Rings of
+            more than three indices are fan-triangulated.
+          items:
+            type: array
+            minItems: 3
+            maxItems: 64
+            items: {type: integer, minimum: 1}
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Optional name for the created node.
+    output_schema:
+      type: object
+      additionalProperties: true
+      properties:
+        success: {type: boolean}
+        status: {type: string}
+        message: {type: string}
+        data: {type: object}
+    timeout_hint_secs: 60
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+      open_world_hint: false
+    intent: "Build an Editable Poly from explicit world-space vertices and ordered faces."
+    tool_role: action
+    risk: medium
+    search_aliases: ["create_mesh", "create mesh", "build mesh from vertices", "editable poly from points"]
+    side_effects:
+      creates: true
+      modifies: false
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: ["scene_node:mesh"]
+    produces: ["scene_nodes", "mesh_topology"]
+    undo:
+      supported: true
+      granularity: batch_call
+      notes: >-
+        One call creates a node, assigns a mesh, converts it to an Editable
+        Poly, and optionally renames it, with no undo hold, so the grouping
+        cannot be queried. Undo once, re-read the node, then repeat while it
+        still differs.
+    call_examples:
+      - arguments:
+          vertices: [[0, 0, 0], [10, 0, 0], [10, 10, 0], [0, 10, 0]]
+          faces: [[1, 2, 3, 4]]
+          name: panel
+        note: "Build a quad panel as an Editable Poly; the n-gon is fan-triangulated"
+
+  - name: inspect_mesh
+    description: >-
+      Read the vertices, edges, and faces of one Editable Poly node as
+      1-based component indices - the same indices mesh_edit, edit_vertices,
+      and pick_component accept - with both object-space and world-space
+      vertex positions. A descriptive field the host does not expose is
+      reported as null plus a warning, never as a zero.
+    source_file: action_inspect_mesh.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        node_name: {type: string, minLength: 1, maxLength: 255}
+        handle: {type: integer}
+        include:
+          type: array
+          description: Component kinds to serialize. Defaults to all of them.
+          items:
+            type: string
+            enum: [vertices, edges, faces]
+        offset:
+          type: integer
+          minimum: 1
+          default: 1
+          description: 1-based index of the first component to list.
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 2000
+          default: 2000
+          description: Maximum number of components to list per kind.
+    output_schema:
+      type: object
+      additionalProperties: true
+      properties:
+        success: {type: boolean}
+        status: {type: string}
+        message: {type: string}
+        data: {type: object}
+    timeout_hint_secs: 60
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+    intent: "List Editable Poly vertices, edges, and faces with actionable component indices."
+    tool_role: inspection
+    risk: low
+    search_aliases: ["inspect_mesh", "inspect mesh", "list vertices", "list faces", "mesh components"]
+    side_effects:
+      creates: false
+      modifies: false
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: []
+    produces: ["mesh_topology", "component_indices"]
+    call_examples:
+      - arguments:
+          node_name: panel
+          include: [faces]
+        note: "List the faces of panel with their vertex rings"
+
+  - name: edit_vertices
+    description: >-
+      Read, move, set, or align Editable Poly vertices in world coordinates.
+      move offsets by a delta, set places each vertex at an explicit world
+      position, and align flattens the selection onto its mean, minimum, or
+      maximum along the chosen axes. Every write is verified per vertex by
+      read-back; a vertex the host kept where it was fails the call instead of
+      becoming a warning on a success.
+    source_file: action_edit_vertices.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        action:
+          type: string
+          enum: [read, move, set, align]
+          default: read
+        node_name: {type: string, minLength: 1, maxLength: 255}
+        handle: {type: integer}
+        vertex_indices:
+          type: array
+          minItems: 1
+          maxItems: 4096
+          description: >-
+            1-based vertex indices. Omit to act on every vertex in the node.
+          items: {type: integer, minimum: 1}
+        offset:
+          type: array
+          minItems: 3
+          maxItems: 3
+          description: XYZ delta for move.
+          items: {type: number}
+        positions:
+          type: array
+          minItems: 1
+          maxItems: 10000
+          description: Target world positions for set, one per selected vertex.
+          items:
+            type: array
+            minItems: 3
+            maxItems: 3
+            items: {type: number}
+        axis:
+          type: string
+          enum: [x, y, z, xy, xz, yz, xyz]
+          default: xyz
+          description: Axes to flatten for align.
+        mode:
+          type: string
+          enum: [mean, min, max]
+          default: mean
+          description: Value the selection aligns to along each chosen axis.
+        space:
+          type: string
+          enum: [world, object]
+          default: world
+          description: Coordinate space of offset and positions.
+    output_schema:
+      type: object
+      additionalProperties: true
+      properties:
+        success: {type: boolean}
+        status: {type: string}
+        message: {type: string}
+        data: {type: object}
+    timeout_hint_secs: 60
+    read_only: false
+    destructive: false
+    # `read`, `set`, and `align` are idempotent, but `move` accumulates - two
+    # identical move calls move the vertices twice - so the tool as a whole is
+    # not, and an agent that retries must not assume it is.
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+      open_world_hint: false
+    intent: "Read or move Editable Poly vertices in world coordinates."
+    tool_role: action
+    risk: medium
+    search_aliases:
+      ["edit_vertices", "edit vertices", "move vertices", "align vertices", "set vertex position"]
+    side_effects:
+      creates: false
+      modifies: true
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: ["scene_node:mesh", "mesh_topology"]
+    produces: ["mesh_topology", "vertex_positions"]
+    undo:
+      supported: true
+      granularity: batch_call
+      notes: >-
+        One write per vertex with no undo hold, so the host may group the batch
+        into one entry or keep one per vertex and the adapter cannot query
+        which. Undo once, re-read the vertices, then repeat while they still
+        differ. Use mesh_edit when several different component edits have to
+        collapse into a single undo step.
+    call_examples:
+      - arguments:
+          action: align
+          node_name: panel
+          vertex_indices: [1, 2, 3, 4]
+          axis: z
+          mode: min
+        note: "Flatten the selected vertices onto their lowest Z"
+
+  - name: mesh_edit
+    description: >-
+      Apply up to 256 Editable Poly component edits - move, set, align, weld,
+      or delete vertices, delete edges, delete or detach faces, assign material
+      IDs and smoothing groups - as one atomic, reversible batch. Every op is
+      range-checked before the first write, the accepted ops run inside one host
+      undo hold, and a failure part-way through cancels that hold so the whole
+      batch rolls back. On a host that cannot open a hold the batch is refused
+      unless allow_ungrouped explicitly accepts per-op undo entries, and the
+      result then says it was not grouped and that the applied ops could not be
+      rolled back automatically.
+    source_file: action_mesh_edit.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      additionalProperties: false
+      required: [ops]
+      properties:
+        node_name: {type: string, minLength: 1, maxLength: 255}
+        handle: {type: integer}
+        ops:
+          type: array
+          minItems: 1
+          maxItems: 256
+          description: >-
+            Component edits, applied in order inside one undo hold.
+          items:
+            type: object
+            additionalProperties: false
+            required: [op, indices]
+            properties:
+              op:
+                type: string
+                enum:
+                  [
+                    move_vertices,
+                    set_vertices,
+                    align_vertices,
+                    weld_vertices,
+                    delete_vertices,
+                    delete_edges,
+                    delete_faces,
+                    detach_faces,
+                    set_face_material_id,
+                    set_face_smoothing_group,
+                  ]
+              indices:
+                type: array
+                minItems: 1
+                maxItems: 4096
+                description: 1-based component indices the op acts on.
+                items: {type: integer, minimum: 1}
+              offset:
+                type: array
+                minItems: 3
+                maxItems: 3
+                description: XYZ delta for move_vertices.
+                items: {type: number}
+              positions:
+                type: array
+                minItems: 1
+                maxItems: 10000
+                description: >-
+                  Target positions for set_vertices, one entry per index.
+                items:
+                  type: array
+                  minItems: 3
+                  maxItems: 3
+                  items: {type: number}
+              axis:
+                type: string
+                enum: [x, y, z, xy, xz, yz, xyz]
+                default: xyz
+                description: Axes to flatten for align_vertices.
+              mode:
+                type: string
+                enum: [mean, min, max]
+                default: mean
+                description: >-
+                  Value the selected vertices align to along each chosen axis.
+              material_id:
+                type: integer
+                minimum: 1
+                maximum: 65535
+                description: Material ID for set_face_material_id.
+              smoothing_group:
+                type: integer
+                minimum: 0
+                maximum: 32
+                description: Smoothing group for set_face_smoothing_group.
+              name:
+                type: string
+                minLength: 1
+                maxLength: 255
+                description: Name of the new node created by detach_faces.
+              space:
+                type: string
+                enum: [world, object]
+                default: world
+                description: >-
+                  Coordinate space of offset and positions. World is the
+                  default and is mapped through the node transform.
+        dry_run:
+          type: boolean
+          default: false
+          description: >-
+            Run the preflight and report the planned ops without writing.
+        allow_ungrouped:
+          type: boolean
+          default: false
+          description: >-
+            Apply the batch even when the host cannot open an undo hold, which
+            means each op may leave its own undo entry and a part-way failure
+            cannot be rolled back automatically.
+        label:
+          type: string
+          minLength: 1
+          maxLength: 255
+          default: mesh edit
+          description: Label the host shows for the undo entry.
+    output_schema:
+      type: object
+      additionalProperties: true
+      properties:
+        success: {type: boolean}
+        status: {type: string}
+        message: {type: string}
+        data: {type: object}
+    timeout_hint_secs: 120
+    read_only: false
+    destructive: true
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: true
+      idempotent_hint: false
+      open_world_hint: false
+    intent: "Apply a batch of component edits as one atomic, reversible step."
+    tool_role: action
+    risk: high
+    search_aliases:
+      ["mesh_edit", "mesh edit", "edit components", "batch mesh edit", "delete faces", "weld vertices"]
+    side_effects:
+      creates: true
+      modifies: true
+      deletes: true
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: ["scene_node:mesh", "mesh_topology"]
+    produces: ["scene_nodes", "mesh_topology", "edit_result"]
+    undo:
+      supported: true
+      granularity: single_call
+      notes: >-
+        Every edit in the batch is written inside one host undo hold, so one
+        undo_last reverses the whole call. undo.grouped is false only when the
+        host could not open a hold, which the tool refuses unless
+        allow_ungrouped is true; in that case each op may have left its own
+        undo entry and a part-way failure could not be rolled back, and the
+        result says so instead of claiming a clean rollback.
+    call_examples:
+      - arguments:
+          node_name: panel
+          ops:
+            - {op: move_vertices, indices: [1, 2], offset: [0, 0, 5]}
+            - {op: set_face_smoothing_group, indices: [1, 2], smoothing_group: 2}
+          label: lift panel lip
+        note: "Move two vertices and re-shade two faces as one undoable batch"
+
+  - name: pick_component
+    description: >-
+      Resolve a viewport image position - or an explicit world ray - to an
+      Editable Poly component: a face index, plus the nearest vertex and edge
+      when asked for. The host ray cast reports the face it hit and the point
+      is then checked against that face, so a face the host named but the point
+      does not lie on is reported as unverified rather than trusted. A clean
+      miss is a successful result with hit false. When the host exposes no
+      viewport position to world ray entry point the call fails and names every
+      candidate it probed; supply ray_origin and ray_direction instead, which
+      needs no host mapping.
+    source_file: action_pick_component.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        node_name: {type: string, minLength: 1, maxLength: 255}
+        handle: {type: integer}
+        use_selection:
+          type: boolean
+          default: false
+          description: >-
+            Cast at the current selection instead of an explicit node.
+        image_x:
+          type: number
+          description: >-
+            Horizontal viewport position in pixels. Requires image_y. Passed to
+            the host mapping entry point unchanged; not converted.
+        image_y:
+          type: number
+          description: >-
+            Vertical viewport position in pixels. Requires image_x. Passed to
+            the host mapping entry point unchanged; not converted.
+        image_space:
+          type: string
+          enum: [pixels]
+          default: pixels
+          description: >-
+            Unit of image_x/image_y. Only pixels is supported: the viewport
+            size cannot be queried here, so normalized 0..1 coordinates cannot
+            be converted and are rejected rather than passed through as
+            pixels.
+        ray_origin:
+          type: array
+          minItems: 3
+          maxItems: 3
+          description: >-
+            World-space ray origin. Use with ray_direction when the host
+            exposes no image position mapping.
+          items: {type: number}
+        ray_direction:
+          type: array
+          minItems: 3
+          maxItems: 3
+          description: World-space ray direction; normalized by the tool.
+          items: {type: number}
+        component:
+          type: string
+          enum: [face, vertex, edge]
+          default: face
+          description: >-
+            Component to resolve. vertex and edge are derived from the hit
+            face by proximity.
+    output_schema:
+      type: object
+      additionalProperties: true
+      properties:
+        success: {type: boolean}
+        status: {type: string}
+        message: {type: string}
+        data: {type: object}
+    timeout_hint_secs: 30
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+    intent: "Map an image position or a world ray onto an editable component."
+    tool_role: inspection
+    risk: low
+    search_aliases:
+      ["pick_component", "pick component", "viewport pick", "ray pick", "hit test face"]
+    side_effects:
+      creates: false
+      modifies: false
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: []
+    produces: ["component_indices", "ray_hit"]
+    call_examples:
+      - arguments:
+          node_name: panel
+          ray_origin: [0, 0, 100]
+          ray_direction: [0, 0, -1]
+          component: vertex
+        note: "Pick the vertex nearest the point a downward ray hits on panel"

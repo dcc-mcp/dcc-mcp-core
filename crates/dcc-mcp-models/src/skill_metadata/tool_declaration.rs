@@ -308,16 +308,25 @@ pub struct ToolDeclaration {
     /// Enforce that runtime execution happens on the declared affinity thread.
     ///
     /// Defaults to `true` whenever the declaration explicitly provides
-    /// `thread_affinity` / `affinity`. Legacy tools that omit an affinity
-    /// contract keep the compatibility default (`false`), and explicit
-    /// `enforce_thread_affinity: false` remains an escape hatch for adapters
-    /// that intentionally flatten routing in a standalone context.
-    #[serde(
-        default,
-        rename = "enforce_thread_affinity",
-        alias = "enforce-thread-affinity",
-        skip_serializing_if = "std::ops::Not::not"
-    )]
+    /// `thread_affinity` / `affinity`, and to `false` otherwise (legacy tools
+    /// that omit an affinity contract keep the compatibility default).
+    ///
+    /// An explicit `enforce_thread_affinity: false` is always honoured, as an
+    /// escape hatch for adapters that intentionally flatten routing in a
+    /// standalone context.
+    ///
+    /// The `true` half of that contract is applied by the custom
+    /// [`ToolDeclaration`] deserializer below, which is the only path that
+    /// deserialises this type and the only one that can see whether an
+    /// affinity was declared at all.
+    ///
+    /// There is deliberately **no** `skip_serializing_if` here. The
+    /// effective default is `true` in the presence of an explicit affinity,
+    /// so omitting the field on serialize would turn an explicit `false`
+    /// back into `true` on the next parse and make the type fail to
+    /// round-trip. That is exactly the bug that made the skills-benchmark
+    /// seed snapshot compare unequal to a live harvest of the same skills.
+    #[serde(rename = "enforce_thread_affinity", alias = "enforce-thread-affinity")]
     pub enforce_thread_affinity: bool,
 
     /// Reject the legacy user-level `deferred: true` flag with a clear error.

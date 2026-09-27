@@ -10,6 +10,11 @@ compatibility: Requires curl binary on PATH
 allowed-tools: Bash Read
 metadata:
   dcc-mcp:
+    recall-context:
+      app_type: python
+      domain: interchange
+      workflow_stage: reference
+      task_category: query
     dcc: python
     layer: example
     version: "1.0.0"

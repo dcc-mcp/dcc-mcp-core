@@ -1,0 +1,259 @@
+tools:
+  - name: create_blueprint_class
+    description: >-
+      Create a new Blueprint class in the Unreal Editor.
+      The Blueprint is created at /Game/Blueprints/{blueprint_name}
+      and inherits from the specified parent class.
+    source_file: scripts/create_blueprint_class.py
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 30
+    read_only: false
+    destructive: false
+    idempotent: false
+    input_schema:
+      type: object
+      properties:
+        blueprint_name:
+          type: string
+          description: Name for the new Blueprint class (e.g. "BP_MyActor")
+        parent_class:
+          type: string
+          description: Parent class name (e.g. "Actor", "Pawn", "Character")
+          default: "Actor"
+        package_path:
+          type: string
+          description: Content Browser path for the Blueprint asset
+          default: "/Game/Blueprints"
+      required: ["blueprint_name"]
+    next-tools:
+      on-success: [unreal_blueprints__add_component_to_blueprint, unreal_blueprints__compile_blueprint]
+      on-failure: [dcc_diagnostics__audit_log]
+
+  - name: add_component_to_blueprint
+    description: >-
+      Add a component to a Blueprint's component hierarchy.
+      Supports common component types: StaticMeshComponent, BoxComponent,
+      SphereComponent, CameraComponent, etc.
+    source_file: scripts/add_component_to_blueprint.py
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 30
+    read_only: false
+    destructive: false
+    idempotent: false
+    input_schema:
+      type: object
+      properties:
+        blueprint_name:
+          type: string
+          description: Name of the target Blueprint
+        component_type:
+          type: string
+          description: Type of component to add (e.g. "StaticMeshComponent")
+        component_name:
+          type: string
+          description: Name for the new component
+      required: ["blueprint_name", "component_type", "component_name"]
+
+  - name: add_event_node
+    description: >-
+      Add an event node to a Blueprint's event graph.
+      Supports: ReceiveBeginPlay, ReceiveTick, ReceiveEndPlay,
+      and custom events.
+    source_file: scripts/add_event_node.py
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 30
+    read_only: false
+    destructive: false
+    idempotent: false
+    input_schema:
+      type: object
+      properties:
+        blueprint_name:
+          type: string
+          description: Name of the target Blueprint
+        event_name:
+          type: string
+          description: Event name. Use "ReceiveBeginPlay", "ReceiveTick", etc.
+        node_position:
+          type: array
+          description: Optional [X, Y] position in the graph
+          items:
+            type: number
+      required: ["blueprint_name", "event_name"]
+    next-tools:
+      on-success: [unreal_blueprints__connect_nodes]
+
+  - name: add_function_node
+    description: >-
+      Add a function call node to a Blueprint's event graph.
+      The function is called on the specified target object.
+    source_file: scripts/add_function_node.py
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 30
+    read_only: false
+    destructive: false
+    idempotent: false
+    input_schema:
+      type: object
+      properties:
+        blueprint_name:
+          type: string
+          description: Name of the target Blueprint
+        target:
+          type: string
+          description: Target object (component name or "self")
+        function_name:
+          type: string
+          description: Name of the function to call
+        node_position:
+          type: array
+          description: Optional [X, Y] position in the graph
+          items:
+            type: number
+      required: ["blueprint_name", "target", "function_name"]
+    next-tools:
+      on-success: [unreal_blueprints__connect_nodes]
+
+  - name: connect_nodes
+    description: >-
+      Connect two nodes in a Blueprint's event graph by linking
+      a source pin to a target pin.
+    source_file: scripts/connect_nodes.py
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 30
+    read_only: false
+    destructive: false
+    idempotent: true
+    input_schema:
+      type: object
+      properties:
+        blueprint_name:
+          type: string
+          description: Name of the target Blueprint
+        source_node_id:
+          type: string
+          description: ID of the source node
+        source_pin:
+          type: string
+          description: Name of the output pin on the source node
+        target_node_id:
+          type: string
+          description: ID of the target node
+        target_pin:
+          type: string
+          description: Name of the input pin on the target node
+      required: ["blueprint_name", "source_node_id", "source_pin", "target_node_id", "target_pin"]
+
+  - name: layout_blueprint_graph
+    description: >-
+      Automatically lay out a Blueprint graph from left to right. Connected
+      nodes are grouped by dependency depth and unconnected nodes never overlap.
+    source_file: scripts/layout_blueprint_graph.py
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 30
+    read_only: false
+    destructive: false
+    idempotent: true
+    input_schema:
+      type: object
+      properties:
+        blueprint_name:
+          type: string
+          description: Name of the target Blueprint
+        graph_name:
+          type: string
+          description: Name of the graph to lay out
+          default: EventGraph
+        horizontal_spacing:
+          type: integer
+          description: Horizontal distance between dependency columns
+          default: 400
+        vertical_spacing:
+          type: integer
+          description: Vertical distance between nodes in one column
+          default: 220
+      required: ["blueprint_name"]
+
+  - name: add_variable
+    description: >-
+      Add a member variable to a Blueprint with specified type
+      and exposure settings.
+    source_file: scripts/add_variable.py
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 30
+    read_only: false
+    destructive: false
+    idempotent: false
+    input_schema:
+      type: object
+      properties:
+        blueprint_name:
+          type: string
+          description: Name of the target Blueprint
+        variable_name:
+          type: string
+          description: Name for the new variable
+        variable_type:
+          type: string
+          description: Type of the variable (Boolean, Integer, Float, Vector, etc.)
+        is_exposed:
+          type: boolean
+          description: Whether to expose the variable in the editor
+          default: false
+      required: ["blueprint_name", "variable_name", "variable_type"]
+
+  - name: compile_blueprint
+    description: >-
+      Compile a Blueprint class, applying all pending graph changes.
+      Should be called after modifying nodes or variables.
+    source_file: scripts/compile_blueprint.py
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 60
+    read_only: false
+    destructive: false
+    idempotent: true
+    input_schema:
+      type: object
+      properties:
+        blueprint_name:
+          type: string
+          description: Name of the Blueprint to compile
+      required: ["blueprint_name"]
+
+  - name: find_nodes
+    description: >-
+      Find nodes in a Blueprint's event graph by type or event name.
+      Returns node IDs that can be used with connect_nodes.
+    source_file: scripts/find_nodes.py
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 30
+    read_only: true
+    destructive: false
+    idempotent: true
+    input_schema:
+      type: object
+      properties:
+        blueprint_name:
+          type: string
+          minLength: 1
+          maxLength: 256
+          description: A non-empty asset name under /Game/Blueprints; missing assets return reason=not_found.
+        node_type:
+          type: string
+          maxLength: 256
+          description: Optional case-insensitive substring filter for the reflected node class.
+        event_type:
+          type: string
+          maxLength: 256
+          description: Optional case-insensitive substring filter for the reflected node title.
+      required: ["blueprint_name"]
+      additionalProperties: false

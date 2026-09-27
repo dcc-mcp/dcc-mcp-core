@@ -9,6 +9,11 @@ description: >-
 license: MIT
 metadata:
   dcc-mcp:
+    recall-context:
+      app_type: python
+      domain: orchestration
+      workflow_stage: pipeline
+      task_category: orchestrate
     dcc: python
     version: "1.0.0"
     layer: infrastructure

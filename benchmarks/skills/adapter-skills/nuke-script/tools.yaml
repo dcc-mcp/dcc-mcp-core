@@ -1,0 +1,109 @@
+tools:
+  - name: open_script
+    description: Open an existing absolute .nk path and verify the loaded Root and graph.
+    input_schema:
+      type: object
+      required: [path]
+      properties:
+        path: {type: string, description: Absolute path to an existing .nk script.}
+        discard_unsaved_changes:
+          type: boolean
+          default: false
+          description: Explicitly allow replacing a modified current script without saving it.
+    read_only: false
+    destructive: true
+    idempotent: false
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 60
+    source_file: scripts/open_script.py
+  - name: inspect_script
+    description: Inspect the active Nuke script, frame range, and selected nodes without changing it.
+    input_schema: {type: object, properties: {}}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 15
+    source_file: scripts/inspect_script.py
+  - name: list_nodes
+    description: List bounded node identities, input topology, and non-executable knob values without modifying the graph.
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        max_nodes: {type: integer, minimum: 1, maximum: 1000, default: 256}
+        max_knobs_per_node: {type: integer, minimum: 0, maximum: 128, default: 64}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 30
+    source_file: scripts/list_nodes.py
+  - name: inspect_read_nodes
+    description: Inspect Read file paths, frame ranges, multipart EXR parts, and a bounded channel sample without changing the script.
+    input_schema:
+      type: object
+      properties:
+        node_name: {type: string, minLength: 1, description: Optional exact Read node name.}
+        channel_limit: {type: integer, minimum: 1, maximum: 2048, default: 256}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 30
+    source_file: scripts/inspect_read_nodes.py
+  - name: sample_channel_statistics
+    description: Sample bounded per-channel min, max, mean, all-zero, and non-finite diagnostics on one Nuke image frame without changing the script.
+    input_schema:
+      type: object
+      required: [node_name, channels]
+      properties:
+        node_name: {type: string, minLength: 1, description: Exact image node name.}
+        channels:
+          type: array
+          minItems: 1
+          maxItems: 16
+          uniqueItems: true
+          items: {type: string, minLength: 1}
+          description: Exact channel names or layer names expanded from the node's available channels.
+        frame: {type: integer, description: Frame to evaluate; defaults to the current frame.}
+        roi:
+          type: object
+          required: [x, y, width, height]
+          additionalProperties: false
+          properties:
+            x: {type: integer}
+            y: {type: integer}
+            width: {type: integer, minimum: 1}
+            height: {type: integer, minimum: 1}
+        max_samples_per_channel:
+          type: integer
+          minimum: 1
+          maximum: 4096
+          default: 1024
+          description: Maximum uniform filtered tile samples evaluated for each resolved channel.
+        zero_epsilon: {type: number, minimum: 0, default: 0, description: Absolute threshold used by all_zero.}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 60
+    source_file: scripts/sample_channel_statistics.py
+  - name: save_script
+    description: Save the current Nuke script to an explicit absolute .nk path.
+    input_schema:
+      type: object
+      required: [path]
+      properties: {path: {type: string, description: Absolute .nk output path.}}
+    read_only: false
+    destructive: true
+    idempotent: false
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 60
+    source_file: scripts/save_script.py

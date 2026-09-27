@@ -1,0 +1,37 @@
+tools:
+  - name: inspect_scene
+    description: Return metadata for the current MotionBuilder scene.
+    input_schema: {type: object, properties: {}}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 15
+    source_file: scripts/inspect_scene.py
+  - name: list_models
+    description: List models in the current MotionBuilder scene.
+    input_schema: {type: object, properties: {}}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 30
+    source_file: scripts/list_models.py
+  - name: save_scene
+    description: Save the current MotionBuilder scene to an absolute FBX path.
+    input_schema:
+      type: object
+      required: [path]
+      properties:
+        path:
+          type: string
+          description: Absolute output path ending in .fbx.
+    read_only: false
+    destructive: true
+    idempotent: false
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 60
+    source_file: scripts/save_scene.py

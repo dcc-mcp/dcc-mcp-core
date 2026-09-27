@@ -1,0 +1,97 @@
+tools:
+  - name: create_animation_tree
+    description: Create and configure an AnimationTree node. Parameters are validated again by the Godot host.
+    input_schema: {"type":"object","properties":{"node_path":{"type":"string","maxLength":500},"parent_path":{"type":"string","maxLength":500},"name":{"type":"string","maxLength":500},"tree_type":{"type":"string","enum":["state_machine","blend_tree"]},"parameter":{"type":"string","maxLength":500},"value":{},"state":{"type":"string","maxLength":500},"animation":{"type":"string","maxLength":500},"from":{"type":"string","maxLength":500},"to":{"type":"string","maxLength":500},"type":{"type":"string","maxLength":500},"position":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":4}},"additionalProperties":true}
+    output_schema: {type: object}
+    read_only: false
+    destructive: false
+    idempotent: false
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    source_file: scripts/dispatch.py
+  - name: get_animation_tree_structure
+    description: Return AnimationTree parameters and tree type. Parameters are validated again by the Godot host.
+    input_schema: {"type":"object","properties":{"node_path":{"type":"string","maxLength":500},"parent_path":{"type":"string","maxLength":500},"name":{"type":"string","maxLength":500},"tree_type":{"type":"string","enum":["state_machine","blend_tree"]},"parameter":{"type":"string","maxLength":500},"value":{},"state":{"type":"string","maxLength":500},"animation":{"type":"string","maxLength":500},"from":{"type":"string","maxLength":500},"to":{"type":"string","maxLength":500},"type":{"type":"string","maxLength":500},"position":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":4}},"additionalProperties":true}
+    output_schema: {type: object}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    source_file: scripts/dispatch.py
+  - name: set_tree_parameter
+    description: Set an AnimationTree parameter. Parameters are validated again by the Godot host.
+    input_schema: {"type":"object","properties":{"node_path":{"type":"string","maxLength":500},"parent_path":{"type":"string","maxLength":500},"name":{"type":"string","maxLength":500},"tree_type":{"type":"string","enum":["state_machine","blend_tree"]},"parameter":{"type":"string","maxLength":500},"value":{},"state":{"type":"string","maxLength":500},"animation":{"type":"string","maxLength":500},"from":{"type":"string","maxLength":500},"to":{"type":"string","maxLength":500},"type":{"type":"string","maxLength":500},"position":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":4}},"additionalProperties":true}
+    output_schema: {type: object}
+    read_only: false
+    destructive: false
+    idempotent: false
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    source_file: scripts/dispatch.py
+  - name: add_state_machine_state
+    description: Add a state-machine animation node. Parameters are validated again by the Godot host.
+    input_schema: {"type":"object","properties":{"node_path":{"type":"string","maxLength":500},"parent_path":{"type":"string","maxLength":500},"name":{"type":"string","maxLength":500},"tree_type":{"type":"string","enum":["state_machine","blend_tree"]},"parameter":{"type":"string","maxLength":500},"value":{},"state":{"type":"string","maxLength":500},"animation":{"type":"string","maxLength":500},"from":{"type":"string","maxLength":500},"to":{"type":"string","maxLength":500},"type":{"type":"string","maxLength":500},"position":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":4}},"additionalProperties":true}
+    output_schema: {type: object}
+    read_only: false
+    destructive: false
+    idempotent: false
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    source_file: scripts/dispatch.py
+  - name: remove_state_machine_state
+    description: Remove a state-machine node. Parameters are validated again by the Godot host.
+    input_schema: {"type":"object","properties":{"node_path":{"type":"string","maxLength":500},"parent_path":{"type":"string","maxLength":500},"name":{"type":"string","maxLength":500},"tree_type":{"type":"string","enum":["state_machine","blend_tree"]},"parameter":{"type":"string","maxLength":500},"value":{},"state":{"type":"string","maxLength":500},"animation":{"type":"string","maxLength":500},"from":{"type":"string","maxLength":500},"to":{"type":"string","maxLength":500},"type":{"type":"string","maxLength":500},"position":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":4}},"additionalProperties":true}
+    output_schema: {type: object}
+    read_only: false
+    destructive: false
+    idempotent: false
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    source_file: scripts/dispatch.py
+  - name: add_state_machine_transition
+    description: Add a state-machine transition. Parameters are validated again by the Godot host.
+    input_schema: {"type":"object","properties":{"node_path":{"type":"string","maxLength":500},"parent_path":{"type":"string","maxLength":500},"name":{"type":"string","maxLength":500},"tree_type":{"type":"string","enum":["state_machine","blend_tree"]},"parameter":{"type":"string","maxLength":500},"value":{},"state":{"type":"string","maxLength":500},"animation":{"type":"string","maxLength":500},"from":{"type":"string","maxLength":500},"to":{"type":"string","maxLength":500},"type":{"type":"string","maxLength":500},"position":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":4}},"additionalProperties":true}
+    output_schema: {type: object}
+    read_only: false
+    destructive: false
+    idempotent: false
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    source_file: scripts/dispatch.py
+  - name: remove_state_machine_transition
+    description: Remove a state-machine transition. Parameters are validated again by the Godot host.
+    input_schema: {"type":"object","properties":{"node_path":{"type":"string","maxLength":500},"parent_path":{"type":"string","maxLength":500},"name":{"type":"string","maxLength":500},"tree_type":{"type":"string","enum":["state_machine","blend_tree"]},"parameter":{"type":"string","maxLength":500},"value":{},"state":{"type":"string","maxLength":500},"animation":{"type":"string","maxLength":500},"from":{"type":"string","maxLength":500},"to":{"type":"string","maxLength":500},"type":{"type":"string","maxLength":500},"position":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":4}},"additionalProperties":true}
+    output_schema: {type: object}
+    read_only: false
+    destructive: false
+    idempotent: false
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    source_file: scripts/dispatch.py
+  - name: set_blend_tree_node
+    description: Add or replace an AnimationNode in a blend tree. Parameters are validated again by the Godot host.
+    input_schema: {"type":"object","properties":{"node_path":{"type":"string","maxLength":500},"parent_path":{"type":"string","maxLength":500},"name":{"type":"string","maxLength":500},"tree_type":{"type":"string","enum":["state_machine","blend_tree"]},"parameter":{"type":"string","maxLength":500},"value":{},"state":{"type":"string","maxLength":500},"animation":{"type":"string","maxLength":500},"from":{"type":"string","maxLength":500},"to":{"type":"string","maxLength":500},"type":{"type":"string","maxLength":500},"position":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":4}},"additionalProperties":true}
+    output_schema: {type: object}
+    read_only: false
+    destructive: false
+    idempotent: false
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    source_file: scripts/dispatch.py

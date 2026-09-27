@@ -9,6 +9,11 @@ license: MIT
 compatibility: Python 3.7+
 metadata:
   dcc-mcp:
+    recall-context:
+      app_type: python
+      domain: runtime
+      workflow_stage: authoring
+      task_category: mutate
     dcc: python
     version: "1.0.0"
     layer: example

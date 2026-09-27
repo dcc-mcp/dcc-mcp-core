@@ -1,0 +1,78 @@
+tools:
+  - name: inspect_composition
+    description: Inspect one composition and its complete and selected layer lists.
+    input_schema:
+      type: object
+      required: [composition]
+      properties: {composition: {description: Composition id, index, or exact name.}}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 30
+    source_file: scripts/inspect_composition.py
+  - name: inspect_layer
+    description: Inspect layer metadata, source text, effects, and masks.
+    input_schema:
+      type: object
+      required: [composition, layer]
+      properties:
+        composition: {description: Composition id, index, or exact name.}
+        layer: {description: Layer id, index, or exact name.}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 30
+    source_file: scripts/inspect_layer.py
+  - name: create_layer
+    description: Create a text, solid, or footage layer in a composition.
+    input_schema:
+      type: object
+      required: [composition, layer_type]
+      properties:
+        composition: {description: Composition id, index, or exact name.}
+        layer_type: {type: string, enum: [text, solid, footage]}
+        text: {type: string}
+        name: {type: string}
+        color: {type: array, minItems: 3, maxItems: 4, items: {type: number}}
+        width: {type: integer, minimum: 1}
+        height: {type: integer, minimum: 1}
+        pixel_aspect: {type: number, exclusiveMinimum: 0, default: 1.0}
+        duration: {type: number, exclusiveMinimum: 0}
+        footage_item: {description: Footage item id, index, or exact name.}
+    read_only: false
+    destructive: false
+    idempotent: false
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 30
+    source_file: scripts/create_layer.py
+  - name: update_layer
+    description: Update text, transform, keyframes, or stacking order for one layer.
+    input_schema:
+      type: object
+      required: [composition, layer]
+      properties:
+        composition: {description: Composition id, index, or exact name.}
+        layer: {description: Layer id, index, or exact name.}
+        text: {type: string}
+        text_properties: {type: object}
+        position: {type: array, items: {type: number}}
+        scale: {type: array, items: {type: number}}
+        rotation: {type: number}
+        opacity: {type: number}
+        anchor_point: {type: array, items: {type: number}}
+        property_name: {type: string}
+        keyframes: {type: array, items: {type: object}}
+        move: {type: string, enum: [beginning, end, before, after]}
+        relative_to: {description: Target layer id, index, or exact name.}
+    read_only: false
+    destructive: true
+    idempotent: false
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 60
+    source_file: scripts/update_layer.py

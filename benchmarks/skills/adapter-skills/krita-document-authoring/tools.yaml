@@ -1,0 +1,295 @@
+tools:
+  - name: get_status
+    description: Verify the authenticated Krita bridge, main-thread executor, allowed roots, version, and typed command catalog.
+    input_schema: {type: object, properties: {}, additionalProperties: false}
+    output_schema: {type: object}
+    execution: async
+    job_strategy: monolithic
+    affinity: any
+    enforce_thread_affinity: true
+    timeout_hint_secs: 120
+    annotations: {read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false, deferred_hint: true}
+    source_file: scripts/get_status.py
+
+  - name: list_documents
+    description: List documents in this Krita instance with instance-scoped IDs and bounded metadata.
+    input_schema: {type: object, properties: {}, additionalProperties: false}
+    output_schema: {type: object}
+    execution: async
+    job_strategy: monolithic
+    affinity: any
+    enforce_thread_affinity: true
+    timeout_hint_secs: 120
+    annotations: {read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false, deferred_hint: true}
+    source_file: scripts/list_documents.py
+    next-tools: {on-success: [inspect_document]}
+
+  - name: get_active_document
+    description: Return bounded metadata for the active Krita document, or null when none is active.
+    input_schema: {type: object, properties: {}, additionalProperties: false}
+    output_schema: {type: object}
+    execution: async
+    job_strategy: monolithic
+    affinity: any
+    enforce_thread_affinity: true
+    timeout_hint_secs: 120
+    annotations: {read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false, deferred_hint: true}
+    source_file: scripts/get_active_document.py
+
+  - name: inspect_document
+    description: Inspect one document and its bounded layer tree, including type, visibility, lock, opacity, and hierarchy metadata.
+    input_schema:
+      type: object
+      required: [document_id]
+      properties: {document_id: {type: string, minLength: 1, maxLength: 128}}
+      additionalProperties: false
+    output_schema: {type: object}
+    execution: async
+    job_strategy: monolithic
+    affinity: any
+    enforce_thread_affinity: true
+    timeout_hint_secs: 120
+    annotations: {read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false, deferred_hint: true}
+    source_file: scripts/inspect_document.py
+
+  - name: list_layers
+    description: Return the bounded flattened layer hierarchy for one open Krita document.
+    input_schema:
+      type: object
+      required: [document_id]
+      properties: {document_id: {type: string, minLength: 1, maxLength: 128}}
+      additionalProperties: false
+    output_schema: {type: object}
+    execution: async
+    job_strategy: monolithic
+    affinity: any
+    enforce_thread_affinity: true
+    timeout_hint_secs: 120
+    annotations: {read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false, deferred_hint: true}
+    source_file: scripts/list_layers.py
+
+  - name: create_document
+    description: Create and show a bounded RGBA/U8 Krita document.
+    input_schema:
+      type: object
+      required: [width, height, name]
+      properties:
+        width: {type: integer, minimum: 1, maximum: 16384}
+        height: {type: integer, minimum: 1, maximum: 16384}
+        name: {type: string, minLength: 1, maxLength: 256}
+        resolution: {type: number, minimum: 1, maximum: 2400, default: 300}
+      additionalProperties: false
+    output_schema: {type: object}
+    execution: async
+    job_strategy: monolithic
+    affinity: any
+    enforce_thread_affinity: true
+    timeout_hint_secs: 120
+    annotations: {read_only_hint: false, destructive_hint: false, idempotent_hint: false, open_world_hint: false, deferred_hint: true}
+    source_file: scripts/create_document.py
+    next-tools: {on-success: [create_paint_layer, save_document]}
+
+  - name: open_document
+    description: Open one bounded supported image or KRA file under an allowed root and show it in Krita.
+    input_schema:
+      type: object
+      required: [path]
+      properties:
+        path: {type: string, minLength: 1, maxLength: 2048}
+        timeout_secs: {type: number, minimum: 1, maximum: 1800, default: 120}
+      additionalProperties: false
+    output_schema: {type: object}
+    execution: async
+    job_strategy: monolithic
+    affinity: any
+    enforce_thread_affinity: true
+    timeout_hint_secs: 1800
+    annotations: {read_only_hint: false, destructive_hint: false, idempotent_hint: false, open_world_hint: false, deferred_hint: true}
+    source_file: scripts/open_document.py
+    next-tools: {on-success: [inspect_document]}
+
+  - name: save_document
+    description: Save a layered document as KRA under an allowed root, with explicit overwrite opt-in.
+    input_schema:
+      type: object
+      required: [document_id]
+      properties:
+        document_id: {type: string, minLength: 1, maxLength: 128}
+        path: {type: string, minLength: 1, maxLength: 2048}
+        overwrite: {type: boolean, default: false}
+        timeout_secs: {type: number, minimum: 1, maximum: 1800, default: 300}
+      additionalProperties: false
+    output_schema: {type: object}
+    execution: async
+    job_strategy: monolithic
+    affinity: any
+    enforce_thread_affinity: true
+    timeout_hint_secs: 1800
+    annotations: {read_only_hint: false, destructive_hint: true, idempotent_hint: false, open_world_hint: false, deferred_hint: true}
+    source_file: scripts/save_document.py
+
+  - name: export_document
+    description: Export one document to PNG, JPEG, WebP, or TIFF under an allowed root and return bytes plus SHA-256.
+    input_schema:
+      type: object
+      required: [document_id, path]
+      properties:
+        document_id: {type: string, minLength: 1, maxLength: 128}
+        path: {type: string, minLength: 1, maxLength: 2048}
+        overwrite: {type: boolean, default: false}
+        compression: {type: integer, minimum: 1, maximum: 9, default: 6}
+        quality: {type: integer, minimum: 0, maximum: 100, default: 90}
+        alpha: {type: boolean, default: true}
+        force_srgb: {type: boolean, default: true}
+        timeout_secs: {type: number, minimum: 1, maximum: 1800, default: 300}
+      additionalProperties: false
+    output_schema: {type: object}
+    execution: async
+    job_strategy: monolithic
+    affinity: any
+    enforce_thread_affinity: true
+    timeout_hint_secs: 1800
+    annotations: {read_only_hint: false, destructive_hint: true, idempotent_hint: false, open_world_hint: false, deferred_hint: true}
+    source_file: scripts/export_document.py
+
+  - name: create_paint_layer
+    description: Create a paint layer at the root or inside a referenced group and make it active.
+    input_schema:
+      type: object
+      required: [document_id, name]
+      properties:
+        document_id: {type: string, minLength: 1, maxLength: 128}
+        name: {type: string, minLength: 1, maxLength: 256}
+        parent_id: {type: string, minLength: 1, maxLength: 128}
+      additionalProperties: false
+    output_schema: {type: object}
+    execution: async
+    job_strategy: monolithic
+    affinity: any
+    enforce_thread_affinity: true
+    timeout_hint_secs: 120
+    annotations: {read_only_hint: false, destructive_hint: false, idempotent_hint: false, open_world_hint: false, deferred_hint: true}
+    source_file: scripts/create_paint_layer.py
+    next-tools: {on-success: [fill_rectangle, set_layer_properties]}
+
+  - name: fill_rectangle
+    description: Fill a bounded rectangle on an RGBA/U8 paint layer with a typed RGB or RGBA color.
+    input_schema:
+      type: object
+      required: [document_id, node_id, x, y, width, height, color]
+      properties:
+        document_id: {type: string, minLength: 1, maxLength: 128}
+        node_id: {type: string, minLength: 1, maxLength: 128}
+        x: {type: integer, minimum: 0}
+        y: {type: integer, minimum: 0}
+        width: {type: integer, minimum: 1}
+        height: {type: integer, minimum: 1}
+        color:
+          type: array
+          minItems: 3
+          maxItems: 4
+          items: {type: integer, minimum: 0, maximum: 255}
+      additionalProperties: false
+    output_schema: {type: object}
+    execution: async
+    job_strategy: monolithic
+    affinity: any
+    enforce_thread_affinity: true
+    timeout_hint_secs: 300
+    annotations: {read_only_hint: false, destructive_hint: true, idempotent_hint: true, open_world_hint: false, deferred_hint: true}
+    source_file: scripts/fill_rectangle.py
+
+  - name: set_layer_properties
+    description: Change typed layer name, visibility, lock state, or opacity.
+    input_schema:
+      type: object
+      required: [document_id, node_id]
+      properties:
+        document_id: {type: string, minLength: 1, maxLength: 128}
+        node_id: {type: string, minLength: 1, maxLength: 128}
+        name: {type: string, minLength: 1, maxLength: 256}
+        visible: {type: boolean}
+        locked: {type: boolean}
+        opacity: {type: integer, minimum: 0, maximum: 255}
+      minProperties: 3
+      additionalProperties: false
+    output_schema: {type: object}
+    execution: async
+    job_strategy: monolithic
+    affinity: any
+    enforce_thread_affinity: true
+    timeout_hint_secs: 120
+    annotations: {read_only_hint: false, destructive_hint: true, idempotent_hint: true, open_world_hint: false, deferred_hint: true}
+    source_file: scripts/set_layer_properties.py
+
+  - name: set_active_layer
+    description: Make one existing layer active in the current Krita view.
+    input_schema:
+      type: object
+      required: [document_id, node_id]
+      properties:
+        document_id: {type: string, minLength: 1, maxLength: 128}
+        node_id: {type: string, minLength: 1, maxLength: 128}
+      additionalProperties: false
+    output_schema: {type: object}
+    execution: async
+    job_strategy: monolithic
+    affinity: any
+    enforce_thread_affinity: true
+    timeout_hint_secs: 120
+    annotations: {read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: false, deferred_hint: true}
+    source_file: scripts/set_active_layer.py
+
+  - name: delete_layer
+    description: Delete one referenced layer from an open document.
+    input_schema:
+      type: object
+      required: [document_id, node_id]
+      properties:
+        document_id: {type: string, minLength: 1, maxLength: 128}
+        node_id: {type: string, minLength: 1, maxLength: 128}
+      additionalProperties: false
+    output_schema: {type: object}
+    execution: async
+    job_strategy: monolithic
+    affinity: any
+    enforce_thread_affinity: true
+    timeout_hint_secs: 120
+    annotations: {read_only_hint: false, destructive_hint: true, idempotent_hint: false, open_world_hint: false, deferred_hint: true}
+    source_file: scripts/delete_layer.py
+
+  - name: flatten_document
+    description: Irreversibly flatten a document after explicit confirmation.
+    input_schema:
+      type: object
+      required: [document_id, confirm]
+      properties:
+        document_id: {type: string, minLength: 1, maxLength: 128}
+        confirm: {type: boolean, const: true}
+      additionalProperties: false
+    output_schema: {type: object}
+    execution: async
+    job_strategy: monolithic
+    affinity: any
+    enforce_thread_affinity: true
+    timeout_hint_secs: 300
+    annotations: {read_only_hint: false, destructive_hint: true, idempotent_hint: false, open_world_hint: false, deferred_hint: true}
+    source_file: scripts/flatten_document.py
+
+  - name: close_document
+    description: Close an open document; modified documents require explicit discard_changes=true.
+    input_schema:
+      type: object
+      required: [document_id]
+      properties:
+        document_id: {type: string, minLength: 1, maxLength: 128}
+        discard_changes: {type: boolean, default: false}
+      additionalProperties: false
+    output_schema: {type: object}
+    execution: async
+    job_strategy: monolithic
+    affinity: any
+    enforce_thread_affinity: true
+    timeout_hint_secs: 120
+    annotations: {read_only_hint: false, destructive_hint: true, idempotent_hint: false, open_world_hint: false, deferred_hint: true}
+    source_file: scripts/close_document.py

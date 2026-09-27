@@ -1,0 +1,299 @@
+tools:
+  - name: get_status
+    description: Return bounded project, dirty-state, node-type, and timeline status.
+    input_schema:
+      type: object
+      properties: {}
+      additionalProperties: false
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 15
+    source_file: scripts/get_status.py
+  - name: inspect_nodegraph
+    description: Return root, selected, and viewed node metadata without changing Katana.
+    input_schema:
+      type: object
+      properties: {}
+      additionalProperties: false
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 15
+    source_file: scripts/inspect_nodegraph.py
+  - name: list_nodes
+    description: List a bounded page of nodes with optional exact-type and name filters.
+    input_schema:
+      type: object
+      properties:
+        node_type: {type: string, minLength: 1, maxLength: 128}
+        name_contains: {type: string, minLength: 1, maxLength: 128}
+        offset: {type: integer, minimum: 0, maximum: 1000000, default: 0}
+        limit: {type: integer, minimum: 1, maximum: 1000, default: 200}
+      additionalProperties: false
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 30
+    source_file: scripts/list_nodes.py
+  - name: get_node
+    description: Inspect one node, its existing ports, and optionally a bounded parameter page.
+    input_schema:
+      type: object
+      required: [node_name]
+      properties:
+        node_name: {type: string, minLength: 1, maxLength: 512}
+        include_parameters: {type: boolean, default: false}
+        time: {type: number}
+      additionalProperties: false
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 30
+    source_file: scripts/get_node.py
+  - name: create_node
+    description: Create one Katana node of an installed node type under root or a named parent.
+    input_schema:
+      type: object
+      required: [node_type]
+      properties:
+        node_type: {type: string, minLength: 1, maxLength: 128}
+        parent_name: {type: string, minLength: 1, maxLength: 512}
+        name: {type: string, minLength: 1, maxLength: 128}
+        position:
+          type: array
+          minItems: 2
+          maxItems: 2
+          items: {type: number}
+      additionalProperties: false
+    read_only: false
+    destructive: false
+    idempotent: false
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 30
+    source_file: scripts/create_node.py
+  - name: rename_node
+    description: Rename one existing non-root Katana node.
+    input_schema:
+      type: object
+      required: [node_name, new_name]
+      properties:
+        node_name: {type: string, minLength: 1, maxLength: 512}
+        new_name: {type: string, minLength: 1, maxLength: 128}
+      additionalProperties: false
+    read_only: false
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 15
+    source_file: scripts/rename_node.py
+  - name: delete_nodes
+    description: Delete up to 100 explicitly named non-root nodes after confirmation.
+    input_schema:
+      type: object
+      required: [node_names, confirm]
+      properties:
+        node_names:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items: {type: string, minLength: 1, maxLength: 512}
+        confirm: {type: boolean, const: true}
+      additionalProperties: false
+    read_only: false
+    destructive: true
+    idempotent: false
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 30
+    source_file: scripts/delete_nodes.py
+  - name: set_node_position
+    description: Set one node's two-dimensional node-graph position.
+    input_schema:
+      type: object
+      required: [node_name, x, y]
+      properties:
+        node_name: {type: string, minLength: 1, maxLength: 512}
+        x: {type: number}
+        y: {type: number}
+      additionalProperties: false
+    read_only: false
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 15
+    source_file: scripts/set_node_position.py
+  - name: select_nodes
+    description: Replace, add to, or remove from the Katana node selection.
+    input_schema:
+      type: object
+      required: [node_names]
+      properties:
+        node_names:
+          type: array
+          maxItems: 100
+          items: {type: string, minLength: 1, maxLength: 512}
+        mode: {type: string, enum: [replace, add, remove], default: replace}
+      additionalProperties: false
+    read_only: false
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 15
+    source_file: scripts/select_nodes.py
+  - name: get_parameter
+    description: Return one scalar parameter value at an explicit or current timeline time.
+    input_schema:
+      type: object
+      required: [node_name, parameter_path]
+      properties:
+        node_name: {type: string, minLength: 1, maxLength: 512}
+        parameter_path: {type: string, minLength: 1, maxLength: 512}
+        time: {type: number}
+      additionalProperties: false
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 15
+    source_file: scripts/get_parameter.py
+  - name: set_parameter_value
+    description: Set one existing scalar parameter to a JSON scalar without expressions or scripts.
+    input_schema:
+      type: object
+      required: [node_name, parameter_path, value]
+      properties:
+        node_name: {type: string, minLength: 1, maxLength: 512}
+        parameter_path: {type: string, minLength: 1, maxLength: 512}
+        value:
+          oneOf:
+            - {type: string, maxLength: 65536}
+            - {type: number}
+            - {type: boolean}
+        time: {type: number}
+      additionalProperties: false
+    read_only: false
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 15
+    source_file: scripts/set_parameter_value.py
+  - name: connect_ports
+    description: Connect one existing output port to one existing input port.
+    input_schema:
+      type: object
+      required: [source_node, source_port, target_node, target_port]
+      properties:
+        source_node: {type: string, minLength: 1, maxLength: 512}
+        source_port: {type: string, minLength: 1, maxLength: 256}
+        target_node: {type: string, minLength: 1, maxLength: 512}
+        target_port: {type: string, minLength: 1, maxLength: 256}
+      additionalProperties: false
+    read_only: false
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 15
+    source_file: scripts/connect_ports.py
+  - name: add_port
+    description: Add one named input or output port to an existing node.
+    input_schema:
+      type: object
+      required: [node_name, direction, port_name]
+      properties:
+        node_name: {type: string, minLength: 1, maxLength: 512}
+        direction: {type: string, enum: [input, output]}
+        port_name: {type: string, minLength: 1, maxLength: 256}
+      additionalProperties: false
+    read_only: false
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 15
+    source_file: scripts/add_port.py
+  - name: remove_port
+    description: Remove one named non-root input or output port after confirmation.
+    input_schema:
+      type: object
+      required: [node_name, direction, port_name, confirm]
+      properties:
+        node_name: {type: string, minLength: 1, maxLength: 512}
+        direction: {type: string, enum: [input, output]}
+        port_name: {type: string, minLength: 1, maxLength: 256}
+        confirm: {type: boolean, const: true}
+      additionalProperties: false
+    read_only: false
+    destructive: true
+    idempotent: false
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 15
+    source_file: scripts/remove_port.py
+  - name: disconnect_ports
+    description: Disconnect one existing output/input port pair if connected.
+    input_schema:
+      type: object
+      required: [source_node, source_port, target_node, target_port]
+      properties:
+        source_node: {type: string, minLength: 1, maxLength: 512}
+        source_port: {type: string, minLength: 1, maxLength: 256}
+        target_node: {type: string, minLength: 1, maxLength: 512}
+        target_port: {type: string, minLength: 1, maxLength: 256}
+      additionalProperties: false
+    read_only: false
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 15
+    source_file: scripts/disconnect_ports.py
+  - name: set_timeline
+    description: Set a valid Katana in/out range and current time.
+    input_schema:
+      type: object
+      properties:
+        in_time: {type: number}
+        out_time: {type: number}
+        current_time: {type: number}
+      minProperties: 1
+      additionalProperties: false
+    read_only: false
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 15
+    source_file: scripts/set_timeline.py
+  - name: save_project
+    description: Save to an allowlisted absolute .katana path with explicit overwrite semantics.
+    input_schema:
+      type: object
+      required: [path]
+      properties:
+        path: {type: string, minLength: 1, maxLength: 4096}
+        overwrite: {type: boolean, default: false}
+        create_parents: {type: boolean, default: false}
+      additionalProperties: false
+    read_only: false
+    destructive: true
+    idempotent: false
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 120
+    source_file: scripts/save_project.py

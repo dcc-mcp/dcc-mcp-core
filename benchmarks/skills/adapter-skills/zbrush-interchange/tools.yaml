@@ -1,0 +1,26 @@
+tools:
+  - name: export_active_subtool_obj
+    description: >-
+      Export the currently active subtool to an OBJ file on disk. Overwrites an
+      existing file at output_path. Suppresses scripted action drawing and UI
+      redraws during export. Requires the parent directory to exist.
+    source_file: scripts/export_active_subtool_obj.py
+    execution: sync
+    affinity: any
+    group: core
+    annotations:
+      destructive_hint: true
+      read_only_hint: false
+      idempotent_hint: true
+    input_schema:
+      type: object
+      required: [output_path]
+      properties:
+        output_path:
+          type: string
+          description: Absolute or relative path for the exported OBJ file.
+    next-tools:
+      on-success:
+        - zbrush_scene__get_scene_info
+      on-failure:
+        - zbrush_subtool__get_subtool_status

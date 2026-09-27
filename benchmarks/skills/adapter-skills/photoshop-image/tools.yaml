@@ -1,0 +1,152 @@
+tools:
+- name: create_document
+  description: Create a new Photoshop document with specified dimensions, resolution and color mode.
+  source_file: scripts/create_document.py
+  execution: sync
+  read_only: false
+  destructive: false
+  idempotent: false
+  input_schema:
+    type: object
+    properties:
+      name:
+        type: string
+        description: Document name (default ``"Untitled"``).
+        default: Untitled
+      width:
+        type: integer
+        description: Canvas width in pixels (default 1920).
+        default: 1920
+      height:
+        type: integer
+        description: Canvas height in pixels (default 1080).
+        default: 1080
+      resolution:
+        type: number
+        description: Resolution in PPI (default 72).
+        default: 72.0
+      color_mode:
+        type: string
+        description: '``"rgb"`` (default), ``"cmyk"``, ``"grayscale"``, or ``"lab"``.'
+        default: rgb
+      bit_depth:
+        type: integer
+        description: 'Bits per channel: ``8`` (default), ``16``, or ``32``.'
+        default: 8
+      fill:
+        type: string
+        description: 'Initial fill: ``"white"`` (default), ``"black"``, ``"transparent"``, or ``"background"``.'
+        default: white
+    additionalProperties: false
+- name: export_document
+  description: Export the active document to a file (PNG, JPG, TIFF, PSD). Returns the output path.
+  source_file: scripts/export_document.py
+  execution: sync
+  read_only: false
+  destructive: false
+  idempotent: true
+  input_schema:
+    type: object
+    properties:
+      path:
+        type: string
+        description: Desired output filename or path (e.g. ``"output.png"``).
+      format:
+        type: string
+        description: 'Output format: ``"png"`` (default), ``"jpg"``, ``"tiff"``, or ``"psd"``.'
+        default: png
+      quality:
+        type: integer
+        description: JPEG quality 0-100 (only for ``format="jpg"``).
+        default: 90
+    additionalProperties: false
+    required:
+    - path
+- name: save_document
+  description: Save the active Photoshop document in its current format.
+  source_file: scripts/save_document.py
+  execution: sync
+  read_only: false
+  destructive: false
+  idempotent: true
+  input_schema:
+    type: object
+    properties: {}
+    additionalProperties: false
+- name: resize_canvas
+  description: Resize the canvas of the active document (changes document dimensions without scaling content).
+  source_file: scripts/resize_canvas.py
+  execution: sync
+  read_only: false
+  destructive: false
+  idempotent: true
+  input_schema:
+    type: object
+    properties:
+      width:
+        type: integer
+        description: New canvas width in pixels.
+      height:
+        type: integer
+        description: New canvas height in pixels.
+      anchor:
+        type: string
+        description: 'Where to position the existing content within the new canvas. One of: ``"top_left"``, ``"top_center"``,
+          ``"top_right"``, ``"middle_left"``, ``"center"`` (default), ``"middle_right"``, ``"bottom_left"``, ``"bottom_center"``,
+          ``"bottom_right"``.'
+        default: center
+    additionalProperties: false
+    required:
+    - width
+    - height
+- name: resize_image
+  description: Scale the active document to new dimensions (resamples content).
+  source_file: scripts/resize_image.py
+  execution: sync
+  read_only: false
+  destructive: false
+  idempotent: true
+  input_schema:
+    type: object
+    properties:
+      width:
+        type: integer
+        description: Target width in pixels.
+      height:
+        type: integer
+        description: Target height in pixels.
+      resample:
+        type: string
+        description: Resampling algorithm — ``"bicubic"`` (default), ``"bilinear"``, ``"nearest"``, ``"preserve_details"``,
+          ``"bicubic_smoother"``, ``"bicubic_sharper"``.
+        default: bicubic
+      constrain_proportions:
+        type: boolean
+        description: If ``True`` (default), lock aspect ratio and use ``width`` as the controlling dimension.
+        default: true
+    additionalProperties: false
+    required:
+    - width
+    - height
+- name: flatten_image
+  description: Flatten all layers in the active document into a single background layer.
+  source_file: scripts/flatten_image.py
+  execution: sync
+  read_only: false
+  destructive: true
+  idempotent: true
+  input_schema:
+    type: object
+    properties: {}
+    additionalProperties: false
+- name: merge_visible_layers
+  description: Merge all visible layers in the active document.
+  source_file: scripts/merge_visible_layers.py
+  execution: sync
+  read_only: false
+  destructive: true
+  idempotent: true
+  input_schema:
+    type: object
+    properties: {}
+    additionalProperties: false

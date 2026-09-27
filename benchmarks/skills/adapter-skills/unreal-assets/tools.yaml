@@ -1,0 +1,426 @@
+tools:
+  - name: list_assets
+    description: List Content Browser assets under a directory path.
+    source_file: scripts/list_assets.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: false
+    timeout_hint_secs: 45
+    read_only: true
+    destructive: false
+    idempotent: true
+    input_schema:
+      type: object
+      properties:
+        directory_path:
+          type: string
+          description: Content Browser directory path to scan.
+          default: /Game
+        recursive:
+          type: boolean
+          description: Include assets in child directories.
+          default: true
+        asset_class_filter:
+          type: string
+          description: Optional class-name substring, such as StaticMesh or Texture2D.
+          default: ""
+    next-tools:
+      on-success: [unreal_assets__get_asset_info]
+      on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]
+
+  - name: import_asset
+    description: Import a source file into a Content Browser destination folder; USD sources require the USDImporter plugin.
+    source_file: scripts/import_asset.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: false
+    timeout_hint_secs: 120
+    read_only: false
+    destructive: false
+    idempotent: false
+    input_schema:
+      type: object
+      required: [source_path]
+      properties:
+        source_path:
+          type: string
+          minLength: 1
+          description: Absolute path to the source file on disk.
+        destination_path:
+          type: string
+          description: Content Browser destination folder.
+          default: /Game/Imports
+        asset_name:
+          type: string
+          description: Optional imported asset name. Defaults to source filename stem.
+          default: ""
+        replace_existing:
+          type: boolean
+          description: Replace an existing asset with the same destination name.
+          default: false
+        combine_meshes:
+          type: boolean
+          description: For FBX files, combine scene nodes into one static mesh.
+          default: true
+        import_materials:
+          type: boolean
+          description: For FBX files, import referenced materials.
+          default: true
+        import_textures:
+          type: boolean
+          description: For FBX files, import referenced textures.
+          default: true
+        import_as_skeletal:
+          type: boolean
+          description: For FBX files, import a skeletal mesh instead of a static mesh.
+          default: false
+        import_animations:
+          type: boolean
+          description: For skeletal FBX files, import embedded animation.
+          default: true
+        import_as_geometry_cache:
+          type: boolean
+          description: For Alembic files, import an animated Geometry Cache instead of a Static Mesh.
+          default: false
+        source_color_space:
+          type: string
+          enum: ["", srgb]
+          description: Optional source gamut for color textures. Use srgb to convert sRGB/Rec.709 primaries into the project working color space.
+          default: ""
+        non_color_texture:
+          type: boolean
+          description: Disable sRGB decoding and source-gamut conversion for data textures such as Normal, Roughness, Metallic, and AO.
+          default: false
+    next-tools:
+      on-success: [unreal_assets__get_asset_info]
+      on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]
+
+  - name: create_texture_material
+    description: Create or rebuild a tiled PBR material from imported texture assets.
+    source_file: scripts/create_texture_material.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: false
+    timeout_hint_secs: 60
+    read_only: false
+    destructive: false
+    idempotent: true
+    input_schema:
+      type: object
+      required: [texture_path, material_name]
+      properties:
+        texture_path:
+          type: string
+          minLength: 1
+          description: Content Browser object or package path for the base-color texture.
+        normal_texture_path:
+          type: string
+          description: Optional Content Browser path for a tangent-space normal texture.
+          default: ""
+        roughness_texture_path:
+          type: string
+          description: Optional Content Browser path for a roughness texture; overrides roughness.
+          default: ""
+        ambient_occlusion_texture_path:
+          type: string
+          description: Optional Content Browser path for an ambient-occlusion texture.
+          default: ""
+        metallic_texture_path:
+          type: string
+          description: Optional Content Browser path for a metallic texture.
+          default: ""
+        destination_path:
+          type: string
+          description: Content Browser folder for the material.
+          default: /Game/GeneratedMaterials
+        material_name:
+          type: string
+          minLength: 1
+          description: Name of the material asset to create.
+        uv_scale:
+          type: number
+          exclusiveMinimum: 0
+          description: Uniform texture-coordinate tiling multiplier.
+          default: 1.0
+        base_color_scale:
+          type: number
+          minimum: 0.01
+          maximum: 4.0
+          description: Multiplier applied to the base-color texture; values below 1 darken it.
+          default: 1.0
+        roughness:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: Constant surface roughness used when roughness_texture_path is empty.
+          default: 0.85
+        specular:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: Constant dielectric specular value.
+          default: 0.15
+        unlit:
+          type: boolean
+          description: Connect the texture to Emissive Color with the Unlit shading model for display-reference images.
+          default: false
+        two_sided:
+          type: boolean
+          description: Render both faces for interior-facing display surfaces such as backdrop spheres.
+          default: false
+        replace_existing:
+          type: boolean
+          description: Rebuild an existing material at the same path.
+          default: false
+    next-tools:
+      on-success: [unreal_assets__get_asset_info]
+      on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]
+
+  - name: import_groom_cache
+    description: Import an Alembic Groom Cache against an existing GroomAsset using an append-only versioned destination.
+    source_file: scripts/import_groom_cache.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: false
+    timeout_hint_secs: 300
+    read_only: false
+    destructive: false
+    idempotent: false
+    input_schema:
+      type: object
+      required: [source_path, groom_asset_path]
+      properties:
+        source_path:
+          type: string
+          minLength: 1
+          description: Absolute path to a topology-compatible Alembic Groom Cache.
+        groom_asset_path:
+          type: string
+          minLength: 1
+          description: Existing GroomAsset package or object path used as the topology reference.
+        destination_path:
+          type: string
+          description: Content Browser destination folder for the versioned cache.
+          default: /Game/GroomCaches
+        asset_name:
+          type: string
+          description: Requested base name; an available _vNNN suffix is selected automatically.
+          default: ""
+        frame_start:
+          type: integer
+          minimum: 0
+          default: 0
+        frame_end:
+          type: integer
+          minimum: 0
+          default: 0
+        import_type:
+          type: string
+          enum: [strands, guides]
+          default: strands
+    next-tools:
+      on-success: [unreal_assets__get_asset_info]
+      on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]
+
+  - name: import_static_groom
+    description: Import an Alembic GroomAsset after checking HairStrands and AlembicHairImporter, using explicit options and an append-only versioned destination.
+    source_file: scripts/import_static_groom.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: false
+    timeout_hint_secs: 300
+    read_only: false
+    destructive: false
+    idempotent: false
+    input_schema:
+      type: object
+      required: [source_path]
+      properties:
+        source_path:
+          type: string
+          minLength: 1
+          description: Absolute path to a static Alembic Groom source.
+        destination_path:
+          type: string
+          description: Content Browser destination for the versioned GroomAsset.
+          default: /Game/Grooms
+        asset_name:
+          type: string
+          description: Requested base name; an available _vNNN suffix is selected automatically.
+          default: ""
+        rotation:
+          type: array
+          description: Import rotation in degrees as [X, Y, Z].
+          minItems: 3
+          maxItems: 3
+          items: {type: number}
+          default: [0.0, 0.0, 0.0]
+        scale:
+          type: array
+          description: Non-zero import scale as [X, Y, Z].
+          minItems: 3
+          maxItems: 3
+          items: {type: number}
+          default: [1.0, 1.0, 1.0]
+    next-tools:
+      on-success: [unreal_assets__get_asset_info, unreal_assets__import_groom_cache]
+      on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]
+
+  - name: create_blueprint
+    description: Create a Blueprint asset derived from an Unreal class.
+    source_file: scripts/create_blueprint.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: false
+    timeout_hint_secs: 60
+    read_only: false
+    destructive: false
+    idempotent: true
+    input_schema:
+      type: object
+      required: [parent_class_path, blueprint_name]
+      properties:
+        parent_class_path:
+          type: string
+          minLength: 1
+          description: Unreal class path, such as /Script/Engine.Actor.
+        destination_path:
+          type: string
+          description: Content Browser folder for the Blueprint.
+          default: /Game/Blueprints
+        blueprint_name:
+          type: string
+          minLength: 1
+          description: Blueprint asset name.
+    next-tools:
+      on-success: [unreal_assets__get_asset_info]
+      on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]
+
+  - name: create_ocio_configuration
+    description: Create or update a persistent OpenColorIO configuration asset and verify one display transform.
+    source_file: scripts/create_ocio_configuration.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: false
+    timeout_hint_secs: 60
+    read_only: false
+    destructive: false
+    idempotent: true
+    input_schema:
+      type: object
+      required: [asset_path]
+      properties:
+        asset_path:
+          type: string
+          minLength: 1
+          description: Content Browser asset path under /Game.
+        configuration_path:
+          type: string
+          minLength: 1
+          description: Built-in ocio:// URL or absolute path to an .ocio/.ocioz file.
+          default: ocio://default
+        source_color_space:
+          type: string
+          minLength: 1
+          default: ACEScg
+        display:
+          type: string
+          minLength: 1
+          default: Rec.1886 Rec.709 - Display
+        view:
+          type: string
+          minLength: 1
+          default: ACES 1.0 - SDR Video
+        apply_to_active_viewport:
+          type: boolean
+          description: Apply the validated transform to the active Level Viewport.
+          default: false
+    next-tools:
+      on-success: [unreal_assets__get_asset_info]
+      on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]
+
+  - name: export_asset
+    description: Export one Content Browser asset to a file path on disk.
+    source_file: scripts/export_asset.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: false
+    timeout_hint_secs: 120
+    read_only: false
+    destructive: false
+    idempotent: true
+    input_schema:
+      type: object
+      required: [asset_path, export_path]
+      properties:
+        asset_path:
+          type: string
+          minLength: 1
+          description: Content Browser object path, such as /Game/Meshes/SM_Cube.SM_Cube.
+        export_path:
+          type: string
+          minLength: 1
+          description: Absolute destination file path.
+    next-tools:
+      on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]
+
+  - name: get_asset_info
+    description: Get exact asset identity, dependencies, and optional mesh LOD, bounds, collision and material evidence with explicit unavailable fields.
+    source_file: scripts/get_asset_info.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: false
+    timeout_hint_secs: 45
+    read_only: true
+    destructive: false
+    idempotent: true
+    input_schema:
+      type: object
+      required: [asset_path]
+      properties:
+        asset_path:
+          type: string
+          minLength: 1
+          description: Content Browser package or object path.
+        include_dependencies:
+          type: boolean
+          description: Include direct hard package dependencies.
+          default: false
+        include_details:
+          type: boolean
+          description: Read mesh and material details and load requested direct dependencies. Does not save assets or validate animated wind.
+          default: false
+    next-tools:
+      on-success: [unreal_assets__export_asset]
+      on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]
+
+  - name: delete_asset
+    description: Delete one or more Content Browser assets.
+    source_file: scripts/delete_asset.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: false
+    timeout_hint_secs: 120
+    read_only: false
+    destructive: true
+    idempotent: false
+    input_schema:
+      type: object
+      required: [asset_paths]
+      properties:
+        asset_paths:
+          oneOf:
+            - type: string
+              minLength: 1
+            - type: array
+              items:
+                type: string
+                minLength: 1
+          description: One asset path or a list of asset paths.
+        force_delete:
+          type: boolean
+          description: Attempt forced delete even when assets have references.
+          default: false
+    next-tools:
+      on-success: [unreal_assets__list_assets]
+      on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]

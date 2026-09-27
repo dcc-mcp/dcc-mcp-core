@@ -1,0 +1,175 @@
+tools:
+  - name: create_parent_constraint
+    description: >-
+      Drive an object's full transform from a single target, with optional
+      offset preservation.
+    source_file: scripts/create_parent_constraint.py
+    execution: sync
+    affinity: main
+    group: parent
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+    input_schema:
+      type: object
+      required: [driven_path, target_path]
+      properties:
+        driven_path:
+          type: string
+          description: Path to the object being constrained (e.g. /obj/geo2).
+        target_path:
+          type: string
+          description: Path to the target/parent object (e.g. /obj/geo1).
+        maintain_offset:
+          type: boolean
+          description: Retain the current world-space offset between objects.
+          default: true
+  - name: create_blend_constraint
+    description: >-
+      Blend between multiple target transforms with per-target weights
+      driving a single object.
+    source_file: scripts/create_blend_constraint.py
+    execution: sync
+    affinity: main
+    group: blend
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+    input_schema:
+      type: object
+      required: [driven_path, target_paths]
+      properties:
+        driven_path:
+          type: string
+          description: Path to the object being constrained.
+        target_paths:
+          type: array
+          items: {type: string}
+          minItems: 1
+          description: List of target object paths to blend between.
+        weights:
+          type: array
+          items: {type: number}
+          description: Optional per-target weight list (evenly distributed if omitted).
+  - name: create_position_constraint
+    description: >-
+      Constrain only translation channels (tx, ty, tz) using CHOP-driven
+      channel referencing. Rotation and scale remain free.
+    source_file: scripts/create_position_constraint.py
+    execution: sync
+    affinity: main
+    group: position
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+    input_schema:
+      type: object
+      required: [driven_path, target_path]
+      properties:
+        driven_path:
+          type: string
+          description: Path to the object whose position is constrained.
+        target_path:
+          type: string
+          description: Path to the target object.
+        maintain_offset:
+          type: boolean
+          description: Preserve the current positional offset.
+          default: true
+        constraint_name:
+          type: string
+          description: Name for the constraint CHOP network.
+          default: "pos_constraint1"
+  - name: create_orient_constraint
+    description: >-
+      Constrain only rotation channels (rx, ry, rz) using CHOP-driven
+      channel referencing. Translation and scale remain free.
+    source_file: scripts/create_orient_constraint.py
+    execution: sync
+    affinity: main
+    group: orientation
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+    input_schema:
+      type: object
+      required: [driven_path, target_path]
+      properties:
+        driven_path:
+          type: string
+          description: Path to the object whose rotation is constrained.
+        target_path:
+          type: string
+          description: Path to the target object.
+        maintain_offset:
+          type: boolean
+          description: Preserve the current rotational offset.
+          default: true
+        constraint_name:
+          type: string
+          description: Name for the constraint CHOP network.
+          default: "orient_constraint1"
+  - name: list_constraints
+    description: >-
+      List constraint relationships under a context path, including blend-
+      based and CHOP-based constraints.
+    source_file: scripts/list_constraints.py
+    execution: sync
+    affinity: main
+    group: inspect
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+    input_schema:
+      type: object
+      properties:
+        context_path:
+          type: string
+          description: OBJ context to scan (e.g. /obj).
+          default: "/obj"
+        constraint_type:
+          type: string
+          description: Optional filter (blend, chop, all).
+          default: "all"
+  - name: delete_constraint
+    description: >-
+      Delete a constraint node, clearing driven-object expressions first
+      (destructive).
+    source_file: scripts/delete_constraint.py
+    execution: sync
+    affinity: main
+    group: manage
+    read_only: false
+    destructive: true
+    idempotent: true
+    annotations:
+      read_only_hint: false
+      destructive_hint: true
+      idempotent_hint: true
+    input_schema:
+      type: object
+      required: [node_path]
+      properties:
+        node_path:
+          type: string
+          description: Path to the constraint node to delete.

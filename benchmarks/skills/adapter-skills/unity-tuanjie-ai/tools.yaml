@@ -1,0 +1,37 @@
+tools:
+  - name: inspect_tuanjie_ai
+    description: Discover whether the optional Tuanjie Codely bridge and official generator package are loaded, and return every CustomTool in the bridge's native registry, including tools contributed by other plugins. The tool_descriptions map preserves each provider's native parameter and recovery guidance when supplied. Use immediately before choosing a native tool.
+    input_schema: {type: object, properties: {}, additionalProperties: false}
+    output_schema: {type: object}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    source_file: scripts/inspect_tuanjie_ai.py
+    next-tools:
+      on-success: [unity_tuanjie_ai__execute_tuanjie_ai]
+      on-failure: [dcc_diagnostics__read_console, dcc_diagnostics__audit_log]
+  - name: execute_tuanjie_ai
+    description: Execute one freshly discovered native Tuanjie AI CustomTool with its native parameter object. Generation and download tools can spend credits and mutate project assets. Do not retry a timed-out submission; query its native task or session status first.
+    input_schema:
+      type: object
+      required: [tool_name]
+      properties:
+        tool_name: {type: string, minLength: 1, maxLength: 128}
+        parameters: {type: object, default: {}}
+      additionalProperties: false
+    output_schema: {type: object}
+    read_only: false
+    destructive: true
+    idempotent: false
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    source_file: scripts/execute_tuanjie_ai.py
+    next-tools:
+      on-success: [unity_tuanjie_ai__execute_tuanjie_ai, unity_project__inspect_project]
+      on-failure: [unity_tuanjie_ai__inspect_tuanjie_ai, dcc_diagnostics__read_console]

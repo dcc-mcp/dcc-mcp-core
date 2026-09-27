@@ -1,0 +1,213 @@
+tools:
+- name: list_effect_recipes
+  description: 'List procedural effect recipes with the Designer node type each one
+    resolves to in this session. Read-only.'
+  input_schema:
+    type: object
+    additionalProperties: false
+    properties:
+      category:
+        type: string
+        enum:
+        - effects
+        - lighting
+        default: effects
+      expected_graph_uid:
+        type: string
+        maxLength: 256
+  output_schema:
+    type: object
+    required:
+    - success
+    - message
+    properties:
+      success:
+        type: boolean
+      message:
+        type: string
+      context:
+        type: object
+  read_only: true
+  destructive: false
+  idempotent: true
+  execution: sync
+  affinity: main
+  timeout_hint_secs: 30
+  source_file: scripts/list_effect_recipes.py
+  annotations:
+    read_only_hint: true
+    destructive_hint: false
+    idempotent_hint: true
+  call_examples:
+  - arguments:
+      category: effects
+    note: Check which blur, warp, levels, and edge-detect node types this Designer build advertises.
+- name: apply_effect
+  description: 'Create one effect recipe node and connect a source output into it.
+    Fails closed with RECIPE_UNAVAILABLE when the recipe does not resolve.'
+  input_schema:
+    type: object
+    additionalProperties: false
+    required:
+    - category
+    - recipe
+    - source_node
+    - source_property
+    properties:
+      category:
+        type: string
+        enum:
+        - effects
+        - lighting
+      recipe:
+        type: string
+        maxLength: 64
+        pattern: ^[a-z][a-z0-9_]*$
+      source_node:
+        type: string
+        maxLength: 128
+        pattern: ^[A-Za-z0-9_-]+$
+      source_property:
+        type: string
+        maxLength: 128
+        pattern: ^\$?[A-Za-z][A-Za-z0-9_.-]*$
+      target_node:
+        type: string
+        maxLength: 128
+        pattern: ^[A-Za-z0-9_-]+$
+      target_property:
+        type: string
+        maxLength: 128
+        pattern: ^\$?[A-Za-z][A-Za-z0-9_.-]*$
+      position:
+        type: array
+        minItems: 2
+        maxItems: 2
+        items:
+          type: number
+          minimum: -1000000
+          maximum: 1000000
+      expected_graph_uid:
+        type: string
+        maxLength: 256
+  output_schema:
+    type: object
+    required:
+    - success
+    - message
+    properties:
+      success:
+        type: boolean
+      message:
+        type: string
+      context:
+        type: object
+  read_only: false
+  destructive: false
+  idempotent: false
+  execution: sync
+  affinity: main
+  timeout_hint_secs: 60
+  source_file: scripts/apply_effect.py
+  annotations:
+    read_only_hint: false
+    destructive_hint: false
+    idempotent_hint: false
+  call_examples:
+  - arguments:
+      category: effects
+      recipe: blur
+      source_node: '1581078951'
+      source_property: output
+    note: Insert a blur node downstream of node 1581078951 and leave it unwired.
+- name: apply_effect_chain
+  description: 'Create up to twelve recipe nodes, wire the source into the first step,
+    each step into the next, and the last step into an optional target. Rolls back
+    created nodes on any failure.'
+  input_schema:
+    type: object
+    additionalProperties: false
+    required:
+    - category
+    - steps
+    - source_node
+    - source_property
+    properties:
+      category:
+        type: string
+        enum:
+        - effects
+        - lighting
+      steps:
+        type: array
+        minItems: 1
+        maxItems: 12
+        items:
+          type: string
+          maxLength: 64
+          pattern: ^[a-z][a-z0-9_]*$
+      source_node:
+        type: string
+        maxLength: 128
+        pattern: ^[A-Za-z0-9_-]+$
+      source_property:
+        type: string
+        maxLength: 128
+        pattern: ^\$?[A-Za-z][A-Za-z0-9_.-]*$
+      target_node:
+        type: string
+        maxLength: 128
+        pattern: ^[A-Za-z0-9_-]+$
+      target_property:
+        type: string
+        maxLength: 128
+        pattern: ^\$?[A-Za-z][A-Za-z0-9_.-]*$
+      origin:
+        type: array
+        minItems: 2
+        maxItems: 2
+        items:
+          type: number
+          minimum: -1000000
+          maximum: 1000000
+      spacing:
+        type: number
+        minimum: 0
+        maximum: 10000
+        default: 160
+      expected_graph_uid:
+        type: string
+        maxLength: 256
+  output_schema:
+    type: object
+    required:
+    - success
+    - message
+    properties:
+      success:
+        type: boolean
+      message:
+        type: string
+      context:
+        type: object
+  read_only: false
+  destructive: false
+  idempotent: false
+  execution: sync
+  affinity: main
+  timeout_hint_secs: 120
+  source_file: scripts/apply_effect_chain.py
+  annotations:
+    read_only_hint: false
+    destructive_hint: false
+    idempotent_hint: false
+  call_examples:
+  - arguments:
+      category: effects
+      steps:
+      - warp
+      - blur
+      source_node: '1581078951'
+      source_property: output
+      spacing: 160
+    note: Chain a warp into a blur downstream of node 1581078951.

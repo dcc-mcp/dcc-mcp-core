@@ -1,0 +1,11 @@
+tools:
+  - name: ping
+    description: Prove the MotionBuilder API and embedded Python runtime are callable.
+    input_schema: {type: object, properties: {}}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 10
+    source_file: scripts/ping.py

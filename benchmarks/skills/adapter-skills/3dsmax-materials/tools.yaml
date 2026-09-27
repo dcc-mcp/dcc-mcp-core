@@ -1,0 +1,635 @@
+tools:
+  - name: create_standard_material
+    description: >-
+      Create a Standard material in the current 3ds Max scene. Use when the
+      user asks for a simple diffuse/specular material. Returns material name,
+      diffuse color, specular color, and glossiness.
+    source_file: action_create_standard_material.py
+    execution: sync
+    affinity: main
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          default: StandardMat
+          description: Name for the new material.
+        diffuse:
+          type: array
+          minItems: 3
+          maxItems: 3
+          description: Diffuse RGB color components from 0 to 255.
+          items:
+            type: number
+            minimum: 0
+            maximum: 255
+        specular:
+          type: array
+          minItems: 3
+          maxItems: 3
+          description: Specular RGB color components from 0 to 255.
+          items:
+            type: number
+            minimum: 0
+            maximum: 255
+        glossiness:
+          type: number
+          minimum: 0
+          maximum: 100
+          default: 10.0
+          description: Standard material glossiness value.
+    output_schema:
+      type: object
+      additionalProperties: true
+      properties:
+        success:
+          type: boolean
+        status:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+    timeout_hint_secs: 15
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+      open_world_hint: false
+
+    intent: "Create a Standard material with diffuse, specular, and glossiness."
+    tool_role: action
+    risk: medium
+    search_aliases: ["create_standard_material", "create standard material", "standard material"]
+    side_effects:
+      creates: true
+      modifies: false
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: []
+    produces: ['material']
+  - name: apply_material
+    description: >-
+      Apply an existing material to selected or named 3ds Max nodes. Use after
+      creating a material or when assigning scene materials. Returns the number
+      of nodes updated.
+    source_file: action_apply_material.py
+    execution: sync
+    affinity: main
+    input_schema:
+      type: object
+      required: [material_name]
+      additionalProperties: false
+      properties:
+        material_name:
+          type: string
+          minLength: 1
+          description: Existing material name to apply.
+        node_names:
+          type: array
+          description: Optional target node names. Uses current selection when omitted.
+          items:
+            type: string
+            minLength: 1
+    output_schema:
+      type: object
+      additionalProperties: true
+      properties:
+        success:
+          type: boolean
+        status:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+    timeout_hint_secs: 15
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+      open_world_hint: false
+
+    intent: "Assign an existing material to named nodes or current selection."
+    tool_role: action
+    risk: medium
+    search_aliases: ["apply_material", "apply material", "apply material"]
+    side_effects:
+      creates: false
+      modifies: true
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: ['scene_nodes', 'materials']
+    produces: ['material_assignment']
+  - name: list_scene_materials
+    description: List scene materials with common parameters and bitmap connections.
+    source_file: action_list_scene_materials.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties: {}
+    output_schema:
+      type: object
+      additionalProperties: true
+      properties:
+        success: {type: boolean}
+        status: {type: string}
+        message: {type: string}
+        data: {type: object}
+    timeout_hint_secs: 10
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations: {read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false}
+
+    intent: "List all scene materials with parameters and bitmap connections."
+    tool_role: read_only
+    risk: low
+    search_aliases: ["list_scene_materials", "list scene materials", "scene materials"]
+    side_effects:
+      creates: false
+      modifies: false
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: []
+    produces: ['material_list']
+  - name: list_node_material_assignments
+    description: List material assignments for explicit nodes or the current selection.
+    source_file: action_list_node_material_assignments.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        node_names: {type: array, items: {type: string, minLength: 1}}
+        handles: {type: array, items: {type: integer}}
+        use_selection: {type: boolean, default: false}
+    output_schema:
+      type: object
+      additionalProperties: true
+      properties:
+        success: {type: boolean}
+        status: {type: string}
+        message: {type: string}
+        data: {type: object}
+    timeout_hint_secs: 10
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations: {read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false}
+
+    intent: "Show which material is assigned to each target node."
+    tool_role: read_only
+    risk: low
+    search_aliases: ["list_node_material_assignments", "list node material assignments", "node material assignments"]
+    side_effects:
+      creates: false
+      modifies: false
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: ['scene_nodes']
+    produces: ['material_assignment_list']
+  - name: inspect_material
+    description: Inspect common parameters and maps for one material.
+    source_file: action_inspect_material.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      required: [material_name]
+      additionalProperties: false
+      properties:
+        material_name: {type: string, minLength: 1}
+    output_schema:
+      type: object
+      additionalProperties: true
+      properties:
+        success: {type: boolean}
+        status: {type: string}
+        message: {type: string}
+        data: {type: object}
+    timeout_hint_secs: 10
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations: {read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false}
+
+    intent: "Inspect detailed parameters and maps for one material."
+    tool_role: read_only
+    risk: low
+    search_aliases: ["inspect_material", "inspect material", "inspect material"]
+    side_effects:
+      creates: false
+      modifies: false
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: ['materials']
+    produces: ['material_info']
+  - name: list_bitmap_connections
+    description: List bitmap/map connections for one material.
+    source_file: action_list_bitmap_connections.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      required: [material_name]
+      additionalProperties: false
+      properties:
+        material_name: {type: string, minLength: 1}
+    output_schema:
+      type: object
+      additionalProperties: true
+      properties:
+        success: {type: boolean}
+        status: {type: string}
+        message: {type: string}
+        data: {type: object}
+    timeout_hint_secs: 10
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations: {read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false}
+
+    intent: "List bitmap/map slot connections for one material."
+    tool_role: read_only
+    risk: low
+    search_aliases: ["list_bitmap_connections", "list bitmap connections", "bitmap connections"]
+    side_effects:
+      creates: false
+      modifies: false
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: ['materials']
+    produces: ['bitmap_connections']
+  - name: create_physical_material
+    description: Create a Physical/PBR-friendly material when the host supports it.
+    source_file: action_create_physical_material.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      required: [name]
+      additionalProperties: false
+      properties:
+        name: {type: string, minLength: 1}
+        base_color: {type: array, minItems: 3, maxItems: 3, items: {type: number, minimum: 0, maximum: 255}}
+        roughness: {type: number, minimum: 0, maximum: 1}
+        metalness: {type: number, minimum: 0, maximum: 1}
+    output_schema:
+      type: object
+      additionalProperties: true
+      properties:
+        success: {type: boolean}
+        status: {type: string}
+        message: {type: string}
+        data: {type: object}
+    timeout_hint_secs: 15
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations: {read_only_hint: false, destructive_hint: false, idempotent_hint: false, open_world_hint: false}
+
+    intent: "Create a Physical/PBR material with base color and roughness."
+    tool_role: action
+    risk: medium
+    search_aliases: ["create_physical_material", "create physical material", "physical material"]
+    side_effects:
+      creates: true
+      modifies: false
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: []
+    produces: ['material']
+  - name: create_pbr_material
+    description: Create a PBR-friendly material using Physical material where available.
+    source_file: action_create_pbr_material.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      required: [name]
+      additionalProperties: false
+      properties:
+        name: {type: string, minLength: 1}
+        base_color: {type: array, minItems: 3, maxItems: 3, items: {type: number, minimum: 0, maximum: 255}}
+        roughness: {type: number, minimum: 0, maximum: 1}
+        metalness: {type: number, minimum: 0, maximum: 1}
+    output_schema:
+      type: object
+      additionalProperties: true
+      properties:
+        success: {type: boolean}
+        status: {type: string}
+        message: {type: string}
+        data: {type: object}
+    timeout_hint_secs: 15
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations: {read_only_hint: false, destructive_hint: false, idempotent_hint: false, open_world_hint: false}
+
+    intent: "Create a PBR-friendly material using Physical material where available."
+    tool_role: action
+    risk: medium
+    search_aliases: ["create_pbr_material", "create pbr material", "pbr material"]
+    side_effects:
+      creates: true
+      modifies: false
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: []
+    produces: ['material']
+  - name: reset_material
+    description: Reset explicit nodes or selection to no material or a named default material.
+    source_file: action_reset_material.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        node_names: {type: array, items: {type: string, minLength: 1}}
+        handles: {type: array, items: {type: integer}}
+        use_selection: {type: boolean, default: false}
+        default_material_name: {type: string, minLength: 1}
+    output_schema:
+      type: object
+      additionalProperties: true
+      properties:
+        success: {type: boolean}
+        status: {type: string}
+        message: {type: string}
+        data: {type: object}
+    timeout_hint_secs: 15
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations: {read_only_hint: false, destructive_hint: false, idempotent_hint: false, open_world_hint: false}
+
+    intent: "Reset target nodes to no material or a named default material."
+    tool_role: action
+    risk: medium
+    search_aliases: ["reset_material", "reset material", "reset material"]
+    side_effects:
+      creates: false
+      modifies: true
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: ['materials']
+    produces: ['material']
+  - name: set_material_attributes
+    description: Set common material attributes such as base color, roughness, metalness, opacity, and glossiness.
+    source_file: action_set_material_attributes.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      required: [material_name, attributes]
+      additionalProperties: false
+      properties:
+        material_name: {type: string, minLength: 1}
+        attributes:
+          type: object
+          additionalProperties: true
+        renderer: {type: string, enum: [auto, vray, arnold, physical, standard], default: auto}
+    output_schema:
+      type: object
+      additionalProperties: true
+      properties:
+        success: {type: boolean}
+        status: {type: string}
+        message: {type: string}
+        data: {type: object}
+    timeout_hint_secs: 15
+    read_only: false
+    destructive: false
+    idempotent: true
+    annotations: {read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: false}
+
+    intent: "Set common and renderer-native material attributes."
+    tool_role: action
+    risk: medium
+    search_aliases: ["set_material_attributes", "set material attributes", "material attributes", "vray roughness"]
+    side_effects:
+      creates: false
+      modifies: true
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: ['materials']
+    produces: ['material']
+  - name: assign_bitmap_texture
+    description: >-
+      Assign a bitmap texture path to a material map slot. The slot is resolved
+      through the renderer-native property (VRayMtl texmap_*, Arnold, Physical)
+      and verified by readback; a slot the material does not expose fails the
+      call instead of reporting a silent success.
+    source_file: action_assign_bitmap_texture.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      required: [material_name, slot, texture_path]
+      additionalProperties: false
+      properties:
+        material_name: {type: string, minLength: 1}
+        slot:
+          type: string
+          enum: [diffuse, base_color, normal, bump, roughness, metalness, opacity, displacement, specular, emission, reflection, refraction, glossiness]
+        texture_path: {type: string, minLength: 1}
+        renderer: {type: string, enum: [auto, vray, arnold, physical, standard], default: auto}
+        allow_missing: {type: boolean, default: false}
+        wrap_normal:
+          type: boolean
+          default: true
+          description: Wrap normal maps in the native Normal Bump texmap.
+    output_schema:
+      type: object
+      additionalProperties: true
+      properties:
+        success: {type: boolean}
+        status: {type: string}
+        message: {type: string}
+        data: {type: object}
+    timeout_hint_secs: 15
+    read_only: false
+    destructive: false
+    idempotent: true
+    annotations: {read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: false}
+
+    intent: "Assign a bitmap texture file to a renderer-native material slot."
+    tool_role: action
+    risk: medium
+    search_aliases: ["assign_bitmap_texture", "assign bitmap texture", "vray texmap"]
+    side_effects:
+      creates: false
+      modifies: true
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: ['materials']
+    produces: ['material']
+  - name: report_missing_textures
+    description: Report missing bitmap texture paths for scene materials.
+    source_file: action_report_missing_textures.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        material_names: {type: array, items: {type: string, minLength: 1}}
+    output_schema:
+      type: object
+      additionalProperties: true
+      properties:
+        success: {type: boolean}
+        status: {type: string}
+        message: {type: string}
+        data: {type: object}
+    timeout_hint_secs: 10
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations: {read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false}
+
+    intent: "Report bitmap texture paths that point to missing files."
+    tool_role: read_only
+    risk: low
+    search_aliases: ["report_missing_textures", "report missing textures", "report missing textures"]
+    side_effects:
+      creates: false
+      modifies: false
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: ['materials']
+    produces: ['texture_report']
+
+  - name: create_material_from_textures
+    description: >-
+      Build a PBR material from a texture-set directory or an explicit file
+      list and wire every recognised map into the renderer-native slot
+      (VRayMtl texmap_*, Arnold, Physical). Files are matched by filename
+      tokens (basecolor, roughness, metalness, normal, displacement, opacity,
+      ...). Unrecognised files are reported, and a slot the host refuses fails
+      the call and rolls the new material back.
+    source_file: action_create_material_from_textures.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          description: Material name. Defaults to the texture directory name.
+        texture_dir:
+          type: string
+          minLength: 1
+          description: Directory holding one texture set.
+        texture_paths:
+          type: array
+          items: {type: string, minLength: 1}
+          description: Explicit texture files. Used when texture_dir is omitted.
+        renderer:
+          type: string
+          enum: [auto, vray, arnold, physical, standard]
+          default: auto
+          description: Target renderer family. 'auto' detects the active renderer.
+        slots:
+          type: array
+          items: {type: string, minLength: 1}
+          description: Restrict wiring to these canonical slots.
+        node_names:
+          type: array
+          items: {type: string, minLength: 1}
+          description: Nodes to assign the new material to. Uses the current selection when omitted.
+        assign: {type: boolean, default: false}
+        recursive: {type: boolean, default: false}
+        allow_missing: {type: boolean, default: false}
+    output_schema:
+      type: object
+      additionalProperties: true
+      properties:
+        success: {type: boolean}
+        status: {type: string}
+        message: {type: string}
+        data: {type: object}
+    timeout_hint_secs: 30
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations: {read_only_hint: false, destructive_hint: false, idempotent_hint: false, open_world_hint: false}
+
+    intent: "Create a PBR material from a texture set and connect every recognised map."
+    tool_role: action
+    risk: medium
+    search_aliases: ["create_material_from_textures", "create material from textures", "texture set", "pbr textures"]
+    side_effects:
+      creates: true
+      modifies: true
+      deletes: false
+      exports: false
+      imports: true
+      file_output: false
+      render: false
+      targets: ['materials', 'scene_node']
+    produces:
+      - 'material'

@@ -1,0 +1,450 @@
+tools:
+  - name: list_layers
+    description: List 3ds Max display layers.
+    source_file: action_list_layers.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        include_nodes: {type: boolean, default: false}
+        include_properties: {type: boolean, default: false}
+    output_schema: &output_schema
+      type: object
+      additionalProperties: true
+      properties:
+        success: {type: boolean}
+        status: {type: string}
+        message: {type: string}
+        data: {type: object}
+    timeout_hint_secs: 10
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations: {read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false}
+
+    intent: "List display layers and optionally their member nodes and layer properties."
+    tool_role: read_only
+    risk: low
+    search_aliases: ["list_layers", "list layers", "layers"]
+    side_effects:
+      creates: false
+      modifies: false
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: []
+    produces: ['layer_list']
+
+  - name: set_layer_properties
+    description: >-
+      Set display layer properties such as visibility, freeze, renderable,
+      shadows, box mode, and wire color.
+    source_file: action_set_layer_properties.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      required: [layer_name, properties]
+      additionalProperties: false
+      properties:
+        layer_name: {type: string, minLength: 1}
+        properties:
+          type: object
+          minProperties: 1
+          additionalProperties: false
+          properties:
+            visible: {type: boolean}
+            hidden: {type: boolean}
+            frozen: {type: boolean}
+            renderable: {type: boolean}
+            cast_shadows: {type: boolean}
+            receive_shadows: {type: boolean}
+            motion_blur: {type: string, enum: [none, object, image]}
+            primary_visibility: {type: boolean}
+            secondary_visibility: {type: boolean}
+            visible_in_reflections: {type: boolean}
+            visible_in_refractions: {type: boolean}
+            box_mode: {type: boolean}
+            back_cull: {type: boolean}
+            all_edges: {type: boolean}
+            ignore_extents: {type: boolean}
+            show_trajectory: {type: boolean}
+            show_frozen_in_gray: {type: boolean}
+            xray: {type: boolean}
+            display_by_layer: {type: boolean}
+            inherit_visibility: {type: boolean}
+            color:
+              type: array
+              minItems: 3
+              maxItems: 3
+              items: {type: integer, minimum: 0, maximum: 255}
+    output_schema: *output_schema
+    timeout_hint_secs: 15
+    read_only: false
+    destructive: false
+    idempotent: true
+    annotations: {read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: false}
+
+    intent: "Set properties on one display layer and report any value the host did not keep."
+    tool_role: action
+    risk: medium
+    search_aliases: ["set_layer_properties", "set layer properties", "layer properties", "layer attributes"]
+    side_effects:
+      creates: false
+      modifies: true
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: ['layers']
+    produces: ['layer', 'layer_properties']
+    undo:
+      supported: true
+      granularity: batch_call
+      notes: >-
+        One host write per property with no undo hold opened, so the host may keep one entry or one
+        per property and the adapter cannot query which. Undo once and re-read the properties;
+        repeat while they still differ from what was requested.
+
+  - name: create_layer
+    description: Create a display layer by name.
+    source_file: action_create_layer.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      required: [name]
+      additionalProperties: false
+      properties:
+        name: {type: string, minLength: 1}
+    output_schema: *output_schema
+    timeout_hint_secs: 10
+    read_only: false
+    destructive: false
+    idempotent: true
+    annotations: {read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: false}
+
+    intent: "Create a named display layer."
+    tool_role: action
+    risk: medium
+    search_aliases: ["create_layer", "create layer", "layer"]
+    side_effects:
+      creates: true
+      modifies: false
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: []
+    produces: ['layer']
+  - name: delete_layer
+    description: Delete a display layer by name.
+    source_file: action_delete_layer.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      required: [name]
+      additionalProperties: false
+      properties:
+        name: {type: string, minLength: 1}
+        delete_nodes: {type: boolean, default: false}
+    output_schema: *output_schema
+    timeout_hint_secs: 10
+    read_only: false
+    destructive: true
+    idempotent: false
+    annotations: {read_only_hint: false, destructive_hint: true, idempotent_hint: false, open_world_hint: false}
+
+    intent: "Delete a display layer, optionally deleting its member nodes."
+    tool_role: destructive
+    risk: high
+    search_aliases: ["delete_layer", "delete layer", "layer"]
+    side_effects:
+      creates: false
+      modifies: false
+      deletes: true
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: ['layers']
+    produces: ['deletion_result']
+    undo:
+      supported: true
+      granularity: single_call
+      notes: >-
+        One host undo entry for the whole layer delete, including member nodes removed with `delete_nodes=true`.
+
+  - name: assign_nodes_to_layer
+    description: Assign explicit target nodes to a display layer.
+    source_file: action_assign_nodes_to_layer.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema: &target_schema
+      type: object
+      required: [layer_name]
+      additionalProperties: false
+      properties:
+        layer_name: {type: string, minLength: 1}
+        node_names: {type: array, items: {type: string, minLength: 1}}
+        handles: {type: array, items: {type: integer}}
+        use_selection: {type: boolean, default: false}
+        create_if_missing: {type: boolean, default: true}
+    output_schema: *output_schema
+    timeout_hint_secs: 15
+    read_only: false
+    destructive: false
+    idempotent: true
+    annotations: {read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: false}
+
+    intent: "Move target nodes into a display layer."
+    tool_role: action
+    risk: medium
+    search_aliases: ["assign_nodes_to_layer", "assign nodes to layer", "assign nodes to layer"]
+    side_effects:
+      creates: false
+      modifies: true
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: ['scene_nodes', 'layers']
+    produces: ['layer']
+  - name: list_node_display_state
+    description: List hidden/frozen/color/display-mode state for target nodes.
+    source_file: action_list_node_display_state.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        node_names: {type: array, items: {type: string, minLength: 1}}
+        handles: {type: array, items: {type: integer}}
+        use_selection: {type: boolean, default: false}
+    output_schema: *output_schema
+    timeout_hint_secs: 10
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations: {read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false}
+
+    intent: "Read hidden, frozen, color, and display mode for target nodes."
+    tool_role: read_only
+    risk: low
+    search_aliases: ["list_node_display_state", "list node display state", "node display state"]
+    side_effects:
+      creates: false
+      modifies: false
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: ['scene_nodes']
+    produces: ['display_state']
+  - name: set_node_display_state
+    description: Set hidden/frozen/color/display-mode state on explicit target nodes.
+    source_file: action_set_node_display_state.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        node_names: {type: array, items: {type: string, minLength: 1}}
+        handles: {type: array, items: {type: integer}}
+        use_selection: {type: boolean, default: false}
+        hidden: {type: boolean}
+        frozen: {type: boolean}
+        wire_color: &color_schema
+          type: array
+          minItems: 3
+          maxItems: 3
+          items: {type: integer, minimum: 0, maximum: 255}
+        object_color: *color_schema
+        display_mode: {type: string, enum: [normal, box, wireframe, shaded, bounding_box]}
+    output_schema: *output_schema
+    timeout_hint_secs: 15
+    read_only: false
+    destructive: false
+    idempotent: true
+    annotations: {read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: false}
+
+    intent: "Set hidden, frozen, wire color, and display mode for target nodes."
+    tool_role: action
+    risk: medium
+    search_aliases: ["set_node_display_state", "set node display state", "node display state"]
+    side_effects:
+      creates: false
+      modifies: true
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: ['scene_nodes']
+    produces: ['display_state']
+  - name: list_custom_properties
+    description: List user-defined custom properties on target nodes.
+    source_file: action_list_custom_properties.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        node_names: {type: array, items: {type: string, minLength: 1}}
+        handles: {type: array, items: {type: integer}}
+        use_selection: {type: boolean, default: false}
+    output_schema: *output_schema
+    timeout_hint_secs: 10
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations: {read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false}
+
+    intent: "List user-defined custom properties on target nodes."
+    tool_role: read_only
+    risk: low
+    search_aliases: ["list_custom_properties", "list custom properties", "custom properties"]
+    side_effects:
+      creates: false
+      modifies: false
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: ['scene_nodes']
+    produces: ['property_list']
+  - name: get_custom_property
+    description: Get one user-defined custom property from explicit target nodes.
+    source_file: action_get_custom_property.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      required: [property_name]
+      additionalProperties: false
+      properties:
+        node_names: {type: array, items: {type: string, minLength: 1}}
+        handles: {type: array, items: {type: integer}}
+        use_selection: {type: boolean, default: false}
+        property_name: {type: string, minLength: 1}
+    output_schema: *output_schema
+    timeout_hint_secs: 10
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations: {read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false}
+
+    intent: "Read one custom property value from target nodes."
+    tool_role: read_only
+    risk: low
+    search_aliases: ["get_custom_property", "get custom property", "custom property"]
+    side_effects:
+      creates: false
+      modifies: false
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: ['scene_nodes']
+    produces: ['property_value']
+  - name: set_custom_property
+    description: Set one user-defined custom property on explicit target nodes.
+    source_file: action_set_custom_property.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      required: [property_name, value]
+      additionalProperties: false
+      properties:
+        node_names: {type: array, items: {type: string, minLength: 1}}
+        handles: {type: array, items: {type: integer}}
+        use_selection: {type: boolean, default: false}
+        property_name: {type: string, minLength: 1}
+        value: {}
+    output_schema: *output_schema
+    timeout_hint_secs: 10
+    read_only: false
+    destructive: false
+    idempotent: true
+    annotations: {read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: false}
+
+    intent: "Set a custom property value on target nodes."
+    tool_role: action
+    risk: medium
+    search_aliases: ["set_custom_property", "set custom property", "custom property"]
+    side_effects:
+      creates: false
+      modifies: true
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: ['scene_nodes']
+    produces: ['property_value']
+  - name: delete_custom_property
+    description: Delete one user-defined custom property from explicit target nodes.
+    source_file: action_delete_custom_property.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      required: [property_name]
+      additionalProperties: false
+      properties:
+        node_names: {type: array, items: {type: string, minLength: 1}}
+        handles: {type: array, items: {type: integer}}
+        use_selection: {type: boolean, default: false}
+        property_name: {type: string, minLength: 1}
+    output_schema: *output_schema
+    timeout_hint_secs: 10
+    read_only: false
+    destructive: true
+    idempotent: false
+    annotations: {read_only_hint: false, destructive_hint: true, idempotent_hint: false, open_world_hint: false}
+
+    intent: "Delete a custom property from target nodes."
+    tool_role: destructive
+    risk: high
+    search_aliases: ["delete_custom_property", "delete custom property", "custom property"]
+    side_effects:
+      creates: false
+      modifies: false
+      deletes: true
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: ['scene_nodes']
+    produces: ['deletion_result']
+    undo:
+      supported: true
+      granularity: per_node
+      notes: >-
+        One host undo entry per node in the response; pass `changed_property_count` to `undo_last`.

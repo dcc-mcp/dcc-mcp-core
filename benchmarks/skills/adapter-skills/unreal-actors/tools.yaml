@@ -1,0 +1,289 @@
+tools:
+  - name: list_actors
+    description: List actors in the current level, optionally filtered by Unreal class name.
+    source_file: scripts/list_actors.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: false
+    timeout_hint_secs: 30
+    read_only: true
+    destructive: false
+    idempotent: true
+    input_schema:
+      type: object
+      properties:
+        actor_class_filter:
+          type: string
+          description: Optional class-name substring, such as StaticMeshActor or Blueprint.
+          default: ""
+    next-tools:
+      on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]
+
+  - name: spawn_actor
+    description: Spawn an actor from a class path, optionally assigning a Static Mesh asset.
+    source_file: scripts/spawn_actor.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: false
+    timeout_hint_secs: 30
+    read_only: false
+    destructive: false
+    idempotent: false
+    input_schema:
+      type: object
+      properties:
+        actor_class:
+          type: string
+          description: Unreal class path to spawn.
+          default: /Script/Engine.StaticMeshActor
+        static_mesh_path:
+          type: string
+          description: Optional Static Mesh asset path assigned to the spawned actor.
+          default: ""
+        location_x:
+          type: number
+          description: World X position in centimeters.
+          default: 0.0
+        location_y:
+          type: number
+          description: World Y position in centimeters.
+          default: 0.0
+        location_z:
+          type: number
+          description: World Z position in centimeters.
+          default: 0.0
+        label:
+          type: string
+          description: Optional actor label shown in the World Outliner.
+    next-tools:
+      on-success: [unreal_actors__get_actor_transform]
+      on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]
+
+  - name: delete_actor
+    description: Delete one level actor by exact actor object name.
+    source_file: scripts/delete_actor.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: false
+    timeout_hint_secs: 30
+    read_only: false
+    destructive: true
+    idempotent: false
+    input_schema:
+      type: object
+      required: [actor_name]
+      properties:
+        actor_name:
+          type: string
+          minLength: 1
+          description: Exact actor object name returned by list_actors.
+    next-tools:
+      on-success: [unreal_actors__list_actors]
+      on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]
+
+  - name: get_actor_transform
+    description: Get world-space transform and bounds for one actor.
+    source_file: scripts/get_actor_transform.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: false
+    timeout_hint_secs: 30
+    read_only: true
+    destructive: false
+    idempotent: true
+    input_schema:
+      type: object
+      required: [actor_name]
+      properties:
+        actor_name:
+          type: string
+          minLength: 1
+          description: Exact actor object name returned by list_actors.
+    next-tools:
+      on-success: [unreal_actors__set_actor_transform]
+      on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]
+
+  - name: attach_actor
+    description: Attach one level actor to another, optionally preserving its world transform.
+    source_file: scripts/attach_actor.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: false
+    timeout_hint_secs: 30
+    read_only: false
+    destructive: false
+    idempotent: true
+    input_schema:
+      type: object
+      required: [child_actor_name, parent_actor_name]
+      properties:
+        child_actor_name:
+          type: string
+          minLength: 1
+          description: Exact actor object name or label for the child.
+        parent_actor_name:
+          type: string
+          minLength: 1
+          description: Exact actor object name or label for the parent.
+        keep_world_transform:
+          type: boolean
+          description: Preserve the child's current world transform while attaching.
+          default: true
+    next-tools:
+      on-success: [unreal_actors__get_actor_transform]
+      on-failure: [unreal_actors__list_actors, dcc_diagnostics__audit_log]
+
+  - name: set_actor_transform
+    description: Update selected transform components for one actor.
+    source_file: scripts/set_actor_transform.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: false
+    timeout_hint_secs: 30
+    read_only: false
+    destructive: false
+    idempotent: true
+    input_schema:
+      type: object
+      required: [actor_name]
+      properties:
+        actor_name:
+          type: string
+          minLength: 1
+          description: Exact actor object name returned by list_actors.
+        location_x:
+          type: number
+          description: Optional world X position in centimeters.
+        location_y:
+          type: number
+          description: Optional world Y position in centimeters.
+        location_z:
+          type: number
+          description: Optional world Z position in centimeters.
+        rotation_pitch:
+          type: number
+          description: Optional pitch in degrees.
+        rotation_yaw:
+          type: number
+          description: Optional yaw in degrees.
+        rotation_roll:
+          type: number
+          description: Optional roll in degrees.
+        scale_x:
+          type: number
+          description: Optional X scale.
+        scale_y:
+          type: number
+          description: Optional Y scale.
+        scale_z:
+          type: number
+          description: Optional Z scale.
+    next-tools:
+      on-success: [unreal_actors__get_actor_transform]
+      on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]
+
+  - name: configure_sky_light
+    description: Configure an existing Sky Light actor to use an imported HDR TextureCube.
+    source_file: scripts/configure_sky_light.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: false
+    timeout_hint_secs: 30
+    read_only: false
+    destructive: false
+    idempotent: true
+    input_schema:
+      type: object
+      required: [actor_name, cubemap_path]
+      properties:
+        actor_name:
+          type: string
+          minLength: 1
+          description: Exact Sky Light actor object name or label.
+        cubemap_path:
+          type: string
+          minLength: 1
+          description: Content Browser path for an imported HDR TextureCube.
+        intensity_scale:
+          type: number
+          minimum: 0
+          description: Sky Light intensity multiplier.
+          default: 1.0
+        source_cubemap_angle:
+          type: number
+          description: Cubemap rotation in degrees; values wrap to 0-360.
+          default: 0.0
+    next-tools:
+      on-success: [unreal_level__save_level]
+      on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]
+
+  - name: configure_light
+    description: Configure common intensity, color, temperature, and softness properties on an existing light actor.
+    source_file: scripts/configure_light.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: false
+    timeout_hint_secs: 30
+    read_only: false
+    destructive: false
+    idempotent: true
+    input_schema:
+      type: object
+      required: [actor_name]
+      properties:
+        actor_name:
+          type: string
+          minLength: 1
+          description: Exact actor object name or label.
+        intensity:
+          type: number
+          minimum: -1
+          default: -1
+          description: Light intensity, or -1 to leave unchanged.
+        color_r: {type: number, minimum: -1, maximum: 1, default: -1}
+        color_g: {type: number, minimum: -1, maximum: 1, default: -1}
+        color_b: {type: number, minimum: -1, maximum: 1, default: -1}
+        temperature_kelvin:
+          type: number
+          minimum: 0
+          default: 0
+          description: Enable and set color temperature; 0 leaves it unchanged.
+        attenuation_radius: {type: number, minimum: -1, default: -1}
+        source_radius: {type: number, minimum: -1, default: -1}
+        soft_source_radius: {type: number, minimum: -1, default: -1}
+        mobility:
+          type: string
+          enum: [unchanged, static, stationary, movable]
+          default: unchanged
+          description: Light component mobility. Use movable when animating a lighting rig.
+    next-tools:
+      on-success: [unreal_level__save_level]
+      on-failure: [unreal_actors__list_actors, dcc_diagnostics__screenshot]
+
+  - name: configure_camera_exposure
+    description: Lock an existing level camera to deterministic manual exposure with physical camera exposure disabled.
+    source_file: scripts/configure_camera_exposure.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: false
+    timeout_hint_secs: 30
+    read_only: false
+    destructive: false
+    idempotent: true
+    input_schema:
+      type: object
+      required: [actor_name]
+      properties:
+        actor_name:
+          type: string
+          minLength: 1
+          description: Exact CameraActor or CineCameraActor object name or label.
+        exposure_compensation:
+          type: number
+          minimum: -16
+          maximum: 16
+          default: 0
+          description: Fixed manual exposure compensation in EV.
+    next-tools:
+      on-success: [unreal_level__save_level]
+      on-failure: [unreal_actors__list_actors, dcc_diagnostics__screenshot]

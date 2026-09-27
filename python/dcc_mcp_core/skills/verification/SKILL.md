@@ -12,6 +12,11 @@ license: MIT
 compatibility: Uses ffmpeg/ffprobe on PATH (or via vx) only for non-PPM image decode and comparison-sheet compositing.
 metadata:
   dcc-mcp:
+    recall-context:
+      app_type: python
+      domain: verification
+      workflow_stage: pipeline
+      task_category: query
     dcc: python
     version: "0.1.0"
     layer: infrastructure

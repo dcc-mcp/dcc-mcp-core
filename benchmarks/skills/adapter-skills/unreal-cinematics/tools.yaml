@@ -1,0 +1,357 @@
+tools:
+  - name: create_level_sequence
+    description: >-
+      Create a new Level Sequence asset in the Content Browser.
+      Returns the package path of the created sequence for use with
+      other cinematic tools.
+    source_file: scripts/create_level_sequence.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: false
+    timeout_hint_secs: 30
+    read_only: false
+    destructive: false
+    idempotent: false
+    input_schema:
+      type: object
+      required: [sequence_name]
+      properties:
+        sequence_name:
+          type: string
+          minLength: 1
+          description: Name for the new Level Sequence asset.
+        package_path:
+          type: string
+          default: /Game/Cinematics
+          description: Content Browser folder path (must start with /Game).
+        frame_rate:
+          type: number
+          exclusiveMinimum: 0
+          default: 30.0
+          description: Frame rate for the sequence (FPS).
+    next-tools:
+      on-success: [unreal_cinematics__open_level_sequence, unreal_cinematics__add_actor_to_sequence]
+      on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]
+
+  - name: open_level_sequence
+    description: >-
+      Open a Level Sequence asset in the Sequencer editor tab.
+      The asset must exist under /Game.
+    source_file: scripts/open_level_sequence.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: false
+    timeout_hint_secs: 15
+    read_only: false
+    destructive: false
+    idempotent: true
+    input_schema:
+      type: object
+      required: [sequence_path]
+      properties:
+        sequence_path:
+          type: string
+          minLength: 1
+          description: Package path to the Level Sequence (e.g. /Game/Cinematics/MySequence).
+    next-tools:
+      on-success: [unreal_cinematics__get_sequence_info]
+
+  - name: add_actor_to_sequence
+    description: >-
+      Add an actor from the current level as a possessable binding with a
+      transform track in a Level Sequence. The binding name defaults to the
+      actor label.
+    source_file: scripts/add_actor_to_sequence.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: false
+    timeout_hint_secs: 30
+    read_only: false
+    destructive: false
+    idempotent: false
+    input_schema:
+      type: object
+      required: [sequence_path, actor_name]
+      properties:
+        sequence_path:
+          type: string
+          minLength: 1
+          description: Package path to the Level Sequence.
+        actor_name:
+          type: string
+          minLength: 1
+          description: Label or name of the actor in the current level.
+        binding_name:
+          type: string
+          description: Custom name for the binding; defaults to the actor label.
+    next-tools:
+      on-success: [unreal_cinematics__add_transform_keyframe]
+
+  - name: add_transform_keyframe
+    description: >-
+      Add a transform keyframe (location, rotation, scale) for a bound
+      actor at a specific time in the Level Sequence.
+    source_file: scripts/add_transform_keyframe.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: false
+    timeout_hint_secs: 30
+    read_only: false
+    destructive: false
+    idempotent: false
+    input_schema:
+      type: object
+      required: [sequence_path, binding_name, time]
+      properties:
+        sequence_path:
+          type: string
+          minLength: 1
+          description: Package path to the Level Sequence.
+        binding_name:
+          type: string
+          minLength: 1
+          description: Name of the actor binding in the sequence.
+        time:
+          type: number
+          description: Time in seconds for the keyframe.
+        location:
+          type: array
+          minItems: 3
+          maxItems: 3
+          items:
+            type: number
+          description: '[x, y, z] world location in Unreal units (cm).'
+        rotation:
+          type: array
+          minItems: 3
+          maxItems: 3
+          items:
+            type: number
+          description: '[pitch, yaw, roll] rotation in degrees.'
+        scale:
+          type: array
+          minItems: 3
+          maxItems: 3
+          items:
+            type: number
+          description: '[x, y, z] scale factor.'
+        interpolation:
+          type: string
+          enum: [default, linear, constant]
+          default: default
+          description: Optional interpolation applied to the created keys.
+    next-tools:
+      on-failure: [dcc_diagnostics__screenshot]
+
+  - name: set_playback_range
+    description: >-
+      Set the playback start and end times for a Level Sequence.
+    source_file: scripts/set_playback_range.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: false
+    timeout_hint_secs: 15
+    read_only: false
+    destructive: false
+    idempotent: true
+    input_schema:
+      type: object
+      required: [sequence_path, start_time, end_time]
+      properties:
+        sequence_path:
+          type: string
+          minLength: 1
+          description: Package path to the Level Sequence.
+        start_time:
+          type: number
+          default: 0.0
+          description: Start time in seconds.
+        end_time:
+          type: number
+          default: 5.0
+          description: End time in seconds.
+    next-tools:
+      on-success: [unreal_cinematics__get_sequence_info]
+
+  - name: get_sequence_info
+    description: >-
+      Return detailed information about a Level Sequence: playback range,
+      tracks, bindings, and camera cuts.
+    source_file: scripts/get_sequence_info.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: false
+    timeout_hint_secs: 15
+    read_only: true
+    destructive: false
+    idempotent: true
+    input_schema:
+      type: object
+      required: [sequence_path]
+      properties:
+        sequence_path:
+          type: string
+          minLength: 1
+          description: Package path to the Level Sequence.
+    next-tools:
+      on-success: [unreal_cinematics__add_camera_cut_track, unreal_cinematics__queue_sequence_render]
+
+  - name: add_camera_cut_track
+    description: >-
+      Add a camera cut track to a Level Sequence and bind camera actors
+      with time ranges for shot switching.
+    source_file: scripts/add_camera_cut_track.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: false
+    timeout_hint_secs: 30
+    read_only: false
+    destructive: false
+    idempotent: false
+    input_schema:
+      type: object
+      required: [sequence_path, camera_name, start_time, end_time]
+      properties:
+        sequence_path:
+          type: string
+          minLength: 1
+          description: Package path to the Level Sequence.
+        camera_name:
+          type: string
+          minLength: 1
+          description: Name of the CineCameraActor in the level.
+        start_time:
+          type: number
+          description: Shot start time in seconds.
+        end_time:
+          type: number
+          description: Shot end time in seconds.
+        binding_name:
+          type: string
+          description: Custom name for the camera binding; defaults to camera_name.
+    next-tools:
+      on-success: [unreal_cinematics__get_sequence_info]
+
+  - name: queue_sequence_render
+    description: >-
+      Add a configured Level Sequence job to the active Movie Render Queue
+      after checking the MovieRenderPipeline plugin.
+      The job remains in the current editor session; this tool does not start
+      rendering, save a queue preset, or verify output files.
+    source_file: scripts/queue_sequence_render.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: false
+    timeout_hint_secs: 30
+    read_only: false
+    destructive: false
+    idempotent: false
+    input_schema:
+      type: object
+      required: [sequence_path, output_path]
+      properties:
+        sequence_path:
+          type: string
+          minLength: 1
+          description: Package path to the Level Sequence.
+        output_path:
+          type: string
+          minLength: 1
+          description: Absolute output directory configured for rendered image frames.
+        resolution_x:
+          type: integer
+          minimum: 1
+          default: 1920
+        resolution_y:
+          type: integer
+          minimum: 1
+          default: 1080
+        output_format:
+          type: string
+          enum: [png, jpg, exr]
+          default: png
+          description: Output file format.
+        frame_rate_override:
+          type: number
+          minimum: 0
+          default: 0.0
+          description: Override frame rate; uses sequence default when omitted.
+        spatial_samples:
+          type: integer
+          minimum: 1
+          maximum: 64
+          default: 1
+        temporal_samples:
+          type: integer
+          minimum: 1
+          maximum: 64
+          default: 8
+          description: Temporal samples used for high-quality anti-aliasing and motion blur.
+        clear_existing_jobs:
+          type: boolean
+          default: false
+          description: Remove existing jobs from the active Movie Render Queue before adding this job.
+        ocio_config_path:
+          type: string
+          default: ""
+          description: Optional absolute .ocio or .ocioz config applied by Movie Render Queue.
+        ocio_source_color_space:
+          type: string
+          default: ACEScg
+        ocio_display:
+          type: string
+          default: Rec.1886 Rec.709 - Display
+        ocio_view:
+          type: string
+          default: ACES 1.0 - SDR Video
+    next-tools:
+      on-success: [unreal_cinematics__start_queued_render]
+      on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]
+
+  - name: start_queued_render
+    description: Start every configured job in the active Movie Render Queue with a PIE executor after checking MovieRenderPipeline.
+    source_file: scripts/start_queued_render.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: false
+    timeout_hint_secs: 30
+    read_only: false
+    destructive: false
+    idempotent: false
+    input_schema:
+      type: object
+      properties: {}
+    next-tools:
+      on-success: [unreal_cinematics__get_render_status]
+      on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]
+
+  - name: get_render_status
+    description: Report whether Movie Render Queue is active and how many jobs remain configured after checking MovieRenderPipeline.
+    source_file: scripts/get_render_status.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: false
+    timeout_hint_secs: 15
+    read_only: true
+    destructive: false
+    idempotent: true
+    input_schema:
+      type: object
+      properties: {}
+
+  - name: cancel_queued_render
+    description: Request cancellation of the active Movie Render Queue executor and skip remaining jobs after checking MovieRenderPipeline.
+    source_file: scripts/cancel_queued_render.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: false
+    timeout_hint_secs: 15
+    read_only: false
+    destructive: false
+    idempotent: true
+    input_schema:
+      type: object
+      properties: {}
+    next-tools:
+      on-success: [unreal_cinematics__get_render_status]
+      on-failure: [unreal_cinematics__get_render_status, dcc_diagnostics__audit_log]

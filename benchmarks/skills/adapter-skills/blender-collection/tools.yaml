@@ -1,0 +1,25 @@
+tools:
+  - name: create_collection
+    description: "Create a new collection in the scene"
+    source_file: scripts/create_collection.py
+    execution: sync
+    affinity: main
+    read_only: false
+    destructive: false
+    idempotent: false
+  - name: link_to_collection
+    description: "Link an object to a collection"
+    source_file: scripts/link_to_collection.py
+    execution: sync
+    affinity: main
+    read_only: false
+    destructive: false
+    idempotent: true
+  - name: list_collections
+    description: "List all collections in the scene"
+    source_file: scripts/list_collections.py
+    execution: sync
+    affinity: main
+    read_only: true
+    destructive: false
+    idempotent: true

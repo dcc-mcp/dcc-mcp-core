@@ -22,6 +22,11 @@ metadata:
     emoji: "🎬"
     homepage: https://ffmpeg.org
   dcc-mcp:
+    recall-context:
+      app_type: python
+      domain: media
+      workflow_stage: interchange
+      task_category: export
     dcc: python
     version: "1.0.0"
     layer: infrastructure

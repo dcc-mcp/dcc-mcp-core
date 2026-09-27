@@ -415,7 +415,12 @@ fn intent_query(skill: &SkillMetadata, distinct: &Distinctiveness) -> Option<Str
     }
     // Phrase it as a request rather than a keyword list, and never name the
     // skill or its DCC — that is what makes it an intent query.
-    Some(format!("i need to {}", picked.join(" ")))
+    //
+    // No filler words: a template word can collide with a name term and
+    // reintroduce the leak this class exists to avoid. A phrase like
+    // "i need to ..." puts the token `to` in every intent query, which is a
+    // name term for any skill called `*-to-*` or `autodesk-*`.
+    Some(picked.join(" "))
 }
 
 #[cfg(test)]

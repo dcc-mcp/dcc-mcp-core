@@ -1,0 +1,68 @@
+tools:
+- name: batch_play
+  description: Execute raw ActionDescriptor batchPlay commands for advanced Photoshop operations
+  source_file: scripts/batch_play.py
+  execution: sync
+  read_only: false
+  destructive: false
+  idempotent: false
+  input_schema:
+    type: object
+    properties:
+      descriptors:
+        type: array
+        items:
+          type: object
+        description: List of ActionDescriptor dicts to execute.
+      options:
+        type:
+        - object
+        - 'null'
+        description: Optional UXP batchPlay options object (for example, modalBehavior).
+        default: null
+    additionalProperties: false
+    required:
+    - descriptors
+- name: get_channels
+  description: Get channel information for the active document
+  source_file: scripts/get_channels.py
+  execution: sync
+  read_only: true
+  destructive: false
+  idempotent: true
+  input_schema:
+    type: object
+    properties: {}
+    additionalProperties: false
+- name: add_channel
+  description: Add a new alpha channel to the active document
+  source_file: scripts/add_channel.py
+  execution: sync
+  read_only: false
+  destructive: false
+  idempotent: false
+  input_schema:
+    type: object
+    properties:
+      name:
+        type: string
+        description: The name for the new channel.
+    additionalProperties: false
+    required:
+    - name
+- name: remove_channel
+  description: Remove a named channel from the active document
+  source_file: scripts/remove_channel.py
+  execution: sync
+  read_only: false
+  destructive: true
+  idempotent: false
+  input_schema:
+    type: object
+    properties:
+      name:
+        type: string
+        description: The name of the channel to remove.
+    additionalProperties: false
+    required:
+    - name

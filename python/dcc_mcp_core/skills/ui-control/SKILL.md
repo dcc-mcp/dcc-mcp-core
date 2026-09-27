@@ -10,6 +10,11 @@ license: MIT
 compatibility: "dcc-cua 0.4.0+, Python 3.7+"
 metadata:
   dcc-mcp:
+    recall-context:
+      app_type: python
+      domain: ui
+      workflow_stage: automation
+      task_category: mutate
     dcc: python
     version: "0.5.0"
     layer: infrastructure

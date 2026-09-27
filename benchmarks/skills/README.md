@@ -17,12 +17,34 @@ Seeds are harvested from these workspace-relative roots:
 | `examples/skills/` | worked examples, including edge cases |
 | `python/dcc_mcp_core/skills/` | bundled Python-side skills |
 | `tests/fixtures/skills/` | loader edge cases, useful as ranking stress cases |
+| `benchmarks/skills/adapter-skills/` | real SKILL.md content vendored from adapter repos |
 
 The corpus is *not* only these seeds. They are the real part; the benchmark
 fills the rest with the deterministic synthetic generator (seed 42) to reach
 the 300 and 1000 scales. That split is deliberate — a catalogue of entirely
-synthetic skills measures how well the scorer separates `maya-skill-00001`
-from `blender-skill-00002`, which the DCC prefix alone can do.
+synthetic skills measures how well the scorer separates generated neighbours
+from each other rather than how well it finds a real skill.
+
+### `adapter-skills/`
+
+140 seeds come from this repository and 114 from the vendored adapter corpus.
+Before the vendored root existed the real part of the corpus was 26 skills, so
+the measurement was dominated by synthetic filler.
+
+The vendored directories are third-party SKILL.md content copied verbatim from
+dcc-mcp organisation adapter repositories. `adapter-skills/PROVENANCE.txt`
+records the source of every entry. Points to keep in mind when touching it:
+
+* **Vendored, not cloned at harvest time.** The benchmark must run offline and
+  reproducibly, and `committed_snapshot_matches_a_live_harvest` compares a
+  live harvest against the snapshot — both sides have to come from this repo.
+* **Trimmed to what the loader reads.** Only `SKILL.md`, `tools.yaml` and
+  `groups.yaml` are kept; scripts and assets are dropped so the committed
+  corpus stays small. Re-run the vendoring step to refresh.
+* **Do not hand-edit the vendored files.** Coverage of `RecallContext` and
+  other optional metadata is reported separately for shipped and vendored
+  skills, because vendored coverage is a property of the upstream
+  repositories, not something this repository can raise.
 
 ## Regenerating
 

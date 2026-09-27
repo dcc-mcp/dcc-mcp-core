@@ -1,0 +1,669 @@
+tools:
+  - name: set_keyframe
+    description: >-
+      Set a transform keyframe on a 3ds Max node. Use when animating position,
+      rotation, or scale. Returns the node name, frame, and keyed property.
+    source_file: action_set_keyframe.py
+    execution: sync
+    affinity: main
+    input_schema:
+      type: object
+      required: [node_name, time]
+      additionalProperties: false
+      properties:
+        node_name:
+          type: string
+          minLength: 1
+          description: Existing node name to animate.
+        time:
+          type: number
+          description: Frame number where the key should be set.
+        property:
+          type: string
+          enum: [position, rotation, scale]
+          default: position
+          description: Transform property to key.
+        value:
+          type: array
+          minItems: 3
+          maxItems: 4
+          description: Transform value. Rotation accepts optional fourth quaternion component.
+          items:
+            type: number
+    output_schema:
+      type: object
+      additionalProperties: true
+      properties:
+        success:
+          type: boolean
+        status:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+    timeout_hint_secs: 15
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+      open_world_hint: false
+
+    intent: "Set a transform keyframe on a node at a specific frame."
+    tool_role: action
+    risk: medium
+    search_aliases: ["set_keyframe", "set keyframe", "keyframe"]
+    side_effects:
+      creates: false
+      modifies: true
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: ['scene_nodes']
+    produces: ['keyframe_data']
+  - name: play_animation
+    description: >-
+      Play the current 3ds Max animation range in the viewport. Use when the
+      user wants to preview timeline animation. Returns the requested playback
+      frame range.
+    source_file: action_play_animation.py
+    execution: sync
+    affinity: main
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        from_frame:
+          type: number
+          description: Optional frame to move to before playback starts.
+        to_frame:
+          type: number
+          description: Reserved end frame hint for callers; current implementation uses viewport playback.
+    output_schema:
+      type: object
+      additionalProperties: true
+      properties:
+        success:
+          type: boolean
+        status:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+    timeout_hint_secs: 15
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+      open_world_hint: false
+
+    intent: "Start viewport animation playback in the current frame range."
+    tool_role: action
+    risk: medium
+    search_aliases: ["play_animation", "play animation", "play animation"]
+    side_effects:
+      creates: false
+      modifies: true
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: []
+    produces: ['animation_state']
+  - name: get_time_settings
+    description: Query current time, frame range, and frame rate.
+    source_file: action_get_time_settings.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties: {}
+    output_schema: &output_schema
+      type: object
+      additionalProperties: true
+      properties:
+        success: {type: boolean}
+        status: {type: string}
+        message: {type: string}
+        data: {type: object}
+    timeout_hint_secs: 10
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations: {read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false}
+
+    intent: "Query current timeline frame, frame range, and frame rate."
+    tool_role: read_only
+    risk: low
+    search_aliases: ["get_time_settings", "get time settings", "time settings"]
+    side_effects:
+      creates: false
+      modifies: false
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: []
+    produces: ['time_settings']
+  - name: get_animation_controllers
+    description: Query transform controller metadata for explicit targets.
+    source_file: action_get_animation_controllers.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema: &target_schema
+      type: object
+      additionalProperties: false
+      properties:
+        node_names: {type: array, items: {type: string, minLength: 1}}
+        handles: {type: array, items: {type: integer}}
+        use_selection: {type: boolean, default: false}
+    output_schema: *output_schema
+    timeout_hint_secs: 10
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations: {read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false}
+
+    intent: "Query transform controller metadata for target nodes."
+    tool_role: read_only
+    risk: low
+    search_aliases: ["get_animation_controllers", "get animation controllers", "animation controllers"]
+    side_effects:
+      creates: false
+      modifies: false
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: []
+    produces: ['animation_controllers']
+  - name: list_keyframes
+    description: List keyframes on explicit targets.
+    source_file: action_list_keyframes.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema: *target_schema
+    output_schema: *output_schema
+    timeout_hint_secs: 10
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations: {read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false}
+
+    intent: "List keyframes on target nodes."
+    tool_role: read_only
+    risk: low
+    search_aliases: ["list_keyframes", "list keyframes", "keyframes"]
+    side_effects:
+      creates: false
+      modifies: false
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: ['scene_nodes']
+    produces: ['keyframe_list']
+  - name: set_current_time
+    description: Set the current timeline time.
+    source_file: action_set_current_time.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      required: [frame]
+      additionalProperties: false
+      properties:
+        frame: {type: number}
+    output_schema: *output_schema
+    timeout_hint_secs: 10
+    read_only: false
+    destructive: false
+    idempotent: true
+    annotations: {read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: false}
+
+    intent: "Set the current timeline frame."
+    tool_role: action
+    risk: medium
+    search_aliases: ["set_current_time", "set current time", "current time"]
+    side_effects:
+      creates: false
+      modifies: true
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: []
+    produces: ['time_state']
+  - name: set_timeline_settings
+    description: Set timeline frame range and frame rate.
+    source_file: action_set_timeline_settings.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        start_frame: {type: integer}
+        end_frame: {type: integer}
+        frame_rate: {type: number, exclusiveMinimum: 0}
+    output_schema: *output_schema
+    timeout_hint_secs: 10
+    read_only: false
+    destructive: false
+    idempotent: true
+    annotations: {read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: false}
+
+    intent: "Configure timeline start/end frame and frame rate."
+    tool_role: action
+    risk: medium
+    search_aliases: ["set_timeline_settings", "set timeline settings", "timeline settings"]
+    side_effects:
+      creates: false
+      modifies: true
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: []
+    produces: ['timeline_settings']
+  - name: set_transform_keyframe
+    description: Set a transform keyframe on explicit targets.
+    source_file: action_set_transform_keyframe.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      required: [frame, property, value]
+      additionalProperties: false
+      properties:
+        node_names: {type: array, items: {type: string, minLength: 1}}
+        handles: {type: array, items: {type: integer}}
+        use_selection: {type: boolean, default: false}
+        frame: {type: number}
+        property: {type: string, enum: [position, rotation, scale]}
+        value: {type: array, minItems: 3, maxItems: 4, items: {type: number}}
+    output_schema: *output_schema
+    timeout_hint_secs: 15
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations: {read_only_hint: false, destructive_hint: false, idempotent_hint: false, open_world_hint: false}
+
+    intent: "Set a transform keyframe on target nodes."
+    tool_role: action
+    risk: medium
+    search_aliases: ["set_transform_keyframe", "set transform keyframe", "transform keyframe"]
+    side_effects:
+      creates: false
+      modifies: true
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: ['scene_nodes']
+    produces: ['keyframe_data']
+  - name: delete_keyframes
+    description: Delete matching keyframes on explicit targets.
+    source_file: action_delete_keyframes.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        node_names: {type: array, items: {type: string, minLength: 1}}
+        handles: {type: array, items: {type: integer}}
+        use_selection: {type: boolean, default: false}
+        frames: {type: array, items: {type: number}}
+        properties: {type: array, items: {type: string, enum: [position, rotation, scale]}}
+    output_schema: *output_schema
+    timeout_hint_secs: 15
+    read_only: false
+    destructive: true
+    idempotent: false
+    annotations: {read_only_hint: false, destructive_hint: true, idempotent_hint: false, open_world_hint: false}
+
+    intent: "Delete keyframes matching criteria on target nodes."
+    tool_role: destructive
+    risk: high
+    search_aliases: ["delete_keyframes", "delete keyframes", "keyframes"]
+    side_effects:
+      creates: false
+      modifies: false
+      deletes: true
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: ['scene_nodes']
+    produces: ['deletion_result']
+    undo:
+      supported: true
+      granularity: per_node
+      notes: >-
+        One host undo entry per node listed in `changes`; pass that count to `undo_last`.
+
+  - name: set_key_interpolation
+    description: Set interpolation metadata on matching keys.
+    source_file: action_set_key_interpolation.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      required: [interpolation]
+      additionalProperties: false
+      properties:
+        node_names: {type: array, items: {type: string, minLength: 1}}
+        handles: {type: array, items: {type: integer}}
+        use_selection: {type: boolean, default: false}
+        frames: {type: array, items: {type: number}}
+        interpolation: {type: string, enum: [linear, step, bezier, auto]}
+    output_schema: *output_schema
+    timeout_hint_secs: 15
+    read_only: false
+    destructive: false
+    idempotent: true
+    annotations: {read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: false}
+
+    intent: "Set interpolation type on matching keyframes."
+    tool_role: action
+    risk: medium
+    search_aliases: ["set_key_interpolation", "set key interpolation", "key interpolation"]
+    side_effects:
+      creates: false
+      modifies: true
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: ['scene_nodes']
+    produces: ['keyframe_data']
+  - name: bake_transform_animation
+    description: Bake simple transform animation samples on explicit targets.
+    source_file: action_bake_transform_animation.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      required: [start_frame, end_frame]
+      additionalProperties: false
+      properties:
+        node_names: {type: array, items: {type: string, minLength: 1}}
+        handles: {type: array, items: {type: integer}}
+        use_selection: {type: boolean, default: false}
+        start_frame: {type: integer}
+        end_frame: {type: integer}
+        step: {type: integer, minimum: 1, default: 1}
+    output_schema: *output_schema
+    timeout_hint_secs: 60
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations: {read_only_hint: false, destructive_hint: false, idempotent_hint: false, open_world_hint: false}
+
+    intent: "Bake transform animation samples over a frame range."
+    tool_role: action
+    risk: medium
+    search_aliases: ["bake_transform_animation", "bake transform animation", "bake transform animation"]
+    side_effects:
+      creates: false
+      modifies: true
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: ['scene_nodes']
+    produces: ['scene_nodes']
+  - name: export_animation_curves
+    description: Export simple animation curve data for explicit targets.
+    source_file: action_export_animation_curves.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema: *target_schema
+    output_schema: *output_schema
+    timeout_hint_secs: 15
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations: {read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false}
+
+    intent: "Export animation curve data for target nodes."
+    tool_role: read_only
+    risk: low
+    search_aliases: ["export_animation_curves", "export animation curves", "export animation curves"]
+    side_effects:
+      creates: false
+      modifies: false
+      deletes: false
+      exports: true
+      imports: false
+      file_output: true
+      render: false
+      targets: ['scene_nodes']
+    produces: ['animation_curves']
+  - name: import_animation_curves
+    description: Import simple animation curve data using the documented public shape.
+    source_file: action_import_animation_curves.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      required: [curve_data]
+      additionalProperties: false
+      properties:
+        curve_data:
+          type: object
+          additionalProperties: true
+    output_schema: *output_schema
+    timeout_hint_secs: 30
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations: {read_only_hint: false, destructive_hint: false, idempotent_hint: false, open_world_hint: false}
+
+    intent: "Import animation curve data from a public shape."
+    tool_role: action
+    risk: medium
+    search_aliases: ["import_animation_curves", "import animation curves", "import animation curves"]
+    side_effects:
+      creates: false
+      modifies: true
+      deletes: false
+      exports: false
+      imports: true
+      file_output: false
+      render: false
+      targets: ['scene_nodes']
+    produces: ['scene_nodes']
+  - name: set_keyframes
+    description: Set and host-readback-verify a bounded transform keyframe batch on explicit nodes.
+    source_file: action_set_keyframes.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      required: [keys]
+      additionalProperties: false
+      properties:
+        node_names: {type: array, maxItems: 128, items: {type: string, minLength: 1, maxLength: 128}}
+        handles: {type: array, maxItems: 128, items: {type: integer}}
+        use_selection: {type: boolean, default: false}
+        keys:
+          type: array
+          minItems: 1
+          maxItems: 10000
+          items:
+            type: object
+            required: [frame, property, value]
+            additionalProperties: false
+            properties:
+              frame: {type: number}
+              property: {type: string, enum: [position, rotation, scale]}
+              value: {type: array, minItems: 3, maxItems: 4, items: {type: number}}
+              interpolation: {type: string, enum: [auto, bezier, linear, step]}
+              in_tangent: {type: string, enum: [auto, bezier, linear, step], default: auto}
+              out_tangent: {type: string, enum: [auto, bezier, linear, step], default: auto}
+    output_schema: *output_schema
+    timeout_hint_secs: 60
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations: {read_only_hint: false, destructive_hint: false, idempotent_hint: false, open_world_hint: false}
+    intent: "Set a whole transform curve batch and verify host readback."
+    tool_role: action
+    risk: medium
+    search_aliases: ["set_keyframes", "set keyframes", "batch animation keys"]
+    side_effects:
+      creates: false
+      modifies: true
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: ['scene_nodes']
+    produces: ['animation_curves']
+  - name: get_anim_curves
+    description: Read values, tangents, and redundant key counts in the anim-curves v1 shape.
+    source_file: action_get_anim_curves.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        node_names: {type: array, maxItems: 128, items: {type: string, minLength: 1, maxLength: 128}}
+        handles: {type: array, maxItems: 128, items: {type: integer}}
+        use_selection: {type: boolean, default: false}
+        properties:
+          type: array
+          uniqueItems: true
+          items: {type: string, enum: [position, rotation, scale]}
+    output_schema: *output_schema
+    timeout_hint_secs: 30
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations: {read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false}
+    intent: "Read typed animation curves for structural and numeric assertions."
+    tool_role: read_only
+    risk: low
+    search_aliases: ["get_anim_curves", "get animation curves", "curve readback"]
+    side_effects:
+      creates: false
+      modifies: false
+      deletes: false
+      exports: false
+      imports: false
+      file_output: false
+      render: false
+      targets: ['scene_nodes']
+    produces: ['animation_curves']
+  - name: export_anim_curves
+    description: Export typed anim-curves v1 JSON data for explicit target nodes.
+    source_file: action_export_anim_curves.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        node_names: {type: array, maxItems: 128, items: {type: string, minLength: 1, maxLength: 128}}
+        handles: {type: array, maxItems: 128, items: {type: integer}}
+        use_selection: {type: boolean, default: false}
+        properties:
+          type: array
+          uniqueItems: true
+          items: {type: string, enum: [position, rotation, scale]}
+    output_schema: *output_schema
+    timeout_hint_secs: 30
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations: {read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false}
+    intent: "Export the typed cross-adapter animation curve payload."
+    tool_role: read_only
+    risk: low
+    search_aliases: ["export_anim_curves", "export animation curves", "animation curve json"]
+    side_effects:
+      creates: false
+      modifies: false
+      deletes: false
+      exports: true
+      imports: false
+      file_output: false
+      render: false
+      targets: ['scene_nodes']
+    produces: ['animation_curves']
+  - name: import_anim_curves
+    description: Preflight, import, and host-readback-verify anim-curves v1 JSON data.
+    source_file: action_import_anim_curves.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      required: [curve_data]
+      additionalProperties: false
+      properties:
+        curve_data:
+          type: object
+          required: [schema, fps, curves]
+          additionalProperties: false
+          properties:
+            schema: {type: string, const: "dcc-mcp/anim-curves@1"}
+            fps: {type: number, exclusiveMinimum: 0}
+            curves: {type: array, minItems: 1, maxItems: 384, items: {type: object}}
+    output_schema: *output_schema
+    timeout_hint_secs: 60
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations: {read_only_hint: false, destructive_hint: false, idempotent_hint: false, open_world_hint: false}
+    intent: "Import a complete typed curve payload only after validating every target and key."
+    tool_role: action
+    risk: medium
+    search_aliases: ["import_anim_curves", "import animation curves", "animation curve json"]
+    side_effects:
+      creates: false
+      modifies: true
+      deletes: false
+      exports: false
+      imports: true
+      file_output: false
+      render: false
+      targets: ['scene_nodes']
+    produces: ['animation_curves']

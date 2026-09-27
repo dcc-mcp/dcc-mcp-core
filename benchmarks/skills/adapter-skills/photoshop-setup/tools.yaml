@@ -1,0 +1,163 @@
+tools:
+- name: check_environment
+  description: Check Python, installed packages, Photoshop, and adobepy broker health.
+  source_file: scripts/check_environment.py
+  execution: sync
+  read_only: true
+  destructive: false
+  idempotent: true
+  input_schema:
+    type: object
+    properties:
+      verbose:
+        type: boolean
+        default: false
+        description: Show detailed system information.
+- name: install_package
+  description: Install or upgrade dcc-mcp-photoshop and its dependencies via pip.
+  source_file: scripts/install_package.py
+  execution: sync
+  read_only: false
+  destructive: false
+  idempotent: true
+  input_schema:
+    type: object
+    properties:
+      version:
+        type: string
+        default: ''
+        description: Specific version to install (e.g. 0.2.0); empty means latest.
+      upgrade:
+        type: boolean
+        default: false
+        description: Upgrade to the latest version if already installed.
+      editable:
+        type: boolean
+        default: false
+        description: Install in editable/development mode from source.
+      source_path:
+        type: string
+        default: ''
+        description: Local source path for editable install.
+- name: setup_uxp_plugin
+  description: Redirect legacy setup calls to the canonical dcc-mcp-photoshop install lifecycle.
+  source_file: scripts/setup_uxp_plugin.py
+  execution: sync
+  read_only: false
+  destructive: false
+  idempotent: true
+  input_schema:
+    type: object
+    properties:
+      bridge_dir:
+        type: string
+        default: ''
+        description: Destination directory for the generated bridge files.
+      adobepy_executable:
+        type: string
+        default: ''
+        description: Optional path to the adobepy CLI; empty resolves it from PATH.
+      method:
+        type: string
+        enum:
+        - auto
+        - guide
+        default: auto
+        description: 'Installation method:
+
+          - auto: Generate bridge files with adobepy
+
+          - guide: Print staging and UXP Developer Tool loading steps only
+
+          '
+- name: start_server
+  description: Start the dcc-mcp-photoshop adapter after verifying the adobepy broker.
+  source_file: scripts/start_server.py
+  execution: sync
+  read_only: false
+  destructive: false
+  idempotent: false
+  input_schema:
+    type: object
+    properties:
+      mcp_port:
+        type: integer
+        minimum: 0
+        maximum: 65535
+        description: Optional fixed MCP instance port; omit for core/env then OS assignment.
+      broker_url:
+        type: string
+        default: http://127.0.0.1:47391
+        description: adobepy broker HTTP endpoint.
+      gateway_port:
+        type: integer
+        default: 9765
+        minimum: 0
+        maximum: 65535
+        description: Gateway competition port.
+- name: verify_connection
+  description: Verify MCP transport, broker health, a connected bridge session, and a real Photoshop host call.
+  source_file: scripts/verify_connection.py
+  execution: sync
+  read_only: true
+  destructive: false
+  idempotent: true
+  input_schema:
+    type: object
+    properties:
+      mcp_url:
+        type: string
+        default: http://127.0.0.1:9765/mcp
+        description: MCP gateway or direct adapter endpoint.
+      broker_url:
+        type: string
+        default: http://127.0.0.1:47391
+        description: adobepy broker HTTP endpoint.
+      timeout:
+        type: integer
+        default: 10
+        minimum: 1
+        maximum: 60
+        description: Connection timeout in seconds.
+- name: configure_mcp_client
+  description: Configure MCP client (Claude Desktop, Cursor, VS Code) with the gateway URL — auto-writes config or prints
+    manual steps.
+  source_file: scripts/configure_mcp_client.py
+  execution: sync
+  read_only: false
+  destructive: false
+  idempotent: true
+  input_schema:
+    type: object
+    properties:
+      client_type:
+        type: string
+        enum:
+        - claude_desktop
+        - cursor
+        - vscode
+        - all
+        default: claude_desktop
+        description: 'Target MCP client to configure:
+
+          - claude_desktop: Write/update claude_desktop_config.json
+
+          - cursor: Print manual setup guide (Cursor requires UI input)
+
+          - vscode: Write/update VS Code settings.json
+
+          - all: Configure all detected clients
+
+          '
+      server_name:
+        type: string
+        default: photoshop
+        description: Server name shown in the MCP client configuration.
+      gateway_url:
+        type: string
+        default: http://127.0.0.1:9765/mcp
+        description: Gateway MCP endpoint URL.
+      overwrite:
+        type: boolean
+        default: false
+        description: Replace existing config instead of merging with it.

@@ -1,0 +1,93 @@
+tools:
+  - name: create_crowd_network
+    description: Create or reuse a crowd DOP network (dopnet + crowdsolver + crowdobject).
+    source_file: scripts/create_crowd_network.py
+    execution: sync
+    affinity: main
+    group: setup
+    read_only: false
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: true
+    input_schema:
+      type: object
+      required: [parent_path]
+      additionalProperties: false
+      properties:
+        parent_path:
+          type: string
+          description: Absolute parent path such as /obj.
+        network_name:
+          type: string
+          default: crowdsim1
+        solver_name:
+          type: string
+          default: crowdsolver1
+        object_name:
+          type: string
+          default: crowdobject1
+        parameters:
+          type: object
+          description: Bounded Houdini parameter name to value overrides for the solver.
+  - name: add_crowd_behavior
+    description: Create a crowd behavior node and attach it to the crowd solver input.
+    source_file: scripts/add_crowd_behavior.py
+    execution: sync
+    affinity: main
+    group: setup
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+    input_schema:
+      type: object
+      required: [network_path, behavior_type]
+      additionalProperties: false
+      properties:
+        network_path:
+          type: string
+          description: Absolute path of a crowd DOP network.
+        behavior_type:
+          type: string
+          enum: [steer, avoid, seek, follow, trigger, geometry, pop]
+        node_name:
+          type: string
+          description: Node name; defaults to the behavior node type plus 1.
+        parameters:
+          type: object
+          description: Bounded Houdini parameter name to value overrides.
+        connect_to:
+          type: string
+          description: Absolute path of the node to attach to; defaults to the network's crowdsolver.
+  - name: inspect_crowd
+    description: Report a crowd network's structure (solver, agents, behaviors) without simulating.
+    source_file: scripts/inspect_crowd.py
+    execution: sync
+    affinity: main
+    group: inspect
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+    input_schema:
+      type: object
+      required: [network_path]
+      additionalProperties: false
+      properties:
+        network_path:
+          type: string
+          description: Absolute path of a crowd network.
+        max_nodes:
+          type: integer
+          default: 64
+          minimum: 1
+          maximum: 256

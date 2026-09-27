@@ -1,0 +1,72 @@
+tools:
+  - name: get_version
+    description: Resolve renderdoccmd and return its version output. Use before capture or analysis to verify the runtime. Not for capture-file inspection.
+    input_schema: {type: object, properties: {}, additionalProperties: false}
+    output_schema: {type: object}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 30
+    source_file: scripts/get_version.py
+    next-tools:
+      on-success: [renderdoc_capture__capture_program]
+      on-failure: [dcc_diagnostics__audit_log]
+  - name: capture_program
+    description: Launch one explicit executable under RenderDoc and return newly created .rdc files only when they contain frame work such as Draw, Dispatch, Clear, Copy, Resolve, Blit, render-pass work, or command-list execution. A no-work capture is preserved and reported as a failure with chunk diagnostics. With trigger_after_secs, request the frame through official local Target Control without foreground or keyboard input. With hook_children enabled, trigger_process_name first checks the launched target, then follows only its official NewChild messages to select a unique matching child. Use for controlled game or graphics test capture. Not for shell commands or attaching to an existing process.
+    input_schema:
+      type: object
+      required: [executable, output_template]
+      properties:
+        executable: {type: string, minLength: 1, maxLength: 1000}
+        output_template: {type: string, minLength: 1, maxLength: 1000}
+        arguments:
+          type: array
+          maxItems: 100
+          items: {type: string, maxLength: 2000}
+        working_directory: {type: string, maxLength: 1000}
+        wait_for_exit: {type: boolean, default: true}
+        api_validation: {type: boolean, default: false}
+        hook_children: {type: boolean, default: false}
+        trigger_after_secs: {type: number, minimum: 0, maximum: 900}
+        trigger_process_name: {type: string, minLength: 1, maxLength: 260}
+        capture_wait_secs: {type: integer, minimum: 1, maximum: 600, default: 30}
+        timeout_secs: {type: integer, minimum: 1, maximum: 3600, default: 300}
+      additionalProperties: false
+    output_schema: {type: object}
+    read_only: false
+    destructive: false
+    idempotent: false
+    execution: async
+    affinity: any
+    timeout_hint_secs: 3600
+    source_file: scripts/capture_program.py
+    next-tools:
+      on-success: [renderdoc_analysis__inspect_capture, renderdoc_analysis__export_thumbnail]
+      on-failure: [dcc_diagnostics__audit_log]
+  - name: capture_process
+    description: Inject RenderDoc into one process before it creates its graphics device, request a capture through official local Target Control after a delay, and return the new .rdc file only when it contains frame work such as Draw, Dispatch, Clear, Copy, Resolve, Blit, render-pass work, or command-list execution. A no-work capture is preserved and reported as a failure with chunk diagnostics. Use when a game must be launched by its platform client. Prefer capture_program for an already initialized game; not for process termination.
+    input_schema:
+      type: object
+      required: [process_id, output_template]
+      properties:
+        process_id: {type: integer, minimum: 1}
+        output_template: {type: string, minLength: 1, maxLength: 1000}
+        working_directory: {type: string, maxLength: 1000}
+        trigger_after_secs: {type: number, minimum: 0, maximum: 600, default: 2}
+        capture_wait_secs: {type: integer, minimum: 1, maximum: 600, default: 30}
+        api_validation: {type: boolean, default: false}
+        timeout_secs: {type: integer, minimum: 1, maximum: 600, default: 60}
+      additionalProperties: false
+    output_schema: {type: object}
+    read_only: false
+    destructive: false
+    idempotent: false
+    execution: async
+    affinity: any
+    timeout_hint_secs: 660
+    source_file: scripts/capture_process.py
+    next-tools:
+      on-success: [renderdoc_analysis__inspect_capture, renderdoc_analysis__export_thumbnail]
+      on-failure: [dcc_diagnostics__audit_log]

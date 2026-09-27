@@ -1,0 +1,78 @@
+tools:
+  - name: search_assets
+    description: >
+      Search asset sources and return validated AssetDescriptor[] for
+      the downstream import pipeline.
+    source_file: scripts/search_assets.py
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 30
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        query:
+          type: string
+          description: "Optional substring filter against the asset name (case-insensitive)."
+        source:
+          type: string
+          description: "Source to search: filesystem, asset_library, or all (default)."
+          enum: ["filesystem", "asset_library", "all"]
+        path:
+          type: string
+          description: "Directory path for filesystem search. Falls back to the current blend-file directory when omitted."
+        asset_types:
+          type: array
+          description: "Asset type filter (e.g. ['blend', 'fbx']). When omitted, all supported types are searched."
+          items:
+            type: string
+        max_results:
+          type: integer
+          description: "Maximum number of results to return (default 50)."
+          default: 50
+    output_schema:
+      type: object
+      additionalProperties: true
+      required: [success]
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        context:
+          type: object
+          properties:
+            descriptors:
+              type: array
+              items:
+                type: object
+                properties:
+                  name:
+                    type: string
+                  path:
+                    type: string
+                  asset_type:
+                    type: string
+                  source:
+                    type: string
+                  size_bytes:
+                    type: integer
+                  modified_at:
+                    type: string
+                  metadata:
+                    type: object
+            count:
+              type: integer
+            source:
+              type: string
+            asset_library_status:
+              type: string
+              enum: [scanned, no_libraries, unavailable, partial, error]
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false

@@ -1,0 +1,87 @@
+tools:
+  - name: plan_asset_install
+    description: Inspect a downloaded Godot ZIP, verify its checksum and compatibility shape, and report target files and collisions without writing anything.
+    input_schema:
+      type: object
+      required: [package]
+      properties:
+        package:
+          type: object
+          required: [asset_id, archive_path]
+          properties:
+            asset_id: {type: string, minLength: 1}
+            archive_path: {type: string, minLength: 1}
+            sha256: {type: string}
+            package_type: {type: string, enum: [auto, addon, asset_pack, project], default: auto}
+          additionalProperties: true
+        destination:
+          type: string
+          description: Required target directory for project packages; ignored for add-ons and asset packs.
+      additionalProperties: false
+    output_schema: {type: object}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 120
+    source_file: scripts/plan_asset_install.py
+    next-tools:
+      on-success: [godot_assets__install_asset]
+      on-failure: [dcc_diagnostics__audit_log]
+
+  - name: install_asset
+    description: Install one planned Godot package into the current project or an explicit new-project destination. Refuses file collisions unless overwrite is true.
+    input_schema:
+      type: object
+      required: [package]
+      properties:
+        package:
+          type: object
+          required: [asset_id, archive_path]
+          properties:
+            asset_id: {type: string, minLength: 1}
+            archive_path: {type: string, minLength: 1}
+            sha256: {type: string}
+            package_type: {type: string, enum: [auto, addon, asset_pack, project], default: auto}
+          additionalProperties: true
+        destination:
+          type: string
+          description: Required target directory for project packages; ignored for add-ons and asset packs.
+        overwrite: {type: boolean, default: false}
+      additionalProperties: false
+    output_schema: {type: object}
+    read_only: false
+    destructive: true
+    idempotent: false
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 180
+    source_file: scripts/install_asset.py
+    next-tools:
+      on-success: [godot_assets__set_plugin_enabled, godot_project__inspect_project]
+      on-failure: [godot_assets__plan_asset_install, dcc_diagnostics__audit_log]
+
+  - name: set_plugin_enabled
+    description: Explicitly enable or disable one already installed Godot EditorPlugin and return its before and after state.
+    input_schema:
+      type: object
+      required: [plugin_name, enabled]
+      properties:
+        plugin_name: {type: string, minLength: 1, maxLength: 200}
+        enabled: {type: boolean}
+      additionalProperties: false
+    output_schema: {type: object}
+    read_only: false
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 30
+    source_file: scripts/set_plugin_enabled.py
+    next-tools:
+      on-success: [godot_project__inspect_project]
+      on-failure: [dcc_diagnostics__audit_log, dcc_diagnostics__screenshot]

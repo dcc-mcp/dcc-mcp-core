@@ -1,0 +1,63 @@
+tools:
+  - name: publish_usd_revision
+    description: Publish a USD file beneath the operator-owned source root as an immutable Asset Sync revision.
+    source_file: scripts/asset_sync.py
+    execution: async
+    affinity: any
+    timeout_hint_secs: 600
+    group: asset-sync
+    read_only: false
+    destructive: false
+    idempotent: true
+    annotations: {read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: false}
+    input_schema:
+      type: object
+      additionalProperties: false
+      required: [channel_id, asset_id, source_name, expected_head_revision]
+      properties:
+        channel_id: {type: string, minLength: 1, maxLength: 128}
+        asset_id: {type: string, minLength: 1, maxLength: 128}
+        source_name: {type: string, minLength: 1, description: Safe relative USD path beneath DCC_MCP_HOUDINI_ASSET_SYNC_SOURCE_ROOT.}
+        expected_head_revision: {type: integer, minimum: 0}
+        source_instance_id: {type: string, maxLength: 128}
+        metadata: {type: object, additionalProperties: true}
+  - name: read_asset_head
+    description: Read the current path-free Asset Sync head manifest.
+    source_file: scripts/asset_sync.py
+    execution: sync
+    affinity: any
+    group: asset-sync
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations: {read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false}
+    input_schema:
+      type: object
+      additionalProperties: false
+      required: [channel_id, asset_id]
+      properties:
+        channel_id: {type: string, minLength: 1, maxLength: 128}
+        asset_id: {type: string, minLength: 1, maxLength: 128}
+  - name: reference_usd_revision
+    description: Materialize the current verified USD revision and create a non-flattening Solaris Reference LOP.
+    source_file: scripts/asset_sync.py
+    execution: async
+    affinity: main
+    timeout_hint_secs: 600
+    group: asset-sync
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations: {read_only_hint: false, destructive_hint: false, idempotent_hint: false, open_world_hint: false}
+    input_schema:
+      type: object
+      additionalProperties: false
+      required: [channel_id, asset_id]
+      properties:
+        channel_id: {type: string, minLength: 1, maxLength: 128}
+        asset_id: {type: string, minLength: 1, maxLength: 128}
+        stage_path: {type: string, default: /stage}
+        node_name: {type: string, pattern: '^[A-Za-z_][A-Za-z0-9_]*$'}
+        primitive_path: {type: string, default: /}
+        subfolder: {type: string, default: ""}
+

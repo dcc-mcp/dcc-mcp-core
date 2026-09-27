@@ -1,0 +1,155 @@
+tools:
+  - name: inspect_fab_session
+    description: Check whether Unreal's official Fab plugin is loaded and authenticated without exposing tokens.
+    source_file: scripts/inspect_fab_session.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 10
+    read_only: true
+    destructive: false
+    idempotent: true
+    input_schema:
+      type: object
+      additionalProperties: false
+    output_schema:
+      type: object
+      properties:
+        plugin_available: {type: boolean}
+        authenticated: {type: boolean}
+        engine_version: {type: string}
+        plugin_version: {type: string}
+        next_tool: {type: string}
+    next-tools:
+      on-success: [unreal_fab_assets__open_fab_listing, unreal_fab_assets__request_fab_login]
+
+  - name: request_fab_login
+    description: Open Epic's official interactive Fab account portal when the current Unreal session is not authenticated.
+    source_file: scripts/request_fab_login.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 10
+    read_only: false
+    destructive: false
+    idempotent: false
+    input_schema:
+      type: object
+      additionalProperties: false
+    output_schema:
+      type: object
+      properties:
+        requires_user_action: {type: boolean}
+        next_tool: {type: string}
+    next-tools:
+      on-success: [unreal_fab_assets__inspect_fab_session]
+
+  - name: open_fab_listing
+    description: Open an approved Fab listing UUID in Unreal's official Fab browser and reuse persistent Epic authentication when available.
+    source_file: scripts/open_fab_listing.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 15
+    read_only: false
+    destructive: false
+    idempotent: false
+    input_schema:
+      type: object
+      required: [listing_id]
+      additionalProperties: false
+      properties:
+        listing_id:
+          type: string
+          minLength: 36
+          maxLength: 36
+          description: UUID from a fab.com/listings URL.
+    output_schema:
+      type: object
+      properties:
+        listing_id: {type: string}
+        listing_url: {type: string}
+        authenticated: {type: boolean}
+        next_tool: {type: string}
+    call_examples:
+      - arguments:
+          listing_id: a4882b5e-cfad-4830-a3dd-46a6c31a79b2
+        note: Open Epic's free Paragon Sevarog listing for a realistic dark-fantasy enemy.
+    next-tools:
+      on-success: [ui_control__snapshot]
+
+  - name: prepare_free_asset_acquisition
+    description: Prepare a safe, reproducible Fab search and verification plan for a free Unreal asset.
+    source_file: scripts/prepare_free_asset_acquisition.py
+    execution: sync
+    affinity: any
+    enforce_thread_affinity: true
+    timeout_hint_secs: 10
+    read_only: true
+    destructive: false
+    idempotent: true
+    input_schema:
+      type: object
+      required: [query]
+      properties:
+        query:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Art-directed Fab search phrase, such as dark gothic ruins.
+        engine_version:
+          type: string
+          default: "5.8"
+          description: Running Unreal Engine major.minor version.
+        destination_path:
+          type: string
+          default: /Game/Fab
+          description: Expected Content Browser folder for verification after Add to Project.
+        required_traits:
+          type: array
+          maxItems: 12
+          items:
+            type: string
+            minLength: 1
+            maxLength: 100
+          description: Visual or production traits every accepted listing must satisfy.
+        rejected_traits:
+          type: array
+          maxItems: 12
+          items:
+            type: string
+            minLength: 1
+            maxLength: 100
+          description: Traits that disqualify a listing even when it is free and engine-compatible.
+    output_schema:
+      type: object
+      properties:
+        query: {type: string}
+        engine_version: {type: string}
+        destination_path: {type: string}
+        required_listing_fields:
+          type: array
+          items: {type: string}
+        next_tool: {type: string}
+        verification_tools:
+          type: array
+          items: {type: string}
+        visual_gate:
+          type: object
+          properties:
+            required_traits:
+              type: array
+              items: {type: string}
+            rejected_traits:
+              type: array
+              items: {type: string}
+    call_examples:
+      - arguments:
+          query: dark gothic ruins realistic monster
+          engine_version: "5.8"
+          destination_path: /Game/Fab/Dreadland
+          required_traits: [realistic PBR, dark gothic medieval, rigged, combat animations]
+          rejected_traits: [cartoon, stylized, low-poly, modern vehicles, bright fantasy palette]
+        note: Prepare a concept-gated dark-fantasy search for the survivor demo.
+    next-tools:
+      on-success: [ui_control__snapshot]

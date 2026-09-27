@@ -1,0 +1,86 @@
+tools:
+  - name: create_sphere
+    description: "Create a UV sphere in the Blender scene"
+    source_file: scripts/create_sphere.py
+    execution: sync
+    affinity: main
+    read_only: false
+    destructive: false
+    idempotent: false
+  - name: save_blend
+    description: "Save the current Blender file"
+    source_file: scripts/save_blend.py
+    execution: sync
+    affinity: main
+    read_only: false
+    destructive: false
+    idempotent: false
+  - name: file_exists
+    description: "Check whether a file exists and report its size"
+    source_file: scripts/file_exists.py
+    execution: sync
+    affinity: any
+    read_only: true
+    destructive: false
+    idempotent: true
+  - name: export_fbx
+    description: "Export the current scene or selected objects to FBX"
+    source_file: scripts/export_fbx.py
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 0
+    input_schema: &geometry_export_schema
+      type: object
+      additionalProperties: false
+      required: [path]
+      properties:
+        path:
+          type: string
+          minLength: 1
+          description: Output file path.
+        object_names:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            minLength: 1
+          description: Optional objects to export.
+        options:
+          type: object
+          additionalProperties: true
+          description: Blender export options.
+    output_schema: &geometry_result_schema
+      type: object
+      additionalProperties: true
+      required: [success]
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        context:
+          type: object
+    read_only: false
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: true
+  - name: export_obj
+    description: "Export the current scene or selected objects to OBJ"
+    source_file: scripts/export_obj.py
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 0
+    input_schema: *geometry_export_schema
+    output_schema: *geometry_result_schema
+    read_only: false
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: true

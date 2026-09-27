@@ -1,0 +1,53 @@
+tools:
+  - name: execute_python
+    description: >-
+      Last-resort arbitrary Python on Nuke's main thread. Call the
+      `materialize_script` tool first and pass its file_path; inline code is
+      materialized through the same Core store before execution. Prefer a
+      typed Nuke skill whenever one fits.
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+          minLength: 1
+          description: Inline Python; mutually exclusive with file_path and script_path.
+        file_path:
+          type: string
+          minLength: 1
+          description: Core materialized .py path owned by this Nuke instance.
+        script_path:
+          type: string
+          minLength: 1
+          description: Compatibility alias for file_path.
+        capture_output:
+          type: boolean
+          default: true
+          description: Capture stdout and stderr in the result envelope.
+    output_schema:
+      type: object
+      properties:
+        success: {type: boolean}
+        message: {type: string}
+        error: {}
+        context:
+          type: object
+          properties:
+            result: {}
+            stdout: {type: string}
+            stderr: {type: string}
+            materialized_script: {type: object}
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    annotations:
+      destructive_hint: true
+      read_only_hint: false
+      idempotent_hint: false
+      open_world_hint: true
+    call_examples:
+      - arguments: {file_path: "<materialize_script.file_path>"}
+        note: Execute a script produced by the materialize_script tool.
+    source_file: scripts/execute_python.py

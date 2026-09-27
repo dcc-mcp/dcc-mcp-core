@@ -1,0 +1,191 @@
+tools:
+- name: create_camera
+  description: Create a new camera object
+  source_file: scripts/create_camera.py
+  execution: sync
+  affinity: main
+  read_only: false
+  destructive: false
+  idempotent: false
+  enforce_thread_affinity: true
+  input_schema:
+    type: object
+    additionalProperties: false
+    properties:
+      name: &id001
+        type: string
+        minLength: 1
+        description: Exact Blender camera object name.
+      location:
+        type: array
+        minItems: 3
+        maxItems: 3
+        items:
+          type: number
+        description: World position [x, y, z] in scene units.
+      lens:
+        type: number
+        minimum: 1
+        maximum: 3.4028234663852886e+38
+        default: 50.0
+        description: Focal length in millimetres.
+      set_as_active:
+        type: boolean
+        default: false
+  output_schema:
+    type: object
+    required:
+    - success
+    properties:
+      success:
+        type: boolean
+      message:
+        type: string
+      context:
+        type: object
+    additionalProperties: true
+  annotations:
+    read_only_hint: false
+    destructive_hint: false
+    idempotent_hint: false
+    open_world_hint: false
+  call_examples:
+  - arguments:
+      name: ReviewCamera
+      location:
+      - 0
+      - -8
+      - 3
+      lens: 85
+- name: set_active_camera
+  description: Set the active render camera for the scene
+  source_file: scripts/set_active_camera.py
+  execution: sync
+  affinity: main
+  read_only: false
+  destructive: false
+  idempotent: true
+  enforce_thread_affinity: true
+  input_schema:
+    type: object
+    additionalProperties: false
+    properties:
+      name: *id001
+    required:
+    - name
+  output_schema:
+    type: object
+    required:
+    - success
+    properties:
+      success:
+        type: boolean
+      message:
+        type: string
+      context:
+        type: object
+    additionalProperties: true
+  annotations:
+    read_only_hint: false
+    destructive_hint: false
+    idempotent_hint: true
+    open_world_hint: false
+  call_examples:
+  - arguments:
+      name: ReviewCamera
+- name: set_camera_properties
+  description: Configure camera properties (focal length, type, etc.)
+  source_file: scripts/set_camera_properties.py
+  execution: sync
+  affinity: main
+  read_only: false
+  destructive: false
+  idempotent: true
+  enforce_thread_affinity: true
+  input_schema:
+    type: object
+    additionalProperties: false
+    properties:
+      name: *id001
+      lens:
+        type: number
+        minimum: 1
+        maximum: 3.4028234663852886e+38
+        description: Focal length in millimetres; does not affect orthographic framing.
+      camera_type:
+        type: string
+        enum:
+        - PERSP
+        - ORTHO
+        - PANO
+      clip_start:
+        type: number
+        minimum: 0.000001
+        maximum: 3.4028234663852886e+38
+        description: Near clipping distance; must be less than the effective far distance.
+      clip_end:
+        type: number
+        minimum: 0.000001
+        maximum: 3.4028234663852886e+38
+        description: Far clipping distance; must exceed the effective near distance.
+      ortho_scale:
+        type: number
+        minimum: 0
+        maximum: 3.4028234663852886e+38
+        description: Orthographic view width in scene units.
+    required:
+    - name
+  output_schema:
+    type: object
+    required:
+    - success
+    properties:
+      success:
+        type: boolean
+      message:
+        type: string
+      context:
+        type: object
+    additionalProperties: true
+  annotations:
+    read_only_hint: false
+    destructive_hint: false
+    idempotent_hint: true
+    open_world_hint: false
+  call_examples:
+  - arguments:
+      name: ReviewCamera
+      camera_type: ORTHO
+      ortho_scale: 3.2
+- name: list_cameras
+  description: List all cameras in the scene
+  source_file: scripts/list_cameras.py
+  execution: sync
+  affinity: main
+  read_only: true
+  destructive: false
+  idempotent: true
+  enforce_thread_affinity: true
+  input_schema:
+    type: object
+    additionalProperties: false
+    properties: {}
+  output_schema:
+    type: object
+    required:
+    - success
+    properties:
+      success:
+        type: boolean
+      message:
+        type: string
+      context:
+        type: object
+    additionalProperties: true
+  annotations:
+    read_only_hint: true
+    destructive_hint: false
+    idempotent_hint: true
+    open_world_hint: false
+  call_examples:
+  - arguments: {}

@@ -1,0 +1,130 @@
+tools:
+  - name: import_to_scene
+    description: >-
+      Import a 3D asset described by an AssetDescriptor into the scene.
+      Accepts a dict payload with at least {"path": "...", "format": "fbx|obj|3ds"}.
+      Renames created nodes with the descriptor name or group prefix.
+    source_file: action_import_to_scene.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      required: [descriptor]
+      additionalProperties: false
+      properties:
+        descriptor:
+          type: object
+          description: Asset descriptor with path, format, name, and optional metadata keys.
+          additionalProperties: true
+          properties:
+            id: {type: string}
+            name: {type: string}
+            path: {type: string}
+            format: {type: string, enum: [fbx, obj, 3ds]}
+            size_bytes: {type: integer}
+            metadata: {type: object}
+        group_name:
+          type: string
+          description: Optional group name used as the rename prefix for imported nodes.
+        name_prefix:
+          type: string
+          description: Optional explicit rename prefix; takes priority over group_name and descriptor name.
+    output_schema:
+      type: object
+      additionalProperties: true
+      properties:
+        success: {type: boolean}
+        status: {type: string}
+        message: {type: string}
+        data: {type: object}
+    timeout_hint_secs: 120
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations: {read_only_hint: false, destructive_hint: false, idempotent_hint: false, open_world_hint: false}
+
+    intent: "Import a 3D asset (FBX/OBJ/3DS) from an AssetDescriptor into the current scene."
+    tool_role: action
+    risk: medium
+    search_aliases: ["import_to_scene", "import to scene", "import asset", "asset descriptor"]
+    side_effects:
+      creates: true
+      modifies: false
+      deletes: false
+      exports: false
+      imports: true
+      file_output: false
+      render: false
+      targets: ['scene_node', 'file']
+    produces:
+      - 'asset_import'
+      - 'scene_node'
+
+  - name: create_arnold_usd_procedural
+    description: >-
+      Create a MAXtoA Arnold USD procedural node that references a USD stage.
+      Supports USD/USD ASCII/USD crate/USDZ files, optional prim-path filtering,
+      an explicit USD time sample, and Y-up or Z-up conversion.
+    source_file: action_create_arnold_usd_procedural.py
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    input_schema:
+      type: object
+      required: [file_path]
+      additionalProperties: false
+      properties:
+        file_path:
+          type: string
+          minLength: 1
+          description: Absolute or host-resolvable path to a .usd, .usda, .usdc, or .usdz stage.
+        name:
+          type: string
+          minLength: 1
+          default: USD_Procedural
+          description: Name for the created 3ds Max scene node.
+        object_path:
+          type: string
+          default: ""
+          description: Optional USD prim path to render; empty renders the stage default/root content.
+        frame:
+          type: number
+          default: 1.0
+          description: USD time sample evaluated by the Arnold procedural.
+        up_axis:
+          type: string
+          enum: [y, z]
+          default: y
+          description: Up-axis authored by the USD stage.
+    output_schema:
+      type: object
+      additionalProperties: true
+      properties:
+        success: {type: boolean}
+        status: {type: string}
+        message: {type: string}
+        data: {type: object}
+    timeout_hint_secs: 30
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations: {read_only_hint: false, destructive_hint: false, idempotent_hint: false, open_world_hint: false}
+
+    intent: "Create a MAXtoA Arnold procedural node that renders a USD stage or prim path."
+    tool_role: action
+    risk: medium
+    search_aliases: ["create_arnold_usd_procedural", "arnold usd", "usd procedural", "render usd"]
+    side_effects:
+      creates: true
+      modifies: false
+      deletes: false
+      exports: false
+      imports: true
+      file_output: false
+      render: false
+      targets: ['scene_node', 'file', 'usd_stage']
+    produces:
+      - 'asset_import'
+      - 'scene_node'
+      - 'usd_procedural'

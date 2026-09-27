@@ -1,0 +1,77 @@
+tools:
+  - name: inspect_materials
+    description: Inspect bounded Toolbag material shader slots, texture paths, color-space flags, and assigned object UIDs.
+    source_file: scripts/inspect_materials.py
+    input_schema:
+      type: object
+      properties:
+        max_materials: {type: integer, minimum: 1, maximum: 1000, default: 200}
+      additionalProperties: false
+    output_schema: {type: object}
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+      deferred_hint: false
+    next-tools:
+      on-success: [marmoset_lookdev__frame_subject, marmoset_scene__create_pbr_material]
+
+  - name: frame_subject
+    description: Frame the entire Toolbag scene or one exact object UID in the active camera.
+    source_file: scripts/frame_subject.py
+    input_schema:
+      type: object
+      properties:
+        object_uid:
+          type: string
+          description: Exact object UID; omit or leave empty to frame the whole scene.
+      additionalProperties: false
+    output_schema: {type: object}
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 30
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+      deferred_hint: false
+    next-tools:
+      on-success: [marmoset_scene__render_camera, marmoset_scene__save_scene]
+      on-failure: [marmoset_scene__inspect_scene]
+
+  - name: configure_color_output
+    description: Configure the active Toolbag camera tone mapper and exposure; reports that Toolbag has no OCIO transform API.
+    source_file: scripts/configure_color_output.py
+    input_schema:
+      type: object
+      properties:
+        tone_mapping:
+          type: string
+          enum: [linear, reinhard, hejl, aces]
+          default: aces
+        exposure:
+          type: number
+          minimum: 0.01
+          maximum: 32
+          default: 1
+      additionalProperties: false
+    output_schema: {type: object}
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 30
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+      deferred_hint: false
+    next-tools:
+      on-success: [marmoset_scene__render_camera, marmoset_scene__save_scene]

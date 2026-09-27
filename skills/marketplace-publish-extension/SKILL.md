@@ -13,6 +13,11 @@ compatibility: "dcc-mcp-core 0.17+, Python 3.7+"
 allowed-tools: Bash Read Write
 metadata:
   dcc-mcp:
+    recall-context:
+      app_type: python
+      domain: marketplace
+      workflow_stage: publish
+      task_category: export
     dcc: python
     version: "0.18.9"  # x-release-please-version
     layer: infrastructure

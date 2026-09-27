@@ -9,6 +9,11 @@ license: MIT
 compatibility: Uses vx on PATH; non-read-only media tools can bootstrap vx with the official install script.
 metadata:
   dcc-mcp:
+    recall-context:
+      app_type: python
+      domain: media
+      workflow_stage: interchange
+      task_category: export
     dcc: python
     version: "0.1.0"
     layer: infrastructure

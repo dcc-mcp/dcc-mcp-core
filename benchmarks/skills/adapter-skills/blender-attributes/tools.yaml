@@ -1,0 +1,158 @@
+tools:
+  - name: list_attributes
+    description: "List all custom properties on a Blender object."
+    source_file: scripts/list_attributes.py
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 0
+    input_schema:
+      type: object
+      additionalProperties: false
+      required: [object_name]
+      properties:
+        object_name:
+          type: string
+          minLength: 1
+          description: Name of the Blender object.
+    output_schema: &attr_result_schema
+      type: object
+      additionalProperties: true
+      required: [success]
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        context:
+          type: object
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations: &read_only_annotations
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+
+  - name: get_attribute
+    description: "Get a custom property value by name from a Blender object."
+    source_file: scripts/get_attribute.py
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 0
+    input_schema:
+      type: object
+      additionalProperties: false
+      required: [object_name, attribute_name]
+      properties:
+        object_name:
+          type: string
+          minLength: 1
+          description: Name of the Blender object.
+        attribute_name:
+          type: string
+          minLength: 1
+          description: Name of the custom property.
+    output_schema: *attr_result_schema
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations: *read_only_annotations
+
+  - name: set_attribute
+    description: "Set a custom property value on a Blender object. Creates the property if it doesn't exist."
+    source_file: scripts/set_attribute.py
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 0
+    input_schema:
+      type: object
+      additionalProperties: false
+      required: [object_name, attribute_name, value]
+      properties:
+        object_name:
+          type: string
+          minLength: 1
+          description: Name of the Blender object.
+        attribute_name:
+          type: string
+          minLength: 1
+          description: Name of the custom property.
+        value:
+          description: Value to assign (string, number, boolean, or array of numbers).
+        ui_min:
+          type: number
+          description: Optional UI minimum value constraint.
+        ui_max:
+          type: number
+          description: Optional UI maximum value constraint.
+        ui_description:
+          type: string
+          description: Optional UI tooltip description.
+    output_schema: *attr_result_schema
+    read_only: false
+    destructive: false
+    idempotent: true
+    annotations: &mutating_idempotent_annotations
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+
+  - name: delete_attribute
+    description: "Delete a custom property from a Blender object."
+    source_file: scripts/delete_attribute.py
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 0
+    input_schema:
+      type: object
+      additionalProperties: false
+      required: [object_name, attribute_name]
+      properties:
+        object_name:
+          type: string
+          minLength: 1
+          description: Name of the Blender object.
+        attribute_name:
+          type: string
+          minLength: 1
+          description: Name of the custom property to delete.
+    output_schema: *attr_result_schema
+    read_only: false
+    destructive: true
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: true
+      idempotent_hint: false
+      open_world_hint: false
+
+  - name: rename_attribute
+    description: "Rename a custom property on a Blender object."
+    source_file: scripts/rename_attribute.py
+    execution: sync
+    affinity: main
+    timeout_hint_secs: 0
+    input_schema:
+      type: object
+      additionalProperties: false
+      required: [object_name, old_name, new_name]
+      properties:
+        object_name:
+          type: string
+          minLength: 1
+          description: Name of the Blender object.
+        old_name:
+          type: string
+          minLength: 1
+          description: Current name of the custom property.
+        new_name:
+          type: string
+          minLength: 1
+          description: New name for the custom property.
+    output_schema: *attr_result_schema
+    read_only: false
+    destructive: false
+    idempotent: true
+    annotations: *mutating_idempotent_annotations

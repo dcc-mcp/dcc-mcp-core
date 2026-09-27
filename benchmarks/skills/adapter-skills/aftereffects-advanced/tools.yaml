@@ -1,0 +1,39 @@
+tools:
+  - name: official_dom
+    description: Perform one structured operation against the complete official After Effects object model.
+    input_schema:
+      type: object
+      required: [operation]
+      properties:
+        operation: {type: string, enum: [root, get, set, call, construct, keys, snapshot, release]}
+        receiver: {type: object, description: Session-scoped object containing $ref and optional $type.}
+        member: {description: Property, method, constructor, or numeric member.}
+        value: {description: Value for set; nested $ref objects are accepted.}
+        args: {type: array, default: []}
+        members: {type: array, items: {}, default: []}
+        root: {type: string, default: app}
+        command_name: {type: string}
+        mutating: {type: boolean, default: false}
+    read_only: false
+    destructive: true
+    idempotent: false
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 60
+    source_file: scripts/official_dom.py
+  - name: evaluate_extend_script
+    description: Evaluate reviewed raw ExtendScript only when typed and structured DOM operations cannot express the task.
+    input_schema:
+      type: object
+      required: [source]
+      properties:
+        source: {type: string}
+        args: {type: array, default: []}
+        timeout_ms: {type: integer, minimum: 1}
+    read_only: false
+    destructive: true
+    idempotent: false
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 60
+    source_file: scripts/evaluate_extend_script.py

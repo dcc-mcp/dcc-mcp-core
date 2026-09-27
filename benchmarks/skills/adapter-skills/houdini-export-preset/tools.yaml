@@ -1,0 +1,170 @@
+tools:
+  - name: save_export_preset
+    description: >-
+      Save a ROP node's export configuration (node type, parameters, output
+      path, frame range) as a JSON preset file in a library directory.
+      Optionally auto-discovers the ROP node from /out when only a source
+      node path is given.
+    source_file: scripts/save_export_preset.py
+    execution: sync
+    affinity: main
+    group: export-presets
+    read_only: false
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: true
+    input_schema:
+      type: object
+      required: [preset_name]
+      properties:
+        preset_name:
+          type: string
+          description: Name for the preset file (stem without .json extension).
+        rop_node_path:
+          type: string
+          description: >-
+            Path to the ROP node whose configuration to capture
+            (e.g. /out/alembic1).  Required unless source_node_path
+            is given for auto-discovery.
+        source_node_path:
+          type: string
+          description: >-
+            Path to the SOP/LOP node to export.  When rop_node_path is
+            omitted, the first ROP in /out that references this source
+            node will be used for auto-discovery.
+        format:
+          type: string
+          description: >-
+            Export format hint.  Auto-detected from the ROP node type
+            when omitted.  One of: alembic, fbx, usd, geometry, ifd,
+            opengl, redshift, karma.
+        library_dir:
+          type: string
+          description: >-
+            Directory where preset .json files are stored.  Defaults to
+            $DCC_MCP_HOUDINI_EXPORT_PRESET_DIR or
+            ~/.dcc-mcp/houdini/export_presets/.
+        overwrite:
+          type: boolean
+          default: true
+          description: If false and the preset file exists, return an error.
+        custom_settings:
+          type: object
+          description: >-
+            Optional additional key-value pairs to merge into the preset
+            (notes, project, author, etc.).
+    next-tools:
+      on-success:
+        - houdini_export_preset__list_export_presets
+
+  - name: load_export_preset
+    description: >-
+      Load a saved export preset from the library and return its
+      configuration.  Optionally create a ROP node from the preset
+      and wire it to a source node for immediate use.
+    source_file: scripts/load_export_preset.py
+    execution: sync
+    affinity: main
+    group: export-presets
+    read_only: false
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: true
+    input_schema:
+      type: object
+      required: [preset_name]
+      properties:
+        preset_name:
+          type: string
+          description: Name of the preset to load (stem without .json).
+        library_dir:
+          type: string
+          description: >-
+            Directory containing preset .json files.  Defaults to the
+            configured default library directory.
+        create_rop:
+          type: boolean
+          default: false
+          description: >-
+            When true, create a ROP node from the preset configuration.
+            The node is created under rop_parent_path.
+        rop_parent_path:
+          type: string
+          default: "/out"
+          description: Parent network for the created ROP node.
+        source_node_path:
+          type: string
+          description: >-
+            Override the source node path in the preset.  Used when
+            recreating the ROP for a different SOP/LOP node.
+        connect_source:
+          type: boolean
+          default: false
+          description: >-
+            When true and source_node_path is set or available in the
+            preset, wire the created ROP to the source node.
+    next-tools:
+      on-success:
+        - houdini_interchange__export_alembic
+        - houdini_interchange__export_fbx
+        - houdini_interchange__export_usd
+        - houdini_interchange__export_geometry
+
+  - name: list_export_presets
+    description: >-
+      List all export preset JSON files in a library directory (read-only,
+      no Houdini scene access required).
+    source_file: scripts/list_export_presets.py
+    execution: sync
+    affinity: any
+    group: export-presets
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+    input_schema:
+      type: object
+      properties:
+        library_dir:
+          type: string
+          description: >-
+            Directory to search for .json preset files.  Defaults to
+            $DCC_MCP_HOUDINI_EXPORT_PRESET_DIR or
+            ~/.dcc-mcp/houdini/export_presets/.
+
+  - name: delete_export_preset
+    description: >-
+      Delete an export preset JSON file from the library (no Houdini
+      scene access required).
+    source_file: scripts/delete_export_preset.py
+    execution: sync
+    affinity: any
+    group: export-presets
+    read_only: false
+    destructive: true
+    idempotent: true
+    annotations:
+      read_only_hint: false
+      destructive_hint: true
+      idempotent_hint: true
+    input_schema:
+      type: object
+      required: [preset_name]
+      properties:
+        preset_name:
+          type: string
+          description: Name of the preset file to delete (stem without .json).
+        library_dir:
+          type: string
+          description: >-
+            Directory containing preset .json files.  Defaults to the
+            configured default library directory.

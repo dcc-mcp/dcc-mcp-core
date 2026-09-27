@@ -18,6 +18,11 @@ metadata:
     emoji: "🎬"
     homepage: https://openusd.org
   dcc-mcp:
+    recall-context:
+      app_type: python
+      domain: interchange
+      workflow_stage: interchange
+      task_category: query
     dcc: python
     version: "1.0.0"
     layer: infrastructure

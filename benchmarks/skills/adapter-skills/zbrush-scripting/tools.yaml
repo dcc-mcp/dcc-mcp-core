@@ -1,0 +1,48 @@
+tools:
+  - name: execute_python
+    description: >-
+      Execute a Python snippet inside ZBrush's embedded interpreter. Mutates
+      globals and may change the scene. Prefer typed zbrush-scene / zbrush-subtool
+      / zbrush-interchange tools when available. Returns stdout, stderr, and an
+      optional `result` variable from the namespace.
+    source_file: scripts/execute_python.py
+    execution: sync
+    affinity: any
+    group: core
+    annotations:
+      destructive_hint: true
+      read_only_hint: false
+      idempotent_hint: false
+    input_schema:
+      type: object
+      required: [code]
+      properties:
+        code:
+          type: string
+          description: Python source executed with `zbc` pre-bound to zbrush.commands.
+        context:
+          type: object
+          description: Optional extra names injected into the execution namespace.
+          additionalProperties: true
+    next-tools:
+      on-success:
+        - zbrush_scene__get_scene_info
+      on-failure:
+        - zbrush_scripting__get_session_info
+  - name: get_session_info
+    description: >-
+      Read ZBrush version, active tool path, and subtool count without modifying
+      the scene. Safe health check for MCP wiring.
+    source_file: scripts/get_session_info.py
+    execution: sync
+    affinity: any
+    group: diagnostics
+    annotations:
+      read_only_hint: true
+      idempotent_hint: true
+    input_schema:
+      type: object
+      properties: {}
+    next-tools:
+      on-success:
+        - zbrush_scene__get_scene_info

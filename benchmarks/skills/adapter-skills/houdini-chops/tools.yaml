@@ -1,0 +1,194 @@
+tools:
+  - name: create_chop_network
+    description: Create a CHOP network container at a given parent path.
+    source_file: scripts/create_chop_network.py
+    execution: sync
+    affinity: main
+    group: network
+    read_only: false
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: true
+    input_schema:
+      type: object
+      required: [parent_path]
+      properties:
+        parent_path:
+          type: string
+          description: Path to the parent node or context (e.g. /ch).
+        network_name:
+          type: string
+          description: Name for the new CHOP network node.
+          default: "chopnet1"
+  - name: create_motionclip
+    description: Import or create a motion clip CHOP in a CHOP network.
+    source_file: scripts/create_motionclip.py
+    execution: sync
+    affinity: main
+    group: motion
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+    input_schema:
+      type: object
+      required: [network_path]
+      properties:
+        network_path:
+          type: string
+          description: Path to the CHOP network (e.g. /ch/chopnet1).
+        node_name:
+          type: string
+          description: Name for the new MotionClip node.
+          default: "motionclip1"
+        clip_file:
+          type: string
+          description: Optional path to a .bclip/.clip file to load.
+        start_frame:
+          type: number
+          description: Optional start frame override for the clip.
+  - name: create_audio_driven
+    description: Set up audio-driven animation using an Envelope CHOP driven by an audio file.
+    source_file: scripts/create_audio_driven.py
+    execution: sync
+    affinity: main
+    group: audio
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+    input_schema:
+      type: object
+      required: [network_path, audio_file, target_parm]
+      properties:
+        network_path:
+          type: string
+          description: Path to the CHOP network container.
+        audio_file:
+          type: string
+          description: Path to a .wav/.mp3/.aiff audio file.
+        target_parm:
+          type: string
+          description: Target parameter path like /obj/geo1/tx.
+        channel_name:
+          type: string
+          description: Audio channel to extract (amplitude, bass, mid, treble).
+          default: "amplitude"
+        envelope_name:
+          type: string
+          description: Name for the Envelope CHOP node.
+          default: "envelope1"
+        amplitude_multiplier:
+          type: number
+          description: Scale factor applied to output.
+          default: 1.0
+  - name: apply_filter
+    description: >-
+      Apply a CHOP filter (lag, spring, noise, smooth, peak, bandpass, comp,
+      limit) to a source channel.
+    source_file: scripts/apply_filter.py
+    execution: sync
+    affinity: main
+    group: filter
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+    input_schema:
+      type: object
+      required: [network_path, source_node, filter_type]
+      properties:
+        network_path:
+          type: string
+          description: Path to the CHOP network container.
+        source_node:
+          type: string
+          description: Name or path of the source CHOP node.
+        filter_type:
+          type: string
+          description: Filter type key.
+          enum: [lag, spring, noise, smooth, peak, bandpass, comp, limit]
+        amount:
+          type: number
+          description: Primary filter strength.
+          default: 0.5
+        node_name:
+          type: string
+          description: Name for the new filter node (auto-generated if omitted).
+        extra_params:
+          type: object
+          description: Additional parameter name to value overrides.
+  - name: export_to_keyframes
+    description: >-
+      Bake CHOP channel data to keyframes on object parameters over a frame
+      range.
+    source_file: scripts/export_to_keyframes.py
+    execution: async
+    affinity: main
+    timeout_hint_secs: 600
+    group: export
+    read_only: false
+    destructive: false
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+    input_schema:
+      type: object
+      required: [node_path, target_path, parm_names]
+      properties:
+        node_path:
+          type: string
+          description: Path to the CHOP node.
+        target_path:
+          type: string
+          description: Object node path to write keyframes to.
+        parm_names:
+          type: array
+          items: {type: string}
+          minItems: 1
+          description: List of parameter names on target_path to drive.
+        frame_range:
+          type: array
+          items: {type: number}
+          minItems: 2
+          maxItems: 2
+          description: Optional [start, end] bake range.
+        resample_rate:
+          type: number
+          description: Sampling step between frames (default 1.0).
+  - name: get_channel_info
+    description: >-
+      Inspect a CHOP node — node type, sample rate, segment length, channel
+      names, and per-channel value at the current frame.
+    source_file: scripts/get_channel_info.py
+    execution: sync
+    affinity: main
+    group: inspect
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+    input_schema:
+      type: object
+      required: [node_path]
+      properties:
+        node_path:
+          type: string
+          description: Path to the CHOP node to inspect.

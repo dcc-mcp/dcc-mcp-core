@@ -1,0 +1,39 @@
+tools:
+  - name: get_scene_info
+    description: >-
+      Return active tool path, subtool count, and the currently selected subtool
+      index without modifying the scene.
+    source_file: scripts/get_scene_info.py
+    execution: sync
+    affinity: any
+    group: core
+    annotations:
+      read_only_hint: true
+      idempotent_hint: true
+    input_schema:
+      type: object
+      properties: {}
+    next-tools:
+      on-success:
+        - zbrush_scene__list_subtools
+      on-failure:
+        - zbrush_scripting__get_session_info
+  - name: list_subtools
+    description: >-
+      List every subtool on the active tool with index, path suffix, and decoded
+      visibility/lock flags from get_subtool_status.
+    source_file: scripts/list_subtools.py
+    execution: sync
+    affinity: any
+    group: core
+    annotations:
+      read_only_hint: true
+      idempotent_hint: true
+    input_schema:
+      type: object
+      properties: {}
+    next-tools:
+      on-success:
+        - zbrush_subtool__select_subtool
+      on-failure:
+        - zbrush_scene__get_scene_info
