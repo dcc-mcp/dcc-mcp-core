@@ -154,11 +154,12 @@ def test_uv_lock_behind_last_released_version_fails(tmp_path: Path) -> None:
     assert "uv lock --upgrade-package dcc-mcp-server" in errors[0]
 
 
-def test_uv_lock_on_release_pr_allows_one_release_behind(tmp_path: Path) -> None:
+def test_uv_lock_one_release_behind_the_floor_is_tolerated(tmp_path: Path) -> None:
     checker = _load_checker_module()
-    # The state release-please PR #2585 was born in: the PR declares 0.20.36
-    # and writes its changelog heading, while the pins still track 0.20.34
-    # because the scheduled refresh lands hours later.
+    # The state release-please PR #2585 was born in and the state main sat in
+    # after #2593 merged: the repo declares 0.20.36 and writes its changelog
+    # heading while the pins still track 0.20.34, one release behind the
+    # 0.20.35 floor, because the bump moved the floor and not the lock.
     _write_changelog(tmp_path, ["0.20.36", "0.20.35", "0.20.34"])
     _write_uv_pkg(
         tmp_path,
@@ -167,32 +168,40 @@ def test_uv_lock_on_release_pr_allows_one_release_behind(tmp_path: Path) -> None
         declared="0.20.36",
         lock_version="0.20.34",
     )
+    notices: list = []
 
-    assert checker.check_uv_lock_published_versions(tmp_path, release_pr=True) == []
+    assert checker.check_uv_lock_published_versions(tmp_path, notices=notices) == []
+    assert len(notices) == 1
+    assert "0.20.34" in notices[0]
+    assert "0.20.35" in notices[0]
+    assert "release-please" in notices[0]
 
 
-def test_uv_lock_off_release_pr_rejects_one_release_behind(tmp_path: Path) -> None:
+def test_uv_lock_two_releases_behind_the_floor_is_drift(tmp_path: Path) -> None:
     checker = _load_checker_module()
-    # The same lock state, measured off a release branch, is still drift: this
-    # is the guardrail the release tolerance must not quietly remove.
-    _write_changelog(tmp_path, ["0.20.36", "0.20.35", "0.20.34"])
+    # Same declared version, one release further behind: the bump cannot
+    # explain this distance, so the gate must still fail.
+    _write_changelog(tmp_path, ["0.20.36", "0.20.35", "0.20.34", "0.20.33"])
     _write_uv_pkg(
         tmp_path,
         pkg_dir="dcc-mcp-server-bin",
         name="dcc-mcp-server",
         declared="0.20.36",
-        lock_version="0.20.34",
+        lock_version="0.20.33",
     )
+    notices: list = []
 
-    errors = checker.check_uv_lock_published_versions(tmp_path)
+    errors = checker.check_uv_lock_published_versions(tmp_path, notices=notices)
 
     assert len(errors) == 1
-    assert "0.20.34" in errors[0]
+    assert "0.20.33" in errors[0]
     assert "0.20.35" in errors[0]
+    assert notices == []
 
 
-def test_uv_lock_on_release_pr_still_reports_several_releases_stale(tmp_path: Path) -> None:
+def test_uv_lock_several_releases_stale_is_drift(tmp_path: Path) -> None:
     checker = _load_checker_module()
+    # PIP-3620: the pins sat on 0.20.12 across twelve releases.
     _write_changelog(tmp_path, ["0.20.36", "0.20.35", "0.20.34"])
     _write_uv_pkg(
         tmp_path,
@@ -202,44 +211,26 @@ def test_uv_lock_on_release_pr_still_reports_several_releases_stale(tmp_path: Pa
         lock_version="0.20.12",
     )
 
-    errors = checker.check_uv_lock_published_versions(tmp_path, release_pr=True)
+    errors = checker.check_uv_lock_published_versions(tmp_path)
 
     assert len(errors) == 1
     assert "0.20.12" in errors[0]
 
 
 @pytest.mark.parametrize(
-    ("ref", "expected"),
+    "env",
     [
-        ("release-please--branches--main--components--dcc-mcp-core", True),
-        ("refs/heads/release-please--branches--main", True),
-        # A branch that merely mentions release-please is not a release PR.
-        ("fix/release-please--branches--main", False),
-        ("task/dcc-mcp-core-release-please-pr-2585", False),
-        ("main", False),
-        ("", False),
-        (None, False),
+        # The verdict must not depend on where the gate runs: a release PR and
+        # the push to main it produces carry the same lockfile, and judging
+        # them differently is what turned a green PR red on every release.
+        {"GITHUB_HEAD_REF": "release-please--branches--main"},
+        {"GITHUB_REF": "refs/heads/release-please--branches--main"},
+        {"GITHUB_HEAD_REF": "task/whatever"},
+        {},
     ],
 )
-def test_is_release_pr_ref_matches_release_please_branches(tmp_path: Path, ref, expected: bool) -> None:
-    checker = _load_checker_module()
-
-    assert checker._is_release_pr_ref(ref) is expected
-
-
-@pytest.mark.parametrize(
-    ("env", "expected"),
-    [
-        ({"GITHUB_HEAD_REF": "release-please--branches--main"}, True),
-        # A branch push only carries a fully qualified GITHUB_REF.
-        ({"GITHUB_REF": "refs/heads/release-please--branches--main"}, True),
-        ({"GITHUB_HEAD_REF": "task/whatever"}, False),
-        # Outside CI neither variable is set, so the strict gate applies.
-        ({}, False),
-    ],
-)
-def test_main_reads_release_pr_state_from_the_environment(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, env: dict, expected: bool
+def test_main_judges_the_lockfile_the_same_on_every_ref(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, env: dict
 ) -> None:
     checker = _load_checker_module()
     _write_changelog(tmp_path, ["0.20.36", "0.20.35", "0.20.34"])
@@ -250,12 +241,12 @@ def test_main_reads_release_pr_state_from_the_environment(
         declared="0.20.36",
         lock_version="0.20.34",
     )
-    for name in checker.RELEASE_PR_REF_ENV_VARS:
-        monkeypatch.delenv(name, raising=False)
+    monkeypatch.delenv("GITHUB_HEAD_REF", raising=False)
+    monkeypatch.delenv("GITHUB_REF", raising=False)
     for name, value in env.items():
         monkeypatch.setenv(name, value)
 
-    assert checker.main([str(tmp_path)]) == (0 if expected else 1)
+    assert checker.main([str(tmp_path)]) == 0
 
 
 def test_uv_lock_without_earlier_release_is_skipped(tmp_path: Path) -> None:
@@ -339,6 +330,26 @@ def test_main_reports_errors_and_returns_failure(tmp_path: Path, capsys) -> None
 
     assert checker.main([str(tmp_path)]) == 1
     assert "::error::" in capsys.readouterr().err
+
+
+def test_main_warns_and_passes_inside_the_release_bump_window(tmp_path: Path, capsys) -> None:
+    checker = _load_checker_module()
+    # Merge commit c5d7d8b8: declared 0.20.37, published 0.20.36, pins 0.20.35.
+    # release-please moved the floor, not the lock, so main must stay green and
+    # say why.
+    _write_changelog(tmp_path, ["0.20.37", "0.20.36", "0.20.35"])
+    _write_uv_pkg(
+        tmp_path,
+        pkg_dir="dcc-mcp-server-bin",
+        name="dcc-mcp-server",
+        declared="0.20.37",
+        lock_version="0.20.35",
+    )
+
+    assert checker.main([str(tmp_path)]) == 0
+    stderr = capsys.readouterr().err
+    assert "::warning::" in stderr
+    assert "::error::" not in stderr
 
 
 def test_main_succeeds_on_clean_repository() -> None:

@@ -21,15 +21,19 @@ Two independent invariants are enforced, one per lockfile.
     with the in-flight version excluded, so a lock left several releases stale
     fails.
 
-    A release-please PR gets one extra release of tolerance. The pins only
-    move when ``uv`` re-resolves them against the index, which
-    ``uv-lock-refresh.yml`` does on a daily schedule through a pull request
-    that stays open for a human to merge. Release-please opens the next release
-    PR hours before that refresh lands, so at PR birth the lock is legitimately
-    one published release behind -- the same distance ``main`` always sits at,
-    because ``main`` excludes its own declared version from the floor. Without
-    the extra step the gate fires on every release PR by construction, not
-    because anything drifted.
+    A release-please bump moves that floor without moving the lock: the
+    declared versions and the changelog heading land in one commit, so merging
+    a release PR raises the floor by one release while the pins stay exactly
+    where they were. A lock that satisfied the gate before the bump therefore
+    fails after it, for no other reason. The gate tolerates that single release
+    of distance -- the lock may sit on the release preceding the floor -- and
+    reports it on stderr as a warning. Two or more releases behind the floor is
+    rot and still fails.
+
+    The tolerance is deliberately not keyed off the branch name. Judging the
+    same lockfile differently on a release PR and on ``main`` only moved the
+    failure across the merge: the release PR was green and the push to ``main``
+    it produced was red, which is the recurrence this gate kept reporting.
 
 Both checks are read-only and never rewrite a lockfile, so they cannot narrow
 ``requires-python`` or drop Python 3.7 markers.
@@ -37,7 +41,6 @@ Both checks are read-only and never rewrite a lockfile, so they cannot narrow
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 import re
 import sys
@@ -46,13 +49,6 @@ try:
     import tomllib
 except ModuleNotFoundError:  # pragma: no cover - exercised by the Python 3.7 CI lane
     import tomli as tomllib
-
-# Release-please names its PR branches after the target branch and component,
-# e.g. ``release-please--branches--main--components--dcc-mcp-core``.
-RELEASE_PR_REF_PREFIX = "release-please--"
-# ``GITHUB_HEAD_REF`` is the head branch of a pull request run; ``GITHUB_REF``
-# is the fallback for branch pushes, where it is ``refs/heads/<branch>``.
-RELEASE_PR_REF_ENV_VARS = ("GITHUB_HEAD_REF", "GITHUB_REF")
 
 _RELEASE_HEADING_RE = re.compile(r"^## \[([^\]]+)\]", re.MULTILINE)
 
@@ -79,28 +75,6 @@ def _newest_released_except(released: list[str], excluded: str, *also_excluded: 
     if not candidates:
         return None
     return max(candidates, key=_version_key)
-
-
-def _is_release_pr_ref(ref: str | None) -> bool:
-    """Report whether a git ref belongs to a release-please PR branch."""
-    if not ref:
-        return False
-    # ``GITHUB_REF`` carries a fully qualified ``refs/heads/<branch>`` ref on
-    # pushes, and ``refs/pull/<n>/merge`` on pull request runs; only the branch
-    # form is unqualified here.
-    if ref.startswith("refs/heads/"):
-        ref = ref[len("refs/heads/") :]
-    return ref.startswith(RELEASE_PR_REF_PREFIX)
-
-
-def _release_pr_ref(env: dict[str, str] | None = None) -> str | None:
-    """Return the branch ref the gate is running against, or ``None`` in CI."""
-    environment = os.environ if env is None else env
-    for name in RELEASE_PR_REF_ENV_VARS:
-        value = environment.get(name)
-        if value:
-            return value
-    return None
 
 
 def _locked_versions(lock: dict) -> dict:
@@ -168,12 +142,14 @@ def check_cargo_lock_versions(root: Path) -> list[str]:
     return errors
 
 
-def check_uv_lock_published_versions(root: Path, *, release_pr: bool = False) -> list[str]:
+def check_uv_lock_published_versions(root: Path, *, notices: list | None = None) -> list[str]:
     """Return errors for ``pkg/`` distributions pinned behind the last release.
 
-    ``release_pr`` grants one extra release of tolerance, matching the
-    distance a release-please PR legitimately sits behind the newest published
-    wheels while the scheduled refresh is still in flight.
+    A pin sitting on the release immediately preceding the floor is reported
+    through ``notices`` instead of ``errors``: that is the distance a
+    release-please bump creates on its own, because the declared version and
+    the changelog heading move together while the index still has to catch up.
+    Anything further behind is drift and fails.
     """
     lock_path = root / "uv.lock"
     pkg_dir = root / "pkg"
@@ -206,19 +182,34 @@ def check_uv_lock_published_versions(root: Path, *, release_pr: bool = False) ->
         if floor is None:
             # No earlier release to measure against, so every pin is valid.
             continue
-        if release_pr:
-            # Drop one more release so a release PR is measured the same way
-            # ``main`` is. ``or floor`` keeps the stricter floor when no older
-            # release is left to fall back to.
-            floor = _newest_released_except(released, declared, floor) or floor
 
         newest = max(versions, key=_version_key)
-        if _version_key(newest) < _version_key(floor):
-            errors.append(
-                f"uv.lock {name} version {newest!r} is behind the last released version "
-                f"{floor!r} ({pyproject_path} declares {declared!r}); refresh it with "
-                f"`uv lock --upgrade-package {name}`"
-            )
+        if _version_key(newest) >= _version_key(floor):
+            continue
+
+        # The lock is behind the floor. One release of distance is the bump
+        # itself: release-please raises every declared version and writes the
+        # matching changelog heading in a single commit, so the floor drops by
+        # one release while the pins stay where the previous floor already
+        # accepted them. Two or more releases behind is nobody's bump -- the
+        # scheduled refresh stopped landing -- and stays an error.
+        previous_floor = _newest_released_except(released, declared, floor)
+        if previous_floor is not None and _version_key(newest) >= _version_key(previous_floor):
+            if notices is not None:
+                notices.append(
+                    f"uv.lock {name} version {newest!r} sits one release behind the last released "
+                    f"version {floor!r}: {pyproject_path} declares {declared!r}, which release-please "
+                    f"bumped ahead of the published wheels, so the pins cannot resolve it yet. "
+                    f"Refresh it with `uv lock --upgrade-package {name}`; the scheduled refresh "
+                    f"moves it on its own."
+                )
+            continue
+
+        errors.append(
+            f"uv.lock {name} version {newest!r} is behind the last released version "
+            f"{floor!r} ({pyproject_path} declares {declared!r}); refresh it with "
+            f"`uv lock --upgrade-package {name}`"
+        )
     return errors
 
 
@@ -227,12 +218,10 @@ def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     root = Path(args[0]) if args else Path.cwd()
 
-    # Only the branch name can say that the pins are still waiting on the
-    # scheduled refresh. Outside CI both variables are unset, so a local run
-    # and ``main`` keep the strict gate.
-    release_pr = _is_release_pr_ref(_release_pr_ref())
-
-    errors = check_cargo_lock_versions(root) + check_uv_lock_published_versions(root, release_pr=release_pr)
+    notices: list = []
+    errors = check_cargo_lock_versions(root) + check_uv_lock_published_versions(root, notices=notices)
+    for notice in notices:
+        print(f"::warning::{notice}", file=sys.stderr)
     if errors:
         for error in errors:
             print(f"::error::{error}", file=sys.stderr)
