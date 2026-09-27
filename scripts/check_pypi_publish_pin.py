@@ -30,6 +30,7 @@ from __future__ import annotations
 import argparse
 import base64
 import binascii
+from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 import re
@@ -38,7 +39,6 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
-from concurrent.futures import ThreadPoolExecutor
 
 DEFAULT_ORG = "dcc-mcp"
 PUBLISH_ACTION = "pypa/gh-action-pypi-publish"
@@ -55,27 +55,30 @@ class ScanError(RuntimeError):
     """Raised when the scan cannot complete, as opposed to finding bad refs."""
 
 
-def _token():
+class NotFound(Exception):
+    """Raised for a 404 so callers can treat "no such path" as empty."""
+
+
+def _token() -> str:
     """Return a GitHub token from the environment or from ``gh auth token``."""
     token = (os.environ.get("GITHUB_TOKEN") or "").strip()
     if token:
         return token
     try:
-        completed = subprocess.run(
-            ["gh", "auth", "token"], stdout=subprocess.PIPE, stderr=subprocess.PIPE
-        )
+        completed = subprocess.run(["gh", "auth", "token"], capture_output=True)
     except OSError as error:
-        raise ScanError("cannot read a GitHub token: {}".format(error))
+        raise ScanError(f"cannot read a GitHub token: {error}") from error
     token = completed.stdout.decode("utf-8", "replace").strip()
     if completed.returncode != 0 or not token:
         raise ScanError("set GITHUB_TOKEN or run `gh auth login` first")
     return token
 
 
-def _get(path, token):
+def _get(path: str, token: str):
     """GET an API path (without the host) and return ``(json_body, headers)``."""
-    request = urllib.request.Request(urllib.parse.urljoin(API_ROOT + "/", path.lstrip("/")))
-    request.add_header("Authorization", "token " + token)
+    url = urllib.parse.urljoin(f"{API_ROOT}/", path.lstrip("/"))
+    request = urllib.request.Request(url)
+    request.add_header("Authorization", f"token {token}")
     request.add_header("Accept", "application/vnd.github+json")
     request.add_header("User-Agent", "pip-3715-publish-pin-check")
     try:
@@ -84,26 +87,22 @@ def _get(path, token):
             headers = dict(response.headers.items())
     except urllib.error.HTTPError as error:
         if error.code in (403, 429):
-            raise ScanError("GitHub rate limit or forbidden on {}".format(path))
+            raise ScanError(f"GitHub rate limit or forbidden on {path}") from error
         # A missing .github/workflows directory or an empty repo. Not a violation.
         if error.code == 404:
-            raise NotFound(path)
-        raise ScanError("GET {} failed with HTTP {}".format(path, error.code))
+            raise NotFound(path) from error
+        raise ScanError(f"GET {path} failed with HTTP {error.code}") from error
     except urllib.error.URLError as error:
-        raise ScanError("GET {} failed: {}".format(path, error.reason))
+        raise ScanError(f"GET {path} failed: {error.reason}") from error
     if not raw:
         return None, headers
     try:
         return json.loads(raw.decode("utf-8", "replace")), headers
     except ValueError as error:
-        raise ScanError("GET {} returned invalid JSON: {}".format(path, error))
+        raise ScanError(f"GET {path} returned invalid JSON: {error}") from error
 
 
-class NotFound(Exception):
-    """Raised for a 404 so callers can treat "no such path" as empty."""
-
-
-def _get_paginated(path, token):
+def _get_paginated(path: str, token: str) -> list:
     """Follow ``Link: rel="next"`` and return the concatenated list payload."""
     items = []
     next_path = path
@@ -119,11 +118,9 @@ def _get_paginated(path, token):
     return items
 
 
-def list_repos(org, token):
+def list_repos(org: str, token: str) -> list:
     """Return non-archived repos as ``[(name, default_branch), ...]``."""
-    path = "/orgs/{}/repos?type=all&per_page=100&sort=full_name".format(
-        urllib.parse.quote(org)
-    )
+    path = f"/orgs/{urllib.parse.quote(org)}/repos?type=all&per_page=100&sort=full_name"
     repos = []
     for entry in _get_paginated(path, token):
         if entry.get("archived"):
@@ -132,11 +129,16 @@ def list_repos(org, token):
     return repos
 
 
-def list_workflow_paths(org, repo, ref, token):
+def _contents_path(org: str, repo: str, path: str, ref: str) -> str:
+    """Build the contents API path for ``path`` inside ``repo`` at ``ref``."""
+    quoted = "/".join(urllib.parse.quote(part) for part in path.split("/"))
+    repo_part = f"{urllib.parse.quote(org)}/{urllib.parse.quote(repo)}"
+    return f"/repos/{repo_part}/contents/{quoted}?ref={urllib.parse.quote(ref)}"
+
+
+def list_workflow_paths(org: str, repo: str, ref: str, token: str) -> list:
     """List workflow files on ``ref``; empty list when the repo has none."""
-    path = "/repos/{}/{}/contents/{}?ref={}".format(
-        urllib.parse.quote(org), urllib.parse.quote(repo), WORKFLOWS_DIR, urllib.parse.quote(ref)
-    )
+    path = _contents_path(org, repo, WORKFLOWS_DIR, ref)
     try:
         payload = _get(path, token)[0]
     except NotFound:
@@ -150,12 +152,9 @@ def list_workflow_paths(org, repo, ref, token):
     ]
 
 
-def fetch_file(org, repo, path, ref, token):
+def fetch_file(org: str, repo: str, path: str, ref: str, token: str):
     """Return the decoded text of ``path`` on ``ref``, or None if unreadable."""
-    api_path = "/repos/{}/{}/contents/{}?ref={}".format(
-        urllib.parse.quote(org), urllib.parse.quote(repo), urllib.parse.quote(path),
-        urllib.parse.quote(ref),
-    )
+    api_path = _contents_path(org, repo, path, ref)
     try:
         payload = _get(api_path, token)[0]
     except NotFound:
@@ -169,7 +168,7 @@ def fetch_file(org, repo, path, ref, token):
         return None
 
 
-def scan_text(text):
+def scan_text(text: str) -> list:
     """Return ``(line_number, raw_line, ref)`` for every publish action ref."""
     found = []
     for number, line in enumerate(text.splitlines(), start=1):
@@ -182,7 +181,7 @@ def scan_text(text):
     return found
 
 
-def _scan_repo(org, repo, ref, token):
+def _scan_repo(org: str, repo: str, ref: str, token: str):
     """Scan one repo; return ``(repo, saw_publish, histogram, findings)``."""
     histogram = {}
     findings = []
@@ -206,7 +205,7 @@ def _scan_repo(org, repo, ref, token):
     return repo, bool(histogram), histogram, findings
 
 
-def scan_org(org, repos=None, ref_override=None, jobs=8, progress=None):
+def scan_org(org: str, repos=None, ref_override=None, jobs: int = 8, progress=None) -> dict:
     """Scan every repo in ``org``; return the report dict."""
     token = _token()
     if repos:
@@ -214,7 +213,7 @@ def scan_org(org, repos=None, ref_override=None, jobs=8, progress=None):
     else:
         targets = list_repos(org, token)
         if progress:
-            progress("enumerated {} non-archived repos in {}".format(len(targets), org))
+            progress(f"enumerated {len(targets)} non-archived repos in {org}")
         if ref_override:
             targets = [(name, ref_override) for name, _ in targets]
 
@@ -227,11 +226,9 @@ def scan_org(org, repos=None, ref_override=None, jobs=8, progress=None):
         return _scan_repo(org, repo, ref, token)
 
     with ThreadPoolExecutor(max_workers=max(1, jobs)) as pool:
-        for index, (repo, saw_publish, repo_histogram, repo_findings) in enumerate(
-            pool.map(worker, targets), start=1
-        ):
+        for index, (repo, saw_publish, repo_histogram, repo_findings) in enumerate(pool.map(worker, targets), start=1):
             if progress:
-                progress("[{}/{}] {}".format(index, len(targets), repo))
+                progress(f"[{index}/{len(targets)}] {repo}")
             if saw_publish:
                 repos_with_publish += 1
             for action_ref, count in repo_histogram.items():
@@ -251,31 +248,38 @@ def scan_org(org, repos=None, ref_override=None, jobs=8, progress=None):
     }
 
 
-def render_text(report):
+def render_text(report: dict) -> str:
+    """Render the scan report as human-readable text."""
     lines = [
-        "org={} scanned_ref={} repos_scanned={}".format(
-            report["org"], report["scanned_ref"], report["repos_scanned"]
-        ),
-        "repos_with_publish_step={} refs_found={}".format(
-            report["repos_with_publish_step"], report["refs_found"]
-        ),
+        f"org={report['org']} scanned_ref={report['scanned_ref']} repos_scanned={report['repos_scanned']}",
+        "repos_with_publish_step={} refs_found={}".format(report["repos_with_publish_step"], report["refs_found"]),
     ]
     if report["distinct_refs"]:
         lines.append("distinct refs (informational, the SHA value is NOT asserted):")
         for ref, count in report["distinct_refs"].items():
-            lines.append("  {} x {}".format(count, ref))
+            lines.append(f"  {count} x {ref}")
     if not report["violations"]:
-        lines.append("OK: every {} ref is a 40-hex SHA.".format(PUBLISH_ACTION))
+        lines.append(f"OK: every {PUBLISH_ACTION} ref is a 40-hex SHA.")
         return "\n".join(lines)
-    lines.append("FAIL: {} ref(s) are not a 40-hex SHA:".format(len(report["violations"])))
+    lines.append(f"FAIL: {len(report['violations'])} ref(s) are not a 40-hex SHA:")
     for finding in report["violations"]:
-        lines.append(
-            "  {repo}@{ref} {path}:{line} got {found!r}".format(**finding)
-        )
+        lines.append("  {repo}@{ref} {path}:{line} got {found!r}".format(**finding))
     return "\n".join(lines)
 
 
-def main(argv=None):
+def _progress_printer(enabled: bool):
+    """Return a stderr progress callback, or None when progress is disabled."""
+    if not enabled:
+        return None
+
+    def report(message: str) -> None:
+        print(message, file=sys.stderr)
+
+    return report
+
+
+def main(argv=None) -> int:
+    """Run the scanner from the command line and return the process exit code."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--org", default=DEFAULT_ORG, help="GitHub organization (default: %(default)s)")
     parser.add_argument("--repos", default="", help="comma-separated repo names instead of the whole org")
@@ -286,15 +290,16 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     repo_list = [item.strip() for item in args.repos.split(",") if item.strip()] or None
-    progress = None
-    if not args.quiet:
-        progress = lambda message: print(message, file=sys.stderr)
     try:
         report = scan_org(
-            args.org, repos=repo_list, ref_override=args.ref, jobs=args.jobs, progress=progress
+            args.org,
+            repos=repo_list,
+            ref_override=args.ref,
+            jobs=args.jobs,
+            progress=_progress_printer(not args.quiet),
         )
     except ScanError as error:
-        print("SCAN ERROR: {}".format(error), file=sys.stderr)
+        print(f"SCAN ERROR: {error}", file=sys.stderr)
         return 2
 
     if args.as_json:
