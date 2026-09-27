@@ -47,6 +47,25 @@ def _github_release_steps(jobs: dict) -> list[dict]:
     return [step for job in jobs.values() for step in job.get("steps", []) if step.get("uses") == GITHUB_RELEASE_ACTION]
 
 
+def _branch_body(script: str, condition: str) -> str:
+    """Return the shell body guarded by ``if [`` ``condition`` `` ]; then``.
+
+    The publish summary is one multi-line bash script, so asserting on the whole
+    run string cannot tell a gate from a warning. This slices out the guarded
+    block so a best-effort route can be distinguished from a blocking one.
+    """
+    lines = script.splitlines()
+    header = f'if [ "{condition}" ]; then'
+    start = next((index for index, line in enumerate(lines) if line.strip() == header), None)
+    assert start is not None, f"no branch guarded by {condition!r}"
+    indent = len(lines[start]) - len(lines[start].lstrip())
+    for offset in range(start + 1, len(lines)):
+        line = lines[offset]
+        if line.strip() == "fi" and (len(line) - len(line.lstrip())) == indent:
+            return "\n".join(lines[start + 1 : offset])
+    raise AssertionError(f"branch guarded by {condition!r} has no closing 'fi'")
+
+
 def test_release_workflow_preserves_existing_github_release_assets() -> None:
     """Assets are preserved by default and replaced only for an asset backfill.
 
@@ -249,6 +268,7 @@ def test_release_workflow_keeps_github_release_safety_net_after_pypi_jobs() -> N
         "publish-cli-pypi",
         "publish-github-release-assets",
         "verify-release-assets",
+        "publish-winget",
     ]
     assert "always()" in summary["if"]
     run = summary["steps"][0]["run"]
@@ -257,9 +277,20 @@ def test_release_workflow_keeps_github_release_safety_net_after_pypi_jobs() -> N
     assert "needs.publish-semantic-pypi.result" in run
     assert "needs.publish-cli-pypi.result" in run
     assert "needs.publish-github-release-assets.result" in run
-    # A new route must also be gated, or it can fail silently.
+    # A new blocking route must also be gated, or it can fail silently.
     assert 'cli" != "success"' in run
     assert 'cli" != "skipped"' in run
+
+    # WinGet is the one deliberate exception to that rule: it is best-effort,
+    # not gated. winget-pkgs moderation is asynchronous and publish-winget also
+    # self-skips when WINGET_TOKEN is unset, so a WinGet failure must never hold
+    # back PyPI or the GitHub Release. Encode the intent so nobody "fixes" this
+    # into a hard gate by mistake.
+    assert "needs.publish-winget.result" in run
+    winget_branch = _branch_body(run, '$winget" = "failure')
+    assert "::warning::" in winget_branch
+    assert "::error::" not in winget_branch
+    assert "failed=1" not in winget_branch
 
 
 def test_release_workflow_builds_cli_wrapper_wheels_from_the_release_archives() -> None:
