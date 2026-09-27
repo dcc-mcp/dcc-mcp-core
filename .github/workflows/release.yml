@@ -1243,7 +1243,14 @@ jobs:
 
       - name: Publish to WinGet
         if: steps.check_token.outputs.skip != 'true'
-        uses: vedantmgoyal9/winget-releaser@v2
+        # Pinned fork of vedantmgoyal9/winget-releaser v2
+        # (4ffc7888bffd451b357355dc214d43bb9f23917e), which reaches Komac through
+        # cargo-bins/cargo-binstall@main - a mutable branch ref that also pulls
+        # the newest Komac release at run time. Neither end is reviewable from
+        # here, and this step holds a token that can open pull requests against
+        # microsoft/winget-pkgs, so the fork installs one pinned Komac build and
+        # verifies its SHA256 instead. Bump by moving the fork, not the tag.
+        uses: dcc-mcp/winget-releaser@d1b420769e4f42cdaf1990aee944be5076a524ca # v2
         with:
           identifier: DccMcp.DccMcpCli
           # Default is github.repository_owner (the dcc-mcp org), but Komac pushes
