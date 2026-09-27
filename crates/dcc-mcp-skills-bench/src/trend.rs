@@ -13,10 +13,11 @@
 //! * the baseline is the **median p95 of the last [`BASELINE_WINDOW`] runs in
 //!   the same corpus epoch**. Not one run — a single run is exactly the noisy
 //!   measurement `thresholds.rs` declined to trust.
-//! * an alert needs [`LATENCY_REGRESSION_RATIO`] of headroom, deliberately
-//!   wider than any machine-to-machine swing, because the cost of a missed
-//!   regression is a slower week and the cost of a false one is everyone
-//!   learning to ignore the alert.
+//! * an alert needs [`LATENCY_REGRESSION_RATIO`] of headroom, because the
+//!   cost of a missed regression is a slower week and the cost of a false one
+//!   is everyone learning to ignore the alert. That headroom is a *starting
+//!   point*, not a calibrated threshold — see the constant for what it is
+//!   measured against.
 //! * an alert **never fails the build**. Gating is what `thresholds.rs`
 //!   rejects; telling someone is not. The caller decides what an alert means.
 //!
@@ -61,7 +62,20 @@ pub const BASELINE_WINDOW: usize = 4;
 /// gate latency is to invent a tighter cap; that reproduces the flakiness the
 /// original decision avoided. Starting at +50% means the alert fires on a
 /// regression a human would notice by reading the numbers, and stays quiet
-/// otherwise. Tighten it once there is a history to calibrate against.
+/// otherwise.
+///
+/// **It is a starting point, not a calibrated threshold.** The quantity being
+/// compared is one wall-clock sample per query with no warm-up (`run::grade`),
+/// and its p95 is a nearest-rank tail statistic — the noisiest summary of the
+/// noisiest measurement available. On one machine, running the same code,
+/// `dcc_filtered` p95 has been observed between 1417us and 4274us, a spread of
+/// roughly 3x. The rolling median removes that spread from the *denominator*;
+/// the current run's own draw is still sitting in the *numerator*, so until the
+/// spread is measured, +50% cannot be claimed to sit outside it.
+///
+/// The trend report therefore prints the baseline min–max next to the median.
+/// Read those two numbers off the first full window and re-mark this constant:
+/// if the window's min–max spread is wider than +50%, alerts are noise.
 pub const LATENCY_REGRESSION_RATIO: f64 = 0.50;
 
 /// Points retained in the history file.
@@ -94,16 +108,59 @@ fn micros(duration: Duration) -> u64 {
     u64::try_from(duration.as_micros()).unwrap_or(u64::MAX)
 }
 
+/// FNV-1a, 64 bit.
+///
+/// Chosen over [`std::collections::hash_map::DefaultHasher`] because
+/// `DefaultHasher` makes no stability promise across Rust releases, and this
+/// digest is persisted: the workflow builds with `dtolnay/rust-toolchain@stable`,
+/// so a toolchain bump that changes the default algorithm would move every
+/// fingerprint at once, drop the whole history into a brand-new epoch, and buy
+/// another four weeks of warm-up — silently, because the failure looks exactly
+/// like a corpus change. FNV-1a is specified here in full, so it cannot move.
+struct Fnv(u64);
+
+impl Fnv {
+    /// FNV-1a offset basis.
+    const BASIS: u64 = 0xcbf2_9ce4_8422_2325;
+    /// FNV-1a prime.
+    const PRIME: u64 = 0x0000_0100_0000_01b3;
+
+    fn new() -> Self {
+        Self(Self::BASIS)
+    }
+
+    fn write_byte(&mut self, byte: u8) {
+        self.0 ^= u64::from(byte);
+        self.0 = self.0.wrapping_mul(Self::PRIME);
+    }
+}
+
+impl Hasher for Fnv {
+    fn write(&mut self, bytes: &[u8]) {
+        for byte in bytes {
+            self.write_byte(*byte);
+        }
+    }
+
+    fn finish(&self) -> u64 {
+        self.0
+    }
+}
+
 /// Order-independent digest of a set of skill names.
 ///
 /// Sorting first, because the corpus order is an implementation detail of
 /// [`Corpus::build`] and the digest has to describe *which* skills were
 /// measured, not the order they happened to be built in.
+///
+/// The algorithm is [`Fnv`], spelled out in this module: the digest is written
+/// to a file and read back months later, so it has to be defined here rather
+/// than inherited from whatever the current toolchain defaults to.
 #[must_use]
 fn digest_names<'a>(names: impl Iterator<Item = &'a str>) -> u64 {
     let mut sorted: Vec<&str> = names.collect();
     sorted.sort_unstable();
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    let mut hasher = Fnv::new();
     for name in sorted {
         name.hash(&mut hasher);
     }
@@ -443,6 +500,14 @@ pub struct LatencyComparison {
     pub current_p95_us: u64,
     /// Median p95 of the baseline window; `None` while the epoch is empty.
     pub baseline_p95_us: Option<u64>,
+    /// Fastest p95 in the baseline window; `None` while it is empty.
+    ///
+    /// Carried so the report shows the noise band the median summarises. The
+    /// alert ratio is only meaningful next to it — see
+    /// [`LATENCY_REGRESSION_RATIO`].
+    pub baseline_min_us: Option<u64>,
+    /// Slowest p95 in the baseline window; `None` while it is empty.
+    pub baseline_max_us: Option<u64>,
     /// `current / baseline - 1.0`; `None` without a baseline.
     pub ratio: Option<f64>,
 }
@@ -492,20 +557,21 @@ pub fn compare(history: &TrendHistory, current: &TrendPoint) -> TrendReport {
 
     let mut latency = Vec::new();
     for (group, sample) in &current.latency {
-        let baseline = median(
-            &window
-                .iter()
-                .filter_map(|point| point.latency.get(group))
-                .map(|sample| sample.p95_us)
-                .collect::<Vec<u64>>(),
-        );
-        let ratio = baseline
+        let baseline: Vec<u64> = window
+            .iter()
+            .filter_map(|point| point.latency.get(group))
+            .map(|sample| sample.p95_us)
+            .collect();
+        let median_p95 = median(&baseline);
+        let ratio = median_p95
             .filter(|base| *base > 0)
             .map(|base| sample.p95_us as f64 / base as f64 - 1.0);
         latency.push(LatencyComparison {
             group: group.clone(),
             current_p95_us: sample.p95_us,
-            baseline_p95_us: baseline,
+            baseline_p95_us: median_p95,
+            baseline_min_us: baseline.iter().copied().min(),
+            baseline_max_us: baseline.iter().copied().max(),
             ratio,
         });
     }
@@ -530,13 +596,47 @@ pub fn compare(history: &TrendHistory, current: &TrendPoint) -> TrendReport {
 }
 
 /// Microseconds with a thousands separator, for tables.
+///
+/// Hand-rolled rather than locale-aware: these numbers are read next to each
+/// other in a table, and `1,417us` next to `4,274us` is scannable in a way that
+/// `1417us` next to `4274us` is not.
 fn us(value: u64) -> String {
-    format!("{value}us")
+    let digits = value.to_string();
+    let mut reversed = String::with_capacity(digits.len() + digits.len() / 3 + 2);
+    let mut since_separator = 0;
+    for digit in digits.chars().rev() {
+        if since_separator == 3 {
+            reversed.push(',');
+            since_separator = 0;
+        }
+        reversed.push(digit);
+        since_separator += 1;
+    }
+    let mut out: String = reversed.chars().rev().collect();
+    out.push_str("us");
+    out
+}
+
+/// Short commit label for tables.
+///
+/// `chars()`, not bytes: `GITHUB_SHA` is hex so the distinction is invisible
+/// in CI, but truncating a `String` at a byte index panics on any value whose
+/// seventh byte lands inside a character.
+fn short_sha(sha: &str) -> String {
+    sha.chars().take(7).collect()
 }
 
 /// Percent with one decimal, right-aligned in `width`.
 fn pct(value: f64) -> String {
     format!("{:6.1}%", value * 100.0)
+}
+
+/// The baseline window's min–max band, or an em dash for an empty window.
+fn spread(comparison: &LatencyComparison) -> String {
+    match (comparison.baseline_min_us, comparison.baseline_max_us) {
+        (Some(min), Some(max)) => format!("{} – {}", us(min), us(max)),
+        _ => "—".to_string(),
+    }
 }
 
 /// Signed percent change, or an em dash when there is nothing to compare to.
@@ -588,23 +688,26 @@ pub fn render_trend_markdown(
         "Alerts at {:+.0}%. **Not a merge gate** — see `thresholds.rs` for why.\n\n",
         LATENCY_REGRESSION_RATIO * 100.0
     ));
-    out.push_str("| group | current p95 | baseline p95 | delta | state |\n");
-    out.push_str("|---|---|---|---|---|\n");
+    out.push_str("| group | current p95 | baseline p95 | baseline min–max | delta | state |\n");
+    out.push_str("|---|---|---|---|---|---|\n");
     for comparison in &report.latency {
         out.push_str(&format!(
-            "| `{}` | {} | {} | {} | {} |\n",
+            "| `{}` | {} | {} | {} | {} | {} |\n",
             comparison.group,
             us(comparison.current_p95_us),
             comparison
                 .baseline_p95_us
                 .map_or_else(|| "—".to_string(), us),
+            spread(comparison),
             delta(comparison.ratio),
             comparison.state().label()
         ));
     }
     if report.latency.is_empty() {
-        out.push_str("| _no tracked group was measured_ | | | | |\n");
+        out.push_str("| _no tracked group was measured_ | | | | | |\n");
     }
+    out.push_str("\nThe min–max band is the whole point of the column: an alert ratio is only\n");
+    out.push_str("readable next to the spread it has to exceed.\n");
 
     out.push_str("\n## Hit rate (gated)\n\n");
     out.push_str(&format!(
@@ -667,14 +770,17 @@ pub fn render_trend_markdown(
              changes (S1, PIP-3701) and is not a defect.\n"
         });
     } else {
-        out.push_str("| group | current p95 | baseline p95 | delta | action |\n");
-        out.push_str("|---|---|---|---|---|\n");
+        out.push_str(
+            "| group | current p95 | baseline p95 | baseline min–max | delta | action |\n",
+        );
+        out.push_str("|---|---|---|---|---|---|\n");
         for alert in &report.alerts {
             out.push_str(&format!(
-                "| `{}` | {} | {} | {} | open an issue for latency triage |\n",
+                "| `{}` | {} | {} | {} | {} | open an issue for latency triage |\n",
                 alert.group,
                 us(alert.current_p95_us),
                 alert.baseline_p95_us.map_or_else(|| "—".to_string(), us),
+                spread(alert),
                 delta(alert.ratio)
             ));
         }
@@ -700,7 +806,7 @@ pub fn render_trend_markdown(
             point
                 .git_sha
                 .as_deref()
-                .map_or("unknown", |sha| &sha[..sha.len().min(7)]),
+                .map_or_else(|| "unknown".to_string(), short_sha),
             p95,
             top1,
             point.context.peak_tokens
@@ -782,6 +888,37 @@ mod tests {
     }
 
     #[test]
+    fn digest_is_pinned_to_a_specified_algorithm() {
+        // `DefaultHasher` would have made this digest a function of the
+        // toolchain. The value below is FNV-1a over b"a" ++ 0xff (Rust's
+        // `str` hashing terminator), computed independently of this crate, so
+        // a change of algorithm fails here instead of silently opening a new
+        // corpus epoch on the next stable release.
+        assert_eq!(digest_names(["a"].into_iter()), 0x089b_c907_b544_c769);
+        assert_eq!(
+            digest_names(["maya-skill", "blender-skill"].into_iter()),
+            0xf601_5103_e9dc_7cb9
+        );
+    }
+
+    #[test]
+    fn latency_is_formatted_with_a_thousands_separator() {
+        assert_eq!(us(0), "0us");
+        assert_eq!(us(999), "999us");
+        assert_eq!(us(1_417), "1,417us");
+        assert_eq!(us(4_274_000), "4,274,000us");
+    }
+
+    #[test]
+    fn a_short_sha_survives_a_multibyte_value() {
+        // Truncating at a byte index panics here; `GITHUB_SHA` is hex, but the
+        // value comes from the environment and is not guaranteed to be.
+        assert_eq!(short_sha("abc"), "abc");
+        assert_eq!(short_sha("abcdef123456"), "abcdef1");
+        assert_eq!(short_sha("中文字符abcdef"), "中文字符abc");
+    }
+
+    #[test]
     fn alerts_stay_disarmed_while_the_epoch_warms_up() {
         // The whole point of the epoch: a brand-new corpus has nothing to
         // compare against, and must not invent a comparison.
@@ -832,6 +969,39 @@ mod tests {
         assert!(report.baseline_ready());
         assert!(report.alerts.is_empty());
         assert_eq!(report.latency[0].state(), LatencyState::WithinBudget);
+    }
+
+    #[test]
+    fn the_report_shows_the_baseline_spread_the_ratio_is_read_against() {
+        // The alert ratio is only interpretable next to the noise band: +50%
+        // inside a 4x band is noise, +50% outside a 5% band is a regression.
+        // This is the data requested to calibrate LATENCY_REGRESSION_RATIO.
+        let current = point("2026-02-02", fingerprint(26), 110);
+        let report = compare(
+            &history(vec![
+                point("2026-01-26", fingerprint(26), 400),
+                point("2026-01-19", fingerprint(26), 100),
+                point("2026-01-12", fingerprint(26), 100),
+                point("2026-01-05", fingerprint(26), 100),
+            ]),
+            &current,
+        );
+        let comparison = &report.latency[0];
+        assert_eq!(comparison.baseline_p95_us, Some(100));
+        assert_eq!(comparison.baseline_min_us, Some(100));
+        assert_eq!(comparison.baseline_max_us, Some(400));
+
+        let text = render_trend_markdown(&TrendHistory::default(), &current, &report);
+        assert!(text.contains("100us – 400us"), "{text}");
+    }
+
+    #[test]
+    fn an_empty_window_reports_no_spread() {
+        let current = point("2026-02-02", fingerprint(26), 110);
+        let report = compare(&TrendHistory::default(), &current);
+        assert_eq!(report.latency[0].baseline_min_us, None);
+        assert_eq!(report.latency[0].baseline_max_us, None);
+        assert_eq!(spread(&report.latency[0]), "—");
     }
 
     #[test]
