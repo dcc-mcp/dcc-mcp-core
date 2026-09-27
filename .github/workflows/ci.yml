@@ -801,6 +801,53 @@ jobs:
       - name: Reject CR bytes in tracked Python blobs
         run: python scripts/ci/check_line_endings.py --root .
 
+  # ── Release workflow integrity ──────────────────────────────────────────
+  # The release workflow holds PyPI Trusted Publishing credentials, so an
+  # unreviewed edit to it is a supply-chain change. This job binds the
+  # workflow to the approved snapshot under scripts/ci/ and publishes the
+  # canonical digest in the run summary.
+  #
+  # It installs PyYAML explicitly rather than extending the Python test
+  # toolchain: the pinned 3.7 toolchain is projected from
+  # compatibility/python.json into this file and the wheel profiles, so a new
+  # test dependency there is a contract change, not a CI tweak. The suite is
+  # collected by `pytest tests/` as well and skips cleanly where PyYAML is
+  # absent; this job is the lane that always runs it.
+  #
+  # Deliberately NOT a required status check: the snapshot is refreshed by an
+  # ordinary pull request, so making it required would recreate the
+  # single-maintainer approval deadlock it replaced.
+  release-workflow-integrity:
+    name: Release workflow integrity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - name: Install pytest and PyYAML
+        run: python -m pip install pytest pyyaml
+
+      # `--noconftest` on purpose, like the released-schema job above:\      # tests/conftest.py imports the compiled dcc_mcp_core extension at module\      # scope, and this job deliberately does not wait for a wheel. Both suites\      # derive the repository root from their own `__file__`, so neither needs\      # conftest.
+      - name: Verify the release workflow against its approved snapshot
+        run: |-
+          python -m pytest tests/test_release_workflow_integrity.py \
+            tests/test_release_workflow_integrity_kit.py -v --tb=short --noconftest
+
+      - name: Record the approved digest
+        run: |
+          {
+            echo "### Release workflow digest"
+            echo
+            echo "Canonical digest of \`.github/workflows/release.yml\`, bound to the approved snapshot in \`scripts/ci/\`:"
+            echo
+            echo '```'
+            python scripts/ci/check_release_workflow_digest.py --print-digest
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
   # ── Released schema immutability gate ─────────────────────────────────────
   # A released `-vN` schema must never be rewritten in place. The four live
   # digest pins (compatibility/python.json, install_sop.py,
