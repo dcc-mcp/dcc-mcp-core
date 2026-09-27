@@ -127,15 +127,12 @@ pub async fn run() -> anyhow::Result<()> {
 }
 
 fn apply_staged_update() -> bool {
-    // A package manager owns this binary (see application::package_manager):
-    // replacing it would undo the version the manager installed, so a staged
-    // update is left in place and never applied.
-    if crate::application::package_manager::detect().is_some() {
-        return false;
-    }
-
     // Apply any staged binary update before running commands (CLI restart
-    // is the user's next invocation after `update apply`).
+    // is the user's next invocation after `update apply`). Package-managed
+    // installs are not excluded: `dcc-mcp-cli update` is the supported flow
+    // everywhere, and the replacement lands on the running binary. See
+    // application::package_manager for the provenance marker and the
+    // metadata drift it reports.
     match dcc_mcp_updater::Updater::apply_staged_update(env!("CARGO_PKG_NAME")) {
         Ok(true) => {
             eprintln!("info: staged binary update applied; restarting");

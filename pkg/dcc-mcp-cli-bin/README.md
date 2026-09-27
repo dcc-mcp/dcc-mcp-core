@@ -67,18 +67,28 @@ released companion executable that `dcc-mcp-cli components ensure` reconciles
 by version next to the CLI; shipping it as a second distribution would create
 two copies and version drift.
 
-## Self-update is disabled
+## Self-update
 
-The bootstrap writes `dcc-mcp-cli.package-manager.json` next to the unpacked
-binary. `crates/dcc-mcp-cli` reads that marker and refuses `update apply`:
+`dcc-mcp-cli update` works for every install, this one included — updating
+through the CLI is the supported flow everywhere. The bootstrap writes
+`dcc-mcp-cli.package-manager.json` next to the unpacked binary; the CLI reads
+it as *provenance*, not as a lock, and uses it to report which manager
+installed the copy and which version that manager still has on record.
 
+Because the update replaces the binary in place, the manager's own metadata
+falls behind the binary on disk. `update apply` says so and names the command
+that re-syncs it:
+
+```json
+"package_manager": {
+  "manager": "pypi",
+  "recorded_version": "0.20.34",
+  "advisory": "applied in place; the pypi package manager still records version 0.20.34. ..."
+}
 ```
-error: this dcc-mcp-cli was installed by a package manager (pypi)
-```
 
-The GitHub Release build keeps self-update; the package-manager build does
-not, because replacing `current_exe` would fight the package manager's version
-authority. Upgrade through the package manager instead:
+Re-sync the manager's metadata at any time — it also restores the packaged
+binary if you prefer the manager to own the version:
 
 ```bash
 uv tool upgrade dcc-mcp-cli

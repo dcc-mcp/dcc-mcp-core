@@ -61,13 +61,13 @@ impl UpdateService {
 
     /// Check for and apply an update (download + stage for next launch).
     ///
-    /// Returns a `managed_by_package_manager` envelope instead of downloading
-    /// when the binary belongs to a package manager: replacing `current_exe`
-    /// would silently undo the version the manager installed.
+    /// Self-update is enabled for every install, package-managed ones
+    /// included: `dcc-mcp-cli update` replaces the running binary in place and
+    /// is the supported flow everywhere. When a package manager installed this
+    /// copy, the result carries an advisory naming the version that manager
+    /// still records, because it no longer matches the binary on disk.
     pub async fn apply_update(&self, confirmed: bool) -> anyhow::Result<Value> {
-        if let Some(marker) = crate::application::package_manager::detect() {
-            return Ok(package_managed_payload(&marker));
-        }
+        let package_manager = crate::application::package_manager::detect();
 
         let info = match self.updater.check_update().await {
             Ok(info) => info,
@@ -145,6 +145,9 @@ impl UpdateService {
             "live",
             unix_timestamp(),
         );
+        if let Some(marker) = package_manager {
+            payload["package_manager"] = package_manager_advisory(&marker);
+        }
         payload["version_status"] = Value::String("staged".into());
         Ok(payload)
     }
@@ -232,7 +235,9 @@ pub(super) fn mark_cached(mut payload: Value, cache_age_secs: u64) -> Value {
 /// package-managed install without one being present on the current process.
 fn update_policy(binary_name: &str, manager: Option<&str>) -> Value {
     let is_cli = binary_name == CLI_BINARY_NAME;
-    let apply_supported = is_cli && manager.is_none();
+    // Self-update works for package-managed installs too; `manager` only
+    // records provenance so callers can re-sync the manager's metadata.
+    let apply_supported = is_cli;
     serde_json::json!({
         "requires_user_confirmation": true,
         "apply_supported_by_this_command": apply_supported,
@@ -243,26 +248,19 @@ fn update_policy(binary_name: &str, manager: Option<&str>) -> Value {
     })
 }
 
-/// Build the envelope returned when a package manager owns the binary.
-fn package_managed_payload(marker: &PackageManagerMarker) -> Value {
-    let payload = serde_json::json!({
-        "status": "blocked",
-        "error": "managed_by_package_manager",
-        "update_available": false,
-        "binary_name": CLI_BINARY_NAME,
-        "current_version": CLI_VERSION,
-        "message": marker.blocked_message(),
-        "package_manager": {
-            "manager": marker.manager,
-            "distribution": marker.distribution,
-            "installed_version": marker.version,
-            "marker": crate::application::package_manager::MARKER_FILE_NAME,
-        },
-    });
-    let mut payload = enrich_check_payload(payload, true, "live", unix_timestamp());
-    payload["update_policy"] = update_policy(CLI_BINARY_NAME, Some(&marker.manager));
-    payload["version_status"] = Value::String("managed_by_package_manager".into());
-    payload
+/// Describe the package manager that installed this copy.
+///
+/// Attached to a staged self-update so callers can re-sync the manager's
+/// metadata: the update replaced the binary in place, so the version the
+/// manager recorded is now behind.
+fn package_manager_advisory(marker: &PackageManagerMarker) -> Value {
+    serde_json::json!({
+        "manager": marker.manager,
+        "distribution": marker.distribution,
+        "recorded_version": marker.version,
+        "marker": crate::application::package_manager::MARKER_FILE_NAME,
+        "advisory": marker.advisory_message(),
+    })
 }
 
 fn platform_target() -> String {
@@ -309,7 +307,7 @@ mod tests {
     }
 
     #[test]
-    fn package_managed_checks_disable_apply() {
+    fn package_managed_installs_still_allow_apply() {
         let marker = crate::application::package_manager::PackageManagerMarker {
             schema_version: crate::application::package_manager::MARKER_SCHEMA_VERSION,
             distribution: "dcc-mcp-cli".into(),
@@ -319,25 +317,28 @@ mod tests {
             binary: "dcc-mcp-cli-bin.exe".into(),
         };
 
-        let payload = package_managed_payload(&marker);
+        // `update check` must keep pointing agents at the apply command even
+        // when a package manager installed this copy.
+        let policy = update_policy(CLI_BINARY_NAME, Some(&marker.manager));
+        assert_eq!(policy["apply_supported_by_this_command"], true);
+        assert_eq!(policy["apply_command"], "dcc-mcp-cli update apply --yes");
+        assert_eq!(policy["managed_by_package_manager"], "pypi");
 
-        assert_eq!(payload["status"], "blocked");
-        assert_eq!(payload["error"], "managed_by_package_manager");
-        assert_eq!(payload["version_status"], "managed_by_package_manager");
-        assert_eq!(payload["update_available"], false);
-        assert_eq!(payload["package_manager"]["manager"], "pypi");
-        assert_eq!(payload["package_manager"]["installed_version"], "0.20.34");
-        // Agents must not be told to run a command that will be refused.
+        // A staged self-update reports the version the manager still records.
+        let advisory = package_manager_advisory(&marker);
+        assert_eq!(advisory["manager"], "pypi");
+        assert_eq!(advisory["recorded_version"], "0.20.34");
         assert_eq!(
-            payload["update_policy"]["apply_supported_by_this_command"],
-            false
+            advisory["marker"],
+            crate::application::package_manager::MARKER_FILE_NAME
         );
-        assert!(payload["update_policy"]["apply_command"].is_null());
         assert!(
-            payload["message"]
+            advisory["advisory"]
                 .as_str()
                 .unwrap()
-                .contains("package manager")
+                .contains("uv tool upgrade dcc-mcp-cli"),
+            "{}",
+            advisory["advisory"]
         );
     }
 

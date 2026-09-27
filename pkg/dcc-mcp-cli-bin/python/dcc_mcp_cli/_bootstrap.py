@@ -14,8 +14,9 @@ properties fall out of that choice:
   dcc-cua`` installs its companion executable as a sibling of
   ``current_exe``, so a single directory keeps the component contract intact.
 * The unpacked binary is package-manager owned. A marker file next to it
-  (``dcc-mcp-cli.package-manager.json``) tells the CLI that self-update is
-  disabled and that upgrades belong to the package manager.
+  (``dcc-mcp-cli.package-manager.json``) records that provenance, so the CLI
+  can report which manager installed this copy and which version that manager
+  still has on record.
 """
 
 from __future__ import annotations

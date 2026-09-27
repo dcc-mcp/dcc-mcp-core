@@ -1,15 +1,19 @@
-//! Detection for package-manager-owned installations.
+//! Provenance for package-manager-owned installations.
 //!
-//! `dcc-mcp-cli update apply` replaces `current_exe` on the next launch. When a
-//! package manager owns that file, replacing it fights the manager's version
-//! authority: `pip install --upgrade dcc-mcp-cli` and a self-applied binary
-//! update would keep overwriting each other. Package-managed installations must
-//! therefore upgrade through the package manager, which is what Homebrew's
-//! packaging policy requires as well.
+//! Package managers that install `dcc-mcp-cli` (the PyPI wrapper in
+//! `pkg/dcc-mcp-cli-bin`, WinGet, Homebrew taps, ...) drop a marker file next
+//! to the binary they unpack. It records *who* installed this copy and *which*
+//! file in the directory is the real binary: on Windows the pip-generated
+//! console script stays the running image, so the wrapper unpacks the
+//! executable as `dcc-mcp-cli-bin.exe` beside it.
 //!
-//! The GitHub Release build keeps self-update. The PyPI wrapper
-//! (`pkg/dcc-mcp-cli-bin`) writes a marker file next to the binary it unpacks,
-//! and that marker is the contract between the two:
+//! The marker is provenance, not a lock. `dcc-mcp-cli update apply` stays
+//! enabled for **every** install, package-managed ones included, because
+//! updating through the CLI is the supported flow everywhere. Self-update
+//! replaces the running binary in place, so afterwards the version the manager
+//! records no longer matches the file on disk; the CLI reports that as an
+//! advisory and names the manager's own upgrade command. Re-running that
+//! command (or reinstalling the wheel) restores the recorded version.
 //!
 //! ```json
 //! {
@@ -65,12 +69,16 @@ impl PackageManagerMarker {
         }
     }
 
-    /// Message returned by `dcc-mcp-cli update apply`.
-    pub fn blocked_message(&self) -> String {
+    /// Advisory returned by `dcc-mcp-cli update apply` after a self-update.
+    ///
+    /// Package-managed installs self-update too, so this does not refuse
+    /// anything: it tells the caller which version the manager still records,
+    /// because that record is now behind the binary on disk.
+    pub fn advisory_message(&self) -> String {
         format!(
-            "dcc-mcp-cli {} is managed by the {} package manager; {}",
-            self.version,
+            "applied in place; the {} package manager still records version {}. To re-sync its metadata, {}",
             self.manager,
+            self.version,
             self.upgrade_hint()
         )
     }
@@ -201,15 +209,16 @@ mod tests {
     }
 
     #[test]
-    fn pypi_marker_explains_how_to_upgrade() {
+    fn pypi_marker_explains_how_to_re_sync() {
         let marker: PackageManagerMarker = serde_json::from_str(&marker_json("pypi")).unwrap();
         let hint = marker.upgrade_hint();
         assert!(hint.contains("uv tool upgrade dcc-mcp-cli"), "{hint}");
-        assert!(
-            marker
-                .blocked_message()
-                .contains("managed by the pypi package manager")
-        );
+
+        let advisory = marker.advisory_message();
+        assert!(advisory.contains("pypi"), "{advisory}");
+        assert!(advisory.contains("0.20.34"), "{advisory}");
+        // The advisory must not read like a refusal.
+        assert!(!advisory.contains("blocked"), "{advisory}");
     }
 
     #[test]
