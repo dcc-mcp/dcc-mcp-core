@@ -1,7 +1,7 @@
 //! Pure search pipeline: filter → score → sort → paginate.
 
 use crate::fallback::{CuaRuntimeProbe, SearchFallback, build_fallback};
-use crate::policy::{FallbackPolicy, FallbackTrigger, evaluate_fallback};
+use crate::policy::{FallbackPolicy, FallbackTrigger, evaluate_fallback, is_fallback_target};
 use crate::query::{DEFAULT_LIMIT, MAX_LIMIT, SearchHit, SearchMode, SearchPage, SearchQuery};
 use crate::ranking::{FuzzyScorer, Scorer, SubstringScorer};
 use crate::record::SearchRecord;
@@ -37,7 +37,9 @@ pub fn search_page_with_fallback<R: SearchRecord + Clone>(
     probe: &dyn CuaRuntimeProbe,
 ) -> SearchPage<R> {
     let hits = rank_all(records, query);
-    let fallback = resolve_fallback(&hits, &fallback_query_text(query), probe);
+    // `records.len()` is the true candidate count, so an empty index is never
+    // reported as "no skill can do this".
+    let fallback = resolve_fallback_among(&hits, &fallback_query_text(query), records.len(), probe);
     paginate(hits, query, fallback)
 }
 
@@ -66,22 +68,73 @@ pub fn resolve_fallback_with_policy<R: SearchRecord>(
     probe: &dyn CuaRuntimeProbe,
     policy: FallbackPolicy,
 ) -> Option<SearchFallback> {
-    let trigger = classify(hits, query, policy)?;
+    let trigger = classify(hits, query, candidates_considered(hits), policy)?;
     Some(build_fallback(trigger, probe.probe()))
+}
+
+/// How many rows were eligible to be ranked.
+///
+/// Derived from the hits themselves because `resolve_fallback` only sees a
+/// ranked page. A non-empty page proves at least that many candidates were
+/// considered; an empty page means "nothing matched", which is only a routing
+/// decision when the caller separately confirms rows existed. Callers that know
+/// the true candidate count pass it explicitly via
+/// [`classify_with_candidates`].
+fn candidates_considered<R: SearchRecord>(hits: &[SearchHit<R>]) -> usize {
+    hits.len()
+}
+
+/// [`resolve_fallback`] for callers that know how many rows were eligible.
+///
+/// Use this when the candidate set is filtered before ranking, so an
+/// everything-excluded filter is not mistaken for "no skill can do this".
+#[must_use]
+pub fn resolve_fallback_among<R: SearchRecord>(
+    hits: &[SearchHit<R>],
+    query: &str,
+    candidates_considered: usize,
+    probe: &dyn CuaRuntimeProbe,
+) -> Option<SearchFallback> {
+    let trigger = classify(hits, query, candidates_considered, policy_default())?;
+    Some(build_fallback(trigger, probe.probe()))
+}
+
+fn policy_default() -> FallbackPolicy {
+    FallbackPolicy::default()
 }
 
 /// Apply the central fallback policy to a ranked page.
 ///
 /// Returns the trigger without probing the runtime, so the judgement can be
 /// unit-tested on its own.
+///
+/// `candidates_considered` is the number of rows that were eligible to be
+/// ranked, before scoring. Zero means nothing was ever in the running — an
+/// empty catalog, or a caller-side filter that excluded everything — which is a
+/// discovery problem, not evidence that no skill can do the job. Sending that
+/// to the CUA route would mask a rescan or a bad `dcc=` filter behind a
+/// plausible-sounding suggestion.
 fn classify<R: SearchRecord>(
     hits: &[SearchHit<R>],
     query: &str,
+    candidates_considered: usize,
     policy: FallbackPolicy,
 ) -> Option<FallbackTrigger> {
+    if candidates_considered == 0 {
+        return None;
+    }
     let len = query.trim().chars().count();
     match hits.first() {
         Some(top) => {
+            // A request the fallback target already answered is not an
+            // unanswered request. Routing it would tell the caller to use the
+            // thing it just found.
+            if is_fallback_target(top.record.skill_name())
+                || is_fallback_target(Some(top.record.tool_slug()))
+                || is_fallback_target(Some(top.record.backend_tool()))
+            {
+                return None;
+            }
             // `executable_interface_count() == Some(0)` is the only proof of a
             // missing interface; `None` (unmodelled) counts as having one.
             let has_interface = top.record.executable_interface_count() != Some(0);

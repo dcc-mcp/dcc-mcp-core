@@ -24,8 +24,8 @@ mod ranking;
 mod record;
 
 pub use engine::{
-    rank_all, resolve_fallback, resolve_fallback_with_policy, search, search_page,
-    search_page_with_fallback,
+    rank_all, resolve_fallback, resolve_fallback_among, resolve_fallback_with_policy, search,
+    search_page, search_page_with_fallback,
 };
 pub use fallback::{
     CuaRuntimeProbe, CuaRuntimeState, FORBIDDEN_SUBSTITUTES, PREFLIGHT_ENSURE_CMD,
@@ -39,7 +39,8 @@ pub use policy::{
     LAYER_DOMAIN, LAYER_EXAMPLE, LAYER_INFRASTRUCTURE, LAYER_THIN_HARNESS,
     PATH_SOURCE_ADMIN_CUSTOM, PATH_SOURCE_BUNDLED, PATH_SOURCE_ENV_VAR, PATH_SOURCE_EXPLICIT_ARG,
     PATH_SOURCE_LOCAL_DEV, PATH_SOURCE_PLATFORM, PATH_SOURCE_UNKNOWN, RankPolicy,
-    apply_rank_policy, evaluate_fallback, layer_multiplier, path_source_multiplier,
+    apply_rank_policy, evaluate_fallback, is_fallback_target, layer_multiplier,
+    path_source_multiplier,
 };
 pub use probe::{CLI_BIN, CUA_BIN, CliCuaProbe, PROBE_TIMEOUT};
 pub use query::{

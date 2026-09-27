@@ -1,7 +1,7 @@
 use super::*;
 use dcc_mcp_gateway_search::{
     CuaRuntimeProbe, SearchFallback, SearchQuery as RankingQuery, SearchRecord, rank_all,
-    resolve_fallback_with_policy,
+    resolve_fallback_among,
 };
 
 #[derive(Clone)]
@@ -278,12 +278,11 @@ impl SkillCatalog {
         // so a caller-side narrowing can never manufacture a fallback. The
         // criteria themselves live in `dcc-mcp-gateway-search::policy`.
         let fallback: Option<SearchFallback> = probe.and_then(|probe| {
-            resolve_fallback_with_policy(
-                &ranked_hits,
-                q_trim,
-                probe,
-                dcc_mcp_gateway_search::FallbackPolicy::default(),
-            )
+            // `prefiltered.len()` is the true candidate count. Zero means the
+            // shard/tag/dcc filters excluded everything, or the catalog is
+            // empty — a discovery or configuration problem, not evidence that
+            // no skill can do the job.
+            resolve_fallback_among(&ranked_hits, q_trim, prefiltered.len(), probe)
         });
         let ranked: Vec<SkillSummary> = ranked_hits
             .into_iter()

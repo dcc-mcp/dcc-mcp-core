@@ -129,6 +129,71 @@ fn discovery_mode_never_attaches_advice() {
 }
 
 #[test]
+fn an_empty_catalog_is_not_reported_as_no_skill_can_do_this() {
+    // A misconfigured scan path is a discovery problem. Routing it to CUA
+    // would hide the real fix behind a plausible-sounding suggestion.
+    let catalog = make_test_catalog();
+
+    let result = catalog.search_skills_with_fallback(
+        Some("click through the vendor wizard"),
+        &[],
+        None,
+        None,
+        None,
+        &READY,
+    );
+
+    assert!(result.hits.is_empty());
+    assert!(
+        result.fallback.is_none(),
+        "an empty catalog is not evidence that no skill can serve the request"
+    );
+}
+
+#[test]
+fn a_filter_that_excluded_everything_is_not_reported_as_no_candidate() {
+    // The catalog knows how many rows were eligible before ranking, so a
+    // `dcc=` filter that matched nothing must not read as "no skill can do it".
+    let catalog = make_test_catalog();
+    catalog.add_skill(make_test_skill("maya-export-fbx", "maya", &["export_fbx"]));
+
+    let result = catalog.search_skills_with_fallback(
+        Some("click through the vendor wizard"),
+        &[],
+        Some("unreal"),
+        None,
+        None,
+        &READY,
+    );
+
+    assert!(result.hits.is_empty());
+    assert!(
+        result.fallback.is_none(),
+        "a shard filter that excluded every row is not a routing decision"
+    );
+}
+
+#[test]
+fn the_target_does_not_route_to_itself() {
+    // `dcc-cua` declares no tools, so it satisfies the no-interface criterion.
+    // Recommending it for a request it answered would be circular.
+    let catalog = make_test_catalog();
+    catalog.add_skill(make_test_skill("dcc-cua", "python", &[]));
+
+    let result =
+        catalog.search_skills_with_fallback(Some("dcc-cua"), &[], None, None, None, &READY);
+
+    assert!(
+        !result.hits.is_empty(),
+        "precondition: the target was found"
+    );
+    assert!(
+        result.fallback.is_none(),
+        "the fallback target answering its own request is not an unanswered request"
+    );
+}
+
+#[test]
 fn the_advice_serializes_onto_the_wire() {
     let catalog = make_test_catalog();
     catalog.add_skill(make_test_skill("maya-export-fbx", "maya", &[]));

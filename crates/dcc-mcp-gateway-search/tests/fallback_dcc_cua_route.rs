@@ -25,6 +25,172 @@ use uuid::Uuid;
 const READY: StaticCuaProbe = StaticCuaProbe::new(CuaRuntimeState::Ready);
 const MISSING: StaticCuaProbe = StaticCuaProbe::new(CuaRuntimeState::Missing);
 
+// ── Threshold calibration (PIP-3702) ────────────────────────────────────────
+
+/// Pin the measured band the confidence gate sits in.
+///
+/// The gate is only meaningful while a real name match scores well above it
+/// and description-only noise scores below it. If a scorer change compresses
+/// that band, this test fails — which is the point: the failure must be loud,
+/// not a silent change in routing behaviour.
+#[test]
+fn the_confidence_gate_sits_in_the_measured_gap() {
+    let gate = dcc_mcp_gateway_search::FALLBACK_MIN_CONFIDENT_SCORE;
+
+    // A genuine name match: query tokens hit the skill name and the tool.
+    let name_match = score_top1("maya shot export", &record_set());
+    // Description-only noise: every token is generic, nothing names a skill.
+    let noise = score_top1("render the farm queue", &record_set());
+
+    assert!(
+        noise < gate,
+        "description noise must fall below the gate: noise={noise}, gate={gate}"
+    );
+    assert!(
+        name_match >= gate,
+        "a real name match must clear the gate: top1={name_match}, gate={gate}"
+    );
+    assert!(
+        name_match >= gate * 2,
+        "the band must stay wide (top1={name_match}, gate={gate}); a narrower \
+         band means the scorer moved and the gate needs re-measuring"
+    );
+}
+
+/// A corpus mixing name-bearing rows with description-only rows.
+fn record_set() -> Vec<Row> {
+    vec![
+        Row::new(
+            "maya-shot-export",
+            "maya_shot_export",
+            "Export the current Maya shot to disk.",
+        ),
+        Row::new(
+            "maya-create-sphere",
+            "create_sphere",
+            "Create a polygonal sphere primitive in Maya.",
+        ),
+        Row::new(
+            "render-queue",
+            "submit_render",
+            "Submit a job to the render queue.",
+        ),
+    ]
+}
+
+fn score_top1(query: &str, records: &[Row]) -> u32 {
+    dcc_mcp_gateway_search::search(
+        records,
+        &SearchQuery {
+            query: query.to_string(),
+            ..Default::default()
+        },
+    )
+    .first()
+    .map_or(0, |hit| hit.score)
+}
+
+// ── Guards the route must not trip over ─────────────────────────────────────
+
+#[test]
+fn the_target_does_not_route_to_itself() {
+    // `dcc-cua` declares no tools of its own, so it satisfies the
+    // no-executable-interface criterion. Recommending it for a request it
+    // already answered would tell the caller to use the thing it just found.
+    let records =
+        vec![Row::new("dcc-cua", "dcc-cua", "Project UI control route.").with_tools(Some(0))];
+
+    let page = search_page_with_fallback(
+        &records,
+        &SearchQuery {
+            query: "dcc-cua".to_string(),
+            ..Default::default()
+        },
+        ready_probe(),
+    );
+
+    assert!(!page.hits.is_empty(), "precondition: the target was found");
+    assert!(
+        page.fallback.is_none(),
+        "the fallback target answering its own request is not an unanswered request"
+    );
+}
+
+#[test]
+fn the_target_is_matched_case_insensitively() {
+    // Skill names come from hand-written SKILL.md frontmatter.
+    let records =
+        vec![Row::new("DCC-CUA", "DCC-CUA", "Project UI control route.").with_tools(Some(0))];
+
+    let page = search_page_with_fallback(
+        &records,
+        &SearchQuery {
+            query: "dcc cua".to_string(),
+            ..Default::default()
+        },
+        ready_probe(),
+    );
+    assert!(page.fallback.is_none());
+}
+
+#[test]
+fn an_empty_index_is_not_reported_as_no_skill_can_do_this() {
+    // Nothing was ever eligible to be ranked. That is a scan-path or
+    // configuration problem; routing it to CUA would mask the real fix.
+    let empty: Vec<Row> = Vec::new();
+    let page = search_page_with_fallback(
+        &empty,
+        &SearchQuery {
+            query: "click through the vendor wizard".to_string(),
+            ..Default::default()
+        },
+        ready_probe(),
+    );
+
+    assert!(page.hits.is_empty());
+    assert!(
+        page.fallback.is_none(),
+        "an empty catalog is not evidence that no skill can serve the request"
+    );
+}
+
+#[test]
+fn an_empty_candidate_set_is_never_a_routing_decision() {
+    // `resolve_fallback` only sees a ranked page, so it cannot tell "nothing
+    // matched" from "nothing was eligible". Callers that filter before
+    // ranking must pass the candidate count explicitly.
+    let no_hits: Vec<dcc_mcp_gateway_search::SearchHit<Row>> = Vec::new();
+    assert!(
+        dcc_mcp_gateway_search::resolve_fallback_among(
+            &no_hits,
+            "click through the vendor wizard",
+            0,
+            ready_probe(),
+        )
+        .is_none(),
+        "zero candidates considered is a discovery problem, not a routing one"
+    );
+    // With candidates in the running, the same empty page is a real no-hit.
+    let hits = dcc_mcp_gateway_search::search(
+        &corpus(),
+        &SearchQuery {
+            query: "wizard".to_string(),
+            ..Default::default()
+        },
+    );
+    assert!(hits.is_empty(), "precondition: the query matches nothing");
+    assert!(
+        dcc_mcp_gateway_search::resolve_fallback_among(
+            &hits,
+            "wizard",
+            corpus().len(),
+            ready_probe(),
+        )
+        .is_some(),
+        "candidates existed and none matched — that IS a routing decision"
+    );
+}
+
 #[derive(Clone)]
 struct Row {
     tool_slug: String,

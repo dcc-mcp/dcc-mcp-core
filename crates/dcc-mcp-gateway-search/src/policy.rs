@@ -55,8 +55,26 @@ pub const FALLBACK_REASON_CUA_UNAVAILABLE: &str = "cua_runtime_unavailable";
 
 /// Default top-1 score at or above which a hit counts as confident.
 ///
-/// Measured against the committed seed corpus (`benchmarks/skills/seeds.json`,
-/// 26 real skills) with the production [`crate::FuzzyScorer`]:
+/// Calibrated against two independently measured query-shape families, both
+/// run on the production [`crate::FuzzyScorer`]. They disagree, and the
+/// disagreement is the whole point of recording them together.
+///
+/// **Family A — name-match shapes** (measured on the full catalog):
+///
+/// | query shape | top-1 score |
+/// |---|---|
+/// | tokens match the skill *and* tool name (`maya shot export`) | 104 |
+/// | full multi-token name match (`photoshop gui workflow`) | 83 |
+/// | name tokens, partial (`bake textures`) | 77 |
+/// | single-token name prefix/substring (`export`, `maya`, `photoshop`) | 28–38 |
+/// | description-only noise (`render the farm queue`) | 5 |
+/// | nothing matched | 0 |
+///
+/// This family shows a **clean, empty band between 5 and 28**.
+///
+/// **Family B — authored `search-hint` queries** (`benchmarks/skills/seeds.json`,
+/// 26 real seeds; the first phrase of each skill's own `search-hint`, i.e. what
+/// the skill author expects users to type):
 ///
 /// | query set | top-1 score | fires below 16 |
 /// |---|---|---|
@@ -64,15 +82,24 @@ pub const FALLBACK_REASON_CUA_UNAVAILABLE: &str = "cua_runtime_unavailable";
 /// | authored `search-hint` queries the corpus answers (n=26) | 8 and up | 6 / 26 |
 /// | skill-name queries (n=26) | 52 and up | 0 / 26 |
 ///
-/// The two distributions **overlap in the 8–15 band**, so no scalar threshold
-/// separates them cleanly; 16 is the knee that keeps every measured
-/// unanswerable query below the line while never touching a name match. The
-/// 6 / 26 false positives are generic one- and two-word queries (`greeting`,
-/// `chain`, `screenshot`) whose low score is a property of the corpus, not of
-/// the ranker: S1's vocabulary work raises those scores and clears them at the
-/// same threshold. Because the fallback is *additive advice* — the hits are
-/// still returned — a false positive costs one extra suggestion, while a false
-/// negative costs the user the only exit they had.
+/// This family shows the two distributions **overlapping in the 8–15 band**.
+/// The false positives are entirely generic one- and two-word queries
+/// (`greeting`, `chain`, `screenshot`, `USD stage`) — a property of the corpus,
+/// not of the ranker: S1's vocabulary work raises those scores and clears them
+/// at this same threshold.
+///
+/// **Reading the two together:** the gate is a recall-versus-noise trade-off,
+/// not a clean separation. It is deliberately biased toward recall. The
+/// fallback is *additive advice* — the hits are still returned — so a false
+/// positive costs the caller one extra suggestion, while a false negative costs
+/// the user the only exit they had. 16 sits above every measured
+/// description-noise score and below every measured name match, and never
+/// touches a name query.
+///
+/// [`pinning_test`]: the gap itself is asserted by
+/// `tests/fallback_dcc_cua_route.rs::the_confidence_gate_sits_in_the_measured_gap`,
+/// so a scorer change that compresses the band fails a test instead of silently
+/// mis-routing traffic.
 pub const FALLBACK_MIN_CONFIDENT_SCORE: u32 = 16;
 
 /// Shortest query, in characters after trimming, that may be routed to the
@@ -127,6 +154,19 @@ impl Default for FallbackPolicy {
             enabled: true,
         }
     }
+}
+
+/// Whether `candidate` names the fallback target itself.
+///
+/// Comparison is case-insensitive because skill names come from hand-written
+/// `SKILL.md` frontmatter and are not normalised before they reach the ranker.
+///
+/// Used to stop the route from recommending `dcc-cua` for a request that
+/// `dcc-cua` itself already answered. That is not a fallback, it is a
+/// tautology — and it would look to the caller like a loop.
+#[must_use]
+pub fn is_fallback_target(candidate: Option<&str>) -> bool {
+    candidate.is_some_and(|value| value.trim().eq_ignore_ascii_case(FALLBACK_SKILL))
 }
 
 /// Decide whether a result set must be routed to the `dcc-cua` fallback.
