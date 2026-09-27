@@ -1246,6 +1246,10 @@ jobs:
         uses: vedantmgoyal9/winget-releaser@v2
         with:
           identifier: DccMcp.DccMcpCli
+          # Default is github.repository_owner (the dcc-mcp org), but Komac pushes
+          # its working branch to a fork owned by the account behind WINGET_TOKEN.
+          # That fork is under the personal account, so it must be named explicitly.
+          fork-user: loonghao
           release-tag: ${{ steps.version.outputs.tag }}
           version: ${{ steps.version.outputs.version }}
           # Only the unversioned portable zip for the CLI. Intentionally excludes
