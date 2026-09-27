@@ -1,5 +1,8 @@
 use super::*;
-use dcc_mcp_gateway_search::{SearchQuery as RankingQuery, SearchRecord, rank_all};
+use dcc_mcp_gateway_search::{
+    CuaRuntimeProbe, SearchFallback, SearchQuery as RankingQuery, SearchRecord, rank_all,
+    resolve_fallback_with_policy,
+};
 
 #[derive(Clone)]
 struct SkillSearchRecord<'a> {
@@ -62,6 +65,13 @@ impl SearchRecord for SkillSearchRecord<'_> {
     fn rank_scope(&self) -> u8 {
         self.scope as u8
     }
+
+    fn executable_interface_count(&self) -> Option<usize> {
+        // `tools.yaml` entries / tool declarations are the only things a caller
+        // can invoke. A skill with none of them matches text but cannot act,
+        // which is exactly the case the `dcc-cua` fallback exists for.
+        Some(self.metadata.tools.len())
+    }
 }
 
 fn ranking_tokens(metadata: &SkillMetadata, fields: &scoring::FieldTokens) -> Vec<String> {
@@ -104,6 +114,46 @@ impl SkillCatalog {
         scope: Option<SkillScope>,
         limit: Option<usize>,
     ) -> Vec<SkillSummary> {
+        self.search_skills_inner(query, tags, dcc, scope, limit, None)
+            .hits
+    }
+
+    /// [`Self::search_skills`] plus the explicit `dcc-cua` routing contract
+    /// (PIP-3702).
+    ///
+    /// Identical ranking to [`Self::search_skills`]; the only difference is
+    /// that the response carries `fallback` advice when the catalog cannot
+    /// serve the request — no candidate, only lexical near-misses, or a
+    /// top hit that declares no callable tool. The criteria and thresholds
+    /// live in `dcc-mcp-gateway-search`'s `policy` module.
+    ///
+    /// `probe` is consulted only when the criteria fire. Pass
+    /// [`dcc_mcp_gateway_search::StaticCuaProbe::ready`] when the caller has
+    /// already established runtime availability, or
+    /// [`dcc_mcp_gateway_search::CliCuaProbe`] to check the official component
+    /// contract.
+    #[must_use]
+    pub fn search_skills_with_fallback(
+        &self,
+        query: Option<&str>,
+        tags: &[&str],
+        dcc: Option<&str>,
+        scope: Option<SkillScope>,
+        limit: Option<usize>,
+        probe: &dyn CuaRuntimeProbe,
+    ) -> SkillSearchResult {
+        self.search_skills_inner(query, tags, dcc, scope, limit, Some(probe))
+    }
+
+    fn search_skills_inner(
+        &self,
+        query: Option<&str>,
+        tags: &[&str],
+        dcc: Option<&str>,
+        scope: Option<SkillScope>,
+        limit: Option<usize>,
+        probe: Option<&dyn CuaRuntimeProbe>,
+    ) -> SkillSearchResult {
         // ── 0. dcc shard fast-path (PIP-2470) ──
         //
         // When `dcc` is specified, use the per-dcc shard to narrow the
@@ -117,7 +167,10 @@ impl SkillCatalog {
         let shard = match &dcc_key {
             Some(key) => match self.dcc_shards.get(key) {
                 Some(shard) => Some(shard),
-                None => return Vec::new(),
+                // No skills exist for this DCC at all. That is the outcome of
+                // the caller's own filter, not an unanswered request, so the
+                // fallback stays silent.
+                None => return SkillSearchResult::default(),
             },
             None => None,
         };
@@ -153,11 +206,15 @@ impl SkillCatalog {
                     .cmp(scope_a)
                     .then_with(|| summary_a.name.cmp(&summary_b.name))
             });
-            return summaries
-                .into_iter()
-                .map(|(_, summary)| summary)
-                .take(limit.unwrap_or(usize::MAX))
-                .collect();
+            // Discovery mode: an empty query is a browse request, never an
+            // unanswered one, so no fallback advice is attached.
+            return SkillSearchResult::from_hits(
+                summaries
+                    .into_iter()
+                    .map(|(_, summary)| summary)
+                    .take(limit.unwrap_or(usize::MAX))
+                    .collect(),
+            );
         }
 
         // ── 2. Pre-filter by tags/dcc ──
@@ -203,7 +260,7 @@ impl SkillCatalog {
                 search_tokens: ranking_tokens(&entry.value().metadata, &entry.value().field_tokens),
             })
             .collect();
-        let ranked: Vec<SkillSummary> = rank_all(
+        let ranked_hits = rank_all(
             &records,
             &RankingQuery {
                 query: q_trim.to_string(),
@@ -214,10 +271,24 @@ impl SkillCatalog {
                 },
                 ..RankingQuery::default()
             },
-        )
-        .into_iter()
-        .map(|hit| helpers::skill_entry_to_summary(prefiltered[hit.record.index].value()))
-        .collect();
+        );
+        // ── 3b. Explicit dcc-cua fallback (PIP-3702) ──
+        //
+        // Judged on the *ranked* hits, before the scope filter and the limit,
+        // so a caller-side narrowing can never manufacture a fallback. The
+        // criteria themselves live in `dcc-mcp-gateway-search::policy`.
+        let fallback: Option<SearchFallback> = probe.and_then(|probe| {
+            resolve_fallback_with_policy(
+                &ranked_hits,
+                q_trim,
+                probe,
+                dcc_mcp_gateway_search::FallbackPolicy::default(),
+            )
+        });
+        let ranked: Vec<SkillSummary> = ranked_hits
+            .into_iter()
+            .map(|hit| helpers::skill_entry_to_summary(prefiltered[hit.record.index].value()))
+            .collect();
 
         // ── 4. Scope filter (post-ranking) ──
         let filtered: Vec<SkillSummary> = match scope {
@@ -232,10 +303,11 @@ impl SkillCatalog {
         };
 
         // ── 5. Limit ──
-        match limit {
+        let hits = match limit {
             None => filtered,
             Some(n) => filtered.into_iter().take(n).collect(),
-        }
+        };
+        SkillSearchResult { hits, fallback }
     }
 
     /// List all skills with their load status.

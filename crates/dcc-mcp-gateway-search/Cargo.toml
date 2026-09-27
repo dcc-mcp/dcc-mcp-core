@@ -15,6 +15,9 @@ workspace = true
 
 [dependencies]
 serde = { workspace = true }
+# Used only by `probe`, to read `dcc-mcp-cli components status --json`-shaped
+# output. Every other module stays dependency-light on purpose.
+serde_json = { workspace = true }
 uuid = { workspace = true }
 nucleo-matcher = "0.3"
 workspace-hack = { version = "0.1", path = "../workspace-hack" }

@@ -59,4 +59,19 @@ pub trait SearchRecord {
     fn rank_scope(&self) -> u8 {
         0
     }
+    /// Number of executable interfaces this row exposes — the entries a
+    /// caller can actually invoke (`tools.yaml` rows / tool declarations).
+    ///
+    /// `Some(0)` means the row is documentation-only: it can match text but
+    /// there is nothing to call. `None` means this row type does not model
+    /// tool counts.
+    ///
+    /// The [`crate::policy::FallbackTrigger::NoExecutableInterface`] trigger
+    /// only fires on `Some(0)`. `None` is treated as *having* an interface,
+    /// because absence of evidence is not evidence of absence and guessing
+    /// otherwise would fire the fallback on every row type that simply does
+    /// not track tools.
+    fn executable_interface_count(&self) -> Option<usize> {
+        None
+    }
 }

@@ -1,5 +1,7 @@
 //! Pure search pipeline: filter → score → sort → paginate.
 
+use crate::fallback::{CuaRuntimeProbe, SearchFallback, build_fallback};
+use crate::policy::{FallbackPolicy, FallbackTrigger, evaluate_fallback};
 use crate::query::{DEFAULT_LIMIT, MAX_LIMIT, SearchHit, SearchMode, SearchPage, SearchQuery};
 use crate::ranking::{FuzzyScorer, Scorer, SubstringScorer};
 use crate::record::SearchRecord;
@@ -13,9 +15,108 @@ pub fn search<R: SearchRecord + Clone>(records: &[R], query: &SearchQuery) -> Ve
 }
 
 /// Paginated variant of [`search`].
+///
+/// The returned page never carries fallback advice; use
+/// [`search_page_with_fallback`] on surfaces that can offer the `dcc-cua`
+/// route (PIP-3702).
 #[must_use]
 pub fn search_page<R: SearchRecord + Clone>(records: &[R], query: &SearchQuery) -> SearchPage<R> {
     let hits = rank_all(records, query);
+    paginate(hits, query, None)
+}
+
+/// Paginated search that attaches explicit `dcc-cua` fallback advice when the
+/// result set cannot serve the request (PIP-3702).
+///
+/// `probe` is only consulted when the fallback criteria fire, so a search that
+/// is answered normally never pays for a runtime check.
+#[must_use]
+pub fn search_page_with_fallback<R: SearchRecord + Clone>(
+    records: &[R],
+    query: &SearchQuery,
+    probe: &dyn CuaRuntimeProbe,
+) -> SearchPage<R> {
+    let hits = rank_all(records, query);
+    let fallback = resolve_fallback(&hits, &fallback_query_text(query), probe);
+    paginate(hits, query, fallback)
+}
+
+/// Decide whether `hits` should be routed to the `dcc-cua` fallback.
+///
+/// Kept separate from pagination so callers that own their own paging contract
+/// (package catalogs, the skill catalog) can reuse the same judgement.
+///
+/// The criteria and thresholds live in [`crate::policy`]; this function only
+/// adapts a ranked page to them and, when they fire, asks `probe` whether the
+/// route is actually usable.
+#[must_use]
+pub fn resolve_fallback<R: SearchRecord>(
+    hits: &[SearchHit<R>],
+    query: &str,
+    probe: &dyn CuaRuntimeProbe,
+) -> Option<SearchFallback> {
+    resolve_fallback_with_policy(hits, query, probe, FallbackPolicy::default())
+}
+
+/// [`resolve_fallback`] with an explicit policy.
+#[must_use]
+pub fn resolve_fallback_with_policy<R: SearchRecord>(
+    hits: &[SearchHit<R>],
+    query: &str,
+    probe: &dyn CuaRuntimeProbe,
+    policy: FallbackPolicy,
+) -> Option<SearchFallback> {
+    let trigger = classify(hits, query, policy)?;
+    Some(build_fallback(trigger, probe.probe()))
+}
+
+/// Apply the central fallback policy to a ranked page.
+///
+/// Returns the trigger without probing the runtime, so the judgement can be
+/// unit-tested on its own.
+fn classify<R: SearchRecord>(
+    hits: &[SearchHit<R>],
+    query: &str,
+    policy: FallbackPolicy,
+) -> Option<FallbackTrigger> {
+    let len = query.trim().chars().count();
+    match hits.first() {
+        Some(top) => {
+            // `executable_interface_count() == Some(0)` is the only proof of a
+            // missing interface; `None` (unmodelled) counts as having one.
+            let has_interface = top.record.executable_interface_count() != Some(0);
+            evaluate_fallback(len, Some(top.score), has_interface, policy)
+        }
+        // No hits at all is the strongest signal, but it is still the policy's
+        // call: a discovery request must stay silent.
+        None => evaluate_fallback(len, None, true, policy),
+    }
+}
+
+/// Query text the fallback judgement should measure.
+///
+/// [`SearchQuery::or_queries`] makes a search answerable even when
+/// [`SearchQuery::query`] is empty, so the OR clauses count as query text.
+/// When both are empty the request is discovery, which never falls back.
+fn fallback_query_text(query: &SearchQuery) -> String {
+    let trimmed = query.query.trim();
+    if !trimmed.is_empty() {
+        return trimmed.to_string();
+    }
+    query
+        .or_queries
+        .iter()
+        .map(|clause| clause.trim())
+        .filter(|clause| !clause.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn paginate<R: SearchRecord + Clone>(
+    hits: Vec<SearchHit<R>>,
+    query: &SearchQuery,
+    fallback: Option<SearchFallback>,
+) -> SearchPage<R> {
     let total = hits.len() as u32;
     let effective_limit = effective_limit(query.limit);
     let offset = query.offset.unwrap_or(0).min(total);
@@ -31,6 +132,7 @@ pub fn search_page<R: SearchRecord + Clone>(records: &[R], query: &SearchQuery) 
         total,
         offset,
         limit: effective_limit,
+        fallback,
     }
 }
 
@@ -553,6 +655,7 @@ mod tests {
             total: 300,
             offset: 25,
             limit: 25,
+            fallback: None,
         };
         let s = serde_json::to_string(&page).unwrap();
         let back: SearchPage<Row> = serde_json::from_str(&s).unwrap();
