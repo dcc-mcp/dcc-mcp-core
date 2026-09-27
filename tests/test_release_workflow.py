@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from conftest import REPO_ROOT
 from dcc_mcp_core import yaml_loads
 
@@ -31,9 +33,11 @@ def _release_jobs() -> dict:
 def _uses_action(step: dict, action: str) -> bool:
     """Report whether ``step`` invokes ``action``, whatever ref pins it.
 
-    The publish action moved from the mutable ``release/v1`` tag to an immutable
-    commit SHA with a ``# v1.14.2`` trailing comment, so the ref is not a stable
-    identifier to compare against.
+    Matching is deliberately by name: the publish action moved from the mutable
+    ``release/v1`` tag to an immutable commit SHA with a ``# v1.14.2`` trailing
+    comment, so the ref value is not stable across action upgrades. The ref is
+    still checked for *shape* -- see
+    ``test_pypi_publish_action_is_pinned_to_a_commit_sha``.
     """
     uses = str(step.get("uses") or "")
     return uses.split("#", 1)[0].strip().startswith(f"{action}@")
@@ -45,6 +49,37 @@ def _pypi_steps(job: dict) -> list[dict]:
 
 def _github_release_steps(jobs: dict) -> list[dict]:
     return [step for job in jobs.values() for step in job.get("steps", []) if step.get("uses") == GITHUB_RELEASE_ACTION]
+
+
+def _pypi_ref(step: dict) -> str:
+    """Return the ref pinning ``step``'s publish action, comments stripped."""
+    uses = str(step.get("uses") or "")
+    return uses.split("#", 1)[0].strip().split("@", 1)[-1]
+
+
+def test_pypi_publish_action_is_pinned_to_a_commit_sha() -> None:
+    """Every publish step must pin the action to a 40-hex commit SHA.
+
+    A mutable ref such as ``release/v1`` silently re-points to whatever the
+    action publisher last pushed, which is how a supply-chain compromise reaches
+    a release token. Name-only matching cannot catch that, so the ref *shape* is
+    asserted here.
+
+    The SHA **value** is intentionally not asserted: pinning a value would force
+    an edit in every repository on every action bump. Upgrading the action stays
+    a one-line change in the workflow file.
+    """
+    steps = [step for job in _release_jobs().values() for step in _pypi_steps(job)]
+    assert steps, f"no {PYPI_ACTION} step found in {RELEASE_WORKFLOW.name}"
+    bad = [
+        (step, _pypi_ref(step))
+        for step in steps
+        if not re.fullmatch(r"[0-9a-f]{40}", _pypi_ref(step))
+    ]
+    assert not bad, (
+        f"{PYPI_ACTION} must be pinned to a 40-hex commit SHA, not a mutable ref: "
+        + "; ".join(f"{ref!r} ({step.get('name') or step.get('uses')})" for step, ref in bad)
+    )
 
 
 def test_release_workflow_preserves_existing_github_release_assets() -> None:
