@@ -526,7 +526,7 @@ repository does not duplicate version or package counts in this README.
 - [Adapter onboarding](docs/guide/new-adapter-onboarding.md) — the supported
   adapter implementation and release path.
 - [Documentation index](docs/guide/INDEX.md) — the complete guide/API map.
-- [AI agent guide](AI_AGENT_GUIDE.md) and [AGENTS.md](AGENTS.md) — agent workflow
+- [AI agent guide](docs/guide/ai-agent-guide.md) and [AGENTS.md](AGENTS.md) — agent workflow
   and repository rules.
 
 ## Development

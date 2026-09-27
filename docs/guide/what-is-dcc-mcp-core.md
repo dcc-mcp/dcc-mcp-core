@@ -205,7 +205,7 @@ Full symbol listing lives in the [API reference](/api/actions).
 - [CLI reference](/guide/cli-reference) — full flag tables for `dcc-mcp-server`, `dcc-mcp-tunnel-relay`, `dcc-mcp-tunnel-agent`, plus deployment scenarios
 - [Gateway diagnostics](/guide/gateway-diagnostics) — multi-instance contention, election, heartbeat, ghost eviction, troubleshooting matrix
 - [`AGENTS.md`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/AGENTS.md) — rules for integrating AI agents
-- [`AI_AGENT_GUIDE.md`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/AI_AGENT_GUIDE.md) — best practices for agents using dcc-mcp-core
+- [`docs/guide/ai-agent-guide.md`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/docs/guide/ai-agent-guide.md) — best practices for agents using dcc-mcp-core
 
 ## Related projects
 

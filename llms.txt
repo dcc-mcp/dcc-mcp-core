@@ -63,7 +63,7 @@ release installers in `README.md`. Keep it current with
 next CLI launch, requires and re-verifies the manifest SHA-256, quarantines
 legacy unsigned staging, and does not replace a running server.
 
-**New to this project?** Read [`AI_AGENT_GUIDE.md`](AI_AGENT_GUIDE.md) FIRST.
+**New to this project?** Read [`docs/guide/ai-agent-guide.md`](docs/guide/ai-agent-guide.md) FIRST.
 
 **Building a DCC-MCP adapter?** Follow the release train docs in order:
 1. [`new-adapter-onboarding.md`](docs/guide/new-adapter-onboarding.md) — scaffolding template
@@ -1110,9 +1110,7 @@ Full guide: `docs/guide/remote-server.md`. Per-module API: `docs/api/{auth,batch
 - [README (English)](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/README.md)
 - [README (中文)](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/README_zh.md)
 - [AI Agent Guide (AGENTS.md)](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/AGENTS.md)
-- [Claude Guide (CLAUDE.md)](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/CLAUDE.md)
-- [Gemini Guide (GEMINI.md)](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/GEMINI.md)
-- [CodeBuddy Guide (CODEBUDDY.md)](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/CODEBUDDY.md)
+- [AI Agent Tutorial (docs/guide/ai-agent-guide.md)](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/docs/guide/ai-agent-guide.md)
 - [Contributing Guide](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/CONTRIBUTING.md)
 - [Changelog](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/CHANGELOG.md)
 - [Full API Reference](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/llms-full.txt)
