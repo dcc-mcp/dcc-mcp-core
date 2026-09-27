@@ -10,6 +10,7 @@ absent so guidance cannot drift across N hand-maintained copies.
 from __future__ import annotations
 
 from pathlib import Path
+import pytest
 import subprocess
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -41,26 +42,52 @@ FORBIDDEN_TRACKED_PREFIXES = (
     ".agent_context/",
 )
 
-
 def _tracked_files() -> list[str]:
-    output = subprocess.check_output(
-        ["git", "ls-files"],
-        cwd=REPO_ROOT,
-        text=True,
-        encoding="utf-8",
-    )
+    """Return git-tracked paths, or ``[]`` when this is not a git checkout.
+
+    Some CI jobs (for example the mayapy container) install the built wheel
+    rather than checking the repository out, so ``git ls-files`` legitimately
+    yields nothing there. These guards reason about repository contents, so they
+    must skip rather than fail in that environment.
+    """
+    try:
+        output = subprocess.check_output(
+            ["git", "ls-files"],
+            cwd=REPO_ROOT,
+            text=True,
+            encoding="utf-8",
+            stderr=subprocess.DEVNULL,
+        )
+    except (subprocess.CalledProcessError, OSError):
+        return []
     return [line.strip().replace("\\", "/") for line in output.splitlines() if line.strip()]
 
 
+def _require_git_checkout() -> set[str]:
+    tracked = set(_tracked_files())
+    if not tracked:
+        pytest.skip(
+            "not a git checkout (git ls-files returned nothing); agent contract "
+            "guards only run against repository contents"
+        )
+    return tracked
+
+
 def test_agent_entrypoints_do_not_include_multica_runtime_context() -> None:
+    tracked = _require_git_checkout()
     for relative_path in AGENT_ENTRYPOINTS:
-        text = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
+        if relative_path not in tracked:
+            continue
+        path = REPO_ROOT / relative_path
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8")
         for marker in FORBIDDEN_MARKERS:
             assert marker not in text, f"{relative_path} contains generated Multica marker {marker!r}"
 
 
 def test_agents_md_is_the_only_agent_contract_file() -> None:
-    tracked = set(_tracked_files())
+    tracked = _require_git_checkout()
     assert "AGENTS.md" in tracked, "AGENTS.md is the single agent contract file and must stay tracked"
     offenders = sorted(name for name in DEPRECATED_AGENT_ENTRYPOINTS if name in tracked)
     assert offenders == [], (
@@ -70,7 +97,7 @@ def test_agents_md_is_the_only_agent_contract_file() -> None:
 
 
 def test_multica_runtime_artifacts_are_not_tracked() -> None:
-    tracked = _tracked_files()
+    tracked = _require_git_checkout()
     offenders = [
         path
         for path in tracked
