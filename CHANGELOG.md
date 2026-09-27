@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.37](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.36...v0.20.37) (2026-09-27)
+
+
+### Bug Fixes
+
+* **cli:** resolve current_exe symlinks before deriving install directories ([db9f37d](https://github.com/dcc-mcp/dcc-mcp-core/commit/db9f37d7d0c6037fef28ffe6891703f80ecd0acd))
+* **gateway:** probe the PATH dcc-mcp-server binary for its real version ([61d779f](https://github.com/dcc-mcp/dcc-mcp-core/commit/61d779fd295b96d472e93f547702094a80ab7d31))
+* **gateway:** treat an unresolvable core version as unknown, not 0.0.0-dev ([#2591](https://github.com/dcc-mcp/dcc-mcp-core/issues/2591)) ([a7d4ddd](https://github.com/dcc-mcp/dcc-mcp-core/commit/a7d4ddd6f8cb3ae152ddca73384b4edb5a2e880c))
+* **marketplace:** align host-selection error text and merge dcc with targets ([d574d5a](https://github.com/dcc-mcp/dcc-mcp-core/commit/d574d5a56d568d3ef0ac00f5741ae6810f7494d0))
+
 ## [0.20.36](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.35...v0.20.36) (2026-09-26)
 
 
