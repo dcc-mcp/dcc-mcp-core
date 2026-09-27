@@ -76,6 +76,14 @@ admin-build: admin-install
 
 # ── Rust ──────────────────────────────────────────────────────────────────────
 
+# Build the whole workspace in release mode
+build-release:
+    cargo build --release
+
+# Build the Rust API documentation
+doc:
+    cargo doc
+
 # Check all crates compile (also regenerates _core.pyi for IDE completions)
 check:
     just stubgen
@@ -345,6 +353,10 @@ check-vfx-baseline:
 lint-py-fix:
     ruff check --fix python/dcc_mcp_core/ tests/ examples/ scripts/
     ruff format python/dcc_mcp_core/ tests/ examples/ scripts/
+
+# Static type-check the Python sources ([tool.mypy] in pyproject.toml)
+typecheck:
+    uv run mypy .
 
 # Lint everything: Rust (clippy + fmt-check) + Python (ruff) + skills
 lint: clippy fmt-check lint-py lint-skills
