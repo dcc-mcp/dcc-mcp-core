@@ -5,8 +5,12 @@
 //! | dimension | module | contract |
 //! |---|---|---|
 //! | hit rate | [`run`] | **hard gate** — a ranking regression is a bug |
-//! | query efficiency | [`run`] | trend signal only — CI machines are noisy |
+//! | query efficiency | [`run`] + [`trend`] | no gate; compared against a rolling median, and reported |
 //! | multi-DCC context growth | [`context`] | **hard cap** — paid from the user's context window |
+//!
+//! [`trend`] is what closes the gap latency used to leave open: the number was
+//! recorded and nobody was told when it regressed. It is never a gate — see the
+//! module docs for why, and for how a corpus change keeps the baseline honest.
 //!
 //! The benchmark runs the production scoring path
 //! ([`dcc_mcp_skills::SkillCatalog::search_skills`] → `dcc-mcp-gateway-search`),
@@ -49,6 +53,7 @@ pub mod run;
 pub mod seeds;
 pub mod synthetic;
 pub mod thresholds;
+pub mod trend;
 
 pub use corpus::Corpus;
 pub use metrics::{HitRates, Latency};

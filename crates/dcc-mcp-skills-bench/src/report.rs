@@ -165,9 +165,20 @@ fn render_scale(evaluation: &Evaluation) -> String {
 /// Whether the gated group clears every hit-rate threshold.
 #[must_use]
 pub fn gate_passes(group: &Group<crate::metrics::HitRates>) -> bool {
-    group.metrics.top1 >= thresholds::MIN_TOP1_300
-        && group.metrics.top5 >= thresholds::MIN_TOP5_300
-        && group.metrics.mrr10 >= thresholds::MIN_MRR10_300
+    gate_passes_at(group.metrics.top1, group.metrics.top5, group.metrics.mrr10)
+}
+
+/// Whether a measured trio clears every hit-rate threshold.
+///
+/// The same rule as [`gate_passes`] without the `Group` wrapper, so the trend
+/// report can verdict a recorded sample that no longer carries one. One rule,
+/// two entry points: a second copy of the comparison would be the thing that
+/// drifts.
+#[must_use]
+pub fn gate_passes_at(top1: f64, top5: f64, mrr10: f64) -> bool {
+    top1 >= thresholds::MIN_TOP1_300
+        && top5 >= thresholds::MIN_TOP5_300
+        && mrr10 >= thresholds::MIN_MRR10_300
 }
 
 fn render_curve(curve: &[ContextPoint]) -> String {
@@ -206,7 +217,22 @@ pub fn render_json(
     curve: &[ContextPoint],
     recall: &RecallCoverage,
 ) -> Value {
-    json!({
+    render_json_with_trend(evaluations, curve, recall, None)
+}
+
+/// Render the whole report as JSON, with the trend comparison when there is one.
+///
+/// `trend` is absent on a pull request: the trend series only exists on `main`
+/// and the weekly schedule, where a run has a predecessor to be compared
+/// against at all.
+#[must_use]
+pub fn render_json_with_trend(
+    evaluations: &[Evaluation],
+    curve: &[ContextPoint],
+    recall: &RecallCoverage,
+    trend: Option<&crate::trend::TrendReport>,
+) -> Value {
+    let mut value = json!({
         "corpus_schema": CORPUS_SCHEMA_VERSION,
         "recall_coverage": recall,
         "token_estimator": "dcc-mcp-byte4-v1",
@@ -219,7 +245,13 @@ pub fn render_json(
         },
         "scales": evaluations,
         "context_curve": curve,
-    })
+    });
+    if let Some(trend) = trend {
+        // Latency alerts live here as data, never as a pass/fail field: the
+        // one thing a reader could mistake for a gate is deliberately absent.
+        value["trend"] = crate::trend::render_alerts_json(trend);
+    }
+    value
 }
 
 #[cfg(test)]

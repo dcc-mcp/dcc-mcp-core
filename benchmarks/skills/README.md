@@ -79,6 +79,42 @@ it: before PIP-3701 the loader dropped the key, so coverage was 0% even on
 skills that declared all four fields. Measuring the field and parsing it had to
 land together.
 
+## Trend series
+
+The weekly workflow records one point per run across all three dimensions and
+renders them together as `skills-bench-trend.md` — the place to do a periodic
+review without opening three different workflow runs.
+
+| dimension | contract |
+|---|---|
+| hit rate | merge gate; the trend shows whether the margin is being eaten |
+| context growth | merge gate; the trend shows the headroom under the cap |
+| latency | **no gate** — compared against a rolling median and reported |
+
+Latency is compared against the **median p95 of the last four runs on the same
+corpus**, and alerts at +50%. It is deliberately not a merge gate: CI hardware
+alone can move the number by a factor of two, so a fixed cap here produces
+false failures instead of catching regressions. An alert opens an issue; it
+never fails a build.
+
+### Corpus epochs
+
+Every point carries a corpus fingerprint (schema, seed count, and a digest of
+the skill names). Points whose fingerprint differs are excluded from the
+baseline window.
+
+That is what keeps the series honest when the corpus changes: expanding the
+seed set opens a new epoch with an empty window, so alerts stay disarmed until
+four runs have accumulated under the new corpus. **Expect several weeks of
+"warming up" after any corpus change — that is the mechanism working, not a
+defect.**
+
+### Where the series lives
+
+`trend-history.json` is gitignored and carried between runs as a workflow
+artifact. It is derived data, and committing it weekly would feed
+release-please as code activity.
+
 ## When this moves out
 
 The issue that created this benchmark set a split condition: extract the
