@@ -1203,6 +1203,60 @@ jobs:
           --version "$RELEASE_VERSION"
           --payload release.json
 
+  # ── Publish to Windows Package Manager (WinGet) ──
+  # Runs after the release assets are verified so the manifest always points at
+  # installer URLs that are known to exist. Opens/updates a PR on
+  # microsoft/winget-pkgs via Komac (through vedantmgoyal9/winget-releaser).
+  publish-winget:
+    needs: [release-please, publish-github-release-assets, verify-release-assets]
+    if: |
+      always() &&
+      needs.release-please.outputs.release_created == 'true' &&
+      needs.publish-github-release-assets.result == 'success' &&
+      needs.verify-release-assets.result == 'success'
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check WinGet token
+        id: check_token
+        shell: bash
+        run: |
+          if [ -z "${{ secrets.WINGET_TOKEN }}" ]; then
+            echo "::warning::WINGET_TOKEN not set, skipping WinGet publish"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Derive version from tag
+        if: steps.check_token.outputs.skip != 'true'
+        id: version
+        shell: bash
+        run: |
+          TAG="${{ needs.release-please.outputs.tag_name }}"
+          # Strip the release-please tag prefix: v0.20.36 -> 0.20.36
+          VERSION="${TAG#v}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Publishing to WinGet: tag=${TAG}, version=${VERSION}"
+
+      - name: Publish to WinGet
+        if: steps.check_token.outputs.skip != 'true'
+        uses: vedantmgoyal9/winget-releaser@v2
+        with:
+          identifier: DccMcp.DccMcpCli
+          release-tag: ${{ steps.version.outputs.tag }}
+          version: ${{ steps.version.outputs.version }}
+          # Only the unversioned portable zip for the CLI. Intentionally excludes
+          # dcc-mcp-server and dcc-cua: only dcc-mcp-cli is published to WinGet,
+          # and dcc-cua is installed on demand by `dcc-mcp-cli components ensure`
+          # beside the real executable (see crates/dcc-mcp-cli/src/application/current_exe.rs).
+          installers-regex: 'dcc-mcp-cli-.*-windows-x86_64\.zip$'
+          # Do NOT set max-versions-to-keep: it can misidentify the highest
+          # version as "old" and try to delete it (microsoft/winget-pkgs#340410).
+          token: ${{ secrets.WINGET_TOKEN }}
+
   # ── Aggregate release publication status for branch protection / humans ──
   publish:
     needs:
@@ -1213,6 +1267,7 @@ jobs:
       - publish-cli-pypi
       - publish-github-release-assets
       - verify-release-assets
+      - publish-winget
     if: always() && needs.release-please.outputs.release_created == 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -1226,6 +1281,7 @@ jobs:
           cli="${{ needs.publish-cli-pypi.result }}"
           release_assets="${{ needs.publish-github-release-assets.result }}"
           assets_verified="${{ needs.verify-release-assets.result }}"
+          winget="${{ needs.publish-winget.result }}"
           core_backfill="${{ github.event_name == 'workflow_dispatch' && inputs.release_tag != '' && inputs.backfill_assets != true }}"
 
           echo "PyPI dcc-mcp-core: ${core}"
@@ -1234,6 +1290,7 @@ jobs:
           echo "PyPI dcc-mcp-cli: ${cli}"
           echo "GitHub Release assets: ${release_assets}"
           echo "Release asset verification: ${assets_verified}"
+          echo "WinGet manifest PR: ${winget}"
           echo "Core-only immutable backfill: ${core_backfill}"
 
           failed=0
@@ -1258,6 +1315,14 @@ jobs:
             if [ "$assets_verified" != "success" ]; then
               echo "::error::GitHub Release asset verification failed (result=${assets_verified})."
               failed=1
+            fi
+            # WinGet is best-effort and must never fail a release: winget-pkgs
+            # moderation is asynchronous, and the job self-skips when the token
+            # is unset. Only 'failure' is surfaced, and only as a warning.
+            if [ "$winget" = "failure" ]; then
+              echo "::warning::WinGet manifest PR did not open (result=${winget}). The "
+              echo "::warning::GitHub Release and PyPI routes are unaffected; publish "
+              echo "::warning::the manifest manually or re-run this job."
             fi
           fi
           exit "$failed"
