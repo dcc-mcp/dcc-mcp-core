@@ -9,6 +9,15 @@
 //!
 //! Runtime fields come from the shared instance-context collector: local
 //! process/system metrics plus each backend's `/v1/context`.
+//!
+//! Process metrics (`cpu_percent`, `memory_bytes`, `virtual_memory_bytes`) are
+//! sampled from the OS process table for `entry.pid` and are therefore `null`
+//! whenever that PID is not present on the host — including for synthetic PIDs
+//! used in tests. Tests must assert the field contract (number when the PID is
+//! sampled, `null` otherwise), never a fixed value, or pin the assertion to a
+//! PID that is known to exist. The projection itself is pinned by
+//! `entry_to_worker_projects_stubbed_process_metrics`, which injects fixed
+//! values through [`InstanceContext`].
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -229,6 +238,50 @@ mod tests {
         );
 
         assert_eq!(instance_type(&entry), "standalone");
+    }
+
+    /// Process metrics reach the worker projection through
+    /// [`InstanceContext`], which is the injection point for tests: the
+    /// collector fills it by sampling the OS process table for `entry.pid`,
+    /// while a unit test can fill it with fixed values. Pinning the contract
+    /// here keeps every PID-dependent test above independent of the host's
+    /// process table.
+    #[cfg(feature = "admin")]
+    #[test]
+    fn entry_to_worker_projects_stubbed_process_metrics() {
+        use crate::gateway::instance_context::ProcessMetrics;
+        use serde_json::json;
+
+        let gs = crate::gateway::admin::tests::admin_tests::make_gateway_state();
+        let mut entry = ServiceEntry::new("maya", "127.0.0.1", 18813);
+        entry.pid = Some(4242);
+
+        let sampled = entry_to_worker(
+            &entry,
+            &gs,
+            &InstanceContext {
+                process: ProcessMetrics {
+                    cpu_percent: Some(12.5),
+                    memory_bytes: Some(4096),
+                    virtual_memory_bytes: Some(8192),
+                },
+                ..Default::default()
+            },
+        );
+        assert_eq!(sampled.cpu_percent, Some(12.5));
+        assert_eq!(sampled.memory_bytes, Some(4096));
+        assert_eq!(sampled.virtual_memory_bytes, Some(8192));
+        let sampled_json = workers_payload(vec![(sampled, WorkerHealth::Live)]);
+        assert_eq!(sampled_json["workers"][0]["cpu_percent"], json!(12.5));
+        assert_eq!(sampled_json["workers"][0]["memory_bytes"], json!(4096));
+
+        // No sample available — unknown PID, or a platform that could not read
+        // the process — projects as null instead of a fabricated number.
+        let unsampled = entry_to_worker(&entry, &gs, &InstanceContext::default());
+        assert_eq!(unsampled.cpu_percent, None);
+        let unsampled_json = workers_payload(vec![(unsampled, WorkerHealth::Live)]);
+        assert!(unsampled_json["workers"][0]["cpu_percent"].is_null());
+        assert!(unsampled_json["workers"][0]["memory_bytes"].is_null());
     }
 
     #[test]

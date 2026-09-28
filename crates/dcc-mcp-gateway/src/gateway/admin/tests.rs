@@ -1748,6 +1748,53 @@ filters:
         assert_eq!(body["summary"]["unhealthy"].as_u64(), Some(1));
     }
 
+    /// Assert a worker process metric honours its JSON contract.
+    ///
+    /// `cpu_percent` / `memory_bytes` are wired through the shared
+    /// instance-context collector (`gateway/instance_context.rs::sample_metrics`),
+    /// which samples the OS process table for `entry.pid`: a number when the PID
+    /// exists on the runner, `null` when it does not. Asserting the shape keeps
+    /// the projection contract independent of the runner's process table — the
+    /// wired-up value is pinned deterministically by
+    /// `test_admin_workers_reports_process_metrics_for_live_pid`.
+    fn assert_process_metric_shape(value: &Value) {
+        assert!(
+            value.is_null() || value.is_number(),
+            "process metric must be null or a number, got {value:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_admin_workers_reports_process_metrics_for_live_pid() {
+        // Register an instance whose PID is guaranteed to exist in the process
+        // table (this test process), so the wired-up process-metric path is
+        // exercised deterministically instead of depending on which PIDs the
+        // runner happens to have.
+        let gs = make_gateway_state();
+        let pid = std::process::id();
+        {
+            let reg = &gs.registry;
+            reg.register(make_service_entry("houdini", "127.0.0.1", 18814, Some(pid)))
+                .unwrap();
+        }
+        let state = AdminState::new(gs);
+        let router = build_admin_router(state);
+        let (status, body) = body_json(router, "/api/workers").await;
+        assert_eq!(status, StatusCode::OK);
+        let workers = body["workers"].as_array().unwrap();
+        assert_eq!(workers.len(), 1, "expected 1 worker, got {workers:?}");
+        let w = &workers[0];
+        assert_eq!(w["pid"], pid);
+        assert!(
+            w["memory_bytes"].as_u64().is_some_and(|bytes| bytes > 0),
+            "a live PID must report resident memory, got {:?}",
+            w["memory_bytes"]
+        );
+        // CPU utilisation is a sampled delta; on some platforms the first
+        // sample is not yet usable, so only the type is pinned here.
+        assert_process_metric_shape(&w["cpu_percent"]);
+    }
+
     #[tokio::test]
     async fn test_admin_workers_with_registered_instance() {
         let gs = make_gateway_state();
@@ -1800,9 +1847,14 @@ filters:
         assert_eq!(w["gateway_guardian_enabled"], true);
         assert_eq!(w["gateway_recovery_driver"], "daemon_guardian");
         assert_eq!(w["registration_refresh_mode"], "file_registry_heartbeat");
-        // CPU/memory not yet wired — see workers.rs module docs.
-        assert!(w["cpu_percent"].is_null());
-        assert!(w["memory_bytes"].is_null());
+        // CPU/memory are wired through the shared instance-context collector,
+        // which samples the OS process table for `entry.pid`. Whether PID 4242
+        // exists on the runner is not this test's subject, so assert the field
+        // contract (number when sampled, null when the PID is absent); see
+        // `assert_process_metric_shape` and
+        // `test_admin_workers_reports_process_metrics_for_live_pid`.
+        assert_process_metric_shape(&w["cpu_percent"]);
+        assert_process_metric_shape(&w["memory_bytes"]);
         assert!(w["uptime_secs"].as_u64().is_some());
         // summary should reflect 1 live, 0 stale.
         assert_eq!(body["total"].as_u64(), Some(1));

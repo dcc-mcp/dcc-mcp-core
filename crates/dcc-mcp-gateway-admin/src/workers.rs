@@ -49,8 +49,14 @@ pub struct WorkerSnapshot {
     pub gateway_recovery_driver: String,
     pub registration_refresh_mode: String,
     pub metadata: Value,
+    /// Process CPU utilisation in percent, or `null` when the instance PID is
+    /// absent from the OS process table (or no sample is available yet).
     pub cpu_percent: Option<f32>,
+    /// Resident set size in bytes, or `null` when the instance PID is absent
+    /// from the OS process table.
     pub memory_bytes: Option<u64>,
+    /// Virtual memory size in bytes, or `null` when the instance PID is absent
+    /// from the OS process table.
     pub virtual_memory_bytes: Option<u64>,
     pub backend_context_error: Option<String>,
 }
