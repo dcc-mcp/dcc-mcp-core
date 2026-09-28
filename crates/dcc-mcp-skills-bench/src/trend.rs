@@ -1233,14 +1233,18 @@ mod tests {
         assert_eq!(loaded.version, 1, "the file itself still says 1");
 
         let dir = std::env::temp_dir().join("dcc-mcp-skills-bench-trend-version");
-        let _ = std::fs::create_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("the fixture directory must be creatable");
         let path = dir.join("history.json");
-        let _ = std::fs::write(&path, text);
+        // Never `let _ =` here: if the write fails, `load` below reads a
+        // missing file, gets an empty default, and the guard passes for the
+        // wrong reason. The setup has to be loud for the assertion to mean
+        // anything.
+        std::fs::write(&path, text).expect("the older-schema history must be written");
         assert!(
             TrendHistory::load(&path).points.is_empty(),
             "an older schema must not be adopted as history"
         );
-        let _ = std::fs::remove_file(&path);
+        std::fs::remove_file(&path).expect("the fixture history must be removable");
     }
 
     #[test]
@@ -1297,9 +1301,11 @@ mod tests {
         // time — the baseline window could never fill and no alert would ever
         // have fired in CI.
         let dir = std::env::temp_dir().join("dcc-mcp-skills-bench-trend-roundtrip");
-        let _ = std::fs::create_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("the fixture directory must be creatable");
         let path = dir.join("history.json");
-        let _ = std::fs::remove_file(&path);
+        if path.exists() {
+            std::fs::remove_file(&path).expect("a stale fixture history must be removable");
+        }
 
         let mut first = TrendHistory::default();
         first.push(point("run-1", fingerprint(26), 100));
@@ -1316,13 +1322,15 @@ mod tests {
         second.save(&path).expect("writable");
         assert_eq!(TrendHistory::load(&path).points.len(), 2);
 
-        let _ = std::fs::remove_file(&path);
+        std::fs::remove_file(&path).expect("the fixture history must be removable");
     }
 
     #[test]
     fn an_unreadable_history_is_treated_as_empty() {
         let path = std::env::temp_dir().join("dcc-mcp-skills-bench-trend-absent.json");
-        let _ = std::fs::remove_file(&path);
+        if path.exists() {
+            std::fs::remove_file(&path).expect("a stale fixture history must be removable");
+        }
         assert!(TrendHistory::load(&path).points.is_empty());
     }
 
