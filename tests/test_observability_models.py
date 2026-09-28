@@ -605,11 +605,13 @@ class TestObservabilityQuery:
     def test_query_bounds_below_the_minimum_are_rejected(self, param: str, value: int) -> None:
         """An integer of the right type but below the documented minimum is rejected.
 
-        The lower bound used to be unreachable: the old guard tested the type and
-        the range in one ``if``, so a ``bool`` short-circuited before the bound
-        was ever evaluated. Splitting the guard exposed the branch, which is
-        what keeps a query meaningful — ``min_repeats=1`` returns every script
-        and ``limit=0`` returns an empty page.
+        No test used to drive the lower bound, and coverage could not attribute
+        it separately because the old guard tested the type and the range in a
+        single ``if``. Splitting the guard made the branch visible on its own;
+        this is a coverage-visibility change, not a behavior change — a plain
+        ``int`` below the bound was always rejected. The bound is what keeps a
+        query meaningful: ``min_repeats=1`` returns every script and
+        ``limit=0`` returns an empty page.
         """
         query = ObservabilityQuery(read_json_fn=lambda _sql, _params: [])
         kwargs: dict[str, Any] = {param: value}
@@ -625,12 +627,13 @@ class TestObservabilityQuery:
         ],
     )
     def test_query_bounds_at_the_minimum_are_accepted(self, param: str, value: int) -> None:
-        """The bound is exclusive, so the smallest documented value still works."""
+        """The bound is inclusive, so the smallest documented value still works."""
         query = ObservabilityQuery(read_json_fn=lambda _sql, _params: [])
         kwargs: dict[str, Any] = {param: value}
 
-        # The point of the test: a value sitting exactly on the bound must not
-        # be rejected by the range guard.
+        # The point of the test: the bound is inclusive, so a value sitting
+        # exactly on it is inside the valid range and must not be rejected by
+        # the range guard.
         response = query.get_repeated_scripts(**kwargs)
 
         assert response["query_params"][param] == value
