@@ -198,6 +198,12 @@ jobs:
             exit 1
           }
           Write-Output "winget validate accepted the manifests (exit code $Code, warnings tolerated)"
+          # Leave explicitly. `winget validate` exits non-zero for warnings as
+          # well as for errors, and `pwsh -command` hands the last native exit
+          # code back to the runner, so an accepted set would still fail this
+          # step on the warning-only exit code above. The two checks above are
+          # the decision, and every rejection path already exits 1.
+          exit 0
 
       - name: Verify the submit payload
         id: verify
