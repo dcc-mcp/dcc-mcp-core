@@ -171,14 +171,27 @@ jobs:
             exit 1
           }
           Write-Output "Validating $($ManifestDir.FullName)"
-          # Do not judge by exit code alone. `winget validate` returns non-zero
-          # for warnings as well as errors, and the yaml-language-server schema
-          # comment that every manifest carries trips a cosmetic "schema header
-          # URL" warning on current runner images - so a valid set exits 1.
-          # The failure marker is the locale-independent "Manifest Error:" line
-          # (a broken schema prints it and exits 41); success prints none, in
-          # any language. Missing tool or empty output also fails, so a crash
-          # cannot read as a pass.
+          # Do not judge by exit code alone. `winget validate` exits non-zero
+          # for warnings as well as for errors, and the yaml-language-server
+          # schema comment that every manifest carries trips a cosmetic
+          # "schema header" warning on current runner images - so a valid set
+          # leaves a non-zero code behind.
+          #
+          # Judge by the entry-level markers instead. Both stay English under a
+          # localised UI (the summary line does not), so they are the only
+          # locale-independent signal available. Measured on v1.30.140-preview:
+          #
+          #   clean set            exit 0x0          no marker
+          #   warning-only set     exit 0x8A150028   "Manifest Warning:" only
+          #   broken YAML          exit 0x8A150029   no marker
+          #   directory with no    exit 0x8A150029   no marker
+          #     manifest file
+          #   schema/structure     exit 0x8A150029   "Manifest Error:"
+          #
+          # The last two rows are why "no Manifest Error:" is not the same as
+          # "valid": a crash carries no marker at all, and neither does an
+          # empty directory. Missing tool or empty output also fails, so a
+          # crash cannot read as a pass.
           if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
             Write-Output "::error::winget is not available on this runner"
             exit 1
@@ -197,12 +210,26 @@ jobs:
             Write-Output "::error::winget validate reported a manifest error (exit code $Code)"
             exit 1
           }
+          # Accept only the two outcomes winget reports as validated: a clean
+          # run, or one whose findings are warnings and nothing else. A
+          # non-zero code carrying no warning marker means winget rejected the
+          # set without printing a per-entry line (broken YAML, an empty
+          # directory), and has to fail here - letting it through would trade
+          # the false reject this step was added to fix for a false accept.
+          #
+          # Keyed on the marker rather than on 0x8A150028: the marker is part
+          # of the output contract, that code is not, and pinning it would
+          # reintroduce this bug on the next runner image that shifts it.
+          $Accepted = ($Code -eq 0) -or ($Output -match 'Manifest Warning:')
+          if (-not $Accepted) {
+            Write-Output "::error::winget validate rejected the manifests with no warning marker (exit code $Code)"
+            exit 1
+          }
           Write-Output "winget validate accepted the manifests (exit code $Code, warnings tolerated)"
-          # Leave explicitly. `winget validate` exits non-zero for warnings as
-          # well as for errors, and `pwsh -command` hands the last native exit
-          # code back to the runner, so an accepted set would still fail this
-          # step on the warning-only exit code above. The two checks above are
-          # the decision, and every rejection path already exits 1.
+          # Leave explicitly. `pwsh -command` hands the last native exit code
+          # back to the runner, so a warning-only run would fail this step on
+          # winget's code even though the checks above accepted it. Every
+          # rejection path already exits 1.
           exit 0
 
       - name: Verify the submit payload
