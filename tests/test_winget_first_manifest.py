@@ -253,3 +253,40 @@ def test_write_manifests_creates_the_winget_pkgs_layout(tmp_path) -> None:
         assert path.read_text(encoding="utf-8").endswith("\n")
         assert "\r\n" not in path.read_bytes().decode("utf-8")
     assert (tmp_path / "manifests" / "d" / "DccMcp" / "DccMcpCli" / VERSION).is_dir()
+
+
+def _workflow_steps() -> list:
+    yaml = pytest.importorskip("yaml")
+
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    return workflow["jobs"]["submit-first-manifest"]["steps"]
+
+
+def test_no_free_text_input_is_interpolated_into_a_run_block() -> None:
+    """`${{ }}` is expanded before the shell parses, so an input spliced into a
+    `run:` block is shell code rather than data.
+
+    `release_tag` is `type: string` free text, so it must reach the script
+    through `env:` like every other value this workflow passes in. A boolean
+    input cannot carry a payload, but routing all of them through `env:` keeps
+    the rule checkable in one place instead of relying on per-input reasoning.
+    """
+    for step in _workflow_steps():
+        body = step.get("run")
+        if not body:
+            continue
+        offenders = re.findall(r"\$\{\{\s*inputs\.[^}]*\}\}", body)
+        assert not offenders, (
+            f"step {step.get('name')!r} interpolates {offenders} directly into a run block; "
+            "pass it through env: instead"
+        )
+
+
+def test_the_summary_step_reaches_inputs_through_env() -> None:
+    step = next(s for s in _workflow_steps() if s.get("name") == "Summary")
+
+    assert step["env"]["RELEASE_TAG"] == "${{ inputs.release_tag }}"
+    assert step["env"]["DRY_RUN"] == "${{ inputs.dry_run }}"
+    body = step["run"]
+    assert "release: $RELEASE_TAG" in body
+    assert "dry run: $DRY_RUN" in body

@@ -261,19 +261,27 @@ jobs:
 
       - name: Summary
         shell: bash
+        # Routed through env: rather than interpolated into the script body.
+        # `${{ }}` is expanded before bash parses, so a free-text input spliced
+        # straight into a run: block is shell code; `release_tag` is exactly
+        # that. An env: variable is data, whatever it contains.
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          SUBMITTED_PR: ${{ steps.submit.outputs.pull_request }}
         run: |
           {
             echo "### WinGet first manifest"
             echo
             echo "package: $PACKAGE_IDENTIFIER"
-            echo "release: ${{ inputs.release_tag }}"
-            echo "dry run: ${{ inputs.dry_run }}"
+            echo "release: $RELEASE_TAG"
+            echo "dry run: $DRY_RUN"
             echo
-            if [ "${{ inputs.dry_run }}" = "true" ]; then
+            if [ "$DRY_RUN" = "true" ]; then
               echo "Rendered and validated the manifests. No pull request was opened."
               echo "Re-run with \`dry_run = false\` to submit them to microsoft/winget-pkgs."
             else
               echo "Submitted to microsoft/winget-pkgs from the \`$KOMAC_FORK_OWNER\` fork:"
-              echo "${{ steps.submit.outputs.pull_request }}"
+              echo "$SUBMITTED_PR"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
