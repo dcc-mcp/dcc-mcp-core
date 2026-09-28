@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
+import re
 
 import pytest
 from scripts.ci import winget_first_manifest as winget
 from scripts.ci.winget_first_manifest import WingetManifestError
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+WORKFLOW = REPO_ROOT / ".github" / "workflows" / "winget-first-manifest.yml"
 
 VERSION = "0.20.37"
 SHA256 = "A" * 64
@@ -94,6 +99,22 @@ def test_a_missing_windows_asset_is_an_error_not_a_silent_skip() -> None:
         manifests(payload)
 
 
+def test_an_api_style_url_is_rejected_instead_of_published() -> None:
+    # A raw REST payload carries the download link in `browserDownloadUrl` and
+    # the API link in `url`. Publishing the API link as InstallerUrl would be
+    # silent, so the renderer has to refuse it rather than fall back.
+    payload = release_payload(url="https://api.github.com/repos/o/r/releases/assets/383985289")
+
+    with pytest.raises(WingetManifestError, match="not a release download link"):
+        manifests(payload)
+
+
+def test_a_download_url_with_a_query_string_is_accepted() -> None:
+    payload = release_payload(url=f"https://example.invalid/{INSTALLER}?sig=abc")
+
+    assert f"InstallerUrl: https://example.invalid/{INSTALLER}?sig=abc" in installer_text(payload)
+
+
 def test_a_release_without_a_digest_is_refused() -> None:
     payload = release_payload(digest=None)
 
@@ -161,6 +182,33 @@ def test_scalars_that_would_be_ambiguous_in_yaml_are_quoted() -> None:
     assert winget._scalar("a: b") == json.dumps("a: b")
     assert winget._scalar("- item") == json.dumps("- item")
     assert winget._scalar(" padded") == json.dumps(" padded")
+
+
+def test_the_existence_guard_fails_closed_on_a_non_404_api_error() -> None:
+    """The workflow's duplicate-submission guard must never fail open.
+
+    `gh api` exits non-zero for a 404 (package absent, the only case allowed to
+    continue) and equally for a 403 rate limit, a 401 or a network error. A
+    guard that reads any non-zero exit as "absent" silently disables itself, so
+    the workflow has to name 404 explicitly and abort on anything else.
+    """
+    yaml = pytest.importorskip("yaml")
+
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    step = next(
+        s
+        for s in workflow["jobs"]["submit-first-manifest"]["steps"]
+        if s.get("name") == "Refuse to run once the package exists"
+    )
+    body = step["run"]
+
+    assert "gh_status=$?" in body, "the guard must capture the gh api exit code"
+    assert re.search(r"grep -q ['\"]HTTP 404['\"]", body), (
+        "the guard must discriminate a confirmed 404 instead of trusting any non-zero exit"
+    )
+    # The abort branch has to come after the 200 branch and before continuing.
+    assert "already exists in winget-pkgs" in body
+    assert "refusing to submit" in body
 
 
 def test_write_manifests_creates_the_winget_pkgs_layout(tmp_path) -> None:

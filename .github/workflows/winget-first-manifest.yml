@@ -70,6 +70,8 @@ jobs:
           python -c "import json;d=json.load(open('release.json',encoding='utf-8'));print(d['tagName'],d['publishedAt'])"
 
       - name: Refuse to run once the package exists
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           # First-version only. If the package is already in winget-pkgs the
@@ -82,12 +84,31 @@ jobs:
           path="manifests/$first/$slug"
           url="https://github.com/microsoft/winget-pkgs/tree/master/$path"
           echo "checking $url"
-          if gh api "repos/microsoft/winget-pkgs/contents/$path" >/dev/null 2>&1; then
+
+          # Fail closed. `gh api` exits 1 for a 404 AND for a 403 rate limit,
+          # a 401, a 5xx or a network failure, and stderr carries the status
+          # ("gh: Not Found (HTTP 404)"). Treating any non-zero exit as "the
+          # package is absent" would disable this guard exactly when it is most
+          # needed, so only a confirmed 404 is allowed to continue.
+          set +e
+          gh api "repos/microsoft/winget-pkgs/contents/$path" >/dev/null 2>gh-api.err
+          gh_status=$?
+          set -e
+
+          if [ "$gh_status" -eq 0 ]; then
             echo "::error::$PACKAGE_IDENTIFIER already exists in winget-pkgs ($url)."
             echo "::error::Use the publish-winget job in release.yml for later versions."
             exit 1
           fi
-          echo "$PACKAGE_IDENTIFIER is not in winget-pkgs yet - this run will create it."
+
+          if ! grep -q 'HTTP 404' gh-api.err; then
+            echo "::error::could not determine whether $PACKAGE_IDENTIFIER exists in winget-pkgs"
+            echo "::error::gh api exited $gh_status without a 404, so refusing to submit a first manifest"
+            cat gh-api.err
+            exit 1
+          fi
+
+          echo "$PACKAGE_IDENTIFIER is not in winget-pkgs yet (404) - this run will create it."
 
       - name: Render the manifests
         id: render

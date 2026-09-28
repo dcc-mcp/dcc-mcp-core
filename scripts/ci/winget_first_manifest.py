@@ -126,10 +126,23 @@ def installer_sha256(asset: dict) -> str:
 
 
 def installer_url(asset: dict) -> str:
-    """Return the immutable download URL of an asset."""
-    url = asset.get("url") or asset.get("browserDownloadUrl")
+    """Return the immutable download URL of an asset.
+
+    Only ``url`` is read. There is no ``browserDownloadUrl`` fallback: that key
+    never appears in ``gh release view --json assets`` output, so the fallback
+    would be dead code here, while on a raw REST payload the two fields swap
+    roles and ``url`` is the API link. Requiring the URL to end with the asset
+    name turns that mix-up into an error instead of shipping the API URL as
+    ``InstallerUrl``.
+    """
+    name = asset.get("name")
+    url = asset.get("url")
     if not isinstance(url, str) or not url:
-        raise WingetManifestError(f"asset {asset.get('name')!r} has no download URL")
+        raise WingetManifestError(f"asset {name!r} has no download URL")
+    if isinstance(name, str) and name:
+        tail = url.split("?")[0].split("#")[0].rstrip("/")
+        if not tail.endswith("/" + name):
+            raise WingetManifestError(f"asset {name!r} has a URL that is not a release download link: {url!r}")
     return url
 
 
