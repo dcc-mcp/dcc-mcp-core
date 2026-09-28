@@ -153,6 +153,31 @@ pub struct SkillSummary {
     pub runtime: Option<SkillRuntimeSummary>,
 }
 
+/// Skill discovery result with the explicit `dcc-cua` routing advice attached
+/// (PIP-3702).
+///
+/// Returned by `SkillCatalog::search_skills_with_fallback`. `hits` is exactly
+/// what [`SkillCatalog::search_skills`] would return, so a caller that ignores
+/// `fallback` keeps the previous behaviour unchanged.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct SkillSearchResult {
+    pub hits: Vec<SkillSummary>,
+    /// `Some` only when the result set cannot serve the request.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<dcc_mcp_gateway_search::SearchFallback>,
+}
+
+impl SkillSearchResult {
+    /// Wrap plain hits with no fallback advice.
+    #[must_use]
+    pub fn from_hits(hits: Vec<SkillSummary>) -> Self {
+        Self {
+            hits,
+            fallback: None,
+        }
+    }
+}
+
 /// Detailed information about a skill.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SkillDetail {

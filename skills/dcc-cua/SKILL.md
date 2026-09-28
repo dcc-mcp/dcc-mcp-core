@@ -51,6 +51,31 @@ the target is Maya, Chrome, a browser, or another desktop application.
 This boundary is provider selection, not an authorization bypass. DCC-CUA task
 grants, target binding, interruption, and confirmation policy still apply.
 
+## Automatic route from search
+
+The contract above also covers requests that never name `dcc-cua`. When a
+skill or tool search returns no usable interface, the search surface attaches
+`fallback` advice naming this Skill, with a reason code:
+
+| reason | meaning |
+|---|---|
+| `no_candidate` | nothing in the catalog matched the request |
+| `low_confidence` | the closest matches are lexical near-misses, not a real interface |
+| `no_executable_interface` | the closest match is documentation-only and declares no callable tool |
+
+The advice is **additive**: the hits are still returned, and the routing
+criteria never reorder or drop them.
+
+The advice is blocked, with reason code `cua_runtime_unavailable`, when this
+runtime is not usable. A blocked response is a blocker to report or repair —
+it is not permission to switch provider. The non-substitution contract above
+applies unchanged to the automatic route.
+
+Ranking is deliberately not involved. This Skill declares
+`layer: infrastructure`, which the search rank policy demotes to `0.35` so it
+stays out of neutral discovery. That must not be "fixed" by raising the
+coefficient: the route is explicit, not a ranking effect.
+
 ## Runtime preflight
 
 Use the official component contract; do not download an arbitrary executable:

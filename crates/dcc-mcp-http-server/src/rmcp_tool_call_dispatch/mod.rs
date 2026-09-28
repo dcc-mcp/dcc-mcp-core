@@ -276,12 +276,14 @@ mod tests {
         ExecutionMode, NextTools, SkillGroup, SkillMetadata, SkillScope, SkillToolAnnotations,
         ThreadAffinity, ToolDeclaration,
     };
-    use dcc_mcp_skill_rest::StaticReadiness;
     use dcc_mcp_skills::SkillCatalog;
     use serde_json::json;
 
     use crate::executor::InProcessExecutor;
     use crate::mcp_tool_list_builder::{assemble_full_tool_list, group_stub_name};
+    // Shared with the `handlers/*_tests.rs` modules; they live in `helpers` so
+    // this file stays under the production file-size gate.
+    use crate::rmcp_tool_call_dispatch::helpers::{ready_context, result_text, result_text_json};
 
     fn skill_tool_meta(name: &str, skill_name: &str) -> ToolMeta {
         ToolMeta {
@@ -292,26 +294,6 @@ mod tests {
             skill_name: Some(skill_name.to_string()),
             ..Default::default()
         }
-    }
-
-    fn ready_context() -> RegistryContext {
-        RegistryContext {
-            resource_provider: None,
-            prompt_provider: None,
-            readiness: Arc::new(StaticReadiness::fully_ready()),
-            on_skill_catalog_mutated: Arc::new(|| {}),
-        }
-    }
-
-    fn result_text_json(result: &dcc_mcp_jsonrpc::CallToolResult) -> Value {
-        serde_json::from_str(result_text(result)).expect("handler text should be JSON")
-    }
-
-    fn result_text(result: &dcc_mcp_jsonrpc::CallToolResult) -> &str {
-        let Some(ToolContent::Text { text }) = result.content.first() else {
-            panic!("expected text content, got {result:?}");
-        };
-        text
     }
 
     #[tokio::test]

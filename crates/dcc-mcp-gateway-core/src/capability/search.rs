@@ -7,6 +7,8 @@
 use super::index::IndexSnapshot;
 use super::record::CapabilityRecord;
 
+use dcc_mcp_gateway_search::CuaRuntimeProbe;
+
 pub use dcc_mcp_gateway_search::{
     DEFAULT_LIMIT, MAX_LIMIT, RANKER_VERSION, SearchMode, SearchQuery,
 };
@@ -27,6 +29,20 @@ pub fn search(snapshot: &IndexSnapshot, query: &SearchQuery) -> Vec<SearchHit> {
 #[must_use]
 pub fn search_page(snapshot: &IndexSnapshot, query: &SearchQuery) -> SearchPage {
     dcc_mcp_gateway_search::search_page(snapshot.records.as_ref(), query)
+}
+
+/// Paginated search that attaches explicit `dcc-cua` fallback advice (PIP-3702).
+///
+/// Used by surfaces that must offer an exit when the index has no callable
+/// interface for a request. `probe` is consulted only when the fallback
+/// criteria fire, so an answered search pays nothing for the runtime check.
+#[must_use]
+pub fn search_page_with_fallback(
+    snapshot: &IndexSnapshot,
+    query: &SearchQuery,
+    probe: &dyn CuaRuntimeProbe,
+) -> SearchPage {
+    dcc_mcp_gateway_search::search_page_with_fallback(snapshot.records.as_ref(), query, probe)
 }
 
 #[cfg(test)]
@@ -168,6 +184,7 @@ mod tests {
             total: 300,
             offset: 25,
             limit: 25,
+            fallback: None,
         };
         let s = serde_json::to_string(&page).unwrap();
         let back: SearchPage = serde_json::from_str(&s).unwrap();

@@ -537,6 +537,14 @@ impl dcc_mcp_gateway_search::SearchRecord for CapabilityRecord {
     fn risk(&self) -> Option<&str> {
         self.metadata.as_ref().and_then(|m| m.risk.as_deref())
     }
+
+    fn executable_interface_count(&self) -> Option<usize> {
+        // A capability row *is* an executable interface: it exists only
+        // because a backend published a callable tool. It therefore never
+        // trips the `no_executable_interface` fallback trigger, which is
+        // reserved for skill rows that declare no tools.
+        Some(1)
+    }
 }
 
 fn normalise_search_tokens(tokens: Vec<String>) -> Vec<String> {

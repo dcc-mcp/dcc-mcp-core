@@ -45,7 +45,7 @@ pub use persistence::{
     DriftRecord, FailedRecord, LoadReplayPolicy, LoadedSkillRecord, PersistedCatalogState,
     ReplayReport,
 };
-pub use types::{SkillDetail, SkillEntry, SkillState, SkillSummary};
+pub use types::{SkillDetail, SkillEntry, SkillSearchResult, SkillState, SkillSummary};
 
 pub use execute::resolve_tool_script;
 use execute::{ScriptExecutorFn, execute_script};

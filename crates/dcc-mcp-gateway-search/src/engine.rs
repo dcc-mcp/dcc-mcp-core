@@ -1,5 +1,9 @@
 //! Pure search pipeline: filter → score → sort → paginate.
 
+use std::borrow::Borrow;
+
+use crate::fallback::{CuaRuntimeProbe, SearchFallback, build_fallback};
+use crate::policy::{FallbackPolicy, FallbackTrigger, evaluate_fallback, is_fallback_target};
 use crate::query::{DEFAULT_LIMIT, MAX_LIMIT, SearchHit, SearchMode, SearchPage, SearchQuery};
 use crate::ranking::{FuzzyScorer, Scorer, SubstringScorer};
 use crate::record::SearchRecord;
@@ -13,9 +17,175 @@ pub fn search<R: SearchRecord + Clone>(records: &[R], query: &SearchQuery) -> Ve
 }
 
 /// Paginated variant of [`search`].
+///
+/// The returned page never carries fallback advice; use
+/// [`search_page_with_fallback`] on surfaces that can offer the `dcc-cua`
+/// route (PIP-3702).
 #[must_use]
 pub fn search_page<R: SearchRecord + Clone>(records: &[R], query: &SearchQuery) -> SearchPage<R> {
     let hits = rank_all(records, query);
+    paginate(hits, query, None)
+}
+
+/// Paginated search that attaches explicit `dcc-cua` fallback advice when the
+/// result set cannot serve the request (PIP-3702).
+///
+/// `probe` is only consulted when the fallback criteria fire, so a search that
+/// is answered normally never pays for a runtime check.
+#[must_use]
+pub fn search_page_with_fallback<R: SearchRecord + Clone>(
+    records: &[R],
+    query: &SearchQuery,
+    probe: &dyn CuaRuntimeProbe,
+) -> SearchPage<R> {
+    let (hits, candidates) = rank_all_counted(records, query);
+    // `candidates` is the post-filter count, so neither an empty index nor a
+    // query-side filter that excluded every row is mistaken for "no skill can
+    // do this".
+    let fallback = resolve_fallback_among(&hits, &fallback_query_text(query), candidates, probe);
+    paginate(hits, query, fallback)
+}
+
+/// Decide whether `hits` should be routed to the `dcc-cua` fallback.
+///
+/// Kept separate from pagination so callers that own their own paging contract
+/// (package catalogs, the skill catalog) can reuse the same judgement.
+///
+/// The criteria and thresholds live in [`crate::policy`]; this function only
+/// adapts a ranked page to them and, when they fire, asks `probe` whether the
+/// route is actually usable.
+///
+/// # Empty pages
+///
+/// This convenience overload derives the candidate count from `hits.len()`, so
+/// an empty page reads as "nothing was eligible" and never fires. It therefore
+/// cannot produce [`crate::policy::FALLBACK_REASON_NO_CANDIDATE`]. Callers that
+/// can see the candidate set — which is the only way to distinguish "nothing
+/// matched" from "nothing was eligible" — must use
+/// [`resolve_fallback_among`].
+#[must_use]
+pub fn resolve_fallback<R: SearchRecord, H: Borrow<SearchHit<R>>>(
+    hits: &[H],
+    query: &str,
+    probe: &dyn CuaRuntimeProbe,
+) -> Option<SearchFallback> {
+    resolve_fallback_with_policy(hits, query, probe, FallbackPolicy::default())
+}
+
+/// [`resolve_fallback`] with an explicit policy.
+#[must_use]
+pub fn resolve_fallback_with_policy<R: SearchRecord, H: Borrow<SearchHit<R>>>(
+    hits: &[H],
+    query: &str,
+    probe: &dyn CuaRuntimeProbe,
+    policy: FallbackPolicy,
+) -> Option<SearchFallback> {
+    let trigger = classify(hits, query, candidates_considered(hits), policy)?;
+    Some(build_fallback(trigger, probe.probe()))
+}
+
+/// How many rows were eligible to be ranked.
+///
+/// Derived from the hits themselves because `resolve_fallback` only sees a
+/// ranked page. A non-empty page proves at least that many candidates were
+/// considered; an empty page means "nothing matched", which is only a routing
+/// decision when the caller separately confirms rows existed. Callers that know
+/// the true candidate count pass it explicitly via
+/// [`classify_with_candidates`].
+fn candidates_considered<R: SearchRecord, H: Borrow<SearchHit<R>>>(hits: &[H]) -> usize {
+    hits.len()
+}
+
+/// [`resolve_fallback`] for callers that know how many rows were eligible.
+///
+/// Use this when the candidate set is filtered before ranking, so an
+/// everything-excluded filter is not mistaken for "no skill can do this".
+#[must_use]
+pub fn resolve_fallback_among<R: SearchRecord, H: Borrow<SearchHit<R>>>(
+    hits: &[H],
+    query: &str,
+    candidates_considered: usize,
+    probe: &dyn CuaRuntimeProbe,
+) -> Option<SearchFallback> {
+    let trigger = classify(hits, query, candidates_considered, policy_default())?;
+    Some(build_fallback(trigger, probe.probe()))
+}
+
+fn policy_default() -> FallbackPolicy {
+    FallbackPolicy::default()
+}
+
+/// Apply the central fallback policy to a ranked page.
+///
+/// Generic over `Borrow<SearchHit<R>>` so a caller can pass either an owned
+/// slice or a slice of references produced by post-ranking filtering, without
+/// cloning rows to satisfy the signature.
+///
+/// Returns the trigger without probing the runtime, so the judgement can be
+/// unit-tested on its own.
+///
+/// `candidates_considered` is the number of rows that were eligible to be
+/// ranked, before scoring. Zero means nothing was ever in the running — an
+/// empty catalog, or a caller-side filter that excluded everything — which is a
+/// discovery problem, not evidence that no skill can do the job. Sending that
+/// to the CUA route would mask a rescan or a bad `dcc=` filter behind a
+/// plausible-sounding suggestion.
+fn classify<R: SearchRecord, H: Borrow<SearchHit<R>>>(
+    hits: &[H],
+    query: &str,
+    candidates_considered: usize,
+    policy: FallbackPolicy,
+) -> Option<FallbackTrigger> {
+    if candidates_considered == 0 {
+        return None;
+    }
+    let len = query.trim().chars().count();
+    match hits.first().map(Borrow::borrow) {
+        Some(top) => {
+            // A request the fallback target already answered is not an
+            // unanswered request. Routing it would tell the caller to use the
+            // thing it just found.
+            if is_fallback_target(top.record.skill_name())
+                || is_fallback_target(Some(top.record.tool_slug()))
+                || is_fallback_target(Some(top.record.backend_tool()))
+            {
+                return None;
+            }
+            // `executable_interface_count() == Some(0)` is the only proof of a
+            // missing interface; `None` (unmodelled) counts as having one.
+            let has_interface = top.record.executable_interface_count() != Some(0);
+            evaluate_fallback(len, Some(top.score), has_interface, policy)
+        }
+        // No hits at all is the strongest signal, but it is still the policy's
+        // call: a discovery request must stay silent.
+        None => evaluate_fallback(len, None, true, policy),
+    }
+}
+
+/// Query text the fallback judgement should measure.
+///
+/// [`SearchQuery::or_queries`] makes a search answerable even when
+/// [`SearchQuery::query`] is empty, so the OR clauses count as query text.
+/// When both are empty the request is discovery, which never falls back.
+fn fallback_query_text(query: &SearchQuery) -> String {
+    let trimmed = query.query.trim();
+    if !trimmed.is_empty() {
+        return trimmed.to_string();
+    }
+    query
+        .or_queries
+        .iter()
+        .map(|clause| clause.trim())
+        .filter(|clause| !clause.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn paginate<R: SearchRecord + Clone>(
+    hits: Vec<SearchHit<R>>,
+    query: &SearchQuery,
+    fallback: Option<SearchFallback>,
+) -> SearchPage<R> {
     let total = hits.len() as u32;
     let effective_limit = effective_limit(query.limit);
     let offset = query.offset.unwrap_or(0).min(total);
@@ -31,7 +201,103 @@ pub fn search_page<R: SearchRecord + Clone>(records: &[R], query: &SearchQuery) 
         total,
         offset,
         limit: effective_limit,
+        fallback,
     }
+}
+
+/// Rank every matching record, also reporting how many rows survived filtering.
+///
+/// Scoring and ordering are identical to [`rank_all`]. The extra value is the
+/// number of rows eligible to be scored, after the query's own `dcc_type` /
+/// `dcc_types` / `instance_id` / `loaded_only` / `tags` / `exclude_tags`
+/// filters but before scoring.
+///
+/// The fallback route needs it: a filter that excluded every row is not
+/// evidence that nothing can serve the request, and this count is the only way
+/// to tell the two apart. See [`resolve_fallback_among`].
+#[must_use]
+pub fn rank_all_counted<R: SearchRecord + Clone>(
+    records: &[R],
+    query: &SearchQuery,
+) -> (Vec<SearchHit<R>>, usize) {
+    (rank_all(records, query), count_candidates(records, query))
+}
+
+/// Number of rows eligible to be scored, after the query's scope filters.
+///
+/// Covers the filters that make a row *ineligible*: `dcc_type` / `dcc_types` /
+/// `instance_id` / `loaded_only` / `tags` / `tags_any` / `exclude_tags`.
+///
+/// `min_score` is deliberately excluded: it is applied after scoring and only
+/// decides whether a hit is good enough to return, so it does not shrink the
+/// eligible set. A bar nothing clears means "nothing here was good enough",
+/// which is still worth routing on.
+///
+/// Mirrors the candidate filter in [`rank_all`]. Kept as a second pass so the
+/// ranking path keeps its current shape; the extra linear scan is paid only by
+/// callers that ask for the count.
+fn count_candidates<R: SearchRecord>(records: &[R], query: &SearchQuery) -> usize {
+    let dcc_filter = query
+        .dcc_type
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_ascii_lowercase);
+    let dcc_types: Vec<String> = query
+        .dcc_types
+        .iter()
+        .map(|t| t.trim().to_ascii_lowercase())
+        .filter(|t| !t.is_empty())
+        .collect();
+    let tags_filter: Vec<String> = query
+        .tags
+        .iter()
+        .map(|t| t.trim().to_ascii_lowercase())
+        .filter(|t| !t.is_empty())
+        .collect();
+    let tags_any: Vec<String> = query
+        .tags_any
+        .iter()
+        .map(|t| t.trim().to_ascii_lowercase())
+        .filter(|t| !t.is_empty())
+        .collect();
+    let exclude_tags: Vec<String> = query
+        .exclude_tags
+        .iter()
+        .map(|t| t.trim().to_ascii_lowercase())
+        .filter(|t| !t.is_empty())
+        .collect();
+
+    records
+        .iter()
+        .filter(|r| {
+            dcc_filter.is_none() && dcc_types.is_empty()
+                || dcc_filter
+                    .as_deref()
+                    .is_some_and(|f| r.dcc_type().eq_ignore_ascii_case(f))
+                || dcc_types
+                    .iter()
+                    .any(|d| r.dcc_type().eq_ignore_ascii_case(d))
+        })
+        .filter(|r| query.instance_id.is_none_or(|iid| r.instance_id() == iid))
+        .filter(|r| query.loaded_only != Some(true) || r.loaded())
+        .filter(|r| {
+            tags_filter
+                .iter()
+                .all(|t| r.tags().iter().any(|rt| rt.to_ascii_lowercase() == *t))
+        })
+        .filter(|r| {
+            tags_any.is_empty()
+                || tags_any
+                    .iter()
+                    .any(|t| r.tags().iter().any(|rt| rt.to_ascii_lowercase() == *t))
+        })
+        .filter(|r| {
+            !exclude_tags
+                .iter()
+                .any(|ex| r.tags().iter().any(|rt| rt.to_ascii_lowercase() == *ex))
+        })
+        .count()
 }
 
 /// Rank every matching record without applying pagination limits or offsets.
@@ -553,6 +819,7 @@ mod tests {
             total: 300,
             offset: 25,
             limit: 25,
+            fallback: None,
         };
         let s = serde_json::to_string(&page).unwrap();
         let back: SearchPage<Row> = serde_json::from_str(&s).unwrap();

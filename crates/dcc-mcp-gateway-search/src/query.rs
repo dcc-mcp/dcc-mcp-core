@@ -104,4 +104,11 @@ pub struct SearchPage<R> {
     pub total: u32,
     pub offset: u32,
     pub limit: u32,
+    /// Explicit `dcc-cua` routing advice (PIP-3702), present only when the
+    /// result set cannot serve the request.
+    ///
+    /// The hits are still returned: this is additive advice, so a caller that
+    /// ignores it keeps today's behaviour exactly.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<crate::fallback::SearchFallback>,
 }

@@ -362,3 +362,38 @@ pub(crate) fn handle_stub_tool(state: &ServerState, tool_name: &str) -> Option<C
     }
     None
 }
+
+// ── Test helpers ───────────────────────────────────────────────────────────
+//
+// Shared by every `tools/call` dispatch test, including the ones that live in
+// their own `*_tests.rs` modules. Kept here rather than in `mod tests` so those
+// modules can reuse them without pushing `mod.rs` over the file-size gate.
+
+/// A registry context that reports the backend as ready, so dispatch reaches
+/// the handler under test instead of short-circuiting on readiness.
+#[cfg(test)]
+pub(crate) fn ready_context() -> RegistryContext {
+    use dcc_mcp_skill_rest::StaticReadiness;
+
+    RegistryContext {
+        resource_provider: None,
+        prompt_provider: None,
+        readiness: std::sync::Arc::new(StaticReadiness::fully_ready()),
+        on_skill_catalog_mutated: std::sync::Arc::new(|| {}),
+    }
+}
+
+/// Parse a handler result as JSON, failing with the offending text.
+#[cfg(test)]
+pub(crate) fn result_text_json(result: &dcc_mcp_jsonrpc::CallToolResult) -> Value {
+    serde_json::from_str(result_text(result)).expect("handler text should be JSON")
+}
+
+/// The text body of the first content block of a handler result.
+#[cfg(test)]
+pub(crate) fn result_text(result: &dcc_mcp_jsonrpc::CallToolResult) -> &str {
+    let Some(ToolContent::Text { text }) = result.content.first() else {
+        panic!("expected text content, got {result:?}");
+    };
+    text
+}
