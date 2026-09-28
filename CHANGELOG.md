@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.38](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.37...v0.20.38) (2026-09-28)
+
+
+### Features
+
+* **bench:** grow the skills corpus to 197 real seeds and raise the hit-rate gate ([#2606](https://github.com/dcc-mcp/dcc-mcp-core/issues/2606)) ([f5cfb64](https://github.com/dcc-mcp/dcc-mcp-core/commit/f5cfb6433a162f6de2cf6dad3fa1db7fd0c6f052))
+* **bench:** latency regression alerts and a three-dimension trend report ([#2602](https://github.com/dcc-mcp/dcc-mcp-core/issues/2602)) ([4f9e69f](https://github.com/dcc-mcp/dcc-mcp-core/commit/4f9e69fe71f96d346d40503eeb7a5086b2f5ffe0))
+* **search:** explicit dcc-cua fallback route for interface-less queries ([5d82fab](https://github.com/dcc-mcp/dcc-mcp-core/commit/5d82fab9207d6d14c7d6174354c23834f1f78f4a))
+
+
+### Bug Fixes
+
+* **ci:** make the release bump and the published uv.lock pins one change ([6ac4089](https://github.com/dcc-mcp/dcc-mcp-core/commit/6ac4089db944ec2f62d76a3f02f9cc5159d3eb3d))
+* **cli:** keep self-update enabled for package-managed installs ([#2596](https://github.com/dcc-mcp/dcc-mcp-core/issues/2596)) ([451928c](https://github.com/dcc-mcp/dcc-mcp-core/commit/451928c415c78181fdb20bec7e6703c69aacc544))
+* **models:** stop dropping enforce_thread_affinity on serialize ([#2608](https://github.com/dcc-mcp/dcc-mcp-core/issues/2608)) ([34136e5](https://github.com/dcc-mcp/dcc-mcp-core/commit/34136e571e7a44efd9351f7f169354f8f91684fe))
+
+
+### Documentation
+
+* point agent guide links at absolute URLs for files outside the docs root ([a3dd38e](https://github.com/dcc-mcp/dcc-mcp-core/commit/a3dd38ee7fc951008a1810cafce05f6eb8e5507f))
+* single-source agent contract into AGENTS.md ([fcc9e62](https://github.com/dcc-mcp/dcc-mcp-core/commit/fcc9e622a76387338c7702b5f0b68f73305678ab))
+
 ## [0.20.37](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.36...v0.20.37) (2026-09-27)
 
 
