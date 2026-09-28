@@ -1,0 +1,287 @@
+name: WinGet First Manifest
+
+# The first version of a package has to be submitted by hand: Komac's `new`
+# command prompts for the nested files of a zip installer even under --dry-run,
+# and vedantmgoyal9/winget-releaser refuses to run until the package already
+# exists in microsoft/winget-pkgs. So this workflow renders the three manifests
+# from a published release, validates them, and submits them once.
+#
+# Every later version is handled by the `publish-winget` job in release.yml.
+# That is why this workflow is first-version only: it refuses to run if the
+# package is already in winget-pkgs, so it cannot race the release pipeline or
+# open a duplicate PR.
+#
+# Run it from the Actions tab once the release you want to publish exists:
+#   release_tag = v0.20.37 (or newer), dry_run = true, then dry_run = false.
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag to publish, for example v0.20.37"
+        required: true
+        type: string
+      dry_run:
+        description: "Render and validate only, without opening a pull request"
+        required: false
+        type: boolean
+        default: true
+
+concurrency:
+  group: winget-first-manifest
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  submit-first-manifest:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    env:
+      PACKAGE_IDENTIFIER: DccMcp.DccMcpCli
+      KOMAC_FORK_OWNER: loonghao
+    steps:
+      - name: Check WinGet token
+        id: check_token
+        shell: bash
+        run: |
+          if [ -z "${{ secrets.WINGET_TOKEN }}" ]; then
+            echo "::error::WINGET_TOKEN is not configured; cannot open a winget-pkgs pull request"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Read the release
+        id: release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --json tagName,publishedAt,assets > release.json
+          echo "path=release.json" >> "$GITHUB_OUTPUT"
+          python -c "import json;d=json.load(open('release.json',encoding='utf-8'));print(d['tagName'],d['publishedAt'])"
+
+      - name: Refuse to run once the package exists
+        env:
+          # WINGET_TOKEN, not github.token: this step reads another
+          # organisation's repository. An Actions installation token is scoped
+          # to this repository only, and GitHub answers a cross-org read it
+          # cannot authorise with 404 - identical to "package absent". That
+          # would make the check below a silent no-op no matter how carefully
+          # it discriminates. The PAT is the token that later submits the PR,
+          # so if it can submit it can read.
+          GH_TOKEN: ${{ secrets.WINGET_TOKEN }}
+        shell: bash
+        run: |
+          # First-version only. If the package is already in winget-pkgs the
+          # release pipeline owns it, and a second PR here would be a duplicate.
+          # winget-pkgs lower-cases only the first letter of the identifier and
+          # keeps the rest of its casing: DccMcp.DccMcpCli lives under
+          # manifests/d/DccMcp/DccMcpCli, not manifests/d/dccmcp/dccmcpcli.
+          slug="$(printf '%s' "$PACKAGE_IDENTIFIER" | tr '.' '/')"
+          first="$(printf '%s' "$PACKAGE_IDENTIFIER" | cut -c1 | tr 'A-Z' 'a-z')"
+          path="manifests/$first/$slug"
+          url="https://github.com/microsoft/winget-pkgs/tree/master/$path"
+          echo "checking $url"
+
+          # Positive control first. Discriminating 404 only proves the guard
+          # works if a 404 actually means "absent"; with a token that cannot
+          # read this repository at all, every path returns 404 and the guard
+          # silently lets everything through. Probe a package that certainly
+          # exists: if that is not reachable, the check below is meaningless.
+          control="manifests/m/Microsoft/PowerToys"
+          echo "control: $control must be readable with the configured token"
+          set +e
+          gh api "repos/microsoft/winget-pkgs/contents/$control" >/dev/null 2>control.err
+          control_status=$?
+          set -e
+          if [ "$control_status" -ne 0 ]; then
+            echo "::error::cannot read winget-pkgs with the configured token"
+            cat control.err
+            echo "::error::a 404 below would mean 'no access', not 'absent', so refusing to continue"
+            exit 1
+          fi
+          echo "control ok, so a 404 below means the package is genuinely absent"
+
+          # Fail closed. `gh api` exits 1 for a 404 AND for a 403 rate limit,
+          # a 401, a 5xx or a network failure, and stderr carries the status
+          # ("gh: Not Found (HTTP 404)"). Treating any non-zero exit as "the
+          # package is absent" would disable this guard exactly when it is most
+          # needed, so only a confirmed 404 is allowed to continue.
+          set +e
+          gh api "repos/microsoft/winget-pkgs/contents/$path" >/dev/null 2>gh-api.err
+          gh_status=$?
+          set -e
+
+          if [ "$gh_status" -eq 0 ]; then
+            echo "::error::$PACKAGE_IDENTIFIER already exists in winget-pkgs ($url)."
+            echo "::error::Use the publish-winget job in release.yml for later versions."
+            exit 1
+          fi
+
+          if ! grep -q 'HTTP 404' gh-api.err; then
+            echo "::error::could not determine whether $PACKAGE_IDENTIFIER exists in winget-pkgs"
+            echo "::error::gh api exited $gh_status without a 404, so refusing to submit a first manifest"
+            cat gh-api.err
+            exit 1
+          fi
+
+          echo "$PACKAGE_IDENTIFIER is not in winget-pkgs yet (404) - this run will create it."
+
+      - name: Render the manifests
+        id: render
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/manifests"
+          rm -rf "$root"
+          mkdir -p "$root"
+          python scripts/ci/winget_first_manifest.py \
+            --release-json release.json \
+            --output-dir "$root"
+          echo "root=$root" >> "$GITHUB_OUTPUT"
+
+      - name: Show the manifests
+        shell: bash
+        run: |
+          while IFS= read -r file; do
+            echo "----- $file -----"
+            cat "$file"
+          done < <(find "${{ steps.render.outputs.root }}" -name '*.yaml' | sort)
+
+      - name: Validate the manifests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ManifestDir = Get-ChildItem -Path "${{ steps.render.outputs.root }}\manifests" -Directory -Recurse |
+            Where-Object { Test-Path (Join-Path $_.FullName "$env:PACKAGE_IDENTIFIER.yaml") } |
+            Select-Object -First 1
+          if (-not $ManifestDir) {
+            Write-Output "::error::no rendered manifest directory was found"
+            exit 1
+          }
+          Write-Output "Validating $($ManifestDir.FullName)"
+          winget validate --manifest "$($ManifestDir.FullName)" --disable-interactivity
+          if ($LASTEXITCODE -ne 0) {
+            Write-Output "::error::winget validate rejected the rendered manifests"
+            exit $LASTEXITCODE
+          }
+
+      - name: Verify the submit payload
+        id: verify
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # `komac submit` exits 0 with "No valid packages to submit were found"
+          # when the tree is empty, so an unrendered manifest set would look like
+          # a success. Assert the three files exist before handing over, and pin
+          # the exact version directory so submit cannot quietly widen.
+          $PackageDir = Join-Path "${{ steps.render.outputs.root }}" "manifests/d/DccMcp/DccMcpCli"
+          $Expected = @(
+            "$env:PACKAGE_IDENTIFIER.yaml",
+            "$env:PACKAGE_IDENTIFIER.installer.yaml",
+            "$env:PACKAGE_IDENTIFIER.locale.en-US.yaml"
+          )
+          $VersionDir = Get-ChildItem -Path $PackageDir -Directory | Select-Object -First 1
+          if (-not $VersionDir) {
+            Write-Output "::error::no rendered version directory under $PackageDir"
+            exit 1
+          }
+          foreach ($Name in $Expected) {
+            $Path = Join-Path $VersionDir.FullName $Name
+            if (-not (Test-Path -LiteralPath $Path)) {
+              Write-Output "::error::missing manifest $Path"
+              exit 1
+            }
+          }
+          Write-Output "Submit payload ready: $($VersionDir.FullName)"
+          Write-Output "package_dir=$($VersionDir.FullName)" >> $env:GITHUB_OUTPUT
+
+      - name: Install Komac
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $Version = '2.16.0'
+          $Sha256  = 'bdc45baf028f750da7519cc8a5f2eab5dfef46dfe88650eeb0d0a9bf51446e4f'
+          $Asset   = "komac-$Version-x86_64-pc-windows-msvc.exe"
+          $Url     = "https://github.com/russellbanks/Komac/releases/download/v$Version/$Asset"
+          $Dir     = Join-Path $env:RUNNER_TEMP 'komac'
+          New-Item -ItemType Directory -Path $Dir -Force | Out-Null
+          $Exe = Join-Path $Dir 'komac.exe'
+          Invoke-WebRequest -Uri $Url -OutFile $Exe
+          $Actual = (Get-FileHash -Path $Exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($Actual -ne $Sha256.ToLowerInvariant()) {
+            Write-Output "::error::Komac $Version SHA256 mismatch: expected $Sha256, got $Actual"
+            exit 1
+          }
+          Add-Content -Path $env:GITHUB_PATH -Value $Dir
+          Write-Output "Installed Komac $Version ($Actual)"
+
+      - name: Submit the manifests
+        id: submit
+        if: ${{ !inputs.dry_run }}
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.WINGET_TOKEN }}
+          KOMAC_CREATED_WITH: dcc-mcp-core winget-first-manifest
+          KOMAC_CREATED_WITH_URL: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Submit the single version directory, never the whole tree, so the
+          # package stays DccMcp.DccMcpCli even if the output root later holds
+          # something else.
+          $Output = komac submit "${{ steps.verify.outputs.package_dir }}" --yes 2>&1
+          $Code = $LASTEXITCODE
+          $Output | ForEach-Object { Write-Output $_ }
+          if ($Code -ne 0) {
+            Write-Output "::error::komac submit failed with exit code $Code"
+            exit $Code
+          }
+          if ($Output -match 'No valid packages to submit') {
+            Write-Output "::error::komac submit found no package to submit"
+            exit 1
+          }
+          $Url = ($Output | Select-String -Pattern 'https://github.com/microsoft/winget-pkgs/pull/[0-9]+' |
+            Select-Object -First 1).Matches.Value
+          if (-not $Url) {
+            Write-Output "::error::komac submit did not report a winget-pkgs pull request URL"
+            exit 1
+          }
+          Write-Output "pull_request=$Url" >> $env:GITHUB_OUTPUT
+
+      - name: Summary
+        shell: bash
+        # Routed through env: rather than interpolated into the script body.
+        # `${{ }}` is expanded before bash parses, so a free-text input spliced
+        # straight into a run: block is shell code; `release_tag` is exactly
+        # that. An env: variable is data, whatever it contains.
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          SUBMITTED_PR: ${{ steps.submit.outputs.pull_request }}
+        run: |
+          {
+            echo "### WinGet first manifest"
+            echo
+            echo "package: $PACKAGE_IDENTIFIER"
+            echo "release: $RELEASE_TAG"
+            echo "dry run: $DRY_RUN"
+            echo
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "Rendered and validated the manifests. No pull request was opened."
+              echo "Re-run with \`dry_run = false\` to submit them to microsoft/winget-pkgs."
+            else
+              echo "Submitted to microsoft/winget-pkgs from the \`$KOMAC_FORK_OWNER\` fork:"
+              echo "$SUBMITTED_PR"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
