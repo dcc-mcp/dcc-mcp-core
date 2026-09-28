@@ -171,11 +171,33 @@ jobs:
             exit 1
           }
           Write-Output "Validating $($ManifestDir.FullName)"
-          winget validate --manifest "$($ManifestDir.FullName)" --disable-interactivity
-          if ($LASTEXITCODE -ne 0) {
-            Write-Output "::error::winget validate rejected the rendered manifests"
-            exit $LASTEXITCODE
+          # Do not judge by exit code alone. `winget validate` returns non-zero
+          # for warnings as well as errors, and the yaml-language-server schema
+          # comment that every manifest carries trips a cosmetic "schema header
+          # URL" warning on current runner images - so a valid set exits 1.
+          # The failure marker is the locale-independent "Manifest Error:" line
+          # (a broken schema prints it and exits 41); success prints none, in
+          # any language. Missing tool or empty output also fails, so a crash
+          # cannot read as a pass.
+          if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
+            Write-Output "::error::winget is not available on this runner"
+            exit 1
           }
+          $Previous = $ErrorActionPreference
+          $ErrorActionPreference = 'Continue'
+          $Output = (& winget validate --manifest "$($ManifestDir.FullName)" --disable-interactivity 2>&1 | Out-String)
+          $Code = $LASTEXITCODE
+          $ErrorActionPreference = $Previous
+          Write-Output $Output
+          if ([string]::IsNullOrWhiteSpace($Output)) {
+            Write-Output "::error::winget validate produced no output (exit code $Code)"
+            exit 1
+          }
+          if ($Output -match 'Manifest Error:') {
+            Write-Output "::error::winget validate reported a manifest error (exit code $Code)"
+            exit 1
+          }
+          Write-Output "winget validate accepted the manifests (exit code $Code, warnings tolerated)"
 
       - name: Verify the submit payload
         id: verify
