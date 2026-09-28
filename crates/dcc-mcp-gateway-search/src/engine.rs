@@ -1,5 +1,7 @@
 //! Pure search pipeline: filter → score → sort → paginate.
 
+use std::borrow::Borrow;
+
 use crate::fallback::{CuaRuntimeProbe, SearchFallback, build_fallback};
 use crate::policy::{FallbackPolicy, FallbackTrigger, evaluate_fallback, is_fallback_target};
 use crate::query::{DEFAULT_LIMIT, MAX_LIMIT, SearchHit, SearchMode, SearchPage, SearchQuery};
@@ -62,8 +64,8 @@ pub fn search_page_with_fallback<R: SearchRecord + Clone>(
 /// matched" from "nothing was eligible" — must use
 /// [`resolve_fallback_among`].
 #[must_use]
-pub fn resolve_fallback<R: SearchRecord>(
-    hits: &[SearchHit<R>],
+pub fn resolve_fallback<R: SearchRecord, H: Borrow<SearchHit<R>>>(
+    hits: &[H],
     query: &str,
     probe: &dyn CuaRuntimeProbe,
 ) -> Option<SearchFallback> {
@@ -72,8 +74,8 @@ pub fn resolve_fallback<R: SearchRecord>(
 
 /// [`resolve_fallback`] with an explicit policy.
 #[must_use]
-pub fn resolve_fallback_with_policy<R: SearchRecord>(
-    hits: &[SearchHit<R>],
+pub fn resolve_fallback_with_policy<R: SearchRecord, H: Borrow<SearchHit<R>>>(
+    hits: &[H],
     query: &str,
     probe: &dyn CuaRuntimeProbe,
     policy: FallbackPolicy,
@@ -90,7 +92,7 @@ pub fn resolve_fallback_with_policy<R: SearchRecord>(
 /// decision when the caller separately confirms rows existed. Callers that know
 /// the true candidate count pass it explicitly via
 /// [`classify_with_candidates`].
-fn candidates_considered<R: SearchRecord>(hits: &[SearchHit<R>]) -> usize {
+fn candidates_considered<R: SearchRecord, H: Borrow<SearchHit<R>>>(hits: &[H]) -> usize {
     hits.len()
 }
 
@@ -99,8 +101,8 @@ fn candidates_considered<R: SearchRecord>(hits: &[SearchHit<R>]) -> usize {
 /// Use this when the candidate set is filtered before ranking, so an
 /// everything-excluded filter is not mistaken for "no skill can do this".
 #[must_use]
-pub fn resolve_fallback_among<R: SearchRecord>(
-    hits: &[SearchHit<R>],
+pub fn resolve_fallback_among<R: SearchRecord, H: Borrow<SearchHit<R>>>(
+    hits: &[H],
     query: &str,
     candidates_considered: usize,
     probe: &dyn CuaRuntimeProbe,
@@ -115,6 +117,10 @@ fn policy_default() -> FallbackPolicy {
 
 /// Apply the central fallback policy to a ranked page.
 ///
+/// Generic over `Borrow<SearchHit<R>>` so a caller can pass either an owned
+/// slice or a slice of references produced by post-ranking filtering, without
+/// cloning rows to satisfy the signature.
+///
 /// Returns the trigger without probing the runtime, so the judgement can be
 /// unit-tested on its own.
 ///
@@ -124,8 +130,8 @@ fn policy_default() -> FallbackPolicy {
 /// discovery problem, not evidence that no skill can do the job. Sending that
 /// to the CUA route would mask a rescan or a bad `dcc=` filter behind a
 /// plausible-sounding suggestion.
-fn classify<R: SearchRecord>(
-    hits: &[SearchHit<R>],
+fn classify<R: SearchRecord, H: Borrow<SearchHit<R>>>(
+    hits: &[H],
     query: &str,
     candidates_considered: usize,
     policy: FallbackPolicy,
@@ -134,7 +140,7 @@ fn classify<R: SearchRecord>(
         return None;
     }
     let len = query.trim().chars().count();
-    match hits.first() {
+    match hits.first().map(Borrow::borrow) {
         Some(top) => {
             // A request the fallback target already answered is not an
             // unanswered request. Routing it would tell the caller to use the

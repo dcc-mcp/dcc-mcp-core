@@ -278,13 +278,38 @@ impl SkillCatalog {
         // narrowing can never manufacture a fallback. The criteria themselves
         // live in `dcc-mcp-gateway-search::policy`.
         let fallback: Option<SearchFallback> = probe.and_then(|probe| {
-            // Candidates that survive *every* narrowing the caller asked for,
-            // including `scope`. The scope filter is applied post-ranking, so
-            // `prefiltered.len()` alone would over-count: a `scope=` that
-            // matched nothing would look like "no skill can do this" when it
-            // is really the caller's own filter. Zero means the shard/tag/dcc
-            // /scope filters excluded everything, or the catalog is empty — a
-            // discovery or configuration problem, not a routing decision.
+            // Judge the SAME rows the caller is about to receive.
+            //
+            // `scope` is applied in step 4, after ranking, so `ranked_hits` is
+            // still unfiltered here. Judging it directly would let an
+            // out-of-scope row become the top-1 the route is classified on:
+            // a `scope=` response could then carry in-scope hits that have
+            // perfectly good tools alongside
+            // `fallback.reason = "no_executable_interface"`, whose message
+            // flatly says the closest match declares no callable tool. A
+            // contradiction is worse than no explanation, which is the whole
+            // point of the reason code.
+            let in_scope: Vec<&dcc_mcp_gateway_search::SearchHit<SkillSearchRecord<'_>>> =
+                match scope {
+                    None => ranked_hits.iter().collect(),
+                    Some(scope_filter) => {
+                        let label = scope_filter.label();
+                        ranked_hits
+                            .iter()
+                            .filter(|hit| {
+                                prefiltered[hit.record.index]
+                                    .value()
+                                    .scope
+                                    .label()
+                                    .eq_ignore_ascii_case(label)
+                            })
+                            .collect()
+                    }
+                };
+            // Candidates that survive every narrowing the caller asked for.
+            // Zero means the shard/tag/dcc/scope filters excluded everything,
+            // or the catalog is empty — a discovery or configuration problem,
+            // not a routing decision.
             let candidates = match scope {
                 None => prefiltered.len(),
                 Some(scope_filter) => {
@@ -295,7 +320,7 @@ impl SkillCatalog {
                         .count()
                 }
             };
-            resolve_fallback_among(&ranked_hits, q_trim, candidates, probe)
+            resolve_fallback_among(&in_scope, q_trim, candidates, probe)
         });
         let ranked: Vec<SkillSummary> = ranked_hits
             .into_iter()

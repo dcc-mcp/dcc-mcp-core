@@ -223,6 +223,78 @@ fn the_target_does_not_route_to_itself() {
 }
 
 #[test]
+fn an_out_of_scope_top_hit_must_not_contradict_the_returned_hits() {
+    // Regression: the route is judged on the rows the caller receives, not on
+    // the unfiltered ranking. An out-of-scope, tool-less skill that happens to
+    // rank first must not produce `no_executable_interface` next to in-scope
+    // hits that do have tools — the message flatly claims the closest match
+    // declares no callable tool, which would be false.
+    let catalog = make_test_catalog();
+    // Out of scope, tool-less, and the best lexical match — so it is the
+    // unfiltered top-1 that the bug would have judged.
+    add_skill_with_scope(
+        &catalog,
+        make_test_skill("maya-export-fbx", "maya", &[]),
+        SkillScope::Admin,
+    );
+    // In scope, with a callable tool: this is what the caller gets back.
+    add_skill_with_scope(
+        &catalog,
+        make_test_skill("maya-shot-export", "maya", &["maya_shot_export"]),
+        SkillScope::Repo,
+    );
+
+    // "maya" ranks the out-of-scope, tool-less skill FIRST, which is exactly
+    // the case the bug mis-classified.
+    let result = catalog.search_skills_with_fallback(
+        Some("maya"),
+        &[],
+        None,
+        Some(SkillScope::Repo),
+        None,
+        &READY,
+    );
+
+    assert_eq!(result.hits.len(), 1, "only the in-scope skill is returned");
+    assert_eq!(result.hits[0].name, "maya-shot-export");
+    assert_eq!(result.hits[0].tool_count, 1);
+    assert!(
+        result.fallback.is_none(),
+        "a returned hit with a callable tool must never be described as \
+         documentation-only: {:?}",
+        result.fallback
+    );
+}
+
+#[test]
+fn an_out_of_scope_tool_less_hit_still_counts_when_it_is_what_is_returned() {
+    // The flip side: when the out-of-scope filter is not applied, the same
+    // tool-less skill IS the top hit, and the route must fire. Proves the fix
+    // narrows the judgement set rather than disabling the criterion.
+    let catalog = make_test_catalog();
+    add_skill_with_scope(
+        &catalog,
+        make_test_skill("maya-export-fbx", "maya", &[]),
+        SkillScope::Admin,
+    );
+
+    let result = catalog.search_skills_with_fallback(
+        Some("maya"),
+        &[],
+        None,
+        Some(SkillScope::Admin),
+        None,
+        &READY,
+    );
+
+    assert_eq!(result.hits.len(), 1);
+    let fallback = result
+        .fallback
+        .expect("the returned top hit declares no callable tool");
+    assert_eq!(fallback.reason, FALLBACK_REASON_NO_EXECUTABLE_INTERFACE);
+}
+
+#[test]
 fn the_advice_serializes_onto_the_wire() {
     let catalog = make_test_catalog();
     catalog.add_skill(make_test_skill("maya-export-fbx", "maya", &[]));

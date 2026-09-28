@@ -187,12 +187,27 @@ fn run(program: &str, args: &[&str], timeout: Duration) -> Option<std::process::
     }
     let mut child = command.spawn().ok()?;
 
+    // Drain stdout on a worker thread *while* the child runs.
+    //
+    // The alternative — poll `try_wait()` and only then call
+    // `wait_with_output()` — deadlocks on any child that writes more than the
+    // OS pipe buffer: the child blocks writing, so it never exits, so the poll
+    // never sees an exit, so nothing ever reads the pipe. The timeout then
+    // fires and the probe degrades to `Unknown`, which would look like a
+    // flaky runtime rather than our own bug. `component status` and
+    // `manifest` output is small today, but nothing guarantees that.
+    let mut stdout = child.stdout.take()?;
+    let reader = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        std::io::Read::read_to_end(&mut stdout, &mut buf).map(|_| buf)
+    });
+
     // Poll instead of blocking forever: a wedged component binary must not
     // wedge the search request that asked about it.
     let deadline = std::time::Instant::now() + timeout;
-    loop {
+    let status = loop {
         match child.try_wait() {
-            Ok(Some(_)) => return child.wait_with_output().ok(),
+            Ok(Some(status)) => break status,
             Ok(None) => {
                 if std::time::Instant::now() >= deadline {
                     let _ = child.kill();
@@ -203,7 +218,14 @@ fn run(program: &str, args: &[&str], timeout: Duration) -> Option<std::process::
             }
             Err(_) => return None,
         }
-    }
+    };
+
+    let stdout = reader.join().ok()?.ok()?;
+    Some(std::process::Output {
+        status,
+        stdout,
+        stderr: Vec::new(),
+    })
 }
 
 #[cfg(test)]
@@ -250,6 +272,43 @@ mod tests {
                 Duration::from_millis(200)
             )
             .is_none()
+        );
+    }
+
+    /// Regression for the pipe-buffer deadlock: a child that writes more than
+    /// the OS pipe buffer used to block forever, because stdout was only read
+    /// after the child exited. `run` drains it on a worker thread, so a chatty
+    /// child must return its full output instead of hitting the timeout.
+    #[test]
+    fn a_chatty_child_is_drained_instead_of_deadlocking() {
+        // Query the runtime's own binary rather than assuming an interpreter:
+        // `cmd /c` exists on Windows, and this repo gates on Windows CI.
+        #[cfg(windows)]
+        let (program, args, expected_lines) = (
+            "cmd",
+            vec![
+                "/c",
+                "for /L %i in (1,1,20000) do @echo xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            ],
+            20_000,
+        );
+        #[cfg(not(windows))]
+        let (program, args, expected_lines) = (
+            "sh",
+            vec![
+                "-c",
+                "i=0; while [ $i -lt 20000 ]; do echo xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx; i=$((i+1)); done",
+            ],
+            20_000,
+        );
+
+        let out = run(program, &args, Duration::from_secs(60))
+            .expect("a chatty child must not deadlock into a timeout");
+        assert!(out.status.success());
+        assert!(
+            out.stdout.len() > expected_lines * 60,
+            "expected the full ~1.2 MiB of output, got {} bytes",
+            out.stdout.len()
         );
     }
 }
