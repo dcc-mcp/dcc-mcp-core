@@ -290,3 +290,24 @@ def test_the_summary_step_reaches_inputs_through_env() -> None:
     body = step["run"]
     assert "release: $RELEASE_TAG" in body
     assert "dry run: $DRY_RUN" in body
+
+
+def test_manifest_validation_tolerates_warnings_but_not_errors() -> None:
+    """`winget validate` exits non-zero for warnings as well as errors.
+
+    The yaml-language-server schema comment every manifest carries trips a
+    cosmetic "schema header URL" warning on current runner images, so a valid
+    set can exit 1. Judging by exit code alone rejects it. The failure marker
+    is the locale-independent "Manifest Error:" line; a missing tool or empty
+    output must also fail rather than read as a pass.
+    """
+    step = next(s for s in _workflow_steps() if s.get("name") == "Validate the manifests")
+    body = step["run"]
+
+    assert "Manifest Error:" in body, (
+        "validation must fail on the locale-independent error marker, not on the exit code"
+    )
+    assert "Get-Command winget" in body, "a missing winget must fail instead of silently passing"
+    assert "IsNullOrWhiteSpace" in body, "empty output must fail instead of silently passing"
+    # The exit code must not be the sole or primary verdict.
+    assert "exit $LASTEXITCODE" not in body
