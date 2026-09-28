@@ -339,10 +339,12 @@ lint-py:
 
 # Static type-check the Python sources. mypy is configured in
 # `pyproject.toml [tool.mypy]` and installed via the `dev` extra.
+# `--extra dev` is required: mypy is an optional dependency, so a freshly
+# synced environment (CI included) has no mypy on PATH without it.
 # Moved here from `vx.toml [scripts]` (`typecheck = "uv run mypy ."`), which was
 # one of four entries in that table that were not `just xxx` mirrors.
 typecheck:
-    uv run mypy .
+    uv run --extra dev mypy .
 
 # Lint bundled, example, and fixture skills with the built production CLI
 lint-skills: build-cli

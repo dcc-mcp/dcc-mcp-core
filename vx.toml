@@ -14,6 +14,7 @@ uv = "latest"
 #
 # Four entries were not verbatim `just xxx` mirrors and are handled explicitly:
 #   `typecheck`     (`uv run mypy .`)        -> new `typecheck` recipe
+#                   (now `uv run --extra dev mypy .`: mypy is an optional dep)
 #   `build-release` (`cargo build --release`) -> new `build-release` recipe
 #   `doc`           (`cargo doc`)            -> new `doc` recipe
 #   `format`        (`cargo fmt`)            -> covered by `fmt` (`cargo fmt --all`)
