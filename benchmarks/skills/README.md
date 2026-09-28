@@ -81,9 +81,19 @@ land together.
 
 ## Trend series
 
-The weekly workflow records one point per run across all three dimensions and
-renders them together as `skills-bench-trend.md` — the place to do a periodic
-review without opening three different workflow runs.
+The weekly **schedule** records one point per run across all three dimensions
+and renders them together as `skills-bench-trend.md` — the place to do a
+periodic review without opening three different workflow runs.
+
+**One point means one week.** The `latency-trend` job also runs on every push
+to main (that is what keeps the criterion bench from rotting), but only the
+scheduled run records a point. Recording on every push made the window a
+function of how much the team shipped: at ~7 main pushes a day, four points
+spanned about half a day instead of a month, and a sustained regression was
+absorbed into its own baseline within four pushes. `BASELINE_WINDOW = 4` is
+four **weeks** and `MAX_POINTS = 52` is one **year** of weekly runs; both are
+only true under weekly recording. A regression that took two months to arrive
+is readable against its own baseline only because of that.
 
 | dimension | contract |
 |---|---|
@@ -96,6 +106,12 @@ corpus**, and alerts at +50%. It is deliberately not a merge gate: CI hardware
 alone can move the number by a factor of two, so a fixed cap here produces
 false failures instead of catching regressions. An alert opens an issue; it
 never fails a build.
+
+Because the window is four weeks, a regression that arrives is **reported once
+and then absorbed**: the point after it is measured against a baseline that
+includes it. The ratchet is the point of a rolling baseline, not a defect —
+the first alert is the signal, and it opens an issue that nothing closes
+automatically.
 
 ### Calibrating the +50%
 
@@ -112,6 +128,10 @@ median. Once a full window has accumulated:
 - band narrower than +50% → the threshold is outside the noise, leave it alone
 - band wider than +50% → alerts are noise; widen `LATENCY_REGRESSION_RATIO` in
   `crates/dcc-mcp-skills-bench/src/trend.rs` before trusting them
+
+**This cannot be done before the window fills.** One point is one week, so the
+first full window lands four weeks after the current corpus epoch opened, and
+recalibrating earlier would be reading a band that does not exist yet.
 
 ### Who is told, and how
 
@@ -136,13 +156,26 @@ Runbook for an alert:
 
 To rehearse the path without waiting for a real regression, run the workflow
 manually (`workflow_dispatch`) with `exercise_alert_path` enabled: it walks
-issue creation with a synthetic alert and says so in the body.
+issue creation with a synthetic alert and says so in the body. The rehearsal
+writes its own payload rather than reading one, so it works on a run that
+recorded no point.
 
 ### Corpus epochs
 
-Every point carries a corpus fingerprint (schema, seed count, and a digest of
-the skill names). Points whose fingerprint differs are excluded from the
-baseline window.
+Every point carries a corpus fingerprint — `CORPUS_SCHEMA_VERSION`, the seed
+count, and two digests:
+
+| digest | covers |
+|---|---|
+| names | every skill name in the catalogue |
+| query inputs | the query targets, the hard-negative pairs, and the indexed vocabulary (description, search hint, tags, tool text) |
+
+Points whose fingerprint differs are excluded from the baseline window. The
+second digest is the one that is easy to miss: query generation reads far more
+of a skill than its name, so editing a `SKILL.md` description changes what was
+measured while leaving every name — and the name digest — untouched. Before it
+was added, the only way to open an epoch for such a change was to remember to
+bump `CORPUS_SCHEMA_VERSION` by hand.
 
 That is what keeps the series honest when the corpus changes: expanding the
 seed set opens a new epoch with an empty window, so alerts stay disarmed until
@@ -161,8 +194,35 @@ The restore step cannot simply take the most recent successful run:
 here, so "the last successful run" usually uploaded no trend artifact at all.
 It walks back through the recent successful runs and takes the first one that
 carries `skills-bench-trend-history`. If the log says
-`no recent successful run carries the ... artifact` twice in a row, the series
-is not being carried and the baseline window will never fill.
+`no recent scheduled run on main carries the ... artifact` twice in a row, the
+series is not being carried and the baseline window will never fill.
+
+Three details keep that walk honest, and they are load-bearing together with
+weekly recording rather than independently:
+
+- **The scan is scoped** to `status=success&event=schedule&branch=main`. With
+  only the weekly run recording a point, an unscoped `per_page=20` would sit
+  behind a week of pushes and dispatches and never reach a run that carries
+  the artifact — the series would restart every week. `branch=main` also stops
+  a `workflow_dispatch` against a feature branch from seeding the main
+  baseline with another branch's numbers.
+- **A name match is not proof the series is inside.** A crashed run still
+  uploads the artifact (`if: always()`), so the restore downloads before it
+  believes the name and keeps walking back past an empty one. Adopting an
+  empty artifact is how a series silently restarts from a single point.
+- **The upload is `if-no-files-found: error`.** Publishing an empty artifact
+  under this name poisons the scan for every later run, so the step fails
+  instead. That also marks the run failed, which keeps it out of the
+  `status=success` scan.
+
+### One writer
+
+`latency-trend` carries its own `concurrency` group, unkeyed by ref. The
+workflow-level group is keyed on `github.ref`, so a dispatch against another
+branch used to run alongside a main push: both restored the same predecessor,
+both appended, and the later upload dropped the other's point.
+`cancel-in-progress: false` — a run that is about to upload is the wrong one to
+cancel.
 
 ## When this moves out
 

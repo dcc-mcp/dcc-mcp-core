@@ -81,7 +81,7 @@ impl Distinctiveness {
     pub fn build(corpus: &Corpus) -> Self {
         let mut df: HashMap<String, usize> = HashMap::new();
         for skill in &corpus.skills {
-            for term in terms_of(skill) {
+            for term in indexed_terms(skill) {
                 *df.entry(term).or_insert(0) += 1;
             }
         }
@@ -114,7 +114,13 @@ impl Distinctiveness {
 }
 
 /// Every searchable term of `skill`, lowercased and de-duplicated.
-fn terms_of(skill: &SkillMetadata) -> Vec<String> {
+///
+/// Public because the corpus fingerprint digests it: this is the exact
+/// vocabulary query generation reads, so the fingerprint has to be computed
+/// over the same function rather than over a copy of the field list that can
+/// drift away from it.
+#[must_use]
+pub fn indexed_terms(skill: &SkillMetadata) -> Vec<String> {
     let mut terms: Vec<String> = Vec::new();
     for raw in tokenize(&skill.name)
         .into_iter()

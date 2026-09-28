@@ -34,6 +34,11 @@
 //! measured against the old corpus can ever become the baseline for a run
 //! measured against the new one, so the "first weeks are polluted" failure
 //! mode is prevented by construction rather than by remembering to wait.
+//!
+//! The fingerprint has to cover everything a run measured, not just the
+//! catalogue's names — [`CorpusFingerprint::query_digest`] is the half that is
+//! easy to miss. A point whose epoch is wrong is worse than no point: it is
+//! silently comparable.
 
 use std::collections::BTreeMap;
 use std::hash::{Hash, Hasher};
@@ -45,6 +50,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::context::ContextPoint;
 use crate::corpus::{Corpus, SCALE_300};
+use crate::queries;
 use crate::run::Evaluation;
 use crate::synthetic::CORPUS_SCHEMA_VERSION;
 use crate::thresholds;
@@ -86,7 +92,15 @@ pub const LATENCY_REGRESSION_RATIO: f64 = 0.50;
 pub const MAX_POINTS: usize = 52;
 
 /// Schema version of the persisted history file.
-pub const HISTORY_VERSION: u32 = 1;
+///
+/// 2: [`CorpusFingerprint`] gained `query_digest`, so a point written by the
+/// previous version describes a corpus the new one can no longer recognise.
+/// A version-1 file is not merely missing a field — every point in it was
+/// measured against a fingerprint that is now known to be too narrow, so the
+/// honest thing is to reject the file outright and name the reason, rather
+/// than to load it and let the old points sit in an epoch nothing will ever
+/// match again.
+pub const HISTORY_VERSION: u32 = 2;
 
 /// Latency series carried in the trend report.
 ///
@@ -167,6 +181,82 @@ fn digest_names<'a>(names: impl Iterator<Item = &'a str>) -> u64 {
     hasher.finish()
 }
 
+/// Order-independent digest of the inputs query generation reads.
+///
+/// Names alone are not the whole corpus as the benchmark sees it.
+/// [`queries::build_queries_with_coverage`] also consumes:
+///
+/// * the target list — one query per target, so a different sample is a
+///   different measurement even when the catalogue is unchanged;
+/// * the hard-negative pairs, with their kind —
+///   [`Corpus::truncated_tail_is_unanswerable`] drops a literal variant for
+///   targets carrying a near-name twin, so the pair list decides which
+///   queries exist at all;
+/// * the indexed vocabulary of each skill, which is description, search hint,
+///   tags and tool text rather than the name, and which is what the
+///   paraphrase and intent classes are built from. Editing a SKILL.md
+///   description changes what was measured without changing a single skill
+///   name — and the name digest alone would have folded it into the previous
+///   epoch.
+///
+/// Everything is sorted before hashing, for the same reason
+/// [`digest_names`] sorts: the corpus order is an implementation detail of
+/// [`Corpus::build`], and a digest that moves when nothing changed opens a new
+/// epoch for nothing.
+#[must_use]
+fn digest_query_inputs(corpus: &Corpus) -> u64 {
+    let mut hasher = Fnv::new();
+
+    let mut targets: Vec<&str> = corpus.targets().iter().map(String::as_str).collect();
+    targets.sort_unstable();
+    for target in targets {
+        target.hash(&mut hasher);
+    }
+
+    let mut negatives: Vec<(&str, &str, &str)> = corpus
+        .hard_negatives
+        .iter()
+        .map(|negative| {
+            (
+                negative.target.as_str(),
+                negative.twin.as_str(),
+                negative.kind.label(),
+            )
+        })
+        .collect();
+    negatives.sort_unstable();
+    for (target, twin, kind) in negatives {
+        target.hash(&mut hasher);
+        twin.hash(&mut hasher);
+        kind.hash(&mut hasher);
+    }
+
+    // Tokenised through `queries::indexed_terms` rather than a local copy of
+    // the field list: a second implementation of "what is indexed" is one
+    // that can silently stop matching the one query generation uses.
+    let mut vocabulary: Vec<(&str, &str, Vec<String>)> = corpus
+        .skills
+        .iter()
+        .map(|skill| {
+            (
+                skill.name.as_str(),
+                skill.dcc.as_str(),
+                queries::indexed_terms(skill),
+            )
+        })
+        .collect();
+    vocabulary.sort_by(|left, right| left.0.cmp(right.0));
+    for (name, dcc, terms) in vocabulary {
+        name.hash(&mut hasher);
+        dcc.hash(&mut hasher);
+        for term in terms {
+            term.hash(&mut hasher);
+        }
+    }
+
+    hasher.finish()
+}
+
 /// Identity of the corpus a trend point was measured against.
 ///
 /// Two points are only comparable when their fingerprints match. S1 (PIP-3701)
@@ -180,6 +270,15 @@ pub struct CorpusFingerprint {
     pub seed_count: usize,
     /// Digest of every skill name in the corpus.
     pub digest: u64,
+    /// Digest of the query-generation inputs.
+    ///
+    /// The name digest says *which* skills were in the catalogue. This one
+    /// says which queries were asked about them: targets, hard-negative
+    /// pairs, and the indexed vocabulary (description, hint, tags, tools)
+    /// the paraphrase and intent classes are generated from. Editing a
+    /// SKILL.md description changes what was measured while leaving every
+    /// skill name — and therefore the other digest — untouched.
+    pub query_digest: u64,
 }
 
 impl CorpusFingerprint {
@@ -190,13 +289,18 @@ impl CorpusFingerprint {
             schema: CORPUS_SCHEMA_VERSION.to_string(),
             seed_count: corpus.seeds,
             digest: digest_names(corpus.skills.iter().map(|skill| skill.name.as_str())),
+            query_digest: digest_query_inputs(corpus),
         }
     }
 
     /// Short form for reports, where a bare `u64` says nothing.
+    ///
+    /// Both digests, because a reviewer reading an unexpected epoch change has
+    /// to be able to tell "the catalogue moved" from "query generation moved"
+    /// without opening the source.
     #[must_use]
     pub fn short(&self) -> String {
-        format!("{:016x}", self.digest)
+        format!("{:016x}/{:016x}", self.digest, self.query_digest)
     }
 }
 
@@ -662,7 +766,7 @@ pub fn render_trend_markdown(
     out.push_str("# Skills benchmark — three-dimension trend\n\n");
 
     out.push_str(&format!(
-        "- corpus `{}` — {} real seeds, digest `{}`\n",
+        "- corpus `{}` — {} real seeds, digest `{}` (names / query inputs)\n",
         current.corpus.schema,
         current.corpus.seed_count,
         current.corpus.short()
@@ -832,14 +936,18 @@ pub fn render_alerts_json(report: &TrendReport) -> serde_json::Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::corpus::{HardNegative, HardNegativeKind};
     use crate::run::Filter;
     use std::time::Duration;
 
+    /// A fingerprint that differs on both digests as `seed_count` moves, so
+    /// the existing epoch tests keep working without naming real digests.
     fn fingerprint(seed_count: usize) -> CorpusFingerprint {
         CorpusFingerprint {
             schema: CORPUS_SCHEMA_VERSION.to_string(),
             seed_count,
             digest: seed_count as u64,
+            query_digest: seed_count as u64 ^ 0xa5a5_a5a5_a5a5_a5a5,
         }
     }
 
@@ -1037,6 +1145,102 @@ mod tests {
         let report = compare(&history, &current);
         assert_eq!(report.baseline_points, 0);
         assert!(report.alerts.is_empty());
+    }
+
+    #[test]
+    fn the_fingerprint_is_stable_across_rebuilds() {
+        // A digest that moves when nothing changed would open a new epoch on
+        // every run and the window could never fill — the failure looks like
+        // a corpus change, so it has to be caught here rather than in CI.
+        let first = CorpusFingerprint::of(&Corpus::build(SCALE_300));
+        let second = CorpusFingerprint::of(&Corpus::build(SCALE_300));
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn editing_a_description_opens_a_new_epoch_without_touching_a_name() {
+        // The gap this closed: the fingerprint used to cover schema, seed
+        // count and skill names, so rewriting a SKILL.md description changed
+        // every generated query and not one byte of the fingerprint. Two
+        // different measurements would share an epoch and the second would be
+        // graded against the first.
+        let mut corpus = Corpus::build(SCALE_300);
+        let before = CorpusFingerprint::of(&corpus);
+
+        corpus.skills[0]
+            .description
+            .push_str(" extra vocabulary nobody measured before");
+        let after = CorpusFingerprint::of(&corpus);
+
+        assert_eq!(
+            after.digest, before.digest,
+            "no skill name changed, so the name digest must not move"
+        );
+        assert_eq!(after.seed_count, before.seed_count);
+        assert_ne!(
+            after.query_digest, before.query_digest,
+            "a description change feeds query generation and must open a new epoch"
+        );
+        assert_ne!(after, before);
+
+        // Four runs under the old corpus, none of which may serve as the
+        // baseline for a run measured against the edited one.
+        let past: Vec<TrendPoint> = ["2026-01-26", "2026-01-19", "2026-01-12", "2026-01-05"]
+            .into_iter()
+            .map(|at| point(at, before.clone(), 100))
+            .collect();
+        let current = point("2026-02-02", after, 300);
+        let report = compare(&history(past), &current);
+        assert_eq!(report.baseline_points, 0);
+        assert!(report.alerts.is_empty());
+    }
+
+    #[test]
+    fn an_injected_hard_negative_moves_only_the_query_digest() {
+        // Which target carries which kind of twin decides whether a literal
+        // query is emitted at all, so it is a query-generation input rather
+        // than a catalogue property — and it must not be mistaken for one.
+        let mut corpus = Corpus::build(SCALE_300);
+        let before = CorpusFingerprint::of(&corpus);
+        let target = corpus.targets()[0].clone();
+
+        corpus.hard_negatives.push(HardNegative {
+            twin: format!("{target}-twin"),
+            target,
+            kind: HardNegativeKind::CrossDccSameContent,
+        });
+        let after = CorpusFingerprint::of(&corpus);
+
+        assert_eq!(after.digest, before.digest);
+        assert_ne!(after.query_digest, before.query_digest);
+        assert_ne!(after, before);
+    }
+
+    #[test]
+    fn an_older_history_version_starts_a_new_series() {
+        // Version 2 added `query_digest`, so every point a version-1 file
+        // holds was measured against a fingerprint the current code knows to
+        // be too narrow. They are discarded explicitly rather than loaded
+        // into an epoch nothing will ever match.
+        let mut written = TrendHistory {
+            version: 1,
+            ..TrendHistory::default()
+        };
+        written.push(point("2026-01-05", fingerprint(26), 100));
+        let text = serde_json::to_string(&written).expect("serialisable");
+
+        let loaded: TrendHistory = serde_json::from_str(&text).expect("deserialisable");
+        assert_eq!(loaded.version, 1, "the file itself still says 1");
+
+        let dir = std::env::temp_dir().join("dcc-mcp-skills-bench-trend-version");
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("history.json");
+        let _ = std::fs::write(&path, text);
+        assert!(
+            TrendHistory::load(&path).points.is_empty(),
+            "an older schema must not be adopted as history"
+        );
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]
