@@ -71,7 +71,14 @@ jobs:
 
       - name: Refuse to run once the package exists
         env:
-          GH_TOKEN: ${{ github.token }}
+          # WINGET_TOKEN, not github.token: this step reads another
+          # organisation's repository. An Actions installation token is scoped
+          # to this repository only, and GitHub answers a cross-org read it
+          # cannot authorise with 404 - identical to "package absent". That
+          # would make the check below a silent no-op no matter how carefully
+          # it discriminates. The PAT is the token that later submits the PR,
+          # so if it can submit it can read.
+          GH_TOKEN: ${{ secrets.WINGET_TOKEN }}
         shell: bash
         run: |
           # First-version only. If the package is already in winget-pkgs the
@@ -84,6 +91,25 @@ jobs:
           path="manifests/$first/$slug"
           url="https://github.com/microsoft/winget-pkgs/tree/master/$path"
           echo "checking $url"
+
+          # Positive control first. Discriminating 404 only proves the guard
+          # works if a 404 actually means "absent"; with a token that cannot
+          # read this repository at all, every path returns 404 and the guard
+          # silently lets everything through. Probe a package that certainly
+          # exists: if that is not reachable, the check below is meaningless.
+          control="manifests/m/Microsoft/PowerToys"
+          echo "control: $control must be readable with the configured token"
+          set +e
+          gh api "repos/microsoft/winget-pkgs/contents/$control" >/dev/null 2>control.err
+          control_status=$?
+          set -e
+          if [ "$control_status" -ne 0 ]; then
+            echo "::error::cannot read winget-pkgs with the configured token"
+            cat control.err
+            echo "::error::a 404 below would mean 'no access', not 'absent', so refusing to continue"
+            exit 1
+          fi
+          echo "control ok, so a 404 below means the package is genuinely absent"
 
           # Fail closed. `gh api` exits 1 for a 404 AND for a 403 rate limit,
           # a 401, a 5xx or a network failure, and stderr carries the status

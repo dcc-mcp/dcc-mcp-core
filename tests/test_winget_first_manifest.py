@@ -211,6 +211,39 @@ def test_the_existence_guard_fails_closed_on_a_non_404_api_error() -> None:
     assert "refusing to submit" in body
 
 
+def test_the_existence_guard_probes_a_control_path_before_trusting_a_404() -> None:
+    """A 404 only means "absent" if the token can read the repository at all.
+
+    This step reads microsoft/winget-pkgs, which is in another organisation. A
+    token scoped only to this repository gets 404 for *every* path, including
+    ones that certainly exist, so discriminating 404 would still let the guard
+    become a silent no-op. Probing a package that must exist turns that into a
+    loud failure.
+    """
+    yaml = pytest.importorskip("yaml")
+
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    step = next(
+        s
+        for s in workflow["jobs"]["submit-first-manifest"]["steps"]
+        if s.get("name") == "Refuse to run once the package exists"
+    )
+
+    # The read must use the PAT, not the repo-scoped installation token.
+    assert step["env"]["GH_TOKEN"] == "${{ secrets.WINGET_TOKEN }}", (
+        "a cross-org read needs the PAT; github.token is scoped to this repository"
+    )
+
+    body = step["run"]
+    assert re.search(r'^\s*control=".+"\s*$', body, re.MULTILINE), (
+        "the guard must define a control path that is known to exist"
+    )
+    assert "control_status=$?" in body, "the guard must capture the control probe's exit code"
+    assert "cannot read winget-pkgs" in body, "an unreadable control must abort the run"
+    # The control has to be checked before the package path is trusted.
+    assert body.index("control_status=$?") < body.index("gh_status=$?")
+
+
 def test_write_manifests_creates_the_winget_pkgs_layout(tmp_path) -> None:
     written = winget.write_manifests(release_payload(), tmp_path)
 
