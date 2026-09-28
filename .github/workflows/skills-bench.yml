@@ -130,6 +130,21 @@ jobs:
     # where a change over time is meaningful: main and the weekly schedule.
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    # One writer for the whole series, on every ref.
+    #
+    # The workflow-level group is keyed on `github.ref`, so a
+    # `workflow_dispatch` against any other branch ran *alongside* a main
+    # push: both restored the same predecessor, both appended one point, and
+    # the later upload silently dropped the earlier one — the series lost a
+    # week and nobody was told. The series has no per-branch meaning, so the
+    # group deliberately is not.
+    #
+    # `cancel-in-progress: false`: cancelling a run that has already restored
+    # the series is safe, but cancelling one that is about to upload it is
+    # how a point goes missing. Queuing is the cheaper failure.
+    concurrency:
+      group: skills-bench-latency-trend
+      cancel-in-progress: false
     permissions:
       contents: read
       # Restore the trend series from the previous run of this workflow.
@@ -164,6 +179,31 @@ jobs:
           path: target/criterion/
           if-no-files-found: ignore
 
+      # One point per week, not one per push.
+      #
+      # Recording on every push to main collapsed the four-run window from a
+      # month to about half a day — main takes several pushes a day — so a
+      # sustained regression was absorbed into its own baseline within four
+      # pushes, and `MAX_POINTS` held a week of history instead of a year.
+      # Both constants are defined in weeks (`BASELINE_WINDOW`) and in years
+      # (`MAX_POINTS`); they are only true when one point means one week.
+      #
+      # Everything above this line still runs on every main push: the
+      # criterion bench is what keeps the harness from rotting, and it is not
+      # the part that was lying about its own window.
+      - name: Decide whether this run records a trend point
+        id: trend-gate
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" = "schedule" ]; then
+            echo "record=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "record=false" >> "$GITHUB_OUTPUT"
+            echo "$EVENT: the bench runs, but no trend point is recorded"
+          fi
+        shell: bash
+
       # --- Trend series and latency regression alerts (PIP-3703) ---
       #
       # The series is carried between runs as a workflow artifact rather than
@@ -175,7 +215,8 @@ jobs:
       # contract. Making this a merge gate is exactly what thresholds.rs
       # refuses to do.
 
-      # The series has to come from a run that actually produced it.
+      # The series has to come from a run that actually produced it, and
+      # only from a run on main.
       #
       # Taking the most recent successful run does not work. `latency-trend`
       # is skipped on `pull_request`, and pull requests are the overwhelming
@@ -187,8 +228,11 @@ jobs:
       # legitimate warm-up looks like.
       #
       # So: walk back through the recent successful runs and take the first
-      # one that carries the artifact.
+      # one that carries the artifact. Now that only the weekly schedule
+      # records a point, that walk also has to be *scoped*, or the scan would
+      # be looking for a weekly needle in a haystack made of pushes.
       - name: Restore the trend history
+        if: steps.trend-gate.outputs.record == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -201,43 +245,71 @@ jobs:
           scanned=0
           source=""
 
+          # `event=schedule` is what keeps the scan shallow enough to reach
+          # the last point. Weekly recording puts every artifact-carrying run
+          # behind a week of push and dispatch runs — dozens of pages back —
+          # so an unscoped `per_page=20` would never see one, the series would
+          # restart every week, and the window would never fill. This is the
+          # other half of the weekly-recording change; shipping either one
+          # alone breaks the restore.
+          #
+          # `branch=main` is the same guard from the other side: a
+          # `workflow_dispatch` against a feature branch produces real
+          # numbers that describe that branch, and they must not become the
+          # seed of the main baseline. Schedule runs are always on the default
+          # branch, so this is belt and braces rather than the load-bearing
+          # filter — but the branch name is then an assumption worth stating.
+          #
+          # `per_page=100` is headroom on top of the filter: about two years
+          # of weekly runs, so a month of failed schedule runs does not fall
+          # off the end.
           runs=$(gh api \
-            "repos/${{ github.repository }}/actions/workflows/skills-bench.yml/runs?status=success&per_page=20" \
+            "repos/${{ github.repository }}/actions/workflows/skills-bench.yml/runs?status=success&event=schedule&branch=main&per_page=100" \
             --jq '.workflow_runs[].id' 2>/dev/null || echo "")
 
           for run in $runs; do
             scanned=$((scanned + 1))
-            if gh api "repos/${{ github.repository }}/actions/runs/$run/artifacts" \
+            if ! gh api "repos/${{ github.repository }}/actions/runs/$run/artifacts" \
                 --jq ".artifacts[].name" 2>/dev/null | grep -qx "$artifact"; then
-              source="$run"
-              break
+              continue
             fi
-          done
 
-          if [ -z "$source" ]; then
-            # Expected exactly once: before the first non-PR run of this
-            # workflow has completed. Twice in a row means the series is not
-            # being carried and the baseline window will never fill.
-            echo "::warning::no recent successful run carries the $artifact artifact "\
-                 "(scanned $scanned); starting a new trend series"
-          else
-            echo "restoring the trend series from run $source (scanned $scanned)"
+            # A name match is not proof the series is inside. A run that
+            # crashed after restoring still uploads the artifact (`if:
+            # always()`), and an empty one would be adopted as the new head of
+            # the series — silently rebuilding it from a single point. Keep
+            # walking back instead of trusting the name.
+            #
             # Download into a scratch directory and locate the file: how much
             # of the uploaded path the artifact preserves is an implementation
             # detail of upload-artifact, and guessing wrong leaves the history
             # silently empty.
             scratch=$(mktemp -d)
-            if gh run download "$source" -n "$artifact" -D "$scratch"; then
-              found=$(find "$scratch" -name trend-history.json -print -quit)
-              if [ -n "$found" ]; then
-                mv "$found" benchmarks/skills/trend-history.json
-              else
-                echo "::warning::run $source has no trend-history.json inside $artifact"
-              fi
-            else
-              echo "::warning::downloading $artifact from run $source failed"
+            if ! gh run download "$run" -n "$artifact" -D "$scratch"; then
+              echo "::warning::downloading $artifact from run $run failed; scanning further back"
+              rm -rf "$scratch"
+              continue
             fi
+            found=$(find "$scratch" -name trend-history.json -print -quit)
+            if [ -z "$found" ]; then
+              echo "::warning::run $run carries an empty $artifact artifact; scanning further back"
+              rm -rf "$scratch"
+              continue
+            fi
+
+            mv "$found" benchmarks/skills/trend-history.json
             rm -rf "$scratch"
+            source="$run"
+            echo "restoring the trend series from run $source (scanned $scanned)"
+            break
+          done
+
+          if [ -z "$source" ]; then
+            # Expected exactly once: before the first scheduled run of this
+            # workflow has completed. Twice in a row means the series is not
+            # being carried and the baseline window will never fill.
+            echo "::warning::no recent scheduled run on main carries the $artifact artifact "\
+                 "(scanned $scanned); starting a new trend series"
           fi
 
           if [ -f benchmarks/skills/trend-history.json ]; then
@@ -251,6 +323,7 @@ jobs:
       # and writes the alerts as data. Prints the human-readable trend to the
       # job log as well as to the file.
       - name: Record the three-dimension trend point
+        if: steps.trend-gate.outputs.record == 'true'
         run: |
           cargo run --locked --release -q -p dcc-mcp-skills-bench --bin skills-bench -- \
             report \
@@ -263,22 +336,27 @@ jobs:
       # The one place to read all three dimensions together, so a periodic
       # review does not mean opening three different workflow runs.
       - name: Publish the trend to the job summary
+        if: steps.trend-gate.outputs.record == 'true'
         run: cat skills-bench-trend.md >> "$GITHUB_STEP_SUMMARY"
         shell: bash
 
+      # `if-no-files-found: error`, not `ignore`: an empty artifact carrying
+      # this name is worse than no artifact. The restore step matches on the
+      # name, so publishing an empty one poisons the scan for every later run.
       - name: Upload the trend series
-        if: always()
+        if: always() && steps.trend-gate.outputs.record == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: skills-bench-trend-history
           path: benchmarks/skills/trend-history.json
-          if-no-files-found: ignore
+          if-no-files-found: error
 
       - name: Assert the trend outputs were written
         # Same reasoning as the report assertion above: the trend is the unit's
         # deliverable, and `if-no-files-found: ignore` would hide its loss.
         # Failing here does not make latency a merge gate — this job does not
         # run on pull requests at all.
+        if: steps.trend-gate.outputs.record == 'true'
         run: |
           set -euo pipefail
           test -s skills-bench-trend.md
@@ -288,7 +366,7 @@ jobs:
         shell: bash
 
       - name: Upload the trend report
-        if: always()
+        if: always() && steps.trend-gate.outputs.record == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: skills-bench-trend-report
@@ -304,21 +382,18 @@ jobs:
           EXERCISE: ${{ github.event.inputs.exercise_alert_path }}
         run: |
           set -euo pipefail
-          # No alerts file means the step above did not get far enough to
-          # measure anything. That is not a regression, so it is not reported.
-          [ -f skills-bench-alerts.json ] || {
-            echo "no alerts file was produced"
-            exit 0
-          }
-          count=$(jq '.alerts | length' skills-bench-alerts.json)
-
           rehearsal=false
-          if [ "$count" -eq 0 ] && [ "$EXERCISE" = "true" ]; then
+          if [ "$EXERCISE" = "true" ]; then
             # The alert path only runs on a real regression, which is exactly
             # the one state that cannot be arranged on demand. A manual
             # dispatch with `exercise_alert_path` walks it end to end with a
             # synthetic alert, so it is not first exercised by the regression
             # it was built to catch.
+            #
+            # The payload is synthesised rather than read: only the weekly
+            # schedule records a point now, so a dispatch run has no alerts
+            # file of its own, and gating the rehearsal on one would have
+            # quietly broken the only way to rehearse.
             rehearsal=true
             count=1
             cat > skills-bench-alerts.json <<'JSON'
@@ -340,6 +415,15 @@ jobs:
             ]
           }
           JSON
+          elif [ -f skills-bench-alerts.json ]; then
+            count=$(jq '.alerts | length' skills-bench-alerts.json)
+          else
+            # No alerts file means the trend step did not get far enough to
+            # measure anything — including a run that recorded no point at
+            # all, which is every run except the weekly one. That is not a
+            # regression, so it is not reported.
+            echo "no alerts file was produced"
+            exit 0
           fi
 
           if [ "$count" -eq 0 ]; then
