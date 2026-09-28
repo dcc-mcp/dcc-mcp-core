@@ -10,7 +10,6 @@ permissions:
 
 jobs:
   contract:
-    uses: dcc-mcp/.github/.github/workflows/repo-contract.yml@chore/repo-contract-gate
+    uses: dcc-mcp/.github/.github/workflows/repo-contract.yml@main
     with:
-      ref: chore/repo-contract-gate
       profile: baseline
