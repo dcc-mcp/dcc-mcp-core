@@ -31,6 +31,14 @@ on:
     # Weekly trend series for the efficiency dimension.
     - cron: "41 4 * * 1"
   workflow_dispatch:
+    inputs:
+      exercise_alert_path:
+        description: >-
+          Open (or append to) the latency regression issue even when nothing
+          regressed, so the alert path can be rehearsed without waiting for a
+          real regression.
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -98,6 +106,16 @@ jobs:
             report --output skills-bench.json
         shell: bash
 
+      - name: Assert the report was written
+        # `upload-artifact` is `if-no-files-found: ignore`, and the CLI reports
+        # a failed write on stderr without failing the run, so a lost report
+        # would otherwise leave a green job with nothing attached to it.
+        run: |
+          set -euo pipefail
+          test -s skills-bench.json
+          jq -e '.scales | length > 0' skills-bench.json > /dev/null
+        shell: bash
+
       - name: Upload the benchmark report
         if: always()
         uses: actions/upload-artifact@v7
@@ -112,6 +130,12 @@ jobs:
     # where a change over time is meaningful: main and the weekly schedule.
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Restore the trend series from the previous run of this workflow.
+      actions: read
+      # Open a tracking issue when latency regresses against its baseline.
+      issues: write
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
@@ -139,3 +163,236 @@ jobs:
           name: skills-bench-criterion-report
           path: target/criterion/
           if-no-files-found: ignore
+
+      # --- Trend series and latency regression alerts (PIP-3703) ---
+      #
+      # The series is carried between runs as a workflow artifact rather than
+      # committed to the repository. A weekly `chore:` commit bumping a data
+      # file would be seen as code activity by release-please and start the
+      # self-amplifying release loop, so the file is gitignored and lives here.
+      #
+      # Alerts here never fail the job. They open an issue; that is the whole
+      # contract. Making this a merge gate is exactly what thresholds.rs
+      # refuses to do.
+
+      # The series has to come from a run that actually produced it.
+      #
+      # Taking the most recent successful run does not work. `latency-trend`
+      # is skipped on `pull_request`, and pull requests are the overwhelming
+      # majority of runs in this repository, so "the last successful run" is
+      # usually a PR run that uploaded nothing: the download silently misses,
+      # the history starts empty, one point is recorded, and the next run
+      # resets it again. The window never reaches four and the alert can never
+      # fire — which is invisible, because an empty window is also what a
+      # legitimate warm-up looks like.
+      #
+      # So: walk back through the recent successful runs and take the first
+      # one that carries the artifact.
+      - name: Restore the trend history
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p benchmarks/skills
+
+          # Best-effort throughout: the trend series is derived data, so
+          # failing to restore it costs warm-up time, not correctness.
+          artifact=skills-bench-trend-history
+          scanned=0
+          source=""
+
+          runs=$(gh api \
+            "repos/${{ github.repository }}/actions/workflows/skills-bench.yml/runs?status=success&per_page=20" \
+            --jq '.workflow_runs[].id' 2>/dev/null || echo "")
+
+          for run in $runs; do
+            scanned=$((scanned + 1))
+            if gh api "repos/${{ github.repository }}/actions/runs/$run/artifacts" \
+                --jq ".artifacts[].name" 2>/dev/null | grep -qx "$artifact"; then
+              source="$run"
+              break
+            fi
+          done
+
+          if [ -z "$source" ]; then
+            # Expected exactly once: before the first non-PR run of this
+            # workflow has completed. Twice in a row means the series is not
+            # being carried and the baseline window will never fill.
+            echo "::warning::no recent successful run carries the $artifact artifact "\
+                 "(scanned $scanned); starting a new trend series"
+          else
+            echo "restoring the trend series from run $source (scanned $scanned)"
+            # Download into a scratch directory and locate the file: how much
+            # of the uploaded path the artifact preserves is an implementation
+            # detail of upload-artifact, and guessing wrong leaves the history
+            # silently empty.
+            scratch=$(mktemp -d)
+            if gh run download "$source" -n "$artifact" -D "$scratch"; then
+              found=$(find "$scratch" -name trend-history.json -print -quit)
+              if [ -n "$found" ]; then
+                mv "$found" benchmarks/skills/trend-history.json
+              else
+                echo "::warning::run $source has no trend-history.json inside $artifact"
+              fi
+            else
+              echo "::warning::downloading $artifact from run $source failed"
+            fi
+            rm -rf "$scratch"
+          fi
+
+          if [ -f benchmarks/skills/trend-history.json ]; then
+            restored=$(jq '.points | length' benchmarks/skills/trend-history.json 2>/dev/null || echo "?")
+            echo "restored $restored trend points"
+          fi
+        shell: bash
+
+      # Records one point across all three dimensions, compares latency p95
+      # against the rolling median of the last four runs on the same corpus,
+      # and writes the alerts as data. Prints the human-readable trend to the
+      # job log as well as to the file.
+      - name: Record the three-dimension trend point
+        run: |
+          cargo run --locked --release -q -p dcc-mcp-skills-bench --bin skills-bench -- \
+            report \
+            --output skills-bench-trend.json \
+            --trend-history benchmarks/skills/trend-history.json \
+            --trend-report skills-bench-trend.md \
+            --trend-alerts skills-bench-alerts.json
+        shell: bash
+
+      # The one place to read all three dimensions together, so a periodic
+      # review does not mean opening three different workflow runs.
+      - name: Publish the trend to the job summary
+        run: cat skills-bench-trend.md >> "$GITHUB_STEP_SUMMARY"
+        shell: bash
+
+      - name: Upload the trend series
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: skills-bench-trend-history
+          path: benchmarks/skills/trend-history.json
+          if-no-files-found: ignore
+
+      - name: Assert the trend outputs were written
+        # Same reasoning as the report assertion above: the trend is the unit's
+        # deliverable, and `if-no-files-found: ignore` would hide its loss.
+        # Failing here does not make latency a merge gate — this job does not
+        # run on pull requests at all.
+        run: |
+          set -euo pipefail
+          test -s skills-bench-trend.md
+          test -s skills-bench-trend.json
+          test -s skills-bench-alerts.json
+          test -s benchmarks/skills/trend-history.json
+        shell: bash
+
+      - name: Upload the trend report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: skills-bench-trend-report
+          path: |
+            skills-bench-trend.md
+            skills-bench-trend.json
+            skills-bench-alerts.json
+          if-no-files-found: ignore
+
+      - name: Open an issue when latency regresses
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXERCISE: ${{ github.event.inputs.exercise_alert_path }}
+        run: |
+          set -euo pipefail
+          # No alerts file means the step above did not get far enough to
+          # measure anything. That is not a regression, so it is not reported.
+          [ -f skills-bench-alerts.json ] || {
+            echo "no alerts file was produced"
+            exit 0
+          }
+          count=$(jq '.alerts | length' skills-bench-alerts.json)
+
+          rehearsal=false
+          if [ "$count" -eq 0 ] && [ "$EXERCISE" = "true" ]; then
+            # The alert path only runs on a real regression, which is exactly
+            # the one state that cannot be arranged on demand. A manual
+            # dispatch with `exercise_alert_path` walks it end to end with a
+            # synthetic alert, so it is not first exercised by the regression
+            # it was built to catch.
+            rehearsal=true
+            count=1
+            cat > skills-bench-alerts.json <<'JSON'
+          {
+            "baseline_ready": true,
+            "baseline_points": 4,
+            "baseline_window": 4,
+            "regression_ratio": 0.5,
+            "alerts": [
+              {
+                "group": "dcc_filtered/all",
+                "current_p95_us": 1500000,
+                "baseline_p95_us": 1000000,
+                "baseline_min_us": 950000,
+                "baseline_max_us": 1100000,
+                "ratio": 0.5,
+                "note": "synthetic: the alert path is being rehearsed"
+              }
+            ]
+          }
+          JSON
+          fi
+
+          if [ "$count" -eq 0 ]; then
+            echo "no latency regression against the rolling baseline"
+            exit 0
+          fi
+
+          label="skills-bench-latency-regression"
+          gh label create "$label" --color d93f0b \
+            --description "Skills benchmark query latency regressed against its rolling baseline" \
+            2>/dev/null || true
+
+          {
+            if [ "$rehearsal" = "true" ]; then
+              echo "> **Rehearsal.** No regression was measured. This issue was opened by a"
+              echo "> manual \`workflow_dispatch\` run with \`exercise_alert_path\` to walk the"
+              echo "> alert path end to end. Close it and drop the label once read."
+              echo
+            fi
+            echo "The skills benchmark measured query latency p95 more than 50% above the"
+            echo "rolling median of the previous four runs **on the same corpus**."
+            echo
+            echo "This is **not** a merge gate. Latency is deliberately not gated because CI"
+            echo "hardware alone can move it by a factor of two; see"
+            echo "\`crates/dcc-mcp-skills-bench/src/thresholds.rs\`. The job that raised this"
+            echo "passed. The point of the issue is that a human is now told."
+            echo
+            echo "Read the \`baseline_min_us\`–\`baseline_max_us\` band in the payload below"
+            echo "before acting: the ratio is only meaningful next to the spread of the"
+            echo "runs it is measured against."
+            echo
+            echo '```json'
+            cat skills-bench-alerts.json
+            echo '```'
+            echo
+            echo "Trend report and full series: [run ${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+          } > alert-body.md
+
+          # One open issue at a time: a weekly cron that opens a new issue
+          # every week is noise, and noise is how alerts get ignored.
+          existing=$(gh issue list --label "$label" --state open --limit 1 \
+            --json number --jq '.[0].number')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body-file alert-body.md
+            echo "appended to the open regression issue #$existing"
+          else
+            title="Skills benchmark: query latency regressed against its rolling baseline"
+            if [ "$rehearsal" = "true" ]; then
+              title="[rehearsal] $title"
+            fi
+            gh issue create \
+              --title "$title" \
+              --label "$label" \
+              --body-file alert-body.md
+          fi
+        shell: bash

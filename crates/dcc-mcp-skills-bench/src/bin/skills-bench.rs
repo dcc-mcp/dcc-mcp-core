@@ -1,12 +1,16 @@
-//! Skills benchmark CLI (PIP-3408).
+//! Skills benchmark CLI (PIP-3408, PIP-3703).
+
+use std::path::PathBuf;
 
 use dcc_mcp_skills_bench::corpus::{SCALE_300, SCALE_1000};
-use dcc_mcp_skills_bench::{adapters, context, recall, run, seeds};
+use dcc_mcp_skills_bench::{Corpus, adapters, context, recall, run, seeds, trend};
 
 fn main() {
     let Some(command) = std::env::args().nth(1) else {
         eprintln!(
-            "usage: skills-bench <report [--json] [--output <path>]|regenerate-seeds|harvest-adapters>"
+            "usage: skills-bench <report [--json] [--output <path>] \
+             [--trend-history <path>] [--trend-report <path>] [--trend-alerts <path>]|\
+             regenerate-seeds|harvest-adapters>"
         );
         std::process::exit(2);
     };
@@ -79,47 +83,95 @@ fn regenerate_seeds() {
     }
 }
 
+/// Look up a `--flag <value>` pair, so flag order does not matter.
+fn flag_value(args: &[String], name: &str) -> Option<PathBuf> {
+    args.windows(2)
+        .find(|pair| pair[0] == name)
+        .map(|pair| PathBuf::from(&pair[1]))
+}
+
+/// Write `text` to `path`, reporting a failure without aborting the run.
+///
+/// Every file this CLI emits is derived data; none of them are worth losing
+/// the measurement over.
+fn write_text(path: &PathBuf, text: &str) {
+    if let Err(error) = std::fs::write(path, text) {
+        eprintln!("failed to write {}: {error}", path.display());
+    }
+}
+
 fn report() {
     let args: Vec<String> = std::env::args().collect();
     let json = args.iter().any(|arg| arg == "--json");
     // `--output <path>` always writes JSON, whatever the console format is.
-    let output = args
-        .windows(2)
-        .find(|pair| pair[0] == "--output")
-        .map(|pair| pair[1].clone());
+    let output = flag_value(&args, "--output");
+    let history_path = flag_value(&args, "--trend-history");
+    let trend_report_path = flag_value(&args, "--trend-report");
+    let alerts_path = flag_value(&args, "--trend-alerts");
 
     let seeds = seeds::all_seeds();
     let coverage = recall::RecallCoverage::measure(&seeds);
 
-    let evaluations: Vec<_> = [SCALE_300, SCALE_1000]
-        .into_iter()
-        .map(|scale| {
-            let corpus = dcc_mcp_skills_bench::Corpus::build(scale);
-            run::evaluate(&corpus)
-        })
-        .collect();
+    let corpus_300 = Corpus::build(SCALE_300);
+    let corpus_1000 = Corpus::build(SCALE_1000);
+    let evaluations = vec![run::evaluate(&corpus_300), run::evaluate(&corpus_1000)];
     let curve = context::scan();
 
-    if let Some(path) = &output {
-        let text = serde_json::to_string_pretty(&dcc_mcp_skills_bench::report::render_json(
-            &evaluations,
-            &curve,
-            &coverage,
-        ))
-        .expect("report is serialisable");
-        if let Err(error) = std::fs::write(path, format!("{text}\n")) {
-            eprintln!("failed to write {path}: {error}");
-            std::process::exit(1);
+    // The trend point is recorded against the gated 300-skill corpus: that is
+    // the only scale the latency baseline is tracked at, because a baseline
+    // over the 1000-skill corpus would measure filler vocabulary.
+    let mut history = history_path
+        .as_ref()
+        .map(|path| (path, trend::TrendHistory::load(path)));
+
+    let trend_report = match &mut history {
+        Some((path, history)) => {
+            let point = trend::TrendPoint::record(&corpus_300, &evaluations, &curve);
+            let report = trend::compare(history, &point);
+
+            // Rendered before the point is pushed, so "recent runs" reads as a
+            // list of predecessors with the current run on top, rather than
+            // showing the current run twice.
+            if let Some(report_path) = &trend_report_path {
+                let text = trend::render_trend_markdown(history, &point, &report);
+                write_text(report_path, &text);
+                if !json {
+                    println!("{text}");
+                }
+            }
+
+            history.push(point);
+            if let Some(error_path) = history.save(path).err() {
+                eprintln!(
+                    "failed to write the trend history to {}: {error_path}",
+                    path.display()
+                );
+            }
+            Some(report)
         }
+        None => None,
+    };
+
+    if let Some(path) = &output {
+        let text =
+            serde_json::to_string_pretty(&dcc_mcp_skills_bench::report::render_json_with_trend(
+                &evaluations,
+                &curve,
+                &coverage,
+                trend_report.as_ref(),
+            ))
+            .expect("report is serialisable");
+        write_text(path, &format!("{text}\n"));
     }
 
     if json {
         println!(
             "{}",
-            serde_json::to_string_pretty(&dcc_mcp_skills_bench::report::render_json(
+            serde_json::to_string_pretty(&dcc_mcp_skills_bench::report::render_json_with_trend(
                 &evaluations,
                 &curve,
-                &coverage
+                &coverage,
+                trend_report.as_ref(),
             ))
             .expect("report is serialisable")
         );
@@ -128,6 +180,32 @@ fn report() {
             "{}",
             dcc_mcp_skills_bench::report::render_text(&evaluations, &curve, &coverage)
         );
+    }
+
+    // Alerts are surfaced, never enforced. `::warning` puts them in the GitHub
+    // job UI where a human will see them; the exit code below stays reserved
+    // for the hit-rate gate, which is the only gate this crate has.
+    if let Some(report) = &trend_report {
+        for alert in &report.alerts {
+            let ratio = alert.ratio.unwrap_or(0.0) * 100.0;
+            let baseline = alert
+                .baseline_p95_us
+                .map_or_else(|| "none".to_string(), |us| format!("{us}us"));
+            eprintln!(
+                "::warning::skills benchmark latency regression in {}: p95 {}us vs \
+                 rolling median {} ({:+.1}%, alert at {:+.0}%)",
+                alert.group,
+                alert.current_p95_us,
+                baseline,
+                ratio,
+                trend::LATENCY_REGRESSION_RATIO * 100.0
+            );
+        }
+        if let Some(path) = &alerts_path {
+            let text = serde_json::to_string_pretty(&trend::render_alerts_json(report))
+                .expect("alerts are serialisable");
+            write_text(path, &format!("{text}\n"));
+        }
     }
 
     if !dcc_mcp_skills_bench::report::gate_passes(
