@@ -1,0 +1,15 @@
+name: Repo contract
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    uses: dcc-mcp/.github/.github/workflows/repo-contract.yml@main
+    with:
+      profile: baseline
