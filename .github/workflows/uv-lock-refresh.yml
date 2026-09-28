@@ -98,7 +98,7 @@ jobs:
     timeout-minutes: 30
     # A failed or cancelled release run publishes nothing, so there is no new
     # version for the pins to track.
-    if: github.event_name != 'workflow_run' or github.event.workflow_run.conclusion == 'success'
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     steps:
       - name: Checkout main
         uses: actions/checkout@v6
