@@ -27,9 +27,9 @@ submit a PR updating this matrix before the release PR merges.
 | Kdenlive | [dcc-mcp-kdenlive](https://github.com/dcc-mcp/dcc-mcp-kdenlive) | 0.1.0 | >=0.20.28,<1.0.0 | 26.08.1 verified | Copy-on-write MLT project tools, core async render jobs, shared DCC-CUA UI Control | 2026-09 |
 | Maya | [dcc-mcp-maya](https://github.com/dcc-mcp/dcc-mcp-maya) | 0.9.22 | >=0.19.45,<1.0.0 | 2024+ | Qt sidecar + HostUiDispatcherBase | 2026-08 |
 | Marmoset Toolbag | [dcc-mcp-marmoset](https://github.com/dcc-mcp/dcc-mcp-marmoset) | 0.1.1 | >=0.19.86,<1.0.0 | 4.03+ | External sidecar + Toolbag periodic callback | 2026-07 |
-| OpenSCAD | [dcc-mcp-openscad](https://github.com/dcc-mcp/dcc-mcp-openscad) | 0.1.2 | >=0.19.91,<1.0.0 | 2021.01+ | External OpenSCAD CLI subprocess | 2026-08 |
-| FreeCAD | [dcc-mcp-freecad](https://github.com/dcc-mcp/dcc-mcp-freecad) | 0.1.2 | >=0.19.91,<1.0.0 | 1.0+ | External FreeCADCmd subprocess | 2026-08 |
-| Cinema 4D | [dcc-mcp-cinema4d](https://github.com/dcc-mcp/dcc-mcp-cinema4d) | 0.1.3 | >=0.19.91,<1.0.0 | R21+ | External headless c4dpy subprocess | 2026-08 |
+| OpenSCAD | [dcc-mcp-openscad](https://github.com/dcc-mcp/dcc-mcp-openscad) | 0.2.1 | >=0.20.36,<1.0.0 | 2021.01+ | External OpenSCAD CLI subprocess | 2026-08 |
+| FreeCAD | [dcc-mcp-freecad](https://github.com/dcc-mcp/dcc-mcp-freecad) | 0.3.0 | >=0.20.36,<1.0.0 | 1.0+ | External FreeCADCmd subprocess | 2026-08 |
+| Cinema 4D | [dcc-mcp-cinema4d](https://github.com/dcc-mcp/dcc-mcp-cinema4d) | 0.2.0 | >=0.20.36,<1.0.0 | R21+ | External headless c4dpy subprocess | 2026-08 |
 | ComfyUI | [dcc-mcp-comfyui](https://github.com/dcc-mcp/dcc-mcp-comfyui) | 0.1.1 | >=0.19.91,<1.0.0 | 0.31+ | 17 typed workflow, catalog, queue, and artifact tools over the local REST bridge | 2026-08 |
 | Shogun | [dcc-mcp-shogun](https://github.com/dcc-mcp/dcc-mcp-shogun) | 0.10.0 | >=0.19.86,<1.0.0 | Vicon Shogun Post 1.19+ | 67 typed Scene, channel, camera, file, Timeline, editing, production-context, pipeline-context, and Offline tools; SDK-dependent surfaces remain capability-gated | 2026-08 |
 | Mari | [dcc-mcp-mari](https://github.com/dcc-mcp/dcc-mcp-mari) | 0.2.1 | >=0.19.91,<1.0.0 | 5.0+ | Authenticated loopback sidecar + Qt UI timer | 2026-08 |
@@ -47,7 +47,7 @@ submit a PR updating this matrix before the release PR merges.
 | Illustrator | [dcc-mcp-illustrator](https://github.com/dcc-mcp/dcc-mcp-illustrator) | 0.2.0 | >=0.19.91,<1.0.0 | — | Authenticated CEP bridge + broker | 2026-08 |
 | GIMP | [dcc-mcp-gimp](https://github.com/dcc-mcp/dcc-mcp-gimp) | 0.3.0 | >=0.19.38,<1.0.0 | 3.0+ | Authenticated JSON-lines bridge + GLib main-thread dispatcher | — |
 | Krita | [dcc-mcp-krita](https://github.com/dcc-mcp/dcc-mcp-krita) | 0.3.0 | >=0.19.38,<1.0.0 | — | Authenticated JSON-lines bridge + UI main-thread queue | — |
-| SketchUp | [dcc-mcp-sketchup](https://github.com/dcc-mcp/dcc-mcp-sketchup) | 0.1.0 | >=0.19.91,<1.0.0 | 2021+ | Authenticated Ruby main-thread bridge + sidecar | 2026-08 |
+| SketchUp | [dcc-mcp-sketchup](https://github.com/dcc-mcp/dcc-mcp-sketchup) | 0.2.0 | >=0.20.36,<1.0.0 | 2021+ | Authenticated Ruby main-thread bridge + sidecar | 2026-08 |
 | TouchDesigner | [dcc-mcp-touchdesigner](https://github.com/dcc-mcp/dcc-mcp-touchdesigner) | 0.1.1 | >=0.19.91,<1.0.0 | 2025 official build | 19 typed operator graph, parameter, DAT, timeline, capture, and project tools through the in-process HTTP runtime + `td.run()` main-thread dispatcher | 2026-08 |
 | Tiled | [dcc-mcp-tiled](https://github.com/dcc-mcp/dcc-mcp-tiled) | 0.3.0 | >=0.19.38,<1.0.0 | 1.10+ | Standalone service + fixed JavaScript driver through `tiled --evaluate` | 2026-08 |
 | Material Maker | [dcc-mcp-material-maker](https://github.com/dcc-mcp/dcc-mcp-material-maker) | 0.3.1 | >=0.19.38,<1.0.0 | 1.7 | Standalone `.ptex` parser + native CLI exporter | 2026-08 |

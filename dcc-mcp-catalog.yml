@@ -453,14 +453,14 @@ entries:
     url: "https://github.com/dcc-mcp/dcc-mcp-openscad"
     issues_url: "https://github.com/dcc-mcp/dcc-mcp-openscad/issues"
     tags: ["adapter", "openscad", "official", "pip", "cad", "modeling"]
-    version: "0.1.2"
-    min_core_version: "0.19.91"
+    version: "0.2.1"
+    min_core_version: "0.20.36"
     maintainer: "dcc-mcp"
     install:
       type: pip
       pip_package: "dcc-mcp-openscad"
-      url: "https://files.pythonhosted.org/packages/73/dc/d32e4116781858eea2f3d802f3a2d07f986de01bcbe8e7474dfbb2173e30/dcc_mcp_openscad-0.1.2-py3-none-any.whl"
-      sha256: "c1345969b62f4f6fd457c0caf5a20a3776afa8a26365e096054334758036927b"
+      url: "https://files.pythonhosted.org/packages/ce/0e/3bcb11f2ebeab949859be9f68fa0391dae8fcbbfa89f14c946190522ecdb/dcc_mcp_openscad-0.2.1-py3-none-any.whl"
+      sha256: "ef2ddb3d458fd693581071670165b13d35974e89bb45d78b5c02358d57459354"
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-openscad/main/README.md"
 
   - name: "dcc-mcp-freecad"
@@ -469,14 +469,14 @@ entries:
     url: "https://github.com/dcc-mcp/dcc-mcp-freecad"
     issues_url: "https://github.com/dcc-mcp/dcc-mcp-freecad/issues"
     tags: ["adapter", "freecad", "official", "pip", "cad", "parametric-modeling"]
-    version: "0.1.2"
-    min_core_version: "0.19.91"
+    version: "0.3.0"
+    min_core_version: "0.20.36"
     maintainer: "dcc-mcp"
     install:
       type: pip
       pip_package: "dcc-mcp-freecad"
-      url: "https://files.pythonhosted.org/packages/7e/9f/5ae064ce1aca90fded4240e27f19b6fd0116d4f7eda0c2e5c2d55d286155/dcc_mcp_freecad-0.1.2-py3-none-any.whl"
-      sha256: "b039012cd6be9ce52ed0bd64b1a9f00a87add9115b61474d17b8a93a51e2f978"
+      url: "https://files.pythonhosted.org/packages/3e/d4/54b4786c85a692e429a53f941145a406fb1d8444c4f85fa039469b196d76/dcc_mcp_freecad-0.3.0-py3-none-any.whl"
+      sha256: "bfd21e4e7d1cd12076f4a93f65396b742e4c563e24c8b208a8663d9fc1e4f59f"
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-freecad/main/README.md"
 
   - name: "dcc-mcp-cinema4d"
@@ -485,14 +485,14 @@ entries:
     url: "https://github.com/dcc-mcp/dcc-mcp-cinema4d"
     issues_url: "https://github.com/dcc-mcp/dcc-mcp-cinema4d/issues"
     tags: ["adapter", "cinema4d", "cinema-4d", "official", "pip", "modeling", "rendering"]
-    version: "0.1.3"
-    min_core_version: "0.19.91"
+    version: "0.2.0"
+    min_core_version: "0.20.36"
     maintainer: "dcc-mcp"
     install:
       type: pip
       pip_package: "dcc-mcp-cinema4d"
-      url: "https://files.pythonhosted.org/packages/d4/27/ddcdf195531048af08ab2c3aa6d456b20d712277c518bc405121ba94ab7d/dcc_mcp_cinema4d-0.1.3-py3-none-any.whl"
-      sha256: "6038f3584f7f5c3cd8d3d051bb9308c6c9381ca021c1f04951cca29c334374f9"
+      url: "https://files.pythonhosted.org/packages/10/de/c615676821de491c2effab9ca96286f89c4757b333fbebafdf5856006eec/dcc_mcp_cinema4d-0.2.0-py3-none-any.whl"
+      sha256: "e0874e4da7ce05c08c857d1e9dfa173ab808e3be71d1ec766f566881f18b5afc"
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-cinema4d/main/README.md"
 
   - name: "dcc-mcp-comfyui"
@@ -534,14 +534,14 @@ entries:
     url: "https://github.com/dcc-mcp/dcc-mcp-sketchup"
     issues_url: "https://github.com/dcc-mcp/dcc-mcp-sketchup/issues"
     tags: ["adapter", "sketchup", "official", "pip", "ruby", "modeling", "interchange"]
-    version: "0.1.0"
-    min_core_version: "0.19.91"
+    version: "0.2.0"
+    min_core_version: "0.20.36"
     maintainer: "dcc-mcp"
     install:
       type: pip
       pip_package: "dcc-mcp-sketchup"
-      url: "https://files.pythonhosted.org/packages/34/53/a3035083471a1b5692754b1c0a027a5cd951bc2640980baaac132e0e0262/dcc_mcp_sketchup-0.1.0-py3-none-any.whl"
-      sha256: "22a2fc8a502109be756e1c8f5eb673499f1c92e401e08b411019293f607aa375"
+      url: "https://files.pythonhosted.org/packages/54/ed/b9e2435bfcb72565931b76f34720901e7e682c6b44a5e85126bf318a4a64/dcc_mcp_sketchup-0.2.0-py3-none-any.whl"
+      sha256: "b4bffc71df94c493e5797fc2cdc859b1ba7b2c3532d6eb8011dbc494102cdb4e"
       entry_point: "dcc_mcp_sketchup.server:main"
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-sketchup/main/README.md"
 
