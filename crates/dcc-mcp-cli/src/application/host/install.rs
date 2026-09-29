@@ -924,20 +924,74 @@ mod tests {
 
     /// P1-C, the exact shape of the official archive.
     ///
-    /// `blender-5.1.1-linux-x64.tar.xz` contains 77 symlinks whose targets are
-    /// archive-root-relative and repeat the stripped top-level directory, e.g.
-    /// `blender-5.1.1-linux-x64/lib/libIex.so.33.3.4.3`
-    ///   -> `blender-5.1.1-linux-x64/lib/libIex.so.33`
-    /// A blanket link ban rejected every one of them, so the Linux channel
-    /// could never install. These resolve inside the destination, so they are
-    /// permitted.
+    /// `blender-5.1.1-linux-x64.tar.xz` contains 77 symlinks. Each is the short
+    /// soname pointing at the versioned file beside it, e.g.
+    /// `lib/libIex.so.33 -> libIex.so.33.3.4.3`, and every target is a bare
+    /// filename rather than an archive-root-relative path.
+    /// A blanket link ban rejected all 77, so the Linux channel could never
+    /// install. They are now permitted because they resolve inside the
+    /// destination.
     ///
-    /// Note: the target is stored verbatim, so after `strip_components` these
-    /// entries point at the pre-strip path and dangle. They are compatibility
-    /// aliases for shared libraries; the real `.so` files extract as regular
-    /// files and the Blender binary itself is unaffected.
+    /// `strip_components` shifts each link and its target by the same amount, so
+    /// the two stay siblings and all 77 still resolve after the strip: 0 dangle.
+    /// The soname aliases are what the dynamic linker needs for `DT_NEEDED`, so a
+    /// tarball install is a working Blender, not a degraded one.
     #[test]
-    fn root_relative_symlinks_like_the_official_archive_are_allowed() {
+    fn soname_symlinks_like_the_official_archive_are_allowed() {
+        let staging = tempfile::tempdir().unwrap();
+        let destination = staging.path().join("out");
+        std::fs::create_dir_all(&destination).unwrap();
+
+        let mut builder = tar::Builder::new(Vec::new());
+
+        let payload = b"real-library".to_vec();
+        let mut header = tar::Header::new_gnu();
+        header.set_size(payload.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        builder
+            .append_data(
+                &mut header,
+                "blender-5.1.1-linux-x64/lib/libIex.so.33.3.4.3",
+                payload.as_slice(),
+            )
+            .unwrap();
+
+        let mut link = tar::Header::new_gnu();
+        link.set_entry_type(tar::EntryType::Symlink);
+        link.set_size(0);
+        link.set_mode(0o777);
+        link.set_cksum();
+        builder
+            .append_link(
+                &mut link,
+                "blender-5.1.1-linux-x64/lib/libIex.so.33",
+                "libIex.so.33.3.4.3",
+            )
+            .unwrap();
+
+        let tar_bytes = builder.into_inner().unwrap();
+        unpack(&tar_bytes, &destination, 1).unwrap();
+        assert!(
+            destination.join("lib/libIex.so.33.3.4.3").is_file(),
+            "the versioned library must extract"
+        );
+        // What the channel needs is that unpack accepts the archive at all.
+        // Whether the soname alias itself materialises is platform-dependent:
+        // creating one requires developer mode or admin on Windows, where tar
+        // skips it silently. Asserting on the entry existing would fail there
+        // for a reason unrelated to the containment rule under test.
+    }
+
+    /// A link whose target repeats the stripped top-level directory.
+    ///
+    /// Not a shape the official archive uses: its 77 links target a bare
+    /// sibling filename. This is the containment boundary case for a target
+    /// that stays inside the destination but points at the pre-strip path, so
+    /// it dangles after `strip_components`. What this module enforces is
+    /// containment, not reachability, so the entry is accepted.
+    #[test]
+    fn links_whose_target_repeats_the_stripped_prefix_are_allowed() {
         let staging = tempfile::tempdir().unwrap();
         let destination = staging.path().join("out");
         std::fs::create_dir_all(&destination).unwrap();
@@ -976,11 +1030,6 @@ mod tests {
             destination.join("lib/libIex.so.33").is_file(),
             "the real library must extract"
         );
-        // What the channel needs is that unpack accepts the archive at all.
-        // Whether the symlink itself materialises is platform-dependent:
-        // creating one requires developer mode or admin on Windows, where tar
-        // skips it silently. Asserting on the entry existing would fail there
-        // for a reason unrelated to the containment rule under test.
     }
 
     /// A symlink whose target escapes the destination is still rejected.

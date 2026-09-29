@@ -777,6 +777,15 @@ hosts:
         assert!(is_below_minimum(Some("5.1"), "4.9.9"));
         assert!(!is_below_minimum(Some("5.1"), "5.1"));
         assert!(!is_below_minimum(Some("5.1"), "5.10"));
+        // The two vectors that actually discriminate numeric from lexical
+        // comparison. `5.1` vs `5.10` above passes either way, because "5.1"
+        // is a prefix of "5.10"; both of these flip under a lexical compare:
+        // "5.9" > "5.10" lexically, so a string compare would let 5.9 through,
+        // and "5.10" < "5.2" lexically, so it would reject a good 5.10. The
+        // floor is what keeps every Blender at 5.1 or above, so it needs to
+        // survive both.
+        assert!(is_below_minimum(Some("5.10"), "5.9"));
+        assert!(!is_below_minimum(Some("5.2"), "5.10"));
         // No minimum declared: nothing to enforce.
         assert!(!is_below_minimum(None, "0.0.1"));
         // An unparsable candidate cannot be judged, so it is not blocked here;
