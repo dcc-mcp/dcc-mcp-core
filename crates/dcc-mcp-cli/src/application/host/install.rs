@@ -743,13 +743,16 @@ mod tests {
             return;
         }
         let def = def_with(InstallChannel::Winget {
-            id: Some("Blender.Blender".to_string()),
+            id: Some("BlenderFoundation.Blender".to_string()),
             extra_args: Vec::new(),
         });
         let (name, argv) = plan_command(&def, "5.1.1").unwrap();
         assert_eq!(name, "winget");
         assert_eq!(argv[0], "winget");
-        assert!(argv.windows(2).any(|w| w == ["--id", "Blender.Blender"]));
+        assert!(
+            argv.windows(2)
+                .any(|w| w == ["--id", "BlenderFoundation.Blender"])
+        );
         assert!(argv.windows(2).any(|w| w == ["--version", "5.1.1"]));
         // The operator consented through the CLI gate, so the channel must run
         // without a second interactive prompt.
@@ -774,7 +777,7 @@ mod tests {
     #[test]
     fn install_refuses_a_version_that_is_not_pinned() {
         let def = def_with(InstallChannel::Winget {
-            id: Some("Blender.Blender".to_string()),
+            id: Some("BlenderFoundation.Blender".to_string()),
             extra_args: Vec::new(),
         });
         // The manifest pin is the only installable version: installing an
