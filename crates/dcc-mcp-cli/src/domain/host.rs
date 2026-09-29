@@ -314,6 +314,8 @@ impl fmt::Display for HostSpecError {
     }
 }
 
+impl std::error::Error for HostSpecError {}
+
 /// Split `id[op version]` into its three parts.
 fn split_operator(
     spec: &str,

@@ -13,7 +13,9 @@
 //! project. A proposition runner needs "can I start?" not "does it work?", and
 //! a probe that opened Blender would cost seconds per proposition.
 
+pub mod consent;
 pub mod detect;
+pub mod install;
 pub mod manifest;
 
 use std::path::{Path, PathBuf};
@@ -57,6 +59,59 @@ pub struct HostProbe {
     pub sources_checked: Vec<String>,
     /// Operator-facing next step.
     pub hint: String,
+    /// A non-fatal observation the operator should still see.
+    ///
+    /// Set when a probe succeeded through one source while a more specific
+    /// source was rejected. The operator set the override deliberately, so
+    /// silently proceeding from PATH hides the setting that is actually wrong.
+    pub warning: Option<String>,
+}
+
+/// The result of asking one candidate executable for its version.
+struct CandidateProbe {
+    candidate: Candidate,
+    /// `Ok(None)` means the manifest declares no version query, not failure.
+    outcome: Result<Option<semver::Version>, detect::VersionQueryError>,
+    version: Option<semver::Version>,
+    status: HostStatus,
+}
+
+/// Ask one candidate for its version and grade it against `gate`.
+///
+/// Used by the threshold-aware scan so a candidate that cannot clear the gate
+/// does not stop the search.
+fn probe_candidate(
+    def: &HostDefinition,
+    candidate: &Candidate,
+    gate: &VersionGate,
+) -> CandidateProbe {
+    match query_version(&candidate.path, &def.version_arg) {
+        Ok(Some(version)) => {
+            let status = if gate.satisfied_by(&version) {
+                HostStatus::Available
+            } else {
+                HostStatus::VersionMismatch
+            };
+            CandidateProbe {
+                candidate: candidate.clone(),
+                outcome: Ok(Some(version.clone())),
+                version: Some(version),
+                status,
+            }
+        }
+        Ok(None) => CandidateProbe {
+            candidate: candidate.clone(),
+            outcome: Ok(None),
+            version: None,
+            status: HostStatus::Available,
+        },
+        Err(error) => CandidateProbe {
+            candidate: candidate.clone(),
+            outcome: Err(error),
+            version: None,
+            status: HostStatus::VersionUnknown,
+        },
+    }
 }
 
 /// Probe every requested spec, or every known host when `specs` is empty.
@@ -137,6 +192,222 @@ pub struct ProvisionQuery {
     pub channel_available: bool,
 }
 
+/// The installable version for a host: the pinned manifest version, unless the
+/// spec pins a different one that happens to match.
+#[must_use]
+pub fn installable_version(def: &HostDefinition) -> Option<&str> {
+    def.pinned_version.as_deref()
+}
+
+/// Why an install did not happen.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InstallOutcome {
+    /// The host already satisfies the requested version; nothing was done.
+    AlreadySatisfied { id: String, version: Option<String> },
+    /// The channel ran and the host now probes as available.
+    Installed {
+        id: String,
+        version: Option<String>,
+        channel: String,
+    },
+    /// The channel ran but the host still does not probe as available.
+    Unverified {
+        id: String,
+        channel: String,
+        detail: String,
+    },
+    /// The host must not be installed by this CLI.
+    Refused {
+        id: String,
+        display_name: String,
+        refusal: ProvisionRefusal,
+    },
+    /// Consent was not granted.
+    ConsentRequired {
+        id: String,
+        reason: consent::ConsentRefusal,
+    },
+    /// The channel failed.
+    Failed {
+        id: String,
+        error: install::InstallError,
+    },
+}
+
+/// Render an install outcome for the CLI.
+#[must_use]
+pub fn install_value(outcome: &InstallOutcome) -> Value {
+    match outcome {
+        InstallOutcome::AlreadySatisfied { id, version } => json!({
+            "id": id,
+            "status": "already_satisfied",
+            "version": version,
+            "installed": false,
+        }),
+        InstallOutcome::Installed {
+            id,
+            version,
+            channel,
+        } => json!({
+            "id": id,
+            "status": "installed",
+            "version": version,
+            "channel": channel,
+            "installed": true,
+        }),
+        InstallOutcome::Unverified {
+            id,
+            channel,
+            detail,
+        } => json!({
+            "id": id,
+            "status": "unverified",
+            "channel": channel,
+            "installed": true,
+            "detail": detail,
+            "hint": "The channel finished but the host does not probe as available. Check the channel output, then re-run `host doctor`.",
+        }),
+        InstallOutcome::Refused {
+            id,
+            display_name,
+            refusal,
+        } => json!({
+            "id": id,
+            "status": "refused",
+            "reason": refusal,
+            "installed": false,
+            "hint": refusal_message(display_name, *refusal),
+        }),
+        InstallOutcome::ConsentRequired { id, reason } => json!({
+            "id": id,
+            "status": "consent_required",
+            "reason": reason,
+            "installed": false,
+            "hint": consent::refusal_message(*reason),
+        }),
+        InstallOutcome::Failed { id, error } => json!({
+            "id": id,
+            "status": "failed",
+            "installed": false,
+            "error": error.to_string(),
+        }),
+    }
+}
+
+/// Whether the outcome should exit non-zero.
+///
+/// A channel reporting success is not evidence that the host is usable; only a
+/// probe is. An unverified install is therefore a failure, so a pipeline that
+/// chains `host install && blender -b ...` stops instead of running on a host
+/// that was never actually installed.
+#[must_use]
+pub fn install_failed(outcome: &InstallOutcome) -> bool {
+    !matches!(
+        outcome,
+        InstallOutcome::AlreadySatisfied { .. } | InstallOutcome::Installed { .. }
+    )
+}
+
+/// Re-grade an installed outcome against the post-install probe.
+///
+/// Downgrades `Installed` to `Unverified` when the host still does not probe as
+/// available. This is the only producer of that variant, which is the point:
+/// the channel's word is not taken for the host's presence.
+#[must_use]
+pub fn verify_install(outcome: InstallOutcome, verified: bool) -> InstallOutcome {
+    match outcome {
+        InstallOutcome::Installed {
+            id,
+            version: _,
+            channel,
+        } if !verified => InstallOutcome::Unverified {
+            detail: format!("{id} was installed but does not probe as available"),
+            id,
+            channel,
+        },
+        other => other,
+    }
+}
+
+/// Run the provisioning flow, stopping at the first gate that fails.
+///
+/// The gates run in a fixed order on purpose: the commercial-host refusal
+/// comes before the consent prompt, so a licence-gated host is never one
+/// Enter press away from being installed.
+pub fn provision(def: &HostDefinition, request: &ProvisionRequest) -> InstallOutcome {
+    if let Some(refusal) = provision_decision(
+        def,
+        ProvisionQuery {
+            channel_available: def.install_channel_for_current().is_some(),
+        },
+    ) {
+        return InstallOutcome::Refused {
+            id: def.id.clone(),
+            display_name: def.display_name.clone(),
+            refusal,
+        };
+    }
+
+    let Some(version) = installable_version(def) else {
+        return InstallOutcome::Refused {
+            id: def.id.clone(),
+            display_name: def.display_name.clone(),
+            refusal: ProvisionRefusal::NoPinnedVersion,
+        };
+    };
+
+    if let Some(current) = request.current_version.as_deref()
+        && request.current_available
+    {
+        return InstallOutcome::AlreadySatisfied {
+            id: def.id.clone(),
+            version: Some(current.to_string()),
+        };
+    }
+
+    match request.consent {
+        consent::ConsentDecision::Proceed => {}
+        consent::ConsentDecision::Ask { .. } => {
+            // The caller is responsible for asking before re-entering; reaching
+            // this arm means consent was never resolved.
+            return InstallOutcome::ConsentRequired {
+                id: def.id.clone(),
+                reason: consent::ConsentRefusal::NonInteractive,
+            };
+        }
+        consent::ConsentDecision::Refused { reason } => {
+            return InstallOutcome::ConsentRequired {
+                id: def.id.clone(),
+                reason,
+            };
+        }
+    }
+
+    match install::install(def, version) {
+        Ok(result) => InstallOutcome::Installed {
+            id: def.id.clone(),
+            version: Some(version.to_string()),
+            channel: result.channel,
+        },
+        Err(error) => InstallOutcome::Failed {
+            id: def.id.clone(),
+            error,
+        },
+    }
+}
+
+/// Everything `provision` needs from the caller, resolved beforehand so the
+/// flow itself stays pure and testable.
+#[derive(Debug, Clone)]
+pub struct ProvisionRequest {
+    /// Whether the host already probes as available.
+    pub current_available: bool,
+    /// The host's current version, when one was read.
+    pub current_version: Option<String>,
+    /// The resolved consent decision.
+    pub consent: consent::ConsentDecision,
+}
+
 /// Human-readable refusal message for a host id.
 #[must_use]
 pub fn refusal_message(display_name: &str, refusal: ProvisionRefusal) -> String {
@@ -204,11 +475,13 @@ fn probe_definition(def: &HostDefinition, spec: Option<&HostSpec>, env: &HostEnv
                 "{} declares no executable for this platform; probe it on a supported platform.",
                 def.display_name
             ),
+            warning: None,
         };
     }
 
+    let rejected = rejected_override(def, env);
     let found = candidates(def, env);
-    let Some(candidate) = found.into_iter().next() else {
+    if found.is_empty() {
         // An override is an explicit operator declaration, so a target that
         // was rejected is reported rather than folded into "not found" —
         // silently ignoring it hides the one setting the operator did set.
@@ -236,12 +509,85 @@ fn probe_definition(def: &HostDefinition, spec: Option<&HostSpec>, env: &HostEnv
             self_provision: def.self_provision,
             sources_checked: sources,
             hint: missing_hint(def),
+            warning: None,
         };
-    };
+    }
 
-    match query_version(&candidate.path, &def.version_arg) {
+    // Probe candidates in precedence order and take the first one that clears
+    // the version gate.
+    //
+    // Taking the first candidate unconditionally meant a host could be reported
+    // `version_mismatch` while a build that satisfies the gate sat in a lower
+    // priority source. That is the common thm/rez shape: the environment pins
+    // an older Blender on PATH while a newer one is installed globally, and the
+    // operator only ever saw the mismatch. It also let a non-runnable shim
+    // shadow the real binary on Windows, where any existing file passes the
+    // executable check but cannot be spawned.
+    let mut probes: Vec<CandidateProbe> = Vec::new();
+    let mut chosen = None;
+    for candidate in &found {
+        let probe = probe_candidate(def, candidate, &gate);
+        let usable = probe.status.is_available();
+        probes.push(probe);
+        if usable {
+            chosen = Some(probes.len() - 1);
+            break;
+        }
+    }
+    // With no usable candidate, report the highest-priority one: that is the
+    // source the operator is best placed to act on.
+    let chosen = chosen.unwrap_or(0);
+    let probe = &probes[chosen];
+    let candidate = probe.candidate.clone();
+
+    // An override naming something unusable must stay visible even when PATH
+    // supplied the candidate we are about to report. Silently falling back
+    // hides the one setting the operator actually set, and once `host install`
+    // exists it would misdirect them into installing a host that is already
+    // present while the broken override remains the real problem.
+    let mut warning = rejected.map(|path| {
+        format!(
+            "{} is set to {} but was not usable, so this probe used {} instead; fix or unset the override.",
+            def.executable_env_var(),
+            path.display(),
+            candidate.source.as_str()
+        )
+    });
+    if chosen > 0 {
+        // Say which candidates were passed over and why, otherwise the report
+        // names a binary the operator did not expect and looks arbitrary.
+        let skipped: Vec<String> = probes[..chosen]
+            .iter()
+            .map(|probe| {
+                let version = probe
+                    .version
+                    .as_ref()
+                    .map(ToString::to_string)
+                    .unwrap_or_else(|| "an unreadable version".to_string());
+                format!(
+                    "{} ({}) reported {}",
+                    probe.candidate.path.display(),
+                    probe.candidate.source.as_str(),
+                    version
+                )
+            })
+            .collect();
+        let skipped_note = format!(
+            "{} did not satisfy {}; skipped {} and used {} instead.",
+            skipped.join(", "),
+            gate,
+            if skipped.len() == 1 { "it" } else { "them" },
+            candidate.source.as_str()
+        );
+        warning = Some(match warning {
+            Some(existing) => format!("{existing} {skipped_note}"),
+            None => skipped_note,
+        });
+    }
+
+    match &probe.outcome {
         Ok(Some(version)) => {
-            if gate.satisfied_by(&version) {
+            if gate.satisfied_by(version) {
                 HostProbe {
                     id: def.id.clone(),
                     display_name: def.display_name.clone(),
@@ -256,13 +602,14 @@ fn probe_definition(def: &HostDefinition, spec: Option<&HostSpec>, env: &HostEnv
                     self_provision: def.self_provision,
                     sources_checked: sources,
                     hint: String::new(),
+                    warning: warning.clone(),
                 }
             } else {
                 HostProbe {
                     id: def.id.clone(),
                     display_name: def.display_name.clone(),
                     status: HostStatus::VersionMismatch,
-                    reason: mismatch_reason(def, &version),
+                    reason: mismatch_reason(def, version),
                     executable: Some(candidate.path),
                     executable_source: Some(candidate.source.as_str().to_string()),
                     version: Some(version.to_string()),
@@ -271,7 +618,8 @@ fn probe_definition(def: &HostDefinition, spec: Option<&HostSpec>, env: &HostEnv
                     license,
                     self_provision: def.self_provision,
                     sources_checked: sources,
-                    hint: mismatch_hint(def, &version),
+                    hint: mismatch_hint(def, version),
+                    warning: warning.clone(),
                 }
             }
         }
@@ -292,6 +640,7 @@ fn probe_definition(def: &HostDefinition, spec: Option<&HostSpec>, env: &HostEnv
             self_provision: def.self_provision,
             sources_checked: sources,
             hint: String::new(),
+            warning: warning.clone(),
         },
         Err(detect::VersionQueryError::Unparsable { .. }) => version_unknown_probe(
             def,
@@ -302,6 +651,7 @@ fn probe_definition(def: &HostDefinition, spec: Option<&HostSpec>, env: &HostEnv
             expected,
             license,
             spec_label,
+            warning.clone(),
         ),
         Err(_) => version_unknown_probe(
             def,
@@ -312,6 +662,7 @@ fn probe_definition(def: &HostDefinition, spec: Option<&HostSpec>, env: &HostEnv
             expected,
             license,
             spec_label,
+            warning.clone(),
         ),
     }
 }
@@ -368,6 +719,7 @@ fn rejected_override_probe(
         self_provision: def.self_provision,
         sources_checked: sources,
         hint,
+        warning: None,
     }
 }
 
@@ -421,6 +773,7 @@ fn version_unknown_probe(
     expected: Value,
     license: String,
     spec_label: String,
+    warning: Option<String>,
 ) -> HostProbe {
     HostProbe {
         id: def.id.clone(),
@@ -435,6 +788,7 @@ fn version_unknown_probe(
         license,
         self_provision: def.self_provision,
         sources_checked: sources,
+        warning,
         hint: format!(
             "Found {} at {} but could not read its version, so `{spec_label}` is unverified. Set {} to skip detection, or reinstall the host.",
             def.display_name,
@@ -461,6 +815,7 @@ fn unknown_host_probe(id: &str, raw: &str) -> HostProbe {
         hint: format!(
             "'{raw}' is not in the host manifest; run `dcc-mcp-cli host list` to see the known hosts."
         ),
+        warning: None,
     }
 }
 
@@ -482,12 +837,13 @@ fn invalid_spec_probe(raw: &str) -> HostProbe {
         hint: format!(
             "'{raw}' is not a valid host spec; use `host`, `host==5.1`, `host>=5.1` or `host~=5`."
         ),
+        warning: None,
     }
 }
 
 /// Render one probe.
 fn probe_value(probe: &HostProbe) -> Value {
-    json!({
+    let mut value = json!({
         "id": probe.id,
         "display_name": probe.display_name,
         "status": probe.status,
@@ -501,7 +857,11 @@ fn probe_value(probe: &HostProbe) -> Value {
         "self_provision": probe.self_provision,
         "sources_checked": probe.sources_checked,
         "hint": probe.hint,
-    })
+    });
+    if let Some(warning) = probe.warning.as_ref() {
+        value["warning"] = json!(warning);
+    }
+    value
 }
 
 #[cfg(test)]
@@ -511,6 +871,54 @@ mod tests {
 
     fn env_without_path() -> HostEnv {
         HostEnv::new()
+    }
+
+    /// Write a stub that prints `banner` when asked for its version.
+    ///
+    /// Uses a shell script on unix and a batch file on Windows so the stub is
+    /// both executable and able to answer `--version`.
+    fn write_version_stub(path: &Path, banner: &str) {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::write(path, format!("#!/bin/sh\necho '{banner}'\n")).unwrap();
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        #[cfg(windows)]
+        {
+            std::fs::write(path, format!("@echo off\r\necho {banner}\r\n")).unwrap();
+        }
+        #[cfg(not(any(unix, windows)))]
+        {
+            std::fs::write(path, banner).unwrap();
+        }
+    }
+
+    /// The stub filename for this platform.
+    ///
+    /// Windows needs a real extension to execute the script, so the manifest
+    /// name and the file on disk have to agree on it.
+    fn stub_file_name() -> &'static str {
+        if cfg!(windows) {
+            "blender.bat"
+        } else {
+            "blender"
+        }
+    }
+
+    /// A host definition that probes the current platform for `id`.
+    fn stub_host_definition(id: &str, min_version: Option<&str>) -> HostDefinition {
+        let mut def = fake_def(id);
+        def.min_version = min_version.map(ToString::to_string);
+        def.version_arg = vec!["--version".to_string()];
+        for names in [
+            &mut def.executables.windows,
+            &mut def.executables.linux,
+            &mut def.executables.macos,
+        ] {
+            names.push(stub_file_name().to_string());
+        }
+        def
     }
 
     fn fake_def(id: &str) -> HostDefinition {
@@ -543,6 +951,151 @@ mod tests {
         assert_eq!(probes.len(), 1);
         assert_eq!(probes[0].status, HostStatus::UnknownHost);
         assert_eq!(probes[0].reason, HostReason::UnknownHost);
+    }
+
+    /// P2-1: a candidate that fails the version gate must not hide a build
+    /// that satisfies it.
+    ///
+    /// This is the ordinary thm/rez shape: the environment pins an older host
+    /// on PATH while a newer one is installed globally. Reporting the mismatch
+    /// and stopping left the operator stuck on the wrong build even though a
+    /// usable one was present.
+    #[test]
+    fn a_failing_candidate_falls_through_to_one_that_clears_the_gate() {
+        // Two directories on PATH: the first holds an old build, the second the
+        // build that clears the >=5.1 gate.
+        let old_dir = tempfile::tempdir().unwrap();
+        let new_dir = tempfile::tempdir().unwrap();
+        write_version_stub(&old_dir.path().join(stub_file_name()), "Blender 5.0.0");
+        write_version_stub(&new_dir.path().join(stub_file_name()), "Blender 5.1.1");
+
+        let mut env = HostEnv::new();
+        env.path_entries = Some(vec![
+            old_dir.path().to_path_buf(),
+            new_dir.path().to_path_buf(),
+        ]);
+
+        let def = stub_host_definition("blender", Some("5.1"));
+        let manifest = HostManifest {
+            version: "1".to_string(),
+            hosts: vec![def],
+        };
+        let probes = doctor(&["blender".to_string()], &manifest, &env);
+
+        assert_eq!(
+            probes[0].status,
+            HostStatus::Available,
+            "the build that clears the gate must be used, got {:?} ({})",
+            probes[0].status,
+            probes[0].hint
+        );
+        assert_eq!(probes[0].version.as_deref(), Some("5.1.1"));
+        // The skipped candidate must be named, or the report looks arbitrary.
+        let warning = probes[0]
+            .warning
+            .as_deref()
+            .expect("the skipped candidate must be surfaced");
+        assert!(warning.contains("5.0.0"), "warning was: {warning}");
+    }
+
+    /// When nothing clears the gate, the highest-priority candidate is still
+    /// the one reported: that is the source the operator can act on.
+    #[test]
+    fn with_no_candidate_clearing_the_gate_the_first_is_reported() {
+        let dir = tempfile::tempdir().unwrap();
+        write_version_stub(&dir.path().join(stub_file_name()), "Blender 5.0.0");
+
+        let mut env = HostEnv::new();
+        env.path_entries = Some(vec![dir.path().to_path_buf()]);
+
+        let def = stub_host_definition("blender", Some("5.1"));
+        let manifest = HostManifest {
+            version: "1".to_string(),
+            hosts: vec![def],
+        };
+        let probes = doctor(&["blender".to_string()], &manifest, &env);
+
+        assert_eq!(probes[0].status, HostStatus::VersionMismatch);
+        assert_eq!(probes[0].version.as_deref(), Some("5.0.0"));
+        assert!(
+            probes[0].warning.is_none(),
+            "nothing was skipped, so there is no fallback to explain"
+        );
+    }
+
+    /// P3-1: on Windows any existing file passes the executable check, so a
+    /// non-runnable shim ahead of the real binary used to shadow it. A shim
+    /// cannot produce a version, so the scan has to move past it.
+    #[test]
+    fn an_unrunnable_shim_does_not_shadow_a_real_binary() {
+        let shim_dir = tempfile::tempdir().unwrap();
+        let real_dir = tempfile::tempdir().unwrap();
+        // A file that exists but cannot report a version, standing in for an
+        // msys/Git-Bash style shim.
+        let shim = shim_dir.path().join(stub_file_name());
+        std::fs::write(&shim, b"not a binary").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&shim, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        write_version_stub(&real_dir.path().join(stub_file_name()), "Blender 5.1.1");
+
+        let mut env = HostEnv::new();
+        env.path_entries = Some(vec![
+            shim_dir.path().to_path_buf(),
+            real_dir.path().to_path_buf(),
+        ]);
+
+        let def = stub_host_definition("blender", Some("5.1"));
+        let manifest = HostManifest {
+            version: "1".to_string(),
+            hosts: vec![def],
+        };
+        let probes = doctor(&["blender".to_string()], &manifest, &env);
+
+        assert_eq!(
+            probes[0].status,
+            HostStatus::Available,
+            "the real binary must win over the shim, got {:?}",
+            probes[0].status
+        );
+        assert_eq!(probes[0].version.as_deref(), Some("5.1.1"));
+    }
+
+    /// P1-B: an install the probe cannot confirm must fail closed, so
+    /// `host install ... && blender -b ...` stops instead of running on a host
+    /// that was never installed.
+    #[test]
+    fn an_unverified_install_is_a_failure() {
+        let installed = InstallOutcome::Installed {
+            id: "blender".to_string(),
+            version: Some("5.1.1".to_string()),
+            channel: "winget".to_string(),
+        };
+        assert!(!install_failed(&installed), "a verified install succeeds");
+
+        let unverified = verify_install(installed, false);
+        assert!(
+            matches!(unverified, InstallOutcome::Unverified { .. }),
+            "an unverified install must be re-graded, got {unverified:?}"
+        );
+        assert!(
+            install_failed(&unverified),
+            "an unverified install must exit non-zero"
+        );
+        assert_eq!(install_value(&unverified)["status"], "unverified");
+
+        // A verified install passes through untouched.
+        let verified = verify_install(
+            InstallOutcome::Installed {
+                id: "blender".to_string(),
+                version: Some("5.1.1".to_string()),
+                channel: "winget".to_string(),
+            },
+            true,
+        );
+        assert!(!install_failed(&verified));
     }
 
     #[test]
@@ -708,6 +1261,92 @@ mod tests {
             "the hint must name the variable and its target, got {}",
             probes[0].hint
         );
+    }
+
+    /// Carried P2 from the #2628 review: `rejected_override` used to be
+    /// consulted only when `candidates` came back empty, so a broken override
+    /// was dropped whenever PATH could supply a candidate. With `host install`
+    /// live, that would point the operator at installing a host that is
+    /// already present instead of at the environment variable that is wrong.
+    #[test]
+    fn a_rejected_override_still_warns_when_path_supplies_the_candidate() {
+        let dir = tempfile::tempdir().unwrap();
+        let on_path = dir.path().join("stubhost-on-path");
+        std::fs::write(&on_path, b"stub").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&on_path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        let absent = dir.path().join("absent-override-target");
+        let mut env = HostEnv::new();
+        env.path_entries = Some(vec![dir.path().to_path_buf()]);
+        env.vars.insert(
+            "DCC_MCP_STUBHOST_EXECUTABLE".to_string(),
+            absent.to_string_lossy().into_owned(),
+        );
+
+        let mut def = fake_def("stubhost");
+        // No version query, so existence alone makes the host available and
+        // the PATH candidate wins.
+        def.version_arg = Vec::new();
+        let name = "stubhost-on-path";
+        for names in [
+            &mut def.executables.windows,
+            &mut def.executables.linux,
+            &mut def.executables.macos,
+        ] {
+            names.push(name.to_string());
+        }
+        let manifest = HostManifest {
+            version: "1".to_string(),
+            hosts: vec![def],
+        };
+
+        let probes = doctor(&["stubhost".to_string()], &manifest, &env);
+        assert_eq!(probes[0].status, HostStatus::Available);
+        assert_eq!(probes[0].executable_source.as_deref(), Some("PATH"));
+        let warning = probes[0]
+            .warning
+            .as_deref()
+            .expect("the rejected override must still be surfaced");
+        assert!(
+            warning.contains("DCC_MCP_STUBHOST_EXECUTABLE")
+                && warning.contains(&absent.display().to_string()),
+            "the warning must name the variable and its target, got {warning}"
+        );
+    }
+
+    #[test]
+    fn no_warning_when_the_override_is_absent() {
+        // An unset variable is not a rejection, so nothing should be surfaced.
+        let dir = tempfile::tempdir().unwrap();
+        let on_path = dir.path().join("stubhost-on-path");
+        std::fs::write(&on_path, b"stub").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&on_path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let mut env = HostEnv::new();
+        env.path_entries = Some(vec![dir.path().to_path_buf()]);
+        let mut def = fake_def("stubhost");
+        def.version_arg = Vec::new();
+        for names in [
+            &mut def.executables.windows,
+            &mut def.executables.linux,
+            &mut def.executables.macos,
+        ] {
+            names.push("stubhost-on-path".to_string());
+        }
+        let manifest = HostManifest {
+            version: "1".to_string(),
+            hosts: vec![def],
+        };
+        let probes = doctor(&["stubhost".to_string()], &manifest, &env);
+        assert_eq!(probes[0].status, HostStatus::Available);
+        assert!(probes[0].warning.is_none());
     }
 
     #[test]

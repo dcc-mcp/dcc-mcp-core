@@ -36,6 +36,13 @@ pub enum ManifestError {
     MissingPinnedVersion { id: String },
     /// A pinned or minimum version is not a dotted number.
     InvalidVersion { id: String, version: String },
+    /// A pin sits below the host's declared minimum, so honouring it would
+    /// install a build the ecosystem has ruled out.
+    PinBelowMinimum {
+        id: String,
+        version: String,
+        minimum: String,
+    },
     /// The lock file could not be read.
     LockUnreadable { path: String, detail: String },
 }
@@ -68,6 +75,14 @@ impl std::fmt::Display for ManifestError {
             Self::InvalidVersion { id, version } => write!(
                 formatter,
                 "host '{id}' declares invalid version '{version}'"
+            ),
+            Self::PinBelowMinimum {
+                id,
+                version,
+                minimum,
+            } => write!(
+                formatter,
+                "pinned version {version} for host '{id}' is below the minimum {minimum}"
             ),
             Self::LockUnreadable { path, detail } => {
                 write!(formatter, "host lock '{path}' is unreadable: {detail}")
@@ -211,6 +226,29 @@ impl HostDefinition {
     }
 }
 
+/// Whether `version` sits below the host's declared minimum.
+///
+/// Comparison is numeric on zero-padded SemVer, not lexical, so `5.10` is
+/// above `5.1`. A host with no declared minimum accepts anything.
+#[must_use]
+pub fn is_below_minimum(min_version: Option<&str>, version: &str) -> bool {
+    let (Some(minimum), Some(candidate)) = (
+        min_version.and_then(crate::domain::host::parse_manifest_version),
+        crate::domain::host::parse_manifest_version(version),
+    ) else {
+        return false;
+    };
+    candidate < minimum
+}
+
+impl HostDefinition {
+    /// Whether `version` sits below this host's declared minimum.
+    #[must_use]
+    pub fn is_below_minimum(&self, version: &str) -> bool {
+        is_below_minimum(self.min_version.as_deref(), version)
+    }
+}
+
 /// The parsed host manifest.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HostManifest {
@@ -268,7 +306,8 @@ impl PlatformStrings {
     }
 }
 
-/// User-level version lock. Only pins versions; it never adds a host.
+/// User-level version lock. Pins versions and remembers the consent choice;
+/// it never adds a host and never changes a licence class.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HostLock {
     /// Schema version.
@@ -277,6 +316,9 @@ pub struct HostLock {
     /// `host id -> exact version`.
     #[serde(default)]
     pub pins: BTreeMap<String, String>,
+    /// Remembered install consent: `never`, `ask`, or `always`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub consent: Option<String>,
 }
 
 impl HostLock {
@@ -284,6 +326,34 @@ impl HostLock {
     #[must_use]
     pub fn empty() -> Self {
         Self::default()
+    }
+
+    /// Serialize the lock for writing.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the document cannot be serialized.
+    pub fn to_yaml(&self) -> Result<String, ManifestError> {
+        serde_yaml_ng::to_string(self).map_err(|err| ManifestError::Parse(err.to_string()))
+    }
+
+    /// Write the lock to `path`, creating parent directories.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the file cannot be written.
+    pub fn save(&self, path: &Path) -> Result<(), ManifestError> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|err| ManifestError::LockUnreadable {
+                path: parent.display().to_string(),
+                detail: err.to_string(),
+            })?;
+        }
+        let yaml = self.to_yaml()?;
+        std::fs::write(path, yaml).map_err(|err| ManifestError::LockUnreadable {
+            path: path.display().to_string(),
+            detail: err.to_string(),
+        })
     }
 }
 
@@ -318,6 +388,16 @@ pub fn load_with_lock(lock: &HostLock) -> Result<HostManifest, ManifestError> {
             // rather than refusing to probe every other host.
             continue;
         };
+        // A pin may never go below the declared minimum. This is the last
+        // common path every install goes through, so it is the floor that
+        // holds even when a channel would happily provision the lower build.
+        if host.is_below_minimum(version) {
+            return Err(ManifestError::PinBelowMinimum {
+                id: id.clone(),
+                version: version.clone(),
+                minimum: host.min_version.clone().unwrap_or_default(),
+            });
+        }
         host.pinned_version = Some(version.clone());
     }
     Ok(manifest)
@@ -649,6 +729,59 @@ hosts:
             load_with_lock(&stale).is_ok(),
             "stale pin must not be fatal"
         );
+    }
+
+    /// P1-A: a pin below the declared minimum must be refused wherever it is
+    /// applied. The lock load is the last common path every install goes
+    /// through, so it is the floor that holds even for a channel that would
+    /// happily provision the lower build (winget takes an arbitrary version).
+    #[test]
+    fn lock_pins_may_not_go_below_the_minimum() {
+        let mut lock = HostLock::empty();
+        lock.pins.insert("blender".to_string(), "5.0".to_string());
+        assert_eq!(
+            load_with_lock(&lock).unwrap_err(),
+            ManifestError::PinBelowMinimum {
+                id: "blender".to_string(),
+                version: "5.0".to_string(),
+                minimum: "5.1".to_string(),
+            }
+        );
+
+        // At or above the floor is accepted, and comparison is numeric: 5.10
+        // is above 5.1, which a lexical compare would get backwards.
+        for version in ["5.1", "5.1.0", "5.1.1", "5.10", "6.0"] {
+            let mut lock = HostLock::empty();
+            lock.pins.insert("blender".to_string(), version.to_string());
+            assert!(
+                load_with_lock(&lock).is_ok(),
+                "pin {version} must be at or above the floor"
+            );
+        }
+    }
+
+    #[test]
+    fn hosts_without_a_minimum_accept_any_pin() {
+        // godot declares no min_version, so there is no floor to enforce. The
+        // check has to be a no-op rather than a blanket refusal.
+        let manifest = bundled();
+        assert!(manifest.find("godot").unwrap().min_version.is_none());
+        let mut lock = HostLock::empty();
+        lock.pins.insert("godot".to_string(), "0.1".to_string());
+        assert!(load_with_lock(&lock).is_ok());
+    }
+
+    #[test]
+    fn is_below_minimum_compares_numerically() {
+        assert!(is_below_minimum(Some("5.1"), "5.0"));
+        assert!(is_below_minimum(Some("5.1"), "4.9.9"));
+        assert!(!is_below_minimum(Some("5.1"), "5.1"));
+        assert!(!is_below_minimum(Some("5.1"), "5.10"));
+        // No minimum declared: nothing to enforce.
+        assert!(!is_below_minimum(None, "0.0.1"));
+        // An unparsable candidate cannot be judged, so it is not blocked here;
+        // format validation is a separate check.
+        assert!(!is_below_minimum(Some("5.1"), "not-a-version"));
     }
 
     #[test]

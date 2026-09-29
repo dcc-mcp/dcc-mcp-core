@@ -270,23 +270,189 @@ fn doctor_rejects_malformed_specs() {
 }
 
 #[test]
-fn install_and_pin_refuse_to_act_before_phase_two() {
-    // Guards against a silently no-op install, which would be worse than an
-    // error: an agent would believe a host had been provisioned.
+fn install_refuses_licence_gated_hosts_even_with_yes() {
+    // Acceptance criterion 4: maya must never be installed by this CLI. The
+    // refusal is independent of consent, so `--yes` must not bypass it.
     let lock = std::env::temp_dir().join(format!("hosts-{}.lock", uuid::Uuid::new_v4()));
-    for args in [["install", "maya"], ["pin", "blender==5.1.1"]] {
+    let output = host_command(&lock)
+        .args(["install", "maya", "--yes", "--output", "json"])
+        .output()
+        .expect("host install should run");
+
+    let value: Value = serde_json::from_slice(&output.stdout).expect("JSON report");
+    assert_eq!(value["status"], "refused");
+    assert_eq!(value["reason"], "commercial");
+    assert_eq!(value["installed"], false);
+    assert!(
+        value["hint"]
+            .as_str()
+            .is_some_and(|hint| hint.contains("licence-gated")),
+        "the hint must tell the user to install it themselves: {}",
+        value["hint"]
+    );
+}
+
+#[test]
+fn install_refuses_without_consent_when_unattended() {
+    // The `vx ffmpeg` rule, applied: a write operation without an operator
+    // present is refused rather than assumed approved.
+    let lock = std::env::temp_dir().join(format!("hosts-{}.lock", uuid::Uuid::new_v4()));
+    let output = host_command(&lock)
+        .args(["install", "blender", "--output", "json"])
+        // A test harness is never a terminal, so `ask` resolves to a refusal.
+        .env("DCC_MCP_HOST_INSTALL", "never")
+        .output()
+        .expect("host install should run");
+
+    let value: Value = serde_json::from_slice(&output.stdout).expect("JSON report");
+    // Blender is missing on CI-like machines, so the consent gate is what is
+    // under test; on a machine that already has it, `already_satisfied` is the
+    // correct short-circuit before consent matters.
+    assert!(
+        matches!(
+            value["status"].as_str(),
+            Some("consent_required" | "already_satisfied")
+        ),
+        "expected a consent gate or an already-satisfied host, got {}",
+        value["status"]
+    );
+    if value["status"] == "consent_required" {
+        assert_eq!(value["reason"], "policy_never");
+        assert_eq!(value["installed"], false);
+    }
+}
+
+/// P1-A: `host pin` may not write a version below the manifest minimum.
+///
+/// The Windows winget channel takes an arbitrary `--version`, so without a
+/// floor at pin time `host pin blender==5.0 && host install blender --yes`
+/// would install 5.0, below the >=5.1 baseline the manifest declares.
+#[test]
+fn pin_refuses_a_version_below_the_manifest_minimum() {
+    let dir = tempfile::tempdir().unwrap();
+    let lock = dir.path().join("hosts.lock");
+
+    for spec in ["blender==5.0", "blender==4.2.1"] {
         let output = host_command(&lock)
-            .args(args)
-            .arg("--output")
-            .arg("json")
+            .args(["pin", spec, "--output", "json"])
             .output()
-            .expect("host command should run");
+            .expect("host pin should run");
         assert!(
             !output.status.success(),
-            "`host {}` must fail rather than no-op",
-            args[0]
+            "`host pin {spec}` must be refused: it is below min_version 5.1"
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("below the minimum"),
+            "the error must say why, got {stderr}"
         );
     }
+
+    // The lock must not have been written by a refused pin.
+    assert!(
+        !lock.exists(),
+        "a refused pin must not create the lock file"
+    );
+
+    // A pin at the floor is accepted.
+    let output = host_command(&lock)
+        .args(["pin", "blender==5.1", "--output", "json"])
+        .output()
+        .expect("host pin should run");
+    assert!(output.status.success(), "5.1 is exactly at the floor");
+}
+
+/// The exit code is the contract a proposition runner gates on, so it has to
+/// be non-zero for every non-success outcome, not just for refusals.
+#[test]
+fn install_exit_code_reflects_the_outcome() {
+    let lock = std::env::temp_dir().join(format!("hosts-{}.lock", uuid::Uuid::new_v4()));
+
+    // Refused (commercial host) must exit non-zero.
+    let refused = host_command(&lock)
+        .args(["install", "maya", "--yes", "--output", "json"])
+        .output()
+        .expect("host install should run");
+    assert!(
+        !refused.status.success(),
+        "a refused install must exit non-zero so `install && run` stops"
+    );
+
+    // Consent denied must exit non-zero.
+    let denied = host_command(&lock)
+        .args(["install", "blender", "--output", "json"])
+        .env("DCC_MCP_HOST_INSTALL", "never")
+        .output()
+        .expect("host install should run");
+    let value: Value = serde_json::from_slice(&denied.stdout).expect("JSON report");
+    if value["status"] == "consent_required" {
+        assert!(
+            !denied.status.success(),
+            "a consent refusal must exit non-zero"
+        );
+    }
+}
+
+#[test]
+fn pin_writes_the_lock_file_and_changes_the_reported_version() {
+    let dir = tempfile::tempdir().unwrap();
+    let lock = dir.path().join("hosts.lock");
+
+    let output = host_command(&lock)
+        .args(["pin", "blender==5.1.1", "--output", "json"])
+        .output()
+        .expect("host pin should run");
+    assert!(
+        output.status.success(),
+        "pin should succeed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: Value = serde_json::from_slice(&output.stdout).expect("JSON report");
+    assert_eq!(value["id"], "blender");
+    assert_eq!(value["pinned_version"], "5.1.1");
+    assert!(lock.is_file(), "pin must create the lock file");
+
+    // The pin has to be visible to the next command, otherwise it is not a
+    // single source of truth.
+    let listed = host_json(&["list"], &lock);
+    let blender = listed["hosts"]
+        .as_array()
+        .expect("hosts")
+        .iter()
+        .find(|host| host["id"] == "blender")
+        .expect("blender");
+    assert_eq!(blender["pinned_version"], "5.1.1");
+}
+
+#[test]
+fn pin_rejects_unknown_hosts_and_unpinnable_specs() {
+    let lock = std::env::temp_dir().join(format!("hosts-{}.lock", uuid::Uuid::new_v4()));
+    for spec in ["not-a-host==1.0", "blender>=five"] {
+        let output = host_command(&lock)
+            .args(["pin", spec, "--output", "json"])
+            .output()
+            .expect("host pin should run");
+        assert!(
+            !output.status.success(),
+            "`host pin {spec}` must fail rather than silently accept"
+        );
+    }
+}
+
+#[test]
+fn pin_without_a_version_freezes_the_manifest_value() {
+    // `host pin blender` is a legitimate request: freeze the version at
+    // whatever the manifest currently declares, so a later manifest bump does
+    // not move this machine.
+    let dir = tempfile::tempdir().unwrap();
+    let lock = dir.path().join("hosts.lock");
+    let output = host_command(&lock)
+        .args(["pin", "blender", "--output", "json"])
+        .output()
+        .expect("host pin should run");
+    assert!(output.status.success());
+    let value: Value = serde_json::from_slice(&output.stdout).expect("JSON report");
+    assert_eq!(value["pinned_version"], "5.1.1");
 }
 
 #[test]
