@@ -363,11 +363,7 @@ class RepoIndex:
                 yield path
                 continue
             for dirpath, dirnames, filenames in os.walk(str(path)):
-                dirnames[:] = sorted(
-                    d
-                    for d in dirnames
-                    if d not in self.exclude_dirs and d not in CORPUS_EXCLUDE_DIRS
-                )
+                dirnames[:] = sorted(d for d in dirnames if d not in self.exclude_dirs and d not in CORPUS_EXCLUDE_DIRS)
                 if Path(dirpath).name in CORPUS_EXCLUDE_DIRS:
                     continue
                 for name in sorted(filenames):
