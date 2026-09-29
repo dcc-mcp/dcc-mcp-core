@@ -44,7 +44,22 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # `event_name` is part of the key because `ref` alone is not enough.
+  #
+  # `schedule` and `push` both run on `main`, so they resolve to the same
+  # `workflow` + `ref` string; with `cancel-in-progress: true` they then
+  # cancelled each other in both directions. That was survivable while every
+  # push recorded a trend point — one of many was lost. It is not survivable
+  # now that only the weekly schedule records one: the week's only point is
+  # what gets cancelled, and the series carries a hole nobody is told about.
+  #
+  # Splitting by event leaves push-vs-push cancellation intact (fast CI
+  # feedback on a busy main), and stops a `workflow_dispatch` from cancelling
+  # an unrelated main push. The two events no longer write the same series:
+  # recording is gated on `event=schedule` below, and `latency-trend` keeps
+  # its own job-level group, so a schedule and a push that do overlap are
+  # still serialised where it matters.
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:
@@ -132,12 +147,12 @@ jobs:
     runs-on: ubuntu-latest
     # One writer for the whole series, on every ref.
     #
-    # The workflow-level group is keyed on `github.ref`, so a
-    # `workflow_dispatch` against any other branch ran *alongside* a main
-    # push: both restored the same predecessor, both appended one point, and
-    # the later upload silently dropped the earlier one — the series lost a
-    # week and nobody was told. The series has no per-branch meaning, so the
-    # group deliberately is not.
+    # The workflow-level group is keyed on `github.ref` and
+    # `github.event_name`, so a `workflow_dispatch` against any other branch
+    # ran *alongside* a main push: both restored the same predecessor, both
+    # appended one point, and the later upload silently dropped the earlier
+    # one — the series lost a week and nobody was told. The series has no
+    # per-branch meaning, so the group deliberately is not.
     #
     # `cancel-in-progress: false`: cancelling a run that has already restored
     # the series is safe, but cancelling one that is about to upload it is
