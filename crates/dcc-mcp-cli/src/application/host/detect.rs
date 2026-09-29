@@ -143,8 +143,12 @@ pub fn candidates(def: &HostDefinition, env: &HostEnv) -> Vec<Candidate> {
 
 /// Ask the executable for its version.
 ///
-/// Returns `Ok(None)` when the host declares no version query, so callers can
-/// distinguish "not asked" from "asked and failed".
+/// Returns `Ok(None)` only when the host declares no version query, so callers
+/// can distinguish "not asked" from "asked and failed". A host that declares a
+/// query but answers without a version token is [`VersionQueryError::Unparsable`],
+/// never `Ok(None)`: callers read `Ok(None)` as "existence is the whole
+/// contract" and skip the version gate, so returning it for an unreadable
+/// answer would admit a host of unknown version against a declared gate.
 pub fn query_version(
     executable: &Path,
     version_arg: &[String],
@@ -153,7 +157,11 @@ pub fn query_version(
         return Ok(None);
     }
     let output = run_version_query(executable, version_arg)?;
-    Ok(extract_version(&output))
+    extract_version(&output)
+        .map(Some)
+        .ok_or_else(|| VersionQueryError::Unparsable {
+            output: clip(&output),
+        })
 }
 
 /// Why a version query could not produce a value.
@@ -566,6 +574,33 @@ mod tests {
             Ok(version) => assert!(version.is_none() || version.is_some()),
             Err(VersionQueryError::Exited { .. } | VersionQueryError::Unparsable { .. }) => {}
             Err(other) => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn version_query_reports_an_answer_without_a_version_token() {
+        // A host that declares `--version` but answers with a splash screen (or
+        // nothing) must not come back `Ok(None)`: the probe skips the version
+        // gate on `Ok(None)`, which would report it `available` unverified.
+        #[cfg(unix)]
+        let (shell, args) = (
+            "/bin/sh",
+            vec!["-c".to_string(), "echo 'no version here'".to_string()],
+        );
+        #[cfg(windows)]
+        let (shell, args) = (
+            "cmd",
+            vec!["/C".to_string(), "echo no version here".to_string()],
+        );
+
+        match query_version(Path::new(shell), &args) {
+            Err(VersionQueryError::Unparsable { output }) => {
+                assert!(
+                    !output.is_empty(),
+                    "the raw answer should be carried for diagnostics"
+                );
+            }
+            other => panic!("expected Unparsable, got {other:?}"),
         }
     }
 

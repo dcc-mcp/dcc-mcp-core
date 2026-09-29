@@ -191,6 +191,53 @@ fn doctor_reports_an_override_it_cannot_run() {
     );
 }
 
+/// A stub that answers the version query successfully but without a version
+/// token, which is what a GUI splash screen or a studio wrapper script does.
+///
+/// Unix runs a shebang script; Windows runs a `.cmd` one-liner. Both exit 0,
+/// so the only thing that can reject them is the missing version.
+fn unparsable_stub(dir: &Path) -> PathBuf {
+    #[cfg(unix)]
+    {
+        let path = dir.join("fakeblender.sh");
+        write_executable_stub(&path, b"#!/bin/sh\necho 'Blender (splash)'\n");
+        path
+    }
+    #[cfg(not(unix))]
+    {
+        let path = dir.join("fakeblender.cmd");
+        std::fs::write(&path, b"@echo Blender (splash)\r\n").expect("stub should be writable");
+        path
+    }
+}
+
+#[test]
+fn doctor_does_not_report_available_when_the_version_is_unreadable() {
+    // The gate is the point of `min_version`. A host that answers the version
+    // query with no version token must be `version_unknown`, never
+    // `available` — the latter would let automation proceed on an unverified
+    // host while the JSON still shows a `gate` that looks satisfied.
+    let lock = std::env::temp_dir().join(format!("hosts-{}.lock", uuid::Uuid::new_v4()));
+    let dir = tempfile::tempdir().unwrap();
+    let binary = unparsable_stub(dir.path());
+
+    let output = host_command(&lock)
+        .args(["doctor", "blender", "--output", "json"])
+        .env("DCC_MCP_BLENDER_EXECUTABLE", &binary)
+        .output()
+        .expect("doctor should run");
+    let value: Value = serde_json::from_slice(&output.stdout).expect("JSON report");
+    let host = &value["hosts"][0];
+    assert_eq!(host["status"], "version_unknown");
+    assert_eq!(host["reason"], "version_unparsable");
+    assert_eq!(host["executable_source"], "env_override");
+    assert!(
+        host["hint"].as_str().is_some_and(|hint| !hint.is_empty()),
+        "an unverified host must explain itself, got {}",
+        host["hint"]
+    );
+}
+
 #[test]
 fn doctor_flags_a_version_that_misses_the_baseline() {
     // The Blender baseline is >=5.1. A host below it must be reported as a
