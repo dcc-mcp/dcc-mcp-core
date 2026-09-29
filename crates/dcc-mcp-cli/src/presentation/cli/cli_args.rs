@@ -309,6 +309,11 @@ pub(crate) enum Command {
         #[command(subcommand)]
         action: MarketplaceAction,
     },
+    /// Report and provision DCC host applications (Blender and friends).
+    Host {
+        #[command(subcommand)]
+        action: crate::presentation::host_cmd::HostAction,
+    },
     /// Validate local SKILL.md packages before loading them at runtime.
     Lint(LintArgs),
     Components {
