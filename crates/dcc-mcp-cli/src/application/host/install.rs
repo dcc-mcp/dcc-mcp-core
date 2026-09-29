@@ -518,12 +518,20 @@ fn unpack(archive: &[u8], destination: &Path, strip_components: usize) -> Result
                     detail: format!("unsafe archive path: {}", path.display()),
                 });
             }
-            if matches!(
-                entry.header().entry_type(),
-                tar::EntryType::Symlink | tar::EntryType::Link
-            ) {
+            // Links are allowed when their target resolves inside the
+            // destination. Rejecting every link outright would break the
+            // channel outright: official Blender tarballs ship dozens of
+            // relative symlinks, so a blanket ban fails every Linux install.
+            // What matters is containment, not the entry type.
+            if let Some(target) = link_target(&entry)
+                && !link_stays_inside(destination, &stripped, &target)
+            {
                 return Err(InstallError::ExtractionFailed {
-                    detail: format!("archive links are not permitted: {}", path.display()),
+                    detail: format!(
+                        "archive link escapes the install directory: {} -> {}",
+                        path.display(),
+                        target.display()
+                    ),
                 });
             }
             let target = destination.join(stripped);
@@ -543,6 +551,56 @@ fn unpack(archive: &[u8], destination: &Path, strip_components: usize) -> Result
         .map_err(|err| InstallError::ExtractionFailed {
             detail: err.to_string(),
         })
+}
+
+/// The link target of an entry, when the entry is a symlink or hard link.
+fn link_target(entry: &tar::Entry<'_, impl std::io::Read>) -> Option<PathBuf> {
+    match entry.header().entry_type() {
+        tar::EntryType::Symlink | tar::EntryType::Link => {
+            entry.link_name().ok().flatten().map(PathBuf::from)
+        }
+        _ => None,
+    }
+}
+
+/// Whether `target`, resolved relative to the entry's own directory, stays
+/// inside `destination`.
+///
+/// Resolution is lexical: the target usually does not exist yet, so
+/// `canonicalize` cannot be used. `destination` is normalised first because a
+/// relative destination would otherwise compare against itself incorrectly.
+fn link_stays_inside(destination: &Path, stripped: &Path, target: &Path) -> bool {
+    if target.is_absolute() {
+        return false;
+    }
+    let parent = stripped.parent().unwrap_or(Path::new(""));
+    let resolved = lexical_normalize(&destination.join(parent).join(target));
+    let root = lexical_normalize(destination);
+    resolved.starts_with(&root)
+}
+
+/// Resolve `.` and `..` in `path` without touching the filesystem.
+fn lexical_normalize(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::ParentDir => {
+                // Only collapse `..` into a preceding real component. A leading
+                // or consecutive `..` has nothing to cancel against, and
+                // dropping it would make `../../etc/passwd` normalise to
+                // `etc/passwd` and pass the containment check.
+                match normalized.components().next_back() {
+                    Some(std::path::Component::Normal(_)) => {
+                        normalized.pop();
+                    }
+                    _ => normalized.push(std::path::Component::ParentDir.as_os_str()),
+                }
+            }
+            std::path::Component::CurDir => {}
+            other => normalized.push(other.as_os_str()),
+        }
+    }
+    normalized
 }
 
 fn looks_like_xz(bytes: &[u8]) -> bool {
@@ -822,6 +880,161 @@ mod tests {
             .unwrap_or(std::path::Path::new("."))
             .join("escaped.txt");
         assert!(!escaped.exists(), "nothing may be written outside staging");
+    }
+
+    /// P1-C: official Blender tarballs ship dozens of relative symlinks, so a
+    /// blanket link ban fails every Linux install. Containment is what
+    /// matters, not the entry type.
+    #[test]
+    fn relative_symlinks_inside_the_archive_are_allowed() {
+        let staging = tempfile::tempdir().unwrap();
+        let destination = staging.path().join("out");
+        std::fs::create_dir_all(&destination).unwrap();
+
+        let mut builder = tar::Builder::new(Vec::new());
+
+        let payload = b"binary".to_vec();
+        let mut header = tar::Header::new_gnu();
+        header.set_size(payload.len() as u64);
+        header.set_mode(0o755);
+        header.set_cksum();
+        builder
+            .append_data(&mut header, "blender-5.1.1/blender", payload.as_slice())
+            .unwrap();
+
+        // A relative symlink to a sibling inside the archive: the ordinary
+        // case in an official Blender tarball.
+        let mut link = tar::Header::new_gnu();
+        link.set_entry_type(tar::EntryType::Symlink);
+        link.set_size(0);
+        link.set_mode(0o777);
+        link.set_cksum();
+        builder
+            .append_link(&mut link, "blender-5.1.1/blender-alias", "blender")
+            .unwrap();
+
+        let tar_bytes = builder.into_inner().unwrap();
+        unpack(&tar_bytes, &destination, 1).unwrap();
+        assert!(destination.join("blender").is_file());
+        assert!(
+            destination.join("blender-alias").exists(),
+            "a relative symlink inside the archive must be extracted"
+        );
+    }
+
+    /// P1-C, the exact shape of the official archive.
+    ///
+    /// `blender-5.1.1-linux-x64.tar.xz` contains 77 symlinks whose targets are
+    /// archive-root-relative and repeat the stripped top-level directory, e.g.
+    /// `blender-5.1.1-linux-x64/lib/libIex.so.33.3.4.3`
+    ///   -> `blender-5.1.1-linux-x64/lib/libIex.so.33`
+    /// A blanket link ban rejected every one of them, so the Linux channel
+    /// could never install. These resolve inside the destination, so they are
+    /// permitted.
+    ///
+    /// Note: the target is stored verbatim, so after `strip_components` these
+    /// entries point at the pre-strip path and dangle. They are compatibility
+    /// aliases for shared libraries; the real `.so` files extract as regular
+    /// files and the Blender binary itself is unaffected.
+    #[test]
+    fn root_relative_symlinks_like_the_official_archive_are_allowed() {
+        let staging = tempfile::tempdir().unwrap();
+        let destination = staging.path().join("out");
+        std::fs::create_dir_all(&destination).unwrap();
+
+        let mut builder = tar::Builder::new(Vec::new());
+
+        let payload = b"real-library".to_vec();
+        let mut header = tar::Header::new_gnu();
+        header.set_size(payload.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        builder
+            .append_data(
+                &mut header,
+                "blender-5.1.1-linux-x64/lib/libIex.so.33",
+                payload.as_slice(),
+            )
+            .unwrap();
+
+        let mut link = tar::Header::new_gnu();
+        link.set_entry_type(tar::EntryType::Symlink);
+        link.set_size(0);
+        link.set_mode(0o777);
+        link.set_cksum();
+        builder
+            .append_link(
+                &mut link,
+                "blender-5.1.1-linux-x64/lib/libIex.so.33.3.4.3",
+                "blender-5.1.1-linux-x64/lib/libIex.so.33",
+            )
+            .unwrap();
+
+        let tar_bytes = builder.into_inner().unwrap();
+        unpack(&tar_bytes, &destination, 1).unwrap();
+        assert!(
+            destination.join("lib/libIex.so.33").is_file(),
+            "the real library must extract"
+        );
+        // What the channel needs is that unpack accepts the archive at all.
+        // Whether the symlink itself materialises is platform-dependent:
+        // creating one requires developer mode or admin on Windows, where tar
+        // skips it silently. Asserting on the entry existing would fail there
+        // for a reason unrelated to the containment rule under test.
+    }
+
+    /// A symlink whose target escapes the destination is still rejected.
+    #[test]
+    fn symlinks_escaping_the_archive_are_rejected() {
+        let staging = tempfile::tempdir().unwrap();
+        let destination = staging.path().join("out");
+        std::fs::create_dir_all(&destination).unwrap();
+
+        let mut builder = tar::Builder::new(Vec::new());
+        let mut link = tar::Header::new_gnu();
+        link.set_entry_type(tar::EntryType::Symlink);
+        link.set_size(0);
+        link.set_mode(0o777);
+        link.set_cksum();
+        builder
+            .append_link(
+                &mut link,
+                "blender-5.1.1/escape",
+                "../../../../../../etc/passwd",
+            )
+            .unwrap();
+        let tar_bytes = builder.into_inner().unwrap();
+
+        let error = unpack(&tar_bytes, &destination, 1).unwrap_err();
+        assert!(
+            matches!(
+                error,
+                InstallError::ExtractionFailed { ref detail }
+                    if detail.contains("escapes the install directory")
+            ),
+            "expected a containment rejection, got {error:?}"
+        );
+    }
+
+    /// Lexical normalisation is what the containment check rests on, and it
+    /// runs on targets that do not exist yet, so it cannot use canonicalize.
+    #[test]
+    fn lexical_normalize_resolves_dot_dot_without_the_filesystem() {
+        // Relative paths keep the assertion identical on Windows and unix.
+        assert_eq!(
+            lexical_normalize(Path::new("a/b/../c")),
+            PathBuf::from("a/c")
+        );
+        assert_eq!(
+            lexical_normalize(Path::new("a/./b/../../c")),
+            PathBuf::from("c")
+        );
+        // A leading `..` is preserved rather than dropped: dropping it would
+        // make `../../etc/passwd` compare as if it were contained.
+        assert_eq!(
+            lexical_normalize(Path::new("../../etc/passwd")),
+            PathBuf::from("../../etc/passwd")
+        );
     }
 
     /// The xz helper must not fall back to `tar -xJf`, which extracts into

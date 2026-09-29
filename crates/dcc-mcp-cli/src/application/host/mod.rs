@@ -67,6 +67,53 @@ pub struct HostProbe {
     pub warning: Option<String>,
 }
 
+/// The result of asking one candidate executable for its version.
+struct CandidateProbe {
+    candidate: Candidate,
+    /// `Ok(None)` means the manifest declares no version query, not failure.
+    outcome: Result<Option<semver::Version>, detect::VersionQueryError>,
+    version: Option<semver::Version>,
+    status: HostStatus,
+}
+
+/// Ask one candidate for its version and grade it against `gate`.
+///
+/// Used by the threshold-aware scan so a candidate that cannot clear the gate
+/// does not stop the search.
+fn probe_candidate(
+    def: &HostDefinition,
+    candidate: &Candidate,
+    gate: &VersionGate,
+) -> CandidateProbe {
+    match query_version(&candidate.path, &def.version_arg) {
+        Ok(Some(version)) => {
+            let status = if gate.satisfied_by(&version) {
+                HostStatus::Available
+            } else {
+                HostStatus::VersionMismatch
+            };
+            CandidateProbe {
+                candidate: candidate.clone(),
+                outcome: Ok(Some(version.clone())),
+                version: Some(version),
+                status,
+            }
+        }
+        Ok(None) => CandidateProbe {
+            candidate: candidate.clone(),
+            outcome: Ok(None),
+            version: None,
+            status: HostStatus::Available,
+        },
+        Err(error) => CandidateProbe {
+            candidate: candidate.clone(),
+            outcome: Err(error),
+            version: None,
+            status: HostStatus::VersionUnknown,
+        },
+    }
+}
+
 /// Probe every requested spec, or every known host when `specs` is empty.
 ///
 /// Read-only by construction: the only process spawned is `<host> --version`
@@ -434,7 +481,7 @@ fn probe_definition(def: &HostDefinition, spec: Option<&HostSpec>, env: &HostEnv
 
     let rejected = rejected_override(def, env);
     let found = candidates(def, env);
-    let Some(candidate) = found.into_iter().next() else {
+    if found.is_empty() {
         // An override is an explicit operator declaration, so a target that
         // was rejected is reported rather than folded into "not found" —
         // silently ignoring it hides the one setting the operator did set.
@@ -464,14 +511,41 @@ fn probe_definition(def: &HostDefinition, spec: Option<&HostSpec>, env: &HostEnv
             hint: missing_hint(def),
             warning: None,
         };
-    };
+    }
+
+    // Probe candidates in precedence order and take the first one that clears
+    // the version gate.
+    //
+    // Taking the first candidate unconditionally meant a host could be reported
+    // `version_mismatch` while a build that satisfies the gate sat in a lower
+    // priority source. That is the common thm/rez shape: the environment pins
+    // an older Blender on PATH while a newer one is installed globally, and the
+    // operator only ever saw the mismatch. It also let a non-runnable shim
+    // shadow the real binary on Windows, where any existing file passes the
+    // executable check but cannot be spawned.
+    let mut probes: Vec<CandidateProbe> = Vec::new();
+    let mut chosen = None;
+    for candidate in &found {
+        let probe = probe_candidate(def, candidate, &gate);
+        let usable = probe.status.is_available();
+        probes.push(probe);
+        if usable {
+            chosen = Some(probes.len() - 1);
+            break;
+        }
+    }
+    // With no usable candidate, report the highest-priority one: that is the
+    // source the operator is best placed to act on.
+    let chosen = chosen.unwrap_or(0);
+    let probe = &probes[chosen];
+    let candidate = probe.candidate.clone();
 
     // An override naming something unusable must stay visible even when PATH
     // supplied the candidate we are about to report. Silently falling back
     // hides the one setting the operator actually set, and once `host install`
     // exists it would misdirect them into installing a host that is already
     // present while the broken override remains the real problem.
-    let warning = rejected.map(|path| {
+    let mut warning = rejected.map(|path| {
         format!(
             "{} is set to {} but was not usable, so this probe used {} instead; fix or unset the override.",
             def.executable_env_var(),
@@ -479,10 +553,41 @@ fn probe_definition(def: &HostDefinition, spec: Option<&HostSpec>, env: &HostEnv
             candidate.source.as_str()
         )
     });
+    if chosen > 0 {
+        // Say which candidates were passed over and why, otherwise the report
+        // names a binary the operator did not expect and looks arbitrary.
+        let skipped: Vec<String> = probes[..chosen]
+            .iter()
+            .map(|probe| {
+                let version = probe
+                    .version
+                    .as_ref()
+                    .map(ToString::to_string)
+                    .unwrap_or_else(|| "an unreadable version".to_string());
+                format!(
+                    "{} ({}) reported {}",
+                    probe.candidate.path.display(),
+                    probe.candidate.source.as_str(),
+                    version
+                )
+            })
+            .collect();
+        let skipped_note = format!(
+            "{} did not satisfy {}; skipped {} and used {} instead.",
+            skipped.join(", "),
+            gate,
+            if skipped.len() == 1 { "it" } else { "them" },
+            candidate.source.as_str()
+        );
+        warning = Some(match warning {
+            Some(existing) => format!("{existing} {skipped_note}"),
+            None => skipped_note,
+        });
+    }
 
-    match query_version(&candidate.path, &def.version_arg) {
+    match &probe.outcome {
         Ok(Some(version)) => {
-            if gate.satisfied_by(&version) {
+            if gate.satisfied_by(version) {
                 HostProbe {
                     id: def.id.clone(),
                     display_name: def.display_name.clone(),
@@ -504,7 +609,7 @@ fn probe_definition(def: &HostDefinition, spec: Option<&HostSpec>, env: &HostEnv
                     id: def.id.clone(),
                     display_name: def.display_name.clone(),
                     status: HostStatus::VersionMismatch,
-                    reason: mismatch_reason(def, &version),
+                    reason: mismatch_reason(def, version),
                     executable: Some(candidate.path),
                     executable_source: Some(candidate.source.as_str().to_string()),
                     version: Some(version.to_string()),
@@ -513,7 +618,7 @@ fn probe_definition(def: &HostDefinition, spec: Option<&HostSpec>, env: &HostEnv
                     license,
                     self_provision: def.self_provision,
                     sources_checked: sources,
-                    hint: mismatch_hint(def, &version),
+                    hint: mismatch_hint(def, version),
                     warning: warning.clone(),
                 }
             }
@@ -768,6 +873,54 @@ mod tests {
         HostEnv::new()
     }
 
+    /// Write a stub that prints `banner` when asked for its version.
+    ///
+    /// Uses a shell script on unix and a batch file on Windows so the stub is
+    /// both executable and able to answer `--version`.
+    fn write_version_stub(path: &Path, banner: &str) {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::write(path, format!("#!/bin/sh\necho '{banner}'\n")).unwrap();
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        #[cfg(windows)]
+        {
+            std::fs::write(path, format!("@echo off\r\necho {banner}\r\n")).unwrap();
+        }
+        #[cfg(not(any(unix, windows)))]
+        {
+            std::fs::write(path, banner).unwrap();
+        }
+    }
+
+    /// The stub filename for this platform.
+    ///
+    /// Windows needs a real extension to execute the script, so the manifest
+    /// name and the file on disk have to agree on it.
+    fn stub_file_name() -> &'static str {
+        if cfg!(windows) {
+            "blender.bat"
+        } else {
+            "blender"
+        }
+    }
+
+    /// A host definition that probes the current platform for `id`.
+    fn stub_host_definition(id: &str, min_version: Option<&str>) -> HostDefinition {
+        let mut def = fake_def(id);
+        def.min_version = min_version.map(ToString::to_string);
+        def.version_arg = vec!["--version".to_string()];
+        for names in [
+            &mut def.executables.windows,
+            &mut def.executables.linux,
+            &mut def.executables.macos,
+        ] {
+            names.push(stub_file_name().to_string());
+        }
+        def
+    }
+
     fn fake_def(id: &str) -> HostDefinition {
         HostDefinition {
             id: id.to_string(),
@@ -798,6 +951,116 @@ mod tests {
         assert_eq!(probes.len(), 1);
         assert_eq!(probes[0].status, HostStatus::UnknownHost);
         assert_eq!(probes[0].reason, HostReason::UnknownHost);
+    }
+
+    /// P2-1: a candidate that fails the version gate must not hide a build
+    /// that satisfies it.
+    ///
+    /// This is the ordinary thm/rez shape: the environment pins an older host
+    /// on PATH while a newer one is installed globally. Reporting the mismatch
+    /// and stopping left the operator stuck on the wrong build even though a
+    /// usable one was present.
+    #[test]
+    fn a_failing_candidate_falls_through_to_one_that_clears_the_gate() {
+        // Two directories on PATH: the first holds an old build, the second the
+        // build that clears the >=5.1 gate.
+        let old_dir = tempfile::tempdir().unwrap();
+        let new_dir = tempfile::tempdir().unwrap();
+        write_version_stub(&old_dir.path().join(stub_file_name()), "Blender 5.0.0");
+        write_version_stub(&new_dir.path().join(stub_file_name()), "Blender 5.1.1");
+
+        let mut env = HostEnv::new();
+        env.path_entries = Some(vec![
+            old_dir.path().to_path_buf(),
+            new_dir.path().to_path_buf(),
+        ]);
+
+        let def = stub_host_definition("blender", Some("5.1"));
+        let manifest = HostManifest {
+            version: "1".to_string(),
+            hosts: vec![def],
+        };
+        let probes = doctor(&["blender".to_string()], &manifest, &env);
+
+        assert_eq!(
+            probes[0].status,
+            HostStatus::Available,
+            "the build that clears the gate must be used, got {:?} ({})",
+            probes[0].status,
+            probes[0].hint
+        );
+        assert_eq!(probes[0].version.as_deref(), Some("5.1.1"));
+        // The skipped candidate must be named, or the report looks arbitrary.
+        let warning = probes[0]
+            .warning
+            .as_deref()
+            .expect("the skipped candidate must be surfaced");
+        assert!(warning.contains("5.0.0"), "warning was: {warning}");
+    }
+
+    /// When nothing clears the gate, the highest-priority candidate is still
+    /// the one reported: that is the source the operator can act on.
+    #[test]
+    fn with_no_candidate_clearing_the_gate_the_first_is_reported() {
+        let dir = tempfile::tempdir().unwrap();
+        write_version_stub(&dir.path().join(stub_file_name()), "Blender 5.0.0");
+
+        let mut env = HostEnv::new();
+        env.path_entries = Some(vec![dir.path().to_path_buf()]);
+
+        let def = stub_host_definition("blender", Some("5.1"));
+        let manifest = HostManifest {
+            version: "1".to_string(),
+            hosts: vec![def],
+        };
+        let probes = doctor(&["blender".to_string()], &manifest, &env);
+
+        assert_eq!(probes[0].status, HostStatus::VersionMismatch);
+        assert_eq!(probes[0].version.as_deref(), Some("5.0.0"));
+        assert!(
+            probes[0].warning.is_none(),
+            "nothing was skipped, so there is no fallback to explain"
+        );
+    }
+
+    /// P3-1: on Windows any existing file passes the executable check, so a
+    /// non-runnable shim ahead of the real binary used to shadow it. A shim
+    /// cannot produce a version, so the scan has to move past it.
+    #[test]
+    fn an_unrunnable_shim_does_not_shadow_a_real_binary() {
+        let shim_dir = tempfile::tempdir().unwrap();
+        let real_dir = tempfile::tempdir().unwrap();
+        // A file that exists but cannot report a version, standing in for an
+        // msys/Git-Bash style shim.
+        let shim = shim_dir.path().join(stub_file_name());
+        std::fs::write(&shim, b"not a binary").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&shim, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        write_version_stub(&real_dir.path().join(stub_file_name()), "Blender 5.1.1");
+
+        let mut env = HostEnv::new();
+        env.path_entries = Some(vec![
+            shim_dir.path().to_path_buf(),
+            real_dir.path().to_path_buf(),
+        ]);
+
+        let def = stub_host_definition("blender", Some("5.1"));
+        let manifest = HostManifest {
+            version: "1".to_string(),
+            hosts: vec![def],
+        };
+        let probes = doctor(&["blender".to_string()], &manifest, &env);
+
+        assert_eq!(
+            probes[0].status,
+            HostStatus::Available,
+            "the real binary must win over the shim, got {:?}",
+            probes[0].status
+        );
+        assert_eq!(probes[0].version.as_deref(), Some("5.1.1"));
     }
 
     /// P1-B: an install the probe cannot confirm must fail closed, so
