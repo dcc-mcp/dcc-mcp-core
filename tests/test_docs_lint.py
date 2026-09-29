@@ -262,6 +262,35 @@ def test_markdown_is_not_part_of_the_drift_corpus(tmp_path: Path):
     assert len(found) == 1 and "ghost_symbol" in found[0]
 
 
+def test_generated_snapshot_data_is_not_part_of_the_drift_corpus(tmp_path: Path):
+    # A snapshot harvested from other repositories contains every symbol those
+    # repos define. If it fed the corpus it would silently satisfy findings
+    # about symbols this repository never implemented.
+    snapshot = tmp_path / "benchmarks" / "skills" / "adapters.json"
+    snapshot.parent.mkdir(parents=True)
+    snapshot.write_text('{"tools": ["ghost_symbol"]}', encoding="utf-8")
+
+    index = _index(tmp_path)
+    found = _drift_tokens("Use `ghost_symbol` here.\n", index)
+    assert len(found) == 1 and "ghost_symbol" in found[0]
+
+
+def test_snapshot_exclusion_is_corpus_only(tmp_path: Path):
+    # Excluding snapshot data from the corpus must not stop those directories
+    # from being linted.
+    doc = tmp_path / "benchmarks" / "notes.md"
+    doc.parent.mkdir(parents=True)
+    text = "# Title\n\n#### Jumped\n"
+    doc.write_text(text, encoding="utf-8")
+
+    # check_structure is text-only; the point is that nothing above treats the
+    # benchmarks directory as invisible to the per-file rules.
+    assert "structure/heading-level-jump" in _rules(check_structure(text))
+
+    index = _index(tmp_path)
+    assert "benchmarks/notes.md" in index.files
+
+
 def test_fenced_code_blocks_are_not_checked(tmp_path: Path):
     index = _index(tmp_path)
     assert _drift_tokens("```\nghost_symbol\n```\n", index) == []

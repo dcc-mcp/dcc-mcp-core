@@ -179,6 +179,22 @@ CORPUS_SUFFIXES = frozenset(
     }
 )
 
+# Directories of *generated or harvested* data that must stay out of the drift
+# corpus. Excluding Markdown is necessary but not sufficient: a snapshot
+# harvested from downstream repositories contains every symbol those repos
+# define, so it silently satisfies findings about symbols this repository does
+# not implement -- the finding disappears without any document changing.
+#
+# This is corpus-only. These directories are still linted if they contain
+# Markdown; they just do not get a vote on whether a symbol exists.
+CORPUS_EXCLUDE_DIRS = frozenset(
+    {
+        "benchmarks",
+        "snapshots",
+        "__snapshots__",
+    }
+)
+
 # Changelogs describe features that were added *and* removed; a drift finding
 # there is history, not staleness.
 DRIFT_EXEMPT_NAMES = frozenset({"changelog.md", "changelog"})
@@ -347,7 +363,13 @@ class RepoIndex:
                 yield path
                 continue
             for dirpath, dirnames, filenames in os.walk(str(path)):
-                dirnames[:] = sorted(d for d in dirnames if d not in self.exclude_dirs)
+                dirnames[:] = sorted(
+                    d
+                    for d in dirnames
+                    if d not in self.exclude_dirs and d not in CORPUS_EXCLUDE_DIRS
+                )
+                if Path(dirpath).name in CORPUS_EXCLUDE_DIRS:
+                    continue
                 for name in sorted(filenames):
                     if Path(name).suffix.lower() in CORPUS_SUFFIXES:
                         yield Path(dirpath) / name
