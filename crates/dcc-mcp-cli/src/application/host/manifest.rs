@@ -140,7 +140,7 @@ impl PlatformStrings {
 pub enum InstallChannel {
     /// Windows package manager.
     Winget {
-        /// Package identifier, e.g. `Blender.Blender`.
+        /// Package identifier, e.g. `BlenderFoundation.Blender`.
         id: Option<String>,
         /// Extra argv appended after the package id.
         #[serde(default)]
@@ -552,6 +552,79 @@ hosts:
         assert_eq!(blender.min_version.as_deref(), Some("5.1"));
         assert_eq!(blender.pinned_version.as_deref(), Some("5.1.1"));
         assert_eq!(blender.version_arg, vec!["--version".to_string()]);
+    }
+
+    /// PIP-3968: the Windows channel declared `Blender.Blender`, an id winget
+    /// does not resolve, so `host install blender` failed with `0x8a150014`
+    /// (no package matched) on every machine. The published id is
+    /// `BlenderFoundation.Blender`.
+    ///
+    /// No schema rule can catch this class of typo on its own: both strings
+    /// are well-formed `Publisher.Package` ids, so the only offline guard is
+    /// asserting the bundled manifest directly.
+    #[test]
+    fn blender_windows_channel_uses_the_published_winget_id() {
+        let manifest = bundled();
+        let blender = manifest
+            .find("blender")
+            .expect("blender is in the manifest");
+        let channel = blender
+            .install
+            .get("windows")
+            .expect("blender declares a windows install channel");
+        let InstallChannel::Winget { id, .. } = channel else {
+            panic!("blender installs through winget on windows, got {channel:?}");
+        };
+        assert_eq!(
+            id.as_deref(),
+            Some("BlenderFoundation.Blender"),
+            "must be the published winget id; `Blender.Blender` resolves to nothing"
+        );
+    }
+
+    /// Read-only audit of every winget id the manifest declares: the id must
+    /// resolve upstream and must publish the pinned version.
+    ///
+    /// Ignored by default because it needs Windows plus network. Run it after
+    /// editing any `install.windows.id`:
+    ///
+    /// ```text
+    /// cargo test -p dcc-mcp-cli --lib host::manifest -- --ignored
+    /// ```
+    #[cfg(windows)]
+    #[ignore = "needs Windows and network; opt-in audit of declared winget ids"]
+    #[test]
+    fn declared_winget_ids_resolve_upstream() {
+        use std::process::Command;
+
+        let manifest = bundled();
+        let mut checked = 0;
+        for host in &manifest.hosts {
+            let Some(InstallChannel::Winget { id: Some(id), .. }) = host.install.get("windows")
+            else {
+                continue;
+            };
+            let output = Command::new("winget")
+                .args(["show", "--id", id.as_str(), "--exact", "--versions"])
+                .output()
+                .expect("winget should be runnable");
+            assert!(
+                output.status.success(),
+                "winget cannot resolve `{}` ({}): is it the published package id?\n{}",
+                id,
+                output.status,
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            if let Some(pinned) = host.pinned_version.as_deref() {
+                assert!(
+                    stdout.lines().any(|line| line.trim() == pinned),
+                    "`{id}` publishes no `{pinned}`:\n{stdout}"
+                );
+            }
+            checked += 1;
+        }
+        assert!(checked > 0, "manifest declares no winget channel to audit");
     }
 
     #[test]

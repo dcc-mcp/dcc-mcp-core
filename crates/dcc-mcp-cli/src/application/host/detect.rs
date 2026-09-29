@@ -711,7 +711,7 @@ mod tests {
         def.install.insert(
             "windows".to_string(),
             InstallChannel::Winget {
-                id: Some("Blender.Blender".to_string()),
+                id: Some("BlenderFoundation.Blender".to_string()),
                 extra_args: Vec::new(),
             },
         );
