@@ -6,11 +6,25 @@
 
 mod support;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
 use support::{cli_command, run_json};
+
+/// Write a stub host binary that probing accepts on every platform.
+///
+/// `std::fs::write` alone creates a 0644 file, which unix probing rejects for
+/// lacking the executable bit, so the bit is set explicitly where it exists.
+fn write_executable_stub(path: &Path, contents: &[u8]) {
+    std::fs::write(path, contents).expect("stub should be writable");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755))
+            .expect("stub should be marked executable");
+    }
+}
 
 /// A host id that cannot exist on any machine, so `missing` is deterministic.
 const IMPOSSIBLE_HOST: &str = "dcc-mcp-nonexistent-host";
@@ -115,7 +129,7 @@ fn doctor_reports_a_hosted_host_as_available_with_its_path() {
     let lock = std::env::temp_dir().join(format!("hosts-{}.lock", uuid::Uuid::new_v4()));
     let dir = tempfile::tempdir().unwrap();
     let binary = dir.path().join("fakeblender.exe");
-    std::fs::write(&binary, b"#!/bin/sh\necho 'Blender 5.1.1'\n").unwrap();
+    write_executable_stub(&binary, b"#!/bin/sh\necho 'Blender 5.1.1'\n");
 
     let output = host_command(&lock)
         .args(["doctor", "blender", "--output", "json"])
@@ -127,8 +141,9 @@ fn doctor_reports_a_hosted_host_as_available_with_its_path() {
     assert_eq!(host["id"], "blender");
     assert_eq!(host["executable_source"], "env_override");
     assert_eq!(host["gate"], ">=5.1");
-    // The stub is a text file, not an executable, so the version query cannot
-    // succeed here; the graded outcomes below are the contract.
+    // The stub is a shell script, so unix probing runs it and reads 5.1.1 from
+    // it; Windows cannot launch a text file, so it falls back to
+    // `version_unknown`. Both outcomes satisfy the contract below.
     assert!(
         matches!(
             host["status"].as_str(),
@@ -138,6 +153,42 @@ fn doctor_reports_a_hosted_host_as_available_with_its_path() {
         host["status"]
     );
     assert_eq!(overridden["read_only"], true);
+}
+
+#[test]
+fn doctor_reports_an_override_it_cannot_run() {
+    // An override is an explicit operator declaration, so naming something
+    // unusable must be reported against that variable instead of silently
+    // degrading to "not found" with no mention of the path that was set.
+    let lock = std::env::temp_dir().join(format!("hosts-{}.lock", uuid::Uuid::new_v4()));
+    let dir = tempfile::tempdir().unwrap();
+    let missing = dir.path().join("no-such-blender");
+
+    // The rejection path only runs when nothing else finds the host, so a
+    // runner that already has Blender installed proves nothing about it.
+    let baseline = host_json(&["doctor", "blender"], &lock);
+    if baseline["hosts"][0]["status"] == "available" {
+        return;
+    }
+
+    let output = host_command(&lock)
+        .args(["doctor", "blender", "--output", "json"])
+        .env("DCC_MCP_BLENDER_EXECUTABLE", &missing)
+        .output()
+        .expect("doctor should run");
+    let value: Value = serde_json::from_slice(&output.stdout).expect("JSON report");
+    let host = &value["hosts"][0];
+    assert_eq!(host["status"], "missing");
+    assert_eq!(host["reason"], "override_not_runnable");
+    assert_eq!(host["executable_source"], "env_override");
+    assert!(
+        host["hint"]
+            .as_str()
+            .is_some_and(|hint| hint.contains("DCC_MCP_BLENDER_EXECUTABLE")
+                && hint.contains(&missing.display().to_string())),
+        "the hint must name the variable and its target, got {}",
+        host["hint"]
+    );
 }
 
 #[test]

@@ -256,7 +256,9 @@ fn clip(text: &str) -> String {
 }
 
 /// Whether `path` is a file we could execute.
-fn is_executable_file(path: &Path) -> bool {
+///
+/// Public so the probe can explain a rejected override instead of dropping it.
+pub fn is_executable_file(path: &Path) -> bool {
     if !path.is_file() {
         return false;
     }

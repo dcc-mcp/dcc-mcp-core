@@ -255,6 +255,8 @@ pub enum HostReason {
     Ok,
     /// Nothing on PATH, in the search roots, or in the override variable.
     ExecutableNotFound,
+    /// The override variable is set, but its target is not a runnable file.
+    OverrideNotRunnable,
     /// The binary exists but `--version` never returned a readable value.
     VersionQueryFailed,
     /// The binary answered but no version token could be parsed from the output.

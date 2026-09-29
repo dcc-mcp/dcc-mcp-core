@@ -16,11 +16,13 @@
 pub mod detect;
 pub mod manifest;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
-use self::detect::{Candidate, HostEnv, candidates, query_version, sources_checked};
+use self::detect::{
+    Candidate, CandidateSource, HostEnv, candidates, query_version, sources_checked,
+};
 use self::manifest::{HostDefinition, HostManifest};
 use crate::domain::host::{
     HostReason, HostSpec, HostStatus, ProvisionRefusal, VersionGate, parse_manifest_version,
@@ -207,6 +209,19 @@ fn probe_definition(def: &HostDefinition, spec: Option<&HostSpec>, env: &HostEnv
 
     let found = candidates(def, env);
     let Some(candidate) = found.into_iter().next() else {
+        // An override is an explicit operator declaration, so a target that
+        // was rejected is reported rather than folded into "not found" —
+        // silently ignoring it hides the one setting the operator did set.
+        if let Some(path) = rejected_override(def, env) {
+            return rejected_override_probe(
+                def,
+                &path,
+                sources,
+                gate.to_string(),
+                expected,
+                license,
+            );
+        }
         return HostProbe {
             id: def.id.clone(),
             display_name: def.display_name.clone(),
@@ -298,6 +313,61 @@ fn probe_definition(def: &HostDefinition, spec: Option<&HostSpec>, env: &HostEnv
             license,
             spec_label,
         ),
+    }
+}
+
+/// The override target, when the variable is set but produced no candidate.
+///
+/// `DCC_MCP_<ID>_EXECUTABLE` is a deliberate operator declaration, so a path
+/// that is absent or lacks the executable bit deserves its own report instead
+/// of the generic "executable not found" one.
+fn rejected_override(def: &HostDefinition, env: &HostEnv) -> Option<PathBuf> {
+    let path = PathBuf::from(env.var(&def.executable_env_var())?.trim());
+    (!path.is_file() || !detect::is_executable_file(&path)).then_some(path)
+}
+
+/// Report an override that named something we cannot run.
+///
+/// `executable_source` is set even though `executable` is not, so the report
+/// says "your override was seen and rejected here" rather than going `null`.
+#[allow(clippy::too_many_arguments)]
+fn rejected_override_probe(
+    def: &HostDefinition,
+    path: &Path,
+    sources: Vec<String>,
+    gate: String,
+    expected: Value,
+    license: String,
+) -> HostProbe {
+    let variable = def.executable_env_var();
+    let hint = if path.is_file() {
+        format!(
+            "{variable} points at {}, which is not an executable file; run `chmod +x {}` or point {variable} at a runnable {} binary.",
+            path.display(),
+            path.display(),
+            def.display_name
+        )
+    } else {
+        format!(
+            "{variable} points at {}, which does not exist; point {variable} at an existing {} binary or unset it.",
+            path.display(),
+            def.display_name
+        )
+    };
+    HostProbe {
+        id: def.id.clone(),
+        display_name: def.display_name.clone(),
+        status: HostStatus::Missing,
+        reason: HostReason::OverrideNotRunnable,
+        executable: None,
+        executable_source: Some(CandidateSource::EnvOverride.as_str().to_string()),
+        version: None,
+        gate: Some(gate),
+        expected,
+        license,
+        self_provision: def.self_provision,
+        sources_checked: sources,
+        hint,
     }
 }
 
@@ -596,6 +666,62 @@ mod tests {
         assert!(host["sources_checked"].is_array());
         assert_eq!(host["expected"]["pinned_version"], "5.1.1");
         assert!(has_unavailable(&probes));
+    }
+
+    /// A host that declares an executable on every platform, so probing is
+    /// never short-circuited as `unsupported_platform` in these tests.
+    fn fake_def_for_current_platform(id: &str) -> HostDefinition {
+        let mut def = fake_def(id);
+        for names in [
+            &mut def.executables.windows,
+            &mut def.executables.linux,
+            &mut def.executables.macos,
+        ] {
+            names.push(format!("{id}-never-on-path"));
+        }
+        def
+    }
+
+    #[test]
+    fn a_rejected_override_is_reported_instead_of_dropped() {
+        // The override is an explicit operator declaration. Pointing it at
+        // something unusable must surface the variable and the path, not
+        // degrade into a generic "not found" that hides the operator's input.
+        let target = std::env::temp_dir().join(format!("absent-{}.bin", uuid::Uuid::new_v4()));
+        let mut env = env_without_path();
+        env.vars.insert(
+            "DCC_MCP_STUBHOST_EXECUTABLE".to_string(),
+            target.to_string_lossy().into_owned(),
+        );
+        let manifest = HostManifest {
+            version: "1".to_string(),
+            hosts: vec![fake_def_for_current_platform("stubhost")],
+        };
+        let probes = doctor(&["stubhost".to_string()], &manifest, &env);
+        assert_eq!(probes[0].status, HostStatus::Missing);
+        assert_eq!(probes[0].reason, HostReason::OverrideNotRunnable);
+        assert_eq!(probes[0].executable_source.as_deref(), Some("env_override"));
+        assert!(probes[0].executable.is_none());
+        assert!(
+            probes[0].hint.contains("DCC_MCP_STUBHOST_EXECUTABLE")
+                && probes[0].hint.contains(&target.display().to_string()),
+            "the hint must name the variable and its target, got {}",
+            probes[0].hint
+        );
+    }
+
+    #[test]
+    fn an_unset_override_still_reports_not_found() {
+        // Without the override there is nothing to reject, so the reason stays
+        // the generic one this branch always produced.
+        let manifest = HostManifest {
+            version: "1".to_string(),
+            hosts: vec![fake_def_for_current_platform("stubhost")],
+        };
+        let probes = doctor(&["stubhost".to_string()], &manifest, &env_without_path());
+        assert_eq!(probes[0].status, HostStatus::Missing);
+        assert_eq!(probes[0].reason, HostReason::ExecutableNotFound);
+        assert_eq!(probes[0].executable_source, None);
     }
 
     #[test]
