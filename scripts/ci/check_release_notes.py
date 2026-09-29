@@ -72,6 +72,36 @@ formatting change, the table is wrong, not the commit. Do not widen the set to
 match the generator wholesale - ``test!`` is the counter-example that would
 cost an alarm and buy nothing.
 
+Commits that reach no user
+--------------------------
+
+The type is a statement about a title, not about what the commit touched, and
+the two disagree often enough to matter. ``33974311`` ``fix(winget): judge
+manifest validation by its error marker, not its exit code`` carries a visible
+type and changes exactly two files, ``.github/workflows/winget-first-manifest.yml``
+and ``tests/test_winget_first_manifest.py``: no wheel, sdist, binary or
+published schema can carry any of it. Read as a type alone it is a
+user-visible commit missing from the notes, so the gate failed and four PyPI
+routes stayed on the previous version for a whole release window.
+
+A commit whose every path sits under ``.github/`` or ``tests/`` is therefore
+classified contributor-only and held to no notes requirement, whatever its
+type says. The exemption is a path statement, so it is applied *after* the two
+title mechanisms that are free to fix - an untyped commit must still be
+retitled, and a type the generator hides by design is still hidden - and
+*before* the ones that would cost an author a release-body addendum.
+
+The one thing the exemption does override is a breaking-change marker: a
+``fix!`` that only touches CI breaks contributors, not consumers of a
+published artefact, so the marker buys it nothing here.
+
+The exemption carries the same burden as a new ``!``-capable type: the
+full-history replay (every adjacent release-tag window, 296 of them) must not
+report an alarm it did not report before. It reports none, and the alarms it
+drops - 230 of them across 44 windows, every one a commit whose paths are all
+under ``.github/`` or ``tests/`` - are the history this section exists to
+absorb rather than cases the table should chase.
+
 Notes are read from every source given with ``--notes-file`` (a release PR body,
 a published release body, stdin via ``-``) plus, when ``--include-changelog`` is
 set or no file is given, the ``CHANGELOG.md`` section release-please wrote for
@@ -94,6 +124,11 @@ import sys
 
 CR = "\r"
 CRLF = CR + "\n"
+#: ``git log -z`` separates records with NUL, and the record fields with US.
+NUL = "\x00"
+US = "\x1f"
+#: Length of a full git object id, in hex digits.
+SHA_LEN = 40
 
 RELEASE_CONFIG_NAME = "release-please-config.json"
 CHANGELOG_NAME = "CHANGELOG.md"
@@ -120,6 +155,11 @@ _BREAKING_FOOTER_RE = re.compile(r"^BREAKING[ -]CHANGE\s*:", re.MULTILINE)
 #: (or a ``BREAKING CHANGE:`` footer) on these overrides the hidden section;
 #: on every other hidden type it does not. See the module docstring.
 BREAKING_CAPABLE_HIDDEN_TYPES = frozenset({"chore", "build"})
+#: Paths that never ship: CI wiring and the test suite. A commit that touches
+#: nothing outside them can change no wheel, sdist, binary or published schema,
+#: so its absence from the notes costs a user nothing. Git reports paths with
+#: forward slashes on every platform, Windows included.
+CONTRIBUTOR_ONLY_PREFIXES = (".github/", "tests/")
 # The release commit itself: ``chore(main): release 0.20.34 (#2505)``.
 _RELEASE_COMMIT_RE = re.compile(r"^chore(\([^)]*\))?!?:\s*release\s+(\S+)", re.IGNORECASE)
 # Squash-merged commits and release note entries both carry the PR number.
@@ -139,6 +179,8 @@ class Commit:
     sha: str
     subject: str
     body: str = ""
+    #: Paths the commit touched, as git reports them (forward slashes).
+    files: tuple[str, ...] = ()
 
     @property
     def short_sha(self) -> str:
@@ -168,6 +210,7 @@ class ReleaseNotesReport:
     checked: tuple[Commit, ...] = ()
     release_commits: tuple[Commit, ...] = ()
     hidden: tuple[Commit, ...] = ()
+    contributor: tuple[Commit, ...] = ()
     untyped: tuple[Commit, ...] = ()
     undeclared: tuple[Commit, ...] = ()
     undocumented: tuple[Commit, ...] = ()
@@ -271,6 +314,31 @@ def is_release_commit(subject: str) -> str | None:
     return match.group(2).strip() if match is not None else None
 
 
+def is_contributor_only(files: tuple[str, ...]) -> bool:
+    """Return True when every path a commit touched is contributor-only surface.
+
+    An empty file list is deliberately *not* contributor-only: a commit with no
+    paths is an anomaly (a tree git could not diff, or a record that failed to
+    parse) and an anomaly must keep whatever scrutiny it already had rather than
+    be waved through by a rule about paths it does not have.
+    """
+    if not files:
+        return False
+    return all(path.startswith(CONTRIBUTOR_ONLY_PREFIXES) for path in files)
+
+
+def _is_commit_record(token: str) -> bool:
+    """Return True when a NUL-delimited ``git log -z`` token is a commit header.
+
+    ``--name-only`` interleaves header records with NUL-terminated paths, and a
+    path can be exactly as long as an object id - this repository ships
+    ``pkg/dcc-mcp-core-semantic/pyproject.toml`` - so length alone must never
+    decide it. Only a 40-hex sha immediately followed by the unit separator is a
+    header.
+    """
+    return len(token) > SHA_LEN and token[SHA_LEN] == US and _HEX_DIGITS.issuperset(token[:SHA_LEN])
+
+
 def is_documented(sha: str, notes: str) -> bool:
     """Return True when ``notes`` cites ``sha`` at any abbreviation length.
 
@@ -325,12 +393,23 @@ def read_commits(root: Path, prev_ref: str, release_ref: str) -> list[Commit]:
     """Return the non-merge commits in ``prev_ref..release_ref``, newest first.
 
     Each record also carries the commit body, so a ``BREAKING CHANGE:`` footer
-    is visible to ``is_breaking()``. Records are NUL-delimited because a body
-    spans lines: splitting on newlines would cut every multi-line commit into
-    several bogus ones.
+    is visible to ``is_breaking()``, and the paths the commit touched, so a
+    commit that changed no shipping surface is visible to ``is_contributor_only()``.
+    Output is NUL-delimited (``-z``) because a body spans lines: splitting on
+    newlines would cut every multi-line commit into several bogus ones. The
+    first path of a record arrives carrying the newline git prints between a
+    header and its paths, which is why every path is stripped on the way in.
     """
     completed = subprocess.run(
-        ["git", "log", f"{prev_ref}..{release_ref}", "--no-merges", "--format=%H%x1f%s%x1f%b%x00"],
+        [
+            "git",
+            "log",
+            f"{prev_ref}..{release_ref}",
+            "--no-merges",
+            "--name-only",
+            "-z",
+            "--format=%H%x1f%s%x1f%b",
+        ],
         cwd=str(root),
         capture_output=True,
         # Commit subjects carry typographic characters (em dashes, accents);
@@ -344,13 +423,16 @@ def read_commits(root: Path, prev_ref: str, release_ref: str) -> list[Commit]:
         raise ReleaseNotesError(
             f"git log {prev_ref}..{release_ref} failed in {root}: {completed.stderr.strip() or 'unknown error'}"
         )
-    commits = []
-    for record in completed.stdout.split("\x00"):
-        if not record.strip():
+    records: list[tuple[str, str, str, list[str]]] = []
+    for token in completed.stdout.split(NUL):
+        if _is_commit_record(token):
+            sha, subject, body, *_ = [*token.split(US, 2), "", ""]
+            records.append((sha.strip(), subject.strip(), body.strip(), []))
             continue
-        sha, subject, body, *_ = [*record.split("\x1f", 2), "", ""]
-        commits.append(Commit(sha=sha.strip(), subject=subject.strip(), body=body.strip()))
-    return commits
+        path = token.lstrip("\n")
+        if path and records:
+            records[-1][3].append(path)
+    return [Commit(sha=sha, subject=subject, body=body, files=tuple(files)) for sha, subject, body, files in records]
 
 
 def check_commits(
@@ -374,9 +456,16 @@ def check_commits(
 
     A hidden type is exempt the other way round: the marker only pulls it back
     into the checked set when ``is_user_visible_breaking`` accepts its type.
+
+    A commit is exempt by *path* once the two title mechanisms have had their
+    say: when every path it touched is contributor-only surface, no user can
+    miss it, so neither a missing note nor an undeclared type is worth an
+    alarm. See ``is_contributor_only`` and the "Commits that reach no user"
+    docstring section.
     """
     release_commits: list[Commit] = []
     hidden: list[Commit] = []
+    contributor: list[Commit] = []
     untyped: list[Commit] = []
     undeclared: list[Commit] = []
     undocumented: list[Commit] = []
@@ -393,6 +482,12 @@ def check_commits(
             continue
         if type_name in hidden_types and not is_user_visible_breaking(type_name, commit.subject, commit.body):
             hidden.append(commit)
+            continue
+        if is_contributor_only(commit.files):
+            # No shipping surface, so nothing a user could miss. A breaking
+            # marker does not pull it back either: ``fix!`` on CI breaks
+            # contributors, not consumers of a published artefact.
+            contributor.append(commit)
             continue
         if (
             visible_types is not None
@@ -414,6 +509,7 @@ def check_commits(
         checked=tuple(checked),
         release_commits=tuple(release_commits),
         hidden=tuple(hidden),
+        contributor=tuple(contributor),
         untyped=tuple(untyped),
         undeclared=tuple(undeclared),
         undocumented=tuple(undocumented),
@@ -576,6 +672,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  user-visible commits checked: {len(report.checked)}")
     print(f"  release commits skipped: {len(report.release_commits)}")
     print(f"  hidden-type commits skipped: {len(report.hidden)}")
+    print(f"  contributor-only commits skipped: {len(report.contributor)}")
     print(f"  undocumented commits: {len(report.failures)}")
 
     errors = format_errors(report)

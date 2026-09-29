@@ -623,11 +623,16 @@ def test_replay_0_20_33_is_a_clean_baseline() -> None:
 
 @pytest.mark.skipif(not _tag_present("v0.20.23"), reason="v0.20.23 tag is not available in this checkout")
 def test_replay_0_20_23_is_clean_across_a_wide_window(capsys) -> None:
-    """Noise guard: a 90-commit window with 8 hidden commits must stay silent.
+    """Noise guard: a wide window with 8 hidden commits must stay silent.
 
     The 0.20.32..0.20.33 baseline carries a single user-visible commit, so it
     cannot detect a gate that simply reports everything it sees. This window is
     the real false-positive guard.
+
+    Two of its commits carry a visible type and touch nothing but ``.github/``
+    and ``tests/``, so they count as contributor-only and leave ``checked`` at
+    88 rather than 90. Raising this number means the contributor-only rule got
+    narrower; lowering it silently is how the gate starts reporting everything.
     """
     checker = _load_checker_module()
 
@@ -646,7 +651,8 @@ def test_replay_0_20_23_is_clean_across_a_wide_window(capsys) -> None:
     )
 
     assert len(report.hidden) == 8
-    assert len(report.checked) == 90
+    assert len(report.contributor) == 2
+    assert len(report.checked) == 88
     assert report.failures == ()
 
 
