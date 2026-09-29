@@ -275,6 +275,45 @@ def test_generated_snapshot_data_is_not_part_of_the_drift_corpus(tmp_path: Path)
     assert len(found) == 1 and "ghost_symbol" in found[0]
 
 
+def test_generated_snapshot_filename_is_not_part_of_the_drift_corpus(tmp_path: Path):
+    # The corpus exclusion closes the "contents" path only. A harvested file
+    # named after a symbol still vouches for it through its filename stem,
+    # because has_identifier() also accepts `token in self.stems`. Generated
+    # data must lose that vote too.
+    snapshot = tmp_path / "benchmarks" / "skills" / "ghost_symbol.json"
+    snapshot.parent.mkdir(parents=True)
+    snapshot.write_text('{"tools": []}', encoding="utf-8")
+
+    index = _index(tmp_path)
+    assert "ghost_symbol" not in index.stems
+    found = _drift_tokens("Use `ghost_symbol` here.\n", index)
+    assert len(found) == 1 and "ghost_symbol" in found[0]
+
+
+def test_generated_snapshot_exclusion_is_nested_aware(tmp_path: Path):
+    # A generated directory nested below another directory is still generated.
+    snapshot = tmp_path / "harvest" / "snapshots" / "ghost_symbol.ambr"
+    snapshot.parent.mkdir(parents=True)
+    snapshot.write_text("", encoding="utf-8")
+
+    index = _index(tmp_path)
+    assert "ghost_symbol" not in index.stems
+    found = _drift_tokens("Use `ghost_symbol` here.\n", index)
+    assert len(found) == 1 and "ghost_symbol" in found[0]
+
+
+def test_generated_snapshot_stem_exclusion_keeps_paths_visible(tmp_path: Path):
+    # Losing the stem vote must not make generated files invisible to path
+    # checks.
+    snapshot = tmp_path / "benchmarks" / "skills" / "ghost_symbol.json"
+    snapshot.parent.mkdir(parents=True)
+    snapshot.write_text('{"tools": []}', encoding="utf-8")
+
+    index = _index(tmp_path)
+    assert "benchmarks/skills/ghost_symbol.json" in index.files
+    assert "benchmarks/skills" in index.dirs
+
+
 def test_snapshot_exclusion_is_corpus_only(tmp_path: Path):
     # Excluding snapshot data from the corpus must not stop those directories
     # from being linted.

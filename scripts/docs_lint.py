@@ -258,11 +258,31 @@ class RepoIndex:
         except ValueError:
             return path.as_posix()
 
+    def _stem_is_generated(self, rel, root_is_generated):
+        """Return True when a file's *name* must not vouch for a symbol.
+
+        A harvested snapshot named after a symbol (``benchmarks/skills/
+        ghost_symbol.json``) satisfies a drift finding through its filename
+        stem alone, without any document or source file changing. Generated
+        data therefore loses its vote on whether a symbol exists, exactly as
+        its contents already do.
+
+        This is name-only. The file stays in :attr:`files` and its directory
+        stays in :attr:`dirs`, so path checks and link resolution keep seeing
+        generated content.
+        """
+        if root_is_generated:
+            return True
+        return any(part in CORPUS_EXCLUDE_DIRS for part in rel.split("/")[:-1])
+
     def _index(self, root):
         path = Path(root)
+        root_is_generated = path.name in CORPUS_EXCLUDE_DIRS
         if path.is_file():
-            self.files.add(path.as_posix())
-            self.stems.add(path.stem)
+            rel = path.as_posix()
+            self.files.add(rel)
+            if not self._stem_is_generated(rel, root_is_generated):
+                self.stems.add(path.stem)
             self.toplevel.add(path.name)
             return
         for dirpath, dirnames, filenames in os.walk(str(path)):
@@ -273,7 +293,8 @@ class RepoIndex:
                 full = Path(dirpath) / name
                 rel = self._relative(full, path)
                 self.files.add(rel)
-                self.stems.add(full.stem)
+                if not self._stem_is_generated(rel, root_is_generated):
+                    self.stems.add(full.stem)
                 self.toplevel.add(rel.split("/")[0])
         for known in self.dirs:
             self.toplevel.add(known.split("/")[0])

@@ -75,8 +75,10 @@ supported Python version. Linux wheels are deliberately built for
 manylinux2014 rather than a newer baseline so older DCC-hosted Python
 environments such as Maya 2022 can install them.
 
-Both jobs are gated on `release-please` creating a release, so the server
-package ships from the same `dcc-mcp-server-v*` tags as the core release.
+Both jobs are gated on `release-please` creating a release. The repository is
+released as a single release-please package, so the server package ships from
+the same `v<version>` tags as the core release — there is no separate
+dcc-mcp-server tag stream.
 
 ## Usage from a DCC plugin
 
