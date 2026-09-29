@@ -248,12 +248,38 @@ pub fn install_value(outcome: &InstallOutcome) -> Value {
 }
 
 /// Whether the outcome should exit non-zero.
+///
+/// A channel reporting success is not evidence that the host is usable; only a
+/// probe is. An unverified install is therefore a failure, so a pipeline that
+/// chains `host install && blender -b ...` stops instead of running on a host
+/// that was never actually installed.
 #[must_use]
 pub fn install_failed(outcome: &InstallOutcome) -> bool {
     !matches!(
         outcome,
         InstallOutcome::AlreadySatisfied { .. } | InstallOutcome::Installed { .. }
     )
+}
+
+/// Re-grade an installed outcome against the post-install probe.
+///
+/// Downgrades `Installed` to `Unverified` when the host still does not probe as
+/// available. This is the only producer of that variant, which is the point:
+/// the channel's word is not taken for the host's presence.
+#[must_use]
+pub fn verify_install(outcome: InstallOutcome, verified: bool) -> InstallOutcome {
+    match outcome {
+        InstallOutcome::Installed {
+            id,
+            version: _,
+            channel,
+        } if !verified => InstallOutcome::Unverified {
+            detail: format!("{id} was installed but does not probe as available"),
+            id,
+            channel,
+        },
+        other => other,
+    }
 }
 
 /// Run the provisioning flow, stopping at the first gate that fails.
@@ -772,6 +798,41 @@ mod tests {
         assert_eq!(probes.len(), 1);
         assert_eq!(probes[0].status, HostStatus::UnknownHost);
         assert_eq!(probes[0].reason, HostReason::UnknownHost);
+    }
+
+    /// P1-B: an install the probe cannot confirm must fail closed, so
+    /// `host install ... && blender -b ...` stops instead of running on a host
+    /// that was never installed.
+    #[test]
+    fn an_unverified_install_is_a_failure() {
+        let installed = InstallOutcome::Installed {
+            id: "blender".to_string(),
+            version: Some("5.1.1".to_string()),
+            channel: "winget".to_string(),
+        };
+        assert!(!install_failed(&installed), "a verified install succeeds");
+
+        let unverified = verify_install(installed, false);
+        assert!(
+            matches!(unverified, InstallOutcome::Unverified { .. }),
+            "an unverified install must be re-graded, got {unverified:?}"
+        );
+        assert!(
+            install_failed(&unverified),
+            "an unverified install must exit non-zero"
+        );
+        assert_eq!(install_value(&unverified)["status"], "unverified");
+
+        // A verified install passes through untouched.
+        let verified = verify_install(
+            InstallOutcome::Installed {
+                id: "blender".to_string(),
+                version: Some("5.1.1".to_string()),
+                channel: "winget".to_string(),
+            },
+            true,
+        );
+        assert!(!install_failed(&verified));
     }
 
     #[test]

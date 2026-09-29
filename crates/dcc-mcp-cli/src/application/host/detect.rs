@@ -298,17 +298,40 @@ pub fn is_executable_file(path: &Path) -> bool {
     }
 }
 
-/// Windows resolves bare names through `PATHEXTS`, so try the obvious ones.
+/// Candidate filenames to look for on `PATH`.
+///
+/// The manifest declares the vendor's canonical spelling (`blender.exe` on
+/// Windows), but an environment manager is free to put a different form on
+/// `PATH`: thm/rez, conda and nix commonly expose a bare `blender`, a `.bat`
+/// shim, or a `.cmd` wrapper. Trying only the declared name would report a host
+/// that is present and runnable as `missing` — the exact silent failure this
+/// probe exists to remove.
+///
+/// The declared name is tried first so the canonical spelling keeps priority
+/// when several forms exist in the same environment.
 fn with_platform_extensions(path: PathBuf) -> Vec<PathBuf> {
-    if !cfg!(windows) || path.extension().is_some() {
+    if !cfg!(windows) {
         return vec![path];
     }
     let mut names = vec![path.clone()];
+    let parent = path.parent().map(Path::to_path_buf).unwrap_or_default();
+    let stem = path.file_stem().unwrap_or_default().to_os_string();
+    let base = if stem.is_empty() {
+        path.clone()
+    } else {
+        parent.join(stem)
+    };
+    if base != path {
+        names.push(base.clone());
+    }
     for extension in ["exe", "cmd", "bat"] {
-        let mut candidate = path.clone().into_os_string();
+        let mut candidate = base.clone().into_os_string();
         candidate.push(".");
         candidate.push(extension);
-        names.push(PathBuf::from(candidate));
+        let candidate = PathBuf::from(candidate);
+        if !names.contains(&candidate) {
+            names.push(candidate);
+        }
     }
     names
 }
@@ -570,6 +593,54 @@ mod tests {
         assert!(!match_path("maya", "may"));
         assert!(!match_path("maya*", "nuke"));
         assert!(match_path("*", "anything"));
+    }
+
+    /// thm/rez and friends assemble environments by putting a package's bin
+    /// directory on `PATH`, and they do not promise the vendor's canonical
+    /// spelling. A bare `blender`, a `.bat` shim or a `.cmd` wrapper are all
+    /// normal there, so PATH probing has to find them.
+    #[test]
+    fn path_lookup_finds_environment_manager_spellings() {
+        if !cfg!(windows) {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        // The manifest declares `blender.exe`; the env manager ships a wrapper.
+        let wrapper = touch(dir.path(), "blender.bat");
+        let def = def(
+            "blender",
+            platform(&["blender.exe"]),
+            PlatformStrings::default(),
+        );
+        let found = candidates(&def, &env_with_path(dir.path()));
+        let paths: Vec<&PathBuf> = found.iter().map(|c| &c.path).collect();
+        assert!(
+            paths.contains(&&wrapper),
+            "a `.bat` wrapper on PATH must be found for a host declared as `blender.exe`, got {paths:?}"
+        );
+        assert_eq!(found[0].source, CandidateSource::Path);
+    }
+
+    /// The declared name must stay first so the canonical spelling wins when
+    /// several forms coexist in one environment.
+    #[test]
+    fn declared_executable_name_keeps_priority() {
+        if !cfg!(windows) {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let canonical = touch(dir.path(), "blender.exe");
+        let _wrapper = touch(dir.path(), "blender.bat");
+        let def = def(
+            "blender",
+            platform(&["blender.exe"]),
+            PlatformStrings::default(),
+        );
+        let found = candidates(&def, &env_with_path(dir.path()));
+        assert_eq!(
+            found[0].path, canonical,
+            "the declared spelling must win over a wrapper in the same directory"
+        );
     }
 
     #[test]

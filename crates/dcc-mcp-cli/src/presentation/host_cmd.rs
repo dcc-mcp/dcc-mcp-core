@@ -143,46 +143,48 @@ pub(crate) fn run(action: &HostAction) -> anyhow::Result<HostRun> {
                 _ => outcome,
             };
 
-            let value = install_value(&outcome);
             // Re-probe after a successful install so the report states what is
-            // actually on disk rather than what the channel claims.
+            // actually on disk rather than what the channel claims, and so an
+            // install that did not take effect fails closed instead of exiting 0.
             let channel = match &outcome {
                 crate::application::host::InstallOutcome::Installed { channel, .. } => {
                     Some(channel.clone())
                 }
                 _ => None,
             };
-            let value = if let Some(channel) = channel {
+            let outcome = if let Some(channel) = channel {
                 let after = doctor(std::slice::from_ref(&parsed.id), &manifest, &env);
                 let verified = after[0].status.is_available();
-                let mut value = value;
+                let observed_version = after[0].version.clone();
+                let executable = after[0]
+                    .executable
+                    .as_ref()
+                    .map(|path| path.display().to_string());
+                let outcome = crate::application::host::verify_install(outcome, verified);
+                let mut value = install_value(&outcome);
                 if let Some(object) = value.as_object_mut() {
                     object.insert("channel".to_string(), Value::from(channel));
                     object.insert("verified".to_string(), Value::from(verified));
                     // Report the version the probe observes, not the one we
                     // asked for: the channel is what decides what lands.
-                    if let Some(observed) = after[0].version.as_ref() {
-                        object.insert("version".to_string(), Value::from(observed.clone()));
+                    if let Some(observed) = observed_version {
+                        object.insert("version".to_string(), Value::from(observed));
                     }
                     object.insert(
                         "executable".to_string(),
-                        after[0]
-                            .executable
-                            .as_ref()
-                            .map(|path| Value::from(path.display().to_string()))
-                            .unwrap_or(Value::Null),
+                        executable.map(Value::from).unwrap_or(Value::Null),
                     );
-                    if !verified {
-                        object.insert("status".to_string(), Value::from("unverified".to_string()));
-                    }
                 }
-                value
+                return Ok(HostRun {
+                    failed: install_failed(&outcome),
+                    value,
+                });
             } else {
-                value
+                outcome
             };
             Ok(HostRun {
                 failed: install_failed(&outcome),
-                value,
+                value: install_value(&outcome),
             })
         }
         HostAction::Pin { spec } => {
@@ -202,6 +204,19 @@ pub(crate) fn run(action: &HostAction) -> anyhow::Result<HostRun> {
                 .or_else(|| def.pinned_version.clone())
                 .or_else(|| def.min_version.clone())
                 .with_context(|| format!("'{}' has no version to pin", parsed.id))?;
+            // The floor has to hold here, not only in `load_with_lock`: the
+            // lock is written by this arm, so letting a low pin through would
+            // put every later command in the position of refusing to load a
+            // file this CLI itself produced.
+            if def.is_below_minimum(&version) {
+                anyhow::bail!(
+                    "'{}' pins {} below the minimum version {} for {}; the manifest rules that build out",
+                    spec,
+                    version,
+                    def.min_version.as_deref().unwrap_or("<none>"),
+                    def.display_name
+                );
+            }
 
             let path =
                 lock_path().context("no user config directory is available for the host lock")?;

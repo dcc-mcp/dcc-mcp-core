@@ -322,6 +322,77 @@ fn install_refuses_without_consent_when_unattended() {
     }
 }
 
+/// P1-A: `host pin` may not write a version below the manifest minimum.
+///
+/// The Windows winget channel takes an arbitrary `--version`, so without a
+/// floor at pin time `host pin blender==5.0 && host install blender --yes`
+/// would install 5.0, below the >=5.1 baseline the manifest declares.
+#[test]
+fn pin_refuses_a_version_below_the_manifest_minimum() {
+    let dir = tempfile::tempdir().unwrap();
+    let lock = dir.path().join("hosts.lock");
+
+    for spec in ["blender==5.0", "blender==4.2.1"] {
+        let output = host_command(&lock)
+            .args(["pin", spec, "--output", "json"])
+            .output()
+            .expect("host pin should run");
+        assert!(
+            !output.status.success(),
+            "`host pin {spec}` must be refused: it is below min_version 5.1"
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("below the minimum"),
+            "the error must say why, got {stderr}"
+        );
+    }
+
+    // The lock must not have been written by a refused pin.
+    assert!(
+        !lock.exists(),
+        "a refused pin must not create the lock file"
+    );
+
+    // A pin at the floor is accepted.
+    let output = host_command(&lock)
+        .args(["pin", "blender==5.1", "--output", "json"])
+        .output()
+        .expect("host pin should run");
+    assert!(output.status.success(), "5.1 is exactly at the floor");
+}
+
+/// The exit code is the contract a proposition runner gates on, so it has to
+/// be non-zero for every non-success outcome, not just for refusals.
+#[test]
+fn install_exit_code_reflects_the_outcome() {
+    let lock = std::env::temp_dir().join(format!("hosts-{}.lock", uuid::Uuid::new_v4()));
+
+    // Refused (commercial host) must exit non-zero.
+    let refused = host_command(&lock)
+        .args(["install", "maya", "--yes", "--output", "json"])
+        .output()
+        .expect("host install should run");
+    assert!(
+        !refused.status.success(),
+        "a refused install must exit non-zero so `install && run` stops"
+    );
+
+    // Consent denied must exit non-zero.
+    let denied = host_command(&lock)
+        .args(["install", "blender", "--output", "json"])
+        .env("DCC_MCP_HOST_INSTALL", "never")
+        .output()
+        .expect("host install should run");
+    let value: Value = serde_json::from_slice(&denied.stdout).expect("JSON report");
+    if value["status"] == "consent_required" {
+        assert!(
+            !denied.status.success(),
+            "a consent refusal must exit non-zero"
+        );
+    }
+}
+
 #[test]
 fn pin_writes_the_lock_file_and_changes_the_reported_version() {
     let dir = tempfile::tempdir().unwrap();
