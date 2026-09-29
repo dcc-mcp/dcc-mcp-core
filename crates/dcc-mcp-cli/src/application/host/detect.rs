@@ -34,6 +34,8 @@ pub enum CandidateSource {
     Path,
     /// Found under a manifest search root.
     SearchRoot,
+    /// Found in the directory `host install` provisions archives into.
+    ManagedInstall,
 }
 
 impl CandidateSource {
@@ -44,6 +46,7 @@ impl CandidateSource {
             Self::EnvOverride => "env_override",
             Self::Path => "PATH",
             Self::SearchRoot => "search_root",
+            Self::ManagedInstall => "managed_install",
         }
     }
 }
@@ -135,6 +138,16 @@ pub fn candidates(def: &HostDefinition, env: &HostEnv) -> Vec<Candidate> {
     for pattern in def.search_roots.for_current() {
         for candidate in expand_pattern(Path::new(pattern)) {
             push(candidate, CandidateSource::SearchRoot, &mut found);
+        }
+    }
+
+    // Hosts the CLI installed itself live in a dcc-mcp-owned directory, which
+    // is the only way an archive channel can be discoverable afterwards. A
+    // package-manager install is normally covered by the search roots, so this
+    // is also the consistent place to look.
+    if let Some(root) = super::install::managed_host_dir(&def.id) {
+        for name in def.executables.for_current() {
+            push(root.join(name), CandidateSource::ManagedInstall, &mut found);
         }
     }
 
@@ -390,6 +403,9 @@ pub fn sources_checked(def: &HostDefinition, env: &HostEnv) -> Vec<String> {
         sources.push("PATH".to_string());
     }
     sources.extend(def.search_roots.for_current().iter().cloned());
+    if let Some(root) = super::install::managed_host_dir(&def.id) {
+        sources.push(root.display().to_string());
+    }
     sources
 }
 

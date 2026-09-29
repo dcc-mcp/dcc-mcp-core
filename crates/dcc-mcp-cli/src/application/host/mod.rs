@@ -13,7 +13,9 @@
 //! project. A proposition runner needs "can I start?" not "does it work?", and
 //! a probe that opened Blender would cost seconds per proposition.
 
+pub mod consent;
 pub mod detect;
+pub mod install;
 pub mod manifest;
 
 use std::path::{Path, PathBuf};
@@ -135,6 +137,196 @@ pub fn provision_decision(def: &HostDefinition, query: ProvisionQuery) -> Option
 pub struct ProvisionQuery {
     /// Whether the manifest declares an install channel for this platform.
     pub channel_available: bool,
+}
+
+/// The installable version for a host: the pinned manifest version, unless the
+/// spec pins a different one that happens to match.
+#[must_use]
+pub fn installable_version(def: &HostDefinition) -> Option<&str> {
+    def.pinned_version.as_deref()
+}
+
+/// Why an install did not happen.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InstallOutcome {
+    /// The host already satisfies the requested version; nothing was done.
+    AlreadySatisfied { id: String, version: Option<String> },
+    /// The channel ran and the host now probes as available.
+    Installed {
+        id: String,
+        version: Option<String>,
+        channel: String,
+    },
+    /// The channel ran but the host still does not probe as available.
+    Unverified {
+        id: String,
+        channel: String,
+        detail: String,
+    },
+    /// The host must not be installed by this CLI.
+    Refused {
+        id: String,
+        display_name: String,
+        refusal: ProvisionRefusal,
+    },
+    /// Consent was not granted.
+    ConsentRequired {
+        id: String,
+        reason: consent::ConsentRefusal,
+    },
+    /// The channel failed.
+    Failed {
+        id: String,
+        error: install::InstallError,
+    },
+}
+
+/// Render an install outcome for the CLI.
+#[must_use]
+pub fn install_value(outcome: &InstallOutcome) -> Value {
+    match outcome {
+        InstallOutcome::AlreadySatisfied { id, version } => json!({
+            "id": id,
+            "status": "already_satisfied",
+            "version": version,
+            "installed": false,
+        }),
+        InstallOutcome::Installed {
+            id,
+            version,
+            channel,
+        } => json!({
+            "id": id,
+            "status": "installed",
+            "version": version,
+            "channel": channel,
+            "installed": true,
+        }),
+        InstallOutcome::Unverified {
+            id,
+            channel,
+            detail,
+        } => json!({
+            "id": id,
+            "status": "unverified",
+            "channel": channel,
+            "installed": true,
+            "detail": detail,
+            "hint": "The channel finished but the host does not probe as available. Check the channel output, then re-run `host doctor`.",
+        }),
+        InstallOutcome::Refused {
+            id,
+            display_name,
+            refusal,
+        } => json!({
+            "id": id,
+            "status": "refused",
+            "reason": refusal,
+            "installed": false,
+            "hint": refusal_message(display_name, *refusal),
+        }),
+        InstallOutcome::ConsentRequired { id, reason } => json!({
+            "id": id,
+            "status": "consent_required",
+            "reason": reason,
+            "installed": false,
+            "hint": consent::refusal_message(*reason),
+        }),
+        InstallOutcome::Failed { id, error } => json!({
+            "id": id,
+            "status": "failed",
+            "installed": false,
+            "error": error.to_string(),
+        }),
+    }
+}
+
+/// Whether the outcome should exit non-zero.
+#[must_use]
+pub fn install_failed(outcome: &InstallOutcome) -> bool {
+    !matches!(
+        outcome,
+        InstallOutcome::AlreadySatisfied { .. } | InstallOutcome::Installed { .. }
+    )
+}
+
+/// Run the provisioning flow, stopping at the first gate that fails.
+///
+/// The gates run in a fixed order on purpose: the commercial-host refusal
+/// comes before the consent prompt, so a licence-gated host is never one
+/// Enter press away from being installed.
+pub fn provision(def: &HostDefinition, request: &ProvisionRequest) -> InstallOutcome {
+    if let Some(refusal) = provision_decision(
+        def,
+        ProvisionQuery {
+            channel_available: def.install_channel_for_current().is_some(),
+        },
+    ) {
+        return InstallOutcome::Refused {
+            id: def.id.clone(),
+            display_name: def.display_name.clone(),
+            refusal,
+        };
+    }
+
+    let Some(version) = installable_version(def) else {
+        return InstallOutcome::Refused {
+            id: def.id.clone(),
+            display_name: def.display_name.clone(),
+            refusal: ProvisionRefusal::NoPinnedVersion,
+        };
+    };
+
+    if let Some(current) = request.current_version.as_deref()
+        && request.current_available
+    {
+        return InstallOutcome::AlreadySatisfied {
+            id: def.id.clone(),
+            version: Some(current.to_string()),
+        };
+    }
+
+    match request.consent {
+        consent::ConsentDecision::Proceed => {}
+        consent::ConsentDecision::Ask { .. } => {
+            // The caller is responsible for asking before re-entering; reaching
+            // this arm means consent was never resolved.
+            return InstallOutcome::ConsentRequired {
+                id: def.id.clone(),
+                reason: consent::ConsentRefusal::NonInteractive,
+            };
+        }
+        consent::ConsentDecision::Refused { reason } => {
+            return InstallOutcome::ConsentRequired {
+                id: def.id.clone(),
+                reason,
+            };
+        }
+    }
+
+    match install::install(def, version) {
+        Ok(result) => InstallOutcome::Installed {
+            id: def.id.clone(),
+            version: Some(version.to_string()),
+            channel: result.channel,
+        },
+        Err(error) => InstallOutcome::Failed {
+            id: def.id.clone(),
+            error,
+        },
+    }
+}
+
+/// Everything `provision` needs from the caller, resolved beforehand so the
+/// flow itself stays pure and testable.
+#[derive(Debug, Clone)]
+pub struct ProvisionRequest {
+    /// Whether the host already probes as available.
+    pub current_available: bool,
+    /// The host's current version, when one was read.
+    pub current_version: Option<String>,
+    /// The resolved consent decision.
+    pub consent: consent::ConsentDecision,
 }
 
 /// Human-readable refusal message for a host id.

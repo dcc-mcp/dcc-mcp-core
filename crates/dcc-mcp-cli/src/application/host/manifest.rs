@@ -268,7 +268,8 @@ impl PlatformStrings {
     }
 }
 
-/// User-level version lock. Only pins versions; it never adds a host.
+/// User-level version lock. Pins versions and remembers the consent choice;
+/// it never adds a host and never changes a licence class.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HostLock {
     /// Schema version.
@@ -277,6 +278,9 @@ pub struct HostLock {
     /// `host id -> exact version`.
     #[serde(default)]
     pub pins: BTreeMap<String, String>,
+    /// Remembered install consent: `never`, `ask`, or `always`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub consent: Option<String>,
 }
 
 impl HostLock {
@@ -284,6 +288,34 @@ impl HostLock {
     #[must_use]
     pub fn empty() -> Self {
         Self::default()
+    }
+
+    /// Serialize the lock for writing.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the document cannot be serialized.
+    pub fn to_yaml(&self) -> Result<String, ManifestError> {
+        serde_yaml_ng::to_string(self).map_err(|err| ManifestError::Parse(err.to_string()))
+    }
+
+    /// Write the lock to `path`, creating parent directories.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the file cannot be written.
+    pub fn save(&self, path: &Path) -> Result<(), ManifestError> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|err| ManifestError::LockUnreadable {
+                path: parent.display().to_string(),
+                detail: err.to_string(),
+            })?;
+        }
+        let yaml = self.to_yaml()?;
+        std::fs::write(path, yaml).map_err(|err| ManifestError::LockUnreadable {
+            path: path.display().to_string(),
+            detail: err.to_string(),
+        })
     }
 }
 

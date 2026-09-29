@@ -1,19 +1,24 @@
 //! `dcc-mcp-cli host` command surface.
 //!
-//! `list` and `doctor` are the phase-1 read-only half: they report whether a
-//! host binary exists and whether its version clears the manifest baseline, and
-//! they never write to disk or spawn an installer. `install` and `pin` are the
-//! phase-2 self-provisioning half and are declared here so the surface is one
-//! coherent tree.
+//! `list` and `doctor` are read-only: they report whether a host binary exists
+//! and whether its version clears the manifest baseline, and they never write
+//! to disk or spawn an installer. `install` and `pin` are the self-provisioning
+//! half and are gated by the consent model.
 
+use std::io::{BufRead, IsTerminal, Write};
 use std::path::PathBuf;
 
 use anyhow::Context;
 use serde_json::Value;
 
+use crate::application::host::consent::{self, ConsentDecision, ConsentInput, ConsentMode};
 use crate::application::host::detect::HostEnv;
 use crate::application::host::manifest::{self, HostLock, HostManifest};
-use crate::application::host::{doctor, doctor_value, has_unavailable, manifest as host_manifest};
+use crate::application::host::{
+    ProvisionRequest, doctor, doctor_value, has_unavailable, install_failed, install_value,
+    manifest as host_manifest, provision,
+};
+use crate::domain::host::HostSpec;
 
 #[derive(Debug, clap::Subcommand)]
 pub(crate) enum HostAction {
@@ -28,10 +33,12 @@ pub(crate) enum HostAction {
     },
     /// Provision an open-source host at the manifest-pinned version.
     Install {
-        /// Host spec, e.g. `blender==5.1.1`. Defaults to the pinned version.
+        /// Host spec, e.g. `blender` or `blender==5.1.1`. The version must
+        /// match the manifest pin; provisioning an arbitrary version would
+        /// reintroduce version drift.
         #[arg(value_name = "SPEC")]
         spec: String,
-        /// Skip the consent prompt.
+        /// Skip the consent prompt and remember the choice.
         #[arg(long, short = 'y')]
         yes: bool,
     },
@@ -43,7 +50,7 @@ pub(crate) enum HostAction {
     },
 }
 
-/// Default user-level lock location, overridable for tests and studios.
+/// Environment variable naming the user-level lock file.
 const LOCK_ENV: &str = "DCC_MCP_HOSTS_LOCK";
 
 /// Run the `host` command tree.
@@ -62,12 +69,130 @@ pub(crate) fn run(action: &HostAction) -> anyhow::Result<HostRun> {
                 failed,
             })
         }
-        HostAction::Install { .. } | HostAction::Pin { .. } => {
-            // Phase 2 lands in its own PR. Refusing here keeps the surface
-            // honest instead of silently doing nothing behind a parsed flag.
-            anyhow::bail!(
-                "host install / host pin are not wired yet; use `host doctor` to report availability"
-            )
+        HostAction::Install { spec, yes } => {
+            let manifest = load_manifest()?;
+            let parsed =
+                HostSpec::parse(spec).with_context(|| format!("invalid host spec '{spec}'"))?;
+            let Some(def) = manifest.find(&parsed.id) else {
+                anyhow::bail!(
+                    "'{}' is not in the host manifest; run `dcc-mcp-cli host list` to see the known hosts",
+                    parsed.id
+                );
+            };
+            // Probe first: an already-usable host needs no install, and the
+            // refusal check must run before any consent prompt.
+            let env = HostEnv::from_process();
+            let probes = doctor(std::slice::from_ref(&parsed.id), &manifest, &env);
+            let probe = &probes[0];
+
+            let question = format!(
+                "Host '{}' is missing. Install {} {} now? The version comes from the host manifest.",
+                def.id,
+                def.display_name,
+                def.pinned_version
+                    .as_deref()
+                    .unwrap_or("the pinned version")
+            );
+            let consent = resolve_consent(*yes, question);
+            let outcome = provision(
+                def,
+                &ProvisionRequest {
+                    current_available: probe.status.is_available(),
+                    current_version: probe.version.clone(),
+                    consent: consent.clone(),
+                },
+            );
+            // Asking is the only branch that needs the terminal, and it happens
+            // after the commercial-host refusal has already been enforced.
+            let outcome = match (&outcome, &consent) {
+                (_, ConsentDecision::Ask { question }) if needs_consent(&outcome) => {
+                    match ask(question) {
+                        true => {
+                            remember_consent(ConsentMode::Always);
+                            provision(
+                                def,
+                                &ProvisionRequest {
+                                    current_available: probe.status.is_available(),
+                                    current_version: probe.version.clone(),
+                                    consent: ConsentDecision::Proceed,
+                                },
+                            )
+                        }
+                        false => outcome,
+                    }
+                }
+                _ => outcome,
+            };
+
+            let value = install_value(&outcome);
+            // Re-probe after a successful install so the report states what is
+            // actually on disk rather than what the channel claims.
+            let channel = match &outcome {
+                crate::application::host::InstallOutcome::Installed { channel, .. } => {
+                    Some(channel.clone())
+                }
+                _ => None,
+            };
+            let value = if let Some(channel) = channel {
+                let after = doctor(std::slice::from_ref(&parsed.id), &manifest, &env);
+                let verified = after[0].status.is_available();
+                let mut value = value;
+                if let Some(object) = value.as_object_mut() {
+                    object.insert("channel".to_string(), Value::from(channel));
+                    object.insert("verified".to_string(), Value::from(verified));
+                    object.insert(
+                        "executable".to_string(),
+                        after[0]
+                            .executable
+                            .as_ref()
+                            .map(|path| Value::from(path.display().to_string()))
+                            .unwrap_or(Value::Null),
+                    );
+                    if !verified {
+                        object.insert("status".to_string(), Value::from("unverified".to_string()));
+                    }
+                }
+                value
+            } else {
+                value
+            };
+            Ok(HostRun {
+                failed: install_failed(&outcome),
+                value,
+            })
+        }
+        HostAction::Pin { spec } => {
+            let manifest = load_manifest()?;
+            let parsed =
+                HostSpec::parse(spec).with_context(|| format!("invalid host spec '{spec}'"))?;
+            let Some(def) = manifest.find(&parsed.id) else {
+                anyhow::bail!(
+                    "'{}' is not in the host manifest; run `dcc-mcp-cli host list` to see the known hosts",
+                    parsed.id
+                );
+            };
+            let version = parsed
+                .version
+                .as_ref()
+                .map(|_| render_pinned(&parsed))
+                .or_else(|| def.pinned_version.clone())
+                .or_else(|| def.min_version.clone())
+                .with_context(|| format!("'{}' has no version to pin", parsed.id))?;
+
+            let path =
+                lock_path().context("no user config directory is available for the host lock")?;
+            let mut lock = load_lock()?;
+            lock.pins.insert(def.id.clone(), version.clone());
+            lock.save(&path)
+                .with_context(|| format!("failed to write {}", path.display()))?;
+            Ok(HostRun {
+                value: serde_json::json!({
+                    "id": def.id,
+                    "pinned_version": version,
+                    "lock_path": path,
+                }),
+                failed: false,
+            })
         }
     }
 }
@@ -75,8 +200,80 @@ pub(crate) fn run(action: &HostAction) -> anyhow::Result<HostRun> {
 /// Result of one `host` invocation.
 pub(crate) struct HostRun {
     pub value: Value,
-    /// Whether any probed host is unusable, which drives the exit code.
+    /// Whether the command found something unusable, which drives the exit code.
     pub failed: bool,
+}
+
+/// Whether an outcome reached the point where consent is the next gate.
+fn needs_consent(outcome: &crate::application::host::InstallOutcome) -> bool {
+    matches!(
+        outcome,
+        crate::application::host::InstallOutcome::ConsentRequired {
+            reason: consent::ConsentRefusal::NonInteractive,
+            ..
+        }
+    )
+}
+
+/// Resolve the consent decision from the flag, the environment, and the lock.
+///
+/// `--yes` outranks `DCC_MCP_HOST_INSTALL`, which outranks the remembered
+/// choice, which defaults to `ask`. Without a terminal, `ask` resolves to a
+/// refusal rather than a silent install.
+fn resolve_consent(yes: bool, question: String) -> ConsentDecision {
+    let env_mode = std::env::var(consent::CONSENT_ENV)
+        .ok()
+        .and_then(|value| ConsentMode::parse(&value));
+    let stored = load_lock()
+        .ok()
+        .and_then(|lock| lock.consent.as_deref().and_then(ConsentMode::parse));
+    let interactive = std::io::stdin().is_terminal() && std::io::stdout().is_terminal();
+    let input = ConsentInput {
+        yes_flag: yes,
+        env: None,
+        // An explicit env mode and a stored mode carry the same weight class,
+        // so fold the env into the stored slot after the flag check.
+        stored: env_mode.or(stored),
+        interactive,
+    };
+    consent::decide(input, question)
+}
+
+/// Ask the operator once, on stderr so stdout stays parseable.
+fn ask(question: &str) -> bool {
+    eprintln!("{question}");
+    eprint!("Type 'y' to continue, anything else to cancel: ");
+    let _ = std::io::stdout().flush();
+    let stdin = std::io::stdin();
+    let mut line = String::new();
+    match stdin.lock().read_line(&mut line) {
+        Ok(_) => consent::read_answer(&line),
+        Err(_) => false,
+    }
+}
+
+/// Persist a consent choice in the lock file. Best effort: a read-only
+/// filesystem must not turn an approved install into a failure.
+fn remember_consent(mode: ConsentMode) {
+    let Some(path) = lock_path() else {
+        return;
+    };
+    if let Ok(mut lock) = load_lock() {
+        lock.consent = Some(mode.as_str().to_string());
+        let _ = lock.save(&path);
+    }
+}
+
+/// Render a spec's version at the precision it was written with.
+fn render_pinned(spec: &HostSpec) -> String {
+    match spec.version.as_ref() {
+        Some(version) => match spec.components {
+            1 => format!("{}", version.major),
+            2 => format!("{}.{}", version.major, version.minor),
+            _ => version.to_string(),
+        },
+        None => spec.id.clone(),
+    }
 }
 
 /// Load the manifest with the user-level lock applied.
@@ -87,15 +284,27 @@ fn load_manifest() -> anyhow::Result<HostManifest> {
 
 /// Read the lock file named by `DCC_MCP_HOSTS_LOCK`, or the default location.
 fn load_lock() -> anyhow::Result<HostLock> {
-    let path = std::env::var_os(LOCK_ENV)
+    manifest::load_lock(lock_path().as_deref()).context("failed to read the host version lock")
+}
+
+/// Path of the user-level lock file.
+fn lock_path() -> Option<PathBuf> {
+    std::env::var_os(LOCK_ENV)
         .map(PathBuf::from)
-        .or_else(|| dirs::config_dir().map(|dir| dir.join("dcc-mcp").join("hosts.lock")));
-    manifest::load_lock(path.as_deref()).context("failed to read the host version lock")
+        .or_else(|| dirs::config_dir().map(|dir| dir.join("dcc-mcp").join("hosts.lock")))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::application::host::manifest::HostDefinition;
+
+    fn blender() -> HostDefinition {
+        crate::application::host::manifest::bundled()
+            .find("blender")
+            .expect("blender")
+            .clone()
+    }
 
     #[test]
     fn list_reports_the_manifest_without_probing() {
@@ -108,8 +317,6 @@ mod tests {
 
     #[test]
     fn doctor_of_an_absent_host_is_missing() {
-        // The test environment has no `definitely-not-a-host` binary, and the
-        // probe must not create one.
         let HostRun { value, failed } = run(&HostAction::Doctor {
             specs: vec!["definitely-not-a-host".to_string()],
         })
@@ -120,17 +327,143 @@ mod tests {
     }
 
     #[test]
-    fn install_and_pin_are_explicitly_unwired() {
-        for action in [
-            HostAction::Install {
-                spec: "blender".to_string(),
-                yes: false,
+    fn installing_a_commercial_host_is_refused_before_consent() {
+        // Acceptance criterion 4. The refusal must not depend on consent or on
+        // a terminal being present.
+        let HostRun { value, failed } = run(&HostAction::Install {
+            spec: "maya".to_string(),
+            yes: true,
+        })
+        .unwrap();
+        assert!(failed, "installing maya must fail");
+        assert_eq!(value["status"], "refused");
+        assert_eq!(value["reason"], "commercial");
+        assert_eq!(value["installed"], false);
+        assert!(
+            value["hint"]
+                .as_str()
+                .is_some_and(|hint| hint.contains("licence-gated")),
+            "the hint must tell the user to install it themselves"
+        );
+    }
+
+    #[test]
+    fn installing_an_unknown_host_fails_rather_than_no_op() {
+        assert!(
+            run(&HostAction::Install {
+                spec: "not-a-host".to_string(),
+                yes: true,
+            })
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn pin_rejects_unknown_hosts_and_bad_specs() {
+        assert!(
+            run(&HostAction::Pin {
+                spec: "not-a-host==1.0".to_string(),
+            })
+            .is_err()
+        );
+        assert!(
+            run(&HostAction::Pin {
+                spec: "blender>=five".to_string(),
+            })
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn consent_defaults_to_refusal_without_a_terminal() {
+        // Mirrors the `vx ffmpeg` rule: read-only never installs, and a write
+        // without an operator present is refused rather than assumed.
+        let decision = consent::decide(
+            ConsentInput {
+                yes_flag: false,
+                env: None,
+                stored: None,
+                interactive: false,
             },
-            HostAction::Pin {
-                spec: "blender==5.1.1".to_string(),
+            "q",
+        );
+        assert_eq!(
+            decision,
+            ConsentDecision::Refused {
+                reason: consent::ConsentRefusal::NonInteractive
+            }
+        );
+    }
+
+    #[test]
+    fn provision_refuses_commercial_hosts_even_when_consent_is_granted() {
+        let manifest = crate::application::host::manifest::bundled();
+        let maya = manifest.find("maya").expect("maya").clone();
+        let outcome = provision(
+            &maya,
+            &ProvisionRequest {
+                current_available: false,
+                current_version: None,
+                consent: ConsentDecision::Proceed,
             },
-        ] {
-            assert!(run(&action).is_err(), "{action:?} must not silently no-op");
-        }
+        );
+        assert!(matches!(
+            outcome,
+            crate::application::host::InstallOutcome::Refused { .. }
+        ));
+        assert!(install_failed(&outcome));
+    }
+
+    #[test]
+    fn provision_skips_an_already_usable_host() {
+        let def = blender();
+        let outcome = provision(
+            &def,
+            &ProvisionRequest {
+                current_available: true,
+                current_version: Some("5.1.1".to_string()),
+                consent: ConsentDecision::Proceed,
+            },
+        );
+        assert!(matches!(
+            outcome,
+            crate::application::host::InstallOutcome::AlreadySatisfied { .. }
+        ));
+        assert!(
+            !install_failed(&outcome),
+            "a satisfied host is not a failure"
+        );
+    }
+
+    #[test]
+    fn provision_reports_consent_refusals() {
+        let def = blender();
+        let outcome = provision(
+            &def,
+            &ProvisionRequest {
+                current_available: false,
+                current_version: None,
+                consent: ConsentDecision::Refused {
+                    reason: consent::ConsentRefusal::PolicyNever,
+                },
+            },
+        );
+        assert!(matches!(
+            outcome,
+            crate::application::host::InstallOutcome::ConsentRequired { .. }
+        ));
+    }
+
+    #[test]
+    fn render_pinned_keeps_declared_precision() {
+        assert_eq!(
+            render_pinned(&HostSpec::parse("blender==5.1").unwrap()),
+            "5.1"
+        );
+        assert_eq!(
+            render_pinned(&HostSpec::parse("blender==5.1.1").unwrap()),
+            "5.1.1"
+        );
+        assert_eq!(render_pinned(&HostSpec::parse("blender~=5").unwrap()), "5");
     }
 }
