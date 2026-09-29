@@ -860,6 +860,14 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 MarketplaceAction::Publish(args) => marketplace_cmd::run_publish(*args)?,
             }
         }
+        Command::Host { action } => {
+            let result = super::host_cmd::run(&action)?;
+            failed = result.failed;
+            if failed {
+                exit_code = ExitCode::Unavailable;
+            }
+            result.value
+        }
         Command::Lint(lint_args) => {
             let result = lint::run_lint_cmd(&lint_args).await?;
             failed = result.failed;

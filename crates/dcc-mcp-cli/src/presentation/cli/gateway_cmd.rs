@@ -90,6 +90,8 @@ pub(crate) fn gateway_endpoint_for_command(
         | Command::Lint(_)
         | Command::Components { .. }
         | Command::Gateway { .. }
+        // `host` inspects local binaries only; it never talks to a gateway.
+        | Command::Host { .. }
         // `start-instance` owns the local lifecycle: it resolves a launch plan
         // and talks to the FileRegistry directly, never through the gateway.
         | Command::StartInstance { .. } => None,
