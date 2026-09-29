@@ -258,6 +258,32 @@ class RepoIndex:
         except ValueError:
             return path.as_posix()
 
+    @staticmethod
+    def _root_is_generated(root):
+        """Return True when a walk root already lies inside generated data.
+
+        A root such as ``benchmarks/skills`` carries no generated component in
+        the paths it yields -- they are relative to that root -- so it needs
+        its own ancestry check, or a nested root silently re-enables the
+        exclusion it is supposed to inherit.
+
+        Only the part of the path below the working directory is inspected. A
+        checkout that merely happens to live under a directory called
+        ``snapshots`` must not silence the whole repository.
+
+        When the root cannot be expressed relative to the working directory
+        (an absolute path on another drive, for example) it is treated as not
+        generated: failing to exclude is the safe direction, because it
+        reports a drift finding rather than silently suppressing one.
+        """
+        try:
+            rel = os.path.relpath(str(root), str(Path.cwd()))
+        except ValueError:
+            return False
+        if rel in (".", ""):
+            return False
+        return any(part in CORPUS_EXCLUDE_DIRS for part in Path(rel).parts)
+
     def _stem_is_generated(self, rel, root_is_generated):
         """Return True when a file's *name* must not vouch for a symbol.
 
@@ -277,7 +303,7 @@ class RepoIndex:
 
     def _index(self, root):
         path = Path(root)
-        root_is_generated = path.name in CORPUS_EXCLUDE_DIRS
+        root_is_generated = self._root_is_generated(root)
         if path.is_file():
             rel = path.as_posix()
             self.files.add(rel)
@@ -383,9 +409,10 @@ class RepoIndex:
             if path.is_file():
                 yield path
                 continue
+            root_is_generated = self._root_is_generated(root)
             for dirpath, dirnames, filenames in os.walk(str(path)):
                 dirnames[:] = sorted(d for d in dirnames if d not in self.exclude_dirs and d not in CORPUS_EXCLUDE_DIRS)
-                if Path(dirpath).name in CORPUS_EXCLUDE_DIRS:
+                if root_is_generated or Path(dirpath).name in CORPUS_EXCLUDE_DIRS:
                     continue
                 for name in sorted(filenames):
                     if Path(name).suffix.lower() in CORPUS_SUFFIXES:

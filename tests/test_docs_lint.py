@@ -314,6 +314,36 @@ def test_generated_snapshot_stem_exclusion_keeps_paths_visible(tmp_path: Path):
     assert "benchmarks/skills" in index.dirs
 
 
+def test_generated_snapshot_root_nested_below_a_generated_dir(tmp_path, monkeypatch):
+    # A root such as ``benchmarks/skills`` yields paths relative to itself, so
+    # the generated component is invisible to a basename-only check. Both the
+    # filename and the contents path must stay excluded for a nested root.
+    skills = tmp_path / "benchmarks" / "skills"
+    skills.mkdir(parents=True)
+    (skills / "ghost_symbol.json").write_text('{"tools": []}', encoding="utf-8")
+    (skills / "adapters.json").write_text('{"tools": ["other_symbol"]}', encoding="utf-8")
+
+    monkeypatch.chdir(tmp_path)
+    index = _index("benchmarks/skills")
+    assert "ghost_symbol" not in index.stems
+    assert "ghost_symbol" not in index.corpus()
+    assert "other_symbol" not in index.corpus()
+
+
+def test_generated_snapshot_root_is_bounded_to_the_working_directory(tmp_path, monkeypatch):
+    # Ancestry is only inspected below the working directory. A checkout that
+    # merely lives under a directory called ``snapshots`` must not have its
+    # real sources demoted to generated data.
+    repo = tmp_path / "snapshots" / "myrepo"
+    repo.mkdir(parents=True)
+    (repo / "impl.py").write_text("def ghost_symbol():\n    pass\n", encoding="utf-8")
+
+    monkeypatch.chdir(repo)
+    index = _index(".")
+    assert "impl" in index.stems
+    assert "ghost_symbol" in index.corpus()
+
+
 def test_snapshot_exclusion_is_corpus_only(tmp_path: Path):
     # Excluding snapshot data from the corpus must not stop those directories
     # from being linted.
