@@ -157,6 +157,11 @@ pub fn plan_command(
                 "--accept-package-agreements".to_string(),
                 "--accept-source-agreements".to_string(),
                 "--disable-interactivity".to_string(),
+                // `--disable-interactivity` only suppresses winget's own
+                // prompts; the underlying MSI still raises its own UI without
+                // this flag. The operator already consented through the CLI
+                // gate, so no installer window may surface.
+                "--silent".to_string(),
             ];
             argv.extend(extra_args.iter().cloned());
             ("winget".to_string(), argv)
@@ -758,6 +763,13 @@ mod tests {
         // without a second interactive prompt.
         assert!(argv.contains(&"--disable-interactivity".to_string()));
         assert!(argv.contains(&"--accept-package-agreements".to_string()));
+        // `--disable-interactivity` only suppresses winget's own prompts. The
+        // MSI underneath raises its own window unless `--silent` is passed,
+        // which was measured: two `msiexec.exe` windows without it, none with.
+        assert!(
+            argv.contains(&"--silent".to_string()),
+            "the channel must not surface an installer window, got {argv:?}"
+        );
     }
 
     #[test]
