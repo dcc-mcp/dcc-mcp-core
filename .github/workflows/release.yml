@@ -1314,6 +1314,12 @@ jobs:
               echo "::error::Core-only backfill unexpectedly ran another publication route."
               failed=1
             fi
+            # A green core-only run must not read as "all four routes are current":
+            # the other three are skipped by design here, so name them and give the
+            # command that republishes them.
+            if [ "$failed" -eq 0 ]; then
+              echo "::warning::Core-only backfill published dcc-mcp-core only; dcc-mcp-server, dcc-mcp-core-semantic and dcc-mcp-cli were NOT republished and stay at their previous version. Re-run with the same release_tag and backfill_assets=true to publish all four routes."
+            fi
           else
             if [ "$core" != "success" ] || [ "$server" != "success" ] || [ "$semantic" != "success" ] || [ "$cli" != "success" ]; then
               echo "::error::PyPI upload failed (core=${core} server=${server} semantic=${semantic} cli=${cli})."
