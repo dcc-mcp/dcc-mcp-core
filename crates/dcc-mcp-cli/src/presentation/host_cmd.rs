@@ -79,6 +79,25 @@ pub(crate) fn run(action: &HostAction) -> anyhow::Result<HostRun> {
                     parsed.id
                 );
             };
+            // Reject a version the manifest pin cannot satisfy before probing,
+            // consenting, or running a channel. Without this, `host install
+            // blender==4.2` would install 5.1.1 and report success, which is
+            // the version drift the manifest is supposed to prevent.
+            if parsed.op.is_some() {
+                let pin = def
+                    .pinned_version
+                    .as_deref()
+                    .and_then(crate::domain::host::parse_manifest_version);
+                let gate = parsed.gate(def.min_version.as_deref());
+                if !pin.as_ref().is_some_and(|pin| gate.satisfied_by(pin)) {
+                    anyhow::bail!(
+                        "'{}' does not match the pinned version {}; run `host pin` first",
+                        spec,
+                        def.pinned_version.as_deref().unwrap_or("<none>")
+                    );
+                }
+            }
+
             // Probe first: an already-usable host needs no install, and the
             // refusal check must run before any consent prompt.
             let env = HostEnv::from_process();
@@ -140,6 +159,11 @@ pub(crate) fn run(action: &HostAction) -> anyhow::Result<HostRun> {
                 if let Some(object) = value.as_object_mut() {
                     object.insert("channel".to_string(), Value::from(channel));
                     object.insert("verified".to_string(), Value::from(verified));
+                    // Report the version the probe observes, not the one we
+                    // asked for: the channel is what decides what lands.
+                    if let Some(observed) = after[0].version.as_ref() {
+                        object.insert("version".to_string(), Value::from(observed.clone()));
+                    }
                     object.insert(
                         "executable".to_string(),
                         after[0]

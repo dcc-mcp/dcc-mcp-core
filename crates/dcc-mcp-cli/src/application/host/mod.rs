@@ -59,6 +59,12 @@ pub struct HostProbe {
     pub sources_checked: Vec<String>,
     /// Operator-facing next step.
     pub hint: String,
+    /// A non-fatal observation the operator should still see.
+    ///
+    /// Set when a probe succeeded through one source while a more specific
+    /// source was rejected. The operator set the override deliberately, so
+    /// silently proceeding from PATH hides the setting that is actually wrong.
+    pub warning: Option<String>,
 }
 
 /// Probe every requested spec, or every known host when `specs` is empty.
@@ -396,9 +402,11 @@ fn probe_definition(def: &HostDefinition, spec: Option<&HostSpec>, env: &HostEnv
                 "{} declares no executable for this platform; probe it on a supported platform.",
                 def.display_name
             ),
+            warning: None,
         };
     }
 
+    let rejected = rejected_override(def, env);
     let found = candidates(def, env);
     let Some(candidate) = found.into_iter().next() else {
         // An override is an explicit operator declaration, so a target that
@@ -428,8 +436,23 @@ fn probe_definition(def: &HostDefinition, spec: Option<&HostSpec>, env: &HostEnv
             self_provision: def.self_provision,
             sources_checked: sources,
             hint: missing_hint(def),
+            warning: None,
         };
     };
+
+    // An override naming something unusable must stay visible even when PATH
+    // supplied the candidate we are about to report. Silently falling back
+    // hides the one setting the operator actually set, and once `host install`
+    // exists it would misdirect them into installing a host that is already
+    // present while the broken override remains the real problem.
+    let warning = rejected.map(|path| {
+        format!(
+            "{} is set to {} but was not usable, so this probe used {} instead; fix or unset the override.",
+            def.executable_env_var(),
+            path.display(),
+            candidate.source.as_str()
+        )
+    });
 
     match query_version(&candidate.path, &def.version_arg) {
         Ok(Some(version)) => {
@@ -448,6 +471,7 @@ fn probe_definition(def: &HostDefinition, spec: Option<&HostSpec>, env: &HostEnv
                     self_provision: def.self_provision,
                     sources_checked: sources,
                     hint: String::new(),
+                    warning: warning.clone(),
                 }
             } else {
                 HostProbe {
@@ -464,6 +488,7 @@ fn probe_definition(def: &HostDefinition, spec: Option<&HostSpec>, env: &HostEnv
                     self_provision: def.self_provision,
                     sources_checked: sources,
                     hint: mismatch_hint(def, &version),
+                    warning: warning.clone(),
                 }
             }
         }
@@ -484,6 +509,7 @@ fn probe_definition(def: &HostDefinition, spec: Option<&HostSpec>, env: &HostEnv
             self_provision: def.self_provision,
             sources_checked: sources,
             hint: String::new(),
+            warning: warning.clone(),
         },
         Err(detect::VersionQueryError::Unparsable { .. }) => version_unknown_probe(
             def,
@@ -494,6 +520,7 @@ fn probe_definition(def: &HostDefinition, spec: Option<&HostSpec>, env: &HostEnv
             expected,
             license,
             spec_label,
+            warning.clone(),
         ),
         Err(_) => version_unknown_probe(
             def,
@@ -504,6 +531,7 @@ fn probe_definition(def: &HostDefinition, spec: Option<&HostSpec>, env: &HostEnv
             expected,
             license,
             spec_label,
+            warning.clone(),
         ),
     }
 }
@@ -560,6 +588,7 @@ fn rejected_override_probe(
         self_provision: def.self_provision,
         sources_checked: sources,
         hint,
+        warning: None,
     }
 }
 
@@ -613,6 +642,7 @@ fn version_unknown_probe(
     expected: Value,
     license: String,
     spec_label: String,
+    warning: Option<String>,
 ) -> HostProbe {
     HostProbe {
         id: def.id.clone(),
@@ -627,6 +657,7 @@ fn version_unknown_probe(
         license,
         self_provision: def.self_provision,
         sources_checked: sources,
+        warning,
         hint: format!(
             "Found {} at {} but could not read its version, so `{spec_label}` is unverified. Set {} to skip detection, or reinstall the host.",
             def.display_name,
@@ -653,6 +684,7 @@ fn unknown_host_probe(id: &str, raw: &str) -> HostProbe {
         hint: format!(
             "'{raw}' is not in the host manifest; run `dcc-mcp-cli host list` to see the known hosts."
         ),
+        warning: None,
     }
 }
 
@@ -674,12 +706,13 @@ fn invalid_spec_probe(raw: &str) -> HostProbe {
         hint: format!(
             "'{raw}' is not a valid host spec; use `host`, `host==5.1`, `host>=5.1` or `host~=5`."
         ),
+        warning: None,
     }
 }
 
 /// Render one probe.
 fn probe_value(probe: &HostProbe) -> Value {
-    json!({
+    let mut value = json!({
         "id": probe.id,
         "display_name": probe.display_name,
         "status": probe.status,
@@ -693,7 +726,11 @@ fn probe_value(probe: &HostProbe) -> Value {
         "self_provision": probe.self_provision,
         "sources_checked": probe.sources_checked,
         "hint": probe.hint,
-    })
+    });
+    if let Some(warning) = probe.warning.as_ref() {
+        value["warning"] = json!(warning);
+    }
+    value
 }
 
 #[cfg(test)]
@@ -900,6 +937,92 @@ mod tests {
             "the hint must name the variable and its target, got {}",
             probes[0].hint
         );
+    }
+
+    /// Carried P2 from the #2628 review: `rejected_override` used to be
+    /// consulted only when `candidates` came back empty, so a broken override
+    /// was dropped whenever PATH could supply a candidate. With `host install`
+    /// live, that would point the operator at installing a host that is
+    /// already present instead of at the environment variable that is wrong.
+    #[test]
+    fn a_rejected_override_still_warns_when_path_supplies_the_candidate() {
+        let dir = tempfile::tempdir().unwrap();
+        let on_path = dir.path().join("stubhost-on-path");
+        std::fs::write(&on_path, b"stub").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&on_path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        let absent = dir.path().join("absent-override-target");
+        let mut env = HostEnv::new();
+        env.path_entries = Some(vec![dir.path().to_path_buf()]);
+        env.vars.insert(
+            "DCC_MCP_STUBHOST_EXECUTABLE".to_string(),
+            absent.to_string_lossy().into_owned(),
+        );
+
+        let mut def = fake_def("stubhost");
+        // No version query, so existence alone makes the host available and
+        // the PATH candidate wins.
+        def.version_arg = Vec::new();
+        let name = "stubhost-on-path";
+        for names in [
+            &mut def.executables.windows,
+            &mut def.executables.linux,
+            &mut def.executables.macos,
+        ] {
+            names.push(name.to_string());
+        }
+        let manifest = HostManifest {
+            version: "1".to_string(),
+            hosts: vec![def],
+        };
+
+        let probes = doctor(&["stubhost".to_string()], &manifest, &env);
+        assert_eq!(probes[0].status, HostStatus::Available);
+        assert_eq!(probes[0].executable_source.as_deref(), Some("PATH"));
+        let warning = probes[0]
+            .warning
+            .as_deref()
+            .expect("the rejected override must still be surfaced");
+        assert!(
+            warning.contains("DCC_MCP_STUBHOST_EXECUTABLE")
+                && warning.contains(&absent.display().to_string()),
+            "the warning must name the variable and its target, got {warning}"
+        );
+    }
+
+    #[test]
+    fn no_warning_when_the_override_is_absent() {
+        // An unset variable is not a rejection, so nothing should be surfaced.
+        let dir = tempfile::tempdir().unwrap();
+        let on_path = dir.path().join("stubhost-on-path");
+        std::fs::write(&on_path, b"stub").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&on_path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let mut env = HostEnv::new();
+        env.path_entries = Some(vec![dir.path().to_path_buf()]);
+        let mut def = fake_def("stubhost");
+        def.version_arg = Vec::new();
+        for names in [
+            &mut def.executables.windows,
+            &mut def.executables.linux,
+            &mut def.executables.macos,
+        ] {
+            names.push("stubhost-on-path".to_string());
+        }
+        let manifest = HostManifest {
+            version: "1".to_string(),
+            hosts: vec![def],
+        };
+        let probes = doctor(&["stubhost".to_string()], &manifest, &env);
+        assert_eq!(probes[0].status, HostStatus::Available);
+        assert!(probes[0].warning.is_none());
     }
 
     #[test]

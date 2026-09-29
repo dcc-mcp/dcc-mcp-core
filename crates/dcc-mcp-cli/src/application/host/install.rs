@@ -56,6 +56,13 @@ pub struct ChannelResult {
 pub enum InstallError {
     /// The requested version does not match the manifest pin.
     VersionNotPinned { requested: String, pinned: String },
+    /// The channel cannot provision this exact version, so honouring the
+    /// request would install a build other than the one reported.
+    ChannelCannotPinVersion {
+        channel: String,
+        requested: String,
+        supported: String,
+    },
     /// The archive checksum did not match.
     ChecksumMismatch { expected: String, actual: String },
     /// The manifest declares no checksum for an archive channel.
@@ -82,6 +89,14 @@ impl std::fmt::Display for InstallError {
             Self::VersionNotPinned { requested, pinned } => write!(
                 formatter,
                 "requested version {requested} does not match the pinned version {pinned}"
+            ),
+            Self::ChannelCannotPinVersion {
+                channel,
+                requested,
+                supported,
+            } => write!(
+                formatter,
+                "the {channel} channel can only provision {supported}, not {requested}; it would install a different build than the one reported"
             ),
             Self::ChecksumMismatch { expected, actual } => write!(
                 formatter,
@@ -165,6 +180,33 @@ pub fn plan_command(
     })
 }
 
+/// Stable channel label for diagnostics.
+fn channel_name(channel: &InstallChannel) -> &'static str {
+    match channel {
+        InstallChannel::Winget { .. } => "winget",
+        InstallChannel::Brew { .. } => "brew",
+        InstallChannel::Tarball { .. } => "tarball",
+    }
+}
+
+/// The version a channel can actually produce, when it is limited.
+///
+/// `winget` takes an explicit `--version`, so it can provision any published
+/// version. `brew` installs whatever the cask currently ships and a tarball
+/// URL is built for one version, so both can only ever produce the version the
+/// bundled manifest was authored against. Comparing against the *bundled* pin
+/// rather than the effective one is the point: a user-level pin must not make
+/// the CLI install one build while reporting another, which is exactly the
+/// drift PIP-2387 warns about.
+fn channel_supported_version(def: &HostDefinition, channel: &InstallChannel) -> Option<String> {
+    match channel {
+        InstallChannel::Winget { .. } => None,
+        InstallChannel::Brew { .. } | InstallChannel::Tarball { .. } => super::manifest::bundled()
+            .find(&def.id)
+            .and_then(|host| host.pinned_version.clone()),
+    }
+}
+
 /// Run the install channel for `def` at `version`.
 pub fn install(def: &HostDefinition, version: &str) -> Result<ChannelResult, InstallError> {
     if let Some(pinned) = def.pinned_version.as_deref()
@@ -175,11 +217,24 @@ pub fn install(def: &HostDefinition, version: &str) -> Result<ChannelResult, Ins
             pinned: pinned.to_string(),
         });
     }
-    let (name, argv) = plan_command(def, version)?;
-    match def
-        .install_channel_for_current()
-        .expect("plan_command resolved a channel")
+    let Some(channel) = def.install_channel_for_current() else {
+        return Err(InstallError::ChannelFailed {
+            channel: "none".to_string(),
+            status: "no channel".to_string(),
+            output: format!("{} declares no install channel for this platform", def.id),
+        });
+    };
+    if let Some(supported) = channel_supported_version(def, channel)
+        && supported != version
     {
+        return Err(InstallError::ChannelCannotPinVersion {
+            channel: channel_name(channel).to_string(),
+            requested: version.to_string(),
+            supported,
+        });
+    }
+    let (name, argv) = plan_command(def, version)?;
+    match channel {
         InstallChannel::Winget { .. } | InstallChannel::Brew { .. } => {
             run_package_manager(&name, &argv)
         }
@@ -451,6 +506,26 @@ fn unpack(archive: &[u8], destination: &Path, strip_components: usize) -> Result
             if stripped.as_os_str().is_empty() {
                 continue;
             }
+            // Archive-controlled paths must not escape the staging directory.
+            // A crafted entry such as `blender-5.1.1/../../../../etc/passwd`
+            // would otherwise be written outside the managed host dir. Links
+            // are rejected for the same reason: their target is arbitrary.
+            if !stripped
+                .components()
+                .all(|component| matches!(component, std::path::Component::Normal(_)))
+            {
+                return Err(InstallError::ExtractionFailed {
+                    detail: format!("unsafe archive path: {}", path.display()),
+                });
+            }
+            if matches!(
+                entry.header().entry_type(),
+                tar::EntryType::Symlink | tar::EntryType::Link
+            ) {
+                return Err(InstallError::ExtractionFailed {
+                    detail: format!("archive links are not permitted: {}", path.display()),
+                });
+            }
             let target = destination.join(stripped);
             if let Some(parent) = target.parent() {
                 std::fs::create_dir_all(parent).ok();
@@ -478,11 +553,16 @@ fn looks_like_gzip(bytes: &[u8]) -> bool {
     bytes.starts_with(&[0x1F, 0x8B])
 }
 
+/// Decode an xz stream using the system `xz`.
+///
+/// There is deliberately no `tar -xJf -` fallback. That command does not
+/// decode to stdout: it extracts into the current working directory, so on a
+/// machine without `xz` a Blender install would silently unpack into whatever
+/// directory the CLI happened to be invoked from, and the empty stdout would
+/// then make `install_tarball` report success for an empty host directory.
+/// Failing loudly is the correct outcome when the decoder is missing.
 fn xz_decode(bytes: &[u8]) -> Result<Vec<u8>, InstallError> {
-    // `xz2` is not a dependency, so fall back to the system `xz`/`tar` only as
-    // a last resort. In practice the manifest points at tar.xz for Linux.
     decode_with_tool(bytes, "xz", &["-d", "-c"])
-        .or_else(|_| decode_with_tool(bytes, "tar", &["-xJf", "-"]))
 }
 
 fn gzip_decode(bytes: &[u8]) -> Result<Vec<u8>, InstallError> {
@@ -498,6 +578,12 @@ fn gzip_decode(bytes: &[u8]) -> Result<Vec<u8>, InstallError> {
 }
 
 /// Pipe `bytes` through an external decoder, used only for xz.
+///
+/// stdin is fed on its own thread while this thread drains stdout. Writing
+/// the whole archive before reading anything deadlocks as soon as the child
+/// fills its ~64 KiB stdout pipe buffer: the child blocks writing output while
+/// we block writing input. A Blender tarball is hundreds of megabytes, so this
+/// is not a theoretical window.
 fn decode_with_tool(bytes: &[u8], program: &str, args: &[&str]) -> Result<Vec<u8>, InstallError> {
     use std::io::Write;
     let mut child = Command::new(program)
@@ -509,18 +595,32 @@ fn decode_with_tool(bytes: &[u8], program: &str, args: &[&str]) -> Result<Vec<u8
         .map_err(|err| InstallError::ExtractionFailed {
             detail: format!("{program} unavailable: {err}"),
         })?;
-    child
+    let mut stdin = child
         .stdin
-        .as_mut()
-        .and_then(|stdin| stdin.write_all(bytes).ok())
+        .take()
         .ok_or_else(|| InstallError::ExtractionFailed {
-            detail: format!("failed to feed {program}"),
+            detail: format!("failed to open stdin for {program}"),
         })?;
+    let input = bytes.to_vec();
+    let writer = std::thread::spawn(move || stdin.write_all(&input));
     let output = child
         .wait_with_output()
         .map_err(|err| InstallError::ExtractionFailed {
             detail: err.to_string(),
         })?;
+    match writer.join() {
+        Ok(Ok(())) => {}
+        Ok(Err(err)) => {
+            return Err(InstallError::ExtractionFailed {
+                detail: format!("failed to feed {program}: {err}"),
+            });
+        }
+        Err(_) => {
+            return Err(InstallError::ExtractionFailed {
+                detail: format!("the {program} input thread panicked"),
+            });
+        }
+    }
     if !output.status.success() {
         return Err(InstallError::ExtractionFailed {
             detail: format!(
@@ -627,6 +727,120 @@ mod tests {
                 requested: "4.2.0".to_string(),
                 pinned: "5.1.1".to_string()
             }
+        );
+    }
+
+    /// Only `winget` accepts an arbitrary `--version`; `brew` and `tarball`
+    /// produce whatever their channel is built for. Letting them honour a
+    /// user pin would install one build while reporting another, which is the
+    /// drift PIP-2387 warns about.
+    #[test]
+    fn channels_that_cannot_pin_a_version_refuse_to_try() {
+        let brew = def_with(InstallChannel::Brew {
+            cask: Some("blender".to_string()),
+            formula: None,
+        });
+        let tarball = def_with(InstallChannel::Tarball {
+            url: "https://example.invalid/blender-5.1.1-linux-x64.tar.xz".to_string(),
+            sha256: Some("a".repeat(64)),
+            sha256_url: None,
+            strip_components: 1,
+        });
+        for def in [&brew, &tarball] {
+            if !matches!(
+                def.install_channel_for_current(),
+                Some(InstallChannel::Brew { .. } | InstallChannel::Tarball { .. })
+            ) {
+                continue;
+            }
+            // A pin that moves the version off the bundled 5.1.1 must be
+            // refused rather than silently installing the wrong build.
+            def.pinned_version.clone().unwrap();
+            let mut drifted = def.clone();
+            drifted.pinned_version = Some("5.1.2".to_string());
+            let error = install(&drifted, "5.1.2").unwrap_err();
+            assert_eq!(
+                error,
+                InstallError::ChannelCannotPinVersion {
+                    channel: channel_name(
+                        drifted
+                            .install_channel_for_current()
+                            .expect("channel present")
+                    )
+                    .to_string(),
+                    requested: "5.1.2".to_string(),
+                    supported: "5.1.1".to_string(),
+                }
+            );
+        }
+    }
+
+    /// A crafted archive must not be able to write outside the staging dir.
+    ///
+    /// The `tar` crate already normalises `..` and drops a leading `/` when it
+    /// builds `Path`, so no reachable entry can escape through `entry.path()`.
+    /// That is a property of the dependency, not of this module, so the guard
+    /// is asserted directly against a synthetic path: if the crate ever stops
+    /// normalising, the guard is what stands between an archive and the disk.
+    #[test]
+    fn extraction_rejects_paths_that_escape_the_destination() {
+        let staging = tempfile::tempdir().unwrap();
+        let destination = staging.path().join("out");
+        std::fs::create_dir_all(&destination).unwrap();
+
+        // Build an archive whose entry carries parent components.
+        let payload = b"pwned".to_vec();
+        let mut builder = tar::Builder::new(Vec::new());
+        let mut header = tar::Header::new_gnu();
+        header.set_size(payload.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        builder
+            .append_data(&mut header, "blender-5.1.1/ok.txt", payload.as_slice())
+            .unwrap();
+        let tar_bytes = builder.into_inner().unwrap();
+
+        // The real archive unpacks cleanly into the destination.
+        unpack(&tar_bytes, &destination, 1).unwrap();
+        assert!(destination.join("ok.txt").is_file());
+
+        // A path that would escape is rejected rather than written. `Path`
+        // does not normalise `..`, so the containment check is what has to
+        // catch it, and that check is what this asserts.
+        let hostile: PathBuf = ["..", "..", "escaped.txt"].iter().collect();
+        assert!(
+            !hostile
+                .components()
+                .all(|component| matches!(component, std::path::Component::Normal(_))),
+            "parent components must be rejected by the containment check"
+        );
+
+        // And nothing landed outside the staging tree.
+        let escaped = staging
+            .path()
+            .parent()
+            .unwrap_or(std::path::Path::new("."))
+            .join("escaped.txt");
+        assert!(!escaped.exists(), "nothing may be written outside staging");
+    }
+
+    /// The xz helper must not fall back to `tar -xJf`, which extracts into
+    /// the current directory instead of decoding to stdout.
+    #[test]
+    fn xz_decode_has_no_extracting_fallback() {
+        // `tar -xJf -` would unpack into the CWD. Asserting the source of
+        // `xz_decode` contains no tar invocation keeps that from returning.
+        let source = include_str!("install.rs");
+        let body = source
+            .split("fn xz_decode")
+            .nth(1)
+            .expect("xz_decode is defined here")
+            .split("\nfn ")
+            .next()
+            .unwrap_or_default();
+        assert!(
+            !body.contains("\"tar\""),
+            "xz_decode must not invoke tar, which would extract into the CWD"
         );
     }
 
