@@ -159,14 +159,62 @@ The same document is packaged as
 `dcc_mcp_core/schemas/adapter-install-sop-v2.schema.json` with canonical id
 `https://dcc-mcp.github.io/schemas/adapter-install-sop-v2.schema.json`.
 
-Schema artifacts are versioned as immutable `-vN` products. Once published, an
-artifact's bytes never change: a content change ships as the next revision and
-the previous one stays available. `adapter-install-sop-v1.schema.json` is
-**frozen** at the bytes released in core `0.20.30`–`0.20.33` (size 4899, sha256
+### Schema artifact versioning and immutability
+
+Schema artifacts are versioned as immutable `-vN` products. Once a release ships
+`-vN`, that artifact is append-only:
+
+- **Never rewrite a published `-vN` in place.** A content change ships as
+  `-v(N+1)`: a **new file name** (`adapter-install-sop-v(N+1).schema.json`) plus a
+  **new canonical `$id`**. Editing a published file and moving its digest pins in the
+  same commit is the failure mode that produced the `0.20.30` incident, where
+  `adapter-install-sop-v1.schema.json` kept its name and `$id` while its bytes were
+  replaced and every downstream integrity anchor broke at once.
+- **The previous revision keeps shipping.** Consumers resolve an artifact by `$id`
+  and by digest, so deleting `-vN` breaks every anchor that already pinned it. Both
+  Install SOP artifacts ship in the wheel for exactly this reason.
+- **Digest pins are anchored to release tags, not recomputed from the working tree.**
+  See [Enforcement](#enforcement) below.
+
+`adapter-install-sop-v1.schema.json` is **frozen** at the bytes released in core
+`0.20.30`–`0.20.33` (size 4899, sha256
 `2b3a8a101384a5163c7569c4a2b0de6586c672c5ee291735f94334a33b7d37a0`) and is no
-longer modified. Both artifacts ship in the wheel. See
-[Install SOP v2 migration](adapter-install-sop-v2-migration.md) for the field
-delta and the adapter migration steps.
+longer modified. The current canonical artifact is
+`adapter-install-sop-v2.schema.json`, named by
+`python/dcc_mcp_core/deployment/install_sop.py` through `INSTALL_SOP_SCHEMA_VERSION`,
+`_INSTALL_SOP_SCHEMA_ID`, and `_SCHEMA_PATH`. That revision counter identifies the
+**artifact**; it is deliberately not the report document's own `schema_version`
+field, which stays at `1` because `-v2` only adds the optional `catalog` object.
+
+#### Enforcement
+
+Four **live** digest pins cover the Install SOP contract, and all four are computed
+from the current file: `compatibility/python.json`,
+`python/dcc_mcp_core/deployment/install_sop.py`,
+`crates/dcc-mcp-models/src/schema_validation.rs`, and the cross-assert in
+`tests/test_install_catalog_provenance_contract.py`. Because they are derived from
+whatever the file currently contains, updating them in the same commit keeps CI
+green -- they cannot detect an in-place rewrite on their own.
+
+The release-anchored pin registry closes that gap:
+
+- [`compatibility/schema-pins.json`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/compatibility/schema-pins.json)
+  maps each published schema `$id` to a `released` map of `{tag: sha256}` pairs -- for
+  example `adapter-install-sop-v1` at `v0.20.29` and `v0.20.30`.
+- `tests/test_released_schema_immutability.py` asserts two things: the bytes at every
+  registered tag still hash to the registered digest, **and** the bytes `git` would
+  commit at `HEAD` equal the digest of the newest registered release. Digests are read
+  from git object bytes rather than from a raw working-tree read, so `core.autocrlf`
+  differences on Windows checkouts cannot produce a false failure.
+- Therefore a published `-vN` cannot be rewritten: the only way forward is a new
+  `-v(N+1)` revision. A registered digest MUST NOT be edited or deleted -- it is the
+  tamper evidence the gate compares against. Register a schema the first time a
+  release ships it.
+
+Adding a pin and the full rule set →
+[`compatibility/README.md`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/compatibility/README.md#released-schema-pins)
+(`released-schema-immutability` CI job). Field delta and adapter migration steps →
+[Install SOP v2 migration](adapter-install-sop-v2-migration.md).
 
 The required top-level fields are stable across artifact revisions. Additive
 adapter fields are allowed. A consumer MUST reject an unsupported higher schema
