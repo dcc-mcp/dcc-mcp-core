@@ -24,6 +24,14 @@ pub fn is_newer_version(candidate: &str, current: &str) -> bool {
     parse_semver(candidate) > parse_semver(current)
 }
 
+/// `adapter_dcc` marker that the machine-wide standalone gateway daemon
+/// (`dcc-mcp-server gateway`) stamps on its `__gateway__` sentinel.
+///
+/// See issue dcc-mcp-core#2642: the daemon owns no DCC and no adapter
+/// package of its own, so it must never be displaced by the adapter layers
+/// of the election — only by a genuine crate upgrade.
+pub const STANDALONE_GATEWAY_DCC: &str = "gateway";
+
 /// Election metadata describing one side of a gateway tiebreak (issue maya#137).
 ///
 /// The comparison happens in three layers, each only consulted when the
@@ -39,6 +47,10 @@ pub fn is_newer_version(candidate: &str, current: &str) -> bool {
 ///    server) and the challenger advertises a real DCC, the challenger
 ///    wins.  Two real DCCs of the same crate+adapter version remain tied
 ///    so peers fall back to the existing first-wins port-bind contract.
+///
+/// Layers 2 and 3 are skipped entirely when the resident is the standalone
+/// gateway daemon (issue dcc-mcp-core#2642) — see
+/// [`is_newer_election`].
 #[derive(Debug, Clone, Copy)]
 pub struct ElectionInfo<'a> {
     pub crate_version: &'a str,
@@ -70,6 +82,12 @@ fn is_unknown_dcc(dcc: Option<&str>) -> bool {
     }
 }
 
+/// Treat the [`STANDALONE_GATEWAY_DCC`] marker (case-insensitive) as the
+/// machine-wide standalone gateway daemon owning the sentinel.
+fn is_standalone_gateway_daemon(dcc: Option<&str>) -> bool {
+    dcc.is_some_and(|dcc| dcc.eq_ignore_ascii_case(STANDALONE_GATEWAY_DCC))
+}
+
 /// Three-layer election comparison (issue maya#137).
 ///
 /// Returns `true` when `candidate` should preempt `current`.
@@ -78,6 +96,18 @@ pub fn is_newer_election(candidate: ElectionInfo<'_>, current: ElectionInfo<'_>)
     let cur_crate = parse_semver(current.crate_version);
     if cand_crate != cur_crate {
         return cand_crate > cur_crate;
+    }
+
+    // Issue dcc-mcp-core#2642 — the resident is the machine-wide standalone
+    // gateway daemon. It carries no adapter package of its own (no
+    // `adapter_version`) and no DCC identity, so layers 2 and 3 would let
+    // *any* DCC sidecar that stamps an `adapter_version` beat it at an
+    // identical crate version: every Maya launch then forced the healthy
+    // daemon to yield, restart, and drop every MCP client connected to it.
+    // A standalone daemon is the machine-wide owner, so only a genuine
+    // crate upgrade (layer 1) may replace it.
+    if is_standalone_gateway_daemon(current.adapter_dcc) {
+        return false;
     }
 
     // Layer 2 — adapter version.  `None` is below any concrete value.

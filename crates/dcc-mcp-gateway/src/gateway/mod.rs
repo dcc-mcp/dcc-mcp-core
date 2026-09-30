@@ -150,7 +150,7 @@ pub use handle::GatewayHandle;
 pub use runner::GatewayRunner;
 pub use sentinel::{has_newer_sentinel, is_own_instance};
 pub(crate) use tasks::start_gateway_tasks;
-pub use version::{ElectionInfo, is_newer_election, is_newer_version};
+pub use version::{ElectionInfo, STANDALONE_GATEWAY_DCC, is_newer_election, is_newer_version};
 
 #[cfg(test)]
 pub(crate) use tasks::self_probe_listener;

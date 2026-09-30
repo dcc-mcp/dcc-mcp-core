@@ -6,7 +6,9 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use clap::Args;
-use dcc_mcp_gateway::{AdminPersistConfig, GatewayConfig, GatewayRunner, RelaySourceConfig};
+use dcc_mcp_gateway::{
+    AdminPersistConfig, GatewayConfig, GatewayRunner, RelaySourceConfig, STANDALONE_GATEWAY_DCC,
+};
 
 const DAEMONIZED_ENV: &str = "DCC_MCP__DAEMONIZED";
 
@@ -50,6 +52,13 @@ impl FromStr for RelaySourceArg {
 }
 
 /// CLI surface for the machine-wide gateway process.
+///
+/// The env-backed boolean flags use clap's boolish value parser: clap's
+/// default `bool` parser only accepts the literals `true`/`false`, so a
+/// documented setting such as `DCC_MCP_GATEWAY_PERSIST=1` used to abort
+/// startup with `invalid value '1'` (issue dcc-mcp-core#2642). The boolish
+/// parser accepts `1`/`0`, `true`/`false`, `yes`/`no` and `on`/`off`, which
+/// is what `build_gateway_config` and `docs/guide/gateway.md` already assume.
 #[derive(Debug, Args, Clone)]
 pub struct GatewayArgs {
     /// Gateway host/interface to bind.
@@ -77,7 +86,14 @@ pub struct GatewayArgs {
     pub registry_dir: Option<PathBuf>,
 
     /// Disable the Admin UI.
-    #[arg(long, env = "DCC_MCP_NO_ADMIN", default_value = "false")]
+    #[arg(
+        long,
+        env = "DCC_MCP_NO_ADMIN",
+        default_value = "false",
+        num_args = 0..=1,
+        default_missing_value = "true",
+        value_parser = clap::builder::BoolishValueParser::new()
+    )]
     pub no_admin: bool,
 
     /// URL prefix for the Admin UI.
@@ -90,7 +106,14 @@ pub struct GatewayArgs {
 
     /// Discover LAN-local DCC MCP endpoints via mDNS/DNS-SD.
     #[cfg(feature = "mdns")]
-    #[arg(long, env = "DCC_MCP_DISCOVER_MDNS", default_value = "false")]
+    #[arg(
+        long,
+        env = "DCC_MCP_DISCOVER_MDNS",
+        default_value = "false",
+        num_args = 0..=1,
+        default_missing_value = "true",
+        value_parser = clap::builder::BoolishValueParser::new()
+    )]
     pub discover_mdns: bool,
 
     /// Tunnel relay discovery source, as `ADMIN_URL=PUBLIC_BASE_URL`.
@@ -106,7 +129,14 @@ pub struct GatewayArgs {
 
     /// Keep the gateway daemon alive even when no backends remain.
     /// Default: false. Use for studio/headless deployments.
-    #[arg(long, env = "DCC_MCP_GATEWAY_PERSIST", default_value = "false")]
+    #[arg(
+        long,
+        env = "DCC_MCP_GATEWAY_PERSIST",
+        default_value = "false",
+        num_args = 0..=1,
+        default_missing_value = "true",
+        value_parser = clap::builder::BoolishValueParser::new()
+    )]
     pub gateway_persist: bool,
 
     /// Seconds to wait after the last backend exits before shutting down
@@ -118,14 +148,28 @@ pub struct GatewayArgs {
     /// Enable semantic search (requires `dcc-mcp-core[semantic]` ONNX
     /// runtime). When enabled, `mode=hybrid` combines fuzzy matching with
     /// embedding similarity. Default: false.
-    #[arg(long, env = "DCC_MCP_SEMANTIC_SEARCH_ENABLED", default_value = "false")]
+    #[arg(
+        long,
+        env = "DCC_MCP_SEMANTIC_SEARCH_ENABLED",
+        default_value = "false",
+        num_args = 0..=1,
+        default_missing_value = "true",
+        value_parser = clap::builder::BoolishValueParser::new()
+    )]
     pub semantic_search_enabled: bool,
 
     /// Detach from the terminal and run as a background daemon.
     /// On Unix this respawns a fresh child in a new session; on Windows
     /// the process respawns itself with DETACHED_PROCESS and
     /// CREATE_NEW_PROCESS_GROUP flags.
-    #[arg(long, env = "DCC_MCP_DAEMON", default_value = "false")]
+    #[arg(
+        long,
+        env = "DCC_MCP_DAEMON",
+        default_value = "false",
+        num_args = 0..=1,
+        default_missing_value = "true",
+        value_parser = clap::builder::BoolishValueParser::new()
+    )]
     pub daemon: bool,
 
     /// Write the daemon process ID to this file. Implicitly enables
@@ -327,7 +371,7 @@ pub fn build_gateway_config(args: &GatewayArgs, gateway_name: &str) -> GatewayCo
         gateway_name: Some(gateway_name.to_string()),
         server_version: env!("CARGO_PKG_VERSION").to_string(),
         registry_dir: args.registry_dir.clone(),
-        adapter_dcc: Some("gateway".to_string()),
+        adapter_dcc: Some(STANDALONE_GATEWAY_DCC.to_string()),
         #[cfg(feature = "mdns")]
         discover_mdns: args.discover_mdns,
         relay_sources: args
