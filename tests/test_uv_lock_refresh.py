@@ -49,12 +49,28 @@ def _parse(text: str) -> dict:
     return tomllib.loads(text)
 
 
-def _lock_text(*, requires_python: str = ">=3.7", packages: list) -> str:
-    lines = ["version = 1", "revision = 3", f'requires-python = "{requires_python}"', ""]
-    for name, version, wheels in packages:
+def _lock_text(*, requires_python: str = ">=3.7", resolution_markers: list | None = None, packages: list) -> str:
+    lines = ["version = 1", "revision = 3", f'requires-python = "{requires_python}"']
+    if resolution_markers is not None:
+        lines.append("resolution-markers = [")
+        for marker in resolution_markers:
+            lines.append(f'    "{marker}",')
+        lines.append("]")
+    lines.append("")
+    for entry in packages:
+        # A package entry is `(name, version, wheels)` or
+        # `(name, version, wheels, markers)`; `markers` are the marker strings
+        # carried by that block's `dependencies` entries.
+        name, version, wheels = entry[0], entry[1], entry[2]
+        markers = entry[3] if len(entry) > 3 else ()
         lines.append("[[package]]")
         lines.append(f'name = "{name}"')
         lines.append(f'version = "{version}"')
+        if markers:
+            lines.append("dependencies = [")
+            for marker in markers:
+                lines.append(f'    {{ name = "dep", marker = "{marker}" }},')
+            lines.append("]")
         if wheels:
             lines.append("wheels = [")
             for url in wheels:
@@ -62,6 +78,53 @@ def _lock_text(*, requires_python: str = ">=3.7", packages: list) -> str:
             lines.append("]")
         lines.append("")
     return "\n".join(lines)
+
+
+def _block(name: str, version: str, *, dependencies=(), optional=None, requires_dist=None) -> str:
+    """Render one ``[[package]]`` block exercising every marker location."""
+    lines = ["[[package]]", f'name = "{name}"', f'version = "{version}"']
+    if dependencies:
+        lines.append("dependencies = [")
+        for marker in dependencies:
+            lines.append(f'    {{ name = "dep", marker = "{marker}" }},')
+        lines.append("]")
+    for group in sorted(optional or {}):
+        lines.append("[package.optional-dependencies]")
+        lines.append(f"{group} = [")
+        for marker in optional[group]:
+            lines.append(f'    {{ name = "extra-dep", marker = "{marker}" }},')
+        lines.append("]")
+    if requires_dist:
+        lines.append("[package.metadata]")
+        lines.append("requires-dist = [")
+        for marker in requires_dist:
+            lines.append(f'    {{ name = "dist", marker = "{marker}" }},')
+        lines.append("]")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _lock_from_blocks(*blocks: str, requires_python: str = ">=3.7", resolution_markers: list | None = None) -> str:
+    lines = ["version = 1", "revision = 3", f'requires-python = "{requires_python}"']
+    if resolution_markers is not None:
+        lines.append("resolution-markers = [")
+        for marker in resolution_markers:
+            lines.append(f'    "{marker}",')
+        lines.append("]")
+    lines.append("")
+    lines.extend(blocks)
+    return "\n".join(lines)
+
+
+# The layering uv emits for a project that still supports Python 3.7: newest
+# first, with the py37 marker last.
+_PY37_RESOLUTION_MARKERS = [
+    "python_full_version >= '3.14'",
+    "python_full_version == '3.13.*'",
+    "python_full_version == '3.9.*'",
+    "python_full_version == '3.8.*'",
+    "python_full_version < '3.8'",
+]
 
 
 def _baseline():
@@ -147,6 +210,159 @@ def test_downgraded_allowed_pin_fails() -> None:
     assert any("backwards" in error and "dcc-mcp-core-semantic" in error for error in errors)
 
 
+def test_marker_only_relock_is_classified_as_marker_only() -> None:
+    # The case PR #2643 actually was: `uv lock` re-emitted dependency markers
+    # on package blocks whose versions never moved, so the pull request must
+    # not describe itself as a version refresh.
+    module = _load_module()
+    before = [
+        ("dcc-mcp-core-semantic", "0.20.38", _semantic_wheels("0.20.38")),
+        ("dcc-mcp-server", "0.20.38", _server_wheels("0.20.38")),
+        ("zipp", "3.19.1", [_wheel("zipp", "3.19.1", "py3-none-any")]),
+    ]
+    after = [
+        ("dcc-mcp-core-semantic", "0.20.38", _semantic_wheels("0.20.38"), ["python_full_version >= '3.8'"]),
+        ("dcc-mcp-server", "0.20.38", _server_wheels("0.20.38")),
+        ("zipp", "3.19.1", [_wheel("zipp", "3.19.1", "py3-none-any")], ["python_full_version < '3.8'"]),
+    ]
+
+    report = module.classify_change(_parse(_lock_text(packages=before)), _parse(_lock_text(packages=after)))
+
+    assert report["kind"] == module.CHANGE_MARKER_ONLY
+    assert report["version_changes"] == []
+    assert report["marker_changes"] == ["dcc-mcp-core-semantic==0.20.38", "zipp==3.19.1"]
+    assert report["resolution_markers_changed"] is False
+    assert "marker-only" in module.describe_change(report)
+    assert "no package version changed" in module.describe_change(report)
+
+
+def test_marker_only_relock_still_passes_the_guard() -> None:
+    # Widening the classifier must not turn a marker-only relock into a
+    # failure: nothing left the allowed blast radius.
+    module = _load_module()
+    before = [("dcc-mcp-core-semantic", "0.20.38", _semantic_wheels("0.20.38"))]
+    after = [("dcc-mcp-core-semantic", "0.20.38", _semantic_wheels("0.20.38"), ["python_full_version >= '3.8'"])]
+
+    errors = module.verify_refresh(_parse(_lock_text(packages=before)), _parse(_lock_text(packages=after)))
+
+    assert errors == []
+
+
+def test_identical_locks_classify_as_unchanged() -> None:
+    module = _load_module()
+    lock = _parse(_lock_text(packages=_baseline()))
+
+    report = module.classify_change(lock, lock)
+
+    assert report["kind"] == module.CHANGE_UNCHANGED
+    assert "unchanged" in module.describe_change(report)
+
+
+def test_version_bump_classifies_as_versions_not_marker_only() -> None:
+    module = _load_module()
+
+    report = module.classify_change(_parse(_lock_text(packages=_baseline())), _parse(_lock_text(packages=_refreshed())))
+
+    assert report["kind"] == module.CHANGE_VERSIONS
+    assert report["version_changes"] == ["dcc-mcp-core-semantic", "dcc-mcp-server"]
+    assert "version refresh" in module.describe_change(report)
+
+
+def test_reordered_resolution_markers_are_detected_without_a_version_change() -> None:
+    # The resolution-marker list encodes the resolver's Python-version layering,
+    # so swapping two entries is a real change that a version-only comparison
+    # would miss entirely.
+    module = _load_module()
+    reordered = list(_PY37_RESOLUTION_MARKERS)
+    reordered[0], reordered[-1] = reordered[-1], reordered[0]
+
+    report = module.classify_change(
+        _parse(_lock_text(packages=_baseline(), resolution_markers=_PY37_RESOLUTION_MARKERS)),
+        _parse(_lock_text(packages=_baseline(), resolution_markers=reordered)),
+    )
+
+    assert report["kind"] == module.CHANGE_MARKER_ONLY
+    assert report["version_changes"] == []
+    assert report["marker_changes"] == []
+    assert report["resolution_markers_changed"] is True
+    assert "resolution-marker list changed" in module.describe_change(report)
+
+
+def test_optional_dependency_and_requires_dist_markers_are_fingerprinted() -> None:
+    # Markers live in three places per block; a fingerprint that only reads
+    # `dependencies` would call this relock a no-op.
+    module = _load_module()
+    before = _lock_from_blocks(
+        _block("dcc-mcp-core", "0.20.38", optional={"test": ["extra == 'test'"]}, requires_dist=["extra == 'dev'"]),
+        resolution_markers=_PY37_RESOLUTION_MARKERS,
+    )
+    after = _lock_from_blocks(
+        _block(
+            "dcc-mcp-core",
+            "0.20.38",
+            optional={"test": ["python_full_version >= '3.8' and extra == 'test'"]},
+            requires_dist=["python_full_version >= '3.8' and extra == 'dev'"],
+        ),
+        resolution_markers=_PY37_RESOLUTION_MARKERS,
+    )
+
+    report = module.classify_change(_parse(before), _parse(after))
+
+    assert report["kind"] == module.CHANGE_MARKER_ONLY
+    assert report["marker_changes"] == ["dcc-mcp-core==0.20.38"]
+
+
+def test_reordering_package_blocks_does_not_look_like_a_change() -> None:
+    module = _load_module()
+    before = _lock_from_blocks(
+        _block("attrs", "24.2.0", dependencies=["python_full_version < '3.8'"]),
+        _block("zipp", "3.19.1"),
+        resolution_markers=_PY37_RESOLUTION_MARKERS,
+    )
+    after = _lock_from_blocks(
+        _block("zipp", "3.19.1"),
+        _block("attrs", "24.2.0", dependencies=["python_full_version < '3.8'"]),
+        resolution_markers=_PY37_RESOLUTION_MARKERS,
+    )
+
+    assert module.classify_change(_parse(before), _parse(after))["kind"] == module.CHANGE_UNCHANGED
+
+
+def test_classify_cli_prints_json_and_writes_github_outputs(tmp_path: Path, monkeypatch) -> None:
+    module = _load_module()
+    before = tmp_path / "before.lock"
+    after = tmp_path / "after.lock"
+    before.write_text(_lock_text(packages=_baseline()), encoding="utf-8")
+    after.write_text(_lock_text(packages=_refreshed()), encoding="utf-8")
+    outputs = tmp_path / "github-output"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(outputs))
+
+    assert module.main(["classify", str(before), str(after), "--json"]) == 0
+
+    written = outputs.read_text(encoding="utf-8")
+    assert "change-kind=versions" in written
+    assert "marker-only=false" in written
+    assert "version-changes=dcc-mcp-core-semantic,dcc-mcp-server" in written
+    assert "summary=version refresh:" in written
+
+
+def test_classify_cli_reports_marker_only_for_a_marker_relock(tmp_path: Path, monkeypatch) -> None:
+    module = _load_module()
+    before = tmp_path / "before.lock"
+    after = tmp_path / "after.lock"
+    before.write_text(_lock_text(packages=[("zipp", "3.19.1", [])]), encoding="utf-8")
+    after.write_text(_lock_text(packages=[("zipp", "3.19.1", [], ["python_full_version < '3.8'"])]), encoding="utf-8")
+    outputs = tmp_path / "github-output"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(outputs))
+
+    assert module.main(["classify", str(before), str(after)]) == 0
+
+    written = outputs.read_text(encoding="utf-8")
+    assert "change-kind=marker-only" in written
+    assert "marker-only=true" in written
+    assert "version-changes=\n" in written
+
+
 def test_cli_verify_accepts_a_scoped_refresh(tmp_path: Path) -> None:
     module = _load_module()
     before = tmp_path / "before.lock"
@@ -191,6 +407,7 @@ def test_cli_verify_honours_a_package_override(tmp_path: Path) -> None:
         "chore(lock):",
         "bot/uv-lock-refresh",
         "git diff --quiet -- uv.lock",
+        "python scripts/ci/uv_lock_refresh.py classify",
     ],
 )
 def test_workflow_carries_the_refresh_contract(expected: str) -> None:
@@ -241,6 +458,42 @@ def test_workflow_pins_the_resolver() -> None:
     assert "UV_VERSION" in workflow
     assert "uv==" in workflow
     assert "timeout-minutes" in workflow
+
+
+def test_workflow_derives_the_pr_title_from_the_classifier() -> None:
+    # A relock that moves no version must not be titled as a version refresh,
+    # so the title is picked from `uv_lock_refresh.py classify` rather than
+    # being a single hardcoded string.
+    workflow = _workflow_body()
+
+    assert "steps.kind.outputs.change-kind" in workflow
+    assert 'case "$CHANGE_KIND" in' in workflow
+    assert "TITLE_MARKER_ONLY" in workflow
+    assert "TITLE_VERSIONS" in workflow
+
+
+def test_workflow_has_no_single_hardcoded_title() -> None:
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+
+    assert "$REFRESH_TITLE" not in workflow
+    assert '--title "$refresh_title"' in workflow
+
+
+def test_workflow_marker_only_title_does_not_claim_a_version_refresh() -> None:
+    workflow = _workflow_body()
+    titles = [line for line in workflow.splitlines() if line.strip().startswith("TITLE_MARKER_ONLY:")]
+
+    assert len(titles) == 1
+    assert "without changing package versions" in titles[0]
+
+
+def test_workflow_states_the_change_kind_in_the_pr_body() -> None:
+    workflow = _workflow_body()
+
+    assert "**Classification:**" in workflow
+    assert "BODY_MARKER_ONLY" in workflow
+    assert "BODY_VERSIONS" in workflow
+    assert "gh pr edit" in workflow
 
 
 def test_workflow_schedule_avoids_the_hour_and_the_release_window() -> None:

@@ -21,6 +21,10 @@ name: Refresh published lock pins
 #   the two allowed packages moves, when a cp37 wheel disappears, or when
 #   `requires-python` is narrowed. A surprising re-resolution is reported,
 #   never merged.
+# * Honest — `scripts/ci/uv_lock_refresh.py classify` reports whether the run
+#   moved package versions or only re-emitted marker text, and the commit
+#   message, pull-request title and pull-request body all follow that verdict.
+#   A marker-only relock must not announce a version refresh.
 # * Non-releasing — the commit type is `chore(lock)`, which release-please
 #   hides from the changelog and never turns into a version bump, so the
 #   release-please self-increment loop cannot restart through this path.
@@ -82,7 +86,13 @@ concurrency:
 
 env:
   REFRESH_BRANCH: bot/uv-lock-refresh
-  REFRESH_TITLE: "chore(lock): refresh published dcc-mcp-server and dcc-mcp-core-semantic pins"
+  # One title per classified outcome. `uv lock` rewrites the whole file, so a
+  # run can re-emit every dependency marker while moving no package version at
+  # all -- usually because the two pins already sat on the newest release.
+  # Calling that a version refresh misdescribes the change in the commit
+  # history, so the title follows `uv_lock_refresh.py classify`.
+  TITLE_VERSIONS: "chore(lock): refresh published dcc-mcp-server and dcc-mcp-core-semantic pins"
+  TITLE_MARKER_ONLY: "chore(lock): re-emit uv.lock markers without changing package versions"
   # Pinned on purpose: `uv lock` output follows the resolver version (lock
   # revision, entry ordering, how much of the graph it re-resolves), so an
   # unattended refresh is only reproducible against a fixed resolver. Bump
@@ -154,19 +164,46 @@ jobs:
             git diff --stat -- uv.lock
           fi
 
+      - name: Classify the lock change
+        id: kind
+        if: steps.diff.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+
+          # Runs after `verify`, so an out-of-scope refresh has already failed
+          # the run: whatever reaches here is either a real version move or a
+          # relock that only re-emitted markers. The step writes
+          # `change-kind`, `marker-only`, `version-changes`, `marker-changes`,
+          # `resolution-markers-changed` and `summary` to $GITHUB_OUTPUT.
+          python scripts/ci/uv_lock_refresh.py classify /tmp/uv.lock.before /tmp/uv.lock.after --json
+
       - name: Open or update the refresh pull request
         if: steps.diff.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+          # Read through env rather than interpolating into the script body:
+          # the value is produced by the guard, but keeping it out of the
+          # shell text means a surprising value cannot become shell syntax.
+          CHANGE_KIND: ${{ steps.kind.outputs.change-kind }}
+          CHANGE_SUMMARY: ${{ steps.kind.outputs.summary }}
         run: |
           set -euo pipefail
+
+          # `unchanged` cannot reach this step -- the diff gate above only runs
+          # it when `git diff` reported a change -- so the fallback is the
+          # version-refresh title.
+          case "$CHANGE_KIND" in
+            marker-only) refresh_title="$TITLE_MARKER_ONLY" ;;
+            *) refresh_title="$TITLE_VERSIONS" ;;
+          esac
+          echo "Refresh classified as $CHANGE_KIND; commit and PR title: $refresh_title"
 
           git config user.name "loonghao"
           git config user.email "hal.long@outlook.com"
           git switch -C "$REFRESH_BRANCH" HEAD
           git add uv.lock
-          git commit --no-verify -m "$REFRESH_TITLE"
+          git commit --no-verify -m "$refresh_title"
 
           # The branch is rebuilt from `main` on every run, so the push is a
           # force push; the lease still protects against a concurrent writer.
@@ -185,14 +222,47 @@ jobs:
             push "${lease[@]}" origin "HEAD:refs/heads/$REFRESH_BRANCH"
 
           body_file="$(mktemp)"
-          cat > "$body_file" <<'BODY'
-          Automated `uv.lock` maintenance.
 
+          # The rationale paragraph follows the classification: a relock that
+          # moved no version has a different reason to exist than one that did.
+          if [ "$CHANGE_KIND" = "marker-only" ]; then
+            cat > "$body_file" <<'BODY_MARKER_ONLY'
+          `uv lock` re-emitted this lockfile **without moving a single package
+          version**. The two published pins already sat on the newest release, so
+          the refresh had nothing to upgrade; what changed is marker text only --
+          `dependencies`, `[package.optional-dependencies]`,
+          `[package.metadata] requires-dist`, and/or the global
+          `resolution-markers` list.
+
+          This is a resolver-output change, not a dependency change: no package
+          is added, removed, upgraded or downgraded, and `requires-python` is
+          untouched.
+          BODY_MARKER_ONLY
+          else
+            cat > "$body_file" <<'BODY_VERSIONS'
           `dcc-mcp-core-semantic` and `dcc-mcp-server` are consumed from PyPI as
           ordinary registry dependencies, so their pins only move when uv is asked
           to re-resolve them explicitly. This refresh moves both pins to the newest
           published release so `scripts/ci/check_lock_versions.py` keeps passing
           without a manual `uv lock --upgrade-package` run.
+          BODY_VERSIONS
+          fi
+
+          # Prepend the classification and append the invariants. Both are
+          # interpolated, so the backticks here are escaped -- the static
+          # paragraphs above use a quoted heredoc and keep theirs literal.
+          header_file="$(mktemp)"
+          cat > "$header_file" <<BODY_HEADER
+          Automated \`uv.lock\` maintenance.
+
+          **Classification:** \`${CHANGE_KIND}\` -- ${CHANGE_SUMMARY}
+
+          BODY_HEADER
+          cat "$header_file" "$body_file" > "${body_file}.merged"
+          mv "${body_file}.merged" "$body_file"
+          rm -f "$header_file"
+
+          cat >> "$body_file" <<'BODY_FOOTER'
 
           - Changed: `uv.lock` only
           - Packages: `dcc-mcp-core-semantic`, `dcc-mcp-server`
@@ -202,13 +272,14 @@ jobs:
 
           The workflow is idempotent: an already-current lock produces no commit and
           no pull request.
-          BODY
+          BODY_FOOTER
 
           existing="$(gh pr list --state open --base main --head "$REFRESH_BRANCH" --json number --jq '.[0].number // empty')"
           if [ -z "$existing" ]; then
-            gh pr create --base main --head "$REFRESH_BRANCH" --title "$REFRESH_TITLE" --body-file "$body_file"
+            gh pr create --base main --head "$REFRESH_BRANCH" --title "$refresh_title" --body-file "$body_file"
           else
             echo "Refresh PR #$existing is already open; the push above updated it."
+            gh pr edit "$existing" --title "$refresh_title" --body-file "$body_file"
           fi
 
           # The pull request stops here on purpose. `main` carries no required
@@ -260,6 +331,19 @@ jobs:
             exit 0
           fi
 
+          # The release branch is a different base, so it gets its own verdict
+          # rather than inheriting the one taken against `main`.
+          release_kind="$(
+            python scripts/ci/uv_lock_refresh.py classify \
+              /tmp/uv.lock.release.before /tmp/uv.lock.release.after --json |
+              jq -r .kind
+          )"
+          case "$release_kind" in
+            marker-only) release_title="$TITLE_MARKER_ONLY" ;;
+            *) release_title="$TITLE_VERSIONS" ;;
+          esac
+          echo "Release-branch refresh classified as $release_kind"
+
           # The gate on the release PR is the proof the refresh landed: with the
           # pins on the newest published release it passes without the one
           # release of window tolerance. A failure is reported rather than
@@ -271,7 +355,7 @@ jobs:
           git config user.name "loonghao"
           git config user.email "hal.long@outlook.com"
           git add uv.lock
-          git commit --no-verify -m "$REFRESH_TITLE"
+          git commit --no-verify -m "$release_title"
 
           # The branch belongs to release-please, which force-pushes it whenever
           # it rebuilds the PR, so the lease is taken against the live remote
