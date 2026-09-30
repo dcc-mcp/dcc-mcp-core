@@ -4,6 +4,13 @@ Runtime namespace discovery tools for DCC host interpreters (issue #426).
 
 Four read-only MCP tools that let AI agents inspect the live DCC Python namespace without burning tokens on web searches. All tools are registered with `read_only_hint=True, idempotent_hint=True` and hard-cap their output.
 
+Namespace discovery accepts dotted modules, SDK classes, and dynamic namespaces
+such as `unreal.GeometryScript_BoneWeights` or `bpy.ops.object`. It imports the
+longest available module prefix, then resolves each remaining attribute without
+invoking the discovered callable. Import initialization and missing dependency
+errors are reported rather than hidden by attribute fallback. Names must consist
+of identifiers separated by dots; expressions and calls are not accepted.
+
 **Exported symbols:** `introspect_eval`, `introspect_list_module`, `introspect_search`, `introspect_signature`, `register_introspect_tools`
 
 ## register_introspect_tools
@@ -37,7 +44,8 @@ Return exported names from `module_name`.
 introspect_signature(qualname: str) -> dict
 ```
 
-Return signature and docstring for `qualname` (e.g. `"maya.cmds.polyCube"`).
+Return signature and docstring for `qualname` (e.g. `"maya.cmds.polyCube"` or
+`"unreal.GeometryScript_BoneWeights.set_vertex_bone_weights"`).
 
 **Returns:** `{"signature": str, "doc": str, "source_file": str|None, "kind": str}`
 

@@ -330,14 +330,42 @@ class _ReadOnlyExpressionValidator(ast.NodeVisitor):
 # ── Core introspection helpers ────────────────────────────────────────────
 
 
-def _import_module(module_name: str) -> tuple[Any, str | None]:
-    """Return (module, error_str) — error_str is None on success."""
-    try:
-        return importlib.import_module(module_name), None
-    except ImportError as exc:
-        return None, f"Cannot import module '{module_name}': {exc}"
-    except Exception as exc:
-        return None, f"Error importing module '{module_name}': {exc}"
+def _resolve_namespace(qualname: str) -> tuple[Any, str | None]:
+    """Import the longest module prefix, then resolve attributes without calling them.
+
+    Only a missing requested module permits trying a shorter prefix. Import
+    failures inside an existing module must remain failures rather than being
+    mistaken for a host class or dynamic namespace.
+    """
+    parts = qualname.split(".")
+    if not all(part.isidentifier() for part in parts):
+        return None, f"Invalid dotted name '{qualname}'"
+
+    for size in range(len(parts), 0, -1):
+        module_name = ".".join(parts[:size])
+        try:
+            obj = importlib.import_module(module_name)
+        except ModuleNotFoundError as exc:
+            if size > 1 and exc.name and (module_name == exc.name or module_name.startswith(exc.name + ".")):
+                continue
+            return None, f"Cannot import module '{module_name}': {exc}"
+        except ImportError as exc:
+            return None, f"Cannot import module '{module_name}': {exc}"
+        except Exception as exc:
+            return None, f"Error importing module '{module_name}': {exc}"
+
+        for index in range(size, len(parts)):
+            attr = parts[index]
+            parent = ".".join(parts[:index])
+            try:
+                obj = getattr(obj, attr)
+            except AttributeError:
+                return None, f"'{attr}' not found in '{parent}'"
+            except Exception as exc:
+                return None, f"Error resolving '{attr}' in '{parent}': {exc}"
+        return obj, None
+
+    return None, f"Cannot import module '{qualname}'"  # Defensive: nonempty names always return above.
 
 
 def introspect_list_module(module_name: str, *, limit: int = _MAX_NAMES) -> dict[str, Any]:
@@ -346,7 +374,8 @@ def introspect_list_module(module_name: str, *, limit: int = _MAX_NAMES) -> dict
     Parameters
     ----------
     module_name:
-        Dotted module path (e.g. ``"maya.cmds"`` or ``"bpy.ops.object"``).
+        Dotted module or attribute namespace (e.g. ``"maya.cmds"`` or
+        ``"bpy.ops.object"``).
     limit:
         Maximum number of names to return (default :data:`_MAX_NAMES`).
 
@@ -356,7 +385,7 @@ def introspect_list_module(module_name: str, *, limit: int = _MAX_NAMES) -> dict
         ``{"names": [...], "count": N, "truncated": bool}``
 
     """
-    mod, err = _import_module(module_name)
+    mod, err = _resolve_namespace(module_name)
     if err:
         return ToolResultEnvelope(success=False, message=err).to_dict()
 
@@ -388,19 +417,14 @@ def introspect_signature(qualname: str) -> dict[str, Any]:
         ``{"signature": str, "doc": str, "source_file": str|None}``
 
     """
-    parts = qualname.rsplit(".", 1)
-    if len(parts) == 1:
-        module_name, attr = "builtins", parts[0]
-    else:
-        module_name, attr = parts
+    if not all(part.isidentifier() for part in qualname.split(".")):
+        return ToolResultEnvelope(success=False, message=f"Invalid dotted name '{qualname}'").to_dict()
 
-    mod, err = _import_module(module_name)
+    path = qualname if "." in qualname else f"builtins.{qualname}"
+    attr = qualname.rsplit(".", 1)[-1]
+    obj, err = _resolve_namespace(path)
     if err:
         return ToolResultEnvelope(success=False, message=err).to_dict()
-
-    obj = getattr(mod, attr, None)
-    if obj is None:
-        return ToolResultEnvelope(success=False, message=f"'{attr}' not found in '{module_name}'").to_dict()
 
     # Signature
     sig_str = ""
@@ -443,7 +467,7 @@ def introspect_search(
     pattern:
         Regular expression (case-insensitive).
     module_name:
-        Dotted module path to search.
+        Dotted module or attribute namespace to search.
     limit:
         Maximum hits to return (default :data:`_MAX_HITS`).
 
@@ -458,7 +482,7 @@ def introspect_search(
     except re.error as exc:
         return ToolResultEnvelope(success=False, message=f"Invalid regex '{pattern}': {exc}").to_dict()
 
-    mod, err = _import_module(module_name)
+    mod, err = _resolve_namespace(module_name)
     if err:
         return ToolResultEnvelope(success=False, message=err).to_dict()
 
@@ -550,7 +574,7 @@ _LIST_MODULE_SCHEMA: dict[str, Any] = {
     "properties": {
         "module": {
             "type": "string",
-            "description": "Dotted module path, e.g. 'maya.cmds' or 'bpy.ops.object'.",
+            "description": "Dotted module or attribute namespace, e.g. 'maya.cmds' or 'bpy.ops.object'.",
         },
         "limit": {
             "type": "integer",
@@ -583,7 +607,7 @@ _SEARCH_SCHEMA: dict[str, Any] = {
         },
         "module": {
             "type": "string",
-            "description": "Module to search within, e.g. 'maya.cmds'.",
+            "description": "Module or attribute namespace to search, e.g. 'unreal.GeometryScript_BoneWeights'.",
         },
         "limit": {
             "type": "integer",
@@ -608,7 +632,7 @@ _EVAL_SCHEMA: dict[str, Any] = {
 }
 
 _LIST_MODULE_DESCRIPTION = (
-    "List exported names in a Python module loaded in the DCC interpreter. "
+    "List exported names in a Python module or attribute namespace in the DCC interpreter. "
     "When to use: before writing a script — discover what functions are available "
     "without browsing offline docs. "
     "How to use: pass the dotted module path; use dcc_introspect__search to narrow results."
@@ -622,7 +646,7 @@ _SIGNATURE_DESCRIPTION = (
 )
 
 _SEARCH_DESCRIPTION = (
-    "Regex-search exported names in a DCC module. "
+    "Regex-search exported names in a DCC module or attribute namespace. "
     "When to use: when you need to find a function but only remember part of its name. "
     "How to use: pass a regex pattern + module; use dcc_introspect__signature on hits."
 )
