@@ -34,6 +34,14 @@ workflow can describe the pull request honestly instead of announcing a version
 refresh that never happened. It reads the global ``resolution-markers`` list
 too, whose order encodes the resolver's Python-version layering, so a
 re-layered resolution is reported even when no version moved.
+
+The fingerprint covers more than markers. A relock can move bytes the marker
+tables never mention: a new ``wheels`` entry for a release that did not move, a
+re-uploaded ``sdist``, a different ``source`` index, or a ``[[package]]`` block
+carrying its own ``resolution-markers`` layering. Those are all real changes to
+the resolved environment, so :func:`marker_fingerprint` fingerprints them too
+and the refresh is reported instead of being mistaken for an unchanged
+lockfile.
 """
 
 from __future__ import annotations
@@ -53,7 +61,11 @@ except ModuleNotFoundError:  # pragma: no cover - exercised by the Python 3.7 CI
 ALLOWED_REFRESH_PACKAGES = ("dcc-mcp-core-semantic", "dcc-mcp-server")
 CP37_WHEEL_MARKER = "cp37"
 
-#: A refresh that left versions, markers and resolution markers untouched.
+#: A refresh that left versions, markers, resolution markers and every
+#: distribution artifact untouched. It can still be reached with a non-empty
+#: ``git diff`` -- the fingerprint is a deliberate subset of ``uv.lock``, not
+#: a byte comparison -- so the workflow must not describe it as a version
+#: refresh.
 CHANGE_UNCHANGED = "unchanged"
 #: A refresh that only re-emitted marker text; no package version moved.
 CHANGE_MARKER_ONLY = "marker-only"
@@ -128,12 +140,60 @@ def _package_entries(lock: dict) -> list:
     return [package for package in packages if isinstance(package, dict)]
 
 
+def _artifact_text(artifact: dict) -> str:
+    """Render one ``sdist`` / ``wheels`` record as a stable string.
+
+    ``upload-time`` is left out on purpose: it is index bookkeeping that can
+    move without the artifact itself changing, while ``url``, ``hash`` and
+    ``size`` together identify what would actually be installed.
+    """
+    parts = []
+    for key in ("url", "hash", "size"):
+        value = artifact.get(key)
+        if isinstance(value, str):
+            parts.append(value)
+        elif isinstance(value, int) and not isinstance(value, bool):
+            parts.append(str(value))
+    return "|".join(parts)
+
+
+def _entry_artifacts(entry: dict) -> tuple:
+    """Return the distribution artifacts a ``[[package]]`` block records, sorted.
+
+    ``source``, ``sdist`` and ``wheels`` are exactly the fields a relock moves
+    when it re-resolves a package without moving its version: a wheel added for
+    a new platform, a re-uploaded sdist, a different index. None of them carries
+    a marker, so a marker-only fingerprint would call every one of them a no-op.
+    """
+    collected = []
+
+    source = entry.get("source")
+    if isinstance(source, dict):
+        collected.append("source:" + json.dumps(source, sort_keys=True, default=str))
+    elif isinstance(source, str):
+        collected.append("source:" + source)
+
+    sdist = entry.get("sdist")
+    if isinstance(sdist, dict):
+        collected.append("sdist:" + _artifact_text(sdist))
+
+    wheels = entry.get("wheels")
+    if isinstance(wheels, list):
+        for wheel in wheels:
+            if isinstance(wheel, dict):
+                collected.append("wheel:" + _artifact_text(wheel))
+
+    return tuple(sorted(collected))
+
+
 def _entry_markers(entry: dict) -> tuple:
     """Return every marker string a ``[[package]]`` block records, sorted.
 
-    Three places carry markers: the resolved ``dependencies`` list, each
-    ``[package.optional-dependencies]`` group, and the ``requires-dist`` list
-    under ``[package.metadata]`` that mirrors the declaring project's extras.
+    Four places carry markers: the resolved ``dependencies`` list, each
+    ``[package.optional-dependencies]`` group, the ``requires-dist`` list
+    under ``[package.metadata]`` that mirrors the declaring project's extras,
+    and the block's own ``resolution-markers`` list -- which is per block, not
+    only the global one at the top of the file.
     """
     collected = []
 
@@ -161,15 +221,27 @@ def _entry_markers(entry: dict) -> tuple:
                 if isinstance(requirement, dict) and isinstance(requirement.get("marker"), str):
                     collected.append(f"requires-dist:{requirement['marker']}")
 
+    block_markers = entry.get("resolution-markers")
+    if isinstance(block_markers, list):
+        for index, marker in enumerate(block_markers):
+            if isinstance(marker, str):
+                # The index keeps the layering order visible: the collected
+                # list is sorted below, which would otherwise hide a
+                # reordering of the block's own resolution layers.
+                collected.append(f"resolution-markers[{index}]:{marker}")
+
     return tuple(sorted(collected))
 
 
 def marker_fingerprint(lock: dict) -> dict:
-    """Map ``(name, version)`` -> per-block marker tuples for a lockfile.
+    """Map ``(name, version)`` -> per-block fingerprints for a lockfile.
 
-    The value is a sorted tuple of one tuple per ``[[package]]`` block, so the
-    fingerprint is stable under block reordering while still telling apart two
-    blocks that share a name and version but carry different markers.
+    One fingerprint is a ``(markers, artifacts)`` pair: the block's markers as
+    :func:`_entry_markers` collects them, plus the distribution artifacts
+    :func:`_entry_artifacts` collects. The value is a sorted tuple with one pair
+    per ``[[package]]`` block, so the fingerprint is stable under block
+    reordering while still telling apart two blocks that share a name and
+    version but resolve differently.
     """
     fingerprint: dict = {}
     for entry in _package_entries(lock):
@@ -179,7 +251,7 @@ def marker_fingerprint(lock: dict) -> dict:
             continue
         key = (name, version)
         blocks = fingerprint.setdefault(key, [])
-        blocks.append(_entry_markers(entry))
+        blocks.append((_entry_markers(entry), _entry_artifacts(entry)))
     return {key: tuple(sorted(blocks)) for key, blocks in fingerprint.items()}
 
 
@@ -207,7 +279,13 @@ def classify_change(before: dict, after: dict, allowed: tuple = ALLOWED_REFRESH_
     ``version_changes``
         Package names whose resolved version multiset changed, sorted.
     ``marker_changes``
-        ``name==version`` keys whose dependency markers changed, sorted.
+        ``name==version`` keys whose per-block fingerprint changed, sorted.
+        The fingerprint spans dependency markers (``dependencies``,
+        ``[package.optional-dependencies]``, ``[package.metadata]
+        requires-dist``), each block's own ``resolution-markers`` layering and
+        the block's distribution artifacts (``source``, ``sdist``, ``wheels``),
+        so a relock that only added a wheel or re-layered one block is still
+        reported instead of being mistaken for an unchanged lockfile.
     ``resolution_markers_changed``
         True when the global ``resolution-markers`` list differs at all.
     ``requires_python_changed``
@@ -259,7 +337,10 @@ def describe_change(report: dict) -> str:
     details = []
     if report["marker_changes"]:
         count = len(report["marker_changes"])
-        details.append(f"{count} package block(s) re-emitted with new markers")
+        details.append(
+            f"{count} package block(s) re-emitted with new content "
+            "(markers, distribution artifacts, or block resolution layering)"
+        )
     if report["resolution_markers_changed"]:
         details.append("the global resolution-marker list changed (order, layering, or content)")
     detail = "; ".join(details) or "lockfile metadata changed"
