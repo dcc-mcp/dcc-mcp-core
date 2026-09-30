@@ -16,7 +16,10 @@ paths are resolved again on every scan.
 
 Pass `extra_skill_paths=[...]` to replace the saved extra roots, or `[]` to
 clear them. Pass `include_bundled=True` or `False` to change bundled discovery;
-omitting it retains the saved setting. A failed scan leaves those settings
+omitting it retains the saved setting. The new roots are committed only after
+the catalog has actually been rebuilt from them, so both a scan that raises and
+a scan that fails hard — the native refresh returns `None` for a hard failure,
+such as a circular skill dependency — leave the previously saved settings
 unchanged. After a catalog refresh, use `load_skill` to activate the refreshed
 tool definitions.
 

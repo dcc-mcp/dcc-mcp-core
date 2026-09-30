@@ -18,6 +18,23 @@ fn write_skill_dir(root: &std::path::Path, name: &str, dcc: &str) {
     .unwrap();
 }
 
+fn write_skill_dir_with_depends(root: &std::path::Path, name: &str, dcc: &str, depends: &[&str]) {
+    let dir = root.join(name);
+    std::fs::create_dir_all(&dir).unwrap();
+    let depends_block = if depends.is_empty() {
+        String::new()
+    } else {
+        format!("\n    depends: \"{}\"", depends.join(", "))
+    };
+    std::fs::write(
+        dir.join(crate::constants::SKILL_METADATA_FILE),
+        format!(
+            "---\nname: {name}\ndescription: test skill\nmetadata:\n  dcc-mcp:\n    dcc: {dcc}{depends_block}\n---\n# {name}\n"
+        ),
+    )
+    .unwrap();
+}
+
 fn write_tool_skill_dir(root: &std::path::Path, name: &str, dcc: &str, tool_name: &str) {
     let dir = root.join(name);
     let scripts = dir.join("scripts");
@@ -202,7 +219,9 @@ fn test_rediscover_keeps_highest_priority_root_for_duplicate_names() {
     );
 
     // The refresh path must agree with the initial discovery path.
-    catalog.rediscover(Some(&paths), Some("maya"));
+    catalog
+        .rediscover(Some(&paths), Some("maya"))
+        .expect("rediscover must succeed");
     assert_eq!(
         catalog
             .get_skill_info("shared-name")
@@ -235,7 +254,9 @@ fn test_rediscover_removes_missing_skill_and_registered_tools() {
     assert_eq!(catalog.registry().len(), 1);
 
     let paths = vec![tmp.path().to_string_lossy().to_string()];
-    let changed = catalog.rediscover(Some(&paths), Some("maya"));
+    let changed = catalog
+        .rediscover(Some(&paths), Some("maya"))
+        .expect("rediscover must succeed");
 
     assert!(
         changed >= 2,
@@ -247,6 +268,48 @@ fn test_rediscover_removes_missing_skill_and_registered_tools() {
     assert_eq!(catalog.registry().len(), 0);
 }
 
+/// The lenient scan tolerates *missing* dependencies but not a dependency
+/// cycle: a cycle is a hard error. `rediscover()` must surface that error
+/// instead of reporting `0` changes, because a caller that commits the
+/// requested roots on success would save a root set the catalog was never
+/// rebuilt from — breaking `saved configuration == catalog contents`.
+#[test]
+fn test_rediscover_reports_hard_scan_failure_and_keeps_catalog() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_skill_dir(tmp.path(), "stable-skill", "maya");
+    let good_paths = vec![tmp.path().to_string_lossy().to_string()];
+
+    let catalog = make_test_catalog();
+    catalog
+        .rediscover(Some(&good_paths), Some("maya"))
+        .expect("baseline rediscover must succeed");
+    let len_before = catalog.len();
+    assert!(catalog.get_skill_info("stable-skill").is_some());
+
+    let cyclic = tempfile::tempdir().unwrap();
+    write_skill_dir_with_depends(cyclic.path(), "cycle-a", "maya", &["cycle-b"]);
+    write_skill_dir_with_depends(cyclic.path(), "cycle-b", "maya", &["cycle-a"]);
+    let cyclic_paths = vec![cyclic.path().to_string_lossy().to_string()];
+
+    match catalog.rediscover(Some(&cyclic_paths), Some("maya")) {
+        Ok(count) => panic!("a dependency cycle must fail the scan, got Ok({count})"),
+        Err(crate::resolver::ResolveError::CyclicDependency { cycle }) => {
+            assert!(
+                cycle.iter().any(|name| name == "cycle-a"),
+                "cycle must name the skills involved: {cycle:?}"
+            );
+        }
+        Err(other) => panic!("expected CyclicDependency, got: {other:?}"),
+    }
+
+    assert_eq!(
+        catalog.len(),
+        len_before,
+        "a failed scan must leave the catalog untouched"
+    );
+    assert!(catalog.get_skill_info("stable-skill").is_some());
+}
+
 #[test]
 fn test_rediscover_refreshes_changed_loaded_skill_tools() {
     let tmp = tempfile::tempdir().unwrap();
@@ -254,7 +317,12 @@ fn test_rediscover_refreshes_changed_loaded_skill_tools() {
 
     let catalog = make_test_catalog();
     let paths = vec![tmp.path().to_string_lossy().to_string()];
-    assert!(catalog.rediscover(Some(&paths), Some("maya")) >= 1);
+    assert!(
+        catalog
+            .rediscover(Some(&paths), Some("maya"))
+            .expect("rediscover must succeed")
+            >= 1
+    );
     catalog.load_skill("lookdev-turntable").unwrap();
 
     write_tool_skill_dir(
@@ -263,7 +331,12 @@ fn test_rediscover_refreshes_changed_loaded_skill_tools() {
         "maya",
         "recommend_hdr_preset",
     );
-    assert!(catalog.rediscover(Some(&paths), Some("maya")) >= 1);
+    assert!(
+        catalog
+            .rediscover(Some(&paths), Some("maya"))
+            .expect("rediscover must succeed")
+            >= 1
+    );
 
     let info = catalog.get_skill_info("lookdev-turntable").unwrap();
     assert_eq!(info.state, "loaded");
@@ -1179,7 +1252,12 @@ fn test_get_skill_info_includes_skill_markdown() {
 
     let catalog = make_test_catalog();
     let paths = vec![tmp.path().to_string_lossy().to_string()];
-    assert!(catalog.rediscover(Some(&paths), Some("maya")) >= 1);
+    assert!(
+        catalog
+            .rediscover(Some(&paths), Some("maya"))
+            .expect("rediscover must succeed")
+            >= 1
+    );
 
     let info = catalog.get_skill_info("review-skill").unwrap();
     assert!(

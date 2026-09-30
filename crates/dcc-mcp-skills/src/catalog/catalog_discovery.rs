@@ -1,4 +1,5 @@
 use super::*;
+use crate::resolver::ResolveError;
 use std::path::Path;
 
 fn dependency_state_for(
@@ -337,14 +338,28 @@ impl SkillCatalog {
     /// Unlike [`discover`](Self::discover), this removes catalog entries that
     /// are no longer present in the scan result. It is intended for explicit
     /// refresh flows such as the Admin skill-path panel.
-    pub fn rediscover(&self, extra_paths: Option<&[String]>, dcc_name: Option<&str>) -> usize {
-        let result = match loader::scan_and_load_lenient_with_sources(extra_paths, dcc_name) {
-            Ok(result) => result,
-            Err(err) => {
+    ///
+    /// Returns the number of catalog entries that were added, updated, or
+    /// removed.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ResolveError`] when the scan fails hard — a circular skill
+    /// dependency is the canonical case. The lenient scan tolerates *missing*
+    /// dependencies, so those are still reported as `Ok`. On error the catalog
+    /// is left exactly as it was: callers must not record the requested roots
+    /// as the saved configuration, because the catalog would then describe the
+    /// previous roots while the saved options describe the failed ones.
+    pub fn rediscover(
+        &self,
+        extra_paths: Option<&[String]>,
+        dcc_name: Option<&str>,
+    ) -> Result<usize, ResolveError> {
+        let result =
+            loader::scan_and_load_lenient_with_sources(extra_paths, dcc_name).map_err(|err| {
                 tracing::error!("SkillCatalog: rediscovery failed: {err}");
-                return 0;
-            }
-        };
+                err
+            })?;
 
         let mut seen = std::collections::HashSet::new();
         self.skipped.clear();
@@ -430,7 +445,7 @@ impl SkillCatalog {
             removed,
             self.entries.len()
         );
-        added + updated + removed
+        Ok(added + updated + removed)
     }
 
     /// Add a single skill to the catalog (e.g. from SkillWatcher).

@@ -259,8 +259,11 @@ class SkillDiscoveryController:
         """Refresh configured roots, retaining registration options when omitted.
 
         Explicit paths replace the saved extra roots; an empty list clears them.
-        Environment and admin paths are resolved anew on every scan. Failed scans
-        do not change the saved options.
+        Environment and admin paths are resolved anew on every scan. Failed
+        scans do not change the saved options: the native ``rediscover``
+        returns ``None`` when the scan fails hard, and an exception is treated
+        the same way. Committing the roots of a failed scan would leave the
+        saved options describing a catalog that still holds the previous roots.
         """
         owner = self._owner
         extra_paths = list(self._extra_skill_paths if extra_skill_paths is None else extra_skill_paths)
@@ -284,6 +287,18 @@ class SkillDiscoveryController:
         except Exception as exc:
             logger.warning("[%s] reload_skill_paths failed: %s", owner._dcc_name, exc)
             return 0
+        if count is None:
+            # Hard scan failure (e.g. a circular skill dependency): the catalog
+            # was not rebuilt, so the requested roots must not become the saved
+            # configuration.
+            logger.warning(
+                "[%s] reload_skill_paths: skill scan failed; keeping previously saved options",
+                owner._dcc_name,
+            )
+            return 0
+
+        # Commit only after a successful scan so the saved options always
+        # describe the roots the catalog was actually rebuilt from.
         self._extra_skill_paths = extra_paths
         self._include_bundled = bundled
         logger.info(
