@@ -198,9 +198,9 @@ green -- they cannot detect an in-place rewrite on their own.
 
 The release-anchored pin registry closes that gap:
 
-- [`compatibility/schema-pins.json`](../../compatibility/schema-pins.json) maps each
-  published schema `$id` to a `released` map of `{tag: sha256}` pairs -- for example
-  `adapter-install-sop-v1` at `v0.20.29` and `v0.20.30`.
+- [`compatibility/schema-pins.json`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/compatibility/schema-pins.json)
+  maps each published schema `$id` to a `released` map of `{tag: sha256}` pairs -- for
+  example `adapter-install-sop-v1` at `v0.20.29` and `v0.20.30`.
 - `tests/test_released_schema_immutability.py` asserts two things: the bytes at every
   registered tag still hash to the registered digest, **and** the bytes `git` would
   commit at `HEAD` equal the digest of the newest registered release. Digests are read
@@ -212,7 +212,7 @@ The release-anchored pin registry closes that gap:
   release ships it.
 
 Adding a pin and the full rule set →
-[`compatibility/README.md`](../../compatibility/README.md#released-schema-pins)
+[`compatibility/README.md`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/compatibility/README.md#released-schema-pins)
 (`released-schema-immutability` CI job). Field delta and adapter migration steps →
 [Install SOP v2 migration](adapter-install-sop-v2-migration.md).
 
