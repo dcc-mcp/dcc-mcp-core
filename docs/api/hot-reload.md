@@ -6,6 +6,20 @@ Monitors skill directories for changes and automatically reloads affected skills
 
 **Exported symbols:** `DccSkillHotReloader`
 
+## Adapter catalog refresh
+
+`DccServerBase.reload_skill_paths()` re-scans the skill catalog. The direct
+MCP tool `dcc_admin__reload_skills` invokes this method without arguments.
+Both retain the `extra_skill_paths` and `include_bundled` options from the last
+successful registration or explicit reload. Environment and admin-configured
+paths are resolved again on every scan.
+
+Pass `extra_skill_paths=[...]` to replace the saved extra roots, or `[]` to
+clear them. Pass `include_bundled=True` or `False` to change bundled discovery;
+omitting it retains the saved setting. A failed scan leaves those settings
+unchanged. After a catalog refresh, use `load_skill` to activate the refreshed
+tool definitions.
+
 ## DccSkillHotReloader
 
 ### Constructor

@@ -71,6 +71,8 @@ class SkillDiscoveryController:
 
     def __init__(self, owner: Any) -> None:
         self._owner = owner
+        self._extra_skill_paths: list[str] = []
+        self._include_bundled = True
 
     # -- skill search paths ---------------------------------------------------
 
@@ -231,6 +233,9 @@ class SkillDiscoveryController:
             logger.warning("[%s] register_builtin_actions failed: %s", owner._dcc_name, exc)
             return
 
+        self._extra_skill_paths = list(extra_skill_paths or [])
+        self._include_bundled = include_bundled
+
         if minimal_mode is not None:
             try:
                 loaded = apply_minimal_mode(
@@ -249,13 +254,20 @@ class SkillDiscoveryController:
     def reload_skill_paths(
         self,
         extra_skill_paths: list[str] | None = None,
-        include_bundled: bool = True,
+        include_bundled: bool | None = None,
     ) -> int:
-        """Re-discover skills after admin-UI skill paths changed (#1400)."""
+        """Refresh configured roots, retaining registration options when omitted.
+
+        Explicit paths replace the saved extra roots; an empty list clears them.
+        Environment and admin paths are resolved anew on every scan. Failed scans
+        do not change the saved options.
+        """
         owner = self._owner
+        extra_paths = list(self._extra_skill_paths if extra_skill_paths is None else extra_skill_paths)
+        bundled = self._include_bundled if include_bundled is None else include_bundled
         skill_paths = self.collect_skill_search_paths(
-            extra_paths=extra_skill_paths,
-            include_bundled=include_bundled,
+            extra_paths=extra_paths,
+            include_bundled=bundled,
             filter_existing=True,
         )
         logger.debug(
@@ -272,6 +284,8 @@ class SkillDiscoveryController:
         except Exception as exc:
             logger.warning("[%s] reload_skill_paths failed: %s", owner._dcc_name, exc)
             return 0
+        self._extra_skill_paths = extra_paths
+        self._include_bundled = bundled
         logger.info(
             "[%s] reload_skill_paths: %d skill(s) total from %d path(s)",
             owner._dcc_name,
