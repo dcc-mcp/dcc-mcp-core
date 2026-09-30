@@ -500,6 +500,9 @@ Daemon auto-ensure 路径默认传有界 idle timeout，除非设置
 `dcc-mcp-cli gateway daemon start` wrapper 默认传 `0`，因此显式管理的整机
 daemon 不会只因为暂时没有 DCC 注册就退出。
 
+本表中的布尔旗标与对应环境变量都接受 `1`/`0`、`true`/`false`、`yes`/`no`、
+`on`/`off`，因此 `DCC_MCP_GATEWAY_PERSIST=1` 等价于 `--gateway-persist`。
+
 ### 文件日志旗标
 
 | 旗标 | 环境变量 | 默认值 | 说明 |

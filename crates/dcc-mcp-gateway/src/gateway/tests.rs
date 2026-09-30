@@ -78,6 +78,85 @@ fn test_is_newer_election_missing_adapter_loses_to_present() {
     assert!(!is_newer_election(cur, cand));
 }
 
+/// Build a crate version that is strictly greater than `version` — the
+/// regression tests must stay valid as the crate version moves on, so the
+/// "newer" side is derived from `CARGO_PKG_VERSION` instead of a literal.
+fn next_major_version(version: &str) -> String {
+    let (major, _, _) = parse_semver(version);
+    format!("{}.0.0", major + 1)
+}
+
+// Issue dcc-mcp-core#2642 — a DCC sidecar must NOT displace the
+// machine-wide standalone gateway daemon while both run the same crate
+// version. The daemon registers no `adapter_version`, so layer 2 used to
+// rank every adapter-stamping sidecar as "newer" and force a takeover.
+#[test]
+fn test_is_newer_election_same_crate_does_not_preempt_standalone_daemon() {
+    let resident = ElectionInfo::new(TEST_OWN_VERSION, None, Some(STANDALONE_GATEWAY_DCC));
+    let maya = ElectionInfo::new(TEST_OWN_VERSION, Some("0.3.0"), Some("maya"));
+    assert!(
+        !is_newer_election(maya, resident),
+        "same-crate DCC sidecar must not take over the standalone daemon"
+    );
+    assert!(
+        !is_newer_election(resident, maya),
+        "the daemon must not preempt a same-crate DCC gateway either"
+    );
+}
+
+// Issue dcc-mcp-core#2642 — the daemon guard is not a blanket ban: a
+// genuinely newer crate version must still win the election.
+#[test]
+fn test_is_newer_election_newer_crate_still_preempts_standalone_daemon() {
+    let newer = next_major_version(TEST_OWN_VERSION);
+    let resident = ElectionInfo::new(TEST_OWN_VERSION, None, Some(STANDALONE_GATEWAY_DCC));
+    let challenger = ElectionInfo::new(&newer, Some("0.3.0"), Some("maya"));
+    assert!(
+        is_newer_election(challenger, resident),
+        "crate version {newer} must still take over the standalone daemon"
+    );
+}
+
+// Issue dcc-mcp-core#2642 — the daemon-side direction of the repro: the
+// running daemon must not yield to a takeover sentinel that only differs
+// by adapter identity.
+#[test]
+fn test_has_newer_sentinel_daemon_ignores_same_crate_dcc_sentinel() {
+    let dir = tempfile::tempdir().unwrap();
+    let reg = FileRegistry::new(dir.path()).unwrap();
+
+    let mut sentinel = ServiceEntry::new(GATEWAY_SENTINEL_DCC_TYPE, "127.0.0.1", 9765);
+    sentinel.version = Some(TEST_OWN_VERSION.to_string());
+    sentinel.adapter_version = Some("0.3.0".to_string());
+    sentinel.adapter_dcc = Some("maya".to_string());
+    reg.register(sentinel).unwrap();
+
+    let own = ElectionInfo::new(TEST_OWN_VERSION, None, Some(STANDALONE_GATEWAY_DCC));
+    assert!(
+        !has_newer_sentinel(&reg, own, Duration::from_secs(30)),
+        "standalone daemon must not yield to a same-crate DCC sentinel"
+    );
+}
+
+// Issue dcc-mcp-core#2642 — the sidecar-side direction: a DCC sidecar must
+// see no takeover target in a same-crate standalone daemon sentinel.
+#[test]
+fn test_has_newer_sentinel_dcc_sidecar_ignores_same_crate_daemon() {
+    let dir = tempfile::tempdir().unwrap();
+    let reg = FileRegistry::new(dir.path()).unwrap();
+
+    let mut sentinel = ServiceEntry::new(GATEWAY_SENTINEL_DCC_TYPE, "127.0.0.1", 9765);
+    sentinel.version = Some(TEST_OWN_VERSION.to_string());
+    sentinel.adapter_dcc = Some(STANDALONE_GATEWAY_DCC.to_string());
+    reg.register(sentinel).unwrap();
+
+    let own = ElectionInfo::new(TEST_OWN_VERSION, Some("0.3.0"), Some("maya"));
+    assert!(
+        !has_newer_sentinel(&reg, own, Duration::from_secs(30)),
+        "DCC sidecar must not see a same-crate daemon as a takeover target"
+    );
+}
+
 // Regression test for issue #228: Maya's host version ("2024") must not
 // be mistaken for a newer gateway-crate version. Only the __gateway__
 // sentinel row contributes to the self-yield decision.
