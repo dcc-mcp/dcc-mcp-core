@@ -2506,10 +2506,17 @@ class SkillCatalog:
 
         Returns the number of newly discovered skills.
         """
-    def rediscover(self, extra_paths: typing.Optional[typing.Sequence[builtins.str]] = None, dcc_name: typing.Optional[builtins.str] = None) -> builtins.int:
+    def rediscover(self, extra_paths: typing.Optional[typing.Sequence[builtins.str]] = None, dcc_name: typing.Optional[builtins.str] = None) -> typing.Optional[builtins.int]:
         r"""
         Re-scan search paths, replace changed skill metadata, and refresh any
         loaded tools whose declarations changed on disk.
+
+        Returns the number of added, updated, or removed entries, or ``None``
+        when the scan itself failed hard (for example a circular skill
+        dependency). ``None`` means the catalog was **not** rebuilt: callers
+        that track the roots the catalog was built from must keep the previous
+        ones, because saving the roots of a failed scan would make the saved
+        configuration disagree with the catalog.
         """
     def set_in_process_executor(self, executor: typing.Optional[typing.Any]) -> None:
         r"""

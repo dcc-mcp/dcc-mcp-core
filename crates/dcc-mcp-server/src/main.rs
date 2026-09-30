@@ -1040,11 +1040,17 @@ async fn run_server(args: ServerArgs) -> anyhow::Result<()> {
             } else {
                 Some(app_owned.as_str())
             };
-            let discovered = catalog.rediscover(Some(&extra), hint);
-            tracing::info!(
-                discovered,
-                "catalog.rediscover after admin skill-path change (hook)"
-            );
+            match catalog.rediscover(Some(&extra), hint) {
+                Ok(discovered) => tracing::info!(
+                    discovered,
+                    "catalog.rediscover after admin skill-path change (hook)"
+                ),
+                Err(err) => tracing::warn!(
+                    error = %err,
+                    "catalog.rediscover failed after admin skill-path change; \
+                     keeping the previous catalog (hook)"
+                ),
+            }
         })
     };
 

@@ -66,10 +66,21 @@ impl SkillCatalog {
 
     /// Re-scan search paths, replace changed skill metadata, and refresh any
     /// loaded tools whose declarations changed on disk.
+    ///
+    /// Returns the number of added, updated, or removed entries, or ``None``
+    /// when the scan itself failed hard (for example a circular skill
+    /// dependency). ``None`` means the catalog was **not** rebuilt: callers
+    /// that track the roots the catalog was built from must keep the previous
+    /// ones, because saving the roots of a failed scan would make the saved
+    /// configuration disagree with the catalog.
     #[pyo3(name = "rediscover")]
     #[pyo3(signature = (extra_paths=None, dcc_name=None))]
-    fn py_rediscover(&self, extra_paths: Option<Vec<String>>, dcc_name: Option<&str>) -> usize {
-        self.rediscover(extra_paths.as_deref(), dcc_name)
+    fn py_rediscover(
+        &self,
+        extra_paths: Option<Vec<String>>,
+        dcc_name: Option<&str>,
+    ) -> Option<usize> {
+        self.rediscover(extra_paths.as_deref(), dcc_name).ok()
     }
 
     /// Register a Python callable as the in-process script executor.

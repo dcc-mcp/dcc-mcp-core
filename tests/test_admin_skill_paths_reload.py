@@ -366,3 +366,50 @@ def test_reload_explicit_roots_replace_saved_roots_and_can_clear_them(
     server.reload_skill_paths(extra_skill_paths=[])
     server.reload_skill_paths()
     assert not server.load_skill("second-preview")
+
+
+def test_reload_hard_failure_keeps_previously_saved_roots(registry_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A scan that fails hard must not commit the roots it was asked to scan.
+
+    The native ``rediscover`` returns ``None`` when the scan itself fails (a
+    circular skill dependency is the canonical case) instead of reporting a
+    count. Committing the caller-supplied roots in that case would leave the
+    saved options describing a catalog that was never rebuilt, and every
+    later no-argument reload would retry the broken root set.
+    """
+    from unittest.mock import Mock
+
+    from dcc_mcp_core import DccServerBase
+    from dcc_mcp_core._server.options import DccServerOptions
+
+    good_root = registry_dir / "good"
+    broken_root = registry_dir / "broken"
+    _write_skill(good_root, "good-preview")
+    _write_skill(broken_root, "broken-preview")
+    server = DccServerBase(
+        DccServerOptions.from_env(
+            dcc_name="maya",
+            builtin_skills_dir=registry_dir / "builtin-skills",
+            server_name="test-maya",
+            port=0,
+            gateway_port=None,
+            enable_gateway_failover=False,
+        )
+    )
+    controller = server.skill_discovery
+    server.register_builtin_actions(extra_skill_paths=[str(good_root)], include_bundled=False)
+    assert controller._extra_skill_paths == [str(good_root)]
+    assert controller._include_bundled is False
+
+    # `rediscover` returning None is the native hard-failure signal.
+    with monkeypatch.context() as patch:
+        patch.setattr(server, "_server", Mock(rediscover=Mock(return_value=None)))
+        assert server.reload_skill_paths(extra_skill_paths=[str(broken_root)], include_bundled=True) == 0
+
+    assert controller._extra_skill_paths == [str(good_root)], "failed scan must not commit new roots"
+    assert controller._include_bundled is False, "failed scan must not commit new options"
+
+    # Once the scan succeeds again the new roots are committed as usual.
+    server.reload_skill_paths(extra_skill_paths=[str(broken_root)], include_bundled=True)
+    assert controller._extra_skill_paths == [str(broken_root)]
+    assert controller._include_bundled is True
