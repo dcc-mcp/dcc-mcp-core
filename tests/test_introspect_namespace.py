@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 import sys
 from types import ModuleType
 from types import SimpleNamespace
@@ -10,9 +11,14 @@ from unittest.mock import Mock
 
 import pytest
 
+from conftest import McpClient
+from dcc_mcp_core._core import McpHttpConfig
+from dcc_mcp_core._core import McpHttpServer
+from dcc_mcp_core._core import ToolRegistry
 from dcc_mcp_core.introspect import introspect_list_module
 from dcc_mcp_core.introspect import introspect_search
 from dcc_mcp_core.introspect import introspect_signature
+from dcc_mcp_core.introspect import register_introspect_tools
 
 
 @pytest.fixture
@@ -109,3 +115,43 @@ def test_invalid_names_are_rejected_before_import(monkeypatch, name):
     for result in (introspect_list_module(name), introspect_search(".*", name), introspect_signature(name)):
         assert result["success"] is False
     importer.assert_not_called()
+
+
+def test_namespace_discovery_through_mcp(extension_host):
+    server = McpHttpServer(ToolRegistry(), McpHttpConfig(port=0, server_name="namespace-regression"))
+    register_introspect_tools(server, dcc_name="python")
+    handle = server.start()
+    try:
+        client = McpClient(handle.mcp_url())
+        code, body = client.post({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+        assert code == 200
+        names = {tool["name"] for tool in body["result"]["tools"]}
+        namespace = "sdk_host.GeometryScript_BoneWeights"
+        requests = [
+            ("dcc_introspect__list_module", {"module": namespace}, "names", ["set_vertex_bone_weights"]),
+            ("dcc_introspect__search", {"module": namespace, "pattern": "vertex"}, "count", 1),
+            (
+                "dcc_introspect__signature",
+                {"qualname": namespace + ".set_vertex_bone_weights"},
+                "signature",
+                "set_vertex_bone_weights(mesh, vertex_id, weights)",
+            ),
+        ]
+        for request_id, (name, arguments, field, expected) in enumerate(requests, start=3):
+            assert name in names
+            code, body = client.post(
+                {
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "method": "tools/call",
+                    "params": {"name": name, "arguments": arguments},
+                }
+            )
+            assert code == 200
+            result = body["result"]
+            assert result["isError"] is False
+            payload = json.loads(result["content"][0]["text"])
+            assert payload["success"] is True
+            assert payload["context"][field] == expected
+    finally:
+        handle.shutdown()
