@@ -179,6 +179,22 @@ CORPUS_SUFFIXES = frozenset(
     }
 )
 
+# Directories of *generated or harvested* data that must stay out of the drift
+# corpus. Excluding Markdown is necessary but not sufficient: a snapshot
+# harvested from downstream repositories contains every symbol those repos
+# define, so it silently satisfies findings about symbols this repository does
+# not implement -- the finding disappears without any document changing.
+#
+# This is corpus-only. These directories are still linted if they contain
+# Markdown; they just do not get a vote on whether a symbol exists.
+CORPUS_EXCLUDE_DIRS = frozenset(
+    {
+        "benchmarks",
+        "snapshots",
+        "__snapshots__",
+    }
+)
+
 # Changelogs describe features that were added *and* removed; a drift finding
 # there is history, not staleness.
 DRIFT_EXEMPT_NAMES = frozenset({"changelog.md", "changelog"})
@@ -242,11 +258,57 @@ class RepoIndex:
         except ValueError:
             return path.as_posix()
 
+    @staticmethod
+    def _root_is_generated(root):
+        """Return True when a walk root already lies inside generated data.
+
+        A root such as ``benchmarks/skills`` carries no generated component in
+        the paths it yields -- they are relative to that root -- so it needs
+        its own ancestry check, or a nested root silently re-enables the
+        exclusion it is supposed to inherit.
+
+        Only the part of the path below the working directory is inspected. A
+        checkout that merely happens to live under a directory called
+        ``snapshots`` must not silence the whole repository.
+
+        When the root cannot be expressed relative to the working directory
+        (an absolute path on another drive, for example) it is treated as not
+        generated: failing to exclude is the safe direction, because it
+        reports a drift finding rather than silently suppressing one.
+        """
+        try:
+            rel = os.path.relpath(str(root), str(Path.cwd()))
+        except ValueError:
+            return False
+        if rel in (".", ""):
+            return False
+        return any(part in CORPUS_EXCLUDE_DIRS for part in Path(rel).parts)
+
+    def _stem_is_generated(self, rel, root_is_generated):
+        """Return True when a file's *name* must not vouch for a symbol.
+
+        A harvested snapshot named after a symbol (``benchmarks/skills/
+        ghost_symbol.json``) satisfies a drift finding through its filename
+        stem alone, without any document or source file changing. Generated
+        data therefore loses its vote on whether a symbol exists, exactly as
+        its contents already do.
+
+        This is name-only. The file stays in :attr:`files` and its directory
+        stays in :attr:`dirs`, so path checks and link resolution keep seeing
+        generated content.
+        """
+        if root_is_generated:
+            return True
+        return any(part in CORPUS_EXCLUDE_DIRS for part in rel.split("/")[:-1])
+
     def _index(self, root):
         path = Path(root)
+        root_is_generated = self._root_is_generated(root)
         if path.is_file():
-            self.files.add(path.as_posix())
-            self.stems.add(path.stem)
+            rel = path.as_posix()
+            self.files.add(rel)
+            if not self._stem_is_generated(rel, root_is_generated):
+                self.stems.add(path.stem)
             self.toplevel.add(path.name)
             return
         for dirpath, dirnames, filenames in os.walk(str(path)):
@@ -257,7 +319,8 @@ class RepoIndex:
                 full = Path(dirpath) / name
                 rel = self._relative(full, path)
                 self.files.add(rel)
-                self.stems.add(full.stem)
+                if not self._stem_is_generated(rel, root_is_generated):
+                    self.stems.add(full.stem)
                 self.toplevel.add(rel.split("/")[0])
         for known in self.dirs:
             self.toplevel.add(known.split("/")[0])
@@ -346,8 +409,11 @@ class RepoIndex:
             if path.is_file():
                 yield path
                 continue
+            root_is_generated = self._root_is_generated(root)
             for dirpath, dirnames, filenames in os.walk(str(path)):
-                dirnames[:] = sorted(d for d in dirnames if d not in self.exclude_dirs)
+                dirnames[:] = sorted(d for d in dirnames if d not in self.exclude_dirs and d not in CORPUS_EXCLUDE_DIRS)
+                if root_is_generated or Path(dirpath).name in CORPUS_EXCLUDE_DIRS:
+                    continue
                 for name in sorted(filenames):
                     if Path(name).suffix.lower() in CORPUS_SUFFIXES:
                         yield Path(dirpath) / name

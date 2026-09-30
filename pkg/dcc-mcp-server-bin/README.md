@@ -59,20 +59,26 @@ declares `Requires-Python: >=3.7` so embedded Python 3.7 hosts such as Maya
 
 ## Cross-platform CI release
 
-The new `.github/workflows/release-server-binary.yml` workflow (also part
-of this PR) builds wheels for:
+Wheels are built by the `build-binaries` job in `.github/workflows/release.yml`
+(there is no separate server-binary workflow) and published to PyPI by the
+`publish-server-pypi` job.
 
-| OS | Arch | Tag |
+| OS | Arch | Wheel platform tag |
 |---|---|---|
-| manylinux | x86_64 | `manylinux_2_28_x86_64` |
-| manylinux | aarch64 | `manylinux_2_28_aarch64` |
+| manylinux2014 | x86_64 | `manylinux_2_17_x86_64` |
 | Windows | x86_64 | `win_amd64` |
-| Windows | arm64 | `win_arm64` |
-| macOS | x86_64 | `macosx_11_0_x86_64` |
-| macOS | arm64 | `macosx_11_0_arm64` |
+| macOS | universal2 | `macosx_10_12_universal2` |
 
-The workflow triggers on tags matching `dcc-mcp-server-v*` so it stays
-independent of the existing `dcc-mcp-core` release cycle.
+The wheels are retagged to `py3-none-<platform>` by
+`scripts/release/server_wheel_tags.py`, so a single wheel serves every
+supported Python version. Linux wheels are deliberately built for
+manylinux2014 rather than a newer baseline so older DCC-hosted Python
+environments such as Maya 2022 can install them.
+
+Both jobs are gated on `release-please` creating a release. The repository is
+released as a single release-please package, so the server package ships from
+the same `v<version>` tags as the core release — there is no separate
+dcc-mcp-server tag stream.
 
 ## Usage from a DCC plugin
 

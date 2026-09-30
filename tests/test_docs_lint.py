@@ -262,6 +262,104 @@ def test_markdown_is_not_part_of_the_drift_corpus(tmp_path: Path):
     assert len(found) == 1 and "ghost_symbol" in found[0]
 
 
+def test_generated_snapshot_data_is_not_part_of_the_drift_corpus(tmp_path: Path):
+    # A snapshot harvested from other repositories contains every symbol those
+    # repos define. If it fed the corpus it would silently satisfy findings
+    # about symbols this repository never implemented.
+    snapshot = tmp_path / "benchmarks" / "skills" / "adapters.json"
+    snapshot.parent.mkdir(parents=True)
+    snapshot.write_text('{"tools": ["ghost_symbol"]}', encoding="utf-8")
+
+    index = _index(tmp_path)
+    found = _drift_tokens("Use `ghost_symbol` here.\n", index)
+    assert len(found) == 1 and "ghost_symbol" in found[0]
+
+
+def test_generated_snapshot_filename_is_not_part_of_the_drift_corpus(tmp_path: Path):
+    # The corpus exclusion closes the "contents" path only. A harvested file
+    # named after a symbol still vouches for it through its filename stem,
+    # because has_identifier() also accepts `token in self.stems`. Generated
+    # data must lose that vote too.
+    snapshot = tmp_path / "benchmarks" / "skills" / "ghost_symbol.json"
+    snapshot.parent.mkdir(parents=True)
+    snapshot.write_text('{"tools": []}', encoding="utf-8")
+
+    index = _index(tmp_path)
+    assert "ghost_symbol" not in index.stems
+    found = _drift_tokens("Use `ghost_symbol` here.\n", index)
+    assert len(found) == 1 and "ghost_symbol" in found[0]
+
+
+def test_generated_snapshot_exclusion_is_nested_aware(tmp_path: Path):
+    # A generated directory nested below another directory is still generated.
+    snapshot = tmp_path / "harvest" / "snapshots" / "ghost_symbol.ambr"
+    snapshot.parent.mkdir(parents=True)
+    snapshot.write_text("", encoding="utf-8")
+
+    index = _index(tmp_path)
+    assert "ghost_symbol" not in index.stems
+    found = _drift_tokens("Use `ghost_symbol` here.\n", index)
+    assert len(found) == 1 and "ghost_symbol" in found[0]
+
+
+def test_generated_snapshot_stem_exclusion_keeps_paths_visible(tmp_path: Path):
+    # Losing the stem vote must not make generated files invisible to path
+    # checks.
+    snapshot = tmp_path / "benchmarks" / "skills" / "ghost_symbol.json"
+    snapshot.parent.mkdir(parents=True)
+    snapshot.write_text('{"tools": []}', encoding="utf-8")
+
+    index = _index(tmp_path)
+    assert "benchmarks/skills/ghost_symbol.json" in index.files
+    assert "benchmarks/skills" in index.dirs
+
+
+def test_generated_snapshot_root_nested_below_a_generated_dir(tmp_path, monkeypatch):
+    # A root such as ``benchmarks/skills`` yields paths relative to itself, so
+    # the generated component is invisible to a basename-only check. Both the
+    # filename and the contents path must stay excluded for a nested root.
+    skills = tmp_path / "benchmarks" / "skills"
+    skills.mkdir(parents=True)
+    (skills / "ghost_symbol.json").write_text('{"tools": []}', encoding="utf-8")
+    (skills / "adapters.json").write_text('{"tools": ["other_symbol"]}', encoding="utf-8")
+
+    monkeypatch.chdir(tmp_path)
+    index = _index("benchmarks/skills")
+    assert "ghost_symbol" not in index.stems
+    assert "ghost_symbol" not in index.corpus()
+    assert "other_symbol" not in index.corpus()
+
+
+def test_generated_snapshot_root_is_bounded_to_the_working_directory(tmp_path, monkeypatch):
+    # Ancestry is only inspected below the working directory. A checkout that
+    # merely lives under a directory called ``snapshots`` must not have its
+    # real sources demoted to generated data.
+    repo = tmp_path / "snapshots" / "myrepo"
+    repo.mkdir(parents=True)
+    (repo / "impl.py").write_text("def ghost_symbol():\n    pass\n", encoding="utf-8")
+
+    monkeypatch.chdir(repo)
+    index = _index(".")
+    assert "impl" in index.stems
+    assert "ghost_symbol" in index.corpus()
+
+
+def test_snapshot_exclusion_is_corpus_only(tmp_path: Path):
+    # Excluding snapshot data from the corpus must not stop those directories
+    # from being linted.
+    doc = tmp_path / "benchmarks" / "notes.md"
+    doc.parent.mkdir(parents=True)
+    text = "# Title\n\n#### Jumped\n"
+    doc.write_text(text, encoding="utf-8")
+
+    # check_structure is text-only; the point is that nothing above treats the
+    # benchmarks directory as invisible to the per-file rules.
+    assert "structure/heading-level-jump" in _rules(check_structure(text))
+
+    index = _index(tmp_path)
+    assert "benchmarks/notes.md" in index.files
+
+
 def test_fenced_code_blocks_are_not_checked(tmp_path: Path):
     index = _index(tmp_path)
     assert _drift_tokens("```\nghost_symbol\n```\n", index) == []
