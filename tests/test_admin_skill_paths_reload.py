@@ -18,6 +18,7 @@ real gateway process.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import sqlite3
 import time
@@ -263,3 +264,105 @@ def test_module_re_exports() -> None:
 
     assert dcc_mcp_core.resolve_admin_db_path is admin_sqlite_lane.resolve_admin_db_path
     assert dcc_mcp_core.read_custom_skill_paths is admin_sqlite_lane.read_custom_skill_paths
+
+
+@pytest.mark.parametrize("dcc_name", ["unreal", "blender"])
+def test_admin_mcp_reload_preserves_extra_paths_and_refreshes_tools(
+    registry_dir: Path, monkeypatch: pytest.MonkeyPatch, dcc_name: str
+) -> None:
+    """Reload through MCP must retain startup roots and refresh loaded tools."""
+    from conftest import McpClient
+    from dcc_mcp_core import DccServerBase
+    from dcc_mcp_core._server.options import DccServerOptions
+
+    monkeypatch.setenv("DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS", "1")
+    skill_root = registry_dir / "explicit-skills"
+    _write_tool_skill(skill_root, "external-preview", "old_preview")
+    skill_file = skill_root / "external-preview" / "SKILL.md"
+    skill_file.write_text(
+        skill_file.read_text(encoding="utf-8").replace("dcc: maya", f"dcc: {dcc_name}"), encoding="utf-8"
+    )
+    opts = DccServerOptions.from_env(
+        dcc_name=dcc_name,
+        builtin_skills_dir=registry_dir / "builtin-skills",
+        server_name=f"test-{dcc_name}",
+        port=0,
+        gateway_port=None,
+        enable_gateway_failover=False,
+    )
+    server = DccServerBase(opts)
+    server.register_inprocess_executor(None)
+    roots = [str(skill_root)]
+    server.register_builtin_actions(extra_skill_paths=roots, include_bundled=False)
+    roots.clear()  # Registration must keep its own copy of caller-owned lists.
+    assert server.load_skill("external-preview")
+    _write_tool_skill(skill_root, "external-preview", "apply_preview")
+    skill_file.write_text(
+        skill_file.read_text(encoding="utf-8").replace("dcc: maya", f"dcc: {dcc_name}"), encoding="utf-8"
+    )
+    server.start()
+    try:
+        client = McpClient(server.mcp_url)
+
+        def call(name: str, arguments: dict) -> dict:
+            code, response = client.post(
+                {"jsonrpc": "2.0", "id": name, "method": "tools/call", "params": {"name": name, "arguments": arguments}}
+            )
+            assert code == 200
+            assert "error" not in response, response
+            result = response["result"]
+            assert not result.get("isError", False), result
+            return result.get("structuredContent") or json.loads(result["content"][0]["text"])
+
+        reloaded = call("dcc_admin__reload_skills", {})
+        assert reloaded == {"success": True, "reloaded": True, "skill_count": 1}
+        assert server.unload_skill("external-preview")
+        assert server.load_skill("external-preview")
+        result = call("external_preview__apply_preview", {})
+        assert result["success"] is True
+        assert result["tool"] == "apply_preview"
+    finally:
+        server.stop()
+
+
+def test_reload_explicit_roots_replace_saved_roots_and_can_clear_them(
+    registry_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Explicit overrides remain active on subsequent admin-style reloads."""
+    from dcc_mcp_core import DccServerBase
+    from dcc_mcp_core._server.options import DccServerOptions
+
+    first_root = registry_dir / "first"
+    second_root = registry_dir / "second"
+    _write_skill(first_root, "first-preview")
+    _write_skill(second_root, "second-preview")
+    server = DccServerBase(
+        DccServerOptions.from_env(
+            dcc_name="maya",
+            builtin_skills_dir=registry_dir / "builtin-skills",
+            server_name="test-maya",
+            port=0,
+            gateway_port=None,
+            enable_gateway_failover=False,
+        )
+    )
+    server.register_builtin_actions(extra_skill_paths=[str(first_root)], include_bundled=False)
+    replacement = [str(second_root)]
+    server.reload_skill_paths(extra_skill_paths=replacement)
+    replacement.clear()
+    assert not server.load_skill("first-preview")
+    server.reload_skill_paths()
+    assert server.load_skill("second-preview")
+
+    # A failed explicit override must not poison the next no-argument reload.
+    from unittest.mock import Mock
+
+    with monkeypatch.context() as patch:
+        patch.setattr(server, "_server", Mock(rediscover=Mock(side_effect=RuntimeError("scan failed"))))
+        assert server.reload_skill_paths(extra_skill_paths=[], include_bundled=True) == 0
+    server.reload_skill_paths()
+    assert server.load_skill("second-preview")
+
+    server.reload_skill_paths(extra_skill_paths=[])
+    server.reload_skill_paths()
+    assert not server.load_skill("second-preview")

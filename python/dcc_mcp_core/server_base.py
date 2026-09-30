@@ -503,9 +503,13 @@ class DccServerBase:
     def reload_skill_paths(
         self,
         extra_skill_paths: list[str] | None = None,
-        include_bundled: bool = True,
+        include_bundled: bool | None = None,
     ) -> int:
-        """Re-discover skills after admin-UI skill paths changed (#1400)."""
+        """Refresh skills, reusing registration options when arguments are omitted.
+
+        Explicit extra paths replace the saved roots; ``[]`` clears them.
+        Environment and admin paths are refreshed on every call.
+        """
         return self._get_skill_discovery().reload_skill_paths(
             extra_skill_paths=extra_skill_paths,
             include_bundled=include_bundled,
