@@ -80,13 +80,56 @@ def _lock_text(*, requires_python: str = ">=3.7", resolution_markers: list | Non
     return "\n".join(lines)
 
 
-def _block(name: str, version: str, *, dependencies=(), optional=None, requires_dist=None) -> str:
-    """Render one ``[[package]]`` block exercising every marker location."""
+def _record(spec, default_hash: str) -> tuple:
+    """Split an ``sdist`` / ``wheels`` spec into the ``(url, hash)`` it renders.
+
+    A bare string is a URL; a ``(url, hash)`` pair pins the hash as well, which
+    is how a re-uploaded artifact is modelled.
+    """
+    if isinstance(spec, tuple):
+        return spec[0], spec[1]
+    return spec, default_hash
+
+
+def _block(
+    name: str,
+    version: str,
+    *,
+    dependencies=(),
+    optional=None,
+    requires_dist=None,
+    source=None,
+    sdist=None,
+    wheels=(),
+    block_resolution_markers=None,
+) -> str:
+    """Render one ``[[package]]`` block exercising every fingerprinted field.
+
+    Keys that belong to ``[[package]]`` itself are emitted before the
+    ``[package.*]`` sub-tables, which is what puts them inside the block rather
+    than inside ``optional-dependencies`` or ``metadata``.
+    """
     lines = ["[[package]]", f'name = "{name}"', f'version = "{version}"']
     if dependencies:
         lines.append("dependencies = [")
         for marker in dependencies:
             lines.append(f'    {{ name = "dep", marker = "{marker}" }},')
+        lines.append("]")
+    if source is not None:
+        lines.append(f'source = {{ registry = "{source}" }}')
+    if sdist is not None:
+        url, digest = _record(sdist, "sha256:sdist")
+        lines.append(f'sdist = {{ url = "{url}", hash = "{digest}", size = 1024 }}')
+    if wheels:
+        lines.append("wheels = [")
+        for spec in wheels:
+            url, digest = _record(spec, "sha256:wheel")
+            lines.append(f'    {{ url = "{url}", hash = "{digest}", size = 2048 }},')
+        lines.append("]")
+    if block_resolution_markers:
+        lines.append("resolution-markers = [")
+        for marker in block_resolution_markers:
+            lines.append(f'    "{marker}",')
         lines.append("]")
     for group in sorted(optional or {}):
         lines.append("[package.optional-dependencies]")
@@ -288,12 +331,13 @@ def test_reordered_resolution_markers_are_detected_without_a_version_change() ->
     assert "resolution-marker list changed" in module.describe_change(report)
 
 
-def test_optional_dependency_and_requires_dist_markers_are_fingerprinted() -> None:
-    # Markers live in three places per block; a fingerprint that only reads
-    # `dependencies` would call this relock a no-op.
+def test_optional_dependency_markers_are_fingerprinted() -> None:
+    # One surface per test on purpose: a case that moves both
+    # `optional-dependencies` and `requires-dist` stays green when either read
+    # alone is dropped, which is exactly the silent regression this pins.
     module = _load_module()
     before = _lock_from_blocks(
-        _block("dcc-mcp-core", "0.20.38", optional={"test": ["extra == 'test'"]}, requires_dist=["extra == 'dev'"]),
+        _block("dcc-mcp-core", "0.20.38", optional={"test": ["extra == 'test'"]}),
         resolution_markers=_PY37_RESOLUTION_MARKERS,
     )
     after = _lock_from_blocks(
@@ -301,7 +345,6 @@ def test_optional_dependency_and_requires_dist_markers_are_fingerprinted() -> No
             "dcc-mcp-core",
             "0.20.38",
             optional={"test": ["python_full_version >= '3.8' and extra == 'test'"]},
-            requires_dist=["python_full_version >= '3.8' and extra == 'dev'"],
         ),
         resolution_markers=_PY37_RESOLUTION_MARKERS,
     )
@@ -310,6 +353,140 @@ def test_optional_dependency_and_requires_dist_markers_are_fingerprinted() -> No
 
     assert report["kind"] == module.CHANGE_MARKER_ONLY
     assert report["marker_changes"] == ["dcc-mcp-core==0.20.38"]
+
+
+def test_requires_dist_markers_are_fingerprinted() -> None:
+    # The `[package.metadata] requires-dist` surface on its own, so dropping
+    # that read turns the suite red.
+    module = _load_module()
+    before = _lock_from_blocks(
+        _block("dcc-mcp-core", "0.20.38", requires_dist=["extra == 'dev'"]),
+        resolution_markers=_PY37_RESOLUTION_MARKERS,
+    )
+    after = _lock_from_blocks(
+        _block("dcc-mcp-core", "0.20.38", requires_dist=["python_full_version >= '3.8' and extra == 'dev'"]),
+        resolution_markers=_PY37_RESOLUTION_MARKERS,
+    )
+
+    report = module.classify_change(_parse(before), _parse(after))
+
+    assert report["kind"] == module.CHANGE_MARKER_ONLY
+    assert report["marker_changes"] == ["dcc-mcp-core==0.20.38"]
+
+
+def test_block_level_resolution_markers_are_fingerprinted() -> None:
+    # `resolution-markers` is not only a top-level list: uv writes one per
+    # package block as well, and re-layering a block moves bytes the global
+    # comparison never sees.
+    module = _load_module()
+    before = _lock_from_blocks(
+        _block(
+            "dcc-mcp-core",
+            "0.20.38",
+            block_resolution_markers=["python_full_version >= '3.8'", "python_full_version < '3.8'"],
+        ),
+        resolution_markers=_PY37_RESOLUTION_MARKERS,
+    )
+    after = _lock_from_blocks(
+        _block(
+            "dcc-mcp-core",
+            "0.20.38",
+            block_resolution_markers=["python_full_version < '3.8'", "python_full_version >= '3.8'"],
+        ),
+        resolution_markers=_PY37_RESOLUTION_MARKERS,
+    )
+
+    report = module.classify_change(_parse(before), _parse(after))
+
+    assert report["kind"] == module.CHANGE_MARKER_ONLY
+    assert report["resolution_markers_changed"] is False
+    assert report["marker_changes"] == ["dcc-mcp-core==0.20.38"]
+
+
+def test_added_wheel_is_fingerprinted() -> None:
+    # A wheel added for a release that did not move is real byte drift the
+    # marker tables never mention.
+    module = _load_module()
+    before = _lock_from_blocks(
+        _block("dcc-mcp-core", "0.20.38", wheels=[_wheel("dcc-mcp-core", "0.20.38", "py3-none-any")]),
+        resolution_markers=_PY37_RESOLUTION_MARKERS,
+    )
+    after = _lock_from_blocks(
+        _block(
+            "dcc-mcp-core",
+            "0.20.38",
+            wheels=[
+                _wheel("dcc-mcp-core", "0.20.38", "py3-none-any"),
+                _wheel("dcc-mcp-core", "0.20.38", "cp39-cp39-manylinux_2_28_x86_64"),
+            ],
+        ),
+        resolution_markers=_PY37_RESOLUTION_MARKERS,
+    )
+
+    report = module.classify_change(_parse(before), _parse(after))
+
+    assert report["kind"] == module.CHANGE_MARKER_ONLY
+    assert report["version_changes"] == []
+    assert report["marker_changes"] == ["dcc-mcp-core==0.20.38"]
+
+
+def test_reuploaded_sdist_is_fingerprinted() -> None:
+    # Same URL, new hash: the artifact bytes changed while no version and no
+    # marker did.
+    module = _load_module()
+    url = "https://files.pythonhosted.org/packages/ab/cd/dcc-mcp-core-0.20.38.tar.gz"
+    before = _lock_from_blocks(
+        _block("dcc-mcp-core", "0.20.38", sdist=(url, "sha256:before")),
+        resolution_markers=_PY37_RESOLUTION_MARKERS,
+    )
+    after = _lock_from_blocks(
+        _block("dcc-mcp-core", "0.20.38", sdist=(url, "sha256:after")),
+        resolution_markers=_PY37_RESOLUTION_MARKERS,
+    )
+
+    report = module.classify_change(_parse(before), _parse(after))
+
+    assert report["kind"] == module.CHANGE_MARKER_ONLY
+    assert report["version_changes"] == []
+    assert report["marker_changes"] == ["dcc-mcp-core==0.20.38"]
+
+
+def test_changed_source_is_fingerprinted() -> None:
+    # A package re-resolved from a different index carries no marker change at
+    # all, but it is not the same resolution.
+    module = _load_module()
+    before = _lock_from_blocks(
+        _block("dcc-mcp-core", "0.20.38", source="https://pypi.org/simple"),
+        resolution_markers=_PY37_RESOLUTION_MARKERS,
+    )
+    after = _lock_from_blocks(
+        _block("dcc-mcp-core", "0.20.38", source="https://internal.example.com/simple"),
+        resolution_markers=_PY37_RESOLUTION_MARKERS,
+    )
+
+    report = module.classify_change(_parse(before), _parse(after))
+
+    assert report["kind"] == module.CHANGE_MARKER_ONLY
+    assert report["version_changes"] == []
+    assert report["marker_changes"] == ["dcc-mcp-core==0.20.38"]
+
+
+def test_artifact_drift_does_not_change_the_guard_verdict() -> None:
+    # Widening the fingerprint must only make the classifier more honest: an
+    # artifact-only relock still stays inside the allowed blast radius.
+    module = _load_module()
+    baseline_wheels = _semantic_wheels("0.20.38")
+    extra_wheel = _wheel("dcc_mcp_core_semantic", "0.20.38", "cp313-cp313-manylinux_2_28_x86_64")
+    before = _lock_from_blocks(
+        _block("dcc-mcp-core-semantic", "0.20.38", wheels=baseline_wheels),
+        resolution_markers=_PY37_RESOLUTION_MARKERS,
+    )
+    after = _lock_from_blocks(
+        _block("dcc-mcp-core-semantic", "0.20.38", wheels=[*baseline_wheels, extra_wheel]),
+        resolution_markers=_PY37_RESOLUTION_MARKERS,
+    )
+
+    assert module.verify_refresh(_parse(before), _parse(after)) == []
 
 
 def test_reordering_package_blocks_does_not_look_like_a_change() -> None:
@@ -470,6 +647,7 @@ def test_workflow_derives_the_pr_title_from_the_classifier() -> None:
     assert 'case "$CHANGE_KIND" in' in workflow
     assert "TITLE_MARKER_ONLY" in workflow
     assert "TITLE_VERSIONS" in workflow
+    assert "TITLE_UNCHANGED" in workflow
 
 
 def test_workflow_has_no_single_hardcoded_title() -> None:
@@ -493,7 +671,30 @@ def test_workflow_states_the_change_kind_in_the_pr_body() -> None:
     assert "**Classification:**" in workflow
     assert "BODY_MARKER_ONLY" in workflow
     assert "BODY_VERSIONS" in workflow
+    assert "BODY_UNCHANGED" in workflow
     assert "gh pr edit" in workflow
+
+
+def test_workflow_gives_unchanged_its_own_title_and_body() -> None:
+    # The diff gate only proves `uv.lock` bytes moved, not that the classifier
+    # can see the change, so `unchanged` is reachable and must not inherit the
+    # version-refresh wording through the `*` fallback.
+    workflow = _workflow_body()
+    titles = [line for line in workflow.splitlines() if line.strip().startswith("TITLE_UNCHANGED:")]
+
+    assert len(titles) == 1
+    assert "classifiable" in titles[0]
+    assert "version refresh" not in titles[0]
+    assert 'unchanged) refresh_title="$TITLE_UNCHANGED"' in workflow
+    assert 'elif [ "$CHANGE_KIND" = "unchanged" ]; then' in workflow
+
+
+def test_workflow_does_not_claim_unchanged_is_unreachable() -> None:
+    # The old comment asserted the diff gate made `unchanged` impossible; the
+    # gate proves only that the bytes moved.
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+
+    assert "cannot reach this step" not in workflow
 
 
 def test_workflow_schedule_avoids_the_hour_and_the_release_window() -> None:

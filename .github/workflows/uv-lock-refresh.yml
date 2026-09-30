@@ -91,8 +91,14 @@ env:
   # all -- usually because the two pins already sat on the newest release.
   # Calling that a version refresh misdescribes the change in the commit
   # history, so the title follows `uv_lock_refresh.py classify`.
+  #
+  # `unchanged` gets its own title for the same reason: the classifier
+  # fingerprints a deliberate subset of `uv.lock`, so bytes can move without
+  # it seeing a change. Announcing a version refresh for that would be the
+  # exact misdescription this block exists to prevent.
   TITLE_VERSIONS: "chore(lock): refresh published dcc-mcp-server and dcc-mcp-core-semantic pins"
   TITLE_MARKER_ONLY: "chore(lock): re-emit uv.lock markers without changing package versions"
+  TITLE_UNCHANGED: "chore(lock): rebuild uv.lock without a classifiable content change"
   # Pinned on purpose: `uv lock` output follows the resolver version (lock
   # revision, entry ordering, how much of the graph it re-resolves), so an
   # unattended refresh is only reproducible against a fixed resolver. Bump
@@ -190,11 +196,15 @@ jobs:
         run: |
           set -euo pipefail
 
-          # `unchanged` cannot reach this step -- the diff gate above only runs
-          # it when `git diff` reported a change -- so the fallback is the
-          # version-refresh title.
+          # `unchanged` does reach this step. The diff gate above only proves
+          # `uv.lock` bytes moved, not that the classifier can see the change:
+          # a drift outside its fingerprint (lock `revision`, a field it does
+          # not read) is still `unchanged` with a non-empty diff. Give it its
+          # own title instead of letting it fall through to the
+          # version-refresh wording.
           case "$CHANGE_KIND" in
             marker-only) refresh_title="$TITLE_MARKER_ONLY" ;;
+            unchanged) refresh_title="$TITLE_UNCHANGED" ;;
             *) refresh_title="$TITLE_VERSIONS" ;;
           esac
           echo "Refresh classified as $CHANGE_KIND; commit and PR title: $refresh_title"
@@ -224,20 +234,36 @@ jobs:
           body_file="$(mktemp)"
 
           # The rationale paragraph follows the classification: a relock that
-          # moved no version has a different reason to exist than one that did.
+          # moved no version has a different reason to exist than one that did,
+          # and one the classifier cannot see at all has a third.
           if [ "$CHANGE_KIND" = "marker-only" ]; then
             cat > "$body_file" <<'BODY_MARKER_ONLY'
           `uv lock` re-emitted this lockfile **without moving a single package
           version**. The two published pins already sat on the newest release, so
-          the refresh had nothing to upgrade; what changed is marker text only --
-          `dependencies`, `[package.optional-dependencies]`,
-          `[package.metadata] requires-dist`, and/or the global
-          `resolution-markers` list.
+          the refresh had nothing to upgrade; what changed is lockfile content
+          only -- `dependencies`, `[package.optional-dependencies]`,
+          `[package.metadata] requires-dist`, `source`, `sdist`, `wheels`, and/or
+          the `resolution-markers` lists, global or per package block.
 
           This is a resolver-output change, not a dependency change: no package
           is added, removed, upgraded or downgraded, and `requires-python` is
           untouched.
           BODY_MARKER_ONLY
+          elif [ "$CHANGE_KIND" = "unchanged" ]; then
+            cat > "$body_file" <<'BODY_UNCHANGED'
+          `uv lock` rewrote this lockfile, but the guard found **no package
+          version, no marker and no distribution artifact that moved**. The
+          classifier fingerprints a deliberate subset of `uv.lock` -- versions,
+          dependency markers, resolution layering, and each package's `source`,
+          `sdist` and `wheels` -- so the diff that produced this pull request is
+          outside that subset: lockfile bookkeeping such as the top-level
+          `revision`, or a field the fingerprint does not read.
+
+          Nothing here is a dependency change: no package is added, removed,
+          upgraded or downgraded, and `requires-python` is untouched. Read the
+          diff before merging -- the automated verdict is "nothing I can
+          classify", not "nothing happened".
+          BODY_UNCHANGED
           else
             cat > "$body_file" <<'BODY_VERSIONS'
           `dcc-mcp-core-semantic` and `dcc-mcp-server` are consumed from PyPI as
