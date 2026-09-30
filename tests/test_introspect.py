@@ -90,7 +90,13 @@ class TestIntrospectSignature:
         with patch("importlib.import_module") as mock_import:
             mock_mod = MagicMock()
             mock_mod.long_doc_obj = _LongDoc
-            mock_import.return_value = mock_mod
+
+            def import_fake(name):
+                if name == "fake_mod":
+                    return mock_mod
+                raise ModuleNotFoundError(name=name)
+
+            mock_import.side_effect = import_fake
             result = introspect_signature("fake_mod.long_doc_obj")
         assert result["success"] is True
         assert len(result["context"]["doc"]) <= 850  # _DOC_MAX_CHARS + "(truncated)"
