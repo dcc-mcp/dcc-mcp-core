@@ -698,10 +698,11 @@ Daemon auto-ensure paths pass a bounded idle timeout by default unless
 explicitly managed machine-wide daemon does not exit just because no DCC is
 currently registered.
 
-Boolean flags in this table accept every boolish spelling — `1`/`0`,
-`true`/`false`, `yes`/`no`, `on`/`off` — both as a flag value and through the
-environment variable, so `DCC_MCP_GATEWAY_PERSIST=1` is equivalent to
-`--gateway-persist`.
+The env-backed boolean flags (`--daemon`, `--no-admin`, `--gateway-persist`,
+`--semantic-search-enabled`, `--discover-mdns`) accept every boolish spelling —
+`1`/`0`, `true`/`false`, `yes`/`no`, `on`/`off` — both as a flag value and
+through the environment variable, so `DCC_MCP_GATEWAY_PERSIST=1` is equivalent
+to `--gateway-persist`.
 
 ### Translate flags (`dcc-mcp-server translate`)
 
