@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.39](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.38...v0.20.39) (2026-09-30)
+
+
+### Features
+
+* **cli:** add open-source host self-provisioning with consent gating ([9c30930](https://github.com/dcc-mcp/dcc-mcp-core/commit/9c3093000cee41d413f8921ee06892c35d86a9bb))
+* **cli:** add read-only host probing and a versioned host manifest ([cb5942e](https://github.com/dcc-mcp/dcc-mcp-core/commit/cb5942e0ab2887be0b52abebec12b039841521dc))
+
+
+### Bug Fixes
+
+* **bench:** record skills trend points weekly and keep the restore scan honest ([e8b02d0](https://github.com/dcc-mcp/dcc-mcp-core/commit/e8b02d01e11fb977092dacd9167b4eefa98cee98))
+* **ci:** use the valid Actions OR operator in uv-lock-refresh job condition ([#2624](https://github.com/dcc-mcp/dcc-mcp-core/issues/2624)) ([c364e29](https://github.com/dcc-mcp/dcc-mcp-core/commit/c364e291de3126d4fe42c5a8a1bc54eb6477c795))
+* **cli:** install hosts silently instead of raising MSI windows ([#2638](https://github.com/dcc-mcp/dcc-mcp-core/issues/2638)) ([425f796](https://github.com/dcc-mcp/dcc-mcp-core/commit/425f7967b94a8e57030ee261697cc0f462740e31))
+* **cli:** use the published winget id for the Blender host channel ([#2637](https://github.com/dcc-mcp/dcc-mcp-core/issues/2637)) ([61441cb](https://github.com/dcc-mcp/dcc-mcp-core/commit/61441cbc7d106684d0d587b55185176443d1db7a))
+* resolve SDK attribute namespaces for introspection ([#2640](https://github.com/dcc-mcp/dcc-mcp-core/issues/2640)) ([5d5661f](https://github.com/dcc-mcp/dcc-mcp-core/commit/5d5661f66c02d2f7493cfbc3a1d41f04ee099287))
+* **tests:** stop workers test from depending on the runner process table ([#2625](https://github.com/dcc-mcp/dcc-mcp-core/issues/2625)) ([02fb69a](https://github.com/dcc-mcp/dcc-mcp-core/commit/02fb69a4ad15454ea16598619748d752121b3965))
+* **winget:** leave the first-manifest validation step explicitly ([#2622](https://github.com/dcc-mcp/dcc-mcp-core/issues/2622)) ([5ff92b7](https://github.com/dcc-mcp/dcc-mcp-core/commit/5ff92b77d3e6944ed5dd7d2091400083e2ddbadf))
+
+
+### Documentation
+
+* **lint:** keep generated snapshot data out of the drift corpus ([8c0145c](https://github.com/dcc-mcp/dcc-mcp-core/commit/8c0145cc016b43148b43c1e1e6e531bcd43a2a56))
+* **test:** correct lower-bound wording in observability query tests ([cffae09](https://github.com/dcc-mcp/dcc-mcp-core/commit/cffae09c0423ae86bc936d16054c7b635809c19e))
+
 ## [0.20.38](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.37...v0.20.38) (2026-09-28)
 
 
