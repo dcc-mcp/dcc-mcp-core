@@ -13,9 +13,10 @@ use dcc_mcp_catalog::{
 };
 use sha2::{Digest, Sha256};
 
-/// The digest of the Install SOP schema document (`adapter-install-sop-v1`),
-/// matching `INSTALL_SOP_SCHEMA_VERSION = 1` in
-/// `dcc_mcp_core.deployment.install_sop`.
+/// The digest of the frozen published `adapter-install-sop-v1` artifact.
+///
+/// Deliberately not derived from `INSTALL_SOP_SCHEMA_REVISION`, which tracks
+/// the *current* artifact (`-v2`) rather than this frozen one.
 ///
 /// Mirrored by the same constant in `src/lib.rs`, which the bundled-catalog test
 /// there compares against `dcc-mcp-catalog.yml`. Since that YAML is also

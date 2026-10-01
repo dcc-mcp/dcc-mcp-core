@@ -67,10 +67,12 @@ def test_install_sop_schema_is_public_and_versioned() -> None:
     import dcc_mcp_core
     from dcc_mcp_core import deployment
 
-    assert dcc_mcp_core.INSTALL_SOP_SCHEMA_VERSION == 2
-    assert deployment.INSTALL_SOP_SCHEMA_VERSION == 2
+    assert dcc_mcp_core.INSTALL_SOP_SCHEMA_REVISION == 2
+    assert deployment.INSTALL_SOP_SCHEMA_REVISION == 2
     assert dcc_mcp_core.load_install_sop_schema is deployment.load_install_sop_schema
     assert dcc_mcp_core.validate_install_sop_report is deployment.validate_install_sop_report
+    assert "INSTALL_SOP_SCHEMA_REVISION" in dcc_mcp_core.__all__
+    assert "INSTALL_SOP_SCHEMA_REVISION" in deployment.__all__
     assert "load_install_sop_schema" in dcc_mcp_core.__all__
     assert "validate_install_sop_report" in dcc_mcp_core.__all__
     assert "load_install_sop_schema" in deployment.__all__
@@ -83,6 +85,95 @@ def test_install_sop_schema_is_public_and_versioned() -> None:
     # v2 only adds the optional `catalog` object, so the report document format
     # is unchanged and documents still declare schema_version 1.
     assert schema["properties"]["schema_version"] == {"const": 1, "type": "integer"}
+
+
+def test_install_sop_schema_revision_is_reexported_consistently() -> None:
+    """The new name must resolve to one object through all three export surfaces."""
+    import dcc_mcp_core
+    from dcc_mcp_core import deployment
+    from dcc_mcp_core.deployment import install_sop
+
+    assert dcc_mcp_core.INSTALL_SOP_SCHEMA_REVISION is deployment.INSTALL_SOP_SCHEMA_REVISION
+    assert deployment.INSTALL_SOP_SCHEMA_REVISION is install_sop.INSTALL_SOP_SCHEMA_REVISION
+    assert "INSTALL_SOP_SCHEMA_REVISION" in install_sop.__all__
+    assert install_sop.INSTALL_SOP_SCHEMA_REVISION == 2
+
+
+def _drop_cached_attribute(module, name: str) -> None:
+    """Remove a cached lazy attribute so the module ``__getattr__`` runs again."""
+    module.__dict__.pop(name, None)
+
+
+def test_install_sop_schema_version_old_name_warns_on_every_surface() -> None:
+    """The deprecated alias still resolves, but only after a DeprecationWarning.
+
+    The name read like the report document's `schema_version` field while it
+    carried the artifact revision, so several adapters emitted `2` into a field
+    the schema pins to `1`. The alias survives for one release cycle; the
+    warning is the migration signal, so all three export surfaces must raise it.
+    """
+    import dcc_mcp_core
+    from dcc_mcp_core import deployment
+    from dcc_mcp_core.deployment import install_sop
+
+    for module in (dcc_mcp_core, deployment, install_sop):
+        _drop_cached_attribute(module, "INSTALL_SOP_SCHEMA_VERSION")
+        with pytest.warns(DeprecationWarning, match="INSTALL_SOP_SCHEMA_VERSION is deprecated"):
+            assert module.INSTALL_SOP_SCHEMA_VERSION == 2
+
+    # `from ... import` goes through the same module __getattr__.
+    _drop_cached_attribute(deployment, "INSTALL_SOP_SCHEMA_VERSION")
+    with pytest.warns(DeprecationWarning, match="INSTALL_SOP_SCHEMA_VERSION is deprecated"):
+        from dcc_mcp_core.deployment import INSTALL_SOP_SCHEMA_VERSION
+
+    assert INSTALL_SOP_SCHEMA_VERSION == 2
+    assert "INSTALL_SOP_SCHEMA_VERSION" in install_sop.__all__
+    assert "INSTALL_SOP_SCHEMA_VERSION" in deployment.__all__
+    assert "INSTALL_SOP_SCHEMA_VERSION" in dcc_mcp_core.__all__
+
+
+def test_install_sop_report_schema_version_returns_the_pinned_const() -> None:
+    """The report field is an independent counter from the artifact revision."""
+    import dcc_mcp_core
+    from dcc_mcp_core import deployment
+    from dcc_mcp_core.deployment import install_sop
+
+    schema = deployment.load_install_sop_schema()
+    expected = schema["properties"]["schema_version"]["const"]
+
+    assert deployment.install_sop_report_schema_version() == expected
+    assert install_sop.install_sop_report_schema_version() == expected
+    assert dcc_mcp_core.install_sop_report_schema_version() == expected
+    assert "install_sop_report_schema_version" in dcc_mcp_core.__all__
+    assert "install_sop_report_schema_version" in deployment.__all__
+
+    # The whole point of the rename: the two counters are not the same number,
+    # so an emitter that copies the artifact revision produces an invalid report.
+    assert deployment.install_sop_report_schema_version() == 1
+    assert deployment.INSTALL_SOP_SCHEMA_REVISION == 2
+    assert deployment.install_sop_report_schema_version() != deployment.INSTALL_SOP_SCHEMA_REVISION
+
+
+def test_install_sop_validator_rejects_the_artifact_revision_as_schema_version() -> None:
+    """Copying the artifact revision into a report is the bug this rename prevents.
+
+    Six adapter repos emitted ``INSTALL_SOP_SCHEMA_VERSION`` (``2``) into a field
+    the schema pins to ``1``. The reports were rejected by every validator, and a
+    mechanical rename of the constant would have kept the value at ``2`` and the
+    defect alive. This pins the behaviour, not just the name.
+    """
+    from dcc_mcp_core import validate_install_sop_report
+    from dcc_mcp_core.deployment import install_sop
+
+    valid = _install_result_with_next_step(_command_next_step())
+    valid["schema_version"] = install_sop.install_sop_report_schema_version()
+    validate_install_sop_report(valid)
+
+    broken = _install_result_with_next_step(_command_next_step())
+    broken["schema_version"] = install_sop.INSTALL_SOP_SCHEMA_REVISION
+
+    with pytest.raises(ValueError, match="Install SOP report failed schema validation"):
+        validate_install_sop_report(broken)
 
 
 def _git_blob(path: Path) -> bytes:
@@ -137,7 +228,8 @@ def test_install_sop_schema_live_pin_follows_the_current_artifact() -> None:
     assert resource["sha256"] == install_sop._INSTALL_SOP_SCHEMA_SHA256
     assert install_sop._INSTALL_SOP_SCHEMA_ID == INSTALL_SOP_SCHEMA_ID
     assert install_sop._SCHEMA_PATH.name == INSTALL_SOP_SCHEMA_PATH.name
-    assert install_sop._SCHEMA_PATH.name == f"adapter-install-sop-v{install_sop.INSTALL_SOP_SCHEMA_VERSION}.schema.json"
+    revision = install_sop.INSTALL_SOP_SCHEMA_REVISION
+    assert install_sop._SCHEMA_PATH.name == f"adapter-install-sop-v{revision}.schema.json"
 
 
 def test_install_sop_v1_artifact_is_frozen_at_its_released_bytes() -> None:

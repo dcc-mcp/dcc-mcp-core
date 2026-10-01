@@ -82,11 +82,28 @@ entries, and the same `schema_version` constraint.
   document version 1 keeps working unchanged.
 - A consumer that ignores unknown properties needs no change at all.
 
-Note on the constant name: `INSTALL_SOP_SCHEMA_VERSION` (now `2`) is the
-**artifact** revision — the `-vN` suffix of the published schema file. It is not
-the report document's `schema_version` field. Never copy it into a report:
-the schema pins `properties.schema_version` to the constant `1`, so a report
-emitted with `schema_version: 2` is rejected.
+### Artifact revision vs. report field
+
+Two counters are in play and they are not the same number.
+
+- **Artifact revision** — the `-vN` suffix of the published schema *file*, now
+  `INSTALL_SOP_SCHEMA_REVISION` (`2`). Moving to `-v(N+1)` publishes a new file
+  name and a new canonical `$id`, and only ever adds *optional* members.
+- **Report `schema_version`** — the document format a report declares, pinned by
+  the schema to the `const` `1`. Read it with
+  `install_sop_report_schema_version()`.
+
+Because a revision only adds optional members, it never changes what an existing
+document means, so the report field does not move with it. Never copy the
+artifact revision into a report: the schema pins `properties.schema_version` to
+`1`, so a report emitted with `schema_version: 2` is rejected.
+
+`INSTALL_SOP_SCHEMA_VERSION` is the previous name of the artifact revision. It
+read like the report field and several adapters copied its value into one, so it
+names the wrong thing for the most common use. It still resolves to the artifact
+revision but raises `DeprecationWarning`; use `INSTALL_SOP_SCHEMA_REVISION` for
+the artifact, and `install_sop_report_schema_version()` when you are filling a
+report.
 
 The frozen `-v1` already knows about `catalog`, so a report carrying it validates
 identically under `-v1` and `-v2`. The reason to move to `-v2` is that `-v1` will
