@@ -128,6 +128,23 @@ from dcc_mcp_core.deployment import load_install_sop_schema
 schema = load_install_sop_schema()
 ```
 
+### What to put in `schema_version`
+
+The value a report must carry is the `const` the active schema pins
+`properties.schema_version` to. Read it from Core; do not hardcode it and do not
+reuse the artifact revision:
+
+```python
+from dcc_mcp_core.deployment import install_sop_report_schema_version
+
+report = {"schema_version": install_sop_report_schema_version(), ...}
+```
+
+`install_sop_report_schema_version()` is the only recommended way to fill the
+field. Copying `INSTALL_SOP_SCHEMA_REVISION` into a report is always wrong: the
+artifact revision is an independent counter that happens to be an integer too
+(see [Two counters, not one](#two-counters-not-one)).
+
 Adapters should validate emitted reports through Core's full Draft 2020-12
 implementation instead of adding a Python `jsonschema` runtime dependency:
 
@@ -181,10 +198,33 @@ Schema artifacts are versioned as immutable `-vN` products. Once a release ships
 `2b3a8a101384a5163c7569c4a2b0de6586c672c5ee291735f94334a33b7d37a0`) and is no
 longer modified. The current canonical artifact is
 `adapter-install-sop-v2.schema.json`, named by
-`python/dcc_mcp_core/deployment/install_sop.py` through `INSTALL_SOP_SCHEMA_VERSION`,
+`python/dcc_mcp_core/deployment/install_sop.py` through `INSTALL_SOP_SCHEMA_REVISION`,
 `_INSTALL_SOP_SCHEMA_ID`, and `_SCHEMA_PATH`. That revision counter identifies the
 **artifact**; it is deliberately not the report document's own `schema_version`
 field, which stays at `1` because `-v2` only adds the optional `catalog` object.
+
+#### Two counters, not one
+
+The Install SOP contract carries two independent integers that are easy to
+confuse, and mixing them up produces a report that every validator rejects:
+
+| Counter | Meaning | Current value | How to read it |
+| --- | --- | --- | --- |
+| Artifact revision | Which published schema *file* (`-vN`) you pinned | `2` | `INSTALL_SOP_SCHEMA_REVISION` |
+| Report `schema_version` | The document format a report declares | `1` | `install_sop_report_schema_version()` |
+
+They move on separate schedules. Publishing `-v(N+1)` ships a new **file name**
+and a new canonical `$id`, and it only ever adds *optional* members — `-v2` added
+the optional `catalog` object and nothing else. A new revision therefore never
+redefines what an existing document means, so the report field stays put: a
+report written against `-v1` remains valid under `-v2`.
+
+`INSTALL_SOP_SCHEMA_VERSION` was the previous name of the artifact revision. It
+read like the report field, several adapters emitted `2` into a field the schema
+pins to `1`, and the reports were rejected. It still resolves to the artifact
+revision but now raises `DeprecationWarning`; migrate to
+`INSTALL_SOP_SCHEMA_REVISION` or, if you were filling a report, to
+`install_sop_report_schema_version()`.
 
 #### Enforcement
 

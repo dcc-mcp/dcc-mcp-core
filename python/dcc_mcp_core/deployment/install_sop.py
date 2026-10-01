@@ -8,13 +8,16 @@ from pathlib import Path
 from typing import Any
 from typing import Mapping
 import unicodedata
+import warnings
 
 # Revision of the published Install SOP schema artifact (`-vN`). Published
 # artifacts are immutable: a content change ships as the next revision, never as
-# an in-place rewrite. This is deliberately separate from the report document's
-# own `schema_version` field, which stays at 1 because v2 only adds the optional
-# `catalog` object.
-INSTALL_SOP_SCHEMA_VERSION = 2
+# an in-place rewrite. This names the *artifact*, not the report document's own
+# `schema_version` field: the two are independent counters, and the report field
+# stays at 1 because v2 only adds the optional `catalog` object. Read the report
+# field through `install_sop_report_schema_version()`; never emit this revision
+# as a document's `schema_version`.
+INSTALL_SOP_SCHEMA_REVISION = 2
 
 INSTALL_EXIT_OK = 0
 INSTALL_EXIT_PREFLIGHT = 10
@@ -39,6 +42,24 @@ _MAX_NATIVE_DIAGNOSTIC_BYTES = 512
 _MAX_NATIVE_DIAGNOSTICS_BYTES = 8192
 _MAX_SEMANTIC_ERRORS = 32
 _SCHEMA_PATH = Path(__file__).resolve().parent.parent / "schemas" / "adapter-install-sop-v2.schema.json"
+
+# The old name read like the report document's `schema_version` field while it
+# actually carried the artifact revision, so several adapters emitted `2` into a
+# field the schema pins to `1`. It survives as a deprecated alias for one full
+# release cycle; the two concrete replacements below remove the ambiguity.
+_DEPRECATED_INSTALL_SOP_SCHEMA_VERSION = (
+    "INSTALL_SOP_SCHEMA_VERSION is deprecated and names the published schema artifact revision, not the report "
+    "document's schema_version field. Use INSTALL_SOP_SCHEMA_REVISION for the artifact revision, or "
+    "install_sop_report_schema_version() for the value a report must emit."
+)
+
+
+def __getattr__(name: str) -> object:
+    """Serve the deprecated ``INSTALL_SOP_SCHEMA_VERSION`` alias with a warning."""
+    if name == "INSTALL_SOP_SCHEMA_VERSION":
+        warnings.warn(_DEPRECATED_INSTALL_SOP_SCHEMA_VERSION, DeprecationWarning, stacklevel=2)
+        return INSTALL_SOP_SCHEMA_REVISION
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 class _DuplicateJsonKeyError(ValueError):
@@ -110,6 +131,23 @@ def _load_install_sop_schema_document() -> tuple[str, dict[str, Any]]:
 def load_install_sop_schema() -> dict[str, Any]:
     """Return a verified fresh copy of the packaged Install SOP JSON Schema."""
     return _load_install_sop_schema_document()[1]
+
+
+def install_sop_report_schema_version() -> int:
+    """Return the value every report document's ``schema_version`` field must carry.
+
+    This is the single correct answer to "what goes in the report's
+    ``schema_version``?". It is an independent counter from
+    :data:`INSTALL_SOP_SCHEMA_REVISION`: publishing ``-v(N+1)`` adds optional
+    members to the artifact and never moves this value, so a report emitter
+    must read it from the schema instead of copying the artifact revision.
+
+    Returns:
+        int: The ``const`` the active schema pins ``properties.schema_version``
+        to (currently ``1``).
+
+    """
+    return int(load_install_sop_schema()["properties"]["schema_version"]["const"])
 
 
 def _contains_control_character(value: str) -> bool:
@@ -251,7 +289,9 @@ __all__ = [
     "INSTALL_EXIT_PREFLIGHT",
     "INSTALL_EXIT_REQUIRES_RESTART",
     "INSTALL_EXIT_VERIFY",
-    "INSTALL_SOP_SCHEMA_VERSION",
+    "INSTALL_SOP_SCHEMA_REVISION",
+    "INSTALL_SOP_SCHEMA_VERSION",  # noqa: F822 - deprecated alias; served by __getattr__ with a warning
+    "install_sop_report_schema_version",
     "load_install_sop_schema",
     "validate_install_sop_report",
 ]

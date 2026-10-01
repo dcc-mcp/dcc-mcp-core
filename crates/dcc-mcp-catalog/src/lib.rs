@@ -236,11 +236,18 @@ pub struct CatalogInstall {
     /// Agent-facing installation runbook, usually the adapter repo's raw install.md.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub instructions_url: Option<String>,
-    /// Install SOP schema version this adapter's runbook targets.
+    /// Revision of the published Install SOP schema artifact (`-vN`) that this
+    /// adapter's runbook targets.
     ///
-    /// Mirrors `INSTALL_SOP_SCHEMA_VERSION` from
+    /// Mirrors `INSTALL_SOP_SCHEMA_REVISION` from
     /// `dcc_mcp_core.deployment.install_sop`. Absent means the adapter has not
-    /// reported a version yet, which keeps every pre-existing entry valid.
+    /// reported a revision yet, which keeps every pre-existing entry valid.
+    ///
+    /// This is the *artifact* revision, an independent counter from the report
+    /// document's own `schema_version` field: the schema pins that field to a
+    /// separate `const`, so an emitter must not copy this value into a report.
+    /// Read the report field through
+    /// `install_sop_report_schema_version()`.
     ///
     /// This is a declaration by the adapter author, not a verified conformance
     /// result: nothing here checks the runbook against the schema.
@@ -1078,9 +1085,10 @@ entries:
         );
     }
 
-    /// The digest of the Install SOP schema document (`adapter-install-sop-v1`),
-    /// matching `INSTALL_SOP_SCHEMA_VERSION = 1` in
-    /// `dcc_mcp_core.deployment.install_sop`.
+    /// The digest of the frozen published `adapter-install-sop-v1` artifact.
+    ///
+    /// Deliberately not derived from `INSTALL_SOP_SCHEMA_REVISION`, which
+    /// tracks the *current* artifact (`-v2`) rather than this frozen one.
     const SOP_V1_DIGEST: &str = "2b3a8a101384a5163c7569c4a2b0de6586c672c5ee291735f94334a33b7d37a0";
 
     #[test]
