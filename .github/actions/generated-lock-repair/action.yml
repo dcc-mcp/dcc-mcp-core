@@ -1,0 +1,231 @@
+name: 'Repair generated lock metadata'
+description: >-
+  Regenerate Cargo.lock, uv.lock and crates/workspace-hack/Cargo.toml in a
+  checkout of the default branch and open a chore(lock) pull request when the
+  committed copies are stale. Shared by the post-merge repair workflow and by
+  the release-please lock sync job after it loses the merge race.
+
+# Why this action is shared
+# ------------------------
+# Two different paths can leave `main` carrying lockfiles that no longer match
+# what the generators produce:
+#
+# * `release-please-lock-sync.yml` loses its race -- release automation merges
+#   the release PR while `cargo update -w` / `cargo hakari generate` /
+#   `vx uv lock` are still running, so the generated commit cannot be pushed to
+#   a branch that no longer accepts it;
+# * anything else that moves a declared version without regenerating the locks.
+#
+# Both paths need the identical repair -- regenerate on top of `main` and hand
+# the result to a human as a pull request -- so the procedure lives here once
+# instead of being reimplemented per workflow.
+
+# Safety properties
+# -----------------
+# * Idempotent -- an already-consistent checkout produces no diff, no commit
+#   and no pull request.
+# * Scoped -- `generated_lock_sync.py verify-diff` fails the run when
+#   generation touches anything outside the three lock outputs, so a surprising
+#   re-resolution is reported, never merged.
+# * Non-releasing -- the commit type is `chore(lock)`, which release-please
+#   hides from the changelog and never turns into a version bump, so the
+#   release-please self-increment loop cannot restart through this path.
+# * No auto-merge -- the pull request stops at "open". `main` requires no
+#   status checks and no review, so auto-merge would land on the first status
+#   event instead of waiting for the lanes that actually exercise the locks.
+# * Loud on failure -- a failed repair silently restores the drift this action
+#   removes, so a failure files an issue under the notify label instead of
+#   leaving only a failed run behind.
+
+inputs:
+  token:
+    description: 'Token used to push the repair branch and to open the pull request'
+    required: true
+  workdir:
+    description: 'Checkout of the default branch to regenerate, relative to the workspace'
+    required: false
+    default: '.'
+  branch:
+    description: 'Repair branch rebuilt from the default branch on every run'
+    required: false
+    default: 'bot/generated-lock-repair'
+  title:
+    description: 'Repair commit and pull request title'
+    required: false
+    default: 'chore(lock): sync generated lock metadata'
+  notify-label:
+    description: 'Label used for the issue that tracks a failed repair'
+    required: false
+    default: 'generated-lock-repair'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Setup Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: "3.12"
+
+    - name: Install vx
+      uses: loonghao/vx@v0.9.11
+      with:
+        version: "0.9.11"
+        cache-key-prefix: "vx-tools-v0.9.7"
+
+    # Pin cargo-hakari to the release that generated the committed
+    # crates/workspace-hack/Cargo.toml, matching ci.yml and
+    # release-please-lock-sync.yml. This action runs `cargo hakari generate`,
+    # so a drifting tool version would rewrite the checked-in artifact with a
+    # different output shape.
+    - name: Install pinned cargo-hakari
+      uses: taiki-e/install-action@v2
+      with:
+        tool: cargo-hakari@0.9.38
+
+    - name: Regenerate the committed lock outputs
+      id: generate
+      shell: bash
+      working-directory: ${{ inputs.workdir }}
+      run: |
+        set -euo pipefail
+        python -I scripts/ci/generated_lock_sync.py generate
+        if git diff --quiet -- Cargo.lock uv.lock crates/workspace-hack/Cargo.toml; then
+          echo "changed=false" >> "$GITHUB_OUTPUT"
+          echo "The committed lock outputs already match a fresh generation."
+        else
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          git diff --stat -- Cargo.lock uv.lock crates/workspace-hack/Cargo.toml
+        fi
+
+    - name: Fail closed on an unexpected generated diff
+      if: steps.generate.outputs.changed == 'true'
+      shell: bash
+      working-directory: ${{ inputs.workdir }}
+      run: python -I scripts/ci/generated_lock_sync.py verify-diff
+
+    - name: Verify the regenerated workspace-hack output
+      if: steps.generate.outputs.changed == 'true'
+      shell: bash
+      working-directory: ${{ inputs.workdir }}
+      run: |
+        set -euo pipefail
+        # Invoke cargo-hakari standalone, not as `cargo hakari`: a Homebrew
+        # `cargo` shim does not dispatch to `cargo-<subcmd>`.
+        export PATH="$HOME/.cargo/bin:$PATH"
+        cargo-hakari hakari verify
+
+    - name: Open or update the repair pull request
+      if: steps.generate.outputs.changed == 'true'
+      shell: bash
+      working-directory: ${{ inputs.workdir }}
+      env:
+        # The repair branch is pushed and the pull request is opened with the
+        # repository automation token rather than the workflow token, so the
+        # pull request triggers the normal CI gates instead of being skipped as
+        # a GITHUB_TOKEN-authored pull request.
+        GH_TOKEN: ${{ inputs.token }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        REPAIR_BRANCH: ${{ inputs.branch }}
+        REPAIR_TITLE: ${{ inputs.title }}
+      run: |
+        set -euo pipefail
+
+        git config user.name "loonghao"
+        git config user.email "hal.long@outlook.com"
+        git switch -C "$REPAIR_BRANCH" HEAD
+        git add Cargo.lock uv.lock crates/workspace-hack/Cargo.toml
+        git commit --no-verify -m "$REPAIR_TITLE"
+
+        # The branch is rebuilt from the default branch on every run, so the
+        # push is a force push; the lease still protects against a concurrent
+        # writer.
+        lease=()
+        remote_sha="$(git ls-remote origin "refs/heads/$REPAIR_BRANCH" | awk 'NR==1 {print $1}')"
+        if [ -n "$remote_sha" ]; then
+          lease=("--force-with-lease=refs/heads/$REPAIR_BRANCH:${remote_sha}")
+        fi
+
+        credential_file="$(mktemp)"
+        trap 'rm -f "$credential_file"' EXIT
+        chmod 600 "$credential_file"
+        printf 'https://x-access-token:%s@github.com\n' "$GH_TOKEN" > "$credential_file"
+        git -c credential.helper= \
+          -c credential.helper="store --file=${credential_file}" \
+          push "${lease[@]}" origin "HEAD:refs/heads/$REPAIR_BRANCH"
+
+        body_file="$(mktemp)"
+        cat > "$body_file" <<'BODY'
+        Automated generated-lock repair.
+
+        `Cargo.lock`, `uv.lock` and `crates/workspace-hack/Cargo.toml` are
+        generated. This branch regenerates them from the current declarations and
+        opens the result for review, because the committed copies no longer match
+        what `cargo update -w`, `cargo hakari generate` and `vx uv lock` produce.
+
+        - Changed: `Cargo.lock`, `uv.lock`, `crates/workspace-hack/Cargo.toml`
+        - Guards: `scripts/ci/generated_lock_sync.py` (`generate`, `verify-diff`),
+          `cargo-hakari hakari verify`
+        - Commit type: `chore(lock)`, which release-please hides and never bumps
+
+        The repair is idempotent: an already-consistent checkout produces no
+        commit and no pull request.
+        BODY
+
+        existing="$(gh pr list --state open --base main --head "$REPAIR_BRANCH" --json number --jq '.[0].number // empty')"
+        if [ -z "$existing" ]; then
+          gh pr create --base main --head "$REPAIR_BRANCH" --title "$REPAIR_TITLE" --body-file "$body_file"
+        else
+          echo "Repair PR #$existing is already open; the push above updated it."
+        fi
+
+        # The pull request stops here on purpose. `main` carries no required
+        # status checks and no required review, so auto-merge would merge on the
+        # first status event instead of waiting for the lanes that actually
+        # exercise the regenerated locks.
+
+    - name: Report a failed repair
+      if: failure()
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        REPAIR_BRANCH: ${{ inputs.branch }}
+        NOTIFY_LABEL: ${{ inputs.notify-label }}
+      run: |
+        set -euo pipefail
+
+        # A failed repair silently restores exactly the drift this action exists
+        # to remove, so it has to leave a visible trail instead of a failed run
+        # nobody is subscribed to.
+        if ! gh label list --limit 200 --json name --jq '.[].name' | grep -qx "$NOTIFY_LABEL"; then
+          gh label create "$NOTIFY_LABEL" \
+            --description "Generated lock repair needs attention" \
+            --color EDEDED >/dev/null || true
+        fi
+
+        existing="$(gh issue list --state open --label "$NOTIFY_LABEL" --json number --jq '.[0].number // empty')"
+        if [ -n "$existing" ]; then
+          echo "Repair failure is already tracked by issue #$existing; not filing a duplicate."
+          exit 0
+        fi
+
+        gh issue create \
+          --title "Generated lock repair failed on $(date -u +%Y-%m-%d)" \
+          --label "$NOTIFY_LABEL" \
+          --body-file - <<BODY
+        The generated-lock repair failed. Until it is fixed the committed
+        \`Cargo.lock\`, \`uv.lock\` and \`crates/workspace-hack/Cargo.toml\` stop
+        matching what the generators produce, which is the drift this action
+        exists to prevent.
+
+        - Run: $RUN_URL
+        - Branch: \`$REPAIR_BRANCH\`
+
+        The guard fails closed, so no pull request was opened. Check the run log
+        for the failing step: an out-of-scope generated diff, a \`cargo-hakari\`
+        mismatch, or a push rejected by the force-with-lease guard.
+        BODY

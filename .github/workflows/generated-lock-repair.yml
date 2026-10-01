@@ -1,0 +1,64 @@
+name: Repair generated lock metadata
+
+# Why this workflow exists
+# ------------------------
+# `Cargo.lock`, `uv.lock` and `crates/workspace-hack/Cargo.toml` are generated,
+# and the only job that regenerated them (`release-please-lock-sync.yml`) was
+# bound to `release-please--branches--main` / `renovate/` branches. Once a
+# release PR merged, nothing regenerated the locks on `main` again, so a run
+# that lost the merge race dropped its result silently and `main` stayed
+# inconsistent until a human noticed the red lanes and repaired it by hand --
+# which is exactly what happened on 0.20.35 (PR #2578).
+#
+# This workflow is the merge-side backstop: every push that can move a declared
+# version regenerates the three lock outputs on `main` and opens a `chore(lock)`
+# pull request when they no longer match. It is deliberately not a required
+# check and installs no branch protection; it only removes the silence.
+
+# Read-only on purpose. Every write goes through the repository automation
+# token (`secrets.PERSONAL_ACCESS_TOKEN`): the branch push uses a credential
+# store file after `-c credential.helper=` clears the inherited helper, and
+# `gh pr` / `gh issue` run with `GH_TOKEN` set to the same token. The workflow
+# token never writes anything, so it keeps read-only scope.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "uv.lock"
+      - "crates/**/Cargo.toml"
+      - "pyproject.toml"
+      - "pkg/**/pyproject.toml"
+      - "release-please-config.json"
+      - ".release-please-manifest.json"
+      - "scripts/ci/generated_lock_sync.py"
+      - ".github/workflows/generated-lock-repair.yml"
+      - ".github/actions/generated-lock-repair/action.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: generated-lock-repair
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    name: Repair generated lock metadata on main
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Regenerate and open a repair pull request
+        uses: ./.github/actions/generated-lock-repair
+        with:
+          token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+          workdir: .
