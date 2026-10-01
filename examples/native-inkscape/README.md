@@ -80,11 +80,20 @@ advertised client schema stays explicit and simple.
 ## Evidence and acceptance
 
 Every build records the invocation nonce, native process ID, effect process ID,
-parent executable, `SELF_CALL`, object count, exact argv, software diagnostics,
+parent identity, `SELF_CALL`, object count, exact argv, software diagnostics,
 and output hash. The controller checks the evidence before atomically publishing
 a new output. Existing outputs are never overwritten. These are local pipeline
-provenance checks, not cryptographic host attestation. Windows GLib spawn helper
-behavior must pass the actual live test; a mock test is not a native host proof.
+provenance checks, not cryptographic host attestation.
+On Linux, the effect must have the owned Inkscape process as its direct parent.
+The actual Windows 1.4.4 bundle uses a short-lived GLib helper. Its accepted
+three-process chain requires native image names from `NtQueryInformationProcess`,
+exact bundled helper/Python directories, matching parent PIDs, and ordered
+creation/exit times. The host's image and creation time must match the
+controller's independently queried owned process. Read-only controller handles
+can preserve helper objects; captured helpers must also cross-match the effect
+report. A missed snapshot is disclosed as `not-captured` and still requires the
+complete native chain. Unreadable or unknown chains fail closed. A mock test is
+not a native host proof.
 Build and export operations preserve `host.json` under their invocation directory
 even when the host fails or evidence validation rejects the output. A failed
 parent-image lookup is recorded in `effect.json` and does not bypass verification.
@@ -104,7 +113,10 @@ icons should use separately authored simplified vector plans. Exporting the
 same large composition at a smaller size is not optical simplification.
 
 The parent-image provenance implementation currently supports Windows and Linux
-(`/proc`). macOS native execution has not been validated. Creating a valid ICNS
+(`/proc`). The verified Windows helper names are specific to the x64 portable
+bundle. A very short-lived helper may be unavailable before its process object
+can be queried, causing a rejected build rather than unverifiable publication.
+macOS native execution has not been validated. Creating a valid ICNS
 container does not establish macOS adapter support. Native operations are
 monolithic; Core job cancellation does not automatically cancel the host. A
 120-second operation timeout kills only the owned native process.
@@ -128,4 +140,5 @@ this example as validated host capability.
 References: [Inkscape CLI](https://wiki.inkscape.org/wiki/Using_the_Command_Line),
 [script extension protocol](https://wiki.inkscape.org/wiki/Script_extensions),
 [official native action wiring](https://gitlab.com/inkscape/inkscape/-/blob/master/src/actions/actions-effect.cpp),
-[inkex](https://inkscape.gitlab.io/extensions/documentation/).
+[inkex](https://inkscape.gitlab.io/extensions/documentation/),
+[Windows process information](https://learn.microsoft.com/en-us/windows/win32/api/winternl/nf-winternl-ntqueryinformationprocess).

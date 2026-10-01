@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import ntpath
 import os
 from pathlib import Path
 import re
@@ -12,6 +13,8 @@ from xml.etree import ElementTree
 
 from plan import number
 from plan import validate_plan
+from windows_process import WindowsHelperObserver
+from windows_process import query_process
 
 ACTION = "org.dcc-mcp.typed-vector-plan"
 HERE = Path(__file__).resolve().parent
@@ -41,18 +44,104 @@ def contained_path(root, value, suffix=None, existing=False):
     return path
 
 
-def verify_evidence(evidence, nonce, host_pid, executable):
+def verify_windows_helper(evidence, host_pid, executable, host_process):
+    """Accept only the observed bundled GLib two-hop spawn chain on Windows."""
+    lineage = evidence.get("windows_process_lineage")
+    if (
+        not isinstance(host_process, dict)
+        or host_process.get("error")
+        or not isinstance(lineage, list)
+        or len(lineage) != 3
+    ):
+        raise RuntimeError("Native effect has no verified Windows GLib helper chain")
+    if any(not isinstance(item, dict) or item.get("error") for item in lineage):
+        raise RuntimeError("Windows process lineage contains an unreadable process")
+    extension, helper, host = lineage
+    for item in (*lineage, host_process):
+        for field in ("pid", "parent_pid", "creation_time"):
+            if isinstance(item.get(field), bool) or not isinstance(item.get(field), int) or item[field] <= 0:
+                raise RuntimeError("Windows process lineage contains an invalid identity or creation time")
+        if item.get("requested_pid") != item["pid"]:
+            raise RuntimeError("Windows process query returned a different process identity")
+        for field in ("exit_time", "exit_status"):
+            if isinstance(item.get(field), bool) or not isinstance(item.get(field), int):
+                raise RuntimeError("Windows process lineage contains an invalid lifetime")
+    if len({item["pid"] for item in lineage}) != 3:
+        raise RuntimeError("Windows spawn chain contains repeated process identities")
+    if (
+        extension["pid"] != evidence["extension_pid"]
+        or extension["parent_pid"] != evidence["parent_pid"]
+        or helper["pid"] != extension["parent_pid"]
+        or helper["parent_pid"] != host_pid
+        or host["pid"] != host_pid
+        or host_process["pid"] != host_pid
+        or host["creation_time"] != host_process["creation_time"]
+        or host["parent_pid"] != host_process["parent_pid"]
+    ):
+        raise RuntimeError("Windows GLib helper process identities do not match this invocation")
+    for image in (host.get("image_win32"), host_process.get("image_win32")):
+        if not image or Path(image).resolve() != executable.resolve():
+            raise RuntimeError("Windows GLib ancestor is not the configured Inkscape executable")
+    host_image = host_process.get("image_native")
+    if not host_image or host.get("image_native") != host_image:
+        raise RuntimeError("Windows GLib ancestor image does not match the owned host")
+    directory = ntpath.normcase(ntpath.dirname(host_image))
+    for item, names in (
+        (helper, {"gspawn-win64-helper.exe", "gspawn-win64-helper-console.exe"}),
+        (extension, {"pythonw.exe", "python.exe"}),
+    ):
+        image = item.get("image_native")
+        if (
+            not image
+            or ntpath.normcase(ntpath.dirname(image)) != directory
+            or ntpath.basename(image).lower() not in names
+        ):
+            raise RuntimeError("Windows spawn chain does not use Inkscape's bundled helper and Python")
+    if (
+        not host["creation_time"] <= helper["creation_time"] <= extension["creation_time"]
+        or host.get("exit_time") != 0
+        or extension.get("exit_time") != 0
+        or helper.get("exit_status") != 0
+        or isinstance(helper.get("exit_time"), bool)
+        or not isinstance(helper.get("exit_time"), int)
+        or helper["exit_time"] < extension["creation_time"]
+    ):
+        raise RuntimeError("Windows spawn chain lifetimes do not match this native invocation")
+
+
+def verify_evidence(evidence, nonce, host_pid, executable, host_process=None):
     """Do not accept a standalone extension run as native host execution."""
     if not isinstance(evidence, dict) or evidence.get("nonce") != nonce or evidence.get("self_call") != "true":
         raise RuntimeError("Native effect evidence has invalid invocation correlation")
     for field in ("extension_pid", "parent_pid"):
         if isinstance(evidence.get(field), bool) or not isinstance(evidence.get(field), int) or evidence[field] <= 0:
             raise RuntimeError("Native effect evidence has invalid process identity")
-    if evidence.get("parent_pid") != host_pid or evidence.get("extension_pid") == host_pid:
+    if evidence.get("extension_pid") == host_pid:
         raise RuntimeError("The effect was not executed by this Inkscape process")
+    if evidence.get("parent_pid") != host_pid:
+        verify_windows_helper(evidence, host_pid, executable, host_process)
+        return "windows-glib-helper"
     parent_image = evidence.get("parent_executable")
     if not parent_image or Path(parent_image).resolve() != executable.resolve():
         raise RuntimeError("Native effect parent executable does not match Inkscape")
+    return "direct-parent"
+
+
+def verify_windows_observation(evidence, observation):
+    """Cross-check effect-reported lineage against controller-held helper objects."""
+    if (
+        not isinstance(observation, dict)
+        or observation.get("errors")
+        or not isinstance(observation.get("helpers"), list)
+    ):
+        raise RuntimeError("The controller did not observe the Windows spawn helper")
+    expected = evidence["windows_process_lineage"][1]
+    matches = [item for item in observation["helpers"] if isinstance(item, dict) and item.get("pid") == expected["pid"]]
+    if len(matches) != 1 or matches[0].get("error"):
+        raise RuntimeError("The controller did not retain the effect's exact Windows spawn helper")
+    for field in ("requested_pid", "pid", "parent_pid", "creation_time", "image_native", "exit_time", "exit_status"):
+        if matches[0].get(field) != expected.get(field):
+            raise RuntimeError("The controller's observed Windows helper does not match the effect lineage")
 
 
 def vector_preflight(source):
@@ -152,6 +241,7 @@ class InkscapeRuntime:
         for filename in ("dcc_mcp_vector.inx", "dcc_mcp_vector.py"):
             shutil.copy2(HERE / "extension" / filename, extensions / filename)
         shutil.copy2(HERE / "plan.py", extensions / "plan.py")
+        shutil.copy2(HERE / "windows_process.py", extensions / "windows_process.py")
         self.environment = dict(os.environ)
         self.environment["INKSCAPE_PROFILE_DIR"] = str(self.profile)
         self.environment.pop("DCC_MCP_INKSCAPE_REQUEST", None)
@@ -177,7 +267,7 @@ class InkscapeRuntime:
             ElementTree.ElementTree(config).write(self.font_config, encoding="utf-8", xml_declaration=True)
             self.environment["FONTCONFIG_FILE"] = str(self.font_config)
 
-    def _run(self, arguments, environment=None, timeout=120, host_report=None):
+    def _run(self, arguments, environment=None, timeout=120, host_report=None, native_provenance=False):
         command = [str(self.executable), "--app-id-tag=dccmcp_" + uuid.uuid4().hex, *arguments]
         process = subprocess.Popen(
             command,
@@ -187,6 +277,14 @@ class InkscapeRuntime:
             shell=False,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
+        host_process = None
+        helper_observer = None
+        if native_provenance and os.name == "nt":
+            try:
+                host_process = query_process(process.pid)
+            except OSError as exc:
+                host_process = {"error": str(exc), "requested_pid": process.pid}
+            helper_observer = WindowsHelperObserver(process.pid)
         timed_out = False
         try:
             stdout, stderr = process.communicate(timeout=timeout)
@@ -194,6 +292,8 @@ class InkscapeRuntime:
             timed_out = True
             process.kill()
             stdout, stderr = process.communicate()
+        finally:
+            observed_helpers = helper_observer.finish() if helper_observer is not None else None
         result = {
             "host_pid": process.pid,
             "returncode": process.returncode,
@@ -203,6 +303,8 @@ class InkscapeRuntime:
             "stderr": stderr.decode("utf-8", errors="replace")[-16000:],
             "command": command,
             "timed_out": timed_out,
+            "owned_host_process": host_process,
+            "observed_windows_helpers": observed_helpers,
         }
         if host_report is not None:
             report = contained_path(self.workspace, host_report)
@@ -276,11 +378,26 @@ class InkscapeRuntime:
         temporary = directory / "result.svg"
         environment = dict(self.environment, DCC_MCP_INKSCAPE_REQUEST=str(request_path))
         actions = f"file-new:;{ACTION};export-type:svg;export-filename:{safe_action_value(temporary)};export-do"
-        invocation = self._run(["--actions=" + actions], environment=environment, host_report=directory / "host.json")
+        invocation = self._run(
+            ["--actions=" + actions],
+            environment=environment,
+            host_report=directory / "host.json",
+            native_provenance=True,
+        )
         if not evidence_path.is_file():
             raise RuntimeError("Inkscape did not execute the native extension; no effect evidence")
         evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
-        verify_evidence(evidence, nonce, invocation["host_pid"], self.executable)
+        evidence["provenance_mode"] = verify_evidence(
+            evidence, nonce, invocation["host_pid"], self.executable, invocation.get("owned_host_process")
+        )
+        if evidence["provenance_mode"] == "windows-glib-helper":
+            observation = invocation.get("observed_windows_helpers")
+            if isinstance(observation, dict) and observation.get("helpers"):
+                verify_windows_observation(evidence, observation)
+                evidence["controller_helper_observation"] = "exact-match"
+            else:
+                # Warm helpers can exit between snapshots; the full NtQuery lineage remains mandatory.
+                evidence["controller_helper_observation"] = "not-captured"
         if evidence.get("object_count") != len(plan["nodes"]):
             raise RuntimeError("Native effect object count does not match the vector plan")
         verify_document(temporary, plan)

@@ -113,6 +113,20 @@ class TypedVectorPlan(inkex.EffectExtension):
             "object_count": len(elements),
             "producer": "Inkscape native inkex effect",
         }
+        if os.name == "nt":
+            from windows_process import query_process
+
+            lineage = []
+            process_id = os.getpid()
+            for _ in range(3):
+                try:
+                    information = query_process(process_id)
+                except OSError as exc:
+                    lineage.append({"requested_pid": process_id, "error": str(exc)})
+                    break
+                lineage.append(information)
+                process_id = information["parent_pid"]
+            report["windows_process_lineage"] = lineage
         Path(request["evidence_path"]).write_text(json.dumps(report, indent=2), encoding="utf-8")
 
 
