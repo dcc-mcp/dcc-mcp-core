@@ -153,16 +153,19 @@ jobs:
           set -euo pipefail
           payload="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")"
 
-          # Read the facts through a fixed-order mapfile rather than `eval`:
-          # branch names come from the API and must never reach the shell as
-          # code. A block scalar cannot hold dedented Python, so the extractor
+          # Read the facts through a fixed-order `read` group rather than
+          # `eval`: branch names come from the API and must never reach the
+          # shell as code. `read` rather than `mapfile` because macOS runners
+          # ship bash 3.2, where `mapfile` does not exist and this step exits
+          # 127. A block scalar cannot hold dedented Python, so the extractor
           # is a single-line program. `tr -d` keeps the comparison honest when
-          # the checkout carries CRLF endings, which `mapfile -t` would keep.
-          mapfile -t facts < <(printf '%s' "$payload" | python -c "import json, sys; p = json.load(sys.stdin); print(p.get('state') or ''); print('true' if p.get('merged') else 'false'); print((p.get('base') or {}).get('ref') or ''); print((p.get('head') or {}).get('sha') or '')" | tr -d '\r')
-          state="${facts[0]}"
-          merged="${facts[1]}"
-          base_ref="${facts[2]}"
-          live_head="${facts[3]}"
+          # the checkout carries CRLF endings, which `read -r` would keep.
+          {
+            read -r state
+            read -r merged
+            read -r base_ref
+            read -r live_head
+          } < <(printf '%s' "$payload" | python -c "import json, sys; p = json.load(sys.stdin); print(p.get('state') or ''); print('true' if p.get('merged') else 'false'); print((p.get('base') or {}).get('ref') or ''); print((p.get('head') or {}).get('sha') or '')" | tr -d '\r')
 
           if [ "$merged" = "true" ]; then
             echo "target=main" >> "$GITHUB_OUTPUT"
