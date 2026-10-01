@@ -28,6 +28,8 @@ jobs:
   sync-cargo-metadata:
     name: Sync generated Cargo metadata
     runs-on: ubuntu-latest
+    outputs:
+      target: ${{ steps.target.outputs.target }}
     env:
       TRUSTED_VALIDATOR_REF: b8e294e8a64abba426871b1e86eb106e75aab075
     if: >-
@@ -185,10 +187,15 @@ jobs:
 
       - name: Report an unrepairable generated lock target
         if: steps.target.outputs.target == 'abort'
+        env:
+          # Reached through the environment, not spliced into the script:
+          # `${{ }}` expansion is textual, so a reason carrying shell
+          # metacharacters would otherwise be executed as code.
+          TARGET_REASON: ${{ steps.target.outputs.reason }}
         run: |
           # Loud on purpose: a silent exit is what let the 0.20.35 locks reach
           # main unsynced.
-          echo "::error::${{ steps.target.outputs.reason }}"
+          echo "::error::$TARGET_REASON"
           exit 1
 
       - name: Checkout the merge target branch
@@ -203,31 +210,14 @@ jobs:
 
       - name: Repair main after the merge race
         if: steps.target.outputs.target == 'main'
-        uses: ./.github/actions/generated-lock-repair
+        # Resolved from the `main` checkout rather than the workspace root:
+        # this run only ever checks out sibling directories, so `./.github/...`
+        # at the root does not exist. Taking the action from `main` also keeps
+        # the repair definition on trusted code instead of pull request content.
+        uses: ./main-checkout/.github/actions/generated-lock-repair
         with:
           token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
           workdir: main-checkout
-
-      - name: Announce the repair on the merged pull request
-        if: steps.target.outputs.target == 'main'
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          set -euo pipefail
-          # The generated locks could not be pushed here, so leave the reason
-          # where a human will look for it instead of only in a run log.
-          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file - <<BODY
-          The generated lock metadata for this pull request was finished after the
-          merge, so it could not be pushed to the branch. The same locks were
-          regenerated on \`main\` and opened as a repair pull request from
-          \`bot/generated-lock-repair\` instead.
-
-          See run $RUN_URL.
-          BODY
 
       - name: Revalidate pull request identity and generated diff
         if: steps.target.outputs.target == 'pr'
@@ -298,3 +288,41 @@ jobs:
             -c credential.helper="store --file=${credential_file}" \
             push --no-verify --force-with-lease="refs/heads/${HEAD_REF}:${EXPECTED_HEAD_SHA}" \
             "https://github.com/${GITHUB_REPOSITORY}.git" "HEAD:${HEAD_REF}"
+
+  # Split out from `sync-cargo-metadata` so the comment can be posted with a
+  # token scoped to `pull-requests: write` alone. GitHub grants permissions at
+  # workflow level and job level, never per step, so leaving this step inside
+  # that job would have handed `pull-requests: write` to every step that checks
+  # out and builds pull request content. This job checks out nothing and runs
+  # nothing from the pull request.
+  announce-repair:
+    name: Announce generated lock repair
+    needs: sync-cargo-metadata
+    if: needs.sync-cargo-metadata.outputs.target == 'main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      # `continue-on-error` carries over from the original step: a comment that
+      # could not be posted deserves a visible failure, not a red workflow,
+      # because the repair itself has already opened its own pull request.
+      - name: Comment on the merged pull request
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          # The generated locks could not be pushed here, so leave the reason
+          # where a human will look for it instead of only in a run log.
+          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file - <<BODY
+          The generated lock metadata for this pull request was finished after the
+          merge, so it could not be pushed to the branch. The same locks were
+          regenerated on \`main\` and opened as a repair pull request from
+          \`bot/generated-lock-repair\` instead.
+
+          See run $RUN_URL.
+          BODY

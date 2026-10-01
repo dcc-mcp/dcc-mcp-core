@@ -226,6 +226,6 @@ runs:
         - Branch: \`$REPAIR_BRANCH\`
 
         The guard fails closed, so no pull request was opened. Check the run log
-        for the failing step: an out-of-scope generated diff, a `cargo-hakari`
+        for the failing step: an out-of-scope generated diff, a \`cargo-hakari\`
         mismatch, or a push rejected by the force-with-lease guard.
         BODY

@@ -193,7 +193,10 @@ def test_repair_checks_out_the_base_branch_not_the_merged_head() -> None:
 
 def test_repair_shares_the_single_generated_lock_repair_action() -> None:
     """Both directions call one action, so the two paths cannot drift apart."""
-    assert _step(REPAIR_STEP)["uses"] == "./.github/actions/generated-lock-repair"
+    # Reached through the `main` checkout: this workflow only ever checks out
+    # sibling directories, so `./.github/...` at the workspace root would not
+    # resolve. Same action definition, a different route to it.
+    assert _step(REPAIR_STEP)["uses"] == "./main-checkout/.github/actions/generated-lock-repair"
     repair_workflow = yaml_loads(REPAIR_WORKFLOW_PATH.read_text(encoding="utf-8"))
     uses = [step.get("uses") for step in repair_workflow["jobs"]["repair"]["steps"]]
     assert uses.count("./.github/actions/generated-lock-repair") == 1
