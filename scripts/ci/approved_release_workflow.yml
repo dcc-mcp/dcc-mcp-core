@@ -1207,6 +1207,16 @@ jobs:
   # Runs after the release assets are verified so the manifest always points at
   # installer URLs that are known to exist. Opens/updates a PR on
   # microsoft/winget-pkgs via Komac (through vedantmgoyal9/winget-releaser).
+  #
+  # Komac only knows how to *update* a package that already has manifests in
+  # microsoft/winget-pkgs. A brand new identifier has to be introduced by
+  # `komac add`, and that first PR is merged by a winget-pkgs moderator on their
+  # own schedule. While it is pending, `komac update` fails with
+  # "Package ... does not exist in the winget-pkgs repository", which used to
+  # turn every release window red even though PyPI and GitHub Release were
+  # fine. The job therefore probes the winget-pkgs contents API first and skips
+  # cleanly (warning, not error) when the identifier is not onboarded yet; other
+  # probe results fail loudly so a broken probe cannot masquerade as a skip.
   publish-winget:
     needs: [release-please, publish-github-release-assets, verify-release-assets]
     if: |
@@ -1217,6 +1227,8 @@ jobs:
     runs-on: windows-latest
     permissions:
       contents: read
+    env:
+      WINGET_IDENTIFIER: DccMcp.DccMcpCli
     steps:
       - name: Check WinGet token
         id: check_token
@@ -1241,8 +1253,83 @@ jobs:
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "Publishing to WinGet: tag=${TAG}, version=${VERSION}"
 
-      - name: Publish to WinGet
+      # ── Is the package identifier onboarded in microsoft/winget-pkgs? ──
+      # winget-pkgs stores manifests at
+      # manifests/<lowercased first letter of the identifier>/<Publisher>/<Package>,
+      # i.e. the first letter of the *publisher*, not of the package name:
+      # DccMcp.DccMcpCli -> manifests/d/DccMcp/DccMcpCli.
+      #   HTTP 200 -> onboarded, Komac can open an update PR.
+      #   HTTP 404 -> not onboarded yet; skip cleanly (see job header).
+      #   anything else -> fail, so an indeterminate probe never gets mistaken
+      #                    for "not onboarded" and silently skipped forever.
+      - name: Check WinGet package onboarding
         if: steps.check_token.outputs.skip != 'true'
+        id: onboarding
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          IDENTIFIER="${WINGET_IDENTIFIER}"
+          if [ "${IDENTIFIER#*.}" = "${IDENTIFIER}" ]; then
+            echo "::error::WINGET_IDENTIFIER must look like 'Publisher.Package', got '${IDENTIFIER}'."
+            exit 1
+          fi
+          PUBLISHER="${IDENTIFIER%%.*}"
+          PACKAGE="${IDENTIFIER#*.}"
+          # First letter of the identifier (= first letter of the publisher).
+          # winget-pkgs keeps digit-named publishers under a single "0-9" folder.
+          FIRST_LETTER="$(printf '%s' "${IDENTIFIER:0:1}" | tr '[:upper:]' '[:lower:]')"
+          case "${FIRST_LETTER}" in
+            [0-9]) FIRST_LETTER="0-9" ;;
+          esac
+          MANIFEST_PATH="manifests/${FIRST_LETTER}/${PUBLISHER}/${PACKAGE}"
+          API_URL="https://api.github.com/repos/microsoft/winget-pkgs/contents/${MANIFEST_PATH}"
+          echo "WinGet package:  ${IDENTIFIER}"
+          echo "Manifest path:   ${MANIFEST_PATH}"
+
+          http_code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 \
+            --retry 3 --retry-delay 5 --retry-connrefused \
+            -H 'Accept: application/vnd.github+json' \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            "${API_URL}")"
+
+          # The job's GITHUB_TOKEN is scoped to this repository and may not be
+          # accepted for a foreign one; fall back to the unauthenticated API
+          # (winget-pkgs is public) before reporting an indeterminate result.
+          if [ "${http_code}" = "401" ] || [ "${http_code}" = "403" ]; then
+            echo "Authenticated probe returned HTTP ${http_code}; retrying unauthenticated."
+            http_code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 \
+              --retry 3 --retry-delay 5 --retry-connrefused \
+              -H 'Accept: application/vnd.github+json' \
+              "${API_URL}")"
+          fi
+
+          echo "winget-pkgs contents API: HTTP ${http_code}"
+
+          case "${http_code}" in
+            200)
+              echo "onboarded=true" >> "$GITHUB_OUTPUT"
+              echo "${IDENTIFIER} already has manifests in microsoft/winget-pkgs; Komac can update them."
+              ;;
+            404)
+              echo "onboarded=false" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "::error::Cannot determine WinGet onboarding state for ${IDENTIFIER} (HTTP ${http_code}). Refusing to guess; leaving the job failed so this stays visible."
+              exit 1
+              ;;
+          esac
+
+      - name: Report pending WinGet onboarding
+        if: steps.onboarding.outputs.onboarded == 'false'
+        shell: bash
+        run: |
+          echo "::warning::${WINGET_IDENTIFIER} has no manifests in microsoft/winget-pkgs yet, so Komac cannot open an update PR for this release window. Skipping WinGet publication: the first version must be introduced with 'komac add' and merged by a winget-pkgs moderator. This is a one-time prerequisite, not a release failure - PyPI and GitHub Release are unaffected."
+
+      - name: Publish to WinGet
+        if: steps.check_token.outputs.skip != 'true' && steps.onboarding.outputs.onboarded == 'true'
         # Pinned fork of vedantmgoyal9/winget-releaser v2
         # (4ffc7888bffd451b357355dc214d43bb9f23917e), which reaches Komac through
         # cargo-bins/cargo-binstall@main - a mutable branch ref that also pulls
@@ -1252,7 +1339,7 @@ jobs:
         # verifies its SHA256 instead. Bump by moving the fork, not the tag.
         uses: dcc-mcp/winget-releaser@d1b420769e4f42cdaf1990aee944be5076a524ca # v2
         with:
-          identifier: DccMcp.DccMcpCli
+          identifier: ${{ env.WINGET_IDENTIFIER }}
           # Default is github.repository_owner (the dcc-mcp org), but Komac pushes
           # its working branch to a fork owned by the account behind WINGET_TOKEN.
           # That fork is under the personal account, so it must be named explicitly.
