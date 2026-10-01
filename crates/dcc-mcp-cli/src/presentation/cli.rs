@@ -861,7 +861,12 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             }
         }
         Command::Host { action } => {
-            let result = super::host_cmd::run(&action)?;
+            // Host probing and provisioning use synchronous process and HTTP
+            // clients. Keep their runtime creation and teardown outside the
+            // async executor, including the blocking reqwest download client.
+            let result = tokio::task::spawn_blocking(move || super::host_cmd::run(&action))
+                .await
+                .context("host command worker failed")??;
             failed = result.failed;
             if failed {
                 exit_code = ExitCode::Unavailable;

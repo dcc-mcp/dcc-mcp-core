@@ -1,5 +1,45 @@
 # CLI Reference
 
+## Portable open-source hosts
+
+`dcc-mcp-cli host list` reports the bundled software catalogue, while
+`host doctor inkscape` only discovers the executable and probes its version.
+Software installation is separate from adapter installation and MCP readiness.
+
+On Windows, `host install inkscape --yes` downloads the pinned Inkscape 1.4.4
+archive from the upstream Inkscape CDN, verifies its SHA-256, extracts it into
+the managed software directory, and probes the installed version. The pinned
+digest is cross-checked against Scoop Extras metadata; it is not an Inkscape
+signature or upstream-published checksum. The official Windows binary package
+is GPL-3.0-or-later. 7z archives require an existing `7z` executable on PATH.
+ZIP and tar archives use the existing in-process parsers. No shell is involved.
+
+Set `DCC_MCP_HOSTS_DIR` to an absolute directory to isolate archive installs,
+for example a task workspace. The default is the user's data directory under
+`dcc-mcp/hosts/<host-id>`. Doctor searches the same root. Relative overrides
+are refused; the CLI does not silently install into the default root instead.
+An explicit `DCC_MCP_INKSCAPE_EXECUTABLE` still takes precedence for discovery.
+
+The archive channel accepts `kind: archive` and the compatibility name
+`kind: tarball`. Content signatures select tar, ZIP, or 7z extraction. ZIP and
+7z members are validated before writing output; absolute paths, traversal,
+drive paths, alternate streams, and archive links are refused. Extraction is
+staged before publishing the installed directory.
+The published directory includes `.dcc-mcp-install.json` with the source URL,
+digest of the downloaded archive, requested version, and installer version.
+This receipt records checksum verification; it does not assert an upstream
+signature was verified.
+
+```powershell
+$env:DCC_MCP_HOSTS_DIR = 'P:\example-task\software'
+dcc-mcp-cli host doctor inkscape
+dcc-mcp-cli host install inkscape --yes
+dcc-mcp-cli host doctor inkscape==1.4.4
+```
+
+Installing software does not add an adapter or register an MCP instance. Use
+the supported adapter installation and inventory workflow separately.
+
 This repository ships four operator-facing binaries. This page is the
 single source of truth for every flag, every environment variable, and the
 five deployment scenarios they cover. Flags on each binary map 1:1 onto an

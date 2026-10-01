@@ -50,6 +50,47 @@ fn host_json(args: &[&str], lock: &PathBuf) -> Value {
     serde_json::from_slice(&output.stdout).expect("host command should print JSON")
 }
 
+#[cfg(windows)]
+#[test]
+fn archive_download_failure_returns_json_without_panicking_the_async_runtime() {
+    let directory = tempfile::tempdir().unwrap();
+    let lock = directory.path().join("hosts.lock");
+    let root = directory.path().join("software");
+    let before = host_command(&lock)
+        .env("DCC_MCP_HOSTS_DIR", &root)
+        .args(["doctor", "inkscape==1.4.4", "--output", "json"])
+        .output()
+        .unwrap();
+    if before.status.success() {
+        // A system installation can satisfy the request before downloading.
+        return;
+    }
+
+    // A closed loopback proxy keeps this regression independent of upstream
+    // availability and prevents the test from downloading a real application.
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let proxy = format!("http://{}", listener.local_addr().unwrap());
+    drop(listener);
+    let output = host_command(&lock)
+        .env("DCC_MCP_HOSTS_DIR", &root)
+        .env("HTTPS_PROXY", &proxy)
+        .env("HTTP_PROXY", &proxy)
+        .env("ALL_PROXY", &proxy)
+        .env("NO_PROXY", "")
+        .args(["install", "inkscape==1.4.4", "--yes", "--output", "json"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(3));
+    let value: Value = serde_json::from_slice(&output.stdout)
+        .expect("download failure should remain a structured host result");
+    assert!(value.to_string().contains("download"), "{value}");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!stderr.contains("panicked"), "{stderr}");
+    assert!(!stderr.contains("Cannot drop a runtime"), "{stderr}");
+    assert!(!root.join("inkscape").exists());
+    assert!(!lock.exists());
+}
+
 #[test]
 fn list_reports_every_host_with_its_licence_class() {
     let lock = std::env::temp_dir().join(format!("hosts-{}.lock", uuid::Uuid::new_v4()));
@@ -64,6 +105,14 @@ fn list_reports_every_host_with_its_licence_class() {
     assert_eq!(blender["license"], "open_source");
     assert_eq!(blender["self_provision"], true);
     assert_eq!(blender["pinned_version"], "5.1.1");
+
+    let inkscape = hosts
+        .iter()
+        .find(|host| host["id"] == "inkscape")
+        .expect("inkscape manifest");
+    assert_eq!(inkscape["license"], "open_source");
+    assert_eq!(inkscape["pinned_version"], "1.4.4");
+    assert_eq!(inkscape["self_provision"], true);
 
     // The redline, asserted from the CLI surface rather than the data file.
     for id in [
@@ -90,6 +139,37 @@ fn list_reports_every_host_with_its_licence_class() {
             "{id} must declare no install channel"
         );
     }
+}
+
+#[test]
+fn doctor_finds_a_nested_portable_executable_under_the_configured_root() {
+    let directory = tempfile::tempdir().unwrap();
+    let lock = directory.path().join("hosts.lock");
+    let host_root = directory.path().join("software");
+    let binary = host_root.join(if cfg!(windows) {
+        "inkscape/bin/inkscape.com"
+    } else {
+        "inkscape/inkscape"
+    });
+    std::fs::create_dir_all(binary.parent().unwrap()).unwrap();
+    write_executable_stub(&binary, b"#!/bin/sh\necho 'Inkscape 1.4.4'\n");
+    let output = host_command(&lock)
+        .args(["doctor", "inkscape", "--output", "json"])
+        .env("DCC_MCP_HOSTS_DIR", &host_root)
+        .env_remove("DCC_MCP_INKSCAPE_EXECUTABLE")
+        .env("PATH", "")
+        .output()
+        .expect("doctor should run");
+    let value: Value = serde_json::from_slice(&output.stdout).expect("JSON report");
+    let host = &value["hosts"][0];
+    assert_eq!(host["executable_source"], "managed_install");
+    let discovered = PathBuf::from(host["executable"].as_str().expect("executable path"));
+    assert_eq!(
+        std::fs::canonicalize(discovered).unwrap(),
+        std::fs::canonicalize(binary).unwrap()
+    );
+    assert_eq!(value["read_only"], true);
+    assert!(!lock.exists());
 }
 
 #[test]

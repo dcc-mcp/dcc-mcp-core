@@ -13,6 +13,7 @@
 //! project. A proposition runner needs "can I start?" not "does it work?", and
 //! a probe that opened Blender would cost seconds per proposition.
 
+mod archive;
 pub mod consent;
 pub mod detect;
 pub mod install;

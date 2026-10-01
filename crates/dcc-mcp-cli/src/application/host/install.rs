@@ -33,7 +33,24 @@ const OUTPUT_CLIP: usize = 2000;
 /// dcc-mcp-owned directory that `host doctor` also searches.
 #[must_use]
 pub fn managed_host_dir(host_id: &str) -> Option<PathBuf> {
-    dirs::data_dir().map(|dir| dir.join("dcc-mcp").join("hosts").join(host_id))
+    managed_host_dir_with_roots(
+        host_id,
+        std::env::var_os("DCC_MCP_HOSTS_DIR").map(PathBuf::from),
+        dirs::data_dir(),
+    )
+}
+
+fn managed_host_dir_with_roots(
+    host_id: &str,
+    configured: Option<PathBuf>,
+    data_dir: Option<PathBuf>,
+) -> Option<PathBuf> {
+    let root = match configured {
+        Some(root) if root.is_absolute() => root,
+        Some(_) => return None,
+        None => data_dir?.join("dcc-mcp").join("hosts"),
+    };
+    Some(root.join(host_id))
 }
 
 /// Outcome of one channel invocation.
@@ -371,7 +388,7 @@ fn install_tarball(
     }
 
     let target = managed_host_dir(&def.id).ok_or_else(|| InstallError::IoFailed {
-        detail: "no user data directory is available for managed host installs".to_string(),
+        detail: "no managed host directory is available; DCC_MCP_HOSTS_DIR must be absolute when configured".to_string(),
     })?;
     // Stage beside the target so a failed extraction never leaves a partial
     // host where `doctor` would report it as available.
@@ -389,6 +406,35 @@ fn install_tarball(
         let _ = std::fs::remove_dir_all(&staging);
         return Err(err);
     }
+
+    // Preserve the verified download facts for reproducible installation audits.
+    // This records the digest of actual downloaded bytes, not only catalogue data.
+    let receipt_path = staging.join(".dcc-mcp-install.json");
+    let receipt = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(receipt_path)
+        .map_err(|err| InstallError::IoFailed {
+            detail: err.to_string(),
+        })?;
+    serde_json::to_writer_pretty(
+        receipt,
+        &serde_json::json!({
+            "schema_version": 1,
+            "host_id": def.id,
+            "requested_version": version,
+            "source_url": url,
+            "archive_sha256": actual,
+        "verification": "sha256_matches_expected",
+        "checksum_source": if sha256.filter(|value| !value.trim().is_empty()).is_some() { "inline_catalog" } else { "checksum_url" },
+            "strip_components": strip_components,
+            "installer": "dcc-mcp-cli",
+            "installer_version": env!("CARGO_PKG_VERSION"),
+        }),
+    )
+    .map_err(|err| InstallError::IoFailed {
+        detail: err.to_string(),
+    })?;
 
     // Swap atomically enough for a CLI: remove the old tree, then rename. A
     // crash between the two leaves no host rather than a broken one.
@@ -477,8 +523,14 @@ pub(crate) fn hex_digest(bytes: &[u8]) -> String {
     })
 }
 
-/// Unpack `.tar.xz`, `.tar.gz` or `.tar` into `destination`.
+/// Unpack a checksum-verified tar, ZIP or 7z archive into `destination`.
 fn unpack(archive: &[u8], destination: &Path, strip_components: usize) -> Result<(), InstallError> {
+    if archive.starts_with(b"7z\xBC\xAF\x27\x1C") {
+        return super::archive::unpack_7z(archive, destination, strip_components);
+    }
+    if archive.starts_with(b"PK\x03\x04") || archive.starts_with(b"PK\x05\x06") {
+        return super::archive::unpack_zip(archive, destination, strip_components);
+    }
     let url_name = "";
     let decompressed = if looks_like_xz(archive) {
         xz_decode(archive)?
@@ -1154,9 +1206,27 @@ mod tests {
 
     #[test]
     fn managed_host_dir_is_namespaced_per_host() {
-        let dir = managed_host_dir("blender").expect("a data dir exists");
+        let dir = managed_host_dir_with_roots("blender", None, dirs::data_dir())
+            .expect("a data dir exists");
         assert!(dir.ends_with("blender"), "{dir:?}");
         assert!(dir.parent().is_some_and(|parent| parent.ends_with("hosts")));
+    }
+
+    #[test]
+    fn managed_host_dir_honours_absolute_override_and_refuses_relative_override() {
+        let root = tempfile::tempdir().unwrap();
+        assert_eq!(
+            managed_host_dir_with_roots("inkscape", Some(root.path().to_path_buf()), None),
+            Some(root.path().join("inkscape"))
+        );
+        assert!(
+            managed_host_dir_with_roots(
+                "inkscape",
+                Some(PathBuf::from("relative")),
+                dirs::data_dir()
+            )
+            .is_none()
+        );
     }
 
     #[test]

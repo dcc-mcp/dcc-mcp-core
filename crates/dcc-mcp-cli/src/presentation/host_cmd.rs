@@ -38,7 +38,7 @@ pub(crate) enum HostAction {
         /// reintroduce version drift.
         #[arg(value_name = "SPEC")]
         spec: String,
-        /// Skip the consent prompt and remember the choice.
+        /// Skip the consent prompt for this invocation.
         #[arg(long, short = 'y')]
         yes: bool,
     },
@@ -101,7 +101,7 @@ pub(crate) fn run(action: &HostAction) -> anyhow::Result<HostRun> {
             // Probe first: an already-usable host needs no install, and the
             // refusal check must run before any consent prompt.
             let env = HostEnv::from_process();
-            let probes = doctor(std::slice::from_ref(&parsed.id), &manifest, &env);
+            let probes = doctor(std::slice::from_ref(spec), &manifest, &env);
             let probe = &probes[0];
 
             let question = format!(
@@ -153,7 +153,7 @@ pub(crate) fn run(action: &HostAction) -> anyhow::Result<HostRun> {
                 _ => None,
             };
             let outcome = if let Some(channel) = channel {
-                let after = doctor(std::slice::from_ref(&parsed.id), &manifest, &env);
+                let after = doctor(std::slice::from_ref(spec), &manifest, &env);
                 let verified = after[0].status.is_available();
                 let observed_version = after[0].version.clone();
                 let executable = after[0]

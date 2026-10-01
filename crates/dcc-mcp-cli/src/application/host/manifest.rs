@@ -153,7 +153,9 @@ pub enum InstallChannel {
         /// Formula name, for hosts distributed as a formula.
         formula: Option<String>,
     },
-    /// Official archive with a published checksum.
+    /// Official archive with a mandatory checksum. Supports tar, ZIP and 7z.
+    /// 7z uses an installed `7z` executable, without running a shell.
+    #[serde(alias = "archive")]
     Tarball {
         /// Archive URL.
         url: String,
