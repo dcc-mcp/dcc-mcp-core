@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.40](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.39...v0.20.40) (2026-10-01)
+
+
+### Bug Fixes
+
+* **gateway:** keep same-version standalone daemon and accept boolish env flags ([#2646](https://github.com/dcc-mcp/dcc-mcp-core/issues/2646)) ([ad10044](https://github.com/dcc-mcp/dcc-mcp-core/commit/ad10044c1478c219574e86f668bc7ae172348ba2))
+* **lock:** classify marker-only relocks and word the refresh PR honestly ([#2645](https://github.com/dcc-mcp/dcc-mcp-core/issues/2645)) ([194990c](https://github.com/dcc-mcp/dcc-mcp-core/commit/194990c33ea33409ac02e7a6b999995d74658340))
+* **lock:** fingerprint artifact drift so a relock is not called unchanged ([#2648](https://github.com/dcc-mcp/dcc-mcp-core/issues/2648)) ([6b597cd](https://github.com/dcc-mcp/dcc-mcp-core/commit/6b597cd0797cb0409b38028af80c1beeb155fb1f))
+* **skills:** surface hard rediscover failures across the PyO3 boundary ([ed013f1](https://github.com/dcc-mcp/dcc-mcp-core/commit/ed013f15f8ac46e7cb3d4d33aa26a7080dd07033))
+
+
+### Documentation
+
+* **install-sop:** write down the schema versioning and no-rewrite policy ([0e2ac96](https://github.com/dcc-mcp/dcc-mcp-core/commit/0e2ac9647c6a225af9b4f100f3062932f71daf3b))
+
 ## [0.20.39](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.38...v0.20.39) (2026-09-30)
 
 
