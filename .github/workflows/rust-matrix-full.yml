@@ -40,10 +40,10 @@ jobs:
           echo "CARGO=${CARGO_BIN}" >> "$GITHUB_ENV"
           echo "RUSTC=$(rustup which rustc)" >> "$GITHUB_ENV"
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-      - uses: loonghao/vx@v0.9.11
+      - uses: loonghao/vx@v0.9.34
         with:
-          version: "0.9.11"
-          cache-key-prefix: "vx-tools-v0.9.7"
+          version: "0.9.34"
+          cache-key-prefix: "vx-tools-v0.9.34"
       - name: Prepare admin UI dependencies
         shell: bash
         run: |

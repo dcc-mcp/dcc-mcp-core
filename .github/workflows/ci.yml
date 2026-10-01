@@ -54,10 +54,10 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.14"
-      - uses: loonghao/vx@v0.9.11
+      - uses: loonghao/vx@v0.9.34
         with:
-          version: "0.9.11"
-          cache-key-prefix: "vx-tools-v0.9.7"
+          version: "0.9.34"
+          cache-key-prefix: "vx-tools-v0.9.34"
       - name: Validate long-term support projections
         id: validate
         run: python scripts/ci/check_python_support.py --github-output "$GITHUB_OUTPUT"
@@ -113,10 +113,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: loonghao/vx@v0.9.11
+      - uses: loonghao/vx@v0.9.34
         with:
-          version: "0.9.11"
-          cache-key-prefix: "vx-tools-v0.9.7"
+          version: "0.9.34"
+          cache-key-prefix: "vx-tools-v0.9.34"
       - name: Build admin UI bundle
         shell: bash
         run: scripts/release/prebuild_admin_ui.sh
@@ -166,10 +166,10 @@ jobs:
           echo "CARGO=${CARGO_BIN}" >> "$GITHUB_ENV"
           echo "RUSTC=$(rustup which rustc)" >> "$GITHUB_ENV"
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-      - uses: loonghao/vx@v0.9.11
+      - uses: loonghao/vx@v0.9.34
         with:
-          version: "0.9.11"
-          cache-key-prefix: "vx-tools-v0.9.7"
+          version: "0.9.34"
+          cache-key-prefix: "vx-tools-v0.9.34"
       - name: Prepare admin UI dependencies
         shell: bash
         run: |
@@ -359,10 +359,10 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
-      - uses: loonghao/vx@v0.9.11
+      - uses: loonghao/vx@v0.9.34
         with:
-          version: "0.9.11"
-          cache-key-prefix: "vx-tools-v0.9.7"
+          version: "0.9.34"
+          cache-key-prefix: "vx-tools-v0.9.34"
       # `dcc-mcp-gateway-admin/src/generated/index.html` is git-ignored and
       # `include_str!`-ed when the `embed` feature is on. Reuse the bundle the
       # `admin-ui-bundle` job already built instead of paying for a second
@@ -622,10 +622,10 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
-      - uses: loonghao/vx@v0.9.11
+      - uses: loonghao/vx@v0.9.34
         with:
-          version: "0.9.11"
-          cache-key-prefix: "vx-tools-v0.9.7"
+          version: "0.9.34"
+          cache-key-prefix: "vx-tools-v0.9.34"
       - name: Prepare FFmpeg for media smoke test
         shell: bash
         timeout-minutes: 6
@@ -757,10 +757,10 @@ jobs:
         with:
           python-version: "3.14"
 
-      - uses: loonghao/vx@v0.9.11
+      - uses: loonghao/vx@v0.9.34
         with:
-          version: "0.9.11"
-          cache-key-prefix: "vx-tools-v0.9.7"
+          version: "0.9.34"
+          cache-key-prefix: "vx-tools-v0.9.34"
 
       - name: Install dev deps
         run: vx just install-dev-deps
@@ -1013,9 +1013,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: loonghao/vx@v0.9.11
+      - uses: loonghao/vx@v0.9.34
         with:
-          version: "0.9.11"
+          version: "0.9.34"
           cache: "false"
 
       - name: Run Sentry real-ingest E2E
@@ -1064,9 +1064,9 @@ jobs:
         with:
           python-version: "3.14"
 
-      - uses: loonghao/vx@v0.9.11
+      - uses: loonghao/vx@v0.9.34
         with:
-          version: "0.9.11"
+          version: "0.9.34"
           cache: "false"
 
       - name: Download wheel

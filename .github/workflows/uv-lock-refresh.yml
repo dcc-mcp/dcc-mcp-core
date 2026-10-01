@@ -126,10 +126,10 @@ jobs:
         with:
           python-version: "3.12"
 
-      - uses: loonghao/vx@v0.9.11
+      - uses: loonghao/vx@v0.9.34
         with:
-          version: "0.9.11"
-          cache-key-prefix: "vx-tools-v0.9.7"
+          version: "0.9.34"
+          cache-key-prefix: "vx-tools-v0.9.34"
 
       - name: Re-resolve the two published pins
         run: |
