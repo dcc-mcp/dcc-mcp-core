@@ -38,10 +38,10 @@ jobs:
         with:
           python-version: "3.12"
 
-      - uses: loonghao/vx@72d0ab2dcf855149aecf558ac846ddeb35216474 # v0.9.11
+      - uses: loonghao/vx@debe4f035713d28366ec0c322e0b87de2a25d2f2 # v0.9.34
         with:
-          version: "0.9.11"
-          cache-key-prefix: "vx-tools-v0.9.7"
+          version: "0.9.34"
+          cache-key-prefix: "vx-tools-v0.9.34"
 
       - name: Validate curated artifacts and prepare catalog
         env:

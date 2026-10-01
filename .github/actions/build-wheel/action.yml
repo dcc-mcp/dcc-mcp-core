@@ -73,10 +73,10 @@ runs:
         components: clippy rustfmt
 
     - name: Install vx
-      uses: loonghao/vx@v0.9.11
+      uses: loonghao/vx@v0.9.34
       with:
-        version: "0.9.11"
-        cache-key-prefix: "vx-tools-v0.9.7"
+        version: "0.9.34"
+        cache-key-prefix: "vx-tools-v0.9.34"
         cache: "false"
 
     - name: Cache Cargo

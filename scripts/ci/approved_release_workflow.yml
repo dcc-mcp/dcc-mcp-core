@@ -137,10 +137,10 @@ jobs:
         with:
           ref: ${{ needs.release-please.outputs.tag_name }}
 
-      - uses: loonghao/vx@v0.9.11
+      - uses: loonghao/vx@v0.9.34
         with:
-          version: "0.9.11"
-          cache-key-prefix: "vx-tools-v0.9.7"
+          version: "0.9.34"
+          cache-key-prefix: "vx-tools-v0.9.34"
 
       # Workflow YAML comes from main on workflow_dispatch backfill, but the
       # checkout ref is the release tag. Wrap the tag's prebuild script with
@@ -227,10 +227,10 @@ jobs:
           toolchain: '1.95.0'
           targets: aarch64-apple-darwin  # needed for macOS universal2 lipo
 
-      - uses: loonghao/vx@v0.9.11
+      - uses: loonghao/vx@v0.9.34
         with:
-          version: "0.9.11"
-          cache-key-prefix: "vx-tools-v0.9.7"
+          version: "0.9.34"
+          cache-key-prefix: "vx-tools-v0.9.34"
 
       - uses: actions/setup-python@v6
         with:
