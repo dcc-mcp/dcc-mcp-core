@@ -163,18 +163,21 @@ class InkscapeRuntime:
             if not default.is_file():
                 raise ValueError("Cannot locate Inkscape's default fontconfig; font setup is unavailable")
             config = ElementTree.Element("fontconfig")
+            cache = self.state / "font-cache"
+            cache.mkdir(parents=True, exist_ok=True)
+            # Fontconfig uses the first writable cache directory, including those in includes.
+            ElementTree.SubElement(config, "cachedir").text = str(cache)
             ElementTree.SubElement(config, "include").text = str(default)
             for directory in font_dirs:
                 directory = Path(directory).resolve()
                 if not directory.is_dir():
                     raise ValueError("Font directory does not exist")
                 ElementTree.SubElement(config, "dir").text = str(directory)
-            ElementTree.SubElement(config, "cachedir").text = str(self.state / "font-cache")
             self.font_config = self.state / "fonts.conf"
             ElementTree.ElementTree(config).write(self.font_config, encoding="utf-8", xml_declaration=True)
             self.environment["FONTCONFIG_FILE"] = str(self.font_config)
 
-    def _run(self, arguments, environment=None, timeout=120):
+    def _run(self, arguments, environment=None, timeout=120, host_report=None):
         command = [str(self.executable), "--app-id-tag=dccmcp_" + uuid.uuid4().hex, *arguments]
         process = subprocess.Popen(
             command,
@@ -184,12 +187,13 @@ class InkscapeRuntime:
             shell=False,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
+        timed_out = False
         try:
             stdout, stderr = process.communicate(timeout=timeout)
-        except subprocess.TimeoutExpired as exc:
+        except subprocess.TimeoutExpired:
+            timed_out = True
             process.kill()
-            process.communicate()
-            raise RuntimeError("Inkscape operation timed out; the owned process was stopped") from exc
+            stdout, stderr = process.communicate()
         result = {
             "host_pid": process.pid,
             "returncode": process.returncode,
@@ -198,7 +202,13 @@ class InkscapeRuntime:
             "stdout_truncated": len(stdout) > 65536,
             "stderr": stderr.decode("utf-8", errors="replace")[-16000:],
             "command": command,
+            "timed_out": timed_out,
         }
+        if host_report is not None:
+            report = contained_path(self.workspace, host_report)
+            report.write_text(json.dumps(result, indent=2), encoding="utf-8")
+        if timed_out:
+            raise RuntimeError("Inkscape operation timed out; the owned process was stopped")
         if process.returncode:
             raise RuntimeError("Inkscape failed: " + result["stderr"][-2000:])
         return result
@@ -266,7 +276,7 @@ class InkscapeRuntime:
         temporary = directory / "result.svg"
         environment = dict(self.environment, DCC_MCP_INKSCAPE_REQUEST=str(request_path))
         actions = f"file-new:;{ACTION};export-type:svg;export-filename:{safe_action_value(temporary)};export-do"
-        invocation = self._run(["--actions=" + actions], environment=environment)
+        invocation = self._run(["--actions=" + actions], environment=environment, host_report=directory / "host.json")
         if not evidence_path.is_file():
             raise RuntimeError("Inkscape did not execute the native extension; no effect evidence")
         evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
@@ -318,7 +328,7 @@ class InkscapeRuntime:
                 number(value, name, 1, 32768)
                 actions.append(f"export-{name}:{value}")
         actions.append("export-do")
-        invocation = self._run([str(source), "--actions=" + ";".join(actions)])
+        invocation = self._run([str(source), "--actions=" + ";".join(actions)], host_report=directory / "host.json")
         if (
             format == "svg"
             and text_to_path
@@ -358,7 +368,7 @@ class InkscapeRuntime:
             "source_path": str(source),
             "producer": "Inkscape GUI",
             "accepted": False,
-            "next_step": "Observe this exact process with the existing scoped app-ui workflow",
+            "next_step": "Observe this exact process with the official scoped ui-control service",
         }
 
 

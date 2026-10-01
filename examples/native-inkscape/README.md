@@ -43,7 +43,8 @@ declarative subprocess execution path and the example's process-local
 `PYTHONPATH`; they do not introduce another script executor or UI automation.
 The isolated Inkscape profile is under `<workspace>/.inkscape-mcp/profile`.
 An optional private fontconfig includes the portable application's default
-configuration and adds the supplied font directories. A requested SVG font
+configuration and adds the supplied font directories. Its task cache precedes
+the included configuration's caches. A requested SVG font
 family alone is not proof of successful font resolution; validate the actual
 renderer or fontconfig match before attributing a typeface to final artwork.
 
@@ -84,10 +85,17 @@ and output hash. The controller checks the evidence before atomically publishing
 a new output. Existing outputs are never overwritten. These are local pipeline
 provenance checks, not cryptographic host attestation. Windows GLib spawn helper
 behavior must pass the actual live test; a mock test is not a native host proof.
+Build and export operations preserve `host.json` under their invocation directory
+even when the host fails or evidence validation rejects the output. A failed
+parent-image lookup is recorded in `effect.json` and does not bypass verification.
 
 `document_inspect` reopens the saved file with Inkscape and queries native
 geometry. `document_open` launches a separate GUI process and returns its PID
-for the existing exact-process app-ui workflow. It does not capture the desktop
+for the official exact-process `ui-control` workflow. Core's dedicated
+`python -m dcc_mcp_core.ui_control_server` accepts that process ID and the actual
+document window handle; its independent launcher PID is not the GUI host PID.
+The native controller keeps its five subprocess tools and does not install an
+in-process UI bridge. It does not capture the desktop
 or claim visual acceptance. A locked desktop can still allow headless creation
 and export, but GUI inspection remains incomplete until the desktop is available.
 

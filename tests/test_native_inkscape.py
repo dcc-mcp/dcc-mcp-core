@@ -273,6 +273,42 @@ def test_timeout_stops_only_the_spawned_process(runtime, monkeypatch):
     assert child.communicate.call_count == 2
 
 
+@pytest.mark.parametrize("failure", ["nonzero", "timeout"])
+def test_failed_host_preserves_bounded_actual_process_diagnostics(runtime, monkeypatch, failure):
+    child = Mock(pid=4321, returncode=17)
+    if failure == "timeout":
+        child.communicate.side_effect = [subprocess.TimeoutExpired("inkscape", 7), (b"partial", b"host problem")]
+    else:
+        child.communicate.return_value = (b"partial", b"host problem")
+    monkeypatch.setattr(runtime_module.subprocess, "Popen", Mock(return_value=child))
+    report = runtime.state / "failed-host.json"
+    with pytest.raises(RuntimeError):
+        runtime._run(["--version"], timeout=7, host_report=report)
+    evidence = json.loads(report.read_text(encoding="utf-8"))
+    assert evidence["host_pid"] == 4321
+    assert evidence["returncode"] == 17
+    assert evidence["stderr"] == "host problem"
+    assert evidence["stdout"] == "partial"
+    assert evidence["timed_out"] == (failure == "timeout")
+
+
+def test_private_font_cache_precedes_default_config_without_changing_global_fonts(runtime, tmp_path):
+    default = runtime.executable.parent.parent / "etc" / "fonts" / "fonts.conf"
+    default.parent.mkdir(parents=True)
+    default.write_text("<fontconfig><cachedir>system-cache</cachedir></fontconfig>", encoding="utf-8")
+    fonts = tmp_path / "private-fonts"
+    fonts.mkdir()
+    configured = runtime_module.InkscapeRuntime(runtime.executable, runtime.workspace, font_dirs=[fonts])
+    root = ElementTree.parse(configured.font_config).getroot()
+    assert [element.tag for element in root] == ["cachedir", "include", "dir"]
+    assert Path(root[0].text).is_dir()
+    assert Path(root[0].text).parent == configured.state
+    assert Path(root[1].text) == default
+    assert Path(root[2].text) == fonts
+    assert configured.environment["FONTCONFIG_FILE"] == str(configured.font_config)
+    assert default.read_text(encoding="utf-8") == "<fontconfig><cachedir>system-cache</cachedir></fontconfig>"
+
+
 def test_invalid_plan_never_launches_a_host(runtime, monkeypatch, vector_plan):
     vector_plan["nodes"][-1]["actions"] = "quit"
     run = Mock(side_effect=AssertionError("Host launch must not occur"))
@@ -285,7 +321,7 @@ def test_invalid_plan_never_launches_a_host(runtime, monkeypatch, vector_plan):
 
 @pytest.mark.parametrize("failure", ["missing", "wrong-parent", "stale-nonce"])
 def test_failed_native_evidence_never_publishes_an_output(runtime, monkeypatch, vector_plan, failure):
-    def simulated_host(arguments, environment=None, timeout=120):
+    def simulated_host(arguments, environment=None, timeout=120, host_report=None):
         request = json.loads(Path(environment["DCC_MCP_INKSCAPE_REQUEST"]).read_text(encoding="utf-8"))
         if failure != "missing":
             evidence = {
@@ -544,7 +580,7 @@ def test_failed_document_acceptance_never_publishes_output(
     elif mutation == "missing-viewbox":
         fixture_tree.attrib.pop("viewBox")
 
-    def simulated_host(arguments, environment=None, timeout=120):
+    def simulated_host(arguments, environment=None, timeout=120, host_report=None):
         request_path = Path(environment["DCC_MCP_INKSCAPE_REQUEST"])
         request = json.loads(request_path.read_text(encoding="utf-8"))
         evidence = {

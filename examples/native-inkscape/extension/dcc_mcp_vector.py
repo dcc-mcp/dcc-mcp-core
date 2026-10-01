@@ -96,12 +96,19 @@ class TypedVectorPlan(inkex.EffectExtension):
             else:
                 elements.get(node.get("parent"), self.svg).append(element)
             elements[node["id"]] = element
+        parent_probe_error = None
+        try:
+            parent_image = parent_executable(os.getppid())
+        except (inkex.AbortExtension, OSError) as exc:
+            parent_image = None
+            parent_probe_error = str(exc)
         report = {
             "nonce": request["nonce"],
             "extension_pid": os.getpid(),
             "parent_pid": os.getppid(),
             "self_call": os.environ.get("SELF_CALL"),
-            "parent_executable": parent_executable(os.getppid()),
+            "parent_executable": parent_image,
+            "parent_probe_error": parent_probe_error,
             "document_path": os.environ.get("DOCUMENT_PATH"),
             "object_count": len(elements),
             "producer": "Inkscape native inkex effect",
