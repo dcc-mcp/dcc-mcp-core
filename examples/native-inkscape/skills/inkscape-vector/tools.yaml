@@ -1,0 +1,485 @@
+{
+  "tools": [
+    {
+      "name": "capabilities",
+      "description": "Query the configured Inkscape version, native actions, isolated profile, and limitations.",
+      "source_file": "scripts/capabilities.py",
+      "execution": "sync",
+      "affinity": "any",
+      "enforce_thread_affinity": true,
+      "timeout_hint_secs": 150,
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "output_schema": {
+        "type": "object",
+        "required": [
+          "success",
+          "message"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "context": {
+            "type": "object"
+          },
+          "error": {
+            "type": "string"
+          }
+        }
+      },
+      "annotations": {
+        "read_only_hint": true,
+        "destructive_hint": false,
+        "idempotent_hint": true,
+        "open_world_hint": false
+      }
+    },
+    {
+      "name": "document_build",
+      "description": "Create editable SVG with an Inkscape-hosted inkex effect from a typed vector plan.",
+      "source_file": "scripts/document_build.py",
+      "execution": "sync",
+      "affinity": "any",
+      "enforce_thread_affinity": true,
+      "timeout_hint_secs": 150,
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "output_file": {
+            "type": "string"
+          },
+          "plan": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "canvas": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "width": {
+                    "type": "number",
+                    "minimum": 1,
+                    "maximum": 32768
+                  },
+                  "height": {
+                    "type": "number",
+                    "minimum": 1,
+                    "maximum": 32768
+                  },
+                  "view_box": {
+                    "type": "string",
+                    "description": "Four finite numbers: min-x min-y width height"
+                  }
+                },
+                "required": [
+                  "width",
+                  "height"
+                ]
+              },
+              "nodes": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 5000,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "x": {
+                      "type": "number"
+                    },
+                    "y": {
+                      "type": "number"
+                    },
+                    "width": {
+                      "type": "number"
+                    },
+                    "height": {
+                      "type": "number"
+                    },
+                    "rx": {
+                      "type": "number"
+                    },
+                    "ry": {
+                      "type": "number"
+                    },
+                    "cx": {
+                      "type": "number"
+                    },
+                    "cy": {
+                      "type": "number"
+                    },
+                    "r": {
+                      "type": "number"
+                    },
+                    "x1": {
+                      "type": "number"
+                    },
+                    "y1": {
+                      "type": "number"
+                    },
+                    "x2": {
+                      "type": "number"
+                    },
+                    "y2": {
+                      "type": "number"
+                    },
+                    "stroke_width": {
+                      "type": "number"
+                    },
+                    "font_size": {
+                      "type": "number"
+                    },
+                    "letter_spacing": {
+                      "type": "number"
+                    },
+                    "opacity": {
+                      "type": "number"
+                    },
+                    "font_weight": {
+                      "type": "number"
+                    },
+                    "id": {
+                      "type": "string",
+                      "maxLength": 4096
+                    },
+                    "parent": {
+                      "type": "string",
+                      "maxLength": 4096
+                    },
+                    "label": {
+                      "type": "string",
+                      "maxLength": 4096
+                    },
+                    "text": {
+                      "type": "string",
+                      "maxLength": 4096
+                    },
+                    "transform": {
+                      "type": "string",
+                      "maxLength": 4096
+                    },
+                    "fill": {
+                      "type": "string",
+                      "maxLength": 4096
+                    },
+                    "stroke": {
+                      "type": "string",
+                      "maxLength": 4096
+                    },
+                    "fill_rule": {
+                      "type": "string",
+                      "maxLength": 4096
+                    },
+                    "stroke_linecap": {
+                      "type": "string",
+                      "maxLength": 4096
+                    },
+                    "stroke_linejoin": {
+                      "type": "string",
+                      "maxLength": 4096
+                    },
+                    "font_family": {
+                      "type": "string",
+                      "maxLength": 4096
+                    },
+                    "text_anchor": {
+                      "type": "string",
+                      "maxLength": 4096
+                    },
+                    "gradient_units": {
+                      "type": "string",
+                      "maxLength": 4096
+                    },
+                    "gradient_transform": {
+                      "type": "string",
+                      "maxLength": 4096
+                    },
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "group",
+                        "layer",
+                        "path",
+                        "rect",
+                        "circle",
+                        "ellipse",
+                        "text",
+                        "linearGradient",
+                        "linear_gradient"
+                      ]
+                    },
+                    "d": {
+                      "type": "string",
+                      "maxLength": 100000
+                    },
+                    "stops": {
+                      "type": "array",
+                      "minItems": 2,
+                      "maxItems": 64,
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "offset": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 1
+                          },
+                          "color": {
+                            "type": "string"
+                          },
+                          "opacity": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 1
+                          }
+                        },
+                        "required": [
+                          "offset",
+                          "color"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "id"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "canvas",
+              "nodes"
+            ]
+          }
+        },
+        "required": [
+          "output_file",
+          "plan"
+        ]
+      },
+      "output_schema": {
+        "type": "object",
+        "required": [
+          "success",
+          "message"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "context": {
+            "type": "object"
+          },
+          "error": {
+            "type": "string"
+          }
+        }
+      },
+      "annotations": {
+        "read_only_hint": false,
+        "destructive_hint": true,
+        "idempotent_hint": false,
+        "open_world_hint": false
+      }
+    },
+    {
+      "name": "document_export",
+      "description": "Export PNG, SVG, or PDF with Inkscape; optionally convert text to paths.",
+      "source_file": "scripts/document_export.py",
+      "execution": "sync",
+      "affinity": "any",
+      "enforce_thread_affinity": true,
+      "timeout_hint_secs": 150,
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "source_file": {
+            "type": "string"
+          },
+          "output_file": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "svg",
+              "png",
+              "pdf"
+            ],
+            "default": "png"
+          },
+          "width": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 32768
+          },
+          "height": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 32768
+          },
+          "background": {
+            "type": "string",
+            "default": "#ffffff"
+          },
+          "background_opacity": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "default": 0
+          },
+          "plain_svg": {
+            "type": "boolean",
+            "default": false
+          },
+          "text_to_path": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": [
+          "source_file",
+          "output_file"
+        ]
+      },
+      "output_schema": {
+        "type": "object",
+        "required": [
+          "success",
+          "message"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "context": {
+            "type": "object"
+          },
+          "error": {
+            "type": "string"
+          }
+        }
+      },
+      "annotations": {
+        "read_only_hint": false,
+        "destructive_hint": true,
+        "idempotent_hint": false,
+        "open_world_hint": false
+      }
+    },
+    {
+      "name": "document_inspect",
+      "description": "Reopen an SVG with Inkscape, query native geometry, and count vector objects.",
+      "source_file": "scripts/document_inspect.py",
+      "execution": "sync",
+      "affinity": "any",
+      "enforce_thread_affinity": true,
+      "timeout_hint_secs": 150,
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "source_file": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_file"
+        ]
+      },
+      "output_schema": {
+        "type": "object",
+        "required": [
+          "success",
+          "message"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "context": {
+            "type": "object"
+          },
+          "error": {
+            "type": "string"
+          }
+        }
+      },
+      "annotations": {
+        "read_only_hint": true,
+        "destructive_hint": false,
+        "idempotent_hint": true,
+        "open_world_hint": false
+      }
+    },
+    {
+      "name": "document_open",
+      "description": "Open a separate Inkscape GUI process for visual acceptance and return its PID.",
+      "source_file": "scripts/document_open.py",
+      "execution": "sync",
+      "affinity": "any",
+      "enforce_thread_affinity": true,
+      "timeout_hint_secs": 150,
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "source_file": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_file"
+        ]
+      },
+      "output_schema": {
+        "type": "object",
+        "required": [
+          "success",
+          "message"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "context": {
+            "type": "object"
+          },
+          "error": {
+            "type": "string"
+          }
+        }
+      },
+      "annotations": {
+        "read_only_hint": false,
+        "destructive_hint": true,
+        "idempotent_hint": false,
+        "open_world_hint": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<inkscape-extension xmlns="http://www.inkscape.org/namespace/inkscape/extension" translationdomain="none">
+  <name>DCC-MCP Typed Vector Plan</name>
+  <id>org.dcc-mcp.typed-vector-plan</id>
+  <effect needs-live-preview="false">
+    <object-type>all</object-type>
+    <effects-menu hidden="true"/>
+  </effect>
+  <script><command location="inx" interpreter="python">dcc_mcp_vector.py</command></script>
+</inkscape-extension>
