@@ -32,6 +32,27 @@ PID_READ_ATTEMPTS = 40
 PID_READ_DELAY_SECS = 0.05
 
 
+def _wait_for_pid_file(
+    path: Path,
+    *,
+    attempts: int = PID_READ_ATTEMPTS,
+    delay: float = PID_READ_DELAY_SECS,
+) -> bool:
+    """Return ``True`` once ``path`` exists, retrying inside a bounded window.
+
+    A probe process writes its PID file some time after it is spawned, and a
+    bounded runner tears the whole tree down on the deadline. Existence is
+    therefore a precondition that has to be awaited, not sampled once: an
+    immediate ``path.exists()`` fails on any runner slow enough that the probe
+    had not reached its ``write_text`` call yet.
+    """
+    for _ in range(attempts):
+        if path.exists():
+            return True
+        time.sleep(delay)
+    return False
+
+
 def _read_pid_file(
     path: Path,
     *,
@@ -857,10 +878,18 @@ def test_bounded_runner_kills_process_descendants(tmp_path: Path) -> None:
         "time.sleep(60)\n",
         encoding="utf-8",
     )
+    # The deadline has to clear a cold CPython start on Windows: the probe
+    # writes ``child.pid``, spawns a descendant, and that descendant writes
+    # ``grandchild.pid`` only once its own interpreter is running. At 1.0s the
+    # deadline could land inside that descendant start-up, and killing the tree
+    # then destroys the very descendant this test exists to inspect -- no
+    # amount of waiting afterwards can resurrect its PID file. 5s leaves
+    # headroom for the start-up while staying far below the probe's 60s sleep,
+    # so the containment kill remains the behaviour under test.
     with pytest.raises(subprocess.TimeoutExpired):
-        module.run_bounded([sys.executable, str(probe), str(child_pid), str(grandchild_pid)], timeout_seconds=1.0)
-    assert child_pid.exists() and grandchild_pid.exists()
+        module.run_bounded([sys.executable, str(probe), str(child_pid), str(grandchild_pid)], timeout_seconds=5.0)
     for pid_path in (child_pid, grandchild_pid):
+        assert _wait_for_pid_file(pid_path), f"{pid_path} never appeared; probe descendant did not start"
         pid = _read_pid_file(pid_path)
         assert pid is not None, f"{pid_path.name} never received a PID payload"
         for _ in range(20):
