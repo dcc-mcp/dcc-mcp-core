@@ -10,6 +10,7 @@ import sys
 import pytest
 
 from conftest import REPO_ROOT
+from dcc_mcp_core import yaml_loads
 
 SCRIPT_PATH = REPO_ROOT / "scripts" / "ci" / "check_release_notes.py"
 RELEASE_PR_GUARD_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "release-please-pr-guard.yml"
@@ -67,6 +68,30 @@ def _tag_present(name: str) -> bool:
         text=True,
     )
     return completed.returncode == 0
+
+
+def _release_job_commands(job_name: str) -> str:
+    """Return what one job in `.github/workflows/release.yml` actually runs.
+
+    Two things this deliberately does not accept as evidence:
+
+    * **another job's steps.** Two jobs in that workflow call this script with
+      overlapping arguments for different purposes, so a file-wide substring
+      check stays green even when the job under test stops running the check
+      entirely - the regression these assertions exist to catch.
+    * **comment lines inside a ``run:`` block.** The prose explaining why a
+      job passes ``--post-notes-policy warn`` quotes the flag verbatim, so a
+      join that keeps comments still passes after the flag itself is flipped
+      to ``fail``. Wiring assertions read commands, not documentation.
+    """
+    workflow = yaml_loads(RELEASE_WORKFLOW.read_text(encoding="utf-8"))
+    commands = []
+    for step in workflow["jobs"][job_name]["steps"]:
+        for line in str(step.get("run", "")).splitlines():
+            stripped = line.strip()
+            if stripped and not stripped.startswith("#"):
+                commands.append(line)
+    return "\n".join(commands)
 
 
 # ── type parsing ────────────────────────────────────────────────────────────
@@ -921,29 +946,60 @@ def test_release_pr_guard_runs_the_notes_gate() -> None:
 
     assert "scripts/ci/check_release_notes.py" in workflow
 
+    # It is the only remaining hard gate for mechanism B: the release
+    # workflow downgrades to `warn` once the tag exists, and a merge-time
+    # gap is still fixable here by regenerating the release PR. Passing
+    # --post-notes-policy would hand the last blocking check away silently.
+    assert "--post-notes-policy" not in workflow
 
-def test_release_workflow_runs_the_notes_gate() -> None:
-    workflow = RELEASE_WORKFLOW.read_text(encoding="utf-8")
 
-    assert "check_release_notes.py" in workflow
+def test_the_wiring_helper_reads_commands_and_not_their_comments() -> None:
+    """Guard the guard: a comment-reading join would make both tests below lie.
 
-    # Once the tag exists nobody can regenerate the notes, so the workflow
-    # takes the warn policy: a late commit is documented by an addendum
-    # instead of withholding four PyPI routes. The pre-merge guard keeps the
-    # strict policy. Release-please-pr-guard.yml asserts that separately.
-    assert "--post-notes-policy warn" in workflow
+    The run block in ``validate-release-version`` explains the warn policy in a
+    shell comment that quotes the flag. A helper that kept comment lines passed
+    with the flag itself flipped to ``fail`` - i.e. with this issue's original
+    defect restored - so this asserts the helper drops them.
+    """
+    gate_run = _release_job_commands("validate-release-version")
+
+    assert "# " not in gate_run
+    assert "--post-notes-policy warn" in gate_run
+    assert "--post-notes-policy fail" not in gate_run
+
+
+def test_release_workflow_runs_the_notes_gate_in_warn_mode() -> None:
+    """The gate that blocks four PyPI routes must run the gate, in warn mode.
+
+    Scoped to the job's own steps, not to the file: the addendum job runs the
+    same script with the same flag for a different purpose, so a file-wide
+    substring assertion stays green even if this job drops the check entirely -
+    which is exactly the defect this change exists to prevent.
+    """
+    gate_run = _release_job_commands("validate-release-version")
+
+    assert "check_release_notes.py" in gate_run
+    # Once the tag exists nobody can regenerate the notes, so a late commit is
+    # documented by an addendum instead of withholding four PyPI routes. The
+    # pre-merge guard keeps the strict policy; see
+    # test_release_pr_guard_runs_the_notes_gate.
+    assert "--post-notes-policy warn" in gate_run
 
 
 def test_release_workflow_documents_the_gap_it_stops_blocking_on() -> None:
     """Downgrading a gate is only acceptable if the gap is still recorded."""
     checker = _load_checker_module()
-    workflow = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+    addendum_run = _release_job_commands("document-release-notes-addendum")
 
-    assert "--addendum-file" in workflow
+    assert "--addendum-file" in addendum_run
     # The marker the script writes is the marker the workflow greps for; a
     # change on either side alone would silently stack addenda on re-runs.
-    assert checker.ADDENDUM_MARKER in workflow
-    assert workflow.count("document-release-notes-addendum") >= 2
+    assert checker.ADDENDUM_MARKER in addendum_run
+
+    # The py37 grammar guarantee lives in the `py37 syntax check` CI lane, which
+    # compiles scripts/ and tests/ with a real Python 3.7 interpreter. It is not
+    # re-checked here: ast.parse's feature_version only exists on Python 3.8+,
+    # so asserting it from inside the suite would fail on the py37 lane itself.
 
     # The py37 grammar guarantee lives in the `py37 syntax check` CI lane, which
     # compiles scripts/ and tests/ with a real Python 3.7 interpreter. It is not

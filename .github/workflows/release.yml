@@ -873,7 +873,15 @@ jobs:
           RELEASE_TAG: ${{ needs.release-please.outputs.tag_name }}
         run: |
           set -euo pipefail
-          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body > release-body.md
+          # Best effort, like the same read in validate-release-version: the
+          # CHANGELOG section alone still yields an addendum, and an unreadable
+          # release body is not worth turning the release window red for.
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body > release-body.md; then
+            echo "Read the release body for $RELEASE_TAG"
+          else
+            echo "::warning::Could not read the release body for $RELEASE_TAG; checking the CHANGELOG section only"
+            rm -f release-body.md
+          fi
 
       - name: Build the release-notes addendum
         env:
@@ -881,6 +889,10 @@ jobs:
           RELEASE_VERSION: ${{ needs.release-please.outputs.version }}
         run: |
           set -euo pipefail
+          notes_args=()
+          if [ -s release-body.md ]; then
+            notes_args=(--notes-file release-body.md)
+          fi
           # The verdict is validate-release-version's to render; this job only
           # documents it. A non-zero exit is therefore reported and tolerated
           # rather than allowed to fail the workflow.
@@ -888,7 +900,7 @@ jobs:
           python scripts/ci/check_release_notes.py \
             --release-tag "$RELEASE_TAG" \
             --version "$RELEASE_VERSION" \
-            --notes-file release-body.md \
+            "${notes_args[@]}" \
             --include-changelog \
             --post-notes-policy warn \
             --addendum-file release-notes-addendum.md
