@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.41](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.40...v0.20.41) (2026-10-02)
+
+
+### Bug Fixes
+
+* **ci:** repair generated lock metadata instead of losing it to the merge race ([#2605](https://github.com/dcc-mcp/dcc-mcp-core/issues/2605)) ([a35a054](https://github.com/dcc-mcp/dcc-mcp-core/commit/a35a05424d6d858a0023d37865b54cd4a2b8fdde))
+* **gateway:** classify live-instance tool misses as unknown-slug and populate candidates ([b366108](https://github.com/dcc-mcp/dcc-mcp-core/commit/b3661082659bdcdb576434ea91e71157b0ed7b17))
+
+
+### Code Refactoring
+
+* **deployment:** rename INSTALL_SOP_SCHEMA_VERSION to INSTALL_SOP_SCHEMA_REVISION ([#2656](https://github.com/dcc-mcp/dcc-mcp-core/issues/2656)) ([b78f28c](https://github.com/dcc-mcp/dcc-mcp-core/commit/b78f28c1582eade2243fce4bea8f5812469e5915))
+
 ## [0.20.40](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.39...v0.20.40) (2026-10-01)
 
 
