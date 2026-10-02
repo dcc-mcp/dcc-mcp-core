@@ -108,8 +108,30 @@ set or no file is given, the ``CHANGELOG.md`` section release-please wrote for
 the version. A commit counts as documented when it appears in any of them, so a
 release-body addendum is a valid remediation for an already-published release.
 
+Two severities, because the two mechanisms differ in who can still act
+----------------------------------------------------------------------
+
+A mechanism-A commit is a defect in a commit title: retitling the commit, or
+declaring its type, puts it in the notes the next time release-please
+regenerates them. The author can still fix it, so the gate blocks.
+
+A mechanism-B commit is a race, not a defect: the notes are a snapshot, and a
+commit merged after the last regeneration is inside the tag yet outside the
+snapshot. Nothing an author does after the tag exists can change that, and the
+remediation the gate used to demand - publish an addendum by hand - is exactly
+what ``--addendum-file`` now writes on its own.
+
+So ``--post-notes-policy warn`` reports mechanism B as a warning and leaves the
+exit code to mechanism A. That is the policy ``release.yml`` uses once the tag
+exists: the four PyPI routes must not wait on a race nobody can still lose, and
+the gap stays visible twice over, as a run annotation and as a release-body
+addendum citing every late commit. ``release-please-pr-guard.yml`` keeps the
+strict policy, because there the release PR is still open and "regenerate the
+release PR" is an action the author can take.
+
 The check is read-only: it never edits ``CHANGELOG.md``, never touches a tag or
-a release, and never changes a version.
+a release, and never changes a version. ``--addendum-file`` writes a file the
+caller appends; this module never calls the release API.
 """
 
 from __future__ import annotations
@@ -132,6 +154,13 @@ SHA_LEN = 40
 
 RELEASE_CONFIG_NAME = "release-please-config.json"
 CHANGELOG_NAME = "CHANGELOG.md"
+
+#: HTML comment marking an addendum this gate already appended to a release
+#: body. The workflow greps for it before appending, so a re-run adds the
+#: addendum exactly once instead of once per run.
+ADDENDUM_MARKER = "<!-- dcc-mcp-release-notes-addendum -->"
+#: How ``--post-notes-policy`` treats a mechanism-B commit.
+POST_NOTES_POLICIES = ("fail", "warn")
 
 #: Shortest sha abbreviation release-please (or a hand-written addendum) uses.
 MIN_ABBREV = 7
@@ -218,7 +247,12 @@ class ReleaseNotesReport:
 
     @property
     def failures(self) -> tuple[Commit, ...]:
-        """Return every commit the gate rejects, mechanism A before B."""
+        """Return every commit the gate rejects, mechanism A before B.
+
+        Every mechanism at its own severity, whatever ``--post-notes-policy``
+        says: the policy decides whether the caller *acts* on mechanism B, not
+        whether the report saw it.
+        """
         return self.untyped + self.undeclared + self.undocumented
 
 
@@ -517,10 +551,72 @@ def check_commits(
     )
 
 
-def format_errors(report: ReleaseNotesReport) -> list[str]:
-    """Return one error per missing commit, mechanism A before mechanism B."""
+def format_addendum(report: ReleaseNotesReport) -> str | None:
+    """Return a release-body addendum citing the post-notes commits, or None.
+
+    Mechanism B only. An untyped or undeclared title is not documented here: the
+    addendum exists so a reader of the release body sees the commits the notes
+    omitted, and a commit the generator drops outright is a title to fix rather
+    than a line to append.
+
+    Each entry cites the short sha in backticks, which is the form
+    :func:`is_documented` reads back: feeding the addendum in with
+    ``--notes-file`` clears the very gap it documents, so the append is
+    idempotent even without the marker.
+    """
+    if not report.undocumented:
+        return None
+    label = report.version or report.release_ref
+    lines = [
+        ADDENDUM_MARKER,
+        "",
+        "## Release notes addendum",
+        "",
+        f"These commits shipped in {label} but landed after the notes above were last generated, so no "
+        f"section lists them. Appended automatically by the release workflow; the release itself is complete.",
+        "",
+    ]
+    lines.extend(f"* `{commit.short_sha}` {commit.pr_label} - {commit.subject}" for commit in report.undocumented)
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _post_notes_message(commit: Commit, label: str, severity: str) -> str:
+    """Return the mechanism-B message for one commit, at ``severity``."""
+    prefix = f"[B:post-notes-commit] {commit.short_sha} ({commit.pr_label}) {commit.subject!r} is user-visible but "
+    if severity == "warn":
+        return (
+            prefix
+            + f"missing from the {label} release notes: it landed after the notes were last generated, and once the "
+            f"tag exists no author-side fix can change that. Reported as a warning by --post-notes-policy warn; the "
+            f"release workflow appends an addendum citing {commit.short_sha} to the release body."
+        )
+    return (
+        prefix
+        + f"missing from the {label} release notes: it landed after the notes were last generated. Fix: regenerate "
+        f"the release PR before merging, or publish a release-body addendum citing {commit.short_sha}. Once the "
+        f"tag exists neither works; re-run the release workflow with release_tag to republish assets, which "
+        f"skips this gate."
+    )
+
+
+def format_diagnostics(report: ReleaseNotesReport, post_notes_policy: str = "fail") -> tuple[list[str], list[str]]:
+    """Return ``(errors, warnings)`` for a report, mechanism A before B.
+
+    ``post_notes_policy`` moves mechanism B between the two lists and nothing
+    else: ``fail`` (the default) reports every missing commit as blocking, and
+    ``warn`` reports a post-notes commit as a warning so a race no one can still
+    lose cannot hold up a release. Mechanism A is blocking under both policies,
+    because a title is something an author can still fix. See the "Two
+    severities" section of the module docstring.
+    """
+    if post_notes_policy not in POST_NOTES_POLICIES:
+        raise ReleaseNotesError(
+            f"unknown --post-notes-policy {post_notes_policy!r}; expected one of {', '.join(POST_NOTES_POLICIES)}"
+        )
     label = report.version or report.release_ref
     errors = []
+    warnings = []
     for commit in report.untyped:
         errors.append(
             f"[A:untyped-commit] {commit.short_sha} ({commit.pr_label}) {commit.subject!r} is user-visible but "
@@ -537,14 +633,16 @@ def format_errors(report: ReleaseNotesReport) -> list[str]:
             f"Fix: retitle the commit/PR with a declared type ({declared}), or declare the type in the config."
         )
     for commit in report.undocumented:
-        errors.append(
-            f"[B:post-notes-commit] {commit.short_sha} ({commit.pr_label}) {commit.subject!r} is user-visible but "
-            f"missing from the {label} release notes: it landed after the notes were last generated. Fix: regenerate "
-            f"the release PR before merging, or publish a release-body addendum citing {commit.short_sha}. Once the "
-            f"tag exists neither works; re-run the release workflow with release_tag to republish assets, which "
-            f"skips this gate."
-        )
-    return errors
+        if post_notes_policy == "warn":
+            warnings.append(_post_notes_message(commit, label, "warn"))
+        else:
+            errors.append(_post_notes_message(commit, label, "fail"))
+    return errors, warnings
+
+
+def format_errors(report: ReleaseNotesReport) -> list[str]:
+    """Return one blocking message per missing commit, mechanism A before B."""
+    return format_diagnostics(report)[0]
 
 
 def _git_subject(root: Path, ref: str) -> str:
@@ -634,6 +732,19 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--changelog", type=Path, help=f"changelog path (default: <root>/{CHANGELOG_NAME})")
     parser.add_argument("--config", type=Path, help=f"release-please config (default: <root>/{RELEASE_CONFIG_NAME})")
+    parser.add_argument(
+        "--post-notes-policy",
+        choices=POST_NOTES_POLICIES,
+        default="fail",
+        help="how to treat a commit that landed after the notes were generated: 'fail' blocks, 'warn' reports it "
+        "and leaves the exit code to mechanism A (default: fail)",
+    )
+    parser.add_argument(
+        "--addendum-file",
+        type=Path,
+        help="write a release-body addendum citing the post-notes commits (mechanism B); nothing is written when "
+        "there are none",
+    )
     args = parser.parse_args(argv)
 
     root = args.root
@@ -675,16 +786,34 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  contributor-only commits skipped: {len(report.contributor)}")
     print(f"  undocumented commits: {len(report.failures)}")
 
-    errors = format_errors(report)
+    errors, warnings = format_diagnostics(report, args.post_notes_policy)
+    for error in errors:
+        print(f"::error::{error}", file=sys.stderr)
+    for warning in warnings:
+        print(f"::warning::{warning}", file=sys.stderr)
+
+    addendum = format_addendum(report)
+    if addendum is not None and args.addendum_file is not None:
+        # Bytes, not text: Path.write_text() has no `newline` before Python 3.10
+        # and would emit CRLF on Windows, and this file is appended to a release
+        # body the gate has to read back. See read_text_lf().
+        args.addendum_file.write_bytes(addendum.encode("utf-8"))
+
     if errors:
-        for error in errors:
-            print(f"::error::{error}", file=sys.stderr)
         print(
             f"::error::{len(errors)} user-visible commit(s) shipped in {version} without reaching its release notes. "
             f"Regenerate the release PR, or add a release-body addendum citing each commit.",
             file=sys.stderr,
         )
         return 1
+    if warnings:
+        print(
+            f"::warning::{len(warnings)} user-visible commit(s) shipped in {version} after its release notes were "
+            f"generated. Not blocking under --post-notes-policy warn: the tag already exists, and the release "
+            f"workflow appends a release-body addendum citing each commit.",
+            file=sys.stderr,
+        )
+        return 0
     print(f"Release notes cover every user-visible commit in {version}.")
     return 0
 

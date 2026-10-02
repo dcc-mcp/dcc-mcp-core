@@ -700,13 +700,27 @@ jobs:
 
   # ── Validate release metadata once before publishing artefacts ──
   #
-  # The three PyPI publish jobs depend on this one, so a failure here blocks
+  # The four PyPI publish jobs depend on this one, so a failure here blocks
   # every PyPI publication. It intentionally does NOT gate the GitHub Release
   # asset set: the per-platform build jobs upload their artefacts directly and
   # publish-github-release-assets runs on always(), so assets land even when
-  # this job fails. The release-notes cross-check rides along for the same
-  # reason as the version check: notes that silently omit a shipped commit
-  # are as much a broken release as a wrong version.
+  # this job fails.
+  #
+  # What blocks, and what only warns, is decided per check:
+  #
+  #   * version metadata mismatch - blocks. Publishing a wheel whose version
+  #     disagrees with the tag ships the wrong artefact to every consumer.
+  #   * release-notes mechanism A (untyped or undeclared commit title) -
+  #     blocks. It is a defect in a title, so it is still fixable, and the
+  #     release-please PR guard blocks the same thing while the PR is open.
+  #   * release-notes mechanism B (commit merged after the notes were last
+  #     generated) - WARN only, once the tag exists. This is a race, not a
+  #     defect: v0.20.38, v0.20.39 and v0.20.40 each lost a whole release
+  #     window to it, and the only remediation the gate could offer was
+  #     "re-run the whole workflow", which cost a rebuild and ~40 minutes of
+  #     PyPI lag every single time. The gap is still surfaced twice over: as
+  #     a run annotation here, and as an addendum the
+  #     document-release-notes-addendum job appends to the release body.
   validate-release-version:
     needs: [release-please]
     if: needs.release-please.outputs.release_created == 'true'
@@ -791,11 +805,120 @@ jobs:
           if [ -s release-notes.md ]; then
             notes_args=(--notes-file release-notes.md)
           fi
+          # --post-notes-policy warn: once the tag exists nobody can
+          # regenerate the notes any more, so a late commit is documented by
+          # the addendum job below instead of blocking four PyPI routes. The
+          # pre-merge copy of this gate (release-please-pr-guard.yml) keeps
+          # the strict policy, where "regenerate the release PR" is still an
+          # action an author can take.
           python scripts/ci/check_release_notes.py \
             --release-tag "$RELEASE_TAG" \
             --version "$RELEASE_VERSION" \
             "${notes_args[@]}" \
-            --include-changelog
+            --include-changelog \
+            --post-notes-policy warn
+
+  # ── Document the post-notes commits on the release body ────────────────
+  #
+  # Mechanism B is a race between the last notes regeneration and the merge of
+  # the release PR, so it recurs: three consecutive versions hit it (v0.20.38,
+  # v0.20.39, v0.20.40) and each one cost a full rebuild plus ~40 minutes of
+  # PyPI lag before a re-run cleared it. The release is complete either way -
+  # the tag carries the commit, the wheels are built from the tag - so the
+  # honest fix is to write down what the notes omitted rather than to withhold
+  # the release.
+  #
+  # It runs after publish-github-release-assets on purpose. Every asset upload
+  # goes through softprops/action-gh-release, which writes back the body it
+  # read (`body = workflowBody || existingReleaseBody`); an addendum applied
+  # while the build jobs are still uploading can be lost to that last-write-
+  # wins update. Waiting for the uploads costs nothing and removes the race.
+  #
+  # Nothing here can fail the release: the gate verdict was already rendered by
+  # validate-release-version, and a cosmetic body edit is not worth holding
+  # four PyPI routes for.
+  document-release-notes-addendum:
+    needs: [release-please, publish-github-release-assets]
+    if: |
+      always() &&
+      needs.release-please.outputs.release_created == 'true' &&
+      (github.event_name != 'workflow_dispatch' || inputs.release_tag == '')
+    runs-on: ubuntu-latest
+    permissions:
+      # contents: write because `gh release edit` rewrites the release body.
+      contents: write
+    steps:
+      # fetch-depth 0, like the gate: the notes check walks the history between
+      # the previous release tag and this one. The tag ref matches
+      # validate-release-version, so both read the same window.
+      #
+      # persist-credentials: false - this job holds contents: write, and it
+      # needs no git credential: the gate reads the local history and `gh`
+      # authenticates with GH_TOKEN. Keeping the token out of the checkout
+      # leaves nothing write-scoped for the checked-out scripts to pick up.
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.release-please.outputs.tag_name }}
+          persist-credentials: false
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - name: Read the published release body
+        env:
+          GH_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN || github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body > release-body.md
+
+      - name: Build the release-notes addendum
+        env:
+          RELEASE_TAG: ${{ needs.release-please.outputs.tag_name }}
+          RELEASE_VERSION: ${{ needs.release-please.outputs.version }}
+        run: |
+          set -euo pipefail
+          # The verdict is validate-release-version's to render; this job only
+          # documents it. A non-zero exit is therefore reported and tolerated
+          # rather than allowed to fail the workflow.
+          set +e
+          python scripts/ci/check_release_notes.py \
+            --release-tag "$RELEASE_TAG" \
+            --version "$RELEASE_VERSION" \
+            --notes-file release-body.md \
+            --include-changelog \
+            --post-notes-policy warn \
+            --addendum-file release-notes-addendum.md
+          status=$?
+          set -e
+          if [ "$status" -ne 0 ]; then
+            echo "::warning::release-notes gate exited $status; see the validate-release-version job for the verdict."
+          fi
+
+      - name: Append the addendum to the release body
+        env:
+          GH_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN || github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          if [ ! -s release-notes-addendum.md ]; then
+            echo "No addendum: the release notes cover every shipped commit."
+            exit 0
+          fi
+          # Idempotent: a re-run of the same window must not stack a second
+          # copy of the same list on the release body.
+          if grep -qF '<!-- dcc-mcp-release-notes-addendum -->' release-body.md; then
+            echo "The release body already carries the addendum; leaving it unchanged."
+            exit 0
+          fi
+          { cat release-body.md; printf '\n'; cat release-notes-addendum.md; } > updated-body.md
+          if ! gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --notes-file updated-body.md; then
+            echo "::warning::Could not append the release-notes addendum to $RELEASE_TAG."
+          fi
 
   # ── Publish dcc-mcp-core to PyPI ──
   publish-core-pypi:
