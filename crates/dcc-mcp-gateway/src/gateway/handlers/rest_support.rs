@@ -448,4 +448,21 @@ mod tests {
             StatusCode::SERVICE_UNAVAILABLE
         );
     }
+
+    #[test]
+    fn reclassified_unknown_slug_still_maps_to_404() {
+        // A tool miss against a live instance is now reported as
+        // `unknown-slug` instead of `instance-offline` /
+        // `never-registered`. Both mapped to 404 before the change, and
+        // callers match on the status code, so the mapping must not move.
+        let unknown = ServiceError::new("unknown-slug", "no capability registered");
+        let never_registered = ServiceError::new("instance-offline", "missing")
+            .with_instance_provenance("never-registered", None);
+
+        assert_eq!(service_error_status(&unknown), StatusCode::NOT_FOUND);
+        assert_eq!(
+            service_error_status(&never_registered),
+            StatusCode::NOT_FOUND
+        );
+    }
 }
