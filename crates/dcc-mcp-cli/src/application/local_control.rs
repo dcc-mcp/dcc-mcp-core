@@ -111,15 +111,7 @@ pub async fn search_local(registry_dir: PathBuf, request: SearchRequest) -> anyh
     // `--gateway-only=false` reports the true size of the "advertised but
     // not gateway-routable" set rather than a limit-truncated sample.
     if let Some(gateway_only) = request.gateway_only {
-        hits.retain(|hit| {
-            let dispatchable = hit
-                .get("gateway_dispatchable")
-                .and_then(Value::as_bool)
-                // Skill candidates carry no such field and are always
-                // gateway-routable, so keep them under `--gateway-only`.
-                .unwrap_or(true);
-            dispatchable == gateway_only
-        });
+        retain_gateway_dispatchable(&mut hits, gateway_only);
     }
     if hits.len() > limit {
         hits.truncate(limit);
@@ -1151,6 +1143,22 @@ fn extend_tool_hits(hits: &mut Vec<Value>, entry: &ServiceEntry, payload: &Value
             "mcp_url": local_instance::mcp_url(entry),
         }));
     }
+}
+
+/// Keep only the hits whose gateway-dispatchability equals `gateway_only`.
+///
+/// Inverting the flag (`--gateway-only=false`) is how a caller lists the
+/// difference: tools this CLI advertises from the backend's raw
+/// `tools/list` that the gateway capability index cannot route to.
+fn retain_gateway_dispatchable(hits: &mut Vec<Value>, gateway_only: bool) {
+    hits.retain(|hit| {
+        hit.get("gateway_dispatchable")
+            .and_then(Value::as_bool)
+            // Skill candidates carry no such field and are always
+            // gateway-routable, so keep them under `--gateway-only`.
+            .unwrap_or(true)
+            == gateway_only
+    });
 }
 
 /// Separator a backend places between the owning skill and the action name.

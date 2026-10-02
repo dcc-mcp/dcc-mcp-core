@@ -534,13 +534,10 @@ pub fn describe_service(
         .with_actionability(false, "Run search and use a returned tool slug."));
     }
 
-    // Prefer the alias we resolved over a fresh scan so the caller is
-    // pointed at the exact record the bridge considered.
-    let candidates = if alias_matches.is_empty() {
-        alias_candidates(&snap.records, dcc, instance_hint, tool)
-    } else {
-        alias_matches.iter().map(|r| (*r).clone()).collect()
-    };
+    // The bridge's own matches are the only candidates there are. A fresh
+    // scan with the alias predicate would select exactly the same rows,
+    // so scanning twice could only add a second, identical list.
+    let candidates: Vec<CapabilityRecord> = alias_matches.iter().map(|r| (*r).clone()).collect();
     let recommended_next_action =
         recommended_action_for_unknown_slug(&candidates, dcc, instance_hint);
     Err(ServiceError::new(
@@ -616,30 +613,25 @@ fn record_matches_alias(
     if !record_instance_matches(record, dcc, instance_hint) {
         return false;
     }
-    let wanted = tool.to_ascii_lowercase();
-    // Guard against promoting noise: below this length a `__`-suffix match
-    // is far more likely to be coincidence than a real qualification.
-    if wanted.len() < MIN_ALIAS_TAIL_LEN {
-        return false;
-    }
-    is_skill_alias(&record.callable_id, &wanted)
+    is_skill_alias(&record.callable_id, &tool.to_ascii_lowercase())
 }
 
 /// Build the `ambiguous` error shared by the exact-match and alias-bridge
 /// paths, so both surface the same candidates and the same guidance.
 fn ambiguous_error(matches: &[&CapabilityRecord], slug: &str) -> ServiceError {
+    // Report the true number of matches, captured before the candidate
+    // list is capped. A caller that reads "matches 6" next to five
+    // candidates knows to narrow the query; a count taken after the
+    // truncation would hide the dropped rows entirely.
+    let total = matches.len();
     let mut candidates: Vec<CapabilityRecord> = matches.iter().map(|r| (*r).clone()).collect();
-    // A large instance can put dozens of rows in one ambiguous match. Cap
-    // the list the same way the suggestion list is capped so an error
-    // envelope stays small; the count in the message still reports the
-    // true number of matches.
+    // A large instance can put dozens of rows in one ambiguous match, so
+    // the envelope is capped. The index keeps per-instance slices sorted
+    // by slug, so which rows are dropped stays deterministic.
     candidates.truncate(MAX_ALIAS_CANDIDATES);
     ServiceError::new(
         "ambiguous",
-        format!(
-            "slug {slug:?} matches {} capability records — pick an instance by UUID",
-            candidates.len(),
-        ),
+        format!("slug {slug:?} matches {total} capability records — pick an instance by UUID"),
     )
     .with_candidates(candidates)
 }
@@ -672,49 +664,29 @@ fn instance_is_indexed(records: &[CapabilityRecord], dcc: &str, instance_hint: &
         .any(|record| record_instance_matches(record, dcc, instance_hint))
 }
 
-/// Upper bound on alias suggestions, so a miss against a large instance
-/// cannot turn a small error envelope into a bulk capability dump.
+/// Upper bound on the candidate list carried by an error, so a miss or an
+/// ambiguous slug on a large instance cannot turn a small error envelope
+/// into a bulk capability dump.
 const MAX_ALIAS_CANDIDATES: usize = 5;
 
-/// Shortest action name worth suggesting. Below this length a `__`-suffix
+/// Shortest action name worth bridging. Below this length a `__`-suffix
 /// match is far more likely to be noise than a real skill qualification.
 const MIN_ALIAS_TAIL_LEN: usize = 3;
-
-/// Capabilities on the same instance the caller most likely meant.
-///
-/// The gateway index stores skill-qualified callable ids
-/// (`<skill>__<tool>`, see `naming::SKILL_TOOL_SEP`) while CLIs that
-/// enumerate a backend's raw `tools/list` advertise the bare action name.
-/// Both directions are accepted so a caller holding either form is handed
-/// the other one in `candidates` instead of an empty list.
-fn alias_candidates(
-    records: &[CapabilityRecord],
-    dcc: &str,
-    instance_hint: &str,
-    tool: &str,
-) -> Vec<CapabilityRecord> {
-    let wanted = tool.to_ascii_lowercase();
-    if wanted.len() < MIN_ALIAS_TAIL_LEN {
-        return Vec::new();
-    }
-    let mut hits: Vec<CapabilityRecord> = records
-        .iter()
-        .filter(|record| record_instance_matches(record, dcc, instance_hint))
-        .filter(|record| is_skill_alias(&record.callable_id, &wanted))
-        .cloned()
-        .collect();
-    // Deterministic order: the index keeps per-instance slices sorted by
-    // slug, and callers may log or cache the first suggestion.
-    hits.sort_by(|a, b| a.tool_slug.cmp(&b.tool_slug));
-    hits.truncate(MAX_ALIAS_CANDIDATES);
-    hits
-}
 
 /// Return `true` when `callable` is the skill-qualified form of `wanted`
 /// (`<skill>__<wanted>`) or `wanted` is the qualified form of `callable`.
 fn is_skill_alias(callable: &str, wanted: &str) -> bool {
     let callable = callable.to_ascii_lowercase();
     if callable == wanted {
+        return false;
+    }
+    // Guard against promoting noise symmetrically: below this length a
+    // `__`-suffix match is far more likely to be coincidence than a real
+    // qualification. The forward branch qualifies `wanted`, the reverse
+    // branch qualifies `callable`, so both sides need the guard — without
+    // it a one- or two-character `callable_id` would be reachable from any
+    // `<skill>__<ab>` slug.
+    if wanted.len() < MIN_ALIAS_TAIL_LEN || callable.len() < MIN_ALIAS_TAIL_LEN {
         return false;
     }
     let qualified = format!("{SKILL_TOOL_SEP}{wanted}");
@@ -727,41 +699,33 @@ fn is_skill_alias(callable: &str, wanted: &str) -> bool {
 
 /// Actionable next step for a slug the index does not carry.
 ///
-/// When an alias exists this names it outright. The caller already ran a
-/// search to get this slug, so replying "run search again" is a dead end.
-///
-/// An alias the index holds but that is not yet callable must not be
-/// offered as a direct call — dispatching it would just move this 404 to
-/// a runtime failure. Those get the `load_skill` step that makes them
-/// callable, which is the same progression `search_service_rows` already
+/// The caller already ran a search to get this slug, so replying "run
+/// search again" is a dead end. Every candidate reaching this point is an
+/// alias the bridge resolved but could not dispatch: a callable alias is
+/// returned as a hit, and two or more raise `ambiguous` first. So the
+/// next step is always to activate the owning skill, never to call —
+/// dispatching an unloaded record would just move this 404 to a runtime
+/// failure. That is the same progression `search_service_rows` already
 /// advertises for unloaded hits.
 fn recommended_action_for_unknown_slug(
     candidates: &[CapabilityRecord],
     dcc: &str,
     instance_hint: &str,
 ) -> String {
-    match candidates.iter().find(|record| record.is_callable()) {
-        Some(record) => format!(
-            "Call {:?} instead: the gateway indexes actions as <skill>{}<tool>.",
-            record.tool_slug, SKILL_TOOL_SEP,
+    match candidates.first() {
+        Some(record) if record.skill_name.is_some() => format!(
+            "{:?} is indexed but its owning skill is not active on this instance. Call load_skill for skill {:?} on {dcc} instance {instance_hint}, then retry {:?}.",
+            record.tool_slug,
+            record.skill_name.as_deref().unwrap_or_default(),
+            record.tool_slug,
         ),
-        // Everything we found is present but not dispatchable yet, so the
-        // next step is to activate it rather than to retry the call.
-        None => match candidates.first() {
-            Some(record) if record.skill_name.is_some() => format!(
-                "{:?} is indexed but its owning skill is not active on this instance. Call load_skill for skill {:?} on {dcc} instance {instance_hint}, then retry {:?}.",
-                record.tool_slug,
-                record.skill_name.as_deref().unwrap_or_default(),
-                record.tool_slug,
-            ),
-            Some(record) => format!(
-                "{:?} is indexed but not currently dispatchable on this instance. Load the owning skill on {dcc} instance {instance_hint}, then retry {:?}.",
-                record.tool_slug, record.tool_slug,
-            ),
-            None => format!(
-                "No alias for this slug is indexed on {dcc} instance {instance_hint}. Load the owning skill on that instance, then re-run search filtered to this instance_id.",
-            ),
-        },
+        Some(record) => format!(
+            "{:?} is indexed but not currently dispatchable on this instance. Load the owning skill on {dcc} instance {instance_hint}, then retry {:?}.",
+            record.tool_slug, record.tool_slug,
+        ),
+        None => format!(
+            "No alias for this slug is indexed on {dcc} instance {instance_hint}. Load the owning skill on that instance, then re-run search filtered to this instance_id.",
+        ),
     }
 }
 
@@ -2078,11 +2042,12 @@ mod unit_tests {
     }
 
     #[test]
-    fn unknown_slug_lists_the_skill_qualified_alias_as_a_candidate() {
-        // `save_scene` has no alias on this instance, so the bridge cannot
-        // resolve it — but a near-miss alias is still worth offering. Use a
-        // tool whose alias exists but is not a `__`-suffix match, so the
-        // suggestion list (not the bridge) is what populates `candidates`.
+    fn unknown_slug_without_a_matching_alias_offers_no_candidate() {
+        // `list_objects_bulk` is not the bare form of `list_objects`, so
+        // there is no alias to bridge and nothing to suggest. The empty
+        // list is the honest answer; the alias-is-surfaced case is pinned
+        // by `unknown_slug_on_an_unloaded_alias_says_load_skill_not_call`
+        // and `loaded_alias_is_dispatched_rather_than_advised`.
         let idx = CapabilityIndex::new();
         let iid = Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
         push(&idx, "maya", iid, "maya_scene__list_objects", true);
@@ -2254,6 +2219,73 @@ mod unit_tests {
             err.candidates.len(),
             MAX_ALIAS_CANDIDATES,
             "a miss must not dump the whole instance slice into the error"
+        );
+        assert!(
+            err.message.contains("matches 6 capability records"),
+            "the count must report the true number of matches, not the capped \
+             candidate count; got {:?}",
+            err.message,
+        );
+    }
+
+    #[test]
+    fn ambiguous_count_reports_every_match_not_just_the_capped_candidates() {
+        // Regression guard: the count used to be read after `truncate`, so
+        // six matches were reported as five and the dropped row vanished
+        // without a trace.
+        let idx = CapabilityIndex::new();
+        let iid = Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
+        let skills = [
+            "maya_scene",
+            "maya_rig",
+            "maya_anim",
+            "maya_render",
+            "maya_model",
+            "maya_fx",
+        ];
+        idx.upsert_instance(
+            iid,
+            (0..skills.len())
+                .map(|n| {
+                    make_record(
+                        "maya",
+                        iid,
+                        &format!("{}__list_objects", skills[n]),
+                        Some(skills[n]),
+                    )
+                })
+                .collect(),
+            InstanceFingerprint(11),
+        );
+
+        let err = describe_service(&idx, "maya.abcdef01.list_objects").unwrap_err();
+
+        assert_eq!(err.kind, "ambiguous");
+        assert_eq!(err.candidates.len(), MAX_ALIAS_CANDIDATES);
+        assert!(
+            err.message.contains("matches 6 capability records"),
+            "the envelope is capped at {} candidates but the message must still \
+             report all 6 matches; got {:?}",
+            MAX_ALIAS_CANDIDATES,
+            err.message,
+        );
+    }
+
+    #[test]
+    fn alias_bridge_ignores_short_callable_ids_in_both_directions() {
+        // The length guard is symmetric: a two-character `callable_id` is no
+        // more a real qualification than a two-character slug tail, so neither
+        // direction may bridge it.
+        let idx = CapabilityIndex::new();
+        let iid = Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
+        push(&idx, "maya", iid, "ab", true);
+
+        let err = describe_service(&idx, "maya.abcdef01.maya_scene__ab").unwrap_err();
+
+        assert_eq!(
+            err.kind, "unknown-slug",
+            "a two-character callable_id must not be reachable through a \
+             qualified slug"
         );
     }
 

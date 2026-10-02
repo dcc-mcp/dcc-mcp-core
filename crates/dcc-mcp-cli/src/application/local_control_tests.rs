@@ -558,34 +558,87 @@ fn tool_hits_are_marked_with_gateway_dispatchability() {
     assert_eq!(by_name("create_locator")["gateway_dispatchable"], false);
 }
 
-#[test]
-fn gateway_only_filter_selects_or_inverts_the_dispatchable_set() {
-    // `--gateway-only=false` is how a caller lists the difference: tools
-    // this CLI advertises from raw `tools/list` that the gateway index
-    // cannot route to.
-    let hits: Vec<Value> = vec![
-        json!({"slug": "maya.1111.maya_scene__list_objects", "gateway_dispatchable": true}),
-        json!({"slug": "maya.1111.create_locator", "gateway_dispatchable": false}),
-        json!({"slug": "maya.1111.some_skill", "gateway_dispatchable": true}),
-    ];
+#[tokio::test]
+async fn gateway_only_filter_selects_or_inverts_the_dispatchable_set() {
+    // Drives the production filter through `search_local` against a stub
+    // backend, so deleting the `retain` from `search_local` fails this
+    // test. A test that re-implements the predicate on a hand-written
+    // `Vec<Value>` has no such power.
+    use axum::Json;
+    use axum::Router;
+    use axum::routing::post;
+    use dcc_mcp_transport::discovery::file_registry::FileRegistry;
+    use tempfile::TempDir;
 
-    let retain = |gateway_only: bool| {
-        let mut kept = hits.clone();
-        kept.retain(|hit| {
-            hit.get("gateway_dispatchable")
-                .and_then(Value::as_bool)
-                .unwrap_or(true)
-                == gateway_only
-        });
-        kept
+    let tools = vec![
+        json!({"name": "maya_scene__list_objects", "description": "skill owned"}),
+        json!({"name": "create_locator", "description": "no skill"}),
+    ];
+    let app = Router::new().route(
+        "/mcp",
+        post(move |Json(request): Json<Value>| {
+            let tools = tools.clone();
+            async move {
+                Json(json!({
+                    "jsonrpc": "2.0",
+                    "id": request.get("id").cloned().unwrap_or(Value::Null),
+                    "result": {"tools": tools, "nextCursor": Value::Null},
+                }))
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind MCP fixture");
+    let address = listener.local_addr().expect("MCP fixture address");
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+    let registry_dir = TempDir::new().expect("registry tempdir");
+    let registry = FileRegistry::new(registry_dir.path()).expect("file registry");
+    let mut entry = ServiceEntry::new("maya", "127.0.0.1", 0);
+    entry
+        .metadata
+        .insert("mcp_url".to_string(), format!("http://{address}/mcp"));
+    registry.register(entry).expect("register local DCC");
+
+    let search = |gateway_only: Option<bool>| {
+        let registry_dir = registry_dir.path().to_path_buf();
+        async move {
+            search_local(
+                registry_dir,
+                SearchRequest {
+                    query: None,
+                    dcc_type: None,
+                    instance_id: None,
+                    limit: None,
+                    gateway_only,
+                },
+            )
+            .await
+            .expect("local search")
+        }
     };
 
-    let dispatchable = retain(true);
-    assert_eq!(dispatchable.len(), 2, "skill rows and skill-owned tools");
+    let all = search(None).await;
+    assert_eq!(all["total"], 2, "without the flag both tools are listed");
 
-    // Skill candidates carry no flag and default to dispatchable, so the
-    // local-only set is exactly the unowned raw tools.
-    let local_only = retain(false);
+    let dispatchable = search(Some(true)).await;
+    let dispatchable = dispatchable["hits"].as_array().expect("hits");
+    assert_eq!(dispatchable.len(), 1, "only the skill-owned tool routes");
+    assert_eq!(
+        dispatchable[0]["backend_tool"], "maya_scene__list_objects",
+        "a `<skill>__<tool>` name carries its own ownership"
+    );
+
+    // `--gateway-only=false` is the difference: what this CLI advertises
+    // from the raw `tools/list` that the gateway index cannot route to.
+    let local_only = search(Some(false)).await;
+    let local_only = local_only["hits"].as_array().expect("hits");
     assert_eq!(local_only.len(), 1);
-    assert_eq!(local_only[0]["slug"], "maya.1111.create_locator");
+    assert_eq!(
+        local_only[0]["backend_tool"], "create_locator",
+        "an unowned raw tool is local-only"
+    );
+
+    server.abort();
 }

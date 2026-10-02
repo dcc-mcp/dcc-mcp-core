@@ -120,13 +120,24 @@ impl DccControlPlane {
 
     pub async fn search(&self, request: SearchRequest) -> anyhow::Result<Value> {
         if self.uses_direct_local() {
-            local_control::search_local(self.registry_dir.clone(), request).await
-        } else {
-            self.gateway_client()
-                .search(request)
-                .await
-                .map_err(Into::into)
+            return local_control::search_local(self.registry_dir.clone(), request).await;
         }
+        if request.gateway_only.is_some() {
+            // `--gateway-only` compares the local `tools/list` inventory
+            // against the gateway capability index, and the gateway side
+            // of that comparison is exactly what this call would have to
+            // query. Filtering the gateway's own rows by it can only
+            // return the full set, which is a plausible-looking wrong
+            // answer for `--gateway-only=false`. Refuse instead.
+            anyhow::bail!(
+                "--gateway-only is a local-inventory filter and needs the direct local path; \\
+                 drop --gateway / --require-gateway / --transport rest to compare against the gateway"
+            );
+        }
+        self.gateway_client()
+            .search(request)
+            .await
+            .map_err(Into::into)
     }
 
     pub async fn describe(&self, tool_slug: String) -> anyhow::Result<Value> {
@@ -744,6 +755,61 @@ mod tests {
         assert_eq!(result["source"], "gateway");
         assert_eq!(result["registered_tools"][0], "blender_scene__list_objects");
         server.abort();
+    }
+
+    #[tokio::test]
+    async fn gateway_only_is_rejected_outside_the_direct_local_path() {
+        // `--gateway-only` is a local-inventory filter: it diffs the
+        // backend's raw `tools/list` against the gateway capability index.
+        // On the gateway path the field is not part of the REST contract,
+        // so forwarding it would silently return the unfiltered set — a
+        // plausible-looking wrong answer for `--gateway-only=false`.
+        let registry = tempdir().unwrap();
+        for control in [
+            DccControlPlane::new(
+                GatewayTarget::Local,
+                Endpoint::new("http://127.0.0.1:1".to_string()),
+                registry.path().to_path_buf(),
+                true,
+            ),
+            DccControlPlane::new(
+                GatewayTarget::Local,
+                Endpoint::new("http://127.0.0.1:1".to_string()),
+                registry.path().to_path_buf(),
+                false,
+            )
+            .with_transport(TransportMode::Rest),
+            DccControlPlane::new(
+                GatewayTarget::Remote {
+                    name: "remote".to_string(),
+                    endpoint: Endpoint::new("http://127.0.0.1:1".to_string()),
+                },
+                Endpoint::new("http://127.0.0.1:1".to_string()),
+                registry.path().to_path_buf(),
+                false,
+            ),
+        ] {
+            assert!(
+                !control.uses_direct_local(),
+                "the fixture must exercise the gateway path"
+            );
+            let error = control
+                .search(SearchRequest {
+                    query: None,
+                    dcc_type: None,
+                    instance_id: None,
+                    limit: None,
+                    gateway_only: Some(false),
+                })
+                .await
+                .expect_err("--gateway-only must not be silently dropped");
+
+            let message = format!("{error:#}");
+            assert!(
+                message.contains("--gateway-only"),
+                "the refusal must name the flag; got {message:?}"
+            );
+        }
     }
 
     #[tokio::test]
