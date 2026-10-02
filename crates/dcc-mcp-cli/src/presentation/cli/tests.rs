@@ -780,6 +780,7 @@ fn gateway_endpoint_for_command_ensures_gateway_for_agent_control_commands() {
                 dcc_type: None,
                 instance_id: None,
                 limit: None,
+                gateway_only: None,
             },
             &local,
         )
@@ -878,6 +879,7 @@ fn gateway_endpoint_for_command_ensures_gateway_for_agent_control_commands() {
                 dcc_type: None,
                 instance_id: None,
                 limit: None,
+                gateway_only: None,
             },
             &remote,
         )

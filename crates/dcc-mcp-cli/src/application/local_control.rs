@@ -31,7 +31,13 @@ pub async fn search_local(registry_dir: PathBuf, request: SearchRequest) -> anyh
     let gateway = HttpGateway::default();
     let mut hits = Vec::new();
     let mut total_matches = 0_usize;
-    let mut truncated = false;
+    // Truncation is tracked in two parts because the gateway-dispatchability
+    // filter has to discard one of them: a backend that says it cut its own
+    // list really did withhold rows, while a raw-hits-vs-reported-total
+    // shortfall stops meaning anything once the totals are recomputed from
+    // the filtered set.
+    let mut backend_truncated = false;
+    let mut backend_shortfall = false;
     let query = request
         .query
         .as_deref()
@@ -39,6 +45,17 @@ pub async fn search_local(registry_dir: PathBuf, request: SearchRequest) -> anyh
         .filter(|value| !value.is_empty())
         .map(str::to_string);
     let limit = effective_search_limit(query.as_deref(), request.limit);
+    // `--gateway-only` partitions the inventory, so the filter must see every
+    // hit before it runs. Handing the local `limit` to the backend would let
+    // it truncate the very set the filter selects from — `--limit 1` on a
+    // query whose first hit is not dispatchable would report zero matches
+    // although dispatchable ones exist. The unfiltered no-query path already
+    // works this way: `effective_search_limit` returns `usize::MAX` there.
+    let upstream_limit = if request.gateway_only.is_some() {
+        usize::MAX
+    } else {
+        limit
+    };
 
     for entry in &entries {
         let discovery_mcp_url = local_instance::discovery_mcp_url(entry);
@@ -50,7 +67,7 @@ pub async fn search_local(registry_dir: PathBuf, request: SearchRequest) -> anyh
                 json!({
                     "query": query,
                     "dcc": entry.dcc_type,
-                    "limit": limit,
+                    "limit": upstream_limit,
                     "include_disabled": true,
                 }),
                 None,
@@ -88,9 +105,10 @@ pub async fn search_local(registry_dir: PathBuf, request: SearchRequest) -> anyh
             .unwrap_or(payload_returned)
             .max(payload_returned);
         total_matches += payload_matches;
-        truncated |= payload.get("truncated").and_then(Value::as_bool) == Some(true)
-            || payload_returned < payload_matches;
+        backend_truncated |= payload.get("truncated").and_then(Value::as_bool) == Some(true);
+        backend_shortfall |= payload_returned < payload_matches;
     }
+    let mut truncated = backend_truncated || backend_shortfall;
 
     hits.sort_by(|left, right| {
         let left_key = left
@@ -107,6 +125,19 @@ pub async fn search_local(registry_dir: PathBuf, request: SearchRequest) -> anyh
                 .cmp(&right.get("instance_id").and_then(Value::as_str))
         })
     });
+    // Apply the gateway-dispatchability filter before the limit so
+    // `--gateway-only=false` reports the true size of the "advertised but
+    // not gateway-routable" set rather than a limit-truncated sample.
+    if let Some(gateway_only) = request.gateway_only {
+        retain_gateway_dispatchable(&mut hits, gateway_only);
+        // Re-derive the counts from the filtered set. These fields describe
+        // the rows being returned, so keeping the backend's unfiltered totals
+        // would report `truncated: true` for a response that withheld
+        // nothing — the filter, not the transport, is what removed rows.
+        // Backend truncation is still honoured: it really did cut its list.
+        total_matches = hits.len();
+        truncated = backend_truncated;
+    }
     if hits.len() > limit {
         hits.truncate(limit);
         truncated = true;
@@ -1082,6 +1113,14 @@ fn extend_tool_hits(hits: &mut Vec<Value>, entry: &ServiceEntry, payload: &Value
             .map(str::trim)
             .filter(|skill| !skill.is_empty());
         let annotations = tool.get("annotations").cloned().unwrap_or(Value::Null);
+        // A tool is reachable through the gateway only when it has skill
+        // ownership: the gateway capability index is built from the
+        // backend's `/v1/search` skill catalog, not from this raw
+        // `tools/list`. Tools with no owning skill are indexed nowhere, so
+        // the gateway's lookup alias bridge has nothing to resolve and the
+        // slug below would 404. Mark them so callers can tell a local-only
+        // tool from a gateway-routable one before they try to dispatch.
+        let gateway_dispatchable = is_gateway_dispatchable(name, skill_name);
         let next_step = if !enabled {
             match (skill_name, group) {
                 (Some(skill_name), Some(group)) => json!({
@@ -1122,12 +1161,52 @@ fn extend_tool_hits(hits: &mut Vec<Value>, entry: &ServiceEntry, payload: &Value
             "annotations": annotations,
             "metadata": tool.get("metadata").cloned().unwrap_or(Value::Null),
             "loaded": true,
+            "gateway_dispatchable": gateway_dispatchable,
             "next_step": next_step,
             "scope": "local",
             "source": "local_mcp",
             "mcp_url": local_instance::mcp_url(entry),
         }));
     }
+}
+
+/// Keep only the hits whose gateway-dispatchability equals `gateway_only`.
+///
+/// Inverting the flag (`--gateway-only=false`) is how a caller lists the
+/// difference: tools this CLI advertises from the backend's raw
+/// `tools/list` that the gateway capability index cannot route to.
+fn retain_gateway_dispatchable(hits: &mut Vec<Value>, gateway_only: bool) {
+    hits.retain(|hit| {
+        hit.get("gateway_dispatchable")
+            .and_then(Value::as_bool)
+            // Skill candidates carry no such field and are always
+            // gateway-routable, so keep them under `--gateway-only`.
+            .unwrap_or(true)
+            == gateway_only
+    });
+}
+
+/// Separator a backend places between the owning skill and the action name.
+const SKILL_TOOL_SEP: &str = "__";
+
+/// Whether a raw `tools/list` entry can be dispatched through the gateway.
+///
+/// The gateway indexes the backend's skill catalog, so an action reaches
+/// the gateway only under skill ownership — either declared explicitly via
+/// `skill_name` or encoded into a `<skill>__<tool>` name. Everything else
+/// exists solely on this direct/local path and would 404 through the
+/// gateway, because the lookup alias bridge has no qualified name to
+/// bridge to.
+fn is_gateway_dispatchable(name: &str, skill_name: Option<&str>) -> bool {
+    if skill_name.is_some() {
+        return true;
+    }
+    // A `<skill>__<tool>` name carries its own ownership, so it is
+    // addressable even when the backend omitted the explicit field.
+    let Some((skill, tool)) = name.split_once(SKILL_TOOL_SEP) else {
+        return false;
+    };
+    !skill.is_empty() && !tool.is_empty()
 }
 
 fn has_safety_hints(annotations: &Value) -> bool {
