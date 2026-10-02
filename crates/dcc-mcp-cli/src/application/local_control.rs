@@ -31,7 +31,13 @@ pub async fn search_local(registry_dir: PathBuf, request: SearchRequest) -> anyh
     let gateway = HttpGateway::default();
     let mut hits = Vec::new();
     let mut total_matches = 0_usize;
-    let mut truncated = false;
+    // Truncation is tracked in two parts because the gateway-dispatchability
+    // filter has to discard one of them: a backend that says it cut its own
+    // list really did withhold rows, while a raw-hits-vs-reported-total
+    // shortfall stops meaning anything once the totals are recomputed from
+    // the filtered set.
+    let mut backend_truncated = false;
+    let mut backend_shortfall = false;
     let query = request
         .query
         .as_deref()
@@ -39,6 +45,17 @@ pub async fn search_local(registry_dir: PathBuf, request: SearchRequest) -> anyh
         .filter(|value| !value.is_empty())
         .map(str::to_string);
     let limit = effective_search_limit(query.as_deref(), request.limit);
+    // `--gateway-only` partitions the inventory, so the filter must see every
+    // hit before it runs. Handing the local `limit` to the backend would let
+    // it truncate the very set the filter selects from — `--limit 1` on a
+    // query whose first hit is not dispatchable would report zero matches
+    // although dispatchable ones exist. The unfiltered no-query path already
+    // works this way: `effective_search_limit` returns `usize::MAX` there.
+    let upstream_limit = if request.gateway_only.is_some() {
+        usize::MAX
+    } else {
+        limit
+    };
 
     for entry in &entries {
         let discovery_mcp_url = local_instance::discovery_mcp_url(entry);
@@ -50,7 +67,7 @@ pub async fn search_local(registry_dir: PathBuf, request: SearchRequest) -> anyh
                 json!({
                     "query": query,
                     "dcc": entry.dcc_type,
-                    "limit": limit,
+                    "limit": upstream_limit,
                     "include_disabled": true,
                 }),
                 None,
@@ -88,9 +105,10 @@ pub async fn search_local(registry_dir: PathBuf, request: SearchRequest) -> anyh
             .unwrap_or(payload_returned)
             .max(payload_returned);
         total_matches += payload_matches;
-        truncated |= payload.get("truncated").and_then(Value::as_bool) == Some(true)
-            || payload_returned < payload_matches;
+        backend_truncated |= payload.get("truncated").and_then(Value::as_bool) == Some(true);
+        backend_shortfall |= payload_returned < payload_matches;
     }
+    let mut truncated = backend_truncated || backend_shortfall;
 
     hits.sort_by(|left, right| {
         let left_key = left
@@ -112,6 +130,13 @@ pub async fn search_local(registry_dir: PathBuf, request: SearchRequest) -> anyh
     // not gateway-routable" set rather than a limit-truncated sample.
     if let Some(gateway_only) = request.gateway_only {
         retain_gateway_dispatchable(&mut hits, gateway_only);
+        // Re-derive the counts from the filtered set. These fields describe
+        // the rows being returned, so keeping the backend's unfiltered totals
+        // would report `truncated: true` for a response that withheld
+        // nothing — the filter, not the transport, is what removed rows.
+        // Backend truncation is still honoured: it really did cut its list.
+        total_matches = hits.len();
+        truncated = backend_truncated;
     }
     if hits.len() > limit {
         hits.truncate(limit);

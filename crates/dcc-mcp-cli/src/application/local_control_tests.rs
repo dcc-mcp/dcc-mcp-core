@@ -1,3 +1,6 @@
+use dcc_mcp_transport::discovery::file_registry::FileRegistry;
+use tempfile::TempDir;
+
 use super::*;
 
 #[test]
@@ -623,6 +626,14 @@ async fn gateway_only_filter_selects_or_inverts_the_dispatchable_set() {
     assert_eq!(all["total"], 2, "without the flag both tools are listed");
 
     let dispatchable = search(Some(true)).await;
+    assert_eq!(
+        dispatchable["truncated"], false,
+        "filtering is not truncation: nothing was withheld from the caller"
+    );
+    assert_eq!(
+        dispatchable["total_matches"], 1,
+        "the counts must describe the filtered set, not the raw inventory"
+    );
     let dispatchable = dispatchable["hits"].as_array().expect("hits");
     assert_eq!(dispatchable.len(), 1, "only the skill-owned tool routes");
     assert_eq!(
@@ -633,11 +644,175 @@ async fn gateway_only_filter_selects_or_inverts_the_dispatchable_set() {
     // `--gateway-only=false` is the difference: what this CLI advertises
     // from the raw `tools/list` that the gateway index cannot route to.
     let local_only = search(Some(false)).await;
+    assert_eq!(local_only["truncated"], false);
+    assert_eq!(local_only["total_matches"], 1);
     let local_only = local_only["hits"].as_array().expect("hits");
     assert_eq!(local_only.len(), 1);
     assert_eq!(
         local_only[0]["backend_tool"], "create_locator",
         "an unowned raw tool is local-only"
+    );
+
+    server.abort();
+}
+
+/// Stub backend that answers both `tools/list` and `search_tools`.
+///
+/// `search_tools` honours the `limit` it is given the way a real adapter
+/// does (`discovery.rs` truncates the hit list before replying), so a test
+/// that only stubs `tools/list` cannot see the filter/limit ordering bug.
+async fn spawn_search_stub(tools: Vec<Value>) -> (String, tokio::task::JoinHandle<()>) {
+    use axum::Json;
+    use axum::Router;
+    use axum::routing::post;
+
+    let app = Router::new().route(
+        "/mcp",
+        post(move |Json(request): Json<Value>| {
+            let tools = tools.clone();
+            async move {
+                let method = request.get("method").and_then(Value::as_str);
+                let params = request.get("params").cloned().unwrap_or(Value::Null);
+                let requested_limit = params
+                    .get("arguments")
+                    .and_then(|args| args.get("limit"))
+                    .and_then(Value::as_u64)
+                    .map(|limit| limit as usize)
+                    .unwrap_or(usize::MAX);
+                // `tools/list` is the unfiltered inventory; `search_tools` is
+                // the ranked-and-capped one.
+                let mut listed = if method == Some("tools/call") {
+                    tools.clone()
+                } else {
+                    tools.clone()
+                };
+                listed.truncate(requested_limit);
+                let payload = json!({
+                    "tools": listed,
+                    "total_matches": tools.len(),
+                    "truncated": listed.len() < tools.len(),
+                });
+                Json(json!({
+                    "jsonrpc": "2.0",
+                    "id": request.get("id").cloned().unwrap_or(Value::Null),
+                    "result": {
+                        "content": [{"type": "text", "text": payload.to_string()}],
+                    },
+                }))
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind MCP fixture");
+    let address = listener.local_addr().expect("MCP fixture address");
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    (format!("http://{address}/mcp"), server)
+}
+
+/// Register one stub instance and keep its `FileRegistry` alive.
+///
+/// The registry owns the sentinel file handle that marks the row as owned by
+/// this process; dropping it lets `read_alive` prune the entry, which would
+/// make the search see an empty inventory.
+async fn register_stub_instance(mcp_url: &str) -> (TempDir, FileRegistry) {
+    let registry_dir = TempDir::new().expect("registry tempdir");
+    let registry = FileRegistry::new(registry_dir.path()).expect("file registry");
+    let mut entry = ServiceEntry::new("maya", "127.0.0.1", 0);
+    entry
+        .metadata
+        .insert("mcp_url".to_string(), mcp_url.to_string());
+    registry.register(entry).expect("register local DCC");
+    (registry_dir, registry)
+}
+
+#[tokio::test]
+async fn gateway_only_sees_the_whole_inventory_before_the_limit_truncates_it() {
+    // The filter must run on the full inventory, not on the backend's
+    // already-truncated page. With `--limit 1` the stub hands back only its
+    // first hit (`create_locator`, not gateway-routable), so a filter applied
+    // after the backend's truncation would report zero dispatchable tools
+    // even though one exists.
+    let (mcp_url, server) = spawn_search_stub(vec![
+        json!({"name": "create_locator", "description": "no skill"}),
+        json!({"name": "maya_scene__list_objects", "description": "skill owned"}),
+        json!({"name": "maya_scene__get_session_info", "description": "skill owned"}),
+    ])
+    .await;
+    let (registry_dir, _registry) = register_stub_instance(&mcp_url).await;
+
+    let output = search_local(
+        registry_dir.path().to_path_buf(),
+        SearchRequest {
+            query: Some("scene".to_string()),
+            dcc_type: None,
+            instance_id: None,
+            limit: Some(1),
+            gateway_only: Some(true),
+        },
+    )
+    .await
+    .expect("filtered local search");
+
+    let hits = output["hits"].as_array().expect("hits");
+    assert_eq!(
+        hits.len(),
+        1,
+        "the limit applies after the filter, so the dispatchable hit survives; got {output}"
+    );
+    // Hits are sorted by slug, so the first dispatchable row is
+    // `maya_scene__get_session_info`; what matters is that it is one of the
+    // skill-owned tools and not the unowned `create_locator` the backend
+    // would have returned first.
+    assert_eq!(
+        hits[0]["backend_tool"], "maya_scene__get_session_info",
+        "the surviving hit must be a dispatchable one; got {output}"
+    );
+    assert_eq!(
+        output["total_matches"], 2,
+        "two of the three tools are dispatchable, and the count is the \
+         filtered size rather than the backend's unfiltered total"
+    );
+    assert_eq!(
+        output["truncated"], true,
+        "the limit really did cut the filtered set, so say so"
+    );
+
+    server.abort();
+}
+
+#[tokio::test]
+async fn gateway_only_without_a_limit_reports_no_truncation() {
+    // Same stub, no `--limit`: filtering removes a row but withholds
+    // nothing, so `truncated` must stay false and `total_matches` must be
+    // the filtered size (2), not the raw inventory size (3).
+    let (mcp_url, server) = spawn_search_stub(vec![
+        json!({"name": "create_locator", "description": "no skill"}),
+        json!({"name": "maya_scene__list_objects", "description": "skill owned"}),
+        json!({"name": "maya_scene__get_session_info", "description": "skill owned"}),
+    ])
+    .await;
+    let (registry_dir, _registry) = register_stub_instance(&mcp_url).await;
+
+    let output = search_local(
+        registry_dir.path().to_path_buf(),
+        SearchRequest {
+            query: Some("scene".to_string()),
+            dcc_type: None,
+            instance_id: None,
+            limit: None,
+            gateway_only: Some(true),
+        },
+    )
+    .await
+    .expect("filtered local search");
+
+    let hits = output["hits"].as_array().expect("hits");
+    assert_eq!(hits.len(), 2, "both dispatchable tools are returned");
+    assert_eq!(output["total_matches"], 2);
+    assert_eq!(
+        output["truncated"], false,
+        "nothing was withheld: the excluded row was filtered, not truncated"
     );
 
     server.abort();

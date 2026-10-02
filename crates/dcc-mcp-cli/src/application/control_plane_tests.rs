@@ -11,8 +11,6 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use tempfile::tempdir;
 
-use super::*;
-
 async fn echo_request_id(request: Request, next: Next) -> Response {
     let request_id = request.headers().get("x-request-id").cloned();
     let mut response = next.run(request).await;
@@ -812,4 +810,66 @@ fn direct_local_results_disclose_that_gateway_stats_exclude_them() {
         stats["stats_coverage"]["excluded_control_routes"][0],
         "local_mcp_direct"
     );
+}
+
+#[tokio::test]
+async fn gateway_only_is_rejected_outside_the_direct_local_path() {
+    // `--gateway-only` is a local-inventory filter: it diffs the backend's
+    // raw `tools/list` against the gateway capability index. On the gateway
+    // path the field is not part of the REST contract, so forwarding it
+    // would silently return the unfiltered set — a plausible-looking wrong
+    // answer for `--gateway-only=false`, which is supposed to be the
+    // difference between the two inventories.
+    let registry = tempdir().unwrap();
+    let unreachable = Endpoint::new("http://127.0.0.1:1".to_string());
+    for control in [
+        // --require-gateway on a local target
+        DccControlPlane::new(
+            GatewayTarget::Local,
+            unreachable.clone(),
+            registry.path().to_path_buf(),
+            true,
+        ),
+        // --transport rest
+        DccControlPlane::new(
+            GatewayTarget::Local,
+            unreachable.clone(),
+            registry.path().to_path_buf(),
+            false,
+        )
+        .with_transport(TransportMode::Rest),
+        // a remote gateway profile
+        DccControlPlane::new(
+            GatewayTarget::Remote {
+                name: "remote".to_string(),
+                endpoint: unreachable.clone(),
+            },
+            unreachable.clone(),
+            registry.path().to_path_buf(),
+            false,
+        ),
+    ] {
+        assert!(
+            !control.uses_direct_local(),
+            "the fixture must exercise the gateway path"
+        );
+        for gateway_only in [Some(true), Some(false)] {
+            let error = control
+                .search(SearchRequest {
+                    query: None,
+                    dcc_type: None,
+                    instance_id: None,
+                    limit: None,
+                    gateway_only,
+                })
+                .await
+                .expect_err("--gateway-only must not be silently dropped");
+
+            let message = format!("{error:#}");
+            assert!(
+                message.contains("--gateway-only"),
+                "the refusal must name the flag; got {message:?}"
+            );
+        }
+    }
 }
