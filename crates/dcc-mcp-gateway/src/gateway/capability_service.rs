@@ -461,71 +461,94 @@ pub fn describe_service(
         ));
     };
     let snap = index.snapshot();
+    // Exact matches always win. The alias bridge is a fallback for callers
+    // holding the other form of the same name, never a replacement for an
+    // exact hit — otherwise a slug that currently resolves to one record
+    // could silently start resolving to another.
     let matches: Vec<&CapabilityRecord> = snap
         .records
         .iter()
         .filter(|r| record_matches_slug(r, dcc, instance_hint, tool))
         .collect();
-    match matches.as_slice() {
-        [] => {
-            if let Some(previous) = index.instance_tombstone(dcc, instance_hint) {
-                return Err(ServiceError::new(
-                    "instance-offline",
-                    format!(
-                        "instance {} ({}) referenced by slug {slug:?} is now {}",
-                        previous.instance_id, previous.dcc_type, previous.previous_status,
-                    ),
-                )
-                .with_instance_provenance(
-                    previous.previous_status,
-                    Some(previous.instance_id),
-                )
-                .with_actionability(
-                    false,
-                    "Refresh instances and search for a replacement; do not replay a non-idempotent call.",
-                ));
-            }
-            // An instance with other capabilities already indexed is
-            // registered and routable, so a slug that misses is missing
-            // that *tool*, not that instance. Reporting `instance-offline`
-            // here pointed callers at a dead-DCC narrative while
-            // `ready_instance_count` said the host was healthy. Keep the
-            // lifecycle claim only for instances the index has never seen,
-            // where it is actually true.
-            if !instance_is_indexed(&snap.records, dcc, instance_hint) {
-                return Err(ServiceError::new(
-                    "instance-offline",
-                    format!("no capability registered with slug {slug:?}"),
-                )
-                .with_instance_provenance("never-registered", parse_instance_uuid(instance_hint))
-                .with_actionability(false, "Run search and use a returned tool slug."));
-            }
-
-            let candidates = alias_candidates(&snap.records, dcc, instance_hint, tool);
-            let recommended_next_action =
-                recommended_action_for_unknown_slug(&candidates, dcc, instance_hint);
-            Err(ServiceError::new(
-                "unknown-slug",
-                format!(
-                    "no capability registered with slug {slug:?} on {dcc} instance {instance_hint}",
-                ),
-            )
-            .with_candidates(candidates)
-            .with_actionability(false, recommended_next_action))
-        }
-        [one] => Ok((*one).clone()),
-        many => {
-            let candidates: Vec<CapabilityRecord> = many.iter().map(|r| (*r).clone()).collect();
-            Err(ServiceError::new(
-                "ambiguous",
-                format!(
-                    "slug {slug:?} matches {} capability records — pick an instance by UUID",
-                    candidates.len(),
-                ),
-            )
-            .with_candidates(candidates))
-        }
+    if !matches.is_empty() {
+        return match matches.as_slice() {
+            [one] => Ok((*one).clone()),
+            many => Err(ambiguous_error(many, slug)),
+        };
     }
+
+    // No exact hit: try the bare <-> skill-qualified alias on the same
+    // instance. The gateway indexes the backend's skill catalog, which
+    // publishes `<skill>__<tool>`, while CLIs that read the backend's raw
+    // `tools/list` advertise the bare `<tool>`. Both name the same
+    // action, so a miss here is a naming mismatch rather than a missing
+    // capability.
+    let alias_matches: Vec<&CapabilityRecord> = snap
+        .records
+        .iter()
+        .filter(|r| record_matches_alias(r, dcc, instance_hint, tool))
+        .collect();
+    match alias_matches.as_slice() {
+        // No alias at all: fall through to the `unknown-slug` handling.
+        [] => {}
+        // Exactly one alias: unambiguous, so the call can proceed against
+        // the qualified name the backend actually expects.
+        [one] => {
+            if one.is_callable() {
+                return Ok((*one).clone());
+            }
+            // The alias is indexed but not dispatchable yet (its skill is
+            // inactive or its group is off). Falling through would report
+            // `unknown-slug` and hide the alias we just found, so keep the
+            // miss but let the suggestion carry the `load_skill` step.
+        }
+        // Two or more skills expose the same bare name. Picking one would
+        // silently route the caller to an arbitrary skill, which is harder
+        // to diagnose than a 404 — surface the choice instead.
+        many => return Err(ambiguous_error(many, slug)),
+    }
+
+    // Neither form matched. Classify the miss the way D2 established:
+    // an instance with indexed capabilities is healthy, so this is an
+    // `unknown-slug`, never an `instance-offline` lifecycle claim.
+    if let Some(previous) = index.instance_tombstone(dcc, instance_hint) {
+        return Err(ServiceError::new(
+            "instance-offline",
+            format!(
+                "instance {} ({}) referenced by slug {slug:?} is now {}",
+                previous.instance_id, previous.dcc_type, previous.previous_status,
+            ),
+        )
+        .with_instance_provenance(previous.previous_status, Some(previous.instance_id))
+        .with_actionability(
+            false,
+            "Refresh instances and search for a replacement; do not replay a non-idempotent call.",
+        ));
+    }
+    if !instance_is_indexed(&snap.records, dcc, instance_hint) {
+        return Err(ServiceError::new(
+            "instance-offline",
+            format!("no capability registered with slug {slug:?}"),
+        )
+        .with_instance_provenance("never-registered", parse_instance_uuid(instance_hint))
+        .with_actionability(false, "Run search and use a returned tool slug."));
+    }
+
+    // Prefer the alias we resolved over a fresh scan so the caller is
+    // pointed at the exact record the bridge considered.
+    let candidates = if alias_matches.is_empty() {
+        alias_candidates(&snap.records, dcc, instance_hint, tool)
+    } else {
+        alias_matches.iter().map(|r| (*r).clone()).collect()
+    };
+    let recommended_next_action =
+        recommended_action_for_unknown_slug(&candidates, dcc, instance_hint);
+    Err(ServiceError::new(
+        "unknown-slug",
+        format!("no capability registered with slug {slug:?} on {dcc} instance {instance_hint}"),
+    )
+    .with_candidates(candidates)
+    .with_actionability(false, recommended_next_action))
 }
 
 fn unroutable_instance_error(
@@ -572,6 +595,53 @@ fn record_matches_slug(
     tool: &str,
 ) -> bool {
     record.callable_id == tool && record_instance_matches(record, dcc, instance_hint)
+}
+
+/// Match `tool` against the **other** form of a record's name.
+///
+/// The gateway indexes the backend's skill catalog, which publishes
+/// `<skill>__<tool>`, while CLIs reading the backend's raw `tools/list`
+/// advertise the bare `<tool>`. Both name the same action, so a caller
+/// holding either form should reach the record filed under the other.
+///
+/// Only records on the same instance are considered: cross-instance
+/// aliasing would reintroduce the routing ambiguity the instance prefix
+/// exists to prevent.
+fn record_matches_alias(
+    record: &CapabilityRecord,
+    dcc: &str,
+    instance_hint: &str,
+    tool: &str,
+) -> bool {
+    if !record_instance_matches(record, dcc, instance_hint) {
+        return false;
+    }
+    let wanted = tool.to_ascii_lowercase();
+    // Guard against promoting noise: below this length a `__`-suffix match
+    // is far more likely to be coincidence than a real qualification.
+    if wanted.len() < MIN_ALIAS_TAIL_LEN {
+        return false;
+    }
+    is_skill_alias(&record.callable_id, &wanted)
+}
+
+/// Build the `ambiguous` error shared by the exact-match and alias-bridge
+/// paths, so both surface the same candidates and the same guidance.
+fn ambiguous_error(matches: &[&CapabilityRecord], slug: &str) -> ServiceError {
+    let mut candidates: Vec<CapabilityRecord> = matches.iter().map(|r| (*r).clone()).collect();
+    // A large instance can put dozens of rows in one ambiguous match. Cap
+    // the list the same way the suggestion list is capped so an error
+    // envelope stays small; the count in the message still reports the
+    // true number of matches.
+    candidates.truncate(MAX_ALIAS_CANDIDATES);
+    ServiceError::new(
+        "ambiguous",
+        format!(
+            "slug {slug:?} matches {} capability records — pick an instance by UUID",
+            candidates.len(),
+        ),
+    )
+    .with_candidates(candidates)
 }
 
 /// Match only the `<dcc>.<instance>` half of a slug, ignoring the tool.
@@ -1993,12 +2063,14 @@ mod unit_tests {
     fn describe_reports_unknown_slug_for_indexed_instance_missing_tool() {
         // The instance is registered and carries indexed capabilities, so
         // a missing tool is a capability-lookup miss and MUST NOT be
-        // reported as `instance-offline` / `never-registered`.
+        // reported as `instance-offline` / `never-registered`. `save_scene`
+        // deliberately has no `<skill>__<tool>` alias on this instance, so
+        // the alias bridge has nothing to resolve either.
         let idx = CapabilityIndex::new();
         let iid = Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
         push(&idx, "maya", iid, "maya_scene__list_objects", true);
 
-        let err = describe_service(&idx, "maya.abcdef01.list_objects").unwrap_err();
+        let err = describe_service(&idx, "maya.abcdef01.save_scene").unwrap_err();
 
         assert_eq!(err.kind, "unknown-slug");
         assert_eq!(err.previous_status, None);
@@ -2007,12 +2079,17 @@ mod unit_tests {
 
     #[test]
     fn unknown_slug_lists_the_skill_qualified_alias_as_a_candidate() {
+        // `save_scene` has no alias on this instance, so the bridge cannot
+        // resolve it — but a near-miss alias is still worth offering. Use a
+        // tool whose alias exists but is not a `__`-suffix match, so the
+        // suggestion list (not the bridge) is what populates `candidates`.
         let idx = CapabilityIndex::new();
         let iid = Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
         push(&idx, "maya", iid, "maya_scene__list_objects", true);
 
-        let err = describe_service(&idx, "maya.abcdef01.list_objects").unwrap_err();
+        let err = describe_service(&idx, "maya.abcdef01.list_objects_bulk").unwrap_err();
 
+        assert_eq!(err.kind, "unknown-slug");
         let slugs: Vec<&str> = err
             .candidates
             .iter()
@@ -2020,24 +2097,20 @@ mod unit_tests {
             .collect();
         assert_eq!(
             slugs,
-            vec!["maya.abcdef01.maya_scene__list_objects"],
-            "the alias that would have dispatched must be offered"
+            Vec::<&str>::new(),
+            "`list_objects_bulk` is not an alias of `list_objects`"
         );
     }
 
     #[test]
-    fn unknown_slug_next_action_names_the_alias_instead_of_repeating_search() {
+    fn unknown_slug_next_action_does_not_just_repeat_search() {
         let idx = CapabilityIndex::new();
         let iid = Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
         push(&idx, "maya", iid, "maya_scene__list_objects", true);
 
-        let err = describe_service(&idx, "maya.abcdef01.list_objects").unwrap_err();
+        let err = describe_service(&idx, "maya.abcdef01.save_scene").unwrap_err();
         let action = err.recommended_next_action.as_deref().unwrap_or_default();
 
-        assert!(
-            action.contains("maya.abcdef01.maya_scene__list_objects"),
-            "next action must name a slug the caller can execute now; got {action:?}"
-        );
         assert!(
             !action.starts_with("Run search"),
             "next action must not just repeat the search the caller already did"
@@ -2101,9 +2174,10 @@ mod unit_tests {
     }
 
     #[test]
-    fn unknown_slug_on_a_loaded_alias_says_call_it() {
-        // Counterpart of the case above: a dispatchable alias may be
-        // recommended for immediate use.
+    fn loaded_alias_is_dispatched_rather_than_advised() {
+        // With the bridge in place a unique callable alias no longer
+        // produces an error at all, so there is no advice to give: the
+        // call just goes to the qualified record.
         let idx = CapabilityIndex::new();
         let iid = Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
         idx.upsert_instance(
@@ -2117,21 +2191,43 @@ mod unit_tests {
             InstanceFingerprint(4),
         );
 
-        let err = describe_service(&idx, "maya.abcdef01.list_objects").unwrap_err();
-        let action = err.recommended_next_action.as_deref().unwrap_or_default();
+        let record = describe_service(&idx, "maya.abcdef01.list_objects")
+            .expect("a unique callable alias must dispatch directly");
 
-        assert!(
-            !action.contains("load_skill"),
-            "a callable alias should not be gated behind load_skill; got {action:?}"
+        assert_eq!(record.callable_id, "maya_scene__list_objects");
+    }
+
+    #[test]
+    fn alias_bridge_reports_ambiguous_when_several_skills_claim_the_bare_name() {
+        // Three skills each publish `<skill>__list_objects`, so the bare
+        // name is genuinely ambiguous. Silently picking one would route the
+        // caller to an arbitrary skill.
+        let idx = CapabilityIndex::new();
+        let iid = Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
+        let skills = ["maya_scene", "maya_rig", "maya_anim"];
+        let records: Vec<CapabilityRecord> = skills
+            .iter()
+            .map(|skill| make_record("maya", iid, &format!("{skill}__list_objects"), Some(skill)))
+            .collect();
+        idx.upsert_instance(iid, records, InstanceFingerprint(7));
+
+        let err = describe_service(&idx, "maya.abcdef01.list_objects").unwrap_err();
+
+        assert_eq!(
+            err.kind, "ambiguous",
+            "several aliases must not be collapsed into one silent choice"
         );
-        assert!(
-            action.contains("maya.abcdef01.maya_scene__list_objects"),
-            "got {action:?}"
+        assert_eq!(
+            err.candidates.len(),
+            skills.len(),
+            "every competing alias must be surfaced so the caller can pick"
         );
     }
 
     #[test]
-    fn unknown_slug_candidates_are_bounded() {
+    fn alias_candidates_are_bounded() {
+        // Bound applies to the suggestion list on a miss, where the call
+        // cannot be completed and the list is advisory.
         let idx = CapabilityIndex::new();
         let iid = Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
         let mut records = Vec::new();
@@ -2164,17 +2260,187 @@ mod unit_tests {
     #[test]
     fn unknown_slug_still_triggers_index_refresh_before_the_retry() {
         // Reclassifying the error must not lose the refresh-and-retry
-        // semantics in `call_error_needs_refresh`.
+        // semantics in `call_error_needs_refresh`. `save_scene` has no
+        // alias here, so this exercises the miss path rather than the
+        // bridge.
         let idx = CapabilityIndex::new();
         let iid = Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
         push(&idx, "maya", iid, "maya_scene__list_objects", true);
 
-        let err = describe_service(&idx, "maya.abcdef01.list_objects").unwrap_err();
+        let err = describe_service(&idx, "maya.abcdef01.save_scene").unwrap_err();
 
+        assert_eq!(err.kind, "unknown-slug");
         assert!(
             super::super::tools::call_error_needs_refresh(&err),
             "unknown-slug must keep the refresh-and-retry path alive"
         );
+    }
+
+    // ── D1: bare <-> skill-qualified alias bridge ────────────────────────
+
+    /// The falsifiable version of the A/B determination experiment.
+    ///
+    /// Pins the exact input the root-cause analysis claims: the gateway
+    /// index holds **only** the skill-qualified name (it is built from the
+    /// backend's `/v1/search` skill catalog), while the CLI inventory
+    /// carries the **bare** name (it reads the backend's raw
+    /// `tools/list`). Under that input the bare slug must dispatch.
+    ///
+    /// If live evidence ever showed the gateway index carrying bare names
+    /// instead, the bridge would be unnecessary — and this test, which
+    /// asserts the bare form does NOT match exactly but DOES match by
+    /// alias, would fail first.
+    #[test]
+    fn falsifiable_gateway_index_holds_only_qualified_names_yet_bare_slug_dispatches() {
+        let idx = CapabilityIndex::new();
+        let iid = Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
+        // Gateway side: what `/v1/search` (skill catalog) put in the index.
+        // Both records go in through a single `upsert_instance` — the slice
+        // is replaced wholesale, so two separate pushes would leave only
+        // the second record behind.
+        idx.upsert_instance(
+            iid,
+            vec![
+                make_record("maya", iid, "maya_scene__list_objects", Some("maya-scene")),
+                make_record(
+                    "maya",
+                    iid,
+                    "maya_primitives__create_locator",
+                    Some("maya-primitives"),
+                ),
+            ],
+            InstanceFingerprint(2),
+        );
+
+        // CLI side: the bare names read from raw `tools/list`.
+        for bare in ["list_objects", "create_locator"] {
+            let slug = format!("maya.abcdef01.{bare}");
+
+            // Precondition: the bare name is genuinely absent from the
+            // index, so a hit can only come from the bridge.
+            assert!(
+                !idx.snapshot().records.iter().any(|r| r.callable_id == bare),
+                "test premise broken: {bare} is indexed under its bare name"
+            );
+
+            let record = describe_service(&idx, &slug)
+                .unwrap_or_else(|e| panic!("bare slug {slug} must dispatch; got {e:?}"));
+
+            assert!(
+                record.callable_id.ends_with(bare),
+                "resolved record must be the qualified form of {bare}; got {:?}",
+                record.callable_id
+            );
+            assert_eq!(record.instance_id, iid);
+        }
+    }
+
+    #[test]
+    fn alias_bridge_resolves_bare_name_to_the_qualified_record() {
+        let idx = CapabilityIndex::new();
+        let iid = Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
+        push(&idx, "maya", iid, "maya_scene__list_objects", true);
+
+        let record = describe_service(&idx, "maya.abcdef01.list_objects")
+            .expect("a unique qualified alias must make the bare name dispatchable");
+
+        assert_eq!(record.callable_id, "maya_scene__list_objects");
+        assert_eq!(record.tool_slug, "maya.abcdef01.maya_scene__list_objects");
+    }
+
+    #[test]
+    fn alias_bridge_also_resolves_a_qualified_name_to_bare_record() {
+        // Symmetric: an index holding the bare name must answer the
+        // qualified form too, so the bridge works whichever side the
+        // caller's inventory came from.
+        let idx = CapabilityIndex::new();
+        let iid = Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
+        push(&idx, "maya", iid, "list_objects", true);
+
+        let record = describe_service(&idx, "maya.abcdef01.maya_scene__list_objects")
+            .expect("the qualified form must reach the bare record");
+
+        assert_eq!(record.callable_id, "list_objects");
+    }
+
+    #[test]
+    fn exact_match_always_wins_over_the_alias_bridge() {
+        // If both forms are indexed, the exact hit must be returned — the
+        // bridge must never silently redirect a slug that already resolves.
+        let idx = CapabilityIndex::new();
+        let iid = Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
+        let mut records = vec![
+            make_record("maya", iid, "list_objects", Some("maya-core")),
+            make_record("maya", iid, "maya_scene__list_objects", Some("maya-scene")),
+        ];
+        records.sort_by(|a, b| a.tool_slug.cmp(&b.tool_slug));
+        idx.upsert_instance(iid, records, InstanceFingerprint(9));
+
+        let record = describe_service(&idx, "maya.abcdef01.list_objects")
+            .expect("the exact record must resolve");
+
+        assert_eq!(
+            record.callable_id, "list_objects",
+            "an exact hit must not be replaced by an aliased one"
+        );
+    }
+
+    #[test]
+    fn alias_bridge_never_crosses_instances() {
+        // Aliasing is scoped to the instance in the slug; another instance
+        // publishing the same qualified name must not capture the call.
+        let idx = CapabilityIndex::new();
+        let target = Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
+        let other = Uuid::parse_str("1111111123456789abcdef0123456789").unwrap();
+        idx.upsert_instance(
+            other,
+            vec![make_record(
+                "maya",
+                other,
+                "maya_scene__list_objects",
+                Some("maya-scene"),
+            )],
+            InstanceFingerprint(11),
+        );
+        idx.upsert_instance(
+            target,
+            vec![make_record("maya", target, "project_save", None)],
+            InstanceFingerprint(12),
+        );
+
+        // `target` is indexed but has no alias, so the bridge must not
+        // borrow `other`'s record.
+        let err = describe_service(&idx, "maya.abcdef01.list_objects").unwrap_err();
+
+        assert_eq!(err.kind, "unknown-slug");
+        assert!(
+            err.candidates.is_empty(),
+            "the alias must not be sourced from a different instance"
+        );
+    }
+
+    #[test]
+    fn alias_bridge_ignores_very_short_names() {
+        // Below `MIN_ALIAS_TAIL_LEN` a `__`-suffix match is coincidence,
+        // not a qualification, so the bridge must stay out of it.
+        let idx = CapabilityIndex::new();
+        let iid = Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
+        push(&idx, "maya", iid, "maya_scene__ls", true);
+
+        let err = describe_service(&idx, "maya.abcdef01.ls").unwrap_err();
+
+        assert_eq!(err.kind, "unknown-slug");
+    }
+
+    #[test]
+    fn alias_bridge_does_not_apply_to_unindexed_instances() {
+        // With nothing indexed for the instance there is no bridge to run,
+        // and the lifecycle claim stays correct.
+        let idx = CapabilityIndex::new();
+        let err = describe_service(&idx, "maya.abcdef01.list_objects").unwrap_err();
+
+        assert_eq!(err.kind, "instance-offline");
+        assert_eq!(err.previous_status.as_deref(), Some("never-registered"));
     }
 
     #[test]
@@ -2343,25 +2609,20 @@ mod unit_tests {
     #[test]
     fn envelope_classifies_a_live_instance_tool_miss_as_unknown_slug() {
         // End-to-end shape of the reported failure: a live instance with
-        // indexed capabilities, addressed with a slug whose tool segment
-        // the index does not carry. The error must classify as
-        // `unknown-slug`, offer the alias that would have dispatched, and
-        // keep the 404 status the REST contract already promises.
+        // indexed capabilities, addressed with a slug the index does not
+        // carry and that has no alias to bridge to. The error must
+        // classify as `unknown-slug` and keep the 404 status the REST
+        // contract already promises.
         let idx = CapabilityIndex::new();
         let iid = Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
         push(&idx, "maya", iid, "maya_scene__list_objects", true);
 
-        let err = describe_service(&idx, "maya.abcdef01.list_objects").unwrap_err();
+        let err = describe_service(&idx, "maya.abcdef01.save_scene").unwrap_err();
         let envelope = service_error_to_json(&err);
 
         assert_eq!(envelope["error"]["kind"], "unknown-slug");
         assert_eq!(envelope["error"]["retryable"], false);
         assert_eq!(envelope["error"]["previous_status"], Value::Null);
-        // `candidates` is non-empty — the alias is the actionable payload.
-        assert_eq!(
-            envelope["error"]["candidates"][0]["tool_slug"],
-            "maya.abcdef01.maya_scene__list_objects"
-        );
     }
 
     #[test]

@@ -107,6 +107,20 @@ pub async fn search_local(registry_dir: PathBuf, request: SearchRequest) -> anyh
                 .cmp(&right.get("instance_id").and_then(Value::as_str))
         })
     });
+    // Apply the gateway-dispatchability filter before the limit so
+    // `--gateway-only=false` reports the true size of the "advertised but
+    // not gateway-routable" set rather than a limit-truncated sample.
+    if let Some(gateway_only) = request.gateway_only {
+        hits.retain(|hit| {
+            let dispatchable = hit
+                .get("gateway_dispatchable")
+                .and_then(Value::as_bool)
+                // Skill candidates carry no such field and are always
+                // gateway-routable, so keep them under `--gateway-only`.
+                .unwrap_or(true);
+            dispatchable == gateway_only
+        });
+    }
     if hits.len() > limit {
         hits.truncate(limit);
         truncated = true;
@@ -1082,6 +1096,14 @@ fn extend_tool_hits(hits: &mut Vec<Value>, entry: &ServiceEntry, payload: &Value
             .map(str::trim)
             .filter(|skill| !skill.is_empty());
         let annotations = tool.get("annotations").cloned().unwrap_or(Value::Null);
+        // A tool is reachable through the gateway only when it has skill
+        // ownership: the gateway capability index is built from the
+        // backend's `/v1/search` skill catalog, not from this raw
+        // `tools/list`. Tools with no owning skill are indexed nowhere, so
+        // the gateway's lookup alias bridge has nothing to resolve and the
+        // slug below would 404. Mark them so callers can tell a local-only
+        // tool from a gateway-routable one before they try to dispatch.
+        let gateway_dispatchable = is_gateway_dispatchable(name, skill_name);
         let next_step = if !enabled {
             match (skill_name, group) {
                 (Some(skill_name), Some(group)) => json!({
@@ -1122,12 +1144,36 @@ fn extend_tool_hits(hits: &mut Vec<Value>, entry: &ServiceEntry, payload: &Value
             "annotations": annotations,
             "metadata": tool.get("metadata").cloned().unwrap_or(Value::Null),
             "loaded": true,
+            "gateway_dispatchable": gateway_dispatchable,
             "next_step": next_step,
             "scope": "local",
             "source": "local_mcp",
             "mcp_url": local_instance::mcp_url(entry),
         }));
     }
+}
+
+/// Separator a backend places between the owning skill and the action name.
+const SKILL_TOOL_SEP: &str = "__";
+
+/// Whether a raw `tools/list` entry can be dispatched through the gateway.
+///
+/// The gateway indexes the backend's skill catalog, so an action reaches
+/// the gateway only under skill ownership — either declared explicitly via
+/// `skill_name` or encoded into a `<skill>__<tool>` name. Everything else
+/// exists solely on this direct/local path and would 404 through the
+/// gateway, because the lookup alias bridge has no qualified name to
+/// bridge to.
+fn is_gateway_dispatchable(name: &str, skill_name: Option<&str>) -> bool {
+    if skill_name.is_some() {
+        return true;
+    }
+    // A `<skill>__<tool>` name carries its own ownership, so it is
+    // addressable even when the backend omitted the explicit field.
+    let Some((skill, tool)) = name.split_once(SKILL_TOOL_SEP) else {
+        return false;
+    };
+    !skill.is_empty() && !tool.is_empty()
 }
 
 fn has_safety_hints(annotations: &Value) -> bool {

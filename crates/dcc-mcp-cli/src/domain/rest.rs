@@ -12,6 +12,11 @@ pub struct SearchRequest {
     pub instance_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub limit: Option<usize>,
+    /// Local-only filter: keep (`true`) or exclude (`false`) tools the
+    /// gateway can dispatch. Never serialised — the gateway has no such
+    /// parameter, so this must not change the REST wire contract.
+    #[serde(skip)]
+    pub gateway_only: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -160,6 +165,7 @@ mod tests {
             dcc_type: None,
             instance_id: None,
             limit: Some(10),
+            gateway_only: None,
         })
         .unwrap();
         assert_eq!(body["query"], "sphere");

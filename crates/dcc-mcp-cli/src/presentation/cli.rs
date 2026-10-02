@@ -356,12 +356,14 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             dcc_type,
             instance_id,
             limit,
+            gateway_only,
         } => {
             let request = SearchRequest {
                 query: resolve_query(query, query_terms),
                 dcc_type,
                 instance_id,
                 limit,
+                gateway_only,
             };
             control.search(request).await?
         }

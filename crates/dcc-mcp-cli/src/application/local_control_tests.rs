@@ -516,3 +516,76 @@ async fn local_call_retry_exposes_the_discovery_attempt_request_id() {
     dispatch_server.abort();
     discovery_server.abort();
 }
+
+#[test]
+fn gateway_dispatchability_requires_skill_ownership() {
+    // The gateway capability index is built from the backend's skill
+    // catalog, so only skill-owned actions are reachable through it.
+    assert!(is_gateway_dispatchable("list_objects", Some("maya-scene")));
+    // A `<skill>__<tool>` name carries its own ownership.
+    assert!(is_gateway_dispatchable("maya_scene__list_objects", None));
+    // Neither ownership signal: local-only, would 404 through the gateway.
+    assert!(!is_gateway_dispatchable("create_locator", None));
+    assert!(!is_gateway_dispatchable("list_objects", None));
+    // Degenerate qualified names are not ownership.
+    assert!(!is_gateway_dispatchable("__list_objects", None));
+    assert!(!is_gateway_dispatchable("maya_scene__", None));
+}
+
+#[test]
+fn tool_hits_are_marked_with_gateway_dispatchability() {
+    let entry = ServiceEntry::new("maya", "127.0.0.1", 18080);
+    let payload = json!({
+        "tools": [
+            {"name": "maya_scene__list_objects", "description": "skill owned"},
+            {"name": "create_locator", "description": "no skill"}
+        ]
+    });
+
+    let mut hits = Vec::new();
+    extend_tool_hits(&mut hits, &entry, &payload);
+
+    assert_eq!(hits.len(), 2);
+    let by_name = |name: &str| {
+        hits.iter()
+            .find(|hit| hit["backend_tool"] == name)
+            .unwrap_or_else(|| panic!("missing hit for {name}"))
+    };
+    assert_eq!(
+        by_name("maya_scene__list_objects")["gateway_dispatchable"],
+        true
+    );
+    assert_eq!(by_name("create_locator")["gateway_dispatchable"], false);
+}
+
+#[test]
+fn gateway_only_filter_selects_or_inverts_the_dispatchable_set() {
+    // `--gateway-only=false` is how a caller lists the difference: tools
+    // this CLI advertises from raw `tools/list` that the gateway index
+    // cannot route to.
+    let hits: Vec<Value> = vec![
+        json!({"slug": "maya.1111.maya_scene__list_objects", "gateway_dispatchable": true}),
+        json!({"slug": "maya.1111.create_locator", "gateway_dispatchable": false}),
+        json!({"slug": "maya.1111.some_skill", "gateway_dispatchable": true}),
+    ];
+
+    let retain = |gateway_only: bool| {
+        let mut kept = hits.clone();
+        kept.retain(|hit| {
+            hit.get("gateway_dispatchable")
+                .and_then(Value::as_bool)
+                .unwrap_or(true)
+                == gateway_only
+        });
+        kept
+    };
+
+    let dispatchable = retain(true);
+    assert_eq!(dispatchable.len(), 2, "skill rows and skill-owned tools");
+
+    // Skill candidates carry no flag and default to dispatchable, so the
+    // local-only set is exactly the unowned raw tools.
+    let local_only = retain(false);
+    assert_eq!(local_only.len(), 1);
+    assert_eq!(local_only[0]["slug"], "maya.1111.create_locator");
+}

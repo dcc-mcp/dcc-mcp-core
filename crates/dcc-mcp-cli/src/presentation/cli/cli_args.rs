@@ -118,6 +118,15 @@ pub(crate) enum Command {
         instance_id: Option<String>,
         #[arg(long)]
         limit: Option<usize>,
+        /// Keep only tools the gateway can dispatch.
+        ///
+        /// The local inventory is read from the backend's raw
+        /// `tools/list`, which is broader than the gateway capability
+        /// index. Invert with `--gateway-only=false` to list exactly the
+        /// difference: tools this CLI advertises that would 404 through
+        /// the gateway.
+        #[arg(long, value_name = "BOOL", num_args = 0..=1, default_missing_value = "true", require_equals = true)]
+        gateway_only: Option<bool>,
     },
     /// Describe one tool slug.
     Describe { tool_slug: String },
