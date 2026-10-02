@@ -659,19 +659,39 @@ fn is_skill_alias(callable: &str, wanted: &str) -> bool {
 ///
 /// When an alias exists this names it outright. The caller already ran a
 /// search to get this slug, so replying "run search again" is a dead end.
+///
+/// An alias the index holds but that is not yet callable must not be
+/// offered as a direct call — dispatching it would just move this 404 to
+/// a runtime failure. Those get the `load_skill` step that makes them
+/// callable, which is the same progression `search_service_rows` already
+/// advertises for unloaded hits.
 fn recommended_action_for_unknown_slug(
     candidates: &[CapabilityRecord],
     dcc: &str,
     instance_hint: &str,
 ) -> String {
-    match candidates.first() {
-        Some(first) => format!(
-            "Call the skill-qualified slug {:?} instead: the gateway indexes actions as <skill>{}<tool>.",
-            first.tool_slug, SKILL_TOOL_SEP,
+    match candidates.iter().find(|record| record.is_callable()) {
+        Some(record) => format!(
+            "Call {:?} instead: the gateway indexes actions as <skill>{}<tool>.",
+            record.tool_slug, SKILL_TOOL_SEP,
         ),
-        None => format!(
-            "This action is not published on the gateway capability surface for {dcc} instance {instance_hint}. Load the owning skill on that instance, then re-run search filtered to this instance_id.",
-        ),
+        // Everything we found is present but not dispatchable yet, so the
+        // next step is to activate it rather than to retry the call.
+        None => match candidates.first() {
+            Some(record) if record.skill_name.is_some() => format!(
+                "{:?} is indexed but its owning skill is not active on this instance. Call load_skill for skill {:?} on {dcc} instance {instance_hint}, then retry {:?}.",
+                record.tool_slug,
+                record.skill_name.as_deref().unwrap_or_default(),
+                record.tool_slug,
+            ),
+            Some(record) => format!(
+                "{:?} is indexed but not currently dispatchable on this instance. Load the owning skill on {dcc} instance {instance_hint}, then retry {:?}.",
+                record.tool_slug, record.tool_slug,
+            ),
+            None => format!(
+                "No alias for this slug is indexed on {dcc} instance {instance_hint}. Load the owning skill on that instance, then re-run search filtered to this instance_id.",
+            ),
+        },
     }
 }
 
@@ -2038,6 +2058,75 @@ mod unit_tests {
         assert!(
             action.to_ascii_lowercase().contains("load"),
             "next action must tell the caller how to make the tool dispatchable; got {action:?}"
+        );
+    }
+
+    #[test]
+    fn unknown_slug_on_an_unloaded_alias_says_load_skill_not_call() {
+        // The corrected root cause: the record IS in the index, under the
+        // skill-qualified name, but the owning skill is not active. The
+        // alias must be offered, yet the next step has to be `load_skill`
+        // — pointing the caller at a direct call would just move this 404
+        // into a runtime failure.
+        let idx = CapabilityIndex::new();
+        let iid = Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
+        let mut unloaded = make_record(
+            "maya",
+            iid,
+            "maya_primitives__create_locator",
+            Some("maya-primitives"),
+        );
+        unloaded.loaded = false;
+        idx.upsert_instance(iid, vec![unloaded], InstanceFingerprint(3));
+
+        let err = describe_service(&idx, "maya.abcdef01.create_locator").unwrap_err();
+
+        assert_eq!(err.kind, "unknown-slug");
+        assert_eq!(
+            err.candidates
+                .first()
+                .map(|record| record.tool_slug.as_str()),
+            Some("maya.abcdef01.maya_primitives__create_locator"),
+            "the indexed alias must still be surfaced"
+        );
+        let action = err.recommended_next_action.as_deref().unwrap_or_default();
+        assert!(
+            action.contains("load_skill"),
+            "an inactive alias must route the caller through load_skill; got {action:?}"
+        );
+        assert!(
+            action.contains("maya-primitives"),
+            "the next step must name the skill to load; got {action:?}"
+        );
+    }
+
+    #[test]
+    fn unknown_slug_on_a_loaded_alias_says_call_it() {
+        // Counterpart of the case above: a dispatchable alias may be
+        // recommended for immediate use.
+        let idx = CapabilityIndex::new();
+        let iid = Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
+        idx.upsert_instance(
+            iid,
+            vec![make_record(
+                "maya",
+                iid,
+                "maya_scene__list_objects",
+                Some("maya-scene"),
+            )],
+            InstanceFingerprint(4),
+        );
+
+        let err = describe_service(&idx, "maya.abcdef01.list_objects").unwrap_err();
+        let action = err.recommended_next_action.as_deref().unwrap_or_default();
+
+        assert!(
+            !action.contains("load_skill"),
+            "a callable alias should not be gated behind load_skill; got {action:?}"
+        );
+        assert!(
+            action.contains("maya.abcdef01.maya_scene__list_objects"),
+            "got {action:?}"
         );
     }
 
