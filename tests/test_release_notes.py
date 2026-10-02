@@ -10,6 +10,7 @@ import sys
 import pytest
 
 from conftest import REPO_ROOT
+from dcc_mcp_core import yaml_loads
 
 SCRIPT_PATH = REPO_ROOT / "scripts" / "ci" / "check_release_notes.py"
 RELEASE_PR_GUARD_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "release-please-pr-guard.yml"
@@ -18,6 +19,8 @@ HIDDEN_TYPES = frozenset({"style", "chore", "test", "ci", "build"})
 VISIBLE_TYPES = frozenset({"feat", "fix", "docs", "perf", "refactor"})
 
 UNTYPED_SHA = "521df1fa2156d308b240228fd8ff4c11199bc0c9"
+#: Abbreviation length this repository renders in ``git log --oneline``.
+SHORT_SHA_LEN = 8
 POST_NOTES_SHAS = (
     "c43691079dbbc696f9e07bcac10e1596a50970eb",
     "dc0e6c213d2b86b145110aba713b57c96f9f5853",
@@ -65,6 +68,30 @@ def _tag_present(name: str) -> bool:
         text=True,
     )
     return completed.returncode == 0
+
+
+def _release_job_commands(job_name: str) -> str:
+    """Return what one job in `.github/workflows/release.yml` actually runs.
+
+    Two things this deliberately does not accept as evidence:
+
+    * **another job's steps.** Two jobs in that workflow call this script with
+      overlapping arguments for different purposes, so a file-wide substring
+      check stays green even when the job under test stops running the check
+      entirely - the regression these assertions exist to catch.
+    * **comment lines inside a ``run:`` block.** The prose explaining why a
+      job passes ``--post-notes-policy warn`` quotes the flag verbatim, so a
+      join that keeps comments still passes after the flag itself is flipped
+      to ``fail``. Wiring assertions read commands, not documentation.
+    """
+    workflow = yaml_loads(RELEASE_WORKFLOW.read_text(encoding="utf-8"))
+    commands = []
+    for step in workflow["jobs"][job_name]["steps"]:
+        for line in str(step.get("run", "")).splitlines():
+            stripped = line.strip()
+            if stripped and not stripped.startswith("#"):
+                commands.append(line)
+    return "\n".join(commands)
 
 
 # ── type parsing ────────────────────────────────────────────────────────────
@@ -565,6 +592,224 @@ def test_main_reports_errors_and_returns_failure(tmp_path: Path, capsys) -> None
     assert "[A:untyped-commit]" in capsys.readouterr().err
 
 
+# ── post-notes policy: mechanism B warns, mechanism A blocks ────────────────
+
+
+def test_mechanism_b_is_a_warning_under_the_warn_policy() -> None:
+    checker = _load_checker_module()
+    commit = checker.Commit(
+        sha=POST_NOTES_SHAS[0],
+        subject="fix(gateway): report broken list_skills pages instead of dropping rows (#2548)",
+    )
+    report = checker.check_commits([commit], "", HIDDEN_TYPES, version="0.20.40")
+
+    errors, warnings = checker.format_diagnostics(report, "warn")
+
+    assert errors == []
+    assert len(warnings) == 1
+    assert "[B:post-notes-commit]" in warnings[0]
+    assert "c4369107" in warnings[0]
+    # The report stays policy-free: it saw the gap, the caller decides the severity.
+    assert report.failures == (commit,)
+
+
+def test_mechanism_a_stays_blocking_under_the_warn_policy() -> None:
+    """A title is still fixable, so the warn policy must not excuse it."""
+    checker = _load_checker_module()
+    untyped = checker.Commit(sha=UNTYPED_SHA, subject="Publish adapter-install-sop-v2")
+    undocumented = checker.Commit(
+        sha=POST_NOTES_SHAS[0],
+        subject="fix(gateway): report broken list_skills pages instead of dropping rows (#2548)",
+    )
+    report = checker.check_commits([undocumented, untyped], "", HIDDEN_TYPES, version="0.20.40")
+
+    errors, warnings = checker.format_diagnostics(report, "warn")
+
+    assert len(errors) == 1
+    assert "[A:untyped-commit]" in errors[0]
+    assert len(warnings) == 1
+
+
+def test_format_errors_blocks_every_mechanism() -> None:
+    """The default policy: the pre-merge guard relies on it staying strict."""
+    checker = _load_checker_module()
+    commit = checker.Commit(
+        sha=POST_NOTES_SHAS[0],
+        subject="fix(gateway): report broken list_skills pages instead of dropping rows (#2548)",
+    )
+    report = checker.check_commits([commit], "", HIDDEN_TYPES, version="0.20.40")
+
+    errors, warnings = checker.format_diagnostics(report)
+
+    assert warnings == []
+    assert len(errors) == 1
+    assert errors == checker.format_errors(report)
+
+
+def test_format_diagnostics_rejects_an_unknown_policy() -> None:
+    checker = _load_checker_module()
+    report = checker.check_commits([], "", HIDDEN_TYPES, version="0.20.40")
+
+    with pytest.raises(checker.ReleaseNotesError):
+        checker.format_diagnostics(report, "ignore")
+
+
+def test_the_addendum_cites_every_post_notes_commit() -> None:
+    checker = _load_checker_module()
+    late = checker.Commit(sha=POST_NOTES_SHAS[0], subject="fix(gateway): report broken pages (#2548)")
+    later = checker.Commit(sha=POST_NOTES_SHAS[1], subject="fix(skills): bound list_skills pages (#2547)")
+    notes = "* **catalog:** add sop_version ([b3180a3])\n"
+
+    addendum = checker.format_addendum(checker.check_commits([later, late], notes, HIDDEN_TYPES, version="0.20.40"))
+
+    assert addendum is not None
+    assert addendum.startswith(checker.ADDENDUM_MARKER)
+    assert "c4369107" in addendum and "dc0e6c21" in addendum
+    assert "PR #2548" in addendum and "PR #2547" in addendum
+    # Citing the sha is what makes the append self-clearing: the gate reads the
+    # addendum back as notes and stops reporting the same gap.
+    assert checker.is_documented(POST_NOTES_SHAS[0], addendum)
+    assert checker.is_documented(POST_NOTES_SHAS[1], addendum)
+
+
+def test_a_complete_window_has_no_addendum() -> None:
+    checker = _load_checker_module()
+    commit = checker.Commit(
+        sha=POST_NOTES_SHAS[0],
+        subject="fix(gateway): report broken pages (#2548)",
+    )
+
+    assert checker.format_addendum(checker.check_commits([commit], "", HIDDEN_TYPES, version="0.20.40")) is not None
+    assert checker.format_addendum(checker.check_commits([], "", HIDDEN_TYPES, version="0.20.40")) is None
+
+
+def _write_window_repo(tmp_path: Path, second_subject: str) -> str:
+    """Create a v0.20.39..v0.20.40 repository whose only new commit is ``second_subject``.
+
+    Returns the full sha of that commit, so a caller can write notes that cite
+    it: git mints fresh object ids here, so a hard-coded sha can never match.
+    """
+    subprocess.run(["git", "init", "-q"], cwd=str(tmp_path), check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "ci@example.com"], cwd=str(tmp_path), check=True)
+    subprocess.run(["git", "config", "user.name", "CI"], cwd=str(tmp_path), check=True)
+    (tmp_path / "file.txt").write_text("seed\n", encoding="utf-8")
+    subprocess.run(["git", "add", "file.txt"], cwd=str(tmp_path), check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "feat(catalog): add sop_version"], cwd=str(tmp_path), check=True)
+    subprocess.run(["git", "tag", "v0.20.39"], cwd=str(tmp_path), check=True)
+    (tmp_path / "file.txt").write_text("seed\nmore\n", encoding="utf-8")
+    subprocess.run(["git", "add", "file.txt"], cwd=str(tmp_path), check=True)
+    subprocess.run(["git", "commit", "-q", "-m", second_subject], cwd=str(tmp_path), check=True)
+    subprocess.run(["git", "tag", "v0.20.40"], cwd=str(tmp_path), check=True)
+    completed = subprocess.run(
+        ["git", "rev-parse", "v0.20.40"],
+        cwd=str(tmp_path),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return completed.stdout.strip()
+
+
+def test_main_writes_the_addendum_and_passes_under_the_warn_policy(tmp_path: Path, capsys) -> None:
+    checker = _load_checker_module()
+    _config(
+        tmp_path,
+        [
+            {"type": "feat", "section": "Features", "hidden": False},
+            {"type": "fix", "section": "Bug Fixes", "hidden": False},
+            {"type": "chore", "section": "Miscellaneous Chores", "hidden": True},
+        ],
+    )
+    (tmp_path / "CHANGELOG.md").write_text(
+        "## [0.20.40](https://github.com/o/r/compare/v0.20.39...v0.20.40) (2026-10-02)\n\n### Features\n\n"
+        "* **catalog:** add sop_version ([b3180a3])\n",
+        encoding="utf-8",
+    )
+    notes = tmp_path / "notes.md"
+    notes.write_text(
+        "## [0.20.40](https://github.com/o/r/compare/v0.20.39...v0.20.40) (2026-10-02)\n\n"
+        "### Features\n\n* **catalog:** add sop_version ([b3180a3])\n",
+        encoding="utf-8",
+    )
+    _write_window_repo(
+        tmp_path, "fix(ci): skip publish-winget cleanly while DccMcp.DccMcpCli awaits onboarding (#2653)"
+    )
+    addendum = tmp_path / "release-notes-addendum.md"
+
+    exit_code = checker.main(
+        [
+            "--root",
+            str(tmp_path),
+            "--version",
+            "0.20.40",
+            "--notes-file",
+            str(notes),
+            "--post-notes-policy",
+            "warn",
+            "--addendum-file",
+            str(addendum),
+        ]
+    )
+    errors = capsys.readouterr().err
+
+    # The whole point: a late commit no longer holds the release hostage, and
+    # it is still reported as a warning instead of vanishing.
+    assert exit_code == 0
+    assert "::error::" not in errors
+    assert "[B:post-notes-commit]" in errors
+    text = addendum.read_text(encoding="utf-8")
+    assert text.startswith(checker.ADDENDUM_MARKER)
+    assert "fix(ci): skip publish-winget cleanly" in text
+    # Written as bytes: Path.write_text() would emit CRLF on Windows, and the
+    # release body is a Markdown document the gate has to read back.
+    assert "\r\n" not in addendum.read_bytes().decode("utf-8")
+
+
+def test_main_blocks_the_same_window_without_the_warn_policy(tmp_path: Path) -> None:
+    checker = _load_checker_module()
+    _default_config(tmp_path)
+    (tmp_path / "CHANGELOG.md").write_text(
+        "## [0.20.40](https://github.com/o/r/compare/v0.20.39...v0.20.40) (2026-10-02)\n\n### Features\n\n"
+        "* **catalog:** add sop_version ([b3180a3])\n",
+        encoding="utf-8",
+    )
+    _write_window_repo(
+        tmp_path, "fix(ci): skip publish-winget cleanly while DccMcp.DccMcpCli awaits onboarding (#2653)"
+    )
+
+    assert checker.main(["--root", str(tmp_path), "--version", "0.20.40"]) == 1
+
+
+def test_main_writes_no_addendum_for_a_complete_window(tmp_path: Path) -> None:
+    checker = _load_checker_module()
+    _default_config(tmp_path)
+    # The notes cite the real sha git just minted, so this is a window whose
+    # only commit is documented - the case that must produce no addendum.
+    sha = _write_window_repo(tmp_path, "feat(catalog): add sop_version")
+    (tmp_path / "CHANGELOG.md").write_text(
+        "## [0.20.40](https://github.com/o/r/compare/v0.20.39...v0.20.40) (2026-10-02)\n\n### Features\n\n"
+        f"* **catalog:** add sop_version ([{sha[:SHORT_SHA_LEN]}])\n",
+        encoding="utf-8",
+    )
+    addendum = tmp_path / "release-notes-addendum.md"
+
+    exit_code = checker.main(
+        [
+            "--root",
+            str(tmp_path),
+            "--version",
+            "0.20.40",
+            "--post-notes-policy",
+            "warn",
+            "--addendum-file",
+            str(addendum),
+        ]
+    )
+
+    assert exit_code == 0
+    assert not addendum.exists()
+
+
 # ── repository replays ──────────────────────────────────────────────────────
 
 
@@ -701,11 +946,60 @@ def test_release_pr_guard_runs_the_notes_gate() -> None:
 
     assert "scripts/ci/check_release_notes.py" in workflow
 
+    # It is the only remaining hard gate for mechanism B: the release
+    # workflow downgrades to `warn` once the tag exists, and a merge-time
+    # gap is still fixable here by regenerating the release PR. Passing
+    # --post-notes-policy would hand the last blocking check away silently.
+    assert "--post-notes-policy" not in workflow
 
-def test_release_workflow_runs_the_notes_gate() -> None:
-    workflow = RELEASE_WORKFLOW.read_text(encoding="utf-8")
 
-    assert "check_release_notes.py" in workflow
+def test_the_wiring_helper_reads_commands_and_not_their_comments() -> None:
+    """Guard the guard: a comment-reading join would make both tests below lie.
+
+    The run block in ``validate-release-version`` explains the warn policy in a
+    shell comment that quotes the flag. A helper that kept comment lines passed
+    with the flag itself flipped to ``fail`` - i.e. with this issue's original
+    defect restored - so this asserts the helper drops them.
+    """
+    gate_run = _release_job_commands("validate-release-version")
+
+    assert "# " not in gate_run
+    assert "--post-notes-policy warn" in gate_run
+    assert "--post-notes-policy fail" not in gate_run
+
+
+def test_release_workflow_runs_the_notes_gate_in_warn_mode() -> None:
+    """The gate that blocks four PyPI routes must run the gate, in warn mode.
+
+    Scoped to the job's own steps, not to the file: the addendum job runs the
+    same script with the same flag for a different purpose, so a file-wide
+    substring assertion stays green even if this job drops the check entirely -
+    which is exactly the defect this change exists to prevent.
+    """
+    gate_run = _release_job_commands("validate-release-version")
+
+    assert "check_release_notes.py" in gate_run
+    # Once the tag exists nobody can regenerate the notes, so a late commit is
+    # documented by an addendum instead of withholding four PyPI routes. The
+    # pre-merge guard keeps the strict policy; see
+    # test_release_pr_guard_runs_the_notes_gate.
+    assert "--post-notes-policy warn" in gate_run
+
+
+def test_release_workflow_documents_the_gap_it_stops_blocking_on() -> None:
+    """Downgrading a gate is only acceptable if the gap is still recorded."""
+    checker = _load_checker_module()
+    addendum_run = _release_job_commands("document-release-notes-addendum")
+
+    assert "--addendum-file" in addendum_run
+    # The marker the script writes is the marker the workflow greps for; a
+    # change on either side alone would silently stack addenda on re-runs.
+    assert checker.ADDENDUM_MARKER in addendum_run
+
+    # The py37 grammar guarantee lives in the `py37 syntax check` CI lane, which
+    # compiles scripts/ and tests/ with a real Python 3.7 interpreter. It is not
+    # re-checked here: ast.parse's feature_version only exists on Python 3.8+,
+    # so asserting it from inside the suite would fail on the py37 lane itself.
 
     # The py37 grammar guarantee lives in the `py37 syntax check` CI lane, which
     # compiles scripts/ and tests/ with a real Python 3.7 interpreter. It is not
