@@ -60,6 +60,7 @@ Documentation contract:
 | Document | Purpose |
 |----------|---------|
 | [remote-server.md](remote-server.md) | Cloud-hosted MCP agents: auth, batch, elicitation, rich content |
+| [design-provider-bridge.md](design-provider-bridge.md) | Experimental official design-session bridge, five provider boundaries and reusable frontend pilot |
 | [gateway.md](gateway.md) | Multi-DCC gateway: aggregation, tool routing |
 | [gateway-election.md](gateway-election.md) | `DccGatewayElection` — automatic failover |
 | [dcc-rest-skill-api.md](dcc-rest-skill-api.md) | Per-DCC REST skill API surface (#658 / #660) |

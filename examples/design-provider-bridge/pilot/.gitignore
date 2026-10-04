@@ -1,0 +1,4 @@
+__pycache__/
+.local-check-*/
+fieldkit-edited.json
+evidence-run.json

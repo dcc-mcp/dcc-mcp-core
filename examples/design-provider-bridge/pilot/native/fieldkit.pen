@@ -1,0 +1,339 @@
+{
+  "version": "2.20",
+  "variables": {
+    "color.canvas": {
+      "type": "color",
+      "value": "#F4F5F1"
+    },
+    "color.surface": {
+      "type": "color",
+      "value": "#FFFFFF"
+    },
+    "color.ink": {
+      "type": "color",
+      "value": "#17261D"
+    },
+    "color.muted": {
+      "type": "color",
+      "value": "#526057"
+    },
+    "color.line": {
+      "type": "color",
+      "value": "#CFD7CE"
+    },
+    "color.accent": {
+      "type": "color",
+      "value": "#27633F"
+    },
+    "color.accent-soft": {
+      "type": "color",
+      "value": "#E2EDDF"
+    },
+    "color.accent-ink": {
+      "type": "color",
+      "value": "#FFFFFF"
+    },
+    "space.unit": {
+      "type": "number",
+      "value": 8
+    },
+    "space.card": {
+      "type": "number",
+      "value": 20
+    },
+    "radius.control": {
+      "type": "number",
+      "value": 8
+    },
+    "radius.card": {
+      "type": "number",
+      "value": 12
+    },
+    "type.body": {
+      "type": "number",
+      "value": 15
+    },
+    "type.heading": {
+      "type": "number",
+      "value": 42
+    }
+  },
+  "children": [
+    {
+      "id": "button-component",
+      "type": "frame",
+      "layout": "none",
+      "width": 168,
+      "height": 42,
+      "children": [
+        {
+          "id": "button-label",
+          "type": "text",
+          "x": 16,
+          "y": 12,
+          "content": "Export collection",
+          "fontFamily": "Arial",
+          "fontSize": 15,
+          "fill": "$color.accent-ink"
+        }
+      ],
+      "reusable": true,
+      "x": -420,
+      "y": 0,
+      "fill": "$color.accent",
+      "cornerRadius": "$radius.control"
+    },
+    {
+      "id": "tag-component",
+      "type": "frame",
+      "layout": "none",
+      "width": 100,
+      "height": 28,
+      "children": [
+        {
+          "id": "tag-label",
+          "type": "text",
+          "x": 10,
+          "y": 6,
+          "content": "Interface",
+          "fontFamily": "Arial",
+          "fontSize": 12,
+          "fill": "$color.accent"
+        }
+      ],
+      "reusable": true,
+      "x": -420,
+      "y": 70,
+      "fill": "$color.accent-soft",
+      "cornerRadius": "$radius.control"
+    },
+    {
+      "id": "asset-card-component",
+      "type": "frame",
+      "layout": "none",
+      "width": 300,
+      "height": 236,
+      "children": [
+        {
+          "id": "card-artwork",
+          "type": "rectangle",
+          "x": 12,
+          "y": 12,
+          "width": 276,
+          "height": 128,
+          "fill": "$color.accent-soft",
+          "cornerRadius": "$radius.control"
+        },
+        {
+          "id": "card-title",
+          "type": "text",
+          "x": 16,
+          "y": 158,
+          "content": "Tidal interface kit",
+          "fontFamily": "Arial",
+          "fontSize": 17,
+          "fill": "$color.ink"
+        },
+        {
+          "id": "card-tag",
+          "type": "ref",
+          "ref": "tag-component",
+          "x": 16,
+          "y": 193
+        },
+        {
+          "id": "card-count",
+          "type": "text",
+          "x": 216,
+          "y": 201,
+          "content": "12 items",
+          "fontFamily": "Arial",
+          "fontSize": 12,
+          "fill": "$color.muted"
+        }
+      ],
+      "reusable": true,
+      "x": -420,
+      "y": 125,
+      "fill": "$color.surface",
+      "stroke": "$color.line",
+      "strokeWidth": 1,
+      "cornerRadius": "$radius.card"
+    },
+    {
+      "id": "collection-page",
+      "type": "frame",
+      "layout": "none",
+      "width": 1200,
+      "height": 860,
+      "children": [
+        {
+          "id": "page-brand",
+          "type": "text",
+          "x": 40,
+          "y": 28,
+          "content": "Fieldkit",
+          "fontFamily": "Arial",
+          "fontSize": 25,
+          "fill": "$color.ink"
+        },
+        {
+          "id": "page-heading",
+          "type": "text",
+          "x": 40,
+          "y": 108,
+          "content": "A place for the good work.",
+          "fontFamily": "Arial",
+          "fontSize": 40,
+          "fill": "$color.ink"
+        },
+        {
+          "id": "page-description",
+          "type": "text",
+          "x": 40,
+          "y": 170,
+          "content": "Reusable collections for your next scene, story, or interface.",
+          "fontFamily": "Arial",
+          "fontSize": 16,
+          "fill": "$color.muted"
+        },
+        {
+          "id": "export-button",
+          "type": "ref",
+          "ref": "button-component",
+          "x": 976,
+          "y": 26
+        },
+        {
+          "id": "browse-button",
+          "type": "ref",
+          "ref": "button-component",
+          "x": 40,
+          "y": 218,
+          "descendants": {
+            "button-label": {
+              "content": "All assets"
+            }
+          }
+        },
+        {
+          "id": "asset-tidal",
+          "type": "ref",
+          "ref": "asset-card-component",
+          "x": 40,
+          "y": 300,
+          "descendants": {
+            "card-title": {
+              "content": "Tidal interface kit"
+            },
+            "card-tag/tag-label": {
+              "content": "Interface"
+            },
+            "card-count": {
+              "content": "12 items"
+            }
+          }
+        },
+        {
+          "id": "asset-terrain",
+          "type": "ref",
+          "ref": "asset-card-component",
+          "x": 368,
+          "y": 300,
+          "descendants": {
+            "card-title": {
+              "content": "Terrain study"
+            },
+            "card-tag/tag-label": {
+              "content": "Spatial"
+            },
+            "card-count": {
+              "content": "6 items"
+            }
+          }
+        },
+        {
+          "id": "asset-orbit",
+          "type": "ref",
+          "ref": "asset-card-component",
+          "x": 696,
+          "y": 300,
+          "descendants": {
+            "card-title": {
+              "content": "Orbit motion pack"
+            },
+            "card-tag/tag-label": {
+              "content": "Motion"
+            },
+            "card-count": {
+              "content": "4 items"
+            }
+          }
+        },
+        {
+          "id": "asset-mono",
+          "type": "ref",
+          "ref": "asset-card-component",
+          "x": 40,
+          "y": 560,
+          "descendants": {
+            "card-title": {
+              "content": "Mono controls"
+            },
+            "card-tag/tag-label": {
+              "content": "Interface"
+            },
+            "card-count": {
+              "content": "8 items"
+            }
+          }
+        },
+        {
+          "id": "asset-forms",
+          "type": "ref",
+          "ref": "asset-card-component",
+          "x": 368,
+          "y": 560,
+          "descendants": {
+            "card-title": {
+              "content": "Soft forms"
+            },
+            "card-tag/tag-label": {
+              "content": "Spatial"
+            },
+            "card-count": {
+              "content": "5 items"
+            }
+          }
+        },
+        {
+          "id": "asset-type",
+          "type": "ref",
+          "ref": "asset-card-component",
+          "x": 696,
+          "y": 560,
+          "descendants": {
+            "card-title": {
+              "content": "Type in motion"
+            },
+            "card-tag/tag-label": {
+              "content": "Motion"
+            },
+            "card-count": {
+              "content": "3 items"
+            }
+          }
+        }
+      ],
+      "x": 0,
+      "y": 0,
+      "fill": "$color.canvas",
+      "metadata": {
+        "type": "design-provider-pilot",
+        "acceptance": "native-unverified",
+        "source": "../frontend/design-spec.json",
+        "coverage": "three reusable components; collection layout"
+      }
+    }
+  ]
+}

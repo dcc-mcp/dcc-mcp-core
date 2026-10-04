@@ -1,0 +1,3 @@
+# Optional official client SDK, isolated from Core's Python 3.7 dependency set.
+# The trial uses the maintained v1 ClientSession API, tested against 1.27.0.
+mcp>=1.27,<2
