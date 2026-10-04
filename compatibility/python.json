@@ -243,6 +243,7 @@
     "native_py37": [
       "dcc_mcp_core",
       "dcc_mcp_core._core",
+      "dcc_mcp_core.experimental.design_bridge",
       "dcc_mcp_core.skill",
       "dcc_mcp_core.schema",
       "dcc_mcp_core.server_base",
@@ -252,6 +253,7 @@
     ],
     "lite_py37": [
       "dcc_mcp_core",
+      "dcc_mcp_core.experimental.design_bridge",
       "dcc_mcp_core.skill",
       "dcc_mcp_core.schema",
       "dcc_mcp_core.server_base",

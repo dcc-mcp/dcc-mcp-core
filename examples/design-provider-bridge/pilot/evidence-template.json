@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "project_id": "fieldkit-library",
+  "source_spec": "frontend/design-spec.json",
+  "artifacts_manifest": "artifacts.json",
+  "scope": "acceptance_template",
+  "instructions": "Copy to evidence-run.json. Record actual sanitized host evidence. A local fixture, a schema check, or a frontend build cannot pass a native stage.",
+  "local_artifact_checks": {
+    "report": "local-verification.json",
+    "browser_interactions": "pending",
+    "native_equivalence": false
+  },
+  "providers": {
+    "figma": {"reason": "No authorized authenticated official host session executed.", "stages": {
+      "read": {"status": "pending", "evidence": []}, "write": {"status": "pending", "evidence": []},
+      "save_reopen": {"status": "pending", "evidence": []}, "export": {"status": "pending", "evidence": []}
+    }},
+    "penpot": {"reason": "No official MCP/plugin host session executed.", "stages": {
+      "read": {"status": "pending", "evidence": []}, "write": {"status": "pending", "evidence": []},
+      "save_reopen": {"status": "pending", "evidence": []}, "export": {"status": "pending", "evidence": []}
+    }},
+    "pencil": {"reason": "Only a schema-derived .pen candidate was generated; official editor open/edit/save/reopen/export remain unverified.", "stages": {
+      "read": {"status": "pending", "evidence": []}, "write": {"status": "pending", "evidence": []},
+      "save_reopen": {"status": "pending", "evidence": []}, "export": {"status": "pending", "evidence": []}
+    }},
+    "sketch": {"reason": "Requires an available supported native Mac host. None was used for this pilot.", "stages": {
+      "read": {"status": "pending", "evidence": []}, "write": {"status": "pending", "evidence": []},
+      "save_reopen": {"status": "pending", "evidence": []}, "export": {"status": "pending", "evidence": []}
+    }},
+    "framer": {"reason": "No authorized authenticated project/API session executed.", "stages": {
+      "read": {"status": "pending", "evidence": []}, "write": {"status": "pending", "evidence": []},
+      "save_reopen": {"status": "pending", "evidence": []}, "export": {"status": "pending", "evidence": []}
+    }}
+  },
+  "evidence_record_fields": ["request_id", "session_id", "provider_version", "document_reference", "component_identifiers", "reopened_value", "relative_artifact_path", "sha256", "redacted_failure_code"],
+  "publication_gate": "The project counts as one shared showcase after its required native acceptance stages and frontend hand-off pass. No provider or image count multiplies the showcase count."
+}

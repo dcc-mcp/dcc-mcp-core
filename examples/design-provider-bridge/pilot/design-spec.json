@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "project": {
+    "id": "fieldkit-library",
+    "name": "Fieldkit",
+    "description": "One editable component library and collection page for five design providers.",
+    "license": "MIT",
+    "provenance": "Authored local fixture; no native provider session has been executed."
+  },
+  "tokens": {
+    "color.canvas": {"type": "color", "value": "#F4F5F1"},
+    "color.surface": {"type": "color", "value": "#FFFFFF"},
+    "color.ink": {"type": "color", "value": "#17261D"},
+    "color.muted": {"type": "color", "value": "#526057"},
+    "color.line": {"type": "color", "value": "#CFD7CE"},
+    "color.accent": {"type": "color", "value": "#27633F"},
+    "color.accent-soft": {"type": "color", "value": "#E2EDDF"},
+    "color.accent-ink": {"type": "color", "value": "#FFFFFF"},
+    "space.unit": {"type": "dimension", "value": 8},
+    "space.card": {"type": "dimension", "value": 20},
+    "radius.control": {"type": "dimension", "value": 8},
+    "radius.card": {"type": "dimension", "value": 12},
+    "type.body": {"type": "dimension", "value": 15},
+    "type.heading": {"type": "dimension", "value": 42}
+  },
+  "components": {
+    "asset-card": {"tag": "button", "class": "asset-card", "token_refs": {"background": "{color.surface}", "color": "{color.ink}", "border-color": "{color.line}", "border-radius": "{radius.card}"}, "states": ["default", "selected", "focus"]},
+    "action-button": {"tag": "button", "class": "action-button", "token_refs": {"background": "{color.accent}", "color": "{color.accent-ink}", "border-radius": "{radius.control}"}, "states": ["default", "focus"]},
+    "filter-button": {"tag": "button", "class": "filter-button", "token_refs": {"color": "{color.muted}", "border-radius": "{radius.control}"}, "states": ["default", "selected", "focus"]},
+    "category-tag": {"tag": "span", "class": "category-tag", "token_refs": {"background": "{color.accent-soft}", "color": "{color.accent}", "border-radius": "{radius.control}"}, "states": ["default"]},
+    "nav-link": {"tag": "a", "class": "nav-link", "token_refs": {"color": "{color.muted}", "border-radius": "{radius.control}"}, "states": ["default", "focus"]},
+    "value-row": {"tag": "div", "class": "value-row", "token_refs": {"color": "{color.ink}"}, "states": ["default"]}
+  },
+  "page": {
+    "id": "collection-page",
+    "title": "A place for the good work.",
+    "subtitle": "Reusable collections for your next scene, story, or interface.",
+    "collection_name": "Studio collection",
+    "viewport": {"width": 1440, "height": 1024},
+    "filters": ["All assets", "Interface", "Spatial", "Motion"],
+    "assets": [
+      {"id": "tidal", "component": "asset-card", "name": "Tidal interface kit", "category": "Interface", "description": "Navigation, forms, and cards with room to breathe.", "format": "Component set", "items": 12, "visual": "tidal"},
+      {"id": "terrain", "component": "asset-card", "name": "Terrain study", "category": "Spatial", "description": "A small material study for a landscape scene.", "format": "Material collection", "items": 6, "visual": "terrain"},
+      {"id": "orbit", "component": "asset-card", "name": "Orbit motion pack", "category": "Motion", "description": "Timing notes and an editable title treatment.", "format": "Motion study", "items": 4, "visual": "orbit"},
+      {"id": "mono", "component": "asset-card", "name": "Mono controls", "category": "Interface", "description": "A compact control family for creative tools.", "format": "Component set", "items": 8, "visual": "mono"},
+      {"id": "forms", "component": "asset-card", "name": "Soft forms", "category": "Spatial", "description": "Shape and color references for early exploration.", "format": "Shape study", "items": 5, "visual": "forms"},
+      {"id": "type", "component": "asset-card", "name": "Type in motion", "category": "Motion", "description": "A typographic sketch built around a simple rhythm.", "format": "Motion study", "items": 3, "visual": "type"}
+    ]
+  },
+  "acceptance": {
+    "local": ["token references resolve", "components are reused", "editable frontend export round-trips", "artifact hashes match"],
+    "native": ["read", "write", "save_reopen", "export"],
+    "providers": ["figma", "penpot", "pencil", "sketch", "framer"]
+  }
+}

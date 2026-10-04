@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "project_id": "fieldkit-library",
+  "source_spec_sha256": "49452d9ca52a6a42e8ecca0082efff83e12a34a4af42ae1d38032428044aaa66",
+  "native_acceptance": "unverified",
+  "artifacts": [
+    {
+      "path": "frontend/index.html",
+      "sha256": "dfcb1a50a9939a9a8ba6d520e3349e048c145e1271807f1f39d6c9950b620ff0",
+      "source_kind": "local_frontend"
+    },
+    {
+      "path": "frontend/styles.css",
+      "sha256": "deab70932273a3637d0fee7553be18a6c789d9d023d44503a04d1a95a0560f42",
+      "source_kind": "local_frontend"
+    },
+    {
+      "path": "frontend/app.js",
+      "sha256": "8fd8b7216c877aa7038f2303bd587093d6b4309b1ac757230db25564ab63ce0a",
+      "source_kind": "local_frontend"
+    },
+    {
+      "path": "frontend/design-spec.json",
+      "sha256": "49452d9ca52a6a42e8ecca0082efff83e12a34a4af42ae1d38032428044aaa66",
+      "source_kind": "local_frontend"
+    },
+    {
+      "path": "native/fieldkit.pen",
+      "sha256": "39888be7a46eb2e463776fb2064e157c990759cba530a8eef68c21f2645d6a2d",
+      "source_kind": "schema_derived_native_unverified"
+    }
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "scope": "local_artifact",
+  "status": "passed",
+  "checks": [
+    "saved_artifact_sha256",
+    "embedded_specification",
+    "offline_resources",
+    "unique_element_ids",
+    "component_reuse",
+    "css_token_resolution",
+    "local_json_save_reopen",
+    "edited_spec_rebuild",
+    "deterministic_generation",
+    "reject_invalid_references",
+    "native_evidence_remains_pending"
+  ],
+  "component_instances": {
+    "nav-link": 2,
+    "action-button": 1,
+    "filter-button": 4,
+    "asset-card": 6,
+    "category-tag": 6,
+    "value-row": 3
+  },
+  "css_token_count": 14,
+  "pencil_candidate": {
+    "node_count": 21,
+    "instance_count": 9,
+    "reusable_component_count": 3,
+    "validation_scope": "documented_subset_static_check",
+    "native_acceptance": "unverified"
+  },
+  "browser_interactions": "unverified",
+  "native_provider_sessions": "not_run",
+  "source_spec_sha256": "49452d9ca52a6a42e8ecca0082efff83e12a34a4af42ae1d38032428044aaa66"
+}

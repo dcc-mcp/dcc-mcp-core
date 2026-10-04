@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="An editable collection page built from a shared component library.">
+<title>Fieldkit / Studio collection</title><link rel="stylesheet" href="styles.css"><script src="app.js" defer></script></head>
+<body><div class="shell"><aside class="sidebar"><a class="brand" href="#collection"><span class="brand-mark" aria-hidden="true">f</span>Fieldkit</a>
+<nav class="nav" aria-label="Workspace"><a href="#collection" aria-current="page" class="nav-link" data-component="nav-link">Collection</a><a href="#page-studio" class="nav-link" data-component="nav-link">Page studio</a></nav><p class="sidebar-note">Make room for your<br>next good idea.</p></aside>
+<main><header class="topbar"><div class="breadcrumb">Workspace / <strong>Studio collection</strong></div><button id="export-document" class="action-button" data-component="action-button" type="button">Export page</button></header>
+<div class="content"><section class="intro"><p class="eyebrow">Your creative library</p><h1 id="page-title">A place for the good work.</h1><p class="subtitle">Reusable collections for your next scene, story, or interface.</p></section>
+<div class="workspace"><section id="collection" aria-label="Asset collection"><div class="collection-toolbar"><div class="filters" aria-label="Asset category"><button data-filter="All assets" aria-pressed="true" class="filter-button" data-component="filter-button" type="button">All assets</button><button data-filter="Interface" aria-pressed="false" class="filter-button" data-component="filter-button" type="button">Interface</button><button data-filter="Spatial" aria-pressed="false" class="filter-button" data-component="filter-button" type="button">Spatial</button><button data-filter="Motion" aria-pressed="false" class="filter-button" data-component="filter-button" type="button">Motion</button></div>
+<label class="search"><span class="sr-only">Search assets</span><input id="asset-search" type="search" placeholder="Search assets"></label></div>
+<div class="asset-grid"><button data-asset-id="tidal" aria-pressed="true" aria-label="Select Tidal interface kit" class="asset-card" data-component="asset-card" type="button"><span class="artwork tidal" aria-hidden="true"></span><span class="asset-copy"><span class="asset-title">Tidal interface kit</span><span class="asset-meta"><span class="category-tag" data-component="category-tag">Interface</span><span>12 items</span></span></span></button><button data-asset-id="terrain" aria-pressed="false" aria-label="Select Terrain study" class="asset-card" data-component="asset-card" type="button"><span class="artwork terrain" aria-hidden="true"></span><span class="asset-copy"><span class="asset-title">Terrain study</span><span class="asset-meta"><span class="category-tag" data-component="category-tag">Spatial</span><span>6 items</span></span></span></button><button data-asset-id="orbit" aria-pressed="false" aria-label="Select Orbit motion pack" class="asset-card" data-component="asset-card" type="button"><span class="artwork orbit" aria-hidden="true"></span><span class="asset-copy"><span class="asset-title">Orbit motion pack</span><span class="asset-meta"><span class="category-tag" data-component="category-tag">Motion</span><span>4 items</span></span></span></button><button data-asset-id="mono" aria-pressed="false" aria-label="Select Mono controls" class="asset-card" data-component="asset-card" type="button"><span class="artwork mono" aria-hidden="true"></span><span class="asset-copy"><span class="asset-title">Mono controls</span><span class="asset-meta"><span class="category-tag" data-component="category-tag">Interface</span><span>8 items</span></span></span></button><button data-asset-id="forms" aria-pressed="false" aria-label="Select Soft forms" class="asset-card" data-component="asset-card" type="button"><span class="artwork forms" aria-hidden="true"></span><span class="asset-copy"><span class="asset-title">Soft forms</span><span class="asset-meta"><span class="category-tag" data-component="category-tag">Spatial</span><span>5 items</span></span></span></button><button data-asset-id="type" aria-pressed="false" aria-label="Select Type in motion" class="asset-card" data-component="asset-card" type="button"><span class="artwork type" aria-hidden="true"><span class="art-letter">Aa</span></span><span class="asset-copy"><span class="asset-title">Type in motion</span><span class="asset-meta"><span class="category-tag" data-component="category-tag">Motion</span><span>3 items</span></span></span></button></div><p class="empty-state" id="empty-state" hidden>No assets match. Try a different search or category.</p>
+<p class="result-count" id="result-count" role="status">6 of 6 assets</p></section>
+<aside class="inspector" id="inspector" aria-label="Selected asset"><h2 id="selected-name">Tidal interface kit</h2><p id="selected-description">Navigation, forms, and cards with room to breathe.</p><div class="value-row" data-component="value-row"><span class="label">Category</span><span id="selected-category">Interface</span></div><div class="value-row" data-component="value-row"><span class="label">Format</span><span id="selected-format">Component set</span></div><div class="value-row" data-component="value-row"><span class="label">Items</span><span id="selected-items">12</span></div>
+<section class="edit-panel" id="page-studio"><h3>Make it yours</h3><label for="title-input">Page title</label><input id="title-input" type="text" maxlength="300" value="A place for the good work.">
+<label for="accent-input">Library accent</label><div class="color-control"><input id="accent-input" type="color" value="#27633F"><output id="accent-value" for="accent-input">#27633F</output></div>
+<button id="reset-edits" class="reset-button" type="button">Reset page edits</button><p class="status" id="edit-status" role="status" aria-live="polite"></p></section></aside></div>
+<footer class="collection-footer"><span>Built for your studio. Ready to make your own.</span><span>Fieldkit collection</span></footer></div></main></div>
+<noscript><p>This page is readable without JavaScript. Enable JavaScript to filter, edit, and export.</p></noscript>
+<script type="application/json" id="pilot-document">{
+  "schema_version": 1,
+  "project": {
+    "id": "fieldkit-library",
+    "name": "Fieldkit",
+    "description": "One editable component library and collection page for five design providers.",
+    "license": "MIT",
+    "provenance": "Authored local fixture; no native provider session has been executed."
+  },
+  "tokens": {
+    "color.canvas": {
+      "type": "color",
+      "value": "#F4F5F1"
+    },
+    "color.surface": {
+      "type": "color",
+      "value": "#FFFFFF"
+    },
+    "color.ink": {
+      "type": "color",
+      "value": "#17261D"
+    },
+    "color.muted": {
+      "type": "color",
+      "value": "#526057"
+    },
+    "color.line": {
+      "type": "color",
+      "value": "#CFD7CE"
+    },
+    "color.accent": {
+      "type": "color",
+      "value": "#27633F"
+    },
+    "color.accent-soft": {
+      "type": "color",
+      "value": "#E2EDDF"
+    },
+    "color.accent-ink": {
+      "type": "color",
+      "value": "#FFFFFF"
+    },
+    "space.unit": {
+      "type": "dimension",
+      "value": 8
+    },
+    "space.card": {
+      "type": "dimension",
+      "value": 20
+    },
+    "radius.control": {
+      "type": "dimension",
+      "value": 8
+    },
+    "radius.card": {
+      "type": "dimension",
+      "value": 12
+    },
+    "type.body": {
+      "type": "dimension",
+      "value": 15
+    },
+    "type.heading": {
+      "type": "dimension",
+      "value": 42
+    }
+  },
+  "components": {
+    "asset-card": {
+      "tag": "button",
+      "class": "asset-card",
+      "token_refs": {
+        "background": "{color.surface}",
+        "color": "{color.ink}",
+        "border-color": "{color.line}",
+        "border-radius": "{radius.card}"
+      },
+      "states": [
+        "default",
+        "selected",
+        "focus"
+      ]
+    },
+    "action-button": {
+      "tag": "button",
+      "class": "action-button",
+      "token_refs": {
+        "background": "{color.accent}",
+        "color": "{color.accent-ink}",
+        "border-radius": "{radius.control}"
+      },
+      "states": [
+        "default",
+        "focus"
+      ]
+    },
+    "filter-button": {
+      "tag": "button",
+      "class": "filter-button",
+      "token_refs": {
+        "color": "{color.muted}",
+        "border-radius": "{radius.control}"
+      },
+      "states": [
+        "default",
+        "selected",
+        "focus"
+      ]
+    },
+    "category-tag": {
+      "tag": "span",
+      "class": "category-tag",
+      "token_refs": {
+        "background": "{color.accent-soft}",
+        "color": "{color.accent}",
+        "border-radius": "{radius.control}"
+      },
+      "states": [
+        "default"
+      ]
+    },
+    "nav-link": {
+      "tag": "a",
+      "class": "nav-link",
+      "token_refs": {
+        "color": "{color.muted}",
+        "border-radius": "{radius.control}"
+      },
+      "states": [
+        "default",
+        "focus"
+      ]
+    },
+    "value-row": {
+      "tag": "div",
+      "class": "value-row",
+      "token_refs": {
+        "color": "{color.ink}"
+      },
+      "states": [
+        "default"
+      ]
+    }
+  },
+  "page": {
+    "id": "collection-page",
+    "title": "A place for the good work.",
+    "subtitle": "Reusable collections for your next scene, story, or interface.",
+    "collection_name": "Studio collection",
+    "viewport": {
+      "width": 1440,
+      "height": 1024
+    },
+    "filters": [
+      "All assets",
+      "Interface",
+      "Spatial",
+      "Motion"
+    ],
+    "assets": [
+      {
+        "id": "tidal",
+        "component": "asset-card",
+        "name": "Tidal interface kit",
+        "category": "Interface",
+        "description": "Navigation, forms, and cards with room to breathe.",
+        "format": "Component set",
+        "items": 12,
+        "visual": "tidal"
+      },
+      {
+        "id": "terrain",
+        "component": "asset-card",
+        "name": "Terrain study",
+        "category": "Spatial",
+        "description": "A small material study for a landscape scene.",
+        "format": "Material collection",
+        "items": 6,
+        "visual": "terrain"
+      },
+      {
+        "id": "orbit",
+        "component": "asset-card",
+        "name": "Orbit motion pack",
+        "category": "Motion",
+        "description": "Timing notes and an editable title treatment.",
+        "format": "Motion study",
+        "items": 4,
+        "visual": "orbit"
+      },
+      {
+        "id": "mono",
+        "component": "asset-card",
+        "name": "Mono controls",
+        "category": "Interface",
+        "description": "A compact control family for creative tools.",
+        "format": "Component set",
+        "items": 8,
+        "visual": "mono"
+      },
+      {
+        "id": "forms",
+        "component": "asset-card",
+        "name": "Soft forms",
+        "category": "Spatial",
+        "description": "Shape and color references for early exploration.",
+        "format": "Shape study",
+        "items": 5,
+        "visual": "forms"
+      },
+      {
+        "id": "type",
+        "component": "asset-card",
+        "name": "Type in motion",
+        "category": "Motion",
+        "description": "A typographic sketch built around a simple rhythm.",
+        "format": "Motion study",
+        "items": 3,
+        "visual": "type"
+      }
+    ]
+  },
+  "acceptance": {
+    "local": [
+      "token references resolve",
+      "components are reused",
+      "editable frontend export round-trips",
+      "artifact hashes match"
+    ],
+    "native": [
+      "read",
+      "write",
+      "save_reopen",
+      "export"
+    ],
+    "providers": [
+      "figma",
+      "penpot",
+      "pencil",
+      "sketch",
+      "framer"
+    ]
+  }
+}
+</script></body></html>
