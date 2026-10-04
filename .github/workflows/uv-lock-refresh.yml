@@ -59,8 +59,10 @@ name: Refresh published lock pins
 
 on:
   schedule:
-    # Daily at 03:47 UTC: off the hour, and after the 01:13Z release window so
-    # the version published that morning is already on PyPI when this runs.
+    # Daily at 03:47 UTC: off the hour, and well after the 18:07 CST
+    # (10:07 UTC) release dispatch, so the version published the previous
+    # evening is already on PyPI when this runs. The reliable follow-up to a
+    # release is the `workflow_run` trigger below, not this cron.
     - cron: "47 3 * * *"
   workflow_dispatch:
   workflow_run:
