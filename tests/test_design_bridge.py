@@ -12,10 +12,10 @@ import sys
 
 import pytest
 
-from dcc_mcp_core.design_bridge import DesignBridgeError
-from dcc_mcp_core.design_bridge import DesignSessionBridge
-from dcc_mcp_core.design_bridge import FramerApiFacade
-from dcc_mcp_core.design_bridge import get_design_provider_profile
+from dcc_mcp_core.experimental.design_bridge import DesignBridgeError
+from dcc_mcp_core.experimental.design_bridge import DesignSessionBridge
+from dcc_mcp_core.experimental.design_bridge import FramerApiFacade
+from dcc_mcp_core.experimental.design_bridge import get_design_provider_profile
 
 
 def descriptor(name="vendor_operation"):
@@ -548,12 +548,12 @@ def test_cancelled_operations_detach_the_session_without_claiming_host_cancellat
 
 
 def test_import_is_dependency_light_and_does_not_load_native_extension_or_vendor_sdk():
-    import dcc_mcp_core.design_bridge as module
+    import dcc_mcp_core.experimental.design_bridge as module
 
     environment = dict(os.environ)
-    environment["PYTHONPATH"] = str(Path(module.__file__).resolve().parents[1])
+    environment["PYTHONPATH"] = str(Path(module.__file__).resolve().parents[2])
     code = (
-        "import sys; import dcc_mcp_core.design_bridge; "
+        "import sys; import dcc_mcp_core.experimental.design_bridge; "
         "assert 'dcc_mcp_core._core' not in sys.modules; "
         "assert 'mcp' not in sys.modules; "
         "assert 'framer' not in sys.modules"

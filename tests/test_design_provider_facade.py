@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from dcc_mcp_core.design_bridge import DesignSessionBridge
+from dcc_mcp_core.experimental.design_bridge import DesignSessionBridge
 
 
 class ContractSession:

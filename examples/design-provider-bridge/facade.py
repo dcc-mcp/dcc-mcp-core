@@ -15,7 +15,7 @@ from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import create_skill_server
 from dcc_mcp_core._tool_registration import ToolSpec
 from dcc_mcp_core._tool_registration import register_tools
-from dcc_mcp_core.design_bridge import DesignBridgeError
+from dcc_mcp_core.experimental.design_bridge import DesignBridgeError
 from dcc_mcp_core.result_envelope import ToolResultEnvelope
 
 

@@ -68,7 +68,7 @@ envelope. The outer MCP wire is a facade, not native content-block passthrough.
 Figma remote and Penpot remote should use a caller-owned authorized session:
 
 ```python
-from dcc_mcp_core.design_bridge import DesignSessionBridge
+from dcc_mcp_core.experimental.design_bridge import DesignSessionBridge
 
 bridge = DesignSessionBridge("figma")
 catalogue = await bridge.connect(existing_authorized_session)
@@ -98,5 +98,7 @@ real Core server and official client SDK with a deterministic fixture upstream.
 The SDK is optional in the Core test dependency set; absence skips that test.
 The example contracts also run through the existing `pytest tests/` CI gate
 when Node is already available. They use a fake SDK fixture and do not contact
-Framer. The native and lite Python 3.7 smoke lists include the bridge import;
+Framer. The standalone Python fixture binds its event loop for Python 3.7's
+Unix child watcher and uses a Proactor loop for Windows subprocess support.
+The native and lite Python 3.7 smoke lists include the bridge import;
 local grammar checks do not replace execution of those CI jobs.

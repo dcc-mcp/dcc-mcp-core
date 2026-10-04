@@ -24,12 +24,16 @@ _FIXTURE = Path(__file__).with_name("fake_sdk_facade.mjs")
 @unittest.skipUnless(shutil.which("node"), "Node is required for host-free process tests")
 class FramerAdapterTests(unittest.TestCase):
     def run_async(self, coroutine):
-        loop = asyncio.new_event_loop()
+        loop = asyncio.ProactorEventLoop() if sys.platform == "win32" else asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
         try:
             return loop.run_until_complete(coroutine)
         finally:
-            loop.run_until_complete(loop.shutdown_asyncgens())
-            loop.close()
+            try:
+                loop.run_until_complete(loop.shutdown_asyncgens())
+            finally:
+                asyncio.set_event_loop(None)
+                loop.close()
 
     def session(self, **kwargs):
         return FramerNodeSession(project="fixture-project", facade_path=_FIXTURE, **kwargs)
@@ -164,7 +168,7 @@ class FramerAdapterTests(unittest.TestCase):
 
     def test_core_marks_sdk_rejections_and_timeouts_indeterminate(self):
         # Optional integration evidence: base adapter tests require no Core import.
-        core_path = _EXAMPLE.parents[1] / "python" / "dcc_mcp_core" / "design_bridge.py"
+        core_path = _EXAMPLE.parents[1] / "python" / "dcc_mcp_core" / "experimental" / "design_bridge.py"
         if not core_path.is_file():
             self.skipTest("The Core design bridge source is not available")
         spec = importlib.util.spec_from_file_location("framer_core_integration_fixture", core_path)

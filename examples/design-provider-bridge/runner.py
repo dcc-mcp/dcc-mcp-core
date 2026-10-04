@@ -15,9 +15,9 @@ from pathlib import Path
 import sys
 from urllib.parse import urlsplit
 
-from dcc_mcp_core.design_bridge import DesignBridgeError
-from dcc_mcp_core.design_bridge import DesignSessionBridge
-from dcc_mcp_core.design_bridge import FramerApiFacade
+from dcc_mcp_core.experimental.design_bridge import DesignBridgeError
+from dcc_mcp_core.experimental.design_bridge import DesignSessionBridge
+from dcc_mcp_core.experimental.design_bridge import FramerApiFacade
 
 
 def validate_local_url(provider, url):

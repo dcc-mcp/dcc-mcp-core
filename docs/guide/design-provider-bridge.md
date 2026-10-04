@@ -54,7 +54,7 @@ flowchart LR
     Workflow --> Evidence[Native readback + exports + frontend artifacts]
 ```
 
-`dcc_mcp_core.design_bridge.DesignSessionBridge` is pure Python with no SDK
+`dcc_mcp_core.experimental.design_bridge.DesignSessionBridge` is pure Python with no SDK
 dependency or native-extension import. It accepts a caller-owned async session
 with `list_tools(cursor=...)` and `call_tool(name, arguments=...)`. Framer
 requires an explicit `FramerApiFacade` so an SDK is never mislabeled as official
