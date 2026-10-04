@@ -76,7 +76,7 @@ credential URLs, project payloads and private diagnostics are not public
 validation evidence. An uncertain dispatched call reports an indeterminate
 effect requiring readback.
 
-The optional [runnable trial](../../examples/design-provider-bridge/README.md)
+The optional [runnable trial](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/examples/design-provider-bridge/README.md)
 uses the official maintained MCP Python SDK for local transports and the
 official Framer SDK for project access. It owns one long-lived event loop and
 session. Its Core facade registers through existing Core helpers before
@@ -104,7 +104,7 @@ read/write availability.
 
 ## One reusable workflow
 
-The shared [pilot](../../examples/design-provider-bridge/pilot/README.md) uses
+The shared [pilot](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/examples/design-provider-bridge/pilot/README.md) uses
 editable tokens, components, a page specification, and a runnable frontend.
 Its local build checks and candidate native asset validation are distinct
 from the five providers' pending native phases. The corresponding conditional
@@ -126,6 +126,6 @@ the existing Showcase/Marketplace plan after native acceptance and review;
 five provider profiles do not create five new sets of showcases. No software
 release or Marketplace publication is part of this source trial.
 
-All five native branches remain unrun. The [native acceptance checklist](../../examples/design-provider-bridge/NATIVE_ACCEPTANCE.md)
+All five native branches remain unrun. The [native acceptance checklist](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/examples/design-provider-bridge/NATIVE_ACCEPTANCE.md)
 records the scoped local observations, exact existing objects needed and each
 provider's real read/write/reopen/export sequence.
