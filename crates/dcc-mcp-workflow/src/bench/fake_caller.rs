@@ -666,8 +666,16 @@ mod tests {
             // The lower bound above is the hard contract. The upper bound is
             // deliberately loose: how tightly wall-clock tracks the model is
             // a property of the host's timer and its load, and that is what
-            // the p95 harness in `tests/pipeline_bench.rs` measures across
-            // 30 rounds. A unit test may not assume a quiet machine — it
+            // the 30-round harness in `tests/pipeline_bench.rs` measures.
+            //
+            // That harness gates the **median** per-stage overhead, not the
+            // p95 it also prints. p95 and max are diagnostic output only —
+            // at n = 30 the p95 is the 2nd-largest sample, so budgeting it
+            // budgeted the worst scheduling hiccup of the run. Do not
+            // reintroduce a p95 or max assertion here on the strength of
+            // that printout.
+            //
+            // A unit test may not assume a quiet machine regardless — it
             // runs once, alongside every other test in the binary.
             assert!(
                 record.observed < record.intended + Duration::from_millis(100),

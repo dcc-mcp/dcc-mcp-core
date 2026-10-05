@@ -2,6 +2,30 @@ name: Performance Benchmarks
 
 # Performance benchmarks are trend signals, not PR merge gates. Run them on a
 # schedule or manually when investigating regressions.
+#
+# Drift envelope: NOT IMPLEMENTED, and deliberately so. This workflow records
+# numbers and archives them; nothing compares run N against run N-1, nothing
+# alerts, and no step here can fail on a regression — criterion does not fail
+# on its own, and there is no `github-action-benchmark` (or equivalent)
+# configured anywhere in this repository.
+#
+# That is the documented convention for this repo, not an oversight: benchmark
+# drift on shared GitHub-hosted runners is dominated by host noise of the same
+# order as the regressions we would want to catch, so a comparison or alert
+# threshold derived from those runs would fail on days when nothing changed.
+# The pipeline jitter gate was rewritten for exactly this reason — see the
+# doc comment on `pipeline_full_stage_jitter_stays_within_budget` in
+# `crates/dcc-mcp-workflow/tests/pipeline_bench.rs`.
+#
+# Revisiting this requires all three of the following, and none is in place:
+#   1. A stable baseline store that survives across runs (a `gh-pages`
+#      branch, or an external store). Artifacts expire and are not it.
+#   2. A runner with bounded noise, so a drift threshold can sit above the
+#      noise floor. Self-hosted, or a runner class with committed capacity.
+#   3. An agreed threshold per benchmark, set from measured variance on that
+#      runner rather than from a round percentage.
+# Until then: trend-only, no alerting. Treat the archived artifacts as the
+# input to a manual investigation, not as a signal anyone is watching.
 
 on:
   workflow_dispatch:
@@ -43,13 +67,17 @@ jobs:
         env:
           CRITERION_CI: "1"
 
+      # `error`, not `ignore`: since nothing compares these numbers, an empty
+      # archive is the one failure mode left that is actually detectable
+      # here. Letting it pass silently is what makes "trend-only" degrade
+      # into "no data at all".
       - name: Upload criterion HTML report
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: criterion-report
           path: target/criterion/
-          if-no-files-found: ignore
+          if-no-files-found: error
 
   gateway-discovery-bench:
     name: Gateway discovery benchmark
@@ -76,7 +104,7 @@ jobs:
         with:
           name: gateway-discovery-criterion-report
           path: target/criterion/
-          if-no-files-found: ignore
+          if-no-files-found: error
 
   pipeline-bench:
     name: Pipeline benchmark report
