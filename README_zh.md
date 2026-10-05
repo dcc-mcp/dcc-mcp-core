@@ -30,9 +30,7 @@
 
 底层它结合 **MCP 2025-03-26 Streamable HTTP**、遵循 [agentskills.io 1.0](https://agentskills.io/specification) 的 **零代码 Skills 系统**，以及负责发现、路由、安装、lint、更新和运维的 Rust gateway。Python 包面向嵌入式 DCC 宿主保持**零第三方 Python 库依赖**，并依赖同套发布的 `dcc-mcp-server` wheel，确保 daemon-backed gateway 启动时即使 `PATH` 为空也有可用的打包二进制。独立的 `dcc-mcp-cli` 与 `dcc-mcp-server` 二进制也会随 GitHub Release 发布，适合像传统软件一样下载安装到工作站。支持 Python 3.7–3.14。
 
-## 一套协议，覆盖全部已登记宿主
-
-生态里的每个宿主 adapter 实现的都是同一套 MCP 协议与同一套工具契约。注册表是事实来源，宿主数量可以从任意 checkout 复现：
+**一套协议，覆盖全部已登记宿主。** 生态里的每个宿主 adapter 实现的都是同一套 MCP 协议与同一套工具契约。注册表是事实来源，宿主数量可以从任意 checkout 复现：
 
 ```bash
 rg -c '^    tags: \[.*"adapter".*\]' dcc-mcp-catalog.yml
@@ -50,15 +48,13 @@ rg -c '^    tags: \[.*"adapter".*\]' dcc-mcp-catalog.yml
 
 完整清单与安装元数据见[生态目录](https://dcc-mcp.github.io/zh/ecosystem)。
 
-## 三件共享契约，让矩阵不退化
-
-覆盖宿主数只有在 adapter 之间可互换时才有意义。core 发布的三件契约，是 38 个 adapter 不会退化为 38 个各自为政服务的原因：
+**三件共享契约，让矩阵不退化。** 覆盖宿主数只有在 adapter 之间可互换时才有意义。core 发布的三件契约，是 38 个 adapter 不会退化为 38 个各自为政服务的原因：
 
 | 契约 | 保证什么 | 在哪里核验 |
 |---|---|---|
-| core 共享契约 | 统一的导入路径（`asset_import`）、统一的发现决策 schema（`dcc-discovery-decision-v1`）、以及 postcondition「写后回读」，让工具自证结果 | `python/dcc_mcp_core/asset_import.py`、`contracts/dcc-discovery-decision-v1.schema.json`、`python/dcc_mcp_core/runtime/postcondition.py` |
+| core 共享契约 | 统一的 asset 导入契约（`asset_import`）、统一的发现决策 schema（`dcc-discovery-decision-v1`）、以及 postcondition「写后回读」，让工具自证结果 | `python/dcc_mcp_core/asset_import.py`、`contracts/dcc-discovery-decision-v1.schema.json`、`python/dcc_mcp_core/runtime/postcondition.py` |
 | recipe 运行时 | `recipes__list` / `recipes__get` / `recipes__validate` / `recipes__apply` 由声明式 `RECIPES.yaml` 驱动，宿主把能力当数据发布，而不是各写一套 server | `skills/mesh-ops/RECIPES.yaml` |
-| marketplace skill 契约 | 每个发布条目都带 `examplePrompts`；`Skills`、`Studio`、`Infrastructure` 条目还必须声明 `recovery` 与 `undo`，失败有下一步、改动有一次撤回 | [`marketplace-v1.schema.json`](https://github.com/dcc-mcp/marketplace/blob/main/schemas/marketplace-v1.schema.json) |
+| marketplace skill 契约 | 每个发布条目都带 `examplePrompts`；`Skills`、`Studio`、`Infrastructure` 条目还必须声明 `recovery` 与 `undo`，失败有下一步、改动有一次撤回 | 由 dcc-mcp/marketplace 的 [`validate_marketplace.py`](https://github.com/dcc-mcp/marketplace/blob/main/scripts/validate_marketplace.py) 强制——执行 `python scripts/validate_marketplace.py prompt-contract`（另见 [`prompt-contract.md`](https://github.com/dcc-mcp/marketplace/blob/main/docs/prompt-contract.md)） |
 
 **比较口径**：只比覆盖宿主数与契约完整性——两者都能用上面的命令和文件复现。我们不做排名声称，也不与竞品比 star 数与工具数。
 
