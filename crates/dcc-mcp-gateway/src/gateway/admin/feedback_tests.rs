@@ -21,6 +21,9 @@ fn make_gateway_state(registry_dir: &std::path::Path) -> GatewayState {
     let (yield_tx, _) = watch::channel(false);
     let (events_tx, _) = broadcast::channel::<String>(8);
     GatewayState {
+        instance_resolver: std::sync::Arc::new(
+            crate::gateway::instance_resolver::InstanceResolver::new(),
+        ),
         ingress: Arc::new(crate::gateway::http_limits::GatewayIngressState::from_env()),
         resilience: Arc::new(Default::default()),
         registry,

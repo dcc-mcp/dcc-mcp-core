@@ -67,6 +67,10 @@ use dcc_mcp_transport::discovery::types::{
     ServiceEntry, ServiceStatus, instance_status_from_entry,
 };
 
+pub use super::instance_resolver::{InstanceResolver, ResolveVia, ResolvedInstance};
+
+pub use super::instance_resolver::{MCP_SESSION_HEADER, REST_SESSION_HEADER, human_instance_label};
+
 use super::middleware::MiddlewareChain;
 
 use super::capability::search_cache::SearchCache;
@@ -252,6 +256,14 @@ pub struct GatewayState {
     /// Shared via `Arc` so handlers and refresh paths can invalidate
     /// it when the capability index changes.
     pub search_cache: Arc<SearchCache>,
+
+    /// Session-scoped default-instance resolver (RFC-0007 §3.1).
+    ///
+    /// Remembers which instance each `(session, dcc_type)` pair last used so
+    /// a caller that omits `instance_id` keeps landing on the same process
+    /// instead of being asked to disambiguate on every call. Shared via `Arc`
+    /// because [`GatewayState`] is cloned per request.
+    pub instance_resolver: Arc<super::instance_resolver::InstanceResolver>,
 
     /// Contention event log (issue #766).
     ///
@@ -445,6 +457,10 @@ impl GatewayState {
     }
 
     /// Resolve a user-provided instance hint against the shared live-instance view.
+    ///
+    /// Session-unaware: never applies or records a sticky binding. Prefer
+    /// [`Self::resolve_instance_for_session`] on request paths that know the
+    /// caller's session id.
     pub fn resolve_instance(
         &self,
         registry: &FileRegistry,
@@ -456,7 +472,14 @@ impl GatewayState {
             .into_iter()
             .filter(|e| dcc_filter.is_none_or(|f| e.dcc_type.eq_ignore_ascii_case(f)))
             .collect();
-        resolve_instance_candidates(candidates, instance_hint, dcc_filter)
+        resolve_instance_candidates(
+            candidates,
+            instance_hint,
+            dcc_filter,
+            None,
+            Some(&self.instance_resolver),
+        )
+        .map(|resolved| resolved.entry)
     }
 
     pub async fn resolve_instance_async(
@@ -470,7 +493,52 @@ impl GatewayState {
             .into_iter()
             .filter(|e| dcc_filter.is_none_or(|f| e.dcc_type.eq_ignore_ascii_case(f)))
             .collect();
-        resolve_instance_candidates(candidates, instance_hint, dcc_filter)
+        resolve_instance_candidates(
+            candidates,
+            instance_hint,
+            dcc_filter,
+            None,
+            Some(&self.instance_resolver),
+        )
+        .map(|resolved| resolved.entry)
+    }
+
+    /// Resolve an instance for a caller whose session identity is known.
+    ///
+    /// This is the request-path entry point for RFC-0007 §3.1. When the caller
+    /// omits the instance and several live candidates match, the choice is
+    /// deterministic *and* remembered: bound > sticky > single > newest. The
+    /// returned [`ResolvedInstance`] also records whether a previously pinned
+    /// instance had died, so the response can report the switch instead of
+    /// silently using something else.
+    pub async fn resolve_instance_for_session(
+        &self,
+        instance_hint: Option<&str>,
+        dcc_filter: Option<&str>,
+        session_key: Option<&str>,
+    ) -> Result<ResolvedInstance, ResolveInstanceError> {
+        let candidates = self
+            .live_instances_async()
+            .await
+            .into_iter()
+            .filter(|e| dcc_filter.is_none_or(|f| e.dcc_type.eq_ignore_ascii_case(f)))
+            .collect();
+        let resolved = resolve_instance_candidates(
+            candidates,
+            instance_hint,
+            dcc_filter,
+            session_key,
+            Some(&self.instance_resolver),
+        )?;
+        // Remember what this session used, so the next call that omits the
+        // instance lands on the same process. Recording also refreshes the
+        // TTL, which keeps an active conversation from being evicted mid-session.
+        if let Some(session) = session_key.map(str::trim).filter(|key| !key.is_empty()) {
+            let dcc_key = resolved.entry.dcc_type.to_ascii_lowercase();
+            self.instance_resolver
+                .record(session, &dcc_key, resolved.entry.instance_id);
+        }
+        Ok(resolved)
     }
 
     /// Return operator-facing registry rows with dead owner/host entries pruned.
@@ -529,17 +597,46 @@ impl GatewayState {
     }
 }
 
+/// Shared resolver shared by the `Arc`-free and async entry points.
+///
+/// When `session_key` is `None` the sticky/bound rungs of the ladder are
+/// skipped entirely rather than falling back to a shared default key —
+/// otherwise two unrelated clients would pin each other's instance.
 fn resolve_instance_candidates(
     candidates: Vec<ServiceEntry>,
     instance_hint: Option<&str>,
     dcc_filter: Option<&str>,
-) -> Result<ServiceEntry, ResolveInstanceError> {
+    session_key: Option<&str>,
+    resolver: Option<&InstanceResolver>,
+) -> Result<ResolvedInstance, ResolveInstanceError> {
     const MIN_PREFIX_LEN: usize = 4;
     if let Some(raw_hint) = instance_hint.map(str::trim).filter(|hint| !hint.is_empty()) {
+        // An alias registered by `bind_instance(alias = "main")` is resolved
+        // before UUID/prefix matching so a friendly name never collides with a
+        // hex prefix by accident.
+        let alias_hit = session_key
+            .map(str::trim)
+            .filter(|key| !key.is_empty())
+            .zip(resolver)
+            .and_then(|(session, resolver)| resolver.resolve_alias(session, raw_hint));
+        if let Some((_, instance_id)) = alias_hit
+            && let Some(entry) = candidates.iter().find(|e| e.instance_id == instance_id)
+        {
+            return Ok(ResolvedInstance {
+                entry: entry.clone(),
+                via: ResolveVia::Bound,
+                previous_instance_id: None,
+            });
+        }
         if let Ok(uuid) = Uuid::parse_str(raw_hint) {
             return candidates
                 .into_iter()
                 .find(|e| e.instance_id == uuid)
+                .map(|entry| ResolvedInstance {
+                    entry,
+                    via: ResolveVia::Explicit,
+                    previous_instance_id: None,
+                })
                 .ok_or_else(|| ResolveInstanceError::NoMatch {
                     hint: Some(raw_hint.to_string()),
                     dcc: dcc_filter.map(str::to_string),
@@ -561,30 +658,74 @@ fn resolve_instance_candidates(
                 hint: Some(raw_hint.to_string()),
                 dcc: dcc_filter.map(str::to_string),
             }),
-            [entry] => Ok(entry.clone()),
+            [entry] => Ok(ResolvedInstance {
+                entry: entry.clone(),
+                via: ResolveVia::Explicit,
+                previous_instance_id: None,
+            }),
             _ => Err(ResolveInstanceError::MultipleMatches {
                 candidates: matches.iter().map(instance_candidate).collect(),
             }),
         };
     }
+    // No hint: run the RFC-0007 §3.1 ladder (bound > sticky > single > newest).
+    let outcome = match resolver {
+        Some(resolver) => resolver.resolve(candidates, dcc_filter, session_key),
+        // No resolver wired (unit tests / standalone callers): keep the
+        // historical deterministic behaviour — single wins, otherwise the
+        // newest registration.
+        None => fallback_resolve(candidates),
+    };
+    outcome.map_err(|candidates| {
+        if candidates.is_empty() {
+            ResolveInstanceError::NoMatch {
+                hint: None,
+                dcc: dcc_filter.map(str::to_string),
+            }
+        } else {
+            ResolveInstanceError::MultipleMatches {
+                candidates: candidates.iter().map(instance_candidate).collect(),
+            }
+        }
+    })
+}
+
+/// Deterministic pick used when no [`InstanceResolver`] is wired.
+fn fallback_resolve(
+    mut candidates: Vec<ServiceEntry>,
+) -> Result<ResolvedInstance, Vec<ServiceEntry>> {
     match candidates.as_slice() {
-        [] => Err(ResolveInstanceError::NoMatch {
-            hint: None,
-            dcc: dcc_filter.map(str::to_string),
+        [] => Err(candidates),
+        [_] => Ok(ResolvedInstance {
+            entry: candidates.remove(0),
+            via: ResolveVia::Single,
+            previous_instance_id: None,
         }),
-        [entry] => Ok(entry.clone()),
-        _ => Err(ResolveInstanceError::MultipleMatches {
-            candidates: candidates.iter().map(instance_candidate).collect(),
-        }),
+        _ => {
+            candidates.sort_by(|a, b| {
+                b.registered_at
+                    .cmp(&a.registered_at)
+                    .then_with(|| a.instance_id.cmp(&b.instance_id))
+            });
+            Ok(ResolvedInstance {
+                entry: candidates.remove(0),
+                via: ResolveVia::Newest,
+                previous_instance_id: None,
+            })
+        }
     }
 }
 
+/// Human-readable candidate label (`dcc:short8 (human label)`).
+///
+/// Candidates are also what an error message shows the user, so they lead with
+/// something a person can act on instead of a bare UUID.
 fn instance_candidate(entry: &ServiceEntry) -> String {
     format!(
-        "{}:{}:{}",
+        "{}:{} ({})",
         entry.dcc_type,
-        entry.instance_id,
         entry_to_short(&entry.instance_id),
+        super::instance_resolver::human_instance_label(entry),
     )
 }
 

@@ -933,6 +933,9 @@ mod tests {
         let (yield_tx, _) = tokio::sync::watch::channel(false);
         let (gw_events_tx, _) = broadcast::channel::<String>(8);
         let gw_state = crate::gateway::state::GatewayState {
+            instance_resolver: std::sync::Arc::new(
+                crate::gateway::instance_resolver::InstanceResolver::new(),
+            ),
             ingress: std::sync::Arc::new(
                 crate::gateway::http_limits::GatewayIngressState::from_env(),
             ),

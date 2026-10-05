@@ -1,6 +1,8 @@
 //! MCP discovery meta-tools served by the gateway's `/mcp` endpoint.
 
+pub mod binding;
 pub mod instances;
+pub use binding::*;
 pub use instances::*;
 
 use serde_json::{Value, json};

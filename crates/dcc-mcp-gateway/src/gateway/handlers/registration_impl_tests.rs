@@ -17,6 +17,9 @@ fn test_gateway_state() -> GatewayState {
     let (yield_tx, _) = watch::channel(false);
     let (events_tx, _) = broadcast::channel::<String>(8);
     GatewayState {
+        instance_resolver: std::sync::Arc::new(
+            crate::gateway::instance_resolver::InstanceResolver::new(),
+        ),
         ingress: std::sync::Arc::new(crate::gateway::http_limits::GatewayIngressState::from_env()),
         resilience: std::sync::Arc::new(Default::default()),
         registry,

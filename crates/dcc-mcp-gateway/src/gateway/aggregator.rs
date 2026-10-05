@@ -55,8 +55,8 @@ use super::backend_client::{call_backend, fetch_tools};
 use super::state::GatewayState;
 use super::tools::{
     gateway_tool_defs, tool_acquire_instance, tool_call, tool_call_tool, tool_call_tools,
-    tool_describe, tool_describe_tool, tool_lease, tool_load_skill, tool_release_instance,
-    tool_search, tool_search_tools,
+    tool_describe, tool_describe_tool, tool_lease, tool_release_instance, tool_search,
+    tool_search_tools,
 };
 use dcc_mcp_jsonrpc::{TOOLS_LIST_PAGE_SIZE, decode_cursor, encode_cursor};
 use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry};

@@ -701,10 +701,14 @@ async fn skill_lifecycle_response(
     );
     let search_id = search_id_from_payload(&body);
     let skill_name = skill_name_from_payload(&body);
+    // RFC-0007 §3.1: REST callers opt into session-scoped instance resolution
+    // with `X-DCC-Session-Id`. Without it the call is not sticky, so two
+    // unrelated clients can never pin each other's instance.
+    let session = rest_session_key(headers);
     let (text, is_error) = if tool == "load_skill" {
-        crate::gateway::tools::tool_load_skill(gs, &body).await
+        crate::gateway::tools::tool_load_skill_for_session(gs, &body, session).await
     } else {
-        crate::gateway::aggregator::skill_mgmt_dispatch(gs, tool, &body).await
+        crate::gateway::tools::tool_skill_mgmt_for_session(gs, tool, &body, session).await
     };
     if tool == "load_skill" {
         record_search_followup(
@@ -1306,6 +1310,20 @@ pub async fn handle_v1_dcc_instance_call(
         ),
         Err(err) => service_error_response_with_metadata(&headers, &body, &err, &metadata, false),
     }
+}
+
+/// Read the REST caller's opt-in session key (`X-DCC-Session-Id`).
+///
+/// Returns `None` when the header is absent or blank — never a synthesised
+/// default, because a shared fallback key would let unrelated clients pin
+/// each other's instance.
+pub(crate) fn rest_session_key(headers: &HeaderMap) -> Option<&str> {
+    use crate::gateway::instance_resolver::REST_SESSION_HEADER;
+    headers
+        .get(REST_SESSION_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
 }
 
 pub(crate) fn resolve_instance_http_response(err: ResolveInstanceError) -> impl IntoResponse {

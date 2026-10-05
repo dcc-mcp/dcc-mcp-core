@@ -8,6 +8,8 @@ use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use std::time::{Duration, Instant};
 
+use crate::gateway::instance_resolver::MCP_SESSION_HEADER;
+
 /// Log when gateway `/mcp` dispatch exceeds this threshold (issue #1009).
 const GATEWAY_MCP_SLOW_DISPATCH_MS: u128 = 250;
 
@@ -209,8 +211,13 @@ pub async fn handle_gateway_mcp(
     body: axum::body::Bytes,
 ) -> Response {
     let dispatch_started = Instant::now();
+    // RFC-0007 §3.1: the *presence* of `Mcp-Session-Id` is what makes a caller
+    // When the client omits `Mcp-Session-Id` we still need a correlation id
+    // for logging, but that stand-in must never reach the instance resolver:
+    // a synthesised key would make every headerless request look like a new
+    // session. `mcp_session_key` is what reads the real header.
     let client_session_id = headers
-        .get("Mcp-Session-Id")
+        .get(MCP_SESSION_HEADER)
         .and_then(|v| v.to_str().ok())
         .map(str::to_owned)
         .unwrap_or_else(|| format!("gw-{}", uuid::Uuid::new_v4().simple()));
@@ -663,6 +670,20 @@ async fn handle_resource_subscription(
     super::resources::handle_resource_subscription(gs, id, req, session_id, subscribe).await
 }
 
+/// The client-supplied MCP session id, when the client actually sent one.
+///
+/// [`handle_gateway_mcp`] invents a `gw-<uuid>` correlation id for logging when
+/// `Mcp-Session-Id` is missing; that stand-in must not reach the instance
+/// resolver, or a headerless client would look like a brand-new session on
+/// every single request.
+fn mcp_session_key(headers: &HeaderMap) -> Option<&str> {
+    headers
+        .get(MCP_SESSION_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
 async fn handle_tools_call(
     gs: &GatewayState,
     id: Value,
@@ -842,7 +863,7 @@ async fn handle_tools_call(
         tool,
         &effective_args,
         meta.as_ref(),
-        Some(session_id),
+        mcp_session_key(headers),
         Some(&ctx.trace_context),
         ctx.agent_context.as_ref(),
     )
