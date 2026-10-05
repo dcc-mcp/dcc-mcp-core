@@ -1360,10 +1360,46 @@ fn test_read_alive_handles_multiple_ghosts_for_dcc_maya_126() {
 /// the gateway facade only seeing one of two backends in
 /// `tests/test_gateway_facade_aggregation.py` on Windows. The current path
 /// uses a shared `services.lock` with bounded try-lock/backoff.
+///
+/// # Known low-frequency flake — status as of 2026-10
+///
+/// This test has failed 4 times in CI, all on Windows: 2026-08-17, 2026-09-07,
+/// and twice on 2026-09-21. No commit has ever fixed it, and it has not been
+/// seen since 2026-09-21. "Not reproduced" is not "fixed", so the current
+/// standing is **known low-frequency flake**, not resolved.
+///
+/// What has been ruled out, so it is not re-investigated from scratch:
+///
+/// * The write path is correct. `with_write_transaction` takes the in-process
+///   mutex *and* the registry file lock, rolls the in-memory map and the
+///   sentinel set back on any failure, and bounds its wait
+///   (`DCC_MCP_REGISTRY_LOCK_TIMEOUT_MS`, default 2000 ms, 10 ms backoff).
+/// * Under deliberate contention it passes: 2-core affinity with 40 spinning
+///   processes, 10/10 runs. The full file_registry suite is 62/62.
+/// * The historical `share_mode(0)` defect is gone; nothing in the current
+///   lock acquisition opens exclusively.
+///
+/// So the remaining hypothesis is environmental on Windows runners —
+/// lock-file acquisition losing its wait budget to scheduler or filesystem
+/// latency — which is why the assertions below now report *which* step and
+/// *which* iteration failed instead of a bare `unwrap()` panic.
+///
+/// ## Triage recipe for the next occurrence
+///
+/// 1. Read the panic: "heartbeat i/50 failed" plus the error text. The error
+///    names the step — `in-process registry mutex` or `registry lock file`.
+/// 2. If it names a lock, it is contention; the fix belongs in the timeout /
+///    backoff policy, not in this test. Capture `waited_ms` from the
+///    `FileRegistry write transaction timed out waiting for lock` warn.
+/// 3. If the heartbeat loop passed and the post-run assertion failed
+///    instead, an entry really was dropped — that is the #554 regression
+///    again, and the on-disk dump in the assertion is the evidence.
 #[test]
 fn test_concurrent_heartbeat_does_not_drop_entries() {
     use std::sync::Arc;
     use std::thread;
+
+    const HEARTBEATS: usize = 50;
 
     let dir = tempfile::tempdir().unwrap();
     let registry = Arc::new(FileRegistry::new(dir.path()).unwrap());
@@ -1380,13 +1416,25 @@ fn test_concurrent_heartbeat_does_not_drop_entries() {
     let r1 = Arc::clone(&registry);
     let r2 = Arc::clone(&registry);
     let t1 = thread::spawn(move || {
-        for _ in 0..50 {
-            r1.heartbeat(&maya_key).unwrap();
+        for i in 0..HEARTBEATS {
+            r1.heartbeat(&maya_key).unwrap_or_else(|err| {
+                panic!(
+                    "thread A (maya) heartbeat {}/{HEARTBEATS} failed: {err} \
+                     — a lock error is contention, not a dropped entry",
+                    i + 1
+                )
+            });
         }
     });
     let t2 = thread::spawn(move || {
-        for _ in 0..50 {
-            r2.heartbeat(&blender_key).unwrap();
+        for i in 0..HEARTBEATS {
+            r2.heartbeat(&blender_key).unwrap_or_else(|err| {
+                panic!(
+                    "thread B (blender) heartbeat {}/{HEARTBEATS} failed: {err} \
+                     — a lock error is contention, not a dropped entry",
+                    i + 1
+                )
+            });
         }
     });
     t1.join().unwrap();
@@ -1399,11 +1447,11 @@ fn test_concurrent_heartbeat_does_not_drop_entries() {
         reread.list_all().into_iter().map(|e| e.dcc_type).collect();
     assert!(
         dccs.contains("maya"),
-        "maya entry lost in concurrent heartbeat"
+        "maya entry lost in concurrent heartbeat; on disk: {dccs:?}"
     );
     assert!(
         dccs.contains("blender"),
-        "blender entry lost in concurrent heartbeat"
+        "blender entry lost in concurrent heartbeat; on disk: {dccs:?}"
     );
 }
 

@@ -155,8 +155,25 @@ async fn measure_rounds(spec: &WorkflowSpec) -> Vec<Round> {
 
 /// Per-stage overhead report, plus the stages that blew the budget.
 ///
-/// Overhead is `observed - intended`. The simulated latency is exact, so the
-/// difference is precisely the executor plus the machine.
+/// Overhead is `observed - intended`. `CallRecord::observed` is measured
+/// *inside* the fake call and nowhere else: `sleep_precise` arms a timer,
+/// reports the instant it armed, and the caller stores `started.elapsed()`
+/// once the wait returns. The modelled latency is exact, so the difference
+/// is the wait mechanism plus the machine — **not** the whole executor.
+///
+/// That boundary is narrower than the wording here used to claim, and it
+/// was pinned down by mutation rather than by reading:
+///
+/// | injected +15 ms | where                | verdict           |
+/// |-----------------|----------------------|-------------------|
+/// | arm A           | inside the fake call | **FAIL** (rc=101) |
+/// | arm B           | between two calls    | **PASS** (rc=0)   |
+///
+/// Arm B passing is the whole point. Executor work that happens *outside*
+/// a call — template rendering, context bookkeeping, notifier fan-out — can
+/// grow by more than this gate's entire budget and still not be seen. That
+/// cost belongs to `stages/executor_overhead` in
+/// `benches/pipeline_full.rs`, which reports as a trend and gates nothing.
 ///
 /// p95 and max of that same overhead are printed but **not** gated: on a
 /// shared runner the tail belongs to the scheduler, and on 30 samples "p95"
@@ -226,9 +243,12 @@ fn overhead_report(rounds: &[Round]) -> (Vec<String>, Vec<String>) {
 ///   tail measured at 7.5-9.6 ms on those same runners.
 ///
 /// So the budgeted quantity is now `observed - intended` in absolute
-/// milliseconds, read with a median. The modelled latency is exact, so the
-/// difference is exactly the executor plus the machine, and the machine's
-/// share is additive and heavy-tailed — which is what a median is for.
+/// milliseconds, read with a median. `observed` spans only the wait inside
+/// the fake call, so the difference is the wait mechanism plus the machine,
+/// and the machine's share is additive and heavy-tailed — which is what a
+/// median is for. Executor work performed outside that window is out of
+/// scope for this gate; see [`overhead_report`] for where the boundary sits
+/// and for the mutation experiment that established it.
 ///
 /// # Where 10 ms comes from
 ///
