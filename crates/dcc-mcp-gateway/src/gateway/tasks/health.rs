@@ -4,7 +4,7 @@ use std::time::Duration;
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
 use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry, ServiceStatus};
 
-use crate::gateway::http_registration::{entry_discovery_mcp_url, entry_mcp_url};
+use crate::gateway::http_registration::entry_mcp_url_candidates;
 use crate::gateway::instance_diagnostics::InstanceDiagnosticsStore;
 
 /// Configuration for the health-check task.
@@ -17,41 +17,14 @@ pub(crate) struct HealthCheckConfig {
     pub metrics: Arc<crate::gateway::event_log::GatewayMetrics>,
 }
 
-/// The MCP URLs the health loop should probe for a registry row, most
-/// authoritative first (#4209).
+/// The MCP URLs the health loop should probe for a registry row.
 ///
-/// Liveness has to agree with the endpoints the gateway actually talks to,
-/// otherwise a healthy row stays pinned at `not_ready` forever:
-///
-/// - [`entry_discovery_mcp_url`] — what capability indexing, `search`, and
-///   skill/prompt/resource dispatch resolve through. A row with a dedicated
-///   discovery listener used to be marked not-ready while the capability
-///   index refreshed it from that same listener.
-/// - [`entry_mcp_url`] — the advertised dispatch endpoint. HTTP-, relay- and
-///   mDNS-registered rows advertise their reachable endpoint here; their raw
-///   `host:port` fields describe where the row came from, not where it
-///   listens now.
-/// - `http://host:port/mcp` — last resort for plain FileRegistry rows that
-///   advertise nothing (and for IPv6 binds, where `http://:::port/mcp` is not
-///   a valid URL but `host:port` is).
-///
-/// Duplicates collapse, so the ordinary sidecar row — where all three are the
-/// same string — still costs exactly one request.
+/// Delegates to [`entry_mcp_url_candidates`], the same resolver dispatch uses
+/// ([`crate::gateway::http_registration::entry_dispatch_mcp_url`]) so liveness
+/// and dispatch cannot disagree about the endpoint again (#4209). See that
+/// function for the candidate order.
 fn probe_urls_for_entry(entry: &ServiceEntry) -> Vec<String> {
-    let candidates = [
-        entry_discovery_mcp_url(entry),
-        entry_mcp_url(entry),
-        format!("http://{}:{}/mcp", entry.host, entry.port),
-    ];
-    let mut urls = Vec::with_capacity(candidates.len());
-    for candidate in candidates {
-        // Dispatch-only sidecars advertise no discovery endpoint at all.
-        if candidate.trim().is_empty() || urls.iter().any(|seen| seen == &candidate) {
-            continue;
-        }
-        urls.push(candidate);
-    }
-    urls
+    entry_mcp_url_candidates(entry)
 }
 
 /// Probe each candidate URL in priority order until one answers.
@@ -219,10 +192,10 @@ pub(crate) fn spawn_health_check_task(
                 } else {
                     // A pre-#660 backend answered the legacy `/health` probe
                     // with 200 but exposes no `/v1/readyz` report. Nothing to
-                    // cache — but any failure an earlier round recorded is now
-                    // stale, and leaving it behind made `GET /v1/readyz` call a
+                    // cache — and anything an earlier round recorded is now
+                    // stale: leaving it behind made `GET /v1/readyz` call a
                     // healthy, dispatched-to instance "unreachable".
-                    instance_diagnostics.clear_probe_failure(entry.instance_id);
+                    instance_diagnostics.clear_probe_state(entry.instance_id);
                 }
 
                 if outcome.is_ready() {
@@ -759,5 +732,59 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
         handle.abort();
+    }
+
+    #[tokio::test]
+    async fn legacy_health_fallback_drops_a_stale_readiness_report() {
+        // #4209: the same branch must not keep a readiness report from an
+        // earlier epoch. Stamping `probed_at_unix_secs` on it presented stale
+        // bits as "just probed" for a backend that no longer exposes any
+        // readiness surface.
+        let port = spawn_probe_backend(false).await;
+
+        let dir = tempdir().unwrap();
+        let registry = Arc::new(FileRegistry::new(dir.path()).unwrap());
+        let entry = ServiceEntry::new("houdini", "127.0.0.1", port);
+        let instance_id = entry.instance_id;
+        registry.register(entry).unwrap();
+
+        let diagnostics = Arc::new(InstanceDiagnosticsStore::new());
+        diagnostics.record_readiness(
+            instance_id,
+            dcc_mcp_skill_rest::ReadinessReport {
+                process: true,
+                dcc: true,
+                skill_catalog: true,
+                dispatcher: true,
+                host_execution_bridge: true,
+                main_thread_executor: true,
+            },
+        );
+        assert!(diagnostics.get(&instance_id).unwrap().readiness.is_some());
+
+        let handle = spawn_health_loop(registry, diagnostics.clone(), 9770, 1);
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        let snapshot = loop {
+            if let Some(diag) = diagnostics.get(&instance_id)
+                && diag.readiness.is_none()
+            {
+                break diag;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "a green legacy /health probe left a stale readiness report in place"
+            );
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        };
+        handle.abort();
+
+        assert!(
+            snapshot.probe_failure.is_none(),
+            "a successful legacy probe must not invent a failure"
+        );
+        assert!(
+            snapshot.probed_at_unix_secs.is_some(),
+            "the row must still record when it was last probed"
+        );
     }
 }

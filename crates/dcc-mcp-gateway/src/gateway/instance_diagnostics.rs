@@ -78,18 +78,22 @@ impl InstanceDiagnosticsStore {
         entry.probed_at_unix_secs = Some(now);
     }
 
-    /// Drop a cached [`ProbeFailure`] once the backend answers again (#4209).
+    /// Record that the newest probe produced **no** report at all (#4209).
     ///
-    /// A backend without a `/v1/readyz` surface that answers the legacy
-    /// `/health` probe comes back `Ready` with **no** report, so
-    /// [`Self::record_readiness`] never runs and an earlier failure would
-    /// outlive the outage. Cached `readiness` is deliberately kept: a report
-    /// that was parsed is still true even when the newest probe produced
-    /// none.
-    pub fn clear_probe_failure(&self, instance_id: Uuid) {
+    /// This is the legacy path: a backend without a `/v1/readyz` surface that
+    /// answers `GET /health` with 200 comes back `Ready`, so there is nothing
+    /// to cache and [`Self::record_readiness`] never runs. Both fields from
+    /// the previous epoch are dropped rather than just the failure — keeping a
+    /// stale `readiness` next to a freshly stamped `probed_at_unix_secs`
+    /// presented "last probed a second ago" evidence for a report the newest
+    /// probe could not confirm. `HostExecutionStatus` then reports `Unknown`,
+    /// which is the honest answer for a backend that exposes no readiness
+    /// surface.
+    pub fn clear_probe_state(&self, instance_id: Uuid) {
         let now = unix_now_secs();
         let mut map = self.inner.write();
         let entry = map.entry(instance_id).or_default();
+        entry.readiness = None;
         entry.probe_failure = None;
         entry.probed_at_unix_secs = Some(now);
     }
