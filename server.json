@@ -1,0 +1,33 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.dcc-mcp/dcc-mcp-core",
+  "title": "DCC-MCP Core",
+  "description": "Agent control plane for DCC and engine hosts: one MCP endpoint, one tool contract.",
+  "version": "0.20.41",
+  "repository": {
+    "url": "https://github.com/dcc-mcp/dcc-mcp-core",
+    "source": "github",
+    "id": "950630502"
+  },
+  "websiteUrl": "https://dcc-mcp.github.io/",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "registryBaseUrl": "https://pypi.org",
+      "identifier": "dcc-mcp-server",
+      "version": "0.20.41",
+      "runtimeHint": "uvx",
+      "transport": {
+        "type": "streamable-http",
+        "url": "http://127.0.0.1:9765/mcp"
+      },
+      "environmentVariables": [
+        {
+          "name": "DCC_MCP_GATEWAY_PORT",
+          "description": "Port the machine-wide gateway binds. One agent endpoint fronts every live DCC backend, so the port in the transport URL has to match this value.",
+          "default": "9765"
+        }
+      ]
+    }
+  ]
+}

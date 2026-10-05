@@ -56,6 +56,30 @@ stop 38 adapters from becoming 38 unrelated servers:
 reproducible from the commands and files above. We do not claim a ranking, and
 we do not compare on stars or tool counts.
 
+## Features
+
+- **Bundled agent skill.** Every checkout and every release ships
+  [`llms.txt`](llms.txt) — a compact index — and
+  [`llms-full.txt`](llms-full.txt), the full API reference. Both are
+  machine-readable, so an agent can read them straight from the repository and
+  start working without installing a Skill, browsing the marketplace, or
+  scraping rendered docs.
+- **Skills as the production unit.** Ship capability as a versioned `SKILL.md`
+  package with `tools.yaml`, progressive discovery, lint and schema
+  validation, and hot reload
+  ([`DccSkillHotReloader`](python/dcc_mcp_core/hotreload.py)).
+- **Main-thread dispatch.** Actions are queued onto the DCC's main thread, so
+  calls are safe against applications that crash when scripted off-thread.
+- **Structured results and postconditions.** Every call returns typed results,
+  and the shared postcondition contract writes then reads back so a tool has
+  to prove its own effect.
+- **Multi-instance routing.** One gateway fronts every live DCC session and
+  publishes `gateway://instances`, so an agent talks to one endpoint no matter
+  how many hosts are running.
+- **UI Control as a fallback.** For tools with no API at all, bounded
+  screenshot-and-click automation brings them into the same control plane
+  ([DCC UI Control](#dcc-ui-control)).
+
 ## Choose your entry point
 
 | You want to… | Start with |

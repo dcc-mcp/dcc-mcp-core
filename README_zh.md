@@ -70,6 +70,7 @@ rg -c '^    tags: \[.*"adapter".*\]' dcc-mcp-catalog.yml
 | 不写框架胶水也能新增和更新工具 | `SKILL.md` + 同级 YAML / 脚本、marketplace 安装/更新，遵循 agentskills.io |
 | 调试真实工作站状态 | Admin UI、视口诊断、审计日志、trace、logs、metrics、Sentry/webhook 集成状态 |
 | 扛住生产约束 | 主线程调度、异步 job、sidecar/server 二进制、workflow 与 artefact 原语 |
+| 自带 Agent 可读文档 | 每次 checkout 和每个 release 都带 [`llms.txt`](llms.txt)（精简索引）与 [`llms-full.txt`](llms-full.txt)（完整 API 参考），Agent 直接从仓库读取即可开工，无需先装 Skill、查 marketplace 或抓渲染后的文档 |
 
 ## 产品入口
 
