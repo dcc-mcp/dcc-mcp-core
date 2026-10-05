@@ -78,6 +78,22 @@ impl InstanceDiagnosticsStore {
         entry.probed_at_unix_secs = Some(now);
     }
 
+    /// Drop a cached [`ProbeFailure`] once the backend answers again (#4209).
+    ///
+    /// A backend without a `/v1/readyz` surface that answers the legacy
+    /// `/health` probe comes back `Ready` with **no** report, so
+    /// [`Self::record_readiness`] never runs and an earlier failure would
+    /// outlive the outage. Cached `readiness` is deliberately kept: a report
+    /// that was parsed is still true even when the newest probe produced
+    /// none.
+    pub fn clear_probe_failure(&self, instance_id: Uuid) {
+        let now = unix_now_secs();
+        let mut map = self.inner.write();
+        let entry = map.entry(instance_id).or_default();
+        entry.probe_failure = None;
+        entry.probed_at_unix_secs = Some(now);
+    }
+
     pub fn record_call_error(
         &self,
         instance_id: Uuid,

@@ -11,6 +11,7 @@ use dcc_mcp_transport::discovery::types::{ServiceEntry, ServiceStatus};
 use serde_json::{Value, json};
 
 use crate::gateway::GatewayState;
+use crate::gateway::backend_client::readyz_url_from_mcp_url;
 use crate::gateway::http_registration::entry_mcp_url;
 
 /// Build the error envelope for a backend failure that returned no diagnostic
@@ -51,8 +52,12 @@ pub(crate) fn structured_backend_error_text(
         ));
     }
 
+    // The readiness URL the health loop actually probes: `map_mcp_url` strips
+    // the `/mcp` segment, so `GET {mcp_url} /v1/readyz` is not a request an
+    // operator can copy.
+    let readyz_url = readyz_url_from_mcp_url(&mcp_url);
     let mut recommended_next_action = vec![
-        format!("GET {mcp_url} /v1/readyz from the gateway host and confirm it answers 200"),
+        format!("GET {readyz_url} from the gateway host and confirm it answers 200"),
         format!(
             "GET the gateway /v1/readyz and read instances[].probe_failure for instance {}",
             entry.instance_id

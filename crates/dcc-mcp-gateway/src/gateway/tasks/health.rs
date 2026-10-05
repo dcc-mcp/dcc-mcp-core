@@ -4,7 +4,7 @@ use std::time::Duration;
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
 use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry, ServiceStatus};
 
-use crate::gateway::http_registration::entry_mcp_url;
+use crate::gateway::http_registration::{entry_discovery_mcp_url, entry_mcp_url};
 use crate::gateway::instance_diagnostics::InstanceDiagnosticsStore;
 
 /// Configuration for the health-check task.
@@ -17,51 +17,89 @@ pub(crate) struct HealthCheckConfig {
     pub metrics: Arc<crate::gateway::event_log::GatewayMetrics>,
 }
 
-/// The MCP URL the health loop should probe for a registry row.
+/// The MCP URLs the health loop should probe for a registry row, most
+/// authoritative first (#4209).
 ///
-/// Dispatch resolves backend endpoints through [`entry_mcp_url`], which
-/// prefers the advertised `mcp_url` metadata and only falls back to the raw
-/// `host:port` fields. Probing the same URL keeps liveness and dispatch in
-/// agreement (#4209).
-fn probe_url_for_entry(entry: &ServiceEntry) -> String {
-    let advertised = entry_mcp_url(entry);
-    if advertised.trim().is_empty() {
-        format!("http://{}:{}/mcp", entry.host, entry.port)
-    } else {
-        advertised
+/// Liveness has to agree with the endpoints the gateway actually talks to,
+/// otherwise a healthy row stays pinned at `not_ready` forever:
+///
+/// - [`entry_discovery_mcp_url`] — what capability indexing, `search`, and
+///   skill/prompt/resource dispatch resolve through. A row with a dedicated
+///   discovery listener used to be marked not-ready while the capability
+///   index refreshed it from that same listener.
+/// - [`entry_mcp_url`] — the advertised dispatch endpoint. HTTP-, relay- and
+///   mDNS-registered rows advertise their reachable endpoint here; their raw
+///   `host:port` fields describe where the row came from, not where it
+///   listens now.
+/// - `http://host:port/mcp` — last resort for plain FileRegistry rows that
+///   advertise nothing (and for IPv6 binds, where `http://:::port/mcp` is not
+///   a valid URL but `host:port` is).
+///
+/// Duplicates collapse, so the ordinary sidecar row — where all three are the
+/// same string — still costs exactly one request.
+fn probe_urls_for_entry(entry: &ServiceEntry) -> Vec<String> {
+    let candidates = [
+        entry_discovery_mcp_url(entry),
+        entry_mcp_url(entry),
+        format!("http://{}:{}/mcp", entry.host, entry.port),
+    ];
+    let mut urls = Vec::with_capacity(candidates.len());
+    for candidate in candidates {
+        // Dispatch-only sidecars advertise no discovery endpoint at all.
+        if candidate.trim().is_empty() || urls.iter().any(|seen| seen == &candidate) {
+            continue;
+        }
+        urls.push(candidate);
     }
+    urls
 }
 
-/// Probe `url`, retrying the raw `host:port` URL when the advertised one
-/// disagrees and fails.
+/// Probe each candidate URL in priority order until one answers.
 ///
-/// The second hop only runs when the first probe is unreachable and the two
-/// URLs actually differ, so the common path still costs one request.
-async fn probe_with_fallback(
+/// Only [`ProbeOutcome::Unreachable`] moves on to the next candidate: a
+/// backend that answers `/v1/readyz` — green or red — has given a definitive
+/// answer. When every candidate is unreachable the failure names each URL
+/// that was tried, so an operator can see the endpoint dispatch would use
+/// as well as the ones it fell back to (#4209).
+async fn probe_candidates(
     client: &reqwest::Client,
-    entry: &ServiceEntry,
-    url: String,
+    urls: &[String],
     timeout: Duration,
 ) -> crate::gateway::backend_client::probe::ReadinessProbeResult {
-    use crate::gateway::backend_client::probe::{ProbeOutcome, probe_mcp_readiness_detailed};
+    use crate::gateway::backend_client::probe::{
+        ProbeOutcome, ReadinessProbeResult, probe_mcp_readiness_detailed,
+    };
 
-    let mut result = probe_mcp_readiness_detailed(client, &url, timeout).await;
-    if !matches!(result.outcome, ProbeOutcome::Unreachable) {
-        return result;
+    let mut first_failure: Option<ReadinessProbeResult> = None;
+    let mut unreachable = Vec::new();
+    for url in urls {
+        let result = probe_mcp_readiness_detailed(client, url, timeout).await;
+        if !matches!(result.outcome, ProbeOutcome::Unreachable) {
+            return result;
+        }
+        unreachable.push(url.clone());
+        if first_failure.is_none() {
+            first_failure = Some(result);
+        }
     }
-    let raw = format!("http://{}:{}/mcp", entry.host, entry.port);
-    if raw == url {
-        return result;
-    }
-    let fallback = probe_mcp_readiness_detailed(client, &raw, timeout).await;
-    if !matches!(fallback.outcome, ProbeOutcome::Unreachable) {
-        return fallback;
-    }
-    // Keep the advertised-URL failure but record that the fallback failed too.
-    if let Some(failure) = result.failure.as_mut() {
-        failure
-            .message
-            .push_str(&format!("; raw endpoint {raw} also unreachable"));
+
+    let Some(mut result) = first_failure else {
+        return ReadinessProbeResult {
+            report: None,
+            outcome: ProbeOutcome::Unreachable,
+            failure: None,
+        };
+    };
+    if unreachable.len() > 1 {
+        // The first URL is already named by `failure.probed_url`; list only
+        // the additional candidates that were tried and also unreachable.
+        let others = unreachable[1..].join(", ");
+        if let Some(failure) = result.failure.as_mut() {
+            failure.message.push_str(&format!(
+                "; {} other candidate endpoint(s) also unreachable: {others}",
+                unreachable.len() - 1
+            ));
+        }
     }
     result
 }
@@ -113,20 +151,20 @@ pub(crate) fn spawn_health_check_task(
                     .collect::<Vec<_>>()
             };
 
-            // Probe the same URL dispatch uses (#4209). The raw `host:port`
-            // fields are only a fallback: rows registered over HTTP, relay, or
-            // mDNS advertise their endpoint through the `mcp_url` metadata key,
-            // and probing a different URL than dispatch left healthy instances
-            // pinned at not-ready with no explanation.
+            // Probe the URLs dispatch and capability indexing resolve
+            // (#4209). The raw `host:port` fields are only a fallback: rows
+            // registered over HTTP, relay, or mDNS advertise their endpoint
+            // through metadata, and probing a different URL than dispatch left
+            // healthy instances pinned at not-ready with no explanation.
             let probe_results: std::collections::HashMap<String, _> = {
                 let client = &http_client;
                 futures::future::join_all(entries.iter().filter(|e| e.port != 0).map(|e| {
                     let key = format!("{}:{}", e.dcc_type, e.instance_id);
-                    let url = probe_url_for_entry(e);
+                    let urls = probe_urls_for_entry(e);
                     async move {
                         (
                             key,
-                            probe_with_fallback(client, e, url, Duration::from_secs(5)).await,
+                            probe_candidates(client, &urls, Duration::from_secs(5)).await,
                         )
                     }
                 }))
@@ -178,6 +216,13 @@ pub(crate) fn spawn_health_check_task(
                     // an unreachable probe previously left `readiness: null` and
                     // no reason at all.
                     instance_diagnostics.record_probe_failure(entry.instance_id, failure.clone());
+                } else {
+                    // A pre-#660 backend answered the legacy `/health` probe
+                    // with 200 but exposes no `/v1/readyz` report. Nothing to
+                    // cache — but any failure an earlier round recorded is now
+                    // stale, and leaving it behind made `GET /v1/readyz` call a
+                    // healthy, dispatched-to instance "unreachable".
+                    instance_diagnostics.clear_probe_failure(entry.instance_id);
                 }
 
                 if outcome.is_ready() {
@@ -268,8 +313,82 @@ pub(crate) fn spawn_health_check_task(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::Json;
     use dcc_mcp_transport::discovery::types::ServiceEntry;
+    use serde_json::json;
     use tempfile::tempdir;
+
+    /// Minimal probe target: always answers `GET /health`, and
+    /// `GET /v1/readyz` with a fully green report when `mount_readyz` is set.
+    ///
+    /// `mount_readyz = false` reproduces a pre-#660 backend, the only shape
+    /// that reaches the legacy `/health` fallback.
+    async fn spawn_probe_backend(mount_readyz: bool) -> u16 {
+        let mut app = axum::Router::new().route(
+            "/health",
+            axum::routing::get(|| async { Json(json!({ "ok": true })) }),
+        );
+        if mount_readyz {
+            app = app.route(
+                "/v1/readyz",
+                axum::routing::get(|| async {
+                    Json(json!({
+                        "process": true,
+                        "dcc": true,
+                        "skill_catalog": true,
+                        "dispatcher": true,
+                        "host_execution_bridge": true,
+                        "main_thread_executor": true,
+                    }))
+                }),
+            );
+        }
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move { axum::serve(listener, app).await.ok() });
+        port
+    }
+
+    /// Backend that answers every path with 404 — reachable, but exposing
+    /// neither `/v1/readyz` nor a legacy health endpoint.
+    async fn spawn_no_readiness_backend() -> u16 {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            axum::serve(listener, axum::Router::new()).await.ok();
+        });
+        port
+    }
+
+    /// A port nothing listens on, so connecting fails immediately.
+    async fn dead_port() -> u16 {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+        port
+    }
+
+    fn spawn_health_loop(
+        registry: Arc<FileRegistry>,
+        diagnostics: Arc<InstanceDiagnosticsStore>,
+        own_port: u16,
+        interval_secs: u64,
+    ) -> tokio::task::JoinHandle<()> {
+        spawn_health_check_task(
+            registry,
+            reqwest::Client::new(),
+            Arc::new(crate::gateway::event_log::EventLog::new()),
+            diagnostics,
+            HealthCheckConfig {
+                own_host: "127.0.0.1".into(),
+                own_port,
+                health_check_interval_secs: interval_secs,
+                health_check_failures: 99,
+                #[cfg(feature = "prometheus")]
+                metrics: Arc::new(crate::gateway::event_log::GatewayMetrics::new()),
+            },
+        )
+    }
 
     #[tokio::test]
     async fn port_zero_rows_stay_booting_and_are_not_deregistered() {
@@ -442,5 +561,203 @@ mod tests {
             "transport failures must not erase a live-owned row"
         );
         assert_eq!(row.unwrap().status, ServiceStatus::Unreachable);
+    }
+
+    #[test]
+    fn probe_urls_rank_advertised_endpoints_above_host_port() {
+        // #4209: capability indexing resolves through `discovery_mcp_url` and
+        // dispatch through `mcp_url`, so the probe has to try both before it
+        // trusts the raw `host:port` fields.
+        let mut entry = ServiceEntry::new("blender", "127.0.0.1", 65531);
+        entry.metadata.insert(
+            crate::gateway::http_registration::DISCOVERY_MCP_URL_METADATA_KEY.into(),
+            "http://127.0.0.1:6001/mcp".into(),
+        );
+        entry.metadata.insert(
+            crate::gateway::http_registration::MCP_URL_METADATA_KEY.into(),
+            "http://127.0.0.1:6002/mcp".into(),
+        );
+        assert_eq!(
+            probe_urls_for_entry(&entry),
+            vec![
+                "http://127.0.0.1:6001/mcp".to_string(),
+                "http://127.0.0.1:6002/mcp".to_string(),
+                "http://127.0.0.1:65531/mcp".to_string(),
+            ]
+        );
+
+        // A plain FileRegistry row advertises nothing: one candidate only, so
+        // the common path still costs a single request.
+        let plain = ServiceEntry::new("blender", "127.0.0.1", 6003);
+        assert_eq!(
+            probe_urls_for_entry(&plain),
+            vec!["http://127.0.0.1:6003/mcp".to_string()]
+        );
+
+        // A dispatch-only sidecar advertises no discovery endpoint at all.
+        let mut sidecar = ServiceEntry::new("3dsmax", "127.0.0.1", 6004);
+        sidecar.metadata.insert(
+            crate::gateway::http_registration::ROLE_METADATA_KEY.into(),
+            crate::gateway::http_registration::ROLE_PER_DCC_SIDECAR.into(),
+        );
+        sidecar.metadata.insert(
+            crate::gateway::http_registration::MCP_URL_METADATA_KEY.into(),
+            "http://127.0.0.1:6005/mcp".into(),
+        );
+        assert_eq!(
+            probe_urls_for_entry(&sidecar),
+            vec![
+                "http://127.0.0.1:6005/mcp".to_string(),
+                "http://127.0.0.1:6004/mcp".to_string(),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn probe_reaches_an_advertised_endpoint_that_raw_host_port_misses() {
+        // #4209: the row's `host:port` describes where it came from, not where
+        // it listens. Probing the raw fields kept HTTP/relay/mDNS rows and
+        // IPv6 binds pinned at not-ready while dispatch reached them fine.
+        // A pre-#4209 gateway probes the dead raw port and stays not-ready.
+        let live_port = spawn_probe_backend(true).await;
+        let stale_port = dead_port().await;
+        assert_ne!(live_port, stale_port);
+
+        let dir = tempdir().unwrap();
+        let registry = Arc::new(FileRegistry::new(dir.path()).unwrap());
+        let mut entry = ServiceEntry::new("blender", "127.0.0.1", stale_port);
+        entry.metadata.insert(
+            crate::gateway::http_registration::MCP_URL_METADATA_KEY.into(),
+            format!("http://127.0.0.1:{live_port}/mcp"),
+        );
+        let instance_id = entry.instance_id;
+        registry.register(entry).unwrap();
+
+        let diagnostics = Arc::new(InstanceDiagnosticsStore::new());
+        let handle = spawn_health_loop(registry, diagnostics.clone(), 9767, 1);
+
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        let snapshot = loop {
+            if let Some(diag) = diagnostics.get(&instance_id)
+                && diag.readiness.is_some()
+            {
+                break diag;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "the health loop never probed the advertised endpoint"
+            );
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        };
+        handle.abort();
+
+        assert!(snapshot.readiness.unwrap().is_ready());
+        assert!(
+            snapshot.probe_failure.is_none(),
+            "a reachable advertised endpoint must not report a probe failure"
+        );
+    }
+
+    #[tokio::test]
+    async fn unreachable_probe_names_every_candidate_endpoint_it_tried() {
+        // #4209: when no candidate answers, the reason has to list them all —
+        // the advertised one dispatch would use and the raw fallback alike.
+        // The advertised endpoint answers 404 instead of refusing connections,
+        // so the walk never waits on a transport timeout.
+        let advertised_port = spawn_no_readiness_backend().await;
+        let dead = dead_port().await;
+        let dir = tempdir().unwrap();
+        let registry = Arc::new(FileRegistry::new(dir.path()).unwrap());
+        let mut entry = ServiceEntry::new("nuke", "127.0.0.1", dead);
+        entry.metadata.insert(
+            crate::gateway::http_registration::MCP_URL_METADATA_KEY.into(),
+            format!("http://127.0.0.1:{advertised_port}/mcp"),
+        );
+        let instance_id = entry.instance_id;
+        registry.register(entry).unwrap();
+
+        let diagnostics = Arc::new(InstanceDiagnosticsStore::new());
+        let handle = spawn_health_loop(registry, diagnostics.clone(), 9769, 1);
+
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        let snapshot = loop {
+            if let Some(diag) = diagnostics.get(&instance_id)
+                && diag.probe_failure.is_some()
+            {
+                break diag;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "the health loop never recorded a probe failure reason"
+            );
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        };
+        handle.abort();
+
+        let failure = snapshot.probe_failure.expect("checked above");
+        assert_eq!(
+            failure.probed_url,
+            format!("http://127.0.0.1:{advertised_port}/v1/readyz"),
+            "the reason must start from the advertised endpoint dispatch uses"
+        );
+        assert!(
+            failure
+                .message
+                .contains("1 other candidate endpoint(s) also unreachable")
+                && failure
+                    .message
+                    .contains(&format!("http://127.0.0.1:{dead}/mcp")),
+            "the reason must name the raw fallback that was also tried: {}",
+            failure.message
+        );
+    }
+
+    #[tokio::test]
+    async fn legacy_health_fallback_clears_a_stale_probe_failure() {
+        // #4209: a pre-#660 backend answers `GET /health` but has no
+        // `/v1/readyz` report. The probe comes back Ready with no report, so
+        // nothing replaced the failure an earlier round recorded and
+        // `GET /v1/readyz` kept calling a healthy instance "unreachable".
+        let port = spawn_probe_backend(false).await;
+
+        let dir = tempdir().unwrap();
+        let registry = Arc::new(FileRegistry::new(dir.path()).unwrap());
+        let entry = ServiceEntry::new("houdini", "127.0.0.1", port);
+        let instance_id = entry.instance_id;
+        registry.register(entry).unwrap();
+
+        let diagnostics = Arc::new(InstanceDiagnosticsStore::new());
+        diagnostics.record_probe_failure(
+            instance_id,
+            crate::gateway::backend_client::probe::ProbeFailure {
+                kind: "unreachable".into(),
+                message: "GET http://127.0.0.1:9/v1/readyz failed: connection refused".into(),
+                probed_url: "http://127.0.0.1:9/v1/readyz".into(),
+            },
+        );
+        assert!(
+            diagnostics
+                .get(&instance_id)
+                .unwrap()
+                .probe_failure
+                .is_some()
+        );
+
+        let handle = spawn_health_loop(registry, diagnostics.clone(), 9768, 1);
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        loop {
+            if diagnostics
+                .get(&instance_id)
+                .is_some_and(|diag| diag.probe_failure.is_none())
+            {
+                break;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "a green legacy /health probe left the stale failure in place"
+            );
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        handle.abort();
     }
 }

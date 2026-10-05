@@ -1726,6 +1726,8 @@ async fn spawn_empty_error_backend() -> (u16, tokio::sync::oneshot::Sender<()>) 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+    // No start-up sleep: the listener is already bound (and therefore
+    // backlog-queues connections) before the accept loop is spawned.
     tokio::spawn(async move {
         axum::serve(listener, app)
             .with_graceful_shutdown(async {
@@ -1734,7 +1736,6 @@ async fn spawn_empty_error_backend() -> (u16, tokio::sync::oneshot::Sender<()>) 
             .await
             .ok();
     });
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     (port, tx)
 }
 
@@ -1787,6 +1788,29 @@ async fn load_skill_empty_backend_error_is_replaced_with_structured_envelope() {
                 .is_empty(),
         "callers need a next step, got: {payload}"
     );
+    use crate::gateway::backend_client::readyz_url_from_mcp_url;
+
+    // #4210: the first next step must be a request an operator can copy —
+    // a bare `GET <mcp_url> /v1/readyz` is not one, the path belongs in the
+    // URL, not after it.
+    let first_action = payload["recommended_next_action"][0]
+        .as_str()
+        .unwrap_or_default();
+    let readyz_url = readyz_url_from_mcp_url(payload["instance"]["mcp_url"].as_str().unwrap());
+    let urls_in_action: Vec<&str> = first_action
+        .split_whitespace()
+        .filter(|token| token.contains("://"))
+        .collect();
+    assert_eq!(
+        urls_in_action,
+        vec![readyz_url.as_str()],
+        "the next step must be exactly one parseable readiness URL, got: {first_action}"
+    );
+    assert!(
+        readyz_url.ends_with("/v1/readyz"),
+        "the readiness URL must target /v1/readyz, got: {readyz_url}"
+    );
+    reqwest::Url::parse(&readyz_url).expect("the readiness URL must parse");
 
     let _ = shutdown_tx.send(());
 }

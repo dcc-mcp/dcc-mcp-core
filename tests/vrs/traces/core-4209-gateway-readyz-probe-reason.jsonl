@@ -1,0 +1,5 @@
+{"_vrs": {"version": 1}, "trace_id": "core-4209-gateway-readyz-probe-reason", "title": "A registered instance must never be reported not-ready without a reason (live=1 / ready=0 regression)", "skip_preflight": {"http": {"method": "GET", "path": "/v1/instances"}, "skip_when": {"json_pointer": "/total", "less_than": 1}}}
+{"id": "capture_first_instance", "http": {"method": "GET", "path": "/v1/instances"}, "expect": {"status": 200, "body_contains": "\"instances\""}, "capture": {"json_pointer": "/instances/0/instance_id", "as": "iid"}}
+{"id": "wait_for_health_loop", "sleep_ms": 6000}
+{"id": "readyz_explains_every_row", "http": {"method": "GET", "path": "/v1/readyz"}, "expect_any": [{"status": 200, "json_subset": {"instances": [{"instance_id": "{{capture:iid}}", "readiness": {}}]}}, {"status": 200, "json_subset": {"instances": [{"instance_id": "{{capture:iid}}", "probe_failure": {}}]}}]}
+{"id": "readyz_counters_are_consistent", "http": {"method": "GET", "path": "/v1/readyz"}, "expect": {"status": 200, "body_contains_all": ["live_instance_count", "ready_instance_count", "not_ready_instance_count"]}}
