@@ -29,11 +29,11 @@ pub const LAUNCH_ID_ENV_VAR: &str = "DCC_MCP_LAUNCH_ID";
 
 /// Role of the process that owns a registry row.
 ///
-/// Serialised as a plain lowercase string (`"host"` / `"launcher"` /
-/// `"sidecar"`). Unknown values deserialise into [`ServiceRole::Custom`] and
-/// round-trip verbatim, so a newer producer — for example one publishing
-/// `"gateway-sidecar"` — never makes an older reader fail or silently rewrite
-/// the row.
+/// Serialised as a plain string (`"host"` / `"launcher"` / `"sidecar"`). The
+/// three known roles match case-insensitively; any other value deserialises
+/// into [`ServiceRole::Custom`] and round-trips verbatim — only surrounding
+/// whitespace is trimmed. A newer producer publishing `"Gateway-Sidecar"`
+/// therefore never makes an older reader fail or silently rewrite the row.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ServiceRole {
     /// The DCC application process itself (embedded adapter / plugin).
@@ -59,25 +59,31 @@ impl ServiceRole {
     }
 }
 
-/// Map an already-normalised (trimmed, lowercased) value onto a variant.
-fn from_normalized(raw: String) -> ServiceRole {
-    match raw.as_str() {
+/// Map a raw role string onto a variant.
+///
+/// Known roles are matched on the trimmed, lowercased value so producers can
+/// spell them however they like. Everything else keeps its original spelling,
+/// which is what makes a producer-defined role survive a `services.json`
+/// round-trip unchanged.
+fn from_raw(raw: &str) -> ServiceRole {
+    let trimmed = raw.trim();
+    match trimmed.to_ascii_lowercase().as_str() {
         "host" => ServiceRole::Host,
         "launcher" => ServiceRole::Launcher,
         "sidecar" => ServiceRole::Sidecar,
-        _ => ServiceRole::Custom(raw),
+        _ => ServiceRole::Custom(trimmed.to_string()),
     }
 }
 
 impl From<&str> for ServiceRole {
     fn from(raw: &str) -> Self {
-        from_normalized(raw.trim().to_ascii_lowercase())
+        from_raw(raw)
     }
 }
 
 impl From<String> for ServiceRole {
     fn from(raw: String) -> Self {
-        from_normalized(raw.trim().to_ascii_lowercase())
+        from_raw(&raw)
     }
 }
 

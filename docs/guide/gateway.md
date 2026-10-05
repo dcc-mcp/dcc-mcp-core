@@ -672,7 +672,7 @@ launch".
 |-------|------|-------------|
 | `launch_id` | `string \| null` | Shared by every process of one launch. A launcher publishes it through the `DCC_MCP_LAUNCH_ID` environment variable and children inherit it |
 | `parent_pid` | `int \| null` | PID of the process that launched this one |
-| `role` | `string \| null` | `"host"` (the DCC process itself), `"launcher"`, `"sidecar"`, or any producer-defined value, preserved verbatim |
+| `role` | `string \| null` | `"host"` (the DCC process itself), `"launcher"`, `"sidecar"`, or any producer-defined value. The three known roles match case-insensitively; other values are preserved with their original spelling |
 | `started_at` | `int \| null` | Unix seconds when the process started, which may precede the row's `registered_at` |
 
 Two rows belong to the same launch only when both carry the same non-null

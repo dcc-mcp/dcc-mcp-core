@@ -188,22 +188,69 @@ fn role_accepts_strings_and_serializes_as_plain_lowercase_strings() {
 #[test]
 fn unknown_role_survives_a_round_trip_verbatim() {
     // A newer producer publishing a role this build does not know must not be
-    // rejected, and must not be rewritten to something lossy.
-    let entry = ServiceEntry::new("blender", "127.0.0.1", 18765).with_role("gateway-sidecar");
+    // rejected, and must not be rewritten to something lossy — only surrounding
+    // whitespace is trimmed, the spelling is kept.
+    let entry = ServiceEntry::new("blender", "127.0.0.1", 18765).with_role("Gateway-Sidecar");
     assert_eq!(
         entry.role,
-        Some(ServiceRole::Custom("gateway-sidecar".to_string()))
+        Some(ServiceRole::Custom("Gateway-Sidecar".to_string()))
     );
 
     let json = serde_json::to_string(&entry).unwrap();
-    assert!(json.contains("\"role\":\"gateway-sidecar\""), "{json}");
+    assert!(json.contains("\"role\":\"Gateway-Sidecar\""), "{json}");
 
     let parsed: ServiceEntry = serde_json::from_str(&json).unwrap();
     assert_eq!(
         parsed.role.as_ref().map(ServiceRole::as_str),
-        Some("gateway-sidecar")
+        Some("Gateway-Sidecar")
     );
     assert_eq!(parsed.role, entry.role);
+}
+
+#[test]
+fn known_roles_match_case_insensitively() {
+    // Matching is lenient; the stored wire value is the canonical one.
+    for raw in ["Host", " HOST ", "host"] {
+        let role = ServiceRole::from(raw);
+        assert_eq!(role, ServiceRole::Host);
+        assert_eq!(role.as_str(), "host");
+    }
+    assert_eq!(ServiceRole::from("  SiDeCaR"), ServiceRole::Sidecar);
+    assert_eq!(ServiceRole::from("Launcher"), ServiceRole::Launcher);
+}
+
+#[test]
+fn unparsable_started_at_degrades_to_none_instead_of_failing_the_row() {
+    // A row that fails to deserialize would quarantine the whole
+    // `services.json`, dropping every registered instance. `started_at` is
+    // lineage metadata nobody routes on, so a bad value must not do that.
+    let mut row = legacy_maya_row();
+    row["started_at"] = serde_json::json!("not-a-timestamp");
+
+    let entry = parse_row(row);
+    assert_eq!(entry.started_at, None);
+    assert_eq!(entry.dcc_type, "maya");
+    assert_eq!(entry.pid, Some(4321));
+}
+
+#[test]
+fn started_at_accepts_float_and_struct_timestamp_shapes() {
+    let mut row = legacy_photoshop_row();
+    row["started_at"] = serde_json::json!(1_712_345_678.5);
+    let float_entry = parse_row(row);
+    assert_eq!(
+        float_entry.started_at.map(system_time_to_unix_secs),
+        Some(Some(1_712_345_678))
+    );
+
+    let mut row = legacy_photoshop_row();
+    row["started_at"] =
+        serde_json::json!({"secs_since_epoch": 1_712_345_600, "nanos_since_epoch": 0});
+    let struct_entry = parse_row(row);
+    assert_eq!(
+        struct_entry.started_at.map(system_time_to_unix_secs),
+        Some(Some(1_712_345_600))
+    );
 }
 
 #[test]
@@ -292,9 +339,8 @@ fn envelope_survives_a_file_registry_round_trip() {
 #[test]
 fn legacy_services_json_row_reads_without_the_envelope() {
     let dir = tempfile::tempdir().unwrap();
-    // Hand-written file the way a pre-envelope adapter left it: dict keyed by
-    // `dcc_type:instance_id` is one of the shapes FileRegistry accepts, a bare
-    // array is the other — pin both.
+    // Hand-written file the way a pre-envelope adapter left it: a bare JSON
+    // array, the shape `parse_registry_entries` reads.
     let maya = legacy_maya_row();
     let photoshop = legacy_photoshop_row();
     std::fs::write(

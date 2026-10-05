@@ -29,6 +29,9 @@ where
 }
 
 /// Custom deserializer for `Option<SystemTime>` (used by `lease_expires_at`).
+///
+/// A malformed value is an error: a lease expiry the reader cannot parse is a
+/// correctness problem, not cosmetic data loss.
 fn deserialize_optional_system_time<'de, D>(deserializer: D) -> Result<Option<SystemTime>, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -40,6 +43,27 @@ where
     system_time_from_json_value(&value)
         .map(Some)
         .map_err(serde::de::Error::custom)
+}
+
+/// Lenient counterpart of [`deserialize_optional_system_time`] for purely
+/// informational timestamps (used by `started_at`).
+///
+/// `started_at` is lineage metadata nobody routes on, while a row that fails
+/// to deserialize takes the whole `services.json` with it — the registry
+/// quarantines an unparsable file, which drops **every** registered instance.
+/// An unparsable `started_at` therefore degrades to `None` instead of failing
+/// the row.
+fn deserialize_optional_system_time_lossy<'de, D>(
+    deserializer: D,
+) -> Result<Option<SystemTime>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    if value.is_null() {
+        return Ok(None);
+    }
+    Ok(system_time_from_json_value(&value).ok())
 }
 
 fn system_time_from_json_value(value: &serde_json::Value) -> Result<SystemTime, String> {
@@ -314,10 +338,14 @@ pub struct ServiceEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub role: Option<ServiceRole>,
     /// When the owning process started, which may precede `registered_at`.
+    ///
+    /// Informational only: an unparsable value degrades to `None` rather than
+    /// failing the row, because one bad row would otherwise quarantine the
+    /// whole registry file.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
-        deserialize_with = "deserialize_optional_system_time"
+        deserialize_with = "deserialize_optional_system_time_lossy"
     )]
     pub started_at: Option<SystemTime>,
     /// Human-readable label for this instance.
