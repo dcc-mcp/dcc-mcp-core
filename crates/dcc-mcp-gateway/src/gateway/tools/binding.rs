@@ -54,8 +54,12 @@ pub async fn tool_bind_instance(
         .or_else(|| args.get("dcc"))
         .and_then(Value::as_str);
 
+    // Session-aware on purpose: `hint` may be an alias registered earlier in
+    // this session, and aliases only resolve when the session key reaches the
+    // resolver. `resolve_instance_async` hard-codes no session, which would
+    // make the alias branch unreachable.
     let resolved = gs
-        .resolve_instance_async(Some(hint), dcc_filter)
+        .resolve_instance_for_session(Some(hint), dcc_filter, Some(session))
         .await
         .map_err(|err| {
             serde_json::to_string_pretty(&json!({
@@ -67,18 +71,24 @@ pub async fn tool_bind_instance(
         })?;
 
     let alias = args.get("alias").and_then(Value::as_str);
-    let stored_alias =
-        gs.instance_resolver
-            .bind(session, &resolved.dcc_type, resolved.instance_id, alias);
+    // `resolve_instance_for_session` records the hit as sticky; `bind` then
+    // promotes it to an explicit pin and registers the alias.
+    let stored_alias = gs.instance_resolver.bind(
+        session,
+        &resolved.entry.dcc_type,
+        resolved.entry.instance_id,
+        alias,
+    );
 
     let mut out = json!({
         "success": true,
         "message": format!(
             "Bound '{}' for this session to {}",
-            resolved.dcc_type,
-            resolved.instance_id
+            resolved.entry.dcc_type,
+            resolved.entry.instance_id
         ),
-        "instance": gs.instance_json(&resolved),
+        "resolved_instance": resolved.to_json(),
+        "instance": gs.instance_json(&resolved.entry),
     });
     if let Some(alias) = stored_alias {
         out["alias"] = json!(alias);

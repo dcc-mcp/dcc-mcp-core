@@ -1668,4 +1668,57 @@ async fn test_ambiguous_error_shows_human_labels() {
     );
     // The full hyphenated UUID is gone; only the short prefix survives.
     assert!(!message.contains("abcdef01-2345-6789-abcd-ef0123456789"));
+    // The escape hatch is advertised right where the user hit the wall.
+    assert!(message.contains("bind_instance"), "{message}");
+}
+
+/// `bind_instance(alias = "main")` then calling with `instance_id = "main"`
+/// must resolve — end to end, through `resolve_instance_for_session`.
+///
+/// Regression guard: the alias branch only fires when a session key reaches
+/// the resolver. An earlier revision routed `bind_instance` through
+/// `resolve_instance_async`, which hard-codes no session, so aliases could be
+/// stored but never used.
+#[tokio::test]
+async fn test_alias_registered_by_bind_is_usable_as_instance_id() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = Arc::new(FileRegistry::new(dir.path()).unwrap());
+    let ids = seed_blenders(&registry, &[(BLENDER_A, 60), (BLENDER_B, 5)]);
+    let older = ids[0];
+    let newer = ids[1];
+
+    let gs = test_gateway_state(registry.clone());
+
+    // Step 1: bind_instance resolves the target by UUID, in a session.
+    let bind_target = gs
+        .resolve_instance_for_session(Some(BLENDER_A), Some("blender"), Some("sess-a"))
+        .await
+        .expect("UUID hint resolves");
+    assert_eq!(bind_target.entry.instance_id, older);
+    gs.instance_resolver
+        .bind("sess-a", "blender", older, Some("main"));
+
+    // Step 2: a later call addresses it by alias. Newest-wins would return the
+    // *other* Blender, so hitting `older` proves the alias was honoured.
+    let by_alias = gs
+        .resolve_instance_for_session(Some("main"), Some("blender"), Some("sess-a"))
+        .await
+        .expect("alias resolves to a live instance");
+    assert_eq!(by_alias.entry.instance_id, older);
+    assert_eq!(by_alias.via.as_str(), "bound");
+
+    // Step 3: a different session must not see the alias.
+    assert!(
+        gs.resolve_instance_for_session(Some("main"), Some("blender"), Some("sess-b"))
+            .await
+            .is_err()
+    );
+
+    // Step 4: unbind clears the alias, and the session falls back to newest.
+    gs.instance_resolver.unbind("sess-a", Some("blender"));
+    let after_unbind = gs
+        .resolve_instance_for_session(None, Some("blender"), Some("sess-a"))
+        .await
+        .expect("resolves");
+    assert_eq!(after_unbind.entry.instance_id, newer);
 }

@@ -239,6 +239,12 @@ struct StickyInner {
 }
 
 impl StickyInner {
+    /// Drop expired bindings; runs at most once every 60s.
+    ///
+    /// Expiry is best-effort on purpose: sweeping on every lookup would add a
+    /// full-map scan to the hot path. The *capacity* bound is enforced
+    /// separately by [`Self::enforce_capacity_locked`], which always runs on
+    /// insert so the map can never exceed [`MAX_BINDINGS`].
     fn prune_locked(&mut self, now: Instant) {
         let due = self
             .last_pruned
@@ -249,7 +255,29 @@ impl StickyInner {
         self.last_pruned = Some(now);
         self.bindings
             .retain(|_, binding| now.duration_since(binding.last_used) <= BINDING_TTL);
-        // An alias is only meaningful while the binding it points at survives.
+        self.retain_live_aliases();
+    }
+
+    /// Hard capacity bound — runs on every insert, not on the prune schedule.
+    fn enforce_capacity_locked(&mut self) {
+        if self.bindings.len() <= MAX_BINDINGS {
+            return;
+        }
+        let mut keys: Vec<((String, String), Instant)> = self
+            .bindings
+            .iter()
+            .map(|(key, binding)| (key.clone(), binding.last_used))
+            .collect();
+        keys.sort_by_key(|(_, last_used)| *last_used);
+        let excess = self.bindings.len() - MAX_BINDINGS;
+        for (key, _) in keys.into_iter().take(excess) {
+            self.bindings.remove(&key);
+        }
+        self.retain_live_aliases();
+    }
+
+    /// Drop aliases whose binding no longer exists.
+    fn retain_live_aliases(&mut self) {
         let live: std::collections::HashSet<(String, String, Uuid)> = self
             .bindings
             .iter()
@@ -257,18 +285,6 @@ impl StickyInner {
             .collect();
         self.aliases
             .retain(|(session, _), (dcc, id)| live.contains(&(session.clone(), dcc.clone(), *id)));
-        if self.bindings.len() > MAX_BINDINGS {
-            let mut keys: Vec<((String, String), Instant)> = self
-                .bindings
-                .iter()
-                .map(|(key, binding)| (key.clone(), binding.last_used))
-                .collect();
-            keys.sort_by_key(|(_, last_used)| *last_used);
-            let excess = self.bindings.len() - MAX_BINDINGS;
-            for (key, _) in keys.into_iter().take(excess) {
-                self.bindings.remove(&key);
-            }
-        }
     }
 }
 
@@ -319,6 +335,8 @@ impl InstanceResolver {
                         last_used: now,
                     },
                 );
+                // New key: enforce the hard cap before leaving the insert path.
+                inner.enforce_capacity_locked();
             }
         }
     }
@@ -349,6 +367,7 @@ impl InstanceResolver {
             .map(str::trim)
             .filter(|alias| !alias.is_empty())
             .map(str::to_ascii_lowercase);
+        inner.enforce_capacity_locked();
         if let Some(alias) = alias.clone() {
             inner
                 .aliases
@@ -511,24 +530,33 @@ impl InstanceResolver {
 
 /// Inject `resolved_instance` into a backend text payload.
 ///
-/// Backends return either a JSON object or free text. Only the JSON case is
-/// annotated — rewriting prose would corrupt the message. When the payload is
-/// not a JSON object the caller still reports the resolution out of band.
+/// Backends return either a JSON object or free text. A JSON object is
+/// annotated in place; anything else is wrapped in an envelope that carries the
+/// untouched payload under `result` plus the `resolved_instance` block.
+///
+/// Wrapping rather than dropping matters: §3.1 exists to eliminate silent
+/// resolution, and a prose-only backend response is exactly the case where the
+/// echo would otherwise vanish.
 #[must_use]
 pub fn annotate_resolved_instance(text: &str, resolved: &Value) -> String {
-    let Ok(Value::Object(mut obj)) = serde_json::from_str::<Value>(text) else {
-        return text.to_string();
-    };
-    if obj.contains_key("resolved_instance") {
-        return text.to_string();
+    if let Ok(Value::Object(mut obj)) = serde_json::from_str::<Value>(text) {
+        if obj.contains_key("resolved_instance") {
+            return text.to_string();
+        }
+        obj.insert("resolved_instance".to_string(), resolved.clone());
+        let pretty = text.contains('\n');
+        return if pretty {
+            serde_json::to_string_pretty(&Value::Object(obj)).unwrap_or_else(|_| text.to_string())
+        } else {
+            serde_json::to_string(&Value::Object(obj)).unwrap_or_else(|_| text.to_string())
+        };
     }
-    obj.insert("resolved_instance".to_string(), resolved.clone());
-    let pretty = text.contains('\n');
-    if pretty {
-        serde_json::to_string_pretty(&Value::Object(obj)).unwrap_or_else(|_| text.to_string())
-    } else {
-        serde_json::to_string(&Value::Object(obj)).unwrap_or_else(|_| text.to_string())
-    }
+    // Not a JSON object: never rewrite the payload, wrap it instead.
+    serde_json::to_string_pretty(&json!({
+        "result": text,
+        "resolved_instance": resolved.clone(),
+    }))
+    .unwrap_or_else(|_| text.to_string())
 }
 
 #[cfg(test)]
@@ -650,6 +678,103 @@ mod tests {
         assert!(resolver.resolve_alias("sess-b", "main").is_none());
     }
 
+    /// Aliases must survive the *whole* resolution path, not just the store.
+    ///
+    /// The alias branch lives inside `resolve_instance_candidates` and only
+    /// fires when a session key is present. A test that calls
+    /// `resolve_alias()` directly passes even when the wiring to the caller is
+    /// broken, so this one drives the real entry point.
+    #[test]
+    fn alias_is_reachable_through_candidate_resolution() {
+        let resolver = InstanceResolver::new();
+        let older = entry("blender", "0202de99-0000-0000-0000-000000000001", None, 60);
+        let newer = entry("blender", "51e71dbf-0000-0000-0000-000000000002", None, 5);
+
+        // Bind the *older* instance under an alias. Newest-wins would never
+        // pick it, so a hit proves the alias was honoured.
+        resolver.bind("sess-a", "blender", older.instance_id, Some("main"));
+
+        // Drive the public entry point the callers actually use: a hint plus a
+        // session key, exactly what `bind_instance` / any later call sends.
+        let resolved = super::super::state::resolve_instance_candidates(
+            vec![older.clone(), newer.clone()],
+            Some("main"),
+            Some("blender"),
+            Some("sess-a"),
+            Some(&resolver),
+        )
+        .expect("alias resolves to a live candidate");
+        assert_eq!(resolved.entry.instance_id, older.instance_id);
+        assert_eq!(resolved.via, ResolveVia::Bound);
+
+        // Another session must not see the alias — it falls through to the
+        // prefix ladder and finds nothing matching "main".
+        assert!(
+            super::super::state::resolve_instance_candidates(
+                vec![older.clone(), newer.clone()],
+                Some("main"),
+                Some("blender"),
+                Some("sess-b"),
+                Some(&resolver),
+            )
+            .is_err()
+        );
+
+        // A hint that is neither alias, UUID, nor prefix degrades to the
+        // normal ladder rather than erroring, so a stale alias cannot wedge
+        // a session that passes no hint at all.
+        let no_hint = super::super::state::resolve_instance_candidates(
+            vec![older.clone(), newer.clone()],
+            None,
+            Some("blender"),
+            Some("sess-a"),
+            Some(&resolver),
+        )
+        .expect("resolves");
+        assert_eq!(no_hint.entry.instance_id, older.instance_id);
+    }
+
+    /// A *non-explicit* sticky binding must outrank newest-wins.
+    ///
+    /// `bind()` sets an explicit pin; this covers the plain `record()` path —
+    /// the case where a session merely resolved an instance earlier and a newer
+    /// instance appears mid-conversation.
+    #[test]
+    fn implicit_sticky_beats_newest_when_a_newer_instance_appears() {
+        let resolver = InstanceResolver::new();
+        let first = entry("blender", "0202de99-0000-0000-0000-000000000001", None, 60);
+        let second = entry("blender", "51e71dbf-0000-0000-0000-000000000002", None, 5);
+
+        // Session resolves once while only the older instance exists.
+        let initial = resolver
+            .resolve(vec![first.clone()], Some("blender"), Some("sess-a"))
+            .expect("resolves");
+        assert_eq!(initial.entry.instance_id, first.instance_id);
+        resolver.record("sess-a", "blender", initial.entry.instance_id);
+
+        // A newer Blender starts mid-session. Sticky must hold the original.
+        let after = resolver
+            .resolve(
+                vec![second.clone(), first.clone()],
+                Some("blender"),
+                Some("sess-a"),
+            )
+            .expect("resolves");
+        assert_eq!(after.entry.instance_id, first.instance_id);
+        assert_eq!(after.via, ResolveVia::Sticky);
+
+        // A different session in the same situation gets the newcomer.
+        let other = resolver
+            .resolve(
+                vec![second.clone(), first.clone()],
+                Some("blender"),
+                Some("sess-b"),
+            )
+            .expect("resolves");
+        assert_eq!(other.entry.instance_id, second.instance_id);
+        assert_eq!(other.via, ResolveVia::Newest);
+    }
+
     #[test]
     fn human_label_degrades_display_name_scene_then_pid() {
         let mut named = entry("blender", "0202de99-0000-0000-0000-000000000001", None, 30);
@@ -679,13 +804,20 @@ mod tests {
     }
 
     #[test]
-    fn annotate_injects_resolved_instance_into_json_payloads_only() {
+    fn annotate_injects_resolved_instance_into_every_payload_shape() {
         let resolved = json!({"instance_id": "x", "via": "newest"});
         let annotated = annotate_resolved_instance("{\"ok\":true}", &resolved);
         assert!(annotated.contains("\"resolved_instance\""));
 
-        let untouched = annotate_resolved_instance("plain text payload", &resolved);
-        assert_eq!(untouched, "plain text payload");
+        // Prose payloads are wrapped, never dropped — the echo must survive.
+        let wrapped = annotate_resolved_instance("plain text payload", &resolved);
+        let parsed: Value = serde_json::from_str(&wrapped).expect("valid envelope");
+        assert_eq!(parsed["result"], json!("plain text payload"));
+        assert!(parsed["resolved_instance"].is_object());
+
+        // A JSON array is also not an object, so it is wrapped too.
+        let arr = annotate_resolved_instance("[1, 2, 3]", &resolved);
+        assert!(arr.contains("resolved_instance"));
 
         let already =
             annotate_resolved_instance("{\"resolved_instance\":{\"via\":\"single\"}}", &resolved);

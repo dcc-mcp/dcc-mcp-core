@@ -132,7 +132,9 @@ impl fmt::Display for ResolveInstanceError {
             }
             Self::MultipleMatches { candidates } => write!(
                 f,
-                "multiple-instances-match: specify instance_id; candidates=[{}]",
+                "multiple-instances-match: specify instance_id; candidates=[{}]. \\
+                 Pick one by UUID, prefix, or alias; call bind_instance once to pin it \\
+                 for the rest of this session so later calls can omit instance_id.",
                 candidates.join(", ")
             ),
         }
@@ -602,7 +604,7 @@ impl GatewayState {
 /// When `session_key` is `None` the sticky/bound rungs of the ladder are
 /// skipped entirely rather than falling back to a shared default key —
 /// otherwise two unrelated clients would pin each other's instance.
-fn resolve_instance_candidates(
+pub(crate) fn resolve_instance_candidates(
     candidates: Vec<ServiceEntry>,
     instance_hint: Option<&str>,
     dcc_filter: Option<&str>,
