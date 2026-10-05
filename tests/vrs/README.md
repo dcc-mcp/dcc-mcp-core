@@ -40,7 +40,12 @@ Each trace is a UTF-8 `.jsonl` file:
 
 ### Substitution
 
-Any string in `http.json` may contain `{{capture:NAME}}` filled from prior `capture.as` values.
+Any string in `http.json`, `http.headers`, `http.path`, `expect`, and
+`expect_any` may contain `{{capture:NAME}}` filled from prior `capture.as`
+values — so a trace can pin "the row I captured earlier must now look like
+this", not just "some row must look like this". Assertions are substituted
+with the captures known **at that step**; a capture made by the step being
+asserted is not yet available.
 
 ## Running the replayer
 

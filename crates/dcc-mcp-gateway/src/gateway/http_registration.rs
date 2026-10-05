@@ -569,6 +569,50 @@ pub(crate) fn entry_uses_sidecar_dispatch(entry: &ServiceEntry) -> bool {
         == Some(ROLE_PER_DCC_SIDECAR)
 }
 
+/// Ordered MCP URL candidates for a registry row, most authoritative first.
+///
+/// One resolver for every caller that has to decide "where does this row
+/// actually listen", so liveness and dispatch cannot drift apart again
+/// (#4209):
+///
+/// - [`entry_discovery_mcp_url`] — what capability indexing, `search`, and
+///   skill/prompt/resource dispatch resolve through.
+/// - [`entry_mcp_url`] — the advertised dispatch endpoint; HTTP-/relay-/mDNS
+///   registered rows advertise their reachable endpoint here.
+/// - `http://host:port/mcp` — last resort for plain FileRegistry rows.
+///
+/// Duplicates collapse, so an ordinary sidecar row — where all three are the
+/// same string — yields exactly one candidate.
+pub(crate) fn entry_mcp_url_candidates(entry: &ServiceEntry) -> Vec<String> {
+    let candidates = [
+        entry_discovery_mcp_url(entry),
+        entry_mcp_url(entry),
+        format!("http://{}:{}/mcp", entry.host, entry.port),
+    ];
+    let mut urls = Vec::with_capacity(candidates.len());
+    for candidate in candidates {
+        // Dispatch-only sidecars advertise no discovery endpoint at all.
+        if candidate.trim().is_empty() || urls.iter().any(|seen| seen == &candidate) {
+            continue;
+        }
+        urls.push(candidate);
+    }
+    urls
+}
+
+/// The MCP URL dispatch should use for a registry row: the first candidate
+/// the health loop probes (#4209).
+///
+/// Sharing the resolver with [`entry_mcp_url_candidates`] is the point — a
+/// row whose discovery endpoint answers green is dispatched to that same
+/// endpoint instead of a second URL that may be stale.
+pub(crate) fn entry_dispatch_mcp_url(entry: &ServiceEntry) -> String {
+    entry_mcp_url_candidates(entry)
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| format!("http://{}:{}/mcp", entry.host, entry.port))
+}
+
 pub(crate) fn entry_registry_source(entry: &ServiceEntry) -> &str {
     entry
         .metadata
@@ -594,6 +638,67 @@ mod tests {
     use axum::http::StatusCode;
     use axum::response::IntoResponse;
     use axum::routing::post;
+
+    fn entry_with(discovery: Option<&str>, mcp: Option<&str>, role: Option<&str>) -> ServiceEntry {
+        let mut entry = ServiceEntry::new("blender", "127.0.0.1", 6000);
+        if let Some(url) = discovery {
+            entry
+                .metadata
+                .insert(DISCOVERY_MCP_URL_METADATA_KEY.into(), url.into());
+        }
+        if let Some(url) = mcp {
+            entry
+                .metadata
+                .insert(MCP_URL_METADATA_KEY.into(), url.into());
+        }
+        if let Some(role) = role {
+            entry.metadata.insert(ROLE_METADATA_KEY.into(), role.into());
+        }
+        entry
+    }
+
+    #[test]
+    fn dispatch_url_is_the_first_candidate_the_health_loop_probes() {
+        // #4209: liveness and dispatch share one resolver, so a green probe
+        // can never certify a URL dispatch does not use.
+        let discovery_first = entry_with(
+            Some("http://127.0.0.1:6001/mcp"),
+            Some("http://127.0.0.1:6002/mcp"),
+            None,
+        );
+        assert_eq!(
+            entry_mcp_url_candidates(&discovery_first),
+            vec![
+                "http://127.0.0.1:6001/mcp".to_string(),
+                "http://127.0.0.1:6002/mcp".to_string(),
+                "http://127.0.0.1:6000/mcp".to_string(),
+            ]
+        );
+        assert_eq!(
+            entry_dispatch_mcp_url(&discovery_first),
+            "http://127.0.0.1:6001/mcp"
+        );
+
+        // Dispatch-only sidecar: no discovery endpoint, so the advertised MCP
+        // endpoint leads (#1664).
+        let dispatch_only = entry_with(
+            None,
+            Some("http://127.0.0.1:6002/mcp"),
+            Some(ROLE_PER_DCC_SIDECAR),
+        );
+        assert_eq!(
+            entry_dispatch_mcp_url(&dispatch_only),
+            "http://127.0.0.1:6002/mcp"
+        );
+
+        // Plain FileRegistry row: one candidate, no duplicate probes.
+        let plain = entry_with(None, None, None);
+        assert_eq!(
+            entry_mcp_url_candidates(&plain),
+            vec!["http://127.0.0.1:6000/mcp".to_string()]
+        );
+        assert_eq!(entry_dispatch_mcp_url(&plain), "http://127.0.0.1:6000/mcp");
+    }
 
     #[test]
     fn register_builds_service_entry_with_exact_mcp_url() {

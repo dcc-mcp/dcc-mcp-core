@@ -273,7 +273,11 @@ def run_trace(base_url: str, trace_path: str, dry_run: bool, verbose: bool) -> i
             print(f"Step {sid}: missing 'http'", file=sys.stderr)
             return 1
         method = str(http.get("method", "GET")).upper()
-        path = str(http["path"])
+        # Captures are step-scoped template variables. They are substituted
+        # everywhere they can legally appear — path, body, headers *and* the
+        # assertions — so a trace can pin "the row I captured earlier must now
+        # look like this" instead of only "some row must look like this".
+        path = _substitute_captures(str(http["path"]), captures)
         body = http.get("json")
         headers = http.get("headers")
         body = _substitute_captures(body, captures) if body is not None else None
@@ -289,12 +293,15 @@ def run_trace(base_url: str, trace_path: str, dry_run: bool, verbose: bool) -> i
         if verbose:
             print(f"--- step {sid} {method} {path} -> {st}")
 
-        expect = step.get("expect") or {}
+        expect = _substitute_captures(step.get("expect") or {}, captures)
         expect_any = step.get("expect_any")
         if expect_any:
             if not isinstance(expect_any, list):
                 print(f"FAIL step {sid}: expect_any must be a list", file=sys.stderr)
                 return 1
+            # Without this the literal `{{capture:...}}` token was compared
+            # against the live value and every captured assertion failed.
+            expect_any = _substitute_captures(expect_any, captures)
             err = _check_expect_any(st, raw, parsed, response_headers, expect_any)
         else:
             err = _check_expect(st, raw, parsed, response_headers, expect)

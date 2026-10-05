@@ -4,7 +4,7 @@ use dcc_mcp_gateway_core::policy::GatewayPolicyOperation;
 
 use super::super::capability::{CapabilityRecord, tool_slug};
 use super::super::capability_service::safe_discovery_target;
-use super::super::http_registration::{entry_discovery_mcp_url, entry_mcp_url};
+use super::super::http_registration::{entry_discovery_mcp_url, entry_dispatch_mcp_url};
 use super::skill_error::structured_backend_error_text;
 use crate::gateway::resilience::GatewayResilienceState;
 use std::time::Duration;
@@ -90,18 +90,14 @@ pub(crate) async fn skill_mgmt_dispatch(
                             obj.insert("group".to_string(), group_name);
                         }
                     }
-                    // Prefer discovery_mcp_url for tool dispatch when available
-                    // (provides full MCP surface for setups with both endpoints).
-                    // Fall back to entry_mcp_url for dispatch-only sidecars that
-                    // lack a discovery endpoint (issue #1664).
-                    let url = {
-                        let discovery = entry_discovery_mcp_url(&entry);
-                        if discovery.is_empty() {
-                            entry_mcp_url(&entry)
-                        } else {
-                            discovery
-                        }
-                    };
+                    // `entry_dispatch_mcp_url` prefers discovery_mcp_url
+                    // (provides full MCP surface for setups with both
+                    // endpoints) and falls back to entry_mcp_url for
+                    // dispatch-only sidecars that lack a discovery endpoint
+                    // (issue #1664). It is the same resolver the health loop
+                    // probes, so dispatch cannot target a URL the probe never
+                    // checked (#4209).
+                    let url = entry_dispatch_mcp_url(&entry);
                     let params = json!({"name": tool, "arguments": forward_args});
                     let mutation_gate = gs.capability_index.refresh_gate(entry.instance_id);
                     let _mutation_guard = mutation_gate.lock().await;
@@ -284,7 +280,7 @@ Standalone `dcc-mcp-server` without `--app` registers as `dcc_type` from DCC_MCP
 
             if tool == "list_skills" {
                 let futs = targets.iter().map(|entry| {
-                    let url = entry_mcp_url(entry);
+                    let url = entry_dispatch_mcp_url(entry);
                     let page_args = backend_list_args(&args);
                     async move {
                         let collected = walk_backend_skill_pages(
@@ -304,7 +300,7 @@ Standalone `dcc-mcp-server` without `--app` registers as `dcc_type` from DCC_MCP
 
             let params = json!({"name": tool, "arguments": args.clone()});
             let futs = targets.iter().map(|entry| {
-                let url = entry_mcp_url(entry);
+                let url = entry_dispatch_mcp_url(entry);
                 let params = params.clone();
                 async move {
                     let res = call_backend(
