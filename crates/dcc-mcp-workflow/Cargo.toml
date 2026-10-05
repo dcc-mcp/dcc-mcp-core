@@ -60,3 +60,11 @@ python-bindings = [
 stub-gen = ["python-bindings", "dep:pyo3-stub-gen", "dep:pyo3-stub-gen-derive"]
 # Persistence for workflows / workflow_steps tables.
 job-persist-sqlite = ["dep:rusqlite"]
+# Compile the wall-clock regression harness in `tests/pipeline_bench.rs`.
+#
+# Off by default on purpose: `cargo nextest run --workspace` is the PR gate
+# and a wall-clock budget is partly a statement about how busy the host is,
+# so the timing assertions belong in the benchmark channel, not the unit
+# gate. Enable it for the dedicated job in
+# `.github/workflows/transport-bench.yml`. See PIP-4223.
+wallclock-bench = []

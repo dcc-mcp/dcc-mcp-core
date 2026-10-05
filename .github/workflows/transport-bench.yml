@@ -144,3 +144,53 @@ jobs:
           name: pipeline-bench
           path: pipeline-bench.json
           if-no-files-found: error
+
+  workflow-pipeline-bench:
+    name: Workflow pipeline benchmark
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: workflow-pipeline-bench
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+
+      # Executor-overhead trend for the workflow crate. Criterion is the
+      # right home for these numbers because it compares each run against
+      # the previous one: a drift envelope is what a wall-clock measurement
+      # of a shared runner actually needs, and an absolute unit-test budget
+      # cannot express one (PIP-4223).
+      - name: Criterion pipeline bench
+        run: |
+          cargo bench -p dcc-mcp-workflow --bench pipeline_full -- \
+            --sample-size 10 --measurement-time 3
+        shell: bash
+        env:
+          CRITERION_CI: "1"
+
+      - name: Upload workflow criterion report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: workflow-pipeline-criterion-report
+          path: target/criterion/
+          if-no-files-found: ignore
+
+      # The wall-clock half of `tests/pipeline_bench.rs`, compiled in by the
+      # `wallclock-bench` feature. It is excluded from `cargo nextest run
+      # --workspace` on purpose: the PR gate asserts only the host-
+      # independent invariants, and this budget is a sanity bound on the
+      # executor's per-step hot path rather than a precision measurement.
+      # `--nocapture` keeps the per-stage report in the job log.
+      - name: Pipeline wall-clock harness
+        run: |
+          cargo nextest run -p dcc-mcp-workflow --features wallclock-bench \
+            --test pipeline_bench --nocapture
+        shell: bash
+        env:
+          RUST_LOG: "warn"
