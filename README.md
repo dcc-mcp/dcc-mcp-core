@@ -20,6 +20,46 @@ discoverable MCP and REST capabilities. It provides the gateway, Skills,
 structured results, main-thread dispatch, diagnostics, IPC, workflows, and
 packaged CLI/server binaries needed to operate real sessions.
 
+## One protocol, across every registered host
+
+Every host adapter in this ecosystem implements the same MCP protocol and the
+same tool contract. The registry is the source of truth, and the count is
+reproducible from a checkout:
+
+~~~bash
+rg -c '^    tags: \[.*"adapter".*\]' dcc-mcp-catalog.yml
+~~~
+
+That reports **38 adapter entries** in [`dcc-mcp-catalog.yml`](dcc-mcp-catalog.yml),
+covering these hosts:
+
+| Area | Hosts |
+|---|---|
+| Desktop DCC | Maya, Blender, Houdini, 3ds Max, Cinema 4D, Nuke, Katana, MotionBuilder, ZBrush, Mari, Substance 3D Designer, Substance 3D Painter, Marmoset |
+| Engines and real-time | Unreal, Unity, Godot, Tiled, TouchDesigner |
+| Design, image, video | Photoshop, Illustrator, GIMP, Krita, After Effects, Premiere, Kdenlive, PowerPoint, OBS, ComfyUI |
+| CAD, procedural, interchange | FreeCAD, OpenSCAD, SketchUp, Material Maker, LiquiGen, OpenUSD |
+| Production tracking and QA | Flow Production Tracking (ShotGrid), RenderDoc, Shogun, Wwise |
+
+The full list, with install metadata, is published in the
+[ecosystem directory](https://dcc-mcp.github.io/ecosystem).
+
+## Three shared contracts keep it one matrix
+
+Host coverage is only useful if the adapters stay interchangeable. Three
+contracts published by core are what stop 38 adapters from becoming 38
+unrelated servers:
+
+| Contract | What it guarantees | Where to verify |
+|---|---|---|
+| Core shared contract | One import path (`asset_import`), one discovery decision schema (`dcc-discovery-decision-v1`), and postcondition write-then-read-back so a tool proves its own result | `python/dcc_mcp_core/asset_import.py`, `contracts/dcc-discovery-decision-v1.schema.json`, `python/dcc_mcp_core/runtime/postcondition.py` |
+| Recipe runtime | `recipes__list` / `recipes__get` / `recipes__validate` / `recipes__apply` driven by a declarative `RECIPES.yaml`, so a host ships capabilities as data instead of a bespoke server | `skills/mesh-ops/RECIPES.yaml` |
+| Marketplace Skill contract | Every published entry carries `examplePrompts`; `Skills`, `Studio` and `Infrastructure` entries must also declare `recovery` and `undo`, so failures have a next step and edits have one rollback step | [`marketplace-v1.schema.json`](https://github.com/dcc-mcp/marketplace/blob/main/schemas/marketplace-v1.schema.json) |
+
+**How to compare us.** Compare host coverage and contract completeness — both
+reproducible from the commands and files above. We do not claim a ranking, and
+we do not compare on stars or tool counts.
+
 ## Choose your entry point
 
 | You want to… | Start with |
