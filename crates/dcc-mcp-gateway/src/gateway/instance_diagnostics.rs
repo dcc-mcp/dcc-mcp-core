@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
+use crate::gateway::backend_client::probe::ProbeFailure;
 use crate::gateway::http_registration::entry_mcp_url;
 use dcc_mcp_transport::discovery::types::ServiceEntry;
 
@@ -30,6 +31,13 @@ pub struct LastCallError {
 pub struct InstanceDiagnostics {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub readiness: Option<ReadinessReport>,
+    /// Why the last readiness probe produced no report (#4209).
+    ///
+    /// Present exactly when the gateway could not read the backend's
+    /// readiness surface — the case that previously showed up as a bare
+    /// `live=1 / ready=0` counter with no per-instance detail.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub probe_failure: Option<ProbeFailure>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_error: Option<LastCallError>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -53,6 +61,20 @@ impl InstanceDiagnosticsStore {
         let mut map = self.inner.write();
         let entry = map.entry(instance_id).or_default();
         entry.readiness = Some(report);
+        entry.probe_failure = None;
+        entry.probed_at_unix_secs = Some(now);
+    }
+
+    /// Record why a readiness probe produced no report (#4209).
+    ///
+    /// The cached readiness report is cleared so operators never read a green
+    /// snapshot next to a failure that superseded it.
+    pub fn record_probe_failure(&self, instance_id: Uuid, failure: ProbeFailure) {
+        let now = unix_now_secs();
+        let mut map = self.inner.write();
+        let entry = map.entry(instance_id).or_default();
+        entry.readiness = None;
+        entry.probe_failure = Some(failure);
         entry.probed_at_unix_secs = Some(now);
     }
 

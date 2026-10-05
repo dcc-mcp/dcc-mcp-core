@@ -4,6 +4,7 @@ use std::time::Duration;
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
 use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry, ServiceStatus};
 
+use crate::gateway::http_registration::entry_mcp_url;
 use crate::gateway::instance_diagnostics::InstanceDiagnosticsStore;
 
 /// Configuration for the health-check task.
@@ -14,6 +15,55 @@ pub(crate) struct HealthCheckConfig {
     pub health_check_failures: u32,
     #[cfg(feature = "prometheus")]
     pub metrics: Arc<crate::gateway::event_log::GatewayMetrics>,
+}
+
+/// The MCP URL the health loop should probe for a registry row.
+///
+/// Dispatch resolves backend endpoints through [`entry_mcp_url`], which
+/// prefers the advertised `mcp_url` metadata and only falls back to the raw
+/// `host:port` fields. Probing the same URL keeps liveness and dispatch in
+/// agreement (#4209).
+fn probe_url_for_entry(entry: &ServiceEntry) -> String {
+    let advertised = entry_mcp_url(entry);
+    if advertised.trim().is_empty() {
+        format!("http://{}:{}/mcp", entry.host, entry.port)
+    } else {
+        advertised
+    }
+}
+
+/// Probe `url`, retrying the raw `host:port` URL when the advertised one
+/// disagrees and fails.
+///
+/// The second hop only runs when the first probe is unreachable and the two
+/// URLs actually differ, so the common path still costs one request.
+async fn probe_with_fallback(
+    client: &reqwest::Client,
+    entry: &ServiceEntry,
+    url: String,
+    timeout: Duration,
+) -> crate::gateway::backend_client::probe::ReadinessProbeResult {
+    use crate::gateway::backend_client::probe::{ProbeOutcome, probe_mcp_readiness_detailed};
+
+    let mut result = probe_mcp_readiness_detailed(client, &url, timeout).await;
+    if !matches!(result.outcome, ProbeOutcome::Unreachable) {
+        return result;
+    }
+    let raw = format!("http://{}:{}/mcp", entry.host, entry.port);
+    if raw == url {
+        return result;
+    }
+    let fallback = probe_mcp_readiness_detailed(client, &raw, timeout).await;
+    if !matches!(fallback.outcome, ProbeOutcome::Unreachable) {
+        return fallback;
+    }
+    // Keep the advertised-URL failure but record that the fallback failed too.
+    if let Some(failure) = result.failure.as_mut() {
+        failure
+            .message
+            .push_str(&format!("; raw endpoint {raw} also unreachable"));
+    }
+    result
 }
 
 fn port_zero_boot_reason(entry: &ServiceEntry) -> String {
@@ -63,20 +113,20 @@ pub(crate) fn spawn_health_check_task(
                     .collect::<Vec<_>>()
             };
 
+            // Probe the same URL dispatch uses (#4209). The raw `host:port`
+            // fields are only a fallback: rows registered over HTTP, relay, or
+            // mDNS advertise their endpoint through the `mcp_url` metadata key,
+            // and probing a different URL than dispatch left healthy instances
+            // pinned at not-ready with no explanation.
             let probe_results: std::collections::HashMap<String, _> = {
                 let client = &http_client;
                 futures::future::join_all(entries.iter().filter(|e| e.port != 0).map(|e| {
                     let key = format!("{}:{}", e.dcc_type, e.instance_id);
-                    let url = format!("http://{}:{}/mcp", e.host, e.port);
+                    let url = probe_url_for_entry(e);
                     async move {
                         (
                             key,
-                            crate::gateway::backend_client::probe_mcp_readiness_once(
-                                client,
-                                &url,
-                                Duration::from_secs(5),
-                            )
-                            .await,
+                            probe_with_fallback(client, e, url, Duration::from_secs(5)).await,
                         )
                     }
                 }))
@@ -117,11 +167,17 @@ pub(crate) fn spawn_health_check_task(
                     continue;
                 }
                 port_zero_seen.remove(&key);
-                let Some((readiness_report, outcome)) = probe_results.get(&key) else {
+                let Some(result) = probe_results.get(&key) else {
                     continue;
                 };
-                if let Some(report) = readiness_report {
+                let outcome = result.outcome;
+                if let Some(report) = &result.report {
                     instance_diagnostics.record_readiness(entry.instance_id, report.clone());
+                } else if let Some(failure) = &result.failure {
+                    // #4209: a red readiness report already explains itself, but
+                    // an unreachable probe previously left `readiness: null` and
+                    // no reason at all.
+                    instance_diagnostics.record_probe_failure(entry.instance_id, failure.clone());
                 }
 
                 if outcome.is_ready() {
@@ -277,6 +333,65 @@ mod tests {
                 .recent_events(10)
                 .iter()
                 .any(|event| event.event == crate::gateway::event_log::EventKind::AutoDeregister)
+        );
+    }
+
+    #[tokio::test]
+    async fn unreachable_probe_records_a_reason_operators_can_read() {
+        // #4209: a dead endpoint used to show up only as a `live=1 / ready=0`
+        // counter with `readiness: null`. The reason now lands in the instance
+        // diagnostics that `GET /v1/readyz` and `GET /v1/instances` render.
+        let dir = tempdir().unwrap();
+        let registry = Arc::new(FileRegistry::new(dir.path()).unwrap());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+
+        let entry = ServiceEntry::new("blender", "127.0.0.1", port);
+        let instance_id = entry.instance_id;
+        registry.register(entry).unwrap();
+
+        let diagnostics = Arc::new(InstanceDiagnosticsStore::new());
+        let handle = spawn_health_check_task(
+            registry.clone(),
+            reqwest::Client::new(),
+            Arc::new(crate::gateway::event_log::EventLog::new()),
+            diagnostics.clone(),
+            HealthCheckConfig {
+                own_host: "127.0.0.1".into(),
+                own_port: 9766,
+                health_check_interval_secs: 1,
+                health_check_failures: 99,
+                #[cfg(feature = "prometheus")]
+                metrics: Arc::new(crate::gateway::event_log::GatewayMetrics::new()),
+            },
+        );
+
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        let snapshot = loop {
+            if let Some(diag) = diagnostics.get(&instance_id)
+                && diag.probe_failure.is_some()
+            {
+                break diag;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "the health loop never recorded a probe failure reason"
+            );
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        };
+        handle.abort();
+
+        let failure = snapshot.probe_failure.expect("checked above");
+        assert_eq!(failure.kind, "unreachable");
+        assert_eq!(
+            failure.probed_url,
+            format!("http://127.0.0.1:{port}/v1/readyz"),
+            "the reason must name the URL the gateway actually probed"
+        );
+        assert!(
+            snapshot.readiness.is_none(),
+            "a failed probe must not leave a stale green report behind"
         );
     }
 

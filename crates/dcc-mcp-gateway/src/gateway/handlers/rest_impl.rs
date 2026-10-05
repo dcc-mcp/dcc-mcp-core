@@ -316,6 +316,13 @@ pub async fn handle_v1_readyz(State(gs): State<GatewayState>) -> impl IntoRespon
                     .and_then(|diag| diag.get("readiness"))
                     .cloned()
                     .unwrap_or(Value::Null),
+                // #4209: when the probe produced no report, say why instead of
+                // leaving a bare null alongside a `not_ready_instance_count`.
+                "probe_failure": row
+                    .get("diagnostics")
+                    .and_then(|diag| diag.get("probe_failure"))
+                    .cloned()
+                    .unwrap_or(Value::Null),
                 "dispatch": row["dispatch"].clone(),
                 "gateway": row["gateway"].clone(),
                 "lifecycle": row["lifecycle"].clone(),
@@ -1395,3 +1402,7 @@ mod rest_impl_batch_tests;
 #[cfg(test)]
 #[path = "rest_impl_safety_tests.rs"]
 mod rest_impl_safety_tests;
+
+#[cfg(test)]
+#[path = "rest_impl_readyz_tests.rs"]
+mod rest_impl_readyz_tests;

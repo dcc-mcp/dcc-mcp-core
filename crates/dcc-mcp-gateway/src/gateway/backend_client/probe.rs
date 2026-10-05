@@ -1,8 +1,68 @@
 use std::time::Duration;
 
 use dcc_mcp_skill_rest::ReadinessReport;
+use serde::{Deserialize, Serialize};
 
 use super::urls::{health_url_from_mcp_url, healthz_url_from_mcp_url, readyz_url_from_mcp_url};
+
+/// Why a readiness probe could not produce a [`ReadinessReport`] (#4209).
+///
+/// A `live=1 / ready=0` counter with no per-instance reason forced operators
+/// to reverse-engineer the probe by hand. Every non-green outcome now carries
+/// the URL that was probed and the transport/HTTP/parse detail, so the
+/// gateway's own `GET /v1/readyz` can answer "why is this instance not ready"
+/// without a side channel.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProbeFailure {
+    /// Coarse classification (`unreachable`, `no-readiness-surface`,
+    /// `unparseable-readiness`).
+    pub kind: String,
+    /// Human readable detail: transport error, HTTP status, parse error.
+    pub message: String,
+    /// The exact URL the gateway probed.
+    pub probed_url: String,
+}
+
+impl ProbeFailure {
+    fn unreachable(probed_url: String, message: String) -> Self {
+        Self {
+            kind: "unreachable".to_string(),
+            message,
+            probed_url,
+        }
+    }
+
+    fn no_readiness_surface(probed_url: String, status: u16) -> Self {
+        Self {
+            kind: "no-readiness-surface".to_string(),
+            message: format!(
+                "{probed_url} answered HTTP {status}; expected 200 or 503 with a ReadinessReport body"
+            ),
+            probed_url,
+        }
+    }
+
+    fn unparseable(probed_url: String, status: u16, err: impl std::fmt::Display) -> Self {
+        Self {
+            kind: "unparseable-readiness".to_string(),
+            message: format!(
+                "{probed_url} answered HTTP {status} but the body is not a ReadinessReport: {err}"
+            ),
+            probed_url,
+        }
+    }
+}
+
+/// Readiness probe result including the reason when no report was obtained.
+#[derive(Debug, Clone)]
+pub(crate) struct ReadinessProbeResult {
+    /// Parsed `/v1/readyz` body, when the backend has a readiness surface.
+    pub report: Option<ReadinessReport>,
+    /// Three-state classification for routing decisions.
+    pub outcome: ProbeOutcome,
+    /// Set only when [`ProbeOutcome::Unreachable`] — explains what failed.
+    pub failure: Option<ProbeFailure>,
+}
 
 /// Outcome of the gateway's readiness probe (#713).
 ///
@@ -51,6 +111,11 @@ impl ProbeOutcome {
 /// with a parseable JSON body (on either `200` or `503`), and `None`
 /// when the REST surface is absent — callers should then fall back to
 /// the legacy `/health` / `/healthz` checks.
+///
+/// Production callers use [`probe_mcp_readiness_detailed`], which keeps the
+/// reason when no report can be read (#4209); this stays as the single-hop
+/// primitive the probe tests assert against.
+#[cfg(test)]
 pub(crate) async fn probe_readiness(
     client: &reqwest::Client,
     mcp_url: &str,
@@ -97,19 +162,83 @@ pub(crate) async fn probe_mcp_readiness_once(
     mcp_url: &str,
     timeout: Duration,
 ) -> (Option<ReadinessReport>, ProbeOutcome) {
-    if let Some(report) = probe_readiness(client, mcp_url, timeout).await {
-        let outcome = probe_outcome_from_report(&report);
-        return (Some(report), outcome);
+    let detailed = probe_mcp_readiness_detailed(client, mcp_url, timeout).await;
+    (detailed.report, detailed.outcome)
+}
+
+/// Like [`probe_mcp_readiness_once`] but keeps the failure reason (#4209).
+///
+/// `Ready` / `Booting` outcomes never carry a [`ProbeFailure`] — the parsed
+/// report already explains them. `Unreachable` always carries one, naming the
+/// URL that was probed and how it failed.
+pub(crate) async fn probe_mcp_readiness_detailed(
+    client: &reqwest::Client,
+    mcp_url: &str,
+    timeout: Duration,
+) -> ReadinessProbeResult {
+    let readyz_url = readyz_url_from_mcp_url(mcp_url);
+    let readyz_note = match client
+        .get(&readyz_url)
+        .timeout(timeout)
+        .header("accept", "application/json, text/event-stream")
+        .send()
+        .await
+    {
+        Ok(resp) => {
+            let status = resp.status();
+            if status.is_success() || status.as_u16() == 503 {
+                match resp.json::<ReadinessReport>().await {
+                    Ok(report) => {
+                        return ReadinessProbeResult {
+                            outcome: probe_outcome_from_report(&report),
+                            report: Some(report),
+                            failure: None,
+                        };
+                    }
+                    Err(err) => Some(ProbeFailure::unparseable(
+                        readyz_url.clone(),
+                        status.as_u16(),
+                        err,
+                    )),
+                }
+            } else {
+                Some(ProbeFailure::no_readiness_surface(
+                    readyz_url.clone(),
+                    status.as_u16(),
+                ))
+            }
+        }
+        Err(err) => Some(ProbeFailure::unreachable(
+            readyz_url.clone(),
+            format!("GET {readyz_url} failed: {err}"),
+        )),
+    };
+
+    // No usable readiness surface — fall back to the legacy health endpoints
+    // for pre-#660 backends before declaring the backend unreachable.
+    let health_url = health_url_from_mcp_url(mcp_url);
+    let healthz_url = healthz_url_from_mcp_url(mcp_url);
+    if legacy_health_ok(client, &health_url, timeout).await
+        || legacy_health_ok(client, &healthz_url, timeout).await
+    {
+        return ReadinessProbeResult {
+            report: None,
+            outcome: ProbeOutcome::Ready,
+            failure: None,
+        };
     }
 
-    let ok = legacy_health_ok(client, &health_url_from_mcp_url(mcp_url), timeout).await
-        || legacy_health_ok(client, &healthz_url_from_mcp_url(mcp_url), timeout).await;
-    let outcome = if ok {
-        ProbeOutcome::Ready
-    } else {
-        ProbeOutcome::Unreachable
-    };
-    (None, outcome)
+    let mut failure = readyz_note.unwrap_or_else(|| {
+        ProbeFailure::unreachable(readyz_url, "no readiness surface answered".to_string())
+    });
+    failure.message.push_str(&format!(
+        "; legacy fallback GET {health_url} and GET {healthz_url} also failed"
+    ));
+    ReadinessProbeResult {
+        report: None,
+        outcome: ProbeOutcome::Unreachable,
+        failure: Some(failure),
+    }
 }
 
 async fn legacy_health_ok(client: &reqwest::Client, url: &str, timeout: Duration) -> bool {
