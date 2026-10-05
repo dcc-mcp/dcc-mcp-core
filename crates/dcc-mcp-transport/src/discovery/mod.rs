@@ -7,6 +7,7 @@ mod liveness;
 #[cfg(feature = "mdns")]
 pub mod mdns;
 mod registry_format;
+pub mod service_identity;
 pub mod types;
 
 use std::time::Duration;

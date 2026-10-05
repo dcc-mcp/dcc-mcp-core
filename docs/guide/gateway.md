@@ -660,6 +660,25 @@ keep an exited Unreal, Maya, Photoshop, or custom host discoverable. A true
 standalone/headless service leaves `host_pid` unset and remains valid while its
 own service endpoint and heartbeat remain healthy.
 
+#### Identity / lineage fields (RFC-0007 §3.2)
+
+Every row may additionally carry an optional envelope describing *where the row
+came from*, alongside `pid` / `host_pid` / `display_name`. Adapters that predate
+the envelope keep writing the exact row shape they wrote before it existed, so
+all four fields read back as `null`; a `null` is **unknown**, never "same
+launch".
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `launch_id` | `string \| null` | Shared by every process of one launch. A launcher publishes it through the `DCC_MCP_LAUNCH_ID` environment variable and children inherit it |
+| `parent_pid` | `int \| null` | PID of the process that launched this one |
+| `role` | `string \| null` | `"host"` (the DCC process itself), `"launcher"`, `"sidecar"`, or any producer-defined value. The three known roles match case-insensitively; other values are preserved with their original spelling |
+| `started_at` | `int \| null` | Unix seconds when the process started, which may precede the row's `registered_at` |
+
+Two rows belong to the same launch only when both carry the same non-null
+`launch_id`. Rows written before the envelope never collapse into one launch,
+so folding must stay opt-in.
+
 ### Remote HTTP Instance Registration (#1361)
 
 When a DCC adapter cannot share the gateway's local `FileRegistry` directory

@@ -932,6 +932,37 @@ fn test_entry_to_json_status_stale_for_marked_row() {
     assert_eq!(json["pool"]["available"].as_bool(), Some(false));
 }
 
+/// RFC-0007 §3.2: an envelope-stamped row must expose launch_id / parent_pid
+/// / role / started_at through `entry_to_json`, which backs
+/// `GET /admin/api/instances` and `gateway://instances`.
+#[test]
+fn test_entry_to_json_projects_identity_envelope() {
+    let started_at = std::time::SystemTime::UNIX_EPOCH + Duration::from_secs(1_712_345_600);
+    let e = ServiceEntry::new("maya", "127.0.0.1", 18812)
+        .with_launch_id("launch-7f3c")
+        .with_parent_pid(4242)
+        .with_role("host")
+        .with_started_at(started_at);
+
+    let json = entry_to_json(&e, Duration::from_secs(30), None);
+    assert_eq!(json["launch_id"].as_str(), Some("launch-7f3c"));
+    assert_eq!(json["parent_pid"].as_u64(), Some(4242));
+    assert_eq!(json["role"].as_str(), Some("host"));
+    assert_eq!(json["started_at"].as_u64(), Some(1_712_345_600));
+}
+
+/// Rows from adapters that predate the envelope keep `null` identity fields
+/// rather than gaining keys or being dropped from the projection.
+#[test]
+fn test_entry_to_json_nulls_identity_envelope_when_unstamped() {
+    let e = ServiceEntry::new("photoshop", "127.0.0.1", 18813);
+
+    let json = entry_to_json(&e, Duration::from_secs(30), None);
+    for key in ["launch_id", "parent_pid", "role", "started_at"] {
+        assert!(json[key].is_null(), "{key} must be null, got {}", json[key]);
+    }
+}
+
 #[test]
 fn test_entry_to_json_includes_pool_state() {
     let mut e = ServiceEntry::new("maya", "127.0.0.1", 18812).with_capacity(2);

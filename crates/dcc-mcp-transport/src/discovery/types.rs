@@ -7,6 +7,8 @@ use uuid::Uuid;
 
 pub use dcc_mcp_models::{DispatchStatus, InstanceStatus, ServiceStatus};
 
+pub use crate::discovery::service_identity::ServiceRole;
+
 use crate::error::{TransportError, TransportResult};
 
 /// Schema version emitted for newly written [`ServiceEntry`] rows.
@@ -27,6 +29,9 @@ where
 }
 
 /// Custom deserializer for `Option<SystemTime>` (used by `lease_expires_at`).
+///
+/// A malformed value is an error: a lease expiry the reader cannot parse is a
+/// correctness problem, not cosmetic data loss.
 fn deserialize_optional_system_time<'de, D>(deserializer: D) -> Result<Option<SystemTime>, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -38,6 +43,27 @@ where
     system_time_from_json_value(&value)
         .map(Some)
         .map_err(serde::de::Error::custom)
+}
+
+/// Lenient counterpart of [`deserialize_optional_system_time`] for purely
+/// informational timestamps (used by `started_at`).
+///
+/// `started_at` is lineage metadata nobody routes on, while a row that fails
+/// to deserialize takes the whole `services.json` with it — the registry
+/// quarantines an unparsable file, which drops **every** registered instance.
+/// An unparsable `started_at` therefore degrades to `None` instead of failing
+/// the row.
+fn deserialize_optional_system_time_lossy<'de, D>(
+    deserializer: D,
+) -> Result<Option<SystemTime>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    if value.is_null() {
+        return Ok(None);
+    }
+    Ok(system_time_from_json_value(&value).ok())
 }
 
 fn system_time_from_json_value(value: &serde_json::Value) -> Result<SystemTime, String> {
@@ -208,6 +234,13 @@ pub struct ServiceSnapshot<'a> {
 /// maya @ 127.0.0.1:18812  pid=1234  scene=character.ma  display_name="Maya-Rig"
 /// maya @ 127.0.0.1:18813  pid=5678  scene=character.ma  display_name="Maya-Anim"
 /// ```
+///
+/// ## Identity / lineage envelope
+///
+/// `launch_id`, `parent_pid`, `role`, and `started_at` (RFC-0007 §3.2) are the
+/// optional "where did this row come from" envelope. Unset by the constructors
+/// and skipped on the wire, so rows written before the envelope keep their
+/// exact previous shape. See [`service_identity`](super::service_identity).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServiceEntry {
     /// Version of the serialized registry-row schema.
@@ -282,6 +315,39 @@ pub struct ServiceEntry {
     /// races while remaining backward-compatible with rows that omit this field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sentinel_path: Option<std::path::PathBuf>,
+    /// Identifier shared by every process of one launch (RFC-0007 §3.2).
+    ///
+    /// A launcher publishes the id through
+    /// [`LAUNCH_ID_ENV_VAR`](crate::discovery::service_identity::LAUNCH_ID_ENV_VAR)
+    /// so every child inherits it; rows carrying the same value belong to the
+    /// same launch. `None` means *unknown*, never "same launch" — use
+    /// [`ServiceEntry::same_launch`] rather than comparing the raw field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub launch_id: Option<String>,
+    /// OS process ID of the process that launched this one, when known.
+    ///
+    /// Lineage for triage: it turns "these rows share a parent" into a registry
+    /// fact instead of something an operator collects on site.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_pid: Option<u32>,
+    /// Role of the process that owns this row (RFC-0007 §3.2).
+    ///
+    /// Distinguishes the real DCC host from wrappers around it. Unknown wire
+    /// values are preserved, so a producer may publish a role this build does
+    /// not know yet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<ServiceRole>,
+    /// When the owning process started, which may precede `registered_at`.
+    ///
+    /// Informational only: an unparsable value degrades to `None` rather than
+    /// failing the row, because one bad row would otherwise quarantine the
+    /// whole registry file.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_system_time_lossy"
+    )]
+    pub started_at: Option<SystemTime>,
     /// Human-readable label for this instance.
     /// Human-readable label for this instance.
     ///
@@ -340,6 +406,10 @@ impl ServiceEntry {
     /// [`FileRegistry::prune_dead_pids`](super::file_registry::FileRegistry::prune_dead_pids)).
     /// Override via [`ServiceEntry::with_pid`] only when the registry owner PID
     /// cannot be inferred from the current process.
+    ///
+    /// The identity envelope (`launch_id` / `parent_pid` / `role` /
+    /// `started_at`) is left unset: a producer that does not stamp it writes
+    /// exactly the row shape it wrote before the envelope existed.
     pub fn new(dcc_type: impl Into<String>, host: impl Into<String>, port: u16) -> Self {
         let now = SystemTime::now();
         Self {
@@ -357,6 +427,10 @@ impl ServiceEntry {
             pid: Some(std::process::id()),
             host_pid: None,
             sentinel_path: None,
+            launch_id: None,
+            parent_pid: None,
+            role: None,
+            started_at: None,
             display_name: None,
             metadata: HashMap::new(),
             extras: HashMap::new(),
@@ -373,6 +447,7 @@ impl ServiceEntry {
     /// Create a new service entry with a specific transport address.
     ///
     /// `pid` is auto-populated with [`std::process::id()`]; see [`ServiceEntry::new`].
+    /// The identity envelope is left unset, same as [`ServiceEntry::new`].
     pub fn with_address(dcc_type: impl Into<String>, address: TransportAddress) -> Self {
         let (host, port) = match &address {
             TransportAddress::Tcp { host, port } => (host.clone(), *port),
@@ -396,6 +471,10 @@ impl ServiceEntry {
             pid: Some(std::process::id()),
             host_pid: None,
             sentinel_path: None,
+            launch_id: None,
+            parent_pid: None,
+            role: None,
+            started_at: None,
             display_name: None,
             metadata: HashMap::new(),
             extras: HashMap::new(),
@@ -452,6 +531,54 @@ impl ServiceEntry {
     pub fn with_adapter_dcc(mut self, dcc: impl Into<String>) -> Self {
         self.adapter_dcc = Some(dcc.into());
         self
+    }
+
+    /// Stamp the launch this process belongs to (RFC-0007 §3.2).
+    ///
+    /// Launchers publish one id for the whole process tree — see
+    /// [`process_launch_id`](crate::discovery::service_identity::process_launch_id)
+    /// for the inherit-or-generate default. Two rows carrying the same value
+    /// are one launch; see [`ServiceEntry::same_launch`].
+    pub fn with_launch_id(mut self, launch_id: impl Into<String>) -> Self {
+        self.launch_id = Some(launch_id.into());
+        self
+    }
+
+    /// Record the process that launched this one.
+    pub fn with_parent_pid(mut self, parent_pid: u32) -> Self {
+        self.parent_pid = Some(parent_pid);
+        self
+    }
+
+    /// Record whether this row is the DCC host, a launcher, or a sidecar.
+    ///
+    /// Accepts a [`ServiceRole`] or any string; unknown strings are preserved
+    /// so a newer producer never breaks an older reader.
+    pub fn with_role(mut self, role: impl Into<ServiceRole>) -> Self {
+        self.role = Some(role.into());
+        self
+    }
+
+    /// Record when the owning process started.
+    ///
+    /// Distinct from `registered_at`: an adapter may register well after the
+    /// DCC finished booting.
+    pub fn with_started_at(mut self, started_at: SystemTime) -> Self {
+        self.started_at = Some(started_at);
+        self
+    }
+
+    /// Whether both rows report the same launch (RFC-0007 §3.2).
+    ///
+    /// Returns `false` when either side is unknown: absence is not evidence of
+    /// a shared launch, it is missing data. Collapsing rows on absence would
+    /// merge unrelated sessions from adapters that predate the envelope.
+    #[must_use]
+    pub fn same_launch(&self, other: &Self) -> bool {
+        match (self.launch_id.as_deref(), other.launch_id.as_deref()) {
+            (Some(left), Some(right)) => left == right,
+            _ => false,
+        }
     }
 
     /// Set optional pool capacity for this service entry.

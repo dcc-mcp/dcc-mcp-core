@@ -1669,6 +1669,10 @@ filters:
             pid,
             host_pid: None,
             sentinel_path: None,
+            launch_id: None,
+            parent_pid: None,
+            role: None,
+            started_at: None,
             display_name: Some(format!("{dcc_type}-test")),
             status: ServiceStatus::Available,
             registered_at: now,
@@ -1749,6 +1753,58 @@ filters:
         assert_eq!(body["total"].as_u64(), Some(2));
         assert_eq!(body["summary"]["live"].as_u64(), Some(1));
         assert_eq!(body["summary"]["unhealthy"].as_u64(), Some(1));
+    }
+
+    /// RFC-0007 3.2: the envelope must be visible through the HTTP surface,
+    /// not only through the row projection (`entry_to_json`).
+    #[tokio::test]
+    async fn test_admin_instances_exposes_identity_envelope() {
+        let started_at = std::time::SystemTime::UNIX_EPOCH + Duration::from_secs(1_712_345_600);
+        let gs = make_gateway_state();
+        gs.registry
+            .register(
+                make_service_entry("maya", "127.0.0.1", 18813, Some(4242))
+                    .with_launch_id("launch-7f3c")
+                    .with_parent_pid(4241)
+                    .with_role("host")
+                    .with_started_at(started_at),
+            )
+            .unwrap();
+        // An adapter that predates the envelope keeps null fields.
+        gs.registry
+            .register(make_service_entry(
+                "photoshop",
+                "127.0.0.1",
+                18814,
+                Some(5252),
+            ))
+            .unwrap();
+
+        let router = build_admin_router(AdminState::new(gs));
+        let (status, body) = body_json(router, "/api/instances?view=all").await;
+        assert_eq!(status, StatusCode::OK);
+
+        let rows = body["instances"].as_array().unwrap();
+        let stamped = rows
+            .iter()
+            .find(|row| row["dcc_type"] == "maya")
+            .expect("stamped maya row");
+        assert_eq!(stamped["launch_id"], "launch-7f3c");
+        assert_eq!(stamped["parent_pid"], 4241);
+        assert_eq!(stamped["role"], "host");
+        assert_eq!(stamped["started_at"], 1_712_345_600);
+
+        let legacy = rows
+            .iter()
+            .find(|row| row["dcc_type"] == "photoshop")
+            .expect("legacy photoshop row");
+        for key in ["launch_id", "parent_pid", "role", "started_at"] {
+            assert!(
+                legacy[key].is_null(),
+                "{key} must be null, got {}",
+                legacy[key]
+            );
+        }
     }
 
     /// Assert a worker process metric honours its JSON contract.
