@@ -43,7 +43,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use serde_json::{Value, json};
 use tokio::sync::{RwLock, broadcast, watch};
@@ -63,6 +63,7 @@ use super::relay_registration::RelayInstanceRegistry;
 use super::resilience::GatewayResilienceState;
 
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
+use dcc_mcp_transport::discovery::service_identity::system_time_to_unix_secs;
 use dcc_mcp_transport::discovery::types::{
     ServiceEntry, ServiceStatus, instance_status_from_entry,
 };
@@ -1014,6 +1015,15 @@ pub fn entry_to_json(
         "pid":             e.pid,
         "host_pid":        e.host_pid,
         "display_name":    e.display_name,
+        // ── identity / lineage envelope (RFC-0007 §3.2) ───────────────────
+        // Null when the producer predates the envelope; consumers must treat
+        // null as *unknown*, never as "same launch" (see
+        // `ServiceEntry::same_launch`). `started_at` is Unix seconds so the
+        // projection stays platform-neutral like the other timestamps here.
+        "launch_id":       e.launch_id,
+        "parent_pid":      e.parent_pid,
+        "role":            e.role,
+        "started_at":      system_time_to_unix_secs_for_json(e.started_at),
         // ── misc ───────────────────────────────────────────────────────────
         "version":         e.version,
         "adapter_version": e.adapter_version,
@@ -1062,6 +1072,12 @@ pub fn entry_to_json(
             super::instance_diagnostics::InstanceDiagnosticsStore::to_json_value(diag);
     }
     row
+}
+
+/// Project an optional `SystemTime` row field as Unix seconds, or `null`.
+fn system_time_to_unix_secs_for_json(time: Option<SystemTime>) -> Value {
+    time.and_then(system_time_to_unix_secs)
+        .map_or(Value::Null, Value::from)
 }
 
 /// Count instance rows by their additive `source` field.

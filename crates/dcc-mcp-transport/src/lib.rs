@@ -52,6 +52,9 @@ pub use dcc_link::{
     GracefulIpcChannelAdapter, IpcChannelAdapter, SocketServerAdapter,
 };
 pub use discovery::ServiceRegistry;
+pub use discovery::service_identity::{
+    LAUNCH_ID_ENV_VAR, ServiceRole, launch_id_from_env, launch_id_from_env_value, process_launch_id,
+};
 pub use discovery::types::{
     DispatchStatus, InstanceStatus, SERVICE_ENTRY_LEGACY_SCHEMA_VERSION,
     SERVICE_ENTRY_SCHEMA_VERSION, ServiceEntry, ServiceKey, ServiceSnapshot, ServiceStatus,
