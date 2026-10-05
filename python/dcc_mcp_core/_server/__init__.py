@@ -6,6 +6,10 @@ underscore-prefixed because they are an implementation detail; the public
 contract remains :class:`dcc_mcp_core.server_base.DccServerBase`.
 """
 
+from __future__ import annotations
+
+from dcc_mcp_core._lazy import lazy_dir
+from dcc_mcp_core._lazy import resolve_lazy_symbol
 from dcc_mcp_core._server.callable_dispatcher import AdaptivePumpPolicy
 from dcc_mcp_core._server.callable_dispatcher import AdaptivePumpStats
 from dcc_mcp_core._server.callable_dispatcher import Affinity
@@ -69,7 +73,6 @@ from dcc_mcp_core._server.options import InlineExecution
 from dcc_mcp_core._server.options import ObservabilityOptions
 from dcc_mcp_core._server.options import StandaloneMainThreadExecution
 from dcc_mcp_core._server.runtime import ServerRuntimeController
-from dcc_mcp_core._server.skill_discovery import SkillDiscoveryController
 from dcc_mcp_core._server.skill_query import SkillQueryClient
 from dcc_mcp_core._server.tools_list_policy import ENV_EXCLUDE_STUBS_FROM_TOOLS_LIST
 from dcc_mcp_core._server.tools_list_policy import ToolsListStubPolicy
@@ -78,6 +81,30 @@ from dcc_mcp_core._server.tools_list_policy import dcc_exclude_stubs_env_name
 from dcc_mcp_core._server.tools_list_policy import env_truthy
 from dcc_mcp_core._server.tools_list_policy import resolve_tools_list_stub_policy
 from dcc_mcp_core._server.window_resolver import WindowResolver
+
+#: Resolved on first attribute access instead of at import time.
+#:
+#: ``skill_discovery`` pulls ``dcc_mcp_core.skills.builtin``, which imports
+#: ``dcc_mcp_core.dcc_server``, which imports this package — importing it here
+#: at module scope closes that cycle and makes any first import that reaches
+#: ``_server`` raise ``ImportError: ... (most likely due to a circular
+#: import)``. ``import dcc_mcp_core.dcc_server`` is the entry point that hit
+#: it; ``dcc_mcp_core.skills.builtin`` is the other one. Deferring this single
+#: re-export keeps every entry point importable. Consumers keep working
+#: unchanged because ``from dcc_mcp_core._server import
+#: SkillDiscoveryController`` resolves the name through ``__getattr__``.
+_LAZY_EXPORTS: dict[str, str] = {
+    "SkillDiscoveryController": "dcc_mcp_core._server.skill_discovery",
+}
+
+
+def __getattr__(name: str) -> object:
+    return resolve_lazy_symbol(name, _LAZY_EXPORTS, module_name=__name__)
+
+
+def __dir__() -> list[str]:
+    return sorted({*globals(), *lazy_dir(_LAZY_EXPORTS)})
+
 
 __all__ = [
     "CONTEXT_METADATA_ENV",
