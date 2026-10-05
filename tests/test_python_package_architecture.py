@@ -74,6 +74,7 @@ _LEGACY_TOP_LEVEL_MODULES = {
     "_registration",
     "_tool_registration",
     "_typing",
+    "_version_check",
     "_version_util",
     "_windows_dll_search",
     "adapter_context",

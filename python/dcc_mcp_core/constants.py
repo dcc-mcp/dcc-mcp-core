@@ -91,6 +91,9 @@ ENV_UI_CONTROL_PROCESS_ID: str = "DCC_MCP_UI_CONTROL_PROCESS_ID"
 ENV_UI_CONTROL_WINDOW_HANDLE: str = "DCC_MCP_UI_CONTROL_WINDOW_HANDLE"
 ENV_USER_DCC_SKILL_PATHS_TEMPLATE: str = "DCC_MCP_USER_{}_SKILL_PATHS"
 ENV_USER_SKILL_PATHS: str = "DCC_MCP_USER_SKILL_PATHS"
+# Opt out of the startup version drift self-check (``_version_check``). Set to
+# a falsy value to keep the startup log quiet; drift then stays silent.
+ENV_VERSION_CHECK: str = "DCC_MCP_CORE_VERSION_CHECK"
 
 # ── SKILL.md metadata keys (per agentskills.io spec) ────────────────────────
 # All extension keys must live under ``metadata.dcc-mcp.<feature>``.
@@ -213,6 +216,7 @@ __all__ = [
     "ENV_UI_CONTROL_WINDOW_HANDLE",
     "ENV_USER_DCC_SKILL_PATHS_TEMPLATE",
     "ENV_USER_SKILL_PATHS",
+    "ENV_VERSION_CHECK",
     "LAYER_DOMAIN",
     "LAYER_EXAMPLE",
     "LAYER_INFRASTRUCTURE",

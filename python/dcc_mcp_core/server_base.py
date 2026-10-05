@@ -42,6 +42,9 @@ from dcc_mcp_core._server.inprocess_executor import HostExecutionBridge
 from dcc_mcp_core._server.minimal_mode import MinimalModeConfig
 from dcc_mcp_core._server.options import DccServerOptions
 from dcc_mcp_core._server.skill_discovery import SkillDiscoveryController
+from dcc_mcp_core._version_check import resolve_startup_version
+from dcc_mcp_core._version_check import run_version_self_check
+from dcc_mcp_core._version_check import version_check_enabled
 from dcc_mcp_core._version_util import package_version
 from dcc_mcp_core.checkpoint import CheckpointStore
 from dcc_mcp_core.checkpoint import register_checkpoint_tools
@@ -171,10 +174,18 @@ class DccServerBase:
         # --- File logging --------------------------------------------------------
         self._log_dir: str = self._init_file_logging(options.dcc_name)
 
+        # Version provenance: the compiled extension and the installed
+        # distribution metadata are pinned to one release-please version, so a
+        # correct install prints the same number from both sides. A partial
+        # upgrade leaves them disagreeing (0.19.3 metadata next to a 0.19.2
+        # extension), which made the startup log line untrustworthy.
+        self._version_report: dict[str, Any] = self._run_version_self_check()
+        startup_version = resolve_startup_version(_PKG_VERSION)
+
         logger.info(
             "[%s] dcc-mcp-core %s (pid=%d, python=%s, platform=%s)",
             options.dcc_name,
-            _PKG_VERSION,
+            startup_version,
             self._dcc_pid,
             "{}.{}.{}".format(*sys.version_info[:3]),
             sys.platform,
@@ -182,7 +193,7 @@ class DccServerBase:
 
         self._config = build_mcp_http_config(
             options,
-            package_version=_PKG_VERSION,
+            package_version=startup_version,
             version_provider=self._version_string,
         )
 
@@ -868,6 +879,47 @@ class DccServerBase:
     def get_gateway_election_status(self) -> dict:
         """Return gateway election thread status."""
         return self._get_lifecycle_ctrl().get_gateway_election_status()
+
+    # --- Version provenance (issue: startup log version drift) -----------------
+
+    def version_report(self) -> dict[str, Any]:
+        """Return the version provenance payload (see :mod:`_version_check`).
+
+        Reports both the version compiled into the loaded native extension and
+        the installed distribution metadata for ``dcc-mcp-core``.  Used by
+        diagnostics and by :meth:`_run_version_self_check`; never raises — an
+        unexpected failure yields an empty dict.
+        """
+        if getattr(self, "_version_report", None):
+            return self._version_report
+        try:
+            return run_version_self_check(logger)
+        except Exception as exc:
+            # Diagnostics must not break startup.
+            logger.debug("[%s] version report unavailable: %s", self._dcc_name, exc)
+            return {}
+
+    def _run_version_self_check(self) -> dict[str, Any]:
+        """Log the running version once and warn when the metadata disagrees.
+
+        A host can end up with a partially upgraded install — a fresh
+        ``.dist-info`` next to a native extension that was never replaced — so
+        ``importlib.metadata.version("dcc-mcp-core")`` and
+        ``dcc_mcp_core._core.__version__`` answer differently.  Silently
+        accepting that makes bug reports and compatibility matrices
+        untrustworthy, so the drift is logged as a warning naming which side is
+        stale plus the ``.dist-info`` path an operator has to delete.  The check
+        never raises and never blocks startup; opt out with
+        ``DCC_MCP_CORE_VERSION_CHECK=0``.
+        """
+        if not version_check_enabled():
+            return {}
+        try:
+            return run_version_self_check(logger)
+        except Exception as exc:
+            # Never block startup on diagnostics.
+            logger.debug("[%s] version self-check skipped: %s", self._dcc_name, exc)
+            return {}
 
     # --- DCC version hook (override in subclass) --------------------------------
 
