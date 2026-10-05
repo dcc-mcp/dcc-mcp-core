@@ -7,6 +7,9 @@ name: Version Consistency Check
 #   - uv.lock (editable root package version and resolved lock state)
 #   - release-please-config.json (fixed root package identity)
 #   - .release-please-manifest.json (release-please source-of-truth)
+#   - python/dcc_mcp_core/_core.pyi (Python-visible declaration of the version
+#     compiled into the native extension; mirrors src/lib.rs's
+#     env!("CARGO_PKG_VERSION"))
 #   - Any __version__.py files
 
 on:
@@ -23,8 +26,10 @@ on:
       - "CHANGELOG.md"
       - "release-please-config.json"
       - ".release-please-manifest.json"
+      - "python/dcc_mcp_core/_core.pyi"
       - "**/__version__.py"
       - "scripts/ci/check_uv_lock.py"
+      - "tests/test_version_single_source.py"
       - "scripts/ci/check_lock_versions.py"
       - ".github/workflows/version-consistency.yml"
 
@@ -115,6 +120,23 @@ jobs:
                       )
                   else:
                       print(f"  {sub_pyproject}: {sub_version} ✓")
+
+          # Check the native extension stub: this is the version type-checkers and
+          # readers see, and it must match the Cargo version src/lib.rs compiles in.
+          stub_path = Path("python/dcc_mcp_core/_core.pyi")
+          if stub_path.exists():
+              import re
+
+              content = stub_path.read_text(encoding="utf-8")
+              match = re.search(r'^__version__\s*:\s*builtins\.str\s*=\s*["\']([^"\']+)["\']', content, re.MULTILINE)
+              if match is None:
+                  errors.append(f"{stub_path}: no __version__ declaration found")
+              elif match.group(1) != manifest_version:
+                  errors.append(
+                      f"{stub_path}: __version__={match.group(1)!r} != manifest {manifest_version!r}"
+                  )
+              else:
+                  print(f"  {stub_path}: {match.group(1)} ✓")
 
           # Check any __version__.py files
           for version_py in Path(".").rglob("__version__.py"):
