@@ -1,0 +1,240 @@
+name: Publish MCP Registry
+
+# Publishes `server.json` to the official MCP Registry so the ecosystem is
+# discoverable from registry.modelcontextprotocol.io and from every client and
+# aggregator that mirrors it.
+#
+# Authentication is GitHub OIDC, so no registry token is stored in this repo:
+# the Actions token proves the `dcc-mcp` org owns the `io.github.dcc-mcp/*`
+# namespace. That is why the job needs `id-token: write` and nothing else.
+#
+# The registry only hosts metadata - the artefact it points at is the PyPI
+# `dcc-mcp-server` wheel. Publishing therefore has to run *after* that wheel is
+# on PyPI, because the registry verifies ownership by reading an
+# `mcp-name: io.github.dcc-mcp/dcc-mcp-core` marker out of the package README
+# as published on PyPI. `pkg/dcc-mcp-server-bin/README.md` carries the marker,
+# so it starts appearing in published wheels from the next release onwards.
+# Verified end to end against the live registry: schema validation and OIDC
+# login both pass, and a version published before the marker landed is rejected
+# with a 400 naming the missing `mcp-name` line.
+#
+# Triggers:
+#   - release: published  - the normal path, once release-please cuts a release.
+#   - workflow_dispatch   - first registration and any later backfill.
+#
+# Run a first registration by hand from the Actions tab with `dry_run = true`
+# to validate, then `dry_run = false` to publish. The default branch is the
+# only ref GitHub lets you dispatch from, so this workflow has to be on `main`
+# before the first manual run.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish, e.g. 0.20.41. Defaults to the version in server.json."
+        required: false
+        type: string
+      dry_run:
+        description: "Validate and render only, without publishing to the registry"
+        required: false
+        type: boolean
+        default: true
+
+concurrency:
+  group: mcp-registry-publish
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    # The namespace in server.json is io.github.dcc-mcp/*, so only this repo
+    # can mint an OIDC token the registry will accept for it.
+    if: github.repository == 'dcc-mcp/dcc-mcp-core'
+    runs-on: ubuntu-latest
+    # The org runner pool can hold this job for a long time before it starts;
+    # a tighter budget turned a slow queue into a cancelled run twice.
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      MCP_PUBLISHER_VERSION: "1.8.1"
+      # sha256 of mcp-publisher_<version>_linux_amd64.tar.gz from
+      # https://github.com/modelcontextprotocol/registry/releases
+      MCP_PUBLISHER_SHA256: "a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc"
+      MCP_REGISTRY_URL: "https://registry.modelcontextprotocol.io"
+    steps:
+      - uses: actions/checkout@v6
+
+      # Routed through env: rather than interpolated into the script body.
+      # `${{ }}` expands before bash parses, so a free-text input or release
+      # tag spliced straight into `run:` is shell code. An env: variable is
+      # data whatever it contains.
+      - name: Resolve the version to publish
+        id: version
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          version="${INPUT_VERSION:-${RELEASE_TAG#v}}"
+          if [ -z "$version" ]; then
+            version="$(python -c 'import json;print(json.load(open("server.json"))["version"])')"
+          fi
+          printf 'Publishing version %s\n' "$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Stamp server.json with the resolved version
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          python - "$VERSION" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          version = sys.argv[1]
+          path = Path("server.json")
+          data = json.loads(path.read_text(encoding="utf-8"))
+          data["version"] = version
+          for package in data.get("packages", []):
+              package["version"] = version
+          path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+          PY
+          cat server.json
+
+      - name: Install mcp-publisher
+        run: |
+          set -euo pipefail
+          # The asset filename carries no version: the tag in the download
+          # path is what selects the release. Adding the version to the
+          # filename 404s.
+          asset="mcp-publisher_linux_amd64.tar.gz"
+          url="https://github.com/modelcontextprotocol/registry/releases/download/v${MCP_PUBLISHER_VERSION}/${asset}"
+          curl -fsSL "$url" -o "$RUNNER_TEMP/$asset"
+          actual="$(sha256sum "$RUNNER_TEMP/$asset" | cut -d' ' -f1)"
+          if [ "$actual" != "$MCP_PUBLISHER_SHA256" ]; then
+            echo "::error::mcp-publisher ${MCP_PUBLISHER_VERSION} sha256 mismatch: expected ${MCP_PUBLISHER_SHA256}, got ${actual}"
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/mcp-publisher"
+          tar xzf "$RUNNER_TEMP/$asset" -C "$RUNNER_TEMP/mcp-publisher" mcp-publisher
+          echo "$RUNNER_TEMP/mcp-publisher" >> "$GITHUB_PATH"
+
+      # Catches schema and semantic errors before the network round trip, so a
+      # bad server.json fails here with a readable location instead of as an
+      # opaque 400 from the publish call.
+      - name: Validate server.json
+        run: mcp-publisher validate server.json
+
+      - name: Wait for PyPI to carry the ownership marker
+        if: ${{ !inputs.dry_run || github.event_name == 'release' }}
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          PYPI_PACKAGE: "dcc-mcp-server"
+        run: |
+          set -euo pipefail
+          # The registry proves ownership by reading `mcp-name: <server name>`
+          # out of the package README *as published on PyPI* - not out of this
+          # repository. That only becomes true once publish-server-pypi has
+          # uploaded the wheel, and release-please creates the release first,
+          # so `release: published` can reach this job while the wheel is still
+          # uploading. Publishing then fails with a 400 that reads like a
+          # server.json bug but is really this race:
+          #
+          #   registry validation failed for package 0 (dcc-mcp-server):
+          #   PyPI package 'dcc-mcp-server' ownership validation failed.
+          #   The server name 'io.github.dcc-mcp/dcc-mcp-core' must appear as
+          #   'mcp-name: io.github.dcc-mcp/dcc-mcp-core' in the package README
+          #
+          # A manual backfill of a version published before the marker landed
+          # fails here too, and should: that version can never be registered.
+          for attempt in $(seq 1 40); do
+            if curl -fsS -m 20 \
+                "https://pypi.org/pypi/${PYPI_PACKAGE}/${VERSION}/json" \
+                -o "$RUNNER_TEMP/pypi.json"; then
+              if python - "$RUNNER_TEMP/pypi.json" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          description = payload["info"].get("description") or ""
+          sys.exit(0 if "mcp-name: io.github.dcc-mcp/dcc-mcp-core" in description else 1)
+          PY
+              then
+                echo "::notice::${PYPI_PACKAGE} ${VERSION} on PyPI carries the ownership marker"
+                exit 0
+              fi
+              echo "::error::${PYPI_PACKAGE} ${VERSION} is on PyPI without the mcp-name marker"
+              echo "::error::this version predates the marker; register a later release instead"
+              exit 1
+            fi
+            echo "waiting for ${PYPI_PACKAGE} ${VERSION} on PyPI (attempt ${attempt}/40)"
+            sleep 20
+          done
+          echo "::error::${PYPI_PACKAGE} ${VERSION} never appeared on PyPI"
+          exit 1
+
+      - name: Authenticate with GitHub OIDC
+        if: ${{ !inputs.dry_run || github.event_name == 'release' }}
+        run: mcp-publisher login github-oidc --registry "$MCP_REGISTRY_URL"
+
+      - name: Publish to the MCP Registry
+        if: ${{ !inputs.dry_run || github.event_name == 'release' }}
+        run: mcp-publisher publish server.json --registry "$MCP_REGISTRY_URL"
+
+      - name: Confirm the entry is queryable
+        if: ${{ !inputs.dry_run || github.event_name == 'release' }}
+        env:
+          SERVER_NAME: "io.github.dcc-mcp/dcc-mcp-core"
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          # A 200 from publish only means the write was accepted. The registry
+          # indexes asynchronously, and this job is the only place that can
+          # prove the entry is actually retrievable - which is the deliverable,
+          # not the workflow existing. Poll briefly, then report either way.
+          url="${MCP_REGISTRY_URL}/v0.1/servers?search=${SERVER_NAME}&version=latest&limit=30"
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            if curl -fsS -m 30 "$url" | python -c '
+          import json
+          import sys
+
+          payload = json.load(sys.stdin)
+          names = {s["server"]["name"] for s in payload.get("servers", [])}
+          sys.exit(0 if "io.github.dcc-mcp/dcc-mcp-core" in names else 1)
+          '; then
+              echo "::notice::${SERVER_NAME} ${VERSION} is queryable on ${MCP_REGISTRY_URL}"
+              echo "https://registry.modelcontextprotocol.io/servers?search=${SERVER_NAME}" \
+                >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            echo "not indexed yet (attempt ${attempt}/10); retrying"
+            sleep 15
+          done
+          echo "::error::${SERVER_NAME} ${VERSION} was published but is not queryable yet"
+          exit 1
+
+      - name: Summary
+        if: always()
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          {
+            echo "### MCP Registry publish"
+            echo
+            echo "server: io.github.dcc-mcp/dcc-mcp-core"
+            echo "version: $VERSION"
+            echo "dry run: ${DRY_RUN:-false}"
+            echo
+            if [ "${DRY_RUN:-false}" = "true" ]; then
+              echo "Validated server.json. Nothing was published."
+              echo "Re-run with \`dry_run = false\` to publish to ${MCP_REGISTRY_URL}."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

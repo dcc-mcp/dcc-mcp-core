@@ -1,8 +1,15 @@
-# dcc-mcp-server-bin — PyPI distribution blueprint
+# dcc-mcp-server-bin — PyPI distribution of the `dcc-mcp-server` binary
 
-> **Status:** blueprint — packaging files are wired but no PyPI release has
-> shipped yet. Tracked in issue **#1002** (deliverable 3 of RFC #998
-> Addendum A.7).
+<!-- mcp-name: io.github.dcc-mcp/dcc-mcp-core -->
+
+> **Status:** shipped — the wheel is built by the `build-binaries` job and
+> published by `publish-server-pypi` in `.github/workflows/release.yml`.
+
+The HTML comment above is the MCP Registry's PyPI ownership marker: it proves
+this package belongs to the `io.github.dcc-mcp/dcc-mcp-core` entry in
+`server.json` at the repository root. The registry reads the README as
+published on PyPI, so removing or renaming the marker breaks registry
+publishing on the next release.
 
 This directory packages the `crates/dcc-mcp-server` Rust binary as a
 platform-specific **binary-only** PyPI wheel, following the same pattern as
