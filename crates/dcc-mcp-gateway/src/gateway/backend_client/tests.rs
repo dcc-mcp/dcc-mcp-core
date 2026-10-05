@@ -703,6 +703,115 @@ async fn probe_mcp_readiness_returns_unreachable_when_nothing_answers() {
     let _ = stop.send(());
 }
 
+// ── #4209 integration tests: the probe must explain itself ─────────
+
+#[tokio::test]
+async fn detailed_probe_names_the_url_when_nothing_listens() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    drop(listener);
+    let mcp_url = format!("http://127.0.0.1:{port}/mcp");
+
+    let client = reqwest::Client::new();
+    let result = probe_mcp_readiness_detailed(&client, &mcp_url, Duration::from_secs(2)).await;
+    assert_eq!(result.outcome, ProbeOutcome::Unreachable);
+    assert!(result.report.is_none(), "no readiness surface -> no report");
+
+    let failure = result
+        .failure
+        .expect("#4209: unreachable probes must carry a reason");
+    assert_eq!(failure.kind, "unreachable");
+    assert_eq!(
+        failure.probed_url,
+        format!("http://127.0.0.1:{port}/v1/readyz")
+    );
+    assert!(
+        failure.message.contains("/v1/readyz"),
+        "the message must name the URL that failed, got: {}",
+        failure.message
+    );
+}
+
+#[tokio::test]
+async fn detailed_probe_flags_a_readyz_that_is_not_a_readiness_endpoint() {
+    // The failure mode reported in #4209: the endpoint answers, but not at the
+    // path the gateway probes. A bare "probes failed" message hid the fact that
+    // the URL itself was wrong.
+    let app = axum::Router::new();
+    let (mcp_url, stop) = spawn_fake_backend(app).await;
+
+    let client = reqwest::Client::new();
+    let result = probe_mcp_readiness_detailed(&client, &mcp_url, Duration::from_secs(2)).await;
+    assert_eq!(result.outcome, ProbeOutcome::Unreachable);
+
+    let failure = result
+        .failure
+        .expect("#4209: a non-readiness answer must be reported, not swallowed");
+    assert_eq!(failure.kind, "no-readiness-surface");
+    assert_eq!(
+        failure.probed_url,
+        readyz_url_from_mcp_url(&mcp_url),
+        "the failure must name the exact URL that was probed"
+    );
+    assert!(
+        failure.message.contains("HTTP 404"),
+        "the message must carry the HTTP status, got: {}",
+        failure.message
+    );
+    let _ = stop.send(());
+}
+
+#[tokio::test]
+async fn detailed_probe_flags_a_non_report_readyz_body() {
+    let app = axum::Router::new().route(
+        "/v1/readyz",
+        axum::routing::get(|| async { axum::Json(json!({"unexpected": "shape"})) }),
+    );
+    let (mcp_url, stop) = spawn_fake_backend(app).await;
+
+    let client = reqwest::Client::new();
+    let result = probe_mcp_readiness_detailed(&client, &mcp_url, Duration::from_secs(2)).await;
+    assert_eq!(result.outcome, ProbeOutcome::Unreachable);
+
+    let failure = result
+        .failure
+        .expect("an unparseable readyz body must be reported, not swallowed");
+    assert_eq!(failure.kind, "unparseable-readiness");
+    assert_eq!(
+        failure.probed_url,
+        readyz_url_from_mcp_url(&mcp_url),
+        "the failure must name the exact URL that was probed"
+    );
+    assert!(
+        failure.message.contains("HTTP 200"),
+        "the message must carry the HTTP status, got: {}",
+        failure.message
+    );
+    let _ = stop.send(());
+}
+
+#[tokio::test]
+async fn detailed_probe_carries_no_failure_when_ready() {
+    let app = axum::Router::new().route(
+        "/v1/readyz",
+        axum::routing::get(|| async {
+            axum::Json(json!({
+                "process": true,
+                "dispatcher": true,
+                "dcc": true,
+                "skill_catalog": true,
+            }))
+        }),
+    );
+    let (mcp_url, stop) = spawn_fake_backend(app).await;
+
+    let client = reqwest::Client::new();
+    let result = probe_mcp_readiness_detailed(&client, &mcp_url, Duration::from_secs(2)).await;
+    assert_eq!(result.outcome, ProbeOutcome::Ready);
+    assert!(result.failure.is_none(), "a green report explains itself");
+    let _ = stop.send(());
+}
+
 #[tokio::test]
 async fn call_backend_refuses_forward_while_backend_is_booting() {
     let hit = Arc::new(AtomicBool::new(false));

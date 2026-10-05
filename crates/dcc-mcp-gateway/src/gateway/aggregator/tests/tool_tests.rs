@@ -1686,3 +1686,131 @@ async fn rest_targeted_load_scopes_legacy_group_fallback_to_the_requested_skill(
 
     let _ = shutdown_tx.send(());
 }
+
+// ── #4210: a backend error with no text must not reach the caller blank ────
+
+/// Backend whose `load_skill` fails the way the Blender adapter did: MCP
+/// `isError` set, `content[0].text` empty. Everything else is healthy so the
+/// only observable signal is the empty payload.
+async fn spawn_empty_error_backend() -> (u16, tokio::sync::oneshot::Sender<()>) {
+    let app = axum::Router::new()
+        .route(
+            "/health",
+            axum::routing::get(|| async { axum::Json(json!({"ok": true})) }),
+        )
+        .route(
+            "/v1/readyz",
+            axum::routing::get(|| async {
+                axum::Json(json!({
+                    "process": true,
+                    "dcc": true,
+                    "skill_catalog": true,
+                    "dispatcher": true,
+                }))
+            }),
+        )
+        .route(
+            "/mcp",
+            axum::routing::post(|axum::Json(body): axum::Json<Value>| async move {
+                let id = body.get("id").cloned().unwrap_or(Value::Null);
+                axum::Json(json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": {
+                        "content": [{"type": "text", "text": ""}],
+                        "isError": true
+                    }
+                }))
+            }),
+        );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+    // No start-up sleep: the listener is already bound (and therefore
+    // backlog-queues connections) before the accept loop is spawned.
+    tokio::spawn(async move {
+        axum::serve(listener, app)
+            .with_graceful_shutdown(async {
+                let _ = rx.await;
+            })
+            .await
+            .ok();
+    });
+    (port, tx)
+}
+
+#[tokio::test]
+async fn load_skill_empty_backend_error_is_replaced_with_structured_envelope() {
+    let (port, shutdown_tx) = spawn_empty_error_backend().await;
+
+    let dir = tempfile::tempdir().unwrap();
+    let registry = std::sync::Arc::new(
+        dcc_mcp_transport::discovery::file_registry::FileRegistry::new(dir.path()).unwrap(),
+    );
+    let instance_id = {
+        let r = &registry;
+        let entry =
+            dcc_mcp_transport::discovery::types::ServiceEntry::new("blender", "127.0.0.1", port);
+        let id = entry.instance_id;
+        r.register(entry).unwrap();
+        id
+    };
+    let gs = make_gateway_state(registry).await;
+
+    let (text, is_error) =
+        crate::gateway::tools::tool_load_skill(&gs, &json!({"skill_name": "blender-scene"})).await;
+    assert!(is_error, "the backend reported isError");
+    assert!(
+        !text.trim().is_empty(),
+        "#4210: the gateway must never forward a blank failure"
+    );
+
+    let payload: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(payload["kind"], "backend-error-empty-payload");
+    assert_eq!(payload["request"]["skill_name"], "blender-scene");
+    assert_eq!(payload["instance"]["dcc_type"], "blender");
+    assert_eq!(
+        payload["instance"]["instance_id"],
+        instance_id.to_string(),
+        "the envelope must name the instance that failed"
+    );
+    assert!(
+        payload["instance"]["mcp_url"]
+            .as_str()
+            .is_some_and(|url| url.contains(&port.to_string())),
+        "the envelope must name the endpoint that was called"
+    );
+    assert!(
+        payload["recommended_next_action"].is_array()
+            && !payload["recommended_next_action"]
+                .as_array()
+                .unwrap()
+                .is_empty(),
+        "callers need a next step, got: {payload}"
+    );
+    use crate::gateway::backend_client::readyz_url_from_mcp_url;
+
+    // #4210: the first next step must be a request an operator can copy —
+    // a bare `GET <mcp_url> /v1/readyz` is not one, the path belongs in the
+    // URL, not after it.
+    let first_action = payload["recommended_next_action"][0]
+        .as_str()
+        .unwrap_or_default();
+    let readyz_url = readyz_url_from_mcp_url(payload["instance"]["mcp_url"].as_str().unwrap());
+    let urls_in_action: Vec<&str> = first_action
+        .split_whitespace()
+        .filter(|token| token.contains("://"))
+        .collect();
+    assert_eq!(
+        urls_in_action,
+        vec![readyz_url.as_str()],
+        "the next step must be exactly one parseable readiness URL, got: {first_action}"
+    );
+    assert!(
+        readyz_url.ends_with("/v1/readyz"),
+        "the readiness URL must target /v1/readyz, got: {readyz_url}"
+    );
+    reqwest::Url::parse(&readyz_url).expect("the readiness URL must parse");
+
+    let _ = shutdown_tx.send(());
+}

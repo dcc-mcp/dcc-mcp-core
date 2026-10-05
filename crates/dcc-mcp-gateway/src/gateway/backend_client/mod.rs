@@ -31,12 +31,12 @@ pub(crate) mod ops;
 pub(crate) mod probe;
 pub(crate) mod urls;
 
-#[cfg(test)]
-pub(crate) use probe::probe_mcp_health;
 #[allow(unused_imports)]
 pub(crate) use probe::{
-    ProbeOutcome, probe_mcp_readiness, probe_mcp_readiness_once, probe_readiness,
+    ProbeOutcome, probe_mcp_readiness, probe_mcp_readiness_detailed, probe_mcp_readiness_once,
 };
+#[cfg(test)]
+pub(crate) use probe::{probe_mcp_health, probe_readiness};
 
 #[allow(unused_imports)]
 pub(crate) use urls::{health_url_from_mcp_url, readyz_url_from_mcp_url, rest_base_from_mcp_url};

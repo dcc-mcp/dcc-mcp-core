@@ -23,6 +23,7 @@ mod helpers;
 mod list;
 mod prompts;
 mod resources;
+mod skill_error;
 mod skill_mgmt;
 #[cfg(test)]
 mod tests;

@@ -5,6 +5,7 @@ use dcc_mcp_gateway_core::policy::GatewayPolicyOperation;
 use super::super::capability::{CapabilityRecord, tool_slug};
 use super::super::capability_service::safe_discovery_target;
 use super::super::http_registration::{entry_discovery_mcp_url, entry_mcp_url};
+use super::skill_error::structured_backend_error_text;
 use crate::gateway::resilience::GatewayResilienceState;
 use std::time::Duration;
 
@@ -138,6 +139,15 @@ pub(crate) async fn skill_mgmt_dispatch(
                             let payload_failed =
                                 tool == "load_skill" && load_skill_payload_reports_failure(&text);
                             let is_error = is_error || payload_failed;
+                            let text = if is_error && text.trim().is_empty() {
+                                // #4210: never forward a blank failure. The
+                                // backend knows it failed but said nothing; the
+                                // gateway still knows the target row, its
+                                // registry status and its last readiness probe.
+                                structured_backend_error_text(gs, tool, &entry, &forward_args)
+                            } else {
+                                text
+                            };
                             if !is_error {
                                 if tool == "load_skill" {
                                     let tool_names = serde_json::from_str::<Value>(&text)
