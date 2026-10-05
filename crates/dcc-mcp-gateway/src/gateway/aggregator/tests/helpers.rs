@@ -69,6 +69,9 @@ pub(crate) async fn make_gateway_state(
     let (yield_tx, _) = tokio::sync::watch::channel(false);
     let (events_tx, _) = tokio::sync::broadcast::channel::<String>(8);
     crate::gateway::GatewayState {
+        instance_resolver: std::sync::Arc::new(
+            crate::gateway::instance_resolver::InstanceResolver::new(),
+        ),
         ingress: std::sync::Arc::new(crate::gateway::http_limits::GatewayIngressState::from_env()),
         resilience: std::sync::Arc::new(Default::default()),
         registry,
@@ -408,6 +411,9 @@ pub(crate) async fn gateway_state_with_instances(
     let (yield_tx, _) = tokio::sync::watch::channel(false);
     let (events_tx, _) = tokio::sync::broadcast::channel::<String>(8);
     let state = crate::gateway::GatewayState {
+        instance_resolver: std::sync::Arc::new(
+            crate::gateway::instance_resolver::InstanceResolver::new(),
+        ),
         ingress: std::sync::Arc::new(crate::gateway::http_limits::GatewayIngressState::from_env()),
         resilience: std::sync::Arc::new(Default::default()),
         registry,

@@ -24,6 +24,9 @@ fn test_gateway_state_with_own_and_unknown(
     let (yield_tx, _) = watch::channel(false);
     let (events_tx, _) = broadcast::channel::<String>(8);
     GatewayState {
+        instance_resolver: std::sync::Arc::new(
+            crate::gateway::instance_resolver::InstanceResolver::new(),
+        ),
         ingress: std::sync::Arc::new(crate::gateway::http_limits::GatewayIngressState::from_env()),
         resilience: std::sync::Arc::new(Default::default()),
         registry: reg,
@@ -1465,4 +1468,257 @@ fn test_instance_status_for_failed_dispatch() {
     assert_eq!(is["status"].as_str(), Some("available"));
     assert_eq!(is["dispatch_status"].as_str(), Some("failed"));
     assert_eq!(is["retryable"].as_bool(), Some(false));
+}
+
+// ── RFC-0007 §3.1 acceptance behaviours ─────────────────────────────────────
+//
+// Two live Blender instances used to make every call that omitted
+// `instance_id` fail with a list of UUIDs. These tests pin the six behaviours
+// the issue promised, exercised through the real registry + `GatewayState`
+// rather than the resolver alone.
+
+/// Build a registry holding `n` live Blender instances with distinct ages.
+fn seed_blenders(reg: &FileRegistry, specs: &[(&str, u64)]) -> Vec<uuid::Uuid> {
+    let mut ids = Vec::new();
+    for (id, age_secs) in specs {
+        let mut entry = ServiceEntry::new("blender", "127.0.0.1", 18812);
+        entry.instance_id = uuid::Uuid::parse_str(id).expect("valid uuid");
+        entry.registered_at =
+            std::time::SystemTime::now() - std::time::Duration::from_secs(*age_secs);
+        reg.register(entry).expect("register");
+        ids.push(uuid::Uuid::parse_str(id).expect("valid uuid"));
+    }
+    ids
+}
+
+const BLENDER_A: &str = "0202de99-0000-0000-0000-000000000001";
+const BLENDER_B: &str = "51e71dbf-0000-0000-0000-000000000002";
+
+/// 1. A single Blender still resolves with no `instance_id` (regression guard).
+#[tokio::test]
+async fn test_single_instance_still_resolves_without_hint() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = Arc::new(FileRegistry::new(dir.path()).unwrap());
+    let ids = seed_blenders(&registry, &[(BLENDER_A, 10)]);
+
+    let gs = test_gateway_state(registry.clone());
+    let resolved = gs
+        .resolve_instance_for_session(None, Some("blender"), Some("sess-1"))
+        .await
+        .expect("single candidate resolves");
+
+    assert_eq!(resolved.entry.instance_id, ids[0]);
+    assert_eq!(resolved.via.as_str(), "single");
+    assert!(resolved.previous_instance_id.is_none());
+}
+
+/// 2. Two Blenders: repeated unqualified calls land on the *same* instance.
+#[tokio::test]
+async fn test_two_instances_resolve_to_one_stable_target() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = Arc::new(FileRegistry::new(dir.path()).unwrap());
+    seed_blenders(&registry, &[(BLENDER_A, 60), (BLENDER_B, 5)]);
+
+    let gs = test_gateway_state(registry.clone());
+    let first = gs
+        .resolve_instance_for_session(None, Some("blender"), Some("sess-1"))
+        .await
+        .expect("resolves");
+    // A second call in the same session must not bounce to the other Blender.
+    for _ in 0..3 {
+        let again = gs
+            .resolve_instance_for_session(None, Some("blender"), Some("sess-1"))
+            .await
+            .expect("resolves");
+        assert_eq!(again.entry.instance_id, first.entry.instance_id);
+    }
+    // Newest wins on the first pick; afterwards it is sticky.
+    assert_eq!(first.via.as_str(), "newest");
+}
+
+/// 3. The response carries `resolved_instance` so the caller can see the target.
+#[tokio::test]
+async fn test_resolution_is_echoed_back_to_the_caller() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = Arc::new(FileRegistry::new(dir.path()).unwrap());
+    let ids = seed_blenders(&registry, &[(BLENDER_A, 60), (BLENDER_B, 5)]);
+
+    let gs = test_gateway_state(registry.clone());
+    let resolved = gs
+        .resolve_instance_for_session(None, Some("blender"), Some("sess-1"))
+        .await
+        .expect("resolves");
+    let json = resolved.to_json();
+
+    assert_eq!(json["instance_id"], json!(ids[1].to_string()));
+    assert_eq!(json["dcc_type"], json!("blender"));
+    assert!(json["via"].as_str().is_some());
+    assert_eq!(json["switched"], json!(false));
+    assert!(json["instance_short"].as_str().unwrap().len() == 8);
+}
+
+/// 4. A different session does not inherit another session's binding.
+#[tokio::test]
+async fn test_sticky_binding_is_not_shared_between_sessions() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = Arc::new(FileRegistry::new(dir.path()).unwrap());
+    let ids = seed_blenders(&registry, &[(BLENDER_A, 60), (BLENDER_B, 5)]);
+
+    let gs = test_gateway_state(registry.clone());
+    // Session A pins the *older* Blender, which newest-wins would never pick.
+    let older = ids[0];
+    gs.instance_resolver
+        .bind("sess-a", "blender", older, Some("main"));
+
+    let a = gs
+        .resolve_instance_for_session(None, Some("blender"), Some("sess-a"))
+        .await
+        .expect("resolves");
+    assert_eq!(a.entry.instance_id, older);
+    assert_eq!(a.via.as_str(), "bound");
+
+    // Session B has no binding and must get the newest, not A's instance.
+    let b = gs
+        .resolve_instance_for_session(None, Some("blender"), Some("sess-b"))
+        .await
+        .expect("resolves");
+    assert_eq!(b.entry.instance_id, ids[1]);
+    assert_eq!(b.via.as_str(), "newest");
+
+    // A headerless caller is never sticky, and never inherits a binding.
+    let anonymous = gs
+        .resolve_instance_for_session(None, Some("blender"), None)
+        .await
+        .expect("resolves");
+    assert_eq!(anonymous.entry.instance_id, ids[1]);
+    assert_eq!(anonymous.via.as_str(), "newest");
+}
+
+/// 5. Killing the bound instance re-resolves *and reports the switch*.
+#[tokio::test]
+async fn test_dead_target_re_resolves_and_reports_the_switch() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = Arc::new(FileRegistry::new(dir.path()).unwrap());
+    let ids = seed_blenders(&registry, &[(BLENDER_A, 60), (BLENDER_B, 5)]);
+
+    let gs = test_gateway_state(registry.clone());
+    let doomed = ids[0];
+    gs.instance_resolver.bind("sess-a", "blender", doomed, None);
+    // Bind, then remove the bound row from the registry — the binding now
+    // points at something that is no longer a live candidate.
+    registry
+        .deregister(&dcc_mcp_transport::discovery::types::ServiceKey {
+            dcc_type: "blender".to_string(),
+            instance_id: doomed,
+        })
+        .expect("deregister");
+
+    let resolved = gs
+        .resolve_instance_for_session(None, Some("blender"), Some("sess-a"))
+        .await
+        .expect("re-resolves to the survivor");
+
+    assert_eq!(resolved.entry.instance_id, ids[1]);
+    assert_eq!(resolved.previous_instance_id, Some(doomed));
+    assert_eq!(resolved.to_json()["switched"], json!(true));
+}
+
+/// 6. An genuinely ambiguous hint reports human labels, not bare UUIDs.
+#[tokio::test]
+async fn test_ambiguous_error_shows_human_labels() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = Arc::new(FileRegistry::new(dir.path()).unwrap());
+    let ids = seed_blenders(&registry, &[(BLENDER_A, 60), (BLENDER_B, 5)]);
+    {
+        let mut entry = ServiceEntry::new("blender", "127.0.0.1", 18812);
+        entry.instance_id = ids[0];
+        entry.pid = Some(543_720);
+        entry.scene = Some("C:/shots/lighting/shot_light.blend".to_string());
+        registry.register(entry).expect("re-register with label");
+    }
+
+    let gs = test_gateway_state(registry.clone());
+
+    // After this change two candidates with *no* hint resolve deterministically
+    // (newest wins) instead of erroring — that is the point of the fix. The
+    // `MultipleMatches` path is now only reachable through an ambiguous hint,
+    // e.g. a prefix shared by two instances.
+    let mut a = ServiceEntry::new("blender", "127.0.0.1", 18812);
+    a.instance_id = uuid::Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
+    a.pid = Some(543_720);
+    let mut b = ServiceEntry::new("blender", "127.0.0.1", 18813);
+    b.instance_id = uuid::Uuid::parse_str("abcdef9923456789abcdef0123456789").unwrap();
+    b.display_name = Some("Blender 5.1.1 — shot_light.blend".to_string());
+    let err = resolve_instance_candidates(
+        vec![a, b],
+        Some("abcdef"),
+        Some("blender"),
+        None,
+        Some(&gs.instance_resolver),
+    )
+    .expect_err("a prefix shared by two instances is genuinely ambiguous");
+    let message = err.to_string();
+
+    assert!(message.contains("multiple-instances-match"));
+    // Human label first, short id still present so the caller can pick.
+    assert!(message.contains("pid 543720"), "{message}");
+    assert!(
+        message.contains("Blender 5.1.1 — shot_light.blend"),
+        "{message}"
+    );
+    // The full hyphenated UUID is gone; only the short prefix survives.
+    assert!(!message.contains("abcdef01-2345-6789-abcd-ef0123456789"));
+    // The escape hatch is advertised right where the user hit the wall.
+    assert!(message.contains("bind_instance"), "{message}");
+}
+
+/// `bind_instance(alias = "main")` then calling with `instance_id = "main"`
+/// must resolve — end to end, through `resolve_instance_for_session`.
+///
+/// Regression guard: the alias branch only fires when a session key reaches
+/// the resolver. An earlier revision routed `bind_instance` through
+/// `resolve_instance_async`, which hard-codes no session, so aliases could be
+/// stored but never used.
+#[tokio::test]
+async fn test_alias_registered_by_bind_is_usable_as_instance_id() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = Arc::new(FileRegistry::new(dir.path()).unwrap());
+    let ids = seed_blenders(&registry, &[(BLENDER_A, 60), (BLENDER_B, 5)]);
+    let older = ids[0];
+    let newer = ids[1];
+
+    let gs = test_gateway_state(registry.clone());
+
+    // Step 1: bind_instance resolves the target by UUID, in a session.
+    let bind_target = gs
+        .resolve_instance_for_session(Some(BLENDER_A), Some("blender"), Some("sess-a"))
+        .await
+        .expect("UUID hint resolves");
+    assert_eq!(bind_target.entry.instance_id, older);
+    gs.instance_resolver
+        .bind("sess-a", "blender", older, Some("main"));
+
+    // Step 2: a later call addresses it by alias. Newest-wins would return the
+    // *other* Blender, so hitting `older` proves the alias was honoured.
+    let by_alias = gs
+        .resolve_instance_for_session(Some("main"), Some("blender"), Some("sess-a"))
+        .await
+        .expect("alias resolves to a live instance");
+    assert_eq!(by_alias.entry.instance_id, older);
+    assert_eq!(by_alias.via.as_str(), "bound");
+
+    // Step 3: a different session must not see the alias.
+    assert!(
+        gs.resolve_instance_for_session(Some("main"), Some("blender"), Some("sess-b"))
+            .await
+            .is_err()
+    );
+
+    // Step 4: unbind clears the alias, and the session falls back to newest.
+    gs.instance_resolver.unbind("sess-a", Some("blender"));
+    let after_unbind = gs
+        .resolve_instance_for_session(None, Some("blender"), Some("sess-a"))
+        .await
+        .expect("resolves");
+    assert_eq!(after_unbind.entry.instance_id, newer);
 }

@@ -278,6 +278,9 @@ mod tests {
             log.push(e);
         }
         GatewayState {
+            instance_resolver: std::sync::Arc::new(
+                crate::gateway::instance_resolver::InstanceResolver::new(),
+            ),
             ingress: std::sync::Arc::new(
                 crate::gateway::http_limits::GatewayIngressState::from_env(),
             ),

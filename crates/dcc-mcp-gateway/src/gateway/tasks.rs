@@ -966,6 +966,9 @@ pub(crate) async fn start_gateway_tasks(
 
     #[cfg_attr(not(feature = "admin"), allow(unused_mut))]
     let mut gw_state = GatewayState {
+        instance_resolver: std::sync::Arc::new(
+            crate::gateway::instance_resolver::InstanceResolver::new(),
+        ),
         ingress,
         resilience,
         registry: registry.clone(),

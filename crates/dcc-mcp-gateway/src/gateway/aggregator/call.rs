@@ -14,7 +14,7 @@ pub async fn route_tools_call(
     tool: &str,
     args: &Value,
     meta: Option<&Value>,
-    _client_session_id: Option<&str>,
+    client_session_id: Option<&str>,
     trace_context: Option<&crate::gateway::admin::trace::TraceContext>,
     agent_context: Option<&crate::gateway::admin::trace::AgentContext>,
 ) -> (String, bool) {
@@ -27,7 +27,7 @@ pub async fn route_tools_call(
                     args,
                     meta,
                     trace_context,
-                    _client_session_id,
+                    client_session_id,
                     agent_context,
                 )
                 .await,
@@ -42,7 +42,9 @@ pub async fn route_tools_call(
         "call" => return tool_call(gs, args, meta, trace_context, agent_context).await,
         "lease" => return to_text_result(tool_lease(gs, args).await),
         "load_skill" => {
-            let (text, is_error) = tool_load_skill(gs, args).await;
+            let (text, is_error) =
+                crate::gateway::tools::tool_load_skill_for_session(gs, args, client_session_id)
+                    .await;
             crate::gateway::tools::record_load_skill_search_followup(
                 gs,
                 args,
@@ -52,7 +54,26 @@ pub async fn route_tools_call(
             );
             return (text, is_error);
         }
-        "unload_skill" => return skill_mgmt_dispatch(gs, "unload_skill", args).await,
+        "unload_skill" => {
+            return crate::gateway::tools::tool_unload_skill_for_session(
+                gs,
+                args,
+                client_session_id,
+            )
+            .await;
+        }
+        // RFC-0007 §3.1 rule 5: let a caller pin (or release) the instance
+        // that unqualified calls resolve to, instead of guessing a UUID.
+        "bind_instance" => {
+            return to_text_result(
+                crate::gateway::tools::tool_bind_instance(gs, args, client_session_id).await,
+            );
+        }
+        "unbind_instance" => {
+            return to_text_result(
+                crate::gateway::tools::tool_unbind_instance(gs, args, client_session_id).await,
+            );
+        }
         _ => {}
     }
 
@@ -62,7 +83,7 @@ pub async fn route_tools_call(
         "release_dcc_instance" => return to_text_result(tool_release_instance(gs, args).await),
         "search_tools" => {
             return to_text_result(
-                tool_search_tools(gs, args, trace_context, _client_session_id, agent_context).await,
+                tool_search_tools(gs, args, trace_context, client_session_id, agent_context).await,
             );
         }
         "describe_tool" => {

@@ -46,6 +46,7 @@ pub mod http_limits;
 pub mod http_registration;
 pub(crate) mod instance_context;
 pub mod instance_diagnostics;
+pub mod instance_resolver;
 mod lease_guard;
 pub mod mdns_registration;
 pub mod middleware;
