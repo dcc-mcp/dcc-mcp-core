@@ -13,8 +13,8 @@
 //!   failures.
 //! * Each call waits for its drawn latency with [`sleep_precise`], which
 //!   measures the host's timer granularity once, sleeps only up to
-//!   `deadline - reserve`, and then waits out the remainder by yielding and
-//!   finally spinning. A bare `tokio::time::sleep` overshoots by up to a
+//!   `deadline - reserve`, and then spins out the remainder on its own
+//!   clock. A bare `tokio::time::sleep` overshoots by up to a
 //!   full timer tick — over 15 ms on Windows — which is several times the
 //!   jitter budget the regression harness checks.
 //! * Every call is recorded in [`FakeToolCaller::records`], which
@@ -296,9 +296,29 @@ static SLEEP_RESERVE_NS: AtomicU64 = AtomicU64::new(0);
 
 /// Floor for the reserve — every platform deserves some margin.
 const MIN_RESERVE: Duration = Duration::from_millis(2);
-/// Ceiling, so pathologically coarse timers cannot turn the harness into a
-/// CPU burner.
-const MAX_RESERVE: Duration = Duration::from_millis(40);
+
+/// How much of the distance to the newest observation [`adapt_reserve`] sheds
+/// per wait, as a divisor. At 16 the reserve closes half the gap in ~11
+/// waits, so it tracks a host that is heating up or cooling down without
+/// reacting to any single late wake.
+const RESERVE_DECAY_DIVISOR: u64 = 16;
+
+/// Ceiling for the reserve, so pathologically coarse timers cannot turn the
+/// harness into a CPU burner.
+///
+/// The reserve is time we spend **spinning**, so it also caps how long the
+/// final wait can burn a core. 40 ms used to be the ceiling, which is longer
+/// than the shortest pipeline stage (`rig` models a 40 ms call): at full
+/// inflation `head` collapsed to zero and that stage never slept at all.
+/// 8 ms absorbs the wake-up latency a host shows when it is merely busy, and
+/// stays far below the shortest stage. Past that it stops paying for itself:
+/// the dominant error is then the OS rescheduling us after the timer has
+/// already fired, which under contention reaches double-digit milliseconds
+/// and is unbounded, so a reserve wide enough to cover a badly contended
+/// host would spend most of a short stage spinning. [`adapt_reserve`] climbs
+/// to this ceiling as conditions worsen; whatever is still left over is host
+/// noise and belongs in the test's budget.
+const MAX_RESERVE: Duration = Duration::from_millis(8);
 
 /// Measure how late this host's timers can wake us.
 ///
@@ -339,20 +359,32 @@ async fn sleep_reserve() -> Duration {
     reserve
 }
 
-/// Grow the reserve after an observed overshoot, so the harness
-/// self-corrects if calibration underestimated this host's timers.
-fn raise_reserve(overshoot: Duration) {
-    if overshoot.is_zero() {
-        return;
-    }
-    let wanted = (overshoot + Duration::from_millis(1)).mul_f64(1.25);
-    let ceiling = MAX_RESERVE.as_nanos() as u64;
-    let wanted_ns = (wanted.as_nanos() as u64).min(ceiling);
+/// Move the reserve toward the lateness the timer just demonstrated.
+///
+/// Grow immediately, decay gradually: a late timer means every later wait of
+/// a similar length will be late too, but a single bad wake must not inflate
+/// the reserve for the rest of the process. Gradual decay is also what keeps
+/// this from becoming the ratchet it replaces.
+///
+/// The argument must be the timer's lateness **on its own** — how late
+/// `tokio::time::sleep` returned relative to the span it was given, sampled
+/// before [`spin_until`] runs. Feeding in the wait's total overshoot instead
+/// is what made the reserve self-amplifying: that total also contains time
+/// the scheduler stole during the spin, and reacting to it *widens* the spin
+/// window, which is exactly where the stealing happens. On a contended CI
+/// runner that feedback walked the reserve to its ceiling inside one test,
+/// at which point the shortest pipeline stage slept for no time at all.
+fn adapt_reserve(timer_lateness: Duration) {
+    let wanted = (timer_lateness + Duration::from_millis(1))
+        .mul_f64(1.25)
+        .clamp(MIN_RESERVE, MAX_RESERVE)
+        .as_nanos() as u64;
     let _ = SLEEP_RESERVE_NS.fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
-        if current == 0 || wanted_ns > current {
-            Some(wanted_ns.max(MIN_RESERVE.as_nanos() as u64).min(ceiling))
+        if current == 0 || wanted > current {
+            Some(wanted)
         } else {
-            None
+            let decayed = current - ((current - wanted) / RESERVE_DECAY_DIVISOR).max(1);
+            Some(decayed.max(MIN_RESERVE.as_nanos() as u64))
         }
     });
 }
@@ -376,46 +408,48 @@ enum WaitStart {
 /// the observed delay accurate to microseconds: the timer's (potentially
 /// multi-millisecond) latency is absorbed by the reserve, and the final wait
 /// cannot overshoot. The only remaining error is a preemption inside that
-/// window, which is rare precisely because the window is short.
+/// window, which is unlikely precisely because the window is short.
+///
+/// The reserve follows the timer's own lateness, not the overshoot of the
+/// wait as a whole — see [`adapt_reserve`]. Those are different quantities:
+/// the latter also carries the time the OS took to schedule us back in once
+/// the timer had already fired, which on a contended runner reaches tens of
+/// milliseconds and is not something a bigger reserve can buy back. Widening
+/// the spin window in response to it makes the next preemption more likely
+/// rather than less — a positive-feedback loop that walked the reserve to
+/// its ceiling within one test, at which point the shortest pipeline stage
+/// never slept at all.
 ///
 /// Returns the instant the wait began, so callers can measure the delay
 /// without paying for one-off calibration.
 async fn sleep_precise(d: Duration) -> WaitStart {
-    let reserve = sleep_reserve().await;
+    let reserve = sleep_reserve().await.min(d);
     let started = Instant::now();
     let deadline = started + d;
     let head = d.saturating_sub(reserve);
     if !head.is_zero() {
+        let timer_started = Instant::now();
         tokio::time::sleep(head).await;
+        adapt_reserve(timer_started.elapsed().saturating_sub(head));
     }
     spin_until(deadline);
-    raise_reserve(Instant::now().saturating_duration_since(deadline));
     WaitStart::Done(started)
 }
 
-/// How long before the deadline we stop yielding and start spinning.
+/// Wait until `deadline` on our own clock.
 ///
-/// Yielding cooperates with whatever else is running on the box: a pure
-/// spin instead gets preempted for a full scheduler slice under load, which
-/// is exactly the noise this harness is trying to keep out of its
-/// measurements. The final microseconds are spun so the wait still ends on
-/// the deadline rather than on a scheduling opportunity.
-const SPIN_WINDOW: Duration = Duration::from_micros(200);
-
-/// Wait until `deadline`: yield while it is far away, spin at the end.
+/// Deliberately does **not** yield. `yield_now` hands off the remainder of
+/// the current quantum and only gets the core back once every other runnable
+/// thread there has had a turn, so every call pays for a full scheduling
+/// rotation — measured at 4-14 ms per call with 64 contending threads.
+/// Spinning keeps the core and loses time only when a preemption actually
+/// lands inside the window, which [`MAX_RESERVE`] bounds to a handful of
+/// milliseconds. [`std::hint::spin_loop`] is also the right hint for the
+/// hardware: `PAUSE` on x86 and `YIELD` on AArch64, which lets a
+/// hyperthread sibling or an E-core partner run while we wait.
 fn spin_until(deadline: Instant) {
-    loop {
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        if remaining.is_zero() {
-            return;
-        }
-        if remaining <= SPIN_WINDOW {
-            while Instant::now() < deadline {
-                std::hint::spin_loop();
-            }
-            return;
-        }
-        std::thread::yield_now();
+    while Instant::now() < deadline {
+        std::hint::spin_loop();
     }
 }
 
