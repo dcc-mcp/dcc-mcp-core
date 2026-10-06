@@ -33,6 +33,11 @@ from dcc_mcp_core.deployment.core_bounds import derive_requirement
 from dcc_mcp_core.deployment.core_bounds import evaluate
 from dcc_mcp_core.deployment.core_bounds import installed_core_requirement
 from dcc_mcp_core.deployment.core_bounds import parse_requirement
+from dcc_mcp_core.deployment.core_bounds_runtime import CoreRequirementCheck
+from dcc_mcp_core.deployment.core_bounds_runtime import check_adapter_core_requirement
+from dcc_mcp_core.deployment.core_bounds_runtime import core_requirement_enforced
+from dcc_mcp_core.deployment.core_bounds_runtime import describe_core_requirement
+from dcc_mcp_core.deployment.core_bounds_runtime import run_startup_core_requirement_check
 from dcc_mcp_core.deployment.install_sop import _DEPRECATED_INSTALL_SOP_SCHEMA_VERSION
 from dcc_mcp_core.deployment.install_sop import INSTALL_EXIT_ACQUIRE
 from dcc_mcp_core.deployment.install_sop import INSTALL_EXIT_CODES
@@ -60,6 +65,7 @@ __all__ = [
     "CORE_DISTRIBUTION",
     "CORE_IMPORT_NAME",
     "CoreRequirement",
+    "CoreRequirementCheck",
     "CoreVersion",
     "INSTALL_EXIT_ACQUIRE",
     "INSTALL_EXIT_CODES",
@@ -79,14 +85,18 @@ __all__ = [
     "VERDICT_DECLARATION_UNUSABLE",
     "VERDICT_SUPPORTED",
     "VERDICT_UNKNOWN_CORE_VERSION",
+    "check_adapter_core_requirement",
     "check_runtime",
     "compare_declarations",
+    "core_requirement_enforced",
     "derive_requirement",
+    "describe_core_requirement",
     "evaluate",
     "install_sop_report_schema_version",
     "installed_core_requirement",
     "load_install_sop_schema",
     "parse_requirement",
+    "run_startup_core_requirement_check",
     "validate_install_sop_report",
 ]
 

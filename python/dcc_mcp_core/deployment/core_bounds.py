@@ -136,6 +136,9 @@ DECLARATION_UNUSABLE = "declaration_unusable"
 
 _VERSION_PREFIX = re.compile(r"^(\d+)(?:\.(\d+))?(?:\.(\d+))?")
 _OPERATORS = ("===", "==", "!=", "~=", "<=", ">=", "<", ">")
+# The version range of a `<name>-<range>` package-environment request, anchored
+# at the end so a name that itself contains a dash (`dcc-mcp-core`) keeps it.
+_REQUEST_SUFFIX = re.compile(r"-\d[\d.]*(?:\.\.\d[\d.]*)?$")
 
 
 class CoreVersion(NamedTuple):
@@ -578,7 +581,13 @@ def _upper_rank(requirement: CoreRequirement) -> Tuple[int, CoreVersion, int]:
 
 
 def _names_core(requirement: str) -> bool:
-    normalized = re.split(r"[\[\(\)<>=!~;\s]", requirement.strip(), maxsplit=1)[0]
+    # A package-environment request such as `dcc_mcp_core-0.20` keeps the
+    # version attached to the name, so the separator set cannot include `-`:
+    # splitting on it would turn the request into `dcc` and never match. Strip
+    # a trailing `-<version-prefix>` range first, then apply the packaging
+    # separator set.
+    candidate = _REQUEST_SUFFIX.sub("", requirement.strip())
+    normalized = re.split(r"[\[\(\)<>=!~;\s]", candidate, maxsplit=1)[0]
     normalized = normalized.lower().replace("_", "-")
     return normalized in (CORE_DISTRIBUTION, CORE_IMPORT_NAME.replace("_", "-"))
 

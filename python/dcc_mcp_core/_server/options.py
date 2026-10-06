@@ -247,6 +247,10 @@ class SidecarOptions:
 
     host_rpc: str | None = None
     adapter_version: str | None = None
+    #: Installed distribution name of the adapter (``dcc-mcp-maya``). Read at
+    #: startup to compare the range the adapter declares on ``dcc-mcp-core``
+    #: against the core actually running; empty skips the check.
+    adapter_distribution: str | None = None
     display_name: str | None = None
     wait_ready_timeout_secs: float = 15.0
     server_bin: str | None = None
@@ -258,6 +262,7 @@ class SidecarOptions:
         *,
         host_rpc: str | None = None,
         adapter_version: str | None = None,
+        adapter_distribution: str | None = None,
         display_name: str | None = None,
         wait_ready_timeout_secs: float = 15.0,
         server_bin: str | None = None,
@@ -272,6 +277,7 @@ class SidecarOptions:
         return cls(
             host_rpc=resolved_host_rpc,
             adapter_version=adapter_version,
+            adapter_distribution=adapter_distribution,
             display_name=display_name,
             wait_ready_timeout_secs=wait_ready_timeout_secs,
             server_bin=resolved_server_bin,
@@ -384,6 +390,7 @@ class DccServerOptions:
         # sidecar kwargs (py37-lite)
         host_rpc: str | None = None,
         adapter_version: str | None = None,
+        adapter_distribution: str | None = None,
         sidecar_display_name: str | None = None,
         wait_ready_timeout_secs: float = 15.0,
     ) -> DccServerOptions:
@@ -458,6 +465,7 @@ class DccServerOptions:
         sidecar = SidecarOptions.from_env(
             host_rpc=host_rpc,
             adapter_version=adapter_version,
+            adapter_distribution=adapter_distribution,
             display_name=sidecar_display_name or server_name,
             wait_ready_timeout_secs=wait_ready_timeout_secs,
         )

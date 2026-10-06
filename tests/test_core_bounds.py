@@ -249,3 +249,55 @@ def test_installed_core_requirement_reads_dist_info_metadata(tmp_path, monkeypat
     monkeypatch.setattr(core_bounds, "_read_metadata", core_bounds._scan_dist_info_metadata)
     assert core_bounds.installed_core_requirement("dcc-mcp-maya") == "dcc-mcp-core>=0.19.3,<0.19.5"
     assert core_bounds.installed_core_requirement("dcc-mcp-blender") is None
+
+
+@pytest.mark.parametrize(
+    "requirement",
+    [
+        "dcc_mcp_core-0",
+        "dcc_mcp_core-0.20",
+        "dcc_mcp_core-0.19.3..0.20.0",
+        "dcc-mcp-core>=0.19.3,<0.19.5",
+        "dcc-mcp-core==0.20.28",
+        "dcc-mcp-core[server] (>=0.20.0,<0.21.0); python_version >= '3.8'",
+    ],
+)
+def test_metadata_lookup_recognises_every_core_declaration_form(requirement, tmp_path, monkeypatch):
+    """A package-environment request must be recognised, not skipped.
+
+    ``_names_core`` used to split the declaration on ``-``, which turns the
+    ``dcc_mcp_core-0`` form — the exact request behind the reported incident —
+    into ``dcc``. The lookup then silently returned ``None`` and the startup
+    check reported "no declaration" for an adapter that had declared one.
+    """
+    dist_info = tmp_path / "dcc-mcp-maya-0.9.4.dist-info"
+    dist_info.mkdir()
+    (dist_info / "METADATA").write_text(
+        f"Metadata-Version: 2.1\nName: dcc-mcp-maya\nVersion: 0.9.4\nRequires-Dist: {requirement}\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(sys, "path", [str(tmp_path)])
+    monkeypatch.setattr(core_bounds, "_read_metadata", core_bounds._scan_dist_info_metadata)
+
+    assert core_bounds.installed_core_requirement("dcc-mcp-maya") == requirement
+
+
+@pytest.mark.parametrize(
+    "requirement",
+    [
+        "pyside6>=6.5",
+        # An adapter's own request keeps its dashed name; it is not core.
+        "dcc-mcp-maya-0.9.4",
+    ],
+)
+def test_metadata_lookup_ignores_unrelated_requirements(requirement, tmp_path, monkeypatch):
+    dist_info = tmp_path / "dcc-mcp-maya-0.9.4.dist-info"
+    dist_info.mkdir()
+    (dist_info / "METADATA").write_text(
+        f"Metadata-Version: 2.1\nName: dcc-mcp-maya\nVersion: 0.9.4\nRequires-Dist: {requirement}\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(sys, "path", [str(tmp_path)])
+    monkeypatch.setattr(core_bounds, "_read_metadata", core_bounds._scan_dist_info_metadata)
+
+    assert core_bounds.installed_core_requirement("dcc-mcp-maya") is None
