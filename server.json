@@ -19,7 +19,7 @@
       "runtimeHint": "uvx",
       "transport": {
         "type": "streamable-http",
-        "url": "http://127.0.0.1:9765/mcp"
+        "url": "http://127.0.0.1:{DCC_MCP_GATEWAY_PORT}/mcp"
       },
       "environmentVariables": [
         {

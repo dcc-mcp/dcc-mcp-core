@@ -199,15 +199,27 @@ jobs:
           # indexes asynchronously, and this job is the only place that can
           # prove the entry is actually retrievable - which is the deliverable,
           # not the workflow existing. Poll briefly, then report either way.
-          url="${MCP_REGISTRY_URL}/v0.1/servers?search=${SERVER_NAME}&version=latest&limit=30"
+          # Query this exact version, including when backfilling an older release.
+          url="$(python -c '
+          import os
+          from urllib.parse import quote
+
+          base = os.environ["MCP_REGISTRY_URL"].rstrip("/")
+          name = quote(os.environ["SERVER_NAME"], safe="")
+          version = quote(os.environ["VERSION"], safe="")
+          print(f"{base}/v0.1/servers/{name}/versions/{version}")
+          ')"
           for attempt in 1 2 3 4 5 6 7 8 9 10; do
             if curl -fsS -m 30 "$url" | python -c '
           import json
+          import os
           import sys
 
           payload = json.load(sys.stdin)
-          names = {s["server"]["name"] for s in payload.get("servers", [])}
-          sys.exit(0 if "io.github.dcc-mcp/dcc-mcp-core" in names else 1)
+          server = payload.get("server", {})
+          matches = (server.get("name") == os.environ["SERVER_NAME"]
+                     and server.get("version") == os.environ["VERSION"])
+          sys.exit(0 if matches else 1)
           '; then
               echo "::notice::${SERVER_NAME} ${VERSION} is queryable on ${MCP_REGISTRY_URL}"
               echo "https://registry.modelcontextprotocol.io/servers?search=${SERVER_NAME}" \

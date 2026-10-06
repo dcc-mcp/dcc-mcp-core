@@ -236,3 +236,10 @@ markers = [
     "anyio: async test that needs an anyio backend (mcp Python SDK e2e suite)",
     "qt: live-Qt tests via pytest-qt (skipped when PySide6/pytest-qt not installed)",
 ]
+# Dump every thread's traceback when one test blocks for 5 minutes, without
+# killing it. `just test-suite` runs `-q -n 4 --dist loadfile`, so a deadlocked
+# worker prints no test name and the lane goes silent until something cancels
+# it. This names the test in the log while it is still hanging. Generous on
+# purpose: the slowest whole-file runtime is well under a minute, so 300s never
+# fires on a healthy lane.
+faulthandler_timeout = 300
