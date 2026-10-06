@@ -625,6 +625,19 @@ entries:
     # published wheel, and 0.1.0 reaches PyPI only after release-please tags
     # it on merge. Add the pip block in the follow-up once that release lands.
 
+  - name: "dcc-mcp-word"
+    description: "Word adapter for DCC-MCP — headless Word IR to DOCX compile with read-back verification over the dcc-mcp-office runtime"
+    dcc: ["word"]
+    url: "https://github.com/dcc-mcp/dcc-mcp-word"
+    issues_url: "https://github.com/dcc-mcp/dcc-mcp-word/issues"
+    tags: ["adapter", "word", "office", "official", "docx", "document"]
+    version: "0.1.0"
+    min_core_version: "0.18.2"
+    maintainer: "dcc-mcp"
+    # No `install:` block yet: every curating entry must pin an attested
+    # published wheel, and 0.1.0 reaches PyPI only after release-please tags
+    # it on merge. Add the pip block in the follow-up once that release lands.
+
   - name: "dcc-mcp-fpt"
     description: "Autodesk Flow Production Tracking adapter for DCC-MCP"
     dcc: ["shotgrid"]
