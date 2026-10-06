@@ -17,6 +17,11 @@ boxes and are not part of the set that must be ticked.
       checklist. That release is not tagged yet, so until it is, pin the v2
       digest `daa5840e…` instead of a version.
 - [ ] `dcc-mcp-server` binary dependency (if used) also follows the same range.
+- [ ] Package-environment requirement (Rez `package.py`) is **derived** from the
+      `pyproject.toml` declaration rather than written by hand, and is not wider
+      than it: `>=0.19.3,<0.19.5` becomes `dcc_mcp_core-0.19.3..0.19.5`. Adapters
+      with no package-environment requirement are exempt. See
+      [Adapter to Core Version Contract](adapter-core-version-contract.md).
 - [ ] Adapter `adapter_version` is set via `DccServerOptions.from_env(..., adapter_version=...)`
       and stamped into the gateway sentinel and file registry row.
 - [ ] Compatibility matrix in the core docs has been updated with the new row
@@ -301,6 +306,8 @@ The release PR description must include:
 ## Compatibility
 
 - **core pin**: `>=0.<N>.0,<1.0.0`
+- **package-environment requirement**: `dcc_mcp_core-0.<N>.0..1.0.0` _(omit when
+  the adapter ships no Rez package)_
 - **adapter_version**: `<version>`
 - **DCC version**: `<minimum DCC version>`
 

@@ -56,7 +56,9 @@ different DCC-specific path while keeping the same bundle id.
 ```python
 name = "show_a_lighting_mcp_skills"
 version = "3.4.1"
-requires = ["dcc_mcp_core", "dcc_mcp_maya", "maya_scene_skills-1.2+"]
+# Bounds are derived from the adapter's own declaration, never written by hand:
+# "dcc-mcp-maya>=0.19.3,<0.19.5" -> "dcc_mcp_core-0.19.3..0.19.5".
+requires = ["dcc_mcp_core-0.19.3..0.19.5", "dcc_mcp_maya-0.9.4", "maya_scene_skills-1.2+"]
 
 def commands():
     env.DCC_MCP_CONTEXT_BUNDLE = "show-a.seq010.shot020.lighting"
@@ -71,6 +73,13 @@ def commands():
     env.DCC_MCP_MAYA_SKILL_PATHS.append("{root}/skills")
     env.DCC_MCP_RESOURCE_PATHS.append("{root}/resources")
 ```
+
+Core is required with both bounds. A bare `dcc_mcp_core` or `dcc_mcp_core-0`
+admits any `0.x` release, including ones the adapter excluded on PyPI, and the
+environment then fails deep inside `dcc_mcp_core.dcc_server` with an error that
+never names the version. Derive the token from the adapter's
+`[project].dependencies` declaration instead — see
+[adapter-core-version-contract.md](adapter-core-version-contract.md).
 
 `DccServerBase` copies these context values into `McpHttpConfig.instance_metadata`.
 The gateway then surfaces them through the `gateway://instances` MCP resource,

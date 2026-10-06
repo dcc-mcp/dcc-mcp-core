@@ -83,14 +83,27 @@ the adapter identity remains stable across future wheel updates.
 
 ## Core Version Policy
 
-- Adapters **must** pin `dcc-mcp-core` with an open upper bound: `>=X.Y.0,<1.0.0`.
+- Adapters **must** pin `dcc-mcp-core` with an upper bound. The historical
+  advice was `>=X.Y.0,<1.0.0`; new pins should use a **tested ceiling** — the
+  next minor above the highest core release the adapter was verified against,
+  such as `>=0.20.14,<0.21.0`. Core is still `0.x`, so `<1.0.0` excludes
+  nothing that exists.
 - The lower bound (`X.Y.0`) must be a **released** minor version of core.
   Never pin to `main` or a pre-release.
 - When core bumps its minor version, adapter pins should be updated within one
   adapter release cycle.
 - Major version zero (`0.x.y`) means breaking changes can happen at any minor
-  bump; the `<1.0.0` guard ensures adapters don't silently consume a breaking
-  core change.
+  bump; the `<1.0.0` guard stops an adapter from consuming core `1.x`, but it
+  does **not** stop it from consuming a `0.x` minor it was never tested
+  against.
+
+The `Core Pin` column records the Python distribution declaration. Adapters
+that also ship a package-environment requirement (Rez `package.py`) must derive
+it from that declaration rather than writing it by hand — a hand-written
+requirement drifts wider and lets the resolver pick a core release the adapter
+excluded on PyPI. See
+[adapter-core-version-contract.md](adapter-core-version-contract.md) for the
+contract, the derivation tool, and the release-time gate.
 
 ## Legend
 

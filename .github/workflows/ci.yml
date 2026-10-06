@@ -73,6 +73,25 @@ jobs:
               --quiet
           done
 
+  # An adapter declares its supported core range twice — once in its Python
+  # distribution metadata, which pip enforces, and once in the package-environment
+  # requirement its studio resolver reads. The second drifts wider, so a resolver
+  # can pair an adapter with a core release the adapter excluded on PyPI; the
+  # environment then imports cleanly and fails several modules deep. This job
+  # validates the contract that makes the second declaration derivable from the
+  # first, and reports the adapters known to violate it. Tracked rows are
+  # warnings because the fix belongs to the adapter repository.
+  adapter-core-requirement:
+    name: Adapter core requirement
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - name: Check the adapter to core requirement contract
+        run: python scripts/ci/check_adapter_core_requirement.py --github
+
   release-metadata:
     name: Release metadata
     runs-on: ubuntu-latest

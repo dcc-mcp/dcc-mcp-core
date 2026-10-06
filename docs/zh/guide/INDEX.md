@@ -39,6 +39,7 @@
 | [skill-scopes-policies.md](skill-scopes-policies.md) | SkillScope（信任级别）与 SkillPolicy |
 | [context-bundles.md](context-bundles.md) | 通过解析的启动上下文按项目/任务/资产加载技能 |
 | [rez-skill-packages.md](rez-skill-packages.md) | Rez 包布局与分发技能的环境变量约定 |
+| [adapter-core-version-contract.md](adapter-core-version-contract.md) | core 版本契约：两份声明、上界规则、推导工具与发布门禁 |
 
 ## MCP 服务器与 HTTP
 

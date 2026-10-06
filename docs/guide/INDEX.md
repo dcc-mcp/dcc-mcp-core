@@ -141,6 +141,7 @@ Documentation contract:
 | [adapter-install-sop.md](adapter-install-sop.md) | Adapter-owned installation contract and reusable `install.md` template |
 | [adapter-install-sop-v2-migration.md](adapter-install-sop-v2-migration.md) | Install SOP v2 migration and the frozen-artifact rule for adapters |
 | [adapter-compatibility-matrix.md](adapter-compatibility-matrix.md) | Per-DCC compatibility rows: core pin, adapter version, DCC min version, dispatcher pattern |
+| [adapter-core-version-contract.md](adapter-core-version-contract.md) | Core-requirement contract: two declarations, upper-bound rules, derivation tool, release-time gate |
 
 ## Integration
 

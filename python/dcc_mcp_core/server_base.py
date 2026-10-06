@@ -181,6 +181,7 @@ class DccServerBase:
         # extension), which made the startup log line untrustworthy.
         self._version_report: dict[str, Any] = self._run_version_self_check()
         startup_version = resolve_startup_version(_PKG_VERSION)
+        self._warn_on_adapter_core_drift(options.dcc_name, startup_version)
 
         logger.info(
             "[%s] dcc-mcp-core %s (pid=%d, python=%s, platform=%s)",
@@ -898,6 +899,55 @@ class DccServerBase:
             # Diagnostics must not break startup.
             logger.debug("[%s] version report unavailable: %s", self._dcc_name, exc)
             return {}
+
+    def _warn_on_adapter_core_drift(self, dcc_name: str, core_version: str) -> None:
+        """Warn when the running core sits outside the adapter's declared range.
+
+        An adapter declares its supported core range twice: once in its Python
+        distribution metadata, which ``pip`` enforces, and once in the
+        package-environment requirement its studio resolver reads. The second
+        declaration drifts wider, so a resolver can pair an adapter with a core
+        release the adapter excluded on PyPI. That environment imports cleanly
+        and fails several modules deeper with an error that never mentions the
+        version, which is what made the original report so hard to read.
+
+        This check reads the adapter distribution's ``Requires-Dist`` entry and
+        compares it against the core that is actually running, so the warning
+        names the range and the version at the point where the server starts.
+        It is deliberately best-effort: when the adapter's metadata cannot be
+        read there is nothing to compare, and a missing answer is not a
+        violation. It never raises — the same policy as
+        :meth:`_run_version_self_check` — and shares its
+        ``DCC_MCP_CORE_VERSION_CHECK=0`` opt-out.
+        """
+        if not version_check_enabled():
+            return
+        try:
+            from dcc_mcp_core.version_compat.core_requirement import check_requirement
+            from dcc_mcp_core.version_compat.core_requirement import describe_requirement_problem
+            from dcc_mcp_core.version_compat.core_requirement import requirement_for_distribution
+
+            # ``sys.path`` scanning is too costly to run on every server start,
+            # so a Python 3.7 host without importlib.metadata simply skips this.
+            requirement = requirement_for_distribution(
+                f"dcc-mcp-{dcc_name}",
+                allow_path_scan=False,
+            )
+            if requirement is None:
+                return
+            problems = check_requirement(requirement, core_version)
+            if not problems:
+                return
+            logger.warning(
+                "[%s] %s Install a core release matching '%s'%s.",
+                dcc_name,
+                describe_requirement_problem(requirement, core_version, "this adapter"),
+                requirement.to_pep440(),
+                "" if requirement.is_bounded() else " and bound the package-environment requirement",
+            )
+        except Exception as exc:
+            # Diagnostics must never break startup.
+            logger.debug("[%s] adapter core requirement check skipped: %s", dcc_name, exc)
 
     def _run_version_self_check(self) -> dict[str, Any]:
         """Log the running version once and warn when the metadata disagrees.

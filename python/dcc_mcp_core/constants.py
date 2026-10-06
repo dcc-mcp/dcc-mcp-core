@@ -73,6 +73,10 @@ ENV_PROJECT: str = "DCC_MCP_PROJECT"
 ENV_PROMPT_PATHS: str = "DCC_MCP_PROMPT_PATHS"
 ENV_PYTHON_EXECUTABLE: str = "DCC_MCP_PYTHON_EXECUTABLE"
 ENV_REGISTRY_DIR: str = "DCC_MCP_REGISTRY_DIR"
+# Downgrade the adapter-to-core requirement guard (``version_compat``) from a
+# hard failure to a warning. Set to ``0`` only to keep a known-broken pairing
+# running; the default is to fail at import with an actionable message.
+ENV_REQUIREMENT_ENFORCE: str = "DCC_MCP_CORE_REQUIREMENT_ENFORCE"
 ENV_RESOURCE_PATHS: str = "DCC_MCP_RESOURCE_PATHS"
 ENV_REZ_LOCAL_CACHE_ROOT: str = "DCC_MCP_REZ_LOCAL_CACHE_ROOT"
 ENV_SCRIPT_MATERIALIZATION_ROOT: str = "DCC_MCP_SCRIPT_MATERIALIZATION_ROOT"
@@ -198,6 +202,7 @@ __all__ = [
     "ENV_PROMPT_PATHS",
     "ENV_PYTHON_EXECUTABLE",
     "ENV_REGISTRY_DIR",
+    "ENV_REQUIREMENT_ENFORCE",
     "ENV_RESOURCE_PATHS",
     "ENV_REZ_LOCAL_CACHE_ROOT",
     "ENV_SCRIPT_MATERIALIZATION_ROOT",

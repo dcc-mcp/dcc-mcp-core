@@ -2,9 +2,42 @@
 
 Machine-readable contracts that CI enforces on every pull request.
 
+## Adapter core requirement
+
+[`adapter-core-requirement.json`](adapter-core-requirement.json) is the
+machine-readable half of
+[`dcc_mcp_core.version_compat.core_requirement`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/python/dcc_mcp_core/version_compat/core_requirement.py)
+and of the [Adapter to Core Version Contract](../docs/guide/adapter-core-version-contract.md).
+
+An adapter declares its supported core range twice: once in its Python
+distribution metadata, which `pip` enforces, and once in the
+package-environment requirement its studio resolver reads. The second is
+hand-written and drifts wider, so a resolver can select a core release the
+adapter excluded on PyPI — and the resulting environment only fails several
+modules deep. The contract makes the second declaration derivable from the
+first and records the adapters observed violating it.
+
+The gate runs two independent checks:
+
+1. **Contract integrity** — the committed file must keep the Python
+   distribution metadata as the source of truth, and every `known_violations`
+   row must agree with what the shared parser derives from the same two inputs.
+   A row whose drift codes no longer recompute is stale and fails the build.
+2. **`--adapter-root <path>`** — compare an adapter checkout's `pyproject.toml`
+   declaration against the requirement its `package.py` declares. Violations
+   are errors, so an adapter running this in its own CI fails the release that
+   introduces the drift.
+
+Known violations are **warnings** in core's CI, because the fix belongs to the
+adapter repository. Add a row when an adapter is observed carrying a
+package-environment requirement wider than its declaration; flip `status` to
+`fixed` once the adapter publishes a bounded package, and leave the row in
+place as the record that it was checked.
+
 | File | Enforced by | Purpose |
 | --- | --- | --- |
 | [`python.json`](python.json) | `scripts/ci/check_python_support.py` (`python37-contract` job) | Long-term-support Python policy, wheel profiles, and release projections. |
+| [`adapter-core-requirement.json`](adapter-core-requirement.json) | `scripts/ci/check_adapter_core_requirement.py` (`adapter-core-requirement` job) | Adapter core-requirement contract: upper-bound rules, both syntaxes, and the adapters whose package-environment requirement is wider than the range they declare. |
 | [`schema-pins.json`](schema-pins.json) | `tests/test_released_schema_immutability.py` (`released-schema-immutability` job) | Digests of schema revisions that have already shipped in a release. |
 
 ## Released schema pins

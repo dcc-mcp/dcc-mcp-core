@@ -1,0 +1,124 @@
+{
+  "schema_version": 1,
+  "contract_id": "adapter-core-requirement",
+  "core_package": "dcc-mcp-core",
+  "core_import_name": "dcc_mcp_core",
+  "purpose": [
+    "An adapter declares the core version it supports twice: once in its Python",
+    "distribution metadata (what pip enforces) and once in the package-environment",
+    "requirement its studio resolver reads. The second declaration is hand-written",
+    "and drifts, so the resolver can select a core release the adapter explicitly",
+    "excluded on PyPI. This contract makes the second declaration derivable from the",
+    "first and gives both sides one machine-readable definition of the bound."
+  ],
+  "policy": {
+    "source_of_truth": "python_distribution_metadata",
+    "upper_bound_required": true,
+    "upper_bound_exclusive": true,
+    "package_environment_derived": true,
+    "ceiling_source": "adapter_verification",
+    "open_ceiling": {
+      "value": "1.0.0",
+      "severity": "warning",
+      "reason": "Core is still 0.x, so '<1.0.0' excludes nothing that exists. It is a placeholder copied from the compatibility matrix, not a release the adapter was verified against. Adapters should move to the next minor above the highest core minor they verified."
+    }
+  },
+  "syntax": {
+    "python_distribution": {
+      "field": "Requires-Dist",
+      "grammar": "<core_package><operator><version>[,<operator><version>]",
+      "example": "dcc-mcp-core>=0.19.3,<0.19.5"
+    },
+    "package_environment": {
+      "grammar": "<core_import_name>[-<lower>[..<upper>]|+]",
+      "examples": {
+        "dcc_mcp_core": "any version (always a violation)",
+        "dcc_mcp_core-0": "any 0.x release",
+        "dcc_mcp_core-0.19.3+": "0.19.3 or newer, no ceiling",
+        "dcc_mcp_core-0.19.3..0.19.5": "0.19.3 up to but excluding 0.19.5"
+      },
+      "notes": [
+        "The '..' range operator is exclusive at the upper end, so it maps directly",
+        "onto PEP 440 '<'. An inclusive ceiling ('<=') has no equivalent token and is",
+        "rejected instead of being widened. A truncated version is read as a prefix",
+        "floor: 'dcc_mcp_core-0' means '>=0.0.0,<1.0.0'."
+      ]
+    }
+  },
+  "checks": {
+    "wider_than_declared": {
+      "severity": "error",
+      "codes": ["missing_upper_bound", "upper_bound_too_high", "lower_bound_too_low"],
+      "description": "The package-environment requirement must never admit a core release the Python distribution metadata excludes."
+    },
+    "open_ceiling": {
+      "severity": "warning",
+      "description": "The declared ceiling is the 1.0.0 placeholder rather than a verified next-minor bound."
+    },
+    "unparseable": {
+      "severity": "error",
+      "description": "A declared requirement that cannot be parsed is treated as a violation, never as an exemption."
+    }
+  },
+  "survey": {
+    "observed_on": "2026-10-06",
+    "source": "public PyPI metadata compared against published package-environment requirements",
+    "adapter_versions_examined": 51,
+    "adapter_versions_without_a_meaningful_ceiling": 35,
+    "by_adapter": {
+      "dcc-mcp-maya": {"examined": 32, "without_ceiling": 17},
+      "dcc-mcp-houdini": {"examined": 9, "without_ceiling": 9},
+      "dcc-mcp-blender": {"examined": 7, "without_ceiling": 6},
+      "dcc-mcp-3dsmax": {"examined": 3, "without_ceiling": 3}
+    },
+    "note": "The only adapter versions still carrying both bounds were older releases, which shows the ceiling was lost during version evolution rather than never declared."
+  },
+  "known_violations": [
+    {
+      "adapter": "dcc-mcp-maya",
+      "adapter_version": "0.9.4",
+      "python_distribution_requirement": ">=0.19.3,<0.19.5",
+      "package_environment_requirement": "dcc_mcp_core-0",
+      "expected_package_environment_requirement": "dcc_mcp_core-0.19.3..0.19.5",
+      "codes": ["lower_bound_too_low", "upper_bound_too_high"],
+      "status": "open"
+    },
+    {
+      "adapter": "dcc-mcp-maya",
+      "adapter_version": "0.8.13",
+      "python_distribution_requirement": ">=0.18.21,<1.0.0",
+      "package_environment_requirement": "dcc_mcp_core-0",
+      "expected_package_environment_requirement": "dcc_mcp_core-0.18.21..1.0.0",
+      "codes": ["lower_bound_too_low"],
+      "status": "open"
+    },
+    {
+      "adapter": "dcc-mcp-houdini",
+      "adapter_version": "0.38.0",
+      "python_distribution_requirement": ">=0.20.14,<1.0.0",
+      "package_environment_requirement": "dcc_mcp_core-0",
+      "expected_package_environment_requirement": "dcc_mcp_core-0.20.14..1.0.0",
+      "codes": ["lower_bound_too_low"],
+      "status": "open"
+    },
+    {
+      "adapter": "dcc-mcp-blender",
+      "adapter_version": "0.2.4",
+      "python_distribution_requirement": ">=0.20.0,<1.0.0",
+      "package_environment_requirement": "dcc_mcp_core-0.20",
+      "expected_package_environment_requirement": "dcc_mcp_core-0.20.0..1.0.0",
+      "codes": [],
+      "status": "open",
+      "note": "Bounds agree with the declared range, but the ceiling is the 1.0.0 placeholder rather than a verified release, so the open_ceiling warning applies."
+    },
+    {
+      "adapter": "dcc-mcp-3dsmax",
+      "adapter_version": "0.2.1",
+      "python_distribution_requirement": ">=0.20.0,<1.0.0",
+      "package_environment_requirement": "dcc_mcp_core-0",
+      "expected_package_environment_requirement": "dcc_mcp_core-0.20.0..1.0.0",
+      "codes": ["lower_bound_too_low"],
+      "status": "open"
+    }
+  ]
+}
