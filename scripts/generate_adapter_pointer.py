@@ -279,7 +279,12 @@ def upsert_pointer(readme: str, block: str) -> str:
         *([""] if after else []),
     ]
     joined = newline.join([*before, *seam, *after])
-    return joined.rstrip(newline) + newline
+    # splitlines() drops a file's trailing blank lines, so a round trip through
+    # it would silently delete them and show up as an unrelated deletion in the
+    # diff. The original trailing newline run is restored verbatim; the block
+    # is meant to be the only change.
+    trailing = readme[len(readme.rstrip(newline)) :] or newline
+    return joined.rstrip(newline) + trailing
 
 
 def _normalize_repo_url(url: str) -> str:

@@ -352,6 +352,19 @@ def test_insertion_leaves_no_double_blank_line(adapters):
         assert "\n\n\n" not in generator.upsert_pointer(readme, block)
 
 
+def test_insertion_preserves_a_trailing_blank_line(adapters):
+    """A README ending in a blank line keeps it.
+
+    splitlines() drops trailing blank lines, so a naive round trip deletes
+    them and the diff picks up an unrelated deletion at end of file.
+    """
+    block = generator.render_pointer(_entry(adapters, "dcc-mcp-maya"), host_count=len(adapters))
+    for suffix in ("\n", "\n\n", "\n\n\n"):
+        readme = HEADING_README.rstrip("\n") + suffix
+        result = generator.upsert_pointer(readme, block)
+        assert result.endswith(suffix), f"trailing {suffix!r} was not preserved"
+
+
 def test_insertion_leaves_every_byte_outside_the_seam_alone(adapters):
     """A blank run away from the seam is the README's own formatting.
 
