@@ -55,6 +55,10 @@ CORE_README_URL = "https://github.com/dcc-mcp/dcc-mcp-core#readme"
 SHOWCASE_URL = "https://dcc-mcp.github.io/showcase"
 CATALOG_URL = "https://github.com/dcc-mcp/dcc-mcp-core/blob/main/dcc-mcp-catalog.yml"
 
+# The repository that owns this generator. Quoted in the generated block so an
+# adapter maintainer reading it knows where the script actually lives.
+SOURCE_REPO = "dcc-mcp/dcc-mcp-core"
+
 # PIP-3711 copy constraints. A generated block may never carry a ranking or a
 # market-vacancy claim, and it may never compare on stars or tool counts.
 # The generated prose is English, so the English forms of the banned claims
@@ -181,10 +185,15 @@ def render_pointer(
         " changing the catalog."
     )
 
+    # The script path is qualified with its repository because this block is
+    # emitted into the adapter's own README, where a bare `scripts/...` path
+    # does not exist and gives the maintainer nothing to run.
     body = "\n".join(
         (
             POINTER_START,
-            "<!-- Generated from dcc-mcp-catalog.yml by scripts/generate_adapter_pointer.py. Do not edit by hand. -->",
+            "<!-- Generated from dcc-mcp-catalog.yml by"
+            f" scripts/generate_adapter_pointer.py in {SOURCE_REPO}."
+            " Do not edit by hand. -->",
             "## Part of the DCC-MCP host matrix",
             "",
             _fill(identity),

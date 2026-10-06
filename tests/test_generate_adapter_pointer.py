@@ -138,6 +138,22 @@ def test_pointer_links_to_the_shared_front_door(adapters):
     assert generator.SHOWCASE_URL in block
 
 
+def test_generator_path_in_the_block_is_repo_qualified(adapters):
+    """The block is emitted into adapter READMEs, where `scripts/` is absent.
+
+    A bare `scripts/generate_adapter_pointer.py` is the only clue a maintainer
+    gets about how to refresh the block, so it has to name the repository that
+    owns the script. Unqualified, it points at a path none of the 38
+    repositories has.
+    """
+    for entry in adapters:
+        block = generator.render_pointer(entry, host_count=len(adapters))
+        assert f"scripts/generate_adapter_pointer.py in {generator.SOURCE_REPO}" in block
+        # The unqualified form ends the sentence right after the filename; the
+        # qualified one is followed by " in <repo>".
+        assert "by scripts/generate_adapter_pointer.py." not in block
+
+
 def test_pointer_carries_no_ranking_or_vacancy_claim(adapters):
     """Every adapter's generated text must clear the PIP-3711 banned copy list."""
     for entry in adapters:
