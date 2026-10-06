@@ -1349,7 +1349,7 @@ entries:
                     .is_some_and(|install| install.install_type == "pip")
             })
             .collect::<Vec<_>>();
-        assert_eq!(pip_entries.len(), 34);
+        assert_eq!(pip_entries.len(), 44);
         assert!(pip_entries.iter().all(|entry| {
             let install = entry.install.as_ref().unwrap();
             install
@@ -1452,7 +1452,7 @@ entries:
             "the bundled catalog must keep entries that omit sop_version"
         );
 
-        for name in ["dcc-mcp-tiled", "dcc-mcp-material-maker", "dcc-mcp-wwise"] {
+        for name in ["dcc-mcp-excel", "dcc-mcp-material-maker", "dcc-mcp-word"] {
             let entry = entries
                 .iter()
                 .find(|entry| entry.name == name)

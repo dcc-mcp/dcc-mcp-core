@@ -360,7 +360,7 @@ fn install_rejects_pip_version_without_a_catalog_pinned_artifact() {
 
 #[test]
 fn unpublished_adapters_do_not_advertise_automatic_install_steps() {
-    for dcc_type in ["tiled", "material-maker", "wwise"] {
+    for dcc_type in ["excel", "material-maker", "word"] {
         let plan = run_json_with_env_removed(
             &["install", "--dcc-type", dcc_type],
             &[],
