@@ -2,32 +2,22 @@ name: Release
 
 # Batched release cadence.
 #
-# release-please runs in a fixed daily window instead of on every push to main,
-# so a single version carries every feat/fix merged since the previous tag
-# rather than one version per merge.
+# release-please runs in a release window instead of on every push to main, so a
+# single version carries every feat/fix merged since the previous tag rather
+# than one version per merge.
 #
-# The window is normally opened by a `workflow_dispatch` with no inputs, fired
-# by the release automation at 18:07 CST (10:07 UTC). The `schedule` cron below
-# is a fallback only. A dispatch that carries inputs remains the emergency
-# release and asset-backfill channel.
+# The window is opened by a `workflow_dispatch` with no inputs, fired at 18:07
+# CST (10:07 UTC). That dispatch is the only entry point: there is deliberately
+# no `schedule` fallback, so a missed dispatch shows up as a missed dispatch
+# instead of being quietly absorbed by a cron that fires at an unpredictable
+# clock time. A dispatch that carries inputs remains the emergency release and
+# asset-backfill channel.
 #
 # release-please creates tags from merged-but-untagged release PRs, so the
 # GitHub Release is cut on the first window after the release PR is merged
 # instead of on the merge push itself. The 18:07 CST window runs before the
 # downstream adapter windows so a freshly published core is visible to them.
 on:
-  schedule:
-    # FALLBACK ONLY, and not the release trigger. The deterministic path is the
-    # `workflow_dispatch` fired at 18:07 CST (10:07 UTC) with no inputs; this
-    # cron exists only to cut a version when that dispatch does not happen.
-    #
-    # The cron value is deliberately left unchanged. GitHub queues scheduled
-    # runs and has historically fired this one 4.5 to 6.5 hours after its
-    # nominal time, so retuning the value cannot make it land on a predictable
-    # clock time -- that is the entire reason the primary path moved to a
-    # dispatch. Only the dispatch time is a contract; this cron's wall-clock
-    # time is not.
-    - cron: "13 1 * * *"
   workflow_dispatch:
     inputs:
       release_tag:
@@ -68,7 +58,9 @@ jobs:
       version: ${{ steps.decide.outputs.version }}
     steps:
       # `push` is retained below so the step keeps working if the push trigger
-      # is ever restored; the batch window is `schedule`.
+      # is ever restored. Neither condition matches the dispatch entry point
+      # above, so on a release window both steps are skipped and release-please
+      # decides on its own.
       - uses: actions/checkout@v6
         if: github.event_name == 'push' || github.event_name == 'schedule'
 
