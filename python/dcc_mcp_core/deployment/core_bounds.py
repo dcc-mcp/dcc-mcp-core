@@ -95,6 +95,7 @@ __all__ = [
     "evaluate",
     "installed_core_requirement",
     "parse_requirement",
+    "to_package_environment",
 ]
 
 CORE_DISTRIBUTION = "dcc-mcp-core"
@@ -230,6 +231,38 @@ class CoreRequirement:
             parts.append(f"<{version}" if exclusive else f"<={version}")
         return ",".join(parts) if parts else "*"
 
+    def to_package_environment(self) -> str:
+        """Return the package-environment request token (``dcc_mcp_core-0.19.3..0.19.5``).
+
+        This is the form a Rez ``package.py`` request uses, and the one the
+        drift incident was written in: an adapter shipping
+        ``>=0.19.3,<0.19.5`` has to be expressible as the token an operator
+        actually edits.
+
+        The token is only reversible when both bounds are inclusive on the
+        lower side and exclusive on the upper side — that is, when it encodes
+        exactly ``lower..upper``. An inclusive ceiling such as ``<=0.20.28``
+        cannot be written as a range token without silently admitting the next
+        release, so it raises :class:`ValueError` instead, mirroring how
+        :func:`evaluate` reports an inclusive ceiling as out-of-contract rather
+        than quietly widening it.
+
+        Raises:
+            ValueError: When the range is missing a bound, or the upper bound
+                is inclusive and would be widened by the token form.
+
+        """
+        if self.lower is None or self.upper is None:
+            raise ValueError("a package-environment token needs both a lower and an upper bound")
+        lower, lower_exclusive = self.lower
+        upper, upper_exclusive = self.upper
+        if lower_exclusive or not upper_exclusive:
+            raise ValueError(
+                "a package-environment token cannot express "
+                f"'{self.to_spec()}': it needs an inclusive lower and an exclusive upper bound"
+            )
+        return f"{CORE_IMPORT_NAME}-{lower}..{upper}"
+
     def __str__(self) -> str:
         return self.to_spec()
 
@@ -315,6 +348,22 @@ def derive_requirement(min_core_version: str, max_minor_lines: int = MAX_MINOR_L
     if lower is None:
         return None
     return f">={lower},<{lower.minor_line_limit(max_minor_lines)}"
+
+
+def to_package_environment(declaration: str) -> str:
+    """Return the package-environment token for a declaration, or ``""``.
+
+    A thin wrapper over :meth:`CoreRequirement.to_package_environment` that
+    accepts the raw declaration (as read from adapter metadata) rather than an
+    already-parsed requirement. Declarations the token form cannot express —
+    an inclusive ceiling, or a range with a missing bound — yield ``""`` so a
+    caller formatting a warning can fall back to the plain spec instead of
+    raising. Use the method directly when the failure should be loud.
+    """
+    try:
+        return parse_requirement(declaration).to_package_environment()
+    except ValueError:
+        return ""
 
 
 def check_runtime(

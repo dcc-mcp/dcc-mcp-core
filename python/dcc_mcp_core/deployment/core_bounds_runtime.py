@@ -66,7 +66,9 @@ __all__ = [
     "CoreRequirementCheck",
     "check_adapter_core_requirement",
     "core_requirement_enforced",
+    "core_requirement_skipped",
     "describe_core_requirement",
+    "run_startup_core_requirement_check",
 ]
 
 logger = logging.getLogger(__name__)
@@ -201,6 +203,16 @@ def check_adapter_core_requirement(
             on. Skipped and in-range checks never raise.
 
     """
+    enforce = bool(enforce if enforce is not None else core_requirement_enforced())
+    skipped = core_requirement_skipped(adapter, running_core)
+
+    if not adapter:
+        # Short-circuit before reading metadata: an unnamed adapter has no
+        # distribution to inspect, and `installed_core_requirement` falls back
+        # to scanning every `sys.path` entry — a cost paid on every startup on
+        # hosts without `importlib.metadata`.
+        return skipped
+
     try:
         declaration = installed_core_requirement(adapter)
     except Exception as exc:
@@ -210,23 +222,32 @@ def check_adapter_core_requirement(
         declaration = None
 
     if not declaration:
-        return CoreRequirementCheck(
-            adapter=adapter,
-            declaration=declaration,
-            running=running_core,
-            report=None,
-            enforce=bool(enforce if enforce is not None else core_requirement_enforced()),
-        )
+        return skipped
 
     report = check_runtime(declaration, running_core)
-    check = CoreRequirementCheck(
+    return CoreRequirementCheck(
         adapter=adapter,
         declaration=declaration,
         running=running_core,
         report=report,
-        enforce=bool(enforce if enforce is not None else core_requirement_enforced()),
+        enforce=enforce,
     )
-    return check
+
+
+def core_requirement_skipped(adapter: str, running_core: str) -> CoreRequirementCheck:
+    """Return a skipped check without reading any metadata.
+
+    Lets a caller whose adapter is unnamed record a skipped check for
+    diagnostics while avoiding the ``sys.path`` scan that
+    :func:`check_adapter_core_requirement` would otherwise perform.
+    """
+    return CoreRequirementCheck(
+        adapter=adapter,
+        declaration=None,
+        running=running_core,
+        report=None,
+        enforce=core_requirement_enforced(),
+    )
 
 
 def run_startup_core_requirement_check(

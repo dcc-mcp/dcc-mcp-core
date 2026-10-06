@@ -49,6 +49,7 @@ from dcc_mcp_core._version_util import package_version
 from dcc_mcp_core.checkpoint import CheckpointStore
 from dcc_mcp_core.checkpoint import register_checkpoint_tools
 from dcc_mcp_core.checkpoint import resolve_checkpoint_path
+from dcc_mcp_core.deployment.core_bounds_runtime import core_requirement_skipped
 from dcc_mcp_core.deployment.core_bounds_runtime import run_startup_core_requirement_check
 from dcc_mcp_core.feedback import FeedbackStore
 from dcc_mcp_core.feedback import feedback_store_path
@@ -950,12 +951,12 @@ class DccServerBase:
         session); ``DCC_MCP_CORE_REQUIREMENT_ENFORCE=1`` makes it fatal. See
         :mod:`dcc_mcp_core.deployment.core_bounds_runtime`.
         """
+        if not adapter:
+            # Short-circuit: `installed_core_requirement` would scan every
+            # `sys.path` entry for a name that was never supplied.
+            return core_requirement_skipped("", startup_version)
         try:
-            return run_startup_core_requirement_check(
-                adapter or "",
-                startup_version,
-                logger,
-            )
+            return run_startup_core_requirement_check(adapter, startup_version, logger)
         except RuntimeError:
             # Enforcement is on and the combination is out of range: this is the
             # one deliberate failure path, so surface it unchanged.

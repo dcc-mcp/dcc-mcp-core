@@ -496,3 +496,52 @@ def test_reuses_the_existing_code_table():
         "VERDICT_DECLARATION_UNUSABLE",
     ):
         assert name in source, name
+
+
+def test_skipped_check_reads_no_metadata(tmp_path, monkeypatch):
+    """An unnamed adapter must not trigger the `sys.path` metadata scan.
+
+    `installed_core_requirement("")` walks every `sys.path` entry looking for a
+    `.dist-info`, which costs far more than a real lookup and is paid on every
+    startup — hosts without `importlib.metadata` (Python 3.7, Maya 2022) take
+    that path unconditionally.
+    """
+    calls: list[str] = []
+
+    def fail(distribution: str) -> None:
+        calls.append(distribution)
+        raise AssertionError(f"metadata was read for {distribution!r}")
+
+    monkeypatch.setattr(core_bounds, "installed_core_requirement", fail)
+
+    check = runtime.core_requirement_skipped("", RUNNING_CORE)
+
+    assert calls == []
+    assert check.skipped is True
+    assert check.message is None
+
+
+def test_empty_adapter_short_circuits_before_the_scan(tmp_path, monkeypatch):
+    """The runtime module must return a skipped check without a lookup."""
+    calls: list[str] = []
+    monkeypatch.setattr(
+        core_bounds,
+        "installed_core_requirement",
+        lambda distribution: calls.append(distribution) or None,
+    )
+
+    check = runtime.check_adapter_core_requirement("", RUNNING_CORE)
+
+    assert calls == []
+    assert check.skipped is True
+
+
+def test_named_adapter_still_reads_metadata(tmp_path, monkeypatch):
+    """The short-circuit must not suppress a real lookup."""
+    _write_adapter_metadata(tmp_path, "dcc-mcp-maya", "dcc-mcp-core>=0.20.0,<0.21.0")
+    _isolate_metadata(tmp_path, monkeypatch)
+
+    check = runtime.check_adapter_core_requirement("dcc-mcp-maya", RUNNING_CORE)
+
+    assert check.skipped is False
+    assert check.declaration == "dcc-mcp-core>=0.20.0,<0.21.0"
