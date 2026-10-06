@@ -19,9 +19,9 @@ def test_recent_adapter_releases_are_current() -> None:
         "dcc-mcp-comfyui": "0.1.1",
         "dcc-mcp-touchdesigner": "0.1.1",
         "dcc-mcp-shogun": "0.10.0",
-        "dcc-mcp-tiled": "0.3.0",
+        "dcc-mcp-tiled": "0.5.1",
         "dcc-mcp-material-maker": "0.3.1",
-        "dcc-mcp-wwise": "0.1.2",
+        "dcc-mcp-wwise": "0.1.6",
     }
 
     assert {name: entries[name]["version"] for name in expected_versions} == expected_versions
