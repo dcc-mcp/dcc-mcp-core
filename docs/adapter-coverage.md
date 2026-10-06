@@ -31,7 +31,7 @@ rg -c '^    tags: \[.*"adapter".*\]' dcc-mcp-catalog.yml
 | `dcc-mcp-premiere` | premiere | 0.5.0 | `dcc-mcp-premiere` | generated | pending | registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first |
 | `dcc-mcp-aftereffects` | aftereffects, after-effects, after effects | 0.6.0 | `dcc-mcp-aftereffects` | generated | pending | registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first |
 | `dcc-mcp-illustrator` | illustrator | 0.2.0 | `dcc-mcp-illustrator` | generated | pending | registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first |
-| `dcc-mcp-gimp` | gimp | 0.3.0 | `dcc-mcp-gimp` | generated | pending | registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first |
+| `dcc-mcp-gimp` | gimp | 0.4.1 | `dcc-mcp-gimp` | generated | pending | registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first |
 | `dcc-mcp-krita` | krita | 0.3.0 | `dcc-mcp-krita` | generated | pending | registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first |
 | `dcc-mcp-katana` | katana | 0.4.0 | `dcc-mcp-katana` | generated | pending | registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first |
 | `dcc-mcp-mobu` | mobu | 0.3.0 | `dcc-mcp-mobu` | generated | pending | registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first |

@@ -181,7 +181,7 @@
         "gimp"
       ],
       "url": "https://github.com/dcc-mcp/dcc-mcp-gimp",
-      "version": "0.3.0",
+      "version": "0.4.1",
       "pip_package": "dcc-mcp-gimp",
       "pointer": true,
       "registry": "pending",

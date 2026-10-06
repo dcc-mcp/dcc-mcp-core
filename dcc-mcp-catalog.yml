@@ -271,16 +271,16 @@ entries:
     url: "https://github.com/dcc-mcp/dcc-mcp-gimp"
     issues_url: "https://github.com/dcc-mcp/dcc-mcp-gimp/issues"
     tags: ["adapter", "gimp", "official", "pip", "image-editing", "painting"]
-    version: "0.3.0"
-    min_core_version: "0.19.38"
+    version: "0.4.1"
+    min_core_version: "0.19.91"
     maintainer: "dcc-mcp"
     install:
       type: pip
       pip_package: "dcc-mcp-gimp"
-      url: "https://files.pythonhosted.org/packages/d4/a4/ac98c7af64baedbb60c9c06cb4ccb8e698e158477ea0f0ddefc7d6d3ed78/dcc_mcp_gimp-0.3.0-py3-none-any.whl"
-      sha256: "e03544e7a2ed04b658c9e1fd14c58209f0c1f1ae5159d06e267a6f280c497186"
+      url: "https://files.pythonhosted.org/packages/94/08/2e79c3a888f161bbd43263da3b5ca0d5702cf5c8fd0ce37d6cb492c1cb0f/dcc_mcp_gimp-0.4.1-py3-none-any.whl"
+      sha256: "5cbc37af4a927f4d29f9b036e4961caa08b9b0c477d737534e206f01d4333614"
       entry_point: "dcc_mcp_gimp.server:main"
-      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-gimp/main/README.md"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-gimp/main/install.md"
 
   - name: "dcc-mcp-krita"
     description: "Krita adapter with typed document, layer, painting, save, and export workflows"
