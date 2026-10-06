@@ -563,7 +563,7 @@ entries:
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-touchdesigner/main/install.md"
 
   - name: "dcc-mcp-shogun"
-    description: "Vicon Shogun Post adapter with 73 typed Scene, channel, camera, file, Timeline, editing, production-context, pipeline-context, and capability-gated Offline processing tools"
+    description: "Vicon Shogun Post adapter with 67 typed Scene, channel, camera, file, Timeline, editing, production-context, pipeline-context, and capability-gated Offline processing tools"
     dcc: ["shogun"]
     url: "https://github.com/dcc-mcp/dcc-mcp-shogun"
     issues_url: "https://github.com/dcc-mcp/dcc-mcp-shogun/issues"
