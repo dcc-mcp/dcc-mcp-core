@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 from pathlib import Path
@@ -71,10 +72,8 @@ def _run_script(bash, script, env, tmp_path, timeout=15):
             returncode = proc.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
             _terminate_tree(proc)
-            try:
+            with contextlib.suppress(subprocess.TimeoutExpired):
                 proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                pass
             returncode = 124
     return subprocess.CompletedProcess(
         proc.args,
