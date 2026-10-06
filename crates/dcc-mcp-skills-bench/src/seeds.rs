@@ -1,4 +1,4 @@
-//! Real skill seeds harvested from this repository (PIP-3408).
+//! Real skill seeds harvested from this repository.
 //!
 //! Synthetic corpora alone only measure how well the scorer separates
 //! `maya-skill-00001` from `blender-skill-00002` — the DCC prefix does all the
