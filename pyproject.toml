@@ -64,6 +64,13 @@ test = [
     "pytest-cov>=4.0,<5.0; python_version<'3.8'",
     "pytest-xdist>=3.0; python_version>='3.8'",
     "pytest-xdist==3.5.0; python_version<'3.8'",
+    # scripts/generate_adapter_pointer.py reads dcc-mcp-catalog.yml. It uses
+    # PyYAML rather than the Rust-backed dcc_mcp_core.yaml_loads because it also
+    # runs on CI lanes that do a bare checkout with no wheel build, where
+    # dcc_mcp_core._core does not exist. Mirrors test_toolchain.pyyaml_py37 in
+    # compatibility/python.json -- keep the two in step.
+    "PyYAML>=6.0,<7; python_version>='3.8'",
+    "PyYAML==6.0.1; python_version<'3.8'",  # 6.0.2 raised its floor to Python 3.8
     # Test-only conformance fixture. Production code must never import this backport.
     "typing-extensions==4.7.1; python_version<'3.8'",
     "rez",

@@ -57,6 +57,9 @@ CATALOG_URL = "https://github.com/dcc-mcp/dcc-mcp-core/blob/main/dcc-mcp-catalog
 
 # PIP-3711 copy constraints. A generated block may never carry a ranking or a
 # market-vacancy claim, and it may never compare on stars or tool counts.
+# The generated prose is English, so the English forms of the banned claims
+# are listed too: a catalog description carrying one would otherwise pass and
+# then be copied into 38 public READMEs. Compared case-insensitively.
 BANNED_COPY_TERMS = (
     "无主",
     "第一",
@@ -64,6 +67,12 @@ BANNED_COPY_TERMS = (
     "蓝海",
     "抢占",
     "无竞品",
+    "leading",
+    "industry-first",
+    "industry leading",
+    "no competitor",
+    "best-in-class",
+    "world-class",
 )
 
 # Entries the catalog lists as adapters but that carry no attested
@@ -87,8 +96,15 @@ class CoverageError(RuntimeError):
 
 
 def load_catalog(path: Path) -> dict:
-    """Parse the public catalog and return it as a mapping."""
-    if yaml is None:  # pragma: no cover - dependency is declared in pyproject
+    """Parse the public catalog and return it as a mapping.
+
+    PyYAML is used rather than the Rust-backed ``dcc_mcp_core.yaml_loads``
+    because this generator also runs on CI lanes that do a bare checkout with
+    no wheel build, where ``dcc_mcp_core._core`` does not exist. PyYAML is a
+    declared test toolchain entry (``test_toolchain.pyyaml_py37`` in
+    compatibility/python.json) and is installed by every Python test lane.
+    """
+    if yaml is None:  # pragma: no cover - dependency is installed by the test lanes
         raise CoverageError("PyYAML is required to read dcc-mcp-catalog.yml")
     data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     if not isinstance(data, dict) or not isinstance(data.get("entries"), list):
@@ -119,8 +135,9 @@ def _fill(text: str) -> str:
 
 def _assert_clean_copy(text: str, where: str) -> None:
     """Refuse to emit text carrying a banned ranking or vacancy claim."""
+    haystack = text.lower()
     for term in BANNED_COPY_TERMS:
-        if term in text:
+        if term.lower() in haystack:
             raise CoverageError(f"banned copy term {term!r} in generated text for {where}")
 
 
@@ -146,10 +163,17 @@ def render_pointer(
         raise CoverageError(f"catalog entry {name} has no `description`")
 
     identity = f"**{name}** — {description}"
+    # Deliberately stops at the protocol and the core runtime contract. The
+    # tool surfaces are host-specific by design -- docs/guide/adapter-runtime-
+    # contracts.md: "Adapters keep host-specific collection and safety policy;
+    # core standardizes the shapes." Claiming an agent can drive other hosts
+    # "through the same calls" would be copied into 38 public READMEs and is
+    # false: a Kdenlive timeline tool and a Wwise SoundBank tool are not
+    # interchangeable.
     matrix = (
         f"It is one of **{host_count} host adapters** in the DCC-MCP catalog. Every"
-        " adapter implements the same MCP protocol and the same tool contract, so an"
-        " agent that drives this host drives the others through the same calls."
+        " adapter speaks the same MCP protocol and builds on the same core runtime"
+        " contract; each one exposes the tools its own host needs on top of that."
     )
     footer = (
         "This block is generated from the catalog entry in"
@@ -394,6 +418,7 @@ def render_report(entries: list[dict]) -> str:
 def audit_pypi(entries: list[dict]) -> int:
     """Print catalog install metadata next to what PyPI actually serves."""
     stale = 0
+    unreachable = 0
     for entry in entries:
         install = entry.get("install") or {}
         package = install.get("pip_package")
@@ -403,12 +428,21 @@ def audit_pypi(entries: list[dict]) -> int:
             status = "no catalog install block"
         else:
             latest = _pypi_latest(package)
-            status = "matches" if latest == catalog_version else "catalog pins an older release"
-            if latest != catalog_version:
+            if latest.startswith("error:"):
+                unreachable += 1
+                status = latest
+            elif latest == catalog_version:
+                status = "matches"
+            else:
                 stale += 1
+                status = "catalog pins an older release"
         print(f"{entry.get('name')!s:<32} catalog={catalog_version!s:<10} pypi={latest!s:<10} {status}")
     print()
     print(f"{len(entries)} adapters checked; {stale} pinned below the latest PyPI release.")
+    if unreachable:
+        # Kept out of the `stale` count: a network failure is not evidence that
+        # the catalog pin is behind.
+        print(f"{unreachable} PyPI lookup(s) failed and were excluded from that count.")
     print(
         "The catalog pins an attested wheel (version matches install.url), so a pin"
         " below PyPI latest is expected and is not drift."

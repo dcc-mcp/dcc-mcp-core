@@ -5,11 +5,13 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import subprocess
+import sys
 
 import pytest
 from scripts import generate_adapter_pointer as generator
 
-CATALOG = Path(__file__).resolve().parent.parent / "dcc-mcp-catalog.yml"
+REPO_ROOT = Path(__file__).resolve().parent.parent
+CATALOG = REPO_ROOT / "dcc-mcp-catalog.yml"
 
 
 @pytest.fixture(scope="module")
@@ -91,10 +93,42 @@ def test_pointer_quotes_the_host_count_derived_from_the_catalog(adapters):
     assert f"one of **{len(adapters)} host adapters**" in block
 
 
+def test_host_count_follows_its_argument_not_the_current_catalog(adapters):
+    """A hard-coded 38 would be indistinguishable from the derived value today.
+
+    The catalog happens to hold 38 adapters, so asserting only the current
+    count cannot tell a derived value from a literal. Passing a different
+    count separates them; adding a host is exactly when this matters.
+    """
+    entry = _entry(adapters, "dcc-mcp-maya")
+    for count in (7, 39, 140):
+        block = generator.render_pointer(entry, host_count=count)
+        assert f"one of **{count} host adapters**" in _flat(block)
+        assert f"one of **{len(adapters)} host adapters**" not in _flat(block)
+
+
 def test_pointer_states_the_shared_contract(adapters):
+    """The shared layer is the protocol and the core runtime contract.
+
+    Deliberately not claiming a shared tool surface: tool sets are host
+    specific by design, so a Kdenlive timeline tool and a Wwise SoundBank
+    tool are not interchangeable.
+    """
     block = generator.render_pointer(_entry(adapters, "dcc-mcp-maya"), host_count=len(adapters))
     assert "same MCP protocol" in _flat(block)
-    assert "same tool contract" in _flat(block)
+    assert "same core runtime contract" in _flat(block)
+
+
+def test_pointer_makes_no_cross_host_tool_claim(adapters):
+    """An agent cannot drive another host through this one's tool calls.
+
+    This claim would be copied into 38 public READMEs and is not supported by
+    the adapter contract, which has no tool-surface rule at all.
+    """
+    for entry in adapters:
+        block = generator.render_pointer(entry, host_count=len(adapters))
+        assert "the same calls" not in _flat(block)
+        assert "same tool contract" not in _flat(block)
 
 
 def test_pointer_links_to_the_shared_front_door(adapters):
@@ -127,6 +161,79 @@ def test_prose_lines_stay_within_the_readme_wrap_width(adapters):
     ]
     assert prose
     assert max(len(line) for line in prose) <= generator._PROSE_WIDTH
+
+
+def test_render_refuses_english_banned_copy(adapters):
+    """The generated prose is English, so the English forms are checked too.
+
+    Only the Chinese terms were listed at first, which left a catalog
+    description reading "the leading DCC bridge" free to reach 38 READMEs.
+    """
+    entry = dict(_entry(adapters, "dcc-mcp-maya"))
+    for phrase in (
+        "the leading DCC bridge",
+        "Industry-First Maya support",
+        "with no competitor in sight",
+        "best-in-class tooling",
+    ):
+        entry["description"] = f"Maya adapter, {phrase}"
+        with pytest.raises(generator.CoverageError, match="banned copy term"):
+            generator.render_pointer(entry, host_count=len(adapters))
+
+
+def test_catalog_read_does_not_need_the_compiled_extension():
+    """The generator runs on lanes that never build the wheel.
+
+    Reading the catalog through ``dcc_mcp_core.yaml_loads`` works in a dev
+    checkout and in the wheel-installing test lanes, but raises
+    ModuleNotFoundError on a bare checkout, where ``dcc_mcp_core._core`` does
+    not exist. That is why PyYAML is used here. Asserted at the source level:
+    on a machine with the extension built, both routes pass, so a behavioural
+    test could not tell them apart.
+    """
+    source = Path(generator.__file__).read_text(encoding="utf-8")
+    assert "from dcc_mcp_core import yaml_loads" not in source
+    assert "yaml.safe_load" in source
+
+
+def test_pyyaml_is_declared_in_the_test_toolchain_contract():
+    """The catalog read needs PyYAML, so every test lane must install it.
+
+    It is read through PyYAML rather than the Rust-backed
+    ``dcc_mcp_core.yaml_loads`` because this generator also runs on lanes that
+    do a bare checkout with no wheel build, where ``_core`` is absent. That
+    makes the declaration load-bearing: drop it and all eight ``Test (os, py)``
+    lanes go red again.
+    """
+    contract = json.loads((REPO_ROOT / "compatibility" / "python.json").read_text(encoding="utf-8"))
+    toolchain = contract["test_toolchain"]
+
+    # The contract entry is what makes the pinned Python 3.7 toolchain resolve
+    # a PyYAML that still ships a cp37 wheel (6.0.2 raised its floor to 3.8).
+    assert toolchain["pyyaml_py37"], "test_toolchain.pyyaml_py37 is required"
+
+    # Declared for local `pip install -e .[test]` too, not just for CI lanes.
+    pyproject = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8").lower()
+    assert "pyyaml" in pyproject, "PyYAML must be declared in pyproject.toml"
+
+    # And the wheel-installing test lanes must actually install it. Asserted
+    # against the contract-validated requirement list, so this fails if the
+    # contract entry is dropped rather than merely if a literal moves.
+    sys.path.insert(0, str(REPO_ROOT / "scripts" / "ci"))
+    try:
+        from python_support_contract import python37_test_requirements
+
+        requirements = python37_test_requirements(contract)
+    finally:
+        sys.path.remove(str(REPO_ROOT / "scripts" / "ci"))
+    assert any("pyyaml" in r.lower() for r in requirements), (
+        f"python37_test_requirements() must include PyYAML; got {requirements}"
+    )
+
+    ci = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    assert "pip install pytest pytest-xdist jsonschema pyyaml" in ci, (
+        "the Test lanes must install PyYAML; a lane that skips it goes red on every catalog-reading test"
+    )
 
 
 def test_render_refuses_a_description_with_banned_copy(adapters):
@@ -175,6 +282,19 @@ FLAT_README = """# dcc-mcp-flat
 Just prose, no headings.
 """
 
+# A blank run well away from where the block lands: the seam is after
+# QUICKSTART_END, this one sits in the closing section.
+SEAM_FIXTURE = QUICKSTART_README.replace(
+    "## Agent workflow\n\nBody.\n",
+    "## Agent workflow\n\nBody.\n\n\nBody two.\n",
+)
+
+
+def _split_at(text: str, marker: str) -> tuple[str, str]:
+    """Split text at the first occurrence of marker, keeping it on the left."""
+    index = text.index(marker) + len(marker)
+    return text[:index], text[index:]
+
 
 def test_insert_after_the_quickstart_block_when_one_is_present(adapters):
     block = generator.render_pointer(_entry(adapters, "dcc-mcp-houdini"), host_count=len(adapters))
@@ -216,18 +336,28 @@ def test_insertion_leaves_no_double_blank_line(adapters):
         assert "\n\n\n" not in generator.upsert_pointer(readme, block)
 
 
-def test_insertion_only_touches_the_seam(adapters):
-    """Blank runs elsewhere in the README are the file's own formatting.
+def test_insertion_leaves_every_byte_outside_the_seam_alone(adapters):
+    """A blank run away from the seam is the README's own formatting.
 
-    Collapsing them would reformat prose the generator has nothing to do with
-    and bury the real change in noise.
+    This is the regression the counting version of this test missed: a global
+    blank-run collapse deletes a run far from the insertion point, and the
+    seam logic then adds one back, so the count is unchanged while the file
+    is corrupted. Comparing the text outside the seam byte for byte catches it.
     """
-    readme = QUICKSTART_README.replace(
-        "Body.\n<!-- dcc-mcp-agent-quickstart:end -->",
-        "Body.\n\n<!-- dcc-mcp-agent-quickstart:end -->",
-    )
+    readme = SEAM_FIXTURE
     block = generator.render_pointer(_entry(adapters, "dcc-mcp-houdini"), host_count=len(adapters))
     result = generator.upsert_pointer(readme, block)
+
+    marker = generator.QUICKSTART_END
+    assert "\n\n\n" in readme, "fixture must hold a blank run away from the seam"
+    head, tail = _split_at(readme, marker)
+    result_head, result_tail = _split_at(result, marker)
+    assert result_head == head, "text before the seam was modified"
+    # The block is inserted at the seam, so the untouched tail must survive
+    # verbatim as the suffix -- every byte of it, blank runs included.
+    assert result_tail == "\n\n" + generator.POINTER_START + result_tail.split(generator.POINTER_START, 1)[1]
+    assert result.endswith(tail), "text after the seam was modified"
+    # The far-away blank run survives.
     assert result.count("\n\n\n") == readme.count("\n\n\n")
 
 

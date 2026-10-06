@@ -40,8 +40,15 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install PyYAML
-        run: python -m pip install --disable-pip-version-check pyyaml
+      # PyYAML is installed explicitly because this lane does a bare checkout
+      # with no wheel build, so `dcc_mcp_core._core` is absent and the
+      # generator cannot fall back to the Rust-backed YAML codec. It is the
+      # same dependency every `Test (os, py)` lane installs
+      # (test_toolchain.pyyaml_py37 in compatibility/python.json), so this lane
+      # exercises the same catalog-read path as the test matrix rather than a
+      # parallel one.
+      - name: Install pytest and PyYAML
+        run: python -m pip install --disable-pip-version-check pytest pyyaml
 
       # The committed map must be byte-identical to what the catalog generates.
       # `report` is offline, so this stays reproducible and needs no secrets.
@@ -60,6 +67,9 @@ jobs:
           ")"
           echo "catalog adapter entries: $count"
           echo "adapter_count=$count" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Pointer generator tests
+        run: python -m pytest tests/test_generate_adapter_pointer.py -q --no-header
 
       - name: Generated copy clears the banned-claim list
         run: |
