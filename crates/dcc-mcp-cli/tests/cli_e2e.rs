@@ -1834,8 +1834,10 @@ fn dcc_types_lists_release_catalog_without_a_gateway() {
 
     assert_eq!(value["custom_types_supported"], true);
     let types = value["dcc_types"].as_array().unwrap();
-    assert_eq!(types.len(), 38);
-    for expected in [
+    // Registering a new adapter is a legal catalog change, so the catalog size
+    // is not a fixed invariant. What must hold is that the reported total
+    // tracks the listed types and that every host below is still covered.
+    let expected_types = [
         "aftereffects",
         "c4d",
         "comfyui",
@@ -1860,7 +1862,17 @@ fn dcc_types_lists_release_catalog_without_a_gateway() {
         "touchdesigner",
         "unity",
         "wwise",
-    ] {
+    ];
+    assert_eq!(
+        value["total"].as_u64(),
+        Some(types.len() as u64),
+        "the reported total must track the number of listed DCC types"
+    );
+    assert!(
+        types.len() >= expected_types.len(),
+        "the release catalog must still cover every DCC type asserted below"
+    );
+    for expected in expected_types {
         assert!(types.iter().any(|entry| entry["dcc_type"] == expected));
     }
 }

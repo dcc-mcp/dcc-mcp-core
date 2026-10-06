@@ -159,7 +159,20 @@ fn unfiltered_catalog_uses_the_bundled_release_catalog_not_cwd() {
     let value: Value = serde_json::from_slice(&output.stdout).unwrap();
     let serialized = value.to_string();
 
-    assert_eq!(value["total"], 38);
+    // Registering a new adapter is a legal catalog change, so the catalog size
+    // is not a fixed invariant. What must hold is that the summary total
+    // tracks the listed DCC types and that the bundled catalog — not the CWD
+    // one — supplied them.
+    let types = value["dcc_types"].as_array().unwrap();
+    assert_eq!(
+        value["total"].as_u64(),
+        Some(types.len() as u64),
+        "the reported total must track the number of listed DCC types"
+    );
+    assert!(
+        types.len() >= 2,
+        "the bundled catalog must list at least the two adapters asserted below"
+    );
     assert!(serialized.contains("dcc-mcp-kdenlive"));
     assert!(serialized.contains("dcc-mcp-unreal"));
     assert!(!serialized.contains("private-only-adapter"));

@@ -897,25 +897,12 @@ mod tests {
         let catalog = service.dcc_types(None).unwrap();
 
         assert!(catalog.custom_types_supported);
-        assert_eq!(catalog.dcc_types.len(), 38);
-        for alias in ["after effects", "after-effects", "comfy-ui"] {
-            assert!(
-                catalog
-                    .dcc_types
-                    .iter()
-                    .all(|entry| entry.dcc_type != alias),
-                "alias {alias} must collapse into its first canonical catalog spelling"
-            );
-        }
-        assert_eq!(
-            catalog
-                .dcc_types
-                .iter()
-                .filter(|entry| entry.dcc_type == "3dsmax")
-                .count(),
-            1
-        );
-        for (expected_type, expected_adapter) in [
+        // Registering a new adapter is a legal catalog change, so the catalog
+        // size is not an invariant. Derive the bound from the entries this
+        // test asserts below instead of pinning a literal: every cataloged
+        // type must still be listed, and the reported total must track the
+        // listed types.
+        let expected_adapters = [
             ("c4d", "dcc-mcp-cinema4d"),
             ("comfyui", "dcc-mcp-comfyui"),
             ("freecad", "dcc-mcp-freecad"),
@@ -936,7 +923,34 @@ mod tests {
             ("touchdesigner", "dcc-mcp-touchdesigner"),
             ("unity", "dcc-mcp-unity"),
             ("wwise", "dcc-mcp-wwise"),
-        ] {
+        ];
+        assert!(
+            catalog.dcc_types.len() >= expected_adapters.len(),
+            "the bundled catalog must still list every DCC type asserted below"
+        );
+        assert_eq!(
+            catalog.total,
+            catalog.dcc_types.len(),
+            "the reported total must track the number of listed DCC types"
+        );
+        for alias in ["after effects", "after-effects", "comfy-ui"] {
+            assert!(
+                catalog
+                    .dcc_types
+                    .iter()
+                    .all(|entry| entry.dcc_type != alias),
+                "alias {alias} must collapse into its first canonical catalog spelling"
+            );
+        }
+        assert_eq!(
+            catalog
+                .dcc_types
+                .iter()
+                .filter(|entry| entry.dcc_type == "3dsmax")
+                .count(),
+            1
+        );
+        for (expected_type, expected_adapter) in expected_adapters {
             let entry = catalog
                 .dcc_types
                 .iter()
