@@ -428,6 +428,10 @@ owner/session guard applies. `dcc-types --dcc-type <dcc> --project <path>`
 recommends `start-instance` when a DCC has zero live instances and a validated
 launch plan exists for that project.
 
+Adapter authors: the launch-plan schema, argv placeholders, registry metadata
+keys, readiness bits, and blocking-state contract are specified in
+[adapter-launch-plan-contract.md](adapter-launch-plan-contract.md).
+
 ### Failure analysis and bug reporting
 
 Use the existing surfaces instead of copying unbounded logs:

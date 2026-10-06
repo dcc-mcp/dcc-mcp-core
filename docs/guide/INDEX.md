@@ -106,6 +106,7 @@ Documentation contract:
 | [usd.md](usd.md) | OpenUSD bridge: UsdStage, scene info JSON |
 | [artefacts.md](artefacts.md) | FileRef + ArtefactStore — cross-tool file handoff |
 | [adapter-runtime-contracts.md](adapter-runtime-contracts.md) | Session events, artefact refs, debug descriptors, `ui_control` automation contracts |
+| [adapter-launch-plan-contract.md](adapter-launch-plan-contract.md) | Adapter side of `start-instance`: launch-plan schema, argv placeholders, registry metadata, readiness bits, blocking states |
 | [ui-control-workflows.md](ui-control-workflows.md) | Agent workflows for scoped `ui_control` UI automation, recovery, and VRS coverage |
 | [telemetry.md](telemetry.md) | ToolMetrics, ToolRecorder, RecordingGuard |
 | [observability.md](observability.md) | OTLP exporter, agent workflow spans, gateway event log (`resources://gateway/events`), Prometheus counters |

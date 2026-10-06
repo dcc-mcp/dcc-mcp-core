@@ -81,3 +81,10 @@ manifest 和 Host 协议提供，因此 UI 自动化契约可独立于 HTTP 服�
 捆绑的 `ui-control` 技能默认使用独立的 `dcc-cua` 0.4.0 或更高版本；确定性模拟后端仅供显式测试使用。设置 `DCC_MCP_UI_CONTROL_BACKEND=chrome` 以使用实验性 CDP 后端，并通过相同的 `ui_control__snapshot`、`ui_control__find`、`ui_control__act` 和 `ui_control__wait_for` 工具驱动浏览器或 webview 搜索。CDP 后端支持预设：`reuse` 首先附加到现有 DevTools 端点以便可以重用当前浏览器令牌，`isolated` 启动临时 Chrome 配置文件，`auroraview` 使用 `DCC_MCP_UI_CONTROL_AURORAVIEW_CDP_PORT`、`AURORAVIEW_CDP_PORT`、`DCC_MCP_UI_CONTROL_CDP_PORT` 或端口 `9222` 附加到 AuroraView 的 CDP 端点。相同的运行时还支持 `edge` 用于 Microsoft Edge CDP 和 `agent-browser` 用于 Vercel 的 `agent-browser` CLI，该 CLI 通过 `agent-browser get cdp-url` 公开其 DevTools URL，并可以在 CI 中通过 `agent-browser install` 配置。
 
 默认的 `DCC_MCP_UI_CONTROL_BACKEND=cua` 通过独立的 `dcc-cua` CLI/Host 控制 Windows、Linux 和 macOS 原生应用。请把 0.4.0 或更高版本安装到 `PATH`，或把 `DCC_MCP_CUA_BINARY` 设置为绝对可执行文件路径。使用 `DCC_MCP_UI_CONTROL_PROCESS_ID` 和 `DCC_MCP_UI_CONTROL_WINDOW_HANDLE` 绑定准确应用；请求只能缩小作用域，不能扩大。平台无障碍、截图、可见接管标记、输入队列和 Escape 中断均由 CUA Host 负责。
+
+## 项目绑定的启动与就绪契约
+
+希望 agent 能从零实例状态恢复的 adapter，需要发布经过校验的启动计划，并在注册行
+写上生命周期 metadata。Core 负责生命周期，adapter 负责计划、metadata 与就绪取值。
+完整的 adapter 侧契约 —— 计划 schema、argv 占位符、环境变量、metadata key、就绪位
+与阻塞状态 —— 见 [adapter-launch-plan-contract.md](adapter-launch-plan-contract.md)。

@@ -75,6 +75,7 @@
 | [shm.md](shm.md) | 共享内存与零拷贝场景数据 |
 | [usd.md](usd.md) | OpenUSD 桥接：UsdStage、场景信息 JSON |
 | [artefacts.md](artefacts.md) | FileRef + ArtefactStore — 跨工具文件交接 |
+| [adapter-launch-plan-contract.md](adapter-launch-plan-contract.md) | adapter 侧的 `start-instance` 契约：启动计划 schema、argv 占位符、注册行 metadata、就绪位、阻塞状态 |
 | [telemetry.md](telemetry.md) | ToolMetrics、ToolRecorder、RecordingGuard |
 | [observability.md](observability.md) | OTLP exporter、agent workflow spans、网关事件日志（`resources://gateway/events`）、Prometheus 计数器 |
 | [metric-dictionary.md](../../guide/metric-dictionary.md) | 指标字典：单位、采样窗口、空值语义、存储层清单 |

@@ -166,3 +166,12 @@ metadata or an additional constraint. That redundant field preserves the
 trusted native scope when it is consistent with
 `DCC_MCP_UI_CONTROL_PROCESS_NAME`; a conflict fails with `invalid_target`.
 Process names and titles alone never establish the native capability boundary.
+
+## Project-bound launch and readiness contract
+
+Adapters that want agents to recover from a zero-instance state publish a
+validated launch plan and stamp lifecycle metadata on their registry row. Core
+owns the lifecycle; the adapter owns the plan, the metadata, and the readiness
+values. The full adapter-side contract — plan schema, argv placeholders,
+environment variables, metadata keys, readiness bits, and blocking states —
+lives in [adapter-launch-plan-contract.md](adapter-launch-plan-contract.md).
