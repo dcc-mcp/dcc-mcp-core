@@ -23,7 +23,7 @@
 version: "1"
 entries:
   - name: "dcc-mcp-kdenlive"
-    description: "Kdenlive adapter with 20 typed project, media, timeline, effect, catalog and async MLT rendering tools, plus shared DCC-CUA editor control"
+    description: "Kdenlive adapter with 27 typed project, media, timeline, effect, catalog, export, interchange, native and setup tools, plus shared DCC-CUA editor control"
     dcc: ["kdenlive"]
     url: "https://github.com/dcc-mcp/dcc-mcp-kdenlive"
     issues_url: "https://github.com/dcc-mcp/dcc-mcp-kdenlive/issues"
@@ -496,7 +496,7 @@ entries:
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-cinema4d/main/README.md"
 
   - name: "dcc-mcp-comfyui"
-    description: "ComfyUI adapter with 17 typed workflow, catalog, queue, and artifact tools"
+    description: "ComfyUI adapter with 21 typed workflow, catalog, queue, and artifact tools"
     dcc: ["comfyui", "comfy-ui"]
     url: "https://github.com/dcc-mcp/dcc-mcp-comfyui"
     issues_url: "https://github.com/dcc-mcp/dcc-mcp-comfyui/issues"
