@@ -1,5 +1,6 @@
 use super::{CatalogEntry, CatalogInstall};
 use crate::CatalogValidationError;
+use crate::core_bounds::{CoreBoundPolicy, derive_requirement, evaluate};
 
 // ── schema validation ─────────────────────────────────────────────────────────
 
@@ -50,6 +51,7 @@ const MARKETPLACE_V2_SCHEMA_JSON: &str = r##"{
         "tags":        { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
         "version":          { "type": "string" },
         "min_core_version": { "type": "string" },
+        "core_requirement": { "type": "string", "minLength": 1 },
         "maintainer":       { "type": "string" },
         "category":         { "type": "string" },
         "policy": {
@@ -209,6 +211,7 @@ pub fn validate_entry(entry: &CatalogEntry) -> Result<(), CatalogValidationError
     {
         validate_pip_artifact_binding(entry, install)?;
     }
+    validate_core_requirement(entry)?;
     Ok(())
 }
 
@@ -243,6 +246,46 @@ fn validate_pip_artifact_binding(
         message: format!(
             "  - /install/url: pip artifact must be an immutable py3-none-any wheel for {package}=={version}"
         ),
+    })
+}
+
+/// Reject a `core_requirement` that violates the core version-bound contract.
+///
+/// `dcc-mcp-core` ships breaking changes on every minor bump, so a catalog
+/// entry may only claim a bounded range that admits one minor line. Entries
+/// that only publish `min_core_version` stay valid: the field is a floor, not a
+/// range, and the adapter's true upper bound is not core's to invent.
+fn validate_core_requirement(entry: &CatalogEntry) -> Result<(), CatalogValidationError> {
+    let Some(requirement) = entry.core_requirement.as_deref() else {
+        return Ok(());
+    };
+    let policy = CoreBoundPolicy::default();
+    let report = evaluate(requirement, &policy);
+    if report.is_ok() {
+        return Ok(());
+    }
+    let mut message = format!(
+        "  - /core_requirement: '{}' violates the core version-bound contract: {}",
+        requirement,
+        report
+            .codes
+            .iter()
+            .map(|code| code.description())
+            .collect::<Vec<_>>()
+            .join("; ")
+    );
+    if let Some(suggestion) = report.suggestion.as_deref() {
+        message.push_str(&format!("; use '{suggestion}'"));
+    } else if let Some(derived) = entry
+        .min_core_version
+        .as_deref()
+        .and_then(derive_requirement)
+    {
+        message.push_str(&format!("; from min_core_version use '{derived}'"));
+    }
+    Err(CatalogValidationError::ValidationFailed {
+        name: entry.name.clone(),
+        message,
     })
 }
 

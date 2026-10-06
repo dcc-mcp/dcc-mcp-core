@@ -70,6 +70,7 @@ legacy unsigned staging, and does not replace a running server.
 2. [`adapter-install-sop.md`](docs/guide/adapter-install-sop.md) — install/status/verify/uninstall/upgrade contract
 3. [`adapter-release-checklist.md`](docs/guide/adapter-release-checklist.md) — release gate checklist
 4. [`adapter-compatibility-matrix.md`](docs/guide/adapter-compatibility-matrix.md) — per-DCC version table
+5. [`adapter-core-version-contract.md`](docs/guide/adapter-core-version-contract.md) — core `0.x` bound contract: every adapter declaration needs an upper bound limited to one minor line; `dcc_mcp_core-0` and `<1.0.0` are violations
 
 ---
 

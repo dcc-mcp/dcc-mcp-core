@@ -55,6 +55,7 @@ mod tests {
             tags: tags.iter().map(|tag| (*tag).to_string()).collect(),
             version: None,
             min_core_version: None,
+            core_requirement: None,
             install: None,
             package: None,
             maintainer: Some("dcc-mcp".to_string()),

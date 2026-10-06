@@ -1,0 +1,108 @@
+{
+  "schema_version": 1,
+  "distribution": "dcc-mcp-core",
+  "import_name": "dcc_mcp_core",
+  "versioning": {
+    "scheme": "0.x",
+    "breaking_component": "minor",
+    "compatible_component": "patch",
+    "note": "A 0.MINOR.PATCH core release may break adapters on every MINOR bump. Patch releases stay compatible, so an adapter requirement must never admit more than one minor line."
+  },
+  "adapter_requirement_policy": {
+    "require_lower_bound": true,
+    "require_upper_bound": true,
+    "max_minor_lines": 1,
+    "default_upper_bound": "next_minor",
+    "applies_to": [
+      "packaging-requirement",
+      "package-environment-request",
+      "catalog-core-requirement"
+    ]
+  },
+  "declaration_forms": {
+    "packaging-requirement": [
+      ">=0.19.3,<0.19.5",
+      "dcc-mcp-core>=0.20.14,<0.21.0"
+    ],
+    "package-environment-request": [
+      "dcc_mcp_core-0.20",
+      "dcc_mcp_core-0.19.3..0.20.0"
+    ]
+  },
+  "violation_codes": {
+    "missing_lower_bound": "The declaration admits every older core release.",
+    "missing_upper_bound": "The declaration admits every newer core release.",
+    "upper_bound_too_wide": "The upper bound admits more minor lines than the policy allows; every extra minor line is a potentially breaking core release.",
+    "unsupported_specifier": "A specifier could not be interpreted, so the declared range is unknown.",
+    "unparsable_declaration": "The declaration is empty or has no readable version range.",
+    "inverted_range": "The lower bound is above the upper bound, so no core release can satisfy the declaration."
+  },
+  "reported_cases": [
+    {
+      "adapter": "dcc-mcp-maya",
+      "adapter_version": "0.9.4",
+      "packaging_requirement": ">=0.19.3,<0.19.5",
+      "package_environment_request": "dcc_mcp_core-0",
+      "expected_codes": {
+        "packaging_requirement": [],
+        "package_environment_request": ["upper_bound_too_wide"]
+      },
+      "observed_core": "0.20.28"
+    },
+    {
+      "adapter": "dcc-mcp-maya",
+      "adapter_version": "0.8.13",
+      "packaging_requirement": ">=0.18.21,<1.0.0",
+      "package_environment_request": "dcc_mcp_core-0",
+      "expected_codes": {
+        "packaging_requirement": ["upper_bound_too_wide"],
+        "package_environment_request": ["upper_bound_too_wide"]
+      },
+      "observed_core": "0.20.28"
+    },
+    {
+      "adapter": "dcc-mcp-houdini",
+      "adapter_version": "0.38.0",
+      "packaging_requirement": ">=0.20.14,<1.0.0",
+      "package_environment_request": "dcc_mcp_core-0",
+      "expected_codes": {
+        "packaging_requirement": ["upper_bound_too_wide"],
+        "package_environment_request": ["upper_bound_too_wide"]
+      },
+      "observed_core": "0.20.28"
+    },
+    {
+      "adapter": "dcc-mcp-blender",
+      "adapter_version": "0.2.4",
+      "packaging_requirement": ">=0.20.0,<1.0.0",
+      "package_environment_request": "dcc_mcp_core-0.20",
+      "expected_codes": {
+        "packaging_requirement": ["upper_bound_too_wide"],
+        "package_environment_request": []
+      },
+      "observed_core": "0.20.28"
+    },
+    {
+      "adapter": "dcc-mcp-3dsmax",
+      "adapter_version": "0.2.1",
+      "packaging_requirement": ">=0.20.0,<1.0.0",
+      "package_environment_request": "dcc_mcp_core-0",
+      "expected_codes": {
+        "packaging_requirement": ["upper_bound_too_wide"],
+        "package_environment_request": ["upper_bound_too_wide"]
+      },
+      "observed_core": "0.20.28"
+    },
+    {
+      "adapter": "dcc-mcp-maya",
+      "adapter_version": "0.2.x",
+      "packaging_requirement": ">=0.12.18,<1.0.0",
+      "package_environment_request": "dcc_mcp_core-0.12.18..1",
+      "expected_codes": {
+        "packaging_requirement": ["upper_bound_too_wide"],
+        "package_environment_request": ["upper_bound_too_wide"]
+      },
+      "observed_core": "0.20.28"
+    }
+  ]
+}

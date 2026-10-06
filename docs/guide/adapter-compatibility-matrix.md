@@ -13,6 +13,16 @@ submit a PR updating this matrix before the release PR merges.
    of the PR.
 3. Submit the PR against `docs/guide/adapter-compatibility-matrix.md`.
 
+## Core Pin column
+
+Rows record what each released adapter actually declares. Existing rows use the
+wide form `>=0.<minor>.0,<1.0.0`, which admits every breaking core minor line:
+the [Adapter Core Version Contract](adapter-core-version-contract.md) reports
+that shape as `upper_bound_too_wide`. New rows must declare one core minor line
+(`>=0.<minor>.<patch>,<0.<minor+1>.0`), and the same range has to appear in the
+adapter's package-environment request — a request such as `dcc_mcp_core-0`
+drops both bounds.
+
 ## How to Update an Existing Adapter
 
 1. Change the `Adapter Version` and/or `Core Pin` columns to match the new

@@ -15,6 +15,9 @@ pub struct MarketplaceEntryResponse {
     pub version: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub min_core_version: Option<String>,
+    /// Bounded `dcc-mcp-core` requirement, when the entry declares one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub core_requirement: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub maintainer: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -1161,6 +1161,7 @@ mod tests {
                 tags: vec![],
                 version: None,
                 min_core_version: None,
+                core_requirement: None,
                 install: None,
                 package: None,
                 maintainer: None,
