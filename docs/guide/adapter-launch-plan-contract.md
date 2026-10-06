@@ -156,9 +156,10 @@ sets three variables so the adapter can correlate the whole lifecycle:
 | `DCC_MCP_START_DCC_TYPE` | The normalized DCC type |
 
 **Your adapter must copy `DCC_MCP_START_OPERATION_ID` into its registry row.**
-It is the only thing that lets Core bind a freshly registered instance back to
-the operation that spawned it — PIDs get reused after a crash, so the operation
-ID is preferred over the PID, which is only the second-choice match.
+It is the reliable way for Core to bind a freshly registered instance back to
+the operation that spawned it. Core also falls back to matching the launched
+PID, but PIDs get reused after a crash, so the operation ID is the dependable
+path and the PID is only the second choice (see Step 7).
 
 `start-instance` does not set `DCC_MCP_LAUNCH_ID`. That field and the `role`
 field are the pre-existing identity contract from RFC-0007 §3.2, and they
@@ -192,10 +193,15 @@ mechanism works for the string-valued keys.
 | Operation binding | `dcc_mcp_operation_id`, `operation_id`, `dcc_mcp.operation_id` |
 | Project binding | `dcc_mcp_project`, `project`, `dcc_mcp.project` |
 
-**Both are load-bearing.** Reuse, convergence, and the guarded stop all match
-on them. An adapter that stamps neither will see a second identical
-`start-instance` call launch a second host, because Core has nothing to
-recognize the first one by.
+**Both are load-bearing, but neither is strictly required.** Reuse,
+convergence, and the guarded stop prefer them. Core matches a live instance to
+an owning operation in three independent ways — operation ID, PID, or project
+binding — so stamping neither key removes two of the three, not all of them
+(see Step 7). What you lose is reliability, not convergence: the remaining PID
+path can converge onto an unrelated instance once the OS recycles a PID, and it
+matches nothing when the recorded executable is a launcher that spawns the real
+host as a separate process, or when a sidecar row omits `host_pid`. Stamp both
+keys and none of that applies.
 
 ### Native window handle
 
@@ -327,6 +333,19 @@ non-interactive `next_action` with an exact `command` array.
 | `project_marker_missing` | A declared `project_markers` entry is absent | no | Verify the project is the one this adapter was installed for |
 | `launch_failed` | Spawning the executable failed | yes | Inspect the executable path and OS error, then retry |
 
+`truthy` in the table above means an exact match against a fixed whitelist,
+applied after the value is trimmed and lowercased: `1`, `true`, `yes`,
+`blocked`, `blocking`, `present`, `open`. Anything else is false, so
+`restart_required: "on"`, `blocking_dialog: "2"`, and `modal_dialog: "visible"`
+all fall through to `none` with no warning that the value was not understood.
+An empty value, or the literal `none` in any case, is discarded before the
+comparison and is likewise treated as absent.
+
+`license_state` / `license_status` are the exception: they are not a truthy
+test. Any value other than `valid`, `ok`, or `active`, compared
+case-insensitively, classifies as `license` — so `license_state: "on"` does
+report a license problem.
+
 Two details worth internalizing:
 
 **`ambiguous_reuse` is deliberately not retryable.** Its recovery step asks the
@@ -336,12 +355,26 @@ would tell an agent to spin on a request that cannot succeed unchanged. Every
 other state marked `retryable: true` can be replayed as-is once a human has
 cleared the underlying condition.
 
-**Free-text matching is whole-word only.** `failure_stage` and `failure_reason`
-are tokenized on non-alphanumeric characters and compared as complete words.
-`blocked` and `unlocked` do **not** classify as a project lock, and `lockfile`
-does not either. `sidecar_bootstrap` does match, because it splits into
-`sidecar` and `bootstrap`. Write diagnostics that name the condition in plain
-words; do not rely on substrings.
+**Free-text matching is whole-word only, against a fixed keyword list.**
+`failure_stage` and `failure_reason` are concatenated, split on
+non-alphanumeric characters, lowercased, and matched as complete words — never
+as substrings. `blocked` and `unlocked` do **not** classify as a project lock,
+and `lockfile` does not either. `sidecar_bootstrap` does match, because it
+splits into `sidecar` and `bootstrap`.
+
+The complete list, evaluated in this order — the first group that hits wins:
+
+| Order | Keywords | Classifies as |
+|-------|----------|---------------|
+| 1 | `bootstrap`, `sidecar` | `adapter_bootstrap` |
+| 2 | `license`, `licence` | `license` |
+| 3 | `dialog`, `modal` | `modal_dialog` |
+| 4 | `lock`, `locks`, `locked`, `locking` | `project_lock` |
+| 5 | `restart`, `restarts`, `restarting` | `restart_required` |
+
+Words outside these five groups are ignored, so a diagnostic reading
+"compilation is blocked" classifies as `none`. Name the condition using one of
+the exact words above.
 
 Structured keys are interpreted first, and only then free text. Prefer the
 structured key — `license_state: "expired"` beats a prose `failure_reason`.
@@ -459,5 +492,10 @@ They are recorded here so adapter authors do not rediscover them:
    paths.
 6. **Host-progress keys are never gated on.** Reporting `compiling: "true"`
    neither extends the timeout nor delays the terminal report.
-7. **An adapter that stamps neither operation ID nor project cannot converge.**
-   A second identical `start-instance` call will launch a second host.
+7. **Convergence degrades to PID matching when neither operation ID nor project
+   is stamped.** It does not fail outright: Core still matches the launched PID
+   against `pid` or `host_pid` on the registry row. The degraded path is
+   unreliable — a recycled PID can converge onto an unrelated instance, and it
+   matches nothing when the recorded executable is a launcher that spawns the
+   real host as a separate process, or when a sidecar row omits `host_pid`.
+   Stamp both keys.
