@@ -298,6 +298,9 @@ operation 自己启动并拥有的实例（`stop_scope: owned_operation`）；�
 该项目存在已校验的启动计划时，`dcc-types --dcc-type <dcc> --project <path>`
 会推荐 `start-instance`。
 
+Adapter 作者：启动计划 schema、argv 占位符、注册行 metadata key、就绪位与阻塞
+状态契约见 [adapter-launch-plan-contract.md](adapter-launch-plan-contract.md)。
+
 ### 错误自查与 Bug 上报
 
 1. 保留失败调用的 `request_id`、trace/job id、tool slug、instance、脱敏后的参数、
