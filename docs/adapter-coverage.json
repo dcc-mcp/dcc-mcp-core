@@ -427,7 +427,7 @@
       "pip_package": null,
       "pointer": true,
       "registry": "deferred",
-      "blocker": "catalog has no `install:` block; the repository ships a real distribution, so registration waits on catalog install metadata, not on packaging work"
+      "blocker": "catalog has no `install:` block; registration waits on catalog install metadata"
     },
     {
       "name": "dcc-mcp-wwise",
@@ -451,7 +451,7 @@
       "pip_package": null,
       "pointer": true,
       "registry": "deferred",
-      "blocker": "catalog has no `install:` block; the repository ships a real distribution, so registration waits on catalog install metadata, not on packaging work"
+      "blocker": "catalog has no `install:` block; registration waits on catalog install metadata"
     },
     {
       "name": "dcc-mcp-word",
@@ -463,7 +463,7 @@
       "pip_package": null,
       "pointer": true,
       "registry": "deferred",
-      "blocker": "catalog has no `install:` block; the repository ships a real distribution, so registration waits on catalog install metadata, not on packaging work"
+      "blocker": "catalog has no `install:` block; registration waits on catalog install metadata"
     },
     {
       "name": "dcc-mcp-fpt",

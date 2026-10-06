@@ -80,14 +80,14 @@ BANNED_COPY_TERMS = (
 )
 
 # Entries the catalog lists as adapters but that carry no attested
-# ``install:`` block. Every one of them ships a real distribution: three are
-# already on PyPI and the fourth has a wired ``publish-pypi`` job. The gap is
-# missing catalog install metadata, not an undeliverable package, so the
-# registry side is deferred rather than dropped.
-NO_PIP_REASON = (
-    "catalog has no `install:` block; the repository ships a real distribution, "
-    "so registration waits on catalog install metadata, not on packaging work"
-)
+# ``install:`` block. The registry side is deferred rather than dropped because
+# there is no install metadata to register, and nothing else: this generator has
+# no per-entry view of how far each repository's packaging has progressed, so the
+# text must not characterise it. An earlier revision asserted that every one of
+# these repositories "ships a real distribution", which was false for entries
+# whose packaging had not started. The sentence below is deliberately limited to
+# what the catalog itself can prove.
+NO_PIP_REASON = "catalog has no `install:` block; registration waits on catalog install metadata"
 
 _ADAPTER_TAG = "adapter"
 _HEADING_RE = re.compile(r"^#{1,6} ")
