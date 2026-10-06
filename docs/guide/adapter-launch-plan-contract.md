@@ -201,7 +201,11 @@ binding — so stamping neither key removes two of the three, not all of them
 path can converge onto an unrelated instance once the OS recycles a PID, and it
 matches nothing when the recorded executable is a launcher that spawns the real
 host as a separate process, or when a sidecar row omits `host_pid`. Stamp both
-keys and none of that applies.
+keys and the intended row matches without relying on the PID path. This does not
+suppress PID matching: a stale row whose `pid` or `host_pid` equals the owning
+operation's PID still enters the match set, which surfaces as
+`ambiguous_reuse` — or converges onto the stale row when the intended row is not
+yet direct-control routable.
 
 ### Native window handle
 
@@ -337,7 +341,11 @@ non-interactive `next_action` with an exact `command` array.
 applied after the value is trimmed and lowercased: `1`, `true`, `yes`,
 `blocked`, `blocking`, `present`, `open`. Anything else is false, so
 `restart_required: "on"`, `blocking_dialog: "2"`, and `modal_dialog: "visible"`
-all fall through to `none` with no warning that the value was not understood.
+do not trigger a state by themselves, and give no warning that the value was
+not understood. The result is `none` only when no other structured key or
+free-text keyword classifies the row: the checks run in sequence, so
+`restart_required: "on"` alongside `failure_reason: "restart pending"` still
+yields `restart_required`.
 An empty value, or the literal `none` in any case, is discarded before the
 comparison and is likewise treated as absent.
 
@@ -356,10 +364,12 @@ other state marked `retryable: true` can be replayed as-is once a human has
 cleared the underlying condition.
 
 **Free-text matching is whole-word only, against a fixed keyword list.**
-`failure_stage` and `failure_reason` are concatenated, split on
-non-alphanumeric characters, lowercased, and matched as complete words — never
-as substrings. `blocked` and `unlocked` do **not** classify as a project lock,
-and `lockfile` does not either. `sidecar_bootstrap` does match, because it
+`failure_stage` and `failure_reason` are concatenated, split on characters that
+are not **ASCII** letters or digits, lowercased, and matched as complete words
+— never as substrings. Every non-ASCII character is a separator, CJK included,
+so `重启restart` yields `restart` and classifies as
+`restart_required`. `blocked` and `unlocked` do **not** classify as a project
+lock, and `lockfile` does not either. `sidecar_bootstrap` does match, because it
 splits into `sidecar` and `bootstrap`.
 
 The complete list, evaluated in this order — the first group that hits wins:
