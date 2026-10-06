@@ -68,8 +68,13 @@ jobs:
           echo "catalog adapter entries: $count"
           echo "adapter_count=$count" >> "$GITHUB_STEP_SUMMARY"
 
+      # --noconftest on purpose, like the release-workflow-integrity lane:
+      # tests/conftest.py imports the compiled dcc_mcp_core extension at module
+      # scope, and this lane deliberately does not wait for a wheel build.
       - name: Pointer generator tests
-        run: python -m pytest tests/test_generate_adapter_pointer.py -q --no-header
+        run: |-
+          python -m pytest tests/test_generate_adapter_pointer.py \
+            -q --no-header --noconftest
 
       - name: Generated copy clears the banned-claim list
         run: |
