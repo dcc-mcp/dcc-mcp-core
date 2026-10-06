@@ -7,8 +7,10 @@ import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import sys
+import time
 from urllib.parse import urlsplit
 
 import pytest
@@ -29,17 +31,17 @@ def _response(version, name=SERVER_NAME):
 
 
 def _spawn_kwargs() -> dict:
-    """Spawn without a console window on Windows, per the org subprocess convention."""
+    """Isolate POSIX fixture groups and preserve the Windows no-console convention."""
     if os.name == "nt":
         return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
-    return {}
+    return {"start_new_session": True}
 
 
 def _terminate_tree(proc: subprocess.Popen) -> None:
-    """Kill the shell *and* the fixture processes it forked."""
-    if proc.poll() is not None:
-        return
+    """Stop this helper's isolated POSIX group or its Windows process tree."""
     if os.name == "nt":
+        if proc.poll() is not None:
+            return
         # `taskkill /T` is the only portable way to reap grandchildren here:
         # killing bash alone leaves the per-curl `python` fixture alive.
         subprocess.run(
@@ -50,17 +52,18 @@ def _terminate_tree(proc: subprocess.Popen) -> None:
             **_spawn_kwargs(),
         )
     else:
-        proc.kill()
+        # _run_script creates a new session whose group ID is the shell PID.
+        # Signal before wait/poll can reap that leader and permit PID reuse.
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(proc.pid, signal.SIGKILL)
 
 
 def _run_script(bash, script, env, tmp_path, timeout=15):
     """Run the workflow body with file-backed output capture.
 
-    Deliberately not ``capture_output=True``: every ``curl`` call forks a
-    ``python`` fixture, and a grandchild that outlives ``bash`` keeps the pipe
-    write-end open, so ``communicate()`` can block past ``timeout``. Writing to
-    files keeps the wait bounded no matter what the grandchildren do, which is
-    what makes the 15s timeout actually mean something.
+    File capture avoids waiting for EOF on inherited pipe handles. A timeout
+    stops the isolated group created for this invocation before reaping the
+    shell.
     """
     stdout_path = tmp_path / "stdout.log"
     stderr_path = tmp_path / "stderr.log"
@@ -213,3 +216,72 @@ def test_package_transport_uses_the_resolved_gateway_port(port):
     assert endpoint.hostname == "127.0.0.1"
     assert endpoint.path == "/mcp"
     assert endpoint.port == int(environment["DCC_MCP_GATEWAY_PORT"])
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX session and process-group regression")
+def test_timeout_stops_owned_group_and_preserves_other_session(tmp_path):
+    """Stop a shell's live child on timeout without signaling a separate session."""
+    bash = shutil.which("bash")
+    ps = shutil.which("ps")
+    if bash is None or ps is None:
+        pytest.skip("this POSIX lifecycle check needs bash and ps")
+
+    def active(child):
+        """Check the recorded child without treating a reused PID as owned."""
+        status = subprocess.run(
+            [ps, "-p", str(child["pid"]), "-o", "stat=", "-o", "pgid="],
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+        assert status.returncode in (0, 1) and not status.stderr.strip(), status.stderr
+        fields = status.stdout.split()
+        # An exited child may remain briefly as an init-owned zombie.
+        # A PID reused by another group no longer identifies our child.
+        return bool(fields) and int(fields[1]) == child["group"] and not fields[0].startswith("Z")
+
+    def wait_for_exit(child, timeout):
+        """Observe child termination within a fixed wall-clock budget."""
+        deadline = time.monotonic() + timeout
+        while active(child):
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(0.02)
+        return True
+
+    child_info = tmp_path / "child.json"
+    script = """printf '%s' "$$" > "$FIXTURE_ROOT/shell.pid"
+python -c 'import json, os, time; from pathlib import Path; Path(os.environ["FIXTURE_ROOT"], "child.json").write_text(json.dumps({"pid": os.getpid(), "group": os.getpgrp()})); time.sleep(8)' &
+wait
+"""
+    env = {"PATH": os.pathsep.join([str(Path(sys.executable).parent), os.defpath]), "FIXTURE_ROOT": str(tmp_path)}
+    child = None
+    sibling = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(20)"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    try:
+        started = time.monotonic()
+        result = _run_script(bash, script, env, tmp_path, timeout=2)
+        assert result.returncode == 124
+        assert time.monotonic() - started < 7
+        assert child_info.exists(), "fixture child must start before exercising timeout cleanup"
+        child = json.loads(child_info.read_text(encoding="utf-8"))
+        shell_pid = int((tmp_path / "shell.pid").read_text(encoding="utf-8"))
+        assert child["group"] == shell_pid
+        assert child["group"] != os.getpgrp()
+        assert wait_for_exit(child, 2), "the timed-out fixture child survived"
+        assert sibling.poll() is None, "cleanup must not signal a different session"
+    finally:
+        # The synthetic child self-exits after eight seconds even against a
+        # regressed helper. Never compensate by signaling an observed PID.
+        try:
+            if child is None and child_info.exists():
+                child = json.loads(child_info.read_text(encoding="utf-8"))
+            if child is not None:
+                assert wait_for_exit(child, 10), "finite fixture did not exit"
+        finally:
+            sibling.terminate()
+            sibling.wait(timeout=5)
