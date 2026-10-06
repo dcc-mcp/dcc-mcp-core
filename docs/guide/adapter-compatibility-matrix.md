@@ -34,7 +34,7 @@ drops both bounds.
 
 | DCC | Repository | Adapter Version | Core Pin | DCC Min Version | Dispatcher Pattern | Last Verified |
 |-----|-----------|----------------|----------|-----------------|-------------------|---------------|
-| Kdenlive | [dcc-mcp-kdenlive](https://github.com/dcc-mcp/dcc-mcp-kdenlive) | 0.1.0 | >=0.20.28,<1.0.0 | 26.08.1 verified | Copy-on-write MLT project tools, core async render jobs, shared DCC-CUA UI Control | 2026-09 |
+| Kdenlive | [dcc-mcp-kdenlive](https://github.com/dcc-mcp/dcc-mcp-kdenlive) | 0.1.2 | >=0.20.28,<1.0.0 | 26.08.1 verified | Copy-on-write MLT project tools, core async render jobs, shared DCC-CUA UI Control | 2026-09 |
 | Maya | [dcc-mcp-maya](https://github.com/dcc-mcp/dcc-mcp-maya) | 0.9.22 | >=0.19.45,<1.0.0 | 2024+ | Qt sidecar + HostUiDispatcherBase | 2026-08 |
 | Marmoset Toolbag | [dcc-mcp-marmoset](https://github.com/dcc-mcp/dcc-mcp-marmoset) | 0.1.1 | >=0.19.86,<1.0.0 | 4.03+ | External sidecar + Toolbag periodic callback | 2026-07 |
 | OpenSCAD | [dcc-mcp-openscad](https://github.com/dcc-mcp/dcc-mcp-openscad) | 0.2.1 | >=0.20.36,<1.0.0 | 2021.01+ | External OpenSCAD CLI subprocess | 2026-08 |
@@ -59,9 +59,9 @@ drops both bounds.
 | Krita | [dcc-mcp-krita](https://github.com/dcc-mcp/dcc-mcp-krita) | 0.3.0 | >=0.19.38,<1.0.0 | — | Authenticated JSON-lines bridge + UI main-thread queue | — |
 | SketchUp | [dcc-mcp-sketchup](https://github.com/dcc-mcp/dcc-mcp-sketchup) | 0.2.0 | >=0.20.36,<1.0.0 | 2021+ | Authenticated Ruby main-thread bridge + sidecar | 2026-08 |
 | TouchDesigner | [dcc-mcp-touchdesigner](https://github.com/dcc-mcp/dcc-mcp-touchdesigner) | 0.1.1 | >=0.19.91,<1.0.0 | 2025 official build | 19 typed operator graph, parameter, DAT, timeline, capture, and project tools through the in-process HTTP runtime + `td.run()` main-thread dispatcher | 2026-08 |
-| Tiled | [dcc-mcp-tiled](https://github.com/dcc-mcp/dcc-mcp-tiled) | 0.3.0 | >=0.19.38,<1.0.0 | 1.10+ | Standalone service + fixed JavaScript driver through `tiled --evaluate` | 2026-08 |
+| Tiled | [dcc-mcp-tiled](https://github.com/dcc-mcp/dcc-mcp-tiled) | 0.5.1 | >=0.20.14,<1.0.0 | 1.10+ | Standalone service + fixed JavaScript driver through `tiled --evaluate` | 2026-08 |
 | Material Maker | [dcc-mcp-material-maker](https://github.com/dcc-mcp/dcc-mcp-material-maker) | 0.3.1 | >=0.19.38,<1.0.0 | 1.7 | Standalone `.ptex` parser + native CLI exporter | 2026-08 |
-| Wwise | [dcc-mcp-wwise](https://github.com/dcc-mcp/dcc-mcp-wwise) | 0.1.2 | >=0.19.86,<1.0.0 | 2024.1+ | External WAAPI client + host PID binding | 2026-08 |
+| Wwise | [dcc-mcp-wwise](https://github.com/dcc-mcp/dcc-mcp-wwise) | 0.1.6 | >=0.20.14,<1.0.0 | 2024.1+ | External WAAPI client + host PID binding | 2026-08 |
 | Katana | [dcc-mcp-katana](https://github.com/dcc-mcp/dcc-mcp-katana) | 0.4.0 | >=0.19.45,<1.0.0 | — | Host main-thread dispatcher | — |
 | MotionBuilder | [dcc-mcp-mobu](https://github.com/dcc-mcp/dcc-mcp-mobu) | 0.3.0 | >=0.19.45,<1.0.0 | — | Host main-thread dispatcher | — |
 | RenderDoc | [dcc-mcp-renderdoc](https://github.com/dcc-mcp/dcc-mcp-renderdoc) | 0.3.0 | >=0.19.45,<1.0.0 | — | Headless CLI adapter | 2026-07 |
@@ -71,9 +71,17 @@ drops both bounds.
 | Godot | [dcc-mcp-godot](https://github.com/dcc-mcp/dcc-mcp-godot) | 0.4.0 | >=0.19.45,<1.0.0 | 4.x | EditorPlugin + runtime bridge | 2026-07 |
 | Unity | [dcc-mcp-unity](https://github.com/dcc-mcp/dcc-mcp-unity) | 0.11.2 | >=0.19.45,<1.0.0 | 2018.4.36f1+ | EditorApplication.update + WebSocket bridge | — |
 | OpenUSD | [dcc-mcp-openusd](https://github.com/dcc-mcp/dcc-mcp-openusd) | 0.8.1 | >=0.19.45,<1.0.0 | — | Headless USD stage adapter | 2026-07 |
+| PowerPoint | [dcc-mcp-PowerPoint](https://github.com/dcc-mcp/dcc-mcp-PowerPoint) | 0.2.3 | >=0.18.2,<1.0.0 | — | Deck IR → Open XML compile → COM render | — |
+| AutoCAD | [dcc-mcp-autocad](https://github.com/dcc-mcp/dcc-mcp-autocad) | 0.1.2 | >=0.20.36,<1.0.0 | — | Interactive COM or headless `accoreconsole` | — |
+| CapCut | [dcc-mcp-capcut](https://github.com/dcc-mcp/dcc-mcp-capcut) | 0.5.0 | >=0.19.90,<1.0.0 | — | Typed local bridge for edit plans, timelines and exports | — |
+| Epic Games Launcher | [dcc-mcp-epic](https://github.com/dcc-mcp/dcc-mcp-epic) | 0.2.1 | >=0.20.14,<1.0.0 | — | Engine, project and local asset library inspection; engine install is plan-only | — |
+| Gaea | [dcc-mcp-gaea](https://github.com/dcc-mcp/dcc-mcp-gaea) | 0.1.1 | >=0.20.23,<1.0.0 | — | Terrain build planning and height/weight-map output verification | — |
+| OpenScreen | [dcc-mcp-openscreen](https://github.com/dcc-mcp/dcc-mcp-openscreen) | 0.1.1 | >=0.20.14,<1.0.0 | — | Typed CLI capture, recording and video export operations | — |
+| SpeedTree | [dcc-mcp-speedtree](https://github.com/dcc-mcp/dcc-mcp-speedtree) | 0.1.1 | >=0.20.22,<1.0.0 | — | Experimental native generator graph editing + licensed Modeler CLI | — |
+| Tracy | [dcc-mcp-tracy](https://github.com/dcc-mcp/dcc-mcp-tracy) | 0.2.5 | >=0.19.38,<1.0.0 | — | Instrumented capture, trace CSV export and zone timing analysis | — |
 | Custom Studio Tool | _(your repo here)_ | _your version_ | _your pin_ | _your min_ | _your pattern_ | _date_ |
 
-Tiled, Material Maker, and Wwise remain discoverable source projects, but the
+Material Maker, Excel, and Word remain discoverable source projects, but the
 bundled catalog omits automatic install metadata until each project publishes a
 wheel that can be pinned by URL and SHA-256. LiquiGen is pinned to its immutable
 PyPI wheel published through the repository's GitHub Actions trusted publisher;

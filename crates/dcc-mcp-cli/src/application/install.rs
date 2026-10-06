@@ -897,7 +897,7 @@ mod tests {
         let catalog = service.dcc_types(None).unwrap();
 
         assert!(catalog.custom_types_supported);
-        assert_eq!(catalog.dcc_types.len(), 38);
+        assert_eq!(catalog.dcc_types.len(), 47);
         for alias in ["after effects", "after-effects", "comfy-ui"] {
             assert!(
                 catalog

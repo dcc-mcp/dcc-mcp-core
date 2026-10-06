@@ -1834,7 +1834,7 @@ fn dcc_types_lists_release_catalog_without_a_gateway() {
 
     assert_eq!(value["custom_types_supported"], true);
     let types = value["dcc_types"].as_array().unwrap();
-    assert_eq!(types.len(), 38);
+    assert_eq!(types.len(), 47);
     for expected in [
         "aftereffects",
         "c4d",
