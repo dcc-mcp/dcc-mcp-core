@@ -1,6 +1,6 @@
 {
   "source": "dcc-mcp-catalog.yml",
-  "adapter_count": 40,
+  "adapter_count": 47,
   "entries": [
     {
       "name": "dcc-mcp-kdenlive",
@@ -8,7 +8,7 @@
         "kdenlive"
       ],
       "url": "https://github.com/dcc-mcp/dcc-mcp-kdenlive",
-      "version": "0.1.0",
+      "version": "0.1.2",
       "pip_package": "dcc-mcp-kdenlive",
       "pointer": true,
       "registry": "pending",
@@ -20,11 +20,11 @@
         "powerpoint"
       ],
       "url": "https://github.com/dcc-mcp/dcc-mcp-PowerPoint",
-      "version": "0.1.0",
-      "pip_package": null,
+      "version": "0.2.3",
+      "pip_package": "dcc-mcp-powerpoint",
       "pointer": true,
-      "registry": "deferred",
-      "blocker": "catalog has no `install:` block; the repository ships a real distribution, so registration waits on catalog install metadata, not on packaging work"
+      "registry": "pending",
+      "blocker": "registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first"
     },
     {
       "name": "dcc-mcp-maya",
@@ -411,11 +411,11 @@
         "tiled"
       ],
       "url": "https://github.com/dcc-mcp/dcc-mcp-tiled",
-      "version": "0.3.0",
-      "pip_package": null,
+      "version": "0.5.1",
+      "pip_package": "dcc-mcp-tiled",
       "pointer": true,
-      "registry": "deferred",
-      "blocker": "catalog has no `install:` block; the repository ships a real distribution, so registration waits on catalog install metadata, not on packaging work"
+      "registry": "pending",
+      "blocker": "registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first"
     },
     {
       "name": "dcc-mcp-material-maker",
@@ -435,11 +435,11 @@
         "wwise"
       ],
       "url": "https://github.com/dcc-mcp/dcc-mcp-wwise",
-      "version": "0.1.2",
-      "pip_package": null,
+      "version": "0.1.6",
+      "pip_package": "dcc-mcp-wwise",
       "pointer": true,
-      "registry": "deferred",
-      "blocker": "catalog has no `install:` block; the repository ships a real distribution, so registration waits on catalog install metadata, not on packaging work"
+      "registry": "pending",
+      "blocker": "registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first"
     },
     {
       "name": "dcc-mcp-excel",
@@ -485,6 +485,91 @@
       "url": "https://github.com/dcc-mcp/dcc-mcp-openusd",
       "version": "0.8.1",
       "pip_package": "dcc-mcp-openusd",
+      "pointer": true,
+      "registry": "pending",
+      "blocker": "registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first"
+    },
+    {
+      "name": "dcc-mcp-autocad",
+      "dcc": [
+        "autocad"
+      ],
+      "url": "https://github.com/dcc-mcp/dcc-mcp-autocad",
+      "version": "0.1.2",
+      "pip_package": "dcc-mcp-autocad",
+      "pointer": true,
+      "registry": "pending",
+      "blocker": "registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first"
+    },
+    {
+      "name": "dcc-mcp-capcut",
+      "dcc": [
+        "capcut"
+      ],
+      "url": "https://github.com/dcc-mcp/dcc-mcp-capcut",
+      "version": "0.5.0",
+      "pip_package": "dcc-mcp-capcut",
+      "pointer": true,
+      "registry": "pending",
+      "blocker": "registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first"
+    },
+    {
+      "name": "dcc-mcp-epic",
+      "dcc": [
+        "epic",
+        "unreal"
+      ],
+      "url": "https://github.com/dcc-mcp/dcc-mcp-epic",
+      "version": "0.2.1",
+      "pip_package": "dcc-mcp-epic",
+      "pointer": true,
+      "registry": "pending",
+      "blocker": "registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first"
+    },
+    {
+      "name": "dcc-mcp-gaea",
+      "dcc": [
+        "gaea"
+      ],
+      "url": "https://github.com/dcc-mcp/dcc-mcp-gaea",
+      "version": "0.1.1",
+      "pip_package": "dcc-mcp-gaea",
+      "pointer": true,
+      "registry": "pending",
+      "blocker": "registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first"
+    },
+    {
+      "name": "dcc-mcp-openscreen",
+      "dcc": [
+        "openscreen"
+      ],
+      "url": "https://github.com/dcc-mcp/dcc-mcp-openscreen",
+      "version": "0.1.1",
+      "pip_package": "dcc-mcp-openscreen",
+      "pointer": true,
+      "registry": "pending",
+      "blocker": "registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first"
+    },
+    {
+      "name": "dcc-mcp-speedtree",
+      "dcc": [
+        "speedtree"
+      ],
+      "url": "https://github.com/dcc-mcp/dcc-mcp-speedtree",
+      "version": "0.1.1",
+      "pip_package": "dcc-mcp-speedtree",
+      "pointer": true,
+      "registry": "pending",
+      "blocker": "registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first"
+    },
+    {
+      "name": "dcc-mcp-tracy",
+      "dcc": [
+        "tracy"
+      ],
+      "url": "https://github.com/dcc-mcp/dcc-mcp-tracy",
+      "version": "0.2.5",
+      "pip_package": "dcc-mcp-tracy",
       "pointer": true,
       "registry": "pending",
       "blocker": "registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first"
