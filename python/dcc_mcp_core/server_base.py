@@ -49,6 +49,8 @@ from dcc_mcp_core._version_util import package_version
 from dcc_mcp_core.checkpoint import CheckpointStore
 from dcc_mcp_core.checkpoint import register_checkpoint_tools
 from dcc_mcp_core.checkpoint import resolve_checkpoint_path
+from dcc_mcp_core.deployment.core_bounds_runtime import core_requirement_skipped
+from dcc_mcp_core.deployment.core_bounds_runtime import run_startup_core_requirement_check
 from dcc_mcp_core.feedback import FeedbackStore
 from dcc_mcp_core.feedback import feedback_store_path
 from dcc_mcp_core.script_execution import ScriptExecutionContext
@@ -195,6 +197,15 @@ class DccServerBase:
             options,
             package_version=startup_version,
             version_provider=self._version_string,
+        )
+
+        # Core requirement: the adapter's declared range vs the core that is
+        # actually running. Off by default to a warning so a mismatch never
+        # aborts a live DCC session; `DCC_MCP_CORE_REQUIREMENT_ENFORCE=1`
+        # makes it fatal. See `_run_core_requirement_check`.
+        self._core_requirement_check: Any = self._run_core_requirement_check(
+            options.sidecar.adapter_distribution,
+            startup_version,
         )
 
         # --- Job persistence -----------------------------------------------------
@@ -899,6 +910,15 @@ class DccServerBase:
             logger.debug("[%s] version report unavailable: %s", self._dcc_name, exc)
             return {}
 
+    @property
+    def core_requirement_check(self) -> Any:
+        """The startup core requirement check, or ``None`` when it did not run.
+
+        Lets diagnostics quote the adapter's declared range alongside the core
+        version that was actually running.
+        """
+        return self.__dict__.get("_core_requirement_check")
+
     def _run_version_self_check(self) -> dict[str, Any]:
         """Log the running version once and warn when the metadata disagrees.
 
@@ -920,6 +940,31 @@ class DccServerBase:
             # Never block startup on diagnostics.
             logger.debug("[%s] version self-check skipped: %s", self._dcc_name, exc)
             return {}
+
+    def _run_core_requirement_check(self, adapter: str | None, startup_version: str) -> Any:
+        """Compare the adapter's declared core range against the running core.
+
+        A package environment can override the adapter's bounded requirement
+        with an "any 0.x" request, and imports keep working either way — so the
+        original break surfaced several modules deep with no version number.
+        Out-of-range is a warning by default (raising would take down a live DCC
+        session); ``DCC_MCP_CORE_REQUIREMENT_ENFORCE=1`` makes it fatal. See
+        :mod:`dcc_mcp_core.deployment.core_bounds_runtime`.
+        """
+        if not adapter:
+            # Short-circuit: `installed_core_requirement` would scan every
+            # `sys.path` entry for a name that was never supplied.
+            return core_requirement_skipped("", startup_version)
+        try:
+            return run_startup_core_requirement_check(adapter, startup_version, logger)
+        except RuntimeError:
+            # Enforcement is on and the combination is out of range: this is the
+            # one deliberate failure path, so surface it unchanged.
+            raise
+        except Exception as exc:
+            # Never block startup on diagnostics.
+            logger.debug("[%s] core requirement check skipped: %s", self._dcc_name, exc)
+            return None
 
     # --- DCC version hook (override in subclass) --------------------------------
 

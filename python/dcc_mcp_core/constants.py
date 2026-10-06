@@ -94,6 +94,11 @@ ENV_USER_SKILL_PATHS: str = "DCC_MCP_USER_SKILL_PATHS"
 # Opt out of the startup version drift self-check (``_version_check``). Set to
 # a falsy value to keep the startup log quiet; drift then stays silent.
 ENV_VERSION_CHECK: str = "DCC_MCP_CORE_VERSION_CHECK"
+# Promote the startup core-requirement check from a warning to a hard failure.
+# The check compares the range an adapter declares on `dcc-mcp-core` against
+# the core that is actually running; the default (`0`) only warns so a
+# mismatch never blocks an artist inside a live DCC session.
+ENV_CORE_REQUIREMENT_ENFORCE: str = "DCC_MCP_CORE_REQUIREMENT_ENFORCE"
 
 # ── SKILL.md metadata keys (per agentskills.io spec) ────────────────────────
 # All extension keys must live under ``metadata.dcc-mcp.<feature>``.
@@ -145,6 +150,7 @@ __all__ = [
     "ENV_CHECKPOINT_IN_MEMORY",
     "ENV_CONTEXT_BUNDLE",
     "ENV_CONTEXT_KIND",
+    "ENV_CORE_REQUIREMENT_ENFORCE",
     "ENV_CORE_VERSION",
     "ENV_CUA_ALLOW_RAW_INPUT",
     "ENV_CUA_BINARY",

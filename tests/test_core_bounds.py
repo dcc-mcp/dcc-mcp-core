@@ -249,3 +249,131 @@ def test_installed_core_requirement_reads_dist_info_metadata(tmp_path, monkeypat
     monkeypatch.setattr(core_bounds, "_read_metadata", core_bounds._scan_dist_info_metadata)
     assert core_bounds.installed_core_requirement("dcc-mcp-maya") == "dcc-mcp-core>=0.19.3,<0.19.5"
     assert core_bounds.installed_core_requirement("dcc-mcp-blender") is None
+
+
+@pytest.mark.parametrize(
+    "requirement",
+    [
+        "dcc_mcp_core-0",
+        "dcc_mcp_core-0.20",
+        "dcc_mcp_core-0.19.3..0.20.0",
+        "dcc-mcp-core>=0.19.3,<0.19.5",
+        "dcc-mcp-core==0.20.28",
+        "dcc-mcp-core[server] (>=0.20.0,<0.21.0); python_version >= '3.8'",
+    ],
+)
+def test_metadata_lookup_recognises_every_core_declaration_form(requirement, tmp_path, monkeypatch):
+    """A package-environment request must be recognised, not skipped.
+
+    ``_names_core`` used to split the declaration on ``-``, which turns the
+    ``dcc_mcp_core-0`` form — the exact request behind the reported incident —
+    into ``dcc``. The lookup then silently returned ``None`` and the startup
+    check reported "no declaration" for an adapter that had declared one.
+    """
+    dist_info = tmp_path / "dcc-mcp-maya-0.9.4.dist-info"
+    dist_info.mkdir()
+    (dist_info / "METADATA").write_text(
+        f"Metadata-Version: 2.1\nName: dcc-mcp-maya\nVersion: 0.9.4\nRequires-Dist: {requirement}\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(sys, "path", [str(tmp_path)])
+    monkeypatch.setattr(core_bounds, "_read_metadata", core_bounds._scan_dist_info_metadata)
+
+    assert core_bounds.installed_core_requirement("dcc-mcp-maya") == requirement
+
+
+@pytest.mark.parametrize(
+    "requirement",
+    [
+        "pyside6>=6.5",
+        # An adapter's own request keeps its dashed name; it is not core.
+        "dcc-mcp-maya-0.9.4",
+    ],
+)
+def test_metadata_lookup_ignores_unrelated_requirements(requirement, tmp_path, monkeypatch):
+    dist_info = tmp_path / "dcc-mcp-maya-0.9.4.dist-info"
+    dist_info.mkdir()
+    (dist_info / "METADATA").write_text(
+        f"Metadata-Version: 2.1\nName: dcc-mcp-maya\nVersion: 0.9.4\nRequires-Dist: {requirement}\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(sys, "path", [str(tmp_path)])
+    monkeypatch.setattr(core_bounds, "_read_metadata", core_bounds._scan_dist_info_metadata)
+
+    assert core_bounds.installed_core_requirement("dcc-mcp-maya") is None
+
+
+# ── package-environment token ─────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "declaration, expected",
+    [
+        (">=0.19.3,<0.19.5", "dcc_mcp_core-0.19.3..0.19.5"),
+        ("dcc-mcp-core>=0.19.3,<0.19.5", "dcc_mcp_core-0.19.3..0.19.5"),
+        (">=0.20.14,<0.21.0", "dcc_mcp_core-0.20.14..0.21.0"),
+        # `~=0.19.3` widens to the whole minor line, and the token says so.
+        ("~=0.19.3", "dcc_mcp_core-0.19.3..0.20.0"),
+        ("dcc_mcp_core-0.19.3..0.19.5", "dcc_mcp_core-0.19.3..0.19.5"),
+        ("dcc_mcp_core-0.20", "dcc_mcp_core-0.20.0..0.21.0"),
+        # "any 0.x" is exactly the request the incident was written in.
+        ("dcc_mcp_core-0", "dcc_mcp_core-0.0.0..1.0.0"),
+    ],
+)
+def test_derives_package_environment_token(declaration, expected):
+    assert core_bounds.to_package_environment(declaration) == expected
+
+
+@pytest.mark.parametrize(
+    "declaration",
+    [
+        ">=0.19.3,<0.19.5",
+        "dcc-mcp-core>=0.19.3,<0.19.5",
+        ">=0.20.14,<0.21.0",
+        "~=0.19.3",
+        "dcc_mcp_core-0.19.3..0.19.5",
+        "dcc_mcp_core-0.20",
+        "dcc_mcp_core-0",
+    ],
+)
+def test_package_environment_token_round_trips(declaration):
+    """`parse_requirement(to_package_environment(r))` must judge `r` identically."""
+    requirement = core_bounds.parse_requirement(declaration)
+    token = core_bounds.to_package_environment(declaration)
+    assert core_bounds.parse_requirement(token) == requirement
+    # The two forms must also agree under the contract, not just as objects.
+    core = core_bounds.CoreVersion.parse("0.19.4")
+    assert core_bounds.parse_requirement(token).contains(core) is requirement.contains(core)
+
+
+@pytest.mark.parametrize(
+    "declaration",
+    [
+        # An inclusive ceiling (`<=`) would have to be widened to the next
+        # release to fit `lower..upper`, so it is refused rather than relaxed.
+        "dcc-mcp-core==0.20.28",
+        ">=0.19.3,<=0.20.28",
+        # A range with only one bound is not a range token.
+        "<1.0.0",
+        ">=0.19.3",
+        "",
+    ],
+)
+def test_package_environment_token_refuses_unrepresentable_ranges(declaration):
+    assert core_bounds.to_package_environment(declaration) == ""
+    with pytest.raises(ValueError):
+        core_bounds.parse_requirement(declaration).to_package_environment()
+
+
+def test_package_environment_token_matches_contract_suggestion():
+    """The token must agree with the range `evaluate()` already recommends."""
+    report = core_bounds.evaluate("<1.0.0")
+    # `<1.0.0` has no lower bound, so there is nothing to narrow and no token.
+    assert report["suggestion"] is None
+    assert core_bounds.to_package_environment("<1.0.0") == ""
+
+    report = core_bounds.evaluate(">=0.19.3,<1.0.0")
+    assert report["suggestion"] == ">=0.19.3,<0.20.0"
+    suggested = core_bounds.to_package_environment(report["suggestion"])
+    assert suggested == "dcc_mcp_core-0.19.3..0.20.0"
+    assert core_bounds.parse_requirement(suggested).to_spec() == report["suggestion"]
