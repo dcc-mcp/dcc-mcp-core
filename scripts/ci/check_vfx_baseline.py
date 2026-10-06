@@ -54,6 +54,14 @@ class BaselineError(RuntimeError):
     """Raised when the baseline file or a declaration is unusable."""
 
 
+class UnresolvableSpecifier(RuntimeError):
+    """Raised when a requirement operand cannot be reduced to version bounds."""
+
+    def __init__(self, operands: list[str]):
+        self.operands = operands
+        super().__init__(f"cannot reduce specifier operand(s) to version bounds: {', '.join(operands)}")
+
+
 def repository_root() -> Path:
     """Return the repository root inferred from this file's location."""
     return Path(__file__).resolve().parent.parent.parent
@@ -152,6 +160,30 @@ def _compatible_release_upper(version: Version) -> Version:
     return Version(".".join(str(part) for part in prefix))
 
 
+def _wildcard_bounds(raw: str) -> tuple[tuple[Version, bool], tuple[Version, bool]] | None:
+    """Expand a PEP 440 wildcard ``==X.*`` / ``==X.Y.*`` into real bounds.
+
+    ``==1.*`` admits ``[1.0, 2.0)`` and ``==2.3.*`` admits ``[2.3.0, 2.4.0)``:
+    fill the dropped trailing segments with zeros for the floor, then bump the
+    last retained segment for the exclusive ceiling.
+
+    Returns ``None`` when the operand is not a wildcard, so the caller can fall
+    through to the ordinary ``Version`` path.
+    """
+    stripped = raw.rstrip()
+    if not stripped.endswith(".*"):
+        return None
+    kept = [part.strip() for part in stripped[:-2].split(".")]
+    if not kept or any(not part.isdigit() for part in kept):
+        return None
+    kept_ints = [int(part) for part in kept]
+    floor = Version(".".join(str(part) for part in kept_ints + [0] * (3 - len(kept_ints))))
+    bumped = list(kept_ints)
+    bumped[-1] += 1
+    ceiling = Version(".".join(str(part) for part in bumped + [0] * (3 - len(bumped))))
+    return (floor, True), (ceiling, False)
+
+
 def _version_bounds(specifier: SpecifierSet) -> tuple[tuple[Version, bool] | None, tuple[Version, bool] | None]:
     """Reduce a specifier set to (lower, upper) bounds.
 
@@ -161,9 +193,16 @@ def _version_bounds(specifier: SpecifierSet) -> tuple[tuple[Version, bool] | Non
     ``!=`` is deliberately ignored: a single excluded version almost never
     removes an otherwise valid overlap, and honouring it would require union
     arithmetic for no practical benefit here.
+
+    A version the reducer cannot interpret -- an epoch, a local label, a
+    non-numeric wildcard -- is reported as unresolvable rather than skipped.
+    Silently dropping an operand would leave the requirement unbounded, and an
+    unbounded requirement overlaps every tier, which turns a real drift into a
+    quiet pass.
     """
     lower: tuple[Version, bool] | None = None
     upper: tuple[Version, bool] | None = None
+    unresolvable: list[str] = []
 
     def raise_lower(candidate: tuple[Version, bool]) -> None:
         nonlocal lower
@@ -179,9 +218,15 @@ def _version_bounds(specifier: SpecifierSet) -> tuple[tuple[Version, bool] | Non
         operand = spec.operator
         raw = spec.version
         if operand in ("==", "===", "~=", ">=", ">", "<=", "<"):
+            wildcard = _wildcard_bounds(raw) if operand in ("==", "===") else None
+            if wildcard is not None:
+                raise_lower(wildcard[0])
+                lower_upper(wildcard[1])
+                continue
             try:
                 version = Version(raw)
-            except InvalidVersion:  # pragma: no cover - defensive
+            except InvalidVersion:
+                unresolvable.append(f"{operand}{raw}")
                 continue
         if operand == "==" or operand == "===":
             raise_lower((version, True))
@@ -197,6 +242,9 @@ def _version_bounds(specifier: SpecifierSet) -> tuple[tuple[Version, bool] | Non
             lower_upper((version, True))
         elif operand == "<":
             lower_upper((version, False))
+
+    if unresolvable:
+        raise UnresolvableSpecifier(unresolvable)
     return lower, upper
 
 
@@ -226,6 +274,10 @@ def check_requirement(req: Requirement, component: dict[str, Any], tier_name: st
     pin such as ``numpy==2.3.2`` is valid inside the CY2026 ``2.3.x`` tier even
     though it does not contain that tier's floor, and ``pyside2==5.15.2`` is
     valid below the py37 ceiling of ``5.15.2.1``.
+
+    A specifier the reducer cannot interpret fails closed instead of being
+    treated as unbounded, because an unbounded requirement would overlap every
+    tier and let a real drift through.
     """
     floor = _parse_bound(component.get("floor"))
     ceiling = _parse_bound(component.get("ceiling"))
@@ -236,7 +288,16 @@ def check_requirement(req: Requirement, component: dict[str, Any], tier_name: st
     tier_upper = (ceiling, True) if ceiling is not None else None
     expected = component.get("specifier")
 
-    if _ranges_overlap(_version_bounds(req.specifier), (tier_lower, tier_upper)):
+    try:
+        requirement_bounds = _version_bounds(req.specifier)
+    except UnresolvableSpecifier as exc:
+        return [
+            f"'{req}' cannot be checked against the {tier_name} range "
+            f"{expected or component.get('specifier')}: {exc}. "
+            f"Restate it with plain numeric bounds so the gate can verify it."
+        ]
+
+    if _ranges_overlap(requirement_bounds, (tier_lower, tier_upper)):
         return []
 
     # Build the message from the shape of the tier so it names a real range.
