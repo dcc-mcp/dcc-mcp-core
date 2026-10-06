@@ -263,3 +263,56 @@ def test_component_index_maps_only_tracked_distributions(baseline):
     index = component_index(baseline["tiers"]["CY2026"])
     assert index
     assert all(isinstance(key, str) for key in index)
+
+
+# -- wildcard specifiers ----------------------------------------------------
+
+
+def test_wildcard_outside_the_tier_fails(baseline):
+    """``==1.*`` on a CY2026 numpy tier must fail, not pass silently.
+
+    Version('1.*') raises InvalidVersion; the reducer used to drop such an
+    operand, leaving the requirement unbounded, and an unbounded requirement
+    overlaps every tier. That turned a real drift into a quiet pass.
+    """
+    _, body = first_pypi_component(baseline, "CY2026", with_floor=True)
+    floor_major = body["floor"].split(".")[0]
+    errors, _ = evaluate(declare("CY2026", dependencies=[f"{body['pypi']}==1.*"]), baseline)
+    assert errors, f"wildcard below the CY2026 floor {floor_major}.x passed"
+    assert any("CY2026" in e for e in errors)
+
+
+def test_wildcard_outside_a_ceiling_only_tier_fails(baseline):
+    """The py37 tier is ceiling-only; ``==2.*`` drifts past numpy 1.21.6."""
+    _, body = first_pypi_component(baseline, "py37", with_floor=False)
+    ceiling_major = body["ceiling"].split(".")[0]
+    errors, _ = evaluate(declare("py37", dependencies=[f"{body['pypi']}=={int(ceiling_major) + 1}.*"]), baseline)
+    assert errors, f"wildcard above the py37 ceiling {body['ceiling']} passed"
+
+
+def test_wildcard_inside_the_tier_passes(baseline):
+    """``==2.3.*`` is the CY2026 tier expressed as a wildcard and must stay valid."""
+    _, body = first_pypi_component(baseline, "CY2026", with_floor=True)
+    minor = ".".join(body["floor"].split(".")[:2])
+    errors, _ = evaluate(declare("CY2026", dependencies=[f"{body['pypi']}=={minor}.*"]), baseline)
+    assert not errors, errors
+
+
+def test_major_only_wildcard_overlapping_the_tier_passes(baseline):
+    """``==2.*`` spans 2.0-3.0, which overlaps the CY2026 2.3.x range."""
+    _, body = first_pypi_component(baseline, "CY2026", with_floor=True)
+    errors, _ = evaluate(declare("CY2026", dependencies=[f"{body['pypi']}=={body['floor'].split('.')[0]}.*"]), baseline)
+    assert not errors, errors
+
+
+def test_unresolvable_specifier_fails_closed(baseline):
+    """An operand the reducer cannot interpret must fail, never skip.
+
+    Failing closed is what keeps the gate a gate: an unparseable operand that
+    were dropped would leave the requirement unbounded and let drift through.
+    """
+    _, body = first_pypi_component(baseline, "CY2026", with_floor=True)
+    # 'v1.*' parses as a requirement but carries no numeric version to reduce.
+    errors, _ = evaluate(declare("CY2026", dependencies=[f"{body['pypi']}==v1.*"]), baseline)
+    assert errors, "an unresolvable specifier passed instead of failing closed"
+    assert any("cannot be checked" in e for e in errors)
