@@ -20,6 +20,7 @@ WORKFLOW = REPO_ROOT / ".github" / "workflows" / "publish-mcp-registry.yml"
 
 
 def _response(version, name=SERVER_NAME):
+    """Build a registry detail response that also models historical backfills."""
     return {
         "server": {"name": name, "version": version},
         "_meta": {"io.modelcontextprotocol.registry/official": {"isLatest": False}},
@@ -27,6 +28,7 @@ def _response(version, name=SERVER_NAME):
 
 
 def _confirm(tmp_path, responses, version="0.20.42"):
+    """Run the real confirmation shell against bounded, offline curl fixtures."""
     bash = shutil.which("bash")
     if os.name == "nt" or bash is None:
         pytest.skip("the registry workflow executes on an Ubuntu bash runner")
@@ -67,11 +69,13 @@ def _confirm(tmp_path, responses, version="0.20.42"):
 
 
 def _body(payload):
+    """Encode a registry payload as the fixture HTTP response body."""
     return {"body": json.dumps(payload)}
 
 
 @pytest.mark.parametrize("version", ["0.20.42", "0.20.40", "0.20.42-rc.1+build.2"])
 def test_confirmation_queries_exact_version_including_backfills(tmp_path, version):
+    """Accept exact identities and encode path components for current or older versions."""
     result, requests, summary = _confirm(tmp_path, [_body(_response(version))], version)
     assert result.returncode == 0, result.stderr
     assert len(requests) == 1
@@ -105,6 +109,7 @@ def test_confirmation_queries_exact_version_including_backfills(tmp_path, versio
     ],
 )
 def test_confirmation_rejects_unverified_responses_after_bounded_retries(tmp_path, payload):
+    """Reject mismatched or malformed identities without announcing publication success."""
     result, requests, summary = _confirm(tmp_path, [_body(payload)])
     assert result.returncode == 1
     assert len(requests) == 10
@@ -114,6 +119,7 @@ def test_confirmation_rejects_unverified_responses_after_bounded_retries(tmp_pat
 
 
 def test_confirmation_recovers_after_stale_response_http_failure_and_invalid_json(tmp_path):
+    """Retry transient failures until the requested server version can be verified."""
     responses = [
         _body(_response("0.20.41")),
         {"exit_code": 22},
@@ -128,6 +134,7 @@ def test_confirmation_recovers_after_stale_response_http_failure_and_invalid_jso
 
 
 def test_curl_failure_cannot_be_masked_by_a_matching_body(tmp_path):
+    """Preserve pipefail when curl fails despite returning a matching JSON body."""
     response = _body(_response("0.20.42"))
     response["exit_code"] = 22
     result, requests, summary = _confirm(tmp_path, [response])
@@ -138,6 +145,7 @@ def test_curl_failure_cannot_be_masked_by_a_matching_body(tmp_path):
 
 @pytest.mark.parametrize("port", [None, "19765"])
 def test_package_transport_uses_the_resolved_gateway_port(port):
+    """Resolve the client endpoint from the same default or overridden package port."""
     metadata = json.loads((REPO_ROOT / "server.json").read_text(encoding="utf-8"))
     package = metadata["packages"][0]
     environment = {item["name"]: item["default"] for item in package["environmentVariables"]}
