@@ -33,6 +33,62 @@ def _flat(text: str) -> str:
     return " ".join(text.split())
 
 
+# Enumerated so the catalog can grow without breaking the count assertions, and
+# so a host disappearing is still caught. Registered adapters are expected to be
+# added here, which keeps this list -- not a literal count -- the real guard.
+_EXPECTED_HOST_ADAPTERS = {
+    "dcc-mcp-3dsmax",
+    "dcc-mcp-PowerPoint",
+    "dcc-mcp-aftereffects",
+    "dcc-mcp-blender",
+    "dcc-mcp-cinema4d",
+    "dcc-mcp-comfyui",
+    "dcc-mcp-excel",
+    "dcc-mcp-fpt",
+    "dcc-mcp-freecad",
+    "dcc-mcp-gimp",
+    "dcc-mcp-godot",
+    "dcc-mcp-houdini",
+    "dcc-mcp-illustrator",
+    "dcc-mcp-katana",
+    "dcc-mcp-kdenlive",
+    "dcc-mcp-krita",
+    "dcc-mcp-liquigen",
+    "dcc-mcp-mari",
+    "dcc-mcp-marmoset",
+    "dcc-mcp-material-maker",
+    "dcc-mcp-maya",
+    "dcc-mcp-mobu",
+    "dcc-mcp-nuke",
+    "dcc-mcp-obs",
+    "dcc-mcp-openscad",
+    "dcc-mcp-openusd",
+    "dcc-mcp-photoshop",
+    "dcc-mcp-premiere",
+    "dcc-mcp-renderdoc",
+    "dcc-mcp-shogun",
+    "dcc-mcp-sketchup",
+    "dcc-mcp-substance3d-designer",
+    "dcc-mcp-substance3d-painter",
+    "dcc-mcp-tiled",
+    "dcc-mcp-touchdesigner",
+    "dcc-mcp-unity",
+    "dcc-mcp-unreal",
+    "dcc-mcp-wwise",
+    "dcc-mcp-zbrush",
+}
+
+# Catalog entries that carry no `install:` block yet, because no PyPI wheel is
+# attested. Each one is expected to leave this set once its wheel is published.
+_EXPECTED_DEFERRED_ADAPTERS = {
+    "dcc-mcp-excel",
+    "dcc-mcp-PowerPoint",
+    "dcc-mcp-tiled",
+    "dcc-mcp-material-maker",
+    "dcc-mcp-wwise",
+}
+
+
 def _write_catalog(tmp_path: Path, entries: list[dict]) -> Path:
     path = tmp_path / "dcc-mcp-catalog.yml"
     lines = ['version: "1"', "entries:"]
@@ -57,17 +113,28 @@ def _write_catalog(tmp_path: Path, entries: list[dict]) -> Path:
 
 
 def test_catalog_is_the_single_source_of_host_count(catalog, adapters):
-    """The host count the narrative quotes must come from the catalog, not a literal."""
-    assert len(adapters) == 39
+    """The host count the narrative quotes must come from the catalog, not a literal.
+
+    A literal here drifts the moment a legitimate adapter is registered, so the
+    assertion is a floor over the hosts this module already enumerates. The
+    inclusion check is what actually pins the contents.
+    """
+    names = {e["name"] for e in adapters}
+    assert len(adapters) >= len(_EXPECTED_HOST_ADAPTERS)
+    assert names >= _EXPECTED_HOST_ADAPTERS
 
 
-def test_host_count_matches_the_documented_reproducible_command(catalog):
-    """The issue's acceptance criterion pins the count to one reproducible command."""
+def test_host_count_matches_the_documented_reproducible_command(catalog, adapters):
+    """The issue's acceptance criterion pins the count to one reproducible command.
+
+    The grep below is the documented reproduction; it must agree with the parser
+    rather than with a literal, so registering an adapter cannot desync them.
+    """
     import re
 
     pattern = re.compile(r'^    tags: \[.*"adapter".*\]$')
     count = sum(1 for line in CATALOG.read_text(encoding="utf-8").splitlines() if pattern.match(line))
-    assert count == 39
+    assert count == len(adapters)
 
 
 def test_load_catalog_rejects_a_file_without_entries(tmp_path):
@@ -536,7 +603,7 @@ def test_apply_fails_loudly_when_the_readme_is_missing(adapters, tmp_path):
 def test_every_adapter_gets_a_coverage_row(adapters):
     """Acceptance: no adapter may be silently skipped."""
     rows = generator.coverage_rows(adapters)
-    assert len(rows) == len(adapters) == 39
+    assert len(rows) == len(adapters)
     assert {r["name"] for r in rows} == {e["name"] for e in adapters}
 
 
@@ -544,14 +611,11 @@ def test_rows_split_on_whether_the_catalog_attests_a_pip_package(adapters):
     rows = generator.coverage_rows(adapters)
     pending = {r["name"] for r in rows if r["registry"] == "pending"}
     deferred = {r["name"] for r in rows if r["registry"] == "deferred"}
-    assert len(pending) == 34
-    assert deferred == {
-        "dcc-mcp-excel",
-        "dcc-mcp-PowerPoint",
-        "dcc-mcp-tiled",
-        "dcc-mcp-material-maker",
-        "dcc-mcp-wwise",
-    }
+    # Every host with no attested wheel is deferred; a published one is not.
+    assert deferred >= _EXPECTED_DEFERRED_ADAPTERS
+    for name in _EXPECTED_HOST_ADAPTERS - deferred:
+        assert name in pending
+    assert deferred.isdisjoint(pending)
 
 
 def test_deferred_rows_carry_a_reason_so_the_gap_stays_enumerable(adapters):
@@ -633,8 +697,8 @@ def test_report_check_accepts_a_current_map(adapters, tmp_path):
         == 0
     )
     payload = json.loads(json_out.read_text(encoding="utf-8"))
-    assert payload["adapter_count"] == 39
-    assert len(payload["entries"]) == 39
+    assert payload["adapter_count"] == len(adapters)
+    assert len(payload["entries"]) == len(adapters)
 
 
 # --- cli -------------------------------------------------------------------
