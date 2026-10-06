@@ -147,8 +147,9 @@ Core 以 detached 方式派生宿主，把 stdin/stdout/stderr 重定向到空�
 | `DCC_MCP_START_DCC_TYPE` | 归一化后的 DCC 类型 |
 
 **你的 adapter 必须把 `DCC_MCP_START_OPERATION_ID` 抄进自己的注册行。** 这是
-Core 把新注册的实例绑定回派生它的那个 operation 的唯一依据 —— 崩溃后 PID 会被
-复用，所以 operation ID 优先，PID 只是第二选择。
+Core 把新注册的实例绑定回派生它的那个 operation 的可靠依据。Core 也会回退到
+匹配派生出的 PID，但崩溃后 PID 会被复用，所以 operation ID 才是可靠路径，PID
+只是第二选择（见第 7 步）。
 
 `start-instance` 不会设置 `DCC_MCP_LAUNCH_ID`。该字段与 `role` 字段是
 RFC-0007 §3.2 既有的身份契约，已经提供了按 launch 分组以及区分宿主与 sidecar
@@ -180,9 +181,12 @@ Core 先在 `metadata` 里查找每个 key，再去 `extras`，因此对字符�
 | operation 绑定 | `dcc_mcp_operation_id`、`operation_id`、`dcc_mcp.operation_id` |
 | 项目绑定 | `dcc_mcp_project`、`project`、`dcc_mcp.project` |
 
-**两者都是承重的。** 复用、收敛和受保护的停止都靠它们匹配。一个两者都不写的
-adapter 会遇到「第二次相同的 `start-instance` 又启动了一个宿主」，因为 Core
-没有任何东西可以认出第一个。
+**两者都是承重的，但都不是严格必需的。** 复用、收敛和受保护的停止优先使用它们。
+Core 用三条彼此独立的路径把在线实例匹配到拥有方 operation —— operation ID、PID、
+项目绑定 —— 所以两个 key 都不写只去掉其中两条，而不是全部（见第 7 步）。丢掉的
+是可靠性，不是收敛能力：剩下的 PID 路径在操作系统回收 PID 后会误收敛到无关实例，
+并且当记录的可执行文件只是个派生真实宿主的 launcher、或 sidecar 行没写
+`host_pid` 时，这条路径根本匹配不到任何东西。两个 key 都写上，这些就都不成立。
 
 ### 原生窗口句柄
 
@@ -311,6 +315,16 @@ Core 会把你的 metadata 归类为一个终态，并始终附带一个非交�
 | `project_marker_missing` | 声明的 `project_markers` 某项不存在 | 否 | 确认该项目的确是这个 adapter 所安装的项目 |
 | `launch_failed` | 派生可执行文件失败 | 是 | 检查可执行文件路径与 OS 错误，然后重试 |
 
+上表里的「为真」指**精确命中一份固定白名单**，比较前会先 trim 再转小写：`1`、
+`true`、`yes`、`blocked`、`blocking`、`present`、`open`。其他任何值都是假，所以
+`restart_required: "on"`、`blocking_dialog: "2"`、`modal_dialog: "visible"` 都会
+静默落到 `none`，不会有任何「这个值没被识别」的提示。空值，以及任意大小写的
+`none`，会在比较之前被丢弃，同样视为缺失。
+
+`license_state` 与 `license_status` 是例外：它们不走这个白名单。只要不是
+`valid`、`ok`、`active`（不区分大小写比较）就归类为 `license`，因此
+`license_state: "on"` **确实**会报出授权问题。
+
 两个值得记住的细节：
 
 **`ambiguous_reuse` 刻意不可重试。** 它的恢复动作是让操作员停掉某个实例或传
@@ -318,10 +332,23 @@ Core 会把你的 metadata 归类为一个终态，并始终附带一个非交�
 诱导 agent 在一个不可能成功的请求上空转。其他标了 `retryable: true` 的状态，
 在人工清除底层条件后都可以原样重放。
 
-**自由文本只按整词匹配。** `failure_stage` 与 `failure_reason` 会按非字母数字
-字符切词，并按完整单词比较。`blocked` 和 `unlocked` **不会**被归类为项目锁，
-`lockfile` 也不会。`sidecar_bootstrap` 会命中，因为它被切成 `sidecar` 和
-`bootstrap`。诊断信息请用平实的词点明状况，不要依赖子串。
+**自由文本只按整词匹配，且只认一份固定关键词表。** `failure_stage` 与
+`failure_reason` 会被拼接后按非字母数字字符切词、转小写，再按完整单词匹配 ——
+从不做子串匹配。`blocked` 和 `unlocked` **不会**被归类为项目锁，`lockfile` 也
+不会。`sidecar_bootstrap` 会命中，因为它被切成 `sidecar` 和 `bootstrap`。
+
+完整关键词表，按此顺序判定 —— 先命中的组获胜：
+
+| 顺序 | 关键词 | 归类为 |
+|------|--------|--------|
+| 1 | `bootstrap`、`sidecar` | `adapter_bootstrap` |
+| 2 | `license`、`licence` | `license` |
+| 3 | `dialog`、`modal` | `modal_dialog` |
+| 4 | `lock`、`locks`、`locked`、`locking` | `project_lock` |
+| 5 | `restart`、`restarts`、`restarting` | `restart_required` |
+
+这五组之外的词一律忽略，所以「compilation is blocked」这样的诊断会归类为
+`none`。请用上表中的原词点明状况。
 
 结构化 key 先解释，然后才看自由文本。优先用结构化 key ——
 `license_state: "expired"` 胜过一段散文式的 `failure_reason`。
@@ -428,5 +455,8 @@ dcc-mcp-cli stop-instance --operation-id <operation-id>
    `{version}` 的路径会被展开两次。请避免这类路径。
 6. **宿主进度 key 永远不参与门禁。** 上报 `compiling: "true"` 既不延长超时，
    也不推迟终态报告。
-7. **operation ID 与项目都不写的 adapter 无法收敛。** 第二次相同的
-   `start-instance` 会再启动一个宿主。
+7. **operation ID 与项目都不写时，收敛退化为 PID 匹配。** 不是完全失效：Core
+   仍会把派生出的 PID 与注册行上的 `pid` 或 `host_pid` 比对。退化后的路径不可
+   靠 —— PID 被系统回收后会误收敛到无关实例；并且当记录的可执行文件只是个派生
+   真实宿主的 launcher、或 sidecar 行没写 `host_pid` 时，它匹配不到任何东西。
+   两个 key 都写上。
