@@ -608,6 +608,14 @@ jobs:
           - { os: macos-latest,   python-version: "3.8",  wheel_os: macos-latest }
           - { os: macos-latest,   python-version: "3.14", wheel_os: macos-latest }
     runs-on: ${{ matrix.os }}
+    # A ceiling on a lane, not a budget for slow tests: the slowest healthy
+    # lane (ubuntu/py3.14 with coverage) finishes in ~4 min, so 30 min is ~7x
+    # headroom. Without it the job inherits GitHub's 360 min default, so one
+    # deadlocked xdist worker burns six hours and is then cancelled with a log
+    # that names nothing (PR #2677, run 37394937182). This keeps the worst case
+    # a bounded failure; `faulthandler_timeout` in pyproject.toml is what names
+    # the test.
+    timeout-minutes: 30
     # id-token: write enables Codecov tokenless OIDC on the upload step below.
     permissions:
       contents: read

@@ -27,6 +27,63 @@ def _response(version, name=SERVER_NAME):
     }
 
 
+def _spawn_kwargs() -> dict:
+    """Spawn without a console window on Windows, per the org subprocess convention."""
+    if os.name == "nt":
+        return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
+    return {}
+
+
+def _terminate_tree(proc: subprocess.Popen) -> None:
+    """Kill the shell *and* the fixture processes it forked."""
+    if proc.poll() is not None:
+        return
+    if os.name == "nt":
+        # `taskkill /T` is the only portable way to reap grandchildren here:
+        # killing bash alone leaves the per-curl `python` fixture alive.
+        subprocess.run(
+            ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=10,
+            **_spawn_kwargs(),
+        )
+    else:
+        proc.kill()
+
+
+def _run_script(bash, script, env, tmp_path, timeout=15):
+    """Run the workflow body with file-backed output capture.
+
+    Deliberately not ``capture_output=True``: every ``curl`` call forks a
+    ``python`` fixture, and a grandchild that outlives ``bash`` keeps the pipe
+    write-end open, so ``communicate()`` can block past ``timeout``. Writing to
+    files keeps the wait bounded no matter what the grandchildren do, which is
+    what makes the 15s timeout actually mean something.
+    """
+    stdout_path = tmp_path / "stdout.log"
+    stderr_path = tmp_path / "stderr.log"
+    with stdout_path.open("w", encoding="utf-8", errors="replace") as out, stderr_path.open(
+        "w", encoding="utf-8", errors="replace"
+    ) as err:
+        proc = subprocess.Popen([bash, "-c", script], env=env, stdout=out, stderr=err, **_spawn_kwargs())
+        try:
+            returncode = proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            _terminate_tree(proc)
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                pass
+            returncode = 124
+    return subprocess.CompletedProcess(
+        proc.args,
+        returncode,
+        stdout_path.read_text(encoding="utf-8", errors="replace"),
+        stderr_path.read_text(encoding="utf-8", errors="replace"),
+    )
+
+
 def _confirm(tmp_path, responses, version="0.20.42"):
     """Run the real confirmation shell against bounded, offline curl fixtures."""
     bash = shutil.which("bash")
@@ -63,7 +120,7 @@ def _confirm(tmp_path, responses, version="0.20.42"):
     # Execute the real workflow body. Only curl and sleep are replaced; no
     # registry request, publication or authentication can occur in these tests.
     script = 'curl() { python "$FIXTURE_ROOT/curl.py" "$@"; }\nsleep() { :; }\n' + step["run"]
-    result = subprocess.run([bash, "-c", script], env=env, capture_output=True, text=True, timeout=15)
+    result = _run_script(bash, script, env, tmp_path)
     requests = json.loads((tmp_path / "requests.json").read_text(encoding="utf-8"))
     return result, requests, tmp_path / "summary.md"
 
