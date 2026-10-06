@@ -55,7 +55,7 @@ drops both bounds.
 | Premiere Pro | [dcc-mcp-premiere](https://github.com/dcc-mcp/dcc-mcp-premiere) | 0.5.0 | >=0.19.45,<1.0.0 | 25.6+ | UXP WebSocket bridge | — |
 | After Effects | [dcc-mcp-aftereffects](https://github.com/dcc-mcp/dcc-mcp-aftereffects) | 0.6.0 | >=0.19.91,<1.0.0 | — | Authenticated CEP bridge + broker | 2026-08 |
 | Illustrator | [dcc-mcp-illustrator](https://github.com/dcc-mcp/dcc-mcp-illustrator) | 0.2.0 | >=0.19.91,<1.0.0 | — | Authenticated CEP bridge + broker | 2026-08 |
-| GIMP | [dcc-mcp-gimp](https://github.com/dcc-mcp/dcc-mcp-gimp) | 0.3.0 | >=0.19.38,<1.0.0 | 3.0+ | Authenticated JSON-lines bridge + GLib main-thread dispatcher | — |
+| GIMP | [dcc-mcp-gimp](https://github.com/dcc-mcp/dcc-mcp-gimp) | 0.4.1 | >=0.19.91,<1.0.0 | 3.0+ | Authenticated JSON-lines bridge + GLib main-thread dispatcher | — |
 | Krita | [dcc-mcp-krita](https://github.com/dcc-mcp/dcc-mcp-krita) | 0.3.0 | >=0.19.38,<1.0.0 | — | Authenticated JSON-lines bridge + UI main-thread queue | — |
 | SketchUp | [dcc-mcp-sketchup](https://github.com/dcc-mcp/dcc-mcp-sketchup) | 0.2.0 | >=0.20.36,<1.0.0 | 2021+ | Authenticated Ruby main-thread bridge + sidecar | 2026-08 |
 | TouchDesigner | [dcc-mcp-touchdesigner](https://github.com/dcc-mcp/dcc-mcp-touchdesigner) | 0.1.1 | >=0.19.91,<1.0.0 | 2025 official build | 19 typed operator graph, parameter, DAT, timeline, capture, and project tools through the in-process HTTP runtime + `td.run()` main-thread dispatcher | 2026-08 |
