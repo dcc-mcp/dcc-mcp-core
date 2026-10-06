@@ -8,8 +8,12 @@ boxes and are not part of the set that must be ticked.
 
 ## 0. Pre-Release Preparation
 
-- [ ] Core dependency is pinned to `>=0.<latest_minor>.0,<1.0.0` in `pyproject.toml`.
+- [ ] Core dependency is pinned to `>=0.<latest_minor>.<patch>,<0.<latest_minor+1>.0`
+      in `pyproject.toml` — one core minor line, with an exclusive upper bound
+      (see [Adapter Core Version Contract](adapter-core-version-contract.md)).
       Use the latest *released* minor version of `dcc-mcp-core`, not `main`.
+      `dcc-mcp-core` is `0.x`: a minor bump may break an adapter, so `<1.0.0`
+      is **not** an upper bound — it admits every breaking release.
       The floor must be a release that actually ships
       `adapter-install-sop-v2.schema.json` — the first core release cut after
       `0.20.33` — because Section 1 requires validating against that artifact.
@@ -17,6 +21,13 @@ boxes and are not part of the set that must be ticked.
       checklist. That release is not tagged yet, so until it is, pin the v2
       digest `daa5840e…` instead of a version.
 - [ ] `dcc-mcp-server` binary dependency (if used) also follows the same range.
+- [ ] The package environment request for this adapter (the resolver request that
+      assembles the DCC runtime) declares the **same** range. A request such as
+      `dcc_mcp_core-0` silently drops both bounds and lets a core the adapter
+      never tested resolve; verify with
+      `python -c "from dcc_mcp_core.deployment import core_bounds; \
+      print(core_bounds.compare_declarations('<packaging range>', \
+      '<environment request>'))"` and require `drift == aligned`.
 - [ ] Adapter `adapter_version` is set via `DccServerOptions.from_env(..., adapter_version=...)`
       and stamped into the gateway sentinel and file registry row.
 - [ ] Compatibility matrix in the core docs has been updated with the new row
@@ -283,7 +294,8 @@ Before the release PR is merged, run these gates:
 - [ ] Release-please PR guard passes (if the repo has one)
 - [ ] Gateway smoke commands run without error (Section 3)
 - [ ] Install SOP v1 checks and JSON-schema contract tests pass (Section 1)
-- [ ] Core dependency range is still valid: `>=0.<core_latest>.0,<1.0.0`
+- [ ] Core dependency range is still valid and bounded to one minor line:
+      `>=0.<core_latest>.<patch>,<0.<core_latest+1>.0` — never `<1.0.0`
 
 ## 6. PR Notes Template
 
@@ -300,7 +312,7 @@ The release PR description must include:
 
 ## Compatibility
 
-- **core pin**: `>=0.<N>.0,<1.0.0`
+- **core pin**: `>=0.<N>.<p>,<0.<N+1>.0`
 - **adapter_version**: `<version>`
 - **DCC version**: `<minimum DCC version>`
 

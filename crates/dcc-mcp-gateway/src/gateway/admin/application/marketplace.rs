@@ -105,6 +105,7 @@ pub async fn handle_marketplace_catalog(State(_s): State<AdminState>) -> impl In
                     tags: hit.entry.tags,
                     version: hit.entry.version,
                     min_core_version: hit.entry.min_core_version,
+                    core_requirement: hit.entry.core_requirement,
                     maintainer: hit.entry.maintainer,
                     requires: hit.entry.requires,
                     icon: resolve_marketplace_icon_url(
@@ -351,6 +352,7 @@ mod tests {
             tags: vec![],
             version: None,
             min_core_version: None,
+            core_requirement: None,
             install: None,
             package: None,
             maintainer: None,

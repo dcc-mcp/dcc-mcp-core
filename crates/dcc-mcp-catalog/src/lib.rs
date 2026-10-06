@@ -28,6 +28,14 @@ pub use error::{CatalogError, CatalogValidationError};
 mod validation;
 pub use validation::{validate_catalog_entries, validate_entry};
 
+mod core_bounds;
+pub use core_bounds::{
+    BoundKind, CORE_DISTRIBUTION, CORE_IMPORT_NAME, CoreBoundCode, CoreBoundComparison,
+    CoreBoundPolicy, CoreBoundReport, CoreRequirement, CoreRuntimeReport, CoreVersion,
+    DeclarationDrift, RuntimeVerdict, check_runtime, compare_declarations, derive_requirement,
+    evaluate,
+};
+
 // ── types ─────────────────────────────────────────────────────────────────────
 
 /// A single entry in the public DCC-MCP catalog.
@@ -62,6 +70,17 @@ pub struct CatalogEntry {
         alias = "minCoreVersion"
     )]
     pub min_core_version: Option<String>,
+    /// Bounded `dcc-mcp-core` requirement declared by this package.
+    ///
+    /// A PEP 440 specifier set such as `">=0.20.14,<0.21.0"`. Unlike
+    /// [`Self::min_core_version`] it carries the upper bound required by the
+    /// core version-bound contract; see [`core_bounds`].
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        alias = "coreRequirement"
+    )]
+    pub core_requirement: Option<String>,
     /// Installation metadata for CLI-driven marketplace installs.
     ///
     /// Also deserializes from `source` (marketplace.json format) so that
@@ -412,6 +431,7 @@ fn catalog_search_tokens(entry: &CatalogEntry) -> Vec<String> {
     tokens.extend(entry.url.iter().cloned());
     tokens.extend(entry.version.iter().cloned());
     tokens.extend(entry.min_core_version.iter().cloned());
+    tokens.extend(entry.core_requirement.iter().cloned());
     tokens.extend(entry.maintainer.iter().cloned());
     tokens.extend(entry.category.iter().cloned());
     if let Some(policy) = &entry.policy {
@@ -667,6 +687,7 @@ entries:
             tags: vec!["maya".into(), "official".into()],
             version: None,
             min_core_version: None,
+            core_requirement: None,
             install: None,
             package: None,
             maintainer: None,
@@ -863,6 +884,7 @@ entries:
             tags: vec![],
             version: None,
             min_core_version: None,
+            core_requirement: None,
             install: None,
             package: None,
             maintainer: None,
@@ -923,6 +945,7 @@ entries:
             tags: vec!["test".into()],
             version: Some("0.1.0".into()),
             min_core_version: Some("0.17.0".into()),
+            core_requirement: None,
             package: None,
             maintainer: Some("dcc-mcp".into()),
             category: None,
@@ -1011,6 +1034,7 @@ entries:
             tags: vec!["pip".into(), "maya".into()],
             version: Some("0.3.0".into()),
             min_core_version: Some("0.18.0".into()),
+            core_requirement: None,
             package: None,
             maintainer: Some("dcc-mcp".into()),
             category: None,
@@ -1103,6 +1127,7 @@ entries:
             tags: vec![],
             version: None,
             min_core_version: None,
+            core_requirement: None,
             package: None,
             maintainer: None,
             category: None,
@@ -1154,6 +1179,7 @@ entries:
             tags: vec![],
             version: None,
             min_core_version: None,
+            core_requirement: None,
             install: None,
             package: None,
             maintainer: None,

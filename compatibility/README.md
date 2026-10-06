@@ -6,6 +6,7 @@ Machine-readable contracts that CI enforces on every pull request.
 | --- | --- | --- |
 | [`python.json`](python.json) | `scripts/ci/check_python_support.py` (`python37-contract` job) | Long-term-support Python policy, wheel profiles, and release projections. |
 | [`schema-pins.json`](schema-pins.json) | `tests/test_released_schema_immutability.py` (`released-schema-immutability` job) | Digests of schema revisions that have already shipped in a release. |
+| [`core-bounds.json`](core-bounds.json) | `tests/test_core_bounds.py` + `cargo test -p dcc-mcp-catalog` | Core `0.x` version-bound contract for adapter dependency declarations. |
 
 ## Released schema pins
 
@@ -59,7 +60,28 @@ Rules:
 - Digests are taken from git object bytes, not from a raw file read, so `core.autocrlf`
   differences on Windows checkouts do not affect them.
 
-### Running locally
+## Core version bounds
+
+`core-bounds.json` is the single source of the adapter dependency policy:
+`dcc-mcp-core` is `0.x`, so a minor bump may break an adapter and every
+adapter declaration must carry an upper bound that admits one minor line.
+Both implementations read the same numbers — `dcc_mcp_core.deployment.core_bounds`
+(Python) and `dcc-mcp-catalog::core_bounds` (Rust) — and both test suites fail
+when the JSON and the code drift apart. The `reported_cases` array replays the
+declarations that shipped without a usable ceiling, so the regression cannot be
+re-introduced silently.
+
+See [`docs/guide/adapter-core-version-contract.md`](../docs/guide/adapter-core-version-contract.md)
+for the operator-facing rules.
+
+### Running the bound contract locally
+
+```bash
+pytest tests/test_core_bounds.py
+cargo test -p dcc-mcp-catalog
+```
+
+### Running the schema pins locally
 
 ```bash
 pytest tests/test_released_schema_immutability.py

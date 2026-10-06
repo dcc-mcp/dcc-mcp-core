@@ -35,6 +35,7 @@ fn sop_entry(version: Option<u32>, digest: Option<&str>) -> CatalogEntry {
         tags: vec![],
         version: Some("1.0.0".into()),
         min_core_version: None,
+        core_requirement: None,
         package: None,
         maintainer: Some("dcc-mcp".into()),
         category: None,

@@ -21,6 +21,7 @@ fn catalog_entry(name: &str, dcc: &[&str], install: Option<CatalogInstall>) -> C
         tags: vec!["official".into()],
         version: Some("0.3.0".into()),
         min_core_version: None,
+        core_requirement: None,
         install,
         package: None,
         maintainer: None,

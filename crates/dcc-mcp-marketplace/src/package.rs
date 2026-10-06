@@ -175,6 +175,9 @@ pub fn publish_marketplace_package(
             })
             .or_else(|| string_at(&skill_meta, &["metadata", "dcc-mcp", "version"])),
         min_core_version: options.min_core_version,
+        // A floor is not a range: the package's real upper bound is unknown
+        // here, and the catalog must not invent one.
+        core_requirement: None,
         install: Some(CatalogInstall {
             install_type: options.install_type,
             url: Some(options.install_url),
