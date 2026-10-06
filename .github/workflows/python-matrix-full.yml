@@ -81,7 +81,9 @@ jobs:
       - name: Install wheel + test deps
         run: |
           pip install dist/*.whl
-          pip install pytest pytest-xdist jsonschema
+          # Unpinned: pip picks PyYAML 6.0.1 on Python 3.7 and a newer
+          # release on 3.8+, matching the shared CI matrix.
+          pip install pytest pytest-xdist jsonschema pyyaml
         shell: bash
       - name: Test (file-level process isolation)
         run: python -m pytest tests/ -q --tb=short --show-capture=no -n 4 --dist loadfile

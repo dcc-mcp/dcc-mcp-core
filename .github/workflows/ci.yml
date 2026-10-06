@@ -692,10 +692,14 @@ jobs:
       - name: Install wheel + test deps
         run: |
           pip install dist/*.whl
+          # PyYAML backs scripts/generate_adapter_pointer.py and its suite.
+          # Unpinned on purpose: pip resolves 6.0.1 on Python 3.7 (6.0.2+
+          # requires >=3.8) and the newest release elsewhere, so one line
+          # covers the whole 3.7-3.14 matrix.
           if [[ "${{ matrix.os }}" == "ubuntu-latest" && "${{ matrix.python-version }}" == "3.14" ]]; then
-            pip install pytest pytest-cov jsonschema
+            pip install pytest pytest-cov jsonschema pyyaml
           else
-            pip install pytest pytest-xdist jsonschema
+            pip install pytest pytest-xdist jsonschema pyyaml
           fi
         shell: bash
       - name: Test with coverage
@@ -807,12 +811,11 @@ jobs:
   # workflow to the approved snapshot under scripts/ci/ and publishes the
   # canonical digest in the run summary.
   #
-  # It installs PyYAML explicitly rather than extending the Python test
-  # toolchain: the pinned 3.7 toolchain is projected from
-  # compatibility/python.json into this file and the wheel profiles, so a new
-  # test dependency there is a contract change, not a CI tweak. The suite is
-  # collected by `pytest tests/` as well and skips cleanly where PyYAML is
-  # absent; this job is the lane that always runs it.
+  # The suite is now collected and executed by the shared test lanes too,
+  # because PyYAML is part of the test toolchain every lane installs (see
+  # `test_toolchain.pyyaml_py37` in compatibility/python.json). This job still
+  # installs pytest and PyYAML itself and runs with `--noconftest` so the
+  # digest gate is bound to a lane that never waits for a wheel build.
   #
   # Deliberately NOT a required status check: the snapshot is refreshed by an
   # ordinary pull request, so making it required would recreate the

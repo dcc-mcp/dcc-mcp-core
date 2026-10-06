@@ -39,7 +39,7 @@ from urllib.request import urlopen
 
 try:
     import yaml
-except ImportError:  # pragma: no cover - dependency is declared in pyproject
+except ImportError:  # pragma: no cover - dependency is installed by the test lanes
     yaml = None
 
 
