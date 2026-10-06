@@ -58,7 +58,7 @@ def _write_catalog(tmp_path: Path, entries: list[dict]) -> Path:
 
 def test_catalog_is_the_single_source_of_host_count(catalog, adapters):
     """The host count the narrative quotes must come from the catalog, not a literal."""
-    assert len(adapters) == 39
+    assert len(adapters) == 47
 
 
 def test_host_count_matches_the_documented_reproducible_command(catalog):
@@ -67,7 +67,7 @@ def test_host_count_matches_the_documented_reproducible_command(catalog):
 
     pattern = re.compile(r'^    tags: \[.*"adapter".*\]$')
     count = sum(1 for line in CATALOG.read_text(encoding="utf-8").splitlines() if pattern.match(line))
-    assert count == 39
+    assert count == 47
 
 
 def test_load_catalog_rejects_a_file_without_entries(tmp_path):
@@ -536,7 +536,7 @@ def test_apply_fails_loudly_when_the_readme_is_missing(adapters, tmp_path):
 def test_every_adapter_gets_a_coverage_row(adapters):
     """Acceptance: no adapter may be silently skipped."""
     rows = generator.coverage_rows(adapters)
-    assert len(rows) == len(adapters) == 39
+    assert len(rows) == len(adapters) == 47
     assert {r["name"] for r in rows} == {e["name"] for e in adapters}
 
 
@@ -544,13 +544,11 @@ def test_rows_split_on_whether_the_catalog_attests_a_pip_package(adapters):
     rows = generator.coverage_rows(adapters)
     pending = {r["name"] for r in rows if r["registry"] == "pending"}
     deferred = {r["name"] for r in rows if r["registry"] == "deferred"}
-    assert len(pending) == 34
+    assert len(pending) == 44
     assert deferred == {
         "dcc-mcp-excel",
-        "dcc-mcp-PowerPoint",
-        "dcc-mcp-tiled",
+        "dcc-mcp-word",
         "dcc-mcp-material-maker",
-        "dcc-mcp-wwise",
     }
 
 
@@ -633,8 +631,8 @@ def test_report_check_accepts_a_current_map(adapters, tmp_path):
         == 0
     )
     payload = json.loads(json_out.read_text(encoding="utf-8"))
-    assert payload["adapter_count"] == 39
-    assert len(payload["entries"]) == 39
+    assert payload["adapter_count"] == 47
+    assert len(payload["entries"]) == 47
 
 
 # --- cli -------------------------------------------------------------------

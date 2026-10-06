@@ -28,16 +28,16 @@ entries:
     url: "https://github.com/dcc-mcp/dcc-mcp-kdenlive"
     issues_url: "https://github.com/dcc-mcp/dcc-mcp-kdenlive/issues"
     tags: ["adapter", "kdenlive", "official", "video-editing", "mlt"]
-    version: "0.1.0"
+    version: "0.1.2"
     min_core_version: "0.20.28"
     maintainer: "dcc-mcp"
     install:
       type: pip
       pip_package: "dcc-mcp-kdenlive"
-      url: "https://github.com/dcc-mcp/dcc-mcp-kdenlive/releases/download/v0.1.0/dcc_mcp_kdenlive-0.1.0-py3-none-any.whl"
-      sha256: "eb3d1dd71164a00ad44bf2ff7a1e6f58075885df225f99ebb9ee8a8dd00cea2b"
+      url: "https://files.pythonhosted.org/packages/c8/02/0ca33a9fa3c9992e4b7ba9cbf0cbef1c13a46898c48814dd55b63997fcde/dcc_mcp_kdenlive-0.1.2-py3-none-any.whl"
+      sha256: "43ac951f0afad0a2eac8e6297bf85fbf444e1105725bbbc4c28a7df94168d193"
       entry_point: "dcc_mcp_kdenlive.cli:main"
-      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-kdenlive/b73753fda1d492b57e1805930f9c60a4b46d3510/install.md"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-kdenlive/dfe3d5d1d8b7e0e3bdcc40f390dae658f8c3d859/install.md"
       sop_version: 1
       sop_schema_digest: "2b3a8a101384a5163c7569c4a2b0de6586c672c5ee291735f94334a33b7d37a0"
 
@@ -61,9 +61,16 @@ entries:
     url: "https://github.com/dcc-mcp/dcc-mcp-PowerPoint"
     issues_url: "https://github.com/dcc-mcp/dcc-mcp-PowerPoint/issues"
     tags: ["adapter", "powerpoint", "office", "official", "deck", "skills"]
-    version: "0.1.0"
+    version: "0.2.3"
     min_core_version: "0.18.2"
     maintainer: "dcc-mcp"
+    install:
+      type: pip
+      pip_package: "dcc-mcp-powerpoint"
+      url: "https://files.pythonhosted.org/packages/06/fe/565d7fe12d972f5c1e0babacd236b8a03bbf1ade87c275910d0737d2a0da/dcc_mcp_powerpoint-0.2.3-py3-none-any.whl"
+      sha256: "48f412e4c52cca9c4f9f17401e36f4c2fab872acc345d96e7eae256f50186cf0"
+      entry_point: "dcc_mcp_powerpoint._standalone_entry:main"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-PowerPoint/6d3fc4cb193ee6e92ba47057b4451b9aa8d55474/install.md"
 
   - name: "dcc-mcp-maya"
     description: "Core Maya adapter for DCC-MCP — gateway-managed instance, mayapy-based MCP server"
@@ -580,15 +587,21 @@ entries:
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-shogun/main/install.md"
 
   - name: "dcc-mcp-tiled"
-    # Automatic install is omitted until a wheel is published.
     description: "Tiled adapter for typed workspace-bounded map authoring, validation, and conversion"
     dcc: ["tiled"]
     url: "https://github.com/dcc-mcp/dcc-mcp-tiled"
     issues_url: "https://github.com/dcc-mcp/dcc-mcp-tiled/issues"
     tags: ["adapter", "tiled", "official", "pip", "level-design", "tilemap", "game-engine"]
-    version: "0.3.0"
-    min_core_version: "0.19.38"
+    version: "0.5.1"
+    min_core_version: "0.20.14"
     maintainer: "dcc-mcp"
+    install:
+      type: pip
+      pip_package: "dcc-mcp-tiled"
+      url: "https://files.pythonhosted.org/packages/b5/b9/45f67a48723099bcc749b07e042ecfe1d37af684154ab8394260f3e1fde9/dcc_mcp_tiled-0.5.1-py3-none-any.whl"
+      sha256: "9ce57d7fc56c00c222d0f24cd3c76e5775b50e7be53391f4c2c939d521236891"
+      entry_point: "dcc_mcp_tiled.server:main"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-tiled/8d09626ec71ded0e5cbcfa914189950e4196c341/install.md"
 
   - name: "dcc-mcp-material-maker"
     # Automatic install is omitted until a wheel is published.
@@ -602,15 +615,21 @@ entries:
     maintainer: "dcc-mcp"
 
   - name: "dcc-mcp-wwise"
-    # Automatic install is omitted until a wheel is published.
     description: "Audiokinetic Wwise Authoring adapter with typed WAAPI project, audio, SoundBank, and profiler workflows"
     dcc: ["wwise"]
     url: "https://github.com/dcc-mcp/dcc-mcp-wwise"
     issues_url: "https://github.com/dcc-mcp/dcc-mcp-wwise/issues"
     tags: ["adapter", "wwise", "official", "pip", "waapi", "game-audio", "soundbank"]
-    version: "0.1.2"
-    min_core_version: "0.19.86"
+    version: "0.1.6"
+    min_core_version: "0.20.14"
     maintainer: "dcc-mcp"
+    install:
+      type: pip
+      pip_package: "dcc-mcp-wwise"
+      url: "https://files.pythonhosted.org/packages/60/bb/e18794ecacf2d5313d29b10423682381ded8af84d72d9fb25cfd193be238/dcc_mcp_wwise-0.1.6-py3-none-any.whl"
+      sha256: "4367e7d3ca753b103041cc7be68bdb0ca85b3b44f502478ebd68c344e57e5869"
+      entry_point: "dcc_mcp_wwise.cli:main"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-wwise/948c0692a2bf7c86befddec9919ab7292dce2274/install.md"
 
   - name: "dcc-mcp-excel"
     description: "Excel adapter for DCC-MCP — headless Workbook IR to XLSX compile with read-back verification over the dcc-mcp-office runtime"
@@ -618,6 +637,19 @@ entries:
     url: "https://github.com/dcc-mcp/dcc-mcp-excel"
     issues_url: "https://github.com/dcc-mcp/dcc-mcp-excel/issues"
     tags: ["adapter", "excel", "office", "official", "xlsx", "spreadsheet"]
+    version: "0.1.0"
+    min_core_version: "0.18.2"
+    maintainer: "dcc-mcp"
+    # No `install:` block yet: every curating entry must pin an attested
+    # published wheel, and 0.1.0 reaches PyPI only after release-please tags
+    # it on merge. Add the pip block in the follow-up once that release lands.
+
+  - name: "dcc-mcp-word"
+    description: "Word adapter for DCC-MCP — headless Word IR to DOCX compile with read-back verification over the dcc-mcp-office runtime"
+    dcc: ["word"]
+    url: "https://github.com/dcc-mcp/dcc-mcp-word"
+    issues_url: "https://github.com/dcc-mcp/dcc-mcp-word/issues"
+    tags: ["adapter", "word", "office", "official", "docx", "document"]
     version: "0.1.0"
     min_core_version: "0.18.2"
     maintainer: "dcc-mcp"
@@ -662,3 +694,122 @@ entries:
     dcc: ["autodesk-help"]
     url: "https://developer.api.autodesk.com/knowledge/public/v1/mcp"
     tags: ["docs", "autodesk", "read-only", "infrastructure"]
+
+  - name: "dcc-mcp-autocad"
+    description: "AutoCAD adapter for DCC-MCP — inspect and edit DWG drawings and layers through interactive COM or headless accoreconsole"
+    dcc: ["autocad"]
+    url: "https://github.com/dcc-mcp/dcc-mcp-autocad"
+    issues_url: "https://github.com/dcc-mcp/dcc-mcp-autocad/issues"
+    tags: ["adapter", "autocad", "official", "pip", "cad", "dwg"]
+    version: "0.1.2"
+    min_core_version: "0.20.36"
+    maintainer: "dcc-mcp"
+    install:
+      type: pip
+      pip_package: "dcc-mcp-autocad"
+      url: "https://files.pythonhosted.org/packages/aa/15/84638074a83453904a48a7c2b39de4c162df0087b4582410fa037fe5c81b/dcc_mcp_autocad-0.1.2-py3-none-any.whl"
+      sha256: "5cd0112d05557f7de75bc55e748be2dd5ded885f130e184fd2d7eab0610d1537"
+      entry_point: "dcc_mcp_autocad.server:main"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-autocad/976d99d95cd97959c9536e1cb2a576f050ef4fac/install.md"
+
+  - name: "dcc-mcp-capcut"
+    description: "CapCut Desktop adapter for DCC-MCP — compile edit plans, assemble video timelines and verify exports through a typed local bridge"
+    dcc: ["capcut"]
+    url: "https://github.com/dcc-mcp/dcc-mcp-capcut"
+    issues_url: "https://github.com/dcc-mcp/dcc-mcp-capcut/issues"
+    tags: ["adapter", "capcut", "official", "pip", "video-editing", "timeline"]
+    version: "0.5.0"
+    min_core_version: "0.19.90"
+    maintainer: "dcc-mcp"
+    install:
+      type: pip
+      pip_package: "dcc-mcp-capcut"
+      url: "https://files.pythonhosted.org/packages/e5/79/940c7f086e6061677084e093cd543ca2371da717d56a1ed0635676221823/dcc_mcp_capcut-0.5.0-py3-none-any.whl"
+      sha256: "ffdfb6020dae9b07982c4593b0d63912d1439711caac4179687747b6b5de1122"
+      entry_point: "dcc_mcp_capcut:CapCutMcpServer"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-capcut/12f5256086e10e814fb6a6ce19c1dbc1c08d9770/README.md"
+
+  - name: "dcc-mcp-epic"
+    description: "Epic Games Launcher, Fab and Unreal adapter for DCC-MCP — inspect engines, verify projects and search local asset libraries; engine install is plan-only"
+    dcc: ["epic", "unreal"]
+    url: "https://github.com/dcc-mcp/dcc-mcp-epic"
+    issues_url: "https://github.com/dcc-mcp/dcc-mcp-epic/issues"
+    tags: ["adapter", "epic", "fab", "unreal", "official", "pip", "asset-library"]
+    version: "0.2.1"
+    min_core_version: "0.20.14"
+    maintainer: "dcc-mcp"
+    install:
+      type: pip
+      pip_package: "dcc-mcp-epic"
+      url: "https://files.pythonhosted.org/packages/d9/7a/13c4f69b0c04e86716bf6c5a362c06b4cf09306038fbddc3591cc307475a/dcc_mcp_epic-0.2.1-py3-none-any.whl"
+      sha256: "fb05a3fbb7c7184f311a97a0ee14a60b882e25432a77072031b8632f28a5bd98"
+      entry_point: "dcc_mcp_epic.server:main"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-epic/1157defe203aab4beaa8f7be56f8063caac2a415/README.md"
+
+  - name: "dcc-mcp-gaea"
+    description: "Gaea Build Swarm adapter for DCC-MCP — plan terrain builds and verify height and weight-map outputs; real Gaea builds remain unvalidated"
+    dcc: ["gaea"]
+    url: "https://github.com/dcc-mcp/dcc-mcp-gaea"
+    issues_url: "https://github.com/dcc-mcp/dcc-mcp-gaea/issues"
+    tags: ["adapter", "gaea", "official", "pip", "terrain", "landscape"]
+    version: "0.1.1"
+    min_core_version: "0.20.23"
+    maintainer: "dcc-mcp"
+    install:
+      type: pip
+      pip_package: "dcc-mcp-gaea"
+      url: "https://files.pythonhosted.org/packages/2a/e9/b2a67becf913a57dcee6911d94c4fec2661e69dccb218d2a1a9245bd4606/dcc_mcp_gaea-0.1.1-py3-none-any.whl"
+      sha256: "2fd9aea692803cbb3ab19a0532b86a4dc24acc2a1ad9725c81ddfbab6799e7e6"
+      entry_point: "dcc_mcp_gaea.server:main"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-gaea/b95d3f81b8f883732c73d268658100d09d9cad84/README.md"
+
+  - name: "dcc-mcp-openscreen"
+    description: "OpenScreen adapter for DCC-MCP — capture discovery, screen recording and video export workflows through typed CLI operations"
+    dcc: ["openscreen"]
+    url: "https://github.com/dcc-mcp/dcc-mcp-openscreen"
+    issues_url: "https://github.com/dcc-mcp/dcc-mcp-openscreen/issues"
+    tags: ["adapter", "openscreen", "official", "pip", "screen-recording", "capture"]
+    version: "0.1.1"
+    min_core_version: "0.20.14"
+    maintainer: "dcc-mcp"
+    install:
+      type: pip
+      pip_package: "dcc-mcp-openscreen"
+      url: "https://files.pythonhosted.org/packages/06/b4/5daa7b649f2b0fe8078ac05935efad2ad2f2f38ae5a5ff2e22941250700c/dcc_mcp_openscreen-0.1.1-py3-none-any.whl"
+      sha256: "c3e756014a35579fb9776b4819c9d0ff5b6a5354f16b61d0b0e81f8dc0b083c4"
+      entry_point: "dcc_mcp_openscreen.server:main"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-openscreen/5a32837d9d1b3bd2aea04bf61e61b4a54bbd5262/README.md"
+
+  - name: "dcc-mcp-speedtree"
+    description: "SpeedTree adapter for DCC-MCP — edit experimental native generator graphs, run the licensed Modeler CLI and verify vegetation exports"
+    dcc: ["speedtree"]
+    url: "https://github.com/dcc-mcp/dcc-mcp-speedtree"
+    issues_url: "https://github.com/dcc-mcp/dcc-mcp-speedtree/issues"
+    tags: ["adapter", "speedtree", "official", "pip", "vegetation", "modeler"]
+    version: "0.1.1"
+    min_core_version: "0.20.22"
+    maintainer: "dcc-mcp"
+    install:
+      type: pip
+      pip_package: "dcc-mcp-speedtree"
+      url: "https://files.pythonhosted.org/packages/70/75/42856319fe812e13afa65dca17e7c54ba2d06a8e08251d0031e86cfc8460/dcc_mcp_speedtree-0.1.1-py3-none-any.whl"
+      sha256: "2bee22d5dd386e39f5714781019b8e394e43bbdc8a0dbb77ea646f035710c27c"
+      entry_point: "dcc_mcp_speedtree.server:main"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-speedtree/595f0bd308aa0f4f0635a399c2b63bd76f16caf8/README.md"
+
+  - name: "dcc-mcp-tracy"
+    description: "Tracy profiler adapter for DCC-MCP — capture instrumented applications, export trace CSV data and analyze zone timing"
+    dcc: ["tracy"]
+    url: "https://github.com/dcc-mcp/dcc-mcp-tracy"
+    issues_url: "https://github.com/dcc-mcp/dcc-mcp-tracy/issues"
+    tags: ["adapter", "tracy", "official", "pip", "profiling", "performance"]
+    version: "0.2.5"
+    min_core_version: "0.19.38"
+    maintainer: "dcc-mcp"
+    install:
+      type: pip
+      pip_package: "dcc-mcp-tracy"
+      url: "https://files.pythonhosted.org/packages/c6/4b/017613df6a5ec878c466a24146473a56caa1732c60f899517a152432d1b2/dcc_mcp_tracy-0.2.5-py3-none-any.whl"
+      sha256: "7f435ee47469a85a066f33b02d6f8708e9f748180e8b73ac7009004aecd72c95"
+      entry_point: "dcc_mcp_tracy.server:main"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-tracy/a5e29b7bcef28ccd6a2ee17667dbdbcb7c45b119/README.md"
