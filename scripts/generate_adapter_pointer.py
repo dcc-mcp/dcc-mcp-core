@@ -207,7 +207,15 @@ def _insertion_index(lines: list[str]) -> int:
 
 
 def upsert_pointer(readme: str, block: str) -> str:
-    """Return ``readme`` with ``block`` present exactly once and up to date."""
+    """Return ``readme`` with ``block`` present exactly once and up to date.
+
+    The file's existing newline convention is preserved: adapter READMEs are
+    checked out with CRLF on Windows, and rewriting them wholesale as LF would
+    show every line as changed.
+    """
+    newline = "\r\n" if "\r\n" in readme else "\n"
+    block = block.replace("\n", newline)
+
     if POINTER_START in readme and POINTER_END in readme:
         head, rest = readme.split(POINTER_START, 1)
         if POINTER_END not in rest:
@@ -220,9 +228,25 @@ def upsert_pointer(readme: str, block: str) -> str:
 
     lines = readme.splitlines()
     index = _insertion_index(lines)
-    joined = "\n".join([*lines[:index], "", block, "", *lines[index:]]).rstrip("\n") + "\n"
-    # Inserting next to an existing blank line would leave a two-blank gap.
-    return _BLANK_RUN_RE.sub("\n\n", joined)
+
+    # The block is fenced by one blank line on each side. Reuse an adjacent
+    # blank line instead of adding another, so the seam never opens a
+    # two-blank gap. Only the seam is touched: collapsing blank runs across
+    # the whole file would reformat prose the block has nothing to do with.
+    before = list(lines[:index])
+    while before and not before[-1].strip():
+        before.pop()
+    after = list(lines[index:])
+    while after and not after[0].strip():
+        after.pop(0)
+
+    seam = [
+        *([""] if before else []),
+        block,
+        *([""] if after else []),
+    ]
+    joined = newline.join([*before, *seam, *after])
+    return joined.rstrip(newline) + newline
 
 
 def _normalize_repo_url(url: str) -> str:
@@ -284,11 +308,15 @@ def apply_pointer(
     readme_path = repo_root / readme_name
     if not readme_path.is_file():
         raise CoverageError(f"{readme_path} does not exist")
-    original = readme_path.read_text(encoding="utf-8")
+    # newline="" keeps the file's own line endings: translating them on read and
+    # back on write would touch every line of a CRLF README.
+    with readme_path.open(encoding="utf-8", newline="") as handle:
+        original = handle.read()
     updated = upsert_pointer(original, render_pointer(entry, host_count=host_count))
     changed = updated != original
     if changed and write:
-        readme_path.write_text(updated, encoding="utf-8")
+        with readme_path.open("w", encoding="utf-8", newline="") as handle:
+            handle.write(updated)
     return readme_path, changed
 
 

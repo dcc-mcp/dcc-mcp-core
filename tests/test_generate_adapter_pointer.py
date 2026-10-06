@@ -216,6 +216,51 @@ def test_insertion_leaves_no_double_blank_line(adapters):
         assert "\n\n\n" not in generator.upsert_pointer(readme, block)
 
 
+def test_insertion_only_touches_the_seam(adapters):
+    """Blank runs elsewhere in the README are the file's own formatting.
+
+    Collapsing them would reformat prose the generator has nothing to do with
+    and bury the real change in noise.
+    """
+    readme = QUICKSTART_README.replace(
+        "Body.\n<!-- dcc-mcp-agent-quickstart:end -->",
+        "Body.\n\n<!-- dcc-mcp-agent-quickstart:end -->",
+    )
+    block = generator.render_pointer(_entry(adapters, "dcc-mcp-houdini"), host_count=len(adapters))
+    result = generator.upsert_pointer(readme, block)
+    assert result.count("\n\n\n") == readme.count("\n\n\n")
+
+
+def test_insertion_keeps_blank_lines_that_are_not_at_the_seam(adapters):
+    """Only the blank lines touching the insertion point may be adjusted.
+
+    A filter over the whole prefix silently deletes every paragraph break in
+    the README, which buries the real edit in noise.
+    """
+    block = generator.render_pointer(_entry(adapters, "dcc-mcp-houdini"), host_count=len(adapters))
+    result = generator.upsert_pointer(QUICKSTART_README, block)
+    assert result.count("") >= QUICKSTART_README.count("")
+    for line in QUICKSTART_README.splitlines():
+        if line.strip():
+            assert line in result
+    # The blank-line separators inside the untouched quickstart block survive.
+    assert QUICKSTART_README.count("\n\n") <= result.count("\n\n")
+
+
+def test_insertion_preserves_crlf_line_endings(adapters):
+    """CRLF READMEs are the norm on Windows checkouts.
+
+    Rewriting one as LF would show every line as changed and hide the actual
+    edit in the diff.
+    """
+    block = generator.render_pointer(_entry(adapters, "dcc-mcp-houdini"), host_count=len(adapters))
+    crlf_readme = QUICKSTART_README.replace("\n", "\r\n")
+    result = generator.upsert_pointer(crlf_readme, block)
+    assert "\r\n" in result
+    assert "\n" not in result.replace("\r\n", "")
+    assert result.count(generator.POINTER_START) == 1
+
+
 def test_apply_is_idempotent(adapters):
     """Re-running the generator on an up-to-date README must be a no-op."""
     block = generator.render_pointer(_entry(adapters, "dcc-mcp-houdini"), host_count=len(adapters))
