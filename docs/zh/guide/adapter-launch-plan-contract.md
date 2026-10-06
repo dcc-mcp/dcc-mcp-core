@@ -186,7 +186,11 @@ Core 用三条彼此独立的路径把在线实例匹配到拥有方 operation �
 项目绑定 —— 所以两个 key 都不写只去掉其中两条，而不是全部（见第 7 步）。丢掉的
 是可靠性，不是收敛能力：剩下的 PID 路径在操作系统回收 PID 后会误收敛到无关实例，
 并且当记录的可执行文件只是个派生真实宿主的 launcher、或 sidecar 行没写
-`host_pid` 时，这条路径根本匹配不到任何东西。两个 key 都写上，这些就都不成立。
+`host_pid` 时，这条路径根本匹配不到任何东西。两个 key 都写上，目标行就不必依赖
+PID 路径即可匹配；但这**并不会关闭** PID 匹配 —— 任何 `pid` 或 `host_pid` 等于
+拥有方 operation PID 的陈旧行依然会进入匹配集，表现为 `ambiguous_reuse`；若在
+目标行尚未 direct-control routable、而陈旧行 routable 的窄窗口内，则会收敛到
+陈旧行。
 
 ### 原生窗口句柄
 
@@ -317,9 +321,12 @@ Core 会把你的 metadata 归类为一个终态，并始终附带一个非交�
 
 上表里的「为真」指**精确命中一份固定白名单**，比较前会先 trim 再转小写：`1`、
 `true`、`yes`、`blocked`、`blocking`、`present`、`open`。其他任何值都是假，所以
-`restart_required: "on"`、`blocking_dialog: "2"`、`modal_dialog: "visible"` 都会
-静默落到 `none`，不会有任何「这个值没被识别」的提示。空值，以及任意大小写的
-`none`，会在比较之前被丢弃，同样视为缺失。
+`restart_required: "on"`、`blocking_dialog: "2"`、`modal_dialog: "visible"` 都
+**本身不会触发**任何状态，也不会有任何「这个值没被识别」的提示。最终结果为
+`none` 的前提是**没有其他结构化 key 或自由文本关键词命中该行** —— 各条规则是
+顺序执行的，所以 `restart_required: "on"` 配合
+`failure_reason: "restart pending"` 仍会得到 `restart_required`。空值，以及任意
+大小写的 `none`，会在比较之前被丢弃，同样视为缺失。
 
 `license_state` 与 `license_status` 是例外：它们不走这个白名单。只要不是
 `valid`、`ok`、`active`（不区分大小写比较）就归类为 `license`，因此
@@ -333,9 +340,11 @@ Core 会把你的 metadata 归类为一个终态，并始终附带一个非交�
 在人工清除底层条件后都可以原样重放。
 
 **自由文本只按整词匹配，且只认一份固定关键词表。** `failure_stage` 与
-`failure_reason` 会被拼接后按非字母数字字符切词、转小写，再按完整单词匹配 ——
-从不做子串匹配。`blocked` 和 `unlocked` **不会**被归类为项目锁，`lockfile` 也
-不会。`sidecar_bootstrap` 会命中，因为它被切成 `sidecar` 和 `bootstrap`。
+`failure_reason` 会被拼接后按 **ASCII** 字母与数字之外的字符切词、转小写，再按
+完整单词匹配 —— 从不做子串匹配。任何非 ASCII 字符都是分隔符，**汉字也不例
+外**，所以 `重启restart` 会切出 `restart` 并归类为
+`restart_required`。`blocked` 和 `unlocked` **不会**被归类为项目锁，`lockfile`
+也不会。`sidecar_bootstrap` 会命中，因为它被切成 `sidecar` 和 `bootstrap`。
 
 完整关键词表，按此顺序判定 —— 先命中的组获胜：
 
