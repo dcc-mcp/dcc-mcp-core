@@ -1410,7 +1410,7 @@ entries:
             kdenlive_install.instructions_url.as_deref(),
             Some(concat!(
                 "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-kdenlive/",
-                "b73753fda1d492b57e1805930f9c60a4b46d3510/install.md"
+                "dfe3d5d1d8b7e0e3bdcc40f390dae658f8c3d859/install.md"
             ))
         );
 
