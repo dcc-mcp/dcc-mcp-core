@@ -65,10 +65,11 @@ CLEANUP_TODO.md
 *.lib
 
 # Local agent / IDE directories. These are runtime mount points, not source:
-# the skills and context that actually get loaded come from the Monica workspace
-# skill registry, so keeping a copy in the repository only lets the two drift.
-# Patterns are anchored with a leading "/" so only the repository root matches;
-# unanchored patterns would silently ignore a nested directory of the same name.
+# the skills and context that actually get loaded are mounted per run from an
+# organization-level skill registry, so a copy kept here is never the one that
+# gets loaded and only lets the two drift. Patterns are anchored with a leading
+# "/" so only the repository root matches; unanchored patterns would silently
+# ignore a nested directory of the same name.
 /.agents/
 /.agent_context/
 /.aider/
