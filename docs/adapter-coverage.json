@@ -1,6 +1,6 @@
 {
   "source": "dcc-mcp-catalog.yml",
-  "adapter_count": 38,
+  "adapter_count": 39,
   "entries": [
     {
       "name": "dcc-mcp-kdenlive",
@@ -436,6 +436,18 @@
       ],
       "url": "https://github.com/dcc-mcp/dcc-mcp-wwise",
       "version": "0.1.2",
+      "pip_package": null,
+      "pointer": true,
+      "registry": "deferred",
+      "blocker": "catalog has no `install:` block; the repository ships a real distribution, so registration waits on catalog install metadata, not on packaging work"
+    },
+    {
+      "name": "dcc-mcp-excel",
+      "dcc": [
+        "excel"
+      ],
+      "url": "https://github.com/dcc-mcp/dcc-mcp-excel",
+      "version": "0.1.0",
       "pip_package": null,
       "pointer": true,
       "registry": "deferred",

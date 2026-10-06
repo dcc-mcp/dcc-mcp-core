@@ -612,6 +612,19 @@ entries:
     min_core_version: "0.19.86"
     maintainer: "dcc-mcp"
 
+  - name: "dcc-mcp-excel"
+    description: "Excel adapter for DCC-MCP — headless Workbook IR to XLSX compile with read-back verification over the dcc-mcp-office runtime"
+    dcc: ["excel"]
+    url: "https://github.com/dcc-mcp/dcc-mcp-excel"
+    issues_url: "https://github.com/dcc-mcp/dcc-mcp-excel/issues"
+    tags: ["adapter", "excel", "office", "official", "xlsx", "spreadsheet"]
+    version: "0.1.0"
+    min_core_version: "0.18.2"
+    maintainer: "dcc-mcp"
+    # No `install:` block yet: every curating entry must pin an attested
+    # published wheel, and 0.1.0 reaches PyPI only after release-please tags
+    # it on merge. Add the pip block in the follow-up once that release lands.
+
   - name: "dcc-mcp-fpt"
     description: "Autodesk Flow Production Tracking adapter for DCC-MCP"
     dcc: ["shotgrid"]
