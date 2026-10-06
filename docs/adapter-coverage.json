@@ -1,0 +1,469 @@
+{
+  "source": "dcc-mcp-catalog.yml",
+  "adapter_count": 38,
+  "entries": [
+    {
+      "name": "dcc-mcp-kdenlive",
+      "dcc": [
+        "kdenlive"
+      ],
+      "url": "https://github.com/dcc-mcp/dcc-mcp-kdenlive",
+      "version": "0.1.0",
+      "pip_package": "dcc-mcp-kdenlive",
+      "pointer": true,
+      "registry": "pending",
+      "blocker": "registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first"
+    },
+    {
+      "name": "dcc-mcp-PowerPoint",
+      "dcc": [
+        "powerpoint"
+      ],
+      "url": "https://github.com/dcc-mcp/dcc-mcp-PowerPoint",
+      "version": "0.1.0",
+      "pip_package": null,
+      "pointer": true,
+      "registry": "deferred",
+      "blocker": "catalog has no `install:` block; the repository ships a real distribution, so registration waits on catalog install metadata, not on packaging work"
+    },
+    {
+      "name": "dcc-mcp-maya",
+      "dcc": [
+        "maya"
+      ],
+      "url": "https://github.com/dcc-mcp/dcc-mcp-maya",
+      "version": "0.9.22",
+      "pip_package": "dcc-mcp-maya",
+      "pointer": true,
+      "registry": "pending",
+      "blocker": "registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first"
+    },
+    {
+      "name": "dcc-mcp-blender",
+      "dcc": [
+        "blender"
+      ],
+      "url": "https://github.com/dcc-mcp/dcc-mcp-blender",
+      "version": "0.1.43",
+      "pip_package": "dcc-mcp-blender",
+      "pointer": true,
+      "registry": "pending",
+      "blocker": "registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first"
+    },
+    {
+      "name": "dcc-mcp-houdini",
+      "dcc": [
+        "houdini"
+      ],
+      "url": "https://github.com/dcc-mcp/dcc-mcp-houdini",
+      "version": "0.31.5",
+      "pip_package": "dcc-mcp-houdini",
+      "pointer": true,
+      "registry": "pending",
+      "blocker": "registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first"
+    },
+    {
+      "name": "dcc-mcp-3dsmax",
+      "dcc": [
+        "3dsmax",
+        "3ds max",
+        "3ds-max",
+        "max"
+      ],
+      "url": "https://github.com/dcc-mcp/dcc-mcp-3dsmax",
+      "version": "0.1.40",
+      "pip_package": "dcc-mcp-3dsmax",
+      "pointer": true,
+      "registry": "pending",
+      "blocker": "registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first"
+    },
+    {
+      "name": "dcc-mcp-photoshop",
+      "dcc": [
+        "photoshop"
+      ],
+      "url": "https://github.com/dcc-mcp/dcc-mcp-photoshop",
+      "version": "0.1.37",
+      "pip_package": "dcc-mcp-photoshop",
+      "pointer": true,
+      "registry": "pending",
+      "blocker": "registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first"
+    },
+    {
+      "name": "dcc-mcp-nuke",
+      "dcc": [
+        "nuke"
+      ],
+      "url": "https://github.com/dcc-mcp/dcc-mcp-nuke",
+      "version": "0.13.1",
+      "pip_package": "dcc-mcp-nuke",
+      "pointer": true,
+      "registry": "pending",
+      "blocker": "registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first"
+    },
+    {
+      "name": "dcc-mcp-unreal",
+      "dcc": [
+        "unreal"
+      ],
+      "url": "https://github.com/dcc-mcp/dcc-mcp-unreal",
+      "version": "0.3.0",
+      "pip_package": "dcc-mcp-unreal",
+      "pointer": true,
+      "registry": "pending",
+      "blocker": "registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first"
+    },
+    {
+      "name": "dcc-mcp-liquigen",
+      "dcc": [
+        "liquigen"
+      ],
+      "url": "https://github.com/dcc-mcp/dcc-mcp-liquigen",
+      "version": "0.1.0",
+      "pip_package": "dcc-mcp-liquigen",
+      "pointer": true,
+      "registry": "pending",
+      "blocker": "registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first"
+    },
+    {
+      "name": "dcc-mcp-zbrush",
+      "dcc": [
+        "zbrush"
+      ],
+      "url": "https://github.com/dcc-mcp/dcc-mcp-zbrush",
+      "version": "0.2.18",
+      "pip_package": "dcc-mcp-zbrush",
+      "pointer": true,
+      "registry": "pending",
+      "blocker": "registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first"
+    },
+    {
+      "name": "dcc-mcp-premiere",
+      "dcc": [
+        "premiere"
+      ],
+      "url": "https://github.com/dcc-mcp/dcc-mcp-premiere",
+      "version": "0.5.0",
+      "pip_package": "dcc-mcp-premiere",
+      "pointer": true,
+      "registry": "pending",
+      "blocker": "registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first"
+    },
+    {
+      "name": "dcc-mcp-aftereffects",
+      "dcc": [
+        "aftereffects",
+        "after-effects",
+        "after effects"
+      ],
+      "url": "https://github.com/dcc-mcp/dcc-mcp-aftereffects",
+      "version": "0.6.0",
+      "pip_package": "dcc-mcp-aftereffects",
+      "pointer": true,
+      "registry": "pending",
+      "blocker": "registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first"
+    },
+    {
+      "name": "dcc-mcp-illustrator",
+      "dcc": [
+        "illustrator"
+      ],
+      "url": "https://github.com/dcc-mcp/dcc-mcp-illustrator",
+      "version": "0.2.0",
+      "pip_package": "dcc-mcp-illustrator",
+      "pointer": true,
+      "registry": "pending",
+      "blocker": "registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first"
+    },
+    {
+      "name": "dcc-mcp-gimp",
+      "dcc": [
+        "gimp"
+      ],
+      "url": "https://github.com/dcc-mcp/dcc-mcp-gimp",
+      "version": "0.3.0",
+      "pip_package": "dcc-mcp-gimp",
+      "pointer": true,
+      "registry": "pending",
+      "blocker": "registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first"
+    },
+    {
+      "name": "dcc-mcp-krita",
+      "dcc": [
+        "krita"
+      ],
+      "url": "https://github.com/dcc-mcp/dcc-mcp-krita",
+      "version": "0.3.0",
+      "pip_package": "dcc-mcp-krita",
+      "pointer": true,
+      "registry": "pending",
+      "blocker": "registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first"
+    },
+    {
+      "name": "dcc-mcp-katana",
+      "dcc": [
+        "katana"
+      ],
+      "url": "https://github.com/dcc-mcp/dcc-mcp-katana",
+      "version": "0.4.0",
+      "pip_package": "dcc-mcp-katana",
+      "pointer": true,
+      "registry": "pending",
+      "blocker": "registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first"
+    },
+    {
+      "name": "dcc-mcp-mobu",
+      "dcc": [
+        "mobu"
+      ],
+      "url": "https://github.com/dcc-mcp/dcc-mcp-mobu",
+      "version": "0.3.0",
+      "pip_package": "dcc-mcp-mobu",
+      "pointer": true,
+      "registry": "pending",
+      "blocker": "registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first"
+    },
+    {
+      "name": "dcc-mcp-renderdoc",
+      "dcc": [
+        "renderdoc"
+      ],
+      "url": "https://github.com/dcc-mcp/dcc-mcp-renderdoc",
+      "version": "0.3.0",
+      "pip_package": "dcc-mcp-renderdoc",
+      "pointer": true,
+      "registry": "pending",
+      "blocker": "registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first"
+    },
+    {
+      "name": "dcc-mcp-obs",
+      "dcc": [
+        "obs"
+      ],
+      "url": "https://github.com/dcc-mcp/dcc-mcp-obs",
+      "version": "1.4.0",
+      "pip_package": "dcc-mcp-obs",
+      "pointer": true,
+      "registry": "pending",
+      "blocker": "registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first"
+    },
+    {
+      "name": "dcc-mcp-substance3d-designer",
+      "dcc": [
+        "substance3d_designer"
+      ],
+      "url": "https://github.com/dcc-mcp/dcc-mcp-substance3d-designer",
+      "version": "0.3.0",
+      "pip_package": "dcc-mcp-substance3d-designer",
+      "pointer": true,
+      "registry": "pending",
+      "blocker": "registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first"
+    },
+    {
+      "name": "dcc-mcp-substance3d-painter",
+      "dcc": [
+        "substance3d_painter"
+      ],
+      "url": "https://github.com/dcc-mcp/dcc-mcp-substance3d-painter",
+      "version": "0.1.3",
+      "pip_package": "dcc-mcp-substance3d-painter",
+      "pointer": true,
+      "registry": "pending",
+      "blocker": "registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first"
+    },
+    {
+      "name": "dcc-mcp-godot",
+      "dcc": [
+        "godot"
+      ],
+      "url": "https://github.com/dcc-mcp/dcc-mcp-godot",
+      "version": "0.4.0",
+      "pip_package": "dcc-mcp-godot",
+      "pointer": true,
+      "registry": "pending",
+      "blocker": "registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first"
+    },
+    {
+      "name": "dcc-mcp-unity",
+      "dcc": [
+        "unity"
+      ],
+      "url": "https://github.com/dcc-mcp/dcc-mcp-unity",
+      "version": "0.11.2",
+      "pip_package": "dcc-mcp-unity",
+      "pointer": true,
+      "registry": "pending",
+      "blocker": "registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first"
+    },
+    {
+      "name": "dcc-mcp-marmoset",
+      "dcc": [
+        "marmoset"
+      ],
+      "url": "https://github.com/dcc-mcp/dcc-mcp-marmoset",
+      "version": "0.1.1",
+      "pip_package": "dcc-mcp-marmoset",
+      "pointer": true,
+      "registry": "pending",
+      "blocker": "registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first"
+    },
+    {
+      "name": "dcc-mcp-openscad",
+      "dcc": [
+        "openscad"
+      ],
+      "url": "https://github.com/dcc-mcp/dcc-mcp-openscad",
+      "version": "0.2.1",
+      "pip_package": "dcc-mcp-openscad",
+      "pointer": true,
+      "registry": "pending",
+      "blocker": "registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first"
+    },
+    {
+      "name": "dcc-mcp-freecad",
+      "dcc": [
+        "freecad"
+      ],
+      "url": "https://github.com/dcc-mcp/dcc-mcp-freecad",
+      "version": "0.3.0",
+      "pip_package": "dcc-mcp-freecad",
+      "pointer": true,
+      "registry": "pending",
+      "blocker": "registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first"
+    },
+    {
+      "name": "dcc-mcp-cinema4d",
+      "dcc": [
+        "c4d",
+        "cinema4d"
+      ],
+      "url": "https://github.com/dcc-mcp/dcc-mcp-cinema4d",
+      "version": "0.2.0",
+      "pip_package": "dcc-mcp-cinema4d",
+      "pointer": true,
+      "registry": "pending",
+      "blocker": "registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first"
+    },
+    {
+      "name": "dcc-mcp-comfyui",
+      "dcc": [
+        "comfyui",
+        "comfy-ui"
+      ],
+      "url": "https://github.com/dcc-mcp/dcc-mcp-comfyui",
+      "version": "0.1.1",
+      "pip_package": "dcc-mcp-comfyui",
+      "pointer": true,
+      "registry": "pending",
+      "blocker": "registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first"
+    },
+    {
+      "name": "dcc-mcp-mari",
+      "dcc": [
+        "mari"
+      ],
+      "url": "https://github.com/dcc-mcp/dcc-mcp-mari",
+      "version": "0.2.1",
+      "pip_package": "dcc-mcp-mari",
+      "pointer": true,
+      "registry": "pending",
+      "blocker": "registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first"
+    },
+    {
+      "name": "dcc-mcp-sketchup",
+      "dcc": [
+        "sketchup"
+      ],
+      "url": "https://github.com/dcc-mcp/dcc-mcp-sketchup",
+      "version": "0.2.0",
+      "pip_package": "dcc-mcp-sketchup",
+      "pointer": true,
+      "registry": "pending",
+      "blocker": "registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first"
+    },
+    {
+      "name": "dcc-mcp-touchdesigner",
+      "dcc": [
+        "touchdesigner"
+      ],
+      "url": "https://github.com/dcc-mcp/dcc-mcp-touchdesigner",
+      "version": "0.1.1",
+      "pip_package": "dcc-mcp-touchdesigner",
+      "pointer": true,
+      "registry": "pending",
+      "blocker": "registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first"
+    },
+    {
+      "name": "dcc-mcp-shogun",
+      "dcc": [
+        "shogun"
+      ],
+      "url": "https://github.com/dcc-mcp/dcc-mcp-shogun",
+      "version": "0.10.0",
+      "pip_package": "dcc-mcp-shogun",
+      "pointer": true,
+      "registry": "pending",
+      "blocker": "registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first"
+    },
+    {
+      "name": "dcc-mcp-tiled",
+      "dcc": [
+        "tiled"
+      ],
+      "url": "https://github.com/dcc-mcp/dcc-mcp-tiled",
+      "version": "0.3.0",
+      "pip_package": null,
+      "pointer": true,
+      "registry": "deferred",
+      "blocker": "catalog has no `install:` block; the repository ships a real distribution, so registration waits on catalog install metadata, not on packaging work"
+    },
+    {
+      "name": "dcc-mcp-material-maker",
+      "dcc": [
+        "material-maker"
+      ],
+      "url": "https://github.com/dcc-mcp/dcc-mcp-material-maker",
+      "version": "0.3.1",
+      "pip_package": null,
+      "pointer": true,
+      "registry": "deferred",
+      "blocker": "catalog has no `install:` block; the repository ships a real distribution, so registration waits on catalog install metadata, not on packaging work"
+    },
+    {
+      "name": "dcc-mcp-wwise",
+      "dcc": [
+        "wwise"
+      ],
+      "url": "https://github.com/dcc-mcp/dcc-mcp-wwise",
+      "version": "0.1.2",
+      "pip_package": null,
+      "pointer": true,
+      "registry": "deferred",
+      "blocker": "catalog has no `install:` block; the repository ships a real distribution, so registration waits on catalog install metadata, not on packaging work"
+    },
+    {
+      "name": "dcc-mcp-fpt",
+      "dcc": [
+        "shotgrid"
+      ],
+      "url": "https://github.com/dcc-mcp/dcc-mcp-fpt",
+      "version": "0.1.8",
+      "pip_package": "dcc-mcp-fpt",
+      "pointer": true,
+      "registry": "pending",
+      "blocker": "registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first"
+    },
+    {
+      "name": "dcc-mcp-openusd",
+      "dcc": [
+        "openusd"
+      ],
+      "url": "https://github.com/dcc-mcp/dcc-mcp-openusd",
+      "version": "0.8.1",
+      "pip_package": "dcc-mcp-openusd",
+      "pointer": true,
+      "registry": "pending",
+      "blocker": "registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first"
+    }
+  ]
+}

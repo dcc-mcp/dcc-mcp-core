@@ -176,7 +176,7 @@ def validate_contract(contract: dict[str, Any]) -> None:
     if "dcc_mcp_core._core" in smoke["lite_py37"]:
         raise ContractError("lite_py37 smoke must not require dcc_mcp_core._core")
 
-    for name in ("jsonschema_py37", "pytest", "pytest_xdist", "typing_extensions"):
+    for name in ("jsonschema_py37", "pytest", "pytest_xdist", "pyyaml_py37", "typing_extensions"):
         if not toolchain.get(name):
             raise ContractError(f"test_toolchain.{name} is required")
 
@@ -349,5 +349,9 @@ def python37_test_requirements(contract: dict[str, Any]) -> list[str]:
         f"jsonschema=={toolchain['jsonschema_py37']}",
         f"pytest=={toolchain['pytest']}",
         f"pytest-xdist=={toolchain['pytest_xdist']}",
+        # PyYAML 6.0.2 raised its floor to Python 3.8, so 6.0.1 is the newest
+        # release that still ships a cp37 wheel. Modern lanes resolve a newer
+        # PyYAML on their own; only the pinned 3.7 toolchain needs the pin.
+        f"pyyaml=={toolchain['pyyaml_py37']}",
         f"typing-extensions=={toolchain['typing_extensions']}",
     ]

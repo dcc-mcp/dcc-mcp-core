@@ -1,0 +1,104 @@
+name: Adapter coverage
+
+# Keeps the adapter coverage map and the generated README pointer blocks honest.
+#
+# `dcc-mcp-catalog.yml` is the single source of truth for the host matrix. The
+# coverage map and the pointer block in every adapter README are generated from
+# it, so a catalog edit that is not followed by a regeneration leaves the
+# ecosystem describing a host list that no longer exists. This gate turns that
+# into a red check instead of a silently stale document.
+#
+# Triggers on a PR that touches the catalog, the generator, its tests, the
+# generated coverage map, or this workflow.
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    branches: [main]
+    paths:
+      - "dcc-mcp-catalog.yml"
+      - "docs/adapter-coverage.md"
+      - "docs/adapter-coverage.json"
+      - "scripts/generate_adapter_pointer.py"
+      - "tests/test_generate_adapter_pointer.py"
+      - ".github/workflows/adapter-coverage.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  coverage:
+    name: Coverage map and pointer blocks
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      # PyYAML is installed explicitly because this lane does a bare checkout
+      # with no wheel build, so `dcc_mcp_core._core` is absent and the
+      # generator cannot fall back to the Rust-backed YAML codec. It is the
+      # same dependency every `Test (os, py)` lane installs
+      # (test_toolchain.pyyaml_py37 in compatibility/python.json), so this lane
+      # exercises the same catalog-read path as the test matrix rather than a
+      # parallel one.
+      - name: Install pytest and PyYAML
+        run: python -m pip install --disable-pip-version-check pytest pyyaml
+
+      # The committed map must be byte-identical to what the catalog generates.
+      # `report` is offline, so this stays reproducible and needs no secrets.
+      - name: Coverage map is current
+        run: python scripts/generate_adapter_pointer.py report --check
+
+      # The host count the narrative quotes comes from the catalog. If it moves
+      # without the map being regenerated, the check above already failed; this
+      # prints it so the number is visible in the run log.
+      - name: Report the adapter count
+        run: |
+          count="$(python -c "
+          import yaml
+          entries = yaml.safe_load(open('dcc-mcp-catalog.yml', encoding='utf-8'))['entries']
+          print(sum(1 for e in entries if 'adapter' in (e.get('tags') or [])))
+          ")"
+          echo "catalog adapter entries: $count"
+          echo "adapter_count=$count" >> "$GITHUB_STEP_SUMMARY"
+
+      # --noconftest on purpose, like the release-workflow-integrity lane:
+      # tests/conftest.py imports the compiled dcc_mcp_core extension at module
+      # scope, and this lane deliberately does not wait for a wheel build.
+      - name: Pointer generator tests
+        run: |-
+          python -m pytest tests/test_generate_adapter_pointer.py \
+            -q --no-header --noconftest
+
+      - name: Generated copy clears the banned-claim list
+        run: |
+          python - <<'PY'
+          import sys
+          from pathlib import Path
+
+          sys.path.insert(0, ".")
+          from scripts import generate_adapter_pointer as generator
+
+          catalog = generator.load_catalog(Path("dcc-mcp-catalog.yml"))
+          entries = generator.adapter_entries(catalog)
+          if not entries:
+              print("::error::catalog contains no adapter entries")
+              sys.exit(1)
+
+          for entry in entries:
+              generator.render_pointer(entry, host_count=len(entries))
+
+          report = generator.render_report(entries)
+          missing = [e["name"] for e in entries if f"`{e['name']}`" not in report]
+          if missing:
+              print(f"::error::coverage map is missing adapters: {missing}")
+              sys.exit(1)
+          print(f"checked {len(entries)} adapter pointer blocks")
+          print(f"coverage map enumerates all {len(entries)} adapters")
+          PY
