@@ -51,10 +51,10 @@ rg -c '^    tags: \[.*"adapter".*\]' dcc-mcp-catalog.yml
 | `dcc-mcp-touchdesigner` | touchdesigner | 0.1.1 | `dcc-mcp-touchdesigner` | generated | pending | registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first |
 | `dcc-mcp-shogun` | shogun | 0.10.0 | `dcc-mcp-shogun` | generated | pending | registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first |
 | `dcc-mcp-tiled` | tiled | 0.5.1 | `dcc-mcp-tiled` | generated | pending | registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first |
-| `dcc-mcp-material-maker` | material-maker | 0.3.1 | — | generated | deferred | catalog has no `install:` block; the repository ships a real distribution, so registration waits on catalog install metadata, not on packaging work |
+| `dcc-mcp-material-maker` | material-maker | 0.3.1 | — | generated | deferred | catalog has no `install:` block; registration waits on catalog install metadata |
 | `dcc-mcp-wwise` | wwise | 0.1.6 | `dcc-mcp-wwise` | generated | pending | registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first |
-| `dcc-mcp-excel` | excel | 0.1.0 | — | generated | deferred | catalog has no `install:` block; the repository ships a real distribution, so registration waits on catalog install metadata, not on packaging work |
-| `dcc-mcp-word` | word | 0.1.0 | — | generated | deferred | catalog has no `install:` block; the repository ships a real distribution, so registration waits on catalog install metadata, not on packaging work |
+| `dcc-mcp-excel` | excel | 0.1.0 | — | generated | deferred | catalog has no `install:` block; registration waits on catalog install metadata |
+| `dcc-mcp-word` | word | 0.1.0 | — | generated | deferred | catalog has no `install:` block; registration waits on catalog install metadata |
 | `dcc-mcp-fpt` | shotgrid | 0.1.8 | `dcc-mcp-fpt` | generated | pending | registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first |
 | `dcc-mcp-openusd` | openusd | 0.8.1 | `dcc-mcp-openusd` | generated | pending | registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first |
 | `dcc-mcp-autocad` | autocad | 0.1.2 | `dcc-mcp-autocad` | generated | pending | registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first |
