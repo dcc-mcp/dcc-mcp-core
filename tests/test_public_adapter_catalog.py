@@ -26,10 +26,10 @@ def test_recent_adapter_releases_are_current() -> None:
 
     assert {name: entries[name]["version"] for name in expected_versions} == expected_versions
     assert entries["dcc-mcp-comfyui"]["min_core_version"] == "0.19.91"
-    assert "17 typed" in entries["dcc-mcp-comfyui"]["description"]
+    assert "21 typed" in entries["dcc-mcp-comfyui"]["description"]
     assert "19 typed" in entries["dcc-mcp-touchdesigner"]["description"]
     shogun = entries["dcc-mcp-shogun"]
-    assert "67 typed" in shogun["description"]
+    assert "73 typed" in shogun["description"]
     assert shogun["install"]["sha256"] == ("c6c223d86d25902a32fd4cf057feb78de7670c6bacc5c848aeb7a8e82e14392b")
     assert shogun["install"]["instructions_url"].endswith("/main/install.md")
 
