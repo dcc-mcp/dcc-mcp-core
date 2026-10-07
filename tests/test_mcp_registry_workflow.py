@@ -202,6 +202,117 @@ def test_curl_failure_cannot_be_masked_by_a_matching_body(tmp_path):
     assert not summary.exists()
 
 
+def _pypi_body(marker=True):
+    """Encode a PyPI JSON response, optionally carrying the ownership marker."""
+    description = f"<!-- mcp-name: {SERVER_NAME} -->" if marker else "A server with no marker."
+    return {"body": json.dumps({"info": {"description": description}})}
+
+
+def _wait_for_marker(tmp_path, responses, version="0.20.42", wait_seconds="3", clock=False):
+    """Run the real PyPI wait body against bounded, offline curl fixtures."""
+    bash = shutil.which("bash")
+    if os.name == "nt" or bash is None:
+        pytest.skip("the registry workflow executes on an Ubuntu bash runner")
+    workflow = yaml_loads(WORKFLOW.read_text(encoding="utf-8"))
+    step = next(
+        step
+        for step in workflow["jobs"]["publish"]["steps"]
+        if step.get("name") == "Wait for PyPI to carry the ownership marker"
+    )
+    (tmp_path / "responses.json").write_text(json.dumps(responses), encoding="utf-8")
+    (tmp_path / "curl.py").write_text(
+        "import json, os, sys\n"
+        "from pathlib import Path\n"
+        "root = Path(os.environ['FIXTURE_ROOT'])\n"
+        "log = root / 'requests.json'\n"
+        "requests = json.loads(log.read_text()) if log.exists() else []\n"
+        "responses = json.loads((root / 'responses.json').read_text())\n"
+        "response = responses[min(len(requests), len(responses) - 1)]\n"
+        "requests.append(sys.argv[1:])\n"
+        "log.write_text(json.dumps(requests))\n"
+        # Honour `-o <path>` the way curl does: the wait body reads the payload
+        # back from that file, so a fixture that only printed it would hide the
+        # marker check behind a missing-file error instead of exercising it.
+        "if response.get('exit_code', 0) == 0:\n"
+        "    args = sys.argv[1:]\n"
+        "    for index, arg in enumerate(args):\n"
+        "        if arg == '-o' and index + 1 < len(args):\n"
+        "            Path(args[index + 1]).write_text(response.get('body', ''), encoding='utf-8')\n"
+        "            break\n"
+        "sys.exit(response.get('exit_code', 0))\n",
+        encoding="utf-8",
+    )
+    env = {
+        "PATH": os.pathsep.join([str(Path(sys.executable).parent), os.defpath]),
+        "VERSION": version,
+        "PYPI_PACKAGE": "dcc-mcp-server",
+        "PYPI_WAIT_SECONDS": wait_seconds,
+        "PYPI_POLL_INTERVAL_SECONDS": "1",
+        "RUNNER_TEMP": str(tmp_path),
+        "GITHUB_STEP_SUMMARY": str(tmp_path / "summary.md"),
+        "FIXTURE_ROOT": str(tmp_path),
+    }
+    env.update({key: os.environ[key] for key in ("SYSTEMROOT", "WINDIR") if key in os.environ})
+    # A stubbed clock turns the wall-clock budget into an exact poll count, so
+    # "budget, not a fixed attempt count" can be asserted without a
+    # timing-dependent test: every `date +%s` advances the fake clock 1s.
+    clock_script = ""
+    if clock:
+        (tmp_path / "clock").write_text("0", encoding="utf-8")
+        clock_script = (
+            'date() { local tick; tick=$(cat "$FIXTURE_ROOT/clock"); '
+            'echo "$tick"; echo "$(( tick + 1 ))" > "$FIXTURE_ROOT/clock"; }\n'
+        )
+    # Execute the real workflow body. Only curl, sleep and (optionally) the
+    # clock are replaced; no PyPI request can leave the machine. The stubbed
+    # sleep keeps a wall-clock budget short without shortening the polls it
+    # allows.
+    script = 'curl() { python "$FIXTURE_ROOT/curl.py" "$@"; }\nsleep() { :; }\n' + clock_script + step["run"]
+    result = _run_script(bash, script, env, tmp_path, timeout=60)
+    requests = json.loads((tmp_path / "requests.json").read_text(encoding="utf-8"))
+    return result, requests
+
+
+def test_marker_wait_accepts_a_marker_carried_by_the_published_readme(tmp_path):
+    """Publish once the marker is readable on PyPI, and query the exact version."""
+    result, requests = _wait_for_marker(tmp_path, [_pypi_body()])
+    assert result.returncode == 0, result.stderr
+    assert len(requests) == 1
+    assert requests[0][-3] == "https://pypi.org/pypi/dcc-mcp-server/0.20.42/json"
+    assert "carries the ownership marker" in result.stdout
+    assert "::error::" not in result.stdout
+
+
+def test_marker_wait_keeps_polling_until_the_upload_completes(tmp_path):
+    """Absorb upload latency instead of reporting a missing marker too early."""
+    result, requests = _wait_for_marker(tmp_path, [{"exit_code": 22}, {"exit_code": 22}, _pypi_body()])
+    assert result.returncode == 0, result.stderr
+    assert len(requests) == 3
+    assert result.stdout.count("waiting for dcc-mcp-server 0.20.42 on PyPI") == 2
+    assert "carries the ownership marker" in result.stdout
+
+
+def test_marker_wait_rejects_a_version_published_without_the_marker(tmp_path):
+    """Stop on a published-but-unmarked version: that release can never register."""
+    result, requests = _wait_for_marker(tmp_path, [_pypi_body(marker=False)])
+    assert result.returncode == 1
+    assert len(requests) == 1
+    assert "is on PyPI without the mcp-name marker" in result.stdout
+    assert "::notice::" not in result.stdout
+
+
+def test_marker_wait_budget_is_wall_clock_not_a_fixed_attempt_count(tmp_path):
+    """Poll past the old 40-attempt cap and report the budget that ran out."""
+    result, requests = _wait_for_marker(tmp_path, [{"exit_code": 22}], wait_seconds="100", clock=True)
+    assert result.returncode == 1
+    # The stubbed clock advances 2s per poll (one loop check, one remaining
+    # check), so a 100s budget allows exactly 50 polls - deterministically more
+    # than the 40 the fixed-attempt loop used to allow before it gave up.
+    assert len(requests) == 50
+    assert "never appeared on PyPI within 100s (50 attempts)" in result.stdout
+    assert "publish-server-pypi" in result.stdout
+
+
 @pytest.mark.parametrize("port", [None, "19765"])
 def test_package_transport_uses_the_resolved_gateway_port(port):
     """Resolve the client endpoint from the same default or overridden package port."""

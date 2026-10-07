@@ -55,8 +55,10 @@ jobs:
     if: github.repository == 'dcc-mcp/dcc-mcp-core'
     runs-on: ubuntu-latest
     # The org runner pool can hold this job for a long time before it starts;
-    # a tighter budget turned a slow queue into a cancelled run twice.
-    timeout-minutes: 45
+    # a tighter budget turned a slow queue into a cancelled run twice. Sized
+    # above the PyPI wait budget below plus publish and confirmation, so a
+    # slow upload is reported as a timeout of *that* wait and not of the job.
+    timeout-minutes: 75
     permissions:
       contents: read
       id-token: write
@@ -136,6 +138,15 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.version }}
           PYPI_PACKAGE: "dcc-mcp-server"
+          # Wall-clock budget, not an attempt count. `release: published` fires
+          # before publish-server-pypi has even started, and the org runner pool
+          # can hold that upload for a long time: 0.20.42 took ~31 minutes from
+          # the release event to the wheel being readable on PyPI. A
+          # 40 x 20s (~13 minute) budget reported "never appeared on PyPI" there
+          # while the marker was in fact already live - a false negative that
+          # cost the release its primary deliverable.
+          PYPI_WAIT_SECONDS: "2100"
+          PYPI_POLL_INTERVAL_SECONDS: "20"
         run: |
           set -euo pipefail
           # The registry proves ownership by reading `mcp-name: <server name>`
@@ -153,7 +164,10 @@ jobs:
           #
           # A manual backfill of a version published before the marker landed
           # fails here too, and should: that version can never be registered.
-          for attempt in $(seq 1 40); do
+          deadline=$(( $(date +%s) + PYPI_WAIT_SECONDS ))
+          attempt=0
+          while [ "$(date +%s)" -lt "$deadline" ]; do
+            attempt=$(( attempt + 1 ))
             if curl -fsS -m 20 \
                 "https://pypi.org/pypi/${PYPI_PACKAGE}/${VERSION}/json" \
                 -o "$RUNNER_TEMP/pypi.json"; then
@@ -174,10 +188,20 @@ jobs:
               echo "::error::this version predates the marker; register a later release instead"
               exit 1
             fi
-            echo "waiting for ${PYPI_PACKAGE} ${VERSION} on PyPI (attempt ${attempt}/40)"
-            sleep 20
+            remaining=$(( deadline - $(date +%s) ))
+            echo "waiting for ${PYPI_PACKAGE} ${VERSION} on PyPI (attempt ${attempt}, ${remaining}s left)"
+            # Never sleep past the deadline: the budget is the contract, so the
+            # failure message below has to be reachable on time.
+            sleep_for="$PYPI_POLL_INTERVAL_SECONDS"
+            if [ "$remaining" -lt "$sleep_for" ]; then
+              sleep_for="$remaining"
+            fi
+            if [ "$sleep_for" -gt 0 ]; then
+              sleep "$sleep_for"
+            fi
           done
-          echo "::error::${PYPI_PACKAGE} ${VERSION} never appeared on PyPI"
+          echo "::error::${PYPI_PACKAGE} ${VERSION} never appeared on PyPI within ${PYPI_WAIT_SECONDS}s (${attempt} attempts)"
+          echo "::error::check whether publish-server-pypi is still queued or failed before treating this as a marker problem"
           exit 1
 
       - name: Authenticate with GitHub OIDC
