@@ -726,9 +726,13 @@ jobs:
     steps:
       - name: Report the build-wheels chain state
         shell: bash
+        env:
+          RELEASE_CREATED: ${{ needs.release-please.outputs.release_created }}
+          BUILD_WHEELS_RESULT: ${{ needs.build-wheels.result }}
+          RELEASE_TAG: ${{ needs.release-please.outputs.tag_name }}
         run: |
-          created='${{ needs.release-please.outputs.release_created }}'
-          result='${{ needs.build-wheels.result }}'
+          created="$RELEASE_CREATED"
+          result="$BUILD_WHEELS_RESULT"
 
           if [ "$created" != 'true' ]; then
             echo "::notice::build-wheels did not run: release-please created no new version on this run (expected for a no-release push or a scheduled run)."
@@ -737,14 +741,14 @@ jobs:
 
           case "$result" in
             success)
-              echo "build-wheels completed successfully for ${{ needs.release-please.outputs.tag_name }}."
+              echo "build-wheels completed successfully for $RELEASE_TAG."
               ;;
             skipped)
-              echo "::error::release-please published ${{ needs.release-please.outputs.tag_name }} but build-wheels was skipped, so no wheels were produced or uploaded. A skipped wheel chain must never be read as a passing one."
+              echo "::error::release-please published $RELEASE_TAG but build-wheels was skipped, so no wheels were produced or uploaded. A skipped wheel chain must never be read as a passing one."
               exit 1
               ;;
             *)
-              echo "::error::build-wheels finished with result '${result}' for ${{ needs.release-please.outputs.tag_name }}."
+              echo "::error::build-wheels finished with result '${result}' for $RELEASE_TAG."
               exit 1
               ;;
           esac
