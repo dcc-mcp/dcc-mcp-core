@@ -459,7 +459,14 @@ jobs:
       - uses: ./.github/actions/build-wheel
         with:
           python-version: "3.11"
-          test-wheel: "false"
+          # Install-and-verify the wheel in a clean venv at PR time. Release
+          # builds run this unconditionally; leaving it off here meant the
+          # post-install verification step only ever executed during a
+          # release, so regressions in `tests/test_imports.py` (which the
+          # step runs with plain `python`, without the test dependencies
+          # available to pytest) surfaced on release day instead of in
+          # review.
+          test-wheel: ${{ matrix.os == 'ubuntu-latest' && 'true' || 'false' }}
           artifact-name: wheel-${{ matrix.os }}
           # The Linux Rust gate runs `stubgen-check`, so PR wheel builds can
           # reuse committed stubs and avoid repeating PyO3 stub generation on
