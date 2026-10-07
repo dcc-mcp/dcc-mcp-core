@@ -15,6 +15,11 @@ from dcc_mcp_core._core import SkillScanner
 from dcc_mcp_core._core import ToolRegistry
 from dcc_mcp_core._core import ToolResult
 
+# NOTE: this file doubles as the release wheel smoke script. The ``build-wheel``
+# action runs it with plain ``python`` inside a venv holding only the wheel and
+# its runtime dependencies, so it must never require third-party packages at
+# import time. ``tests/test_imports_stdlib_only.py`` enforces this statically.
+
 #: Modules that must survive being the *first* ``dcc_mcp_core`` submodule a
 #: fresh interpreter imports. ``collect_import_failures`` cannot catch a cycle
 #: here because it imports ``dcc_mcp_core`` first, which fully initialises the
