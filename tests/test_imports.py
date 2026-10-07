@@ -10,7 +10,15 @@ import subprocess
 import sys
 
 # Import third-party modules
-import pytest
+# This module doubles as the wheel smoke script: `build-wheel` runs
+# `python tests/test_imports.py` inside a venv that holds the wheel and nothing
+# else, so pytest must stay optional here. The pytest collection path below is
+# only registered when pytest is importable, which keeps the plain-python smoke
+# aligned with the Python 3.7 lanes that run `scripts/ci/smoke_*.py` directly.
+try:
+    import pytest
+except ImportError:  # pragma: no cover - exercised only outside the test env
+    pytest = None
 
 # Import local modules
 import dcc_mcp_core
@@ -70,16 +78,18 @@ def test_dcc_mcp_core_import_smoke() -> None:
     assert_import_smoke()
 
 
-@pytest.mark.parametrize("module_name", FRESH_IMPORT_ENTRYPOINTS)
-def test_module_imports_cleanly_as_first_import(module_name: str) -> None:
-    """A fresh interpreter must import each entry point without a cycle."""
-    result = subprocess.run(
-        [sys.executable, "-c", f"import {module_name}"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert result.returncode == 0, f"`import {module_name}` failed in a fresh interpreter:\n{result.stderr}"
+if pytest is not None:
+
+    @pytest.mark.parametrize("module_name", FRESH_IMPORT_ENTRYPOINTS)
+    def test_module_imports_cleanly_as_first_import(module_name: str) -> None:
+        """A fresh interpreter must import each entry point without a cycle."""
+        result = subprocess.run(
+            [sys.executable, "-c", f"import {module_name}"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.returncode == 0, f"`import {module_name}` failed in a fresh interpreter:\n{result.stderr}"
 
 
 if __name__ == "__main__":
