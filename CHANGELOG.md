@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.42](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.41...v0.20.42) (2026-10-06)
+
+
+### Features
+
+* bridge authorized official design provider sessions ([3deb50a](https://github.com/dcc-mcp/dcc-mcp-core/commit/3deb50ae87fc76b2ccf939995f9f2157f9eeafae))
+* **catalog:** enforce a bounded core version contract for adapters ([c3d6d73](https://github.com/dcc-mcp/dcc-mcp-core/commit/c3d6d73a2cec06887625b13b21afd59314d6ea9f))
+* **catalog:** generate adapter coverage pointers from the catalog ([#2680](https://github.com/dcc-mcp/dcc-mcp-core/issues/2680)) ([ee7f16a](https://github.com/dcc-mcp/dcc-mcp-core/commit/ee7f16aa65321df1708b8e31a5e7e96dfca3c737))
+* **gateway:** resolve default instance deterministically when several match ([5b4b4f6](https://github.com/dcc-mcp/dcc-mcp-core/commit/5b4b4f6986a708ffd79ce80464ac1b7296f7fde1))
+* **registry:** publish dcc-mcp-core to the official MCP Registry ([#2676](https://github.com/dcc-mcp/dcc-mcp-core/issues/2676)) ([8b07be1](https://github.com/dcc-mcp/dcc-mcp-core/commit/8b07be12ef367b2001275b2653e166463c00325b))
+* **transport:** add identity/lineage envelope to ServiceEntry ([#2675](https://github.com/dcc-mcp/dcc-mcp-core/issues/2675)) ([b1ff1f9](https://github.com/dcc-mcp/dcc-mcp-core/commit/b1ff1f969e30c665c7c73761e1d29b9653a42fdf))
+* **version:** single-source the startup log version and self-check drift ([a2cfecc](https://github.com/dcc-mcp/dcc-mcp-core/commit/a2cfecc645ceefd0eb282606733f4c538f95cb1b))
+
+
+### Bug Fixes
+
+* **adapter:** qualify the generator path in the emitted pointer block ([1eab99d](https://github.com/dcc-mcp/dcc-mcp-core/commit/1eab99d1c217f655b162f026dc8f2c0cf2b6da94))
+* **catalog:** keep a README's trailing blank lines ([896fb0c](https://github.com/dcc-mcp/dcc-mcp-core/commit/896fb0c399335e588ba8e180b46524f8cb6a9df8))
+* **core:** break the dcc_server/skills.builtin import cycle ([2550e85](https://github.com/dcc-mcp/dcc-mcp-core/commit/2550e8523339669af3e4fe90de547a76fee8651d))
+* **gateway,vrs:** substitute captures in assertions and share one endpoint resolver ([#2667](https://github.com/dcc-mcp/dcc-mcp-core/issues/2667)) ([628586c](https://github.com/dcc-mcp/dcc-mcp-core/commit/628586cf263e568d4955ee9f899bc7d7ba93840d))
+* **gateway:** report why a readiness probe fails instead of a bare not-ready counter ([#2666](https://github.com/dcc-mcp/dcc-mcp-core/issues/2666)) ([36803ca](https://github.com/dcc-mcp/dcc-mcp-core/commit/36803ca4f0e8743396475822398d5c2e0571ff47))
+* **registry:** verify the published version and configurable gateway port ([bfc30a9](https://github.com/dcc-mcp/dcc-mcp-core/commit/bfc30a94d5a79e258eac4b9aa10c169a7c776193))
+* **workflow:** gate per-stage overhead on the median, not the tail ([#2671](https://github.com/dcc-mcp/dcc-mcp-core/issues/2671)) ([32b17a9](https://github.com/dcc-mcp/dcc-mcp-core/commit/32b17a94cacb707cdd7c8dead3599aa0dae9a13d))
+
+
+### Documentation
+
+* **adapter:** correct convergence, truthy, and keyword claims ([c05e1cb](https://github.com/dcc-mcp/dcc-mcp-core/commit/c05e1cb70b9846eab259d1be6938ba1858337510))
+* **adapter:** launch plan and readiness contract for start-instance ([e3057f5](https://github.com/dcc-mcp/dcc-mcp-core/commit/e3057f581cdb81ab0b1dbb54c4ec3954e715d1ba))
+* **adapter:** qualify convergence, truthy, and tokenizer claims ([9cb18ff](https://github.com/dcc-mcp/dcc-mcp-core/commit/9cb18ffad9f84e625a5d237b54bdf75fba9f1003))
+* **readme:** host matrix and shared contracts on the first screen ([#2672](https://github.com/dcc-mcp/dcc-mcp-core/issues/2672)) ([fffb85e](https://github.com/dcc-mcp/dcc-mcp-core/commit/fffb85e738c2ecea48e77fb47741c4cee2996c2c))
+* **workflow,transport:** pin the overhead gate's real coverage, record bench policy ([3f6307c](https://github.com/dcc-mcp/dcc-mcp-core/commit/3f6307c94c675de12a2ece064e4c3cef95eaea9a))
+
 ## [0.20.41](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.40...v0.20.41) (2026-10-02)
 
 
