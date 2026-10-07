@@ -702,6 +702,53 @@ jobs:
     secrets:
       RELEASE_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
 
+  # ── Guard against a silently absent wheel chain ───────────────────────
+  #
+  # build-wheels is a reusable workflow with no unconditional job, so when
+  # release-please reports no new version the whole chain is skipped and the
+  # run still renders as a neutral, empty matrix. That "nothing ran" state is
+  # easy to misread as "everything passed", which is exactly how v0.20.42
+  # shipped: the run whose build-wheels jobs actually failed was preceded by a
+  # skipped run that looked benign.
+  #
+  # This job names the two distinct absent states so nobody has to guess:
+  #
+  #   * release_created == false  -> expected skip, annotated once. Nothing
+  #     was meant to be built on this run.
+  #   * build-wheels skipped while release_created == true -> the version gate
+  #     released a version but no wheel job ran. That is a defect, so it fails
+  #     the run instead of passing quietly.
+  guard-build-wheels-ran:
+    needs: [release-please, build-wheels]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Report the build-wheels chain state
+        shell: bash
+        run: |
+          created='${{ needs.release-please.outputs.release_created }}'
+          result='${{ needs.build-wheels.result }}'
+
+          if [ "$created" != 'true' ]; then
+            echo "::notice::build-wheels did not run: release-please created no new version on this run (expected for a no-release push or a scheduled run)."
+            exit 0
+          fi
+
+          case "$result" in
+            success)
+              echo "build-wheels completed successfully for ${{ needs.release-please.outputs.tag_name }}."
+              ;;
+            skipped)
+              echo "::error::release-please published ${{ needs.release-please.outputs.tag_name }} but build-wheels was skipped, so no wheels were produced or uploaded. A skipped wheel chain must never be read as a passing one."
+              exit 1
+              ;;
+            *)
+              echo "::error::build-wheels finished with result '${result}' for ${{ needs.release-please.outputs.tag_name }}."
+              exit 1
+              ;;
+          esac
+
   # ── Validate release metadata once before publishing artefacts ──
   #
   # The four PyPI publish jobs depend on this one, so a failure here blocks
