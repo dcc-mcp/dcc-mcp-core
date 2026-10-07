@@ -9,9 +9,6 @@ import pkgutil
 import subprocess
 import sys
 
-# Import third-party modules
-import pytest
-
 # Import local modules
 import dcc_mcp_core
 from dcc_mcp_core._core import SkillScanner
@@ -70,7 +67,19 @@ def test_dcc_mcp_core_import_smoke() -> None:
     assert_import_smoke()
 
 
-@pytest.mark.parametrize("module_name", FRESH_IMPORT_ENTRYPOINTS)
+try:
+    # Import third-party modules
+    import pytest
+
+    _parametrize = pytest.mark.parametrize("module_name", FRESH_IMPORT_ENTRYPOINTS)
+except ImportError:  # pragma: no cover - exercised only outside pytest
+    pytest = None
+
+    def _parametrize(func):
+        return func
+
+
+@_parametrize
 def test_module_imports_cleanly_as_first_import(module_name: str) -> None:
     """A fresh interpreter must import each entry point without a cycle."""
     result = subprocess.run(
