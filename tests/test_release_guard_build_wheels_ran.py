@@ -62,7 +62,9 @@ def _guard_step() -> dict:
     return steps[0]
 
 
-def _run_guard(tmp_path: pathlib.Path, *, created: str, result: str, tag: str = "v1.2.3") -> subprocess.CompletedProcess:
+def _run_guard(
+    tmp_path: pathlib.Path, *, created: str, result: str, tag: str = "v1.2.3"
+) -> subprocess.CompletedProcess:
     """Execute the guard's script with the given inputs and return the result."""
     step = _guard_step()
     script = step["run"]
@@ -102,18 +104,14 @@ def _run_guard(tmp_path: pathlib.Path, *, created: str, result: str, tag: str = 
         ("true", "success"),
     ],
 )
-def test_guard_passes_states_that_must_not_fail_the_run(
-    tmp_path: pathlib.Path, created: str, result: str
-) -> None:
+def test_guard_passes_states_that_must_not_fail_the_run(tmp_path: pathlib.Path, created: str, result: str) -> None:
     """No release, or a release whose wheels built: the gate stays quiet."""
     assert _run_guard(tmp_path, created=created, result=result).returncode == 0
 
 
 @needs_bash
 @pytest.mark.parametrize("result", ["skipped", "failure", "cancelled"])
-def test_guard_fails_when_a_released_version_has_no_successful_wheel_chain(
-    tmp_path: pathlib.Path, result: str
-) -> None:
+def test_guard_fails_when_a_released_version_has_no_successful_wheel_chain(tmp_path: pathlib.Path, result: str) -> None:
     """A version was released but no wheel job succeeded: fail the run, loudly."""
     completed = _run_guard(tmp_path, created="true", result=result)
     assert completed.returncode != 0
