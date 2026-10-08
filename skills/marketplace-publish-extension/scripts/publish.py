@@ -27,17 +27,16 @@ def _parse_skill_md(path: Path) -> dict[str, Any]:
     if not path.is_file():
         raise FileNotFoundError(f"SKILL.md not found at {path}")
 
-    content = path.read_text(encoding="utf-8")
+    # utf-8-sig strips a leading BOM, which would otherwise hide the opening ---.
+    content = path.read_text(encoding="utf-8-sig")
     # Frontmatter is delimited by --- lines. The first line must be ---.
     if not content.startswith("---"):
         raise ValueError(f"SKILL.md at {path} has no YAML frontmatter (missing opening ---)")
 
-    # Find the closing ---
+    # Find the closing ---. It must be a line of its own; a `---` that appears
+    # mid-line (e.g. `description: alpha---beta`) is content, not a delimiter.
     rest = content[3:]  # skip opening ---
-    end_idx = rest.find("\n---")
-    if end_idx == -1:
-        # Try with just --- at the very start
-        end_idx = rest.find("---")
+    end_idx = _find_frontmatter_end(rest)
     if end_idx == -1:
         raise ValueError(f"SKILL.md at {path} has unclosed YAML frontmatter")
 
@@ -45,9 +44,28 @@ def _parse_skill_md(path: Path) -> dict[str, Any]:
 
     # Use a minimal YAML parser — we could import yaml, but that adds a
     # dependency. For the dcc-mcp frontmatter subset, a line-oriented
-    # parser that handles simple scalars, lists with [], and nested
-    # key: value under metadata is sufficient.
+    # parser that handles simple scalars, flow and block lists, folded
+    # scalars, and nested blocks under metadata is sufficient.
     return _parse_simple_yaml(frontmatter_text)
+
+
+def _find_frontmatter_end(rest: str) -> int:
+    """Index of the closing frontmatter delimiter, or -1 when there is none.
+
+    A delimiter is a line whose stripped content is exactly ``---`` (a run of
+    three or more dashes is also accepted, as YAML treats it as a document
+    end marker). Scanning line by line keeps dashes that appear *inside* a
+    value -- ``description: alpha---beta`` -- from being mistaken for the
+    closing fence.
+    """
+    offset = 0
+    for line in rest.splitlines(keepends=True):
+        if line.strip().strip("\r\n").startswith("---"):
+            candidate = line.strip()
+            if candidate == "---" or set(candidate) == {"-"}:
+                return offset
+        offset += len(line)
+    return -1
 
 
 def _parse_simple_yaml(text: str) -> dict[str, Any]:
@@ -56,86 +74,174 @@ def _parse_simple_yaml(text: str) -> dict[str, Any]:
     Handles:
     - plain scalars (key: value)
     - flow-sequence lists (key: [a, b, c])
-    - nested blocks (2-space indent) for metadata.dcc-mcp.*
+    - block sequences (- item)
+    - nested blocks (2-space indent, tabs supported) for metadata.dcc-mcp.*
     - >- folded block scalars (description: >-)
     """
     result: dict[str, Any] = {}
-    current_path: list[str] = []
-    current_indent = 0
+    # Stack of (indent, key path) for the blocks currently open. Every key --
+    # with or without a value -- is resolved against it, so a sibling that
+    # follows a nested block lands next to that block instead of inside it.
+    block_stack: list[tuple[int, list[str]]] = []
     fold_key: str | None = None
     fold_lines: list[str] = []
+    _fold_indent = 0
+    _fold_parent: list[str] = []
+    seq_indent = -1
+    seq_path: list[str] = []
+
+    def close_fold(indent: int) -> None:
+        nonlocal fold_key, fold_lines
+        if fold_key is None:
+            return
+        _set_nested(result, [*path_for_indent(indent), fold_key], _join_folded(fold_lines))
+        fold_key = None
+        fold_lines = []
+
+    def path_for_indent(indent: int) -> list[str]:
+        """Key path a key at ``indent`` belongs to, popping closed blocks."""
+        while block_stack and indent <= block_stack[-1][0]:
+            block_stack.pop()
+        return list(block_stack[-1][1]) if block_stack else []
 
     for line in text.splitlines():
-        # Skip empty lines unless we're in a fold
         stripped = line.strip()
+
         if not stripped:
             if fold_key is not None:
                 fold_lines.append("")
             continue
 
-        # If we're in a folded scalar (>-) and the line is more indented
-        indent = len(line) - len(line.lstrip())
-        if fold_key is not None and indent > current_indent:
+        indent = _measure_indent(line)
+
+        # A pending fold continues while lines stay more indented than its key.
+        if fold_key is not None and indent > _fold_indent:
             fold_lines.append(stripped)
             continue
 
-        # Finalise any pending fold
-        if fold_key is not None:
-            _set_nested(result, [*current_path, fold_key], " ".join(fold_lines))
-            fold_key = None
-            fold_lines = []
+        # Finalise any pending fold at the indentation of the key that ends it.
+        close_fold(indent)
+
+        # Detect a block-sequence item: `- value`, or a bare `-` for an empty item.
+        if stripped[0] == "-" and (len(stripped) == 1 or stripped[1] in " \t"):
+            if seq_indent < 0:
+                # No `key:` introduced this sequence; attach it to the enclosing
+                # block so `- a` under `items:` still produces items: [a].
+                owner_path = path_for_indent(indent)
+                seq_key = owner_path[-1] if owner_path else None
+                if seq_key is None:
+                    continue
+                seq_path = owner_path
+                seq_indent = indent
+            _get_nested(result, seq_path).append(_strip_quotes(stripped[1:].strip()))
+            continue
+
+        if seq_indent >= 0:
+            seq_indent = -1
+            seq_path = []
 
         # Detect fold start: key: >-
         if stripped.endswith(">-"):
             key = stripped[:-2].strip().rstrip(":")
             fold_key = key
-            current_indent = indent  # continuation lines must be more indented than key
-            # Do NOT mutate current_path here — fold_key is combined with
-            # current_path at finalisation time.
+            _fold_indent = indent  # continuation lines must be more indented than key
+            _fold_parent = path_for_indent(indent)
             continue
 
-        # Detect key: value or key: [list]
+        # Detect key: value, key: [list], or a parent key for a nested block
         if ":" in stripped:
             # Split on first colon
             colon_idx = stripped.index(":")
             key = stripped[:colon_idx].strip()
             value_str = stripped[colon_idx + 1 :].strip()
 
+            parent_path = path_for_indent(indent)
+
             if not value_str:
-                # Parent key for a nested block — push onto path
-                current_path = _path_from_indent(result, indent, key, current_path)
+                # Parent key for a nested block — push onto the stack. The block
+                # itself is created lazily so a key with no children stays absent.
+                block_stack.append((indent, [*parent_path, key]))
                 continue
 
             # Check for flow-sequence: [a, b, c]
             if value_str.startswith("[") and value_str.endswith("]"):
                 inner = value_str[1:-1]
                 items = _parse_flow_sequence(inner) if inner.strip() else []
-                _set_nested(result, [*current_path, key], items)
+                _set_nested(result, [*parent_path, key], items)
                 continue
 
-            # Remove surrounding quotes
-            value = value_str
-            if (value.startswith('"') and value.endswith('"')) or (value.startswith("'") and value.endswith("'")):
-                value = value[1:-1]
-            _set_nested(result, [*current_path, key], value)
+            _set_nested(result, [*parent_path, key], _strip_quotes(value_str))
 
     # Finalise any pending fold at EOF
     if fold_key is not None:
-        _set_nested(result, [*current_path, fold_key], " ".join(fold_lines))
+        _set_nested(result, [*_fold_parent, fold_key], _join_folded(fold_lines))
 
     return result
 
 
 def _path_from_indent(root: dict[str, Any], indent: int, key: str, current_path: list[str]) -> list[str]:
-    """Determine the nested key path based on indentation level."""
-    # 0 indent = top-level; 2 indent = one level deep; etc.
-    depth = indent // 2
-    new_path = current_path[:depth] if depth < len(current_path) else current_path
-    if depth == len(new_path):
+    """Determine the nested key path for ``key`` written at ``indent``.
+
+    ``current_path`` is the path of the block that was open before this line.
+    Everything at or below the new depth is dropped and ``key`` is appended, so
+    a sibling written after a nested block resolves next to that block rather
+    than inside it. Tabs count as one indent level because ``_measure_indent``
+    has already normalised them to columns.
+    """
+    depth = _indent_depth(indent)
+    new_path = current_path[:depth]
+    if key:
         new_path.append(key)
-    else:
-        new_path = [*new_path[:depth], key]
     return new_path
+
+
+def _indent_depth(indent: int) -> int:
+    """Convert a column indent into a nesting depth (one level per 2 columns)."""
+    return indent // 2
+
+
+def _measure_indent(line: str) -> int:
+    """Measure a line's indent in columns, expanding tabs like YAML does."""
+    indent = 0
+    for ch in line:
+        if ch == " ":
+            indent += 1
+        elif ch == "\t":
+            indent += 2  # a tab is worth one indent level
+        else:
+            break
+    return indent
+
+
+def _join_folded(fold_lines: list[str]) -> str:
+    """Join folded-scalar lines: a blank line folds into a single newline."""
+    parts: list[str] = []
+    for i, current in enumerate(fold_lines):
+        if not current:
+            parts.append("\n")
+            continue
+        if i and parts and parts[-1] != "\n" and fold_lines[i - 1]:
+            parts.append(" ")
+        parts.append(current)
+    return "".join(parts)
+
+
+def _strip_quotes(value: str) -> str:
+    """Remove one layer of matching surrounding quotes."""
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
+        return value[1:-1]
+    return value
+
+
+def _get_nested(d: dict[str, Any], path: list[str]) -> Any:
+    """Read the list at a nested key path, creating intermediate dicts."""
+    for key in path[:-1]:
+        if key not in d:
+            d[key] = {}
+        d = d[key]
+    if not isinstance(d.get(path[-1]), list):
+        d[path[-1]] = []
+    return d[path[-1]]
 
 
 def _set_nested(d: dict[str, Any], path: list[str], value: Any) -> None:
@@ -169,6 +275,8 @@ def _parse_flow_sequence(inner: str) -> list[str]:
             current = ""
         else:
             current += ch
+    if in_quotes:
+        raise ValueError(f"unterminated quoted item in flow sequence: {inner!r}")
     trimmed = current.strip()
     if trimmed:
         items.append(trimmed)

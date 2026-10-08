@@ -7,9 +7,10 @@ frontmatter of every extension that gets published. One mis-parsed character
 silently lands a wrong description, tag list, or DCC list in ``marketplace.json``
 and no downstream step asserts otherwise.
 
-Cases marked *characterization* pin behaviour that diverges from the YAML spec.
-They document the divergence instead of endorsing it; each one is reported as a
-follow-up defect and must be updated together with the parser fix.
+Cases that used to be marked *characterization* pinned behaviour that diverged
+from the YAML spec. Those divergences are fixed; the surviving cases assert the
+correct behaviour. Where the parser cannot represent a value faithfully it now
+raises instead of silently truncating or swallowing characters.
 """
 
 from __future__ import annotations
@@ -137,8 +138,13 @@ def test_values_containing_colons(text: str, expected: dict) -> None:
         ),
         pytest.param(
             "description: >-\n  Line one\n  Line two\n\n  Line three\n",
-            {"description": "Line one Line two  Line three"},
-            id="characterization-blank-line-becomes-double-space",
+            {"description": "Line one Line two\nLine three"},
+            id="blank-line-folds-to-a-newline",
+        ),
+        pytest.param(
+            "description: >-\n  Line one\n\n  Line two\n\n  Line three\n",
+            {"description": "Line one\nLine two\nLine three"},
+            id="repeated-blank-lines-fold-to-newlines",
         ),
     ],
 )
@@ -179,11 +185,6 @@ def test_folded_block_scalars(text: str, expected: dict) -> None:
         pytest.param("tags: []\n", {"tags": []}, id="empty-sequence"),
         pytest.param("tags: [   ]\n", {"tags": []}, id="whitespace-only-sequence"),
         pytest.param(
-            'tags: ["a, b]\n',
-            {"tags": ["a, b"]},
-            id="characterization-unterminated-quote-swallows-the-rest-of-the-item",
-        ),
-        pytest.param(
             "tags: [a, b]\nname: x\n",
             {"tags": ["a", "b"], "name": "x"},
             id="sequence-followed-by-scalar",
@@ -192,6 +193,20 @@ def test_folded_block_scalars(text: str, expected: dict) -> None:
 )
 def test_flow_sequences(text: str, expected: dict) -> None:
     assert _parse_simple_yaml(text) == expected
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param('tags: ["a, b]\n', id="unterminated-double-quote"),
+        pytest.param("tags: ['a, b]\n", id="unterminated-single-quote"),
+        pytest.param('tags: [ok, "broken]\n', id="unterminated-quote-on-later-item"),
+    ],
+)
+def test_flow_sequence_unterminated_quote_raises(text: str) -> None:
+    """An unterminated quote is an error, never a silent swallow of the rest."""
+    with pytest.raises(ValueError, match="unterminated quoted item"):
+        _parse_simple_yaml(text)
 
 
 # 5. Nested blocks (2-space indent)
@@ -217,8 +232,8 @@ def test_flow_sequences(text: str, expected: dict) -> None:
         ),
         pytest.param(
             "metadata:\n  dcc-mcp:\n    dcc: maya\n  other: x\n",
-            {"metadata": {"dcc-mcp": {"dcc": "maya", "other": "x"}}},
-            id="characterization-sibling-scalar-dedent-is-swallowed-by-the-open-block",
+            {"metadata": {"dcc-mcp": {"dcc": "maya"}, "other": "x"}},
+            id="sibling-scalar-dedent-lands-next-to-the-open-block",
         ),
         pytest.param(
             "a:\n  b:\n    c:\n      d: leaf\n",
@@ -228,19 +243,30 @@ def test_flow_sequences(text: str, expected: dict) -> None:
         pytest.param("a:\n    b: 1\n", {"a": {"b": "1"}}, id="four-space-indent-under-parent"),
         pytest.param(
             "metadata:\n  dcc-mcp:\n    dcc: maya\nlicense: MIT-0\n",
-            {"metadata": {"dcc-mcp": {"dcc": "maya", "license": "MIT-0"}}},
-            id="characterization-scalar-after-nested-block-is-swallowed",
+            {"metadata": {"dcc-mcp": {"dcc": "maya"}}, "license": "MIT-0"},
+            id="top-level-scalar-after-nested-block-is-not-swallowed",
         ),
         pytest.param(
             "metadata:\n\tdcc-mcp:\n\t\tdcc: maya\n",
-            {"dcc-mcp": {"dcc": "maya"}},
-            id="characterization-tab-indent-drops-the-metadata-root",
+            {"metadata": {"dcc-mcp": {"dcc": "maya"}}},
+            id="tab-indent-nests-under-metadata",
         ),
         pytest.param(
             "items:\n  - a\n  - b\n",
-            {},
-            id="characterization-block-sequence-items-are-dropped",
+            {"items": ["a", "b"]},
+            id="block-sequence",
         ),
+        pytest.param(
+            "metadata:\n  dcc-mcp:\n    tags:\n      - maya\n      - blender\n",
+            {"metadata": {"dcc-mcp": {"tags": ["maya", "blender"]}}},
+            id="block-sequence-inside-a-nested-block",
+        ),
+        pytest.param(
+            "items:\n  - a\n  - b\nname: x\n",
+            {"items": ["a", "b"], "name": "x"},
+            id="block-sequence-followed-by-a-scalar",
+        ),
+        pytest.param("items:\n  -\n", {"items": [""]}, id="bare-dash-yields-one-empty-item"),
     ],
 )
 def test_nested_blocks(text: str, expected: dict) -> None:
