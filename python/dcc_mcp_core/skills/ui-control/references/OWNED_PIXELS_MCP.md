@@ -57,3 +57,7 @@ cleanup. Decode and attribute actual MP4 and provenance separately.
 All owned pixels tasks require an exact inactive/nonpending Host stop ACK,
 including non-recording tasks (default cleanup budget five seconds). A runtime
 that omits it produces cleanup_unknown, never a fabricated successful stop.
+Automatic unload reports owned cleanup failures through executor warnings,
+but `Core.stop()` returns no native receipt and catalog unload is not cleanup
+acceptance. Retain the explicit `ui_control__stop_computer_use` ACK before Core
+shutdown when proof of native cleanup is required.

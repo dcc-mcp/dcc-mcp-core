@@ -116,6 +116,14 @@ and have no recording destination constraint. A pinned older runtime that omits
 the actual Host ACK cannot certify cleanup; Core retains `cleanup_unknown`.
 The legacy shared JSONL transport retains its existing stop semantics.
 
+Automatic skill unload and Core shutdown attempt every client. Owned pixels
+cleanup failures retain their cached typed outcome and reach the existing
+executor warning hooks with bounded native evidence; legacy shared JSONL
+cleanup remains best effort. `Core.stop()` returns no native cleanup receipt,
+and catalog unload success does not certify it. Call
+`ui_control__stop_computer_use` explicitly and retain its actual ACK before stopping
+Core when the caller requires cleanup proof.
+
 When the native ACK exports typed `recording_video` or `live_observation`
 summaries, Core retains bounded partial/segment paths inside the authorized task
 directory, actual sidecar hashes/counters and source cleanup state. An unknown
