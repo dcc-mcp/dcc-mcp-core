@@ -150,20 +150,27 @@ def test_parse_skill_md_unterminated_frontmatter_raises(tmp_path: Path) -> None:
         _PUBLISH._parse_skill_md(path)
 
 
-def test_parse_skill_md_bom_prefixed_file_is_rejected(tmp_path: Path) -> None:
-    """Characterization: a UTF-8 BOM hides the opening `---` and the file is rejected."""
-    path = _write_skill_md(tmp_path / "ext")
+def test_parse_skill_md_bom_prefixed_file_is_accepted(tmp_path: Path) -> None:
+    """A UTF-8 BOM must not hide the opening `---`; the file is read as utf-8-sig."""
+    path = _write_skill_md(tmp_path / "ext", "---\nname: bom-skill\ndcc: maya\n---\n\n# Body\n")
     path.write_text("\ufeff" + path.read_text(encoding="utf-8"), encoding="utf-8")
 
-    with pytest.raises(ValueError, match="no YAML frontmatter"):
+    assert _PUBLISH._parse_skill_md(path) == {"name": "bom-skill", "dcc": "maya"}
+
+
+def test_parse_skill_md_inline_dashes_are_not_a_closing_delimiter(tmp_path: Path) -> None:
+    """`---` inside a value is content, so the frontmatter is unclosed and must raise."""
+    path = _write_skill_md(tmp_path / "ext", "---\nname: truncated\ndescription: alpha---beta\n")
+
+    with pytest.raises(ValueError, match="unclosed YAML frontmatter"):
         _PUBLISH._parse_skill_md(path)
 
 
-def test_parse_skill_md_unterminated_frontmatter_is_silently_truncated_at_inline_dashes(tmp_path: Path) -> None:
-    """Characterization: the fallback scan matches `---` mid-line and truncates the value."""
-    path = _write_skill_md(tmp_path / "ext", "---\nname: truncated\ndescription: alpha---beta\n")
+def test_parse_skill_md_closing_delimiter_may_be_a_longer_dash_run(tmp_path: Path) -> None:
+    """A `----` fence still closes the frontmatter."""
+    path = _write_skill_md(tmp_path / "ext", "---\nname: dashed\n----\n\n# Body\n")
 
-    assert _PUBLISH._parse_skill_md(path) == {"name": "truncated", "description": "alpha"}
+    assert _PUBLISH._parse_skill_md(path) == {"name": "dashed"}
 
 
 # ── _build_catalog_entry: metadata-derived fields ─────────────────────────────

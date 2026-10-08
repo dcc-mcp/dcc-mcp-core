@@ -1,15 +1,16 @@
 """P0 coverage for the hand-rolled SKILL.md frontmatter parser.
 
-``_parse_simple_yaml`` and its helpers (``_path_from_indent``, ``_set_nested``,
-``_parse_flow_sequence``) live in
+``_parse_simple_yaml`` and its helpers (``_set_nested``, ``_parse_flow_sequence``)
+live in
 ``skills/marketplace-publish-extension/scripts/publish.py`` and parse the
 frontmatter of every extension that gets published. One mis-parsed character
 silently lands a wrong description, tag list, or DCC list in ``marketplace.json``
 and no downstream step asserts otherwise.
 
-Cases marked *characterization* pin behaviour that diverges from the YAML spec.
-They document the divergence instead of endorsing it; each one is reported as a
-follow-up defect and must be updated together with the parser fix.
+Cases that used to be marked *characterization* pinned behaviour that diverged
+from the YAML spec. Those divergences are fixed; the surviving cases assert the
+correct behaviour. Where the parser cannot represent a value faithfully it now
+raises instead of silently truncating or swallowing characters.
 """
 
 from __future__ import annotations
@@ -29,7 +30,6 @@ _SPEC.loader.exec_module(_PUBLISH)
 
 _parse_simple_yaml = _PUBLISH._parse_simple_yaml
 _parse_flow_sequence = _PUBLISH._parse_flow_sequence
-_path_from_indent = _PUBLISH._path_from_indent
 _set_nested = _PUBLISH._set_nested
 
 
@@ -135,10 +135,54 @@ def test_values_containing_colons(text: str, expected: dict) -> None:
             {"metadata": {"dcc-mcp": {"search-hint": "alpha beta gamma"}}},
             id="fold-inside-nested-block",
         ),
+        # The four cases below end the fold with a *following* line rather than
+        # EOF. The folded key must stay in the block it was opened in; writing it
+        # into the terminating line's block silently drops the host block.
+        pytest.param(
+            "metadata:\n  dcc-mcp:\n    description: >-\n      A\n      B\n  other: x\n",
+            {"metadata": {"dcc-mcp": {"description": "A B"}, "other": "x"}},
+            id="fold-ends-at-a-dedented-sibling",
+        ),
+        pytest.param(
+            "metadata:\n  dcc-mcp:\n    description: >-\n      A\n      B\nname: x\n",
+            {"metadata": {"dcc-mcp": {"description": "A B"}}, "name": "x"},
+            id="fold-ends-at-a-top-level-key",
+        ),
+        pytest.param(
+            "metadata:\n  description: >-\n    A\n    B\nname: x\n",
+            {"metadata": {"description": "A B"}, "name": "x"},
+            id="fold-in-a-level-one-block-ends-at-a-top-level-key",
+        ),
+        pytest.param(
+            "metadata:\n  dcc-mcp:\n    description: >-\n      A\n      B\n    version: 1.0.0\n",
+            {"metadata": {"dcc-mcp": {"description": "A B", "version": "1.0.0"}}},
+            id="fold-ends-at-a-sibling-in-the-same-block",
+        ),
+        # Trailing blank lines are not part of the scalar.
+        pytest.param(
+            "description: >-\n  A\n\nlicense: MIT\n",
+            {"description": "A", "license": "MIT"},
+            id="fold-trailing-blank-line-is-not-part-of-the-scalar",
+        ),
+        pytest.param(
+            "description: >-\n  A\n\n\nlicense: MIT\n",
+            {"description": "A", "license": "MIT"},
+            id="repeated-fold-trailing-blank-lines-are-dropped",
+        ),
+        pytest.param(
+            "description: >-\n  A\n\n  B\n\nlicense: MIT\n",
+            {"description": "A\nB", "license": "MIT"},
+            id="fold-keeps-the-newline-between-paragraphs-only",
+        ),
         pytest.param(
             "description: >-\n  Line one\n  Line two\n\n  Line three\n",
-            {"description": "Line one Line two  Line three"},
-            id="characterization-blank-line-becomes-double-space",
+            {"description": "Line one Line two\nLine three"},
+            id="blank-line-folds-to-a-newline",
+        ),
+        pytest.param(
+            "description: >-\n  Line one\n\n  Line two\n\n  Line three\n",
+            {"description": "Line one\nLine two\nLine three"},
+            id="repeated-blank-lines-fold-to-newlines",
         ),
     ],
 )
@@ -179,11 +223,6 @@ def test_folded_block_scalars(text: str, expected: dict) -> None:
         pytest.param("tags: []\n", {"tags": []}, id="empty-sequence"),
         pytest.param("tags: [   ]\n", {"tags": []}, id="whitespace-only-sequence"),
         pytest.param(
-            'tags: ["a, b]\n',
-            {"tags": ["a, b"]},
-            id="characterization-unterminated-quote-swallows-the-rest-of-the-item",
-        ),
-        pytest.param(
             "tags: [a, b]\nname: x\n",
             {"tags": ["a", "b"], "name": "x"},
             id="sequence-followed-by-scalar",
@@ -192,6 +231,20 @@ def test_folded_block_scalars(text: str, expected: dict) -> None:
 )
 def test_flow_sequences(text: str, expected: dict) -> None:
     assert _parse_simple_yaml(text) == expected
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param('tags: ["a, b]\n', id="unterminated-double-quote"),
+        pytest.param("tags: ['a, b]\n", id="unterminated-single-quote"),
+        pytest.param('tags: [ok, "broken]\n', id="unterminated-quote-on-later-item"),
+    ],
+)
+def test_flow_sequence_unterminated_quote_raises(text: str) -> None:
+    """An unterminated quote is an error, never a silent swallow of the rest."""
+    with pytest.raises(ValueError, match="unterminated quoted item"):
+        _parse_simple_yaml(text)
 
 
 # 5. Nested blocks (2-space indent)
@@ -217,8 +270,8 @@ def test_flow_sequences(text: str, expected: dict) -> None:
         ),
         pytest.param(
             "metadata:\n  dcc-mcp:\n    dcc: maya\n  other: x\n",
-            {"metadata": {"dcc-mcp": {"dcc": "maya", "other": "x"}}},
-            id="characterization-sibling-scalar-dedent-is-swallowed-by-the-open-block",
+            {"metadata": {"dcc-mcp": {"dcc": "maya"}, "other": "x"}},
+            id="sibling-scalar-dedent-lands-next-to-the-open-block",
         ),
         pytest.param(
             "a:\n  b:\n    c:\n      d: leaf\n",
@@ -228,23 +281,86 @@ def test_flow_sequences(text: str, expected: dict) -> None:
         pytest.param("a:\n    b: 1\n", {"a": {"b": "1"}}, id="four-space-indent-under-parent"),
         pytest.param(
             "metadata:\n  dcc-mcp:\n    dcc: maya\nlicense: MIT-0\n",
-            {"metadata": {"dcc-mcp": {"dcc": "maya", "license": "MIT-0"}}},
-            id="characterization-scalar-after-nested-block-is-swallowed",
+            {"metadata": {"dcc-mcp": {"dcc": "maya"}}, "license": "MIT-0"},
+            id="top-level-scalar-after-nested-block-is-not-swallowed",
         ),
         pytest.param(
             "metadata:\n\tdcc-mcp:\n\t\tdcc: maya\n",
-            {"dcc-mcp": {"dcc": "maya"}},
-            id="characterization-tab-indent-drops-the-metadata-root",
+            {"metadata": {"dcc-mcp": {"dcc": "maya"}}},
+            id="tab-indent-nests-under-metadata",
         ),
         pytest.param(
             "items:\n  - a\n  - b\n",
-            {},
-            id="characterization-block-sequence-items-are-dropped",
+            {"items": ["a", "b"]},
+            id="block-sequence",
+        ),
+        pytest.param(
+            "metadata:\n  dcc-mcp:\n    tags:\n      - maya\n      - blender\n",
+            {"metadata": {"dcc-mcp": {"tags": ["maya", "blender"]}}},
+            id="block-sequence-inside-a-nested-block",
+        ),
+        pytest.param(
+            "items:\n  - a\n  - b\nname: x\n",
+            {"items": ["a", "b"], "name": "x"},
+            id="block-sequence-followed-by-a-scalar",
+        ),
+        pytest.param("items:\n  -\n", {"items": [""]}, id="bare-dash-yields-one-empty-item"),
+        # A dash written at the same indent as its key is the common YAML spelling.
+        pytest.param("items:\n- a\n- b\n", {"items": ["a", "b"]}, id="block-sequence-same-indent-as-its-key"),
+        pytest.param(
+            "items:\n- a\nname: x\n",
+            {"items": ["a"], "name": "x"},
+            id="same-indent-block-sequence-followed-by-a-scalar",
+        ),
+        pytest.param(
+            "metadata:\n  dcc-mcp:\n    tags:\n    - maya\n",
+            {"metadata": {"dcc-mcp": {"tags": ["maya"]}}},
+            id="same-indent-block-sequence-inside-a-nested-block",
+        ),
+        pytest.param(
+            "metadata:\n  dcc-mcp:\n    dcc:\n    - maya\n",
+            {"metadata": {"dcc-mcp": {"dcc": ["maya"]}}},
+            id="same-indent-block-sequence-for-dcc",
         ),
     ],
 )
 def test_nested_blocks(text: str, expected: dict) -> None:
     assert _parse_simple_yaml(text) == expected
+
+
+def test_same_indent_block_sequence_publishes_dcc_and_tags(tmp_path: Path) -> None:
+    """The publish path must not raise when a block sequence sits at its key's indent."""
+    import importlib.util
+
+    script = REPO_ROOT / "skills" / "marketplace-publish-extension" / "scripts" / "publish.py"
+    spec = importlib.util.spec_from_file_location("marketplace_publish_publish_path", script)
+    assert spec is not None and spec.loader is not None
+    publish = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(publish)
+
+    skill_md = tmp_path / "SKILL.md"
+    skill_md.write_text(
+        "---\nname: maya-pipeline-tools\nmetadata:\n  dcc-mcp:\n    dcc:\n    - maya\n    - blender\n"
+        "    tags:\n    - rigging\n---\n\n# Body\n",
+        encoding="utf-8",
+    )
+
+    entry = publish._build_catalog_entry(
+        skill_md=publish._parse_skill_md(skill_md),
+        install_url="https://github.com/dcc-mcp/example.git",
+        install_type="git",
+        install_ref="a" * 40,
+        sha256=None,
+        version=None,
+        maintainer=None,
+        icon=None,
+        tags=[],
+        min_core_version=None,
+        extension_url=None,
+    )
+
+    assert entry["dcc"] == ["maya", "blender"]
+    assert entry["tags"] == ["rigging"]
 
 
 # 6. Empty / comment-only input
@@ -320,14 +436,6 @@ def test_crlf_line_endings(text: str, expected: dict) -> None:
 )
 def test_parse_flow_sequence(inner: str, expected: list) -> None:
     assert _parse_flow_sequence(inner) == expected
-
-
-def test_path_from_indent_descends_and_dedents() -> None:
-    assert _path_from_indent({}, 0, "top", []) == ["top"]
-    assert _path_from_indent({}, 2, "child", ["top"]) == ["top", "child"]
-    assert _path_from_indent({}, 4, "grandchild", ["top", "child"]) == ["top", "child", "grandchild"]
-    assert _path_from_indent({}, 2, "sibling", ["top", "child"]) == ["top", "sibling"]
-    assert _path_from_indent({}, 0, "other", ["top", "child"]) == ["other"]
 
 
 def test_set_nested_creates_intermediate_dicts_and_overwrites_leaves() -> None:
