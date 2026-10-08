@@ -75,16 +75,10 @@ def test_dcc_mcp_core_import_smoke() -> None:
     assert_import_smoke()
 
 
-try:
-    # Import third-party modules
-    import pytest
+# Import third-party modules
+import pytest
 
-    _parametrize = pytest.mark.parametrize("module_name", FRESH_IMPORT_ENTRYPOINTS)
-except ImportError:  # pragma: no cover - exercised only outside pytest
-    pytest = None
-
-    def _parametrize(func):
-        return func
+_parametrize = pytest.mark.parametrize("module_name", FRESH_IMPORT_ENTRYPOINTS)
 
 
 @_parametrize
