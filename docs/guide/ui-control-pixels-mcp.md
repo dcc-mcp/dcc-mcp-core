@@ -73,6 +73,21 @@ scope. Every window attempt consumes the prior observation; take fresh pixels
 before further input. Results retain actual native state, foreground status,
 task context, and completion evidence without an implicit follow-up capture.
 
+An owner can additionally grant `window_operations=("set_frame",)` without
+physical input or recording. Call `ui_control__act(action="get_window_state")`
+and pass `context.window_state.window_state_id` to one
+`ui_control__act(action="set_frame", window_state_id=..., frame={"x": ..., "y": ...,
+"width": ..., "height": ...})` in the same session. This short-lived native
+metadata token does not authorize content input and needs no screenshot. Every
+value must be an integer, width and height must be positive, and the complete
+physical Win32 outer frame, including right/bottom extents, must fit signed
+32-bit coordinates. Negative monitor coordinates are supported. The native
+operation preserves activation and z-order and does not restore a minimized
+window. A failed or uncertain attempt consumes the token; explicitly read new
+metadata before another frame request and take fresh pixels before content
+input. Retain the exact requested/applied frame, native instance, actual state,
+task context and any native error instead of replaying the request.
+
 Physical acknowledgement requires native `delivery_completed` and
 `post_dispatch_validated`. Delivery returns `effect=unverifiable` and requires application-state
 verification. It is not a claim that the requested edit or UI operation

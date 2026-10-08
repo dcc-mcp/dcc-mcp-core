@@ -50,6 +50,8 @@ class PixelsMcpHostClient:
         self._observation_id: str | None = None
         self._native_session_id: str | None = None
         self._native_instance: dict[str, Any] | None = None
+        self._window_state_id: str | None = None
+        self._last_window_state_id: str | None = None
         self._last_observation_id: str | None = None
         self._closed = False
         self._recording = PixelsMcpRecording(self)
@@ -71,6 +73,16 @@ class PixelsMcpHostClient:
             scopes.append(
                 {
                     "action": "minimize_window",
+                    "input_kind": "window_state",
+                    "secret_input": False,
+                    "authorization_category": "window_state",
+                }
+            )
+        if "set_frame" in options.window_operations:
+            methods.append("set_window_frame")
+            scopes.append(
+                {
+                    "action": "set_window_frame",
                     "input_kind": "window_state",
                     "secret_input": False,
                     "authorization_category": "window_state",
@@ -132,6 +144,15 @@ class PixelsMcpHostClient:
     def _call(self, method: str, params: dict[str, Any], expected_type: str) -> dict[str, Any]:
         if self._closed or not self.task_id:
             raise CuaCliError("backend_unavailable", "The owned pixels task is closed.")
+        if method in {
+            "execute_action",
+            "change_window_state",
+            "minimize_window",
+            "set_window_frame",
+            "recording_start",
+            "recording_stop",
+        }:
+            self._window_state_id = None
         try:
             result = self._transport.tool(
                 "dcc_cua_task_call", {"task_id": self.task_id, "method": method, "params": params}
@@ -145,7 +166,13 @@ class PixelsMcpHostClient:
                 with suppress(Exception):
                     self.stop()
                 raise
-            if method in {"execute_action", "change_window_state", "minimize_window", *RECORDING_METHODS}:
+            if method in {
+                "execute_action",
+                "change_window_state",
+                "minimize_window",
+                "set_window_frame",
+                *RECORDING_METHODS,
+            }:
                 self._observation_id = None
                 exc.fresh_observation_required = True
             raise
@@ -315,9 +342,39 @@ class PixelsMcpHostClient:
 
     def window_state(self) -> dict[str, Any]:
         """Read only this task's exact window state."""
+        self._window_state_id = None
         raw = self._call("get_window_state", {}, "window_state")
         try:
             self._check_window_state(raw.get("state"))
+            if "set_frame" in self.options.window_operations:
+                state_id = raw["state"].get("window_state_id")
+                if (
+                    raw.get("session_id") != "mcp-" + self.task_id
+                    or raw.get("observation_id") is not None
+                    or raw.get("accessibility_state_id") is not None
+                ):
+                    raise CuaCliError(
+                        "protocol_mismatch", "The exact metadata response changed its Host session or token kind."
+                    )
+                frame_ready = (
+                    raw["state"]["visible"]
+                    and not raw["state"]["minimized"]
+                    and _physical_rect_valid(raw["state"].get("bounds"))
+                    and _physical_rect_valid(raw["state"].get("visible_bounds"))
+                )
+                if frame_ready:
+                    if (
+                        not isinstance(state_id, str)
+                        or not 1 <= len(state_id) <= 256
+                        or state_id == self._last_window_state_id
+                    ):
+                        raise CuaCliError(
+                            "protocol_mismatch", "The exact metadata response omitted its fresh window-state identity."
+                        )
+                    self._window_state_id = state_id
+                    self._last_window_state_id = state_id
+                elif state_id is not None:
+                    raise CuaCliError("protocol_mismatch", "Unavailable frame geometry cannot mint a metadata token.")
             if raw["state"]["minimized"] or not raw["state"]["visible"]:
                 self._observation_id = None
         except CuaCliError:
@@ -326,7 +383,7 @@ class PixelsMcpHostClient:
             raise
         return raw
 
-    def _check_window_state(self, state: Any) -> None:
+    def _check_window_state(self, state: Any, *, require_frame_geometry: bool = False) -> None:
         if not isinstance(state, dict):
             raise CuaCliError("protocol_mismatch", "The exact window state is absent.")
         self._check_target(state)
@@ -335,13 +392,94 @@ class PixelsMcpHostClient:
             state.get("exists") is not True
             or state.get("backend") != "windows-exact-native-state"
             or not _positive_int(state.get("dpi"))
-            or not _rect_valid(state.get("bounds"))
+            or (
+                not _rect_valid(state.get("bounds"))
+                and not ("set_frame" in self.options.window_operations and state.get("bounds") is None)
+            )
             or any(type(state.get(key)) is not bool for key in ("visible", "minimized", "foreground"))
             or not _native_instance_valid(instance)
             or (self._native_instance is not None and instance != self._native_instance)
         ):
             raise CuaCliError("protocol_mismatch", "The window state omitted its exact native instance or geometry.")
+        if "set_frame" in self.options.window_operations and (
+            (state.get("bounds") is not None and not _physical_rect_valid(state["bounds"]))
+            or (state.get("visible_bounds") is not None and not _physical_rect_valid(state["visible_bounds"]))
+            or state["dpi"] >= 2**32
+        ):
+            raise CuaCliError("protocol_mismatch", "Set frame requires valid native Win32 and DWM physical geometry.")
+        if require_frame_geometry and (
+            not _physical_rect_valid(state.get("bounds"))
+            or not _physical_rect_valid(state.get("visible_bounds"))
+            or not state["visible"]
+            or state["minimized"]
+        ):
+            raise CuaCliError("protocol_mismatch", "Set frame requires visible native Win32 and DWM physical geometry.")
         self._native_instance = deepcopy(instance)
+
+    def invalidate_action_evidence(self) -> None:
+        """Discard local mutation tokens after a rejected or attempted frame call."""
+        self._window_state_id = None
+        self._observation_id = None
+
+    def set_frame(self, frame: dict[str, int], *, window_state_id: str) -> dict[str, Any]:
+        """Consume this task's fresh metadata token without capture or activation."""
+        if "set_frame" not in self.options.window_operations:
+            raise CuaCliError("unsupported_action", "The owner did not authorize setting the exact window frame.")
+        current_id = self._window_state_id
+        self.invalidate_action_evidence()
+        requested = validate_window_frame(frame)
+        if not isinstance(window_state_id, str) or not current_id or window_state_id != current_id:
+            raise CuaCliError("stale_observation", "Read fresh get_window_state metadata before setting the frame.")
+        raw = self._call(
+            "set_window_frame",
+            {"window_state_id": window_state_id, "frame": requested},
+            "window_frame_set",
+        )
+        try:
+            state = raw.get("state")
+            self._check_window_state(state, require_frame_geometry=True)
+            result = raw.get("result")
+            applied = [requested[key] for key in ("x", "y", "width", "height")]
+            try:
+                returned_frame = validate_window_frame(
+                    result.get("requested_frame") if isinstance(result, dict) else None
+                )
+            except CuaCliError:
+                raise CuaCliError(
+                    "protocol_mismatch", "The frame mutation omitted its exact requested frame."
+                ) from None
+            if (
+                raw.get("session_id") != "mcp-" + self.task_id
+                or not isinstance(result, dict)
+                or result.get("success") is not True
+                or result.get("effect") != "confirmed"
+                or result.get("operation") != "set_window_frame"
+                or returned_frame != requested
+                or not _rect_valid(result.get("applied_frame"))
+                or result["applied_frame"] != applied
+                or state["bounds"] != applied
+                or result.get("window_state_id") != window_state_id
+                or result.get("native_instance") != self._native_instance
+                or result.get("fresh_observation_required") is not True
+                or result.get("automatic_input") is not False
+                or result.get("process_terminated") is not False
+                or result.get("cua") != {"path": "windows_exact_instance_set_window_pos"}
+                or "window_state_id" in state
+            ):
+                raise CuaCliError("protocol_mismatch", "The frame mutation omitted its exact native completion fence.")
+            self._check_target(result.get("target"))
+            actual = result.get("state")
+            self._check_window_state(actual, require_frame_geometry=True)
+            if "window_state_id" in actual or any(
+                actual.get(key) != state.get(key)
+                for key in ("bounds", "visible_bounds", "dpi", "visible", "minimized", "foreground", "native_instance")
+            ):
+                raise CuaCliError("protocol_mismatch", "The frame mutation changed its native state readback.")
+        except CuaCliError:
+            with suppress(Exception):
+                self.stop()
+            raise
+        return raw
 
     def change_window_state(self, operation: str) -> dict[str, Any]:
         """Perform only an owner-granted window operation, without taking pixels.
@@ -350,7 +488,10 @@ class PixelsMcpHostClient:
         require explicit calls and do not imply content interaction or capture.
         """
         operation = "restore_activate" if operation == "restore" else operation
-        if operation not in self.options.window_operations:
+        if (
+            operation not in {"activate", "restore_activate", "minimize"}
+            or operation not in self.options.window_operations
+        ):
             raise CuaCliError("unsupported_action", "The owner did not authorize that exact window operation.")
         observation_id = self._observation_id
         if operation == "minimize" and not observation_id:
@@ -410,6 +551,7 @@ class PixelsMcpHostClient:
 
     def stop(self) -> dict[str, Any]:
         """Revoke only this task and close only this owned executable."""
+        self._window_state_id = None
         return self._cleanup.stop()
 
     def _unsupported(self, *args: Any, **kwargs: Any) -> Any:
@@ -439,6 +581,24 @@ def _positive_int(value: Any) -> bool:
     return type(value) is int and value > 0
 
 
+def validate_window_frame(value: Any) -> dict[str, int]:
+    """Require a complete physical frame without coercing booleans or numbers."""
+    keys = {"x", "y", "width", "height"}
+    if (
+        not isinstance(value, dict)
+        or set(value) != keys
+        or any(type(value[key]) is not int for key in keys)
+        or not all(-(2**31) <= value[key] < 2**31 for key in ("x", "y"))
+        or not all(0 < value[key] < 2**31 for key in ("width", "height"))
+        or value["x"] + value["width"] >= 2**31
+        or value["y"] + value["height"] >= 2**31
+    ):
+        raise CuaCliError(
+            "invalid_action", "frame requires exact x/y/width/height integers with positive signed-32-bit extents."
+        )
+    return {key: value[key] for key in ("x", "y", "width", "height")}
+
+
 def _native_instance_valid(value: Any) -> bool:
     return (
         isinstance(value, dict)
@@ -458,4 +618,13 @@ def _rect_valid(value: Any) -> bool:
         and all(type(item) is int for item in value)
         and value[2] > 0
         and value[3] > 0
+    )
+
+
+def _physical_rect_valid(value: Any) -> bool:
+    return (
+        _rect_valid(value)
+        and all(-(2**31) <= item < 2**31 for item in value)
+        and value[0] + value[2] < 2**31
+        and value[1] + value[3] < 2**31
     )

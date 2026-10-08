@@ -32,6 +32,18 @@ mutation. Retain actual foreground/native state and take a fresh snapshot
 before more input. Physical acknowledgement also requires native
 `delivery_completed` and `post_dispatch_validated`; it does not prove the edit.
 
+The separate owner operation `set_frame` uses metadata rather than pixels:
+call `ui_control__act(action="get_window_state")`, then pass its
+`context.window_state.window_state_id` and a complete physical
+`frame={"x": ..., "y": ..., "width": ..., "height": ...}` to
+`ui_control__act(action="set_frame", ...)` in the same session. All four values
+must be integers, positive width/height and right/bottom extents must fit signed
+32-bit coordinates, and negative monitor positions are valid. It never
+activates or restores the window and requires no snapshot. Retain the actual
+native requested/applied frame and instance. An attempt consumes the metadata
+token and prior input observation; read new metadata before another frame
+change and take fresh pixels before content input. No automatic retry occurs.
+
 Semantic actions, find, semantic waits, menus, show/close window operations, and
 resume are unsupported. `get_window_state` only reads the same exact target.
 Do not switch transports, restart with another session id, or retry another
