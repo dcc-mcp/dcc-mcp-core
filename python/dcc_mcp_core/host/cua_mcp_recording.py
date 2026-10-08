@@ -34,11 +34,7 @@ class PixelsMcpRecording:
             path = _ordinary_absolute_path(value)
         except ValueError:
             raise CuaCliError("protocol_mismatch", "The runtime returned an invalid recording destination.") from None
-        if (
-            path != expected
-            or not expected.is_absolute()
-            or expected.parent != Path(recording.output_root)
-        ):
+        if path != expected or not expected.is_absolute() or expected.parent != Path(recording.output_root):
             raise CuaCliError("protocol_mismatch", "The runtime changed the operator-owned recording destination.")
         self.output_dir = value
 
