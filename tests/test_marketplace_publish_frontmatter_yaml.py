@@ -158,6 +158,22 @@ def test_values_containing_colons(text: str, expected: dict) -> None:
             {"metadata": {"dcc-mcp": {"description": "A B", "version": "1.0.0"}}},
             id="fold-ends-at-a-sibling-in-the-same-block",
         ),
+        # Trailing blank lines are not part of the scalar.
+        pytest.param(
+            "description: >-\n  A\n\nlicense: MIT\n",
+            {"description": "A", "license": "MIT"},
+            id="fold-trailing-blank-line-is-not-part-of-the-scalar",
+        ),
+        pytest.param(
+            "description: >-\n  A\n\n\nlicense: MIT\n",
+            {"description": "A", "license": "MIT"},
+            id="repeated-fold-trailing-blank-lines-are-dropped",
+        ),
+        pytest.param(
+            "description: >-\n  A\n\n  B\n\nlicense: MIT\n",
+            {"description": "A\nB", "license": "MIT"},
+            id="fold-keeps-the-newline-between-paragraphs-only",
+        ),
         pytest.param(
             "description: >-\n  Line one\n  Line two\n\n  Line three\n",
             {"description": "Line one Line two\nLine three"},
@@ -289,10 +305,62 @@ def test_flow_sequence_unterminated_quote_raises(text: str) -> None:
             id="block-sequence-followed-by-a-scalar",
         ),
         pytest.param("items:\n  -\n", {"items": [""]}, id="bare-dash-yields-one-empty-item"),
+        # A dash written at the same indent as its key is the common YAML spelling.
+        pytest.param("items:\n- a\n- b\n", {"items": ["a", "b"]}, id="block-sequence-same-indent-as-its-key"),
+        pytest.param(
+            "items:\n- a\nname: x\n",
+            {"items": ["a"], "name": "x"},
+            id="same-indent-block-sequence-followed-by-a-scalar",
+        ),
+        pytest.param(
+            "metadata:\n  dcc-mcp:\n    tags:\n    - maya\n",
+            {"metadata": {"dcc-mcp": {"tags": ["maya"]}}},
+            id="same-indent-block-sequence-inside-a-nested-block",
+        ),
+        pytest.param(
+            "metadata:\n  dcc-mcp:\n    dcc:\n    - maya\n",
+            {"metadata": {"dcc-mcp": {"dcc": ["maya"]}}},
+            id="same-indent-block-sequence-for-dcc",
+        ),
     ],
 )
 def test_nested_blocks(text: str, expected: dict) -> None:
     assert _parse_simple_yaml(text) == expected
+
+
+def test_same_indent_block_sequence_publishes_dcc_and_tags(tmp_path: Path) -> None:
+    """The publish path must not raise when a block sequence sits at its key's indent."""
+    import importlib.util
+
+    script = REPO_ROOT / "skills" / "marketplace-publish-extension" / "scripts" / "publish.py"
+    spec = importlib.util.spec_from_file_location("marketplace_publish_publish_path", script)
+    assert spec is not None and spec.loader is not None
+    publish = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(publish)
+
+    skill_md = tmp_path / "SKILL.md"
+    skill_md.write_text(
+        "---\nname: maya-pipeline-tools\nmetadata:\n  dcc-mcp:\n    dcc:\n    - maya\n    - blender\n"
+        "    tags:\n    - rigging\n---\n\n# Body\n",
+        encoding="utf-8",
+    )
+
+    entry = publish._build_catalog_entry(
+        skill_md=publish._parse_skill_md(skill_md),
+        install_url="https://github.com/dcc-mcp/example.git",
+        install_type="git",
+        install_ref="a" * 40,
+        sha256=None,
+        version=None,
+        maintainer=None,
+        icon=None,
+        tags=[],
+        min_core_version=None,
+        extension_url=None,
+    )
+
+    assert entry["dcc"] == ["maya", "blender"]
+    assert entry["tags"] == ["rigging"]
 
 
 # 6. Empty / comment-only input

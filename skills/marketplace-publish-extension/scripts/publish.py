@@ -130,7 +130,12 @@ def _parse_simple_yaml(text: str) -> dict[str, Any]:
             if seq_indent < 0:
                 # No `key:` introduced this sequence; attach it to the enclosing
                 # block so `- a` under `items:` still produces items: [a].
-                owner_path = path_for_indent(indent)
+                # A dash written at the *same* indent as its key is the common
+                # YAML spelling, so keep that block open instead of popping it.
+                if block_stack and block_stack[-1][0] == indent:
+                    owner_path = list(block_stack[-1][1])
+                else:
+                    owner_path = path_for_indent(indent)
                 seq_key = owner_path[-1] if owner_path else None
                 if seq_key is None:
                     continue
@@ -196,13 +201,20 @@ def _measure_indent(line: str) -> int:
 
 
 def _join_folded(fold_lines: list[str]) -> str:
-    """Join folded-scalar lines: a blank line folds into a single newline."""
+    """Join folded-scalar lines: a blank line folds into a single newline.
+
+    Trailing blank lines are not part of the scalar, so they are dropped rather
+    than left as trailing newlines.
+    """
+    lines = list(fold_lines)
+    while lines and not lines[-1]:
+        lines.pop()
     parts: list[str] = []
-    for i, current in enumerate(fold_lines):
+    for i, current in enumerate(lines):
         if not current:
             parts.append("\n")
             continue
-        if i and parts and parts[-1] != "\n" and fold_lines[i - 1]:
+        if i and parts and parts[-1] != "\n" and lines[i - 1]:
             parts.append(" ")
         parts.append(current)
     return "".join(parts)
