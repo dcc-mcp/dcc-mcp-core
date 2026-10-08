@@ -17,6 +17,62 @@ from test_cua_mcp_pixels import TARGET
 from test_cua_mcp_recording import recording
 
 
+@pytest.fixture(params=[False, True], ids=["ambient-clean", "ambient-conflict"])
+def _ambient_target_scope(request, monkeypatch):
+    if request.param:
+        for name, value in {
+            "DCC_MCP_UI_CONTROL_PROCESS_ID": "43",
+            "DCC_MCP_UI_CONTROL_WINDOW_HANDLE": "84",
+            "DCC_MCP_UI_CONTROL_WINDOW_TITLE": "Different Test Target",
+            "DCC_MCP_UI_CONTROL_PROCESS_NAME": "powershell.exe",
+            "DCC_MCP_UI_CONTROL_DCC_TYPE": "different-test-host",
+        }.items():
+            monkeypatch.setenv(name, value)
+
+
+@pytest.fixture
+def lifecycle_recording(recording, monkeypatch, _ambient_target_scope):
+    # Operator scope intentionally overrides adapter scope in production. Bind
+    # this fake runtime explicitly so another test or CI environment cannot
+    # replace its PID/HWND/title or introduce a denied process-name constraint.
+    for name, value in {
+        "DCC_MCP_UI_CONTROL_PROCESS_ID": str(TARGET["process_id"]),
+        "DCC_MCP_UI_CONTROL_WINDOW_HANDLE": str(TARGET["window_handle"]),
+        "DCC_MCP_UI_CONTROL_WINDOW_TITLE": TARGET["window_title"],
+        "DCC_MCP_UI_CONTROL_DCC_TYPE": "unreal",
+    }.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.delenv("DCC_MCP_UI_CONTROL_PROCESS_NAME", raising=False)
+    return recording
+
+
+@pytest.fixture
+def lifecycle_bridge():
+    bridge = HostExecutionBridge()
+    try:
+        yield bridge
+    finally:
+        bridge.shutdown_script_execution()
+
+
+def setup_diagnostic(result):
+    # Assertion diagnostics must not echo arbitrary native messages, command
+    # tokens, or response payloads into public CI logs.
+    known_codes = {
+        "invalid_target",
+        "invalid_request",
+        "policy_disabled",
+        "backend_unavailable",
+        "capture_failed",
+        "permission_denied",
+    }
+    code = result.get("error")
+    return {
+        "success": result.get("success") is True,
+        "error": code if isinstance(code, str) and code in known_codes else "unrecognized",
+    }
+
+
 def load_backend():
     spec = importlib.util.spec_from_file_location("_test_lifecycle_backend", SCRIPTS / "_cua_backend.py")
     assert spec and spec.loader
@@ -26,9 +82,11 @@ def load_backend():
 
 
 @pytest.mark.parametrize("status", ["cleanup_failed", "cleanup_unknown"])
-def test_real_skill_unload_reports_owned_partial_failure_and_attempts_legacy_peers(recording, caplog, status):
-    config, process, _ = recording
-    bridge = HostExecutionBridge()
+def test_real_skill_unload_reports_owned_partial_failure_and_attempts_legacy_peers(
+    lifecycle_recording, lifecycle_bridge, caplog, status
+):
+    config, process, _ = lifecycle_recording
+    bridge = lifecycle_bridge
     session = "owned-lifecycle"
     result = bridge.execute_script(
         str(SCRIPTS / "recording_start.py"),
@@ -37,7 +95,8 @@ def test_real_skill_unload_reports_owned_partial_failure_and_attempts_legacy_pee
         trusted_ui_control_runtime=config,
         trusted_adapter_scope={"dcc_type": "unreal", **TARGET},
     )
-    assert result["success"] is True
+    success = result.get("success")
+    assert success is True, setup_diagnostic(result)
     backend = next(
         module
         for module in list(sys.modules.values())
@@ -94,6 +153,16 @@ def test_real_skill_unload_reports_owned_partial_failure_and_attempts_legacy_pee
         assert len([r for r in process.requests if r.get("params", {}).get("name") == "stop_task"]) == 1
     finally:
         bridge.shutdown_script_execution()
+
+
+def test_setup_diagnostic_keeps_known_code_and_omits_private_payload():
+    result = {"success": False, "error": "invalid_target", "message": "private-command-token", "details": "private"}
+    assert setup_diagnostic(result) == {"success": False, "error": "invalid_target"}
+    result["error"] = "private-command-token"
+    assert setup_diagnostic(result) == {"success": False, "error": "unrecognized"}
+    result["error"] = {"private-command-token": "private"}
+    assert setup_diagnostic(result) == {"success": False, "error": "unrecognized"}
+    assert "private" not in str(setup_diagnostic(result))
 
 
 def test_legacy_only_cleanup_stays_best_effort_and_clears_entries():
