@@ -511,6 +511,14 @@ Creates a fully wired `McpHttpServer` for a specific DCC application in one call
 | `extra_paths` | `list[str] \| None` | Extra skill dirs in addition to env vars |
 | `dcc_name` | `str \| None` | Override DCC filter for scanning (defaults to `app_name`) |
 
+**Config contract:** `config` is typed `McpHttpConfig | None`, and the annotation matches what the
+code actually accepts. Any other type — a plain `dict` being the common mistake — raises `TypeError`
+at the call site with the snippet that builds a valid config; it is never silently coerced. `None` is
+a supported value meaning "backend defaults" (OS-assigned port, shared gateway port, no job
+persistence), not a skipped check. A config object built from either spelling is accepted: the PyO3
+type the installed wheel resolves, or the pure-Python dataclass used on the py37-lite profile. They
+are distinct classes exposing the same attributes, so acceptance is by attributes, not by identity.
+
 **Returns:** `McpHttpServer` — call `.start()` to begin serving.
 
 **Example:**

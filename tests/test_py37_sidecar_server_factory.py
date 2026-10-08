@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 from pathlib import Path
+import re
+import sys
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -120,6 +122,169 @@ class TestServerFactoryRouting:
         config = PureMcpHttpConfig()
         server = create_adapter_server("maya", config, options)
         assert server is fake_server
+
+
+def _tree_declares_root_export() -> bool:
+    """Report whether the in-tree export map lists ``create_adapter_server``."""
+    exports_path = Path(__file__).resolve().parents[1] / "python" / "dcc_mcp_core" / "_exports.py"
+    return '"create_adapter_server": "dcc_mcp_core.server_base"' in exports_path.read_text(encoding="utf-8")
+
+
+class TestServerFactoryConfigContract:
+    """``config`` is typed ``McpHttpConfig | None``, not ``Any``."""
+
+    def test_signature_annotates_config_instead_of_any(self):
+        import inspect
+
+        params = inspect.signature(create_adapter_server).parameters
+        assert params["config"].annotation == "McpHttpConfig | None"
+        assert params["config"].default is None
+        assert params["options"].annotation == "DccServerOptions | None"
+
+    def test_dict_config_is_rejected_with_construction_guidance(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setattr(
+            "dcc_mcp_core._runtime.server_factory.is_core_extension_available",
+            lambda: False,
+        )
+        with pytest.raises(TypeError) as excinfo:
+            create_adapter_server("blender", {"port": 8765})
+
+        message = str(excinfo.value)
+        # Qualified by module so a same-named class cannot be confused for a real one.
+        assert "got builtins.dict" in message
+        assert "McpHttpConfig" in message
+        # The point of the guard: say how to build one, not just what it is not.
+        assert "from dcc_mcp_core import McpHttpConfig" in message
+
+    def test_unrelated_types_are_rejected_too(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setattr(
+            "dcc_mcp_core._runtime.server_factory.is_core_extension_available",
+            lambda: False,
+        )
+        for bad in ("8765", 8765, ["port"], object()):
+            with pytest.raises(TypeError, match="must be an McpHttpConfig instance or None"):
+                create_adapter_server("blender", bad)
+
+    def test_none_config_is_a_supported_default(self, monkeypatch: pytest.MonkeyPatch):
+        """``None`` means "backend defaults", and it is spelled in the signature."""
+        monkeypatch.setattr(
+            "dcc_mcp_core._runtime.server_factory.is_core_extension_available",
+            lambda: False,
+        )
+        server = create_adapter_server("maya")
+        assert isinstance(server, SidecarBackedSkillServer)
+        assert server._config is None
+
+    def test_pyo3_config_passes_validation_when_core_is_active(self):
+        """The resolved (PyO3) class is not the pure dataclass, but is accepted."""
+        from dcc_mcp_core._runtime.config_bridge import accepted_mcp_http_config_types
+        from dcc_mcp_core._runtime.config_bridge import resolve_mcp_http_config_class
+
+        assert resolve_mcp_http_config_class() in accepted_mcp_http_config_types()
+        assert PureMcpHttpConfig in accepted_mcp_http_config_types()
+
+    def test_both_config_spellings_are_accepted(self):
+        """Regression: two classes named McpHttpConfig coexist and neither may be rejected.
+
+        The PyO3 type and the pure-Python dataclass are never the same object, so an
+        identity check accepted one and rejected the other depending on the wheel,
+        producing "'McpHttpConfig' object is not an instance of 'McpHttpConfig'".
+        """
+        from dcc_mcp_core._runtime.config_bridge import _looks_like_mcp_http_config
+        from dcc_mcp_core._runtime.config_bridge import validate_mcp_http_config
+
+        assert _looks_like_mcp_http_config(PureMcpHttpConfig())
+        validate_mcp_http_config(PureMcpHttpConfig(), owner="t")
+
+        pyo3_cls = resolve_mcp_http_config_class()
+        if pyo3_cls is not PureMcpHttpConfig:
+            assert _looks_like_mcp_http_config(pyo3_cls())
+            validate_mcp_http_config(pyo3_cls(), owner="t")
+
+    def test_error_message_qualifies_the_received_type_by_module(self):
+        """A same-named class must be told apart by module, not by bare name."""
+        from dcc_mcp_core._runtime.config_bridge import validate_mcp_http_config
+
+        class McpHttpConfig:  # deliberately an impostor sharing the config name
+            pass
+
+        with pytest.raises(TypeError) as excinfo:
+            validate_mcp_http_config(McpHttpConfig(), owner="t")
+
+        message = str(excinfo.value)
+        assert "got " in message
+        assert "McpHttpConfig" in message
+        assert "test_py37_sidecar_server_factory" in message
+
+    def test_create_skill_server_rejects_dict_config_before_pyo3(self):
+        """The public one-call factory fails with the same actionable message."""
+        import inspect
+
+        from dcc_mcp_core.server_base import create_skill_server
+
+        assert inspect.signature(create_skill_server).parameters["config"].annotation == "McpHttpConfig | None"
+        with pytest.raises(TypeError) as excinfo:
+            create_skill_server("blender", {"port": 8765})
+
+        message = str(excinfo.value)
+        assert "create_skill_server(app_name='blender')" in message
+        assert "from dcc_mcp_core import McpHttpConfig" in message
+
+
+class TestConfigBridgeResilience:
+    """``resolve_mcp_http_config_class`` must never raise on a partial ``_core``."""
+
+    def test_falls_back_when_core_lacks_mcp_http_config(self, monkeypatch: pytest.MonkeyPatch):
+        """Regression: ImportError here made ``create_adapter_server`` unusable."""
+        import types
+
+        from dcc_mcp_core._runtime import config_bridge
+
+        partial_core = types.ModuleType("dcc_mcp_core._core")
+        monkeypatch.setattr(config_bridge, "is_core_extension_available", lambda: True)
+        monkeypatch.setitem(sys.modules, "dcc_mcp_core._core", partial_core)
+
+        resolved = config_bridge.resolve_mcp_http_config_class()
+        assert resolved is PureMcpHttpConfig
+
+    def test_validation_survives_a_broken_core(self, monkeypatch: pytest.MonkeyPatch):
+        import types
+
+        from dcc_mcp_core._runtime import config_bridge
+
+        partial_core = types.ModuleType("dcc_mcp_core._core")
+        monkeypatch.setattr(config_bridge, "is_core_extension_available", lambda: True)
+        monkeypatch.setitem(sys.modules, "dcc_mcp_core._core", partial_core)
+
+        config_bridge.validate_mcp_http_config(None, owner="t")
+        config_bridge.validate_mcp_http_config(PureMcpHttpConfig(), owner="t")
+        with pytest.raises(TypeError, match="must be an McpHttpConfig instance or None"):
+            config_bridge.validate_mcp_http_config({}, owner="t")
+
+
+class TestPublicEntryPoint:
+    def test_create_adapter_server_is_exported_from_package_root(self):
+        # ``__all__`` and the lazy attribute are derived from the in-tree export
+        # map when the wheel is built. A wheel already installed on the host may
+        # predate this change, so assert the tree contract, which is what CI
+        # builds, and check the facade only when it knows the symbol.
+        assert _tree_declares_root_export()
+        import dcc_mcp_core
+
+        if "create_adapter_server" in dcc_mcp_core.__all__:
+            assert dcc_mcp_core.create_adapter_server is create_adapter_server
+
+    def test_export_map_declares_the_package_root_symbol(self):
+        """The root facade must keep mapping the symbol to its source module.
+
+        Read from the source file rather than the imported module: a wheel
+        installed on the host may predate this change and would mask a
+        regression here.
+        """
+        imports_path = Path(__file__).resolve().parents[1] / "python" / "dcc_mcp_core" / "_exports.py"
+        source = imports_path.read_text(encoding="utf-8")
+
+        assert '"create_adapter_server": "dcc_mcp_core.server_base"' in source
 
 
 class TestSidecarBackedSkillServer:
@@ -422,8 +587,7 @@ def test_public_lite_factory_preserves_discovery_contract(monkeypatch: pytest.Mo
     monkeypatch.delenv(ENV_SKILL_PATHS, raising=False)
     monkeypatch.delenv("DCC_MCP_MAYA_SKILL_PATHS", raising=False)
     monkeypatch.setenv(ENV_DISABLE_DEFAULT_SKILL_PATHS, "1")
-    monkeypatch.setattr(server_base, "_core", None)
-    monkeypatch.setattr(server_base, "is_core_extension_available", lambda: False)
+    monkeypatch.setattr("dcc_mcp_core._runtime.server_factory._core", None)
     monkeypatch.setattr(
         "dcc_mcp_core._runtime.server_factory.is_core_extension_available",
         lambda: False,
@@ -456,8 +620,7 @@ def test_public_factory_preserves_app_env_paths_with_dcc_override(
     _write_skill(app_root, "app-owned-maya-skill", dcc="maya")
     monkeypatch.setenv("DCC_MCP_APP_SERVER_SKILL_PATHS", str(app_root))
     monkeypatch.setenv(ENV_DISABLE_DEFAULT_SKILL_PATHS, "1")
-    monkeypatch.setattr(server_base, "_core", None)
-    monkeypatch.setattr(server_base, "is_core_extension_available", lambda: False)
+    monkeypatch.setattr("dcc_mcp_core._runtime.server_factory._core", None)
     monkeypatch.setattr(
         "dcc_mcp_core._runtime.server_factory.is_core_extension_available",
         lambda: False,
