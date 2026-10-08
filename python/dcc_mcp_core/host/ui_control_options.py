@@ -68,7 +68,8 @@ class UiControlRuntimeOptions:
         runtime_version: Exact expected MCP runtime version.
         allowed_actions: Bounded physical-input action names; empty grants no physical input.
         window_operations: Explicit window mutations: activate, restore_activate,
-            or observation-bound minimize. Empty grants no window mutations.
+            observation-bound minimize, or metadata-bound set_frame. Empty grants
+            no window mutations.
         ttl_minutes: Lifetime of the runtime-owned task (1 through 60 minutes).
         timeout_seconds: Bounded response wait, including initialization.
         transport: Only the explicit owned public-MCP pixels transport is supported.
@@ -107,10 +108,14 @@ class UiControlRuntimeOptions:
             raise ValueError("allowed_actions must not contain duplicates")
         if (
             not isinstance(self.window_operations, tuple)
-            or any(item not in {"activate", "restore_activate", "minimize"} for item in self.window_operations)
+            or any(
+                item not in {"activate", "restore_activate", "minimize", "set_frame"} for item in self.window_operations
+            )
             or len(set(self.window_operations)) != len(self.window_operations)
         ):
-            raise ValueError("window_operations must be a distinct tuple of activate, restore_activate, minimize")
+            raise ValueError(
+                "window_operations must be a distinct tuple of activate, restore_activate, minimize, set_frame"
+            )
         if type(self.ttl_minutes) is not int or not 1 <= self.ttl_minutes <= 60:
             raise ValueError("ttl_minutes must be an integer from 1 through 60")
         if type(self.timeout_seconds) not in (int, float) or not 0 < self.timeout_seconds <= 120:

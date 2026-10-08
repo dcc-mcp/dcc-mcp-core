@@ -222,6 +222,7 @@ def test_ui_control_tool_schema_supports_computer_use_actions() -> None:
         "show_window",
         "activate_window",
         "minimize_window",
+        "set_frame",
     }
     assert {
         "control_id",

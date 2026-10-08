@@ -234,6 +234,7 @@ class UiActionKind:
     SHOW_WINDOW = "show_window"
     ACTIVATE_WINDOW = "activate_window"
     MINIMIZE_WINDOW = "minimize_window"
+    SET_FRAME = "set_frame"
 
 
 @dataclass
@@ -339,6 +340,7 @@ class UiControlPolicy:
             UiActionKind.SHOW_WINDOW,
             UiActionKind.ACTIVATE_WINDOW,
             UiActionKind.MINIMIZE_WINDOW,
+            UiActionKind.SET_FRAME,
         ):
             return self.allow_mutating_actions
         return False

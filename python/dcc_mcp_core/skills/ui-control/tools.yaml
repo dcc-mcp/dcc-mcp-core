@@ -274,6 +274,10 @@ tools:
       restore_activate. minimize_window is available only in this mode with an
       explicit owner grant and the matching latest snapshot_id. Window changes
       never activate or capture implicitly; take fresh pixels before more input.
+      set_frame is available only in owner-selected pixels MCP mode with explicit
+      window_operations=set_frame. First get_window_state, then forward its
+      window_state_id and a complete physical frame. This metadata token is not
+      a snapshot or input token. Frame changes never activate or restore the window.
       desktop_unavailable means no Windows UI input was sent; keep the logical
       session, stop issuing UI calls, and ask the user to unlock or reconnect.
       Take a fresh snapshot only after that happens. Never
@@ -324,6 +328,7 @@ tools:
             - show_window
             - activate_window
             - minimize_window
+            - set_frame
           description: >-
             Action kind to perform. type is backend-specific to mock/CDP and
             is hard denied by the default Windows semantic backend; the explicit
@@ -443,9 +448,48 @@ tools:
             Snapshot id from observation. A stale semantic control returns
             stale_control; stale native coordinates return stale_observation.
             Display topology, resolution, or DPI changes require a new id.
+        window_state_id:
+          type: string
+          minLength: 1
+          description: >-
+            Latest exact native metadata id returned by get_window_state, required
+            only for set_frame. It is single-use and cannot authorize content input.
+        frame:
+          type: object
+          required: [x, y, width, height]
+          additionalProperties: false
+          description: >-
+            Complete physical Win32 outer window frame for set_frame, without
+            activation or restore. Negative monitor coordinates are supported.
+            Both x+width and y+height must fit signed 32-bit coordinates.
+          properties:
+            x:
+              type: integer
+              minimum: -2147483648
+              maximum: 2147483647
+            y:
+              type: integer
+              minimum: -2147483648
+              maximum: 2147483647
+            width:
+              type: integer
+              minimum: 1
+              maximum: 2147483647
+            height:
+              type: integer
+              minimum: 1
+              maximum: 2147483647
         policy:
           type: object
           description: "Optional ui_control policy override for this call."
+      allOf:
+        - if:
+            properties:
+              action:
+                const: set_frame
+            required: [action]
+          then:
+            required: [window_state_id, frame]
     read_only: false
     idempotent: false
     annotations:

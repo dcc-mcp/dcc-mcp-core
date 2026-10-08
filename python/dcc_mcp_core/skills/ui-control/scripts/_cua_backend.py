@@ -23,6 +23,7 @@ from dcc_mcp_core.adapter_contracts import UiControlPolicy
 from dcc_mcp_core.adapter_contracts import UiErrorCode
 from dcc_mcp_core.adapter_contracts import UiSnapshot
 from dcc_mcp_core.host.cua_mcp_client import PixelsMcpHostClient
+from dcc_mcp_core.host.cua_mcp_client import validate_window_frame
 from dcc_mcp_core.host.ui_control_options import UiControlRuntimeOptions
 from dcc_mcp_core.skill import skill_error
 from dcc_mcp_core.skill import skill_success
@@ -712,6 +713,15 @@ def _audit_record(
     ).to_dict()
 
 
+def _discard_frame_evidence(session_id: str) -> None:
+    """Reject invalid frame attempts without opening another client or taking pixels."""
+    with _CLIENTS_LOCK:
+        entry = _CLIENTS.get(session_id)
+        if entry is not None and getattr(entry["client"], "observation_mode", None) == "pixels_only":
+            entry["snapshot_id"] = None
+            entry["client"].invalidate_action_evidence()
+
+
 @_serialize_session_call
 def act_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     params = dict(params or {})
@@ -730,6 +740,38 @@ def act_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     )
     if not policy.allows_request(request):
         return skill_error(f"ui_control action {action!r} disabled by policy", UiErrorCode.POLICY_DISABLED)
+    if action == UiActionKind.SET_FRAME:
+        runtime = params.get("trusted_ui_control_runtime")
+        if not isinstance(runtime, UiControlRuntimeOptions) or "set_frame" not in runtime.window_operations:
+            _discard_frame_evidence(session_id)
+            return skill_error(
+                "Set frame requires an explicit owner-selected pixels window grant.", "unsupported_action"
+            )
+        if any(
+            params.get(key) is not None
+            for key in (
+                "control_id",
+                "snapshot_id",
+                "accessibility_state_id",
+                "element_token",
+                "element_index",
+                "secret_handle",
+            )
+        ):
+            _discard_frame_evidence(session_id)
+            return skill_error(
+                "Set frame accepts native metadata only, without pixel or semantic tokens.", "unsupported_action"
+            )
+        if not isinstance(params.get("window_state_id"), str) or not params["window_state_id"]:
+            _discard_frame_evidence(session_id)
+            return skill_error(
+                "Read fresh get_window_state metadata before setting the frame.", UiErrorCode.STALE_OBSERVATION
+            )
+        try:
+            frame = validate_window_frame(params.get("frame"))
+        except (UiControlHostError, ValueError) as exc:
+            _discard_frame_evidence(session_id)
+            return _host_error(exc, params)
     try:
         client, entry = _client_for(session_id, params, policy)
     except (UiControlHostError, OSError, ValueError) as exc:
@@ -749,6 +791,26 @@ def act_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
             ),
             session_id=session_id,
             window_state=raw.get("state") or {},
+            audit=_audit_record(action, True, None, session_id, policy, None, message),
+        )
+    if action == UiActionKind.SET_FRAME:
+        entry["snapshot_id"] = None
+        try:
+            raw = client.set_frame(frame, window_state_id=params["window_state_id"])
+        except (UiControlHostError, OSError, ValueError) as exc:
+            return _host_error(exc, params, fresh_observation=True)
+        message = "Completed exact scoped window frame change without activation."
+        return skill_success(
+            message,
+            prompt=(
+                "Read fresh get_window_state metadata before another frame change; "
+                "take fresh pixels before content input."
+            ),
+            session_id=session_id,
+            window_state=raw.get("state") or {},
+            native_outcome=raw.get("result"),
+            task_context=raw.get("task_context"),
+            fresh_observation_required=True,
             audit=_audit_record(action, True, None, session_id, policy, None, message),
         )
     if action in _WINDOW_STATE_OPERATIONS:
