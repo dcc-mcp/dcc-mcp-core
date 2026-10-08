@@ -221,6 +221,7 @@ def test_ui_control_tool_schema_supports_computer_use_actions() -> None:
         "restore_window",
         "show_window",
         "activate_window",
+        "minimize_window",
     }
     assert {
         "control_id",
@@ -249,7 +250,8 @@ def test_ui_control_tool_schema_supports_computer_use_actions() -> None:
     assert "latest screenshot" in schema["properties"]["path"]["description"]
     assert "semantic lookup fails" in schema["properties"]["path"]["description"]
     assert schema["properties"]["text"]["maxLength"] == 4096
-    assert "Windows hard-denies raw type" in tools["act"].description
+    assert "default Windows semantic transport hard-denies raw type" in tools["act"].description
+    assert "owner-selected pixels MCP transport" in tools["act"].description
     assert "exact control_id" in schema["properties"]["text"]["description"]
     assert "secure user/host hand-off" in schema["properties"]["text"]["description"]
     assert schema["properties"]["scroll_x"]["type"] == "integer"

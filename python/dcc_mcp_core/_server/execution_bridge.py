@@ -66,6 +66,7 @@ class ExecutionBridgeBinder:
             skill_name = str(metadata.get("skill_name") or "")
             if skill_name == "ui-control" or action_name.startswith("ui_control__"):
                 metadata["trusted_adapter_scope"] = dict(trusted_adapter_scope)
+                metadata["trusted_ui_control_runtime"] = getattr(getattr(owner, "_options", None), "ui_control", None)
             return executor(script_path, params, **metadata)
 
         return _executor

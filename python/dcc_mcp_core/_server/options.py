@@ -41,6 +41,7 @@ from dcc_mcp_core.constants import ENV_INSTANCE_TYPE
 from dcc_mcp_core.constants import ENV_REGISTRY_DIR
 from dcc_mcp_core.constants import ENV_SERVER_BIN
 from dcc_mcp_core.constants import ENV_STRICT_GATEWAY
+from dcc_mcp_core.host.ui_control_options import UiControlRuntimeOptions
 
 if TYPE_CHECKING:
     from dcc_mcp_core._server.inprocess_executor import BaseDccCallableDispatcher
@@ -329,6 +330,8 @@ class DccServerOptions:
         observability: :class:`ObservabilityOptions` instance.
         diagnostics: :class:`DiagnosticsOptions` instance.
         execution: :class:`ExecutionOptions` instance.
+        ui_control: Optional trusted :class:`UiControlRuntimeOptions` selecting
+            an owned public-MCP pixels runtime. ``None`` preserves shared JSONL.
 
     """
 
@@ -344,8 +347,11 @@ class DccServerOptions:
     sidecar: SidecarOptions = field(default_factory=SidecarOptions)
     # Appended to preserve the public dataclass's historical positional order.
     instance_type: str | None = None
+    ui_control: UiControlRuntimeOptions | None = None
 
     def __post_init__(self) -> None:
+        if self.ui_control is not None and not isinstance(self.ui_control, UiControlRuntimeOptions):
+            raise TypeError("ui_control must be UiControlRuntimeOptions or None")
         if self.instance_type is None:
             return
         normalized = self.instance_type.strip().lower()
@@ -363,6 +369,7 @@ class DccServerOptions:
         server_name: str | None = None,
         server_version: str | None = None,
         instance_type: str | None = None,
+        ui_control: UiControlRuntimeOptions | None = None,
         # gateway kwargs
         gateway_port: int | None = None,
         registry_dir: str | None = None,
@@ -477,6 +484,7 @@ class DccServerOptions:
             server_name=server_name,
             server_version=server_version,
             instance_type=resolved_instance_type,
+            ui_control=ui_control,
             gateway=gateway,
             observability=observability,
             diagnostics=diagnostics,

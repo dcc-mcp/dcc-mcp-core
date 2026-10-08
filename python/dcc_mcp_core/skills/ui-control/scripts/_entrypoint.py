@@ -215,6 +215,12 @@ def _attach_capture_provenance(
 
     observation = context.get("observation")
     if isinstance(observation, dict):
+        native_provenance = observation.get("capture_provenance")
+        if isinstance(native_provenance, dict) and native_provenance.get("observation_mode") == "pixels_only":
+            provenance["native_capture_provenance"] = dict(native_provenance)
+            for key in ("session_id", "source_rect"):
+                if observation.get(key) is not None:
+                    provenance["native_" + key] = observation[key]
         for key in (
             "observation_id",
             "process_id",
@@ -242,6 +248,8 @@ def _attach_capture_provenance(
         for key in ("process_id", "window_handle"):
             if target.get(key) is not None:
                 provenance[key] = target[key]
+    if isinstance(context.get("task_context"), dict):
+        provenance["task_context"] = dict(context["task_context"])
 
     context["capture_provenance"] = provenance
     try:
@@ -365,7 +373,11 @@ def _call(name: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     # so every backend receives the same contract; backend-specific readers
     # previously made mock/CDP work while Windows UIA silently received `{}`.
     call_params = dict(params) if params is not None else _read_subprocess_params()
-    backend = _load_backend()
+    backend = (
+        _import_sibling("_cua_backend")
+        if call_params.get("trusted_ui_control_runtime") is not None
+        else _load_backend()
+    )
     if backend is None:
         selected = os.environ.get("DCC_MCP_UI_CONTROL_BACKEND", "cua")
         result = skill_error(

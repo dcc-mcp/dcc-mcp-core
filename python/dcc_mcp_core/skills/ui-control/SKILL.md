@@ -63,6 +63,12 @@ input scheduling, Escape interruption, browser CDP routing, and platform
 adapters. Core owns only DCC policy, normalized tool results, audit events, and
 artifact publication.
 
+An adapter may opt into an integrity-pinned, owned public-MCP `pixels_only`
+runtime through server-owned `UiControlRuntimeOptions`. This preserves the
+default shared JSONL path for other servers. The owner must bind both PID and
+HWND; tool arguments cannot select a binary, transport, or action grant. See
+[owned pixels MCP](references/OWNED_PIXELS_MCP.md) before using that mode.
+
 ## Exact application scope
 
 `DccServerBase` injects its trusted `DccServerOptions` process/window context
