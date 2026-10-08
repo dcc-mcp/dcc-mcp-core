@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.43](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.42...v0.20.43) (2026-10-08)
+
+
+### Features
+
+* **cli:** add dcc-mcp-core launcher so a resolved package can start a server ([a86d240](https://github.com/dcc-mcp/dcc-mcp-core/commit/a86d240a01e89154d9a1a6176108a5d9e61ff6d6))
+
+
+### Bug Fixes
+
+* **ci:** budget the MCP Registry PyPI wait in wall-clock time ([#2705](https://github.com/dcc-mcp/dcc-mcp-core/issues/2705)) ([69583db](https://github.com/dcc-mcp/dcc-mcp-core/commit/69583db4683cd75673d7f4c5d1d2d923f3550090))
+* **ci:** keep tests/test_imports.py third-party free and gate it in PR CI ([#2703](https://github.com/dcc-mcp/dcc-mcp-core/issues/2703)) ([2d0c1f9](https://github.com/dcc-mcp/dcc-mcp-core/commit/2d0c1f9b16ce7a79af3bdac4f1fea028530f912d))
+* run tests/test_imports.py without pytest in wheel verification venv ([0c0d8c4](https://github.com/dcc-mcp/dcc-mcp-core/commit/0c0d8c499cd05dcf87eb0cf2877c885850b63021))
+
+
+### Documentation
+
+* **readme:** add the MCP Registry badge ([1101668](https://github.com/dcc-mcp/dcc-mcp-core/commit/1101668ca80f9d8394f457b746f54ad63c712d30))
+
 ## [0.20.42](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.41...v0.20.42) (2026-10-06)
 
 
