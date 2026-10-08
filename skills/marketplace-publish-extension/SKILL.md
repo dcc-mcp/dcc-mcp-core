@@ -19,8 +19,9 @@ metadata:
       domain: marketplace
       workflow_stage: publishing
       task_category: export
-    version: "0.18.9"  # x-release-please-version
+    version: "0.20.42"  # x-release-please-version
     layer: infrastructure
+    maintainer: dcc-mcp
     search-hint: >-
       publish extension, register extension, marketplace catalog, upsert
       catalog entry, marketplace.json, extension publishing, release to

@@ -4,7 +4,7 @@ description: >-
   Plan deterministic coordinate-axis and unit conversions between DCCs,
   engines, and interchange formats from explicit right/up/forward axes and
   meters-per-unit values.
-license: "MIT"
+license: MIT-0
 compatibility: "dcc-mcp-core 0.19.91+, Python 3.7+"
 metadata:
   dcc-mcp:
@@ -15,6 +15,7 @@ metadata:
       workflow_stage: interchange
       task_category: query
     layer: infrastructure
+    maintainer: dcc-mcp
     stage: interchange
     version: "1.0.0"
     tags: [pipeline, read-only, spatial, interchange]

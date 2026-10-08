@@ -17,8 +17,9 @@ metadata:
       domain: marketplace
       workflow_stage: authoring
       task_category: mutate
-    version: "0.18.9"  # x-release-please-version
+    version: "0.20.42"  # x-release-please-version
     layer: infrastructure
+    maintainer: dcc-mcp
     search-hint: >-
       create marketplace extension, scaffold extension package, new skill
       package, SKILL.md generator, marketplace entry, extension authoring

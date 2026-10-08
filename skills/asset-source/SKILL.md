@@ -5,12 +5,13 @@ description: >-
   validated AssetDescriptor (local path + attribution). Demo source returns
   static catalog entries; production sources can add download or remote
   resolution without changing the contract.
-license: "MIT"
+license: MIT-0
 allowed-tools: ["Bash", "Read"]
 metadata:
   dcc-mcp:
     dcc: python
     layer: domain
+    maintainer: dcc-mcp
     stage: source
     version: "1.0.0"
     tags: [pipeline, asset-import, read-only]
