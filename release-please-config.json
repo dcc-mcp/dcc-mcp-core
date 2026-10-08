@@ -72,6 +72,14 @@
         {
           "type": "generic",
           "path": "llms.txt"
+        },
+        {
+          "type": "generic",
+          "path": "skills/marketplace-create-extension/SKILL.md"
+        },
+        {
+          "type": "generic",
+          "path": "skills/marketplace-publish-extension/SKILL.md"
         }
       ]
     }

@@ -7,7 +7,7 @@ description: >-
   material assignment. Reusable by every DCC adapter's mesh-ops skill (maya,
   blender, houdini, 3dsmax, and custom hosts) before falling back to raw
   scripting.
-license: "MIT"
+license: MIT-0
 compatibility: "dcc-mcp-core 0.20.29+, Python 3.7+"
 allowed-tools: ["Read"]
 metadata:
@@ -19,6 +19,7 @@ metadata:
       workflow_stage: modeling
       task_category: query
     layer: domain
+    maintainer: dcc-mcp
     stage: modeling
     version: "1.0.0"
     tags: [modeling, mesh, polygon, topology, recipe, cross-dcc]
