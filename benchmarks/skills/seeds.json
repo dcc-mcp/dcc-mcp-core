@@ -10,7 +10,7 @@
     {
       "name": "asset-source",
       "description": "Gateway skill for cross-DCC asset import — search and resolve assets into a validated AssetDescriptor (local path + attribution). Demo source returns static catalog entries; production sources can add download or remote resolution without changing the contract.",
-      "license": "MIT",
+      "license": "MIT-0",
       "compatibility": "",
       "allowed-tools": [
         "Bash",
@@ -19,6 +19,7 @@
       "metadata": {
         "dcc-mcp.dcc": "python",
         "dcc-mcp.layer": "domain",
+        "dcc-mcp.maintainer": "dcc-mcp",
         "dcc-mcp.stage": "source",
         "dcc-mcp.version": "1.0.0",
         "dcc-mcp.tags": [
@@ -210,7 +211,8 @@
           },
           "group": "",
           "execution": "async",
-          "timeout_hint_secs": 600
+          "timeout_hint_secs": 600,
+          "enforce_thread_affinity": false
         },
         {
           "name": "quick_status",
@@ -226,7 +228,8 @@
             "on-failure": []
           },
           "group": "",
-          "execution": "sync"
+          "execution": "sync",
+          "enforce_thread_affinity": false
         }
       ],
       "version": "1.0.0",
@@ -493,7 +496,8 @@
             ]
           },
           "group": "",
-          "execution": "sync"
+          "execution": "sync",
+          "enforce_thread_affinity": false
         },
         {
           "name": "audit_log",
@@ -529,7 +533,8 @@
             "on-failure": []
           },
           "group": "",
-          "execution": "sync"
+          "execution": "sync",
+          "enforce_thread_affinity": false
         },
         {
           "name": "tool_metrics",
@@ -565,7 +570,8 @@
             "on-failure": []
           },
           "group": "",
-          "execution": "sync"
+          "execution": "sync",
+          "enforce_thread_affinity": false
         },
         {
           "name": "process_status",
@@ -591,7 +597,8 @@
             ]
           },
           "group": "",
-          "execution": "sync"
+          "execution": "sync",
+          "enforce_thread_affinity": false
         }
       ],
       "version": "1.0.0",
@@ -682,6 +689,7 @@
           },
           "group": "",
           "execution": "sync",
+          "enforce_thread_affinity": false,
           "annotations": {
             "read_only_hint": false,
             "destructive_hint": false,
@@ -716,6 +724,7 @@
           },
           "group": "",
           "execution": "sync",
+          "enforce_thread_affinity": false,
           "annotations": {
             "read_only_hint": false,
             "destructive_hint": false,
@@ -748,6 +757,7 @@
           },
           "group": "",
           "execution": "sync",
+          "enforce_thread_affinity": false,
           "annotations": {
             "read_only_hint": true,
             "destructive_hint": false,
@@ -865,7 +875,8 @@
             "on-failure": []
           },
           "group": "",
-          "execution": "sync"
+          "execution": "sync",
+          "enforce_thread_affinity": false
         },
         {
           "name": "extract_frames",
@@ -902,7 +913,8 @@
             "on-failure": []
           },
           "group": "",
-          "execution": "sync"
+          "execution": "sync",
+          "enforce_thread_affinity": false
         }
       ],
       "version": "1.0.0",
@@ -986,7 +998,8 @@
             ]
           },
           "group": "",
-          "execution": "sync"
+          "execution": "sync",
+          "enforce_thread_affinity": false
         },
         {
           "name": "create_cylinder",
@@ -1021,7 +1034,8 @@
             "on-failure": []
           },
           "group": "",
-          "execution": "sync"
+          "execution": "sync",
+          "enforce_thread_affinity": false
         }
       ],
       "version": "1.0.0",
@@ -1111,7 +1125,8 @@
             "on-failure": []
           },
           "group": "",
-          "execution": "sync"
+          "execution": "sync",
+          "enforce_thread_affinity": false
         },
         {
           "name": "diff",
@@ -1139,7 +1154,8 @@
             "on-failure": []
           },
           "group": "",
-          "execution": "sync"
+          "execution": "sync",
+          "enforce_thread_affinity": false
         }
       ],
       "version": "1.0.0",
@@ -1307,7 +1323,8 @@
             "on-failure": []
           },
           "group": "",
-          "execution": "sync"
+          "execution": "sync",
+          "enforce_thread_affinity": false
         },
         {
           "name": "composite",
@@ -1361,7 +1378,8 @@
             "on-failure": []
           },
           "group": "",
-          "execution": "sync"
+          "execution": "sync",
+          "enforce_thread_affinity": false
         }
       ],
       "version": "1.0.0",
@@ -1402,8 +1420,9 @@
           "workflow_stage": "authoring",
           "task_category": "mutate"
         },
-        "dcc-mcp.version": "0.18.9",
+        "dcc-mcp.version": "0.20.42",
         "dcc-mcp.layer": "infrastructure",
+        "dcc-mcp.maintainer": "dcc-mcp",
         "dcc-mcp.search-hint": "create marketplace extension, scaffold extension package, new skill package, SKILL.md generator, marketplace entry, extension authoring",
         "dcc-mcp.tags": "marketplace, extension, scaffolding, authoring, infrastructure",
         "dcc-mcp.tools": "tools.yaml",
@@ -1521,7 +1540,7 @@
           }
         }
       ],
-      "version": "0.18.9",
+      "version": "0.20.42",
       "depends": [],
       "scripts": [
         "skills/marketplace-create-extension/scripts/create_extension.py"
@@ -1558,8 +1577,9 @@
           "workflow_stage": "publishing",
           "task_category": "export"
         },
-        "dcc-mcp.version": "0.18.9",
+        "dcc-mcp.version": "0.20.42",
         "dcc-mcp.layer": "infrastructure",
+        "dcc-mcp.maintainer": "dcc-mcp",
         "dcc-mcp.search-hint": "publish extension, register extension, marketplace catalog, upsert catalog entry, marketplace.json, extension publishing, release to marketplace",
         "dcc-mcp.tags": "marketplace, publishing, catalog, infrastructure",
         "dcc-mcp.tools": "tools.yaml"
@@ -1732,7 +1752,7 @@
           }
         }
       ],
-      "version": "0.18.9",
+      "version": "0.20.42",
       "depends": [],
       "scripts": [
         "skills/marketplace-publish-extension/scripts/publish.py"
@@ -1823,6 +1843,7 @@
           },
           "group": "modeling",
           "execution": "sync",
+          "enforce_thread_affinity": false,
           "call_examples": [
             {
               "arguments": {
@@ -1867,7 +1888,8 @@
             ]
           },
           "group": "modeling",
-          "execution": "sync"
+          "execution": "sync",
+          "enforce_thread_affinity": false
         },
         {
           "name": "create_joint",
@@ -1897,7 +1919,8 @@
             ]
           },
           "group": "rigging",
-          "execution": "sync"
+          "execution": "sync",
+          "enforce_thread_affinity": false
         }
       ],
       "version": "1.0.0",
@@ -2005,7 +2028,8 @@
             ]
           },
           "group": "",
-          "execution": "sync"
+          "execution": "sync",
+          "enforce_thread_affinity": false
         },
         {
           "name": "export_usd",
@@ -2048,7 +2072,8 @@
             ]
           },
           "group": "",
-          "execution": "sync"
+          "execution": "sync",
+          "enforce_thread_affinity": false
         }
       ],
       "version": "2.0.0",
@@ -2531,7 +2556,7 @@
     {
       "name": "mesh-ops",
       "description": "Cross-adapter polygon modeling recipe pack for the shared cross-DCC modeling vocabulary. Structured RECIPES.yaml entries for primitive creation, hard-surface edits, topology cleanup, UV generation, radial arraying, and material assignment. Reusable by every DCC adapter's mesh-ops skill (maya, blender, houdini, 3dsmax, and custom hosts) before falling back to raw scripting.",
-      "license": "MIT",
+      "license": "MIT-0",
       "compatibility": "dcc-mcp-core 0.20.29+, Python 3.7+",
       "allowed-tools": [
         "Read"
@@ -2545,6 +2570,7 @@
           "task_category": "query"
         },
         "dcc-mcp.layer": "domain",
+        "dcc-mcp.maintainer": "dcc-mcp",
         "dcc-mcp.stage": "modeling",
         "dcc-mcp.version": "1.0.0",
         "dcc-mcp.tags": [
@@ -2650,7 +2676,8 @@
             "on-failure": []
           },
           "group": "",
-          "execution": "sync"
+          "execution": "sync",
+          "enforce_thread_affinity": false
         },
         {
           "name": "action_shell",
@@ -2675,7 +2702,8 @@
             "on-failure": []
           },
           "group": "",
-          "execution": "sync"
+          "execution": "sync",
+          "enforce_thread_affinity": false
         },
         {
           "name": "action_batch",
@@ -2700,7 +2728,8 @@
             "on-failure": []
           },
           "group": "",
-          "execution": "sync"
+          "execution": "sync",
+          "enforce_thread_affinity": false
         }
       ],
       "version": "1.0.0",
@@ -2779,7 +2808,8 @@
             "on-failure": []
           },
           "group": "",
-          "execution": "sync"
+          "execution": "sync",
+          "enforce_thread_affinity": false
         },
         {
           "name": "find_widgets",
@@ -2824,7 +2854,8 @@
             "on-failure": []
           },
           "group": "",
-          "execution": "sync"
+          "execution": "sync",
+          "enforce_thread_affinity": false
         },
         {
           "name": "describe_widget",
@@ -2850,7 +2881,8 @@
             "on-failure": []
           },
           "group": "",
-          "execution": "sync"
+          "execution": "sync",
+          "enforce_thread_affinity": false
         },
         {
           "name": "snapshot_tree",
@@ -2885,7 +2917,8 @@
             "on-failure": []
           },
           "group": "",
-          "execution": "sync"
+          "execution": "sync",
+          "enforce_thread_affinity": false
         },
         {
           "name": "wait_for_widget",
@@ -2930,7 +2963,8 @@
             "on-failure": []
           },
           "group": "",
-          "execution": "sync"
+          "execution": "sync",
+          "enforce_thread_affinity": false
         }
       ],
       "version": "\\\"1.0.0\\\"",
@@ -2956,7 +2990,7 @@
     {
       "name": "spatial-interchange",
       "description": "Plan deterministic coordinate-axis and unit conversions between DCCs, engines, and interchange formats from explicit right/up/forward axes and meters-per-unit values.",
-      "license": "MIT",
+      "license": "MIT-0",
       "compatibility": "dcc-mcp-core 0.19.91+, Python 3.7+",
       "allowed-tools": [],
       "metadata": {
@@ -2968,6 +3002,7 @@
           "task_category": "query"
         },
         "dcc-mcp.layer": "infrastructure",
+        "dcc-mcp.maintainer": "dcc-mcp",
         "dcc-mcp.stage": "interchange",
         "dcc-mcp.version": "1.0.0",
         "dcc-mcp.tags": [
@@ -4119,7 +4154,8 @@
             "on-failure": []
           },
           "group": "",
-          "execution": "sync"
+          "execution": "sync",
+          "enforce_thread_affinity": false
         },
         {
           "name": "validate",
@@ -4146,7 +4182,8 @@
             "on-failure": []
           },
           "group": "",
-          "execution": "sync"
+          "execution": "sync",
+          "enforce_thread_affinity": false
         }
       ],
       "version": "1.0.0",
@@ -4526,7 +4563,8 @@
             "on-failure": []
           },
           "group": "",
-          "execution": "sync"
+          "execution": "sync",
+          "enforce_thread_affinity": false
         }
       ],
       "version": "1.0.0",
