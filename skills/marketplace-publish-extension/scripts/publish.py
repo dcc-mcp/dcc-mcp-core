@@ -90,11 +90,14 @@ def _parse_simple_yaml(text: str) -> dict[str, Any]:
     seq_indent = -1
     seq_path: list[str] = []
 
-    def close_fold(indent: int) -> None:
+    def close_fold() -> None:
         nonlocal fold_key, fold_lines
         if fold_key is None:
             return
-        _set_nested(result, [*path_for_indent(indent), fold_key], _join_folded(fold_lines))
+        # Write to the block captured when the fold started. Recomputing the path
+        # from the terminating line's indent would lift the key into an ancestor
+        # block and drop the host block entirely.
+        _set_nested(result, [*_fold_parent, fold_key], _join_folded(fold_lines))
         fold_key = None
         fold_lines = []
 
@@ -119,8 +122,8 @@ def _parse_simple_yaml(text: str) -> dict[str, Any]:
             fold_lines.append(stripped)
             continue
 
-        # Finalise any pending fold at the indentation of the key that ends it.
-        close_fold(indent)
+        # Finalise any pending fold before handling the line that ends it.
+        close_fold()
 
         # Detect a block-sequence item: `- value`, or a bare `-` for an empty item.
         if stripped[0] == "-" and (len(stripped) == 1 or stripped[1] in " \t"):
@@ -177,27 +180,6 @@ def _parse_simple_yaml(text: str) -> dict[str, Any]:
         _set_nested(result, [*_fold_parent, fold_key], _join_folded(fold_lines))
 
     return result
-
-
-def _path_from_indent(root: dict[str, Any], indent: int, key: str, current_path: list[str]) -> list[str]:
-    """Determine the nested key path for ``key`` written at ``indent``.
-
-    ``current_path`` is the path of the block that was open before this line.
-    Everything at or below the new depth is dropped and ``key`` is appended, so
-    a sibling written after a nested block resolves next to that block rather
-    than inside it. Tabs count as one indent level because ``_measure_indent``
-    has already normalised them to columns.
-    """
-    depth = _indent_depth(indent)
-    new_path = current_path[:depth]
-    if key:
-        new_path.append(key)
-    return new_path
-
-
-def _indent_depth(indent: int) -> int:
-    """Convert a column indent into a nesting depth (one level per 2 columns)."""
-    return indent // 2
 
 
 def _measure_indent(line: str) -> int:

@@ -1,7 +1,7 @@
 """P0 coverage for the hand-rolled SKILL.md frontmatter parser.
 
-``_parse_simple_yaml`` and its helpers (``_path_from_indent``, ``_set_nested``,
-``_parse_flow_sequence``) live in
+``_parse_simple_yaml`` and its helpers (``_set_nested``, ``_parse_flow_sequence``)
+live in
 ``skills/marketplace-publish-extension/scripts/publish.py`` and parse the
 frontmatter of every extension that gets published. One mis-parsed character
 silently lands a wrong description, tag list, or DCC list in ``marketplace.json``
@@ -30,7 +30,6 @@ _SPEC.loader.exec_module(_PUBLISH)
 
 _parse_simple_yaml = _PUBLISH._parse_simple_yaml
 _parse_flow_sequence = _PUBLISH._parse_flow_sequence
-_path_from_indent = _PUBLISH._path_from_indent
 _set_nested = _PUBLISH._set_nested
 
 
@@ -135,6 +134,29 @@ def test_values_containing_colons(text: str, expected: dict) -> None:
             "metadata:\n  dcc-mcp:\n    search-hint: >-\n      alpha beta\n      gamma\n",
             {"metadata": {"dcc-mcp": {"search-hint": "alpha beta gamma"}}},
             id="fold-inside-nested-block",
+        ),
+        # The four cases below end the fold with a *following* line rather than
+        # EOF. The folded key must stay in the block it was opened in; writing it
+        # into the terminating line's block silently drops the host block.
+        pytest.param(
+            "metadata:\n  dcc-mcp:\n    description: >-\n      A\n      B\n  other: x\n",
+            {"metadata": {"dcc-mcp": {"description": "A B"}, "other": "x"}},
+            id="fold-ends-at-a-dedented-sibling",
+        ),
+        pytest.param(
+            "metadata:\n  dcc-mcp:\n    description: >-\n      A\n      B\nname: x\n",
+            {"metadata": {"dcc-mcp": {"description": "A B"}}, "name": "x"},
+            id="fold-ends-at-a-top-level-key",
+        ),
+        pytest.param(
+            "metadata:\n  description: >-\n    A\n    B\nname: x\n",
+            {"metadata": {"description": "A B"}, "name": "x"},
+            id="fold-in-a-level-one-block-ends-at-a-top-level-key",
+        ),
+        pytest.param(
+            "metadata:\n  dcc-mcp:\n    description: >-\n      A\n      B\n    version: 1.0.0\n",
+            {"metadata": {"dcc-mcp": {"description": "A B", "version": "1.0.0"}}},
+            id="fold-ends-at-a-sibling-in-the-same-block",
         ),
         pytest.param(
             "description: >-\n  Line one\n  Line two\n\n  Line three\n",
@@ -346,14 +368,6 @@ def test_crlf_line_endings(text: str, expected: dict) -> None:
 )
 def test_parse_flow_sequence(inner: str, expected: list) -> None:
     assert _parse_flow_sequence(inner) == expected
-
-
-def test_path_from_indent_descends_and_dedents() -> None:
-    assert _path_from_indent({}, 0, "top", []) == ["top"]
-    assert _path_from_indent({}, 2, "child", ["top"]) == ["top", "child"]
-    assert _path_from_indent({}, 4, "grandchild", ["top", "child"]) == ["top", "child", "grandchild"]
-    assert _path_from_indent({}, 2, "sibling", ["top", "child"]) == ["top", "sibling"]
-    assert _path_from_indent({}, 0, "other", ["top", "child"]) == ["other"]
 
 
 def test_set_nested_creates_intermediate_dicts_and_overwrites_leaves() -> None:
