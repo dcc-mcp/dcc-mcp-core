@@ -41,6 +41,7 @@ def _load_sibling(name: str) -> Any:
 _SUPPORT = _load_sibling("_cua_support")
 _HOST = _load_sibling("_cua_cli_host_client")
 _PIXELS = _load_sibling("_cua_pixels")
+_LIFECYCLE = _load_sibling("_cua_lifecycle")
 UiControlHostError = _HOST.UiControlHostError
 _HostClient = _HOST.UiControlHostClient
 
@@ -978,9 +979,7 @@ def request_stop() -> None:
     _STOP_EVENT.set()
     with _CLIENTS_LOCK:
         entries = list(_CLIENTS.values())
-    for entry in entries:
-        with suppress(Exception):
-            entry["client"].stop()
+    _LIFECYCLE.stop_clients(entries)
 
 
 def cleanup() -> None:
