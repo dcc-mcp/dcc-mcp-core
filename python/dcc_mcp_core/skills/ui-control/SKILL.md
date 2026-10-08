@@ -140,6 +140,15 @@ Trajectory recording is session-scoped and intentionally asynchronous:
 This replaces the removed synchronous JPEG-sequence `record_clip` contract.
 Core does not duplicate CUA's recording format.
 
+In explicit [owned pixels mode](references/OWNED_PIXELS_MCP.md), recording needs
+the separate operator-owned `UiControlRecordingOptions` ceiling. It grants no
+input and never starts automatically. Use the same session and call
+`recording_start` with output_dir/record_video omitted: the runtime supplies its
+immutable task directory and video-only request. `trajectory_available=false`.
+Retain paused/degraded/failed state and partial artifacts. A failed stop is not
+finalization; read `recording_state` explicitly and always finish with
+`stop_computer_use`, preserving the actual cleanup ACK or failed/unknown outcome.
+
 ## Semantic profiles and trusted handoff
 
 Run `dcc-cua profiles`, then inspect the chosen application with

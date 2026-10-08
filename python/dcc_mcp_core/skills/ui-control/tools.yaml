@@ -67,13 +67,12 @@ tools:
 
   - name: recording_start
     description: >-
-      Start CUA trajectory recording for the exact application session. The
-      output directory must be absolute and is passed to the standalone CUA
-      Host. Continue with scoped UI actions, then call recording_stop. Set
-      record_video when the installed CUA driver should capture video evidence.
+      Start CUA recording for the exact application session. Legacy shared Host
+      recording requires an absolute output_dir. Explicit owner-granted pixels
+      recording uses its immutable runtime task directory and video only;
+      omit output_dir and record_video in that mode. Finish with recording_stop.
     input_schema:
       type: object
-      required: [output_dir]
       additionalProperties: false
       properties:
         session_id:
@@ -95,11 +94,10 @@ tools:
           type: string
           minLength: 1
           maxLength: 4096
-          description: "Absolute destination owned by this task grant."
+          description: "Required absolute destination for shared Host; optional exact runtime-authorized directory for owned pixels."
         record_video:
           type: boolean
-          default: false
-          description: "Ask the CUA driver to include video evidence."
+          description: "Shared Host defaults to false; owned pixels defaults to true and refuses false."
         policy:
           type: object
           description: "Optional ui_control policy override for this call."
@@ -121,7 +119,7 @@ tools:
         - ui_control__recording_stop
 
   - name: recording_state
-    description: "Read the current CUA trajectory recording state for this exact application session."
+    description: "Read truthful active, paused, degraded, failed, or stopped CUA recording state for this session."
     input_schema:
       type: object
       additionalProperties: false
@@ -150,8 +148,8 @@ tools:
 
   - name: recording_stop
     description: >-
-      Finalize CUA trajectory recording for this exact application session.
-      Preserve the finalized output directory and structured recording state.
+      Stop CUA recording for this exact application session. Preserve partial
+      artifacts and failure state; an error is not successful finalization.
     input_schema:
       type: object
       additionalProperties: false

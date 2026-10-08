@@ -32,10 +32,28 @@ mutation. Retain actual foreground/native state and take a fresh snapshot
 before more input. Physical acknowledgement also requires native
 `delivery_completed` and `post_dispatch_validated`; it does not prove the edit.
 
-Semantic actions, find, semantic waits, menus, recording, show/close window operations, and
+Semantic actions, find, semantic waits, menus, show/close window operations, and
 resume are unsupported. `get_window_state` only reads the same exact target.
 Do not switch transports, restart with another session id, or retry another
 input route after authorization/policy/security/Escape/desktop failures.
 
 Cleanup stops the owned task and owned MCP executable only. It does not stop
 the shared Host, another adapter, or another logical consumer.
+
+Recording is a separate optional owner ceiling:
+`UiControlRecordingOptions(output_root=precreated_ordinary_directory)`.
+Ambient recording environment variables cannot enable it. It grants no input,
+does not start automatically, and uses this same task/session/owned child.
+Call `ui_control__recording_start` manually, omitting output_dir and record_video;
+the runtime chooses an immutable task directory and requires video only.
+Read truthful paused/degraded/failed state with `ui_control__recording_state`,
+then stop with `ui_control__recording_stop`. Preserve partial artifacts on error;
+never call them finalized. The Host lifecycle id is `mcp-<task_id>`, distinct
+from the native window-observation session id. Always finish with
+`ui_control__stop_computer_use`, retaining the real ACK/failure/unknown cleanup
+outcome. Repeated stops do not retry; force, nonzero exit or timeout never proves
+cleanup. Decode and attribute actual MP4 and provenance separately.
+
+All owned pixels tasks require an exact inactive/nonpending Host stop ACK,
+including non-recording tasks (default cleanup budget five seconds). A runtime
+that omits it produces cleanup_unknown, never a fabricated successful stop.

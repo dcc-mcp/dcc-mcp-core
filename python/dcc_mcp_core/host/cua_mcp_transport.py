@@ -5,6 +5,7 @@ from __future__ import annotations
 from contextlib import suppress
 import hashlib
 import json
+import os
 from pathlib import Path
 import queue
 import subprocess
@@ -33,6 +34,7 @@ class OwnedCuaMcpTransport:
         self._lock = threading.RLock()
         self._closed = False
         self._cleanup_error: str | None = None
+        self._reader_output_error = False
         self._index = 0
         self._responses = queue.Queue(maxsize=16)
         path = Path(options.binary)
@@ -46,6 +48,10 @@ class OwnedCuaMcpTransport:
         if digest.hexdigest() != options.sha256:
             raise CuaCliError("integrity_mismatch", "The selected UI Control executable failed SHA-256 verification.")
         try:
+            child_env = os.environ.copy()
+            child_env.pop("DCC_CUA_RECORDING_OUTPUT_ROOT", None)
+            if options.recording is not None:
+                child_env["DCC_CUA_RECORDING_OUTPUT_ROOT"] = options.recording.output_root
             self._process = subprocess.Popen(
                 [str(path), "mcp-server"],
                 stdin=subprocess.PIPE,
@@ -53,6 +59,7 @@ class OwnedCuaMcpTransport:
                 stderr=subprocess.DEVNULL,
                 close_fds=True,
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                env=child_env,
             )
         except (OSError, ValueError):
             raise CuaCliError("backend_unavailable", "Cannot start the selected UI Control MCP runtime.") from None
@@ -81,7 +88,9 @@ class OwnedCuaMcpTransport:
             self._write({"jsonrpc": "2.0", "method": "notifications/initialized"})
             catalog = self.rpc("tools/list", {})
             tools = catalog.get("tools")
-            if not isinstance(tools, list) or not _public_tool_schemas_valid(tools):
+            if not isinstance(tools, list) or not _public_tool_schemas_valid(
+                tools, recording=options.recording is not None
+            ):
                 raise CuaCliError("protocol_mismatch", "The owned runtime lacks the public bounded-task MCP tools.")
         except Exception:
             with suppress(Exception):
@@ -106,6 +115,12 @@ class OwnedCuaMcpTransport:
             with suppress(queue.Full):
                 self._responses.put_nowait(CuaCliError("protocol_mismatch", "Invalid owned MCP response."))
         finally:
+            # Only the reader may close its BufferedReader. Closing it from a
+            # different thread can wait forever on a blocked readline's lock.
+            try:
+                self._process.stdout.close()
+            except Exception:
+                self._reader_output_error = True
             with suppress(queue.Full):
                 self._responses.put_nowait(_EOF)
 
@@ -118,7 +133,7 @@ class OwnedCuaMcpTransport:
                 self.close()
             raise CuaCliError("transport_error", "Cannot write to the owned UI Control runtime.") from None
 
-    def rpc(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
+    def rpc(self, method: str, params: dict[str, Any], *, timeout: float | None = None) -> dict[str, Any]:
         """Perform one correlated MCP request without retries."""
         with self._lock:
             if self._closed or self._process.poll() is not None:
@@ -126,7 +141,7 @@ class OwnedCuaMcpTransport:
             self._index += 1
             request_id = self._index
             self._write({"jsonrpc": "2.0", "id": request_id, "method": method, "params": params})
-            deadline = time.monotonic() + self.options.timeout_seconds
+            deadline = time.monotonic() + (self.options.timeout_seconds if timeout is None else timeout)
             try:
                 response = self._responses.get(timeout=max(0.001, deadline - time.monotonic()))
                 if response is _EOF:
@@ -142,7 +157,7 @@ class OwnedCuaMcpTransport:
                 return response["result"]
             except queue.Empty:
                 with suppress(Exception):
-                    self.close()
+                    self.close(grace_seconds=0 if timeout is not None else None)
                 raise CuaCliError("timeout", "The owned UI Control request timed out; it was not retried.") from None
             except CuaCliError as exc:
                 if exc.code != "runtime_rejected":
@@ -150,15 +165,20 @@ class OwnedCuaMcpTransport:
                         self.close()
                 raise
 
-    def tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    def tool(self, name: str, arguments: dict[str, Any], *, cleanup: bool = False) -> dict[str, Any]:
         """Call one public tool and preserve its structured data and image blocks."""
-        result = self.rpc("tools/call", {"name": name, "arguments": arguments})
+        recording = self.options.recording
+        finalizing = cleanup or (name == "dcc_cua_task_call" and arguments.get("method") == "recording_stop")
+        timeout = (recording.cleanup_timeout_seconds if recording is not None else 5) if finalizing else None
+        result = self.rpc("tools/call", {"name": name, "arguments": arguments}, timeout=timeout)
         payload = result.get("structuredContent")
         if not isinstance(payload, dict):
             with suppress(Exception):
                 self.close()
             raise CuaCliError("protocol_mismatch", "The owned MCP tool omitted structuredContent.")
-        if result.get("isError") or payload.get("type") == "error" or payload.get("ok") is False:
+        # Cleanup failures are protocol results, not permission to erase the
+        # native acknowledgement or retry a potentially completed stop.
+        if not cleanup and (result.get("isError") or payload.get("type") == "error" or payload.get("ok") is False):
             raise OwnedCuaMcpError(
                 str(payload.get("code") or "runtime_rejected"),
                 str(payload.get("message") or payload.get("error") or "UI Control request rejected."),
@@ -166,7 +186,7 @@ class OwnedCuaMcpTransport:
             )
         return result
 
-    def close(self) -> None:
+    def close(self, *, grace_seconds: float | None = None) -> None:
         """Close and, if necessary, terminate only this transport's owned child."""
         with self._lock:
             if self._closed:
@@ -174,28 +194,48 @@ class OwnedCuaMcpTransport:
                     raise CuaCliError("cleanup_failed", self._cleanup_error)
                 return
             self._closed = True
-            with suppress(OSError, ValueError):
-                self._process.stdin.close()
             try:
-                self._process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                self._cleanup_error = "The owned UI Control runtime required forced termination; cleanup is unverified."
-                self._process.terminate()
+                self._process.stdin.close()
+            except Exception:
+                self._cleanup_error = "The owned UI Control runtime input did not close cleanly."
+            try:
+                recording = self.options.recording
+                grace = recording.cleanup_timeout_seconds if recording is not None else 5
+                self._process.wait(timeout=grace if grace_seconds is None else max(0, min(grace, grace_seconds)))
+            except Exception as exc:
+                self._cleanup_error = (
+                    "The owned UI Control runtime required forced termination; cleanup is unverified."
+                    if isinstance(exc, subprocess.TimeoutExpired)
+                    else "The owned UI Control runtime could not acknowledge process exit."
+                )
                 try:
+                    self._process.terminate()
                     self._process.wait(timeout=2)
-                except subprocess.TimeoutExpired:
-                    self._process.kill()
-                    self._process.wait(timeout=2)
-            self._reader.join(timeout=1)
-            with suppress(OSError, ValueError):
-                self._process.stdout.close()
-            if self._reader.is_alive() or self._process.poll() != 0:
-                self._cleanup_error = "The owned UI Control runtime did not finish cleanly."
+                except Exception:
+                    try:
+                        self._process.kill()
+                        self._process.wait(timeout=2)
+                    except Exception:
+                        self._cleanup_error = "The owned UI Control runtime did not acknowledge forced process exit."
+            finally:
+                try:
+                    self._reader.join(timeout=1)
+                except Exception:
+                    self._cleanup_error = "The owned UI Control response reader did not finish cleanly."
+                try:
+                    if self._reader_output_error:
+                        self._cleanup_error = "The owned UI Control runtime output did not close cleanly."
+                    if self._reader.is_alive() or self._process.poll() != 0:
+                        self._cleanup_error = (
+                            self._cleanup_error or "The owned UI Control runtime did not finish cleanly."
+                        )
+                except Exception:
+                    self._cleanup_error = "The owned UI Control runtime exit state is unknown."
             if self._cleanup_error is not None:
                 raise CuaCliError("cleanup_failed", self._cleanup_error)
 
 
-def _public_tool_schemas_valid(tools: list[Any]) -> bool:
+def _public_tool_schemas_valid(tools: list[Any], *, recording: bool = False) -> bool:
     """Check the public envelope we consume, without interpreting task leases."""
     schemas = {item.get("name"): item.get("inputSchema") for item in tools if isinstance(item, dict)}
     expected = {
@@ -213,6 +253,8 @@ def _public_tool_schemas_valid(tools: list[Any]) -> bool:
         "task_status": {"task_id": "string"},
         "stop_task": {"task_id": "string"},
     }
+    if recording:
+        expected["start_task"]["allow_recording"] = "boolean"
     for name, properties in expected.items():
         schema = schemas.get(name)
         if (

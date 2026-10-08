@@ -264,7 +264,8 @@ def test_ui_control_tool_schema_supports_computer_use_actions() -> None:
     assert tools["find"].timeout_hint_secs == 2
     assert tools["wait_for"].timeout_hint_secs == 65
     record_schema = json.loads(tools["recording_start"].input_schema)
-    assert record_schema["required"] == ["output_dir"]
+    assert "output_dir" not in record_schema.get("required", [])
+    assert "default" not in record_schema["properties"]["record_video"]
     assert record_schema["additionalProperties"] is False
     assert record_schema["properties"]["output_dir"]["minLength"] == 1
     assert record_schema["properties"]["output_dir"]["maxLength"] == 4096
