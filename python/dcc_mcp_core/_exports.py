@@ -193,6 +193,7 @@ _ALL_LAZY: dict[str, str] = {
     "copy_skill_to_user_dir": "dcc_mcp_core._core",
     "correct_python_executable": "dcc_mcp_core.runtime",
     "capture_bootstrap_errors": "dcc_mcp_core.host_errors",
+    "create_adapter_server": "dcc_mcp_core.server_base",
     "create_skill_server": "dcc_mcp_core.server_base",
     "deserialize_result": "dcc_mcp_core._core",
     "error_result": "dcc_mcp_core._core",

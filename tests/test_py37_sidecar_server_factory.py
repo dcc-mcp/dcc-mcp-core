@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 from pathlib import Path
+import re
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -120,6 +121,37 @@ class TestServerFactoryRouting:
         config = PureMcpHttpConfig()
         server = create_adapter_server("maya", config, options)
         assert server is fake_server
+
+    def test_config_is_optional_and_defaults_to_none(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setattr(
+            "dcc_mcp_core._runtime.server_factory.is_core_extension_available",
+            lambda: False,
+        )
+        server = create_adapter_server("maya")
+        assert isinstance(server, SidecarBackedSkillServer)
+
+    def test_mapping_config_is_rejected_with_actionable_message(self):
+        with pytest.raises(TypeError, match="McpHttpConfig"):
+            create_adapter_server("maya", {})
+
+    def test_error_message_names_the_constructor(self):
+        with pytest.raises(TypeError, match=re.escape("dcc_mcp_core.McpHttpConfig")):
+            create_adapter_server("maya", {"port": 9000})
+
+    def test_signature_annotates_config_as_optional_config_type(self):
+        import inspect
+
+        params = inspect.signature(create_adapter_server).parameters
+        assert params["config"].default is None
+        assert "McpHttpConfig" in str(params["config"].annotation)
+
+
+class TestPublicEntryPoint:
+    def test_create_adapter_server_is_exported_from_package_root(self):
+        import dcc_mcp_core
+
+        assert "create_adapter_server" in dcc_mcp_core.__all__
+        assert dcc_mcp_core.create_adapter_server is create_adapter_server
 
 
 class TestSidecarBackedSkillServer:

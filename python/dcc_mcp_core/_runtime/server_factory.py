@@ -5,17 +5,33 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from dcc_mcp_core._runtime.config_bridge import resolve_mcp_http_config_class
 from dcc_mcp_core._runtime.core_availability import is_core_extension_available
+from dcc_mcp_core._runtime.mcp_http_config import McpHttpConfig
 from dcc_mcp_core._runtime.sidecar_skill_server import SidecarBackedSkillServer
 from dcc_mcp_core.constants import ENV_HOST_RPC
 
 
 def create_adapter_server(
     dcc_name: str,
-    config: Any,
+    config: McpHttpConfig | None = None,
     options: Any | None = None,
 ) -> Any:
-    """Create the inner server object used by :class:`DccServerBase`."""
+    """Create the inner server object used by :class:`DccServerBase`.
+
+    Args:
+        dcc_name: Name of the DCC the server is created for.
+        config: HTTP server configuration. ``None`` selects the backend
+            default configuration.
+        options: Optional :class:`~dcc_mcp_core._server.options.DccServerOptions`
+            used to resolve the sidecar binding on the py37-lite profile.
+
+    Raises:
+        TypeError: If ``config`` is neither ``None`` nor the active
+            ``McpHttpConfig`` type for this wheel.
+
+    """
+    config = _validate_config(config)
     if is_core_extension_available():
         from dcc_mcp_core._core import create_skill_server
 
@@ -33,6 +49,26 @@ def create_adapter_server(
         wait_ready_timeout_secs=_resolve_wait_ready(sidecar),
         server_bin=getattr(sidecar, "server_bin", None) if sidecar is not None else None,
         extra_args=_resolve_extra_args(sidecar),
+    )
+
+
+def _validate_config(config: McpHttpConfig | None) -> McpHttpConfig | None:
+    """Reject non-config values with an actionable message.
+
+    The Rust-backed factory surfaces a bare ``TypeError`` from PyO3 when a
+    caller passes a plain mapping, which does not explain how to build the
+    expected object. Validate up front so the failure names both the accepted
+    type and the constructor.
+    """
+    if config is None:
+        return None
+    active_config_cls = resolve_mcp_http_config_class()
+    if isinstance(config, active_config_cls):
+        return config
+    raise TypeError(
+        "create_adapter_server: 'config' must be an McpHttpConfig instance or None, "
+        f"got {type(config).__name__!r}. Build one with "
+        "dcc_mcp_core.McpHttpConfig(port=..., server_name=...) or pass None to use defaults."
     )
 
 
