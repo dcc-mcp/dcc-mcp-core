@@ -233,6 +233,7 @@ class UiActionKind:
     RESTORE_WINDOW = "restore_window"
     SHOW_WINDOW = "show_window"
     ACTIVATE_WINDOW = "activate_window"
+    MINIMIZE_WINDOW = "minimize_window"
 
 
 @dataclass
@@ -337,6 +338,7 @@ class UiControlPolicy:
             UiActionKind.RESTORE_WINDOW,
             UiActionKind.SHOW_WINDOW,
             UiActionKind.ACTIVATE_WINDOW,
+            UiActionKind.MINIMIZE_WINDOW,
         ):
             return self.allow_mutating_actions
         return False

@@ -22,6 +22,8 @@ from dcc_mcp_core.adapter_contracts import UiControlAuditRecord
 from dcc_mcp_core.adapter_contracts import UiControlPolicy
 from dcc_mcp_core.adapter_contracts import UiErrorCode
 from dcc_mcp_core.adapter_contracts import UiSnapshot
+from dcc_mcp_core.host.cua_mcp_client import PixelsMcpHostClient
+from dcc_mcp_core.host.ui_control_options import UiControlRuntimeOptions
 from dcc_mcp_core.skill import skill_error
 from dcc_mcp_core.skill import skill_success
 
@@ -38,6 +40,7 @@ def _load_sibling(name: str) -> Any:
 
 _SUPPORT = _load_sibling("_cua_support")
 _HOST = _load_sibling("_cua_cli_host_client")
+_PIXELS = _load_sibling("_cua_pixels")
 UiControlHostError = _HOST.UiControlHostError
 _HostClient = _HOST.UiControlHostClient
 
@@ -90,6 +93,7 @@ _WINDOW_STATE_OPERATIONS = {
     UiActionKind.RESTORE_WINDOW: "restore",
     UiActionKind.SHOW_WINDOW: "show",
     UiActionKind.ACTIVATE_WINDOW: "activate",
+    UiActionKind.MINIMIZE_WINDOW: "minimize",
 }
 
 
@@ -212,16 +216,22 @@ def _client_spec(session_id: str, params: Dict[str, Any], policy: UiControlPolic
 
 def _client_for(session_id: str, params: Dict[str, Any], policy: UiControlPolicy) -> Tuple[Any, Dict[str, Any]]:
     spec = _client_spec(session_id, params, policy)
-    identity = tuple(
-        spec[key]
-        for key in (
-            "dcc_type",
-            "process_id",
-            "window_handle",
-            "window_title",
-            "allow_raw_input",
-            "allow_menu_invoke",
-        )
+    runtime = params.get("trusted_ui_control_runtime")
+    if runtime is not None and not isinstance(runtime, UiControlRuntimeOptions):
+        raise UiControlHostError("invalid_request", "Invalid server-owned UI Control runtime configuration.")
+    identity = (
+        *tuple(
+            spec[key]
+            for key in (
+                "dcc_type",
+                "process_id",
+                "window_handle",
+                "window_title",
+                "allow_raw_input",
+                "allow_menu_invoke",
+            )
+        ),
+        runtime,
     )
     with _CLIENTS_LOCK:
         entry = _CLIENTS.get(session_id)
@@ -231,16 +241,22 @@ def _client_for(session_id: str, params: Dict[str, Any], policy: UiControlPolicy
             _CLIENTS.pop(session_id, None)
             entry = None
         if entry is None:
-            client = _HostClient(
+            arguments = dict(
                 session_id=session_id,
-                task_grant_id=spec["task_grant_id"],
                 dcc_type=spec["dcc_type"],
                 process_id=spec["process_id"],
                 window_handle=spec["window_handle"],
-                window_title=spec["window_title"],
                 allow_raw_input=spec["allow_raw_input"],
-                allow_menu_invoke=spec["allow_menu_invoke"],
             )
+            if runtime is not None:
+                client = PixelsMcpHostClient(options=runtime, window_title=spec["window_title"], **arguments)
+            else:
+                client = _HostClient(
+                    task_grant_id=spec["task_grant_id"],
+                    window_title=spec["window_title"],
+                    allow_menu_invoke=spec["allow_menu_invoke"],
+                    **arguments,
+                )
             entry = {
                 "client": client,
                 "identity": identity,
@@ -265,7 +281,9 @@ def _client_for_existing_session_or_scope(
     return _client_for(session_id, params, policy)
 
 
-def _host_error(exc: Exception) -> Dict[str, Any]:
+def _host_error(
+    exc: Exception, params: Optional[Dict[str, Any]] = None, *, fresh_observation: bool = False
+) -> Dict[str, Any]:
     message = str(exc)
     code = str(getattr(exc, "code", None) or UiErrorCode.BACKEND_UNAVAILABLE)
     mapping = {
@@ -309,6 +327,7 @@ def _host_error(exc: Exception) -> Dict[str, Any]:
             "recovery_actions": ["get_window_state", "restore_window", "show_window", "activate_window"],
             "recovery_scope": "same_exact_pid_hwnd",
         }
+    recovery.update(_PIXELS.error_context(exc, params or {}, fresh_observation=fresh_observation))
     return skill_error(
         message,
         mapped_code,
@@ -331,7 +350,10 @@ def _capture_snapshot(
         max_nodes = max(1, min(2_000, int(os.environ.get("DCC_MCP_CUA_MAX_NODES", "250"))))
         raw = client.snapshot(max_depth=max_depth, max_nodes=max_nodes)
     except (UiControlHostError, OSError, ValueError) as exc:
-        return _host_error(exc)
+        return _host_error(exc, params)
+
+    if raw.get("observation_mode") == "pixels_only":
+        return _PIXELS.capture_snapshot(raw, client, entry, session_id)
 
     snapshot_id = str(raw["accessibility_state_id"])
     accessibility_available = int(raw.get("node_count") or 0) > 0
@@ -385,7 +407,7 @@ def _capture_accessibility_snapshot(
         max_nodes = max(1, min(2_000, int(os.environ.get("DCC_MCP_CUA_MAX_NODES", "250"))))
         raw = client.accessibility_snapshot(max_depth=max_depth, max_nodes=max_nodes)
     except (UiControlHostError, OSError, ValueError) as exc:
-        return _host_error(exc)
+        return _host_error(exc, params)
     snapshot_id = str(raw["accessibility_state_id"])
     state_delta = _state_delta_event(raw, snapshot_id)
     root = _node_from_cua_dict(raw["root"], snapshot_id)
@@ -440,14 +462,18 @@ def snapshot_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     if not capture.get("success"):
         return capture
     accessibility_available = bool(capture.get("accessibility_available", True))
+    pixels_only = capture.get("observation_mode") == "pixels_only"
     return skill_success(
         (
             "Captured scoped CUA application snapshot."
-            if accessibility_available
+            if accessibility_available or pixels_only
             else "Captured screenshot-only CUA application observation."
         ),
         prompt=(
-            "Use ui_control__find or perform one scoped ui_control__act with this snapshot_id, then snapshot again."
+            "Inspect these pixels, perform one authorized physical ui_control__act with this snapshot_id, "
+            "then take a fresh snapshot and verify the application state. Semantic controls are unavailable."
+            if pixels_only
+            else "Use ui_control__find or one scoped ui_control__act with this snapshot_id, then snapshot again."
             if accessibility_available
             else (
                 "CUA accessibility was unavailable for this frame. Inspect the pixels, but do not act "
@@ -460,6 +486,10 @@ def snapshot_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         observation=capture["observation"],
         state_delta=capture.get("state_delta"),
         accessibility_available=accessibility_available,
+        observation_mode=capture.get("observation_mode"),
+        accessibility_state_id=capture.get("accessibility_state_id"),
+        task_context=capture.get("task_context"),
+        target=capture.get("target"),
         policy=policy.to_dict(),
         __rich__={
             "kind": "image",
@@ -484,6 +514,7 @@ def recording_start_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, A
         "record_video",
         "policy",
         "trusted_adapter_scope",
+        "trusted_ui_control_runtime",
     }
     if set(params) - allowed:
         return skill_error(
@@ -507,7 +538,7 @@ def recording_start_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, A
         client, entry = _client_for(session_id, params, policy)
         recording = client.recording_start(output_dir=output_dir, record_video=record_video)
     except (UiControlHostError, OSError, ValueError) as exc:
-        return _host_error(exc)
+        return _host_error(exc, params)
     finally:
         entry = _CLIENTS.get(session_id)
         if entry is not None:
@@ -538,7 +569,7 @@ def recording_stop_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, An
         client, entry = _client_for_existing_session_or_scope(session_id, params, policy)
         recording = client.recording_stop()
     except (UiControlHostError, OSError, ValueError) as exc:
-        return _host_error(exc)
+        return _host_error(exc, params)
     finally:
         entry = _CLIENTS.get(session_id)
         if entry is not None:
@@ -565,7 +596,7 @@ def recording_state_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, A
         client, _entry = _client_for_existing_session_or_scope(session_id, params, policy)
         recording = client.recording_state()
     except (UiControlHostError, OSError, ValueError) as exc:
-        return _host_error(exc)
+        return _host_error(exc, params)
     return skill_success(
         "Read CUA trajectory recording state.",
         session_id=session_id,
@@ -585,7 +616,9 @@ def find_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     try:
         _client, entry = _client_for(session_id, params, policy)
     except (UiControlHostError, OSError, ValueError) as exc:
-        return _host_error(exc)
+        return _host_error(exc, params)
+    if getattr(_client, "observation_mode", None) == "pixels_only":
+        return skill_error("Semantic find is unavailable in pixels_only mode.", "unsupported_action")
     cached_snapshot = entry.get("snapshot")
     cached_snapshot_id = entry.get("snapshot_id")
     capture = (
@@ -691,16 +724,17 @@ def act_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     try:
         client, entry = _client_for(session_id, params, policy)
     except (UiControlHostError, OSError, ValueError) as exc:
-        return _host_error(exc)
+        return _host_error(exc, params)
     if action == UiActionKind.GET_WINDOW_STATE:
         try:
             raw = client.window_state()
         except (UiControlHostError, OSError, ValueError) as exc:
-            return _host_error(exc)
+            return _host_error(exc, params)
         message = "Read exact scoped application state from the CUA Host."
         return skill_success(
             message,
-            prompt=(
+            prompt=_PIXELS.window_state_prompt(params)
+            or (
                 "If minimized, call ui_control__act with restore_window; if hidden, use show_window; "
                 "then activate_window and take a fresh snapshot."
             ),
@@ -709,11 +743,19 @@ def act_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
             audit=_audit_record(action, True, None, session_id, policy, None, message),
         )
     if action in _WINDOW_STATE_OPERATIONS:
+        if action == UiActionKind.MINIMIZE_WINDOW:
+            if getattr(client, "observation_mode", None) != "pixels_only":
+                return skill_error("Minimize requires the owner-selected pixels MCP transport.", "unsupported_action")
+            requested = str(params.get("snapshot_id") or "")
+            if not requested or requested != str(entry.get("snapshot_id") or ""):
+                return skill_error(
+                    "Take a fresh snapshot before minimizing the exact window.", UiErrorCode.STALE_OBSERVATION
+                )
         try:
             raw = client.change_window_state(_WINDOW_STATE_OPERATIONS[action])
         except (UiControlHostError, OSError, ValueError) as exc:
             entry["snapshot_id"] = None
-            return _host_error(exc)
+            return _host_error(exc, params, fresh_observation=True)
         entry["snapshot_id"] = None
         message = f"Completed exact scoped window operation {action!r}."
         return skill_success(
@@ -721,6 +763,9 @@ def act_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
             prompt="Take a fresh ui_control__snapshot before any content interaction.",
             session_id=session_id,
             window_state=raw.get("state") or {},
+            native_outcome=raw.get("result"),
+            task_context=raw.get("task_context"),
+            fresh_observation_required=True,
             audit=_audit_record(action, True, None, session_id, policy, None, message),
         )
     if action == UiActionKind.INVOKE_MENU:
@@ -729,7 +774,7 @@ def act_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
             raw = client.invoke_menu(menu_path)
         except (UiControlHostError, OSError, ValueError) as exc:
             entry["snapshot_id"] = None
-            return _host_error(exc)
+            return _host_error(exc, params, fresh_observation=True)
         entry["snapshot_id"] = None
         effect = str(raw.get("effect") or "unverifiable")
         verification_required = bool(raw.get("verification_required", effect != "confirmed"))
@@ -774,6 +819,8 @@ def act_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
             current_snapshot_id=current_snapshot_id,
         )
     native = _is_native_action(action, params)
+    if getattr(client, "observation_mode", None) == "pixels_only" and (not native or params.get("control_id")):
+        return skill_error("Semantic actions are unavailable in pixels_only mode.", "unsupported_action")
     control_id = str(params.get("control_id") or "")
     control = _find_by_id(entry["snapshot"], control_id) if control_id and entry.get("snapshot") else None
     if not native and control is None:
@@ -782,7 +829,7 @@ def act_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         raw = client.execute(_action_payload(params, native, control))
     except (UiControlHostError, OSError, ValueError) as exc:
         entry["snapshot_id"] = None
-        return _host_error(exc)
+        return _host_error(exc, params, fresh_observation=True)
     entry["snapshot_id"] = None
     success = bool(raw.get("success"))
     action_id = str(raw.get("action_id") or "") or None
@@ -804,6 +851,11 @@ def act_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
             "policy_tier": raw.get("policy_tier"),
             "target_closed": target_closed,
             "action_id": action_id,
+            "effect": raw.get("effect"),
+            "verification_required": raw.get("verification_required"),
+            "fresh_observation_required": raw.get("fresh_observation_required"),
+            "native_result": raw.get("result") if getattr(client, "observation_mode", None) == "pixels_only" else None,
+            "task_context": raw.get("task_context"),
         },
     ).to_dict()
     audit = _audit_record(action, success, control, session_id, policy, error_code, message)
@@ -816,6 +868,9 @@ def act_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
             action_id=action_id,
             result=result,
             audit=audit,
+            fresh_observation_required=raw.get("fresh_observation_required"),
+            native_outcome=raw.get("result") if getattr(client, "observation_mode", None) == "pixels_only" else None,
+            task_context=raw.get("task_context"),
         )
     return skill_success(
         f"Completed scoped CUA action {action!r}.",
@@ -850,7 +905,7 @@ def stop_computer_use_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str,
     try:
         stopped = entry["client"].stop()
     except (UiControlHostError, OSError, ValueError) as exc:
-        return _host_error(exc)
+        return _host_error(exc, params)
     cleanup_pending = bool(stopped.get("cleanup_pending"))
     if cleanup_pending:
         return skill_error(

@@ -16,6 +16,10 @@ tools:
       fresh snapshot. A bounded target may span monitors whose virtual-desktop
       origins are negative or whose DPI differs; action coordinates remain
       PNG-relative.
+      An owner-selected pixels_only MCP runtime returns no AX tree: snapshot_id
+      is the native observation_id. Preserve the returned native provenance;
+      use one authorized physical act followed by a fresh snapshot. Callers
+      cannot select a runtime or action grant.
     input_schema:
       type: object
       properties:
@@ -179,6 +183,7 @@ tools:
       object name. Returns normalized UiControlNode matches. Native CUA
       pauses with desktop_unavailable while the interactive desktop is locked,
       disconnected, or secure.
+      Semantic find is unsupported when the server owner selected pixels_only.
     input_schema:
       type: object
       properties:
@@ -242,11 +247,13 @@ tools:
       the visible capsule and user interruption monitor cover semantic UIA as
       well as raw input. Raw input is enabled by default inside that exact
       bound scope and can be disabled with DCC_MCP_CUA_ALLOW_RAW_INPUT=false.
-      Windows hard-denies raw type: enter non-sensitive text only through
+      The default Windows semantic transport hard-denies raw type: enter non-sensitive text only through
       semantic set_text with an exact control_id. Passwords, authentication
       codes, and other credential material require a user hand-off or a
       host-owned secure credential flow. The type action is backend-specific
-      to mock/CDP and is not a portable Windows action.
+      to mock/CDP or the explicit owner-selected pixels MCP transport and is not
+      a portable Windows action. Pixels MCP permits only the owner's physical
+      action ceiling; tool policy and the operator raw-input ceiling can narrow it.
       Windows keypress rejects ordinary printable, Shift-text, and AltGr-text
       input; use only navigation/control/function keys or genuine Ctrl/Alt
       shortcuts. Windows game_navigation is the separately governed game-canvas
@@ -264,6 +271,11 @@ tools:
       recovery operations for the same host-bound PID/HWND and do not require
       a prior snapshot. They cannot enumerate or target another process/window;
       restore/show/activate invalidate any prior snapshot and are audited.
+      In owner-selected pixels MCP mode, activate_window and restore_window
+      require explicit owner window_operations; restore_window uses native
+      restore_activate. minimize_window is available only in this mode with an
+      explicit owner grant and the matching latest snapshot_id. Window changes
+      never activate or capture implicitly; take fresh pixels before more input.
       desktop_unavailable means no Windows UI input was sent; keep the logical
       session, stop issuing UI calls, and ask the user to unlock or reconnect.
       Take a fresh snapshot only after that happens. Never
@@ -313,9 +325,12 @@ tools:
             - restore_window
             - show_window
             - activate_window
+            - minimize_window
           description: >-
             Action kind to perform. type is backend-specific to mock/CDP and
-            is hard denied by the Windows backend; use semantic set_text with
+            is hard denied by the default Windows semantic backend; the explicit
+            pixels MCP transport requires the owner's physical action grant.
+            Otherwise use semantic set_text with
             an exact control_id for non-sensitive Windows text entry. Windows
             keypress cannot synthesize ordinary printable text. game_navigation
             accepts up to four simultaneous supported keys for a non-editable
@@ -351,7 +366,8 @@ tools:
           maxLength: 4096
           description: >-
             Non-sensitive text for semantic set_text with an exact control_id,
-            or backend-specific mock/CDP type. Windows hard-denies raw type;
+            or explicitly owner-granted pixels MCP type. The default Windows
+            semantic transport hard-denies raw type; mock/CDP support is backend-specific.
             passwords and authentication data require secure user/host hand-off.
         checked:
           type: boolean
