@@ -9,11 +9,18 @@
 //! 1. `--yes` on the command line.
 //! 2. `DCC_MCP_HOST_INSTALL=never|ask|always`.
 //! 3. The `consent` value remembered in the user-level lock file.
-//! 4. `always` — the default. With no explicit choice, an allowlisted host is
-//!    installed directly, without waiting on a terminal that may not exist.
-//!    The caller prints a notice first, so this is a tell, not a silence.
-//!    Commercial hosts are refused in `provision_decision`, which runs before
-//!    consent is consulted, so the default never lets one through.
+//! 4. `always` — the default, and it applies only where no choice was ever
+//!    expressed. An allowlisted host then installs directly, with or without
+//!    a terminal, because waiting on a prompt nobody may be there to answer
+//!    is the deadlock this default removes. The caller prints a notice first,
+//!    so this is a tell, not a silence.
+//!
+//! The default fills a gap; it never overrides a choice. An explicit `ask`
+//! still prompts when it can and refuses when it cannot, and an explicit
+//! `never` still refuses, exactly as they did before.
+//!
+//! Commercial hosts are refused in `provision_decision`, which runs before
+//! consent is consulted, so no tier here can let one through.
 
 use serde::{Deserialize, Serialize};
 
@@ -107,7 +114,11 @@ pub fn decide(input: ConsentInput, question: impl Into<String>) -> ConsentDecisi
             Some(ConsentMode::Never) => ConsentDecision::Refused {
                 reason: ConsentRefusal::PolicyNever,
             },
-            _ => ask_or_default(input.interactive, question),
+            // An explicit `ask` is an explicit choice, so it takes the `ask`
+            // path rather than the default: asking is what the operator asked
+            // for, and with no terminal to ask on it stays a refusal.
+            Some(ConsentMode::Ask) => ask_or_refuse(input.interactive, question),
+            None => default_decision(),
         };
     }
     match input.stored {
@@ -115,22 +126,36 @@ pub fn decide(input: ConsentInput, question: impl Into<String>) -> ConsentDecisi
         Some(ConsentMode::Never) => ConsentDecision::Refused {
             reason: ConsentRefusal::PolicyNever,
         },
-        _ => ask_or_default(input.interactive, question),
+        Some(ConsentMode::Ask) => ask_or_refuse(input.interactive, question),
+        // Only here, where no choice was ever expressed, does the default
+        // apply. It overrides nothing: it fills a gap.
+        None => default_decision(),
     }
 }
 
-/// An explicit `ask` prompts when it can, and falls through to the default
-/// when it cannot: a question nobody can answer must not become a refusal.
+/// What happens when the operator expressed no choice at all.
+///
+/// `always`, on both paths. The default has to hold with a terminal attached
+/// too, otherwise an agent driving a pty still blocks on a prompt it was
+/// never meant to answer — which is the deadlock this default exists to
+/// remove. The notice the caller prints beforehand is what keeps this
+/// informed rather than silent.
 ///
 /// Reaching here already means the host cleared the allowlist, because the
 /// commercial-host refusal runs in `provision_decision`, ahead of consent.
-fn ask_or_default(interactive: bool, question: String) -> ConsentDecision {
-    match (interactive, DEFAULT_MODE) {
-        (true, _) => ConsentDecision::Ask { question },
-        (false, ConsentMode::Always) => ConsentDecision::Proceed,
-        (false, ConsentMode::Never | ConsentMode::Ask) => ConsentDecision::Refused {
+fn default_decision() -> ConsentDecision {
+    ConsentDecision::Proceed
+}
+
+/// An explicit `ask` prompts when it can, and refuses when it cannot: a
+/// question nobody can answer must not become an install nobody approved.
+fn ask_or_refuse(interactive: bool, question: String) -> ConsentDecision {
+    if interactive {
+        ConsentDecision::Ask { question }
+    } else {
+        ConsentDecision::Refused {
             reason: ConsentRefusal::NonInteractive,
-        },
+        }
     }
 }
 
@@ -224,42 +249,142 @@ mod tests {
         assert_eq!(decide(remembered, "q"), ConsentDecision::Proceed);
     }
 
+    /// The behaviour matrix, as a table.
+    ///
+    /// Only the two rows for "no choice expressed" may differ from the
+    /// pre-change behaviour. Every row that carries an explicit choice is
+    /// pinned here, because folding an explicit `ask` into the default is
+    /// exactly the regression this guards.
     #[test]
-    fn the_default_proceeds_without_a_terminal() {
-        // An allowlisted host must install unattended rather than deadlock on
-        // a question nobody can answer. The caller prints a notice first, so
-        // this is a tell, not a silence.
-        let unattended = ConsentInput::default();
-        assert_eq!(
-            decide(unattended, "install Blender?"),
-            ConsentDecision::Proceed
-        );
+    fn the_default_proceeds_on_both_paths_and_never_overrides_a_choice() {
+        let cases: &[(Option<&str>, Option<ConsentMode>, bool, ConsentDecision)] = &[
+            // No choice expressed -> the default, on both paths. Asking with a
+            // terminal attached is what used to happen, and it is the deadlock
+            // the default exists to remove.
+            (None, None, true, ConsentDecision::Proceed),
+            (None, None, false, ConsentDecision::Proceed),
+            // An explicit `ask`: unchanged. Prompts when it can, refuses when
+            // it cannot. It is a choice, not a gap for the default to fill.
+            (
+                None,
+                Some(ConsentMode::Ask),
+                true,
+                ConsentDecision::Ask {
+                    question: "q".to_string(),
+                },
+            ),
+            (
+                None,
+                Some(ConsentMode::Ask),
+                false,
+                ConsentDecision::Refused {
+                    reason: ConsentRefusal::NonInteractive,
+                },
+            ),
+            (
+                Some("ask"),
+                None,
+                true,
+                ConsentDecision::Ask {
+                    question: "q".to_string(),
+                },
+            ),
+            (
+                Some("ask"),
+                None,
+                false,
+                ConsentDecision::Refused {
+                    reason: ConsentRefusal::NonInteractive,
+                },
+            ),
+            // An explicit `never`: unchanged, either way.
+            (
+                None,
+                Some(ConsentMode::Never),
+                true,
+                ConsentDecision::Refused {
+                    reason: ConsentRefusal::PolicyNever,
+                },
+            ),
+            (
+                None,
+                Some(ConsentMode::Never),
+                false,
+                ConsentDecision::Refused {
+                    reason: ConsentRefusal::PolicyNever,
+                },
+            ),
+            (
+                Some("never"),
+                None,
+                true,
+                ConsentDecision::Refused {
+                    reason: ConsentRefusal::PolicyNever,
+                },
+            ),
+            (
+                Some("never"),
+                None,
+                false,
+                ConsentDecision::Refused {
+                    reason: ConsentRefusal::PolicyNever,
+                },
+            ),
+            // An explicit `always`: unchanged, either way.
+            (
+                None,
+                Some(ConsentMode::Always),
+                true,
+                ConsentDecision::Proceed,
+            ),
+            (
+                None,
+                Some(ConsentMode::Always),
+                false,
+                ConsentDecision::Proceed,
+            ),
+            (Some("always"), None, true, ConsentDecision::Proceed),
+            (Some("always"), None, false, ConsentDecision::Proceed),
+        ];
+        for (env, stored, interactive, expected) in cases {
+            let input = ConsentInput {
+                yes_flag: false,
+                env: *env,
+                stored: *stored,
+                interactive: *interactive,
+            };
+            assert_eq!(
+                decide(input, "q"),
+                *expected,
+                "env={env:?} stored={stored:?} interactive={interactive}"
+            );
+        }
     }
 
+    /// The default has to hold with a terminal attached, not only without one:
+    /// an agent driving a pty would otherwise still block on stdin, which is
+    /// the very deadlock this default removes. Acceptance criterion 1 states
+    /// no prompt and no waiting, without conditioning it on a missing TTY.
     #[test]
-    fn an_explicit_ask_still_prompts_when_a_terminal_exists() {
+    fn the_default_does_not_prompt_when_a_terminal_exists() {
         let attended = ConsentInput {
             interactive: true,
-            stored: Some(ConsentMode::Ask),
             ..ConsentInput::default()
         };
-        assert_eq!(
-            decide(attended, "install Blender 5.1.1?"),
-            ConsentDecision::Ask {
-                question: "install Blender 5.1.1?".to_string()
-            }
-        );
+        let decision = decide(attended, "install Blender 5.1.1?");
+        assert_eq!(decision, ConsentDecision::Proceed);
     }
 
+    /// An unparsable environment value is not an explicit choice, so it falls
+    /// to the default rather than silently installing under an operator who
+    /// tried to express one.
     #[test]
-    fn an_explicit_ask_falls_through_to_the_default_without_a_terminal() {
-        // A question with no one to answer it must not become a refusal.
-        let unattended = ConsentInput {
-            interactive: false,
-            stored: Some(ConsentMode::Ask),
+    fn an_unparsable_env_value_is_treated_as_no_choice() {
+        let input = ConsentInput {
+            env: Some("maybe"),
             ..ConsentInput::default()
         };
-        assert_eq!(decide(unattended, "q"), ConsentDecision::Proceed);
+        assert_eq!(decide(input, "q"), ConsentDecision::Proceed);
     }
 
     #[test]

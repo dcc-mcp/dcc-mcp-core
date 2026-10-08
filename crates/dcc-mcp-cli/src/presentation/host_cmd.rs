@@ -113,12 +113,11 @@ pub(crate) fn run(action: &HostAction) -> anyhow::Result<HostRun> {
                     .unwrap_or("the pinned version")
             );
             let consent = resolve_consent(*yes, question);
-            // "Stop asking" does not mean "stop telling": a default `always`
-            // installs unattended, so this notice is the only trace of what is
-            // about to happen. It is gated on the same allowlist check the
-            // install itself is, so a host that will be refused is never
-            // announced as if it were being installed.
-            if consent == ConsentDecision::Proceed && is_provisionable(def) {
+            // "Stop asking" does not mean "stop telling": the default installs
+            // unattended, so this notice is the only trace of what is about to
+            // happen. It is gated so that it fires exactly when an install is
+            // genuinely about to start, and never otherwise.
+            if will_install(def, probe) {
                 announce_install(def);
             }
             let outcome = provision(
@@ -135,6 +134,13 @@ pub(crate) fn run(action: &HostAction) -> anyhow::Result<HostRun> {
                 (_, ConsentDecision::Ask { question }) if needs_consent(&outcome) => {
                     match ask(question) {
                         true => {
+                            // The operator just approved this specific install,
+                            // so the notice is owed here too: the interactive
+                            // path must not be the one path that installs
+                            // without saying where or how to turn it off.
+                            if will_install(def, probe) {
+                                announce_install(def);
+                            }
                             remember_consent(ConsentMode::Always);
                             provision(
                                 def,
@@ -265,9 +271,10 @@ fn needs_consent(outcome: &crate::application::host::InstallOutcome) -> bool {
 /// Resolve the consent decision from the flag, the environment, and the lock.
 ///
 /// `--yes` outranks `DCC_MCP_HOST_INSTALL`, which outranks the remembered
-/// choice, which defaults to `always`. The default only ever applies to hosts
-/// the manifest allows the CLI to provision: the commercial-host refusal runs
-/// in `provision_decision`, ahead of consent.
+/// choice, which falls back to `always` when no choice was ever expressed.
+/// The default only ever applies to hosts the manifest allows the CLI to
+/// provision: the commercial-host refusal runs in `provision_decision`,
+/// ahead of consent.
 fn resolve_consent(yes: bool, question: String) -> ConsentDecision {
     let env_mode = std::env::var(consent::CONSENT_ENV)
         .ok()
@@ -287,18 +294,27 @@ fn resolve_consent(yes: bool, question: String) -> ConsentDecision {
     consent::decide(input, question)
 }
 
-/// Whether this host is one the CLI is allowed to install at all.
+/// Whether an install of `def` is genuinely about to start.
 ///
-/// The public allowlist check, so the pre-install notice can be gated on the
-/// same rule the install itself is rather than on a second, drifting copy.
-fn is_provisionable(def: &HostDefinition) -> bool {
-    provision_decision(
-        def,
-        ProvisionQuery {
-            channel_available: def.install_channel_for_current().is_some(),
-        },
-    )
-    .is_none()
+/// The notice is a claim about what is about to happen, so it may only fire
+/// when the install will actually run. Three things can stop that, and all
+/// three are checked here rather than in a second, drifting copy:
+///
+/// * the host is commercial or has no channel — `provision_decision`;
+/// * the host is already usable — `provision` returns `AlreadySatisfied`
+///   before it ever looks at consent;
+///
+/// so a host that will be refused, or one that needs no work, is never
+/// announced as if it were being installed.
+fn will_install(def: &HostDefinition, probe: &crate::application::host::HostProbe) -> bool {
+    !probe.status.is_available()
+        && provision_decision(
+            def,
+            ProvisionQuery {
+                channel_available: def.install_channel_for_current().is_some(),
+            },
+        )
+        .is_none()
 }
 
 /// Print what is about to be installed, before anything is downloaded or
@@ -404,6 +420,7 @@ fn lock_path() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::host::HostStatus;
 
     fn blender() -> HostDefinition {
         crate::application::host::manifest::bundled()
@@ -522,15 +539,62 @@ mod tests {
         }
     }
 
+    /// A synthetic probe carrying only the status the notice gate reads.
+    fn probe_with(status: crate::domain::host::HostStatus) -> crate::application::host::HostProbe {
+        crate::application::host::HostProbe {
+            id: String::new(),
+            display_name: String::new(),
+            status,
+            reason: crate::domain::host::HostReason::Ok,
+            executable: None,
+            executable_source: None,
+            version: None,
+            gate: None,
+            expected: Value::Null,
+            license: String::new(),
+            self_provision: false,
+            sources_checked: Vec::new(),
+            hint: String::new(),
+            warning: None,
+        }
+    }
+
+    /// The notice is a claim about what is about to happen. Showing it for a
+    /// host that is about to be refused is worse than showing nothing.
     #[test]
     fn a_commercial_host_is_never_announced_as_being_installed() {
-        // The notice is a claim about what is about to happen, so showing it
-        // for a host that is about to be refused is worse than showing nothing.
         let manifest = crate::application::host::manifest::bundled();
         let maya = manifest.find("maya").expect("maya").clone();
         assert!(
-            !is_provisionable(&maya),
-            "maya must not be provisionable, or the notice gate is wrong"
+            !will_install(&maya, &probe_with(HostStatus::Missing)),
+            "maya is refused, so it must never be announced"
+        );
+    }
+
+    /// `provision` short-circuits to `AlreadySatisfied` before it looks at
+    /// consent, so a host that needs no work must not be announced as if it
+    /// were being installed.
+    #[test]
+    fn an_already_available_host_is_never_announced_as_being_installed() {
+        let def = blender();
+        assert!(
+            !will_install(&def, &probe_with(HostStatus::Available)),
+            "an already-available host is not about to be installed"
+        );
+    }
+
+    /// The positive case: a missing, allowlisted host is announced.
+    #[test]
+    fn a_missing_allowlisted_host_is_announced() {
+        let def = blender();
+        assert!(
+            will_install(&def, &probe_with(HostStatus::Missing)),
+            "a missing allowlisted host is about to be installed"
+        );
+        // A version mismatch is still an install: the pinned build is absent.
+        assert!(
+            will_install(&def, &probe_with(HostStatus::VersionMismatch)),
+            "a host below the baseline is still about to be installed"
         );
     }
 
@@ -548,6 +612,48 @@ mod tests {
         assert!(
             !notice.contains('?'),
             "a notice must not read as a question, got {notice}"
+        );
+        // Criterion 3 asks for the destination too, and for how to switch the
+        // behaviour off. Both have to be in the text an operator actually sees.
+        assert!(
+            notice.contains(&install_destination(&def)),
+            "the notice must name where the host lands, got {notice}"
+        );
+        assert!(
+            notice.contains("never"),
+            "the notice must name the off switch, got {notice}"
+        );
+    }
+
+    /// The interactive path accepts by re-entering `provision` with `Proceed`,
+    /// so it is the one path that could install without ever printing the
+    /// notice. Pin the condition that decides it, so that branch cannot drift
+    /// back to silence: a missing, allowlisted host still owes the notice
+    /// after the operator answers yes.
+    #[test]
+    fn an_accepted_interactive_prompt_still_owes_the_notice() {
+        let def = blender();
+        // `needs_consent` gates on `ConsentRequired { NonInteractive }`, which
+        // is what `provision` returns for an unresolved `Ask`. Reaching the
+        // accept branch therefore requires the host to be missing, and the
+        // notice condition must hold under exactly those circumstances.
+        let unresolved = provision(
+            &def,
+            &ProvisionRequest {
+                current_available: false,
+                current_version: None,
+                consent: ConsentDecision::Ask {
+                    question: "q".to_string(),
+                },
+            },
+        );
+        assert!(
+            needs_consent(&unresolved),
+            "an unresolved Ask must reach the prompt branch, got {unresolved:?}"
+        );
+        assert!(
+            will_install(&def, &probe_with(HostStatus::Missing)),
+            "the operator answered yes, so the install is about to start"
         );
     }
 
