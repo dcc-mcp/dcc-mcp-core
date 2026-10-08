@@ -107,7 +107,7 @@ jobs:
       - name: Check the committed seed snapshot is current
         run: |
           set -euo pipefail
-          if ! cargo test --locked --release -p dcc-mcp-skills-bench --lib -- --ignored --exact \\
+          if ! cargo test --locked --release -p dcc-mcp-skills-bench --lib -- --ignored --exact \
               seeds::tests::committed_snapshot_matches_a_live_harvest; then
             echo "::error::benchmarks/skills/seeds.json is stale." \
                  "Regenerate it with: cargo run -p dcc-mcp-skills-bench --bin skills-bench -- regenerate-seeds"
