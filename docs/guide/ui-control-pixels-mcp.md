@@ -7,7 +7,7 @@ exact PID and HWND from the server owner.
 
 ```python
 from pathlib import Path
-from dcc_mcp_core.server import DccServerOptions, DiagnosticsOptions, UiControlRuntimeOptions
+from dcc_mcp_core.server import DccServerOptions, DiagnosticsOptions, UiControlRuntimeOptions, UiControlRecordingOptions
 
 options = DccServerOptions(
     dcc_name="maya",  # Any supported adapter identity, including unreal.
@@ -20,6 +20,8 @@ options = DccServerOptions(
         allowed_actions=("click", "double_click", "keypress", "keyboard_shortcut", "type"),
         window_operations=("activate", "restore_activate", "minimize"),  # Optional; empty by default.
         ttl_minutes=15,
+        # Optional manual video recording; the ordinary directory must exist.
+        recording=UiControlRecordingOptions(output_root=operator_recording_root),
     ),
 )
 ```
@@ -56,7 +58,7 @@ snapshot exposes no invented accessibility tree or control ids.
 Use coordinates from that PNG for `click`/`double_click`, or the existing
 `keypress`, `keyboard_shortcut`, and `type` actions within the explicit owner
 ceiling. Semantic actions, `find`, semantic `wait_for`, native menu invocation,
-recording, show/close window operations, and resume are unsupported by this transport.
+show/close window operations, and resume are unsupported by this transport.
 They fail explicitly instead of selecting another backend. `get_window_state`
 is a read of the same exact target. A new native capture is required after any
 physical action attempt, including a failed or uncertain attempt. Requests are
@@ -81,6 +83,52 @@ Native failures retain bounded content-free `details`, task context, and native
 delivery evidence when provided. `input_sent=not_sent`, `sent`, and `unknown`
 remain distinct. A failed or uncertain mutation still consumes its observation
 and requires fresh pixels; it never triggers a blind retry or implicit activation.
+
+Recording is disabled unless the owner supplies `UiControlRecordingOptions`.
+The owned child strips ambient `DCC_CUA_RECORDING_OUTPUT_ROOT`; the typed option
+sets this variable only in that child. It grants no physical input or window
+mutation and does not start a recorder during task creation. The native broker
+allocates an immutable child directory under the precreated ordinary local root.
+The operator must retain ownership of that root; path checks are not an atomic
+filesystem sandbox against concurrent changes by another local process.
+
+Call `ui_control__recording_start` manually in the same UI session, omitting
+`output_dir` and `record_video`. An optional `output_dir` must exactly equal the
+runtime-authorized task directory; `record_video=false` is refused. The existing
+`recording_state` and `recording_stop` tools use that same task, Host session,
+producer and owned executable. Pixels recording is video only, with
+`trajectory_available=false` and `trajectory=null`. Retain paused, degraded,
+failed, terminal-source and partial-artifact evidence. After a native stop error,
+read `recording_state` explicitly; an error is never successful finalization.
+
+The Host lifecycle id is `mcp-<task_id>`, distinct from the native observation's
+window-session id. Recording cleanup uses an owner-bounded wait greater than
+60 seconds and at most 65 seconds, aligned with the native 60-second deadline.
+`stop_computer_use` retains the actual inactive/nonpending ACK, or the failed or
+unknown conclusion. Repeated stops do not retry or change that conclusion.
+A forced/nonzero child exit or timeout cannot certify cleanup. Recording does
+not extend the task lease. Decode and attribute real MP4/sidecar output in a
+separate native acceptance run; protocol tests are not recording acceptance.
+
+Every owned pixels task validates this cleanup ACK, including tasks without
+recording permission. Those tasks keep the default five-second cleanup budget
+and have no recording destination constraint. A pinned older runtime that omits
+the actual Host ACK cannot certify cleanup; Core retains `cleanup_unknown`.
+The legacy shared JSONL transport retains its existing stop semantics.
+
+When the native ACK exports typed `recording_video` or `live_observation`
+summaries, Core retains bounded partial/segment paths inside the authorized task
+directory, actual sidecar hashes/counters and source cleanup state. An unknown
+cleanup's retained Host response must still name the same logical Host session.
+Malformed component receipts cannot certify success. These are reported native
+receipts; Core does not infer file existence or successful MP4 decoding from them.
+
+New runtimes may expose `native_visible_bounds` separately from Win32 outer
+bounds and `wgc_geometry` with actual frame/item/pool/content/texture sizes.
+PNG dimensions must match the physical source rectangle without scaling. A WGC
+origin must uniquely match Win32 or DWM bounds; equal-sized rectangles at
+different origins are refused. Older pinned runtimes remain usable without
+inventing these newer provenance fields.
 
 The focused `tests/test_cua_mcp_pixels.py` suite exercises public MCP envelopes,
 real bundled script dispatch, owner-only selection, native pixel fences, and

@@ -10,7 +10,11 @@ import struct
 from typing import Any
 
 from dcc_mcp_core.cua_cli import CuaCliError
+from dcc_mcp_core.host.cua_mcp_cleanup import OwnedPixelsTaskCleanup
 from dcc_mcp_core.host.cua_mcp_errors import OwnedCuaMcpError
+from dcc_mcp_core.host.cua_mcp_geometry import validate_geometry
+from dcc_mcp_core.host.cua_mcp_recording import RECORDING_METHODS
+from dcc_mcp_core.host.cua_mcp_recording import PixelsMcpRecording
 from dcc_mcp_core.host.cua_mcp_transport import OwnedCuaMcpTransport
 from dcc_mcp_core.host.ui_control_options import UiControlRuntimeOptions
 
@@ -48,6 +52,8 @@ class PixelsMcpHostClient:
         self._native_instance: dict[str, Any] | None = None
         self._last_observation_id: str | None = None
         self._closed = False
+        self._recording = PixelsMcpRecording(self)
+        self._cleanup = OwnedPixelsTaskCleanup(self)
         self._actions = options.allowed_actions if allow_raw_input else ()
         methods = ["snapshot", "get_window_state"]
         scopes = [
@@ -56,6 +62,8 @@ class PixelsMcpHostClient:
         ]
         if self._actions:
             methods.append("execute_action")
+        if options.recording is not None:
+            methods.extend(RECORDING_METHODS)
         if any(operation in options.window_operations for operation in ("activate", "restore_activate")):
             methods.append("change_window_state")
         if "minimize" in options.window_operations:
@@ -81,6 +89,7 @@ class PixelsMcpHostClient:
                     "allowed_methods": methods,
                     "allowed_actions": scopes,
                     "ttl_minutes": options.ttl_minutes,
+                    **({"allow_recording": True} if options.recording is not None else {}),
                 },
             )["structuredContent"]
             # Retain the returned id before validation so failed startup can revoke it.
@@ -97,6 +106,8 @@ class PixelsMcpHostClient:
                 raise CuaCliError("protocol_mismatch", "The runtime did not start the expected bounded pixels task.")
             self._check_target(opened.get("target"), verify_title=True)
             self._target = deepcopy(opened["target"])
+            self._recording.bind(opened)
+            self._cleanup.output_dir = self._recording.output_dir
         except Exception:
             with suppress(Exception):
                 self.stop()
@@ -134,7 +145,7 @@ class PixelsMcpHostClient:
                 with suppress(Exception):
                     self.stop()
                 raise
-            if method in {"execute_action", "change_window_state", "minimize_window"}:
+            if method in {"execute_action", "change_window_state", "minimize_window", *RECORDING_METHODS}:
                 self._observation_id = None
                 exc.fresh_observation_required = True
             raise
@@ -215,6 +226,7 @@ class PixelsMcpHostClient:
                 or not _rect_valid(observation.get("source_rect"))
             ):
                 raise CuaCliError("protocol_mismatch", "Owned pixels MCP omitted the exact native pixel fence.")
+            validate_geometry(observation, provenance)
             images = [
                 block
                 for block in raw.pop("_mcp_content", [])
@@ -398,35 +410,29 @@ class PixelsMcpHostClient:
 
     def stop(self) -> dict[str, Any]:
         """Revoke only this task and close only this owned executable."""
-        if self._closed:
-            self._transport.close()
-            return {"type": "session_stopped", "session_id": self.session_id, "cleanup_pending": False}
-        self._closed = True
-        self._observation_id = None
-        try:
-            if self.task_id:
-                self._transport.tool("stop_task", {"task_id": self.task_id})
-        finally:
-            self._transport.close()
-        return {
-            "type": "session_stopped",
-            "session_id": self.session_id,
-            "task_id": self.task_id,
-            "cleanup_pending": False,
-        }
+        return self._cleanup.stop()
 
     def _unsupported(self, *args: Any, **kwargs: Any) -> Any:
         raise CuaCliError(
             "unsupported_action",
-            "The owned pixels MCP transport does not support semantic, recording, or resume operations.",
+            "The owned pixels MCP transport does not support semantic or resume operations.",
         )
 
     accessibility_snapshot = _unsupported
     invoke_menu = _unsupported
-    recording_start = _unsupported
-    recording_state = _unsupported
-    recording_stop = _unsupported
     resume = _unsupported
+
+    def recording_start(self, *, output_dir: str | None = None, record_video: bool = True) -> dict[str, Any]:
+        """Manually start only the operator-granted video-only lifecycle."""
+        return self._recording.call("recording_start", output_dir=output_dir, record_video=record_video)
+
+    def recording_state(self) -> dict[str, Any]:
+        """Read native paused/degraded/failed state without claiming finalization."""
+        return self._recording.call("recording_state")
+
+    def recording_stop(self) -> dict[str, Any]:
+        """Finalize the same task's recording, retaining native failures."""
+        return self._recording.call("recording_stop")
 
 
 def _positive_int(value: Any) -> bool:

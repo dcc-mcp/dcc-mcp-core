@@ -183,6 +183,7 @@ class FakeMcpProcess:
         self.mutate_open = lambda raw: None
         self.mutate_action = lambda raw: None
         self.mutate_window = lambda raw: None
+        self.mutate_stop = lambda raw: None
         self.mutate_initialize = lambda raw: None
         self.mutate_catalog = lambda raw: None
         self.bad_id = False
@@ -223,7 +224,20 @@ class FakeMcpProcess:
                 self.mutate_open(raw)
             elif name == "stop_task":
                 assert arguments == {"task_id": "public-task"}
-                raw = {"task_id": "public-task", "status": "stopped"}
+                raw = {
+                    **pixel_response()["task_context"],
+                    "ok": True,
+                    "status": "stopped",
+                    "cleanup": {
+                        "type": "session_stopped",
+                        "session_id": "mcp-public-task",
+                        "success": True,
+                        "active": False,
+                        "cleanup_pending": False,
+                        "cleanup_issues": [],
+                    },
+                }
+                self.mutate_stop(raw)
             else:
                 assert name == "dcc_cua_task_call"
                 assert arguments["task_id"] == "public-task"

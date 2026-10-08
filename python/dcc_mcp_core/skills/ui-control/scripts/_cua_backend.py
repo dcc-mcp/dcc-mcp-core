@@ -527,16 +527,22 @@ def recording_start_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, A
     if not policy.allow_snapshot:
         return skill_error("ui_control recording disabled by policy", UiErrorCode.POLICY_DISABLED)
     try:
-        output_dir = str(params.get("output_dir") or "").strip()
-        output_path = Path(output_dir).expanduser()
-        if not output_dir or not output_path.is_absolute():
-            raise UiControlHostError("invalid_request", "output_dir must be an absolute path.")
-        output_dir = str(output_path.resolve())
-        record_video = params.get("record_video", False)
+        pixels = isinstance(params.get("trusted_ui_control_runtime"), UiControlRuntimeOptions)
+        _PIXELS.check_recording_owner(params)
+        output_dir = params.get("output_dir")
+        if not pixels:
+            output_dir = str(output_dir or "").strip()
+            output_path = Path(output_dir).expanduser()
+            if not output_dir or not output_path.is_absolute():
+                raise UiControlHostError("invalid_request", "output_dir must be an absolute path.")
+            output_dir = str(output_path.resolve())
+        record_video = params.get("record_video", pixels)
         if type(record_video) is not bool:
             raise UiControlHostError("invalid_request", "record_video must be a boolean.")
         client, entry = _client_for(session_id, params, policy)
         recording = client.recording_start(output_dir=output_dir, record_video=record_video)
+        if pixels:
+            output_dir = recording["output_dir"]
     except (UiControlHostError, OSError, ValueError) as exc:
         return _host_error(exc, params)
     finally:
@@ -544,7 +550,7 @@ def recording_start_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, A
         if entry is not None:
             entry["snapshot_id"] = None
     return skill_success(
-        "Started CUA trajectory recording for the exact target.",
+        "Started CUA recording for the exact target.",
         prompt=(
             "Perform scoped ui_control actions, inspect ui_control__recording_state when needed, "
             "then call ui_control__recording_stop to finalize CUA-owned artifacts."
@@ -566,6 +572,7 @@ def recording_stop_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, An
     if not policy.allow_snapshot:
         return skill_error("ui_control recording disabled by policy", UiErrorCode.POLICY_DISABLED)
     try:
+        _PIXELS.check_recording_owner(params)
         client, entry = _client_for_existing_session_or_scope(session_id, params, policy)
         recording = client.recording_stop()
     except (UiControlHostError, OSError, ValueError) as exc:
@@ -575,7 +582,7 @@ def recording_stop_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, An
         if entry is not None:
             entry["snapshot_id"] = None
     return skill_success(
-        "Finalized CUA trajectory recording.",
+        "Read the native recording stop outcome.",
         prompt="Preserve the finalized CUA output directory and structured recording state as evidence.",
         session_id=session_id,
         target=client.target,
@@ -593,12 +600,13 @@ def recording_state_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, A
     if not policy.allow_snapshot:
         return skill_error("ui_control recording disabled by policy", UiErrorCode.POLICY_DISABLED)
     try:
+        _PIXELS.check_recording_owner(params)
         client, _entry = _client_for_existing_session_or_scope(session_id, params, policy)
         recording = client.recording_state()
     except (UiControlHostError, OSError, ValueError) as exc:
         return _host_error(exc, params)
     return skill_success(
-        "Read CUA trajectory recording state.",
+        "Read CUA recording state.",
         session_id=session_id,
         target=client.target,
         recording=recording,
@@ -921,6 +929,7 @@ def stop_computer_use_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str,
         session_id=session_id,
         active=False,
         cleanup_pending=False,
+        **({"native_cleanup": stopped} if isinstance(entry["client"], PixelsMcpHostClient) else {}),
     )
 
 

@@ -4,8 +4,16 @@ from __future__ import annotations
 
 from typing import Any
 
+from dcc_mcp_core.cua_cli import CuaCliError
 from dcc_mcp_core.host.cua_mcp_errors import OwnedCuaMcpError
 from dcc_mcp_core.host.ui_control_options import UiControlRuntimeOptions
+
+
+def check_recording_owner(params: dict[str, Any]) -> None:
+    """Refuse a disabled recording ceiling before opening any owned child."""
+    options = params.get("trusted_ui_control_runtime")
+    if isinstance(options, UiControlRuntimeOptions) and options.recording is None:
+        raise CuaCliError("unsupported_action", "The owner did not grant pixels recording.")
 
 
 def capture_snapshot(raw: dict[str, Any], client: Any, entry: dict[str, Any], session_id: str) -> dict[str, Any]:
