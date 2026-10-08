@@ -7,6 +7,7 @@ compatibility import for existing adapters.
 
 from __future__ import annotations
 
+from dcc_mcp_core._runtime.server_factory import create_adapter_server
 from dcc_mcp_core._server import *  # noqa: F403
 from dcc_mcp_core._server import __all__ as _SERVER_EXPORTS
 from dcc_mcp_core._server.diagnostic_state import DiagnosticRuntimeState
@@ -20,6 +21,7 @@ __all__ = [
     "DiagnosticRuntimeState",
     "GatewayDaemonGuardian",
     "build_gateway_daemon_command",
+    "create_adapter_server",
     "ensure_gateway_daemon",
     "launch_gateway_daemon",
 ]

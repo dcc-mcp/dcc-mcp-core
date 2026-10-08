@@ -258,6 +258,17 @@ print(handle.mcp_url())   # "http://127.0.0.1:8765/mcp"
 
 Agent 可以在 per-DCC server 上使用 `search_skills` -> `load_skill`，也可以通过 gateway 使用 MCP `search` -> `describe`，再用 REST `POST /v1/call` 执行。
 
+### 不需要 adapter 代码也能启动服务
+
+`dcc-mcp-core` 是一个 console script，因此已解析的包（Rez、venv 或 pip）可以直接启动服务——这正是 Rez `package.py` 在 `tools` 里要声明的入口：
+
+```bash
+dcc-mcp-core info              # 打印完整启动契约
+dcc-mcp-core serve --dcc maya  # 在操作系统分配的端口上启动 Skills-First 服务
+```
+
+`serve` 会打印解析出的 MCP URL；加 `--json` 输出单个可解析对象；`--skill-path`（可重复）用于补充 `DCC_MCP_<DCC>_SKILL_PATHS` 之外的技能目录。详见 [Rez 技能包](docs/zh/guide/rez-skill-packages.md)。
+
 ---
 
 ## 为什么做 dcc-mcp-core

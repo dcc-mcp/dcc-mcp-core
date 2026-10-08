@@ -422,6 +422,7 @@ _ALL_LAZY: dict[str, str] = {
     "register_all_builtin_skills": "dcc_mcp_core.skills.builtin",
     # DccServerBase + factory
     "DccServerBase": "dcc_mcp_core.server_base",
+    "create_adapter_server": "dcc_mcp_core.server",
     "create_dcc_server": "dcc_mcp_core.factory",
     "get_server_instance": "dcc_mcp_core.factory",
     "make_start_stop": "dcc_mcp_core.factory",

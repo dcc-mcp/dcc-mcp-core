@@ -51,6 +51,10 @@ dependencies = [
 ]
 
 [project.scripts]
+# `dcc-mcp-core` is the package-level launcher: Rez and other resolvers expose
+# a package through `tools`, and there was previously nothing for them to
+# declare. `dcc-mcp-core info` prints the rest of the launch contract.
+dcc-mcp-core = "dcc_mcp_core.__main__:main"
 dcc-mcp-install-lifecycle = "dcc_mcp_core.install_lifecycle_cli:main"
 dcc-mcp-ui-control-server = "dcc_mcp_core.ui_control_server:cli"
 
@@ -208,6 +212,7 @@ known-first-party = ["dcc_mcp_core"]
 "python/dcc_mcp_core/install_lifecycle_cli.py" = ["UP006", "UP007", "UP045"]
 "python/dcc_mcp_core/ui_control_server.py" = ["UP045"]
 "python/dcc_mcp_core/_version_check.py" = ["UP006", "UP007", "UP045"]
+"python/dcc_mcp_core/__main__.py" = ["UP045"]
 "scripts/check_py37_syntax.py" = ["UP032"]  # intentional: f-strings are syntax errors on 3.7; verified by py37-syntax-check CI job. Enforced in CI via check-py37-syntax job.
 # Python 3.7 (Maya 2022) compat: the release workflow digest kit is shared
 # byte-for-byte with adapter repositories and keeps typing.Dict in annotations.
@@ -217,6 +222,7 @@ known-first-party = ["dcc_mcp_core"]
 "scripts/ci/release_workflow_integrity/test_release_workflow_integrity.py" = ["D103", "D202"]
 "__init__.py" = ["F401"]
 "tests/test_metadata_registration.py" = ["UP006", "UP007", "UP045"]
+"tests/test_main_cli.py" = ["UP006"]
 "tests/test_cua_cli.py" = ["UP006"]
 "tests/*.py" = ["F401", "F811", "F821", "E711", "E712", "SIM117", "SIM118", "D100", "D101", "D103", "D106", "D205", "D400", "D415", "E501"]
 "examples/**/*.py" = ["D100", "D101", "D103", "D104", "E402", "INP001"]
