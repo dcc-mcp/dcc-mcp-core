@@ -13,10 +13,10 @@ use serde_json::Value;
 
 use crate::application::host::consent::{self, ConsentDecision, ConsentInput, ConsentMode};
 use crate::application::host::detect::HostEnv;
-use crate::application::host::manifest::{self, HostLock, HostManifest};
+use crate::application::host::manifest::{self, HostDefinition, HostLock, HostManifest};
 use crate::application::host::{
-    ProvisionRequest, doctor, doctor_value, has_unavailable, install_failed, install_value,
-    manifest as host_manifest, provision,
+    ProvisionQuery, ProvisionRequest, doctor, doctor_value, has_unavailable, install_failed,
+    install_value, manifest as host_manifest, provision, provision_decision,
 };
 use crate::domain::host::HostSpec;
 
@@ -113,6 +113,14 @@ pub(crate) fn run(action: &HostAction) -> anyhow::Result<HostRun> {
                     .unwrap_or("the pinned version")
             );
             let consent = resolve_consent(*yes, question);
+            // "Stop asking" does not mean "stop telling": a default `always`
+            // installs unattended, so this notice is the only trace of what is
+            // about to happen. It is gated on the same allowlist check the
+            // install itself is, so a host that will be refused is never
+            // announced as if it were being installed.
+            if consent == ConsentDecision::Proceed && is_provisionable(def) {
+                announce_install(def);
+            }
             let outcome = provision(
                 def,
                 &ProvisionRequest {
@@ -257,8 +265,9 @@ fn needs_consent(outcome: &crate::application::host::InstallOutcome) -> bool {
 /// Resolve the consent decision from the flag, the environment, and the lock.
 ///
 /// `--yes` outranks `DCC_MCP_HOST_INSTALL`, which outranks the remembered
-/// choice, which defaults to `ask`. Without a terminal, `ask` resolves to a
-/// refusal rather than a silent install.
+/// choice, which defaults to `always`. The default only ever applies to hosts
+/// the manifest allows the CLI to provision: the commercial-host refusal runs
+/// in `provision_decision`, ahead of consent.
 fn resolve_consent(yes: bool, question: String) -> ConsentDecision {
     let env_mode = std::env::var(consent::CONSENT_ENV)
         .ok()
@@ -276,6 +285,65 @@ fn resolve_consent(yes: bool, question: String) -> ConsentDecision {
         interactive,
     };
     consent::decide(input, question)
+}
+
+/// Whether this host is one the CLI is allowed to install at all.
+///
+/// The public allowlist check, so the pre-install notice can be gated on the
+/// same rule the install itself is rather than on a second, drifting copy.
+fn is_provisionable(def: &HostDefinition) -> bool {
+    provision_decision(
+        def,
+        ProvisionQuery {
+            channel_available: def.install_channel_for_current().is_some(),
+        },
+    )
+    .is_none()
+}
+
+/// Print what is about to be installed, before anything is downloaded or
+/// written.
+///
+/// The default consent mode is `always`, so an allowlisted host installs
+/// without asking. This notice is what keeps that from being silent: it names
+/// the host, the pinned version, where it lands, and how to turn the behaviour
+/// off. It is a statement, not a question, so it never waits on stdin.
+fn announce_install(def: &HostDefinition) {
+    eprintln!("{}", render_notice(def));
+}
+
+/// The notice text itself, kept separate so it can be asserted without
+/// capturing stderr.
+#[must_use]
+fn render_notice(def: &HostDefinition) -> String {
+    let version = def
+        .pinned_version
+        .as_deref()
+        .unwrap_or("the pinned version");
+    format!(
+        "dcc-mcp: installing host '{}' ({} {version}) into {}. Set {}=never to disable host installs.",
+        def.id,
+        def.display_name,
+        install_destination(def),
+        consent::CONSENT_ENV,
+    )
+}
+
+/// Where an install for `def` will land, as text an operator can act on.
+///
+/// A package manager owns its own location, which the manifest search roots
+/// already cover; only an archive channel has a path this CLI chooses. Saying
+/// the wrong one would send someone looking in a directory that is never used.
+fn install_destination(def: &HostDefinition) -> String {
+    match def.install_channel_for_current() {
+        Some(manifest::InstallChannel::Tarball { .. }) => {
+            crate::application::host::install::managed_host_dir(&def.id)
+                .map(|path| path.display().to_string())
+                .unwrap_or_else(|| "the dcc-mcp managed host directory".to_string())
+        }
+        Some(_) => "the location its package manager chooses".to_string(),
+        None => "the location its install channel chooses".to_string(),
+    }
 }
 
 /// Ask the operator once, on stderr so stdout stays parseable.
@@ -336,7 +404,6 @@ fn lock_path() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::application::host::manifest::HostDefinition;
 
     fn blender() -> HostDefinition {
         crate::application::host::manifest::bundled()
@@ -414,9 +481,11 @@ mod tests {
     }
 
     #[test]
-    fn consent_defaults_to_refusal_without_a_terminal() {
-        // Mirrors the `vx ffmpeg` rule: read-only never installs, and a write
-        // without an operator present is refused rather than assumed.
+    fn consent_defaults_to_proceeding_without_a_terminal() {
+        // With no explicit choice an allowlisted host installs directly. Asking
+        // is what used to happen, and with no terminal the question could never
+        // be answered, so every unattended install was refused. The caller
+        // prints a notice first: informed, not silent.
         let decision = consent::decide(
             ConsentInput {
                 yes_flag: false,
@@ -426,11 +495,59 @@ mod tests {
             },
             "q",
         );
-        assert_eq!(
-            decision,
-            ConsentDecision::Refused {
-                reason: consent::ConsentRefusal::NonInteractive
-            }
+        assert_eq!(decision, ConsentDecision::Proceed);
+    }
+
+    #[test]
+    fn an_explicit_never_still_refuses_every_time() {
+        // Acceptance criterion 5: the CI safety net is untouched by the
+        // default, and it must hold with or without a terminal.
+        for interactive in [true, false] {
+            let decision = consent::decide(
+                ConsentInput {
+                    yes_flag: false,
+                    env: Some("never"),
+                    stored: None,
+                    interactive,
+                },
+                "q",
+            );
+            assert_eq!(
+                decision,
+                ConsentDecision::Refused {
+                    reason: consent::ConsentRefusal::PolicyNever
+                },
+                "interactive={interactive}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_commercial_host_is_never_announced_as_being_installed() {
+        // The notice is a claim about what is about to happen, so showing it
+        // for a host that is about to be refused is worse than showing nothing.
+        let manifest = crate::application::host::manifest::bundled();
+        let maya = manifest.find("maya").expect("maya").clone();
+        assert!(
+            !is_provisionable(&maya),
+            "maya must not be provisionable, or the notice gate is wrong"
+        );
+    }
+
+    #[test]
+    fn the_install_notice_names_the_host_version_and_the_off_switch() {
+        // Acceptance criterion 3: a tell, not a question, and not a silence.
+        let def = blender();
+        let notice = render_notice(&def);
+        assert!(notice.contains("blender"), "got {notice}");
+        assert!(notice.contains("5.1.1"), "got {notice}");
+        assert!(
+            notice.contains(consent::CONSENT_ENV),
+            "the notice must say how to disable installs, got {notice}"
+        );
+        assert!(
+            !notice.contains('?'),
+            "a notice must not read as a question, got {notice}"
         );
     }
 

@@ -9,8 +9,11 @@
 //! 1. `--yes` on the command line.
 //! 2. `DCC_MCP_HOST_INSTALL=never|ask|always`.
 //! 3. The `consent` value remembered in the user-level lock file.
-//! 4. `ask` — the default. With no TTY to ask on, that resolves to a refusal,
-//!    never to a silent install.
+//! 4. `always` — the default. With no explicit choice, an allowlisted host is
+//!    installed directly, without waiting on a terminal that may not exist.
+//!    The caller prints a notice first, so this is a tell, not a silence.
+//!    Commercial hosts are refused in `provision_decision`, which runs before
+//!    consent is consulted, so the default never lets one through.
 
 use serde::{Deserialize, Serialize};
 
@@ -73,6 +76,9 @@ pub enum ConsentRefusal {
     NonInteractive,
 }
 
+/// The mode applied when nothing above it made a choice.
+pub const DEFAULT_MODE: ConsentMode = ConsentMode::Always;
+
 /// Inputs to a consent decision, all injectable so tests need no TTY.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ConsentInput {
@@ -101,7 +107,7 @@ pub fn decide(input: ConsentInput, question: impl Into<String>) -> ConsentDecisi
             Some(ConsentMode::Never) => ConsentDecision::Refused {
                 reason: ConsentRefusal::PolicyNever,
             },
-            _ => ask_or_refuse(input.interactive, question),
+            _ => ask_or_default(input.interactive, question),
         };
     }
     match input.stored {
@@ -109,19 +115,22 @@ pub fn decide(input: ConsentInput, question: impl Into<String>) -> ConsentDecisi
         Some(ConsentMode::Never) => ConsentDecision::Refused {
             reason: ConsentRefusal::PolicyNever,
         },
-        _ => ask_or_refuse(input.interactive, question),
+        _ => ask_or_default(input.interactive, question),
     }
 }
 
-/// `ask` only works with a terminal. Without one, refusing is the safe answer:
-/// an agent running unattended must not install a host nobody approved.
-fn ask_or_refuse(interactive: bool, question: String) -> ConsentDecision {
-    if interactive {
-        ConsentDecision::Ask { question }
-    } else {
-        ConsentDecision::Refused {
+/// An explicit `ask` prompts when it can, and falls through to the default
+/// when it cannot: a question nobody can answer must not become a refusal.
+///
+/// Reaching here already means the host cleared the allowlist, because the
+/// commercial-host refusal runs in `provision_decision`, ahead of consent.
+fn ask_or_default(interactive: bool, question: String) -> ConsentDecision {
+    match (interactive, DEFAULT_MODE) {
+        (true, _) => ConsentDecision::Ask { question },
+        (false, ConsentMode::Always) => ConsentDecision::Proceed,
+        (false, ConsentMode::Never | ConsentMode::Ask) => ConsentDecision::Refused {
             reason: ConsentRefusal::NonInteractive,
-        }
+        },
     }
 }
 
@@ -216,27 +225,67 @@ mod tests {
     }
 
     #[test]
-    fn ask_becomes_a_refusal_without_a_terminal() {
-        // The default must never install silently under an unattended agent.
+    fn the_default_proceeds_without_a_terminal() {
+        // An allowlisted host must install unattended rather than deadlock on
+        // a question nobody can answer. The caller prints a notice first, so
+        // this is a tell, not a silence.
         let unattended = ConsentInput::default();
         assert_eq!(
             decide(unattended, "install Blender?"),
-            ConsentDecision::Refused {
-                reason: ConsentRefusal::NonInteractive
-            }
+            ConsentDecision::Proceed
         );
     }
 
     #[test]
-    fn ask_prompts_when_a_terminal_exists() {
+    fn an_explicit_ask_still_prompts_when_a_terminal_exists() {
         let attended = ConsentInput {
             interactive: true,
+            stored: Some(ConsentMode::Ask),
             ..ConsentInput::default()
         };
         assert_eq!(
             decide(attended, "install Blender 5.1.1?"),
             ConsentDecision::Ask {
                 question: "install Blender 5.1.1?".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn an_explicit_ask_falls_through_to_the_default_without_a_terminal() {
+        // A question with no one to answer it must not become a refusal.
+        let unattended = ConsentInput {
+            interactive: false,
+            stored: Some(ConsentMode::Ask),
+            ..ConsentInput::default()
+        };
+        assert_eq!(decide(unattended, "q"), ConsentDecision::Proceed);
+    }
+
+    #[test]
+    fn an_explicit_never_is_never_overridden_by_the_default() {
+        // Acceptance criterion 4: a stored or environmental `never` must behave
+        // exactly as it did before the default changed.
+        let stored_never = ConsentInput {
+            interactive: true,
+            stored: Some(ConsentMode::Never),
+            ..ConsentInput::default()
+        };
+        assert_eq!(
+            decide(stored_never, "q"),
+            ConsentDecision::Refused {
+                reason: ConsentRefusal::PolicyNever
+            }
+        );
+
+        let env_never = ConsentInput {
+            env: Some("never"),
+            ..ConsentInput::default()
+        };
+        assert_eq!(
+            decide(env_never, "q"),
+            ConsentDecision::Refused {
+                reason: ConsentRefusal::PolicyNever
             }
         );
     }
