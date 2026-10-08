@@ -22,10 +22,9 @@ import argparse
 import hashlib
 import json
 import os
+from pathlib import Path
 import sys
 import zipfile
-from pathlib import Path
-from typing import Dict, List, Optional
 
 # Fixed timestamp keeps the archive byte-identical across runs. The zip
 # format's lower bound is 1980-01-01, hence the offset below.
@@ -56,9 +55,9 @@ def repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
-def collect_files(skill_dir: Path) -> List[Path]:
+def collect_files(skill_dir: Path) -> list[Path]:
     """Return the relative paths to package, sorted and VCS-free."""
-    collected: List[Path] = []
+    collected: list[Path] = []
     for root, dirnames, filenames in os.walk(str(skill_dir)):
         dirnames[:] = sorted(name for name in dirnames if name not in _SKIP_DIRS)
         for filename in sorted(filenames):
@@ -78,13 +77,11 @@ def build_zip_bytes(skill_dir: Path, prefix: str) -> bytes:
     buffer = io.BytesIO()
     files = collect_files(skill_dir)
     if not files:
-        raise SystemExit("pack: no files found under {}".format(skill_dir))
+        raise SystemExit(f"pack: no files found under {skill_dir}")
 
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
         for relative in files:
-            info = zipfile.ZipInfo(
-                "{}/{}".format(prefix, relative.as_posix()), date_time=_ZIP_EPOCH
-            )
+            info = zipfile.ZipInfo(f"{prefix}/{relative.as_posix()}", date_time=_ZIP_EPOCH)
             info.external_attr = 0o644 << 16
             info.compress_type = zipfile.ZIP_DEFLATED
             payload = (skill_dir / relative).read_bytes()
@@ -121,18 +118,18 @@ def read_skill_name(skill_dir: Path) -> str:
     return skill_dir.name
 
 
-def pack_skill(skill_dir: Path, out_dir: Path, version: str) -> Dict[str, object]:
+def pack_skill(skill_dir: Path, out_dir: Path, version: str) -> dict[str, object]:
     """Pack one skill directory and return its release metadata."""
     if not skill_dir.is_dir():
-        raise SystemExit("pack: not a directory: {}".format(skill_dir))
+        raise SystemExit(f"pack: not a directory: {skill_dir}")
 
     name = read_skill_name(skill_dir)
     # The archive root matches the install layout expected at skillRoots.
-    prefix = "skill/{}".format(skill_dir.name)
+    prefix = f"skill/{skill_dir.name}"
     payload = build_zip_bytes(skill_dir, prefix)
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    archive_name = "{}-{}.zip".format(skill_dir.name, version)
+    archive_name = f"{skill_dir.name}-{version}.zip"
     archive_path = out_dir / archive_name
     archive_path.write_bytes(payload)
 
@@ -144,14 +141,14 @@ def pack_skill(skill_dir: Path, out_dir: Path, version: str) -> Dict[str, object
         "asset": archive_name,
         "path": str(archive_path),
         "sha256": digest,
-        "sha256_prefixed": "sha256:{}".format(digest),
+        "sha256_prefixed": f"sha256:{digest}",
         "bytes": len(payload),
         "skill_root": prefix,
         "files": len(collect_files(skill_dir)),
     }
 
 
-def discover_skills(root: Path) -> List[Path]:
+def discover_skills(root: Path) -> list[Path]:
     """Return every skill directory under the repo-level ``skills/`` tree."""
     skills_root = root / "skills"
     if not skills_root.is_dir():
@@ -159,7 +156,8 @@ def discover_skills(root: Path) -> List[Path]:
     return sorted(path for path in skills_root.iterdir() if path.is_dir())
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
+    """Pack the selected skills, write the digest manifest, and report."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--skill", action="append", default=[], help="skill directory to pack")
     parser.add_argument("--all", action="store_true", help="pack every skill under skills/")
@@ -181,7 +179,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     root = repo_root()
     excluded = set(args.exclude)
 
-    targets: List[Path] = []
+    targets: list[Path] = []
     for value in args.skill:
         candidate = Path(value)
         if not candidate.is_absolute():
@@ -220,7 +218,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 result["skill"], result["asset"], result["bytes"], result["sha256"]
             )
         )
-    print("manifest: {}".format(display_path(manifest_path, root)))
+    print(f"manifest: {display_path(manifest_path, root)}")
     return 0
 
 

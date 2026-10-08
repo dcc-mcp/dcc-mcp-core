@@ -9,15 +9,15 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 import shutil
 import sys
 import tempfile
-from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "release"))
 
-import pack_skill_release as packer  # noqa: E402
-import render_marketplace_entry as renderer  # noqa: E402
+import pack_skill_release as packer
+import render_marketplace_entry as renderer
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -148,14 +148,14 @@ def main() -> int:
     for test in tests:
         try:
             test()
-            print("PASS {}".format(test.__name__))
+            print(f"PASS {test.__name__}")
         except AssertionError as exc:
             failures.append((test.__name__, str(exc)))
-            print("FAIL {}: {}".format(test.__name__, exc))
+            print(f"FAIL {test.__name__}: {exc}")
     if failures:
-        print("\n{} test(s) failed".format(len(failures)))
+        print(f"\n{len(failures)} test(s) failed")
         return 1
-    print("\nall {} pipeline tests passed".format(len(tests)))
+    print(f"\nall {len(tests)} pipeline tests passed")
     return 0
 
 

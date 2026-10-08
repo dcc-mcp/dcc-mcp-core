@@ -17,10 +17,10 @@ from __future__ import annotations
 
 import argparse
 import json
+from pathlib import Path
 import re
 import sys
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 HEX64 = re.compile(r"^[a-fA-F0-9]{64}$")
 SKILL_ROOT = re.compile(r"^(?!/)(?!.*(?:^|/)\.\.(?:/|$))[A-Za-z0-9._/-]+$")
@@ -52,9 +52,9 @@ def display_path(path: Path, root: Path) -> str:
         return str(path)
 
 
-def validate_source(source: Dict[str, Any]) -> List[str]:
+def validate_source(source: dict[str, Any]) -> list[str]:
     """Validate one ``source`` object against the schema's ``$defs/source``."""
-    errors: List[str] = []
+    errors: list[str] = []
     if source.get("type") not in ("git", "zip"):
         errors.append("source.type must be 'git' or 'zip'")
     if not isinstance(source.get("url"), str) or not source.get("url"):
@@ -79,16 +79,16 @@ def validate_source(source: Dict[str, Any]) -> List[str]:
         else:
             for root in roots:
                 if not isinstance(root, str) or not SKILL_ROOT.match(root):
-                    errors.append("invalid skillRoots entry: {!r}".format(root))
+                    errors.append(f"invalid skillRoots entry: {root!r}")
     return errors
 
 
-def validate_entry(entry: Dict[str, Any]) -> List[str]:
+def validate_entry(entry: dict[str, Any]) -> list[str]:
     """Validate one catalog entry against the required-field list and source."""
-    errors: List[str] = []
+    errors: list[str] = []
     for field in REQUIRED_ENTRY_FIELDS:
         if field not in entry:
-            errors.append("missing required field: {}".format(field))
+            errors.append(f"missing required field: {field}")
 
     dcc = entry.get("dcc")
     if not isinstance(dcc, list) or not dcc:
@@ -106,17 +106,17 @@ def validate_entry(entry: Dict[str, Any]) -> List[str]:
 
 
 def build_entry(
-    skill: Dict[str, Any],
+    skill: dict[str, Any],
     base_url: str,
     min_core_version: str,
-    dcc: List[str],
+    dcc: list[str],
     category: str,
     maintainer: str,
-    tags: List[str],
-    description: Optional[str] = None,
-) -> Dict[str, Any]:
+    tags: list[str],
+    description: str | None = None,
+) -> dict[str, Any]:
     """Build a catalog entry fragment for one packed skill."""
-    url = "{}/{}".format(base_url.rstrip("/"), skill["asset"])
+    url = f"{base_url.rstrip('/')}/{skill['asset']}"
     return {
         "name": skill["name"],
         "description": description or skill["name"],
@@ -137,7 +137,7 @@ def build_entry(
     }
 
 
-def load_defaults(root: Path) -> Dict[str, Any]:
+def load_defaults(root: Path) -> dict[str, Any]:
     """Load per-skill overrides from ``scripts/release/marketplace_entry_map.json``."""
     path = root / "scripts" / "release" / "marketplace_entry_map.json"
     if not path.is_file():
@@ -145,7 +145,8 @@ def load_defaults(root: Path) -> Dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
+    """Render catalog entries from the pack manifest, then validate them."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--manifest", required=True, help="pack manifest JSON")
     parser.add_argument("--base-url", required=True, help="GitHub Release asset base URL")
@@ -159,15 +160,15 @@ def main(argv: Optional[List[str]] = None) -> int:
     root = repo_root()
     manifest_path = root / args.manifest
     if not manifest_path.is_file():
-        sys.stderr.write("render: manifest not found: {}\n".format(manifest_path))
+        sys.stderr.write(f"render: manifest not found: {manifest_path}\n")
         return 2
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     defaults = load_defaults(root)
     dcc_list = [item.strip() for item in args.dcc.split(",") if item.strip()]
 
-    entries: List[Dict[str, Any]] = []
-    failures: List[Tuple[str, List[str]]] = []
+    entries: list[dict[str, Any]] = []
+    failures: list[tuple[str, list[str]]] = []
 
     for skill in manifest.get("skills", []):
         override = defaults.get(skill["skill"], {})
@@ -191,12 +192,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     out_path.write_text(json.dumps(entries, indent=2) + "\n", encoding="utf-8")
 
     for name, errors in failures:
-        print("INVALID {}:".format(name))
+        print(f"INVALID {name}:")
         for error in errors:
-            print("  - {}".format(error))
+            print(f"  - {error}")
 
     if failures:
-        print("\n{} entry(s) failed validation".format(len(failures)))
+        print(f"\n{len(failures)} entry(s) failed validation")
         return 1
 
     for entry in entries:
@@ -208,7 +209,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 entry["source"]["sha256"][:16] + "...",
             )
         )
-    print("entries: {}".format(display_path(out_path, root)))
+    print(f"entries: {display_path(out_path, root)}")
     return 0
 
 
