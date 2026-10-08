@@ -773,9 +773,11 @@ pub fn classify_blocking_state(
 /// Matching runs on whole words, never on substrings: "blocked" and
 /// "unlocked" both contain the letters "lock" but say nothing about a project
 /// lock, and this module must not invent a diagnosis the adapter never
-/// reported. Splitting on non-alphanumerics keeps dotted and underscored
+/// reported. Splitting on non-ASCII-alphanumerics keeps dotted and underscored
 /// identifiers usable, so "sidecar_bootstrap" still yields "sidecar" plus
-/// "bootstrap".
+/// "bootstrap". The boundary is an ASCII alphanumeric, not a Unicode one, so
+/// every non-ASCII character splits: "重启restart" yields "restart" and is
+/// classified as a required restart.
 fn keyword_words(text: &str) -> Vec<String> {
     text.split(|character: char| !character.is_ascii_alphanumeric())
         .filter(|word| !word.is_empty())
@@ -1012,6 +1014,32 @@ mod tests {
             ("lockfile held", BlockingState::None),
             ("restart", BlockingState::RestartRequired),
             ("restarting the host", BlockingState::RestartRequired),
+        ];
+        for (reason, expected) in cases {
+            let metadata: HashMap<String, String> =
+                [("failure_reason".to_string(), reason.to_string())]
+                    .into_iter()
+                    .collect();
+            assert_eq!(
+                classify_blocking_state(&metadata),
+                expected,
+                "failure_reason: {reason}"
+            );
+        }
+    }
+
+    /// The word boundary is an ASCII alphanumeric, so CJK and other non-ASCII
+    /// text acts as a separator rather than as part of a token. A localized
+    /// adapter reason such as "重启restart" still yields "restart".
+    #[test]
+    fn blocking_state_classification_splits_on_non_ascii() {
+        let cases = [
+            ("重启restart", BlockingState::RestartRequired),
+            ("ホストのrestartが必要です", BlockingState::RestartRequired),
+            ("再起動が必要", BlockingState::None),
+            ("sidécar verrouillé", BlockingState::None),
+            ("projet verrouillé", BlockingState::None),
+            ("项目已锁定", BlockingState::None),
         ];
         for (reason, expected) in cases {
             let metadata: HashMap<String, String> =
