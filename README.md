@@ -87,6 +87,7 @@ we do not compare on stars or tool counts.
 |---|---|
 | Control a running DCC from an agent or CI job | Install the [`dcc-mcp` Agent Skill](https://clawhub.ai/loonghao/skills/dcc-mcp), then use [dcc-mcp-cli](docs/guide/cli-reference.md) |
 | Expose a DCC adapter over MCP/REST | [create_skill_server](docs/guide/getting-started.md) |
+| Start a server from a resolved package (Rez) | [dcc-mcp-core serve](docs/guide/rez-skill-packages.md) |
 | Add tools without Python registration code | [SKILL.md + tools.yaml](docs/guide/skills.md) |
 | Discover and install reusable Skills | [DCC-MCP Marketplace](https://dcc-mcp.github.io/marketplace) |
 | Build a new DCC adapter | [new-adapter-onboarding.md](docs/guide/new-adapter-onboarding.md) |
@@ -413,6 +414,22 @@ listener requirement.
 For manual handler registration, use McpHttpServer and ToolRegistry. For
 adapter lifecycle, readiness, gateway registration, and hot reload, use
 DccServerBase as described in the adapter guides.
+
+### Start a server without adapter code
+
+`dcc-mcp-core` is a console script, so a resolved package — Rez, venv, or pip —
+can start a server directly. This is what a Rez `package.py` declares in
+`tools`:
+
+~~~bash
+dcc-mcp-core info              # print the full launch contract
+dcc-mcp-core serve --dcc maya  # Skills-First server on an OS-assigned port
+~~~
+
+`serve` prints the resolved MCP URL, adds `--json` for one parseable object, and
+accepts `--skill-path` (repeatable) for skill directories outside
+`DCC_MCP_<DCC>_SKILL_PATHS`. See
+[Rez skill packages](docs/guide/rez-skill-packages.md).
 
 ## Add a skill without framework glue
 

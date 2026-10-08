@@ -78,3 +78,13 @@ def __getattr__(name: str) -> object:
         return value
 
     return resolve_lazy_symbol(name, _LAZY, module_name=__name__, optional=_OPTIONAL)
+
+
+def __dir__() -> list[str]:
+    """List public exports so interactive discovery finds the lazy API.
+
+    ``__all__`` is resolved lazily on first attribute access, so ``dir()`` would
+    otherwise report only the handful of names bound at import time and hide the
+    launch API from resolvers, IDEs and package consumers.
+    """
+    return sorted(set(__all__) | set(globals()))

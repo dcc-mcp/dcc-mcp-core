@@ -27,6 +27,9 @@ from dcc_mcp_core._core import ToolResult
 #: these is the entry point, so each one needs its own interpreter.
 FRESH_IMPORT_ENTRYPOINTS = (
     "dcc_mcp_core",
+    # Console-script / `python -m` target: pip and Rez both launch it as the
+    # first dcc_mcp_core import in a fresh interpreter.
+    "dcc_mcp_core.__main__",
     "dcc_mcp_core.dcc_server",
     "dcc_mcp_core.server_base",
     "dcc_mcp_core._server",

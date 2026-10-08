@@ -59,6 +59,10 @@ _LAZY_EXPORT_OWNERSHIP: dict[str, str] = {
 # Compatibility modules may be removed, but new capabilities must choose an
 # ownership-oriented subpackage instead of growing the root again.
 _LEGACY_TOP_LEVEL_MODULES = {
+    # ``python -m dcc_mcp_core`` / the ``dcc-mcp-core`` console script live here
+    # because that is where the interpreter looks for them. It is a launcher,
+    # not a capability, so it does not count against the flat-namespace budget.
+    "__main__",
     "__init__",
     "_exports",
     "_install_lifecycle_process",

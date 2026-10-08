@@ -77,6 +77,61 @@ The gateway then surfaces them through the `gateway://instances` MCP resource,
 so clients can route to the already-launched instance that matches the
 requested bundle.
 
+## Launching the server from the core package
+
+A resolved `dcc_mcp_core` is a library, so the package itself has to answer
+"how do I start this MCP server?". `dcc-mcp-core` is that answer. It is a
+console script, so a Rez package has something concrete to declare under
+`tools` instead of leaving the list empty:
+
+```python
+# package.py — the dcc_mcp_core package itself
+name = "dcc_mcp_core"
+version = "0.20.42"  # pin to the dcc_mcp_core release you package
+
+tools = ["dcc-mcp-core"]
+
+def commands():
+    env.PYTHONPATH.prepend("{root}/site-packages")
+```
+
+With that package resolved, a server starts without any adapter code:
+
+```bash
+rez-env dcc_mcp_core -- dcc-mcp-core serve --dcc maya
+# dcc-mcp-core serving maya at http://127.0.0.1:57448/mcp
+```
+
+`--port` defaults to `0`, which asks the OS for a free port; the resolved URL is
+printed on stdout so scripts can capture it. Add `--json` for one parseable
+object, and `--skill-path <dir>` (repeatable) for skill directories the Rez
+package does not already contribute through `DCC_MCP_<DCC>_SKILL_PATHS`.
+
+| Command | Use |
+|---|---|
+| `dcc-mcp-core --version` | Which build is resolved |
+| `dcc-mcp-core info` | Print the whole launch contract, including the `tools` line above |
+| `dcc-mcp-core serve --dcc <name>` | Start a Skills-First MCP server for one DCC |
+
+`python -m dcc_mcp_core` is the same entry point for environments that only put
+the package on `PYTHONPATH`.
+
+The equivalent launch is a documented top-level API, so consumers never have to
+import an internal module:
+
+```python
+from dcc_mcp_core import McpHttpConfig, create_skill_server
+
+server = create_skill_server("maya", McpHttpConfig(port=8765))
+handle = server.start()
+print(handle.mcp_url())
+```
+
+`create_adapter_server(dcc_name, config, options)` is the lower-level factory
+`DccServerBase` builds on; prefer `create_skill_server` unless you own the
+`DccServerOptions` already. Both are exported from the package root, so
+`dir(dcc_mcp_core)` lists them.
+
 ## Provenance
 
 Emit provenance as package identifiers rather than absolute build paths. A

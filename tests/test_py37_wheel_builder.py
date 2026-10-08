@@ -17,6 +17,7 @@ def test_lite_wheel_inherits_project_runtime_dependencies() -> None:
 
 def test_lite_wheel_inherits_project_console_scripts() -> None:
     assert _read_console_scripts() == {
+        "dcc-mcp-core": "dcc_mcp_core.__main__:main",
         "dcc-mcp-install-lifecycle": "dcc_mcp_core.install_lifecycle_cli:main",
         "dcc-mcp-ui-control-server": "dcc_mcp_core.ui_control_server:cli",
     }
