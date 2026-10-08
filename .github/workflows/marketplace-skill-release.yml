@@ -51,30 +51,55 @@ jobs:
 
       - name: Resolve version
         id: version
+        # Routed through env: rather than interpolated into the script body,
+        # for the same reason as publish-mcp-registry.yml: `${{ }}` expands
+        # before bash parses, so a free-text input spliced straight into
+        # `run:` is shell code. An env: variable is data whatever it holds.
+        # The version is also validated below because it names the release
+        # asset and is recorded as minCoreVersion in entries.json.
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
-          if [ -n "${{ inputs.version }}" ]; then
-            echo "value=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          if [ -n "$INPUT_VERSION" ]; then
+            case "$INPUT_VERSION" in
+              *[!0-9A-Za-z.+-]*|'')
+                echo "bad version: $INPUT_VERSION" >&2
+                exit 1
+                ;;
+            esac
+            value="$INPUT_VERSION"
           else
-            version=$(python -c "import tomllib,pathlib;print(tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['version'])")
-            echo "value=$version" >> "$GITHUB_OUTPUT"
+            value=$(python -c "import tomllib,pathlib;print(tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['version'])")
+            case "$value" in
+              *[!0-9A-Za-z.+-]*|'')
+                echo "bad version from pyproject.toml: $value" >&2
+                exit 1
+                ;;
+            esac
           fi
+          echo "value=$value" >> "$GITHUB_OUTPUT"
 
       - name: Pack skill bundles
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
         run: |
           python scripts/release/pack_skill_release.py \
             --all \
             --exclude dcc-cua \
-            --version "${{ steps.version.outputs.value }}" \
+            --version "$VERSION" \
             --out dist/marketplace \
             --manifest dist/marketplace/manifest.json
 
       - name: Verify archives are reproducible
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
         run: |
           cp dist/marketplace/manifest.json dist/marketplace/first.json
           python scripts/release/pack_skill_release.py \
             --all \
             --exclude dcc-cua \
-            --version "${{ steps.version.outputs.value }}" \
+            --version "$VERSION" \
             --out dist/marketplace \
             --manifest dist/marketplace/manifest.json
           python - <<'PY'
@@ -89,11 +114,14 @@ jobs:
           PY
 
       - name: Render catalog entries
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+          REPOSITORY: ${{ github.repository }}
         run: |
           python scripts/release/render_marketplace_entry.py \
             --manifest dist/marketplace/manifest.json \
-            --base-url "https://github.com/${{ github.repository }}/releases/download/v${{ steps.version.outputs.value }}" \
-            --min-core-version "${{ steps.version.outputs.value }}" \
+            --base-url "https://github.com/$REPOSITORY/releases/download/v$VERSION" \
+            --min-core-version "$VERSION" \
             --out dist/marketplace/entries.json
 
       - name: Validate entries against the marketplace schema
@@ -136,5 +164,6 @@ jobs:
         if: ${{ inputs.upload_release }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.value }}
         run: |
-          gh release upload "v${{ steps.version.outputs.value }}" dist/marketplace/*.zip --clobber
+          gh release upload "v$VERSION" dist/marketplace/*.zip --clobber
