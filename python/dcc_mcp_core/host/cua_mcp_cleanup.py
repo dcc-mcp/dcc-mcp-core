@@ -132,11 +132,15 @@ def cleanup_evidence(raw: dict[str, Any], output_dir: str | None, *, nested: boo
     try:
         projected.update(_component_evidence(ack, output_dir))
         video = projected.get("recording_video")
-        if ack.get("success") is True and video is not None and (
-            not video["finalized"]
-            or "error_code" in video
-            or "current_partial" in video
-            or ("capture_sidecar" in video and not video["capture_sidecar"]["finalized"])
+        if (
+            ack.get("success") is True
+            and video is not None
+            and (
+                not video["finalized"]
+                or "error_code" in video
+                or "current_partial" in video
+                or ("capture_sidecar" in video and not video["capture_sidecar"]["finalized"])
+            )
         ):
             result["component_evidence_valid"] = False
         response = ack.get("host_response")
