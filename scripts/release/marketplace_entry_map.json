@@ -1,0 +1,32 @@
+{
+  "asset-source": {
+    "description": "Gateway skill for cross-DCC asset import — search and resolve assets into a validated AssetDescriptor with license and attribution",
+    "dcc": ["any"],
+    "category": "Skills",
+    "tags": ["skills", "pipeline", "asset-import", "read-only", "infrastructure"]
+  },
+  "mesh-ops": {
+    "description": "Cross-adapter polygon modeling recipe pack for the shared cross-DCC modeling vocabulary",
+    "dcc": ["any"],
+    "category": "Skills",
+    "tags": ["skills", "modeling", "mesh", "polygon", "topology", "recipe"]
+  },
+  "spatial-interchange": {
+    "description": "Plan deterministic coordinate-axis and unit conversions between DCCs, engines, and interchange formats",
+    "dcc": ["any"],
+    "category": "Skills",
+    "tags": ["skills", "pipeline", "read-only", "spatial", "interchange"]
+  },
+  "marketplace-create-extension": {
+    "description": "Scaffold a publishable marketplace extension package with MIT-0 licensing",
+    "dcc": ["python"],
+    "category": "Infrastructure",
+    "tags": ["marketplace", "extension", "scaffolding", "authoring", "infrastructure"]
+  },
+  "marketplace-publish-extension": {
+    "description": "Publish or update an extension package entry in a marketplace catalog",
+    "dcc": ["python"],
+    "category": "Infrastructure",
+    "tags": ["marketplace", "publishing", "catalog", "infrastructure"]
+  }
+}
