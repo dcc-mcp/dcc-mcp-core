@@ -1,0 +1,135 @@
+name: Marketplace Skill Release
+
+# Packs the publishable skills into reproducible zip archives with a pinned
+# SHA-256, then renders and validates their marketplace catalog entries.
+# Publication to the official registry is a separate manual step; this job
+# only produces and checks the artifacts.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version stamped on the archive names and entries
+        required: true
+      upload_release:
+        description: Upload archives to the matching GitHub Release
+        type: boolean
+        default: false
+  push:
+    branches: [main]
+    paths:
+      - 'skills/**'
+      - 'scripts/release/pack_skill_release.py'
+      - 'scripts/release/render_marketplace_entry.py'
+      - 'scripts/release/marketplace_entry_map.json'
+      - '.github/workflows/marketplace-skill-release.yml'
+  pull_request:
+    paths:
+      - 'skills/**'
+      - 'scripts/release/pack_skill_release.py'
+      - 'scripts/release/render_marketplace_entry.py'
+      - 'scripts/release/marketplace_entry_map.json'
+      - '.github/workflows/marketplace-skill-release.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  pack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            echo "value=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            version=$(python -c "import tomllib,pathlib;print(tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['version'])")
+            echo "value=$version" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Pack skill bundles
+        run: |
+          python scripts/release/pack_skill_release.py \
+            --all \
+            --exclude dcc-cua \
+            --version "${{ steps.version.outputs.value }}" \
+            --out dist/marketplace \
+            --manifest dist/marketplace/manifest.json
+
+      - name: Verify archives are reproducible
+        run: |
+          cp dist/marketplace/manifest.json dist/marketplace/first.json
+          python scripts/release/pack_skill_release.py \
+            --all \
+            --exclude dcc-cua \
+            --version "${{ steps.version.outputs.value }}" \
+            --out dist/marketplace \
+            --manifest dist/marketplace/manifest.json
+          python - <<'PY'
+          import json, sys
+          first = {s["skill"]: s["sha256"] for s in json.load(open("dist/marketplace/first.json"))["skills"]}
+          second = {s["skill"]: s["sha256"] for s in json.load(open("dist/marketplace/manifest.json"))["skills"]}
+          drifted = [k for k in first if first[k] != second.get(k)]
+          if drifted:
+              print("non-reproducible archives: " + ", ".join(sorted(drifted)))
+              sys.exit(1)
+          print("all {} archives reproducible".format(len(first)))
+          PY
+
+      - name: Render catalog entries
+        run: |
+          python scripts/release/render_marketplace_entry.py \
+            --manifest dist/marketplace/manifest.json \
+            --base-url "https://github.com/${{ github.repository }}/releases/download/v${{ steps.version.outputs.value }}" \
+            --min-core-version "${{ steps.version.outputs.value }}" \
+            --out dist/marketplace/entries.json
+
+      - name: Validate entries against the marketplace schema
+        run: |
+          python - <<'PY'
+          import json, sys, urllib.request
+          from jsonschema import Draft202012Validator
+
+          schema_url = "https://raw.githubusercontent.com/dcc-mcp/marketplace/main/schemas/marketplace-v1.schema.json"
+          schema = json.load(urllib.request.urlopen(schema_url))
+          validator = Draft202012Validator(
+              {"$ref": "#/$defs/skillEntry", "$defs": schema["$defs"]}
+          )
+
+          entries = json.load(open("dist/marketplace/entries.json"))
+          failures = []
+          for entry in entries:
+              errors = sorted(validator.iter_errors(entry), key=lambda e: list(map(str, e.path)))
+              if errors:
+                  failures.append((entry["name"], [e.message for e in errors[:3]]))
+
+          for name, messages in failures:
+              print("INVALID " + name)
+              for message in messages:
+                  print("  - " + message)
+          if failures:
+              sys.exit(1)
+          print("all {} entries valid against marketplace-v1.schema.json".format(len(entries)))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: marketplace-skill-bundles
+          path: |
+            dist/marketplace/*.zip
+            dist/marketplace/manifest.json
+            dist/marketplace/entries.json
+
+      - name: Upload archives to the GitHub Release
+        if: ${{ inputs.upload_release }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "v${{ steps.version.outputs.value }}" dist/marketplace/*.zip --clobber
