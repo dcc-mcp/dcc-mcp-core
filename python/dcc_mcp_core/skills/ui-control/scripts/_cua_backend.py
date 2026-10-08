@@ -23,7 +23,6 @@ from dcc_mcp_core.adapter_contracts import UiControlPolicy
 from dcc_mcp_core.adapter_contracts import UiErrorCode
 from dcc_mcp_core.adapter_contracts import UiSnapshot
 from dcc_mcp_core.host.cua_mcp_client import PixelsMcpHostClient
-from dcc_mcp_core.host.cua_mcp_client import validate_window_frame
 from dcc_mcp_core.host.ui_control_options import UiControlRuntimeOptions
 from dcc_mcp_core.skill import skill_error
 from dcc_mcp_core.skill import skill_success
@@ -42,6 +41,7 @@ def _load_sibling(name: str) -> Any:
 _SUPPORT = _load_sibling("_cua_support")
 _HOST = _load_sibling("_cua_cli_host_client")
 _PIXELS = _load_sibling("_cua_pixels")
+_FRAME = _load_sibling("_cua_window_frame")
 _LIFECYCLE = _load_sibling("_cua_lifecycle")
 UiControlHostError = _HOST.UiControlHostError
 _HostClient = _HOST.UiControlHostClient
@@ -90,12 +90,6 @@ _INTENTS = {
     "safety_bypass",
     "password_change",
     "escape_scope",
-}
-_WINDOW_STATE_OPERATIONS = {
-    UiActionKind.RESTORE_WINDOW: "restore",
-    UiActionKind.SHOW_WINDOW: "show",
-    UiActionKind.ACTIVATE_WINDOW: "activate",
-    UiActionKind.MINIMIZE_WINDOW: "minimize",
 }
 
 
@@ -741,37 +735,14 @@ def act_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     if not policy.allows_request(request):
         return skill_error(f"ui_control action {action!r} disabled by policy", UiErrorCode.POLICY_DISABLED)
     if action == UiActionKind.SET_FRAME:
-        runtime = params.get("trusted_ui_control_runtime")
-        if not isinstance(runtime, UiControlRuntimeOptions) or "set_frame" not in runtime.window_operations:
-            _discard_frame_evidence(session_id)
-            return skill_error(
-                "Set frame requires an explicit owner-selected pixels window grant.", "unsupported_action"
-            )
-        if any(
-            params.get(key) is not None
-            for key in (
-                "control_id",
-                "snapshot_id",
-                "accessibility_state_id",
-                "element_token",
-                "element_index",
-                "secret_handle",
-            )
-        ):
-            _discard_frame_evidence(session_id)
-            return skill_error(
-                "Set frame accepts native metadata only, without pixel or semantic tokens.", "unsupported_action"
-            )
-        if not isinstance(params.get("window_state_id"), str) or not params["window_state_id"]:
-            _discard_frame_evidence(session_id)
-            return skill_error(
-                "Read fresh get_window_state metadata before setting the frame.", UiErrorCode.STALE_OBSERVATION
-            )
         try:
-            frame = validate_window_frame(params.get("frame"))
+            frame, rejection = _FRAME.prepare_request(params)
         except (UiControlHostError, ValueError) as exc:
             _discard_frame_evidence(session_id)
             return _host_error(exc, params)
+        if rejection is not None:
+            _discard_frame_evidence(session_id)
+            return rejection
     try:
         client, entry = _client_for(session_id, params, policy)
     except (UiControlHostError, OSError, ValueError) as exc:
@@ -781,39 +752,17 @@ def act_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
             raw = client.window_state()
         except (UiControlHostError, OSError, ValueError) as exc:
             return _host_error(exc, params)
-        message = "Read exact scoped application state from the CUA Host."
-        return skill_success(
-            message,
-            prompt=_PIXELS.window_state_prompt(params)
-            or (
-                "If minimized, call ui_control__act with restore_window; if hidden, use show_window; "
-                "then activate_window and take a fresh snapshot."
-            ),
-            session_id=session_id,
-            window_state=raw.get("state") or {},
-            audit=_audit_record(action, True, None, session_id, policy, None, message),
-        )
+        audit = _audit_record(action, True, None, session_id, policy, None, _FRAME.STATE_MESSAGE)
+        return _FRAME.state_result(raw, session_id, _PIXELS.window_state_prompt(params), audit)
     if action == UiActionKind.SET_FRAME:
         entry["snapshot_id"] = None
         try:
             raw = client.set_frame(frame, window_state_id=params["window_state_id"])
         except (UiControlHostError, OSError, ValueError) as exc:
             return _host_error(exc, params, fresh_observation=True)
-        message = "Completed exact scoped window frame change without activation."
-        return skill_success(
-            message,
-            prompt=(
-                "Read fresh get_window_state metadata before another frame change; "
-                "take fresh pixels before content input."
-            ),
-            session_id=session_id,
-            window_state=raw.get("state") or {},
-            native_outcome=raw.get("result"),
-            task_context=raw.get("task_context"),
-            fresh_observation_required=True,
-            audit=_audit_record(action, True, None, session_id, policy, None, message),
-        )
-    if action in _WINDOW_STATE_OPERATIONS:
+        audit = _audit_record(action, True, None, session_id, policy, None, _FRAME.FRAME_MESSAGE)
+        return _FRAME.frame_result(raw, session_id, audit)
+    if action in _FRAME.WINDOW_OPERATIONS:
         if action == UiActionKind.MINIMIZE_WINDOW:
             if getattr(client, "observation_mode", None) != "pixels_only":
                 return skill_error("Minimize requires the owner-selected pixels MCP transport.", "unsupported_action")
@@ -823,7 +772,7 @@ def act_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
                     "Take a fresh snapshot before minimizing the exact window.", UiErrorCode.STALE_OBSERVATION
                 )
         try:
-            raw = client.change_window_state(_WINDOW_STATE_OPERATIONS[action])
+            raw = client.change_window_state(_FRAME.WINDOW_OPERATIONS[action])
         except (UiControlHostError, OSError, ValueError) as exc:
             entry["snapshot_id"] = None
             return _host_error(exc, params, fresh_observation=True)
