@@ -3421,7 +3421,7 @@
       "tools": [
         {
           "name": "snapshot",
-          "description": "Capture a bounded ui_control snapshot from the scoped application window. Start here before UI actions; use the returned snapshot_id when acting so stale controls can be detected. On Windows, DccServerBase automatically supplies its trusted adapter PID/HWND/title context. Dedicated servers can bind the DCC through DCC_MCP_UI_CONTROL_PROCESS_ID or DCC_MCP_UI_CONTROL_WINDOW_HANDLE. A request title can narrow a trusted PID to one window, and all request scope can only narrow the binding. A locked, disconnected, or secure Windows desktop returns desktop_unavailable without ending the logical session. After unlock, discard old ids and take a fresh snapshot to restore the capsule. Coordinates belong only to this adapter host and DCC logon session; RDP/session or monitor topology, resolution, and DPI changes require a fresh snapshot. A bounded target may span monitors whose virtual-desktop origins are negative or whose DPI differs; action coordinates remain PNG-relative.",
+          "description": "Capture a bounded ui_control snapshot from the scoped application window. For authorized foreground interaction, start with prepare_foreground; this snapshot does not restore or activate a window. Use its snapshot_id when acting so stale controls can be detected. On Windows, DccServerBase automatically supplies its trusted adapter PID/HWND/title context. Dedicated servers can bind the DCC through DCC_MCP_UI_CONTROL_PROCESS_ID or DCC_MCP_UI_CONTROL_WINDOW_HANDLE. A request title can narrow a trusted PID to one window, and all request scope can only narrow the binding. A locked, disconnected, or secure Windows desktop returns desktop_unavailable without ending the logical session. After unlock, discard old ids and take a fresh snapshot to restore the capsule. Coordinates belong only to this adapter host and DCC logon session; RDP/session or monitor topology, resolution, and DPI changes require a fresh snapshot. A bounded target may span monitors whose virtual-desktop origins are negative or whose DPI differs; action coordinates remain PNG-relative. An owner-selected pixels_only MCP runtime returns no AX tree: snapshot_id is the native observation_id. Preserve the returned native provenance; use one authorized physical act followed by a fresh snapshot. Callers cannot select a runtime or action grant.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -3481,13 +3481,94 @@
           }
         },
         {
-          "name": "recording_start",
-          "description": "Start CUA trajectory recording for the exact application session. The output directory must be absolute and is passed to the standalone CUA Host. Continue with scoped UI actions, then call recording_stop. Set record_video when the installed CUA driver should capture video evidence.",
+          "name": "prepare_foreground",
+          "description": "Explicitly restore/activate one exact PID/HWND, read back its true foreground and visibility, then return a fresh same-session snapshot before authorized input. Use this as the first step for foreground UI interaction. Requires snapshot and window-mutation policy plus the owner's matching native window operation grant. Never changes target, resumes interrupted control, retries failures or sends content input. Activation success with failed capture is failure, with separate binding, authorization, activation, foreground_readback or capture stage and retained native capture reason. Other backends reject it.",
           "input_schema": {
             "type": "object",
+            "additionalProperties": false,
             "required": [
-              "output_dir"
+              "session_id",
+              "process_id",
+              "window_handle",
+              "operation"
             ],
+            "properties": {
+              "session_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "process_id": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "window_handle": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "operation": {
+                "type": "string",
+                "enum": [
+                  "activate",
+                  "restore_activate"
+                ]
+              },
+              "window_title": {
+                "type": "string",
+                "description": "Keep any existing narrowing title constraint for this session."
+              },
+              "process_name": {
+                "type": "string",
+                "description": "Optional narrowing process constraint; never changes the bound PID/HWND."
+              },
+              "policy": {
+                "type": "object",
+                "description": "May only restrict the existing owner policy."
+              }
+            }
+          },
+          "read_only": false,
+          "destructive": false,
+          "idempotent": false,
+          "defer-loading": false,
+          "source_file": "scripts/prepare_foreground.py",
+          "requires_in_process": true,
+          "next-tools": {
+            "on-success": [
+              "ui_control__act",
+              "ui_control__stop_computer_use"
+            ],
+            "on-failure": [
+              "ui_control__stop_computer_use"
+            ]
+          },
+          "group": "",
+          "execution": "sync",
+          "timeout_hint_secs": 240,
+          "enforce_thread_affinity": true,
+          "annotations": {
+            "read_only_hint": false,
+            "destructive_hint": true,
+            "idempotent_hint": false,
+            "open_world_hint": false
+          },
+          "call_examples": [
+            {
+              "arguments": {
+                "session_id": "editor-task",
+                "process_id": 1234,
+                "window_handle": 5678,
+                "operation": "restore_activate"
+              },
+              "note": "Replace both identifiers with the current authorized exact target."
+            }
+          ]
+        },
+        {
+          "name": "recording_start",
+          "description": "Start CUA recording for the exact application session. Legacy shared Host recording requires an absolute output_dir. Explicit owner-granted pixels recording uses its immutable runtime task directory and video only; omit output_dir and record_video in that mode. Finish with recording_stop.",
+          "input_schema": {
+            "type": "object",
             "additionalProperties": false,
             "properties": {
               "session_id": {
@@ -3514,12 +3595,11 @@
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 4096,
-                "description": "Absolute destination owned by this task grant."
+                "description": "Required absolute destination for shared Host; optional exact runtime-authorized directory for owned pixels."
               },
               "record_video": {
                 "type": "boolean",
-                "default": false,
-                "description": "Ask the CUA driver to include video evidence."
+                "description": "Shared Host defaults to false; owned pixels defaults to true and refuses false."
               },
               "policy": {
                 "type": "object",
@@ -3553,7 +3633,7 @@
         },
         {
           "name": "recording_state",
-          "description": "Read the current CUA trajectory recording state for this exact application session.",
+          "description": "Read truthful active, paused, degraded, failed, or stopped CUA recording state for this session.",
           "input_schema": {
             "type": "object",
             "additionalProperties": false,
@@ -3593,7 +3673,7 @@
         },
         {
           "name": "recording_stop",
-          "description": "Finalize CUA trajectory recording for this exact application session. Preserve the finalized output directory and structured recording state.",
+          "description": "Stop CUA recording for this exact application session. Preserve partial artifacts and failure state; an error is not successful finalization.",
           "input_schema": {
             "type": "object",
             "additionalProperties": false,
@@ -3632,7 +3712,7 @@
         },
         {
           "name": "find",
-          "description": "Locate controls in the scoped ui_control snapshot by query, role, label, or object name. Returns normalized UiControlNode matches. Native CUA pauses with desktop_unavailable while the interactive desktop is locked, disconnected, or secure.",
+          "description": "Locate controls in the scoped ui_control snapshot by query, role, label, or object name. Returns normalized UiControlNode matches. Native CUA pauses with desktop_unavailable while the interactive desktop is locked, disconnected, or secure. Semantic find is unsupported when the server owner selected pixels_only.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -3709,7 +3789,7 @@
         },
         {
           "name": "act",
-          "description": "Perform one scoped semantic or DCC UI Control action. Supports control ids, snapshot coordinates, pointer paths, text, and key presses where the selected backend supports them. Request policy may narrow or deny raw input. Every Windows mutation requires an adapter/operator-bound PID/HWND so the visible capsule and user interruption monitor cover semantic UIA as well as raw input. Raw input is enabled by default inside that exact bound scope and can be disabled with DCC_MCP_CUA_ALLOW_RAW_INPUT=false. Windows hard-denies raw type: enter non-sensitive text only through semantic set_text with an exact control_id. Passwords, authentication codes, and other credential material require a user hand-off or a host-owned secure credential flow. The type action is backend-specific to mock/CDP and is not a portable Windows action. Windows keypress rejects ordinary printable, Shift-text, and AltGr-text input; use only navigation/control/function keys or genuine Ctrl/Alt shortcuts. Windows game_navigation is the separately governed game-canvas path: it accepts up to four simultaneous supported canvas keys or `+` chords and an optional 0..500 ms hold, while preserving the existing raw-text denial. For application menu bars, invoke_menu resolves an explicit native menu_path inside the exact bound window. Prefer it when semantic menu clicks or Alt mnemonics cannot prove that a Qt popup opened; it never guesses pixels and always requires a fresh snapshot for verification. For a custom-drawn DCC canvas or face control that has no semantic node, use a path from the latest snapshot for one drag; Ctrl, Shift, and Alt in keys are held as pointer modifiers. Snapshot again immediately afterward. get_window_state, restore_window, show_window, and activate_window are recovery operations for the same host-bound PID/HWND and do not require a prior snapshot. They cannot enumerate or target another process/window; restore/show/activate invalidate any prior snapshot and are audited. desktop_unavailable means no Windows UI input was sent; keep the logical session, stop issuing UI calls, and ask the user to unlock or reconnect. Take a fresh snapshot only after that happens. Never use coordinates from the gateway, another host, or another logon session.",
+          "description": "Perform one scoped semantic or DCC UI Control action. Supports control ids, snapshot coordinates, pointer paths, text, and key presses where the selected backend supports them. Request policy may narrow or deny raw input. Every Windows mutation requires an adapter/operator-bound PID/HWND so the visible capsule and user interruption monitor cover semantic UIA as well as raw input. Raw input is enabled by default inside that exact bound scope and can be disabled with DCC_MCP_CUA_ALLOW_RAW_INPUT=false. The default Windows semantic transport hard-denies raw type: enter non-sensitive text only through semantic set_text with an exact control_id. Passwords, authentication codes, and other credential material require a user hand-off or a host-owned secure credential flow. The type action is backend-specific to mock/CDP or the explicit owner-selected pixels MCP transport and is not a portable Windows action. Pixels MCP permits only the owner's physical action ceiling; tool policy and the operator raw-input ceiling can narrow it. Windows keypress rejects ordinary printable, Shift-text, and AltGr-text input; use only navigation/control/function keys or genuine Ctrl/Alt shortcuts. Windows game_navigation is the separately governed game-canvas path: it accepts up to four simultaneous supported canvas keys or `+` chords and an optional 0..500 ms hold, while preserving the existing raw-text denial. For application menu bars, invoke_menu resolves an explicit native menu_path inside the exact bound window. Prefer it when semantic menu clicks or Alt mnemonics cannot prove that a Qt popup opened; it never guesses pixels and always requires a fresh snapshot for verification. For a custom-drawn DCC canvas or face control that has no semantic node, use a path from the latest snapshot for one drag; Ctrl, Shift, and Alt in keys are held as pointer modifiers. Snapshot again immediately afterward. get_window_state, restore_window, show_window, and activate_window are recovery operations for the same host-bound PID/HWND and do not require a prior snapshot. They cannot enumerate or target another process/window; restore/show/activate invalidate any prior snapshot and are audited. In owner-selected pixels MCP mode, activate_window and restore_window require explicit owner window_operations; restore_window uses native restore_activate. minimize_window is available only in this mode with an explicit owner grant and the matching latest snapshot_id. Window changes never activate or capture implicitly; take fresh pixels before more input. set_frame is available only in owner-selected pixels MCP mode with explicit window_operations=set_frame. First get_window_state, then forward its window_state_id and a complete physical frame. This metadata token is not a snapshot or input token. Frame changes never activate or restore the window. desktop_unavailable means no Windows UI input was sent; keep the logical session, stop issuing UI calls, and ask the user to unlock or reconnect. Take a fresh snapshot only after that happens. Never use coordinates from the gateway, another host, or another logon session.",
           "input_schema": {
             "type": "object",
             "required": [
@@ -3762,9 +3842,11 @@
                   "get_window_state",
                   "restore_window",
                   "show_window",
-                  "activate_window"
+                  "activate_window",
+                  "minimize_window",
+                  "set_frame"
                 ],
-                "description": "Action kind to perform. type is backend-specific to mock/CDP and is hard denied by the Windows backend; use semantic set_text with an exact control_id for non-sensitive Windows text entry. Windows keypress cannot synthesize ordinary printable text. game_navigation accepts up to four simultaneous supported keys for a non-editable DCC or game canvas; it is not a text-entry action. invoke_menu uses menu_path and does not require a prior snapshot."
+                "description": "Action kind to perform. type is backend-specific to mock/CDP and is hard denied by the default Windows semantic backend; the explicit pixels MCP transport requires the owner's physical action grant. Otherwise use semantic set_text with an exact control_id for non-sensitive Windows text entry. Windows keypress cannot synthesize ordinary printable text. game_navigation accepts up to four simultaneous supported keys for a non-editable DCC or game canvas; it is not a text-entry action. invoke_menu uses menu_path and does not require a prior snapshot."
               },
               "intent": {
                 "type": "string",
@@ -3794,7 +3876,7 @@
               "text": {
                 "type": "string",
                 "maxLength": 4096,
-                "description": "Non-sensitive text for semantic set_text with an exact control_id, or backend-specific mock/CDP type. Windows hard-denies raw type; passwords and authentication data require secure user/host hand-off."
+                "description": "Non-sensitive text for semantic set_text with an exact control_id, or explicitly owner-granted pixels MCP type. The default Windows semantic transport hard-denies raw type; mock/CDP support is backend-specific. passwords and authentication data require secure user/host hand-off."
               },
               "checked": {
                 "type": "boolean",
@@ -3875,11 +3957,69 @@
                 "type": "string",
                 "description": "Snapshot id from observation. A stale semantic control returns stale_control; stale native coordinates return stale_observation. Display topology, resolution, or DPI changes require a new id."
               },
+              "window_state_id": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Latest exact native metadata id returned by get_window_state, required only for set_frame. It is single-use and cannot authorize content input."
+              },
+              "frame": {
+                "type": "object",
+                "required": [
+                  "x",
+                  "y",
+                  "width",
+                  "height"
+                ],
+                "additionalProperties": false,
+                "description": "Complete physical Win32 outer window frame for set_frame, without activation or restore. Negative monitor coordinates are supported. Both x+width and y+height must fit signed 32-bit coordinates.",
+                "properties": {
+                  "x": {
+                    "type": "integer",
+                    "minimum": -2147483648,
+                    "maximum": 2147483647
+                  },
+                  "y": {
+                    "type": "integer",
+                    "minimum": -2147483648,
+                    "maximum": 2147483647
+                  },
+                  "width": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 2147483647
+                  },
+                  "height": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 2147483647
+                  }
+                }
+              },
               "policy": {
                 "type": "object",
                 "description": "Optional ui_control policy override for this call."
               }
-            }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "action": {
+                      "const": "set_frame"
+                    }
+                  },
+                  "required": [
+                    "action"
+                  ]
+                },
+                "then": {
+                  "required": [
+                    "window_state_id",
+                    "frame"
+                  ]
+                }
+              }
+            ]
           },
           "read_only": false,
           "destructive": false,
@@ -4058,11 +4198,17 @@
         "python/dcc_mcp_core/skills/ui-control/scripts/_chrome_backend.py",
         "python/dcc_mcp_core/skills/ui-control/scripts/_cua_backend.py",
         "python/dcc_mcp_core/skills/ui-control/scripts/_cua_cli_host_client.py",
+        "python/dcc_mcp_core/skills/ui-control/scripts/_cua_lifecycle.py",
+        "python/dcc_mcp_core/skills/ui-control/scripts/_cua_pixels.py",
+        "python/dcc_mcp_core/skills/ui-control/scripts/_cua_preparation.py",
+        "python/dcc_mcp_core/skills/ui-control/scripts/_cua_snapshot_result.py",
         "python/dcc_mcp_core/skills/ui-control/scripts/_cua_support.py",
+        "python/dcc_mcp_core/skills/ui-control/scripts/_cua_window_frame.py",
         "python/dcc_mcp_core/skills/ui-control/scripts/_entrypoint.py",
         "python/dcc_mcp_core/skills/ui-control/scripts/_scenario.py",
         "python/dcc_mcp_core/skills/ui-control/scripts/act.py",
         "python/dcc_mcp_core/skills/ui-control/scripts/find.py",
+        "python/dcc_mcp_core/skills/ui-control/scripts/prepare_foreground.py",
         "python/dcc_mcp_core/skills/ui-control/scripts/recording_start.py",
         "python/dcc_mcp_core/skills/ui-control/scripts/recording_state.py",
         "python/dcc_mcp_core/skills/ui-control/scripts/recording_stop.py",
