@@ -284,44 +284,65 @@ jobs:
 
       - name: Stage raw binary (Linux / Windows)
         if: matrix.os != 'macos-latest'
+        env:
+          MATRIX_BINARY: ${{ matrix.binary }}
+          MATRIX_ARTIFACT_NAME: ${{ matrix.artifact_name }}
+          MATRIX_CLI_BINARY: ${{ matrix.cli_binary }}
+          MATRIX_CLI_ARTIFACT_NAME: ${{ matrix.cli_artifact_name }}
         run: |
-          cp target/release/${{ matrix.binary }} ${{ matrix.artifact_name }}
-          cp target/release/${{ matrix.cli_binary }} ${{ matrix.cli_artifact_name }}
+          cp "target/release/$MATRIX_BINARY" "$MATRIX_ARTIFACT_NAME"
+          cp "target/release/$MATRIX_CLI_BINARY" "$MATRIX_CLI_ARTIFACT_NAME"
         shell: bash
 
       - name: Create deployable server bundle
         id: server-bundle
         shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.release-please.outputs.version }}
+          MATRIX_PLATFORM: ${{ matrix.platform }}
+          MATRIX_ARTIFACT_NAME: ${{ matrix.artifact_name }}
+          MATRIX_CLI_ARTIFACT_NAME: ${{ matrix.cli_artifact_name }}
         run: |
           python scripts/release/build_server_bundle.py \
-            --version "${{ needs.release-please.outputs.version }}" \
-            --platform "${{ matrix.platform }}" \
-            --server-bin "${{ matrix.artifact_name }}" \
-            --cli-bin "${{ matrix.cli_artifact_name }}" \
+            --version "$RELEASE_VERSION" \
+            --platform "$MATRIX_PLATFORM" \
+            --server-bin "$MATRIX_ARTIFACT_NAME" \
+            --cli-bin "$MATRIX_CLI_ARTIFACT_NAME" \
             --out-dir .
 
       - name: Create standalone CLI zip
         id: cli-bundle
         shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.release-please.outputs.version }}
+          MATRIX_PLATFORM: ${{ matrix.platform }}
+          MATRIX_CLI_ARTIFACT_NAME: ${{ matrix.cli_artifact_name }}
         run: |
           python scripts/release/build_standalone_bundle.py \
-            --version "${{ needs.release-please.outputs.version }}" \
-            --platform "${{ matrix.platform }}" \
+            --version "$RELEASE_VERSION" \
+            --platform "$MATRIX_PLATFORM" \
             --binary-name dcc-mcp-cli \
-            --binary-path "${{ matrix.cli_artifact_name }}" \
+            --binary-path "$MATRIX_CLI_ARTIFACT_NAME" \
             --out-dir .
 
       - name: Generate update manifest
         id: update-manifest
         shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.release-please.outputs.version }}
+          MATRIX_PLATFORM: ${{ matrix.platform }}
+          RELEASE_TAG: ${{ needs.release-please.outputs.tag_name }}
+          GITHUB_REPOSITORY_SLUG: ${{ github.repository }}
+          MATRIX_ARTIFACT_NAME: ${{ matrix.artifact_name }}
+          MATRIX_CLI_ARTIFACT_NAME: ${{ matrix.cli_artifact_name }}
         run: |
           python scripts/release/generate_update_manifest.py \
-            --version "${{ needs.release-please.outputs.version }}" \
-            --platform "${{ matrix.platform }}" \
-            --release-tag "${{ needs.release-please.outputs.tag_name }}" \
-            --repo "${{ github.repository }}" \
-            --server-bin "${{ matrix.artifact_name }}" \
-            --cli-bin "${{ matrix.cli_artifact_name }}" \
+            --version "$RELEASE_VERSION" \
+            --platform "$MATRIX_PLATFORM" \
+            --release-tag "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY_SLUG" \
+            --server-bin "$MATRIX_ARTIFACT_NAME" \
+            --cli-bin "$MATRIX_CLI_ARTIFACT_NAME" \
             --out-dir .
 
       # ── PyPI wheel build ──────────────────────────────────────────
@@ -550,9 +571,11 @@ jobs:
 
       - name: Validate semantic wheel contract
         shell: bash
+        env:
+          MATRIX_TARGET: ${{ matrix.target }}
         run: |
           profile="semantic_abi3"
-          case "${{ matrix.target }}" in
+          case "$MATRIX_TARGET" in
             linux-abi3) platform="linux-x86_64" ;;
             windows-abi3) platform="windows-x86_64" ;;
             macos-abi3) platform="macos-native" ;;
@@ -565,7 +588,7 @@ jobs:
               platform="windows-x86_64"
               ;;
             *)
-              echo "::error::Unknown semantic wheel target: ${{ matrix.target }}"
+              echo "::error::Unknown semantic wheel target: $MATRIX_TARGET"
               exit 1
               ;;
           esac
@@ -646,9 +669,11 @@ jobs:
       # are distinct by construction.
       - name: Build wrapper wheels
         shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.release-please.outputs.version }}
         run: |
           set -euo pipefail
-          version="${{ needs.release-please.outputs.version }}"
+          version="$RELEASE_VERSION"
           mkdir -p "$PWD/dist-cli"
           for platform in linux-x86_64 macos-universal2 windows-x86_64; do
             out="$PWD/dist-cli-build/$platform"
@@ -667,10 +692,12 @@ jobs:
         run: python scripts/release/cli_wheel_tags.py retag --wheel-dir dist-cli
 
       - name: Validate wrapper wheels
+        env:
+          RELEASE_VERSION: ${{ needs.release-please.outputs.version }}
         run: >-
           python scripts/release/cli_wheel_tags.py validate
           --wheel-dir dist-cli
-          --version "${{ needs.release-please.outputs.version }}"
+          --version "$RELEASE_VERSION"
 
       - name: Upload wrapper wheel artefact
         uses: actions/upload-artifact@v4
@@ -1294,12 +1321,16 @@ jobs:
 
       - name: Publish detached update-manifest bundles
         shell: bash
+        env:
+          ATTEST_BUNDLE_LINUX: ${{ steps.attest-update-linux.outputs.bundle-path }}
+          ATTEST_BUNDLE_WINDOWS: ${{ steps.attest-update-windows.outputs.bundle-path }}
+          ATTEST_BUNDLE_MACOS: ${{ steps.attest-update-macos.outputs.bundle-path }}
         run: |
-          cp "${{ steps.attest-update-linux.outputs.bundle-path }}" \
+          cp "$ATTEST_BUNDLE_LINUX" \
             dist-binaries/dcc-mcp-update-manifest-linux-x86_64.sigstore.json
-          cp "${{ steps.attest-update-windows.outputs.bundle-path }}" \
+          cp "$ATTEST_BUNDLE_WINDOWS" \
             dist-binaries/dcc-mcp-update-manifest-windows-x86_64.sigstore.json
-          cp "${{ steps.attest-update-macos.outputs.bundle-path }}" \
+          cp "$ATTEST_BUNDLE_MACOS" \
             dist-binaries/dcc-mcp-update-manifest-macos-universal2.sigstore.json
 
       - name: List artefacts
@@ -1423,8 +1454,10 @@ jobs:
       - name: Check WinGet token
         id: check_token
         shell: bash
+        env:
+          WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
         run: |
-          if [ -z "${{ secrets.WINGET_TOKEN }}" ]; then
+          if [ -z "$WINGET_TOKEN" ]; then
             echo "::warning::WINGET_TOKEN not set, skipping WinGet publish"
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
@@ -1435,8 +1468,10 @@ jobs:
         if: steps.check_token.outputs.skip != 'true'
         id: version
         shell: bash
+        env:
+          RELEASE_TAG: ${{ needs.release-please.outputs.tag_name }}
         run: |
-          TAG="${{ needs.release-please.outputs.tag_name }}"
+          TAG="$RELEASE_TAG"
           # Strip the release-please tag prefix: v0.20.36 -> 0.20.36
           VERSION="${TAG#v}"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
@@ -1562,15 +1597,24 @@ jobs:
       contents: read
     steps:
       - name: Summarize publication
+        env:
+          RESULT_CORE_PYPI: ${{ needs.publish-core-pypi.result }}
+          RESULT_SERVER_PYPI: ${{ needs.publish-server-pypi.result }}
+          RESULT_SEMANTIC_PYPI: ${{ needs.publish-semantic-pypi.result }}
+          RESULT_CLI_PYPI: ${{ needs.publish-cli-pypi.result }}
+          RESULT_RELEASE_ASSETS: ${{ needs.publish-github-release-assets.result }}
+          RESULT_ASSETS_VERIFIED: ${{ needs.verify-release-assets.result }}
+          RESULT_WINGET: ${{ needs.publish-winget.result }}
+          CORE_BACKFILL: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag != '' && inputs.backfill_assets != true }}
         run: |
-          core="${{ needs.publish-core-pypi.result }}"
-          server="${{ needs.publish-server-pypi.result }}"
-          semantic="${{ needs.publish-semantic-pypi.result }}"
-          cli="${{ needs.publish-cli-pypi.result }}"
-          release_assets="${{ needs.publish-github-release-assets.result }}"
-          assets_verified="${{ needs.verify-release-assets.result }}"
-          winget="${{ needs.publish-winget.result }}"
-          core_backfill="${{ github.event_name == 'workflow_dispatch' && inputs.release_tag != '' && inputs.backfill_assets != true }}"
+          core="$RESULT_CORE_PYPI"
+          server="$RESULT_SERVER_PYPI"
+          semantic="$RESULT_SEMANTIC_PYPI"
+          cli="$RESULT_CLI_PYPI"
+          release_assets="$RESULT_RELEASE_ASSETS"
+          assets_verified="$RESULT_ASSETS_VERIFIED"
+          winget="$RESULT_WINGET"
+          core_backfill="$CORE_BACKFILL"
 
           echo "PyPI dcc-mcp-core: ${core}"
           echo "PyPI dcc-mcp-server: ${server}"
