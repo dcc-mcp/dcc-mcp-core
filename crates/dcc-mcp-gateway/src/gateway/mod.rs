@@ -143,6 +143,8 @@ mod handle;
 mod runner;
 mod sentinel;
 mod tasks;
+#[cfg(test)]
+mod tasks_tests;
 mod version;
 
 pub(crate) use bind::try_bind_port_opt;

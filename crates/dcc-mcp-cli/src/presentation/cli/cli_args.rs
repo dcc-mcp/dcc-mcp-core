@@ -20,7 +20,11 @@ use crate::presentation::output::OutputFormat;
 /// `dcc-mcp-cli gateway daemon start` default: an operator-managed daemon is
 /// expected to survive with zero backends, so idle shutdown is off by
 /// default. Documented in `docs/guide/cli-reference.md`.
-pub(crate) const CLI_DAEMON_START_IDLE_TIMEOUT_SECS: u64 = 0;
+///
+/// Points at the shared constant rather than restating the literal, so the
+/// CLI entry point has one source like every other entry point.
+pub(crate) const CLI_DAEMON_START_IDLE_TIMEOUT_SECS: u64 =
+    dcc_mcp_gateway::gateway::idle_timeout::CLI_DAEMON_START_DEFAULT;
 
 pub(crate) fn parse_output_format(s: &str) -> Result<OutputFormat, String> {
     OutputFormat::from_flag(s)
