@@ -876,12 +876,12 @@ wheels = [
 
 [[package]]
 name = "dcc-mcp-server"
-version = "0.20.41"
+version = "0.20.42"
 source = { registry = "https://pypi.org/simple" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/5c/14/5881230fe47b77b0fa9d52320f352ae67d992722db9c89f1c462a250b49e/dcc_mcp_server-0.20.41-py3-none-macosx_10_12_universal2.macosx_10_12_x86_64.macosx_11_0_arm64.whl", hash = "sha256:ea89e1c17f42bf99e2de66cdf1ea7f93b5383110bdc6c5b629707e4f5561b3ca", size = 38825016, upload-time = "2026-10-02T21:40:22.042Z" },
-    { url = "https://files.pythonhosted.org/packages/57/f3/f750a338a730e92c8f9835b91193055b19d50bb360d49c13b19177aa8a33/dcc_mcp_server-0.20.41-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:7a3db4e233caa2cb4562ed2ebb31ca8090163ae45ec855e73ad22f1c7a28a53f", size = 20032323, upload-time = "2026-10-02T21:40:25.669Z" },
-    { url = "https://files.pythonhosted.org/packages/7e/d1/a3da4f39c7677a3511058de02bceb3fbe83530dd67ecb0908d5fe2ba2195/dcc_mcp_server-0.20.41-py3-none-win_amd64.whl", hash = "sha256:666088beb4c72c33245743cf9ac2417dd3c2d4b2a3438e113db6daa6961df90e", size = 19714597, upload-time = "2026-10-02T21:40:29.031Z" },
+    { url = "https://files.pythonhosted.org/packages/d9/90/ec523b75de825153ab3863ca42d2331c2dd7790a021075f91e67272ebeb8/dcc_mcp_server-0.20.42-py3-none-macosx_10_12_universal2.macosx_10_12_x86_64.macosx_11_0_arm64.whl", hash = "sha256:a9d6b732f2a24543ef82f93ab26cb02703d32ae585c0192e4054af10b72384d0", size = 38969804, upload-time = "2026-10-07T10:40:21.225Z" },
+    { url = "https://files.pythonhosted.org/packages/d1/bf/9d1d9466260476b8fbefc7a99d22a8123d32c4f0ccd43e862155f695e1e3/dcc_mcp_server-0.20.42-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:3914a9dfb5f9d86edf948b2a8bb2fdd0fe56ae564ac226b612e9f4e9935799e4", size = 20101626, upload-time = "2026-10-07T10:40:24.854Z" },
+    { url = "https://files.pythonhosted.org/packages/b6/43/0b80738a173335330385c651ce720d2bc7db0e733ae315ce36fb65b4375c/dcc_mcp_server-0.20.42-py3-none-win_amd64.whl", hash = "sha256:da35c18937a8247fa5a57bf17269fb334ed20aac1c51f84b1df2ab02c2a8b67c", size = 19767859, upload-time = "2026-10-07T10:40:28.281Z" },
 ]
 
 [[package]]
