@@ -999,6 +999,49 @@ def test_bounded_runner_allows_windows_normal_exit() -> None:
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows process-tree contract")
+@pytest.mark.parametrize("exit_code", [0, 7])
+def test_windows_normal_exit_waits_for_job_accounting(monkeypatch: pytest.MonkeyPatch, exit_code: int) -> None:
+    script = REPO_ROOT / "scripts" / "ci" / "generated_lock_sync.py"
+    spec = importlib.util.spec_from_file_location("generated_lock_sync_exit_accounting", script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    active_processes = module.WindowsJob.active_processes
+    queries = []
+
+    def delayed_accounting(job):
+        queries.append(job)
+        # The first post-exit accounting snapshot still includes rundown.
+        return 1 if len(queries) == 1 else active_processes(job)
+
+    monkeypatch.setattr(module.WindowsJob, "active_processes", delayed_accounting)
+    command = [sys.executable, "-c", f"raise SystemExit({exit_code})"]
+    if exit_code:
+        with pytest.raises(subprocess.CalledProcessError) as failure:
+            module.run_bounded(command, timeout_seconds=5)
+        assert failure.value.returncode == exit_code
+    else:
+        module.run_bounded(command, timeout_seconds=5)
+    assert len(queries) >= 2
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows process-tree contract")
+def test_windows_job_query_failure_does_not_pass_convergence(monkeypatch: pytest.MonkeyPatch) -> None:
+    script = REPO_ROOT / "scripts" / "ci" / "generated_lock_sync.py"
+    spec = importlib.util.spec_from_file_location("generated_lock_sync_query_failure", script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    def unavailable_accounting(job):
+        raise RuntimeError("synthetic accounting query failure")
+
+    monkeypatch.setattr(module.WindowsJob, "active_processes", unavailable_accounting)
+    with pytest.raises(RuntimeError, match="synthetic accounting query failure"):
+        module.run_bounded([sys.executable, "-c", "raise SystemExit(0)"], timeout_seconds=5)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows process-tree contract")
 def test_bounded_runner_does_not_kill_unrelated_windows_process() -> None:
     script = REPO_ROOT / "scripts" / "ci" / "generated_lock_sync.py"
     spec = importlib.util.spec_from_file_location("generated_lock_sync_windows_unrelated", script)
@@ -1167,6 +1210,7 @@ def test_windows_resume_failure_terminates_job_before_closing_handles(monkeypatc
     class FakeProcess:
         process_handle = 202
         returncode = None
+        closed = False
 
         @property
         def pid(self) -> int:
@@ -1183,7 +1227,9 @@ def test_windows_resume_failure_terminates_job_before_closing_handles(monkeypatc
             return self.returncode
 
         def close(self) -> None:
-            events.append("close-process")
+            if not self.closed:
+                events.append("close-process")
+                self.closed = True
 
     fake_job = FakeJob()
     monkeypatch.setattr(module, "WindowsJob", lambda: fake_job)
@@ -1196,10 +1242,10 @@ def test_windows_resume_failure_terminates_job_before_closing_handles(monkeypatc
         "resume-primary-thread",
         "close-primary-thread",
         "terminate-job",
-        ("wait-job-empty", module.WINDOWS_JOB_WAIT_SECONDS),
         ("wait-process", module.WINDOWS_JOB_WAIT_SECONDS),
-        "close-job",
         "close-process",
+        ("wait-job-empty", module.WINDOWS_JOB_WAIT_SECONDS),
+        "close-job",
     ]
 
 

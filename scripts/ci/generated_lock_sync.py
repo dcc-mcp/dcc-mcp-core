@@ -261,6 +261,10 @@ def _create_suspended_windows_process(
     )
 
 
+class WindowsJobNotEmptyError(RuntimeError):
+    """The owned job did not reach zero active processes before its deadline."""
+
+
 class WindowsJob:
     """Own a kill-on-close Windows Job Object containment identity."""
 
@@ -326,7 +330,7 @@ class WindowsJob:
             raise RuntimeError(f"could not assign process to Windows Job Object: error {ctypes.get_last_error()}")
 
     def active_processes(self) -> int:
-        """Return the count of live processes physically owned by the job."""
+        """Return the job's accounting count, including pending exit rundown."""
         accounting = _JobBasicAccountingInformation()
         if not self._kernel32.QueryInformationJobObject(
             self._handle,
@@ -352,7 +356,7 @@ class WindowsJob:
                 return
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                raise RuntimeError(f"Windows Job Object cleanup timed out with {active} active process(es)")
+                raise WindowsJobNotEmptyError(f"Windows Job Object cleanup timed out with {active} active process(es)")
             wait_ms = max(1, min(50, int(remaining * 1000)))
             result = self._kernel32.WaitForSingleObject(self._handle, wait_ms)
             if result not in (self._WAIT_OBJECT_0, self._WAIT_TIMEOUT):
@@ -497,11 +501,12 @@ def process_exists(pid: int) -> bool:
 def _terminate_windows_job(job: WindowsJob, process: _SuspendedWindowsProcess) -> None:
     """Terminate the owned job and confirm every member plus the leader exited."""
     job.terminate()
-    job.wait_empty(WINDOWS_JOB_WAIT_SECONDS)
     try:
         process.wait(WINDOWS_JOB_WAIT_SECONDS)
     except subprocess.TimeoutExpired as exc:
         raise RuntimeError("Windows process handle did not signal after Job Object cleanup") from exc
+    process.close()
+    job.wait_empty(WINDOWS_JOB_WAIT_SECONDS)
 
 
 def run_bounded_windows(
@@ -536,13 +541,15 @@ def run_bounded_windows(
         except subprocess.TimeoutExpired:
             _terminate_windows_job(job, process)
             raise
-        active = job.active_processes()
-        if active:
+        # A signaled process handle and Job Object accounting are separate
+        # observations. Release our terminated leader reference, then require
+        # bounded convergence to zero before allowing the caller to proceed.
+        process.close()
+        try:
+            job.wait_empty(WINDOWS_JOB_WAIT_SECONDS)
+        except WindowsJobNotEmptyError as exc:
             _terminate_windows_job(job, process)
-            raise RuntimeError(
-                f"process containment failed; descendants survived completion: {active} Windows Job Object process(es)"
-            )
-        job.wait_empty(0)
+            raise RuntimeError("process containment failed; descendants survived completion") from exc
         if process.returncode:
             raise subprocess.CalledProcessError(process.returncode, command)
     finally:
