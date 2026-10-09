@@ -258,7 +258,8 @@ def _check_frame_schema(schema):
     frame_conditions = [
         condition
         for condition in schema["allOf"]
-        if condition.get("if") == {
+        if condition.get("if")
+        == {
             "properties": {"action": {"const": "set_frame"}},
             "required": ["action"],
         }
