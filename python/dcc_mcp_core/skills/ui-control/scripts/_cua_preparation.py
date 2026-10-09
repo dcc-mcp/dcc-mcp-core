@@ -6,7 +6,10 @@ from typing import Any
 from typing import Callable
 
 from dcc_mcp_core.adapter_contracts import UiActionKind
+from dcc_mcp_core.cancellation import DccMcpCancelledError
+from dcc_mcp_core.cancellation import check_dcc_cancelled
 from dcc_mcp_core.cua_cli import CuaCliError
+from dcc_mcp_core.host.cua_mcp_client import PixelsMcpHostClient
 from dcc_mcp_core.host.ui_control_options import UiControlRuntimeOptions
 from dcc_mcp_core.skill import skill_error
 
@@ -36,11 +39,14 @@ def run(
     stage = "binding"
     receipts: dict[str, Any] = {"stage": stage, "content_input_sent": False}
     entry = None
+    client = None
 
     def failed(result):
         if entry is not None:
             entry["snapshot_id"] = None
             entry["snapshot"] = None
+        if isinstance(client, PixelsMcpHostClient):
+            client.invalidate_action_evidence()
         context = result.setdefault("context", {})
         context.update(
             foreground_preparation={**receipts, "stage": stage, "fresh_observation_ready": False},
@@ -78,6 +84,7 @@ def run(
         if isinstance(options, UiControlRuntimeOptions) and operation not in options.window_operations:
             return failed(skill_error("The owner did not grant this window operation.", "permission_denied"))
         stage = "binding"
+        check_dcc_cancelled()
         client, entry = resolve()
         _exact_target(client.target, target)
         old_snapshot = entry.get("snapshot") or {}
@@ -85,8 +92,10 @@ def run(
         entry["snapshot_id"] = None
         entry["snapshot"] = None
         stage = "activation"
+        check_dcc_cancelled()
         activated = client.change_window_state(operation)
         receipts["activation"] = activated
+        check_dcc_cancelled()
         if activated.get("operation") != operation or (activated.get("result") or {}).get("success") is not True:
             raise CuaCliError("protocol_mismatch", "The exact requested activation did not complete successfully.")
         _foreground_state(activated, target)
@@ -94,11 +103,13 @@ def run(
             raise CuaCliError("protocol_mismatch", "Activation did not invalidate prior observations.")
         stage = "foreground_readback"
         receipts["window_state"] = _foreground_state(client.window_state(), target)
+        check_dcc_cancelled()
         stage = "capture"
         receipts["capture_mode"] = getattr(client, "observation_mode", "semantic")
         result = capture(client, entry)
         if not result.get("success"):
             return failed(result)
+        check_dcc_cancelled()
         context = result.get("context") or {}
         observation = context.get("observation") or {}
         _exact_target(observation, target)
@@ -116,5 +127,13 @@ def run(
             "input_permissions_unchanged": True,
         }
         return result
+    except DccMcpCancelledError:
+        return failed(
+            skill_error(
+                "Foreground preparation was cancelled; no further preparation steps were dispatched.",
+                "cancelled",
+                prompt="Inspect retained native receipts and explicitly stop the owned session when finished.",
+            )
+        )
     except (CuaCliError, OSError, ValueError) as exc:
         return failed(host_error(exc))

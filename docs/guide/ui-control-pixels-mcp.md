@@ -184,3 +184,12 @@ readback receipts remain available when capture fails. Capture reports its
 into success. Only `ready` carries a new usable snapshot; one subsequent input
 still requires the existing owner permission and fresh native checks. Verify
 its application effect and finish with `ui_control__stop_computer_use`.
+
+Preparation checks request and host-job cancellation after acquiring the session
+lock, before mutation, and between native stages. Cancellation waits for an
+already dispatched native call to return; it prevents the next stage and returns
+`cancelled` with completed receipts, no screenshot or usable input token. Any
+resolved pixels client's action evidence is invalidated, including pixels
+captured immediately before cancellation. The retained session remains available
+for explicit stop. Ordinary activation is persistent: cancellation does not
+claim to restore previous foreground or window ordering.
