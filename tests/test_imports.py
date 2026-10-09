@@ -41,6 +41,24 @@ FRESH_IMPORT_ENTRYPOINTS = (
     "dcc_mcp_core.skills_helper",
 )
 
+#: Symbols that a package resolves through a lazy re-export table
+#: (``_LAZY_EXPORTS``) instead of at import time. Importing the package proves
+#: nothing about that table: the name is only resolved when a consumer touches
+#: the attribute. Asserting reachability here puts the guard in the same place
+#: as the mechanism, so corrupting or emptying ``_LAZY_EXPORTS`` fails this
+#: test instead of passing silently.
+LAZY_REACHABILITY_PROBES: tuple[tuple[str, str], ...] = (("dcc_mcp_core._server", "SkillDiscoveryController"),)
+
+#: Statement resolving each probe inside a fresh interpreter. Built as a
+#: sequence so the import stays the first ``dcc_mcp_core`` import the
+#: interpreter performs, which is what the cycle regression needs.
+_LAZY_PROBE_TEMPLATE = """
+import {module_name}
+from {module_name} import {symbol}
+assert {symbol} is not None
+print({symbol})
+"""
+
 
 def collect_import_failures() -> list[tuple[str, str]]:
     """Import every package module and return failures as ``(name, error)``."""
@@ -80,10 +98,14 @@ try:
     import pytest
 
     _parametrize = pytest.mark.parametrize("module_name", FRESH_IMPORT_ENTRYPOINTS)
+    _lazy_probe_parametrize = pytest.mark.parametrize(("module_name", "symbol"), LAZY_REACHABILITY_PROBES)
 except ImportError:  # pragma: no cover - exercised only outside pytest
     pytest = None
 
     def _parametrize(func):
+        return func
+
+    def _lazy_probe_parametrize(func):
         return func
 
 
@@ -97,6 +119,46 @@ def test_module_imports_cleanly_as_first_import(module_name: str) -> None:
         check=False,
     )
     assert result.returncode == 0, f"`import {module_name}` failed in a fresh interpreter:\n{result.stderr}"
+
+
+@_lazy_probe_parametrize
+def test_lazy_reexport_resolves_as_first_import(module_name: str, symbol: str) -> None:
+    """A lazy re-export must resolve to a real object in a fresh interpreter.
+
+    Guards the ``_LAZY_EXPORTS`` table itself. A bare ``import`` only runs the
+    module body; the deferred name is resolved on first attribute access, so
+    this test both imports and touches the symbol in one interpreter.
+    """
+    code = _LAZY_PROBE_TEMPLATE.format(module_name=module_name, symbol=symbol)
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, (
+        f"`from {module_name} import {symbol}` failed in a fresh interpreter "
+        f"— the lazy re-export table is broken:\n{result.stderr}"
+    )
+    assert symbol in result.stdout
+
+
+def test_server_dir_lists_lazy_export() -> None:
+    """``dir()`` must advertise the deferred name before it is resolved.
+
+    Covers ``dcc_mcp_core._server.__dir__``, which unions the module globals
+    with the lazy-export names. Importing the submodule alone does not touch
+    the name, so this assertion only holds when ``__dir__`` consults the table.
+    """
+    server_module = importlib.import_module("dcc_mcp_core._server")
+    names = dir(server_module)
+
+    assert "SkillDiscoveryController" in names
+    # Real, eagerly imported collaborators must still show up alongside it.
+    assert "DccServerOptions" in names
+    # __dir__ returns a sorted, de-duplicated union.
+    assert names == sorted(set(names))
+    assert len(names) == len(set(names))
 
 
 if __name__ == "__main__":
