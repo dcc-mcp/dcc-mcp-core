@@ -6,6 +6,8 @@ import pytest
 
 from dcc_mcp_core._runtime.config_bridge import resolve_mcp_http_config_class
 from dcc_mcp_core._server.config import build_mcp_http_config
+from dcc_mcp_core.constants import ENV_GATEWAY_REMOTE_HOST
+from dcc_mcp_core.constants import ENV_GATEWAY_REMOTE_PORT
 from dcc_mcp_core.server import DccServerOptions
 from dcc_mcp_core.server import GatewayOptions
 
@@ -23,8 +25,8 @@ def build(options):
 def test_omitted_options_preserve_native_constructor_defaults(tmp_path):
     expected = resolve_mcp_http_config_class()(port=0)
     actual = build(DccServerOptions.from_env("blender", tmp_path))
-    assert getattr(actual, "gateway_remote_host", None) == getattr(expected, "gateway_remote_host", None)
-    assert getattr(actual, "gateway_remote_port", None) == getattr(expected, "gateway_remote_port", None)
+    assert actual.gateway_remote_host == expected.gateway_remote_host
+    assert actual.gateway_remote_port == expected.gateway_remote_port
     assert GatewayOptions().remote_port is None
 
 
@@ -72,9 +74,17 @@ def test_remote_port_rejects_invalid_explicit_values(value):
 @pytest.mark.parametrize("value", ["", "invalid", "1.5", "-1", "65536"])
 def test_invalid_env_fails_before_native_construction(monkeypatch, value):
     monkeypatch.setenv("DCC_MCP_GATEWAY_REMOTE_PORT", value)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=ENV_GATEWAY_REMOTE_PORT):
         GatewayOptions.from_env()
     assert GatewayOptions.from_env(remote_port=0).remote_port == 0
+
+
+@pytest.mark.parametrize("value", ["", "   "])
+def test_invalid_env_host_fails_before_native_construction(monkeypatch, value):
+    monkeypatch.setenv("DCC_MCP_GATEWAY_REMOTE_HOST", value)
+    with pytest.raises(ValueError, match=ENV_GATEWAY_REMOTE_HOST):
+        GatewayOptions.from_env()
+    assert GatewayOptions.from_env(remote_host="127.0.0.1").remote_host == "127.0.0.1"
 
 
 @pytest.mark.parametrize("value", [True, 1, "", "  "])

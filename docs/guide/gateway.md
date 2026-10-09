@@ -102,9 +102,7 @@ Use `serve --no-auto-gateway` or `translate --no-register` when an external
 daemon owns the shared gateway port and this process should never try to bind
 or register with it.
 
-## Standalone gateway daemon (#1358)
-
-### Embedded Python gateway listener policy
+## Embedded Python gateway listener policy
 
 The native Python `McpHttpConfig` constructor preserves its existing secondary
 listener defaults (`0.0.0.0:59765`). Embedded adapters can explicitly disable
@@ -132,6 +130,8 @@ an already running or separately owned daemon. A local-only embedded instance
 uses `enable_gateway_failover=False` as above; configure a standalone daemon
 with its own public `--remote-host` / `--remote-port` flags below. Verify actual
 listener addresses after installing a matching wheel in the target application.
+
+## Standalone gateway daemon (#1358)
 
 ### Standalone process
 
