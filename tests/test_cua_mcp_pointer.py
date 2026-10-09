@@ -27,11 +27,12 @@ def test_pointer_uses_one_exact_observation_and_preserves_screenshot_coordinates
     snapshot = owned.snapshot(max_depth=1, max_nodes=1)
     assert snapshot["observation"]["source_rect"][0] == -640
     assert snapshot["observation"]["capture_provenance"]["window_dpi"] == 144
-    result = owned.execute({**action, "input_kind": "raw_input", "intent": "navigate"})
+    result = owned.execute({**action, "input_kind": "raw_input", "intent": "navigate", "keys": [], "text": None})
     params = process.requests[-1]["params"]["arguments"]["params"]
     assert params["observation_id"] == "native-obs-1"
     for key, value in action.items():
         assert params["action"][key] == value
+    assert set(params["action"]) == set(action) | {"input_kind", "intent", "delivery_mode"}
     assert result["effect"] == "unverifiable" and result["verification_required"]
     with pytest.raises(CuaCliError, match="fresh pixels"):
         owned.execute({**action, "input_kind": "raw_input"})
@@ -125,6 +126,7 @@ def test_formal_ui_control_drag_preserves_path_and_rejects_replay(runtime, monke
         assert call("act", arguments)["success"] is True
         sent = process.requests[-1]["params"]["arguments"]["params"]["action"]
         assert sent["path"] == arguments["path"] and sent["duration_ms"] == 250
+        assert set(sent) == {"action", "input_kind", "intent", "delivery_mode", "path", "button", "duration_ms"}
         assert call("act", arguments)["error"] == "stale_observation"
     finally:
         bridge.shutdown_script_execution()
