@@ -139,14 +139,15 @@ jobs:
   # request, so a red run is a signal for a human (or a follow-up batch job),
   # not an autonomous edit to 40 public repositories.
   #
-  # The scan step is `continue-on-error`. The fleet-level drift it reports
-  # (28 adapters on an outdated count, 16 with no block at all) can only be
-  # cleared by regenerating those repositories, which is deliberately out of
-  # scope for any single core PR. Blocking on it here would leave the check
-  # permanently red and train everyone to ignore it, so it reports the drift
-  # list into the job summary and the artifact and stays non-blocking until the
-  # fleet has been regenerated. Flip `continue-on-error` to false once that
-  # lands. The scanner's own unit tests above remain strictly blocking.
+  # The scan step is non-blocking on a pull request and blocking otherwise.
+  #
+  # The fleet-level drift it reports can only be cleared by regenerating the
+  # adapter repositories, which is out of scope for any single core PR, so on a
+  # PR it reports into the job summary and an artifact without failing. On
+  # `schedule` and `workflow_dispatch` it fails: GitHub only notifies on a
+  # failed workflow, so a weekly run that can never fail is a weekly run nobody
+  # hears from -- the silent drift this check exists to end. See the step's own
+  # comment. The scanner's unit tests above are blocking in all cases.
   pointer-drift:
     name: Adapter README pointer drift
     runs-on: ubuntu-latest
@@ -178,7 +179,15 @@ jobs:
 
       - name: Scan every adapter README against the catalog
         id: scan
-        continue-on-error: true
+        # Blocking everywhere except a pull request.
+        #
+        # On a PR the fleet-level drift is not the PR's fault and clearing it
+        # means regenerating dozens of adapter repositories, so it reports
+        # without failing. On `schedule` and `workflow_dispatch` it must fail:
+        # GitHub only notifies on a failed workflow, so a never-failing weekly
+        # run is a weekly run nobody ever hears about -- which is exactly the
+        # silent drift this check was built to end.
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
         env:
           INPUT_ONLY: ${{ inputs.only }}
           INPUT_ALLOW_MISSING: ${{ inputs.allow_missing }}
@@ -187,10 +196,12 @@ jobs:
           if [ -n "${INPUT_ONLY}" ]; then
             args+=(--only "${INPUT_ONLY}")
           fi
-          # The default for a scheduled run allows a missing block: sixteen
+          # The default for a scheduled run allows a missing block: several
           # catalog adapters have never received one, and that backlog is a
           # separate cleanup from the count drift this gate exists to catch.
-          # A manual dispatch can tighten it to see the full picture.
+          # The number moves as adapters pick up a block, so it is deliberately
+          # not written here -- dispatch with `allow_missing: false` to see the
+          # current list.
           if [ "${INPUT_ALLOW_MISSING}" != "false" ]; then
             args+=(--allow-missing)
           fi

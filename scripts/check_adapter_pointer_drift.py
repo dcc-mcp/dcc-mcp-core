@@ -176,9 +176,17 @@ def check_repository(
         row["status"] = CURRENT
         row["detail"] = f"matches the catalog output ({host_count} adapters)"
         return row
-    except (subprocess.TimeoutExpired, ScanError, generator.CoverageError) as exc:
+    except Exception as exc:
+        # Broad on purpose. This loop walks ~47 repositories owned by other
+        # teams, so any one of them can fail in a way this script did not
+        # anticipate: a README that is not valid UTF-8, a path that will not
+        # decode, a disk or permission error, a git binary that is missing.
+        # Letting one of those escape would abort the whole run before the
+        # summary and the JSON report are written, so the remaining 46
+        # repositories would silently go unchecked. A repository this cannot
+        # read is reported as an error, never raised.
         row["status"] = ERROR
-        row["detail"] = str(exc).strip()
+        row["detail"] = f"{type(exc).__name__}: {exc}".strip()
         return row
     finally:
         _remove_clone(repo_dir)
@@ -256,7 +264,14 @@ def render_summary(results: list[dict], *, host_count: int) -> str:
     ]
     for row in results:
         lines.append(f"| `{row['name']}` | {row['status']} | {row['branch'] or '—'} | {row['detail']} |")
-    drifted = [r for r in results if r["status"] != CURRENT]
+
+    # Counted by status, not by `!= CURRENT`: a repository that could not be
+    # cloned or read is an infrastructure problem, not drift, and telling
+    # someone to regenerate the block in it is the wrong instruction.
+    drifted = [r for r in results if r["status"] == DRIFTED]
+    missing = [r for r in results if r["status"] == MISSING]
+    errored = [r for r in results if r["status"] == ERROR]
+
     lines.append("")
     if drifted:
         lines.append(
@@ -266,6 +281,19 @@ def render_summary(results: list[dict], *, host_count: int) -> str:
         )
     else:
         lines.append(f"All {len(results)} scanned repositories match the catalog output.")
+    if missing:
+        lines.append("")
+        lines.append(
+            f"{len(missing)} repositories carry no generated block at all. That is a"
+            " separate backlog from the count drift; re-run the generator in each of"
+            " them to add it."
+        )
+    if errored:
+        lines.append("")
+        lines.append(
+            f"{len(errored)} repositories could not be read (clone, decode or I/O"
+            " failure). These need infrastructure attention, not a regeneration."
+        )
     lines.append("")
     return "\n".join(lines)
 

@@ -154,7 +154,11 @@ def test_a_readme_without_a_pointer_block_is_missing(adapters, tmp_path):
 
 
 def test_a_repository_with_no_readme_is_missing(adapters, tmp_path):
-    """Sixteen catalog adapters are in this state today, so it must not crash."""
+    """Several catalog adapters are in this state, so it must not crash.
+
+    The exact number moves as adapters pick up a block, so it is deliberately
+    not named here.
+    """
     origin = tmp_path / "origin-noreadme"
     origin.mkdir()
     (origin / "pyproject.toml").write_text("[project]\nname = 'x'\n", encoding="utf-8")
@@ -213,8 +217,74 @@ def test_an_entry_without_a_url_is_an_error(adapters, tmp_path):
     assert "no `url`" in row["detail"]
 
 
+def test_a_readme_that_is_not_valid_utf8_is_an_error_not_a_crash(adapters, tmp_path):
+    """A non-UTF-8 README must be reported, not abort the whole 47-repo walk.
+
+    Before the handler was broadened, `UnicodeDecodeError` escaped
+    `check_repository`, propagated through `scan()` and `main()`, and killed the
+    run before the summary or the JSON report were written -- so the remaining
+    repositories went unchecked with no output at all.
+    """
+    name = "dcc-mcp-maya"
+    origin = tmp_path / "origin-badencoding"
+    origin.mkdir()
+    (origin / "README.md").write_bytes(b"# maya\n\n\xff\xfe not utf-8\n")
+    subprocess.run(["git", "init", "-q", "-b", "main", str(origin)], check=True)
+    subprocess.run(["git", "-C", str(origin), "add", "README.md"], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(origin),
+            "-c",
+            "user.email=tests@example.com",
+            "-c",
+            "user.name=Tests",
+            "commit",
+            "-q",
+            "-m",
+            "bad encoding",
+        ],
+        check=True,
+    )
+
+    row = drift.check_repository(
+        _local_entry(adapters, name, str(origin)),
+        0,
+        host_count=len(adapters),
+        workdir=tmp_path / "work",
+        timeout=60,
+    )
+    assert row["status"] == drift.ERROR
+    assert "UnicodeDecodeError" in row["detail"]
+
+
+def test_no_input_from_any_repository_can_abort_the_whole_scan(adapters, tmp_path):
+    """The loop must convert any per-repository failure into a row, never a raise."""
+    workdir = tmp_path / "work"
+    workdir.mkdir()
+    broken = [
+        {"name": "missing-url", "url": ""},
+        {"name": "unclonable", "url": str(tmp_path / "nope")},
+        _local_entry(adapters, "dcc-mcp-maya", str(tmp_path / "also-nope")),
+    ]
+    rows = [
+        drift.check_repository(e, i, host_count=len(adapters), workdir=workdir, timeout=60)
+        for i, e in enumerate(broken)
+    ]
+    assert [r["status"] for r in rows] == [drift.ERROR] * 3
+    assert all(r["detail"] for r in rows)
+
+
 def test_crlf_readme_is_not_reported_as_drift(adapters, tmp_path):
-    """Adapter READMEs are CRLF on Windows; the line endings must not count as drift."""
+    """Adapter READMEs are CRLF on Windows; the line endings must not count as drift.
+
+    Note this passes whether or not the reader uses `newline=""`, because
+    `upsert_pointer` probes for CRLF itself and normalises either way. It is a
+    real regression net against a CRLF false positive, but it is not evidence
+    for the `newline=""` read -- that sets the line endings the comparison is
+    made in, and only protects cases this test does not exercise.
+    """
     name = "dcc-mcp-krita"
     entry = _entry(adapters, name)
     block = generator.upsert_pointer(
@@ -290,6 +360,39 @@ def test_render_summary_reports_a_clean_scan():
     rows = [{"name": "a", "url": "", "status": drift.CURRENT, "branch": "main", "detail": "ok"}]
     summary = drift.render_summary(rows, host_count=47)
     assert "All 1 scanned repositories match" in summary
+
+
+def test_render_summary_does_not_count_unreadable_repos_as_drift():
+    """An error is an infrastructure problem, not drift needing a regeneration."""
+    rows = [
+        {"name": "a", "url": "", "status": drift.CURRENT, "branch": "main", "detail": "ok"},
+        {
+            "name": "b",
+            "url": "",
+            "status": drift.DRIFTED,
+            "branch": "main",
+            "detail": "stale count",
+        },
+        {
+            "name": "c",
+            "url": "",
+            "status": drift.ERROR,
+            "branch": "main",
+            "detail": "clone failed",
+        },
+        {
+            "name": "d",
+            "url": "",
+            "status": drift.MISSING,
+            "branch": "main",
+            "detail": "no block",
+        },
+    ]
+    summary = drift.render_summary(rows, host_count=47)
+    # Only the genuinely drifted repository counts toward the drift sentence.
+    assert "1 of 4 repositories drift" in summary
+    assert "1 repositories carry no generated block" in summary
+    assert "1 repositories could not be read" in summary
 
 
 # --- cli -------------------------------------------------------------------
