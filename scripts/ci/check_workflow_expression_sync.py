@@ -715,14 +715,29 @@ def format_report(root: Path, mismatches: Sequence[Mismatch], errors: Sequence[R
     return "\n".join(lines)
 
 
-def _escape_annotation(text: str) -> str:
-    r"""Escape a value for use inside a GitHub Actions workflow command.
+def _escape_property(text: str) -> str:
+    r"""Escape an *attribute value* of a GitHub Actions workflow command.
 
-    ``%``, ``\r`` and ``\n`` are the data characters GitHub re-interprets
-    inside a command, and a bare ``,`` would split the attribute list, which
-    is what silently dropped every attribute in the previous revision.
+    Mirrors ``escapeProperty`` in actions/toolkit ``command.ts``: the three
+    data characters plus ``:`` and ``,``, because both delimit the attribute
+    list (``file=<v>,line=<v>::<message>``). A bare ``,`` here splits the
+    attribute list, which is what silently dropped every attribute in the
+    previous revision.
     """
-    return str(text).replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A").replace(",", "%2C")
+    return (
+        str(text).replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A").replace(":", "%3A").replace(",", "%2C")
+    )
+
+
+def _escape_message(text: str) -> str:
+    r"""Escape the *message* of a GitHub Actions workflow command.
+
+    Mirrors ``escapeData`` in actions/toolkit ``command.ts``: only ``%``,
+    ``\r`` and ``\n``. Commas are **not** escaped -- everything after the
+    ``::`` separator is the message, so a comma carries no delimiter meaning
+    there and escaping it only makes the rendered annotation less readable.
+    """
+    return str(text).replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
 
 
 def format_github_annotations(root: Path, mismatches: Sequence[Mismatch], errors: Sequence[ResolutionError]) -> str:
@@ -742,15 +757,15 @@ def format_github_annotations(root: Path, mismatches: Sequence[Mismatch], errors
             f"(test: {binding.test_file}:{mismatch.test_line} -> {binding.test_name})"
         )
         lines.append(
-            f"::error file={_escape_annotation(binding.workflow)},"
+            f"::error file={_escape_property(binding.workflow)},"
             f"line={mismatch.workflow_line or 1},"
-            f"title=workflow expression drift::{_escape_annotation(message)}"
+            f"title={_escape_property('workflow expression drift')}::{_escape_message(message)}"
         )
     for error in errors:
         message = f"{error.binding.path} -> {error.binding.test_name}: {error.reason}"
         lines.append(
-            f"::error file={_escape_annotation(error.binding.workflow)},"
-            f"title=workflow expression drift::{_escape_annotation(message)}"
+            f"::error file={_escape_property(error.binding.workflow)},"
+            f"title={_escape_property('workflow expression drift')}::{_escape_message(message)}"
         )
     return "\n".join(lines)
 
