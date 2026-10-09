@@ -13,6 +13,7 @@ from dcc_mcp_core.cua_cli import CuaCliError
 from dcc_mcp_core.host.cua_mcp_cleanup import OwnedPixelsTaskCleanup
 from dcc_mcp_core.host.cua_mcp_errors import OwnedCuaMcpError
 from dcc_mcp_core.host.cua_mcp_geometry import validate_geometry
+from dcc_mcp_core.host.cua_mcp_keyboard import keypress_payload
 from dcc_mcp_core.host.cua_mcp_pointer import pointer_payload
 from dcc_mcp_core.host.cua_mcp_preparation import PixelsMcpPreparation
 from dcc_mcp_core.host.cua_mcp_recording import RECORDING_METHODS
@@ -314,6 +315,11 @@ class PixelsMcpHostClient:
             payload = {
                 **{key: value for key, value in payload.items() if key in {"action", "input_kind", "intent"}},
                 **pointer_payload(action, self._observation_size),
+            }
+        elif name == "keypress":
+            payload = {
+                **{key: value for key, value in payload.items() if key in {"action", "input_kind", "intent"}},
+                **keypress_payload(action),
             }
         payload["delivery_mode"] = "foreground"
         if name == "type":
