@@ -129,7 +129,7 @@ class GatewayOptions:
                 try:
                     remote_port = int(raw_remote_port)
                 except ValueError as exc:
-                    raise ValueError("DCC_MCP_GATEWAY_REMOTE_PORT must be an integer between 0 and 65535") from exc
+                    raise ValueError(f"{ENV_GATEWAY_REMOTE_PORT} must be an integer between 0 and 65535") from exc
 
         resolved_registry_dir = registry_dir
         if resolved_registry_dir is None:
