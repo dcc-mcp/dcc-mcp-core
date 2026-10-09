@@ -150,9 +150,10 @@ class OwnedCuaMcpTransport:
             self._index += 1
             request_id = self._index
             self._write({"jsonrpc": "2.0", "id": request_id, "method": method, "params": params})
-            deadline = time.monotonic() + (self.options.timeout_seconds if timeout is None else timeout)
+            wait_seconds = self.options.timeout_seconds if timeout is None else timeout
+            deadline = time.monotonic() + wait_seconds
             try:
-                response = self._responses.get(timeout=max(0.001, deadline - time.monotonic()))
+                response = self._responses.get(timeout=max(0, min(wait_seconds, deadline - time.monotonic())))
                 if response is _EOF:
                     raise CuaCliError("transport_error", "The owned UI Control runtime closed its output.")
                 if isinstance(response, Exception):
