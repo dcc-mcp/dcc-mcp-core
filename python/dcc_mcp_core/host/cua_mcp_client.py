@@ -311,7 +311,10 @@ class PixelsMcpHostClient:
         # the deny-unknown-fields public protocol or mistaken for semantic tokens.
         payload = {key: value for key, value in action.items() if key in allowed}
         if name in {"move", "drag"}:
-            payload.update(pointer_payload(action, self._observation_size))
+            payload = {
+                **{key: value for key, value in payload.items() if key in {"action", "input_kind", "intent"}},
+                **pointer_payload(action, self._observation_size),
+            }
         payload["delivery_mode"] = "foreground"
         if name == "type":
             payload["type_chars_only"] = True
