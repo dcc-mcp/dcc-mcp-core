@@ -222,6 +222,7 @@ class UiActionKind:
     TYPE = "type"
     KEYPRESS = "keypress"
     GAME_NAVIGATION = "game_navigation"
+    RELATIVE_MOUSE = "relative_mouse"
     SET_TEXT = "set_text"
     TOGGLE = "toggle"
     SET_CHECKED = "set_checked"
@@ -302,6 +303,7 @@ class UiControlPolicy:
                 UiActionKind.SCROLL,
                 UiActionKind.DRAG,
                 UiActionKind.RAW_COORDINATE_CLICK,
+                UiActionKind.RELATIVE_MOUSE,
             )
             and not self.allow_raw_coordinates
         ):
@@ -326,6 +328,7 @@ class UiControlPolicy:
             UiActionKind.SCROLL,
             UiActionKind.DRAG,
             UiActionKind.RAW_COORDINATE_CLICK,
+            UiActionKind.RELATIVE_MOUSE,
             UiActionKind.TYPE,
             UiActionKind.KEYPRESS,
             UiActionKind.GAME_NAVIGATION,
@@ -351,6 +354,8 @@ class UiControlPolicy:
             return False
         if request.action == UiActionKind.CLICK and (request.x is not None or request.y is not None):
             return self.allow_mutating_actions and self.allow_raw_coordinates
+        if request.action == UiActionKind.GAME_NAVIGATION and (request.dx is not None or request.dy is not None):
+            return self.allows_action(request.action) and self.allow_raw_coordinates
         return self.allows_action(request.action)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -378,6 +383,8 @@ class UiActionRequest:
     snapshot_id: Optional[str] = None
     duration_ms: Optional[int] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
+    dx: Optional[int] = None
+    dy: Optional[int] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Return the wire dictionary."""

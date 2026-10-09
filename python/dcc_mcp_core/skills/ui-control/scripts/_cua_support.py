@@ -405,6 +405,7 @@ def _is_native_action(action: str, params: Dict[str, Any]) -> bool:
         UiActionKind.TYPE,
         UiActionKind.KEYPRESS,
         UiActionKind.GAME_NAVIGATION,
+        UiActionKind.RELATIVE_MOUSE,
         UiActionKind.KEYBOARD_SHORTCUT,
         UiActionKind.INVOKE_MENU,
     }

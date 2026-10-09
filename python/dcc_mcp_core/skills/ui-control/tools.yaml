@@ -430,6 +430,7 @@ tools:
             - type
             - keypress
             - game_navigation
+            - relative_mouse
             - set_text
             - toggle
             - set_checked
@@ -451,7 +452,13 @@ tools:
             an exact control_id for non-sensitive Windows text entry. Windows
             keypress cannot synthesize ordinary printable text. game_navigation
             accepts up to four simultaneous supported keys for a non-editable
-            DCC or game canvas; it is not a text-entry action. invoke_menu uses
+            DCC or game canvas; it is not a text-entry action. Owner-selected
+            B3 pixels game_navigation and relative_mouse require intent=game_navigation.
+            B3 canonical keys are W,A,S,D,SPACE,LSHIFT,LCTRL,Z,E,F,M; SHIFT/LEFTSHIFT
+            and CTRL/CONTROL/LEFTCTRL/LEFTCONTROL are the only frontend aliases.
+            A missing duration is a zero-duration tap, never a cross-call hold.
+            Physical delivery does not prove gameplay effects or key release.
+            invoke_menu uses
             menu_path and does not require a prior snapshot.
         intent:
           type: string
@@ -459,6 +466,7 @@ tools:
             - observe
             - activate
             - navigate
+            - game_navigation
             - ordinary_edit
             - login_or_permission
             - upload
@@ -498,6 +506,20 @@ tools:
         button:
           type: string
           description: "Mouse button, such as left, middle, or right."
+        dx:
+          type: integer
+          minimum: -256
+          maximum: 256
+          description: >-
+            Relative horizontal mouse delta for owner-selected B3 pixels input.
+            Requires dy; the pair must be nonzero. No screenshot or DPI conversion.
+        dy:
+          type: integer
+          minimum: -256
+          maximum: 256
+          description: >-
+            Relative vertical mouse delta, paired with dx. Standalone relative_mouse
+            sends one buttonless packet; combined game_navigation requires both grants.
         scroll_x:
           type: integer
           minimum: -2147483648
@@ -600,6 +622,71 @@ tools:
           type: object
           description: "Optional ui_control policy override for this call."
       allOf:
+        - if:
+            properties:
+              action:
+                const: relative_mouse
+            required: [action]
+          then:
+            required: [intent, dx, dy]
+            properties:
+              intent:
+                const: game_navigation
+            not:
+              anyOf:
+                - required: [keys]
+                - required: [duration_ms]
+        - if:
+            properties:
+              intent:
+                const: game_navigation
+            required: [intent]
+          then:
+            additionalProperties: false
+            properties:
+              action:
+                enum: [game_navigation, relative_mouse]
+              intent: {}
+              keys:
+                type: array
+                minItems: 1
+                maxItems: 4
+              duration_ms:
+                type: integer
+                minimum: 0
+                maximum: 500
+              dx: {}
+              dy: {}
+              session_id: {}
+              snapshot_id: {}
+              policy: {}
+              window_title: {}
+              process_id: {}
+              process_name: {}
+              window_handle: {}
+            not:
+              required: [dx, dy]
+              properties:
+                dx:
+                  const: 0
+                dy:
+                  const: 0
+            allOf:
+              - if:
+                  required: [dx]
+                then:
+                  required: [dy]
+              - if:
+                  required: [dy]
+                then:
+                  required: [dx]
+              - if:
+                  properties:
+                    action:
+                      const: game_navigation
+                  required: [action]
+                then:
+                  required: [keys]
         - if:
             properties:
               action:
