@@ -255,7 +255,16 @@ def _check_frame_schema(schema):
     assert frame["properties"]["width"]["minimum"] == 1
     assert frame["properties"]["x"]["minimum"] == -(2**31)
     assert frame["properties"]["height"]["maximum"] == 2**31 - 1
-    assert schema["allOf"][0]["then"]["required"] == ["window_state_id", "frame"]
+    frame_conditions = [
+        condition
+        for condition in schema["allOf"]
+        if condition.get("if") == {
+            "properties": {"action": {"const": "set_frame"}},
+            "required": ["action"],
+        }
+    ]
+    assert len(frame_conditions) == 1
+    assert frame_conditions[0]["then"]["required"] == ["window_state_id", "frame"]
 
 
 def test_public_act_yaml_advertises_closed_integer_frame_and_metadata_requirement():
