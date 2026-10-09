@@ -125,6 +125,38 @@ A forced/nonzero child exit or timeout cannot certify cleanup. Recording does
 not extend the task lease. Decode and attribute real MP4/sidecar output in a
 separate native acceptance run; protocol tests are not recording acceptance.
 
+### Owner-required recording progress
+
+Set `UiControlRecordingOptions(output_root, require_progress=True)` to require
+typed media-sample progress. The default remains `False`. This owner option
+does not change tool parameters, authorize input, or start recording.
+The pinned executable must advertise the exact
+`dcc-cua.recording-sample-progress.v1` descriptor. The actual connected Host
+must advertise that contract in its negotiated hello; Core retains its
+`host_connection_id` and checks the same connection on subsequent responses.
+An outer descriptor or requested capability alone is insufficient. Cached
+Host capability proof identifies the implementation, not current health.
+
+`recording_start` establishes a baseline. It does not certify advancement.
+`recording_state` succeeds only when `video.media_sample_progress` advances
+within the same recording interval, task, native window instance, and source
+stream, while recording, video, and source remain active and healthy.
+The tuple contains `recording_interval_id`, `media_samples_admitted`, and
+`latest_admitted_source_sequence`; sequence zero is valid. Admission means a
+nonempty OpenH264 media sample with source provenance. It does not certify
+muxing, durable output, finalization, or application motion.
+
+The retained `recording_progress` projection distinguishes `advanced`,
+`stalled`, `regressed`, `baseline_required`, and `unavailable`. A new interval
+or stream requires a new baseline. Missing or malformed evidence cannot be
+replaced by file size, timestamps, or encoded-frame estimates. Failed state
+RPCs do not advance the baseline. Core does not poll or invent a deadline.
+`recording_stop` and task cleanup remain available without advancement;
+they clear the baseline and preserve their existing cleanup receipts.
+Strict progress failures retain bounded recording evidence through the
+bundled `ui-control` scripts. Real recording acceptance still requires the
+matching formal wheel, Native executable, and connected Host.
+
 Every owned pixels task validates this cleanup ACK, including tasks without
 recording permission. Those tasks keep the default five-second cleanup budget
 and have no recording destination constraint. A pinned older runtime that omits

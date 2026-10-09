@@ -171,6 +171,7 @@ class PixelsMcpHostClient:
             try:
                 if context is not None:
                     self._check_context(context)
+                self._recording.check_host_context(context)
             except CuaCliError:
                 with suppress(Exception):
                     self.stop()
@@ -189,6 +190,7 @@ class PixelsMcpHostClient:
         try:
             context = raw.get("task_context")
             self._check_context(context)
+            self._recording.check_host_context(context)
             if raw.get("type") != expected_type:
                 raise CuaCliError("protocol_mismatch", "The owned MCP task identity or response type changed.")
             if raw.get("target") is not None:
@@ -586,7 +588,19 @@ class PixelsMcpHostClient:
     def stop(self) -> dict[str, Any]:
         """Revoke only this task and close only this owned executable."""
         self._window_state_id = None
+        self._recording.reset_progress()
         return self._cleanup.stop()
+
+    def _bind_recording_instance(self, provenance: dict[str, Any]) -> dict[str, Any]:
+        """Use exact recorded-source identity without minting input evidence."""
+        self._check_target(provenance)
+        instance = provenance.get("native_instance")
+        if not _native_instance_valid(instance) or (
+            self._native_instance is not None and self._native_instance != instance
+        ):
+            raise CuaCliError("invalid_target", "Recording source changed the exact native instance.")
+        self._native_instance = deepcopy(instance)
+        return deepcopy(instance)
 
     def _unsupported(self, *args: Any, **kwargs: Any) -> Any:
         raise CuaCliError(

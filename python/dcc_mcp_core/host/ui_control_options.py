@@ -54,8 +54,11 @@ class UiControlRecordingOptions:
 
     output_root: str
     cleanup_timeout_seconds: float = 65.0
+    require_progress: bool = False
 
     def __post_init__(self) -> None:
+        if type(self.require_progress) is not bool:
+            raise TypeError("recording require_progress must be a boolean")
         path = _ordinary_absolute_path(self.output_root)
         if not path.is_dir() or path.is_symlink():
             raise ValueError("recording output_root must be an absolute ordinary directory")

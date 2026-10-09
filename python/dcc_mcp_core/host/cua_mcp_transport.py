@@ -18,6 +18,7 @@ from dcc_mcp_core.host.cua_mcp_errors import OwnedCuaMcpError
 from dcc_mcp_core.host.cua_mcp_game_capability import require_game_capability
 from dcc_mcp_core.host.cua_mcp_game_capability import require_game_scope_schema
 from dcc_mcp_core.host.cua_mcp_game_schema import require_game_action_schema
+from dcc_mcp_core.host.cua_mcp_recording_progress import require_recording_progress_capability
 from dcc_mcp_core.host.ui_control_options import UiControlRuntimeOptions
 
 _MAX_LINE_BYTES = 96 * 1024 * 1024
@@ -92,6 +93,8 @@ class OwnedCuaMcpTransport:
             ):
                 raise CuaCliError("protocol_mismatch", "The owned UI Control MCP identity/version does not match.")
             require_game_capability(capabilities, options.allowed_actions)
+            if options.recording is not None and options.recording.require_progress:
+                require_recording_progress_capability(capabilities)
             self._write({"jsonrpc": "2.0", "method": "notifications/initialized"})
             catalog = self.rpc("tools/list", {})
             tools = catalog.get("tools")

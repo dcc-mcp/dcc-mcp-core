@@ -12,6 +12,7 @@ import pytest
 from dcc_mcp_core._server.inprocess_executor import HostExecutionBridge
 from dcc_mcp_core.host.cua_mcp_client import PixelsMcpHostClient
 from dcc_mcp_core.host.cua_mcp_errors import OwnedCuaMcpError
+from dcc_mcp_core.host.cua_mcp_recording import PixelsMcpRecording
 from test_cua_mcp_pixels import SCRIPTS
 from test_cua_mcp_pixels import TARGET
 from test_cua_mcp_recording import recording
@@ -210,6 +211,7 @@ def test_all_owned_failures_are_attempted_and_arbitrary_exceptions_stay_private(
     entries = []
     for index, failure in enumerate(failures):
         owned = PixelsMcpHostClient.__new__(PixelsMcpHostClient)
+        owned._recording = PixelsMcpRecording(owned)
 
         def fail(error=failure, attempt=index):
             attempts.append(attempt)
