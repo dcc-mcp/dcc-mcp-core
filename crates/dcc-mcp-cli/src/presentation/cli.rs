@@ -266,6 +266,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             url,
             query,
             limit,
+            max_pages,
             timeout_secs,
         } => {
             let effective_timeout = global_timeout_secs
@@ -280,7 +281,9 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 endpoint,
                 HttpGateway::with_timeout(Duration::from_secs(effective_timeout.max(1))),
             );
-            let result = client.smoke(mcp_url, query, limit).await;
+            let result = client
+                .smoke(mcp_url, query, limit, usize::from(max_pages))
+                .await;
             failed = !result.get("ok").and_then(Value::as_bool).unwrap_or(false);
             if failed {
                 exit_code = ExitCode::Unavailable;
