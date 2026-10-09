@@ -7,7 +7,18 @@ from pathlib import Path
 import re
 
 PIXEL_ACTIONS = frozenset(
-    {"click", "double_click", "right_click", "toggle", "keypress", "keyboard_shortcut", "type", "type_chars"}
+    {
+        "click",
+        "double_click",
+        "right_click",
+        "toggle",
+        "keypress",
+        "keyboard_shortcut",
+        "type",
+        "type_chars",
+        "move",
+        "drag",
+    }
 )
 
 
