@@ -17,6 +17,7 @@
 //! cargo run -p dcc-mcp-skills-bench --bin skills-bench -- regenerate-seeds
 //! ```
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use dcc_mcp_models::SkillMetadata;
@@ -205,6 +206,66 @@ pub fn all_seeds() -> Vec<SkillMetadata> {
     skills
 }
 
+/// Human-readable report of how a committed snapshot differs from a live
+/// harvest.
+///
+/// The bare `assert_eq!` on two `Vec<SkillMetadata>` prints both sides in full,
+/// and a single real seed is already a few hundred lines of `Debug` output —
+/// unreadable, and useless when the drift is one tool in one skill. This
+/// narrows it to the names that differ plus, for a skill present on both sides,
+/// the fields that moved.
+#[must_use]
+pub fn describe_drift(committed: &[SkillMetadata], live: &[SkillMetadata]) -> String {
+    let committed_names: BTreeSet<&str> = committed.iter().map(|s| s.name.as_str()).collect();
+    let live_names: BTreeSet<&str> = live.iter().map(|s| s.name.as_str()).collect();
+
+    let only_committed: Vec<&str> = committed_names.difference(&live_names).copied().collect();
+    let only_live: Vec<&str> = live_names.difference(&committed_names).copied().collect();
+
+    let mut report = String::new();
+    if !only_committed.is_empty() {
+        report.push_str(&format!(
+            "only in seeds.json: {}\n",
+            only_committed.join(", ")
+        ));
+    }
+    if !only_live.is_empty() {
+        report.push_str(&format!("only in live harvest: {}\n", only_live.join(", ")));
+    }
+
+    let live_by_name: BTreeMap<&str, &SkillMetadata> =
+        live.iter().map(|s| (s.name.as_str(), s)).collect();
+    for skill in committed {
+        let Some(live_skill) = live_by_name.get(skill.name.as_str()) else {
+            continue;
+        };
+        for field in drifted_fields(skill, live_skill) {
+            report.push_str(&format!("{}.{field} changed\n", skill.name));
+        }
+    }
+
+    if report.is_empty() {
+        report.push_str("skills match, but the snapshot still differs\n");
+    }
+    report
+}
+
+/// Names of the top-level `SkillMetadata` fields that differ between two
+/// versions of the same skill, compared as JSON so every field is covered
+/// without hand-listing them.
+fn drifted_fields(committed: &SkillMetadata, live: &SkillMetadata) -> Vec<String> {
+    let (Ok(a), Ok(b)) = (serde_json::to_value(committed), serde_json::to_value(live)) else {
+        return vec!["<unserialisable>".to_string()];
+    };
+    let (Some(a), Some(b)) = (a.as_object(), b.as_object()) else {
+        return vec!["<not an object>".to_string()];
+    };
+    a.keys()
+        .filter(|key| a.get(*key) != b.get(*key))
+        .cloned()
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -247,6 +308,53 @@ mod tests {
         }
     }
 
+    fn stub(name: &str, description: &str) -> SkillMetadata {
+        SkillMetadata {
+            name: name.to_string(),
+            description: description.to_string(),
+            ..SkillMetadata::default()
+        }
+    }
+
+    /// The drift report has to name the skill, not dump it. `assert_eq!` on two
+    /// seed vectors is what made the staleness failure unreadable: one real
+    /// seed is hundreds of lines of `Debug`, and the interesting part is a
+    /// single tool.
+    #[test]
+    fn drift_report_names_the_difference() {
+        let committed = vec![stub("kept", "same"), stub("removed", "gone")];
+        let live = vec![stub("kept", "same"), stub("added", "new")];
+
+        let report = describe_drift(&committed, &live);
+
+        assert!(report.contains("only in seeds.json: removed"), "{report}");
+        assert!(report.contains("only in live harvest: added"), "{report}");
+        assert!(!report.contains("kept"), "{report}");
+    }
+
+    /// A field-level change inside a skill that exists on both sides. This is
+    /// the shape the `ui-control` drift took: the skill is present, so a
+    /// name-only diff reports nothing at all.
+    #[test]
+    fn drift_report_reports_changed_fields() {
+        let committed = vec![stub("ui-control", "before")];
+        let live = vec![stub("ui-control", "after")];
+
+        let report = describe_drift(&committed, &live);
+
+        assert!(
+            report.contains("ui-control.description changed"),
+            "{report}"
+        );
+    }
+
+    #[test]
+    fn drift_report_says_when_names_and_fields_both_match() {
+        let committed = vec![stub("same", "same")];
+        let report = describe_drift(&committed, &committed);
+        assert!(report.contains("skills match"), "{report}");
+    }
+
     /// Staleness check for the committed snapshot.
     ///
     /// `#[ignore]`d on purpose. The snapshot is harvested from four directories
@@ -259,9 +367,10 @@ mod tests {
     fn committed_snapshot_matches_a_live_harvest() {
         let committed = load_committed().expect("benchmarks/skills/seeds.json must be committed");
         let live = build_seed_set(&workspace_root());
-        assert_eq!(
-            committed.skills, live.skills,
-            "seeds.json is stale. Regenerate: cargo run -p dcc-mcp-skills-bench --bin skills-bench -- regenerate-seeds"
+        assert!(
+            committed.skills == live.skills,
+            "seeds.json is stale.\n{}\nRegenerate: cargo run -p dcc-mcp-skills-bench --bin skills-bench -- regenerate-seeds",
+            describe_drift(&committed.skills, &live.skills)
         );
     }
 }

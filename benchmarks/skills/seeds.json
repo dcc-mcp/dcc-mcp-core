@@ -3481,6 +3481,121 @@
           }
         },
         {
+          "name": "capture_preparation",
+          "description": "Explicit passive, reversible temporary capture preparation on one retained exact pixels session. Requires an independent trusted owner grant. Call ui_control__act with action=get_window_state first, then begin with its fresh one-use metadata token and lifetime_ms (1..30000). State, stop and snapshot take no preparation parameters. Snapshot returns passive pixels with no input, observation or accessibility token. Actual foreground is a readback, never a focus promise. Stop and verify cleanup_verified; restore_pending and cleanup_unknown remain unresolved restoration. Cancellation revokes once and retains cleanup evidence. Never resumes interrupted control or changes PID/HWND/runtime.",
+          "input_schema": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "session_id",
+              "process_id",
+              "window_handle",
+              "operation"
+            ],
+            "properties": {
+              "session_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "process_id": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "window_handle": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "window_title": {
+                "type": "string"
+              },
+              "process_name": {
+                "type": "string"
+              },
+              "operation": {
+                "type": "string",
+                "enum": [
+                  "begin",
+                  "state",
+                  "stop",
+                  "snapshot"
+                ]
+              },
+              "window_state_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "lifetime_ms": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 30000
+              },
+              "policy": {
+                "type": "object"
+              }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "operation": {
+                      "const": "begin"
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "window_state_id",
+                    "lifetime_ms"
+                  ]
+                },
+                "else": {
+                  "not": {
+                    "anyOf": [
+                      {
+                        "required": [
+                          "window_state_id"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "lifetime_ms"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "read_only": false,
+          "destructive": false,
+          "idempotent": false,
+          "defer-loading": false,
+          "source_file": "scripts/capture_preparation.py",
+          "requires_in_process": true,
+          "next-tools": {
+            "on-success": [
+              "ui_control__capture_preparation",
+              "ui_control__stop_computer_use"
+            ],
+            "on-failure": [
+              "ui_control__capture_preparation",
+              "ui_control__stop_computer_use"
+            ]
+          },
+          "group": "",
+          "execution": "sync",
+          "enforce_thread_affinity": true,
+          "annotations": {
+            "read_only_hint": false,
+            "destructive_hint": true,
+            "idempotent_hint": false,
+            "open_world_hint": false
+          }
+        },
+        {
           "name": "prepare_foreground",
           "description": "Explicitly restore/activate one exact PID/HWND, read back its true foreground and visibility, then return a fresh same-session snapshot before authorized input. Use this as the first step for foreground UI interaction. Requires snapshot and window-mutation policy plus the owner's matching native window operation grant. Never changes target, resumes interrupted control, retries failures or sends content input. Activation success with failed capture is failure, with separate binding, authorization, activation, foreground_readback or capture stage and retained native capture reason. Other backends reject it.",
           "input_schema": {
@@ -4199,6 +4314,7 @@
         "python/dcc_mcp_core/skills/ui-control/scripts/_cua_backend.py",
         "python/dcc_mcp_core/skills/ui-control/scripts/_cua_cli_host_client.py",
         "python/dcc_mcp_core/skills/ui-control/scripts/_cua_lifecycle.py",
+        "python/dcc_mcp_core/skills/ui-control/scripts/_cua_passive_preparation.py",
         "python/dcc_mcp_core/skills/ui-control/scripts/_cua_pixels.py",
         "python/dcc_mcp_core/skills/ui-control/scripts/_cua_preparation.py",
         "python/dcc_mcp_core/skills/ui-control/scripts/_cua_snapshot_result.py",
@@ -4207,6 +4323,7 @@
         "python/dcc_mcp_core/skills/ui-control/scripts/_entrypoint.py",
         "python/dcc_mcp_core/skills/ui-control/scripts/_scenario.py",
         "python/dcc_mcp_core/skills/ui-control/scripts/act.py",
+        "python/dcc_mcp_core/skills/ui-control/scripts/capture_preparation.py",
         "python/dcc_mcp_core/skills/ui-control/scripts/find.py",
         "python/dcc_mcp_core/skills/ui-control/scripts/prepare_foreground.py",
         "python/dcc_mcp_core/skills/ui-control/scripts/recording_start.py",
