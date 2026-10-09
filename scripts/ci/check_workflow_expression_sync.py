@@ -282,10 +282,48 @@ def _workflow_line(root: Path, binding: Binding) -> int | None:
     return None
 
 
+def _string_node_types() -> tuple:
+    """Return the AST node types that carry a plain string literal.
+
+    Python 3.7 parses a string literal as ``ast.Str``; 3.8 folded ``Str``,
+    ``Num`` and friends into ``ast.Constant``. ``ast.Str`` stopped being
+    produced in 3.12 and the alias was removed, so it is looked up
+    defensively. Checking only ``ast.Constant`` makes every literal
+    unreadable on 3.7, which is exactly the failure this gate shipped with.
+    """
+    types: list = [ast.Constant]
+    legacy = getattr(ast, "Str", None)
+    if legacy is not None:
+        types.append(legacy)
+    return tuple(types)
+
+
+_STRING_NODES = _string_node_types()
+
+
+def _string_value(node: ast.AST) -> str | None:
+    """Return the value of a string-literal node, whatever type carries it.
+
+    ``ast.Constant`` holds any constant, so the payload is re-checked for
+    ``str``; a bare ``ast.Str`` only ever holds a string.
+    """
+    if not isinstance(node, _STRING_NODES):
+        return None
+    value = getattr(node, "value", None)
+    if isinstance(value, str):
+        return value
+    # A bare ast.Str stores the text on .s rather than .value.
+    legacy = getattr(node, "s", None)
+    if isinstance(legacy, str):
+        return legacy
+    return None
+
+
 def _const_str(node: ast.AST) -> str | None:
     """Return the string value of a string / string-concatenation node."""
-    if isinstance(node, ast.Constant) and isinstance(node.value, str):
-        return node.value
+    direct = _string_value(node)
+    if direct is not None:
+        return direct
     if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
         left = _const_str(node.left)
         right = _const_str(node.right)
@@ -364,20 +402,22 @@ def _dict_literals(tree: ast.Module, attr: str) -> dict[str, tuple[str, int]]:
         """Return the literal index of ``<expr>[<literal>]``, else None.
 
         The slice is an ``ast.Constant`` on Python 3.9+ and an ``ast.Index``
-        wrapping one on 3.7/3.8. Unwrap only while the intermediate is
-        itself an AST node, otherwise ``getattr(..., "value")`` would hand
-        back the subscripted *string* rather than the node holding it.
+        wrapping a string node on 3.7/3.8 -- and on 3.7 that inner node is an
+        ``ast.Str``, not an ``ast.Constant``. Unwrap only while the current
+        node is neither kind of string node, otherwise the loop would drill
+        into ``.value`` and hand back the subscripted string itself instead
+        of the node holding it.
         """
         if not isinstance(node, ast.Subscript):
             return None
         index: object = node.slice
-        while isinstance(index, ast.AST) and not isinstance(index, ast.Constant):
+        while isinstance(index, ast.AST) and not isinstance(index, _STRING_NODES):
             inner = getattr(index, "value", None)
             if inner is None:
                 return None
             index = inner
-        if isinstance(index, ast.Constant) and isinstance(index.value, str):
-            return index.value
+        if isinstance(index, ast.AST):
+            return _string_value(index)
         return None
 
     for node in ast.walk(tree):
@@ -389,9 +429,7 @@ def _dict_literals(tree: ast.Module, attr: str) -> dict[str, tuple[str, int]]:
             if not isinstance(comparator, ast.Dict):
                 continue
             for key, val in zip(comparator.keys, comparator.values):
-                name = None
-                if isinstance(key, ast.Constant) and isinstance(key.value, str):
-                    name = key.value
+                name = _string_value(key)
                 if not isinstance(name, str):
                     continue
                 text = _const_str(val)
