@@ -15,6 +15,7 @@ from dcc_mcp_core._server.gateway_guardian import GatewayDaemonGuardian
 from dcc_mcp_core._server.gateway_guardian import build_gateway_daemon_command
 from dcc_mcp_core._server.gateway_guardian import ensure_gateway_daemon
 from dcc_mcp_core._server.gateway_guardian import launch_gateway_daemon
+from dcc_mcp_core.host.ui_control_options import UiControlCapturePreparationOptions
 from dcc_mcp_core.host.ui_control_options import UiControlRecordingOptions
 from dcc_mcp_core.host.ui_control_options import UiControlRuntimeOptions
 
@@ -23,6 +24,7 @@ __all__ = [
     "DiagnosticRuntimeState",
     "GatewayDaemonGuardian",
     "UiControlRuntimeOptions",
+    "UiControlCapturePreparationOptions",
     "UiControlRecordingOptions",
     "build_gateway_daemon_command",
     "create_adapter_server",

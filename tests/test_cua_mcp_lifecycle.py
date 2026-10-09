@@ -83,8 +83,13 @@ def load_backend():
 
 @pytest.mark.parametrize("status", ["cleanup_failed", "cleanup_unknown"])
 def test_real_skill_unload_reports_owned_partial_failure_and_attempts_legacy_peers(
-    lifecycle_recording, lifecycle_bridge, caplog, status
+    lifecycle_recording, lifecycle_bridge, caplog, monkeypatch, status
 ):
+    # Other scripts may register synthetic origins which are not filesystem
+    # paths. Windows Python 3.8 rejects resolving these even with strict=False.
+    monkeypatch.setitem(
+        sys.modules, "_test_synthetic_sidecar_origin", SimpleNamespace(__file__="<dcc-mcp-sidecar-bootstrap>")
+    )
     config, process, _ = lifecycle_recording
     bridge = lifecycle_bridge
     session = "owned-lifecycle"
@@ -100,9 +105,9 @@ def test_real_skill_unload_reports_owned_partial_failure_and_attempts_legacy_pee
     backend = next(
         module
         for module in list(sys.modules.values())
-        if getattr(module, "__file__", None)
+        if session in getattr(module, "_CLIENTS", {})
+        and getattr(module, "__file__", None)
         and Path(module.__file__).resolve() == (SCRIPTS / "_cua_backend.py").resolve()
-        and session in getattr(module, "_CLIENTS", {})
     )
     owned = backend._CLIENTS[session]["client"]
     attempts = []

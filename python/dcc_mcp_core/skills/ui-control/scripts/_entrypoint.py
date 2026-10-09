@@ -427,6 +427,11 @@ def prepare_foreground_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str
     return _call("prepare_foreground_tool", params)
 
 
+def capture_preparation_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Dispatch passive preparation without exposing an actionable snapshot."""
+    return _call("capture_preparation_tool", params)
+
+
 def find_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Dispatch ui_control__find to the selected backend."""
     return _call("find_tool", params)
