@@ -60,6 +60,18 @@ def _write(root: Path, relative: str, content: str) -> None:
     path.write_text(textwrap.dedent(content), encoding="utf-8")
 
 
+def _split_annotation(annotation: str) -> tuple[str, str]:
+    """Split ``::error file=...,line=...,title=...::message`` on its separator.
+
+    The separator is the *last* ``::``: the leading ``::error`` marker also
+    contains one, and a property value escaped as ``%3A%3A`` never produces a
+    bare ``::`` inside the attribute list.
+    """
+    head, sep, message = annotation.rpartition("::")
+    assert sep == "::", f"annotation has no '::' separator: {annotation!r}"
+    return head, message
+
+
 # A minimal but structurally real pair: one workflow, one golden test.
 CLEAN_WORKFLOW = """\
     on:
@@ -348,11 +360,76 @@ def test_github_annotations_put_attributes_before_the_message() -> None:
     annotation = gate.format_github_annotations(REPO_ROOT, [mismatch], [])
 
     assert annotation.startswith("::error file=.github/workflows/release.yml,line=700,title=")
-    # The message must come after the '::' separator, and a comma inside it
-    # must not be read as an attribute separator.
-    _head, sep, _message = annotation.partition("::")
-    assert sep == "::"
-    assert "b%2C c" in annotation
+    # The message must come after the '::' separator.
+    _head, message = _split_annotation(annotation)
+    # The message is data, not an attribute list: ``escapeData`` leaves a comma
+    # alone, so the comma that was expected in the literal stays readable.
+    assert "b, c" in message
+    assert "b%2C c" not in message
+
+
+def test_annotation_keeps_commas_in_a_contains_expression_drift() -> None:
+    """A comma-bearing ``contains(...)`` drift must stay readable.
+
+    ``contains()`` / ``format()`` / ``join()`` put commas in workflow
+    expressions, so the first such drift is exactly the case the single-rule
+    escaper broke: it rendered ``contains(a%2C b)`` in the annotation while
+    the plain-text report beside it read ``contains(a, b)``. The message is
+    data (``escapeData`` -- 3 escapes), so commas survive; the attribute list
+    is a property list (``escapeProperty`` -- 5 escapes), so ``file`` /
+    ``line`` / ``title`` still parse.
+    """
+    binding = gate.Binding(
+        workflow=".github/workflows/release.yml",
+        path="jobs.build-wheels.with.reuse-release-assets",
+        test_file="tests/test_release_workflow.py",
+        test_name="REUSE_RELEASE_ASSETS_EXPRESSION",
+    )
+    expected = "${{ contains(github.event.head_commit.message, '[skip ci]') }}"
+    mismatch = gate.Mismatch(
+        binding=binding,
+        workflow_line=700,
+        test_line=16,
+        actual="${{ contains(github.event.head_commit.message, '[skip ci]') && true }}",
+        expected=expected,
+        reason="workflow value does not match the literal the test asserts",
+    )
+    annotation = gate.format_github_annotations(REPO_ROOT, [mismatch], [])
+
+    head, message = _split_annotation(annotation)
+    # The message is data: the comma is not escaped, and neither is the colon.
+    assert "contains(github.event.head_commit.message, '[skip ci]')" in message
+    assert "%2C" not in message
+    # The attribute list still parses: file, line and title are all present,
+    # unescaped and in order, with the values delimited by real commas.
+    assert head == "::error file=.github/workflows/release.yml,line=700,title=workflow expression drift"
+
+
+def test_property_escaping_still_protects_the_attribute_list() -> None:
+    """A comma or colon in a *property* value must still be escaped.
+
+    Splitting the two rules must not weaken the fix that put the attributes
+    back: a workflow path containing a comma would otherwise split the
+    attribute list and drop ``line`` / ``title``.
+    """
+    binding = gate.Binding(
+        workflow=".github/workflows/a,b:c.yml",
+        path="jobs.upload.with.reuse",
+        test_file="tests/test_release_workflow.py",
+        test_name="X",
+    )
+    mismatch = gate.Mismatch(
+        binding=binding,
+        workflow_line=1,
+        test_line=1,
+        actual="a",
+        expected="b",
+        reason="does not match",
+    )
+    annotation = gate.format_github_annotations(REPO_ROOT, [mismatch], [])
+
+    head, _message = _split_annotation(annotation)
+    assert head == "::error file=.github/workflows/a%2Cb%3Ac.yml,line=1,title=workflow expression drift"
 
 
 def test_annotation_mode_still_prints_the_text_report(tmp_path: Path, capsys) -> None:
