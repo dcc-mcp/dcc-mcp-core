@@ -69,7 +69,18 @@ _ENUMS = frozenset(
         "task_id",
     }
 )
-_OBJECTS = frozenset({"details", "capture", "native_outcome", "delivery", "native_instance", "target", "task_context"})
+_OBJECTS = frozenset(
+    {
+        "details",
+        "capture",
+        "capture_preparation",
+        "native_outcome",
+        "delivery",
+        "native_instance",
+        "target",
+        "task_context",
+    }
+)
 _RECTS = frozenset({"target_bounds", "blocker_bounds"})
 _TOKEN = re.compile(r"[A-Za-z0-9_.:+-]{1,128}\Z")
 

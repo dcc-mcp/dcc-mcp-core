@@ -47,6 +47,12 @@ class OwnedPixelsTaskCleanup:
                 raise CuaCliError("cleanup_unknown", "Cleanup changed the immutable recording directory.")
             ack = raw.get("cleanup")
             evidence = cleanup_evidence(raw, self.output_dir)
+            if isinstance(ack, dict):
+                preparation = self.client.preparation.cleanup(ack)
+                if preparation is not None:
+                    evidence["capture_preparation"] = preparation
+                    if not preparation["cleanup_verified"] or not preparation["capture_revoked"]:
+                        evidence["component_evidence_valid"] = False
             valid_ack = (
                 isinstance(ack, dict)
                 and ack.get("type") == "session_stopped"

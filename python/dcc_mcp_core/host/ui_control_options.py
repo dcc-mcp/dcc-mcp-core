@@ -54,6 +54,24 @@ class UiControlRecordingOptions:
 
 
 @dataclass(frozen=True)
+class UiControlCapturePreparationOptions:
+    """Explicit passive capture ceiling; the stable journal belongs to the operator."""
+
+    journal_root: str
+    allow_snapshot: bool = True
+
+    def __post_init__(self) -> None:
+        path = _ordinary_absolute_path(self.journal_root)
+        if not path.is_dir():
+            raise ValueError("capture preparation journal_root must already be a directory")
+        for ancestor in (path, *path.parents):
+            if ancestor.is_symlink() or getattr(ancestor.stat(), "st_file_attributes", 0) & 0x400:
+                raise ValueError("capture preparation journal_root must not contain reparse or symlink ancestors")
+        if type(self.allow_snapshot) is not bool:
+            raise TypeError("capture preparation allow_snapshot must be a boolean")
+
+
+@dataclass(frozen=True)
 class UiControlRuntimeOptions:
     """Select one owned public-MCP runtime without changing shared Host defaults.
 
@@ -88,10 +106,19 @@ class UiControlRuntimeOptions:
     observation_mode: str = "pixels_only"
     window_operations: tuple[str, ...] = ()
     recording: UiControlRecordingOptions | None = None
+    capture_preparation: UiControlCapturePreparationOptions | None = None
 
     def __post_init__(self) -> None:
         if self.recording is not None and not isinstance(self.recording, UiControlRecordingOptions):
             raise TypeError("recording must be UiControlRecordingOptions or None")
+        if self.capture_preparation is not None:
+            if not isinstance(self.capture_preparation, UiControlCapturePreparationOptions):
+                raise TypeError("capture_preparation must be UiControlCapturePreparationOptions or None")
+            if (
+                self.recording is not None
+                and Path(self.capture_preparation.journal_root).resolve() == Path(self.recording.output_root).resolve()
+            ):
+                raise ValueError("capture preparation journal_root must differ from recording output_root")
         if not isinstance(self.binary, str) or not Path(self.binary).is_absolute():
             raise ValueError("UI Control binary must be an absolute path")
         if not isinstance(self.sha256, str) or not re.fullmatch(r"[0-9a-f]{64}", self.sha256):

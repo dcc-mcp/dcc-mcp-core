@@ -100,6 +100,14 @@ Escape as the operator stop signal.
 
 ## Observe, act, verify
 
+Passive temporary capture is an independent owner-granted route:
+`ui_control__act(action="get_window_state")`, then
+`ui_control__capture_preparation(operation="begin", window_state_id=..., lifetime_ms=...)`
+on the same explicit session/PID/HWND. Read preparation state, optionally request
+`operation="snapshot"`, then `operation="stop"` and verify `cleanup_verified`.
+These images carry no input token. Preserve `restore_pending` and `cleanup_unknown`;
+never reinterpret temporary visibility as actual foreground or input readiness.
+
 Follow this loop:
 
 1. For authorized foreground interaction, call `ui_control__prepare_foreground`
