@@ -289,3 +289,86 @@ def test_every_binding_pins_an_expression() -> None:
         ok, value, _line, reason = gate.read_test_literal(REPO_ROOT, binding)
         assert ok, f"{binding.test_name}: {reason}"
         assert "${{" in value, f"{binding.test_name} does not pin an expression: {value!r}"
+
+
+def test_every_pinned_expression_has_a_binding() -> None:
+    """The reverse of the check above: no pinned expression may be unbound.
+
+    Without this, adding a new golden constant while forgetting its binding
+    would silently narrow the gate -- neither the gate nor any test would go
+    red. This is the guard that makes a coverage gap visible.
+    """
+    unbound = gate.unbound_pinned_constants(REPO_ROOT)
+
+    assert unbound == [], (
+        "pinned constants with no binding; add a Binding for each, or record it "
+        f"in KNOWN_UNBOUND_PINNED if it cannot be resolved by path: {unbound}"
+    )
+
+
+def test_completeness_guard_detects_an_unbound_constant(tmp_path: Path) -> None:
+    """The guard itself must fail, not pass vacuously."""
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_release_workflow.py").write_text(
+        textwrap.dedent(
+            """\
+            UNBOUND_EXPRESSION = "${{ github.event_name == 'push' }}"
+            """
+        ),
+        encoding="utf-8",
+    )
+
+    unbound = gate.unbound_pinned_constants(tmp_path)
+
+    assert ("tests/test_release_workflow.py", "UNBOUND_EXPRESSION") in unbound
+
+
+def test_github_annotations_put_attributes_before_the_message() -> None:
+    """GitHub parses ``::error file=...,line=...,title=...::message``.
+
+    Attributes placed after the message make the first comma-segment an
+    unknown key, so ``file`` / ``line`` / ``title`` are dropped and the
+    annotation attaches to no file. This is the regression that hid the
+    location from the CI log.
+    """
+    binding = gate.Binding(
+        workflow=".github/workflows/release.yml",
+        path="jobs.upload.with.reuse",
+        test_file="tests/test_release_workflow.py",
+        test_name="X",
+    )
+    mismatch = gate.Mismatch(
+        binding=binding,
+        workflow_line=700,
+        test_line=16,
+        actual="a",
+        expected="b, c",
+        reason="does not match",
+    )
+    annotation = gate.format_github_annotations(REPO_ROOT, [mismatch], [])
+
+    assert annotation.startswith("::error file=.github/workflows/release.yml,line=700,title=")
+    # The message must come after the '::' separator, and a comma inside it
+    # must not be read as an attribute separator.
+    _head, sep, _message = annotation.partition("::")
+    assert sep == "::"
+    assert "b%2C c" in annotation
+
+
+def test_annotation_mode_still_prints_the_text_report(tmp_path: Path, capsys) -> None:
+    """The location must not depend on the CI runner parsing annotations."""
+    root = _clean_repo(tmp_path)
+    gate.BINDINGS = _single_binding()
+    _write(
+        root,
+        ".github/workflows/release.yml",
+        CLEAN_WORKFLOW.replace("inputs.overwrite-release-assets", "inputs.overwrite-everything"),
+    )
+
+    exit_code = gate.main(["--root", str(root), "--format", "github"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    # Both the plain-text location report and the annotation are emitted.
+    assert "jobs.upload.steps.with.overwrite_files" in captured.out
+    assert "::error file=" in captured.out

@@ -84,7 +84,9 @@ class Binding(NamedTuple):
     When ``uses`` is set, ``path`` is resolved inside the job's step that
     invokes that action, found by name rather than by list position -- step
     order changes as the workflow grows, and a positional binding would drift
-    into reporting failures about the wrong step.
+    into reporting failures about the wrong step. ``step_name`` selects by the
+    step's ``name:`` instead, for steps that run a shell command and invoke no
+    action.
     """
 
     workflow: str
@@ -92,6 +94,7 @@ class Binding(NamedTuple):
     test_file: str
     test_name: str
     uses: str = ""
+    step_name: str = ""
 
 
 # Resolve a dotted path with optional ``[n]`` list indices, e.g.
@@ -122,6 +125,17 @@ BINDINGS: tuple[Binding, ...] = (
         test_file="tests/test_release_workflow.py",
         test_name="RELEASE_TOKEN@secrets",
     ),
+    # The upload token is asserted once per softprops step, and the golden
+    # test loops over every job that has one, so the binding spans all jobs
+    # with ``jobs.*``. A single-job binding here would leave three of the
+    # four upload steps unchecked.
+    Binding(
+        workflow=".github/workflows/release.yml",
+        path="jobs.*.steps.with.token",
+        test_file="tests/test_release_workflow.py",
+        test_name="GITHUB_RELEASE_TOKEN",
+        uses="softprops/action-gh-release@v3",
+    ),
     # --- build-wheels.yml: the reusable-workflow upload contract ------------
     # Resolved by action name, not step index: the publish job gains and
     # reorders steps, and a positional binding would silently point at the
@@ -147,6 +161,23 @@ BINDINGS: tuple[Binding, ...] = (
         test_file="tests/test_build_wheels_workflow.py",
         test_name="overwrite_files@with",
         uses="softprops/action-gh-release@v3",
+    ),
+    # --- release-please-lock-sync.yml: resolved head SHA --------------------
+    # Both steps run a shell command and invoke no action, so they are
+    # selected by ``name:``.
+    Binding(
+        workflow=".github/workflows/release-please-lock-sync.yml",
+        path="jobs.sync-cargo-metadata.steps.env.PR_HEAD_SHA",
+        test_file="tests/test_generated_lock_workflow_execution.py",
+        test_name="RESOLVED_HEAD_EXPRESSION",
+        step_name="Revalidate pull request identity and generated diff",
+    ),
+    Binding(
+        workflow=".github/workflows/release-please-lock-sync.yml",
+        path="jobs.sync-cargo-metadata.steps.env.EXPECTED_HEAD_SHA",
+        test_file="tests/test_generated_lock_workflow_execution.py",
+        test_name="RESOLVED_LEASE_EXPRESSION",
+        step_name="Push fixed generated lock commit",
     ),
 )
 
@@ -221,43 +252,92 @@ def resolve_binding(workflow: object, binding: Binding) -> tuple[bool, str | Non
     ``# <version>`` comment, so the comparison strips it.
     """
     node = workflow
-    if binding.uses:
+    if binding.uses or binding.step_name:
         keys = _split_path(binding.path)
         # Walk to the list that holds the steps, then select by action.
+        # A ``*`` job segment means "every job", because a golden test often
+        # asserts one constant against the same action in several jobs at
+        # once (all four release upload steps share one token expression).
         prefix = [key for key in keys[: keys.index("steps")]] if "steps" in keys else []
-        container: object = workflow
-        for key in prefix:
-            if not isinstance(container, dict) or key not in container:
-                return False, None, "{!r} has no key {!r}".format(".".join(prefix) or "<root>", key)
-            container = container[key]
-        steps = container.get("steps") if isinstance(container, dict) else None
-        if not isinstance(steps, list):
-            return False, None, "no 'steps' list under %r" % (".".join(prefix) or "<root>")
-        matches = [
-            step
-            for step in steps
-            if isinstance(step, dict) and str(step.get("uses") or "").split("#", 1)[0].strip() == binding.uses
-        ]
-        if len(matches) != 1:
-            return False, None, f"expected exactly 1 step using {binding.uses!r}, found {len(matches)}"
-        node = matches[0]
-        # Re-resolve the tail of the path (after ``steps``) inside that step.
         tail = keys[keys.index("steps") + 1 :]
-        current: object = node
-        walked = f"steps[{binding.uses}]"
-        for key in tail:
-            if isinstance(key, int):
-                if not isinstance(current, list) or key >= len(current):
-                    return False, None, f"{key} is not a list index at {walked!r}"
-                current = current[key]
+
+        containers: list[tuple[object, str]] = []
+
+        def descend(current_obj: object, remaining: list, label: str) -> tuple[bool, str]:
+            if not remaining:
+                containers.append((current_obj, label))
+                return True, ""
+            key = remaining[0]
+            if key == "*":
+                if not isinstance(current_obj, dict):
+                    return False, f"{label or '<root>'!r} is not a mapping, cannot expand '*'"
+                for name, value in current_obj.items():
+                    ok, err = descend(value, remaining[1:], f"{label}.{name}" if label else str(name))
+                    if not ok:
+                        return False, err
+                return True, ""
+            if not isinstance(current_obj, dict) or key not in current_obj:
+                return False, f"{label or '<root>'!r} has no key {key!r}"
+            return descend(current_obj[key], remaining[1:], f"{label}.{key}" if label else str(key))
+
+        ok, err = descend(workflow, prefix, "")
+        if not ok:
+            return False, None, err
+
+        resolved: list[str] = []
+        seen_any = False
+        for container, label in containers:
+            steps = container.get("steps") if isinstance(container, dict) else None
+            if not isinstance(steps, list):
+                # A wildcard expands to every job, and most jobs legitimately
+                # have no such step; the golden test filters the same way.
+                # Only an explicit (non-wildcard) path is a hard error here.
+                if "*" in prefix:
+                    continue
+                return False, None, f"no 'steps' list under {label!r}"
+            if binding.uses:
+                matches = [
+                    step
+                    for step in steps
+                    if isinstance(step, dict) and str(step.get("uses") or "").split("#", 1)[0].strip() == binding.uses
+                ]
+                description = f"step using {binding.uses!r}"
             else:
-                if not isinstance(current, dict) or key not in current:
-                    return False, None, f"{walked!r} has no key {key!r}"
-                current = current[key]
-            walked = f"{walked}.{key}"
-        if not isinstance(current, str):
-            return False, None, f"{binding.path!r} resolved to {type(current).__name__}, not a string"
-        return True, current, ""
+                matches = [step for step in steps if isinstance(step, dict) and step.get("name") == binding.step_name]
+                description = f"step named {binding.step_name!r}"
+            if not matches:
+                if "*" in prefix:
+                    continue
+                return False, None, f"no {description} in {label!r}"
+            if len(matches) != 1:
+                return False, None, f"expected exactly 1 {description} in {label!r}, found {len(matches)}"
+            seen_any = True
+            current: object = matches[0]
+            walked = f"{label}.steps[{binding.uses or binding.step_name}]"
+            for key in tail:
+                if isinstance(key, int):
+                    if not isinstance(current, list) or key >= len(current):
+                        return False, None, f"{key} is not a list index at {walked!r}"
+                    current = current[key]
+                else:
+                    if not isinstance(current, dict) or key not in current:
+                        return False, None, f"{walked!r} has no key {key!r}"
+                    current = current[key]
+                walked = f"{walked}.{key}"
+            if not isinstance(current, str):
+                return False, None, f"{binding.path!r} resolved to {type(current).__name__}, not a string"
+            resolved.append(current)
+
+        distinct = sorted(set(resolved))
+        if not seen_any:
+            return False, None, f"no matching step found under {binding.path!r}"
+        if len(distinct) != 1:
+            return (
+                False,
+                None,
+                (f"{binding.path!r} resolves to {len(distinct)} different values across jobs: {distinct}"),
+            )
+        return True, distinct[0], ""
     return resolve(node, binding.path)
 
 
@@ -282,23 +362,16 @@ def _workflow_line(root: Path, binding: Binding) -> int | None:
     return None
 
 
-def _string_node_types() -> tuple:
-    """Return the AST node types that carry a plain string literal.
-
-    Python 3.7 parses a string literal as ``ast.Str``; 3.8 folded ``Str``,
-    ``Num`` and friends into ``ast.Constant``. ``ast.Str`` stopped being
-    produced in 3.12 and the alias was removed, so it is looked up
-    defensively. Checking only ``ast.Constant`` makes every literal
-    unreadable on 3.7, which is exactly the failure this gate shipped with.
-    """
-    types: list = [ast.Constant]
-    legacy = getattr(ast, "Str", None)
-    if legacy is not None:
-        types.append(legacy)
-    return tuple(types)
-
-
-_STRING_NODES = _string_node_types()
+# Node class names that carry a plain string literal.
+#
+# Python 3.7 parses a string literal as ``ast.Str``; 3.8 folded ``Str``,
+# ``Num`` and friends into ``ast.Constant``. Matching on the class *name*
+# rather than importing ``ast.Str`` avoids the DeprecationWarning that
+# touching that alias emits on 3.12+, and still works unchanged on 3.14
+# where the alias was removed. Checking only ``ast.Constant`` makes every
+# literal unreadable on 3.7, which is the failure this gate first shipped
+# with.
+_STRING_NODE_NAMES = frozenset({"Constant", "Str"})
 
 
 def _string_value(node: ast.AST) -> str | None:
@@ -307,16 +380,16 @@ def _string_value(node: ast.AST) -> str | None:
     ``ast.Constant`` holds any constant, so the payload is re-checked for
     ``str``; a bare ``ast.Str`` only ever holds a string.
     """
-    if not isinstance(node, _STRING_NODES):
+    name = type(node).__name__
+    if name not in _STRING_NODE_NAMES:
         return None
-    value = getattr(node, "value", None)
-    if isinstance(value, str):
-        return value
-    # A bare ast.Str stores the text on .s rather than .value.
-    legacy = getattr(node, "s", None)
-    if isinstance(legacy, str):
-        return legacy
-    return None
+    if name == "Constant":
+        candidate = getattr(node, "value", None)
+        return candidate if isinstance(candidate, str) else None
+    # A bare ast.Str stores the text on .s. Read it only for that type, so
+    # the deprecated attribute is never touched on modern interpreters.
+    candidate = getattr(node, "s", None)
+    return candidate if isinstance(candidate, str) else None
 
 
 def _const_str(node: ast.AST) -> str | None:
@@ -411,7 +484,7 @@ def _dict_literals(tree: ast.Module, attr: str) -> dict[str, tuple[str, int]]:
         if not isinstance(node, ast.Subscript):
             return None
         index: object = node.slice
-        while isinstance(index, ast.AST) and not isinstance(index, _STRING_NODES):
+        while isinstance(index, ast.AST) and type(index).__name__ not in _STRING_NODE_NAMES:
             inner = getattr(index, "value", None)
             if inner is None:
                 return None
@@ -476,6 +549,68 @@ def read_test_literal(root: Path, binding: Binding) -> tuple[bool, str | None, i
         return False, None, 0, f"{binding.test_file} defines no constant {binding.test_name!r}"
     value, line = constants[binding.test_name]
     return True, value, line, ""
+
+
+# Workflow test files whose module-level string constants are scanned by
+# ``unbound_pinned_constants``. Only files that pin expressions verbatim as a
+# module-level constant belong here; a test that asserts a fragment with
+# ``in run`` cannot be bound by path and is listed in the docstring instead.
+GOLDEN_TEST_FILES: tuple[str, ...] = (
+    "tests/test_release_workflow.py",
+    "tests/test_build_wheels_workflow.py",
+    "tests/test_generated_lock_workflow_execution.py",
+)
+
+# Pinned expressions that are deliberately NOT bound, and why. A reader (or
+# the completeness guard) must be able to see the gap rather than infer it.
+#
+# These are asserted as substrings inside a multi-line ``run:`` shell script
+# (for example ``assert '--version "${{ needs.release-please.outputs.version }}"'
+# in run``), so they have no single YAML path to resolve. Covering them would
+# mean parsing shell text, which is a different and much weaker check.
+KNOWN_UNBOUND_PINNED = (
+    "tests/test_release_workflow.py: ${{ needs.release-please.outputs.version }} "
+    "and the ${{ matrix.* }} bundle arguments, asserted as substrings of a run: script",
+)
+
+
+def unbound_pinned_constants(root: Path, bindings: tuple = BINDINGS) -> list[tuple[str, str]]:
+    """Report pinned-but-unbound module-level expression constants.
+
+    ``test_every_binding_pins_an_expression`` checks that every binding pins
+    an expression; this is the reverse direction -- every expression the
+    golden tests pin has a binding. Without it, adding a new golden constant
+    while forgetting the binding silently narrows the gate's coverage and no
+    test goes red.
+
+    Returns ``(test_file, constant_name)`` pairs for constants that declare a
+    workflow expression but appear in no binding.
+    """
+    bound_by_file: dict[str, set] = {}
+    for binding in bindings:
+        # A ``key@attr`` selector reads a dict literal, not a module constant.
+        if DICT_KEY_SELECTOR.match(binding.test_name):
+            continue
+        bound_by_file.setdefault(binding.test_file, set()).add(binding.test_name)
+
+    unbound: list[tuple[str, str]] = []
+    for relative in GOLDEN_TEST_FILES:
+        test_path = root / relative
+        if not test_path.is_file():
+            continue
+        try:
+            tree = ast.parse(test_path.read_text(encoding="utf-8"), filename=str(test_path))
+        except (OSError, SyntaxError):
+            continue
+        for name, (_value, _line) in _module_constants(tree).items():
+            # A test's own fixtures are not workflow expectations.
+            if name.startswith("CLEAN_") or name.startswith("DRIFT"):
+                continue
+            if "${{" not in _value:
+                continue
+            if name not in bound_by_file.get(relative, set()):
+                unbound.append((relative, name))
+    return sorted(unbound)
 
 
 def _load_workflows(root: Path) -> dict[str, object]:
@@ -580,23 +715,42 @@ def format_report(root: Path, mismatches: Sequence[Mismatch], errors: Sequence[R
     return "\n".join(lines)
 
 
+def _escape_annotation(text: str) -> str:
+    r"""Escape a value for use inside a GitHub Actions workflow command.
+
+    ``%``, ``\r`` and ``\n`` are the data characters GitHub re-interprets
+    inside a command, and a bare ``,`` would split the attribute list, which
+    is what silently dropped every attribute in the previous revision.
+    """
+    return str(text).replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A").replace(",", "%2C")
+
+
 def format_github_annotations(root: Path, mismatches: Sequence[Mismatch], errors: Sequence[ResolutionError]) -> str:
-    """Render GitHub Actions error annotations for each mismatch."""
+    """Render GitHub Actions error annotations for each mismatch.
+
+    The syntax is ``::error file=<f>,line=<n>,title=<t>::<message>``:
+    attributes belong **before** the ``::`` separator and are comma-separated.
+    Putting them after the message makes GitHub parse the whole first segment
+    as a single unknown attribute key, which drops ``file``, ``line`` and
+    ``title`` and leaves the annotation unattached to any file.
+    """
     lines: list[str] = []
     for mismatch in mismatches:
         binding = mismatch.binding
-        message = f"workflow expression drift: {binding.path} (expected {mismatch.expected})"
-        for key, value in (
-            ("file", binding.workflow),
-            ("line", str(mismatch.workflow_line or 1)),
-            ("title", "workflow expression drift"),
-        ):
-            message = f"{message} {key}={value}"
-        lines.append(f"::error {message}::{mismatch.reason}")
-    for error in errors:
+        message = (
+            f"{binding.path} expected={mismatch.expected} actual={mismatch.actual} "
+            f"(test: {binding.test_file}:{mismatch.test_line} -> {binding.test_name})"
+        )
         lines.append(
-            f"::error file={error.binding.workflow},title=workflow expression drift::"
-            f"{error.binding.path} -> {error.binding.test_name}: {error.reason}"
+            f"::error file={_escape_annotation(binding.workflow)},"
+            f"line={mismatch.workflow_line or 1},"
+            f"title=workflow expression drift::{_escape_annotation(message)}"
+        )
+    for error in errors:
+        message = f"{error.binding.path} -> {error.binding.test_name}: {error.reason}"
+        lines.append(
+            f"::error file={_escape_annotation(error.binding.workflow)},"
+            f"title=workflow expression drift::{_escape_annotation(message)}"
         )
     return "\n".join(lines)
 
@@ -620,12 +774,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"workflow expression sync: {exc}", file=sys.stderr)
         return 2
 
+    # The plain-text report is always printed, including in annotation mode.
+    # The acceptance criterion is that a failure names both sides, and that
+    # must not depend on the CI runner rendering the annotation correctly --
+    # a command with unparsed attributes is dropped whole, which would leave
+    # the log with a bare "does not match" and no location.
+    print(format_report(root, mismatches, errors))
+
     if args.format == "github":
         annotations = format_github_annotations(root, mismatches, errors)
         if annotations:
             print(annotations)
-    else:
-        print(format_report(root, mismatches, errors))
 
     return 1 if (mismatches or errors) else 0
 
