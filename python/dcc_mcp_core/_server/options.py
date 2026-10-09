@@ -36,6 +36,8 @@ from typing import Union
 from dcc_mcp_core.constants import ENV_DCC_INSTANCE_TYPE_TEMPLATE
 from dcc_mcp_core.constants import ENV_DCC_PORT_TEMPLATE
 from dcc_mcp_core.constants import ENV_GATEWAY_PORT
+from dcc_mcp_core.constants import ENV_GATEWAY_REMOTE_HOST
+from dcc_mcp_core.constants import ENV_GATEWAY_REMOTE_PORT
 from dcc_mcp_core.constants import ENV_HOST_RPC
 from dcc_mcp_core.constants import ENV_INSTANCE_TYPE
 from dcc_mcp_core.constants import ENV_REGISTRY_DIR
@@ -67,6 +69,11 @@ class GatewayOptions:
             ``None`` means the server will call ``_version_string()`` at startup.
         scene: Currently open scene file path for the gateway registry.
         enable_failover: Enable automatic gateway failover / election.
+        remote_host: Explicit bind address for the embedded gateway's second
+            listener. ``None`` preserves the native constructor default.
+        remote_port: Embedded second listener port. ``0`` disables it;
+            ``None`` preserves the native constructor default. This does not
+            reconfigure a separately owned gateway daemon.
 
     """
 
@@ -76,6 +83,14 @@ class GatewayOptions:
     scene: str | None = None
     enable_failover: bool = True
     strict_gateway: bool = False
+    remote_host: str | None = None
+    remote_port: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.remote_port is not None and (type(self.remote_port) is not int or not 0 <= self.remote_port <= 65535):
+            raise ValueError("remote_port must be an integer between 0 and 65535 or None")
+        if self.remote_host is not None and (not isinstance(self.remote_host, str) or not self.remote_host.strip()):
+            raise ValueError("remote_host must be a nonempty bind address or None")
 
     @classmethod
     def from_env(
@@ -87,6 +102,8 @@ class GatewayOptions:
         scene: str | None = None,
         enable_failover: bool = True,
         strict_gateway: bool = False,
+        remote_host: str | None = None,
+        remote_port: int | None = None,
     ) -> GatewayOptions:
         """Resolve gateway options, reading env-vars where parameters are ``None``.
 
@@ -104,6 +121,16 @@ class GatewayOptions:
             env_val = os.environ.get(ENV_GATEWAY_PORT, "")
             resolved_port = int(env_val) if env_val.isdigit() else None
 
+        if remote_host is None:
+            remote_host = os.environ.get(ENV_GATEWAY_REMOTE_HOST) or None
+        if remote_port is None:
+            raw_remote_port = os.environ.get(ENV_GATEWAY_REMOTE_PORT)
+            if raw_remote_port is not None:
+                try:
+                    remote_port = int(raw_remote_port)
+                except ValueError as exc:
+                    raise ValueError("DCC_MCP_GATEWAY_REMOTE_PORT must be an integer between 0 and 65535") from exc
+
         resolved_registry_dir = registry_dir
         if resolved_registry_dir is None:
             resolved_registry_dir = os.environ.get(ENV_REGISTRY_DIR, "") or None
@@ -119,6 +146,8 @@ class GatewayOptions:
             scene=scene,
             enable_failover=enable_failover,
             strict_gateway=resolved_strict,
+            remote_host=remote_host,
+            remote_port=remote_port,
         )
 
 
@@ -372,6 +401,8 @@ class DccServerOptions:
         ui_control: UiControlRuntimeOptions | None = None,
         # gateway kwargs
         gateway_port: int | None = None,
+        gateway_remote_host: str | None = None,
+        gateway_remote_port: int | None = None,
         registry_dir: str | None = None,
         dcc_version: str | None = None,
         scene: str | None = None,
@@ -437,6 +468,8 @@ class DccServerOptions:
 
         gateway = GatewayOptions.from_env(
             port=gateway_port,
+            remote_host=gateway_remote_host,
+            remote_port=gateway_remote_port,
             registry_dir=registry_dir,
             dcc_version=dcc_version,
             scene=scene,

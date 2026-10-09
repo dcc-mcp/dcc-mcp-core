@@ -104,6 +104,37 @@ or register with it.
 
 ## Standalone gateway daemon (#1358)
 
+### Embedded Python gateway listener policy
+
+The native Python `McpHttpConfig` constructor preserves its existing secondary
+listener defaults (`0.0.0.0:59765`). Embedded adapters can explicitly disable
+that listener through the public options API:
+
+```python
+options = DccServerOptions.from_env(
+    "blender", builtin_skills_dir,
+    gateway_port=19765,
+    gateway_remote_port=0,
+    enable_gateway_failover=False,
+)
+```
+
+`GatewayOptions(remote_port=0)` provides the same override for direct options.
+`remote_host` / `gateway_remote_host` select an explicit bind address when a
+secondary listener is wanted. Omitting both preserves constructor behavior.
+`from_env` also reads the existing `DCC_MCP_GATEWAY_REMOTE_HOST` and
+`DCC_MCP_GATEWAY_REMOTE_PORT`; explicit values, including zero, take precedence.
+Invalid supplied ports fail during option resolution. Changing the primary
+gateway port or disabling failover alone does not disable the second listener.
+
+These options configure the embedded native listener. They do not reconfigure
+an already running or separately owned daemon. A local-only embedded instance
+uses `enable_gateway_failover=False` as above; configure a standalone daemon
+with its own public `--remote-host` / `--remote-port` flags below. Verify actual
+listener addresses after installing a matching wheel in the target application.
+
+### Standalone process
+
 The `dcc-mcp-server gateway` subcommand runs the gateway **as its own
 process**, separate from any per-DCC server. It hosts only the gateway
 plane — discovery, aggregation, routing, dynamic capabilities,

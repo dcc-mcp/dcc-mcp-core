@@ -223,6 +223,10 @@ def build_mcp_http_config(
     # Explicit port (including 0 to disable) overrides the Rust default.
     if gateway.port is not None:
         config.gateway_port = gateway.port
+    if gateway.remote_host is not None:
+        config.gateway_remote_host = gateway.remote_host
+    if gateway.remote_port is not None:
+        config.gateway_remote_port = gateway.remote_port
     if gateway.registry_dir:
         config.registry_dir = gateway.registry_dir
 
