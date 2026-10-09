@@ -364,6 +364,9 @@ class DccServerOptions:
         observability: :class:`ObservabilityOptions` instance.
         diagnostics: :class:`DiagnosticsOptions` instance.
         execution: :class:`ExecutionOptions` instance.
+        bare_tool_names: Publish unique action names without the skill prefix.
+            ``False`` retains skill-qualified names in native MCP tool discovery.
+            Defaults to ``True`` for compatibility; accepts only booleans.
         ui_control: Optional trusted :class:`UiControlRuntimeOptions` selecting
             an owned public-MCP pixels runtime. ``None`` preserves shared JSONL.
 
@@ -381,9 +384,12 @@ class DccServerOptions:
     sidecar: SidecarOptions = field(default_factory=SidecarOptions)
     # Appended to preserve the public dataclass's historical positional order.
     instance_type: str | None = None
+    bare_tool_names: bool = True
     ui_control: UiControlRuntimeOptions | None = None
 
     def __post_init__(self) -> None:
+        if not isinstance(self.bare_tool_names, bool):
+            raise TypeError("bare_tool_names must be a bool")
         if self.ui_control is not None and not isinstance(self.ui_control, UiControlRuntimeOptions):
             raise TypeError("ui_control must be UiControlRuntimeOptions or None")
         if self.instance_type is None:
@@ -403,6 +409,7 @@ class DccServerOptions:
         server_name: str | None = None,
         server_version: str | None = None,
         instance_type: str | None = None,
+        bare_tool_names: bool = True,
         ui_control: UiControlRuntimeOptions | None = None,
         # gateway kwargs
         gateway_port: int | None = None,
@@ -444,6 +451,7 @@ class DccServerOptions:
         directory happens here once, producing a fully-resolved frozen object.
 
         Raises:
+            TypeError: If ``bare_tool_names`` is not a boolean.
             ValueError: If more than one execution mode is provided or the
                 runtime instance type is invalid.
 
@@ -522,6 +530,7 @@ class DccServerOptions:
             server_name=server_name,
             server_version=server_version,
             instance_type=resolved_instance_type,
+            bare_tool_names=bare_tool_names,
             ui_control=ui_control,
             gateway=gateway,
             observability=observability,
