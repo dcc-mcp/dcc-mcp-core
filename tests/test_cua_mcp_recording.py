@@ -352,9 +352,13 @@ def test_recording_options_reject_unbounded_or_unowned_values(tmp_path, change):
         UiControlRecordingOptions(**{"output_root": str(tmp_path), **change})
 
 
-def test_stop_timeout_is_unknown_and_not_retried(recording, monkeypatch):
+@pytest.mark.parametrize("clock", [None, 63.9])
+def test_stop_timeout_is_unknown_and_not_retried(recording, monkeypatch, clock):
     config, process, _ = recording
     owned = client(config)
+    if clock is not None:
+        # (63.9 + 65) - 63.9 exceeds 65 through floating-point cancellation.
+        monkeypatch.setattr("dcc_mcp_core.host.cua_mcp_transport.time.monotonic", lambda: clock)
     waits = []
     process.drop_response = True
 
