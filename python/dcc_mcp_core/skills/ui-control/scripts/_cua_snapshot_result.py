@@ -10,9 +10,7 @@ from dcc_mcp_core.adapter_contracts import UiControlPolicy
 from dcc_mcp_core.skill import skill_success
 
 
-def render(
-    capture: Dict[str, Any], session_id: str, policy: UiControlPolicy, params: Dict[str, Any]
-) -> Dict[str, Any]:
+def render(capture: Dict[str, Any], session_id: str, policy: UiControlPolicy, params: Dict[str, Any]) -> Dict[str, Any]:
     if not capture.get("success"):
         return capture
     accessibility_available = bool(capture.get("accessibility_available", True))
@@ -52,4 +50,3 @@ def render(
             "alt": "{} UI Control screenshot".format(params.get("app_name") or "DCC"),
         },
     )
-

@@ -484,7 +484,6 @@ def prepare_foreground_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str
     )
 
 
-
 @_serialize_session_call
 def recording_start_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Start CUA trajectory recording for the exact target session."""
