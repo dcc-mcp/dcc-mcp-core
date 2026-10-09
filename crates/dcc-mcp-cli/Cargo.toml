@@ -19,6 +19,7 @@ clap = { version = "4", features = ["derive", "env"] }
 dcc-mcp-catalog.workspace = true
 dcc-mcp-attestation.workspace = true
 dcc-mcp-gateway-ensure.workspace = true
+dcc-mcp-gateway.workspace = true
 dcc-mcp-jsonrpc.workspace = true
 dcc-mcp-http-server.workspace = true
 # Keep the path override: Cargo cannot override inherited workspace default features.
