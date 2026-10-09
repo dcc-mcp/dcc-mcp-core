@@ -56,6 +56,7 @@ sys.path.insert(0, str(REPO_ROOT))
 from scripts import generate_adapter_pointer as generator  # noqa: E402
 
 DEFAULT_TIMEOUT_SECS = 300
+_REFS_HEADS = "refs/heads/"
 
 DRIFTED = "drifted"
 CURRENT = "current"
@@ -113,7 +114,9 @@ def _default_branch_name(url: str, *, timeout: int) -> str:
         return ""
     for line in result.stdout.splitlines():
         if line.startswith("ref:") and "\tHEAD" in line:
-            return line.split()[1].removeprefix("refs/heads/")
+            ref = line.split()[1]
+            # `str.removeprefix` is 3.9+; this repository supports 3.7.
+            return ref[len(_REFS_HEADS) :] if ref.startswith(_REFS_HEADS) else ref
     return ""
 
 

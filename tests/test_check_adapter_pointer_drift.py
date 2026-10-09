@@ -42,7 +42,10 @@ def _make_origin(tmp_path: Path, name: str, readme: str, *, branch: str = "main"
     """
     origin = tmp_path / f"origin-{name}"
     origin.mkdir()
-    (origin / "README.md").write_text(readme, encoding="utf-8", newline="")
+    # write_bytes, not write_text: `newline=` is a 3.10+ keyword on write_text,
+    # and this repository supports 3.7. Writing bytes also keeps a CRLF readme
+    # byte-exact, which is what the CRLF test below depends on.
+    (origin / "README.md").write_bytes(readme.encode("utf-8"))
     subprocess.run(["git", "init", "-q", "-b", branch, str(origin)], check=True)
     subprocess.run(["git", "-C", str(origin), "add", "README.md"], check=True)
     subprocess.run(
