@@ -160,7 +160,7 @@ def validate_status(value: Any) -> dict[str, Any]:
     require(integer(value["deadline_ms"]))
     require(all(value[key] is None or integer(value[key]) for key in ("pending_sequence", "last_completed_sequence")))
     require(type(value["capture_revoked"]) is bool and type(value["cleanup_verified"]) is bool)
-    require(isinstance(value["journal_path"], str) and 0 < len(value["journal_path"]) <= 4096)
+    require(isinstance(value["journal_path"], str) and len(value["journal_path"]) <= 4096)
     failure(value["failure"])
     groups = [value["original"], value["affected_readback"]]
     mutation = value["last_mutation"]
@@ -195,4 +195,15 @@ def validate_status(value: Any) -> dict[str, Any]:
         )
     if value["phase"] == "active":
         require(not value["capture_revoked"] and not value["cleanup_verified"] and value["pending_sequence"] is None)
+    if not value["journal_path"]:
+        require(
+            value["phase"] == "pending_promotion"
+            and value["pending_sequence"] == 1
+            and not value["cleanup_verified"]
+            and not value["original"]
+            and not value["affected_readback"]
+            and value["last_mutation"] is None
+            and value["last_completed_sequence"] is None,
+            "Only uninitialized pending preparation can omit its journal path.",
+        )
     return deepcopy(value)

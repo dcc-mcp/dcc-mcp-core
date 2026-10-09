@@ -27,6 +27,16 @@ logical session, exact PID/HWND and owner runtime throughout:
    `cleanup_verified=true`. Pending/unknown restoration is not success. Finish
    the task with `ui_control__stop_computer_use`, retaining its cleanup receipt.
 
+Native initialization is asynchronous. The first `pending_promotion` receipt
+can have `original=[]`, no mutation/readback/completed sequence, and an empty
+journal path while the child has not replied. This is neither capture readiness
+nor cleanup proof. The same preparation may initialize its one exact root
+window and journal once; subsequent receipts cannot clear or replace them.
+Active capture and restored state require the bound root record. An initialization
+failure may truthfully settle as `refused` with no original or mutation, but
+cleanup succeeds only after Native confirms the real journal settlement.
+Worker loss remains unknown. None of these transitions grants input authority.
+
 State/stop/snapshot take no metadata token or lifetime. Every operation runs under
 the existing session lock. Scope checks remain active when policy is narrowed;
 read/status and revocation do not require snapshot or mutation policy. Native
