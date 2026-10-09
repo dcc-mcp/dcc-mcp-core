@@ -87,7 +87,7 @@ The retained client performs the explicit mutation, independently reads actual
 foreground/visibility, then captures a fresh observation before returning its
 `snapshot_id`, pixels and provenance. It never switches HWND within the same
 PID, rebinds an existing logical session, resumes stopped control, retries, or
-sends content input. Every attempted preparation consumes the prior snapshot.
+sends content input. Every attempted window mutation consumes the prior snapshot.
 The ordinary `ui_control__snapshot` path remains free of foreground mutation.
 
 The `foreground_preparation` result identifies `binding`, `authorization`,
