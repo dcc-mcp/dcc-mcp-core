@@ -9,9 +9,9 @@ use probe::probe_and_mark_unreachable_instances;
 pub(crate) use probe::self_probe_listener;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct InstanceMembership {
-    dcc_type: String,
-    instance_id: String,
+pub(crate) struct InstanceMembership {
+    pub(crate) dcc_type: String,
+    pub(crate) instance_id: String,
 }
 
 fn instance_membership(entries: Vec<ServiceEntry>) -> HashMap<String, InstanceMembership> {
@@ -30,7 +30,7 @@ fn instance_membership(entries: Vec<ServiceEntry>) -> HashMap<String, InstanceMe
         .collect()
 }
 
-fn removed_instances(
+pub(crate) fn removed_instances(
     previous: &HashMap<String, InstanceMembership>,
     current: &HashMap<String, InstanceMembership>,
 ) -> Vec<InstanceMembership> {
@@ -47,7 +47,7 @@ fn removed_instances(
     removed
 }
 
-async fn poll_list_fingerprint<F, Fut>(
+pub(crate) async fn poll_list_fingerprint<F, Fut>(
     events_tx: &broadcast::Sender<String>,
     poll: F,
 ) -> Option<String>
@@ -386,7 +386,7 @@ async fn probe_relay_candidate(
         .is_ok_and(|response| response.status().is_success())
 }
 
-fn build_backend_http_client() -> Result<reqwest::Client, reqwest::Error> {
+pub(crate) fn build_backend_http_client() -> Result<reqwest::Client, reqwest::Error> {
     reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(5))
         .timeout(Duration::from_secs(30))
@@ -1389,7 +1389,7 @@ pub(crate) async fn start_gateway_tasks(
     })
 }
 
-async fn wait_for_startup_ready(ready: &mut watch::Receiver<bool>) -> bool {
+pub(crate) async fn wait_for_startup_ready(ready: &mut watch::Receiver<bool>) -> bool {
     while !*ready.borrow() {
         if ready.changed().await.is_err() {
             return false;

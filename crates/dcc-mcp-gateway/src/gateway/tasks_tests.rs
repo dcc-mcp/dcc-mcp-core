@@ -3,6 +3,10 @@
 //! Kept in a sibling module so `tasks.rs` stays under the repository's
 //! file-size gate.
 
+use super::tasks::{
+    InstanceMembership, build_backend_http_client, poll_list_fingerprint, removed_instances,
+    wait_for_startup_ready,
+};
 use super::*;
 use axum::{Router, response::Redirect, routing::get};
 use std::sync::atomic::{AtomicUsize, Ordering};
