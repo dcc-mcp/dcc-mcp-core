@@ -1,0 +1,34 @@
+{
+  "contract": "dcc-cua.game-navigation.b3.v1",
+  "profile": "game_b3.v1",
+  "platform": "windows",
+  "observation_mode": "pixels_only",
+  "intent": "game_navigation",
+  "input_kind": "raw_input",
+  "delivery_mode": "foreground",
+  "actions": [
+    "game_navigation",
+    "relative_mouse"
+  ],
+  "limits": {
+    "min_keys": 1,
+    "max_keys": 4,
+    "min_duration_ms": 0,
+    "max_duration_ms": 500,
+    "omitted_duration_ms": 0,
+    "max_abs_relative_delta": 256
+  },
+  "shape": {
+    "canonical_keys_only": true,
+    "null_duration_allowed": false,
+    "game_optional_paired_delta": true,
+    "relative_pair_required": true,
+    "zero_delta_allowed": false,
+    "relative_buttonless": true,
+    "standalone_relative_packets": 1
+  },
+  "combined_requires": [
+    "game_navigation",
+    "relative_mouse"
+  ]
+}

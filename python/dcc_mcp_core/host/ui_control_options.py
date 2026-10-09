@@ -18,6 +18,8 @@ PIXEL_ACTIONS = frozenset(
         "type_chars",
         "move",
         "drag",
+        "game_navigation",
+        "relative_mouse",
     }
 )
 
