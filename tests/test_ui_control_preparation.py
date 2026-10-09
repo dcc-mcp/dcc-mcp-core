@@ -20,13 +20,14 @@ def route(runtime, monkeypatch):
     monkeypatch.setenv("DCC_MCP_CUA_ALLOW_RAW_INPUT", "1")
     bridge = HostExecutionBridge()
 
-    def call(name, arguments=None, *, owner=config, scope=TARGET):
+    def call(name, arguments=None, *, owner=config, scope=TARGET, cancel_token=None):
         return bridge.execute_script(
             str(SCRIPTS / (name + ".py")),
             {"session_id": "prepare-test", **TARGET, **(arguments or {})},
             skill_name="ui-control",
             trusted_adapter_scope={"dcc_type": "unreal", **scope},
             trusted_ui_control_runtime=owner,
+            cancel_token=cancel_token,
         )
 
     yield call, process, launches, config
