@@ -159,3 +159,37 @@ cleanup with in-memory pipe fixtures. These tests do not certify Windows
 capture/input, a visible DCC session, or a new binary release. Native acceptance
 must use the same formal bundled-tool route against the verified runtime and
 read back the application's state after input.
+
+## Explicit foreground preparation
+
+Use `ui_control__prepare_foreground(session_id=..., process_id=...,
+window_handle=..., operation="restore_activate")` when the task requires the
+exact application in front before capture. `operation="activate"` is available
+for an already visible target. Both window mutation and snapshot policy must
+permit the call; owned pixels additionally requires the matching
+`window_operations` entry. The call grants no new content input permissions.
+
+The retained client performs the explicit mutation, independently reads actual
+foreground/visibility, then captures a fresh observation before returning its
+`snapshot_id`, pixels and provenance. It never switches HWND within the same
+PID, rebinds an existing logical session, resumes stopped control, retries, or
+sends content input. Every attempted window mutation consumes the prior snapshot.
+The ordinary `ui_control__snapshot` path remains free of foreground mutation.
+
+The `foreground_preparation` result identifies `binding`, `authorization`,
+`activation`, `foreground_readback`, `capture`, or `ready`. Activation and
+readback receipts remain available when capture fails. Capture reports its
+`semantic` or `pixels_only` mode and retains native error details such as
+`root_overlap`; a successful activation does not turn a rejected screenshot
+into success. Only `ready` carries a new usable snapshot; one subsequent input
+still requires the existing owner permission and fresh native checks. Verify
+its application effect and finish with `ui_control__stop_computer_use`.
+
+Preparation checks request and host-job cancellation after acquiring the session
+lock, before mutation, and between native stages. Cancellation waits for an
+already dispatched native call to return; it prevents the next stage and returns
+`cancelled` with completed receipts, no screenshot or usable input token. Any
+resolved pixels client's action evidence is invalidated, including pixels
+captured immediately before cancellation. The retained session remains available
+for explicit stop. Ordinary activation is persistent: cancellation does not
+claim to restore previous foreground or window ordering.

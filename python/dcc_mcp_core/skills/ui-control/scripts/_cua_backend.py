@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import base64
 from contextlib import suppress
 import importlib.util
 import os
@@ -43,6 +42,8 @@ _HOST = _load_sibling("_cua_cli_host_client")
 _PIXELS = _load_sibling("_cua_pixels")
 _FRAME = _load_sibling("_cua_window_frame")
 _LIFECYCLE = _load_sibling("_cua_lifecycle")
+_PREPARATION = _load_sibling("_cua_preparation")
+_SNAPSHOT = _load_sibling("_cua_snapshot_result")
 UiControlHostError = _HOST.UiControlHostError
 _HostClient = _HOST.UiControlHostClient
 
@@ -210,7 +211,9 @@ def _client_spec(session_id: str, params: Dict[str, Any], policy: UiControlPolic
     }
 
 
-def _client_for(session_id: str, params: Dict[str, Any], policy: UiControlPolicy) -> Tuple[Any, Dict[str, Any]]:
+def _client_for(
+    session_id: str, params: Dict[str, Any], policy: UiControlPolicy, *, reject_rebind: bool = False
+) -> Tuple[Any, Dict[str, Any]]:
     spec = _client_spec(session_id, params, policy)
     runtime = params.get("trusted_ui_control_runtime")
     if runtime is not None and not isinstance(runtime, UiControlRuntimeOptions):
@@ -232,6 +235,10 @@ def _client_for(session_id: str, params: Dict[str, Any], policy: UiControlPolicy
     with _CLIENTS_LOCK:
         entry = _CLIENTS.get(session_id)
         if entry is not None and entry["identity"] != identity:
+            if reject_rebind:
+                raise UiControlHostError(
+                    "invalid_target", "Foreground preparation cannot rebind an existing UI session."
+                )
             with suppress(Exception):
                 entry["client"].stop()
             _CLIENTS.pop(session_id, None)
@@ -337,9 +344,11 @@ def _capture_snapshot(
     session_id: str,
     policy: UiControlPolicy,
     params: Dict[str, Any],
+    *,
+    client_entry: Optional[Tuple[Any, Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     try:
-        client, entry = _client_for(session_id, params, policy)
+        client, entry = client_entry if client_entry is not None else _client_for(session_id, params, policy)
         if params.get("resume_computer_use"):
             client.resume()
         max_depth = max(1, min(12, int(os.environ.get("DCC_MCP_CUA_MAX_DEPTH", "5"))))
@@ -455,44 +464,23 @@ def snapshot_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     if not policy.allow_snapshot:
         return skill_error("ui_control snapshot disabled by policy", UiErrorCode.POLICY_DISABLED)
     capture = _capture_snapshot(session_id, policy, params)
-    if not capture.get("success"):
-        return capture
-    accessibility_available = bool(capture.get("accessibility_available", True))
-    pixels_only = capture.get("observation_mode") == "pixels_only"
-    return skill_success(
-        (
-            "Captured scoped CUA application snapshot."
-            if accessibility_available or pixels_only
-            else "Captured screenshot-only CUA application observation."
-        ),
-        prompt=(
-            "Inspect these pixels, perform one authorized physical ui_control__act with this snapshot_id, "
-            "then take a fresh snapshot and verify the application state. Semantic controls are unavailable."
-            if pixels_only
-            else "Use ui_control__find or one scoped ui_control__act with this snapshot_id, then snapshot again."
-            if accessibility_available
-            else (
-                "CUA accessibility was unavailable for this frame. Inspect the pixels, but do not act "
-                "until a fresh snapshot returns accessibility_available=true."
-            )
-        ),
+    return _SNAPSHOT.render(capture, session_id, policy, params)
+
+
+@_serialize_session_call
+def prepare_foreground_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    params = dict(params or {})
+    session_id = _safe_session_id(params.get("session_id"))
+    policy = _policy_from_params(params)
+    return _PREPARATION.run(
+        params,
+        policy,
         session_id=session_id,
-        snapshot_id=capture["snapshot_id"],
-        snapshot=capture["snapshot"],
-        observation=capture["observation"],
-        state_delta=capture.get("state_delta"),
-        accessibility_available=accessibility_available,
-        observation_mode=capture.get("observation_mode"),
-        accessibility_state_id=capture.get("accessibility_state_id"),
-        task_context=capture.get("task_context"),
-        target=capture.get("target"),
-        policy=policy.to_dict(),
-        __rich__={
-            "kind": "image",
-            "data": base64.b64encode(capture["image"]).decode("ascii"),
-            "mime": capture["mime_type"],
-            "alt": "{} UI Control screenshot".format(params.get("app_name") or "DCC"),
-        },
+        resolve=lambda: _client_for(session_id, params, policy, reject_rebind=True),
+        capture=lambda client, entry: _SNAPSHOT.render(
+            _capture_snapshot(session_id, policy, params, client_entry=(client, entry)), session_id, policy, params
+        ),
+        host_error=lambda exc: _host_error(exc, params, fresh_observation=True),
     )
 
 
