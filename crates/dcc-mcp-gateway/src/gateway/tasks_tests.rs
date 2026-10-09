@@ -12,240 +12,232 @@ use axum::{Router, response::Redirect, routing::get};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio::sync::Notify;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use axum::{Router, response::Redirect, routing::get};
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use tokio::sync::Notify;
+fn membership(dcc_type: &str, instance_id: &str) -> (String, InstanceMembership) {
+    (
+        format!("{dcc_type}:{instance_id}"),
+        InstanceMembership {
+            dcc_type: dcc_type.to_string(),
+            instance_id: instance_id.to_string(),
+        },
+    )
+}
 
-    fn membership(dcc_type: &str, instance_id: &str) -> (String, InstanceMembership) {
-        (
-            format!("{dcc_type}:{instance_id}"),
-            InstanceMembership {
-                dcc_type: dcc_type.to_string(),
-                instance_id: instance_id.to_string(),
-            },
-        )
-    }
+#[test]
+fn removed_instances_preserve_dcc_and_instance_identity() {
+    let previous = HashMap::from([
+        membership("houdini", "aaaaaaaa-0000-0000-0000-000000000000"),
+        membership("photoshop", "bbbbbbbb-0000-0000-0000-000000000000"),
+    ]);
+    let current = HashMap::from([membership(
+        "photoshop",
+        "bbbbbbbb-0000-0000-0000-000000000000",
+    )]);
 
-    #[test]
-    fn removed_instances_preserve_dcc_and_instance_identity() {
-        let previous = HashMap::from([
-            membership("houdini", "aaaaaaaa-0000-0000-0000-000000000000"),
-            membership("photoshop", "bbbbbbbb-0000-0000-0000-000000000000"),
-        ]);
-        let current = HashMap::from([membership(
-            "photoshop",
-            "bbbbbbbb-0000-0000-0000-000000000000",
-        )]);
+    assert_eq!(
+        removed_instances(&previous, &current),
+        vec![InstanceMembership {
+            dcc_type: "houdini".to_string(),
+            instance_id: "aaaaaaaa-0000-0000-0000-000000000000".to_string(),
+        }]
+    );
+}
 
-        assert_eq!(
-            removed_instances(&previous, &current),
-            vec![InstanceMembership {
-                dcc_type: "houdini".to_string(),
-                instance_id: "aaaaaaaa-0000-0000-0000-000000000000".to_string(),
-            }]
-        );
-    }
+#[test]
+fn removed_instances_does_not_report_unchanged_inventory() {
+    let inventory = HashMap::from([membership(
+        "custom_host",
+        "cccccccc-0000-0000-0000-000000000000",
+    )]);
+    assert!(removed_instances(&inventory, &inventory).is_empty());
+}
 
-    #[test]
-    fn removed_instances_does_not_report_unchanged_inventory() {
-        let inventory = HashMap::from([membership(
-            "custom_host",
-            "cccccccc-0000-0000-0000-000000000000",
-        )]);
-        assert!(removed_instances(&inventory, &inventory).is_empty());
-    }
+#[tokio::test]
+async fn list_fingerprint_poll_is_skipped_without_subscribers() {
+    let (events_tx, receiver) = broadcast::channel(1);
+    drop(receiver);
+    let calls = AtomicUsize::new(0);
 
-    #[tokio::test]
-    async fn list_fingerprint_poll_is_skipped_without_subscribers() {
-        let (events_tx, receiver) = broadcast::channel(1);
-        drop(receiver);
-        let calls = AtomicUsize::new(0);
+    let fingerprint = poll_list_fingerprint(&events_tx, || async {
+        calls.fetch_add(1, Ordering::SeqCst);
+        "unused".to_string()
+    })
+    .await;
 
-        let fingerprint = poll_list_fingerprint(&events_tx, || async {
-            calls.fetch_add(1, Ordering::SeqCst);
-            "unused".to_string()
-        })
-        .await;
+    assert_eq!(fingerprint, None);
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+}
 
-        assert_eq!(fingerprint, None);
-        assert_eq!(calls.load(Ordering::SeqCst), 0);
-    }
+#[tokio::test]
+async fn list_fingerprint_poll_runs_for_a_subscriber() {
+    let (events_tx, _receiver) = broadcast::channel(1);
+    let calls = AtomicUsize::new(0);
 
-    #[tokio::test]
-    async fn list_fingerprint_poll_runs_for_a_subscriber() {
-        let (events_tx, _receiver) = broadcast::channel(1);
-        let calls = AtomicUsize::new(0);
+    let fingerprint = poll_list_fingerprint(&events_tx, || async {
+        calls.fetch_add(1, Ordering::SeqCst);
+        "current".to_string()
+    })
+    .await;
 
-        let fingerprint = poll_list_fingerprint(&events_tx, || async {
-            calls.fetch_add(1, Ordering::SeqCst);
-            "current".to_string()
-        })
-        .await;
+    assert_eq!(fingerprint.as_deref(), Some("current"));
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
 
-        assert_eq!(fingerprint.as_deref(), Some("current"));
-        assert_eq!(calls.load(Ordering::SeqCst), 1);
-    }
-
-    /// Mirror of the supervisor's listener teardown: await the drain window,
-    /// then abort whatever is still running.
-    ///
-    /// Mirroring the shape here means the `listener_aborts` fallback in
-    /// `start_gateway_tasks` has a test that fails if the fallback is removed.
-    async fn drain_then_abort(
-        handles: Vec<tokio::task::JoinHandle<()>>,
-        aborts: Vec<tokio::task::AbortHandle>,
-        grace: Duration,
-    ) -> bool {
-        let drain = async {
-            for handle in handles {
-                let _ = handle.await;
-            }
-        };
-        let finished = tokio::time::timeout(grace, drain).await.is_ok();
-        for abort in &aborts {
-            abort.abort();
+/// Mirror of the supervisor's listener teardown: await the drain window,
+/// then abort whatever is still running.
+///
+/// Mirroring the shape here means the `listener_aborts` fallback in
+/// `start_gateway_tasks` has a test that fails if the fallback is removed.
+async fn drain_then_abort(
+    handles: Vec<tokio::task::JoinHandle<()>>,
+    aborts: Vec<tokio::task::AbortHandle>,
+    grace: Duration,
+) -> bool {
+    let drain = async {
+        for handle in handles {
+            let _ = handle.await;
         }
-        finished
+    };
+    let finished = tokio::time::timeout(grace, drain).await.is_ok();
+    for abort in &aborts {
+        abort.abort();
     }
+    finished
+}
 
-    /// Regression: a listener that outlives the drain window (a long-lived SSE
-    /// stream, for example) must still be aborted, not detached. Dropping its
-    /// JoinHandle would leave the axum listener running and hold the gateway
-    /// port open — the teardown regression this guards against.
-    #[tokio::test]
-    async fn drain_aborts_a_listener_that_outlives_the_window() {
-        let finished_flag = Arc::new(AtomicUsize::new(0));
-        let task_flag = finished_flag.clone();
-        let handle = tokio::spawn(async move {
-            // Never completes on its own — stands in for an open SSE stream.
-            std::future::pending::<()>().await;
-            task_flag.fetch_add(1, Ordering::SeqCst);
-        });
-        let abort = handle.abort_handle();
+/// Regression: a listener that outlives the drain window (a long-lived SSE
+/// stream, for example) must still be aborted, not detached. Dropping its
+/// JoinHandle would leave the axum listener running and hold the gateway
+/// port open — the teardown regression this guards against.
+#[tokio::test]
+async fn drain_aborts_a_listener_that_outlives_the_window() {
+    let finished_flag = Arc::new(AtomicUsize::new(0));
+    let task_flag = finished_flag.clone();
+    let handle = tokio::spawn(async move {
+        // Never completes on its own — stands in for an open SSE stream.
+        std::future::pending::<()>().await;
+        task_flag.fetch_add(1, Ordering::SeqCst);
+    });
+    let abort = handle.abort_handle();
 
-        let drained = drain_then_abort(vec![handle], vec![abort], Duration::from_millis(50)).await;
+    let drained = drain_then_abort(vec![handle], vec![abort], Duration::from_millis(50)).await;
 
-        assert!(
-            !drained,
-            "a stuck listener must report the drain window as elapsed"
-        );
-        assert_eq!(
-            finished_flag.load(Ordering::SeqCst),
-            0,
-            "the abort fallback must stop the listener task"
-        );
-    }
+    assert!(
+        !drained,
+        "a stuck listener must report the drain window as elapsed"
+    );
+    assert_eq!(
+        finished_flag.load(Ordering::SeqCst),
+        0,
+        "the abort fallback must stop the listener task"
+    );
+}
 
-    /// The drain contract: a request already accepted when the yield fires
-    /// must still run to completion.
-    ///
-    /// This exercises the real `axum::serve` + `with_graceful_shutdown` path
-    /// the supervisor awaits, not a stand-in. The handler parks long enough
-    /// that an abort-based teardown would sever the connection, and the
-    /// assertion is that the response still arrives complete.
-    #[tokio::test]
-    async fn drain_lets_an_in_flight_request_finish_before_abort() {
-        let handler_started = Arc::new(Notify::new());
-        let handler_done = Arc::new(AtomicUsize::new(0));
-        let started = handler_started.clone();
-        let done = handler_done.clone();
+/// The drain contract: a request already accepted when the yield fires
+/// must still run to completion.
+///
+/// This exercises the real `axum::serve` + `with_graceful_shutdown` path
+/// the supervisor awaits, not a stand-in. The handler parks long enough
+/// that an abort-based teardown would sever the connection, and the
+/// assertion is that the response still arrives complete.
+#[tokio::test]
+async fn drain_lets_an_in_flight_request_finish_before_abort() {
+    let handler_started = Arc::new(Notify::new());
+    let handler_done = Arc::new(AtomicUsize::new(0));
+    let started = handler_started.clone();
+    let done = handler_done.clone();
 
-        let app = Router::new().route(
-            "/slow",
+    let app = Router::new().route(
+        "/slow",
+        get(move || {
+            let started = started.clone();
+            let done = done.clone();
+            async move {
+                started.notify_one();
+                tokio::time::sleep(Duration::from_millis(300)).await;
+                done.fetch_add(1, Ordering::SeqCst);
+                "finished"
+            }
+        }),
+    );
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let (yield_tx, yield_rx) = watch::channel(false);
+
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app)
+            .with_graceful_shutdown(async move {
+                let mut yield_rx = yield_rx;
+                loop {
+                    if yield_rx.changed().await.is_err() {
+                        break;
+                    }
+                    if *yield_rx.borrow() {
+                        break;
+                    }
+                }
+            })
+            .await
+            .ok();
+    });
+
+    let client = reqwest::Client::new();
+    let request =
+        tokio::spawn(async move { client.get(format!("http://{addr}/slow")).send().await });
+
+    // Wait until the handler is genuinely in flight before yielding.
+    handler_started.notified().await;
+    let _ = yield_tx.send(true);
+
+    let response = tokio::time::timeout(Duration::from_secs(5), request)
+        .await
+        .expect("in-flight request must not hang across graceful shutdown")
+        .expect("request task panicked")
+        .expect("drain must not sever an in-flight request");
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    assert_eq!(response.text().await.unwrap(), "finished");
+    assert_eq!(handler_done.load(Ordering::SeqCst), 1);
+    let _ = server.await;
+}
+
+#[tokio::test]
+async fn cleanup_startup_barrier_waits_for_durable_readback() {
+    let (ready_tx, mut ready_rx) = watch::channel(false);
+    let waiter = tokio::spawn(async move { wait_for_startup_ready(&mut ready_rx).await });
+
+    tokio::task::yield_now().await;
+    assert!(!waiter.is_finished());
+    ready_tx.send(true).unwrap();
+    assert!(waiter.await.unwrap());
+}
+
+#[tokio::test]
+async fn backend_http_client_does_not_follow_redirects() {
+    let private_hits = Arc::new(AtomicUsize::new(0));
+    let private_hits_handler = private_hits.clone();
+    let app = Router::new()
+        .route("/start", get(|| async { Redirect::temporary("/private") }))
+        .route(
+            "/private",
             get(move || {
-                let started = started.clone();
-                let done = done.clone();
+                let private_hits = private_hits_handler.clone();
                 async move {
-                    started.notify_one();
-                    tokio::time::sleep(Duration::from_millis(300)).await;
-                    done.fetch_add(1, Ordering::SeqCst);
-                    "finished"
+                    private_hits.fetch_add(1, Ordering::SeqCst);
+                    "private"
                 }
             }),
         );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
 
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        let (yield_tx, yield_rx) = watch::channel(false);
-
-        let server = tokio::spawn(async move {
-            axum::serve(listener, app)
-                .with_graceful_shutdown(async move {
-                    let mut yield_rx = yield_rx;
-                    loop {
-                        if yield_rx.changed().await.is_err() {
-                            break;
-                        }
-                        if *yield_rx.borrow() {
-                            break;
-                        }
-                    }
-                })
-                .await
-                .ok();
-        });
-
-        let client = reqwest::Client::new();
-        let request =
-            tokio::spawn(async move { client.get(format!("http://{addr}/slow")).send().await });
-
-        // Wait until the handler is genuinely in flight before yielding.
-        handler_started.notified().await;
-        let _ = yield_tx.send(true);
-
-        let response = tokio::time::timeout(Duration::from_secs(5), request)
-            .await
-            .expect("in-flight request must not hang across graceful shutdown")
-            .expect("request task panicked")
-            .expect("drain must not sever an in-flight request");
-
-        assert_eq!(response.status(), reqwest::StatusCode::OK);
-        assert_eq!(response.text().await.unwrap(), "finished");
-        assert_eq!(handler_done.load(Ordering::SeqCst), 1);
-        let _ = server.await;
-    }
-
-    #[tokio::test]
-    async fn cleanup_startup_barrier_waits_for_durable_readback() {
-        let (ready_tx, mut ready_rx) = watch::channel(false);
-        let waiter = tokio::spawn(async move { wait_for_startup_ready(&mut ready_rx).await });
-
-        tokio::task::yield_now().await;
-        assert!(!waiter.is_finished());
-        ready_tx.send(true).unwrap();
-        assert!(waiter.await.unwrap());
-    }
-
-    #[tokio::test]
-    async fn backend_http_client_does_not_follow_redirects() {
-        let private_hits = Arc::new(AtomicUsize::new(0));
-        let private_hits_handler = private_hits.clone();
-        let app = Router::new()
-            .route("/start", get(|| async { Redirect::temporary("/private") }))
-            .route(
-                "/private",
-                get(move || {
-                    let private_hits = private_hits_handler.clone();
-                    async move {
-                        private_hits.fetch_add(1, Ordering::SeqCst);
-                        "private"
-                    }
-                }),
-            );
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-
-        let response = build_backend_http_client()
-            .unwrap()
-            .get(format!("http://{addr}/start"))
-            .send()
-            .await
-            .unwrap();
-        assert!(response.status().is_redirection());
-        assert_eq!(private_hits.load(Ordering::SeqCst), 0);
-    }
+    let response = build_backend_http_client()
+        .unwrap()
+        .get(format!("http://{addr}/start"))
+        .send()
+        .await
+        .unwrap();
+    assert!(response.status().is_redirection());
+    assert_eq!(private_hits.load(Ordering::SeqCst), 0);
 }
