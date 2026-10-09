@@ -43,8 +43,11 @@ Why this is the right regression guard:
   facade — if *it* regresses, step 5's SSE assertion will time out even
   though a direct backend call succeeds.
 
-Runtime budget: the watcher ticks every 3 s, so we allow up to 10 s for
-the notification to arrive.
+Runtime budget: the watcher ticks every 3 s, so we allow up to 20 s for
+the notification to arrive. The budget has to cover more than one full tick:
+on a loaded Windows runner a single aggregator pass can be delayed past the
+point where a 12 s window has already elapsed, which is what made this lane
+flake on windows-2022/py3.8 (the notification was never missing, it was late).
 """
 
 from __future__ import annotations
@@ -77,8 +80,18 @@ EXAMPLES_SKILLS_DIR = str(REPO_ROOT / "examples" / "skills")
 # The aggregating tools watcher in gateway/mod.rs ticks every 3 s; give
 # ourselves some extra slack for the self-probe, registry propagation,
 # and Windows scheduling jitter under CI.
-SSE_NOTIFICATION_BUDGET_S = 12.0
+#
+# The budget must clear more than one tick, not merely one: a delayed pass on a
+# loaded Windows runner otherwise consumes the whole window before the
+# notification the test is waiting for is ever produced. 12 s proved too tight
+# on windows-2022/py3.8, where two unrelated PRs saw this assertion red.
+SSE_NOTIFICATION_BUDGET_S = 20.0
 AGGREGATOR_TICK_S = 3.0
+# Upper bound on how long we wait for the baseline tick to be *observed* before
+# draining startup noise. The drain below is state-based rather than a bare
+# sleep, so this only bounds the slow-runner case; a healthy runner exits as
+# soon as the first tick lands.
+BASELINE_DRAIN_BUDGET_S = 15.0
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -202,6 +215,35 @@ def _drain_pending_events(events: queue.Queue[dict]) -> None:
             events.get_nowait()
         except queue.Empty:
             return
+
+
+def _drain_after_baseline_tick(events: queue.Queue[dict], method: str, budget: float) -> None:
+    """Drop startup noise once the first aggregator tick has been *observed*.
+
+    A bare ``sleep(AGGREGATOR_TICK_S + 0.5)`` assumes one tick completes inside
+    that fixed window. On a loaded runner the tick lands later, so the sleep
+    returns before the baseline fingerprint is committed and the tick's
+    ``tools/list_changed`` frame is still in flight. Whatever consumes events
+    next then mistakes that baseline frame for one caused by the action under
+    test — or, worse, the frame the test needs arrives during the sleep and is
+    discarded by the drain that follows it.
+
+    Waiting for the frame to actually appear removes the assumption: the drain
+    runs after the baseline is provably committed, so the only notifications
+    left to observe are the ones the action causes. If no tick arrives within
+    ``budget`` we drain anyway — an idle gateway simply has no change to
+    broadcast, and the action's own notification is still awaited afterwards.
+    """
+    deadline = time.time() + budget
+    while time.time() < deadline:
+        remaining = max(0.0, deadline - time.time())
+        try:
+            ev = events.get(timeout=min(remaining, 0.5))
+        except queue.Empty:
+            continue
+        if isinstance(ev, dict) and ev.get("method") == method:
+            break
+    _drain_pending_events(events)
 
 
 # ── fixture ───────────────────────────────────────────────────────────────────
@@ -357,8 +399,11 @@ class TestGatewayLoadSkillSsePropagation:
             # fingerprint is committed, then discard any startup noise.
             # Without the drain, Windows CI can consume an initial
             # tools/list_changed frame as if it were caused by load_skill.
-            time.sleep(AGGREGATOR_TICK_S + 0.5)
-            _drain_pending_events(events)
+            _drain_after_baseline_tick(
+                events,
+                "notifications/tools/list_changed",
+                BASELINE_DRAIN_BUDGET_S,
+            )
 
             # Trigger the load via the gateway (routes through to the
             # skill-enabled backend).
@@ -443,7 +488,11 @@ class TestGatewayLoadSkillSsePropagation:
             if subscriber.error is not None:
                 pytest.fail(f"SSE subscription failed: {subscriber.error!r}")
 
-            time.sleep(AGGREGATOR_TICK_S + 0.5)
+            _drain_after_baseline_tick(
+                events,
+                "notifications/tools/list_changed",
+                BASELINE_DRAIN_BUDGET_S,
+            )
 
             unload_resp = _post_mcp(
                 gateway_url,
