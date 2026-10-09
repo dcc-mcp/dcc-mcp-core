@@ -59,22 +59,53 @@ class PixelsMcpPreparation:
                 require(value["preparation_id"] == self.status["preparation_id"], "Preparation identity changed.")
                 require(value["deadline_ms"] == self.status["deadline_ms"], "Preparation deadline changed.")
         original = value["original"]
-        require(len(original) == 1, "Public v1 preparation must bind exactly one root window.")
-        expected = original[0]["identity"]
-        self.client._check_target(expected)
-        require(expected["native_instance"] == self.client._native_instance, "Preparation native instance changed.")
         if self.status is not None and not new:
-            require(original == self.status["original"], "Preparation original state changed.")
+            if self.status["original"] or self.status["cleanup_verified"]:
+                require(original == self.status["original"], "Preparation original state changed.")
+            if self.status["journal_path"]:
+                require(value["journal_path"] == self.status["journal_path"], "Preparation journal changed.")
+        if not original:
+            require(
+                value["last_mutation"] is None
+                and not value["affected_readback"]
+                and value["last_completed_sequence"] is None,
+                "Uninitialized preparation cannot report a mutation or window readback.",
+            )
+            if value["phase"] == "pending_promotion":
+                require(value["pending_sequence"] == 1 and not value["cleanup_verified"])
+            elif value["phase"] == "refused":
+                require(value["capture_revoked"] and value["pending_sequence"] is None and value["failure"] is not None)
+            else:
+                require(
+                    value["phase"] == "cleanup_unknown"
+                    and value["capture_revoked"]
+                    and not value["cleanup_verified"]
+                    and value["failure"] is not None
+                )
+        else:
+            require(len(original) == 1, "Public v1 preparation must bind exactly one root window.")
+            expected = original[0]["identity"]
+            self.client._check_target(expected)
+            require(expected["native_instance"] == self.client._native_instance, "Preparation native instance changed.")
         groups = [value["affected_readback"]]
         mutation = value["last_mutation"]
         if mutation is not None:
             groups.append(mutation["readback"])
-            require(all(call["window_handle"] == expected["window_handle"] for call in mutation["native_calls"]))
+            require(
+                all(
+                    call["window_handle"] == original[0]["identity"]["window_handle"]
+                    for call in mutation["native_calls"]
+                )
+            )
         for group in groups:
-            require(len(group) <= 1 and all(item["identity"] == expected for item in group), "Affected scope changed.")
-        journal = _ordinary_absolute_path(value["journal_path"])
-        root = Path(self.client.options.capture_preparation.journal_root)
-        require(root in journal.parents, "Preparation journal escaped the operator root.")
+            require(
+                len(group) <= 1 and all(item["identity"] == original[0]["identity"] for item in group),
+                "Affected scope changed.",
+            )
+        if value["journal_path"]:
+            journal = _ordinary_absolute_path(value["journal_path"])
+            root = Path(self.client.options.capture_preparation.journal_root)
+            require(root in journal.parents, "Preparation journal escaped the operator root.")
         return value
 
     def call(self, operation: str, *, window_state_id: str | None = None, lifetime_ms: int | None = None) -> dict:
