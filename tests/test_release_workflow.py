@@ -117,9 +117,7 @@ def test_manual_backfill_is_explicitly_core_only() -> None:
     assert 'core_backfill="$CORE_BACKFILL"' in summary
     # `core_backfill` is a workflow expression, so it must reach the script as an
     # env binding rather than being interpolated into the shell body.
-    assert summary_step["env"]["CORE_BACKFILL"] == (
-        f"${{{{ {CORE_BACKFILL_EXPRESSION}{ASSETS_BACKFILL_GUARD} }}}}"
-    )
+    assert summary_step["env"]["CORE_BACKFILL"] == (f"${{{{ {CORE_BACKFILL_EXPRESSION}{ASSETS_BACKFILL_GUARD} }}}}")
     assert 'server" != "skipped"' in summary
     assert 'semantic" != "skipped"' in summary
     assert 'release_assets" != "skipped"' in summary
@@ -438,9 +436,7 @@ def test_release_workflow_never_interpolates_expressions_into_run_bodies() -> No
     does not trip it, and a real one cannot hide behind formatting.
     """
     workflow = yaml_loads(RELEASE_WORKFLOW.read_text(encoding="utf-8"))
-    offenders = [
-        trail for trail, step in _run_scripts(workflow) if "${{" in step["run"] or "}}" in step["run"]
-    ]
+    offenders = [trail for trail, step in _run_scripts(workflow) if "${{" in step["run"] or "}}" in step["run"]]
     assert not offenders, (
         "these run: bodies interpolate ${{ }} into the script, which GitHub expands "
         "before bash runs; move the expression into an `env:` block and read the "
