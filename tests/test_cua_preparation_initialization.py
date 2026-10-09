@@ -79,6 +79,25 @@ def test_worker_loss_before_initialization_remains_unknown(runtime):
     owned.stop()
 
 
+def test_formal_route_observes_initialization_before_passive_capture(route):
+    call, process, _, _ = route
+    value = pending(process.root, cached=True)
+    process.mutate_preparation = lambda raw: raw.update(result=deepcopy(value))
+    started = begin(call)
+    assert started["success"] and not started["context"]["input_authorized"]
+    value = status(process.root, phase="pending_promotion")
+    value.update(pending_sequence=1, last_completed_sequence=None, affected_readback=[], capture_revoked=False)
+    initialized = call("state")
+    assert initialized["success"]
+    assert len(initialized["context"]["capture_preparation"]["original"]) == 1
+    process.mutate_preparation = lambda raw: None
+    assert call("state")["context"]["capture_preparation"]["phase"] == "active"
+    captured = call("snapshot")
+    assert captured["success"] and not captured["context"]["input_authorized"]
+    stopped = call("stop")
+    assert stopped["success"] and stopped["context"]["capture_preparation"]["cleanup_verified"]
+
+
 def test_formal_route_keeps_pending_stop_unverified_until_no_write_settlement(route):
     call, process, _, _ = route
     value = pending(process.root, cached=True)
