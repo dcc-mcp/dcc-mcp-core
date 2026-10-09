@@ -88,6 +88,21 @@ def _safe_session_id(session_id: Any) -> str:
     return cleaned[:80] or "default"
 
 
+def _scope_error(scope: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    if scope.get("invalid_reason"):
+        return skill_error(str(scope["invalid_reason"]), UiErrorCode.INVALID_TARGET)
+    if not _scope_is_trusted_native_target(scope):
+        return skill_error(
+            (
+                "Isolated DCC UI Control requires an operator-bound process id or window handle. "
+                "Set DCC_MCP_UI_CONTROL_PROCESS_ID or DCC_MCP_UI_CONTROL_WINDOW_HANDLE "
+                "in the adapter environment."
+            ),
+            UiErrorCode.PERMISSION_DENIED,
+        )
+    return None
+
+
 def _session_lock(session_id: str) -> threading.RLock:
     safe_id = _safe_session_id(session_id)
     with _SESSION_LOCKS_GUARD:

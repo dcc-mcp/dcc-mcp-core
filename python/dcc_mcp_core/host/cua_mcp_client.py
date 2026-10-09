@@ -13,6 +13,7 @@ from dcc_mcp_core.cua_cli import CuaCliError
 from dcc_mcp_core.host.cua_mcp_cleanup import OwnedPixelsTaskCleanup
 from dcc_mcp_core.host.cua_mcp_errors import OwnedCuaMcpError
 from dcc_mcp_core.host.cua_mcp_geometry import validate_geometry
+from dcc_mcp_core.host.cua_mcp_preparation import PixelsMcpPreparation
 from dcc_mcp_core.host.cua_mcp_recording import RECORDING_METHODS
 from dcc_mcp_core.host.cua_mcp_recording import PixelsMcpRecording
 from dcc_mcp_core.host.cua_mcp_transport import OwnedCuaMcpTransport
@@ -56,6 +57,7 @@ class PixelsMcpHostClient:
         self._closed = False
         self._recording = PixelsMcpRecording(self)
         self._cleanup = OwnedPixelsTaskCleanup(self)
+        self.preparation = PixelsMcpPreparation(self)
         self._actions = options.allowed_actions if allow_raw_input else ()
         methods = ["snapshot", "get_window_state"]
         scopes = [
@@ -64,6 +66,7 @@ class PixelsMcpHostClient:
         ]
         if self._actions:
             methods.append("execute_action")
+        self.preparation.register(methods, scopes)
         if options.recording is not None:
             methods.extend(RECORDING_METHODS)
         if any(operation in options.window_operations for operation in ("activate", "restore_activate")):
@@ -102,6 +105,7 @@ class PixelsMcpHostClient:
                     "allowed_actions": scopes,
                     "ttl_minutes": options.ttl_minutes,
                     **({"allow_recording": True} if options.recording is not None else {}),
+                    **({"allow_capture_preparation": True} if options.capture_preparation is not None else {}),
                 },
             )["structuredContent"]
             # Retain the returned id before validation so failed startup can revoke it.
@@ -188,7 +192,7 @@ class PixelsMcpHostClient:
             with suppress(Exception):
                 self.stop()
             raise
-        if method == "snapshot":
+        if method in {"snapshot", "capture_preparation_snapshot"}:
             raw["_mcp_content"] = result.get("content")
         return raw
 
@@ -346,7 +350,7 @@ class PixelsMcpHostClient:
         raw = self._call("get_window_state", {}, "window_state")
         try:
             self._check_window_state(raw.get("state"))
-            if "set_frame" in self.options.window_operations:
+            if "set_frame" in self.options.window_operations or self.options.capture_preparation is not None:
                 state_id = raw["state"].get("window_state_id")
                 if (
                     raw.get("session_id") != "mcp-" + self.task_id

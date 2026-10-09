@@ -43,6 +43,7 @@ _PIXELS = _load_sibling("_cua_pixels")
 _FRAME = _load_sibling("_cua_window_frame")
 _LIFECYCLE = _load_sibling("_cua_lifecycle")
 _PREPARATION = _load_sibling("_cua_preparation")
+_PASSIVE_PREPARATION = _load_sibling("_cua_passive_preparation")
 _SNAPSHOT = _load_sibling("_cua_snapshot_result")
 UiControlHostError = _HOST.UiControlHostError
 _HostClient = _HOST.UiControlHostClient
@@ -50,6 +51,7 @@ _HostClient = _HOST.UiControlHostClient
 _policy_from_params = _SUPPORT._policy_from_params
 _scope_from_params = _SUPPORT._scope_from_params
 _scope_is_trusted_native_target = _SUPPORT._scope_is_trusted_native_target
+_scope_error = _SUPPORT._scope_error
 _node_from_cua_dict = _SUPPORT._node_from_cua_dict
 _find_by_id = _SUPPORT._find_by_id
 _find_controls = _SUPPORT._find_controls
@@ -164,21 +166,6 @@ def _reap_idle_clients() -> None:
                 return
 
 
-def _scope_error(scope: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    if scope.get("invalid_reason"):
-        return skill_error(str(scope["invalid_reason"]), UiErrorCode.INVALID_TARGET)
-    if not _scope_is_trusted_native_target(scope):
-        return skill_error(
-            (
-                "Isolated DCC UI Control requires an operator-bound process id or window handle. "
-                "Set DCC_MCP_UI_CONTROL_PROCESS_ID or DCC_MCP_UI_CONTROL_WINDOW_HANDLE "
-                "in the adapter environment."
-            ),
-            UiErrorCode.PERMISSION_DENIED,
-        )
-    return None
-
-
 def _client_spec(session_id: str, params: Dict[str, Any], policy: UiControlPolicy) -> Dict[str, Any]:
     scope = _scope_from_params(params, policy)
     failure = _scope_error(scope)
@@ -220,7 +207,9 @@ def _client_for(
         raise UiControlHostError("invalid_request", "Invalid server-owned UI Control runtime configuration.")
     identity = (
         *tuple(
-            spec[key]
+            # Semantic menu authority is not part of a pixels client's constructor.
+            # Per-call policy narrowing must not recreate its native task or block cleanup.
+            (False if runtime is not None and key == "allow_menu_invoke" else spec[key])
             for key in (
                 "dcc_type",
                 "process_id",
@@ -465,6 +454,20 @@ def snapshot_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         return skill_error("ui_control snapshot disabled by policy", UiErrorCode.POLICY_DISABLED)
     capture = _capture_snapshot(session_id, policy, params)
     return _SNAPSHOT.render(capture, session_id, policy, params)
+
+
+@_serialize_session_call
+def capture_preparation_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    params = dict(params or {})
+    session_id = _safe_session_id(params.get("session_id"))
+    policy = _policy_from_params(params)
+    return _PASSIVE_PREPARATION.run(
+        params,
+        policy,
+        session_id=session_id,
+        resolve=lambda: _client_for(session_id, params, policy, reject_rebind=True),
+        host_error=lambda exc: _host_error(exc, params, fresh_observation=True),
+    )
 
 
 @_serialize_session_call

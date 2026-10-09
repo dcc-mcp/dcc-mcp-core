@@ -1,0 +1,904 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "application_label",
+    "surface",
+    "allowed_methods",
+    "allowed_actions"
+  ],
+  "oneOf": [
+    {
+      "required": [
+        "target_process_id",
+        "target_window_handle"
+      ],
+      "not": {
+        "required": [
+          "owned_browser_launch"
+        ]
+      }
+    },
+    {
+      "required": [
+        "owned_browser_launch"
+      ],
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "target_process_id"
+            ]
+          },
+          {
+            "required": [
+              "target_window_handle"
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "allOf": [
+    {
+      "if": {
+        "required": [
+          "observation_mode"
+        ],
+        "properties": {
+          "observation_mode": {
+            "const": "pixels_only"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "target_process_id",
+          "target_window_handle"
+        ],
+        "not": {
+          "required": [
+            "owned_browser_launch"
+          ]
+        },
+        "properties": {
+          "surface": {
+            "const": "window"
+          },
+          "allowed_browser_origins": {
+            "maxItems": 0
+          },
+          "allowed_methods": {
+            "items": {
+              "enum": [
+                "get_window_state",
+                "change_window_state",
+                "minimize_window",
+                "set_window_frame",
+                "snapshot",
+                "execute_action",
+                "get_session_state",
+                "get_input_state",
+                "session_health",
+                "poll_session_events",
+                "live_observation_start",
+                "live_observation_state",
+                "live_observation_stop",
+                "recording_start",
+                "recording_state",
+                "recording_stop",
+                "capture_preparation_begin",
+                "capture_preparation_state",
+                "capture_preparation_stop",
+                "capture_preparation_snapshot"
+              ]
+            }
+          },
+          "allowed_actions": {
+            "items": {
+              "oneOf": [
+                {
+                  "title": "Observation-bound native window minimize",
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "action",
+                    "input_kind",
+                    "secret_input",
+                    "authorization_category"
+                  ],
+                  "properties": {
+                    "action": {
+                      "const": "minimize_window"
+                    },
+                    "input_kind": {
+                      "const": "window_state"
+                    },
+                    "secret_input": {
+                      "const": false
+                    },
+                    "authorization_category": {
+                      "const": "window_state"
+                    },
+                    "browser_origin": {
+                      "type": "null"
+                    }
+                  }
+                },
+                {
+                  "title": "Metadata-bound non-activating native window frame",
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "action",
+                    "input_kind",
+                    "secret_input",
+                    "authorization_category"
+                  ],
+                  "properties": {
+                    "action": {
+                      "const": "set_window_frame"
+                    },
+                    "input_kind": {
+                      "const": "window_state"
+                    },
+                    "secret_input": {
+                      "const": false
+                    },
+                    "authorization_category": {
+                      "const": "window_state"
+                    },
+                    "browser_origin": {
+                      "type": "null"
+                    }
+                  }
+                },
+                {
+                  "title": "Temporary passive exact-root capture preparation",
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "action",
+                    "input_kind",
+                    "secret_input",
+                    "authorization_category"
+                  ],
+                  "properties": {
+                    "action": {
+                      "const": "capture_preparation_begin"
+                    },
+                    "input_kind": {
+                      "const": "window_state"
+                    },
+                    "secret_input": {
+                      "const": false
+                    },
+                    "authorization_category": {
+                      "const": "window_state"
+                    },
+                    "browser_origin": {
+                      "type": "null"
+                    }
+                  }
+                },
+                {
+                  "title": "Observation-bound foreground pixel input",
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "action",
+                    "input_kind",
+                    "secret_input",
+                    "authorization_category"
+                  ],
+                  "properties": {
+                    "action": {
+                      "type": "string",
+                      "enum": [
+                        "click",
+                        "double_click",
+                        "right_click",
+                        "toggle",
+                        "keypress",
+                        "keyboard_shortcut",
+                        "type",
+                        "type_chars"
+                      ]
+                    },
+                    "input_kind": {
+                      "const": "raw_input"
+                    },
+                    "secret_input": {
+                      "const": false
+                    },
+                    "authorization_category": {
+                      "const": "raw_input"
+                    },
+                    "browser_origin": {
+                      "type": "null"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "anyOf": [
+          {
+            "required": [
+              "allow_capture_preparation"
+            ],
+            "properties": {
+              "allow_capture_preparation": {
+                "const": true
+              }
+            }
+          },
+          {
+            "properties": {
+              "allowed_methods": {
+                "contains": {
+                  "enum": [
+                    "capture_preparation_begin",
+                    "capture_preparation_state",
+                    "capture_preparation_stop",
+                    "capture_preparation_snapshot"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "properties": {
+              "allowed_actions": {
+                "contains": {
+                  "title": "Temporary passive exact-root capture preparation",
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "action",
+                    "input_kind",
+                    "secret_input",
+                    "authorization_category"
+                  ],
+                  "properties": {
+                    "action": {
+                      "const": "capture_preparation_begin"
+                    },
+                    "input_kind": {
+                      "const": "window_state"
+                    },
+                    "secret_input": {
+                      "const": false
+                    },
+                    "authorization_category": {
+                      "const": "window_state"
+                    },
+                    "browser_origin": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "then": {
+        "required": [
+          "allow_capture_preparation",
+          "observation_mode"
+        ],
+        "properties": {
+          "allow_capture_preparation": {
+            "const": true
+          },
+          "observation_mode": {
+            "const": "pixels_only"
+          },
+          "surface": {
+            "const": "window"
+          },
+          "allowed_methods": {
+            "allOf": [
+              {
+                "contains": {
+                  "const": "get_window_state"
+                }
+              },
+              {
+                "contains": {
+                  "const": "capture_preparation_begin"
+                }
+              },
+              {
+                "contains": {
+                  "const": "capture_preparation_state"
+                }
+              },
+              {
+                "contains": {
+                  "const": "capture_preparation_stop"
+                }
+              }
+            ]
+          },
+          "allowed_actions": {
+            "contains": {
+              "title": "Temporary passive exact-root capture preparation",
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "action",
+                "input_kind",
+                "secret_input",
+                "authorization_category"
+              ],
+              "properties": {
+                "action": {
+                  "const": "capture_preparation_begin"
+                },
+                "input_kind": {
+                  "const": "window_state"
+                },
+                "secret_input": {
+                  "const": false
+                },
+                "authorization_category": {
+                  "const": "window_state"
+                },
+                "browser_origin": {
+                  "type": "null"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "allow_recording"
+        ],
+        "properties": {
+          "allow_recording": {
+            "const": true
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "observation_mode"
+        ],
+        "properties": {
+          "observation_mode": {
+            "const": "pixels_only"
+          },
+          "surface": {
+            "const": "window"
+          },
+          "allowed_methods": {
+            "allOf": [
+              {
+                "contains": {
+                  "const": "recording_start"
+                }
+              },
+              {
+                "contains": {
+                  "const": "recording_state"
+                }
+              },
+              {
+                "contains": {
+                  "const": "recording_stop"
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "allowed_methods": {
+            "contains": {
+              "enum": [
+                "recording_start",
+                "recording_state",
+                "recording_stop"
+              ]
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "allow_recording"
+        ],
+        "properties": {
+          "allow_recording": {
+            "const": true
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "allowed_methods": {
+            "contains": {
+              "const": "live_observation_start"
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "allowed_methods": {
+            "allOf": [
+              {
+                "contains": {
+                  "const": "live_observation_state"
+                }
+              },
+              {
+                "contains": {
+                  "const": "live_observation_stop"
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "allowed_methods": {
+            "contains": {
+              "const": "set_window_frame"
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "observation_mode"
+        ],
+        "properties": {
+          "observation_mode": {
+            "const": "pixels_only"
+          },
+          "surface": {
+            "const": "window"
+          },
+          "allowed_methods": {
+            "contains": {
+              "const": "get_window_state"
+            }
+          },
+          "allowed_actions": {
+            "contains": {
+              "title": "Metadata-bound non-activating native window frame",
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "action",
+                "input_kind",
+                "secret_input",
+                "authorization_category"
+              ],
+              "properties": {
+                "action": {
+                  "const": "set_window_frame"
+                },
+                "input_kind": {
+                  "const": "window_state"
+                },
+                "secret_input": {
+                  "const": false
+                },
+                "authorization_category": {
+                  "const": "window_state"
+                },
+                "browser_origin": {
+                  "type": "null"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "properties": {
+    "application_label": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "target_process_id": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "target_window_handle": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "owned_browser_launch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "browser",
+        "profile"
+      ],
+      "properties": {
+        "browser": {
+          "type": "string",
+          "enum": [
+            "chromium"
+          ]
+        },
+        "profile": {
+          "type": "string",
+          "enum": [
+            "isolated_new"
+          ]
+        }
+      }
+    },
+    "surface": {
+      "type": "string",
+      "enum": [
+        "window",
+        "browser"
+      ]
+    },
+    "observation_mode": {
+      "type": "string",
+      "enum": [
+        "semantic",
+        "pixels_only"
+      ],
+      "default": "semantic"
+    },
+    "allow_recording": {
+      "type": "boolean",
+      "default": false,
+      "description": "Explicit native pixels video-only permission. Requires recording_start/state/stop and an operator-configured DCC_CUA_RECORDING_OUTPUT_ROOT. The server allocates an immutable task directory; callers cannot configure its root."
+    },
+    "allow_capture_preparation": {
+      "type": "boolean",
+      "default": false,
+      "description": "Explicit bounded passive exact-root preparation. Requires pixels_only, get_window_state, begin/state/stop, its closed action, and operator-owned DCC_CUA_CAPTURE_PREPARATION_JOURNAL_ROOT. Does not grant input or caller-selected journal/target; prepared snapshots mint no observation/input token."
+    },
+    "allowed_methods": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": [
+          "get_window_state",
+          "change_window_state",
+          "minimize_window",
+          "set_window_frame",
+          "snapshot",
+          "accessibility_snapshot",
+          "verify_state",
+          "capture_preparation_begin",
+          "capture_preparation_state",
+          "capture_preparation_stop",
+          "capture_preparation_snapshot",
+          "find",
+          "wait_for",
+          "execute_action",
+          "get_session_state",
+          "get_input_state",
+          "session_health",
+          "poll_session_events",
+          "clipboard_capture_secret",
+          "browser_snapshot",
+          "browser_prepare",
+          "browser_navigate",
+          "browser_click",
+          "browser_type",
+          "browser_pointer",
+          "browser_set_input_files",
+          "browser_download",
+          "browser_dialog",
+          "live_observation_start",
+          "live_observation_state",
+          "live_observation_stop",
+          "recording_start",
+          "recording_state",
+          "recording_stop"
+        ]
+      }
+    },
+    "allowed_actions": {
+      "type": "array",
+      "description": "Closed final action scopes; use an empty array for observation-only tasks. pixels_only accepts minimize_window or set_window_frame with input_kind=window_state, secret_input=false, authorization_category=window_state; these grant no raw input. Pixel input accepts click, double_click, right_click, toggle, keypress, keyboard_shortcut, type, type_chars with input_kind=raw_input, secret_input=false, authorization_category=raw_input. execute_action requires an actual supported raw scope. Other modes use click/type action names for browser input methods; only secret-handle browser typing uses browser_type.",
+      "minItems": 0,
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": {
+        "oneOf": [
+          {
+            "title": "Observation-bound native window minimize",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "action",
+              "input_kind",
+              "secret_input",
+              "authorization_category"
+            ],
+            "properties": {
+              "action": {
+                "const": "minimize_window"
+              },
+              "input_kind": {
+                "const": "window_state"
+              },
+              "secret_input": {
+                "const": false
+              },
+              "authorization_category": {
+                "const": "window_state"
+              },
+              "browser_origin": {
+                "type": "null"
+              }
+            }
+          },
+          {
+            "title": "Metadata-bound non-activating native window frame",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "action",
+              "input_kind",
+              "secret_input",
+              "authorization_category"
+            ],
+            "properties": {
+              "action": {
+                "const": "set_window_frame"
+              },
+              "input_kind": {
+                "const": "window_state"
+              },
+              "secret_input": {
+                "const": false
+              },
+              "authorization_category": {
+                "const": "window_state"
+              },
+              "browser_origin": {
+                "type": "null"
+              }
+            }
+          },
+          {
+            "title": "Temporary passive exact-root capture preparation",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "action",
+              "input_kind",
+              "secret_input",
+              "authorization_category"
+            ],
+            "properties": {
+              "action": {
+                "const": "capture_preparation_begin"
+              },
+              "input_kind": {
+                "const": "window_state"
+              },
+              "secret_input": {
+                "const": false
+              },
+              "authorization_category": {
+                "const": "window_state"
+              },
+              "browser_origin": {
+                "type": "null"
+              }
+            }
+          },
+          {
+            "title": "Semantic exact-window input",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "action",
+              "input_kind",
+              "secret_input",
+              "authorization_category"
+            ],
+            "properties": {
+              "action": {
+                "type": "string",
+                "enum": [
+                  "click",
+                  "double_click",
+                  "right_click",
+                  "toggle",
+                  "drag",
+                  "type",
+                  "type_chars",
+                  "set_text",
+                  "set_value",
+                  "set_checked",
+                  "keypress",
+                  "press",
+                  "press_key",
+                  "keyboard_shortcut",
+                  "hotkey"
+                ],
+                "description": "Final input action, not a Host method name. For example, browser_click resolves to click."
+              },
+              "input_kind": {
+                "const": "semantic"
+              },
+              "secret_input": {
+                "type": "boolean"
+              },
+              "authorization_category": {
+                "type": "string",
+                "enum": [
+                  "account_access",
+                  "account_security",
+                  "content_change",
+                  "credential",
+                  "destructive",
+                  "destructive_write",
+                  "external_effect",
+                  "payment",
+                  "publishing"
+                ]
+              },
+              "browser_origin": {
+                "type": "null"
+              }
+            }
+          },
+          {
+            "title": "Raw exact-window input",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "action",
+              "input_kind",
+              "secret_input",
+              "authorization_category"
+            ],
+            "properties": {
+              "action": {
+                "type": "string",
+                "enum": [
+                  "click",
+                  "double_click",
+                  "right_click",
+                  "toggle",
+                  "drag",
+                  "type",
+                  "type_chars",
+                  "set_text",
+                  "set_value",
+                  "set_checked",
+                  "keypress",
+                  "press",
+                  "press_key",
+                  "keyboard_shortcut",
+                  "hotkey"
+                ]
+              },
+              "input_kind": {
+                "const": "raw_input"
+              },
+              "secret_input": {
+                "type": "boolean"
+              },
+              "authorization_category": {
+                "type": "string",
+                "enum": [
+                  "raw_input",
+                  "credential"
+                ]
+              },
+              "browser_origin": {
+                "type": "null"
+              }
+            }
+          },
+          {
+            "title": "Browser credential input",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "action",
+              "input_kind",
+              "secret_input",
+              "authorization_category",
+              "browser_origin"
+            ],
+            "properties": {
+              "action": {
+                "const": "browser_type"
+              },
+              "input_kind": {
+                "const": "browser"
+              },
+              "secret_input": {
+                "const": true
+              },
+              "authorization_category": {
+                "const": "credential"
+              },
+              "browser_origin": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048,
+                "pattern": "^https?://[^/?#@]+$"
+              }
+            }
+          },
+          {
+            "title": "Clipboard credential capture",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "action",
+              "input_kind",
+              "secret_input",
+              "authorization_category"
+            ],
+            "properties": {
+              "action": {
+                "const": "clipboard_capture_secret"
+              },
+              "input_kind": {
+                "const": "clipboard"
+              },
+              "secret_input": {
+                "const": true
+              },
+              "authorization_category": {
+                "const": "credential"
+              },
+              "browser_origin": {
+                "type": "null"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "allowed_browser_origins": {
+      "type": "array",
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "format": "uri"
+      }
+    },
+    "ttl_minutes": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1440,
+      "default": 60
+    }
+  }
+}

@@ -50,6 +50,9 @@ class OwnedCuaMcpTransport:
         try:
             child_env = os.environ.copy()
             child_env.pop("DCC_CUA_RECORDING_OUTPUT_ROOT", None)
+            child_env.pop("DCC_CUA_CAPTURE_PREPARATION_JOURNAL_ROOT", None)
+            if options.capture_preparation is not None:
+                child_env["DCC_CUA_CAPTURE_PREPARATION_JOURNAL_ROOT"] = options.capture_preparation.journal_root
             if options.recording is not None:
                 child_env["DCC_CUA_RECORDING_OUTPUT_ROOT"] = options.recording.output_root
             self._process = subprocess.Popen(
@@ -89,7 +92,7 @@ class OwnedCuaMcpTransport:
             catalog = self.rpc("tools/list", {})
             tools = catalog.get("tools")
             if not isinstance(tools, list) or not _public_tool_schemas_valid(
-                tools, recording=options.recording is not None
+                tools, recording=options.recording is not None, preparation=options.capture_preparation is not None
             ):
                 raise CuaCliError("protocol_mismatch", "The owned runtime lacks the public bounded-task MCP tools.")
         except Exception:
@@ -235,7 +238,7 @@ class OwnedCuaMcpTransport:
                 raise CuaCliError("cleanup_failed", self._cleanup_error)
 
 
-def _public_tool_schemas_valid(tools: list[Any], *, recording: bool = False) -> bool:
+def _public_tool_schemas_valid(tools: list[Any], *, recording: bool = False, preparation: bool = False) -> bool:
     """Check the public envelope we consume, without interpreting task leases."""
     schemas = {item.get("name"): item.get("inputSchema") for item in tools if isinstance(item, dict)}
     expected = {
@@ -255,6 +258,8 @@ def _public_tool_schemas_valid(tools: list[Any], *, recording: bool = False) -> 
     }
     if recording:
         expected["start_task"]["allow_recording"] = "boolean"
+    if preparation:
+        expected["start_task"]["allow_capture_preparation"] = "boolean"
     for name, properties in expected.items():
         schema = schemas.get(name)
         if (
