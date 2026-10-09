@@ -17,6 +17,7 @@ from dcc_mcp_core.cua_cli import CuaCliError
 from dcc_mcp_core.host.cua_mcp_errors import OwnedCuaMcpError
 from dcc_mcp_core.host.cua_mcp_game_capability import require_game_capability
 from dcc_mcp_core.host.cua_mcp_game_capability import require_game_scope_schema
+from dcc_mcp_core.host.cua_mcp_game_schema import require_game_action_schema
 from dcc_mcp_core.host.ui_control_options import UiControlRuntimeOptions
 
 _MAX_LINE_BYTES = 96 * 1024 * 1024
@@ -99,6 +100,7 @@ class OwnedCuaMcpTransport:
             ):
                 raise CuaCliError("protocol_mismatch", "The owned runtime lacks the public bounded-task MCP tools.")
             require_game_scope_schema(tools, options.allowed_actions)
+            require_game_action_schema(tools, options.allowed_actions)
         except Exception:
             with suppress(Exception):
                 self.close()

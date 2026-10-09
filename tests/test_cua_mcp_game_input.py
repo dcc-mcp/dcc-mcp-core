@@ -19,6 +19,7 @@ from dcc_mcp_core.host.cua_mcp_game_capability import require_game_capability
 from dcc_mcp_core.host.cua_mcp_game_input import game_input_from_params
 from dcc_mcp_core.host.cua_mcp_game_input import game_input_payload
 from dcc_mcp_core.host.cua_mcp_game_input import normalize_game_keys
+from dcc_mcp_core.host.cua_mcp_game_schema import game_call_condition
 from test_cua_mcp_pixels import SCRIPTS
 from test_cua_mcp_pixels import TARGET
 from test_cua_mcp_pixels import client
@@ -35,6 +36,7 @@ def advertise(process):
     )
 
     def catalog(raw):
+        raw["tools"][1]["inputSchema"]["allOf"] = [game_call_condition()]
         schema = raw["tools"][0]["inputSchema"]
         schema["allOf"] = [
             {
@@ -382,3 +384,56 @@ def test_malformed_action_schema_is_typed_unsupported(runtime, malformed):
         client(replace(config, allowed_actions=GRANTS))
     assert error.value.code == "unsupported"
     assert not any(r.get("params", {}).get("name") == "start_task" for r in process.requests)
+
+
+@pytest.mark.parametrize(
+    "fault", ["absent", "open", "wrong_intent", "wrong_limit", "bool_limit", "no_pairs", "extra_key", "no_observation"]
+)
+def test_closed_action_branch_required_before_start(runtime, fault):
+    config, process, _ = runtime
+    advertise(process)
+    original = process.mutate_catalog
+
+    def corrupt(raw):
+        original(raw)
+        schema = raw["tools"][1]["inputSchema"]
+        if fault == "absent":
+            schema.pop("allOf")
+            return
+        params = schema["allOf"][0]["then"]["properties"]["params"]
+        action = params["properties"]["action"]["oneOf"][0]
+        if fault == "open":
+            action["additionalProperties"] = True
+        elif fault == "wrong_intent":
+            action["properties"]["intent"]["const"] = "navigate"
+        elif fault == "wrong_limit":
+            action["properties"]["duration_ms"]["maximum"] = 501
+        elif fault == "bool_limit":
+            action["properties"]["keys"]["minItems"] = True
+        elif fault == "no_pairs":
+            action.pop("dependentRequired")
+        elif fault == "extra_key":
+            action["properties"]["keys"]["items"]["enum"].append("UP")
+        else:
+            params["required"].remove("observation_id")
+
+    process.mutate_catalog = corrupt
+    with pytest.raises(CuaCliError) as error:
+        client(replace(config, allowed_actions=GRANTS))
+    assert error.value.code == "unsupported"
+    assert not any(r.get("params", {}).get("name") == "start_task" for r in process.requests)
+
+
+@pytest.mark.parametrize(
+    "case",
+    [c for c in CONTRACT["cases"] if c.get("reason") != "missing_grant" and c["name"] != "duration_float"],
+    ids=lambda c: c["name"],
+)
+def test_negotiated_action_schema_conforms_to_shared_wire_shapes(case):
+    import jsonschema
+
+    # JSON Schema regards 1.0 as an integer; runtime DTO validation additionally
+    # rejects floats. Owner grant validation is separate from payload shape.
+    schema = game_call_condition()["then"]["properties"]["params"]["properties"]["action"]
+    errors = list(jsonschema.Draft202012Validator(schema).iter_errors(case["payload"]))
+    assert (not errors) is case["accept"], errors
