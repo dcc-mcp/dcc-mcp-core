@@ -1949,3 +1949,36 @@ def test_ensure_gateway_daemon_handles_version_takeover_health(monkeypatch, tmp_
     )
     assert result["ok"] is True
     assert result["reason"] == "already_healthy"
+
+
+def test_auto_ensure_idle_timeout_default_matches_the_rust_constant():
+    """The Python guardian is an auto-ensure entry point.
+
+    It must keep the 300 s auto-ensure default, which is a *different*
+    entry point from a directly-run gateway server (30 s) and from
+    `dcc-mcp-cli gateway daemon start` (0 s). The mirror lives in
+    dcc-mcp-gateway/src/gateway/idle_timeout.rs as AUTO_ENSURE_DEFAULT.
+    """
+    assert gg._AUTO_ENSURE_GATEWAY_IDLE_TIMEOUT_DEFAULT == 300
+
+
+def test_resolve_gateway_idle_timeout_prefers_explicit_over_default(monkeypatch):
+    """An explicit value survives even when it equals the default number.
+
+    Guard against re-introducing a value-comparison sentinel: the resolver
+    must honour the caller's choice rather than treating "300" as
+    "not supplied".
+    """
+    monkeypatch.delenv(gg.ENV_GATEWAY_IDLE_TIMEOUT_SECS, raising=False)
+    assert gg._resolve_gateway_idle_timeout_secs(300) == 300
+    assert gg._resolve_gateway_idle_timeout_secs(0) == 0
+    assert gg._resolve_gateway_idle_timeout_secs(45) == 45
+    assert gg._resolve_gateway_idle_timeout_secs(None) == 300
+
+
+def test_resolve_gateway_idle_timeout_reads_env_without_falling_back(monkeypatch):
+    monkeypatch.setenv(gg.ENV_GATEWAY_IDLE_TIMEOUT_SECS, "42")
+    assert gg._resolve_gateway_idle_timeout_secs(None) == 42
+
+    monkeypatch.setenv(gg.ENV_GATEWAY_IDLE_TIMEOUT_SECS, "not-a-number")
+    assert gg._resolve_gateway_idle_timeout_secs(None) == 300

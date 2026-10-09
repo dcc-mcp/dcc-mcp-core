@@ -17,6 +17,11 @@ use crate::presentation::feedback_cmd::FeedbackArgs;
 use crate::presentation::marketplace_cmd::MarketplaceAction;
 use crate::presentation::output::OutputFormat;
 
+/// `dcc-mcp-cli gateway daemon start` default: an operator-managed daemon is
+/// expected to survive with zero backends, so idle shutdown is off by
+/// default. Documented in `docs/guide/cli-reference.md`.
+pub(crate) const CLI_DAEMON_START_IDLE_TIMEOUT_SECS: u64 = 0;
+
 pub(crate) fn parse_output_format(s: &str) -> Result<OutputFormat, String> {
     OutputFormat::from_flag(s)
 }
@@ -417,7 +422,9 @@ pub(crate) struct GatewayStartArgs {
     pub(crate) remote_host: String,
     #[arg(long, default_value = "59765")]
     pub(crate) remote_port: u16,
-    #[arg(long, default_value = "0")]
+    /// An explicitly managed daemon stays alive with no backends, so this
+    /// entry point opts out of idle shutdown entirely (default `0`).
+    #[arg(long, default_value_t = CLI_DAEMON_START_IDLE_TIMEOUT_SECS)]
     pub(crate) gateway_idle_timeout_secs: u64,
     #[arg(long)]
     pub(crate) gateway_bin: Option<PathBuf>,

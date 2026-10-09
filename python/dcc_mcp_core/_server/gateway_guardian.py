@@ -42,7 +42,12 @@ logger = logging.getLogger(__name__)
 
 _LAUNCH_LOCK = "gateway-launch.lock"
 _LAUNCH_LOCK_STALE_SECS_DEFAULT = 30.0
-_AUTO_ENSURE_GATEWAY_IDLE_TIMEOUT_DEFAULT = 300
+# Canonical per-entry-point defaults for --gateway-idle-timeout-secs.
+# These mirror the Rust constants in
+# dcc-mcp-gateway/src/gateway/idle_timeout.rs and are intentionally NOT
+# interchangeable: 30 is a gateway server started directly, 300 is a
+# machine-wide gateway auto-launched on another process's behalf.
+_AUTO_ENSURE_GATEWAY_IDLE_TIMEOUT_DEFAULT = 300  # AUTO_ENSURE_DEFAULT
 
 
 def _is_healthy(host: str, port: int, timeout: float) -> bool:

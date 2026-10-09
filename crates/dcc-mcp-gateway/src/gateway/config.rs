@@ -306,7 +306,7 @@ impl Default for GatewayConfig {
                 .ok()
                 .or_else(official_update_manifest_url),
             gateway_persist: false,
-            gateway_idle_timeout_secs: 30,
+            gateway_idle_timeout_secs: super::idle_timeout::SERVER_DEFAULT,
             semantic_search_enabled: false,
         }
     }
@@ -314,11 +314,24 @@ impl Default for GatewayConfig {
 
 #[cfg(test)]
 mod tests {
+    use super::super::idle_timeout;
     use super::{GatewayConfig, official_update_manifest_url};
 
     #[test]
     fn default_backend_timeout_allows_long_dcc_operations() {
         assert_eq!(GatewayConfig::default().backend_timeout_ms, 120_000);
+    }
+
+    /// Regression: a directly-run gateway server keeps the 30 s server
+    /// default. This is a *hard* pin — the auto-ensure default (300 s) is a
+    /// different entry point and must not leak in here.
+    #[test]
+    fn default_idle_timeout_is_the_server_entry_point_default() {
+        assert_eq!(
+            GatewayConfig::default().gateway_idle_timeout_secs,
+            idle_timeout::SERVER_DEFAULT
+        );
+        assert_eq!(GatewayConfig::default().gateway_idle_timeout_secs, 30);
     }
 
     #[test]
