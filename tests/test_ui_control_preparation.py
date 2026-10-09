@@ -13,8 +13,29 @@ from test_cua_mcp_pixels import TARGET
 from test_cua_mcp_pixels import runtime
 
 
+@pytest.fixture(params=[False, True], ids=["ambient-clean", "ambient-conflict"])
+def _ambient_scope(request, monkeypatch):
+    if request.param:
+        for name, value in {
+            "PROCESS_ID": "43",
+            "WINDOW_HANDLE": "84",
+            "WINDOW_TITLE": "Different Test Target",
+            "PROCESS_NAME": "powershell.exe",
+            "DCC_TYPE": "different-test-host",
+        }.items():
+            monkeypatch.setenv("DCC_MCP_UI_CONTROL_" + name, value)
+
+
 @pytest.fixture
-def route(runtime, monkeypatch):
+def _isolated_scope(monkeypatch, _ambient_scope):
+    # Production operator scope still takes precedence. This fake route must
+    # explicitly isolate its target from the inherited worker environment.
+    for name in ("PROCESS_ID", "WINDOW_HANDLE", "WINDOW_TITLE", "PROCESS_NAME", "DCC_TYPE"):
+        monkeypatch.delenv("DCC_MCP_UI_CONTROL_" + name, raising=False)
+
+
+@pytest.fixture
+def route(runtime, monkeypatch, _isolated_scope):
     config, process, launches = runtime
     config = replace(config, window_operations=("activate", "restore_activate"))
     monkeypatch.setenv("DCC_MCP_CUA_ALLOW_RAW_INPUT", "1")
@@ -152,7 +173,7 @@ def test_invalid_preparation_never_launches_or_mutates(route, invalid):
     assert launches == [] and methods(process) == []
 
 
-def test_uia_timeout_is_capture_failure_after_successful_activation(monkeypatch):
+def test_uia_timeout_is_capture_failure_after_successful_activation(monkeypatch, _isolated_scope):
     from test_cua_mcp_pixels import window_response
     from test_ui_control_window_recovery import _load_backend
 

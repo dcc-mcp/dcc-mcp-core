@@ -9,6 +9,8 @@ import pytest
 
 from dcc_mcp_core.cancellation import CancelToken
 from dcc_mcp_core.host.cua_mcp_client import PixelsMcpHostClient
+from test_ui_control_preparation import _ambient_scope
+from test_ui_control_preparation import _isolated_scope
 from test_ui_control_preparation import methods
 from test_ui_control_preparation import route
 from test_ui_control_preparation import runtime
