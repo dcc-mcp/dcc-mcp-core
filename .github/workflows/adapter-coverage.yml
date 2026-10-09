@@ -8,8 +8,15 @@ name: Adapter coverage
 # ecosystem describing a host list that no longer exists. This gate turns that
 # into a red check instead of a silently stale document.
 #
+# The `coverage` job guards the maps this repository commits. The
+# `pointer-drift` job is the cross-repository half: it clones every adapter and
+# replays the generator against the README each one actually publishes, so
+# drift that lands in an adapter repository rather than here is caught too.
+#
 # Triggers on a PR that touches the catalog, the generator, its tests, the
-# generated coverage map, or this workflow.
+# generated coverage map, or this workflow; plus a weekly schedule and a manual
+# dispatch for the cross-repository scan, which cannot be driven from `paths`
+# because the drift happens in other repositories.
 
 on:
   pull_request:
@@ -20,8 +27,25 @@ on:
       - "docs/adapter-coverage.md"
       - "docs/adapter-coverage.json"
       - "scripts/generate_adapter_pointer.py"
+      - "scripts/check_adapter_pointer_drift.py"
       - "tests/test_generate_adapter_pointer.py"
+      - "tests/test_check_adapter_pointer_drift.py"
       - ".github/workflows/adapter-coverage.yml"
+  schedule:
+    # Weekly, Monday 04:17 UTC. Off the top of the hour so the run does not
+    # land in the same scheduling slot as every other org workflow.
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+    inputs:
+      only:
+        description: "Comma-separated adapter names to scan (default: every catalog adapter)."
+        required: false
+        type: string
+      allow_missing:
+        description: "Treat a missing README or pointer block as acceptable instead of a failure."
+        required: false
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -30,7 +54,9 @@ jobs:
   coverage:
     name: Coverage map and pointer blocks
     runs-on: ubuntu-latest
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    # Only meaningful for a PR from this repository; `schedule` and
+    # `workflow_dispatch` payloads have no pull_request and are skipped.
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - uses: actions/checkout@v6
         with:
@@ -102,3 +128,74 @@ jobs:
           print(f"checked {len(entries)} adapter pointer blocks")
           print(f"coverage map enumerates all {len(entries)} adapters")
           PY
+
+  # The half that was missing. `generate_adapter_pointer.py` could always verify
+  # one repository; nothing walked all of them, so a catalog change that only
+  # some adapters picked up left the rest quoting an outdated host count with no
+  # check anywhere turning red. This job is that walk.
+  #
+  # It is read-only with respect to the adapter repositories: it clones, replays
+  # the generator against each README, and reports. It never opens a pull
+  # request, so a red run is a signal for a human (or a follow-up batch job),
+  # not an autonomous edit to 40 public repositories.
+  pointer-drift:
+    name: Adapter README pointer drift
+    runs-on: ubuntu-latest
+    # A fork PR has no business cloning 47 repositories, and a push to main
+    # already ran this on the PR that produced it.
+    if: >-
+      github.event_name != 'pull_request'
+      || github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      # Same reasoning as the `coverage` job: a bare checkout has no built
+      # `dcc_mcp_core._core`, so the generator reads the catalog through PyYAML.
+      - name: Install pytest and PyYAML
+        run: python -m pip install --disable-pip-version-check pytest pyyaml
+
+      # --noconftest: tests/conftest.py imports the compiled extension, and this
+      # lane does not build a wheel.
+      - name: Drift scanner tests
+        run: |-
+          python -m pytest tests/test_check_adapter_pointer_drift.py \
+            -q --no-header --noconftest
+
+      - name: Scan every adapter README against the catalog
+        id: scan
+        env:
+          INPUT_ONLY: ${{ inputs.only }}
+          INPUT_ALLOW_MISSING: ${{ inputs.allow_missing }}
+        run: |
+          args=()
+          if [ -n "${INPUT_ONLY}" ]; then
+            args+=(--only "${INPUT_ONLY}")
+          fi
+          # The default for a scheduled run allows a missing block: sixteen
+          # catalog adapters have never received one, and that backlog is a
+          # separate cleanup from the count drift this gate exists to catch.
+          # A manual dispatch can tighten it to see the full picture.
+          if [ "${INPUT_ALLOW_MISSING}" != "false" ]; then
+            args+=(--allow-missing)
+          fi
+          set +e
+          python scripts/check_adapter_pointer_drift.py \
+            --timeout 180 --summary --json-out drift-results.json "${args[@]}"
+          code=$?
+          set -e
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit "$code"
+
+      - name: Upload drift results
+        if: always() && hashFiles('drift-results.json') != ''
+        uses: actions/upload-artifact@v6
+        with:
+          name: adapter-pointer-drift
+          path: drift-results.json
+          if-no-files-found: ignore
