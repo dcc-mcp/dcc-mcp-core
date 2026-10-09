@@ -15,6 +15,8 @@ from typing import Any
 
 from dcc_mcp_core.cua_cli import CuaCliError
 from dcc_mcp_core.host.cua_mcp_errors import OwnedCuaMcpError
+from dcc_mcp_core.host.cua_mcp_game_capability import require_game_capability
+from dcc_mcp_core.host.cua_mcp_game_capability import require_game_scope_schema
 from dcc_mcp_core.host.ui_control_options import UiControlRuntimeOptions
 
 _MAX_LINE_BYTES = 96 * 1024 * 1024
@@ -88,6 +90,7 @@ class OwnedCuaMcpTransport:
                 or not isinstance(capabilities.get("tools"), dict)
             ):
                 raise CuaCliError("protocol_mismatch", "The owned UI Control MCP identity/version does not match.")
+            require_game_capability(capabilities, options.allowed_actions)
             self._write({"jsonrpc": "2.0", "method": "notifications/initialized"})
             catalog = self.rpc("tools/list", {})
             tools = catalog.get("tools")
@@ -95,6 +98,7 @@ class OwnedCuaMcpTransport:
                 tools, recording=options.recording is not None, preparation=options.capture_preparation is not None
             ):
                 raise CuaCliError("protocol_mismatch", "The owned runtime lacks the public bounded-task MCP tools.")
+            require_game_scope_schema(tools, options.allowed_actions)
         except Exception:
             with suppress(Exception):
                 self.close()

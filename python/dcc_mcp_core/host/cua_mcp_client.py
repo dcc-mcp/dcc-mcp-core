@@ -12,6 +12,8 @@ from typing import Any
 from dcc_mcp_core.cua_cli import CuaCliError
 from dcc_mcp_core.host.cua_mcp_cleanup import OwnedPixelsTaskCleanup
 from dcc_mcp_core.host.cua_mcp_errors import OwnedCuaMcpError
+from dcc_mcp_core.host.cua_mcp_game_input import GAME_ACTIONS
+from dcc_mcp_core.host.cua_mcp_game_input import game_input_payload
 from dcc_mcp_core.host.cua_mcp_geometry import validate_geometry
 from dcc_mcp_core.host.cua_mcp_keyboard import keypress_payload
 from dcc_mcp_core.host.cua_mcp_pointer import pointer_payload
@@ -311,7 +313,9 @@ class PixelsMcpHostClient:
         # Backend compatibility fields are omitted deliberately, not forwarded to
         # the deny-unknown-fields public protocol or mistaken for semantic tokens.
         payload = {key: value for key, value in action.items() if key in allowed}
-        if name in {"move", "drag"}:
+        if name in GAME_ACTIONS:
+            payload = game_input_payload(action, self._actions)
+        elif name in {"move", "drag"}:
             payload = {
                 **{key: value for key, value in payload.items() if key in {"action", "input_kind", "intent"}},
                 **pointer_payload(action, self._observation_size),
@@ -326,11 +330,19 @@ class PixelsMcpHostClient:
             payload["type_chars_only"] = True
         observation_id = self._observation_id
         self._observation_id = None
-        raw = self._call(
-            "execute_action",
-            {"observation_id": observation_id, "action": payload, "capture_after": False},
-            "action_completed",
-        )
+        try:
+            raw = self._call(
+                "execute_action",
+                {"observation_id": observation_id, "action": payload, "capture_after": False},
+                "action_completed",
+            )
+        except CuaCliError:
+            if name in GAME_ACTIONS:
+                # A failed transaction is never proof of physical release.
+                # Isolate the owned task; do not authorize another DOWN/MOVE.
+                with suppress(Exception):
+                    self.stop()
+            raise
         result = raw.get("result")
         try:
             delivery = result.get("delivery") if isinstance(result, dict) else None
@@ -357,6 +369,9 @@ class PixelsMcpHostClient:
         raw["effect"] = result["effect"]
         raw["verification_required"] = True
         raw["fresh_observation_required"] = True
+        if name in GAME_ACTIONS and raw["success"] is False:
+            with suppress(Exception):
+                self.stop()
         return raw
 
     def window_state(self) -> dict[str, Any]:

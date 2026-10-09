@@ -45,6 +45,7 @@ _LIFECYCLE = _load_sibling("_cua_lifecycle")
 _PREPARATION = _load_sibling("_cua_preparation")
 _PASSIVE_PREPARATION = _load_sibling("_cua_passive_preparation")
 _SNAPSHOT = _load_sibling("_cua_snapshot_result")
+_GAME = _load_sibling("_cua_game_input")
 UiControlHostError = _HOST.UiControlHostError
 _HostClient = _HOST.UiControlHostClient
 
@@ -74,6 +75,7 @@ _IDLE_LEASE_SECONDS = max(
 )
 _MAX_WAIT_MS = 30_000
 _INTENTS = {
+    "game_navigation",
     "observe",
     "activate",
     "navigate",
@@ -713,7 +715,11 @@ def act_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     session_id = _safe_session_id(params.get("session_id"))
     policy = _policy_from_params(params)
     action = str(params.get("action") or "")
-    limit_error = _validate_action_limits(params)
+    try:
+        game_payload = _GAME.prepare(params)
+    except (UiControlHostError, ValueError) as exc:
+        return _host_error(exc, params)
+    limit_error = None if game_payload is not None else _validate_action_limits(params)
     if limit_error is not None:
         return limit_error
     request = UiActionRequest(
@@ -721,6 +727,8 @@ def act_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         action=action,
         x=params.get("x"),
         y=params.get("y"),
+        dx=params.get("dx"),
+        dy=params.get("dy"),
         menu_path=list(params.get("menu_path") or []),
     )
     if not policy.allows_request(request):
@@ -837,7 +845,7 @@ def act_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     if not native and control is None:
         return skill_error("control_id is required for semantic actions", UiErrorCode.INVALID_ACTION)
     try:
-        raw = client.execute(_action_payload(params, native, control))
+        raw = client.execute(game_payload if game_payload is not None else _action_payload(params, native, control))
     except (UiControlHostError, OSError, ValueError) as exc:
         entry["snapshot_id"] = None
         return _host_error(exc, params, fresh_observation=True)

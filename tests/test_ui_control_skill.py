@@ -212,6 +212,7 @@ def test_ui_control_tool_schema_supports_computer_use_actions() -> None:
         "type",
         "keypress",
         "game_navigation",
+        "relative_mouse",
         "set_text",
         "toggle",
         "set_checked",

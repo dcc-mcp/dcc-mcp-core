@@ -1,0 +1,1664 @@
+{
+  "schema": "dcc-cua.game-input-contract-fixtures/1",
+  "status": "PROPOSED_NOT_IMPLEMENTED",
+  "profile_location": "fixed shared contract/discovery identity; not a caller-selectable action field",
+  "context": {
+    "intent": "game_navigation",
+    "input_kind": "raw_input",
+    "delivery_mode": "foreground",
+    "session_mode": "explicit_pixels_only"
+  },
+  "core_frontend_normalization": [
+    "split each string on +",
+    "strip token edges",
+    "ASCII uppercase",
+    "apply only declared aliases",
+    "reject empty/unsupported tokens",
+    "reject duplicate canonical identities",
+    "enforce 1..4; never truncate or deduplicate",
+    "serialize individual canonical strings"
+  ],
+  "native_wire_normalization": "none; exact canonical token only",
+  "limits": {
+    "min_keys": 1,
+    "max_keys": 4,
+    "min_duration_ms": 0,
+    "max_duration_ms": 500,
+    "duration_omitted": 0,
+    "duration_null": "reject",
+    "delta_min": -256,
+    "delta_max": 256,
+    "delta_pair_required": true,
+    "supplied_zero_delta": "reject"
+  },
+  "actions": {
+    "game_navigation": {
+      "required_fields": [
+        "action",
+        "input_kind",
+        "intent",
+        "delivery_mode",
+        "keys"
+      ],
+      "optional_fields": [
+        "duration_ms",
+        "dx",
+        "dy"
+      ],
+      "required_grants_keyboard_only": [
+        "game_navigation"
+      ],
+      "required_grants_with_delta": [
+        "game_navigation",
+        "relative_mouse"
+      ]
+    },
+    "relative_mouse": {
+      "required_fields": [
+        "action",
+        "input_kind",
+        "intent",
+        "delivery_mode",
+        "dx",
+        "dy"
+      ],
+      "optional_fields": [],
+      "required_grants": [
+        "relative_mouse"
+      ],
+      "mouse_buttons": false,
+      "packets": 1
+    }
+  },
+  "transaction": {
+    "zero_duration": "same-call DOWN -> optional relative MOVE -> UP; tap, not sustained movement",
+    "positive_duration": "same-worker DOWN -> bounded relative chunks while owned keys remain down -> UP; actual overlap required",
+    "max_chunks": 25,
+    "request_authorization_deadline": "original absolute cutoff; never renew",
+    "cancel_or_expiry": "owned UP cleanup only; no new DOWN/MOVE",
+    "cleanup_unknown": "retain owner/isolate session; no next mutation or claimed UP ACK",
+    "original_final_fence": "same exact immutable task/session/native birth/geometry/DPI; actual foreground/unobscured/nonminimized/desktop/interrupt",
+    "slow_proof": "fresh cancellation/expiry/clock after slow proof immediately before DOWN/MOVE",
+    "queue_owner": "same worker retains physical-input queue until actual cleanup terminal; future drop never releases it early",
+    "cleanup": "actual inserted DOWN prefix/possible-down uncertainty; reverse per-key release attempts <=4; no blind retries; truthful unknown"
+  },
+  "legacy": "All existing legacy keypress/shortcut vocabulary unchanged. Arrow keys and any unlisted key are unsupported in game_b3.v1; no silent truncation, substitution or generic fallback.",
+  "upgrade": "Explicit Core+Native joint contract upgrade: original Robot keyboard-only proposal forbade game dx/dy; new combined dx/dy requires dual immutable action grants. Old .12 implements neither formal pixels action. v2 proposal game_3c.v1 is not byte-compatible.",
+  "fixture_reason_scope": "proposed finite validation reasons for shared fixtures; production typed error mapping not implemented",
+  "contract": "dcc-cua.game-navigation.b3.v1",
+  "profile": "game_b3.v1",
+  "proposal_revision": 3,
+  "supersedes_proposal_only": {
+    "profile": "game_3c.v1",
+    "manifest_sha256": "777fa819727321ac1e5c8eaefb275ae1a977bf634516aa2bbe635ca3ef33f313",
+    "byte_compatible": false,
+    "prior_proposal_implemented_or_published": false
+  },
+  "canonical_keys": [
+    "W",
+    "A",
+    "S",
+    "D",
+    "SPACE",
+    "LSHIFT",
+    "LCTRL",
+    "Z",
+    "E",
+    "F",
+    "M"
+  ],
+  "core_frontend_aliases": {
+    "SHIFT": "LSHIFT",
+    "CTRL": "LCTRL",
+    "CONTROL": "LCTRL",
+    "LEFTSHIFT": "LSHIFT",
+    "LEFTCTRL": "LCTRL",
+    "LEFTCONTROL": "LCTRL"
+  },
+  "win32_mapping": [
+    {
+      "key": "W",
+      "vk_name": "VK_W",
+      "vk": 87,
+      "extended": false
+    },
+    {
+      "key": "A",
+      "vk_name": "VK_A",
+      "vk": 65,
+      "extended": false
+    },
+    {
+      "key": "S",
+      "vk_name": "VK_S",
+      "vk": 83,
+      "extended": false
+    },
+    {
+      "key": "D",
+      "vk_name": "VK_D",
+      "vk": 68,
+      "extended": false
+    },
+    {
+      "key": "SPACE",
+      "vk_name": "VK_SPACE",
+      "vk": 32,
+      "extended": false
+    },
+    {
+      "key": "LSHIFT",
+      "vk_name": "VK_LSHIFT",
+      "vk": 160,
+      "extended": false
+    },
+    {
+      "key": "LCTRL",
+      "vk_name": "VK_LCONTROL",
+      "vk": 162,
+      "extended": false
+    },
+    {
+      "key": "Z",
+      "vk_name": "VK_Z",
+      "vk": 90,
+      "extended": false
+    },
+    {
+      "key": "E",
+      "vk_name": "VK_E",
+      "vk": 69,
+      "extended": false
+    },
+    {
+      "key": "F",
+      "vk_name": "VK_F",
+      "vk": 70,
+      "extended": false
+    },
+    {
+      "key": "M",
+      "vk_name": "VK_M",
+      "vk": 77,
+      "extended": false
+    }
+  ],
+  "consumer_mapping": {
+    "schema": "orbis-b3-required-native-input/v1",
+    "sha256": "5920c51bd94511cbfcedbd1d57821f86806d63ee0cd5397e7070ea930139dc54",
+    "source_identity_sha256": "f29bfe1b413ed71789637ebbbc5ffc7466a6cf0ff4612ea36dd91f40e116d8bb",
+    "conformance": "planned transport coverage of source input triggers, not live effects/compatibility"
+  },
+  "consumer_key_translation": {
+    "W": "W",
+    "A": "A",
+    "S": "S",
+    "D": "D",
+    "SPACE": "SPACE",
+    "SpaceBar": "SPACE",
+    "LEFTSHIFT": "LSHIFT",
+    "LeftShift": "LSHIFT",
+    "LEFTCTRL": "LCTRL",
+    "LeftControl": "LCTRL",
+    "Z": "Z",
+    "E": "E",
+    "F": "F",
+    "M": "M"
+  },
+  "consumer_translation_note": "UE/source identity translation for conformance, not an implicit extra frontend alias: public frontend SpaceBar remains unsupported; use canonical SPACE.",
+  "consumer_behavior_mapping": [
+    {
+      "feature": "walk_and_posture_movement",
+      "ue_keys": [
+        "W",
+        "A",
+        "S",
+        "D"
+      ],
+      "canonical_keys": [
+        "W",
+        "A",
+        "S",
+        "D"
+      ],
+      "ue_axes": [],
+      "trigger": "held until release; current posture determines walk/crouch/crawl speed",
+      "input_contract_status": "PROPOSED_NOT_IMPLEMENTED",
+      "live_effect_status": "NOT_RUN",
+      "action": "game_navigation",
+      "grants": [
+        "game_navigation"
+      ]
+    },
+    {
+      "feature": "camera_yaw_pitch",
+      "ue_keys": [],
+      "canonical_keys": [],
+      "ue_axes": [
+        "MouseX",
+        "MouseY"
+      ],
+      "trigger": "no-button relative mouse input; source applies AddControllerYawInput(Value) and AddControllerPitchInput(-Value)",
+      "input_contract_status": "PROPOSED_NOT_IMPLEMENTED",
+      "live_effect_status": "NOT_RUN",
+      "action": "relative_mouse or combined game_navigation with paired dx/dy",
+      "grants": [
+        "relative_mouse"
+      ],
+      "combined_grants": [
+        "game_navigation",
+        "relative_mouse"
+      ],
+      "camera_delta_unit": "mouse counts; no degrees/sensitivity/sign equivalence claimed"
+    },
+    {
+      "feature": "sprint",
+      "ue_keys": [
+        "LeftShift",
+        "W"
+      ],
+      "canonical_keys": [
+        "LSHIFT",
+        "W"
+      ],
+      "ue_axes": [],
+      "trigger": "simultaneous held movement + Shift; release clears requested sprint; both shift sides are source-bound but left side suffices for this profile",
+      "input_contract_status": "PROPOSED_NOT_IMPLEMENTED",
+      "live_effect_status": "NOT_RUN",
+      "action": "game_navigation",
+      "grants": [
+        "game_navigation"
+      ]
+    },
+    {
+      "feature": "crouch_and_stand",
+      "ue_keys": [
+        "LeftControl"
+      ],
+      "canonical_keys": [
+        "LCTRL"
+      ],
+      "ue_axes": [],
+      "trigger": "press toggles crouch request; release does not toggle; blocked clearance/posture remains an actual outcome",
+      "input_contract_status": "PROPOSED_NOT_IMPLEMENTED",
+      "live_effect_status": "NOT_RUN",
+      "action": "game_navigation",
+      "grants": [
+        "game_navigation"
+      ]
+    },
+    {
+      "feature": "full_body_prone_and_restore",
+      "ue_keys": [
+        "Z"
+      ],
+      "canonical_keys": [
+        "Z"
+      ],
+      "ue_axes": [],
+      "trigger": "press requests prone or restore; wait for actual posture transition completion before claiming either outcome",
+      "input_contract_status": "PROPOSED_NOT_IMPLEMENTED",
+      "live_effect_status": "BLOCKED_FULL_BODY_VISUAL_PRONE",
+      "action": "game_navigation",
+      "grants": [
+        "game_navigation"
+      ],
+      "limitation": "Z requests prone/restore only. Source has 180cm rotated long capsule proxy (halfheight90/radius25) but no supplied skeletal body asset/pose animation; full humanoid prone acceptance explicitly BLOCKED."
+    },
+    {
+      "feature": "jump",
+      "ue_keys": [
+        "SpaceBar"
+      ],
+      "canonical_keys": [
+        "SPACE"
+      ],
+      "ue_axes": [],
+      "trigger": "press calls Jump if CanJump; release calls StopJumping",
+      "input_contract_status": "PROPOSED_NOT_IMPLEMENTED",
+      "live_effect_status": "NOT_RUN",
+      "action": "game_navigation",
+      "grants": [
+        "game_navigation"
+      ]
+    },
+    {
+      "feature": "ledge_mantle",
+      "ue_keys": [
+        "E"
+      ],
+      "canonical_keys": [
+        "E"
+      ],
+      "ue_axes": [],
+      "trigger": "standing on confirmed walkable ground, near a 35..280cm ledge with adequate top and swept clearance; actual landing and completion required",
+      "input_contract_status": "PROPOSED_NOT_IMPLEMENTED",
+      "live_effect_status": "NOT_RUN",
+      "action": "game_navigation",
+      "grants": [
+        "game_navigation"
+      ],
+      "limitation": "35..280cm ledge; grounded walkable support/top+swept clearance required; not arbitrary wall climbing"
+    },
+    {
+      "feature": "low_obstacle_vault",
+      "ue_keys": [
+        "E"
+      ],
+      "canonical_keys": [
+        "E"
+      ],
+      "ue_axes": [],
+      "trigger": "same traversal request; geometry chooses low_obstacle_vault only for height <=100cm with a separately confirmed far-side walkable floor",
+      "input_contract_status": "PROPOSED_NOT_IMPLEMENTED",
+      "live_effect_status": "NOT_RUN",
+      "action": "game_navigation",
+      "grants": [
+        "game_navigation"
+      ],
+      "limitation": "separate <=100cm branch and independently confirmed far-side walkable floor; not arbitrary wall climbing"
+    },
+    {
+      "feature": "original_door_interaction",
+      "ue_keys": [
+        "F"
+      ],
+      "canonical_keys": [
+        "F"
+      ],
+      "ue_axes": [],
+      "trigger": "press requests a possessed-player, eye-distance and visibility checked OrbisInteractiveDoor interaction; original-source door binding and actual leaf motion still require acceptance",
+      "input_contract_status": "PROPOSED_NOT_IMPLEMENTED",
+      "live_effect_status": "NOT_RUN",
+      "action": "game_navigation",
+      "grants": [
+        "game_navigation"
+      ]
+    },
+    {
+      "feature": "map_hud_toggle",
+      "ue_keys": [
+        "M"
+      ],
+      "canonical_keys": [
+        "M"
+      ],
+      "ue_axes": [],
+      "trigger": "press toggles map visibility; useful for actual route/video evidence",
+      "input_contract_status": "PROPOSED_NOT_IMPLEMENTED",
+      "live_effect_status": "NOT_RUN",
+      "action": "game_navigation",
+      "grants": [
+        "game_navigation"
+      ]
+    }
+  ],
+  "cases": [
+    {
+      "name": "canonical_w",
+      "payload": {
+        "action": "game_navigation",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "keys": [
+          "W"
+        ],
+        "duration_ms": 0
+      },
+      "grants": [
+        "game_navigation"
+      ],
+      "accept": true
+    },
+    {
+      "name": "canonical_a",
+      "payload": {
+        "action": "game_navigation",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "keys": [
+          "A"
+        ],
+        "duration_ms": 0
+      },
+      "grants": [
+        "game_navigation"
+      ],
+      "accept": true
+    },
+    {
+      "name": "canonical_s",
+      "payload": {
+        "action": "game_navigation",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "keys": [
+          "S"
+        ],
+        "duration_ms": 0
+      },
+      "grants": [
+        "game_navigation"
+      ],
+      "accept": true
+    },
+    {
+      "name": "canonical_d",
+      "payload": {
+        "action": "game_navigation",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "keys": [
+          "D"
+        ],
+        "duration_ms": 0
+      },
+      "grants": [
+        "game_navigation"
+      ],
+      "accept": true
+    },
+    {
+      "name": "canonical_space",
+      "payload": {
+        "action": "game_navigation",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "keys": [
+          "SPACE"
+        ],
+        "duration_ms": 0
+      },
+      "grants": [
+        "game_navigation"
+      ],
+      "accept": true
+    },
+    {
+      "name": "canonical_lshift",
+      "payload": {
+        "action": "game_navigation",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "keys": [
+          "LSHIFT"
+        ],
+        "duration_ms": 0
+      },
+      "grants": [
+        "game_navigation"
+      ],
+      "accept": true
+    },
+    {
+      "name": "canonical_lctrl",
+      "payload": {
+        "action": "game_navigation",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "keys": [
+          "LCTRL"
+        ],
+        "duration_ms": 0
+      },
+      "grants": [
+        "game_navigation"
+      ],
+      "accept": true
+    },
+    {
+      "name": "canonical_z",
+      "payload": {
+        "action": "game_navigation",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "keys": [
+          "Z"
+        ],
+        "duration_ms": 0
+      },
+      "grants": [
+        "game_navigation"
+      ],
+      "accept": true
+    },
+    {
+      "name": "canonical_e",
+      "payload": {
+        "action": "game_navigation",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "keys": [
+          "E"
+        ],
+        "duration_ms": 0
+      },
+      "grants": [
+        "game_navigation"
+      ],
+      "accept": true
+    },
+    {
+      "name": "canonical_f",
+      "payload": {
+        "action": "game_navigation",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "keys": [
+          "F"
+        ],
+        "duration_ms": 0
+      },
+      "grants": [
+        "game_navigation"
+      ],
+      "accept": true
+    },
+    {
+      "name": "canonical_m",
+      "payload": {
+        "action": "game_navigation",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "keys": [
+          "M"
+        ],
+        "duration_ms": 0
+      },
+      "grants": [
+        "game_navigation"
+      ],
+      "accept": true
+    },
+    {
+      "name": "core_alias_SHIFT",
+      "payload": {
+        "action": "game_navigation",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "keys": [
+          "LSHIFT"
+        ]
+      },
+      "grants": [
+        "game_navigation"
+      ],
+      "accept": true,
+      "core_frontend_keys": [
+        "SHIFT"
+      ],
+      "expected_canonical_keys": [
+        "LSHIFT"
+      ]
+    },
+    {
+      "name": "core_alias_LeftShift",
+      "payload": {
+        "action": "game_navigation",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "keys": [
+          "LSHIFT"
+        ]
+      },
+      "grants": [
+        "game_navigation"
+      ],
+      "accept": true,
+      "core_frontend_keys": [
+        "LeftShift"
+      ],
+      "expected_canonical_keys": [
+        "LSHIFT"
+      ]
+    },
+    {
+      "name": "core_alias_LEFTSHIFT",
+      "payload": {
+        "action": "game_navigation",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "keys": [
+          "LSHIFT"
+        ]
+      },
+      "grants": [
+        "game_navigation"
+      ],
+      "accept": true,
+      "core_frontend_keys": [
+        "LEFTSHIFT"
+      ],
+      "expected_canonical_keys": [
+        "LSHIFT"
+      ]
+    },
+    {
+      "name": "core_alias_CTRL",
+      "payload": {
+        "action": "game_navigation",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "keys": [
+          "LCTRL"
+        ]
+      },
+      "grants": [
+        "game_navigation"
+      ],
+      "accept": true,
+      "core_frontend_keys": [
+        "CTRL"
+      ],
+      "expected_canonical_keys": [
+        "LCTRL"
+      ]
+    },
+    {
+      "name": "core_alias_CONTROL",
+      "payload": {
+        "action": "game_navigation",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "keys": [
+          "LCTRL"
+        ]
+      },
+      "grants": [
+        "game_navigation"
+      ],
+      "accept": true,
+      "core_frontend_keys": [
+        "CONTROL"
+      ],
+      "expected_canonical_keys": [
+        "LCTRL"
+      ]
+    },
+    {
+      "name": "core_alias_LEFTCTRL",
+      "payload": {
+        "action": "game_navigation",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "keys": [
+          "LCTRL"
+        ]
+      },
+      "grants": [
+        "game_navigation"
+      ],
+      "accept": true,
+      "core_frontend_keys": [
+        "LEFTCTRL"
+      ],
+      "expected_canonical_keys": [
+        "LCTRL"
+      ]
+    },
+    {
+      "name": "core_alias_LeftControl",
+      "payload": {
+        "action": "game_navigation",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "keys": [
+          "LCTRL"
+        ]
+      },
+      "grants": [
+        "game_navigation"
+      ],
+      "accept": true,
+      "core_frontend_keys": [
+        "LeftControl"
+      ],
+      "expected_canonical_keys": [
+        "LCTRL"
+      ]
+    },
+    {
+      "name": "w_leftshift_combo",
+      "payload": {
+        "action": "game_navigation",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "keys": [
+          "W",
+          "LSHIFT"
+        ],
+        "duration_ms": 250,
+        "dx": 32,
+        "dy": -8
+      },
+      "grants": [
+        "game_navigation",
+        "relative_mouse"
+      ],
+      "accept": true,
+      "core_frontend_keys": [
+        "w+LeftShift"
+      ],
+      "expected_canonical_keys": [
+        "W",
+        "LSHIFT"
+      ]
+    },
+    {
+      "name": "w_shift_f_combo",
+      "payload": {
+        "action": "game_navigation",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "keys": [
+          "W",
+          "LSHIFT",
+          "F"
+        ],
+        "duration_ms": 250,
+        "dx": 16,
+        "dy": 0
+      },
+      "grants": [
+        "game_navigation",
+        "relative_mouse"
+      ],
+      "accept": true,
+      "core_frontend_keys": [
+        "W+SHIFT+F"
+      ],
+      "expected_canonical_keys": [
+        "W",
+        "LSHIFT",
+        "F"
+      ]
+    },
+    {
+      "name": "four_keys_500_delta_bounds",
+      "payload": {
+        "action": "game_navigation",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "keys": [
+          "W",
+          "LSHIFT",
+          "LCTRL",
+          "F"
+        ],
+        "duration_ms": 500,
+        "dx": 256,
+        "dy": -256
+      },
+      "grants": [
+        "game_navigation",
+        "relative_mouse"
+      ],
+      "accept": true
+    },
+    {
+      "name": "omitted_duration_tap",
+      "payload": {
+        "action": "game_navigation",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "keys": [
+          "Z"
+        ]
+      },
+      "grants": [
+        "game_navigation"
+      ],
+      "accept": true
+    },
+    {
+      "name": "relative_bounds",
+      "payload": {
+        "action": "relative_mouse",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "dx": -256,
+        "dy": 256
+      },
+      "grants": [
+        "relative_mouse"
+      ],
+      "accept": true
+    },
+    {
+      "name": "null_duration",
+      "payload": {
+        "action": "game_navigation",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "keys": [
+          "F"
+        ],
+        "duration_ms": null
+      },
+      "grants": [
+        "game_navigation"
+      ],
+      "accept": false,
+      "reason": "invalid_duration"
+    },
+    {
+      "name": "duplicate_ctrl_alias",
+      "payload": {
+        "action": "game_navigation",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "keys": [
+          "LCTRL",
+          "LCTRL"
+        ]
+      },
+      "grants": [
+        "game_navigation"
+      ],
+      "accept": false,
+      "reason": "duplicate_key",
+      "core_frontend_keys": [
+        "CTRL+LCTRL"
+      ],
+      "expected_canonical_keys": [
+        "LCTRL",
+        "LCTRL"
+      ]
+    },
+    {
+      "name": "duplicate_shift_alias",
+      "payload": {
+        "action": "game_navigation",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "keys": [
+          "LSHIFT",
+          "LSHIFT"
+        ]
+      },
+      "grants": [
+        "game_navigation"
+      ],
+      "accept": false,
+      "reason": "duplicate_key",
+      "core_frontend_keys": [
+        "SHIFT+LSHIFT"
+      ],
+      "expected_canonical_keys": [
+        "LSHIFT",
+        "LSHIFT"
+      ]
+    },
+    {
+      "name": "native_alias_rejected",
+      "payload": {
+        "action": "game_navigation",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "keys": [
+          "W",
+          "SHIFT"
+        ]
+      },
+      "grants": [
+        "game_navigation"
+      ],
+      "accept": false,
+      "reason": "unsupported_key"
+    },
+    {
+      "name": "native_lowercase_rejected",
+      "payload": {
+        "action": "game_navigation",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "keys": [
+          "w"
+        ]
+      },
+      "grants": [
+        "game_navigation"
+      ],
+      "accept": false,
+      "reason": "unsupported_key"
+    },
+    {
+      "name": "right_shift_outside_profile",
+      "payload": {
+        "action": "game_navigation",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "keys": [
+          "RSHIFT"
+        ]
+      },
+      "grants": [
+        "game_navigation"
+      ],
+      "accept": false,
+      "reason": "unsupported_key"
+    },
+    {
+      "name": "function_key_outside_profile",
+      "payload": {
+        "action": "game_navigation",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "keys": [
+          "F1"
+        ]
+      },
+      "grants": [
+        "game_navigation"
+      ],
+      "accept": false,
+      "reason": "unsupported_key"
+    },
+    {
+      "name": "oem_key_outside_profile",
+      "payload": {
+        "action": "game_navigation",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "keys": [
+          "SEMICOLON"
+        ]
+      },
+      "grants": [
+        "game_navigation"
+      ],
+      "accept": false,
+      "reason": "unsupported_key"
+    },
+    {
+      "name": "empty_keys",
+      "payload": {
+        "action": "game_navigation",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "keys": []
+      },
+      "grants": [
+        "game_navigation"
+      ],
+      "accept": false,
+      "reason": "invalid_key_count"
+    },
+    {
+      "name": "duration_501",
+      "payload": {
+        "action": "game_navigation",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "keys": [
+          "W"
+        ],
+        "duration_ms": 501
+      },
+      "grants": [
+        "game_navigation"
+      ],
+      "accept": false,
+      "reason": "invalid_duration"
+    },
+    {
+      "name": "duration_negative",
+      "payload": {
+        "action": "game_navigation",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "keys": [
+          "W"
+        ],
+        "duration_ms": -1
+      },
+      "grants": [
+        "game_navigation"
+      ],
+      "accept": false,
+      "reason": "invalid_duration"
+    },
+    {
+      "name": "duration_boolean",
+      "payload": {
+        "action": "game_navigation",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "keys": [
+          "W"
+        ],
+        "duration_ms": true
+      },
+      "grants": [
+        "game_navigation"
+      ],
+      "accept": false,
+      "reason": "invalid_duration"
+    },
+    {
+      "name": "duration_float",
+      "payload": {
+        "action": "game_navigation",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "keys": [
+          "W"
+        ],
+        "duration_ms": 1.0
+      },
+      "grants": [
+        "game_navigation"
+      ],
+      "accept": false,
+      "reason": "invalid_duration"
+    },
+    {
+      "name": "half_delta",
+      "payload": {
+        "action": "game_navigation",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "keys": [
+          "W"
+        ],
+        "dx": 1
+      },
+      "grants": [
+        "game_navigation",
+        "relative_mouse"
+      ],
+      "accept": false,
+      "reason": "invalid_delta"
+    },
+    {
+      "name": "zero_delta",
+      "payload": {
+        "action": "game_navigation",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "keys": [
+          "W"
+        ],
+        "dx": 0,
+        "dy": 0
+      },
+      "grants": [
+        "game_navigation",
+        "relative_mouse"
+      ],
+      "accept": false,
+      "reason": "invalid_delta"
+    },
+    {
+      "name": "delta_257",
+      "payload": {
+        "action": "relative_mouse",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "dx": 257,
+        "dy": 0
+      },
+      "grants": [
+        "relative_mouse"
+      ],
+      "accept": false,
+      "reason": "invalid_delta"
+    },
+    {
+      "name": "null_delta",
+      "payload": {
+        "action": "relative_mouse",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "dx": null,
+        "dy": 1
+      },
+      "grants": [
+        "relative_mouse"
+      ],
+      "accept": false,
+      "reason": "invalid_delta"
+    },
+    {
+      "name": "combined_missing_relative_grant",
+      "payload": {
+        "action": "game_navigation",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "keys": [
+          "W"
+        ],
+        "duration_ms": 250,
+        "dx": 1,
+        "dy": 0
+      },
+      "grants": [
+        "game_navigation"
+      ],
+      "accept": false,
+      "reason": "missing_grant"
+    },
+    {
+      "name": "combined_missing_game_grant",
+      "payload": {
+        "action": "game_navigation",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "keys": [
+          "W"
+        ],
+        "duration_ms": 250,
+        "dx": 1,
+        "dy": 0
+      },
+      "grants": [
+        "relative_mouse"
+      ],
+      "accept": false,
+      "reason": "missing_grant"
+    },
+    {
+      "name": "relative_missing_own_grant",
+      "payload": {
+        "action": "relative_mouse",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "dx": 1,
+        "dy": 0
+      },
+      "grants": [
+        "game_navigation"
+      ],
+      "accept": false,
+      "reason": "missing_grant"
+    },
+    {
+      "name": "relative_button_forbidden",
+      "payload": {
+        "action": "relative_mouse",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "dx": 1,
+        "dy": 0,
+        "button": "right"
+      },
+      "grants": [
+        "relative_mouse"
+      ],
+      "accept": false,
+      "reason": "unknown_field"
+    },
+    {
+      "name": "relative_keys_forbidden",
+      "payload": {
+        "action": "relative_mouse",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "dx": 1,
+        "dy": 0,
+        "keys": [
+          "W"
+        ]
+      },
+      "grants": [
+        "game_navigation",
+        "relative_mouse"
+      ],
+      "accept": false,
+      "reason": "unknown_field"
+    },
+    {
+      "name": "relative_duration_forbidden",
+      "payload": {
+        "action": "relative_mouse",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "dx": 1,
+        "dy": 0,
+        "duration_ms": 0
+      },
+      "grants": [
+        "relative_mouse"
+      ],
+      "accept": false,
+      "reason": "unknown_field"
+    },
+    {
+      "name": "old_intent_rejected",
+      "payload": {
+        "action": "game_navigation",
+        "input_kind": "raw_input",
+        "intent": "navigate",
+        "delivery_mode": "foreground",
+        "keys": [
+          "W"
+        ]
+      },
+      "grants": [
+        "game_navigation"
+      ],
+      "accept": false,
+      "reason": "invalid_context"
+    },
+    {
+      "name": "native_unlisted_UP",
+      "payload": {
+        "action": "game_navigation",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "keys": [
+          "UP"
+        ]
+      },
+      "grants": [
+        "game_navigation"
+      ],
+      "accept": false,
+      "reason": "unsupported_key"
+    },
+    {
+      "name": "native_unlisted_DOWN",
+      "payload": {
+        "action": "game_navigation",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "keys": [
+          "DOWN"
+        ]
+      },
+      "grants": [
+        "game_navigation"
+      ],
+      "accept": false,
+      "reason": "unsupported_key"
+    },
+    {
+      "name": "native_unlisted_LEFT",
+      "payload": {
+        "action": "game_navigation",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "keys": [
+          "LEFT"
+        ]
+      },
+      "grants": [
+        "game_navigation"
+      ],
+      "accept": false,
+      "reason": "unsupported_key"
+    },
+    {
+      "name": "native_unlisted_RIGHT",
+      "payload": {
+        "action": "game_navigation",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "keys": [
+          "RIGHT"
+        ]
+      },
+      "grants": [
+        "game_navigation"
+      ],
+      "accept": false,
+      "reason": "unsupported_key"
+    },
+    {
+      "name": "native_unlisted_LEFTSHIFT",
+      "payload": {
+        "action": "game_navigation",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "keys": [
+          "LEFTSHIFT"
+        ]
+      },
+      "grants": [
+        "game_navigation"
+      ],
+      "accept": false,
+      "reason": "unsupported_key"
+    },
+    {
+      "name": "native_unlisted_LeftControl",
+      "payload": {
+        "action": "game_navigation",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "keys": [
+          "LeftControl"
+        ]
+      },
+      "grants": [
+        "game_navigation"
+      ],
+      "accept": false,
+      "reason": "unsupported_key"
+    },
+    {
+      "name": "native_unlisted_SPACEBAR",
+      "payload": {
+        "action": "game_navigation",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "keys": [
+          "SPACEBAR"
+        ]
+      },
+      "grants": [
+        "game_navigation"
+      ],
+      "accept": false,
+      "reason": "unsupported_key"
+    },
+    {
+      "name": "native_unlisted_ALTGR",
+      "payload": {
+        "action": "game_navigation",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "keys": [
+          "ALTGR"
+        ]
+      },
+      "grants": [
+        "game_navigation"
+      ],
+      "accept": false,
+      "reason": "unsupported_key"
+    },
+    {
+      "name": "native_unlisted_LCONTROL",
+      "payload": {
+        "action": "game_navigation",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "keys": [
+          "LCONTROL"
+        ]
+      },
+      "grants": [
+        "game_navigation"
+      ],
+      "accept": false,
+      "reason": "unsupported_key"
+    },
+    {
+      "name": "native_unlisted_NUMPAD1",
+      "payload": {
+        "action": "game_navigation",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "keys": [
+          "NUMPAD1"
+        ]
+      },
+      "grants": [
+        "game_navigation"
+      ],
+      "accept": false,
+      "reason": "unsupported_key"
+    },
+    {
+      "name": "native_unlisted_9",
+      "payload": {
+        "action": "game_navigation",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "keys": [
+          "9"
+        ]
+      },
+      "grants": [
+        "game_navigation"
+      ],
+      "accept": false,
+      "reason": "unsupported_key"
+    },
+    {
+      "name": "duplicate_leftshift_alias",
+      "payload": {
+        "action": "game_navigation",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "keys": [
+          "LSHIFT",
+          "LSHIFT"
+        ]
+      },
+      "grants": [
+        "game_navigation"
+      ],
+      "accept": false,
+      "reason": "duplicate_key",
+      "core_frontend_keys": [
+        "LeftShift+LSHIFT"
+      ],
+      "expected_canonical_keys": [
+        "LSHIFT",
+        "LSHIFT"
+      ]
+    },
+    {
+      "name": "duplicate_leftcontrol_alias",
+      "payload": {
+        "action": "game_navigation",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "keys": [
+          "LCTRL",
+          "LCTRL"
+        ]
+      },
+      "grants": [
+        "game_navigation"
+      ],
+      "accept": false,
+      "reason": "duplicate_key",
+      "core_frontend_keys": [
+        "LeftControl+CTRL"
+      ],
+      "expected_canonical_keys": [
+        "LCTRL",
+        "LCTRL"
+      ]
+    },
+    {
+      "name": "five_canonical_keys",
+      "payload": {
+        "action": "game_navigation",
+        "input_kind": "raw_input",
+        "intent": "game_navigation",
+        "delivery_mode": "foreground",
+        "keys": [
+          "W",
+          "A",
+          "S",
+          "D",
+          "F"
+        ]
+      },
+      "grants": [
+        "game_navigation"
+      ],
+      "accept": false,
+      "reason": "invalid_key_count"
+    }
+  ],
+  "capability_negotiation": {
+    "status": "APPROVED_PLAN_NOT_IMPLEMENTED",
+    "expected_descriptor_file": "CAPABILITY-DESCRIPTOR.json",
+    "outer_location": "initialize.capabilities.experimental[\"dcc-cua.game-input\"]",
+    "host_capability_marker": "dcc-cua.game-navigation.b3.v1",
+    "core_new_scope_gate": "fixed binary SHA + exact runtime version + exact typed descriptor and existing four tool envelopes before start_task",
+    "native_new_scope_gate": "after HostClient.hello and before open_logical_task_session require supports_capability(CONTRACT_ID)",
+    "advertisement": "one shared implementation-availability helper; only Windows complete compiled ExplicitPixelsOnly worker; not live desktop readiness",
+    "new_capability_refusal_code": "unsupported",
+    "refusal_projection": "new narrow typed startup path preserves code; legacy String/tool_error unchanged",
+    "artifact_pairing": "fixture/mapping hashes external provenance only, no consumer CPP lock or self-referential runtime digest",
+    "version": "planned Native 1.9.4+unreal-game-input.1; actual NOT_BUILT; future Core exact artifact version not inferred",
+    "semantic_changes": "different transport semantics require different contract ID; fixture case-only/consumer body changes do not re-lock transport"
+  },
+  "negotiation_cases": [
+    {
+      "name": "legacy_without_new_capability",
+      "new_scope": false,
+      "descriptor": "absent",
+      "host_marker": false,
+      "platform": "windows",
+      "pairing": false,
+      "accepted_by_negotiation_gate": true
+    },
+    {
+      "name": "synthetic_future_matched_windows",
+      "new_scope": true,
+      "descriptor": "exact",
+      "host_marker": true,
+      "platform": "windows",
+      "pairing": true,
+      "accepted_by_negotiation_gate": true
+    },
+    {
+      "name": "old_dot12_missing_descriptor",
+      "new_scope": true,
+      "descriptor": "absent",
+      "host_marker": false,
+      "platform": "windows",
+      "pairing": true,
+      "accepted_by_negotiation_gate": false
+    },
+    {
+      "name": "wrong_contract",
+      "new_scope": true,
+      "descriptor": "wrong_contract",
+      "host_marker": true,
+      "platform": "windows",
+      "pairing": true,
+      "accepted_by_negotiation_gate": false
+    },
+    {
+      "name": "wrong_profile",
+      "new_scope": true,
+      "descriptor": "wrong_profile",
+      "host_marker": true,
+      "platform": "windows",
+      "pairing": true,
+      "accepted_by_negotiation_gate": false
+    },
+    {
+      "name": "wrong_typed_limit",
+      "new_scope": true,
+      "descriptor": "bool_max_keys",
+      "host_marker": true,
+      "platform": "windows",
+      "pairing": true,
+      "accepted_by_negotiation_gate": false
+    },
+    {
+      "name": "unknown_descriptor_field",
+      "new_scope": true,
+      "descriptor": "extra_field",
+      "host_marker": true,
+      "platform": "windows",
+      "pairing": true,
+      "accepted_by_negotiation_gate": false
+    },
+    {
+      "name": "outer_present_inner_missing",
+      "new_scope": true,
+      "descriptor": "exact",
+      "host_marker": false,
+      "platform": "windows",
+      "pairing": true,
+      "accepted_by_negotiation_gate": false
+    },
+    {
+      "name": "linux_cannot_advertise",
+      "new_scope": true,
+      "descriptor": "exact",
+      "host_marker": true,
+      "platform": "linux",
+      "pairing": true,
+      "accepted_by_negotiation_gate": false
+    },
+    {
+      "name": "macos_cannot_advertise",
+      "new_scope": true,
+      "descriptor": "exact",
+      "host_marker": true,
+      "platform": "macos",
+      "pairing": true,
+      "accepted_by_negotiation_gate": false
+    },
+    {
+      "name": "unpaired_core_native",
+      "new_scope": true,
+      "descriptor": "exact",
+      "host_marker": true,
+      "platform": "windows",
+      "pairing": false,
+      "accepted_by_negotiation_gate": false
+    }
+  ],
+  "negotiation_fixture_boundary": "synthetic truth-table consistency only; accepted_by_negotiation_gate is not product execution, authorization or actual artifact pairing"
+}
