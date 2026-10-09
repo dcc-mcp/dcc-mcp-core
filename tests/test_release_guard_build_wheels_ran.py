@@ -147,12 +147,26 @@ def test_tag_name_is_not_executed_as_shell(tmp_path: pathlib.Path) -> None:
     `workflow_dispatch.release_tag` reaches `tag_name`, and the validation job
     only compares it against the supplied version. Reaching the script through
     `env:` keeps it data; interpolating it into the body would make it code.
+
+    The sentinel deliberately carries no `$(id -u)`. An earlier revision asserted
+    `"PWNED_0" not in output`, which only fails when the runner's uid is 0 — on
+    the ubuntu runner (uid 1001) the payload expands to `PWNED_1001`, so that
+    assertion passed no matter what the gate did and the real protection came
+    from the verbatim-echo assertion below. The sentinel is now a fixed string,
+    so the proof holds under every uid.
+
+    The marker cannot be tested with a plain `in` check: an un-executed tag still
+    contains the marker, as inert text inside `$(echo ...)`. Execution is what
+    removes that wrapper, so the inert payload is subtracted first and any
+    marker left over is proof that the shell ran it.
     """
-    payload = "v0.20.43$(echo PWNED_$(id -u))"
+    command = "$(echo PWNED_SENTINEL)"
+    payload = f"v0.20.43{command}"
     completed = _run_guard(tmp_path, created="true", result="skipped", tag=payload)
     output = completed.stdout + completed.stderr
+    executed_marker = output.replace(command, "")
 
-    assert "PWNED_0" not in output, "tag name was executed as shell"
+    assert "PWNED_SENTINEL" not in executed_marker, "tag name was executed as shell"
     assert payload in output, "the tag should still be reported verbatim"
 
 
