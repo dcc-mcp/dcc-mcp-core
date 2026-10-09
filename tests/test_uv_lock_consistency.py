@@ -989,6 +989,150 @@ def test_bounded_runner_contains_windows_last_fork_after_leader_exit(tmp_path: P
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows process-tree contract")
+def test_bounded_runner_flags_windows_escape_shorter_than_settle_window(tmp_path: Path) -> None:
+    """A descendant that outlives the leader is an escape even at <5s.
+
+    The settle window exists to forgive the leader's own delayed reaping, and
+    a count-only window cannot tell that apart from a real descendant. This
+    probe spawns a descendant that ends two seconds after the leader, well
+    inside the window, so a count-only implementation drains to zero and
+    silently allows the escape.
+    """
+    script = REPO_ROOT / "scripts" / "ci" / "generated_lock_sync.py"
+    spec = importlib.util.spec_from_file_location("generated_lock_sync_short_escape", script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    child_pid = tmp_path / "child.pid"
+    child = tmp_path / "short_lived_child.py"
+    child.write_text(
+        "import os, sys, time\n"
+        "from pathlib import Path\n"
+        "Path(sys.argv[1]).write_text(str(os.getpid()))\n"
+        "time.sleep(float(sys.argv[2]))\n",
+        encoding="utf-8",
+    )
+    probe = tmp_path / "short_lived_escape.py"
+    probe.write_text(
+        "import subprocess, sys, time\n"
+        "from pathlib import Path\n"
+        # Hand the child the same lifetime this test asserts against, so the
+        # escape is provably shorter than WINDOWS_JOB_SETTLE_SECONDS.
+        "subprocess.Popen([sys.executable, sys.argv[3], sys.argv[1], sys.argv[2]])\n"
+        "deadline = time.monotonic() + 3.0\n"
+        "while not Path(sys.argv[1]).exists() and time.monotonic() < deadline:\n"
+        "    time.sleep(0.005)\n"
+        "raise SystemExit(0)\n",
+        encoding="utf-8",
+    )
+    lifetime = min(2.0, module.WINDOWS_JOB_SETTLE_SECONDS / 2)
+    with pytest.raises(RuntimeError, match="descendants survived completion"):
+        module.run_bounded(
+            [sys.executable, str(probe), str(child_pid), str(lifetime), str(child)],
+            timeout_seconds=30,
+        )
+    # Failing closed also has to tear the escape down. The job terminate is
+    # asynchronous from the runner's point of view, so converge on the probe
+    # going away rather than sampling once.
+    assert _wait_for_pid_file(child_pid), "probe descendant never recorded its PID"
+    pid = _read_pid_file(child_pid)
+    assert pid is not None, "child.pid never received a PID payload"
+    for _ in range(PID_READ_ATTEMPTS):
+        if not module.process_exists(pid):
+            break
+        time.sleep(PID_READ_DELAY_SECS)
+    assert not module.process_exists(pid), "short-lived escape survived the containment kill"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows process-tree contract")
+def test_bounded_runner_allows_windows_descendant_that_exits_before_leader(tmp_path: Path) -> None:
+    """Normal generation forks descendants; they exit before the leader.
+
+    Tightening the settle criterion must not turn an ordinary build tree into
+    a containment failure, so the leader here waits for its child and only
+    then exits.
+    """
+    script = REPO_ROOT / "scripts" / "ci" / "generated_lock_sync.py"
+    spec = importlib.util.spec_from_file_location("generated_lock_sync_exits_first", script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    child = tmp_path / "exits_first_child.py"
+    child.write_text("import time\ntime.sleep(0.3)\n", encoding="utf-8")
+    probe = tmp_path / "waits_for_child.py"
+    probe.write_text(
+        "import subprocess, sys\n"
+        "from pathlib import Path\n"
+        "completed = subprocess.run([sys.executable, str(Path(sys.argv[1]))], check=False)\n"
+        "raise SystemExit(completed.returncode)\n",
+        encoding="utf-8",
+    )
+    module.run_bounded([sys.executable, str(probe), str(child)], timeout_seconds=30)
+
+
+def _stub_settling_job(module, counts: list[int], id_samples: list[list[int]]):
+    """Build a WindowsJob whose sampling is scripted instead of kernel-backed."""
+
+    class _StubJob(module.WindowsJob):
+        def __init__(self) -> None:
+            self._counts = list(counts)
+            self._ids = list(id_samples)
+
+        def active_processes(self) -> int:
+            return self._counts.pop(0) if len(self._counts) > 1 else self._counts[0]
+
+        def process_ids(self) -> list[int]:
+            return self._ids.pop(0) if len(self._ids) > 1 else self._ids[0]
+
+    return _StubJob()
+
+
+def test_windows_job_settle_forgives_the_leaders_own_reaping_delay(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The leader lingering in the job is a delay, never an escape."""
+    script = REPO_ROOT / "scripts" / "ci" / "generated_lock_sync.py"
+    spec = importlib.util.spec_from_file_location("generated_lock_sync_settle_delay", script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    # Every listed PID claims to be live: the leader must still be filtered
+    # out by identity rather than by a liveness probe.
+    monkeypatch.setattr(module, "process_exists", lambda pid: True)
+    job = _stub_settling_job(module, counts=[1, 1, 0], id_samples=[[111]])
+    settled = job.wait_settled(0.2, leader_pid=111)
+    assert settled.active == 0
+    assert settled.survivors == ()
+
+
+def test_windows_job_settle_reports_descendant_that_ends_inside_window(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A live descendant is reported before the window can drain to zero."""
+    script = REPO_ROOT / "scripts" / "ci" / "generated_lock_sync.py"
+    spec = importlib.util.spec_from_file_location("generated_lock_sync_settle_survivor", script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    monkeypatch.setattr(module, "process_exists", lambda pid: pid == 222)
+    job = _stub_settling_job(module, counts=[2, 1, 0], id_samples=[[111, 222], [111], []])
+    settled = job.wait_settled(5.0, leader_pid=111)
+    assert settled.survivors == (222,)
+    assert settled.active == 2, "the survivor is reported on the first sample, not after the window"
+    assert "222" in settled.describe()
+
+
+def test_windows_job_settle_ignores_exited_descendant_still_listed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A stale membership entry is not an escape until it is also live."""
+    script = REPO_ROOT / "scripts" / "ci" / "generated_lock_sync.py"
+    spec = importlib.util.spec_from_file_location("generated_lock_sync_settle_stale", script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    monkeypatch.setattr(module, "process_exists", lambda pid: pid == 111)
+    job = _stub_settling_job(module, counts=[2, 0], id_samples=[[111, 222]])
+    settled = job.wait_settled(0.2, leader_pid=111)
+    assert settled.survivors == ()
+    assert settled.active == 0
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows process-tree contract")
 def test_bounded_runner_allows_windows_normal_exit() -> None:
     script = REPO_ROOT / "scripts" / "ci" / "generated_lock_sync.py"
     spec = importlib.util.spec_from_file_location("generated_lock_sync_windows_normal_exit", script)

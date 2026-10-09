@@ -47,6 +47,12 @@ WINDOWS_JOB_WAIT_SECONDS = 5.0
 WINDOWS_JOB_SETTLE_SECONDS = 5.0
 WINDOWS_JOB_SETTLE_POLL_SECONDS = 0.05
 WINDOWS_CREATE_SUSPENDED = 0x00000004
+# "the job still lists a process" and "the leader still lingers" are different
+# statements. ActiveProcesses cannot tell them apart, so the settle window also
+# reads the job's PID list: a non-leader PID that is still live is a descendant
+# that outlived the leader, and it stays reported even when it exits before the
+# window closes. Only the leader's own delayed reaping is forgiven.
+WINDOWS_JOB_PROCESS_ID_CAPACITY = 1024
 # POSIX systems without a child subreaper (notably macOS) can reparent an
 # escaped descendant while the leader is exiting.  Keep a bounded second
 # convergence window long enough for that reparent/fork transition to become
@@ -122,6 +128,37 @@ class _JobBasicAccountingInformation(ctypes.Structure):
         ("ActiveProcesses", ctypes.c_ulong),
         ("TotalTerminatedProcesses", ctypes.c_ulong),
     ]
+
+
+class _JobBasicProcessIdList(ctypes.Structure):
+    """Windows JOBOBJECT_BASIC_PROCESS_ID_LIST layout with a fixed capacity."""
+
+    _fields_ = [
+        ("NumberOfAssignedProcesses", ctypes.c_ulong),
+        ("NumberOfProcessIdsInList", ctypes.c_ulong),
+        ("ProcessIdList", ctypes.c_size_t * WINDOWS_JOB_PROCESS_ID_CAPACITY),
+    ]
+
+
+class WindowsJobSettled(NamedTuple):
+    """Outcome of a passive Windows Job Object convergence window.
+
+    ``active`` is the job's last sampled process count; it is non-zero when the
+    accounting never caught up. ``survivors`` holds descendant PIDs observed
+    live after the leader completed. Unlike ``active``, ``survivors`` survives
+    the job draining to zero, so a descendant that ends inside the window still
+    counts as an escape instead of hiding behind the leader's reaping delay.
+    """
+
+    active: int
+    survivors: tuple[int, ...]
+
+    def describe(self) -> str:
+        """Render the containment evidence for a failure message."""
+        if self.survivors:
+            pids = ", ".join(str(pid) for pid in self.survivors)
+            return f"{len(self.survivors)} descendant(s) live after the leader exited: PID(s) {pids}"
+        return f"{self.active} Windows Job Object process(es)"
 
 
 def _configure_process_api(kernel32) -> None:
@@ -274,6 +311,7 @@ class WindowsJob:
 
     _JOB_OBJECT_EXTENDED_LIMIT_INFORMATION = 9
     _JOB_OBJECT_BASIC_ACCOUNTING_INFORMATION = 1
+    _JOB_OBJECT_BASIC_PROCESS_ID_LIST = 3
     _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000
     _WAIT_OBJECT_0 = 0
     _WAIT_TIMEOUT = 0x00000102
@@ -346,6 +384,27 @@ class WindowsJob:
             raise RuntimeError(f"could not query Windows Job Object: error {ctypes.get_last_error()}")
         return int(accounting.ActiveProcesses)
 
+    def process_ids(self) -> list[int]:
+        """Return the process IDs the job currently lists as members.
+
+        The list is the kernel's own view, so it names processes that
+        :meth:`active_processes` can only count. It is still a membership
+        snapshot: an exited member can linger until its last reference drops,
+        which is why callers confirm liveness before treating a PID as an
+        escape.
+        """
+        info = _JobBasicProcessIdList()
+        if not self._kernel32.QueryInformationJobObject(
+            self._handle,
+            self._JOB_OBJECT_BASIC_PROCESS_ID_LIST,
+            ctypes.byref(info),
+            ctypes.sizeof(info),
+            None,
+        ):
+            raise RuntimeError(f"could not enumerate Windows Job Object processes: error {ctypes.get_last_error()}")
+        count = min(int(info.NumberOfProcessIdsInList), WINDOWS_JOB_PROCESS_ID_CAPACITY)
+        return [int(info.ProcessIdList[index]) for index in range(count)]
+
     def terminate(self) -> None:
         """Terminate every process owned by the job."""
         if not self._kernel32.TerminateJobObject(self._handle, 1):
@@ -366,24 +425,33 @@ class WindowsJob:
             if result not in (self._WAIT_OBJECT_0, self._WAIT_TIMEOUT):
                 raise RuntimeError(f"Windows Job Object wait failed: result {result}")
 
-    def wait_settled(self, timeout_seconds: float) -> int:
-        """Return the job's active count after letting its accounting settle.
+    def wait_settled(self, timeout_seconds: float, *, leader_pid: int) -> WindowsJobSettled:
+        """Let the job's accounting settle and report what outlived the leader.
 
         Unlike :meth:`wait_empty` this never terminates anything: it is a passive
         observer used to tell a reaping delay apart from a real escaped
         descendant. A leader that has already exited is still counted until the
         job's accounting is updated, so the count is re-sampled across a bounded
-        window rather than read once. The last observed count is returned and
-        the caller decides what a non-zero value means.
+        window rather than read once.
+
+        Counting alone cannot separate the leader's own delayed reaping from a
+        descendant, so every sample also reads the job's :meth:`process_ids`.
+        Any listed PID other than the leader that is still live is a descendant
+        that outlived the leader. That is returned immediately instead of being
+        re-sampled: waiting for the window to close would let a descendant that
+        exits inside the window drain the job to zero and hide the escape.
         """
         deadline = time.monotonic() + timeout_seconds
         while True:
             active = self.active_processes()
             if not active:
-                return 0
+                return WindowsJobSettled(active=0, survivors=())
+            survivors = tuple(sorted(pid for pid in self.process_ids() if pid != leader_pid and process_exists(pid)))
+            if survivors:
+                return WindowsJobSettled(active=active, survivors=survivors)
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                return active
+                return WindowsJobSettled(active=active, survivors=())
             time.sleep(min(WINDOWS_JOB_SETTLE_POLL_SECONDS, remaining))
 
     def close(self) -> None:
@@ -564,12 +632,10 @@ def run_bounded_windows(
         except subprocess.TimeoutExpired:
             _terminate_windows_job(job, process)
             raise
-        active = job.wait_settled(WINDOWS_JOB_SETTLE_SECONDS)
-        if active:
+        settled = job.wait_settled(WINDOWS_JOB_SETTLE_SECONDS, leader_pid=process.pid)
+        if settled.active or settled.survivors:
             _terminate_windows_job(job, process)
-            raise RuntimeError(
-                f"process containment failed; descendants survived completion: {active} Windows Job Object process(es)"
-            )
+            raise RuntimeError(f"process containment failed; descendants survived completion: {settled.describe()}")
         job.wait_empty(0)
         if process.returncode:
             raise subprocess.CalledProcessError(process.returncode, command)
