@@ -196,7 +196,7 @@ def _attach_capture_provenance(
     result: Dict[str, Any],
 ) -> Dict[str, Any]:
     operation = name[:-5] if name.endswith("_tool") else name
-    if not result.get("success") or operation != "snapshot":
+    if not result.get("success") or operation not in {"snapshot", "prepare_foreground"}:
         return result
     context = _result_context(result)
     if not context:
@@ -420,6 +420,11 @@ def _call(name: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
 def snapshot_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Dispatch ui_control__snapshot to the selected backend."""
     return _call("snapshot_tool", params)
+
+
+def prepare_foreground_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Explicitly prepare the exact foreground and return its fresh observation."""
+    return _call("prepare_foreground_tool", params)
 
 
 def find_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:

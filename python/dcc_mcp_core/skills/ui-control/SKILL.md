@@ -102,7 +102,12 @@ Escape as the operator stop signal.
 
 Follow this loop:
 
-1. Call `ui_control__snapshot`.
+1. For authorized foreground interaction, call `ui_control__prepare_foreground`
+   with the current `session_id`, exact `process_id` and `window_handle`, and
+   explicit `operation="restore_activate"` (or `activate` for an already visible
+   window). It activates, reads back actual foreground/visibility, and returns a
+   fresh same-session snapshot. For observation alone, call `ui_control__snapshot`;
+   it never performs foreground preparation.
 2. Use `ui_control__find` for semantic controls when needed.
 3. Call `ui_control__act` once with the current `snapshot_id`.
 4. Call `ui_control__wait_for` for an explicit condition or take a fresh
