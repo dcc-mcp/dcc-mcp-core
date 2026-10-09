@@ -117,7 +117,7 @@ fn spawn_gateway_idle_shutdown_task(
     grace: Duration,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        let poll = Duration::from_secs(5);
+        let poll = super::idle_timeout::IDLE_POLL;
         let mut idle_since: Option<std::time::Instant> = None;
 
         loop {
@@ -1256,6 +1256,11 @@ pub(crate) async fn start_gateway_tasks(
     // yield is requested, dropping the group aborts the children instead of
     // detaching them as leaked background work.
     let supervisor_yield_rx = yield_rx.clone();
+    // The two HTTP listeners are pulled out of the abort-on-drop group so the
+    // supervisor can await them (draining in-flight requests) instead of
+    // aborting them mid-response. Every other task is pure background work
+    // with no caller waiting on it, so those keep the abort-on-drop path.
+    let listener_handles = vec![gw_handle, remote_handle];
     let mut task_handles = vec![
         cleanup_handle,
         watcher_handle,
@@ -1264,8 +1269,6 @@ pub(crate) async fn start_gateway_tasks(
         backend_sub_handle,
         route_gc_handle,
         health_check_handle,
-        gw_handle,
-        remote_handle,
     ];
     #[cfg(feature = "mdns")]
     if discover_mdns {
@@ -1293,8 +1296,36 @@ pub(crate) async fn start_gateway_tasks(
 
     let combined = tokio::spawn(async move {
         let task_group = GatewayTaskGroup::new(task_handles);
+        // Awaiting the listeners IS the drain: `axum::serve` +
+        // `with_graceful_shutdown` completes its own connection drain before
+        // its future resolves, so a request accepted just before the yield
+        // fired still gets to finish.
+        //
+        // The drain future is created outside `select!` and only awaited
+        // after the yield wins, so the select cannot cancel it mid-flight —
+        // a future moved into a losing `select!` branch is dropped, which
+        // would abandon the very listeners we want to drain.
+        let drain = async {
+            for handle in listener_handles {
+                let _ = handle.await;
+            }
+        };
+        // `pin!` keeps the borrower alive across the select without moving it
+        // into a branch.
+        tokio::pin!(drain);
         tokio::select! {
-            _ = wait_for_gateway_yield(supervisor_yield_rx) => {}
+            _ = wait_for_gateway_yield(supervisor_yield_rx) => {
+                let grace = super::idle_timeout::DRAIN_GRACE;
+                if tokio::time::timeout(grace, drain).await.is_err() {
+                    tracing::warn!(
+                        grace_secs = grace.as_secs(),
+                        "gateway drain window elapsed — listeners did not finish in time"
+                    );
+                }
+            }
+            // A listener exited on its own (crash / port released): keep the
+            // pre-drain behaviour of tearing the group down immediately.
+            _ = &mut drain => {}
             _ = task_group.wait_all() => {}
         }
     });
@@ -1426,6 +1457,75 @@ mod tests {
 
         assert_eq!(fingerprint.as_deref(), Some("current"));
         assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    /// The drain contract: a request already accepted when the yield fires
+    /// must still run to completion.
+    ///
+    /// This exercises the real `axum::serve` + `with_graceful_shutdown` path
+    /// the supervisor awaits, not a stand-in. The handler parks for longer
+    /// than the drain window would matter for, and the assertion is that the
+    /// response still arrives — an abort-based teardown would drop the
+    /// connection mid-request instead.
+    #[tokio::test]
+    async fn in_flight_request_completes_during_graceful_shutdown() {
+        let handler_started = Arc::new(tokio::sync::Notify::new());
+        let handler_done = Arc::new(AtomicUsize::new(0));
+        let started = handler_started.clone();
+        let done = handler_done.clone();
+
+        let app = Router::new().route(
+            "/slow",
+            get(move || {
+                let started = started.clone();
+                let done = done.clone();
+                async move {
+                    started.notify_one();
+                    tokio::time::sleep(Duration::from_millis(300)).await;
+                    done.fetch_add(1, Ordering::SeqCst);
+                    "finished"
+                }
+            }),
+        );
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (yield_tx, yield_rx) = watch::channel(false);
+
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app)
+                .with_graceful_shutdown(async move {
+                    let mut yield_rx = yield_rx;
+                    loop {
+                        if yield_rx.changed().await.is_err() {
+                            break;
+                        }
+                        if *yield_rx.borrow() {
+                            break;
+                        }
+                    }
+                })
+                .await
+                .ok();
+        });
+
+        let client = reqwest::Client::new();
+        let request = tokio::spawn(async move { client.get(format!("http://{addr}/slow")).send().await });
+
+        // Wait until the handler is genuinely in flight before yielding.
+        handler_started.notified().await;
+        let _ = yield_tx.send(true);
+
+        let response = tokio::time::timeout(Duration::from_secs(5), request)
+            .await
+            .expect("in-flight request must not hang across graceful shutdown")
+            .expect("request task panicked")
+            .expect("drain must not sever an in-flight request");
+
+        assert_eq!(response.status(), reqwest::StatusCode::OK);
+        assert_eq!(response.text().await.unwrap(), "finished");
+        assert_eq!(handler_done.load(Ordering::SeqCst), 1);
+        let _ = server.await;
     }
 
     #[tokio::test]
