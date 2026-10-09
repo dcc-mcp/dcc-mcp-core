@@ -38,6 +38,14 @@ LOCK_OUTPUTS = frozenset(("Cargo.lock", "uv.lock", "crates/workspace-hack/Cargo.
 BRANCH_PREFIXES = ("release-please--branches--main", "renovate/")
 GIT_COMMAND_TIMEOUT_SECONDS = 30
 WINDOWS_JOB_WAIT_SECONDS = 5.0
+# A leader's handle is signalled before the Job Object's accounting drops it:
+# the exit is committed to the process object first, and the job's
+# ActiveProcesses count is only decremented on a later scheduler pass. Sampling
+# that count once, immediately after ``wait()`` returns, therefore reads a
+# reaping delay as a containment leak. Bound a second convergence window so the
+# accounting can catch up before any caller declares descendants survived.
+WINDOWS_JOB_SETTLE_SECONDS = 5.0
+WINDOWS_JOB_SETTLE_POLL_SECONDS = 0.05
 WINDOWS_CREATE_SUSPENDED = 0x00000004
 # POSIX systems without a child subreaper (notably macOS) can reparent an
 # escaped descendant while the leader is exiting.  Keep a bounded second
@@ -358,6 +366,26 @@ class WindowsJob:
             if result not in (self._WAIT_OBJECT_0, self._WAIT_TIMEOUT):
                 raise RuntimeError(f"Windows Job Object wait failed: result {result}")
 
+    def wait_settled(self, timeout_seconds: float) -> int:
+        """Return the job's active count after letting its accounting settle.
+
+        Unlike :meth:`wait_empty` this never terminates anything: it is a passive
+        observer used to tell a reaping delay apart from a real escaped
+        descendant. A leader that has already exited is still counted until the
+        job's accounting is updated, so the count is re-sampled across a bounded
+        window rather than read once. The last observed count is returned and
+        the caller decides what a non-zero value means.
+        """
+        deadline = time.monotonic() + timeout_seconds
+        while True:
+            active = self.active_processes()
+            if not active:
+                return 0
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return active
+            time.sleep(min(WINDOWS_JOB_SETTLE_POLL_SECONDS, remaining))
+
     def close(self) -> None:
         """Close the Job handle; kill-on-close is the last-resort fence."""
         handle = getattr(self, "_handle", None)
@@ -536,7 +564,7 @@ def run_bounded_windows(
         except subprocess.TimeoutExpired:
             _terminate_windows_job(job, process)
             raise
-        active = job.active_processes()
+        active = job.wait_settled(WINDOWS_JOB_SETTLE_SECONDS)
         if active:
             _terminate_windows_job(job, process)
             raise RuntimeError(
