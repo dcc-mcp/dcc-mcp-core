@@ -210,7 +210,7 @@ Additional environment knobs:
   `300` by default to cover slow backend startup registration. `0`
   disables the timer (same as `PERSIST=1`).
 
-#### Effective `--gateway-idle-timeout-secs` default per entry point
+### Effective `--gateway-idle-timeout-secs` default per entry point
 
 The same knob has a different default depending on how the gateway was
 started. These are *not* interchangeable — unify only the constant's

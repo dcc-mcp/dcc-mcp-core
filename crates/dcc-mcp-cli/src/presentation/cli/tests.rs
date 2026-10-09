@@ -1303,13 +1303,13 @@ fn auto_ensure_idle_timeout_default_is_distinct_from_daemon_start() {
     let auto_ensure = gateway_ensure::AUTO_ENSURE_IDLE_TIMEOUT_SECS;
     assert_eq!(auto_ensure, 300);
     assert_ne!(
-        auto_ensure, cli_args::CLI_DAEMON_START_IDLE_TIMEOUT_SECS,
+        auto_ensure,
+        cli_args::CLI_DAEMON_START_IDLE_TIMEOUT_SECS,
         "auto-ensure must not inherit the operator-managed daemon value"
     );
-    let server_default =
-        dcc_mcp_sidecar::gateway_daemon::GatewayArgs::gateway_idle_timeout_secs(
-            &default_gateway_daemon_args(),
-        );
+    let server_default = dcc_mcp_sidecar::gateway_daemon::GatewayArgs::gateway_idle_timeout_secs(
+        &default_gateway_daemon_args(),
+    );
     assert_ne!(
         auto_ensure, server_default,
         "auto-ensure must not inherit the directly-run server value"

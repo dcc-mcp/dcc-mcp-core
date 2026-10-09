@@ -85,6 +85,56 @@ mod tests {
         assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
 
+    /// Mirror of the supervisor's listener teardown: await the drain window,
+    /// then abort whatever is still running.
+    ///
+    /// Mirroring the shape here means the `listener_aborts` fallback in
+    /// `start_gateway_tasks` has a test that fails if the fallback is removed.
+    async fn drain_then_abort(
+        handles: Vec<tokio::task::JoinHandle<()>>,
+        aborts: Vec<tokio::task::AbortHandle>,
+        grace: Duration,
+    ) -> bool {
+        let drain = async {
+            for handle in handles {
+                let _ = handle.await;
+            }
+        };
+        let finished = tokio::time::timeout(grace, drain).await.is_ok();
+        for abort in &aborts {
+            abort.abort();
+        }
+        finished
+    }
+
+    /// Regression: a listener that outlives the drain window (a long-lived SSE
+    /// stream, for example) must still be aborted, not detached. Dropping its
+    /// JoinHandle would leave the axum listener running and hold the gateway
+    /// port open — the teardown regression this guards against.
+    #[tokio::test]
+    async fn drain_aborts_a_listener_that_outlives_the_window() {
+        let finished_flag = Arc::new(AtomicUsize::new(0));
+        let task_flag = finished_flag.clone();
+        let handle = tokio::spawn(async move {
+            // Never completes on its own — stands in for an open SSE stream.
+            std::future::pending::<()>().await;
+            task_flag.fetch_add(1, Ordering::SeqCst);
+        });
+        let abort = handle.abort_handle();
+
+        let drained = drain_then_abort(vec![handle], vec![abort], Duration::from_millis(50)).await;
+
+        assert!(
+            !drained,
+            "a stuck listener must report the drain window as elapsed"
+        );
+        assert_eq!(
+            finished_flag.load(Ordering::SeqCst),
+            0,
+            "the abort fallback must stop the listener task"
+        );
+    }
+
     /// The drain contract: a request already accepted when the yield fires
     /// must still run to completion.
     ///
@@ -93,7 +143,7 @@ mod tests {
     /// that an abort-based teardown would sever the connection, and the
     /// assertion is that the response still arrives complete.
     #[tokio::test]
-    async fn in_flight_request_completes_during_graceful_shutdown() {
+    async fn drain_lets_an_in_flight_request_finish_before_abort() {
         let handler_started = Arc::new(Notify::new());
         let handler_done = Arc::new(AtomicUsize::new(0));
         let started = handler_started.clone();
