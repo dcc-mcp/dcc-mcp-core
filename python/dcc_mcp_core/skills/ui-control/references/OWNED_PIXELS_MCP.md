@@ -73,3 +73,28 @@ Automatic unload reports owned cleanup failures through executor warnings,
 but `Core.stop()` returns no native receipt and catalog unload is not cleanup
 acceptance. Retain the explicit `ui_control__stop_computer_use` ACK before Core
 shutdown when proof of native cleanup is required.
+
+## Explicit foreground preparation
+
+Use `ui_control__prepare_foreground(session_id=..., process_id=...,
+window_handle=..., operation="restore_activate")` when the task requires the
+exact application in front before capture. `operation="activate"` is available
+for an already visible target. Both window mutation and snapshot policy must
+permit the call; owned pixels additionally requires the matching
+`window_operations` entry. The call grants no new content input permissions.
+
+The retained client performs the explicit mutation, independently reads actual
+foreground/visibility, then captures a fresh observation before returning its
+`snapshot_id`, pixels and provenance. It never switches HWND within the same
+PID, rebinds an existing logical session, resumes stopped control, retries, or
+sends content input. Every attempted preparation consumes the prior snapshot.
+The ordinary `ui_control__snapshot` path remains free of foreground mutation.
+
+The `foreground_preparation` result identifies `binding`, `authorization`,
+`activation`, `foreground_readback`, `capture`, or `ready`. Activation and
+readback receipts remain available when capture fails. Capture reports its
+`semantic` or `pixels_only` mode and retains native error details such as
+`root_overlap`; a successful activation does not turn a rejected screenshot
+into success. Only `ready` carries a new usable snapshot; one subsequent input
+still requires the existing owner permission and fresh native checks. Verify
+its application effect and finish with `ui_control__stop_computer_use`.

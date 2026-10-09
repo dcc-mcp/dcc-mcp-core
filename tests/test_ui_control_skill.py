@@ -153,6 +153,7 @@ def test_ui_control_skill_metadata_and_tool_names() -> None:
     assert meta is not None
     assert meta.name == "ui-control"
     assert {tool.name for tool in meta.tools} == {
+        "prepare_foreground",
         "snapshot",
         "find",
         "act",
