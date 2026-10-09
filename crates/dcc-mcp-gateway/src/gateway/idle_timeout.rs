@@ -46,13 +46,18 @@ pub const MIN_AUTOLAUNCH: u64 = 30;
 pub const CLI_DAEMON_START_DEFAULT: u64 = 0;
 
 /// How long the gateway waits for in-flight requests to finish after the
-/// idle timeout fires, before its task group is aborted.
+/// idle timeout fires, before the listeners are aborted.
 ///
 /// The idle timer only advances while zero backends are live, so in the
 /// common case there is nothing in flight to drain. The window exists so a
 /// future gateway that can route without a live backend (built-in tools,
 /// relay forwarding) does not cut connections off mid-request.
-pub const DRAIN_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
+///
+/// Sized to outlast a normal request/response round trip without blocking
+/// shutdown indefinitely: `GET /mcp` is a long-lived SSE stream, so this
+/// cannot out-wait a client that stays connected — the drain is bounded and
+/// aborts on expiry rather than hanging.
+pub const DRAIN_GRACE: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// Polling cadence of the idle timer.
 ///
