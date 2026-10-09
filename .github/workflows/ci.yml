@@ -108,6 +108,34 @@ jobs:
               sys.exit(1)
           PY
 
+  # ── Workflow expression ↔ golden test sync ────────────────────────────────
+  # A GitHub Actions expression lives in two places: the workflow that
+  # evaluates it and the golden test that asserts its exact text. Nothing
+  # forced the two to move together, so a workflow change that should have
+  # updated the test did not and the mismatch only surfaced after the full
+  # matrix had already run -- three independent pull requests hit this same
+  # shape in one day.
+  #
+  # This job resolves both sides and compares them, so the mismatch is
+  # reported in seconds, in parallel with everything else. It deliberately
+  # has no `needs:` and installs only PyYAML: the point is to fail before
+  # any matrix job starts, and never to add matrix time.
+  workflow-expression-sync:
+    name: Workflow expression sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - name: Install PyYAML
+        run: python -m pip install pyyaml
+
+      - name: Check workflow expressions against their golden tests
+        run: python scripts/ci/check_workflow_expression_sync.py --format github
+
   admin-ui-bundle:
     name: Admin UI bundle
     runs-on: ubuntu-latest
