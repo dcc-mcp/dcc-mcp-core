@@ -372,12 +372,16 @@ class HostExecutionBridge:
         job_id: str | None = None,
         cancel_token: Any | None = None,
         trusted_adapter_scope: Mapping[str, Any] | None = None,
+        trusted_ui_control_runtime: Any | None = None,
     ) -> Any:
         """Execute a skill script using the same bridge as direct callables."""
         effective_params = dict(params)
         effective_params.pop("trusted_adapter_scope", None)
+        effective_params.pop("trusted_ui_control_runtime", None)
         if trusted_adapter_scope is not None:
             effective_params["trusted_adapter_scope"] = dict(trusted_adapter_scope)
+        if trusted_ui_control_runtime is not None:
+            effective_params["trusted_ui_control_runtime"] = trusted_ui_control_runtime
         generation = self._current_generation()
         if generation is None:
             return self._shutdown_error()
@@ -597,6 +601,7 @@ class HostExecutionBridge:
             job_id: str | None = None,
             cancel_token: Any | None = None,
             trusted_adapter_scope: Mapping[str, Any] | None = None,
+            trusted_ui_control_runtime: Any | None = None,
         ) -> Any:
             return self.execute_script(
                 script_path,
@@ -610,6 +615,7 @@ class HostExecutionBridge:
                 job_id=job_id,
                 cancel_token=cancel_token,
                 trusted_adapter_scope=trusted_adapter_scope,
+                trusted_ui_control_runtime=trusted_ui_control_runtime,
             )
 
         return _executor

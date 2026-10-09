@@ -63,6 +63,12 @@ input scheduling, Escape interruption, browser CDP routing, and platform
 adapters. Core owns only DCC policy, normalized tool results, audit events, and
 artifact publication.
 
+An adapter may opt into an integrity-pinned, owned public-MCP `pixels_only`
+runtime through server-owned `UiControlRuntimeOptions`. This preserves the
+default shared JSONL path for other servers. The owner must bind both PID and
+HWND; tool arguments cannot select a binary, transport, or action grant. See
+[owned pixels MCP](references/OWNED_PIXELS_MCP.md) before using that mode.
+
 ## Exact application scope
 
 `DccServerBase` injects its trusted `DccServerOptions` process/window context
@@ -133,6 +139,15 @@ Trajectory recording is session-scoped and intentionally asynchronous:
 
 This replaces the removed synchronous JPEG-sequence `record_clip` contract.
 Core does not duplicate CUA's recording format.
+
+In explicit [owned pixels mode](references/OWNED_PIXELS_MCP.md), recording needs
+the separate operator-owned `UiControlRecordingOptions` ceiling. It grants no
+input and never starts automatically. Use the same session and call
+`recording_start` with output_dir/record_video omitted: the runtime supplies its
+immutable task directory and video-only request. `trajectory_available=false`.
+Retain paused/degraded/failed state and partial artifacts. A failed stop is not
+finalization; read `recording_state` explicitly and always finish with
+`stop_computer_use`, preserving the actual cleanup ACK or failed/unknown outcome.
 
 ## Semantic profiles and trusted handoff
 
