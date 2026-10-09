@@ -725,12 +725,7 @@ def _escape_property(text: str) -> str:
     previous revision.
     """
     return (
-        str(text)
-        .replace("%", "%25")
-        .replace("\r", "%0D")
-        .replace("\n", "%0A")
-        .replace(":", "%3A")
-        .replace(",", "%2C")
+        str(text).replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A").replace(":", "%3A").replace(",", "%2C")
     )
 
 
