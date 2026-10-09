@@ -13,6 +13,7 @@ from dcc_mcp_core.cua_cli import CuaCliError
 from dcc_mcp_core.host.cua_mcp_cleanup import OwnedPixelsTaskCleanup
 from dcc_mcp_core.host.cua_mcp_errors import OwnedCuaMcpError
 from dcc_mcp_core.host.cua_mcp_geometry import validate_geometry
+from dcc_mcp_core.host.cua_mcp_pointer import pointer_payload
 from dcc_mcp_core.host.cua_mcp_preparation import PixelsMcpPreparation
 from dcc_mcp_core.host.cua_mcp_recording import RECORDING_METHODS
 from dcc_mcp_core.host.cua_mcp_recording import PixelsMcpRecording
@@ -49,6 +50,7 @@ class PixelsMcpHostClient:
         self._title_constraint = window_title or ""
         self.task_id: str | None = None
         self._observation_id: str | None = None
+        self._observation_size: tuple[int, int] | None = None
         self._native_session_id: str | None = None
         self._native_instance: dict[str, Any] | None = None
         self._window_state_id: str | None = None
@@ -209,6 +211,7 @@ class PixelsMcpHostClient:
     def snapshot(self, *, max_depth: int, max_nodes: int) -> dict[str, Any]:
         """Capture real pixels and retain the native provenance with AX absent."""
         self._observation_id = None
+        self._observation_size = None
         try:
             raw = self._call("snapshot", {}, "snapshot")
             observation = raw.get("observation")
@@ -282,6 +285,7 @@ class PixelsMcpHostClient:
             raw["image_bytes"] = pixels
             raw["node_count"] = 0
             self._observation_id = observation_id
+            self._observation_size = (observation["width"], observation["height"])
             self._last_observation_id = observation_id
             self._native_session_id = native_session
             self._native_instance = deepcopy(instance)
@@ -306,6 +310,11 @@ class PixelsMcpHostClient:
         # Backend compatibility fields are omitted deliberately, not forwarded to
         # the deny-unknown-fields public protocol or mistaken for semantic tokens.
         payload = {key: value for key, value in action.items() if key in allowed}
+        if name in {"move", "drag"}:
+            payload = {
+                **{key: value for key, value in payload.items() if key in {"action", "input_kind", "intent"}},
+                **pointer_payload(action, self._observation_size),
+            }
         payload["delivery_mode"] = "foreground"
         if name == "type":
             payload["type_chars_only"] = True

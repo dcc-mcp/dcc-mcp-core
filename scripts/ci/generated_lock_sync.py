@@ -372,7 +372,7 @@ class WindowsJob:
             raise RuntimeError(f"could not assign process to Windows Job Object: error {ctypes.get_last_error()}")
 
     def active_processes(self) -> int:
-        """Return the count of live processes physically owned by the job."""
+        """Return the job's accounting count, including pending exit rundown."""
         accounting = _JobBasicAccountingInformation()
         if not self._kernel32.QueryInformationJobObject(
             self._handle,
@@ -593,11 +593,12 @@ def process_exists(pid: int) -> bool:
 def _terminate_windows_job(job: WindowsJob, process: _SuspendedWindowsProcess) -> None:
     """Terminate the owned job and confirm every member plus the leader exited."""
     job.terminate()
-    job.wait_empty(WINDOWS_JOB_WAIT_SECONDS)
     try:
         process.wait(WINDOWS_JOB_WAIT_SECONDS)
     except subprocess.TimeoutExpired as exc:
         raise RuntimeError("Windows process handle did not signal after Job Object cleanup") from exc
+    process.close()
+    job.wait_empty(WINDOWS_JOB_WAIT_SECONDS)
 
 
 def run_bounded_windows(
@@ -632,6 +633,9 @@ def run_bounded_windows(
         except subprocess.TimeoutExpired:
             _terminate_windows_job(job, process)
             raise
+        # Release the exited leader handle before observing accounting, while
+        # retaining evidence of any descendant that outlived that leader.
+        process.close()
         settled = job.wait_settled(WINDOWS_JOB_SETTLE_SECONDS, leader_pid=process.pid)
         if settled.active or settled.survivors:
             _terminate_windows_job(job, process)

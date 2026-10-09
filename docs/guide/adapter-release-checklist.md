@@ -266,8 +266,13 @@ requests Job breakaway can start only when the effective outer/nested Job policy
 allows it; assignment or nested-Job incompatibility fails closed before the
 generator runs.
 
-Timeout, setup failure, or a leader that exits while Job members remain triggers
-Job termination followed by bounded cleanup and active-process readback. The
+After the leader signals exit, the helper closes its owned process handle and
+allows bounded Job accounting convergence. It proceeds only after a zero count
+and no live descendant observed after the leader exited. A surviving descendant
+is rejected immediately even if it would exit during the convergence window;
+a nonzero count at the deadline also triggers Job termination and another
+bounded cleanup. Timeout and setup failure trigger Job termination followed by
+bounded cleanup and active-process readback. The
 helper does not use PID/tree snapshots for assignment, resume, or cleanup, so PID
 reuse cannot redirect those actions to an unrelated process. This contract does
 not remove credentials held by registry/cloud CLIs or runner services; those
