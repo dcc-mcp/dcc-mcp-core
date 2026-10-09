@@ -1,0 +1,63 @@
+{
+  "contract": "dcc-cua.recording-sample-progress.v1",
+  "platform": "windows",
+  "recording_state_path": "video.media_sample_progress",
+  "sample_semantics": "openh264_media_sample_admission_with_source_provenance",
+  "media_sample_progress_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "dcc-cua.recording-sample-progress.v1",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "latest_admitted_source_sequence",
+      "media_samples_admitted",
+      "recording_interval_id"
+    ],
+    "properties": {
+      "recording_interval_id": {
+        "type": "string",
+        "minLength": 1
+      },
+      "media_samples_admitted": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 18446744073709551615
+      },
+      "latest_admitted_source_sequence": {
+        "type": [
+          "integer",
+          "null"
+        ],
+        "minimum": 0,
+        "maximum": 18446744073709551615
+      }
+    },
+    "allOf": [
+      {
+        "if": {
+          "properties": {
+            "media_samples_admitted": {
+              "const": 0
+            }
+          }
+        },
+        "then": {
+          "properties": {
+            "latest_admitted_source_sequence": {
+              "type": "null"
+            }
+          }
+        },
+        "else": {
+          "properties": {
+            "latest_admitted_source_sequence": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709551615
+            }
+          }
+        }
+      }
+    ]
+  }
+}

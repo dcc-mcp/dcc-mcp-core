@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from dcc_mcp_core.cua_cli import CuaCliError
+from dcc_mcp_core.host.cua_mcp_contracts import typed_equal as _typed_equal
 from dcc_mcp_core.host.cua_mcp_game_input import GAME_ACTIONS
 
 GAME_CAPABILITY_KEY = "dcc-cua.game-input"
@@ -37,16 +38,6 @@ GAME_DESCRIPTOR = {
     },
     "combined_requires": ["game_navigation", "relative_mouse"],
 }
-
-
-def _typed_equal(actual: Any, expected: Any) -> bool:
-    if type(actual) is not type(expected):
-        return False
-    if isinstance(expected, dict):
-        return actual.keys() == expected.keys() and all(_typed_equal(actual[k], v) for k, v in expected.items())
-    if isinstance(expected, list):
-        return len(actual) == len(expected) and all(_typed_equal(a, b) for a, b in zip(actual, expected))
-    return actual == expected
 
 
 def require_game_capability(capabilities: dict[str, Any], grants: tuple[str, ...]) -> None:

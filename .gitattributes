@@ -17,3 +17,4 @@ examples/design-provider-bridge/pilot/native/fieldkit.pen text eol=lf
 
 # Shared Native/Core conformance fixtures carry exact external SHA-256 pins.
 tests/fixtures/cua_game_input/*.json -text
+tests/fixtures/cua_recording_progress/*.json -text

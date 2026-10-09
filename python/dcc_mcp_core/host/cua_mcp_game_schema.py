@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from dcc_mcp_core.cua_cli import CuaCliError
-from dcc_mcp_core.host.cua_mcp_game_capability import _typed_equal
+from dcc_mcp_core.host.cua_mcp_contracts import typed_equal as _typed_equal
 from dcc_mcp_core.host.cua_mcp_game_input import GAME_ACTIONS
 from dcc_mcp_core.host.cua_mcp_game_input import GAME_KEYS
 
