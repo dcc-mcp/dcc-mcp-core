@@ -122,7 +122,10 @@ class GatewayOptions:
             resolved_port = int(env_val) if env_val.isdigit() else None
 
         if remote_host is None:
-            remote_host = os.environ.get(ENV_GATEWAY_REMOTE_HOST) or None
+            env_remote_host = os.environ.get(ENV_GATEWAY_REMOTE_HOST)
+            if env_remote_host is not None and not env_remote_host.strip():
+                raise ValueError(f"{ENV_GATEWAY_REMOTE_HOST} must be a nonempty bind address")
+            remote_host = env_remote_host or None
         if remote_port is None:
             raw_remote_port = os.environ.get(ENV_GATEWAY_REMOTE_PORT)
             if raw_remote_port is not None:
@@ -130,6 +133,8 @@ class GatewayOptions:
                     remote_port = int(raw_remote_port)
                 except ValueError as exc:
                     raise ValueError(f"{ENV_GATEWAY_REMOTE_PORT} must be an integer between 0 and 65535") from exc
+                if not 0 <= remote_port <= 65535:
+                    raise ValueError(f"{ENV_GATEWAY_REMOTE_PORT} must be an integer between 0 and 65535")
 
         resolved_registry_dir = registry_dir
         if resolved_registry_dir is None:
