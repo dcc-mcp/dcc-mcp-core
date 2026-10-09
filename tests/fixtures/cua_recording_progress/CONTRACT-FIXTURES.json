@@ -1,0 +1,560 @@
+{
+  "scope": "file-level contract/model checks only, not Native product tests",
+  "wire": [
+    {
+      "name": "initial-zero-null",
+      "value": {
+        "recording_interval_id": "interval-A",
+        "media_samples_admitted": 0,
+        "latest_admitted_source_sequence": null
+      },
+      "valid": true
+    },
+    {
+      "name": "first-source-zero",
+      "value": {
+        "recording_interval_id": "interval-A",
+        "media_samples_admitted": 1,
+        "latest_admitted_source_sequence": 0
+      },
+      "valid": true
+    },
+    {
+      "name": "source-gap",
+      "value": {
+        "recording_interval_id": "interval-A",
+        "media_samples_admitted": 2,
+        "latest_admitted_source_sequence": 19
+      },
+      "valid": true
+    },
+    {
+      "name": "u64-sequence",
+      "value": {
+        "recording_interval_id": "interval-A",
+        "media_samples_admitted": 1,
+        "latest_admitted_source_sequence": 18446744073709551615
+      },
+      "valid": true
+    },
+    {
+      "name": "u64-count",
+      "value": {
+        "recording_interval_id": "interval-A",
+        "media_samples_admitted": 18446744073709551615,
+        "latest_admitted_source_sequence": 18446744073709551615
+      },
+      "valid": true
+    },
+    {
+      "name": "null-object",
+      "value": null,
+      "valid": false
+    },
+    {
+      "name": "boolean-object",
+      "value": false,
+      "valid": false
+    },
+    {
+      "name": "missing-fields",
+      "value": {},
+      "valid": false
+    },
+    {
+      "name": "null-id",
+      "value": {
+        "recording_interval_id": null,
+        "media_samples_admitted": 0,
+        "latest_admitted_source_sequence": null
+      },
+      "valid": false
+    },
+    {
+      "name": "empty-id",
+      "value": {
+        "recording_interval_id": "",
+        "media_samples_admitted": 0,
+        "latest_admitted_source_sequence": null
+      },
+      "valid": false
+    },
+    {
+      "name": "bool-id",
+      "value": {
+        "recording_interval_id": true,
+        "media_samples_admitted": 0,
+        "latest_admitted_source_sequence": null
+      },
+      "valid": false
+    },
+    {
+      "name": "null-count",
+      "value": {
+        "recording_interval_id": "interval-A",
+        "media_samples_admitted": null,
+        "latest_admitted_source_sequence": null
+      },
+      "valid": false
+    },
+    {
+      "name": "bool-count",
+      "value": {
+        "recording_interval_id": "interval-A",
+        "media_samples_admitted": true,
+        "latest_admitted_source_sequence": 0
+      },
+      "valid": false
+    },
+    {
+      "name": "float-count",
+      "value": {
+        "recording_interval_id": "interval-A",
+        "media_samples_admitted": 1.0,
+        "latest_admitted_source_sequence": 0
+      },
+      "valid": false
+    },
+    {
+      "name": "negative-count",
+      "value": {
+        "recording_interval_id": "interval-A",
+        "media_samples_admitted": -1,
+        "latest_admitted_source_sequence": 0
+      },
+      "valid": false
+    },
+    {
+      "name": "overflow-count",
+      "value": {
+        "recording_interval_id": "interval-A",
+        "media_samples_admitted": 18446744073709551616,
+        "latest_admitted_source_sequence": 0
+      },
+      "valid": false
+    },
+    {
+      "name": "bool-seq",
+      "value": {
+        "recording_interval_id": "interval-A",
+        "media_samples_admitted": 1,
+        "latest_admitted_source_sequence": false
+      },
+      "valid": false
+    },
+    {
+      "name": "float-seq",
+      "value": {
+        "recording_interval_id": "interval-A",
+        "media_samples_admitted": 1,
+        "latest_admitted_source_sequence": 1.0
+      },
+      "valid": false
+    },
+    {
+      "name": "negative-seq",
+      "value": {
+        "recording_interval_id": "interval-A",
+        "media_samples_admitted": 1,
+        "latest_admitted_source_sequence": -1
+      },
+      "valid": false
+    },
+    {
+      "name": "overflow-seq",
+      "value": {
+        "recording_interval_id": "interval-A",
+        "media_samples_admitted": 1,
+        "latest_admitted_source_sequence": 18446744073709551616
+      },
+      "valid": false
+    },
+    {
+      "name": "zero-count-zero-seq",
+      "value": {
+        "recording_interval_id": "interval-A",
+        "media_samples_admitted": 0,
+        "latest_admitted_source_sequence": 0
+      },
+      "valid": false
+    },
+    {
+      "name": "zero-count-positive-seq",
+      "value": {
+        "recording_interval_id": "interval-A",
+        "media_samples_admitted": 0,
+        "latest_admitted_source_sequence": 1
+      },
+      "valid": false
+    },
+    {
+      "name": "positive-count-null-seq",
+      "value": {
+        "recording_interval_id": "interval-A",
+        "media_samples_admitted": 1,
+        "latest_admitted_source_sequence": null
+      },
+      "valid": false
+    },
+    {
+      "name": "foreign-encoded-field",
+      "value": {
+        "recording_interval_id": "interval-A",
+        "media_samples_admitted": 1,
+        "latest_admitted_source_sequence": 0,
+        "encoded_frames": 1
+      },
+      "valid": false
+    }
+  ],
+  "comparison": [
+    {
+      "name": "no-baseline",
+      "previous": null,
+      "current": {
+        "recording_interval_id": "interval-A",
+        "media_samples_admitted": 0,
+        "latest_admitted_source_sequence": null
+      },
+      "expected": "baseline_required"
+    },
+    {
+      "name": "first-source-zero",
+      "previous": {
+        "recording_interval_id": "interval-A",
+        "media_samples_admitted": 0,
+        "latest_admitted_source_sequence": null
+      },
+      "current": {
+        "recording_interval_id": "interval-A",
+        "media_samples_admitted": 1,
+        "latest_admitted_source_sequence": 0
+      },
+      "expected": "advanced"
+    },
+    {
+      "name": "actual-source-gap",
+      "previous": {
+        "recording_interval_id": "interval-A",
+        "media_samples_admitted": 1,
+        "latest_admitted_source_sequence": 0
+      },
+      "current": {
+        "recording_interval_id": "interval-A",
+        "media_samples_admitted": 2,
+        "latest_admitted_source_sequence": 19
+      },
+      "expected": "advanced"
+    },
+    {
+      "name": "same-values",
+      "previous": {
+        "recording_interval_id": "interval-A",
+        "media_samples_admitted": 1,
+        "latest_admitted_source_sequence": 4
+      },
+      "current": {
+        "recording_interval_id": "interval-A",
+        "media_samples_admitted": 1,
+        "latest_admitted_source_sequence": 4
+      },
+      "expected": "stalled"
+    },
+    {
+      "name": "count-regression",
+      "previous": {
+        "recording_interval_id": "interval-A",
+        "media_samples_admitted": 2,
+        "latest_admitted_source_sequence": 7
+      },
+      "current": {
+        "recording_interval_id": "interval-A",
+        "media_samples_admitted": 1,
+        "latest_admitted_source_sequence": 7
+      },
+      "expected": "regressed"
+    },
+    {
+      "name": "source-regression",
+      "previous": {
+        "recording_interval_id": "interval-A",
+        "media_samples_admitted": 2,
+        "latest_admitted_source_sequence": 7
+      },
+      "current": {
+        "recording_interval_id": "interval-A",
+        "media_samples_admitted": 3,
+        "latest_admitted_source_sequence": 6
+      },
+      "expected": "regressed"
+    },
+    {
+      "name": "admitted-count-grows-same-source",
+      "previous": {
+        "recording_interval_id": "interval-A",
+        "media_samples_admitted": 1,
+        "latest_admitted_source_sequence": 7
+      },
+      "current": {
+        "recording_interval_id": "interval-A",
+        "media_samples_admitted": 2,
+        "latest_admitted_source_sequence": 7
+      },
+      "expected": "advanced"
+    },
+    {
+      "name": "source-only-change",
+      "previous": {
+        "recording_interval_id": "interval-A",
+        "media_samples_admitted": 1,
+        "latest_admitted_source_sequence": 7
+      },
+      "current": {
+        "recording_interval_id": "interval-A",
+        "media_samples_admitted": 1,
+        "latest_admitted_source_sequence": 8
+      },
+      "expected": "unavailable"
+    },
+    {
+      "name": "interval-reset",
+      "previous": {
+        "recording_interval_id": "interval-A",
+        "media_samples_admitted": 10,
+        "latest_admitted_source_sequence": 80
+      },
+      "current": {
+        "recording_interval_id": "interval-B",
+        "media_samples_admitted": 0,
+        "latest_admitted_source_sequence": null
+      },
+      "expected": "baseline_required"
+    },
+    {
+      "name": "interval-already-admitted",
+      "previous": {
+        "recording_interval_id": "interval-A",
+        "media_samples_admitted": 10,
+        "latest_admitted_source_sequence": 80
+      },
+      "current": {
+        "recording_interval_id": "interval-B",
+        "media_samples_admitted": 1,
+        "latest_admitted_source_sequence": 0
+      },
+      "expected": "baseline_required"
+    },
+    {
+      "name": "missing-current",
+      "previous": {
+        "recording_interval_id": "interval-A",
+        "media_samples_admitted": 1,
+        "latest_admitted_source_sequence": 7
+      },
+      "current": null,
+      "expected": "unavailable"
+    },
+    {
+      "name": "invalid-previous",
+      "previous": {},
+      "current": {
+        "recording_interval_id": "interval-A",
+        "media_samples_admitted": 2,
+        "latest_admitted_source_sequence": 8
+      },
+      "expected": "baseline_required"
+    },
+    {
+      "name": "size-mtime-segments-only",
+      "previous": {
+        "recording_interval_id": "interval-A",
+        "media_samples_admitted": 1,
+        "latest_admitted_source_sequence": 7
+      },
+      "current": {
+        "recording_interval_id": "interval-A",
+        "media_samples_admitted": 1,
+        "latest_admitted_source_sequence": 7
+      },
+      "expected": "stalled"
+    },
+    {
+      "name": "size-without-object",
+      "previous": null,
+      "current": null,
+      "expected": "unavailable"
+    },
+    {
+      "name": "pause-alone",
+      "previous": {
+        "recording_interval_id": "interval-A",
+        "media_samples_admitted": 1,
+        "latest_admitted_source_sequence": 7
+      },
+      "current": {
+        "recording_interval_id": "interval-A",
+        "media_samples_admitted": 1,
+        "latest_admitted_source_sequence": 7
+      },
+      "expected": "stalled"
+    },
+    {
+      "name": "flush-alone",
+      "previous": {
+        "recording_interval_id": "interval-A",
+        "media_samples_admitted": 1,
+        "latest_admitted_source_sequence": 7
+      },
+      "current": {
+        "recording_interval_id": "interval-A",
+        "media_samples_admitted": 1,
+        "latest_admitted_source_sequence": 7
+      },
+      "expected": "stalled"
+    },
+    {
+      "name": "failure-alone",
+      "previous": {
+        "recording_interval_id": "interval-A",
+        "media_samples_admitted": 1,
+        "latest_admitted_source_sequence": 7
+      },
+      "current": {
+        "recording_interval_id": "interval-A",
+        "media_samples_admitted": 1,
+        "latest_admitted_source_sequence": 7
+      },
+      "expected": "stalled"
+    },
+    {
+      "name": "stop-alone",
+      "previous": {
+        "recording_interval_id": "interval-A",
+        "media_samples_admitted": 1,
+        "latest_admitted_source_sequence": 7
+      },
+      "current": {
+        "recording_interval_id": "interval-A",
+        "media_samples_admitted": 1,
+        "latest_admitted_source_sequence": 7
+      },
+      "expected": "stalled"
+    },
+    {
+      "name": "actual-stop-drain-admission",
+      "previous": {
+        "recording_interval_id": "interval-A",
+        "media_samples_admitted": 1,
+        "latest_admitted_source_sequence": 7
+      },
+      "current": {
+        "recording_interval_id": "interval-A",
+        "media_samples_admitted": 2,
+        "latest_admitted_source_sequence": 8
+      },
+      "expected": "advanced"
+    }
+  ],
+  "capability": [
+    {
+      "name": "complete-windows",
+      "windows": true,
+      "implemented": true,
+      "experimental": {
+        "dcc-cua.recording-sample-progress": {
+          "contract": "dcc-cua.recording-sample-progress.v1",
+          "platform": "windows",
+          "recording_state_path": "video.media_sample_progress",
+          "sample_semantics": "openh264_media_sample_admission_with_source_provenance"
+        }
+      },
+      "host": [
+        "dcc-cua.recording-sample-progress.v1"
+      ],
+      "expected": true
+    },
+    {
+      "name": "current-unimplemented",
+      "windows": true,
+      "implemented": false,
+      "experimental": {},
+      "host": [],
+      "expected": false
+    },
+    {
+      "name": "non-windows",
+      "windows": false,
+      "implemented": true,
+      "experimental": {},
+      "host": [],
+      "expected": false
+    },
+    {
+      "name": "missing-host",
+      "windows": true,
+      "implemented": true,
+      "experimental": {
+        "dcc-cua.recording-sample-progress": {
+          "contract": "dcc-cua.recording-sample-progress.v1",
+          "platform": "windows",
+          "recording_state_path": "video.media_sample_progress",
+          "sample_semantics": "openh264_media_sample_admission_with_source_provenance"
+        }
+      },
+      "host": [],
+      "expected": false
+    },
+    {
+      "name": "missing-initialize",
+      "windows": true,
+      "implemented": true,
+      "experimental": {},
+      "host": [
+        "dcc-cua.recording-sample-progress.v1"
+      ],
+      "expected": false
+    },
+    {
+      "name": "wrong-descriptor",
+      "windows": true,
+      "implemented": true,
+      "experimental": {
+        "dcc-cua.recording-sample-progress": {
+          "contract": "dcc-cua.recording-sample-progress.v1",
+          "platform": "windows",
+          "recording_state_path": "video.media_sample_progress",
+          "sample_semantics": "file_size"
+        }
+      },
+      "host": [
+        "dcc-cua.recording-sample-progress.v1"
+      ],
+      "expected": false
+    },
+    {
+      "name": "null-descriptor",
+      "windows": true,
+      "implemented": true,
+      "experimental": {
+        "dcc-cua.recording-sample-progress": null
+      },
+      "host": [
+        "dcc-cua.recording-sample-progress.v1"
+      ],
+      "expected": false
+    }
+  ],
+  "diagnostic_only_size_fixture": {
+    "previous": {
+      "size": 12,
+      "mtime": 1,
+      "segments": 0
+    },
+    "current": {
+      "size": 4096,
+      "mtime": 2,
+      "segments": 1
+    },
+    "expected_with_same_progress": "stalled"
+  }
+}

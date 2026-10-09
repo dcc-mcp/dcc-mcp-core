@@ -67,6 +67,7 @@ _ENUMS = frozenset(
         "provider",
         "runtime_version",
         "task_id",
+        "host_connection_id",
     }
 )
 _OBJECTS = frozenset(
@@ -105,6 +106,11 @@ def safe_failure_evidence(payload: dict[str, Any]) -> dict[str, Any]:
             elif key in _OBJECTS and isinstance(item, dict):
                 result[key] = project(item, depth + 1)
             elif (
+                key == "connected_host_capabilities"
+                and isinstance(item, list)
+                and len(item) <= 128
+                and all(isinstance(capability, str) and _TOKEN.fullmatch(capability) for capability in item)
+            ) or (
                 key in _RECTS
                 and isinstance(item, list)
                 and len(item) == 4

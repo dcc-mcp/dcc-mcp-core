@@ -18,6 +18,7 @@ from dcc_mcp_core.host.cua_mcp_errors import OwnedCuaMcpError
 from dcc_mcp_core.host.cua_mcp_game_capability import require_game_capability
 from dcc_mcp_core.host.cua_mcp_game_capability import require_game_scope_schema
 from dcc_mcp_core.host.cua_mcp_game_schema import require_game_action_schema
+from dcc_mcp_core.host.cua_mcp_recording_progress import require_recording_progress_capability
 from dcc_mcp_core.host.ui_control_options import UiControlRuntimeOptions
 
 _MAX_LINE_BYTES = 96 * 1024 * 1024
@@ -92,6 +93,8 @@ class OwnedCuaMcpTransport:
             ):
                 raise CuaCliError("protocol_mismatch", "The owned UI Control MCP identity/version does not match.")
             require_game_capability(capabilities, options.allowed_actions)
+            if options.recording is not None and options.recording.require_progress:
+                require_recording_progress_capability(capabilities)
             self._write({"jsonrpc": "2.0", "method": "notifications/initialized"})
             catalog = self.rpc("tools/list", {})
             tools = catalog.get("tools")
@@ -150,9 +153,10 @@ class OwnedCuaMcpTransport:
             self._index += 1
             request_id = self._index
             self._write({"jsonrpc": "2.0", "id": request_id, "method": method, "params": params})
-            deadline = time.monotonic() + (self.options.timeout_seconds if timeout is None else timeout)
+            wait_seconds = self.options.timeout_seconds if timeout is None else timeout
+            deadline = time.monotonic() + wait_seconds
             try:
-                response = self._responses.get(timeout=max(0.001, deadline - time.monotonic()))
+                response = self._responses.get(timeout=max(0, min(wait_seconds, deadline - time.monotonic())))
                 if response is _EOF:
                     raise CuaCliError("transport_error", "The owned UI Control runtime closed its output.")
                 if isinstance(response, Exception):
