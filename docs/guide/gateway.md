@@ -210,6 +210,32 @@ Additional environment knobs:
   `300` by default to cover slow backend startup registration. `0`
   disables the timer (same as `PERSIST=1`).
 
+#### Effective `--gateway-idle-timeout-secs` default per entry point
+
+The same knob has a different default depending on how the gateway was
+started. These are *not* interchangeable — unify only the constant's
+source, never the number:
+
+| Entry point | Default | Why |
+|---|---:|---|
+| `GatewayConfig::default()` / embedded auto-gateway | `30` | Started next to a live DCC; short grace is expected |
+| `dcc-mcp-server gateway` (standalone daemon CLI) | `30` | Same as above — running the server directly |
+| `dcc-mcp-cli gateway daemon start` | `0` | An operator-managed daemon is expected to survive with zero backends |
+| Auto-ensure (Rust sidecar, `dcc-mcp-cli` ensure, Python guardian) | `300` | Shared machine-wide resource; restarting it costs a full re-election |
+
+The constants live in `crates/dcc-mcp-gateway/src/gateway/idle_timeout.rs`.
+Python's guardian mirrors `AUTO_ENSURE_DEFAULT` in
+`dcc_mcp_core/_server/gateway_guardian.py`.
+
+Two operational notes:
+
+- **Shutdown is not exact.** The idle timer samples the live-backend count
+  every 5 s, so shutdown lands somewhere in `[grace, grace + 5)`. Immaterial
+  for a 300 s grace period, but confusing when debugging with a small one.
+- **An explicit value is honoured even when it equals the default.** Passing
+  `--gateway-idle-timeout-secs 30` is recorded and forwarded; it is not
+  mistaken for "not supplied".
+
 ### Daemon-mode guarantees
 
 The standalone daemon path stamps the gateway with

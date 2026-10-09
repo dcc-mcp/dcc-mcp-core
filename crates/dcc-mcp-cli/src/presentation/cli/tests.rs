@@ -1308,7 +1308,9 @@ fn auto_ensure_idle_timeout_default_is_distinct_from_daemon_start() {
     );
     assert_ne!(
         auto_ensure,
-        dcc_mcp_gateway::gateway::idle_timeout::SERVER_DEFAULT,
+        dcc_mcp_sidecar::gateway_daemon::GatewayArgs::gateway_idle_timeout_secs(
+            &default_gateway_daemon_args()
+        ),
         "auto-ensure must not inherit the directly-run server value"
     );
 }
