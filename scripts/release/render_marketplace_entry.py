@@ -153,8 +153,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--min-core-version",
         default=None,
-        help="fallback core floor for skills whose SKILL.md declares no "
-        "compatibility; per-skill values always win",
+        help="fallback core floor for skills whose SKILL.md declares no compatibility; per-skill values always win",
     )
     parser.add_argument("--out", default="dist/marketplace/entries.json")
     parser.add_argument("--category", default="Skills")
@@ -183,8 +182,10 @@ def main(argv: list[str] | None = None) -> int:
             failures.append(
                 (
                     skill["skill"],
-                    ["no minCoreVersion: SKILL.md declares no compatibility "
-                     "and no --min-core-version fallback was given"],
+                    [
+                        "no minCoreVersion: SKILL.md declares no compatibility "
+                        "and no --min-core-version fallback was given"
+                    ],
                 )
             )
             continue

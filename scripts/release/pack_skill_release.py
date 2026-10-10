@@ -359,11 +359,7 @@ def main(argv: list[str] | None = None) -> int:
             )
         )
     if fallback:
-        print(
-            "minCoreVersion fallback to release version {}: {}".format(
-                args.version, ", ".join(fallback)
-            )
-        )
+        print("minCoreVersion fallback to release version {}: {}".format(args.version, ", ".join(fallback)))
         print("  (no 'compatibility' field in SKILL.md; add one to pin a real floor)")
     print(f"manifest: {display_path(manifest_path, root)}")
     return 0
