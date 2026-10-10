@@ -15,6 +15,10 @@ on:
         description: Upload archives to the matching GitHub Release
         type: boolean
         default: false
+      check_version_drift:
+        description: Fail if a skill's digest changed without a version bump
+        type: boolean
+        default: false
   push:
     branches: [main]
     paths:
@@ -36,7 +40,17 @@ permissions:
 
 jobs:
   pack:
-    runs-on: ubuntu-latest
+    # Cross-OS reproducibility is checked by comparing digests across this
+    # matrix, so packing must run on each OS in the comparison. A single-OS
+    # self-comparison cannot see host-dependent fields such as the zip
+    # `create_system` byte.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    outputs:
+      version: ${{ steps.version.outputs.value }}
     steps:
       - uses: actions/checkout@v4
 
@@ -55,8 +69,7 @@ jobs:
         # for the same reason as publish-mcp-registry.yml: `${{ }}` expands
         # before bash parses, so a free-text input spliced straight into
         # `run:` is shell code. An env: variable is data whatever it holds.
-        # The version is also validated below because it names the release
-        # asset and is recorded as minCoreVersion in entries.json.
+        # The version is validated below because it names the release asset.
         env:
           INPUT_VERSION: ${{ inputs.version }}
         run: |
@@ -110,8 +123,19 @@ jobs:
           if drifted:
               print("non-reproducible archives: " + ", ".join(sorted(drifted)))
               sys.exit(1)
-          print("all {} archives reproducible".format(len(first)))
+          print("all {} archives reproducible on this host".format(len(first)))
           PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          # One artifact per OS; the cross-os job compares them below.
+          name: marketplace-manifest-${{ matrix.os }}
+          path: dist/marketplace/manifest.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: marketplace-skill-bundles-${{ matrix.os }}
+          path: dist/marketplace/*.zip
 
       - name: Render catalog entries
         env:
@@ -154,16 +178,168 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: marketplace-skill-bundles
-          path: |
-            dist/marketplace/*.zip
-            dist/marketplace/manifest.json
-            dist/marketplace/entries.json
+          name: marketplace-entries-${{ matrix.os }}
+          path: dist/marketplace/entries.json
 
-      - name: Upload archives to the GitHub Release
-        if: ${{ inputs.upload_release }}
+  cross-os:
+    # The gate the single-host check structurally cannot be: packing the same
+    # tree on two operating systems must yield identical digests, or a
+    # published pin is only verifiable on the OS that produced it.
+    needs: pack
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: marketplace-manifest-*
+          path: manifests
+          merge-multiple: false
+
+      - name: Compare digests across operating systems
+        run: |
+          python - <<'PY'
+          import json, pathlib, sys
+
+          manifests = sorted(pathlib.Path("manifests").iterdir())
+          digests = {}
+          for directory in manifests:
+              path = directory / "manifest.json"
+              if not path.is_file():
+                  continue
+              skills = json.loads(path.read_text(encoding="utf-8"))["skills"]
+              digests[directory.name] = {s["skill"]: s["sha256"] for s in skills}
+
+          if len(digests) < 2:
+              print("need manifests from at least 2 operating systems, got {}".format(len(digests)))
+              sys.exit(1)
+
+          names = sorted(digests)
+          base = digests[names[0]]
+          drifted = set()
+          for other in names[1:]:
+              for skill, digest in base.items():
+                  if digests[other].get(skill) != digest:
+                      drifted.add(skill)
+
+          for name in names:
+              print("{}: {} skill(s)".format(name, len(digests[name])))
+
+          if drifted:
+              print("\narchives differ across operating systems: " + ", ".join(sorted(drifted)))
+              for skill in sorted(drifted):
+                  for name in names:
+                      print("  {} {}: {}".format(skill, name, digests[name].get(skill)))
+              sys.exit(1)
+
+          print("\nall {} archives reproducible across {}".format(len(base), ", ".join(names)))
+          PY
+
+  version-drift:
+    # A published digest is pinned by the marketplace, so skill content that
+    # changes without a version bump silently breaks installs: the pinned
+    # sha256 no longer matches. Fail loudly and name the skill instead.
+    needs: pack
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.check_version_drift }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Resolve version
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -n "$INPUT_VERSION" ]; then
+            value="$INPUT_VERSION"
+          else
+            value=$(python -c "import tomllib,pathlib;print(tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['version'])")
+          fi
+          echo "value=$value" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: marketplace-manifest-ubuntu-latest
+          path: current
+
+      - name: Compare digests and versions against the published release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          python - <<'PY'
+          import json, os, pathlib, subprocess, sys
+
+          version = os.environ["VERSION"]
+          current = {
+              s["skill"]: (s["version"], s["sha256"])
+              for s in json.loads(pathlib.Path("current/manifest.json").read_text(encoding="utf-8"))["skills"]
+          }
+
+          # The baseline is the manifest.json asset uploaded with the last
+          # publish. Without one there is nothing to diff against, which is
+          # the normal case for a first release.
+          view = subprocess.run(
+              ["gh", "release", "view", "v" + version, "--json", "assets"],
+              capture_output=True, text=True,
+          )
+          if view.returncode != 0:
+              print("no published release v{}; nothing to compare".format(version))
+              sys.exit(0)
+
+          names = {a["name"] for a in json.loads(view.stdout)["assets"]}
+          if "manifest.json" not in names:
+              print("release v{} has no manifest.json; nothing to compare".format(version))
+              sys.exit(0)
+
+          subprocess.run(
+              ["gh", "release", "download", "v" + version,
+               "-p", "manifest.json", "-D", "baseline"],
+              check=True, capture_output=True, text=True,
+          )
+          baseline = {
+              s["skill"]: (s["version"], s["sha256"])
+              for s in json.loads(pathlib.Path("baseline/manifest.json").read_text(encoding="utf-8"))["skills"]
+          }
+
+          offenders = []
+          for skill, (new_version, digest) in sorted(current.items()):
+              if skill not in baseline:
+                  continue
+              old_version, old_digest = baseline[skill]
+              if digest != old_digest and new_version == old_version:
+                  offenders.append((skill, new_version, old_digest[:12], digest[:12]))
+
+          if offenders:
+              print("content changed but version was not bumped:")
+              for skill, held, old, new in offenders:
+                  print("  {} stays at {} but digest moved {} -> {}".format(skill, held, old, new))
+              print("\nbump metadata.dcc-mcp.version in each SKILL.md before republishing.")
+              sys.exit(1)
+
+          print("no version drift across {} published skill(s)".format(len(baseline)))
+          PY
+
+  upload:
+    needs: [pack, cross-os]
+    if: ${{ inputs.upload_release }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: marketplace-skill-bundles-ubuntu-latest
+          path: dist/marketplace
+
+      - name: Upload archives to the GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.pack.outputs.version }}
         run: |
           gh release upload "v$VERSION" dist/marketplace/*.zip --clobber

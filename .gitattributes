@@ -29,6 +29,14 @@ examples/design-provider-bridge/pilot/** text=auto eol=lf
 examples/design-provider-bridge/pilot/native/** -text
 examples/design-provider-bridge/pilot/native/fieldkit.pen text eol=lf
 
+# Skill bundles are packed into reproducible archives whose SHA-256 is pinned
+# in marketplace entries, so their bytes must not depend on how the packing
+# host checks them out. Scoped to skills/** so the -text exceptions above,
+# which later rules would otherwise override, keep applying.
+skills/**/*.md text eol=lf
+skills/**/*.yaml text eol=lf
+skills/**/*.json text eol=lf
+
 # Later rules win in .gitattributes, so every `-text` exception has to stay
 # below every `text eol=lf` rule that could otherwise match the same path.
 # This fixture is consumed with include_bytes! and its CR bytes are payload.

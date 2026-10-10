@@ -150,7 +150,12 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--manifest", required=True, help="pack manifest JSON")
     parser.add_argument("--base-url", required=True, help="GitHub Release asset base URL")
-    parser.add_argument("--min-core-version", required=True)
+    parser.add_argument(
+        "--min-core-version",
+        default=None,
+        help="fallback core floor for skills whose SKILL.md declares no "
+        "compatibility; per-skill values always win",
+    )
     parser.add_argument("--out", default="dist/marketplace/entries.json")
     parser.add_argument("--category", default="Skills")
     parser.add_argument("--maintainer", default="dcc-mcp")
@@ -170,12 +175,23 @@ def main(argv: list[str] | None = None) -> int:
     entries: list[dict[str, Any]] = []
     failures: list[tuple[str, list[str]]] = []
 
+    fallback = args.min_core_version
     for skill in manifest.get("skills", []):
         override = defaults.get(skill["skill"], {})
+        min_core = skill.get("min_core_version") or fallback
+        if not min_core:
+            failures.append(
+                (
+                    skill["skill"],
+                    ["no minCoreVersion: SKILL.md declares no compatibility "
+                     "and no --min-core-version fallback was given"],
+                )
+            )
+            continue
         entry = build_entry(
             skill,
             base_url=args.base_url,
-            min_core_version=args.min_core_version,
+            min_core_version=min_core,
             dcc=override.get("dcc", dcc_list),
             category=override.get("category", args.category),
             maintainer=override.get("maintainer", args.maintainer),
