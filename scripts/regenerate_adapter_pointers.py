@@ -40,6 +40,7 @@ Exit codes
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -66,6 +67,25 @@ ERROR = "error"
 DUPLICATE = "duplicate"
 
 DEFAULT_TIMEOUT_SECS = 600
+
+# Commit identity for the generated commits this job pushes.
+#
+# The earlier `github-actions[bot]` / `actions@github.com` pair is the Actions
+# convenience default, not an authorised identity, and it attributes the work to
+# a platform bot the maintainers do not employ. These commits carry a change on
+# behalf of a real person, so they carry that person's identity -- the same one
+# their existing commits in this organisation already use.
+#
+# Both are explicit rather than inherited from the runner: whatever git config
+# the runner happens to have is an accident of the image, and this job must not
+# silently attribute commits to it. The values are overridable through the
+# environment so an operator can re-point them without a code change, and both
+# are validated before use -- an empty or malformed value raises instead of
+# falling back to the bot, because a wrong author is worse than a stopped run.
+COMMITTER_NAME_ENV = "DCC_MCP_POINTER_COMMIT_NAME"
+COMMITTER_EMAIL_ENV = "DCC_MCP_POINTER_COMMIT_EMAIL"
+DEFAULT_COMMITTER_NAME = "Hal"
+DEFAULT_COMMITTER_EMAIL = "13111745+loonghao@users.noreply.github.com"
 
 # The regeneration only ever rewrites the pointer block inside README.md. A
 # repository whose working tree picks up any other change has something running
@@ -106,6 +126,41 @@ def _clone(url: str, dest: Path, branch: str, *, timeout: int) -> None:
         raise RegenError(f"clone failed for {url}: {(result.stderr or result.stdout).strip()}")
 
 
+def committer_name() -> str:
+    """Return the name generated commits are attributed to.
+
+    Raises when unset or blank. A missing identity is a configuration error, not
+    a reason to fall back to the platform bot: attributing someone's work to a
+    bot is worse than failing the run.
+    """
+    name = (os.environ.get(COMMITTER_NAME_ENV) or DEFAULT_COMMITTER_NAME).strip()
+    if not name:
+        raise RegenError(
+            f"{COMMITTER_NAME_ENV} is set but empty; refusing to commit without a name"
+        )
+    return name
+
+
+def committer_email() -> str:
+    """Return the email generated commits are attributed to.
+
+    Raises when unset, blank or not a single well-formed address, for the same
+    reason as :func:`committer_name`. git will happily commit a malformed
+    address and the damage only surfaces later, in the receiving repository.
+    """
+    email = (os.environ.get(COMMITTER_EMAIL_ENV) or DEFAULT_COMMITTER_EMAIL).strip()
+    if not email or "@" not in email or email.count("@") != 1:
+        raise RegenError(
+            f"{COMMITTER_EMAIL_ENV} must be a single email address, got {email!r}"
+        )
+    local, _, domain = email.partition("@")
+    if not local or not domain or "." not in domain:
+        raise RegenError(
+            f"{COMMITTER_EMAIL_ENV} must be a single email address, got {email!r}"
+        )
+    return email
+
+
 def _blob_sha(repo_dir: Path, rel_path: str, *, timeout: int) -> str:
     """Return git's blob SHA for ``rel_path`` as it now stands in ``repo_dir``.
 
@@ -127,6 +182,10 @@ def _find_equivalent(repo_slug: str, base: str, rel_path: str, blob: str, title:
     each single-file PR's real blob is resolved from the per-PR files endpoint.
     Without that second step the comparison silently degrades to a title match,
     and every refresh this automation has ever opened shares the same title.
+
+    Raises ``UnresolvedCandidate`` when a candidate's content cannot be read.
+    That propagates on purpose: the caller must stop rather than create a PR
+    that may duplicate the one it could not inspect.
     """
     if not blob:
         return {}
@@ -353,9 +412,9 @@ def _commit_and_push(repo_dir: Path, branch: str, push_target: str, *, timeout: 
                 "-C",
                 str(repo_dir),
                 "-c",
-                "user.email=actions@github.com",
+                f"user.name={committer_name()}",
                 "-c",
-                "user.name=github-actions[bot]",
+                f"user.email={committer_email()}",
                 "commit",
                 "-q",
                 "-m",

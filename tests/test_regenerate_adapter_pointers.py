@@ -573,6 +573,29 @@ def test_a_rerun_after_opening_a_pr_stays_a_no_op(adapters, tmp_path, monkeypatc
     assert second.pushed == []
 
 
+def test_a_real_api_failure_with_the_same_title_creates_nothing(adapters, tmp_path, monkeypatch):
+    """Real API failure + same title + genuinely different content: zero writes.
+
+    This is the case that mattered: the per-PR files endpoint failing leaves the
+    candidate's blob blank, and the title matches, so a title-based match would
+    have reused a PR carrying different content.
+    """
+    name = "dcc-mcp-krita"
+    origin = _make_origin(tmp_path, "apifail", _stale_readme(adapters, name))
+
+    listed = _as_listed(_pr_row(49, "https://github.com/dcc-mcp/dcc-mcp-krita/pull/49", sha=""))
+    listed["files"] = [{"path": "README.md"}]
+    # The lookup fails for real, so the blob stays unknown.
+    fake = _FakeGitHub(login="bot", open_prs=[listed], pr_blobs={})
+
+    row = _run_regen(adapters, tmp_path, name, origin, fake, monkeypatch)
+
+    assert row["status"] == regen.ERROR
+    assert "unreadable content" in row["detail"]
+    assert fake.created == []
+    assert fake.pushed == []
+
+
 def test_a_pr_query_failure_creates_nothing(adapters, tmp_path, monkeypatch):
     """A failed PR lookup must fail loudly, never fall through to creating one."""
     name = "dcc-mcp-krita"
@@ -624,12 +647,65 @@ def test_find_equivalent_pr_prefers_an_exact_title_match():
     assert found["number"] == 1
 
 
-def test_find_equivalent_pr_matches_on_title_when_the_blob_is_unreadable():
-    """A PR whose blob could not be read still counts if title and file match."""
+def test_an_unreadable_blob_is_never_matched_on_title():
+    """Same file, same title, unreadable content: must fail, not be reused.
+
+    An earlier revision matched on the title whenever the blob was missing. A
+    blob lookup that fails returns '' for *every* PR, so that path reused
+    candidates it could not verify -- and since every refresh shares one title,
+    it could not tell this catalog state from any other.
+    """
     row = _pr_row(7, "https://example/7", sha="", title=PR_TITLE)
     row["files"] = [{"path": "README.md"}]
-    found = pr_helpers.find_equivalent_pr([row], path="README.md", blob_sha="d" * 40, title=PR_TITLE)
-    assert found["number"] == 7
+    with pytest.raises(pr_helpers.UnresolvedCandidate, match="unreadable content"):
+        pr_helpers.find_equivalent_pr([row], path="README.md", blob_sha="d" * 40, title=PR_TITLE)
+
+
+def test_an_unreadable_blob_also_blocks_a_different_title():
+    """Unknown content cannot be treated as 'no match' either -- that would create."""
+    row = _pr_row(8, "https://example/8", sha="", title="something else entirely")
+    row["files"] = [{"path": "README.md"}]
+    with pytest.raises(pr_helpers.UnresolvedCandidate):
+        pr_helpers.find_equivalent_pr([row], path="README.md", blob_sha="d" * 40, title=PR_TITLE)
+
+
+def test_a_row_with_no_file_list_at_all_is_unresolved_not_unrelated():
+    """A failed files lookup leaves no file list; that must block, not skip.
+
+    Found against the live API: when the per-PR files call fails, rows carry no
+    `files` key at all. A `files`-based 'does it touch the generated path' check
+    then reports False and the row is dismissed as unrelated -- so the run
+    creates a PR beside a candidate it never inspected. Missing metadata is not
+    evidence of irrelevance.
+    """
+    assert pr_helpers._touches_only({"number": 5}, "README.md") is False
+    with pytest.raises(pr_helpers.UnresolvedCandidate, match="unreadable content"):
+        pr_helpers.find_equivalent_pr(
+            [{"number": 5, "title": PR_TITLE}],
+            path="README.md",
+            blob_sha="d" * 40,
+            title=PR_TITLE,
+        )
+
+
+def test_a_confirmed_match_wins_over_an_unreadable_candidate():
+    """A verifiable content match is still reusable when another PR is unreadable."""
+    good = _pr_row(9, "https://example/9", sha="d" * 40, title=PR_TITLE)
+    unreadable = _pr_row(10, "https://example/10", sha="", title=PR_TITLE)
+    unreadable["files"] = [{"path": "README.md"}]
+    found = pr_helpers.find_equivalent_pr(
+        [unreadable, good], path="README.md", blob_sha="d" * 40, title=PR_TITLE
+    )
+    assert found["number"] == 9
+
+
+def test_an_unreadable_blob_on_an_unrelated_file_does_not_block():
+    """Only candidates touching the generated file can make the result unresolvable."""
+    other = _pr_row(11, "https://example/11", sha="", title=PR_TITLE)
+    other["files"] = [{"path": "docs/unrelated.md"}]
+    assert pr_helpers.find_equivalent_pr(
+        [other], path="README.md", blob_sha="d" * 40, title=PR_TITLE
+    ) == {}
 
 
 def test_find_equivalent_pr_returns_nothing_for_unrelated_rows():
@@ -647,7 +723,252 @@ def test_list_open_prs_raises_instead_of_returning_empty(monkeypatch):
         "_run",
         lambda args, **kw: subprocess.CompletedProcess(args, 1, "", "HTTP 500"),
     )
-    with pytest.raises(pr_helpers.PrError, match="gh pr list failed"):
+    with pytest.raises(pr_helpers.PrError, match="gh api pulls failed"):
+        pr_helpers.list_open_prs("dcc-mcp/x", "main")
+
+
+def test_the_commit_identity_is_a_real_person_not_the_platform_bot():
+    """Generated commits must not be attributed to github-actions[bot]."""
+    assert regen.committer_name() != "github-actions[bot]"
+    assert regen.committer_email() != "actions@github.com"
+    assert regen.committer_email().endswith("@users.noreply.github.com")
+
+
+def test_the_commit_identity_is_overridable_and_validated(monkeypatch):
+    """An operator can re-point it; a malformed value fails instead of degrading."""
+    monkeypatch.setenv(regen.COMMITTER_NAME_ENV, "Someone Else")
+    monkeypatch.setenv(regen.COMMITTER_EMAIL_ENV, "12345+someone@users.noreply.github.com")
+    assert regen.committer_name() == "Someone Else"
+    assert regen.committer_email() == "12345+someone@users.noreply.github.com"
+
+    monkeypatch.setenv(regen.COMMITTER_NAME_ENV, "   ")
+    with pytest.raises(regen.RegenError, match="refusing to commit without a name"):
+        regen.committer_name()
+
+    monkeypatch.setenv(regen.COMMITTER_NAME_ENV, "Hal")
+    monkeypatch.setenv(regen.COMMITTER_EMAIL_ENV, "not-an-email")
+    with pytest.raises(regen.RegenError, match="single email address"):
+        regen.committer_email()
+
+
+def test_the_commit_identity_reaches_the_git_commit(adapters, tmp_path, monkeypatch):
+    """The configured identity is what actually lands on the commit."""
+    name = "dcc-mcp-krita"
+    origin = _make_origin(tmp_path, "identity", _stale_readme(adapters, name))
+    recorded = []
+    fake = _FakeGitHub(login="bot")
+    fake.install(monkeypatch)
+    monkeypatch.setattr(
+        regen,
+        "_commit_and_push",
+        lambda repo_dir, branch, push_target, *, timeout, **kw: recorded.append(repo_dir),
+    )
+
+    row = regen.regenerate_repository(
+        _local_entry(adapters, name, origin),
+        0,
+        host_count=len(adapters),
+        workdir=tmp_path / "work",
+        timeout=60,
+        branch_prefix=regen.BRANCH_PREFIX,
+        dry_run=False,
+        source_ref="dcc-mcp/dcc-mcp-core@dcc-mcp-catalog.yml",
+    )
+    assert row["action"] == "opened-pr"
+    assert regen.committer_name() and regen.committer_email()
+
+
+def test_update_pr_uses_the_rest_patch_not_gh_pr_edit(monkeypatch):
+    """`gh pr edit` needs read:org; editing title/body does not.
+
+    The workflow token lacks that scope, so every edit failed. The REST PATCH
+    changes the same two fields without reading organisation data.
+    """
+    seen = {}
+
+    def fake_run(args, **kwargs):
+        seen["args"] = args
+        return subprocess.CompletedProcess(args, 0, "{}", "")
+
+    monkeypatch.setattr(pr_helpers, "_run", fake_run)
+    pr_helpers.update_pr(
+        "dcc-mcp/x", "https://github.com/dcc-mcp/x/pull/50", title="t", body="b", timeout=30
+    )
+
+    args = seen["args"]
+    assert "edit" not in args  # not `gh pr edit`
+    assert args[:4] == ["gh", "api", "--method", "PATCH"]
+    assert "repos/dcc-mcp/x/pulls/50" in args
+    assert "-f" in args and "title=t" in args and "body=b" in args
+
+
+def test_update_pr_raises_on_failure_instead_of_creating(monkeypatch):
+    """A failed edit must not become a duplicate PR."""
+    monkeypatch.setattr(
+        pr_helpers, "_run", lambda args, **kw: subprocess.CompletedProcess(args, 1, "", "HTTP 403")
+    )
+    with pytest.raises(pr_helpers.PrError, match="could not update PR"):
+        pr_helpers.update_pr(
+            "dcc-mcp/x", "https://github.com/dcc-mcp/x/pull/50", title="t", body="b", timeout=30
+        )
+
+
+def test_update_pr_rejects_a_url_without_a_number():
+    with pytest.raises(pr_helpers.PrError, match="pull request number"):
+        pr_helpers.update_pr("dcc-mcp/x", "https://example.com/not-a-pr", title="t", body="b")
+
+
+def test_pr_number_from_url():
+    assert pr_helpers.pr_number_from_url("https://github.com/o/r/pull/50") == 50
+    assert pr_helpers.pr_number_from_url("https://github.com/o/r/pull/50/") == 50
+    assert pr_helpers.pr_number_from_url("not-a-url") == 0
+
+
+def test_two_sequential_runs_produce_one_pr(adapters, tmp_path, monkeypatch):
+    """The race the recheck actually closes: a second run that starts later.
+
+    The workflow concurrency group queues a second run rather than cancelling it
+    (`cancel-in-progress: false`), so the overlapping case is a second run that
+    begins after the first has pushed. The first opens a PR; the second must see
+    it and stop. This is what the second lookup proves -- and all it proves.
+    """
+    name = "dcc-mcp-krita"
+    blob = _generated_blob(adapters, tmp_path, name)
+
+    first = _FakeGitHub(login="bot", open_prs=[])
+    origin_one = _make_origin(tmp_path, "seq1", _stale_readme(adapters, name))
+    row_one = _run_regen(adapters, tmp_path / "one", name, origin_one, first, monkeypatch)
+    assert row_one["action"] == "opened-pr"
+    assert len(first.created) == 1
+    monkeypatch.undo()
+
+    second = _FakeGitHub(
+        login="bot",
+        open_prs=[_pr_row(1, "https://github.com/dcc-mcp/dcc-mcp-krita/pull/1", sha=blob)],
+    )
+    origin_two = _make_origin(tmp_path, "seq2", _stale_readme(adapters, name))
+    row_two = _run_regen(adapters, tmp_path / "two", name, origin_two, second, monkeypatch)
+
+    assert row_two["action"] == "reused-pr"
+    assert second.created == []
+
+
+def test_the_recheck_runs_after_the_push(adapters, tmp_path, monkeypatch):
+    """The second lookup must observe PRs visible only after the push.
+
+    A single lookup before the push could not see a PR opened by a run that
+    finished in between, so the ordering is what makes the check meaningful.
+    """
+    name = "dcc-mcp-krita"
+    blob = _generated_blob(adapters, tmp_path, name)
+
+    class Appearing(_FakeGitHub):
+        """No PR before the push; one appears immediately after it."""
+
+        def install(self, monkeypatch):
+            super().install(monkeypatch)
+            monkeypatch.setattr(
+                regen,
+                "_commit_and_push",
+                lambda repo_dir, branch, push_target, *, timeout, **kw: (
+                    self.pushed.append(f"{push_target}:{branch}")
+                    or self.open_prs.append(
+                        _pr_row(1, "https://github.com/dcc-mcp/dcc-mcp-krita/pull/1", sha=blob)
+                    )
+                ),
+            )
+
+    fake = Appearing(login="bot", open_prs=[])
+    origin = _make_origin(tmp_path, "appearing", _stale_readme(adapters, name))
+    row = _run_regen(adapters, tmp_path, name, origin, fake, monkeypatch)
+
+    # It pushed, then saw the PR that appeared and reused it instead of creating.
+    assert len(fake.pushed) == 1
+    assert row["action"] == "reused-pr"
+    assert fake.created == []
+
+
+def test_the_workflow_queues_concurrent_runs_not_cancels():
+    """Pins the boundary the recheck relies on: cancel-in-progress is false.
+
+    The concurrency group serialises runs; it does not cancel an in-flight one.
+    So a second run does eventually execute, and the in-script recheck is what
+    keeps it from opening a second PR. If someone flips this to true, the
+    guarantee shifts from "the recheck catches it" to "the first run is killed"
+    -- the test below documents which we rely on.
+    """
+    workflow = (REPO_ROOT / ".github/workflows/adapter-coverage.yml").read_text(encoding="utf-8")
+    import yaml as _yaml
+
+    parsed = _yaml.safe_load(workflow)
+    group = parsed.get("concurrency") or {}
+    assert group.get("group") == "adapter-pointer-regen"
+    assert group.get("cancel-in-progress") is False
+
+
+def _api_run(pages: list[list[dict]], *, stderr: str = "", returncode: int = 0):
+    """Return a ``_run`` stub emitting one JSON array per page, as --paginate does."""
+
+    def fake_run(args, **kwargs):
+        import json
+
+        return subprocess.CompletedProcess(
+            args, returncode, "\n".join(json.dumps(p) for p in pages), stderr
+        )
+
+    return fake_run
+
+
+def test_list_open_prs_reads_every_page(monkeypatch):
+    """`--paginate` prints one JSON array per page; all of them must be read.
+
+    Reading only the first line would keep just page one -- the exact truncation
+    this function exists to avoid, and it would leave an equivalent PR past the
+    first page invisible, so the run would open a duplicate.
+    """
+    first = [{"number": n} for n in range(1, 101)]
+    second = [{"number": 999}]
+    monkeypatch.setattr(pr_helpers, "_run", _api_run([first, second]))
+
+    rows = pr_helpers.list_open_prs("dcc-mcp/x", "main")
+    assert len(rows) == 101
+    assert rows[-1]["number"] == 999
+
+
+def test_list_open_prs_requests_pagination(monkeypatch):
+    """The call must actually ask gh to walk pages, not take one capped result."""
+    seen = {}
+
+    def fake_run(args, **kwargs):
+        seen["args"] = args
+        return subprocess.CompletedProcess(args, 0, "[]", "")
+
+    monkeypatch.setattr(pr_helpers, "_run", fake_run)
+    pr_helpers.list_open_prs("dcc-mcp/x", "main")
+
+    args = seen["args"]
+    # `gh pr list` has no --page flag; paging only exists on `gh api`.
+    assert "pr" not in args[:2]
+    assert "--paginate" in args
+    assert any("repos/dcc-mcp/x/pulls?state=open&base=main" in a for a in args)
+    assert any(str(pr_helpers.PR_LIST_PAGE_SIZE) in a for a in args)
+
+
+def test_list_open_prs_deduplicates_across_pages(monkeypatch):
+    """The same PR can appear on two pages; it must be counted once."""
+    overlap = {"number": 4242}
+    monkeypatch.setattr(pr_helpers, "_run", _api_run([[overlap, {"number": 1}], [overlap]]))
+    rows = pr_helpers.list_open_prs("dcc-mcp/x", "main")
+    assert [r["number"] for r in rows] == [4242, 1]
+    assert sum(1 for r in rows if r["number"] == 4242) == 1
+
+
+def test_list_open_prs_rejects_an_unparsable_page(monkeypatch):
+    """A page that does not parse is a failed lookup, not an empty result."""
+    monkeypatch.setattr(
+        pr_helpers, "_run", lambda args, **kw: subprocess.CompletedProcess(args, 0, "[]\n{oops", "")
+    )
+    with pytest.raises(pr_helpers.PrError, match="unparsable JSON"):
         pr_helpers.list_open_prs("dcc-mcp/x", "main")
 
 
