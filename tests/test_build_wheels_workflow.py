@@ -169,3 +169,28 @@ def test_python37_runtime_smokes_share_version_and_ref_bound_dependency_preparat
         assert "--profile " + ("lite_py37" if job_id == "py37-lite" else "native_py37") in smoke["run"]
         assert "if [[ -f" not in smoke["run"]
         assert all("test_issue_2388_zero_typing_extensions.py" not in step.get("run", "") for step in steps)
+
+
+def test_abi3_backfill_uses_workflow_smoke_without_changing_tag_source() -> None:
+    for job_id in ("linux", "windows", "macos"):
+        steps = _jobs()[job_id]["steps"]
+        assert steps[0]["with"]["ref"] == "${{ inputs.checkout-ref || github.ref }}"
+        build_index = next(i for i, step in enumerate(steps) if step.get("uses") == "./.github/actions/build-wheel")
+        assert steps[build_index]["with"]["test-wheel"] == "false"
+        tooling_index = next(
+            i for i, step in enumerate(steps) if step.get("name") == "Checkout workflow compatibility tooling"
+        )
+        tooling = steps[tooling_index]["with"]
+        assert tooling["ref"] == "${{ github.workflow_sha }}"
+        assert "tests/test_imports.py" in tooling["sparse-checkout"]
+        smoke_index = next(
+            i for i, step in enumerate(steps) if step.get("name") == "Test wheel with workflow import smoke"
+        )
+        assert build_index < tooling_index < smoke_index
+        smoke = steps[smoke_index]["run"]
+        assert "python -m venv test-env" in smoke
+        assert "python -m pip install --force-reinstall dist/*.whl" in smoke
+        assert "python -m pip check" in smoke
+        assert "python .workflow-tools/tests/test_imports.py" in smoke
+        assert "test-env/Scripts/activate" in smoke
+        assert "test-env/bin/activate" in smoke
