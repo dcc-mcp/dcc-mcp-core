@@ -710,3 +710,95 @@ def test_workflow_schedule_avoids_the_hour_and_the_release_window() -> None:
         assert minute != "00"
         assert not (hour == "1" and minute == "13")
         assert hour == "*" or int(hour) != 1
+
+
+def _root_sync_locks():
+    from copy import deepcopy
+
+    before = _parse(_lock_text(packages=_baseline()))
+    before["package"].append(
+        {
+            "name": "dcc-mcp-core",
+            "version": "0.20.42",
+            "source": {"editable": "."},
+            "dependencies": [{"name": "dcc-mcp-server"}],
+        }
+    )
+    after = deepcopy(before)
+    after["package"][-1]["version"] = "0.20.43"
+    return before, after
+
+
+def test_release_editable_root_sync_requires_explicit_declaration():
+    module = _load_module()
+    before, after = _root_sync_locks()
+    assert module.verify_refresh(before, after)
+    project = {"name": "dcc-mcp-core", "version": "0.20.43"}
+    assert module.verify_refresh(before, after, project=project) == []
+    assert module.classify_change(before, after)["version_changes"] == ["dcc-mcp-core"]
+    assert module.verify_refresh(after, after, project=project) == []
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "registry",
+        "wrong-version",
+        "dependency",
+        "metadata",
+        "wheel",
+        "duplicate",
+        "removed",
+        "downgrade",
+        "unrelated",
+        "python",
+        "cp37",
+    ],
+)
+def test_root_sync_does_not_authorize_dependency_drift(mutation):
+    module = _load_module()
+    before, after = _root_sync_locks()
+    root = after["package"][-1]
+    project = {"name": "dcc-mcp-core", "version": "0.20.43"}
+    if mutation == "registry":
+        root["source"] = {"registry": "https://pypi.org/simple"}
+    elif mutation == "wrong-version":
+        root["version"] = "0.20.44"
+    elif mutation == "dependency":
+        root["dependencies"].append({"name": "surprise"})
+    elif mutation == "metadata":
+        root["metadata"] = {"requires-dist": [{"name": "surprise"}]}
+    elif mutation == "wheel":
+        root["wheels"] = [{"url": "https://example.com/root.whl"}]
+    elif mutation == "duplicate":
+        after["package"].append(dict(root))
+    elif mutation == "removed":
+        after["package"].pop()
+    elif mutation == "downgrade":
+        before["package"][-1]["version"] = "0.20.44"
+    elif mutation == "unrelated":
+        after["package"].append({"name": "surprise", "version": "1.0"})
+    elif mutation == "python":
+        after["requires-python"] = ">=3.8"
+    elif mutation == "cp37":
+        for package in after["package"]:
+            package["wheels"] = [w for w in package.get("wheels", []) if "cp37" not in w["url"]]
+    assert module.verify_refresh(before, after, project=project)
+
+
+def test_published_pins_can_refresh_alongside_local_root():
+    module = _load_module()
+    before, after = _root_sync_locks()
+    for package in after["package"]:
+        if package["name"] in module.ALLOWED_REFRESH_PACKAGES:
+            package["version"] = "0.20.43"
+    assert module.verify_refresh(before, after, project={"name": "dcc-mcp-core", "version": "0.20.43"}) == []
+
+
+def test_release_workflow_opts_into_declared_root_sync():
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    assert "verify /tmp/uv.lock.before /tmp/uv.lock.after --pyproject" not in workflow
+    assert (
+        "python /tmp/uv_lock_refresh.py verify /tmp/uv.lock.release.before /tmp/uv.lock.release.after --pyproject pyproject.toml"
+        in workflow
+    )
