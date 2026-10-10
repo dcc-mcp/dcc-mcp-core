@@ -77,19 +77,54 @@ def ensure_fork(upstream: str) -> str:
     token is not guaranteed write access to every adapter in the catalog, and a
     fork keeps the automation working regardless of which repositories it is
     later granted.
+
+    ``gh repo fork`` is idempotent: it reports the existing fork when one
+    already exists, so this is safe to call on every run.
     """
     login = authenticated_login()
     if not login or login.lower() == repo_owner(upstream).lower():
         return upstream
 
-    forks = _gh_json(["repo", "fork", upstream, "--clone", "false", "--json", "nameWithOwner"])
-    for fork in forks:
-        name = str(fork.get("nameWithOwner") or "").strip()
-        if name:
-            return name
+    # `--clone=false` with an equals sign: `--clone false` is read as a clone
+    # destination named "false". No clone is wanted -- this function only needs
+    # the fork to exist so a branch can be pushed to it.
+    result = _run(["gh", "repo", "fork", upstream, "--clone=false"])
+    # An existing fork is reported on stderr with a non-zero exit, which is the
+    # success case for this call, not a failure. The lookup below is what
+    # actually proves the fork is usable.
+    if result.returncode != 0 and "already exists" not in (result.stderr or ""):
+        raise PrError(f"gh repo fork failed for {upstream}: {(result.stderr or result.stdout).strip()}")
 
-    owner = repo_owner(upstream)
-    raise PrError(f"could not find or create a fork of {upstream} for {owner or 'this user'}")
+    # The fork's slug is resolved through the API rather than parsed out of
+    # `gh repo fork`'s prose: that command has no `--json` mode, and `gh repo
+    # view <upstream>` reports the upstream even after a fork exists. The API
+    # `forks` connection is authoritative.
+    owner, name = upstream.split("/", 1) if "/" in upstream else ("", upstream)
+    # Filtered in jq rather than through a query argument: `forks` does not take
+    # an affiliation filter, and other people's forks are not pushable.
+    query = (
+        "query($owner:String!,$name:String!){repository(owner:$owner,name:$name)"
+        "{forks(first:20){nodes{nameWithOwner owner{login}}}}}"
+    )
+    api = _run(
+        [
+            "gh",
+            "api",
+            "graphql",
+            "-f",
+            f"query={query}",
+            "-F",
+            f"owner={owner}",
+            "-F",
+            f"name={name}",
+            "--jq",
+            f'.data.repository.forks.nodes[] | select(.owner.login=="{login}") | .nameWithOwner',
+        ]
+    )
+    if api.returncode == 0 and api.stdout.strip():
+        return api.stdout.strip().splitlines()[0].strip()
+
+    raise PrError(f"could not find or create a fork of {upstream} for {login}")
 
 
 def find_open_pr(repo: str, head: str, base: str) -> str:

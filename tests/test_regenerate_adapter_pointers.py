@@ -271,6 +271,42 @@ def test_repo_owner_reads_the_owner_half():
     assert pr_helpers.repo_owner("nope") == ""
 
 
+def test_an_existing_fork_is_not_an_error(monkeypatch):
+    """`gh repo fork` exits non-zero with 'already exists'; that is success here."""
+    calls = []
+
+    def fake_run(args):
+        calls.append(args)
+        if args[:3] == ["gh", "repo", "fork"]:
+            return subprocess.CompletedProcess(args, 1, "", "loonghao/x already exists\n")
+        return subprocess.CompletedProcess(args, 0, "loonghao/dcc-mcp-maya\n", "")
+
+    monkeypatch.setattr(pr_helpers, "authenticated_login", lambda: "loonghao")
+    monkeypatch.setattr(pr_helpers, "_run", fake_run)
+
+    assert pr_helpers.ensure_fork("dcc-mcp/dcc-mcp-maya") == "loonghao/dcc-mcp-maya"
+    fork_call = calls[0]
+    # `--clone=false`, not `--clone false`: the spaced form is read as a clone
+    # destination named "false".
+    assert "--clone=false" in fork_call
+
+
+def test_a_fork_failure_that_is_not_already_exists_still_raises(monkeypatch):
+    def fake_run(args):
+        return subprocess.CompletedProcess(args, 1, "", "permission denied\n")
+
+    monkeypatch.setattr(pr_helpers, "authenticated_login", lambda: "loonghao")
+    monkeypatch.setattr(pr_helpers, "_run", fake_run)
+
+    with pytest.raises(pr_helpers.PrError, match="gh repo fork failed"):
+        pr_helpers.ensure_fork("dcc-mcp/dcc-mcp-maya")
+
+
+def test_the_branch_prefix_cannot_collide_with_a_docs_branch():
+    """A fork carrying a branch literally named `docs` rejects `docs/<sub>`."""
+    assert not regen.BRANCH_PREFIX.startswith("docs/")
+
+
 def test_an_unrelated_change_is_not_allowed():
     assert regen.ALLOWED_CHANGED_FILES == ("README.md",)
 

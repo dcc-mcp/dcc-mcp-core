@@ -52,7 +52,9 @@ from scripts import _pr_helpers as pr_helpers  # noqa: E402
 from scripts import check_adapter_pointer_drift as drift  # noqa: E402
 from scripts import generate_adapter_pointer as generator  # noqa: E402
 
-BRANCH_PREFIX = "docs/refresh-catalog-pointer-"
+# Not `docs/...`: a fork can already carry a branch literally named `docs`, and
+# git refuses to create `docs/<name>` under it ("directory file conflict").
+BRANCH_PREFIX = "chore/refresh-catalog-pointer-"
 PR_TITLE = "docs: refresh the generated DCC-MCP host matrix pointer"
 
 CURRENT = "current"
