@@ -225,11 +225,42 @@ def create_pr(repo: str, *, base: str, head: str, title: str, body: str, timeout
     return result.stdout.strip().splitlines()[-1].strip()
 
 
+def pr_number(url: str) -> int:
+    """Return the pull request number encoded in a GitHub pull request URL.
+
+    ``find_open_pr`` hands back a URL, which is all ``gh pr edit`` needed. The
+    REST endpoint used by ``update_pr`` is addressed by number instead, so the
+    number has to be read back out of that URL.
+    """
+    tail = str(url or "").strip().rstrip("/").rsplit("/", 1)[-1]
+    try:
+        return int(tail)
+    except ValueError as exc:
+        raise PrError(f"could not read a pull request number from {url!r}") from exc
+
+
 def update_pr(repo: str, url: str, *, title: str, body: str, timeout: int = DEFAULT_TIMEOUT_SECS) -> None:
-    """Refresh the title and body of an existing pull request."""
+    """Refresh the title and body of an existing pull request.
+
+    Deliberately REST, not ``gh pr edit``.
+
+    ``gh pr edit`` is GraphQL-backed: before it can mutate anything it resolves
+    the pull request through a query that selects ``login``, ``name`` and
+    ``slug`` on the pull request's actors and on the repository owner. A token
+    without ``read:org`` is rejected by that query, so the edit never happens --
+    while ``gh pr create``, which is REST-backed, succeeds on exactly the same
+    token. The asymmetry is invisible to the create path, so this lane stayed
+    green on its first run, when every repository opened a new PR, and turned
+    red on every run after it, when there was an existing PR to refresh.
+
+    ``-f`` is ``--raw-field``: the value is sent as a plain string. ``-F``
+    would treat a leading ``@`` as "read this file", which is not something a
+    generated pull request body should be able to trigger.
+    """
+    endpoint = f"repos/{repo}/pulls/{pr_number(url)}"
     result = _run(
-        ["gh", "pr", "edit", url, "--repo", repo, "--title", title, "--body", body],
+        ["gh", "api", "-X", "PATCH", endpoint, "-f", f"title={title}", "-f", f"body={body}"],
         timeout=timeout,
     )
     if result.returncode != 0:
-        raise PrError(f"gh pr edit failed for {url}: {(result.stderr or result.stdout).strip()}")
+        raise PrError(f"gh api PATCH {endpoint} failed: {(result.stderr or result.stdout).strip()}")

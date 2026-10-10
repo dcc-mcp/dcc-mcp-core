@@ -88,6 +88,7 @@ jobs:
   coverage:
     name: Coverage map and pointer blocks
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     # Only meaningful for a PR from this repository; `schedule` and
     # `workflow_dispatch` payloads have no pull_request and are skipped.
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
@@ -185,6 +186,7 @@ jobs:
   pointer-drift:
     name: Adapter README pointer drift
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     # A fork PR has no business cloning 47 repositories, and a push to main
     # already ran this on the PR that produced it.
     if: >-
@@ -273,6 +275,7 @@ jobs:
   regenerate-pointers:
     name: Regenerate adapter pointers
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: pointer-drift
     # `always()` is load-bearing, not decorative. `pointer-drift` blocks on push
     # and dispatch, so without it a drifted fleet fails that job, `needs` goes
