@@ -1020,3 +1020,6 @@ fn compact_single_kind_hits_still_works() {
     // but preserves tool_slug
     assert_eq!(compact["hits"][0]["tool_slug"], "maya.abc.sphere");
 }
+
+#[path = "mcp_client_interop_tests.rs"]
+mod mcp_client_interop_tests;

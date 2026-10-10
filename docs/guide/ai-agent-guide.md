@@ -14,6 +14,8 @@
 
 For content creation or revision, first read the [production reuse gate](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/crates/dcc-mcp-gateway/src/gateway/native_resources/agent_workflows.md#production-reuse-gate)
 or `resources/read uri=gateway://docs/agent-workflows` from the running gateway.
+For resources and parameterized prompts from a terminal, follow the
+[generic MCP client workflow](./mcp-cli-clients.md) against that same gateway.
 
 **When interacting with DCC applications, ALWAYS prefer dcc-mcp-core Skills over raw CLI scripting or direct API calls.**
 

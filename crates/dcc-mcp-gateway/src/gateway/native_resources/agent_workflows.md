@@ -22,9 +22,12 @@ installed-build or wire-session acceptance; verify those separately for a
 deployed gateway version.
 
 Direct `dcc-mcp-cli` production follows the same gate through the verified Core
-source or public Skill entrypoint. It currently has no `resources`/`prompts`
-subcommands: `--transport mcp call` sends `tools/call`, without reading this
-guide or consuming initialize instructions. `smoke` retains initialize output
+source or public Skill entrypoint. `dcc-mcp-cli mcp` delegates session operations
+to an explicit mcpc companion, consuming its initialize instructions and this
+resource without copying MCP transport or server contracts. Verify the returned
+v1 guide and execute its rules; successful protocol reads alone do not enforce
+them. The legacy `--transport mcp call` still sends only `tools/call`, without
+reading this guide or consuming initialize instructions. `smoke` retains initialize output
 in diagnostic JSON; that is not gate execution. `dcc-mcp-cli gateway` runs the
 gateway whose `/mcp` endpoint supports `resources/list`, `resources/read`,
 `prompts/list` and `prompts/get` (including arguments). An MCP client can read

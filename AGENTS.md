@@ -47,6 +47,7 @@ returned load/describe/call step, then invoke the typed tool.
 | IDE user (Cursor, Claude Desktop, VS Code) | **IDE MCP** | Manual `mcp_servers.json` / `claude_desktop_config.json` → gateway MCP tools (`search`/`describe`/`call`) |
 | CI/CD / automation script | **CLI+REST** | `dcc-mcp-cli health/list/smoke/search/call/load-skill` — scriptable, auditable |
 | Troubleshooting / operations | **CLI+REST** | `dcc-mcp-cli` with structured output and exit codes |
+| MCP resources/prompts from a terminal | **Thin companion adapter** | `dcc-mcp-cli mcp` follows [generic MCP client guidance](docs/guide/mcp-cli-clients.md); reuse Core's protocol and versioned guide |
 | Studio / team integration | **CLI+REST** | Fork `dcc-mcp` skill → one skill controls all DCCs, no per-DCC MCP server config |
 | GUI artist using DCC plugin directly | **IDE MCP** | DCC's built-in MCP plugin exposes tools directly to the IDE |
 

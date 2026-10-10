@@ -120,10 +120,11 @@ pub struct Args {
 }
 
 pub async fn run() -> anyhow::Result<()> {
-    if apply_staged_update() {
+    let args = Args::parse();
+    if !matches!(&args.command, Command::Mcp { .. }) && apply_staged_update() {
         return restart_after_update();
     }
-    run_with_args(Args::parse()).await
+    run_with_args(args).await
 }
 
 fn apply_staged_update() -> bool {
@@ -212,6 +213,42 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
         _ => Ok(output.unwrap_or_else(OutputFormat::auto_detect)),
     };
     let writer = OutputWriter::new(output.map_err(anyhow::Error::msg)?);
+    // The companion owns its explicit session. Do not inspect user profiles,
+    // start a gateway or refresh/install/update components for this path.
+    if let Command::Mcp {
+        node,
+        client_entry,
+        state_dir,
+        arguments,
+    } = &command
+    {
+        match crate::application::mcp_companion::execute(
+            node,
+            client_entry,
+            state_dir,
+            arguments,
+            Duration::from_secs(global_timeout_secs.unwrap_or(60).max(1)),
+        )
+        .await
+        {
+            Ok(value) => writer.write_data(&value)?,
+            Err(error) => {
+                let message = format!("{error:#}");
+                let code = if message.contains("MCP_CAPABILITY_UNSUPPORTED") {
+                    "MCP_CAPABILITY_UNSUPPORTED"
+                } else {
+                    "MCP_COMPANION_ERROR"
+                };
+                writer.write_error(&super::output::ErrorEnvelope::new(
+                    code,
+                    message,
+                    ExitCode::GeneralError,
+                ))?;
+                std::process::exit(ExitCode::GeneralError.as_i32());
+            }
+        }
+        return Ok(());
+    }
     let explicit_update_command = matches!(&command, Command::Update { .. });
     let marketplace_update_check = (!crate::application::update::is_background_refresh())
         .then(|| tokio::spawn(check_marketplace_updates()));
@@ -262,6 +299,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
     let mut exit_code = ExitCode::GeneralError;
     let mut explicit_exit_code = None;
     let mut value = match command {
+        Command::Mcp { .. } => unreachable!("companion command returns before gateway setup"),
         Command::Smoke {
             url,
             query,

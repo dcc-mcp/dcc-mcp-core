@@ -1371,3 +1371,40 @@ fn default_gateway_daemon_args() -> dcc_mcp_sidecar::gateway_daemon::GatewayArgs
         restart: false,
     }
 }
+
+#[test]
+fn mcp_companion_preserves_session_arguments_without_gateway_autostart() {
+    let args = Args::try_parse_from([
+        "dcc-mcp-cli",
+        "--output",
+        "json",
+        "mcp",
+        "--client-entry",
+        "/task/mcpc",
+        "--state-dir",
+        "/task/state",
+        "--",
+        "@dcc",
+        "prompts-get",
+        "recipe",
+        "{\"seed\":\"42\",\"label\":\"tree + canal & test\"}",
+    ])
+    .unwrap();
+    let Command::Mcp { arguments, .. } = &args.command else {
+        panic!("mcp variant")
+    };
+    assert_eq!(arguments[0], "@dcc");
+    assert_eq!(arguments[1], "prompts-get");
+    assert_eq!(
+        arguments[3],
+        "{\"seed\":\"42\",\"label\":\"tree + canal & test\"}"
+    );
+    assert!(
+        gateway_endpoint_for_command(
+            "http://127.0.0.1:9765",
+            &args.command,
+            &GatewayTarget::Local
+        )
+        .is_none()
+    );
+}

@@ -64,7 +64,7 @@ pub(crate) fn gateway_endpoint_for_command(
             Some(Endpoint::new(base_url))
         }
         Command::Feedback(args) => args.requires_gateway().then_some(Endpoint::new(base_url)),
-        Command::Doctor { .. } | Command::DccTypes { .. } => None,
+        Command::Doctor { .. } | Command::DccTypes { .. } | Command::Mcp { .. } => None,
         Command::List
         | Command::Search { .. }
         | Command::Describe { .. }

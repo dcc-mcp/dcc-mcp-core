@@ -25,6 +25,20 @@ pub(crate) fn parse_output_format(s: &str) -> Result<OutputFormat, String> {
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Subcommand)]
 pub(crate) enum Command {
+    /// Delegate generic MCP session operations to an explicit, existing mcpc client.
+    Mcp {
+        /// Absolute path to the reviewed mcpc JavaScript entrypoint (bin/mcpc).
+        #[arg(long)]
+        client_entry: PathBuf,
+        /// Task-owned mcpc state directory; no user configuration is imported.
+        #[arg(long)]
+        state_dir: PathBuf,
+        #[arg(long, default_value = "node")]
+        node: PathBuf,
+        /// mcpc arguments after --: connect URL @session, close @session, or @session COMMAND.
+        #[arg(last = true, required = true, num_args = 1..)]
+        arguments: Vec<String>,
+    },
     /// Run health + MCP + REST smoke checks against a service.
     Smoke {
         /// MCP URL or base URL. Accepts either http://host:port or http://host:port/mcp.
