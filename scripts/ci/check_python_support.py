@@ -71,6 +71,7 @@ def expected_fragments(contract: Mapping[str, Any]) -> dict[str, list[str]]:
         ".github/workflows/build-wheels.yml": [
             "linux-py37:",
             "windows-py37:",
+            "macos-py37:",
             "--profile lite_py37",
             "--platform any",
         ],
@@ -456,7 +457,7 @@ def collect_backfill_tooling_errors(root: Path) -> list[str]:
         return [f"{relative}: cannot read workflow: {exc}"]
     text = _active_config_text(text)
     errors: list[str] = []
-    jobs = ("linux", "windows", "py37-lite", "linux-py37", "windows-py37", "macos")
+    jobs = ("linux", "windows", "py37-lite", "linux-py37", "windows-py37", "macos", "macos-py37")
     for job_name in jobs:
         block = _workflow_job_block(text, job_name)
         if not block:
@@ -477,7 +478,7 @@ def collect_backfill_tooling_errors(root: Path) -> list[str]:
         validation_at = block.find(".workflow-tools/scripts/ci/check_python_wheel.py")
         if min(build_at, tooling_at, validation_at) < 0 or not build_at < tooling_at < validation_at:
             errors.append(f"{relative}: {job_name} must build source before fetching and running workflow tooling")
-    for job_name in ("py37-lite", "linux-py37", "windows-py37"):
+    for job_name in ("py37-lite", "linux-py37", "windows-py37", "macos-py37"):
         block = _workflow_job_block(text, job_name)
         if (
             ".workflow-tools/scripts/ci/python37_wheel_smoke.py" not in block
@@ -599,6 +600,7 @@ def collect_projection_errors(root: Path, contract: Mapping[str, Any]) -> list[s
     release_jobs = {
         "linux-x86_64": "linux-py37",
         "windows-x86_64": "windows-py37",
+        "macos-x86_64": "macos-py37",
     }
     build_workflow = (root / ".github/workflows/build-wheels.yml").read_text(encoding="utf-8")
     for row in contract["build"]["native_py37"]["pr_matrix"]:
