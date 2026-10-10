@@ -65,11 +65,13 @@ jobs:
 
       - name: Resolve version
         id: version
-        # Shell-agnostic on purpose: this matrix runs on Windows, where the
-        # default shell is PowerShell and bash syntax would be a parse error.
+        # Defaults to bash explicitly: this matrix includes windows-latest,
+        # where the runner default shell is PowerShell. The logic is Python so
+        # it stays portable; the heredoc is the part that needs bash.
         # Routed through env: rather than interpolated into the script body
         # because `${{ }}` expands before the interpreter parses, so a
         # free-text input spliced into a script is code, not data.
+        shell: bash
         env:
           INPUT_VERSION: ${{ inputs.version }}
         run: |
@@ -101,6 +103,7 @@ jobs:
           python scripts/release/pack_skill_release.py --all --exclude dcc-cua --version "$VERSION" --out dist/marketplace --manifest dist/marketplace/manifest.json
 
       - name: Verify archives are reproducible
+        shell: bash
         env:
           VERSION: ${{ steps.version.outputs.value }}
         run: |
@@ -147,6 +150,7 @@ jobs:
           path: dist/marketplace/*.zip
 
       - name: Render catalog entries
+        shell: bash
         env:
           VERSION: ${{ steps.version.outputs.value }}
           REPOSITORY: ${{ github.repository }}
@@ -167,6 +171,7 @@ jobs:
           PY
 
       - name: Validate entries against the marketplace schema
+        shell: bash
         run: |
           python - <<'PY'
           import json, sys, urllib.request

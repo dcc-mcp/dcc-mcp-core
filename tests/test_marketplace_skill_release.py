@@ -95,9 +95,7 @@ def test_min_core_version_parsed_from_compatibility() -> None:
         assert packer.read_min_core_version(skill) == "0.19.91"
         assert packer.pack_skill(skill, Path(raw) / "out", "9.9.9")["min_core_version"] == "0.19.91"
 
-        (skill / "SKILL.md").write_text(
-            "---\nname: sample-skill\n---\n", encoding="utf-8"
-        )
+        (skill / "SKILL.md").write_text("---\nname: sample-skill\n---\n", encoding="utf-8")
         assert packer.read_min_core_version(skill) is None
 
 
@@ -106,8 +104,7 @@ def test_min_core_version_is_normalized_to_semver() -> None:
     with tempfile.TemporaryDirectory() as raw:
         skill = build_fixture(Path(raw))
         (skill / "SKILL.md").write_text(
-            "---\nname: sample-skill\n"
-            'compatibility: "dcc-mcp-core 0.17+, Python 3.7+"\n---\n',
+            '---\nname: sample-skill\ncompatibility: "dcc-mcp-core 0.17+, Python 3.7+"\n---\n',
             encoding="utf-8",
         )
         assert packer.read_min_core_version(skill) == "0.17.0"
@@ -117,8 +114,7 @@ def test_read_skill_version_strips_release_please_marker() -> None:
     with tempfile.TemporaryDirectory() as raw:
         skill = build_fixture(Path(raw))
         (skill / "SKILL.md").write_text(
-            "---\nname: sample-skill\nmetadata:\n  dcc-mcp:\n"
-            '    version: "0.20.42"  # x-release-please-version\n---\n',
+            '---\nname: sample-skill\nmetadata:\n  dcc-mcp:\n    version: "0.20.42"  # x-release-please-version\n---\n',
             encoding="utf-8",
         )
         assert packer.read_skill_version(skill) == "0.20.42"
