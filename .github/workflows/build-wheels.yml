@@ -405,6 +405,12 @@ jobs:
         with:
           target: x86_64-apple-darwin
           python-version: '3.7'
+          # actions/setup-python has no arm64 CPython 3.7, so the job installs
+          # the x86_64 python.org build itself and points the action at it:
+          # setup-python is skipped, and every validation step runs under the
+          # Rosetta interpreter instead of the ARM64 host Python.
+          skip-setup-python: 'true'
+          python-exe: '/Library/Frameworks/Python.framework/Versions/3.7/bin/python3.7'
           # Shell-expanded by the action's bash step, so maturin resolves the
           # Rosetta x86_64 interpreter rather than the ARM64 host Python.
           maturin-extra-args: '-i "${PY37}"'
