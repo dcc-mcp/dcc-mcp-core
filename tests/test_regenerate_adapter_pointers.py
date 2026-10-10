@@ -307,6 +307,21 @@ def test_the_branch_prefix_cannot_collide_with_a_docs_branch():
     assert not regen.BRANCH_PREFIX.startswith("docs/")
 
 
+def test_find_open_pr_matches_on_the_bare_branch_name(monkeypatch):
+    """`--head` rejects the `owner:branch` form used to create a cross-repo PR."""
+    seen = {}
+
+    def fake_run(args):
+        seen["head"] = args[args.index("--head") + 1]
+        return subprocess.CompletedProcess(args, 0, '[{"url":"https://example/pr/9"}]', "")
+
+    monkeypatch.setattr(pr_helpers, "_run", fake_run)
+
+    url = pr_helpers.find_open_pr("dcc-mcp/x", "loonghao:chore/refresh-catalog-pointer-47-adapters", "main")
+    assert url == "https://example/pr/9"
+    assert seen["head"] == "chore/refresh-catalog-pointer-47-adapters"
+
+
 def test_an_unrelated_change_is_not_allowed():
     assert regen.ALLOWED_CHANGED_FILES == ("README.md",)
 

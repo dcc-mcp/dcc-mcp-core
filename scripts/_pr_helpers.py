@@ -132,7 +132,12 @@ def find_open_pr(repo: str, head: str, base: str) -> str:
 
     Matched on the head ref rather than on the title so a reworded title still
     finds the existing PR and refreshes it instead of opening a second one.
+
+    ``--head`` takes the bare branch name, not the ``owner:branch`` form that a
+    cross-repository PR is *created* with; passing the qualified form matches
+    nothing and every rerun would try to open a duplicate.
     """
+    bare = head.split(":", 1)[1] if ":" in head else head
     result = _run(
         [
             "gh",
@@ -143,7 +148,7 @@ def find_open_pr(repo: str, head: str, base: str) -> str:
             "--state",
             "open",
             "--head",
-            head,
+            bare,
             "--base",
             base,
             "--json",
