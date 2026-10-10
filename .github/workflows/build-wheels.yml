@@ -401,6 +401,14 @@ jobs:
         shell: bash
         run: rustup target add x86_64-apple-darwin
 
+      # The python.org 3.7.9 package is built against the 10.9 SDK, so its
+      # pip only accepts wheels tagged macosx_10_9_*. Without this the build
+      # picks up the runner's newer SDK and tags the wheel 10_12, which the
+      # target interpreter then rejects as "not a supported wheel".
+      - name: Pin the macOS deployment target to the Python 3.7 SDK floor
+        shell: bash
+        run: echo "MACOSX_DEPLOYMENT_TARGET=10.9" >> "$GITHUB_ENV"
+
       - uses: ./.github/actions/build-wheel
         with:
           target: x86_64-apple-darwin
