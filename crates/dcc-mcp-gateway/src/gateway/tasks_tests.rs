@@ -96,14 +96,17 @@ async fn list_fingerprint_poll_runs_for_a_subscriber() {
 #[tokio::test]
 async fn drain_aborts_a_listener_that_outlives_the_window() {
     let dir = tempfile::tempdir().unwrap();
-    let finished_flag = Arc::new(AtomicUsize::new(0));
-    let task_flag = finished_flag.clone();
     let handle = tokio::spawn(async move {
         // Never completes on its own — stands in for an open SSE stream.
         std::future::pending::<()>().await;
-        task_flag.fetch_add(1, Ordering::SeqCst);
     });
     let listener_abort = handle.abort_handle();
+    // A clone kept outside the handle so the probe survives `handle.await`:
+    // `AbortHandle::is_finished` is what makes the assertion below
+    // discriminating. Checking a flag the task sets instead would be
+    // vacuous — `pending()` never returns, so such a flag stays zero whether
+    // or not the abort happened.
+    let probe = listener_abort.clone();
 
     // Awaiting the stuck task is the drain; it cannot finish on its own.
     let drain = async {
@@ -132,13 +135,16 @@ async fn drain_aborts_a_listener_that_outlives_the_window() {
         pending_deregister: Vec::new(),
         registration_active: Arc::new(AtomicBool::new(false)),
     };
+    assert!(
+        !probe.is_finished(),
+        "listener must still be running before the abort"
+    );
     gateway.abort_listeners();
 
     // Give the abort a scheduling turn to take effect.
     tokio::time::sleep(Duration::from_millis(50)).await;
-    assert_eq!(
-        finished_flag.load(Ordering::SeqCst),
-        0,
+    assert!(
+        probe.is_finished(),
         "the abort fallback must stop the listener task"
     );
 }
