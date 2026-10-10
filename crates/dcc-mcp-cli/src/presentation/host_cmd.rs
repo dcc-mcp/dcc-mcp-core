@@ -116,8 +116,11 @@ pub(crate) fn run(action: &HostAction) -> anyhow::Result<HostRun> {
             // "Stop asking" does not mean "stop telling": the default installs
             // unattended, so this notice is the only trace of what is about to
             // happen. It is gated so that it fires exactly when an install is
-            // genuinely about to start, and never otherwise.
-            if will_install(def, probe) {
+            // genuinely about to start, and never otherwise — which includes
+            // consent: a host the operator has not agreed to install is not
+            // about to be installed, so announcing it would claim an install
+            // that `provision` is about to refuse.
+            if consent_allows_install(&consent) && will_install(def, probe) {
                 announce_install(def);
             }
             let outcome = provision(
@@ -138,7 +141,12 @@ pub(crate) fn run(action: &HostAction) -> anyhow::Result<HostRun> {
                             // so the notice is owed here too: the interactive
                             // path must not be the one path that installs
                             // without saying where or how to turn it off.
-                            if will_install(def, probe) {
+                            // Consent is `Proceed` by construction here, so
+                            // this is the same gate as the one above and the
+                            // notice is printed exactly once on this path.
+                            if consent_allows_install(&ConsentDecision::Proceed)
+                                && will_install(def, probe)
+                            {
                                 announce_install(def);
                             }
                             remember_consent(ConsentMode::Always);
@@ -294,18 +302,31 @@ fn resolve_consent(yes: bool, question: String) -> ConsentDecision {
     consent::decide(input, question)
 }
 
+/// Whether consent has already been given for an install to proceed.
+///
+/// The notice is a claim about what is about to happen, so an unresolved
+/// `Ask` or a `Refused` decision means nothing is about to be installed yet.
+/// Checking this alongside `will_install` keeps the notice from announcing an
+/// install that `provision` refuses, and from printing a second time once an
+/// interactive prompt is accepted.
+fn consent_allows_install(consent: &ConsentDecision) -> bool {
+    matches!(consent, ConsentDecision::Proceed)
+}
+
 /// Whether an install of `def` is genuinely about to start.
 ///
 /// The notice is a claim about what is about to happen, so it may only fire
-/// when the install will actually run. Three things can stop that, and all
-/// three are checked here rather than in a second, drifting copy:
+/// when the install will actually run. Two things about the host can stop
+/// that, and both are checked here rather than in a second, drifting copy:
 ///
 /// * the host is commercial or has no channel — `provision_decision`;
 /// * the host is already usable — `provision` returns `AlreadySatisfied`
 ///   before it ever looks at consent;
 ///
 /// so a host that will be refused, or one that needs no work, is never
-/// announced as if it were being installed.
+/// announced as if it were being installed. Whether consent has been given is
+/// a separate question, answered by `consent_allows_install`; callers that
+/// announce must require both.
 fn will_install(def: &HostDefinition, probe: &crate::application::host::HostProbe) -> bool {
     !probe.status.is_available()
         && provision_decision(
@@ -654,6 +675,45 @@ mod tests {
         assert!(
             will_install(&def, &probe_with(HostStatus::Missing)),
             "the operator answered yes, so the install is about to start"
+        );
+        // The accept branch re-enters `provision` with `Proceed`, so consent
+        // is satisfied by the time that copy of the gate runs.
+        assert!(
+            consent_allows_install(&ConsentDecision::Proceed),
+            "an accepted prompt has consent, so the notice is owed"
+        );
+    }
+
+    /// A host that is missing and allowlisted is still not about to be
+    /// installed if consent was refused: `provision` will refuse it. The
+    /// notice must therefore stay silent, or it claims an install the same
+    /// run goes on to decline.
+    #[test]
+    fn a_refused_host_is_never_announced_as_being_installed() {
+        let def = blender();
+        assert!(
+            will_install(&def, &probe_with(HostStatus::Missing)),
+            "precondition: the host itself is installable"
+        );
+        assert!(
+            !consent_allows_install(&ConsentDecision::Refused {
+                reason: consent::ConsentRefusal::PolicyNever,
+            }),
+            "DCC_MCP_HOST_INSTALL=never is refused, so it must never be announced"
+        );
+    }
+
+    /// An unresolved `Ask` is the interactive path. Consent has not been given
+    /// yet, so the pre-prompt gate must not announce: either the operator
+    /// declines, or the accept branch prints the notice itself. Announcing
+    /// here would print it twice on the accept path.
+    #[test]
+    fn an_unresolved_ask_is_not_announced_before_the_prompt() {
+        assert!(
+            !consent_allows_install(&ConsentDecision::Ask {
+                question: "q".to_string(),
+            }),
+            "consent is not granted until the operator answers, so no notice yet"
         );
     }
 
