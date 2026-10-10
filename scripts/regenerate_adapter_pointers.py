@@ -135,9 +135,7 @@ def committer_name() -> str:
     """
     name = (os.environ.get(COMMITTER_NAME_ENV) or DEFAULT_COMMITTER_NAME).strip()
     if not name:
-        raise RegenError(
-            f"{COMMITTER_NAME_ENV} is set but empty; refusing to commit without a name"
-        )
+        raise RegenError(f"{COMMITTER_NAME_ENV} is set but empty; refusing to commit without a name")
     return name
 
 
@@ -150,14 +148,10 @@ def committer_email() -> str:
     """
     email = (os.environ.get(COMMITTER_EMAIL_ENV) or DEFAULT_COMMITTER_EMAIL).strip()
     if not email or "@" not in email or email.count("@") != 1:
-        raise RegenError(
-            f"{COMMITTER_EMAIL_ENV} must be a single email address, got {email!r}"
-        )
+        raise RegenError(f"{COMMITTER_EMAIL_ENV} must be a single email address, got {email!r}")
     local, _, domain = email.partition("@")
     if not local or not domain or "." not in domain:
-        raise RegenError(
-            f"{COMMITTER_EMAIL_ENV} must be a single email address, got {email!r}"
-        )
+        raise RegenError(f"{COMMITTER_EMAIL_ENV} must be a single email address, got {email!r}")
     return email
 
 

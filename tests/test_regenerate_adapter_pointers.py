@@ -693,9 +693,7 @@ def test_a_confirmed_match_wins_over_an_unreadable_candidate():
     good = _pr_row(9, "https://example/9", sha="d" * 40, title=PR_TITLE)
     unreadable = _pr_row(10, "https://example/10", sha="", title=PR_TITLE)
     unreadable["files"] = [{"path": "README.md"}]
-    found = pr_helpers.find_equivalent_pr(
-        [unreadable, good], path="README.md", blob_sha="d" * 40, title=PR_TITLE
-    )
+    found = pr_helpers.find_equivalent_pr([unreadable, good], path="README.md", blob_sha="d" * 40, title=PR_TITLE)
     assert found["number"] == 9
 
 
@@ -703,9 +701,7 @@ def test_an_unreadable_blob_on_an_unrelated_file_does_not_block():
     """Only candidates touching the generated file can make the result unresolvable."""
     other = _pr_row(11, "https://example/11", sha="", title=PR_TITLE)
     other["files"] = [{"path": "docs/unrelated.md"}]
-    assert pr_helpers.find_equivalent_pr(
-        [other], path="README.md", blob_sha="d" * 40, title=PR_TITLE
-    ) == {}
+    assert pr_helpers.find_equivalent_pr([other], path="README.md", blob_sha="d" * 40, title=PR_TITLE) == {}
 
 
 def test_find_equivalent_pr_returns_nothing_for_unrelated_rows():
@@ -791,9 +787,7 @@ def test_update_pr_uses_the_rest_patch_not_gh_pr_edit(monkeypatch):
         return subprocess.CompletedProcess(args, 0, "{}", "")
 
     monkeypatch.setattr(pr_helpers, "_run", fake_run)
-    pr_helpers.update_pr(
-        "dcc-mcp/x", "https://github.com/dcc-mcp/x/pull/50", title="t", body="b", timeout=30
-    )
+    pr_helpers.update_pr("dcc-mcp/x", "https://github.com/dcc-mcp/x/pull/50", title="t", body="b", timeout=30)
 
     args = seen["args"]
     assert "edit" not in args  # not `gh pr edit`
@@ -804,13 +798,9 @@ def test_update_pr_uses_the_rest_patch_not_gh_pr_edit(monkeypatch):
 
 def test_update_pr_raises_on_failure_instead_of_creating(monkeypatch):
     """A failed edit must not become a duplicate PR."""
-    monkeypatch.setattr(
-        pr_helpers, "_run", lambda args, **kw: subprocess.CompletedProcess(args, 1, "", "HTTP 403")
-    )
+    monkeypatch.setattr(pr_helpers, "_run", lambda args, **kw: subprocess.CompletedProcess(args, 1, "", "HTTP 403"))
     with pytest.raises(pr_helpers.PrError, match="could not update PR"):
-        pr_helpers.update_pr(
-            "dcc-mcp/x", "https://github.com/dcc-mcp/x/pull/50", title="t", body="b", timeout=30
-        )
+        pr_helpers.update_pr("dcc-mcp/x", "https://github.com/dcc-mcp/x/pull/50", title="t", body="b", timeout=30)
 
 
 def test_update_pr_rejects_a_url_without_a_number():
@@ -872,9 +862,7 @@ def test_the_recheck_runs_after_the_push(adapters, tmp_path, monkeypatch):
                 "_commit_and_push",
                 lambda repo_dir, branch, push_target, *, timeout, **kw: (
                     self.pushed.append(f"{push_target}:{branch}")
-                    or self.open_prs.append(
-                        _pr_row(1, "https://github.com/dcc-mcp/dcc-mcp-krita/pull/1", sha=blob)
-                    )
+                    or self.open_prs.append(_pr_row(1, "https://github.com/dcc-mcp/dcc-mcp-krita/pull/1", sha=blob))
                 ),
             )
 
@@ -912,9 +900,7 @@ def _api_run(pages: list[list[dict]], *, stderr: str = "", returncode: int = 0):
     def fake_run(args, **kwargs):
         import json
 
-        return subprocess.CompletedProcess(
-            args, returncode, "\n".join(json.dumps(p) for p in pages), stderr
-        )
+        return subprocess.CompletedProcess(args, returncode, "\n".join(json.dumps(p) for p in pages), stderr)
 
     return fake_run
 
@@ -965,9 +951,7 @@ def test_list_open_prs_deduplicates_across_pages(monkeypatch):
 
 def test_list_open_prs_rejects_an_unparsable_page(monkeypatch):
     """A page that does not parse is a failed lookup, not an empty result."""
-    monkeypatch.setattr(
-        pr_helpers, "_run", lambda args, **kw: subprocess.CompletedProcess(args, 0, "[]\n{oops", "")
-    )
+    monkeypatch.setattr(pr_helpers, "_run", lambda args, **kw: subprocess.CompletedProcess(args, 0, "[]\n{oops", ""))
     with pytest.raises(pr_helpers.PrError, match="unparsable JSON"):
         pr_helpers.list_open_prs("dcc-mcp/x", "main")
 

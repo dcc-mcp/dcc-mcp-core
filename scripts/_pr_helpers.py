@@ -185,9 +185,11 @@ def list_open_prs(repo: str, base: str, *, timeout: int = DEFAULT_TIMEOUT_SECS) 
             "--paginate",
             f"repos/{repo}/pulls?state=open&base={base}&per_page={PR_LIST_PAGE_SIZE}",
             "--jq",
-            ("[.[] | {number, url: .html_url, title, headRefName: .head.ref,"
-             " headRepositoryOwner: {login: .head.repo.owner.login},"
-             " headRefOid: .head.sha, author: {login: .user.login}}]"),
+            (
+                "[.[] | {number, url: .html_url, title, headRefName: .head.ref,"
+                " headRepositoryOwner: {login: .head.repo.owner.login},"
+                " headRefOid: .head.sha, author: {login: .user.login}}]"
+            ),
         ],
         timeout=timeout,
     )
@@ -467,6 +469,4 @@ def update_pr(repo: str, url: str, *, title: str, body: str, timeout: int = DEFA
         timeout=timeout,
     )
     if result.returncode != 0:
-        raise PrError(
-            f"could not update PR {repo}#{number}: {(result.stderr or result.stdout).strip()}"
-        )
+        raise PrError(f"could not update PR {repo}#{number}: {(result.stderr or result.stdout).strip()}")
