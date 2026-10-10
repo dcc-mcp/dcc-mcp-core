@@ -638,6 +638,92 @@ def test_pr_calls_forward_the_callers_timeout(monkeypatch):
     assert seen["timeouts"] == [300, 300]
 
 
+def test_update_pr_patches_the_rest_endpoint_instead_of_gh_pr_edit(monkeypatch):
+    """`update_pr` must go through REST, never through the GraphQL `gh pr edit`.
+
+    `gh pr edit` resolves the pull request with a GraphQL query that selects
+    `login` / `name` / `slug` on its actors and repository owner, and a token
+    without `read:org` is rejected by that query before any mutation runs. The
+    create path uses the REST-backed `gh pr create` and is unaffected, so this
+    only shows up from the second run onwards -- once there is an existing PR to
+    refresh -- which is exactly the shape of the failure that took the lane red
+    on all 24 repositories at once.
+
+    The REST endpoint addresses a pull request by number, so the number has to
+    come out of the URL the search returned.
+    """
+    seen = {}
+
+    def fake_run(args, **kwargs):
+        seen.setdefault("calls", []).append(list(args))
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    monkeypatch.setattr(pr_helpers, "_run", fake_run)
+
+    pr_helpers.update_pr(
+        "dcc-mcp/dcc-mcp-3dsmax",
+        "https://github.com/dcc-mcp/dcc-mcp-3dsmax/pull/226",
+        title="chore: refresh catalog pointer",
+        body="refreshed body",
+    )
+
+    assert seen["calls"] == [
+        [
+            "gh",
+            "api",
+            "-X",
+            "PATCH",
+            "repos/dcc-mcp/dcc-mcp-3dsmax/pulls/226",
+            "-f",
+            "title=chore: refresh catalog pointer",
+            "-f",
+            "body=refreshed body",
+        ]
+    ]
+
+
+def test_update_pr_sends_the_body_as_a_raw_field(monkeypatch):
+    """A generated body must never be able to smuggle in a `@file` read.
+
+    `gh api -F` (typed field) expands a leading `@` into "read this file". `-f`
+    (`--raw-field`) sends the value as a plain string, so a body that happens to
+    start with `@` is still just text.
+    """
+    seen = {}
+
+    def fake_run(args, **kwargs):
+        seen["args"] = list(args)
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    monkeypatch.setattr(pr_helpers, "_run", fake_run)
+
+    pr_helpers.update_pr("dcc-mcp/x", "https://example/pr/7", title="t", body="@/etc/passwd")
+
+    assert "-f" in seen["args"]
+    assert "-F" not in seen["args"]
+    assert "body=@/etc/passwd" in seen["args"]
+
+
+def test_pr_number_reads_the_number_out_of_a_pull_request_url():
+    """The REST endpoint is addressed by number; the search hands back a URL."""
+    assert pr_helpers.pr_number("https://github.com/dcc-mcp/dcc-mcp-3dsmax/pull/226") == 226
+    # A trailing slash or stray whitespace must not fool the parse.
+    assert pr_helpers.pr_number("https://github.com/dcc-mcp/dcc-mcp-unreal/pull/245/") == 245
+
+
+def test_update_pr_rejects_a_url_without_a_pull_number():
+    """A URL that carries no number fails loudly instead of patching the repo root.
+
+    `gh api PATCH repos/{repo}/pulls/{garbage}` would 404 rather than corrupt
+    anything, but a silent no-op is worse in a lane whose whole job is to be
+    trusted to fix drift unattended.
+    """
+    with pytest.raises(pr_helpers.PrError) as excinfo:
+        pr_helpers.update_pr("dcc-mcp/x", "https://github.com/dcc-mcp/x/pull/", title="t", body="b")
+
+    assert "pull request number" in str(excinfo.value)
+
+
 def test_an_unrelated_change_is_not_allowed():
     assert regen.ALLOWED_CHANGED_FILES == ("README.md",)
 
