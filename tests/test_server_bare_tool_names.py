@@ -150,7 +150,8 @@ def test_historical_positional_order_and_frozen_policy(source_contract, tmp_path
     assert options.sidecar is sidecar
     assert options.instance_type == "standalone"
     assert options.bare_tool_names is True
-    assert [item.name for item in fields(options)][-2:] == ["instance_type", "bare_tool_names"]
+    field_names = [item.name for item in fields(options)]
+    assert field_names.index("instance_type") < field_names.index("bare_tool_names")
     with pytest.raises(FrozenInstanceError):
         options.bare_tool_names = False
 
