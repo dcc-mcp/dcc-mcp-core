@@ -158,6 +158,75 @@ async fn dispatch(req: &JsonRpcRequest) -> Value {
 const TEST_PNG_BASE64: &str =
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZQmcAAAAASUVORK5CYII=";
 
+#[tokio::test]
+async fn production_reuse_gate_is_reachable_from_initialize_without_a_host() {
+    // Follow the URI supplied to a real MCP client, through list and read;
+    // this must work before a DCC instance or provider has been installed.
+    let initialized = dispatch(&request(
+        "initialize",
+        json!(1),
+        Some(json!({
+            "protocolVersion": "2025-03-26"
+        })),
+    ))
+    .await;
+    let instructions = initialized["result"]["instructions"].as_str().unwrap();
+    let step = instructions
+        .lines()
+        .find(|line| line.starts_with("1b."))
+        .unwrap();
+    assert!(step.contains("MUST"));
+    let uri = step
+        .split("uri=")
+        .nth(1)
+        .unwrap()
+        .split_whitespace()
+        .next()
+        .unwrap();
+    let listed = dispatch(&request("resources/list", json!(2), None)).await;
+    assert!(
+        listed["result"]["resources"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|pointer| pointer["uri"] == uri)
+    );
+    let read = dispatch(&request(
+        "resources/read",
+        json!(3),
+        Some(json!({"uri": uri})),
+    ))
+    .await;
+    assert!(read.get("error").is_none(), "{read}");
+    let payload: Value =
+        serde_json::from_str(read["result"]["contents"][0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(payload["uri"], uri);
+    assert_eq!(payload["format"], "markdown");
+    assert_eq!(
+        payload["document"],
+        include_str!("../native_resources/agent_workflows.md")
+    );
+    // The embedded contract is the same source the repository entrypoint links.
+    let entry = include_str!("../../../../../AGENTS.md");
+    let target = entry
+        .split("[production reuse gate](")
+        .nth(1)
+        .unwrap()
+        .split(')')
+        .next()
+        .unwrap();
+    let (path, anchor) = target.split_once('#').unwrap();
+    assert_eq!(
+        path,
+        "crates/dcc-mcp-gateway/src/gateway/native_resources/agent_workflows.md"
+    );
+    let heading = anchor.split('-').collect::<Vec<_>>().join(" ");
+    assert!(payload["document"].as_str().unwrap().lines().any(|line| {
+        line.strip_prefix("## ")
+            .is_some_and(|title| title.to_lowercase() == heading)
+    }));
+}
+
 async fn rich_image_gateway_state() -> (
     GatewayState,
     Arc<CaptureSink>,
