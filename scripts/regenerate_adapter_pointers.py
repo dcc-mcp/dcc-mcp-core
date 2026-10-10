@@ -253,10 +253,15 @@ def _repo_slug(url: str) -> str:
 
 
 def _push_target(repo_slug: str, head: str, *, timeout: int) -> tuple[str, str]:
-    """Return the repository to push to and the head ref the PR should name."""
-    target = pr_helpers.ensure_fork(repo_slug, timeout=timeout)
-    owner = pr_helpers.repo_owner(target)
-    return target, f"{owner}:{head}" if owner else head
+    """Return the repository to push to and the head ref the PR should name.
+
+    The target is always the upstream repository once push access is confirmed,
+    so the branch lives in the same repository the pull request is opened
+    against and the head stays a bare branch name -- no ``owner:`` prefix, which
+    is only needed for a cross-repository branch.
+    """
+    target = pr_helpers.ensure_push_target(repo_slug, timeout=timeout)
+    return target, head
 
 
 def _commit_and_push(repo_dir: Path, branch: str, push_target: str, *, timeout: int) -> None:

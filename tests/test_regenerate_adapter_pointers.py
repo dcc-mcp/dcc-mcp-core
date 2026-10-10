@@ -87,24 +87,19 @@ class _FakeGitHub:
         login: str = "bot",
         fork: str = "",
         existing_pr: str = "",
-        push_access: bool = True,
+        push_state: str = pr_helpers.PUSH_GRANTED,
     ):
         self.login = login
         self.fork = fork
         self.existing_pr = existing_pr
-        self.push_access = push_access
+        self.push_state = push_state
         self.created: list[dict] = []
         self.updated: list[dict] = []
         self.pushed: list[str] = []
 
     def install(self, monkeypatch) -> None:
         monkeypatch.setattr(pr_helpers, "authenticated_login", lambda **kw: self.login)
-        monkeypatch.setattr(pr_helpers, "has_push_access", lambda repo, **kw: self.push_access)
-        monkeypatch.setattr(
-            pr_helpers,
-            "ensure_fork",
-            lambda upstream, **kw: upstream if self.push_access else (self.fork or upstream),
-        )
+        monkeypatch.setattr(pr_helpers, "check_push_access", lambda repo, **kw: self.push_state)
         monkeypatch.setattr(pr_helpers, "find_open_pr", lambda *a, **k: self.existing_pr)
         monkeypatch.setattr(
             pr_helpers,
@@ -271,43 +266,13 @@ def test_a_stale_repository_opens_a_pull_request(adapters, tmp_path, monkeypatch
     assert str(len(adapters)) in fake.created[0]["body"]
 
 
-def test_a_stale_repository_without_push_uses_an_existing_fork(adapters, tmp_path, monkeypatch):
-    """Without push access the branch goes to the fork and the head is qualified."""
+def test_a_stale_repository_without_push_fails_instead_of_using_a_fork(adapters, tmp_path, monkeypatch):
+    """Denied push access must fail the run, even when a personal fork exists."""
     name = "dcc-mcp-krita"
-    origin = _make_origin(tmp_path, "openprfork", _stale_readme(adapters, name))
-    fake = _FakeGitHub(login="bot", fork="bot/dcc-mcp-krita", push_access=False)
+    origin = _make_origin(tmp_path, "openprdeniedfork", _stale_readme(adapters, name))
+    # A fork is deliberately supplied: the point is that it must NOT be used.
+    fake = _FakeGitHub(login="bot", fork="bot/dcc-mcp-krita", push_state=pr_helpers.PUSH_DENIED)
     fake.install(monkeypatch)
-
-    row = regen.regenerate_repository(
-        _local_entry(adapters, name, origin),
-        0,
-        host_count=len(adapters),
-        workdir=tmp_path / "work",
-        timeout=60,
-        branch_prefix=regen.BRANCH_PREFIX,
-        dry_run=False,
-        source_ref="dcc-mcp/dcc-mcp-core@dcc-mcp-catalog.yml",
-    )
-
-    assert row["status"] == regen.REGENERATED
-    assert row["action"] == "opened-pr"
-    assert len(fake.created) == 1
-    # The fork's owner qualifies the head so GitHub can match the cross-repo branch.
-    assert fake.created[0]["head"].startswith("bot:")
-    assert fake.pushed == [f"bot/dcc-mcp-krita:{regen.BRANCH_PREFIX + regen._fingerprint(len(adapters))}"]
-
-
-def test_a_repository_without_push_and_without_a_fork_is_reported(adapters, tmp_path, monkeypatch):
-    """No push access and no fork: the run reports a gap instead of auto-forking."""
-    name = "dcc-mcp-krita"
-    origin = _make_origin(tmp_path, "nofork", _stale_readme(adapters, name))
-
-    def deny(upstream, **kwargs):
-        raise pr_helpers.PrError(f"no push access to {upstream} and no fork belonging to bot was found")
-
-    fake = _FakeGitHub(login="bot")
-    fake.install(monkeypatch)
-    monkeypatch.setattr(pr_helpers, "ensure_fork", deny)
 
     row = regen.regenerate_repository(
         _local_entry(adapters, name, origin),
@@ -321,8 +286,35 @@ def test_a_repository_without_push_and_without_a_fork_is_reported(adapters, tmp_
     )
 
     assert row["status"] == regen.ERROR
-    assert "no push access" in row["detail"]
-    assert fake.created == [] and fake.updated == [] and fake.pushed == []
+    assert "does not have push access" in row["detail"]
+    # Nothing was pushed, and certainly not to the fork.
+    assert fake.pushed == []
+    assert not any("bot/dcc-mcp-krita" in pushed for pushed in fake.pushed)
+    assert fake.created == [] and fake.updated == []
+
+
+def test_a_stale_repository_with_an_unknown_permission_fails_instead_of_using_a_fork(adapters, tmp_path, monkeypatch):
+    """A failed permission lookup must fail the run, even when a fork exists."""
+    name = "dcc-mcp-krita"
+    origin = _make_origin(tmp_path, "openprunknownfork", _stale_readme(adapters, name))
+    fake = _FakeGitHub(login="bot", fork="bot/dcc-mcp-krita", push_state=pr_helpers.PUSH_UNKNOWN)
+    fake.install(monkeypatch)
+
+    row = regen.regenerate_repository(
+        _local_entry(adapters, name, origin),
+        0,
+        host_count=len(adapters),
+        workdir=tmp_path / "work",
+        timeout=60,
+        branch_prefix=regen.BRANCH_PREFIX,
+        dry_run=False,
+        source_ref="dcc-mcp/dcc-mcp-core@dcc-mcp-catalog.yml",
+    )
+
+    assert row["status"] == regen.ERROR
+    assert "could not confirm push access" in row["detail"]
+    assert fake.pushed == []
+    assert fake.created == [] and fake.updated == []
 
 
 def test_an_existing_pull_request_is_refreshed_not_duplicated(adapters, tmp_path, monkeypatch):
@@ -418,7 +410,16 @@ def test_repo_owner_reads_the_owner_half():
     assert pr_helpers.repo_owner("nope") == ""
 
 
-def test_has_push_access_reads_the_rest_permission(monkeypatch):
+def _push_run(stdout: str, returncode: int = 0, stderr: str = ""):
+    """Return a ``_run`` stub that answers the permission lookup with ``stdout``."""
+
+    def fake_run(args, **kwargs):
+        return subprocess.CompletedProcess(args, returncode, stdout, stderr)
+
+    return fake_run
+
+
+def test_check_push_access_reads_the_rest_permission(monkeypatch):
     """`permissions.push` on /repos/{repo} is what decides, not the login."""
     seen = []
 
@@ -428,101 +429,152 @@ def test_has_push_access_reads_the_rest_permission(monkeypatch):
 
     monkeypatch.setattr(pr_helpers, "_run", fake_run)
 
-    assert pr_helpers.has_push_access("dcc-mcp/dcc-mcp-maya") is True
+    assert pr_helpers.check_push_access("dcc-mcp/dcc-mcp-maya") == pr_helpers.PUSH_GRANTED
     assert seen[0] == ["gh", "api", "repos/dcc-mcp/dcc-mcp-maya", "--jq", ".permissions.push"]
 
 
-def test_has_push_access_is_false_when_the_token_cannot_push(monkeypatch):
-    monkeypatch.setattr(pr_helpers, "_run", lambda args, **kw: subprocess.CompletedProcess(args, 0, "false\n", ""))
-    assert pr_helpers.has_push_access("dcc-mcp/dcc-mcp-maya") is False
+def test_check_push_access_reports_denied_distinctly(monkeypatch):
+    """An explicit 'false' is DENIED, not UNKNOWN -- the operator needs the difference."""
+    monkeypatch.setattr(pr_helpers, "_run", _push_run("false\n"))
+    assert pr_helpers.check_push_access("dcc-mcp/dcc-mcp-maya") == pr_helpers.PUSH_DENIED
 
 
-def test_has_push_access_fails_conservatively_when_the_lookup_breaks(monkeypatch):
-    """An unknown permission must read as 'no access', never as 'push allowed'."""
-    monkeypatch.setattr(pr_helpers, "_run", lambda args, **kw: subprocess.CompletedProcess(args, 1, "", "HTTP 404\n"))
-    assert pr_helpers.has_push_access("dcc-mcp/dcc-mcp-maya") is False
+def test_check_push_access_reports_unknown_when_the_lookup_fails(monkeypatch):
+    monkeypatch.setattr(pr_helpers, "_run", _push_run("", returncode=1, stderr="HTTP 404\n"))
+    assert pr_helpers.check_push_access("dcc-mcp/dcc-mcp-maya") == pr_helpers.PUSH_UNKNOWN
+
+
+def test_check_push_access_treats_an_empty_body_as_unknown(monkeypatch):
+    """A 200 with no body has confirmed nothing; it must not read as granted."""
+    monkeypatch.setattr(pr_helpers, "_run", _push_run("", returncode=0))
+    assert pr_helpers.check_push_access("dcc-mcp/dcc-mcp-maya") == pr_helpers.PUSH_UNKNOWN
 
 
 def test_an_org_member_with_push_uses_the_upstream_repo(monkeypatch):
     """The whole point: login != owner but push is granted, so no fork."""
     calls = []
-    monkeypatch.setattr(pr_helpers, "_run", lambda args, **kw: calls.append(args) or None)
-    monkeypatch.setattr(pr_helpers, "has_push_access", lambda repo, **kw: True)
+
+    def fake_run(args, **kwargs):
+        calls.append(args)
+        return subprocess.CompletedProcess(args, 0, "true\n", "")
+
+    monkeypatch.setattr(pr_helpers, "_run", fake_run)
     monkeypatch.setattr(pr_helpers, "authenticated_login", lambda **kw: "loonghao")
 
-    assert pr_helpers.ensure_fork("dcc-mcp/dcc-mcp-maya") == "dcc-mcp/dcc-mcp-maya"
-    # No fork was ever looked up or created.
-    assert not any("forks" in " ".join(c) or ("repo" in c[:3] and "fork" in c) for c in calls)
+    assert pr_helpers.ensure_push_target("dcc-mcp/dcc-mcp-maya") == "dcc-mcp/dcc-mcp-maya"
+    # Only the permission lookup ran. No fork was queried or created.
+    assert len(calls) == 1
+    assert calls[0][:3] == ["gh", "api", "repos/dcc-mcp/dcc-mcp-maya"]
+    assert not any("fork" in " ".join(call) for call in calls)
 
 
 def test_the_owner_with_push_uses_the_upstream_repo(monkeypatch):
     """Ownership alone is not the test any more, but push access still short-circuits."""
-    monkeypatch.setattr(pr_helpers, "has_push_access", lambda repo, **kw: True)
+    monkeypatch.setattr(pr_helpers, "_run", _push_run("true\n"))
     monkeypatch.setattr(pr_helpers, "authenticated_login", lambda **kw: "dcc-mcp")
 
-    assert pr_helpers.ensure_fork("dcc-mcp/dcc-mcp-maya") == "dcc-mcp/dcc-mcp-maya"
+    assert pr_helpers.ensure_push_target("dcc-mcp/dcc-mcp-maya") == "dcc-mcp/dcc-mcp-maya"
 
 
-def test_an_existing_fork_is_reused_when_push_is_denied(monkeypatch):
-    """No push access falls back to the caller's fork, found through the API."""
+def test_denied_push_raises_and_never_touches_a_fork(monkeypatch):
+    """Denied access must raise, and no fork lookup may even be attempted."""
+    calls = []
 
     def fake_run(args, **kwargs):
-        if "graphql" in args:
-            return subprocess.CompletedProcess(args, 0, "loonghao/dcc-mcp-maya\n", "")
-        return subprocess.CompletedProcess(args, 1, "", "")
+        calls.append(args)
+        return subprocess.CompletedProcess(args, 0, "false\n", "")
 
-    monkeypatch.setattr(pr_helpers, "has_push_access", lambda repo, **kw: False)
-    monkeypatch.setattr(pr_helpers, "authenticated_login", lambda **kw: "loonghao")
     monkeypatch.setattr(pr_helpers, "_run", fake_run)
+    monkeypatch.setattr(pr_helpers, "authenticated_login", lambda **kw: "loonghao")
 
-    assert pr_helpers.ensure_fork("dcc-mcp/dcc-mcp-maya") == "loonghao/dcc-mcp-maya"
+    with pytest.raises(pr_helpers.PrError) as exc:
+        pr_helpers.ensure_push_target("dcc-mcp/dcc-mcp-maya")
+
+    message = str(exc.value)
+    assert "does not have push access" in message
+    assert "dcc-mcp/dcc-mcp-maya" in message
+    assert "No fork was used or created" in message
+    # A fork query would be a graphql call; none may happen.
+    assert not any("graphql" in call or "fork" in " ".join(call) for call in calls)
 
 
-def test_a_fork_is_never_created_automatically(monkeypatch):
-    """`gh repo fork` must not appear: auto-forking left unasked-for forks behind."""
+def test_unknown_push_raises_with_its_own_reason(monkeypatch):
+    """A failed lookup names its own cause instead of blaming the token."""
+    monkeypatch.setattr(pr_helpers, "_run", _push_run("", returncode=1, stderr="HTTP 500\n"))
+    monkeypatch.setattr(pr_helpers, "authenticated_login", lambda **kw: "loonghao")
+
+    with pytest.raises(pr_helpers.PrError) as exc:
+        pr_helpers.ensure_push_target("dcc-mcp/dcc-mcp-maya")
+
+    message = str(exc.value)
+    assert "could not confirm push access" in message
+    assert "does not have push access" not in message
+    assert "No fork was used or created" in message
+
+
+def test_an_existing_fork_does_not_rescue_a_denied_push(monkeypatch):
+    """The critical combination: push denied, but a personal fork exists.
+
+    The fork must NOT be used. The fork lookup is a graphql query on `forks`,
+    and it is never even issued; the run fails instead.
+    """
     calls = []
 
     def fake_run(args, **kwargs):
         calls.append(args)
         if "graphql" in args:
-            return subprocess.CompletedProcess(args, 0, "", "")
-        return subprocess.CompletedProcess(args, 1, "", "")
+            return subprocess.CompletedProcess(args, 0, "loonghao/dcc-mcp-maya\n", "")
+        return subprocess.CompletedProcess(args, 0, "false\n", "")
 
-    monkeypatch.setattr(pr_helpers, "has_push_access", lambda repo, **kw: False)
-    monkeypatch.setattr(pr_helpers, "authenticated_login", lambda **kw: "loonghao")
     monkeypatch.setattr(pr_helpers, "_run", fake_run)
-
-    with pytest.raises(pr_helpers.PrError, match="no push access"):
-        pr_helpers.ensure_fork("dcc-mcp/dcc-mcp-maya")
-
-    assert not any(args[:3] == ["gh", "repo", "fork"] for args in calls)
-
-
-def test_no_push_and_no_fork_reports_the_gap(monkeypatch):
-    """The operator must be told what to grant, not left with a silent skip."""
-    monkeypatch.setattr(pr_helpers, "has_push_access", lambda repo, **kw: False)
     monkeypatch.setattr(pr_helpers, "authenticated_login", lambda **kw: "loonghao")
-    monkeypatch.setattr(
-        pr_helpers,
-        "_run",
-        lambda args, **kw: subprocess.CompletedProcess(args, 1, "", "not found\n"),
-    )
 
-    with pytest.raises(pr_helpers.PrError) as exc:
-        pr_helpers.ensure_fork("dcc-mcp/dcc-mcp-maya")
+    with pytest.raises(pr_helpers.PrError, match="does not have push access"):
+        pr_helpers.ensure_push_target("dcc-mcp/dcc-mcp-maya")
 
-    message = str(exc.value)
-    assert "no push access" in message
-    assert "dcc-mcp/dcc-mcp-maya" in message
+    # The graphql fork lookup was never called.
+    assert not any("graphql" in call for call in calls)
+    assert len(calls) == 1
 
 
-def test_no_push_and_unknown_login_reports_the_gap(monkeypatch):
-    """Without a login there is no fork to look for, so say so."""
-    monkeypatch.setattr(pr_helpers, "has_push_access", lambda repo, **kw: False)
-    monkeypatch.setattr(pr_helpers, "authenticated_login", lambda **kw: "")
+def test_an_existing_fork_does_not_rescue_a_failed_lookup(monkeypatch):
+    """Lookup failed plus an existing fork: still a hard failure, no fork use."""
+    calls = []
 
-    with pytest.raises(pr_helpers.PrError, match="authenticated login is unknown"):
-        pr_helpers.ensure_fork("dcc-mcp/dcc-mcp-maya")
+    def fake_run(args, **kwargs):
+        calls.append(args)
+        if "graphql" in args:
+            return subprocess.CompletedProcess(args, 0, "loonghao/dcc-mcp-maya\n", "")
+        return subprocess.CompletedProcess(args, 1, "", "network down\n")
+
+    monkeypatch.setattr(pr_helpers, "_run", fake_run)
+    monkeypatch.setattr(pr_helpers, "authenticated_login", lambda **kw: "loonghao")
+
+    with pytest.raises(pr_helpers.PrError, match="could not confirm push access"):
+        pr_helpers.ensure_push_target("dcc-mcp/dcc-mcp-maya")
+
+    assert not any("graphql" in call for call in calls)
+    assert len(calls) == 1
+
+
+def test_no_fork_is_ever_created(monkeypatch):
+    """`gh repo fork` must not appear under any permission outcome."""
+    for stdout, returncode in (("false\n", 0), ("", 1)):
+        calls = []
+
+        # Bound as default arguments: a closure over the loop variables would
+        # capture whichever iteration ran last, not the one being tested.
+        def fake_run(args, _calls=calls, _stdout=stdout, _returncode=returncode, **kwargs):
+            _calls.append(args)
+            return subprocess.CompletedProcess(args, _returncode, _stdout, "")
+
+        monkeypatch.setattr(pr_helpers, "_run", fake_run)
+        monkeypatch.setattr(pr_helpers, "authenticated_login", lambda **kw: "loonghao")
+
+        with pytest.raises(pr_helpers.PrError):
+            pr_helpers.ensure_push_target("dcc-mcp/dcc-mcp-maya")
+
+        assert not any(args[:3] == ["gh", "repo", "fork"] for args in calls)
 
 
 def test_the_branch_prefix_cannot_collide_with_a_docs_branch():

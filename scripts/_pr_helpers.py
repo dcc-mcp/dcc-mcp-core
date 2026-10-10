@@ -6,7 +6,8 @@ halves need the same pieces of GitHub plumbing for different reasons:
 - The branch name must be stable across runs, or a second catalog change would
   open a duplicate PR next to the first instead of refreshing it.
 - The push target depends on the token's actual push permission, not on whether
-  its login happens to own the repository.
+  its login happens to own the repository. Without confirmed push access the run
+  fails loudly; forks are never used or created.
 - The PR must be created once and updated afterwards, because re-opening it on
   every scheduled run would spam subscribers.
 
@@ -81,97 +82,78 @@ def repo_owner(repo: str) -> str:
     return repo.split("/", 1)[0] if "/" in repo else ""
 
 
-def has_push_access(repo: str, *, timeout: int = DEFAULT_TIMEOUT_SECS) -> bool:
-    """Return True when the authenticated user may push to ``repo``.
+# The push-permission lookup has three outcomes, not two. Collapsing the
+# failure into a plain False made a transient API error indistinguishable from a
+# real "no write access", so a broken lookup fell through to the fork path and
+# pushed somewhere the operator never authorised.
+PUSH_GRANTED = "granted"
+PUSH_DENIED = "denied"
+PUSH_UNKNOWN = "unknown"
 
-    Ownership is not a proxy for this: an organisation repository grants push to
-    its members without them owning it, and a token with a narrow scope can be
+
+def check_push_access(repo: str, *, timeout: int = DEFAULT_TIMEOUT_SECS) -> str:
+    """Return whether the authenticated user may push to ``repo``.
+
+    One of ``PUSH_GRANTED``, ``PUSH_DENIED`` or ``PUSH_UNKNOWN``. The third
+    state is the point: a lookup that failed is *not* the same as a lookup that
+    answered "no", and callers must be able to tell them apart.
+
+    Ownership is not a proxy for any of this: an organisation repository grants
+    push to its members without them owning it, and a narrow token can be
     read-only on a repository the login *does* own. The REST ``/repos/{repo}``
-    payload carries both, so ``permissions.push`` is read directly instead.
-
-    A login is not required first -- the permission is the token's, and the
-    token is what pushes.
+    payload carries the real answer, so ``permissions.push`` is read directly.
     """
     result = _run(["gh", "api", f"repos/{repo}", "--jq", ".permissions.push"], timeout=timeout)
     if result.returncode != 0:
-        return False
-    return result.stdout.strip().lower() == "true"
+        return PUSH_UNKNOWN
+    value = result.stdout.strip().lower()
+    if value == "true":
+        return PUSH_GRANTED
+    if value == "false":
+        return PUSH_DENIED
+    # A 200 response with an empty or unexpected body is also unknown: nothing
+    # here has actually confirmed write access.
+    return PUSH_UNKNOWN
 
 
-def _fork_query_jq(login: str) -> str:
-    """Build the jq filter that picks the caller's own fork out of ``forks``."""
-    return f'.data.repository.forks.nodes[] | select(.owner.login=="{login}") | .nameWithOwner'
-
-
-def ensure_fork(upstream: str, *, timeout: int = DEFAULT_TIMEOUT_SECS) -> str:
-    """Return a repository the authenticated user can push to.
-
-    ``upstream`` whenever the authenticated user already has push access to it.
-    That is the normal case for an organisation repository the job's token is a
-    member of, and pushing there keeps the branch and the pull request in one
-    repository instead of splitting them across a personal fork.
-
-    A fork is only a last resort, used when the push permission is absent:
-    cross-repository pull requests keep the automation working against a
-    repository it was not granted write access to. Creating one is never
-    automatic -- see ``_ensure_existing_fork`` for why that distinction matters.
-
-    Raises ``PrError`` when neither is available, so a repository the job cannot
-    act on is reported as a gap rather than silently skipped.
-    """
-    if has_push_access(upstream, timeout=timeout):
-        return upstream
-
-    login = authenticated_login(timeout=timeout)
-    if not login:
-        raise PrError(
-            f"no push access to {upstream} and the authenticated login is unknown; cannot fall back to a fork"
+def _push_access_error(repo: str, state: str, detail: str = "") -> str:
+    """Render the failure message for a push state that is not ``PUSH_GRANTED``."""
+    suffix = f" ({detail.strip()})" if detail and detail.strip() else ""
+    if state == PUSH_UNKNOWN:
+        return (
+            f"could not confirm push access to {repo}{suffix}; refusing to guess. "
+            f"Re-run once the GitHub API is reachable, or grant the token write access to {repo}. "
+            "No fork was used or created."
         )
-    return _ensure_existing_fork(upstream, login, timeout=timeout)
+    return (
+        f"the authenticated token does not have push access to {repo}{suffix}; "
+        f"grant it write access to {repo} and re-run. No fork was used or created."
+    )
 
 
-def _ensure_existing_fork(upstream: str, login: str, *, timeout: int = DEFAULT_TIMEOUT_SECS) -> str:
-    """Return the caller's existing fork of ``upstream``, or raise.
+def ensure_push_target(upstream: str, *, timeout: int = DEFAULT_TIMEOUT_SECS) -> str:
+    """Return the repository to push to: ``upstream``, or raise.
 
-    The fork is looked up but never created. Auto-forking was the earlier
-    behaviour and it is deliberately gone: it silently forked repositories the
-    operator had *just* said to work on directly, leaving behind permanent
-    personal forks nobody asked for and pull requests opened from the wrong
-    place. A missing fork is now an explicit error the operator resolves once.
+    A branch is only ever pushed into the upstream repository itself, and only
+    once the token's push permission has been positively confirmed. That keeps
+    the branch and the pull request in one repository, which is what the
+    operator asked for.
 
-    Looking the fork up first is also what makes repeat runs safe: an existing
-    fork is reused as-is rather than re-created.
+    Every other outcome raises ``PrError``:
+
+    - ``PUSH_DENIED`` -- the token genuinely lacks write access.
+    - ``PUSH_UNKNOWN`` -- the lookup failed, so nothing was confirmed. This is
+      treated as a failure, never as permission.
+
+    Forks are not consulted, reused or created under any of them. Silently
+    falling back to a personal fork is exactly the behaviour this replaced: it
+    moved the branch somewhere the operator had not authorised, and an
+    already-existing fork made the fallback succeed quietly.
     """
-    owner, name = upstream.split("/", 1) if "/" in upstream else ("", upstream)
-    # Filtered in jq rather than through a query argument: `forks` does not take
-    # an affiliation filter, and other people's forks are not pushable.
-    query = (
-        "query($owner:String!,$name:String!){repository(owner:$owner,name:$name)"
-        "{forks(first:20){nodes{nameWithOwner owner{login}}}}}"
-    )
-    api = _run(
-        [
-            "gh",
-            "api",
-            "graphql",
-            "-f",
-            f"query={query}",
-            "-F",
-            f"owner={owner}",
-            "-F",
-            f"name={name}",
-            "--jq",
-            _fork_query_jq(login),
-        ],
-        timeout=timeout,
-    )
-    if api.returncode == 0 and api.stdout.strip():
-        return api.stdout.strip().splitlines()[0].strip()
-
-    raise PrError(
-        f"no push access to {upstream} and no fork belonging to {login} was found; "
-        f"grant the job's token write access to {upstream}, or create the fork once by hand"
-    )
+    state = check_push_access(upstream, timeout=timeout)
+    if state == PUSH_GRANTED:
+        return upstream
+    raise PrError(_push_access_error(upstream, state))
 
 
 def find_open_pr(repo: str, head: str, base: str, *, timeout: int = DEFAULT_TIMEOUT_SECS) -> str:
