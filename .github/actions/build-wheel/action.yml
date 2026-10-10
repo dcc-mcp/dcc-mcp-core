@@ -1,4 +1,4 @@
-﻿name: 'Build Wheel'
+name: 'Build Wheel'
 description: 'Build dcc-mcp-core wheel with maturin'
 
 inputs:
@@ -10,6 +10,15 @@ inputs:
     description: 'Python version'
     required: false
     default: '3.11'
+  skip-setup-python:
+    description: 'Skip actions/setup-python because the caller installed the interpreter itself'
+    required: false
+    default: 'false'
+  python-exe:
+    description: 'Interpreter used for validation and wheel testing. Defaults to
+      the python on PATH, which is the one setup-python installs.'
+    required: false
+    default: 'python'
   rust-version:
     description: 'Rust toolchain version'
     required: false
@@ -44,7 +53,11 @@ runs:
   using: 'composite'
   steps:
     - name: Setup Python
-      if: runner.os != 'Windows' || inputs.python-version != '3.7'
+      # Callers that install Python themselves set skip-setup-python: the macOS
+      # cp37 job needs the x86_64 python.org build, which actions/setup-python
+      # cannot provide on the ARM64 runner because no arm64 CPython 3.7 exists.
+      # Windows py37 is handled by its own setup action below.
+      if: inputs.skip-setup-python != 'true' && (runner.os != 'Windows' || inputs.python-version != '3.7')
       uses: actions/setup-python@v6
       with:
         python-version: ${{ inputs.python-version }}
@@ -242,7 +255,7 @@ runs:
               ;;
           esac
         fi
-        python scripts/ci/check_python_wheel.py \
+        ${{ inputs.python-exe }} scripts/ci/check_python_wheel.py \
           --profile "$profile" \
           --platform "$platform" \
           dist/*.whl
@@ -252,7 +265,7 @@ runs:
       shell: bash
       run: |
         if [[ -f tests/test_issue_2388_zero_typing_extensions.py ]]; then
-          python scripts/ci/smoke_zero_typing_extensions.py --wheel 'dist/*.whl'
+          ${{ inputs.python-exe }} scripts/ci/smoke_zero_typing_extensions.py --wheel 'dist/*.whl'
         fi
 
     - name: Test wheel
@@ -260,7 +273,7 @@ runs:
       shell: bash
       run: |
         # Use python -m venv for Python 3.7 (uv does not support 3.7)
-        python -m venv test-env
+        ${{ inputs.python-exe }} -m venv test-env
         if [ "${{ runner.os }}" = "Windows" ]; then
           source test-env/Scripts/activate
         else
