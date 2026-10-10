@@ -38,6 +38,12 @@
           "runner": "windows-2022",
           "target": "x64",
           "full_suite": false
+        },
+        {
+          "platform": "macos-x86_64",
+          "runner": "macos-latest",
+          "target": "x86_64-apple-darwin",
+          "full_suite": false
         }
       ]
     },
@@ -116,6 +122,14 @@
         "windows-x86_64": {
           "allowed_platform_tags": [
             "win_amd64"
+          ]
+        },
+        "macos-x86_64": {
+          "required_platform_tag_patterns": [
+            "macosx_*_x86_64"
+          ],
+          "allowed_platform_tag_patterns": [
+            "macosx_*_x86_64"
           ]
         }
       }

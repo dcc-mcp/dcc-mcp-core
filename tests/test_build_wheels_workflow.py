@@ -12,8 +12,15 @@ BUILD_JOB_IDS = {
     "py37-lite",
     "linux-py37",
     "windows-py37",
+    "macos-py37",
     "macos",
 }
+# The macOS cp37 wheel is built as a spike before it joins the release gate, so
+# `publish-release.needs` intentionally trails BUILD_JOB_IDS. Merging these two
+# constants is the second-stage change that promotes the wheel to a release
+# artefact, and it must land only after a workflow_dispatch run proves the
+# cross-compiled wheel builds and validates on the ARM64 runner.
+PUBLISH_JOB_IDS = BUILD_JOB_IDS - {"macos-py37"}
 
 
 def _jobs() -> dict:
@@ -89,7 +96,7 @@ def test_release_wheels_are_uploaded_once_after_every_build() -> None:
         assert all(step.get("uses") != "softprops/action-gh-release@v3" for step in steps)
 
     publish = jobs["publish-release"]
-    assert set(publish["needs"]) == BUILD_JOB_IDS
+    assert set(publish["needs"]) == PUBLISH_JOB_IDS
     assert publish["if"] == "inputs.release-tag-name != ''"
     assert publish["permissions"] == {"actions": "read", "contents": "write"}
 
@@ -157,6 +164,7 @@ def test_python37_runtime_smokes_share_version_and_ref_bound_dependency_preparat
         "py37-lite": "Test py37-lite wheel",
         "linux-py37": "Test native Python 3.7 wheel with workflow smoke",
         "windows-py37": "Test native Python 3.7 wheel with workflow smoke",
+        "macos-py37": "Test native Python 3.7 wheel with workflow smoke",
     }
 
     for job_id, smoke_step_name in smoke_steps.items():
