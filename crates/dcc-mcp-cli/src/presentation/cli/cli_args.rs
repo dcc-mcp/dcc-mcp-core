@@ -36,6 +36,9 @@ pub(crate) enum Command {
         /// Result limit used for the REST dynamic-capability search check.
         #[arg(long, default_value = "5")]
         limit: usize,
+        /// Maximum MCP tools/list pages; reaching the limit before completion fails.
+        #[arg(long, default_value = "16", value_parser = clap::value_parser!(u16).range(1..=128))]
+        max_pages: u16,
         /// Per-request timeout for smoke checks.
         #[arg(long)]
         timeout_secs: Option<u64>,

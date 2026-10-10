@@ -156,6 +156,26 @@ current profile config, selected mode, registry directory and inventory, local
 direct-control readiness counts, gateway daemon status, and server binary
 path/source/version without launching or downloading anything.
 
+### MCP inventory smoke checks
+
+```bash
+dcc-mcp-cli --no-auto-gateway --output json smoke --url http://127.0.0.1:19293/mcp --timeout-secs 30 --max-pages 16
+```
+
+`smoke` initializes one MCP session and follows `tools/list` cursors until a
+terminal page. `--max-pages` defaults to 16 and accepts 1–128; reaching the
+limit with another cursor, a repeated cursor, an invalid descriptor, or a
+failed request makes the check fail. Each request uses the negotiated supported
+legacy protocol version. An invalid initialize response prevents tool listing.
+
+The `mcp_tools_list` check keeps the first parsed response in `response` and
+every request and parsed response in `pages`. Each received page also records
+its HTTP status, response-body SHA-256, and strict UTF-8 body (or bytes when
+UTF-8 is invalid). These are HTTP bodies after transport decoding, not network
+frames. `tool_count` is computed from validated pages; it is derived metadata,
+not a server response. Treat inventory as complete only when the check is successful
+and `complete` is true. Retain exact advertised tool names and schemas.
+
 ### Adapter import probes (`doctor`)
 
 An adapter can be installed and still be unusable. The common cause is an

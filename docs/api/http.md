@@ -56,6 +56,30 @@ cfg = McpHttpConfig(
 | `bare_tool_names` | `bool` | `True` | Publish unique action names without `<skill>__` prefix in `tools/list` (#307). Collisions fall back to the client-safe `<skill>__<action>` form. |
 | `enable_tool_cache` | `bool` | `True` | Connection-scoped `tools/list` cache (#438). Per-session snapshot avoids redundant registry scans on sequential calls. Invalidated on skill load/unload, group activation/deactivation, session eviction, or `_meta.dcc.refresh=true` |
 
+### Adapter tool names
+
+Native adapters using `DccServerBase` can select this policy through the public
+`DccServerOptions` before constructing the server:
+
+```python
+from pathlib import Path
+
+from dcc_mcp_core import DccServerOptions
+
+options = DccServerOptions.from_env(
+    "unity",
+    Path("skills"),
+    bare_tool_names=False,
+)
+```
+
+The option accepts only `bool` values. Its default, `True`, preserves unique
+bare action names and uses skill-qualified names for collisions. `False`
+retains skill-qualified names such as `ui_control__snapshot`. The option is
+forwarded to `McpHttpConfig` before native server construction; it does not
+change the DCC identity or disable `tools/list` pagination. Clients must still
+follow every continuation cursor and use the exact advertised names and schemas.
+
 ::: tip Admin persistence
 `McpHttpConfig` controls whether the elected gateway serves `/admin`; durable admin storage is intentionally environment-driven. Set `DCC_MCP_GATEWAY_AUDIT_DIR` to persist `/admin/api/calls` rows in `audit.jsonl` and `/admin/api/traces` rows in `traces.jsonl`; `DCC_MCP_GATEWAY_AUDIT_MAX_ROWS` caps each file.
 :::

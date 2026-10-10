@@ -187,6 +187,24 @@ dcc-mcp-cli lint path/to/skills
 `tracking_status=owner_exited`，并引导 isolated 操作改查 worker 自己
 持有的状态工具。
 
+### MCP inventory smoke 检查
+
+```bash
+dcc-mcp-cli --no-auto-gateway --output json smoke --url http://127.0.0.1:19293/mcp --timeout-secs 30 --max-pages 16
+```
+
+`smoke` 初始化一个 MCP session，并沿 `tools/list` cursor 读取到终页。
+`--max-pages` 默认 16，允许 1–128；达到页数上限仍有 cursor、cursor 重复、
+工具描述无效或请求失败时，检查失败。每页请求使用协商成功的受支持 legacy
+协议版本；initialize 响应无效时不会读取工具列表。
+
+`mcp_tools_list` 检查在 `response` 保留第一页解析结果，在 `pages` 保留每页
+的请求与解析结果。每个收到的页面还记录 HTTP 状态、响应体 SHA-256 与严格
+UTF-8 文本（UTF-8 无效时保留字节）。这些是传输解码后的 HTTP 响应体，不是
+网络帧。`tool_count` 是校验后页面的派生计数，不是服务器响应。
+只有检查成功且 `complete` 为 true，才表示 inventory 完整；必须保留实际
+公布的工具名称与 schema。
+
 ### 命令
 
 | 命令 | REST/API 契约 | 说明 |

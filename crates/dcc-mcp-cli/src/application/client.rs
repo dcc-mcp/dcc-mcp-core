@@ -1,6 +1,9 @@
-use dcc_mcp_jsonrpc::MCP_PROTOCOL_VERSION;
+use std::collections::HashSet;
+
+use dcc_mcp_jsonrpc::{JsonRpcRequestBuilder, LEGACY_PROTOCOL_VERSIONS, MCP_PROTOCOL_VERSION};
 use dcc_mcp_models::FeedbackReport;
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 use tokio::time::{Instant, sleep};
 
@@ -420,7 +423,13 @@ impl DccMcpClient {
         }
     }
 
-    pub async fn smoke(&self, mcp_url: Option<String>, query: String, limit: usize) -> Value {
+    pub async fn smoke(
+        &self,
+        mcp_url: Option<String>,
+        query: String,
+        limit: usize,
+        max_pages: usize,
+    ) -> Value {
         let mcp_url = mcp_url.unwrap_or_else(|| self.endpoint.mcp_url());
         let mut checks = Vec::new();
 
@@ -450,25 +459,28 @@ impl DccMcpClient {
                 ],
             )
             .await;
-        checks.push(check_json("mcp_initialize", &mcp_url, initialize));
+        let mut initialize = check_json("mcp_initialize", &mcp_url, initialize);
+        let protocol = if initialize["ok"] == true {
+            match validate_initialize(&initialize["response"]) {
+                Ok(protocol) => Some(protocol),
+                Err(error) => {
+                    initialize["ok"] = json!(false);
+                    initialize["error"] = json!(error.to_string());
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        checks.push(initialize);
 
-        let tools_list = self
-            .gateway
-            .post_json_with_headers(
-                &mcp_url,
-                &json!({
-                    "jsonrpc": "2.0",
-                    "id": "smoke-tools-list",
-                    "method": "tools/list",
-                    "params": {}
-                }),
-                &[
-                    ("Mcp-Protocol-Version", MCP_PROTOCOL_VERSION),
-                    ("Accept", MCP_STREAMABLE_HTTP_ACCEPT),
-                ],
-            )
-            .await;
-        checks.push(check_json("mcp_tools_list", &mcp_url, tools_list));
+        checks.push(if let Some(protocol) = protocol {
+            self.smoke_tools_list(&mcp_url, max_pages, &protocol).await
+        } else {
+            json!({"name":"mcp_tools_list", "url":mcp_url, "ok":false,
+                   "complete":false, "pages":[], "max_pages":max_pages,
+                   "error":"MCP initialize failed; tools/list was not dispatched"})
+        });
 
         let search_body = json!({
             "query": query,
@@ -495,6 +507,189 @@ impl DccMcpClient {
             "checks": checks,
         })
     }
+
+    async fn smoke_tools_list(&self, url: &str, max_pages: usize, protocol: &str) -> Value {
+        let mut pages = Vec::new();
+        let mut cursor = None;
+        let mut cursors = HashSet::new();
+        let mut names = HashSet::new();
+        let mut complete = false;
+        let mut failure = None;
+
+        for page in 0..max_pages {
+            let id = if page == 0 {
+                "smoke-tools-list".to_string()
+            } else {
+                format!("smoke-tools-list-{}", page + 1)
+            };
+            let params = cursor
+                .as_ref()
+                .map_or_else(|| json!({}), |value| json!({"cursor": value}));
+            let request = JsonRpcRequestBuilder::new(id.clone(), "tools/list")
+                .with_params(params)
+                .to_value();
+            let response = self
+                .gateway
+                .post_bytes_with_headers(
+                    url,
+                    &request,
+                    &[
+                        ("Mcp-Protocol-Version", protocol),
+                        ("Accept", MCP_STREAMABLE_HTTP_ACCEPT),
+                    ],
+                )
+                .await;
+            match response {
+                Ok((status, body)) => {
+                    let mut captured = json!({"request":request, "http_status":status,
+                        "raw_body_sha256":Sha256::digest(&body).iter().map(|byte| format!("{byte:02x}")).collect::<String>()});
+                    let response = match std::str::from_utf8(&body) {
+                        Ok(text) => {
+                            captured["raw_body_utf8"] = json!(text);
+                            serde_json::from_slice::<Value>(&body)
+                                .map_err(|error| error.to_string())
+                        }
+                        Err(error) => {
+                            // Invalid UTF-8 cannot be a valid JSON-RPC page. Preserve its
+                            // bytes as numbers rather than manufacturing a lossy body.
+                            captured["raw_body_bytes"] = json!(body);
+                            Err(error.to_string())
+                        }
+                    };
+                    let response = match response {
+                        Ok(response) => {
+                            captured["response"] = response.clone();
+                            pages.push(captured);
+                            response
+                        }
+                        Err(error) => {
+                            captured["error"] = json!(error);
+                            pages.push(captured);
+                            failure = Some(error);
+                            break;
+                        }
+                    };
+                    if !(200..300).contains(&status) {
+                        failure = Some(format!("tools/list returned HTTP {status}"));
+                        break;
+                    }
+                    match validate_tools_page(&response, &id, &mut names) {
+                        Ok(None) => {
+                            complete = true;
+                            break;
+                        }
+                        Ok(Some(next)) if cursors.insert(next.clone()) => cursor = Some(next),
+                        Ok(Some(_)) => {
+                            failure = Some("repeated tools/list cursor".to_string());
+                            break;
+                        }
+                        Err(error) => {
+                            failure = Some(error.to_string());
+                            break;
+                        }
+                    }
+                }
+                Err(error) => {
+                    let message = error.to_string();
+                    pages.push(json!({"request": request, "error": message}));
+                    failure = Some(message);
+                    break;
+                }
+            }
+        }
+        if !complete && failure.is_none() {
+            failure = Some(format!(
+                "tools/list page limit {max_pages} reached before completion"
+            ));
+        }
+        json!({
+            "name": "mcp_tools_list", "url": url, "ok": complete,
+            // Preserve the original first-page field for existing smoke readers.
+            "response": pages.first().and_then(|page| page.get("response")),
+            "pages": pages, "complete": complete, "max_pages": max_pages,
+            "tool_count": names.len(), "error": failure,
+        })
+    }
+}
+
+fn validate_tools_page(
+    response: &Value,
+    request_id: &str,
+    names: &mut HashSet<String>,
+) -> Result<Option<String>, ClientError> {
+    let result = validate_mcp_result(response, request_id)?;
+    let tools = result
+        .get("tools")
+        .and_then(Value::as_array)
+        .ok_or_else(|| ClientError::Protocol("missing tools/list tools array".into()))?;
+    for tool in tools {
+        let name = tool
+            .get("name")
+            .and_then(Value::as_str)
+            .filter(|name| !name.is_empty())
+            .ok_or_else(|| ClientError::Protocol("missing tools/list tool name".into()))?;
+        if !tool.get("inputSchema").is_some_and(|schema| {
+            schema.is_object() && schema.get("type").and_then(Value::as_str) == Some("object")
+        }) {
+            return Err(ClientError::Protocol(format!(
+                "missing tools/list inputSchema: {name}"
+            )));
+        }
+        if !names.insert(name.to_string()) {
+            return Err(ClientError::Protocol(format!(
+                "duplicate tools/list tool name: {name}"
+            )));
+        }
+    }
+    match result.get("nextCursor") {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(cursor)) if !cursor.is_empty() => Ok(Some(cursor.clone())),
+        _ => Err(ClientError::Protocol(
+            "invalid tools/list nextCursor".into(),
+        )),
+    }
+}
+
+fn validate_mcp_result<'a>(
+    response: &'a Value,
+    request_id: &str,
+) -> Result<&'a serde_json::Map<String, Value>, ClientError> {
+    validate_jsonrpc_response_id(response, request_id)?;
+    if response.get("jsonrpc").and_then(Value::as_str) != Some("2.0") {
+        return Err(ClientError::Protocol("invalid MCP JSON-RPC version".into()));
+    }
+    if let Some(error) = response.get("error") {
+        return Err(ClientError::Protocol(error.to_string()));
+    }
+    response
+        .get("result")
+        .and_then(Value::as_object)
+        .ok_or_else(|| ClientError::Protocol("missing MCP result object".into()))
+}
+
+fn validate_initialize(response: &Value) -> Result<String, ClientError> {
+    let result = validate_mcp_result(response, "smoke-initialize")?;
+    let info = result.get("serverInfo").and_then(Value::as_object);
+    let valid_info = info.is_some_and(|info| {
+        ["name", "version"].iter().all(|field| {
+            info.get(*field)
+                .and_then(Value::as_str)
+                .is_some_and(|value| !value.is_empty())
+        })
+    });
+    if !valid_info || !result.get("capabilities").is_some_and(Value::is_object) {
+        return Err(ClientError::Protocol(
+            "invalid MCP initialize identity/capabilities".into(),
+        ));
+    }
+    let protocol = result
+        .get("protocolVersion")
+        .and_then(Value::as_str)
+        .filter(|protocol| LEGACY_PROTOCOL_VERSIONS.contains(protocol))
+        .ok_or_else(|| {
+            ClientError::Protocol("unsupported MCP initialize protocolVersion".into())
+        })?;
+    Ok(protocol.to_string())
 }
 
 fn is_unknown_rest_tool(error: &HttpError) -> bool {
