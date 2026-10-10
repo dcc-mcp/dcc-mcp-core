@@ -8,6 +8,19 @@
 
 ## Production reuse gate
 
+**Contract:** `dcc-mcp-production-reuse/v1`
+
+Roll out this Core contract before companion Skill/host/showcase references.
+Verify that Core main contains this section and contract before distributing
+those references. A readable resource URI from an old installed gateway does
+not establish the v1 contract: check its returned contract identifier and this
+substantive section, or read the verified canonical Core source. If neither
+has v1, report the rollout dependency; planning/read-only discovery may continue
+but dependent production must wait. Do not silently waive the gate or upgrade
+a runtime without authorization. In-process dispatch tests do not establish
+installed-build or wire-session acceptance; verify those separately for a
+deployed gateway version.
+
 Before creating or materially revising content in any DCC (including Unreal,
 Maya and Blender), agents MUST perform a short, bounded reuse investigation.
 Aim for about one minute for initial discovery; this is a discovery budget,
