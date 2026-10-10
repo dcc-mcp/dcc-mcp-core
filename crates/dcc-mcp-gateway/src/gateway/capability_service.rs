@@ -481,7 +481,7 @@ pub fn describe_service(
     if !matches.is_empty() {
         return match matches.as_slice() {
             [one] => Ok((*one).clone()),
-            many => Err(ambiguous_error(many, slug)),
+            many => Err(ambiguous_error(many, slug, policy)),
         };
     }
 
@@ -513,7 +513,7 @@ pub fn describe_service(
         // Two or more skills expose the same bare name. Picking one would
         // silently route the caller to an arbitrary skill, which is harder
         // to diagnose than a 404 — surface the choice instead.
-        many => return Err(ambiguous_error(many, slug)),
+        many => return Err(ambiguous_error(many, slug, policy)),
     }
 
     // Neither form matched. Classify the miss the way D2 established:
@@ -638,13 +638,23 @@ fn record_matches_alias(
 
 /// Build the `ambiguous` error shared by the exact-match and alias-bridge
 /// paths, so both surface the same candidates and the same guidance.
-fn ambiguous_error(matches: &[&CapabilityRecord], slug: &str) -> ServiceError {
+fn ambiguous_error(
+    matches: &[&CapabilityRecord],
+    slug: &str,
+    policy: &GatewayPolicy,
+) -> ServiceError {
     // Report the true number of matches, captured before the candidate
     // list is capped. A caller that reads "matches 6" next to five
     // candidates knows to narrow the query; a count taken after the
-    // truncation would hide the dropped rows entirely.
+    // truncation would hide the dropped rows entirely. The policy filter
+    // below does not move this number either: it governs what may be
+    // *named*, not how many records actually matched.
     let total = matches.len();
-    let mut candidates: Vec<CapabilityRecord> = matches.iter().map(|r| (*r).clone()).collect();
+    let mut candidates: Vec<CapabilityRecord> = matches
+        .iter()
+        .filter(|r| policy_allows_candidate(policy, r))
+        .map(|r| (*r).clone())
+        .collect();
     // A large instance can put dozens of rows in one ambiguous match, so
     // the envelope is capped. The index keeps per-instance slices sorted
     // by slug, so which rows are dropped stays deterministic.
@@ -2342,6 +2352,90 @@ mod unit_tests {
             err.candidates.len(),
             skills.len(),
             "every competing alias must be surfaced so the caller can pick"
+        );
+    }
+
+    #[test]
+    fn ambiguous_candidates_are_filtered_by_the_describe_policy() {
+        // Three skills claim the bare name, so the miss is ambiguous —
+        // the one path that serializes up to MAX_ALIAS_CANDIDATES full
+        // records. The same "guess a bare slug" probe must not recover a
+        // hidden capability here either, or the gate on the single-candidate
+        // unknown-slug path would be trivially bypassable.
+        let idx = CapabilityIndex::new();
+        let iid = Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
+        let skills = ["maya_scene", "maya_rig", "maya_anim"];
+        let records: Vec<CapabilityRecord> = skills
+            .iter()
+            .map(|skill| make_record("maya", iid, &format!("{skill}__list_objects"), Some(skill)))
+            .collect();
+        idx.upsert_instance(iid, records, InstanceFingerprint(7));
+
+        // Allow one of the three. The other two must not be named.
+        let policy = GatewayPolicy {
+            allowed_skill_names: vec!["maya_rig".to_string()],
+            ..GatewayPolicy::default()
+        };
+
+        let err = describe_service(&idx, "maya.abcdef01.list_objects", &policy).unwrap_err();
+
+        assert_eq!(
+            err.kind, "ambiguous",
+            "policy filtering must not change the classification of the miss"
+        );
+        let slugs: Vec<&str> = err
+            .candidates
+            .iter()
+            .map(|record| record.tool_slug.as_str())
+            .collect();
+        assert_eq!(
+            slugs,
+            vec!["maya.abcdef01.maya_rig__list_objects"],
+            "only the allowed alias may be serialized into the error body; got {slugs:?}"
+        );
+        // The count keeps reporting every real match: the filter governs
+        // what may be named, not how many records matched.
+        assert!(
+            err.message.contains("matches 3 capability records"),
+            "the message must still report all 3 matches; got {:?}",
+            err.message,
+        );
+    }
+
+    #[test]
+    fn ambiguous_candidates_are_filtered_even_when_all_matches_are_denied() {
+        // Every competing alias denied: the ambiguity is real, so the
+        // error stays `ambiguous` with a true count, but the body carries
+        // no capability metadata at all.
+        let idx = CapabilityIndex::new();
+        let iid = Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
+        let skills = ["maya_scene", "maya_rig", "maya_anim"];
+        let records: Vec<CapabilityRecord> = skills
+            .iter()
+            .map(|skill| make_record("maya", iid, &format!("{skill}__list_objects"), Some(skill)))
+            .collect();
+        idx.upsert_instance(iid, records, InstanceFingerprint(7));
+
+        let policy = GatewayPolicy {
+            allowed_tool_slug_prefixes: vec!["houdini.".to_string()],
+            ..GatewayPolicy::default()
+        };
+
+        let err = describe_service(&idx, "maya.abcdef01.list_objects", &policy).unwrap_err();
+
+        assert_eq!(err.kind, "ambiguous");
+        assert!(
+            err.candidates.is_empty(),
+            "no denied alias may be serialized into the error body; got {:?}",
+            err.candidates
+                .iter()
+                .map(|r| r.tool_slug.as_str())
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            err.message.contains("matches 3 capability records"),
+            "the count is a routing fact and must survive the filter; got {:?}",
+            err.message,
         );
     }
 
