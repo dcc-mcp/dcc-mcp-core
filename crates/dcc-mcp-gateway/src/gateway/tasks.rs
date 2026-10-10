@@ -9,9 +9,9 @@ use probe::probe_and_mark_unreachable_instances;
 pub(crate) use probe::self_probe_listener;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct InstanceMembership {
-    dcc_type: String,
-    instance_id: String,
+pub(crate) struct InstanceMembership {
+    pub(crate) dcc_type: String,
+    pub(crate) instance_id: String,
 }
 
 fn instance_membership(entries: Vec<ServiceEntry>) -> HashMap<String, InstanceMembership> {
@@ -30,7 +30,7 @@ fn instance_membership(entries: Vec<ServiceEntry>) -> HashMap<String, InstanceMe
         .collect()
 }
 
-fn removed_instances(
+pub(crate) fn removed_instances(
     previous: &HashMap<String, InstanceMembership>,
     current: &HashMap<String, InstanceMembership>,
 ) -> Vec<InstanceMembership> {
@@ -47,7 +47,7 @@ fn removed_instances(
     removed
 }
 
-async fn poll_list_fingerprint<F, Fut>(
+pub(crate) async fn poll_list_fingerprint<F, Fut>(
     events_tx: &broadcast::Sender<String>,
     poll: F,
 ) -> Option<String>
@@ -70,6 +70,17 @@ pub(crate) struct GatewayTasks {
     /// `GatewayHandle` so the task is not silently detached — this is the
     /// fix for the "Run A: TIMEOUT" leg of issue #303.
     pub(crate) supervisor: tokio::task::JoinHandle<()>,
+    /// AbortHandle per HTTP listener, so a caller that stops the supervisor
+    /// can also stop the listeners directly.
+    ///
+    /// The supervisor aborts these itself when it finishes, but only once it
+    /// gets to run. A caller that aborts the supervisor from outside (the
+    /// challenger promotion path) may drop the supervisor future before that
+    /// line is reached, and a dropped [`tokio::task::JoinHandle`] *detaches*
+    /// its task — which would leave the axum listener serving on the gateway
+    /// port. Callers therefore hold these and abort them before dropping the
+    /// supervisor.
+    pub(crate) listener_aborts: Vec<AbortHandle>,
     /// Yield signal used by the caller to trigger graceful shutdown.
     #[allow(dead_code)]
     pub(crate) yield_tx: Arc<watch::Sender<bool>>,
@@ -117,7 +128,7 @@ fn spawn_gateway_idle_shutdown_task(
     grace: Duration,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        let poll = Duration::from_secs(5);
+        let poll = super::idle_timeout::IDLE_POLL;
         let mut idle_since: Option<std::time::Instant> = None;
 
         loop {
@@ -386,7 +397,7 @@ async fn probe_relay_candidate(
         .is_ok_and(|response| response.status().is_success())
 }
 
-fn build_backend_http_client() -> Result<reqwest::Client, reqwest::Error> {
+pub(crate) fn build_backend_http_client() -> Result<reqwest::Client, reqwest::Error> {
     reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(5))
         .timeout(Duration::from_secs(30))
@@ -1256,6 +1267,26 @@ pub(crate) async fn start_gateway_tasks(
     // yield is requested, dropping the group aborts the children instead of
     // detaching them as leaked background work.
     let supervisor_yield_rx = yield_rx.clone();
+    // The two HTTP listeners are pulled out of the abort-on-drop group so the
+    // supervisor can await them (draining in-flight requests) instead of
+    // aborting them mid-response. Every other task is pure background work
+    // with no caller waiting on it, so those keep the abort-on-drop path.
+    //
+    // `listener_aborts` keeps an abort handle per listener: the drain future
+    // consumes the JoinHandles, so without these nothing could stop a
+    // listener that outlives the drain window. Dropping a JoinHandle
+    // *detaches* the task in tokio — it does not cancel it — which would leak
+    // the axum listener and hold the gateway port open.
+    //
+    // Two copies are needed: one for the supervisor's own end-of-drain
+    // cleanup, and one handed back in `GatewayTasks` so a caller that stops
+    // the supervisor from outside (the challenger promotion path, where the
+    // supervisor future is dropped rather than awaited) can still stop the
+    // listeners. `AbortHandle` is cheap to clone and both copies abort the
+    // same tasks.
+    let listener_aborts = vec![gw_handle.abort_handle(), remote_handle.abort_handle()];
+    let supervisor_listener_aborts = listener_aborts.clone();
+    let listener_handles = vec![gw_handle, remote_handle];
     let mut task_handles = vec![
         cleanup_handle,
         watcher_handle,
@@ -1264,8 +1295,6 @@ pub(crate) async fn start_gateway_tasks(
         backend_sub_handle,
         route_gc_handle,
         health_check_handle,
-        gw_handle,
-        remote_handle,
     ];
     #[cfg(feature = "mdns")]
     if discover_mdns {
@@ -1293,9 +1322,45 @@ pub(crate) async fn start_gateway_tasks(
 
     let combined = tokio::spawn(async move {
         let task_group = GatewayTaskGroup::new(task_handles);
+        // Awaiting the listeners IS the drain: `axum::serve` +
+        // `with_graceful_shutdown` completes its own connection drain before
+        // its future resolves, so a request accepted just before the yield
+        // fired still gets to finish.
+        //
+        // The drain future is created outside `select!` and only awaited
+        // after the yield wins, so the select cannot cancel it mid-flight —
+        // a future moved into a losing `select!` branch is dropped, which
+        // would abandon the very listeners we want to drain.
+        let drain = async {
+            for handle in listener_handles {
+                let _ = handle.await;
+            }
+        };
+        // `pin!` keeps the borrower alive across the select without moving it
+        // into a branch.
+        tokio::pin!(drain);
         tokio::select! {
-            _ = wait_for_gateway_yield(supervisor_yield_rx) => {}
+            _ = wait_for_gateway_yield(supervisor_yield_rx) => {
+                let grace = super::idle_timeout::DRAIN_GRACE;
+                if tokio::time::timeout(grace, &mut drain).await.is_err() {
+                    tracing::warn!(
+                        grace_secs = grace.as_secs(),
+                        "gateway drain window elapsed — aborting listeners"
+                    );
+                }
+            }
+            // A listener exited on its own (crash / port released): keep the
+            // pre-drain behaviour of tearing the group down immediately.
+            _ = &mut drain => {}
             _ = task_group.wait_all() => {}
+        }
+        // Always stop the listeners once the drain window closes, however the
+        // select above finished. Awaiting `drain` only *detaches* whatever is
+        // still running, so without this a listener holding a long-lived SSE
+        // stream would keep serving on the gateway port after shutdown. This
+        // preserves the pre-drain guarantee that teardown releases the port.
+        for abort in &supervisor_listener_aborts {
+            abort.abort();
         }
     });
 
@@ -1339,133 +1404,16 @@ pub(crate) async fn start_gateway_tasks(
     Ok(GatewayTasks {
         abort: combined.abort_handle(),
         supervisor: combined,
+        listener_aborts,
         yield_tx,
     })
 }
 
-async fn wait_for_startup_ready(ready: &mut watch::Receiver<bool>) -> bool {
+pub(crate) async fn wait_for_startup_ready(ready: &mut watch::Receiver<bool>) -> bool {
     while !*ready.borrow() {
         if ready.changed().await.is_err() {
             return false;
         }
     }
     true
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use axum::{Router, response::Redirect, routing::get};
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
-    fn membership(dcc_type: &str, instance_id: &str) -> (String, InstanceMembership) {
-        (
-            format!("{dcc_type}:{instance_id}"),
-            InstanceMembership {
-                dcc_type: dcc_type.to_string(),
-                instance_id: instance_id.to_string(),
-            },
-        )
-    }
-
-    #[test]
-    fn removed_instances_preserve_dcc_and_instance_identity() {
-        let previous = HashMap::from([
-            membership("houdini", "aaaaaaaa-0000-0000-0000-000000000000"),
-            membership("photoshop", "bbbbbbbb-0000-0000-0000-000000000000"),
-        ]);
-        let current = HashMap::from([membership(
-            "photoshop",
-            "bbbbbbbb-0000-0000-0000-000000000000",
-        )]);
-
-        assert_eq!(
-            removed_instances(&previous, &current),
-            vec![InstanceMembership {
-                dcc_type: "houdini".to_string(),
-                instance_id: "aaaaaaaa-0000-0000-0000-000000000000".to_string(),
-            }]
-        );
-    }
-
-    #[test]
-    fn removed_instances_does_not_report_unchanged_inventory() {
-        let inventory = HashMap::from([membership(
-            "custom_host",
-            "cccccccc-0000-0000-0000-000000000000",
-        )]);
-        assert!(removed_instances(&inventory, &inventory).is_empty());
-    }
-
-    #[tokio::test]
-    async fn list_fingerprint_poll_is_skipped_without_subscribers() {
-        let (events_tx, receiver) = broadcast::channel(1);
-        drop(receiver);
-        let calls = AtomicUsize::new(0);
-
-        let fingerprint = poll_list_fingerprint(&events_tx, || async {
-            calls.fetch_add(1, Ordering::SeqCst);
-            "unused".to_string()
-        })
-        .await;
-
-        assert_eq!(fingerprint, None);
-        assert_eq!(calls.load(Ordering::SeqCst), 0);
-    }
-
-    #[tokio::test]
-    async fn list_fingerprint_poll_runs_for_a_subscriber() {
-        let (events_tx, _receiver) = broadcast::channel(1);
-        let calls = AtomicUsize::new(0);
-
-        let fingerprint = poll_list_fingerprint(&events_tx, || async {
-            calls.fetch_add(1, Ordering::SeqCst);
-            "current".to_string()
-        })
-        .await;
-
-        assert_eq!(fingerprint.as_deref(), Some("current"));
-        assert_eq!(calls.load(Ordering::SeqCst), 1);
-    }
-
-    #[tokio::test]
-    async fn cleanup_startup_barrier_waits_for_durable_readback() {
-        let (ready_tx, mut ready_rx) = watch::channel(false);
-        let waiter = tokio::spawn(async move { wait_for_startup_ready(&mut ready_rx).await });
-
-        tokio::task::yield_now().await;
-        assert!(!waiter.is_finished());
-        ready_tx.send(true).unwrap();
-        assert!(waiter.await.unwrap());
-    }
-
-    #[tokio::test]
-    async fn backend_http_client_does_not_follow_redirects() {
-        let private_hits = Arc::new(AtomicUsize::new(0));
-        let private_hits_handler = private_hits.clone();
-        let app = Router::new()
-            .route("/start", get(|| async { Redirect::temporary("/private") }))
-            .route(
-                "/private",
-                get(move || {
-                    let private_hits = private_hits_handler.clone();
-                    async move {
-                        private_hits.fetch_add(1, Ordering::SeqCst);
-                        "private"
-                    }
-                }),
-            );
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-
-        let response = build_backend_http_client()
-            .unwrap()
-            .get(format!("http://{addr}/start"))
-            .send()
-            .await
-            .unwrap();
-        assert!(response.status().is_redirection());
-        assert_eq!(private_hits.load(Ordering::SeqCst), 0);
-    }
 }

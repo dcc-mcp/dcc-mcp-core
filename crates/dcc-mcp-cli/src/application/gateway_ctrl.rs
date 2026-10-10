@@ -277,7 +277,8 @@ pub async fn ensure_local_gateway_for_endpoint(
         remote_host: env_string("DCC_MCP_GATEWAY_REMOTE_HOST")
             .unwrap_or_else(|| "127.0.0.1".to_string()),
         remote_port: env_u16("DCC_MCP_GATEWAY_REMOTE_PORT").unwrap_or(59765),
-        gateway_idle_timeout_secs: env_u64("DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS").unwrap_or(30),
+        gateway_idle_timeout_secs: env_u64("DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS")
+            .unwrap_or(gateway_ensure::CLI_AUTO_ENSURE_IDLE_TIMEOUT_SECS),
         gateway_bin,
         wait_timeout_secs,
         pidfile: Some(pidfile),
@@ -457,6 +458,23 @@ fn env_u64(name: &str) -> Option<u64> {
 mod tests {
     use super::*;
     use dcc_mcp_transport::discovery::file_registry::FileRegistry;
+
+    /// Regression: the gateway this CLI auto-launches for a single endpoint
+    /// must keep its historical 30 s grace period.
+    ///
+    /// Raising this to the shared auto-ensure value (300 s) would be a
+    /// behaviour change — the gateway would hold its port ten times longer
+    /// after the last backend disconnects — so the value is asserted here as
+    /// well as in `idle_timeout::entry_point_defaults_stay_distinct`.
+    #[test]
+    fn endpoint_auto_ensure_keeps_the_thirty_second_default() {
+        assert_eq!(gateway_ensure::CLI_AUTO_ENSURE_IDLE_TIMEOUT_SECS, 30);
+        assert_ne!(
+            gateway_ensure::CLI_AUTO_ENSURE_IDLE_TIMEOUT_SECS,
+            gateway_ensure::AUTO_ENSURE_IDLE_TIMEOUT_SECS,
+            "the per-endpoint gateway is not the shared machine-wide one"
+        );
+    }
 
     #[test]
     fn local_auto_gateway_target_accepts_loopback_http() {

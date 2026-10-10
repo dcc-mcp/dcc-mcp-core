@@ -44,6 +44,7 @@ pub mod event_log;
 pub mod handlers;
 pub mod http_limits;
 pub mod http_registration;
+pub mod idle_timeout;
 pub(crate) mod instance_context;
 pub mod instance_diagnostics;
 pub mod instance_resolver;
@@ -142,6 +143,8 @@ mod handle;
 mod runner;
 mod sentinel;
 mod tasks;
+#[cfg(test)]
+mod tasks_tests;
 mod version;
 
 pub(crate) use bind::try_bind_port_opt;

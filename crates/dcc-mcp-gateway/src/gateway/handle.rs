@@ -46,6 +46,11 @@ pub struct GatewayHandle {
     /// is not detached (issue #303).
     #[allow(dead_code)]
     pub(crate) gateway_supervisor: Option<tokio::task::JoinHandle<()>>,
+    /// AbortHandle per HTTP listener. Aborted *before* the supervisor: a
+    /// dropped `JoinHandle` detaches its task instead of cancelling it, so a
+    /// listener whose supervisor is dropped without being awaited would keep
+    /// serving on the gateway port.
+    pub(crate) listener_aborts: Vec<AbortHandle>,
     /// OS thread running the dedicated-mode gateway accept loop.
     /// Only populated when `ServerSpawnMode::Dedicated` is used.
     pub(crate) gateway_thread: Option<std::thread::JoinHandle<()>>,
@@ -94,6 +99,10 @@ impl GatewayHandle {
         if let Some(h) = self.challenger_abort.take() {
             h.abort();
         }
+        // Stop the listeners before touching the supervisor: the supervisor
+        // aborts them only when it gets to run, and awaiting it below can
+        // drop its future first.
+        self.abort_listeners();
 
         // Await the combined supervisor so all child task handles get
         // a chance to observe cancellation before we detach.
@@ -103,6 +112,20 @@ impl GatewayHandle {
 
         // Best-effort detach for dedicated-mode threads (same as Drop).
         drop(self.gateway_thread.take());
+    }
+
+    /// Abort every HTTP listener the gateway role started.
+    ///
+    /// The supervisor aborts these too, but only once it runs to its final
+    /// line. Both shutdown paths drop or time out the supervisor
+    /// `JoinHandle`, and dropping a `JoinHandle` *detaches* the task rather
+    /// than cancelling it — so without this the axum listeners would outlive
+    /// the handle and keep the gateway port bound.
+    pub fn abort_listeners(&mut self) {
+        let aborts = std::mem::take(&mut self.listener_aborts);
+        for abort in &aborts {
+            abort.abort();
+        }
     }
 
     /// Deregister every pending `ServiceKey` from the `FileRegistry` and
@@ -151,6 +174,10 @@ impl Drop for GatewayHandle {
         if let Some(h) = self.challenger_abort.take() {
             h.abort();
         }
+        // Stop the listeners first: dropping the supervisor JoinHandle below
+        // detaches it, and a detached supervisor never reaches its own
+        // listener-abort line — the listeners would keep the port open.
+        self.abort_listeners();
         // Drop supervisor JoinHandle after aborting — this detaches the
         // underlying task cleanly. The AbortHandle above has already
         // cancelled its work; joining is optional.
@@ -178,6 +205,10 @@ pub struct ElectionOutcome {
     pub gateway_abort: Option<AbortHandle>,
     pub challenger_abort: Option<AbortHandle>,
     pub gateway_supervisor: Option<tokio::task::JoinHandle<()>>,
+    /// AbortHandle per HTTP listener. Aborted before the supervisor so the
+    /// listeners stop even when the supervisor future is dropped rather than
+    /// awaited to completion.
+    pub listener_aborts: Vec<AbortHandle>,
     pub gateway_thread: Option<std::thread::JoinHandle<()>>,
     /// `__gateway__` sentinel key registered by the winner path; carried
     /// back to the `GatewayHandle` so `Drop` can deregister it on clean

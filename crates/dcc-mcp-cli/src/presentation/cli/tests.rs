@@ -8,6 +8,7 @@ use super::cli_args::{
 };
 use super::gateway_cmd::gateway_endpoint_for_command;
 use super::record_replay::RecordReplayAction;
+use crate::application::gateway_ensure;
 use crate::application::gateway_profile::GatewayTarget;
 use crate::presentation::feedback_cmd::FeedbackAction;
 
@@ -1284,9 +1285,34 @@ fn gateway_daemon_start_defaults_to_persistent_daemon() {
         panic!("expected gateway daemon start");
     };
 
+    assert_eq!(
+        start.gateway_idle_timeout_secs,
+        cli_args::CLI_DAEMON_START_IDLE_TIMEOUT_SECS,
+        "gateway daemon start must keep idle shutdown disabled by default"
+    );
     assert_eq!(start.gateway_idle_timeout_secs, 0);
     assert_eq!(start.remote_host, "127.0.0.1");
     assert_eq!(start.remote_port, 59765);
+}
+
+/// The auto-ensure path is a *different* entry point from `gateway daemon
+/// start`: it must keep its own 300 s default and must not collapse onto the
+/// daemon-start value (0) or the server value (30).
+#[test]
+fn auto_ensure_idle_timeout_default_is_distinct_from_daemon_start() {
+    let auto_ensure = gateway_ensure::AUTO_ENSURE_IDLE_TIMEOUT_SECS;
+    assert_eq!(auto_ensure, 300);
+    assert_ne!(
+        auto_ensure,
+        cli_args::CLI_DAEMON_START_IDLE_TIMEOUT_SECS,
+        "auto-ensure must not inherit the operator-managed daemon value"
+    );
+    let server_default = dcc_mcp_gateway::gateway::idle_timeout::SERVER_DEFAULT;
+    assert_ne!(
+        auto_ensure, server_default,
+        "auto-ensure must not inherit the directly-run server value"
+    );
+    assert_eq!(server_default, 30);
 }
 
 #[test]
@@ -1364,7 +1390,7 @@ fn default_gateway_daemon_args() -> dcc_mcp_sidecar::gateway_daemon::GatewayArgs
         stale_timeout_secs: 30,
         relay_sources: Vec::new(),
         gateway_persist: false,
-        gateway_idle_timeout_secs: 30,
+        gateway_idle_timeout_secs: Some(30),
         semantic_search_enabled: false,
         daemon: false,
         pidfile: None,

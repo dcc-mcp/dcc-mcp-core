@@ -12,6 +12,17 @@ use dcc_mcp_gateway::{
 
 const DAEMONIZED_ENV: &str = "DCC_MCP__DAEMONIZED";
 
+/// Idle-timeout default when a gateway is auto-launched on behalf of another
+/// process (Rust `ensure_gateway_running`, `dcc-mcp-cli` ensure, Python
+/// guardian).
+///
+/// Defined here rather than inside `launcher` so consumers that enable only
+/// `gateway-daemon` (like `dcc-mcp-cli`) can still reference it — the module
+/// gate is on `gateway-auto`, but this constant is a value, not behaviour.
+/// See [`dcc_mcp_gateway::gateway::idle_timeout::AUTO_ENSURE_DEFAULT`].
+pub const AUTO_ENSURE_GATEWAY_IDLE_TIMEOUT_SECS: u64 =
+    dcc_mcp_gateway::gateway::idle_timeout::AUTO_ENSURE_DEFAULT;
+
 #[cfg(feature = "gateway-auto")]
 mod guardian;
 #[cfg(feature = "gateway-auto")]
@@ -22,9 +33,7 @@ pub use guardian::{
     GatewayGuardianHandle, GatewayGuardianSettings, GatewayGuardianStatus, spawn_gateway_guardian,
 };
 #[cfg(feature = "gateway-auto")]
-pub use launcher::{
-    AUTO_ENSURE_GATEWAY_IDLE_TIMEOUT_SECS, EnsureGatewayOptions, ensure_gateway_running,
-};
+pub use launcher::{EnsureGatewayOptions, ensure_gateway_running};
 
 /// CLI parser for one relay discovery source.
 #[derive(Debug, Clone)]
@@ -142,8 +151,18 @@ pub struct GatewayArgs {
     /// Seconds to wait after the last backend exits before shutting down
     /// the gateway daemon. `0` disables idle timeout (same as `--gateway-persist`).
     /// Default: 30.
-    #[arg(long, env = "DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS", default_value = "30")]
-    pub gateway_idle_timeout_secs: u64,
+    ///
+    /// `Option` distinguishes "the operator said nothing" from "the operator
+    /// explicitly asked for the default value" — the previous `u64` forced a
+    /// value comparison (`!= 30`) as an explicit-argument sentinel, which
+    /// silently dropped an explicit `--gateway-idle-timeout-secs 30`.
+    ///
+    /// Deliberately no `default_value`: a clap default would populate
+    /// `Some(30)` and make "supplied" indistinguishable from "not supplied"
+    /// again. The default is applied by [`GatewayArgs::gateway_idle_timeout_secs`]
+    /// instead, so `None` really does mean "no flag, no env var".
+    #[arg(long, env = "DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS")]
+    pub gateway_idle_timeout_secs: Option<u64>,
 
     /// Enable semantic search (requires `dcc-mcp-core[semantic]` ONNX
     /// runtime). When enabled, `mode=hybrid` combines fuzzy matching with
@@ -182,6 +201,20 @@ pub struct GatewayArgs {
     /// Prints the new PID, crate version, and log directory on success.
     #[arg(long, default_value = "false")]
     pub restart: bool,
+}
+
+impl GatewayArgs {
+    /// Effective idle timeout in seconds.
+    ///
+    /// `None` means the operator supplied neither `--gateway-idle-timeout-secs`
+    /// nor `DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS`, in which case the server
+    /// entry-point default applies. Callers that must distinguish "explicitly
+    /// asked for 30" from "said nothing" should read the `Option` field
+    /// directly — that distinction is the whole reason it is an `Option`.
+    pub fn gateway_idle_timeout_secs(&self) -> u64 {
+        self.gateway_idle_timeout_secs
+            .unwrap_or(dcc_mcp_gateway::gateway::idle_timeout::SERVER_DEFAULT)
+    }
 }
 
 /// Restart the gateway daemon by gracefully stopping the old process
@@ -283,11 +316,15 @@ async fn restart_spawn_new(args: &GatewayArgs) -> anyhow::Result<()> {
     if args.gateway_persist {
         child_args.push(std::ffi::OsString::from("--gateway-persist"));
     }
-    if args.gateway_idle_timeout_secs != 30 {
+    // Forward the flag only when it was actually supplied. Comparing the
+    // *value* against the default (the old `!= 30`) conflated an explicit
+    // `--gateway-idle-timeout-secs 30` with "not supplied" and silently
+    // dropped the operator's choice.
+    if let Some(idle_timeout) = args.gateway_idle_timeout_secs {
         push_arg(
             &mut child_args,
             "--gateway-idle-timeout-secs",
-            &args.gateway_idle_timeout_secs.to_string(),
+            &idle_timeout.to_string(),
         );
     }
     child_args.push(std::ffi::OsString::from("--daemon"));
@@ -391,7 +428,7 @@ pub fn build_gateway_config(args: &GatewayArgs, gateway_name: &str) -> GatewayCo
                 .ok()
                 .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
                 .unwrap_or(false),
-        gateway_idle_timeout_secs: args.gateway_idle_timeout_secs,
+        gateway_idle_timeout_secs: args.gateway_idle_timeout_secs(),
         semantic_search_enabled: args.semantic_search_enabled
             || std::env::var("DCC_MCP_SEMANTIC_SEARCH_ENABLED")
                 .ok()
@@ -434,7 +471,7 @@ pub async fn run(args: GatewayArgs) -> anyhow::Result<()> {
             .ok()
             .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
             .unwrap_or(false);
-    let gateway_idle_timeout_secs = args.gateway_idle_timeout_secs;
+    let gateway_idle_timeout_secs = args.gateway_idle_timeout_secs();
 
     tracing::info!(
         gateway_name = %gateway_name,
@@ -599,6 +636,7 @@ fn default_gateway_name() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use clap::Parser as _;
     use dcc_mcp_transport::discovery::types::{ServiceEntry, ServiceStatus};
     use serde_json::json;
 
@@ -630,7 +668,7 @@ mod tests {
             discover_mdns: false,
             relay_sources: vec![source],
             gateway_persist: false,
-            gateway_idle_timeout_secs: 30,
+            gateway_idle_timeout_secs: Some(30),
             semantic_search_enabled: false,
             daemon: false,
             pidfile: None,
@@ -774,7 +812,7 @@ mod tests {
             discover_mdns: false,
             relay_sources: Vec::new(),
             gateway_persist: false,
-            gateway_idle_timeout_secs: 30,
+            gateway_idle_timeout_secs: Some(30),
             semantic_search_enabled: false,
             daemon: false,
             pidfile: None,
@@ -834,7 +872,7 @@ mod tests {
             discover_mdns: false,
             relay_sources: Vec::new(),
             gateway_persist: false,
-            gateway_idle_timeout_secs: 1,
+            gateway_idle_timeout_secs: Some(1),
             semantic_search_enabled: false,
             daemon: false,
             pidfile: None,
@@ -914,7 +952,7 @@ mod tests {
             discover_mdns: false,
             relay_sources: Vec::new(),
             gateway_persist: false,
-            gateway_idle_timeout_secs: 30,
+            gateway_idle_timeout_secs: Some(30),
             semantic_search_enabled: false,
             daemon: false,
             pidfile: None,
@@ -939,7 +977,7 @@ mod tests {
             discover_mdns: false,
             relay_sources: Vec::new(),
             gateway_persist: false,
-            gateway_idle_timeout_secs: 30,
+            gateway_idle_timeout_secs: Some(30),
             semantic_search_enabled: false,
             daemon: false,
             pidfile: Some(std::path::PathBuf::from("/tmp/gw.pid")),
@@ -966,7 +1004,7 @@ mod tests {
             discover_mdns: false,
             relay_sources: Vec::new(),
             gateway_persist: false,
-            gateway_idle_timeout_secs: 30,
+            gateway_idle_timeout_secs: Some(30),
             semantic_search_enabled: false,
             daemon: true,
             pidfile: None, // no pidfile → restart must fail
@@ -978,6 +1016,115 @@ mod tests {
         assert!(
             err.to_string().contains("--restart requires --pidfile"),
             "error must mention --pidfile: {err}"
+        );
+    }
+
+    /// Minimal clap wrapper so tests can parse `GatewayArgs` the same way
+    /// `dcc-mcp-server gateway …` does.
+    #[derive(Debug, clap::Parser)]
+    struct GatewayArgsParser {
+        #[command(flatten)]
+        args: GatewayArgs,
+    }
+
+    fn parse_gateway_args(argv: &[&str]) -> GatewayArgs {
+        GatewayArgsParser::parse_from(argv).args
+    }
+
+    fn base_args(idle_timeout: Option<u64>) -> GatewayArgs {
+        GatewayArgs {
+            host: "127.0.0.1".to_string(),
+            port: 9765,
+            name: None,
+            remote_host: "127.0.0.1".to_string(),
+            remote_port: 0,
+            registry_dir: None,
+            no_admin: true,
+            admin_path: "/admin".to_string(),
+            stale_timeout_secs: 30,
+            #[cfg(feature = "mdns")]
+            discover_mdns: false,
+            relay_sources: Vec::new(),
+            gateway_persist: false,
+            gateway_idle_timeout_secs: idle_timeout,
+            semantic_search_enabled: false,
+            daemon: false,
+            pidfile: None,
+            restart: false,
+        }
+    }
+
+    /// The standalone daemon CLI still *runs* with 30 s when the operator
+    /// says nothing. No clap `default_value` is set, so `None` here means
+    /// "no flag and no env var" and the accessor supplies the 30.
+    #[test]
+    fn daemon_cli_default_idle_timeout_is_the_server_default() {
+        let args = parse_gateway_args(&["gateway"]);
+        assert_eq!(args.gateway_idle_timeout_secs, None);
+        assert_eq!(
+            args.gateway_idle_timeout_secs(),
+            dcc_mcp_gateway::gateway::idle_timeout::SERVER_DEFAULT
+        );
+        assert_eq!(args.gateway_idle_timeout_secs(), 30);
+
+        // The config the daemon actually starts with must carry the 30 too.
+        let cfg = build_gateway_config(&args, "idle-default-test");
+        assert_eq!(cfg.gateway_idle_timeout_secs, 30);
+    }
+
+    /// Regression: an operator who explicitly passes `30` must be
+    /// distinguishable from one who says nothing. The old `u64` + `!= 30`
+    /// value comparison could not tell them apart and silently dropped the
+    /// explicit flag.
+    #[test]
+    fn explicit_idle_timeout_equal_to_the_default_is_still_distinguishable() {
+        let explicit = parse_gateway_args(&["gateway", "--gateway-idle-timeout-secs", "30"]);
+        let implicit = parse_gateway_args(&["gateway"]);
+
+        assert_eq!(explicit.gateway_idle_timeout_secs, Some(30));
+        assert_eq!(implicit.gateway_idle_timeout_secs, None);
+        assert_ne!(
+            explicit.gateway_idle_timeout_secs, implicit.gateway_idle_timeout_secs,
+            "explicit 30 must not collapse into 'not supplied'"
+        );
+        // Both resolve to the same effective value — the distinction is
+        // provenance, not the number.
+        assert_eq!(
+            explicit.gateway_idle_timeout_secs(),
+            implicit.gateway_idle_timeout_secs()
+        );
+    }
+
+    #[test]
+    fn explicit_zero_idle_timeout_is_distinguished_from_the_default() {
+        let args = parse_gateway_args(&["gateway", "--gateway-idle-timeout-secs", "0"]);
+        assert_eq!(args.gateway_idle_timeout_secs, Some(0));
+        assert_eq!(args.gateway_idle_timeout_secs(), 0);
+    }
+
+    /// The value the daemon actually runs with: explicit when supplied,
+    /// otherwise the server entry-point default.
+    #[test]
+    fn built_gateway_config_uses_the_effective_idle_timeout() {
+        let explicit = build_gateway_config(&base_args(Some(120)), "idle-timeout-test");
+        assert_eq!(explicit.gateway_idle_timeout_secs, 120);
+
+        let implicit = build_gateway_config(&base_args(None), "idle-timeout-test");
+        assert_eq!(
+            implicit.gateway_idle_timeout_secs,
+            dcc_mcp_gateway::gateway::idle_timeout::SERVER_DEFAULT
+        );
+        assert_eq!(implicit.gateway_idle_timeout_secs, 30);
+    }
+
+    /// The auto-ensure constant is a different entry point from the server
+    /// default; guards against a future refactor unifying the two.
+    #[test]
+    fn auto_ensure_default_differs_from_the_server_default() {
+        assert_eq!(AUTO_ENSURE_GATEWAY_IDLE_TIMEOUT_SECS, 300);
+        assert_ne!(
+            AUTO_ENSURE_GATEWAY_IDLE_TIMEOUT_SECS,
+            dcc_mcp_gateway::gateway::idle_timeout::SERVER_DEFAULT
         );
     }
 }

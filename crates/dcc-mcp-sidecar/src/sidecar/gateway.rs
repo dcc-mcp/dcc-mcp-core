@@ -8,7 +8,8 @@ pub(crate) const SIDECAR_GATEWAY_IDLE_TIMEOUT_SECS: u64 =
     crate::gateway_daemon::AUTO_ENSURE_GATEWAY_IDLE_TIMEOUT_SECS;
 
 #[cfg(feature = "gateway-daemon")]
-const MIN_AUTOLAUNCH_GATEWAY_IDLE_TIMEOUT_SECS: u64 = 30;
+const MIN_AUTOLAUNCH_GATEWAY_IDLE_TIMEOUT_SECS: u64 =
+    dcc_mcp_gateway::gateway::idle_timeout::MIN_AUTOLAUNCH;
 
 #[cfg(feature = "gateway-daemon")]
 pub(crate) fn build_gateway_daemon_options(

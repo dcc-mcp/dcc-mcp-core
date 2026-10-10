@@ -17,6 +17,26 @@ use serde::Serialize;
 
 use super::gateway_discovery;
 
+/// Idle-timeout default used when this CLI auto-launches a gateway on the
+/// caller's behalf (`gateway ensure`, endpoint auto-ensure).
+///
+/// Re-exported from the sidecar so the CLI, the Rust sidecar launcher and the
+/// Python guardian all share one auto-ensure constant rather than three
+/// copies of the literal `300`.
+pub const AUTO_ENSURE_IDLE_TIMEOUT_SECS: u64 =
+    dcc_mcp_sidecar::gateway_daemon::AUTO_ENSURE_GATEWAY_IDLE_TIMEOUT_SECS;
+
+/// Idle-timeout default for the gateway this CLI auto-launches for a single
+/// endpoint.
+///
+/// Intentionally 30 s rather than [`AUTO_ENSURE_IDLE_TIMEOUT_SECS`]'s 300 s:
+/// this entry point has always used 30 s, and raising it would be a
+/// behaviour change (the gateway would hold its port ten times longer after
+/// the last backend leaves). Kept as a named constant so the value has one
+/// source, but the number itself is unchanged.
+pub const CLI_AUTO_ENSURE_IDLE_TIMEOUT_SECS: u64 =
+    dcc_mcp_gateway::gateway::idle_timeout::CLI_AUTO_ENSURE_DEFAULT;
+
 /// Outcome of an `ensure_gateway_running` call.
 #[derive(Debug, Clone, Serialize)]
 pub struct EnsureResult {

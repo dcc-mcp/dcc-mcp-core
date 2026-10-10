@@ -11,7 +11,6 @@ use serde_json::Value;
 const GATEWAY_SENTINEL_STALE_SECS: u64 = 30;
 const GATEWAY_TAKEOVER_WAIT_SECS: u64 = 20;
 const RESIDENT_GATEWAY_PROBE_TIMEOUT_MS: u64 = 800;
-pub const AUTO_ENSURE_GATEWAY_IDLE_TIMEOUT_SECS: u64 = 300;
 
 /// Helpers for auto-launching the standalone gateway from inside another
 /// process (the per-DCC sidecar / embedded server).

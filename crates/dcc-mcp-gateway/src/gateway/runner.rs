@@ -228,6 +228,7 @@ impl GatewayRunner {
             gateway_abort,
             challenger_abort,
             gateway_supervisor,
+            listener_aborts,
             gateway_thread,
             sentinel_key,
         ) = if self.config.gateway_port > 0 {
@@ -239,11 +240,12 @@ impl GatewayRunner {
                 outcome.gateway_abort,
                 outcome.challenger_abort,
                 outcome.gateway_supervisor,
+                outcome.listener_aborts,
                 outcome.gateway_thread,
                 outcome.sentinel_key,
             )
         } else {
-            (false, None, None, None, None, None)
+            (false, None, None, None, Vec::new(), None, None)
         };
 
         // Startup hygiene runs inside the gateway task group and may race the
@@ -363,6 +365,7 @@ impl GatewayRunner {
             heartbeat_abort,
             gateway_abort,
             gateway_supervisor,
+            listener_aborts,
             gateway_thread,
             challenger_abort,
             registry: self.registry.clone(),
@@ -539,6 +542,7 @@ impl GatewayRunner {
                             gateway_abort: Some(tasks.abort),
                             challenger_abort: None,
                             gateway_supervisor: Some(tasks.supervisor),
+                            listener_aborts: tasks.listener_aborts,
                             gateway_thread: None,
                             // Issue #718: winners must also deregister the
                             // `__gateway__` sentinel on clean shutdown.
@@ -564,6 +568,7 @@ impl GatewayRunner {
                             gateway_abort: None,
                             challenger_abort: None,
                             gateway_supervisor: None,
+                            listener_aborts: Vec::new(),
                             gateway_thread: None,
                             sentinel_key: None,
                         })
@@ -645,6 +650,7 @@ impl GatewayRunner {
                         gateway_abort: None,
                         challenger_abort: Some(challenger_abort),
                         gateway_supervisor: None,
+                        listener_aborts: Vec::new(),
                         gateway_thread: None,
                         sentinel_key: None,
                     })
@@ -665,6 +671,7 @@ impl GatewayRunner {
                         gateway_abort: None,
                         challenger_abort: None,
                         gateway_supervisor: None,
+                        listener_aborts: Vec::new(),
                         gateway_thread: None,
                         sentinel_key: None,
                     })
@@ -761,6 +768,7 @@ impl GatewayRunner {
             let _ = registry.register_async(challenge_sentinel).await;
             let _challenge_guard = PromotedGatewayGuard {
                 abort: None,
+                listener_aborts: Vec::new(),
                 registry: registry.clone(),
                 sentinel_key: Some(challenge_sentinel_key),
             };
@@ -884,6 +892,7 @@ impl GatewayRunner {
                             );
                             let _guard = PromotedGatewayGuard {
                                 abort: Some(tasks.abort),
+                                listener_aborts: tasks.listener_aborts,
                                 registry: registry.clone(),
                                 sentinel_key: Some(sentinel_key),
                             };
@@ -1114,14 +1123,23 @@ fn readyz_body_is_healthy(body: &[u8]) -> bool {
         == Some(true)
 }
 
-struct PromotedGatewayGuard {
-    abort: Option<AbortHandle>,
-    registry: Arc<FileRegistry>,
-    sentinel_key: Option<ServiceKey>,
+pub(crate) struct PromotedGatewayGuard {
+    pub(crate) abort: Option<AbortHandle>,
+    /// AbortHandle per HTTP listener. Aborted *before* the supervisor: the
+    /// supervisor aborts these too when it gets to run, but this guard's
+    /// `Drop` often drops the supervisor future first, and a dropped
+    /// `JoinHandle` detaches its task instead of cancelling it — which would
+    /// leave the axum listener serving on the gateway port after shutdown.
+    pub(crate) listener_aborts: Vec<AbortHandle>,
+    pub(crate) registry: Arc<FileRegistry>,
+    pub(crate) sentinel_key: Option<ServiceKey>,
 }
 
 impl Drop for PromotedGatewayGuard {
     fn drop(&mut self) {
+        for abort in &self.listener_aborts {
+            abort.abort();
+        }
         if let Some(abort) = self.abort.take() {
             abort.abort();
         }

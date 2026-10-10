@@ -71,7 +71,7 @@ pub(crate) async fn start_gateway_runner(
         auth: dcc_mcp_gateway::GatewayAuth::disabled(),
         update_manifest_url: None,
         gateway_persist: false,
-        gateway_idle_timeout_secs: 30,
+        gateway_idle_timeout_secs: dcc_mcp_gateway::gateway::idle_timeout::SERVER_DEFAULT,
         semantic_search_enabled: false,
     };
 
