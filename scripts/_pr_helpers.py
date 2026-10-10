@@ -156,11 +156,170 @@ def ensure_push_target(upstream: str, *, timeout: int = DEFAULT_TIMEOUT_SECS) ->
     raise PrError(_push_access_error(upstream, state))
 
 
+def list_open_prs(repo: str, base: str, *, timeout: int = DEFAULT_TIMEOUT_SECS) -> list[dict]:
+    """Return every open pull request against ``repo``'s ``base`` branch.
+
+    Deliberately unfiltered by head: the caller needs to see PRs opened from a
+    fork, from the upstream repository itself, under an older branch name or by
+    a different author, because all of those are the same generated change and
+    must be recognised as such.
+
+    Raises ``PrError`` when the lookup fails. Silently returning an empty list
+    here would be indistinguishable from "no PR exists", and the caller would
+    then open a duplicate -- which is exactly the failure this replaced.
+    """
+    result = _run(
+        [
+            "gh",
+            "pr",
+            "list",
+            "--repo",
+            repo,
+            "--state",
+            "open",
+            "--base",
+            base,
+            "--json",
+            "number,url,title,headRefName,headRepositoryOwner,headRefOid,author,files",
+            "--limit",
+            "200",
+        ],
+        timeout=timeout,
+    )
+    if result.returncode != 0:
+        raise PrError(f"gh pr list failed for {repo}: {(result.stderr or result.stdout).strip()}")
+    import json
+
+    try:
+        rows = json.loads(result.stdout or "[]")
+    except ValueError as exc:
+        raise PrError(f"gh pr list returned no JSON for {repo}: {exc}") from exc
+    return [row for row in rows if isinstance(row, dict)]
+
+
+def pr_file_blob(repo: str, number: int, path: str, *, timeout: int = DEFAULT_TIMEOUT_SECS) -> str:
+    """Return the blob SHA an open PR leaves at ``path``, or '' when unknown.
+
+    ``gh pr list --json files`` does not populate the blob SHA -- it reports
+    path, additions and deletions only -- so content comparison based on that
+    output would silently degrade to a title match, which cannot tell one
+    catalog state from another. The per-PR files endpoint does carry it.
+    """
+    result = _run(
+        ["gh", "api", f"repos/{repo}/pulls/{number}/files", "--jq", f'.[] | select(.filename=="{path}") | .sha'],
+        timeout=timeout,
+    )
+    if result.returncode != 0:
+        return ""
+    return result.stdout.strip().splitlines()[0].strip() if result.stdout.strip() else ""
+
+
+def resolve_pr_blobs(rows: list[dict], repo: str, path: str, *, timeout: int = DEFAULT_TIMEOUT_SECS) -> list[dict]:
+    """Fill in each PR's real blob SHA at ``path``, preserving order."""
+    resolved = []
+    for row in rows:
+        number = row.get("number")
+        row = dict(row)
+        files = row.get("files") or []
+        # Only look it up for single-file PRs whose blob is missing; anything
+        # else is already known to be non-equivalent.
+        if len(files) == 1 and not _pr_file_identity(row, path) and isinstance(number, int):
+            sha = pr_file_blob(repo, number, path, timeout=timeout)
+            if sha:
+                row["files"] = [dict(files[0], sha=sha)]
+        resolved.append(row)
+    return resolved
+
+
+def _pr_file_identity(row: dict, path: str) -> str:
+    """Return the blob SHA a PR leaves at ``path``, or '' when it is unknown."""
+    for entry in row.get("files") or []:
+        if not isinstance(entry, dict):
+            continue
+        if str(entry.get("path") or "").strip() == path:
+            return str(entry.get("sha") or "").strip()
+    return ""
+
+
+def _touches_only(row: dict, path: str) -> bool:
+    """Report whether the PR changes ``path`` and nothing else.
+
+    A PR that also carries handwritten work is not the generated change, even if
+    its README matches: reusing it would fold unrelated edits into this run's
+    output and hide them from the maintainers reviewing the generated PR.
+    """
+    files = [f for f in (row.get("files") or []) if isinstance(f, dict)]
+    if len(files) != 1:
+        return False
+    return str(files[0].get("path") or "").strip() == path
+
+
+def find_equivalent_pr(
+    rows: list[dict],
+    *,
+    path: str,
+    blob_sha: str,
+    title: str,
+) -> dict:
+    """Return the open PR that already carries this generated change, or {}.
+
+    Equivalence is decided on content, not on identity: the PR must touch only
+    ``path`` and leave ``blob_sha`` there. Everything else -- head branch name,
+    head owner, fork or same-repository, author, creation time -- is
+    deliberately ignored, because a generated PR legitimately differs in all of
+    those across runs:
+
+    - the branch fingerprint was renamed, moving old PRs to a different head
+    - the head moved from a personal fork to the upstream repository
+    - a scheduled run, a push run and an operator dispatch each open their own
+
+    Identity-based matching (head branch + base) treated every one of those as
+    new work and opened a second PR beside an open, byte-identical first one.
+
+    A PR whose blob is readable and different is *not* equivalent even when the
+    title matches: every refresh this automation opens shares the same title, so
+    the title cannot tell one catalog state from another. It is only consulted
+    when the blob is missing, so a PR whose blob could not be read still counts.
+
+    A PR carrying additional files is not equivalent either: it contains work
+    this automation did not generate and must not be reused.
+    """
+    wanted_title = str(title or "").strip()
+    fallback = None
+    for row in rows:
+        if not _touches_only(row, path):
+            continue
+        if _pr_file_identity(row, path) != blob_sha:
+            continue
+        if wanted_title and str(row.get("title") or "").strip() == wanted_title:
+            return row
+        fallback = fallback or row
+    if fallback:
+        return fallback
+
+    # No content match, so the blob is either unreadable or genuinely different.
+    # Only the unreadable case may fall back to a title match: a PR whose blob is
+    # readable and *disagrees* is different content, and reusing it would point
+    # the run at a PR that does not carry this change -- the title is shared by
+    # every refresh this automation has ever opened, so it cannot distinguish
+    # one catalog state from another.
+    for row in rows:
+        if not _touches_only(row, path):
+            continue
+        if _pr_file_identity(row, path):
+            continue  # readable and different: not equivalent
+        if wanted_title and str(row.get("title") or "").strip() == wanted_title:
+            return row
+    return {}
+
+
 def find_open_pr(repo: str, head: str, base: str, *, timeout: int = DEFAULT_TIMEOUT_SECS) -> str:
     """Return the URL of an open pull request for ``head``, or '' if there is none.
 
-    Matched on the head ref rather than on the title so a reworded title still
-    finds the existing PR and refreshes it instead of opening a second one.
+    Kept for callers that want the narrow, head-branch-scoped lookup. The
+    regeneration path uses :func:`find_equivalent_pr` instead: this one only
+    matches on the head ref, so it cannot see an equivalent PR opened from a
+    fork, under a previous branch name or by another author.
 
     ``--head`` takes the bare branch name, not the ``owner:branch`` form that a
     cross-repository PR is *created* with; passing the qualified form matches

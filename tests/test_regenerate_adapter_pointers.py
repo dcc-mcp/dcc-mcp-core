@@ -11,6 +11,7 @@ only thing this repository can verify without touching 47 real ones.
 
 from __future__ import annotations
 
+import argparse
 import json
 from pathlib import Path
 import subprocess
@@ -20,6 +21,8 @@ import pytest
 from scripts import _pr_helpers as pr_helpers
 from scripts import generate_adapter_pointer as generator
 from scripts import regenerate_adapter_pointers as regen
+
+PR_TITLE = regen.PR_TITLE
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CATALOG = REPO_ROOT / "dcc-mcp-catalog.yml"
@@ -88,19 +91,59 @@ class _FakeGitHub:
         fork: str = "",
         existing_pr: str = "",
         push_state: str = pr_helpers.PUSH_GRANTED,
+        open_prs: list[dict] | None = None,
+        list_error: Exception | None = None,
+        pr_blobs: dict[int, str] | None = None,
     ):
         self.login = login
         self.fork = fork
         self.existing_pr = existing_pr
         self.push_state = push_state
+        self.open_prs = list(open_prs or [])
+        self.list_error = list_error
+        # What the per-PR files endpoint would return. Kept separate from
+        # `open_prs` because the list endpoint omits the blob entirely, so the
+        # two sources genuinely differ -- which is the whole reason the real code
+        # needs a second query.
+        self.pr_blobs = dict(pr_blobs or {})
         self.created: list[dict] = []
         self.updated: list[dict] = []
         self.pushed: list[str] = []
+        self.list_calls: int = 0
+
+    def _pr_file_blob(self, repo, number, path, **kwargs):
+        """Answer the per-PR blob lookup, which the list endpoint cannot.
+
+        `gh pr list --json files` carries no blob SHA, so this is the only
+        source of content identity. Falls back to a sha recorded on the row, so
+        tests that do not model the two-query split still work.
+        """
+        if number in self.pr_blobs:
+            return self.pr_blobs[number]
+        for row in self.open_prs:
+            if row.get("number") != number:
+                continue
+            for entry in row.get("files") or []:
+                if isinstance(entry, dict) and entry.get("path") == path:
+                    return str(entry.get("sha") or "")
+        return ""
 
     def install(self, monkeypatch) -> None:
         monkeypatch.setattr(pr_helpers, "authenticated_login", lambda **kw: self.login)
         monkeypatch.setattr(pr_helpers, "check_push_access", lambda repo, **kw: self.push_state)
         monkeypatch.setattr(pr_helpers, "find_open_pr", lambda *a, **k: self.existing_pr)
+
+        def list_open_prs(repo, base, **kwargs):
+            self.list_calls += 1
+            if self.list_error is not None:
+                raise self.list_error
+            return list(self.open_prs)
+
+        monkeypatch.setattr(pr_helpers, "list_open_prs", list_open_prs)
+        # Resolution runs for real, against the blobs this fake records, so a
+        # regression in it cannot hide behind a stub.
+        monkeypatch.setattr(pr_helpers, "pr_file_blob", self._pr_file_blob)
+        monkeypatch.setattr(pr_helpers, "resolve_pr_blobs", pr_helpers.resolve_pr_blobs)
         monkeypatch.setattr(
             pr_helpers,
             "create_pr",
@@ -236,6 +279,420 @@ def test_dry_run_touches_nothing_and_reports_what_it_would_do(adapters, tmp_path
 # --- PR lifecycle ----------------------------------------------------------
 
 
+def _pr_row(number, url, *, path="README.md", sha, title=PR_TITLE, owner="dcc-mcp", head="chore/x"):
+    """Build one row shaped like `gh pr list --json ...` output."""
+    return {
+        "number": number,
+        "url": url,
+        "title": title,
+        "headRefName": head,
+        "headRepositoryOwner": {"login": owner},
+        "author": {"login": owner},
+        "files": [{"path": path, "sha": sha}],
+    }
+
+
+def _as_listed(row):
+    """Return the row as `gh pr list --json files` would report it.
+
+    That endpoint omits the blob SHA, so the content comparison cannot rely on
+    what it returns -- exactly the gap `resolve_pr_blobs` exists to close.
+    """
+    listed = dict(row)
+    listed["files"] = [
+        {k: v for k, v in f.items() if k != "sha"} for f in (row.get("files") or []) if isinstance(f, dict)
+    ]
+    return listed
+
+
+def _run_regen(adapters, tmp_path, name, origin, fake, monkeypatch):
+    fake.install(monkeypatch)
+    return regen.regenerate_repository(
+        _local_entry(adapters, name, origin),
+        0,
+        host_count=len(adapters),
+        workdir=tmp_path / "work",
+        timeout=60,
+        branch_prefix=regen.BRANCH_PREFIX,
+        dry_run=False,
+        source_ref="dcc-mcp/dcc-mcp-core@dcc-mcp-catalog.yml",
+    )
+
+
+def _generated_blob(adapters, tmp_path, name):
+    """Return the blob SHA the generator produces for this adapter's README."""
+    import subprocess
+
+    work = tmp_path / "blobwork"
+    work.mkdir(parents=True, exist_ok=True)
+    repo = work / "repo"
+    repo.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+    target = repo / "README.md"
+    target.write_text(_stale_readme(adapters, name), encoding="utf-8")
+    entry = dict(_entry(adapters, name))
+    entry["url"] = "https://github.com/dcc-mcp/example.git"
+    generator.apply_pointer(repo, entry, host_count=len(adapters), write=True)
+    result = subprocess.run(
+        ["git", "-C", str(repo), "hash-object", "README.md"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return result.stdout.strip()
+
+
+# --- duplicate detection ---------------------------------------------------
+
+
+def test_dedup_works_when_list_omits_the_blob(adapters, tmp_path, monkeypatch):
+    """`gh pr list --json files` has no blob sha; dedup must still recognise it.
+
+    The list endpoint reports path, additions and deletions but not the blob, so
+    rows arrive with no content identity. If the per-PR lookup that supplies it
+    were dropped, the comparison would fall back to the title alone -- and every
+    refresh this automation opens shares one title, so an unrelated PR carrying
+    different content would be reused.
+    """
+    name = "dcc-mcp-krita"
+    origin = _make_origin(tmp_path, "dupnolistblob", _stale_readme(adapters, name))
+
+    # Same file, same title, DIFFERENT content. Only the per-PR blob lookup can
+    # tell it apart.
+    listed = _as_listed(_pr_row(59, "https://github.com/dcc-mcp/dcc-mcp-krita/pull/59", sha="f" * 40, owner="loonghao"))
+    assert all("sha" not in f for f in listed["files"])
+
+    fake = _FakeGitHub(login="bot", open_prs=[listed], pr_blobs={59: "f" * 40})
+    row = _run_regen(adapters, tmp_path, name, origin, fake, monkeypatch)
+
+    # Not a duplicate: the blob was resolved and disagreed.
+    assert row["status"] == regen.REGENERATED
+    assert len(fake.created) == 1
+
+
+def test_an_equivalent_pr_is_found_when_only_the_lookup_knows_the_blob(adapters, tmp_path, monkeypatch):
+    """The matching case: list omits the blob, the per-PR lookup supplies it."""
+    name = "dcc-mcp-krita"
+    origin = _make_origin(tmp_path, "duplistblob", _stale_readme(adapters, name))
+    blob = _generated_blob(adapters, tmp_path, name)
+
+    listed = _as_listed(_pr_row(49, "https://github.com/dcc-mcp/dcc-mcp-krita/pull/49", sha=blob, owner="loonghao"))
+    fake = _FakeGitHub(login="bot", open_prs=[listed], pr_blobs={49: blob})
+    row = _run_regen(adapters, tmp_path, name, origin, fake, monkeypatch)
+
+    assert row["status"] == regen.DUPLICATE
+    assert row["pr_number"] == 49
+    assert fake.created == [] and fake.pushed == []
+
+
+def test_an_equivalent_pr_from_a_fork_is_reused(adapters, tmp_path, monkeypatch):
+    """The bug: an old fork PR carrying the identical blob must not be duplicated.
+
+    The old head lives on a personal fork under a previous branch fingerprint,
+    so head-branch matching cannot see it. Content matching can.
+    """
+    name = "dcc-mcp-krita"
+    origin = _make_origin(tmp_path, "dupfork", _stale_readme(adapters, name))
+    blob = _generated_blob(adapters, tmp_path, name)
+
+    fake = _FakeGitHub(
+        login="bot",
+        open_prs=[
+            _pr_row(
+                49,
+                "https://github.com/dcc-mcp/dcc-mcp-krita/pull/49",
+                sha=blob,
+                owner="loonghao",
+                head="chore/refresh-catalog-pointer-47-adapters",
+            )
+        ],
+    )
+
+    row = _run_regen(adapters, tmp_path, name, origin, fake, monkeypatch)
+
+    assert row["status"] == regen.DUPLICATE
+    assert row["action"] == "reused-pr"
+    assert row["pr"] == "https://github.com/dcc-mcp/dcc-mcp-krita/pull/49"
+    assert row["pr_number"] == 49
+    # Nothing written: no commit, no push, no new PR.
+    assert fake.pushed == []
+    assert fake.created == []
+    assert fake.updated == []
+
+
+def test_an_equivalent_pr_in_the_same_repo_is_reused(adapters, tmp_path, monkeypatch):
+    """A same-repository PR under the current branch name is also reused."""
+    name = "dcc-mcp-krita"
+    origin = _make_origin(tmp_path, "dupsame", _stale_readme(adapters, name))
+    blob = _generated_blob(adapters, tmp_path, name)
+
+    fake = _FakeGitHub(
+        login="bot",
+        open_prs=[
+            _pr_row(
+                50,
+                "https://github.com/dcc-mcp/dcc-mcp-krita/pull/50",
+                sha=blob,
+                owner="dcc-mcp",
+                head="chore/refresh-catalog-pointer-catalog-pointer",
+            )
+        ],
+    )
+
+    row = _run_regen(adapters, tmp_path, name, origin, fake, monkeypatch)
+
+    assert row["status"] == regen.DUPLICATE
+    assert row["action"] == "reused-pr"
+    assert row["pr_number"] == 50
+    assert fake.pushed == []
+    assert fake.created == []
+
+
+def test_a_different_author_is_still_equivalent(adapters, tmp_path, monkeypatch):
+    """Authorship is not part of the identity of a generated change."""
+    name = "dcc-mcp-krita"
+    origin = _make_origin(tmp_path, "dupauthor", _stale_readme(adapters, name))
+    blob = _generated_blob(adapters, tmp_path, name)
+
+    fake = _FakeGitHub(
+        login="bot",
+        open_prs=[_pr_row(61, "https://github.com/dcc-mcp/dcc-mcp-krita/pull/61", sha=blob, owner="someone-else")],
+    )
+
+    row = _run_regen(adapters, tmp_path, name, origin, fake, monkeypatch)
+
+    assert row["status"] == regen.DUPLICATE
+    assert row["pr_number"] == 61
+    assert fake.created == []
+
+
+def test_a_pr_with_different_content_is_not_reused(adapters, tmp_path, monkeypatch):
+    """Different generated content is genuinely new work: open a PR."""
+    name = "dcc-mcp-krita"
+    origin = _make_origin(tmp_path, "dupdiff", _stale_readme(adapters, name))
+    blob = _generated_blob(adapters, tmp_path, name)
+
+    fake = _FakeGitHub(
+        login="bot",
+        open_prs=[_pr_row(70, "https://github.com/dcc-mcp/dcc-mcp-krita/pull/70", sha="a" * 40)],
+    )
+    assert blob != "a" * 40
+
+    row = _run_regen(adapters, tmp_path, name, origin, fake, monkeypatch)
+
+    assert row["status"] == regen.REGENERATED
+    assert row["action"] == "opened-pr"
+    assert len(fake.created) == 1
+    assert fake.pushed
+
+
+def test_a_pr_with_extra_unrelated_files_is_not_reused(adapters, tmp_path, monkeypatch):
+    """Same README blob plus someone else's change is not this generated PR."""
+    name = "dcc-mcp-krita"
+    origin = _make_origin(tmp_path, "dupextra", _stale_readme(adapters, name))
+    blob = _generated_blob(adapters, tmp_path, name)
+
+    mixed = _pr_row(80, "https://github.com/dcc-mcp/dcc-mcp-krita/pull/80", sha=blob)
+    mixed["files"] = [
+        {"path": "README.md", "sha": blob},
+        {"path": "src/handwritten.py", "sha": "b" * 40},
+    ]
+
+    fake = _FakeGitHub(login="bot", open_prs=[mixed])
+    row = _run_regen(adapters, tmp_path, name, origin, fake, monkeypatch)
+
+    assert row["status"] == regen.REGENERATED
+    assert len(fake.created) == 1
+
+
+def test_a_pr_touching_a_different_file_is_not_reused(adapters, tmp_path, monkeypatch):
+    """Same blob on an unrelated path is not the generated README change."""
+    name = "dcc-mcp-krita"
+    origin = _make_origin(tmp_path, "duppath", _stale_readme(adapters, name))
+    blob = _generated_blob(adapters, tmp_path, name)
+
+    fake = _FakeGitHub(
+        login="bot",
+        open_prs=[_pr_row(90, "https://github.com/dcc-mcp/dcc-mcp-krita/pull/90", sha=blob, path="docs/other.md")],
+    )
+    row = _run_regen(adapters, tmp_path, name, origin, fake, monkeypatch)
+
+    assert row["status"] == regen.REGENERATED
+    assert len(fake.created) == 1
+
+
+def test_a_duplicate_is_reported_not_automatically_closed(adapters, tmp_path, monkeypatch):
+    """Reuse reports the canonical reference; it never closes the older PR."""
+    name = "dcc-mcp-krita"
+    origin = _make_origin(tmp_path, "dupnoclose", _stale_readme(adapters, name))
+    blob = _generated_blob(adapters, tmp_path, name)
+
+    fake = _FakeGitHub(
+        login="bot",
+        open_prs=[_pr_row(49, "https://github.com/dcc-mcp/dcc-mcp-krita/pull/49", sha=blob, owner="loonghao")],
+    )
+    row = _run_regen(adapters, tmp_path, name, origin, fake, monkeypatch)
+
+    assert row["status"] == regen.DUPLICATE
+    assert "pull/49" in row["pr"]
+    assert blob[:12] in row["detail"]
+    # No close/edit call exists on the fake at all; reuse is read-only.
+    assert fake.updated == []
+    assert fake.created == []
+
+
+def test_a_rerun_after_opening_a_pr_stays_a_no_op(adapters, tmp_path, monkeypatch):
+    """Two consecutive runs produce one PR, not two.
+
+    The first run opens it; the second sees the same content already open and
+    must not push a second branch or create a second PR.
+    """
+    name = "dcc-mcp-krita"
+    blob = _generated_blob(adapters, tmp_path, name)
+
+    first = _FakeGitHub(login="bot", open_prs=[])
+    monkeypatch.setattr(pr_helpers, "check_push_access", lambda repo, **kw: pr_helpers.PUSH_GRANTED)
+    origin_one = _make_origin(tmp_path, "duprerun1", _stale_readme(adapters, name))
+    row_one = _run_regen(adapters, tmp_path / "one", name, origin_one, first, monkeypatch)
+    assert row_one["status"] == regen.REGENERATED
+    assert len(first.created) == 1
+    assert len(first.pushed) == 1
+    monkeypatch.undo()
+
+    # The PR the first run opened is now visible to the second.
+    second = _FakeGitHub(
+        login="bot",
+        open_prs=[_pr_row(1, "https://github.com/dcc-mcp/dcc-mcp-krita/pull/1", sha=blob)],
+    )
+    origin_two = _make_origin(tmp_path, "duprerun2", _stale_readme(adapters, name))
+    row_two = _run_regen(adapters, tmp_path / "two", name, origin_two, second, monkeypatch)
+
+    assert row_two["status"] == regen.DUPLICATE
+    assert row_two["action"] == "reused-pr"
+    assert second.created == []
+    assert second.pushed == []
+
+
+def test_a_pr_query_failure_creates_nothing(adapters, tmp_path, monkeypatch):
+    """A failed PR lookup must fail loudly, never fall through to creating one."""
+    name = "dcc-mcp-krita"
+    origin = _make_origin(tmp_path, "dupqueryfail", _stale_readme(adapters, name))
+
+    fake = _FakeGitHub(login="bot", list_error=pr_helpers.PrError("gh pr list failed: HTTP 500"))
+    row = _run_regen(adapters, tmp_path, name, origin, fake, monkeypatch)
+
+    assert row["status"] == regen.ERROR
+    assert "gh pr list failed" in row["detail"]
+    assert fake.created == []
+    assert fake.pushed == []
+
+
+def test_denied_push_still_fails_before_any_pr_query(adapters, tmp_path, monkeypatch):
+    """The no-fork rule survives: denied access fails without opening anything."""
+    name = "dcc-mcp-krita"
+    origin = _make_origin(tmp_path, "dupdenied", _stale_readme(adapters, name))
+
+    fake = _FakeGitHub(login="bot", push_state=pr_helpers.PUSH_DENIED)
+    row = _run_regen(adapters, tmp_path, name, origin, fake, monkeypatch)
+
+    assert row["status"] == regen.ERROR
+    assert "does not have push access" in row["detail"]
+    assert fake.created == [] and fake.pushed == []
+
+
+def test_an_existing_fork_does_not_rescue_dedup(adapters, tmp_path, monkeypatch):
+    """Denied push with an existing fork: still no fallback, no new PR."""
+    name = "dcc-mcp-krita"
+    origin = _make_origin(tmp_path, "dupdeniedfork", _stale_readme(adapters, name))
+
+    fake = _FakeGitHub(login="bot", fork="bot/dcc-mcp-krita", push_state=pr_helpers.PUSH_DENIED)
+    row = _run_regen(adapters, tmp_path, name, origin, fake, monkeypatch)
+
+    assert row["status"] == regen.ERROR
+    assert fake.pushed == []
+    assert not any("bot/dcc-mcp-krita" in pushed for pushed in fake.pushed)
+    assert fake.created == []
+
+
+def test_find_equivalent_pr_prefers_an_exact_title_match():
+    """Among identical blobs, the one with the generated title wins."""
+    rows = [
+        _pr_row(2, "https://example/2", sha="c" * 40, title="handwritten tweak"),
+        _pr_row(1, "https://example/1", sha="c" * 40, title=PR_TITLE),
+    ]
+    found = pr_helpers.find_equivalent_pr(rows, path="README.md", blob_sha="c" * 40, title=PR_TITLE)
+    assert found["number"] == 1
+
+
+def test_find_equivalent_pr_matches_on_title_when_the_blob_is_unreadable():
+    """A PR whose blob could not be read still counts if title and file match."""
+    row = _pr_row(7, "https://example/7", sha="", title=PR_TITLE)
+    row["files"] = [{"path": "README.md"}]
+    found = pr_helpers.find_equivalent_pr([row], path="README.md", blob_sha="d" * 40, title=PR_TITLE)
+    assert found["number"] == 7
+
+
+def test_find_equivalent_pr_returns_nothing_for_unrelated_rows():
+    rows = [
+        _pr_row(3, "https://example/3", sha="e" * 40),
+        _pr_row(4, "https://example/4", sha="f" * 40, title="something else entirely"),
+    ]
+    assert pr_helpers.find_equivalent_pr(rows, path="README.md", blob_sha="0" * 40, title=PR_TITLE) == {}
+
+
+def test_list_open_prs_raises_instead_of_returning_empty(monkeypatch):
+    """An empty list would be read as 'no PR exists' and open a duplicate."""
+    monkeypatch.setattr(
+        pr_helpers,
+        "_run",
+        lambda args, **kw: subprocess.CompletedProcess(args, 1, "", "HTTP 500"),
+    )
+    with pytest.raises(pr_helpers.PrError, match="gh pr list failed"):
+        pr_helpers.list_open_prs("dcc-mcp/x", "main")
+
+
+def test_a_reused_pr_is_reported_as_success_not_failure(tmp_path, capsys, monkeypatch):
+    """A reused PR is the run doing the right thing, so it must not read as FAIL.
+
+    The console line marks anything outside CURRENT/REGENERATED/DUPLICATE as a
+    failure, and the summary counts DUPLICATE separately from errors -- a reused
+    PR that looked like an error would make a clean fleet look broken.
+    """
+    results = [
+        {
+            "name": "adapter-a",
+            "status": regen.DUPLICATE,
+            "action": "reused-pr",
+            "detail": "reused #49",
+            "pr": "https://github.com/dcc-mcp/dcc-mcp-shogun/pull/49",
+        },
+        {"name": "adapter-b", "status": regen.CURRENT, "action": "none", "detail": "ok", "pr": "", "url": ""},
+        {
+            "name": "adapter-c",
+            "status": regen.ERROR,
+            "action": "none",
+            "detail": "boom",
+            "pr": "",
+            "url": "https://github.com/dcc-mcp/dcc-mcp-krita",
+        },
+    ]
+    args = argparse.Namespace(
+        dry_run=False,
+        summary=None,
+        json_out=tmp_path / "regen.json",
+    )
+    monkeypatch.chdir(tmp_path)
+    code = regen._report(results, args, host_count=3)
+
+    out = capsys.readouterr().out
+    assert "ok   adapter-a" in out
+    assert "FAIL adapter-c" in out
+    assert "1 already covered by an open PR" in out
+    # Errors still fail the run; a reuse does not.
+    assert code != 0
+    assert regen.DUPLICATE not in (regen.ERROR, regen.MISSING)
+
+
 def test_a_stale_repository_opens_a_pull_request(adapters, tmp_path, monkeypatch):
     """A drifted adapter gets one PR against the repository's default branch."""
     name = "dcc-mcp-krita"
@@ -317,11 +774,27 @@ def test_a_stale_repository_with_an_unknown_permission_fails_instead_of_using_a_
     assert fake.created == [] and fake.updated == []
 
 
-def test_an_existing_pull_request_is_refreshed_not_duplicated(adapters, tmp_path, monkeypatch):
-    """A second run updates the open PR instead of opening another one."""
+def test_an_existing_pull_request_is_reused_not_duplicated(adapters, tmp_path, monkeypatch):
+    """A second run reuses the open PR instead of opening another one.
+
+    It no longer edits the PR either: the content is already byte-identical, so
+    refreshing the title and body would be a write with no effect. The run is a
+    no-op that reports the canonical PR.
+    """
     name = "dcc-mcp-krita"
     origin = _make_origin(tmp_path, "refresh", _stale_readme(adapters, name))
-    fake = _FakeGitHub(login="bot", existing_pr="https://github.com/example/pr/7")
+    blob = _generated_blob(adapters, tmp_path, name)
+    fake = _FakeGitHub(
+        login="bot",
+        open_prs=[
+            _pr_row(
+                7,
+                "https://github.com/dcc-mcp/dcc-mcp-krita/pull/7",
+                sha=blob,
+                head=regen.BRANCH_PREFIX + regen._fingerprint(len(adapters)),
+            )
+        ],
+    )
     fake.install(monkeypatch)
 
     row = regen.regenerate_repository(
@@ -335,10 +808,11 @@ def test_an_existing_pull_request_is_refreshed_not_duplicated(adapters, tmp_path
         source_ref="dcc-mcp/dcc-mcp-core@dcc-mcp-catalog.yml",
     )
 
-    assert row["action"] == "updated-pr"
-    assert row["pr"] == "https://github.com/example/pr/7"
+    assert row["action"] == "reused-pr"
+    assert row["status"] == regen.DUPLICATE
+    assert row["pr"] == "https://github.com/dcc-mcp/dcc-mcp-krita/pull/7"
     assert fake.created == []
-    assert len(fake.updated) == 1
+    assert fake.pushed == []
 
 
 def test_a_current_repository_opens_nothing(adapters, tmp_path, monkeypatch):
