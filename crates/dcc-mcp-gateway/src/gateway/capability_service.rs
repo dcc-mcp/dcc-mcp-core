@@ -450,9 +450,17 @@ pub fn index_generation(index: &CapabilityIndex) -> String {
 /// slug is malformed, unknown, or matches more than one row (the
 /// ambiguous case can happen if callers pass a record that has since
 /// been evicted but an older one with the same backend tool remains).
+///
+/// `policy` gates the advisory data attached to a miss. Resolution itself is
+/// not a policy decision — the `Describe` / `Call` operations remain
+/// enforced at their own call sites — but the `unknown-slug` and `ambiguous`
+/// errors serialize candidate records into their response bodies, and those
+/// bodies are readable without ever dispatching the capability. Candidates a
+/// `Describe` would refuse must therefore not be named in one.
 pub fn describe_service(
     index: &CapabilityIndex,
     slug: &str,
+    policy: &GatewayPolicy,
 ) -> Result<CapabilityRecord, ServiceError> {
     let Some((dcc, instance_hint, tool)) = parse_slug(slug) else {
         return Err(ServiceError::new(
@@ -537,7 +545,19 @@ pub fn describe_service(
     // The bridge's own matches are the only candidates there are. A fresh
     // scan with the alias predicate would select exactly the same rows,
     // so scanning twice could only add a second, identical list.
-    let candidates: Vec<CapabilityRecord> = alias_matches.iter().map(|r| (*r).clone()).collect();
+    //
+    // Candidates are gated through the same `Describe` policy the describe
+    // path applies, because they are serialized into the error body: without
+    // this a caller could guess a bare slug and read the metadata of a
+    // capability an allowlist deliberately hides. Filtering happens before
+    // the `MAX_ALIAS_CANDIDATES` cap, so policy can only shrink the
+    // candidate list — it never inflates it, and the list stays a subset of
+    // the alias matches above.
+    let candidates: Vec<CapabilityRecord> = alias_matches
+        .iter()
+        .filter(|r| policy_allows_candidate(policy, r))
+        .map(|r| (*r).clone())
+        .collect();
     let recommended_next_action =
         recommended_action_for_unknown_slug(&candidates, dcc, instance_hint);
     Err(ServiceError::new(
@@ -739,7 +759,7 @@ pub async fn describe_tool_full(
     gs: &GatewayState,
     slug: &str,
 ) -> Result<(CapabilityRecord, McpTool), ServiceError> {
-    let record = describe_service(&gs.capability_index, slug)?;
+    let record = describe_service(&gs.capability_index, slug, &gs.policy)?;
     enforce_record_policy(&gs.policy, GatewayPolicyOperation::Describe, &record)?;
     let reg = &gs.registry;
     let all = gs.live_instances_async().await;
@@ -840,7 +860,7 @@ pub async fn call_service(
     trace_context: Option<&TraceContext>,
     agent_context: Option<&AgentContext>,
 ) -> Result<Value, ServiceError> {
-    let record = describe_service(&gs.capability_index, slug)?;
+    let record = describe_service(&gs.capability_index, slug, &gs.policy)?;
     enforce_record_policy(&gs.policy, GatewayPolicyOperation::Call, &record)?;
     // Discovery-only tools (e.g. dcc_capability_manifest) must not be
     // dispatched via sidecar tools/call — they are served by the discovery
@@ -1510,7 +1530,7 @@ pub async fn refresh_all_live_backends_now(gs: &GatewayState, reason: RefreshRea
 /// only that backend. Malformed, stale, or ambiguous ownership falls back to a
 /// full refresh because no narrower route is trustworthy.
 pub async fn refresh_for_describe(gs: &GatewayState, slug: &str) {
-    if describe_service(&gs.capability_index, slug).is_ok() {
+    if describe_service(&gs.capability_index, slug, &gs.policy).is_ok() {
         return;
     }
 
@@ -1662,6 +1682,16 @@ fn enforce_record_policy(
     policy
         .enforce_record(operation, record)
         .map_err(policy_denied_error)
+}
+
+/// `true` when `record` may be named in an error body.
+///
+/// Error payloads are readable without ever dispatching the capability, so a
+/// candidate that the policy would refuse to describe must not appear in one.
+/// This reuses the `Describe` verdict rather than widening to `Search`, which
+/// keeps the advisory surface at least as strict as the describe path.
+fn policy_allows_candidate(policy: &GatewayPolicy, record: &CapabilityRecord) -> bool {
+    enforce_record_policy(policy, GatewayPolicyOperation::Describe, record).is_ok()
 }
 
 fn inject_call_instance_meta(result: &mut Value, entry: &ServiceEntry) {
@@ -1979,7 +2009,8 @@ mod unit_tests {
         let iid = Uuid::from_u128(0xabcd);
         push(&idx, "maya", iid, "create_sphere", true);
         let slug = tool_slug("maya", &iid, "create_sphere");
-        let rec = describe_service(&idx, &slug).expect("slug should resolve");
+        let rec =
+            describe_service(&idx, &slug, &GatewayPolicy::default()).expect("slug should resolve");
         assert_eq!(rec.backend_tool, "create_sphere");
         assert_eq!(rec.dcc_type, "maya");
     }
@@ -1991,7 +2022,8 @@ mod unit_tests {
         push(&idx, "maya", iid, "create_sphere", true);
         let slug = format!("maya.{iid}.create_sphere");
 
-        let rec = describe_service(&idx, &slug).expect("full UUID slug should resolve");
+        let rec = describe_service(&idx, &slug, &GatewayPolicy::default())
+            .expect("full UUID slug should resolve");
 
         assert_eq!(rec.instance_id, iid);
         assert_eq!(rec.backend_tool, "create_sphere");
@@ -2000,7 +2032,7 @@ mod unit_tests {
     #[test]
     fn describe_rejects_malformed_slug() {
         let idx = CapabilityIndex::new();
-        let err = describe_service(&idx, "not-a-slug").unwrap_err();
+        let err = describe_service(&idx, "not-a-slug", &GatewayPolicy::default()).unwrap_err();
         assert_eq!(err.kind, "unknown-slug");
         // The malformed-slug error points at the expected shape so
         // the agent can fix its input instead of retrying blind.
@@ -2012,7 +2044,12 @@ mod unit_tests {
         // The index has never seen this instance at all, so the lifecycle
         // claim is accurate: there is no instance to route to.
         let idx = CapabilityIndex::new();
-        let err = describe_service(&idx, "maya.abcdef01.create_sphere").unwrap_err();
+        let err = describe_service(
+            &idx,
+            "maya.abcdef01.create_sphere",
+            &GatewayPolicy::default(),
+        )
+        .unwrap_err();
         assert_eq!(err.kind, "instance-offline");
         assert_eq!(err.previous_status.as_deref(), Some("never-registered"));
         assert_eq!(err.retryable, Some(false));
@@ -2034,7 +2071,8 @@ mod unit_tests {
         let iid = Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
         push(&idx, "maya", iid, "maya_scene__list_objects", true);
 
-        let err = describe_service(&idx, "maya.abcdef01.save_scene").unwrap_err();
+        let err = describe_service(&idx, "maya.abcdef01.save_scene", &GatewayPolicy::default())
+            .unwrap_err();
 
         assert_eq!(err.kind, "unknown-slug");
         assert_eq!(err.previous_status, None);
@@ -2052,7 +2090,12 @@ mod unit_tests {
         let iid = Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
         push(&idx, "maya", iid, "maya_scene__list_objects", true);
 
-        let err = describe_service(&idx, "maya.abcdef01.list_objects_bulk").unwrap_err();
+        let err = describe_service(
+            &idx,
+            "maya.abcdef01.list_objects_bulk",
+            &GatewayPolicy::default(),
+        )
+        .unwrap_err();
 
         assert_eq!(err.kind, "unknown-slug");
         let slugs: Vec<&str> = err
@@ -2073,7 +2116,8 @@ mod unit_tests {
         let iid = Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
         push(&idx, "maya", iid, "maya_scene__list_objects", true);
 
-        let err = describe_service(&idx, "maya.abcdef01.save_scene").unwrap_err();
+        let err = describe_service(&idx, "maya.abcdef01.save_scene", &GatewayPolicy::default())
+            .unwrap_err();
         let action = err.recommended_next_action.as_deref().unwrap_or_default();
 
         assert!(
@@ -2088,7 +2132,12 @@ mod unit_tests {
         let iid = Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
         push(&idx, "maya", iid, "project_save", true);
 
-        let err = describe_service(&idx, "maya.abcdef01.create_locator").unwrap_err();
+        let err = describe_service(
+            &idx,
+            "maya.abcdef01.create_locator",
+            &GatewayPolicy::default(),
+        )
+        .unwrap_err();
 
         assert_eq!(err.kind, "unknown-slug");
         assert!(err.candidates.is_empty());
@@ -2117,7 +2166,12 @@ mod unit_tests {
         unloaded.loaded = false;
         idx.upsert_instance(iid, vec![unloaded], InstanceFingerprint(3));
 
-        let err = describe_service(&idx, "maya.abcdef01.create_locator").unwrap_err();
+        let err = describe_service(
+            &idx,
+            "maya.abcdef01.create_locator",
+            &GatewayPolicy::default(),
+        )
+        .unwrap_err();
 
         assert_eq!(err.kind, "unknown-slug");
         assert_eq!(
@@ -2139,6 +2193,99 @@ mod unit_tests {
     }
 
     #[test]
+    fn unknown_slug_candidates_are_filtered_by_the_describe_policy() {
+        // The error body is readable without ever dispatching the
+        // capability, so a hidden capability must not be named in it. A
+        // caller guessing the bare slug would otherwise recover the
+        // metadata an allowlist deliberately withholds.
+        let idx = CapabilityIndex::new();
+        let iid = Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
+        let mut hidden = make_record(
+            "maya",
+            iid,
+            "maya_primitives__create_locator",
+            Some("maya-primitives"),
+        );
+        hidden.loaded = false;
+        let mut visible = make_record(
+            "houdini",
+            iid,
+            "houdini_geo__create_locator",
+            Some("houdini-geo"),
+        );
+        visible.loaded = false;
+        let mut records = vec![hidden, visible];
+        records.sort_by(|a, b| a.tool_slug.cmp(&b.tool_slug));
+        idx.upsert_instance(iid, records, InstanceFingerprint(3));
+
+        // Allow only the houdini skill. Both records alias the same bare
+        // name, so without the policy gate the maya row would be serialized
+        // into `candidates` (and named by `recommended_next_action`).
+        let policy = GatewayPolicy {
+            allowed_skill_names: vec!["houdini-geo".to_string()],
+            ..GatewayPolicy::default()
+        };
+
+        let err = describe_service(&idx, "maya.abcdef01.create_locator", &policy).unwrap_err();
+
+        assert_eq!(err.kind, "unknown-slug");
+        let slugs: Vec<&str> = err
+            .candidates
+            .iter()
+            .map(|record| record.tool_slug.as_str())
+            .collect();
+        assert!(
+            !slugs
+                .iter()
+                .any(|slug| slug.contains("maya-primitives") || slug.contains("maya_primitives")),
+            "a capability the policy refuses to describe must not appear in candidates; got {slugs:?}"
+        );
+        let action = err.recommended_next_action.as_deref().unwrap_or_default();
+        assert!(
+            !action.contains("maya-primitives"),
+            "the next action must not name a skill the policy rejected; got {action:?}"
+        );
+    }
+
+    #[test]
+    fn unknown_slug_candidates_are_filtered_by_tool_slug_prefixes() {
+        // Same gate exercised through the tool-slug allowlist, so the
+        // regression cannot pass by only honouring skill names.
+        let idx = CapabilityIndex::new();
+        let iid = Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
+        let mut hidden = make_record(
+            "maya",
+            iid,
+            "maya_primitives__create_locator",
+            Some("maya-primitives"),
+        );
+        hidden.loaded = false;
+        idx.upsert_instance(iid, vec![hidden], InstanceFingerprint(3));
+
+        let policy = GatewayPolicy {
+            allowed_tool_slug_prefixes: vec!["houdini.".to_string()],
+            ..GatewayPolicy::default()
+        };
+
+        let err = describe_service(&idx, "maya.abcdef01.create_locator", &policy).unwrap_err();
+
+        assert_eq!(err.kind, "unknown-slug");
+        assert!(
+            err.candidates.is_empty(),
+            "the only alias is denied by the prefix allowlist, so no candidate may be offered; got {:?}",
+            err.candidates
+                .iter()
+                .map(|r| r.tool_slug.as_str())
+                .collect::<Vec<_>>()
+        );
+        let action = err.recommended_next_action.as_deref().unwrap_or_default();
+        assert!(
+            !action.contains("maya_primitives__create_locator"),
+            "the next action must not name a denied tool slug; got {action:?}"
+        );
+    }
+
+    #[test]
     fn loaded_alias_is_dispatched_rather_than_advised() {
         // With the bridge in place a unique callable alias no longer
         // produces an error at all, so there is no advice to give: the
@@ -2156,8 +2303,12 @@ mod unit_tests {
             InstanceFingerprint(4),
         );
 
-        let record = describe_service(&idx, "maya.abcdef01.list_objects")
-            .expect("a unique callable alias must dispatch directly");
+        let record = describe_service(
+            &idx,
+            "maya.abcdef01.list_objects",
+            &GatewayPolicy::default(),
+        )
+        .expect("a unique callable alias must dispatch directly");
 
         assert_eq!(record.callable_id, "maya_scene__list_objects");
     }
@@ -2176,7 +2327,12 @@ mod unit_tests {
             .collect();
         idx.upsert_instance(iid, records, InstanceFingerprint(7));
 
-        let err = describe_service(&idx, "maya.abcdef01.list_objects").unwrap_err();
+        let err = describe_service(
+            &idx,
+            "maya.abcdef01.list_objects",
+            &GatewayPolicy::default(),
+        )
+        .unwrap_err();
 
         assert_eq!(
             err.kind, "ambiguous",
@@ -2213,7 +2369,12 @@ mod unit_tests {
         }
         idx.upsert_instance(iid, records, InstanceFingerprint(7));
 
-        let err = describe_service(&idx, "maya.abcdef01.list_objects").unwrap_err();
+        let err = describe_service(
+            &idx,
+            "maya.abcdef01.list_objects",
+            &GatewayPolicy::default(),
+        )
+        .unwrap_err();
 
         assert_eq!(
             err.candidates.len(),
@@ -2258,7 +2419,12 @@ mod unit_tests {
             InstanceFingerprint(11),
         );
 
-        let err = describe_service(&idx, "maya.abcdef01.list_objects").unwrap_err();
+        let err = describe_service(
+            &idx,
+            "maya.abcdef01.list_objects",
+            &GatewayPolicy::default(),
+        )
+        .unwrap_err();
 
         assert_eq!(err.kind, "ambiguous");
         assert_eq!(err.candidates.len(), MAX_ALIAS_CANDIDATES);
@@ -2280,7 +2446,12 @@ mod unit_tests {
         let iid = Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
         push(&idx, "maya", iid, "ab", true);
 
-        let err = describe_service(&idx, "maya.abcdef01.maya_scene__ab").unwrap_err();
+        let err = describe_service(
+            &idx,
+            "maya.abcdef01.maya_scene__ab",
+            &GatewayPolicy::default(),
+        )
+        .unwrap_err();
 
         assert_eq!(
             err.kind, "unknown-slug",
@@ -2299,7 +2470,8 @@ mod unit_tests {
         let iid = Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
         push(&idx, "maya", iid, "maya_scene__list_objects", true);
 
-        let err = describe_service(&idx, "maya.abcdef01.save_scene").unwrap_err();
+        let err = describe_service(&idx, "maya.abcdef01.save_scene", &GatewayPolicy::default())
+            .unwrap_err();
 
         assert_eq!(err.kind, "unknown-slug");
         assert!(
@@ -2355,7 +2527,7 @@ mod unit_tests {
                 "test premise broken: {bare} is indexed under its bare name"
             );
 
-            let record = describe_service(&idx, &slug)
+            let record = describe_service(&idx, &slug, &GatewayPolicy::default())
                 .unwrap_or_else(|e| panic!("bare slug {slug} must dispatch; got {e:?}"));
 
             assert!(
@@ -2373,8 +2545,12 @@ mod unit_tests {
         let iid = Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
         push(&idx, "maya", iid, "maya_scene__list_objects", true);
 
-        let record = describe_service(&idx, "maya.abcdef01.list_objects")
-            .expect("a unique qualified alias must make the bare name dispatchable");
+        let record = describe_service(
+            &idx,
+            "maya.abcdef01.list_objects",
+            &GatewayPolicy::default(),
+        )
+        .expect("a unique qualified alias must make the bare name dispatchable");
 
         assert_eq!(record.callable_id, "maya_scene__list_objects");
         assert_eq!(record.tool_slug, "maya.abcdef01.maya_scene__list_objects");
@@ -2389,8 +2565,12 @@ mod unit_tests {
         let iid = Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
         push(&idx, "maya", iid, "list_objects", true);
 
-        let record = describe_service(&idx, "maya.abcdef01.maya_scene__list_objects")
-            .expect("the qualified form must reach the bare record");
+        let record = describe_service(
+            &idx,
+            "maya.abcdef01.maya_scene__list_objects",
+            &GatewayPolicy::default(),
+        )
+        .expect("the qualified form must reach the bare record");
 
         assert_eq!(record.callable_id, "list_objects");
     }
@@ -2408,8 +2588,12 @@ mod unit_tests {
         records.sort_by(|a, b| a.tool_slug.cmp(&b.tool_slug));
         idx.upsert_instance(iid, records, InstanceFingerprint(9));
 
-        let record = describe_service(&idx, "maya.abcdef01.list_objects")
-            .expect("the exact record must resolve");
+        let record = describe_service(
+            &idx,
+            "maya.abcdef01.list_objects",
+            &GatewayPolicy::default(),
+        )
+        .expect("the exact record must resolve");
 
         assert_eq!(
             record.callable_id, "list_objects",
@@ -2442,7 +2626,12 @@ mod unit_tests {
 
         // `target` is indexed but has no alias, so the bridge must not
         // borrow `other`'s record.
-        let err = describe_service(&idx, "maya.abcdef01.list_objects").unwrap_err();
+        let err = describe_service(
+            &idx,
+            "maya.abcdef01.list_objects",
+            &GatewayPolicy::default(),
+        )
+        .unwrap_err();
 
         assert_eq!(err.kind, "unknown-slug");
         assert!(
@@ -2459,7 +2648,8 @@ mod unit_tests {
         let iid = Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
         push(&idx, "maya", iid, "maya_scene__ls", true);
 
-        let err = describe_service(&idx, "maya.abcdef01.ls").unwrap_err();
+        let err =
+            describe_service(&idx, "maya.abcdef01.ls", &GatewayPolicy::default()).unwrap_err();
 
         assert_eq!(err.kind, "unknown-slug");
     }
@@ -2469,7 +2659,12 @@ mod unit_tests {
         // With nothing indexed for the instance there is no bridge to run,
         // and the lifecycle claim stays correct.
         let idx = CapabilityIndex::new();
-        let err = describe_service(&idx, "maya.abcdef01.list_objects").unwrap_err();
+        let err = describe_service(
+            &idx,
+            "maya.abcdef01.list_objects",
+            &GatewayPolicy::default(),
+        )
+        .unwrap_err();
 
         assert_eq!(err.kind, "instance-offline");
         assert_eq!(err.previous_status.as_deref(), Some("never-registered"));
@@ -2482,8 +2677,12 @@ mod unit_tests {
         push(&idx, "houdini", iid, "get_render_job", true);
         idx.remove_instance_with_status(iid, "exited");
 
-        let err =
-            describe_service(&idx, "houdini.04fccb17.get_render_job").expect_err("instance exited");
+        let err = describe_service(
+            &idx,
+            "houdini.04fccb17.get_render_job",
+            &GatewayPolicy::default(),
+        )
+        .expect_err("instance exited");
 
         assert_eq!(err.kind, "instance-offline");
         assert_eq!(err.previous_status.as_deref(), Some("exited"));
@@ -2649,7 +2848,8 @@ mod unit_tests {
         let iid = Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
         push(&idx, "maya", iid, "maya_scene__list_objects", true);
 
-        let err = describe_service(&idx, "maya.abcdef01.save_scene").unwrap_err();
+        let err = describe_service(&idx, "maya.abcdef01.save_scene", &GatewayPolicy::default())
+            .unwrap_err();
         let envelope = service_error_to_json(&err);
 
         assert_eq!(envelope["error"]["kind"], "unknown-slug");
@@ -3132,7 +3332,8 @@ mod unit_tests {
         rec.discovery_only = true;
         idx.upsert_instance(iid, vec![rec], InstanceFingerprint(1));
         let slug = tool_slug("maya", &iid, "dcc_capability_manifest");
-        let found = describe_service(&idx, &slug).expect("should find record");
+        let found =
+            describe_service(&idx, &slug, &GatewayPolicy::default()).expect("should find record");
         assert!(found.discovery_only);
         assert!(!found.is_callable());
     }
