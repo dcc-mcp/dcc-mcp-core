@@ -111,22 +111,42 @@ class _FakeGitHub:
         self.pushed: list[str] = []
         self.list_calls: int = 0
 
-    def _pr_file_blob(self, repo, number, path, **kwargs):
-        """Answer the per-PR blob lookup, which the list endpoint cannot.
+    def _pr_files(self, repo, number, **kwargs):
+        """Answer the per-PR files lookup, which the list endpoint cannot.
 
         `gh pr list --json files` carries no blob SHA, so this is the only
-        source of content identity. Falls back to a sha recorded on the row, so
-        tests that do not model the two-query split still work.
+        source of content identity -- and it is the only source of the file
+        list, which the "extra files are not equivalent" guard reads.
+
+        The row models what `gh pr list` reports -- paths, no sha -- so a row
+        list alone can never establish content identity. `pr_blobs` therefore
+        supplies the sha for the generated path, while the row's own list still
+        decides *which* files the PR touches. Keeping those two roles separate
+        is what lets a test model "the generated README plus a handwritten
+        file", the case the extra-files guard exists for.
         """
-        if number in self.pr_blobs:
-            return self.pr_blobs[number]
+        files = None
         for row in self.open_prs:
             if row.get("number") != number:
                 continue
-            for entry in row.get("files") or []:
-                if isinstance(entry, dict) and entry.get("path") == path:
-                    return str(entry.get("sha") or "")
-        return ""
+            listed = row.get("files")
+            if isinstance(listed, list):
+                files = [
+                    {"path": str(entry.get("path") or ""), "sha": str(entry.get("sha") or "")}
+                    for entry in listed
+                    if isinstance(entry, dict)
+                ]
+            break
+
+        if number in self.pr_blobs:
+            sha = self.pr_blobs[number]
+            if files:
+                # Stamp the resolved blob onto the generated file, preserving
+                # every other entry the PR really carries.
+                stamped = [{**entry, "sha": sha} if entry["path"] == "README.md" else entry for entry in files]
+                return stamped
+            return [{"path": "README.md", "sha": sha}]
+        return files if files is not None else []
 
     def install(self, monkeypatch) -> None:
         monkeypatch.setattr(pr_helpers, "authenticated_login", lambda **kw: self.login)
@@ -142,7 +162,7 @@ class _FakeGitHub:
         monkeypatch.setattr(pr_helpers, "list_open_prs", list_open_prs)
         # Resolution runs for real, against the blobs this fake records, so a
         # regression in it cannot hide behind a stub.
-        monkeypatch.setattr(pr_helpers, "pr_file_blob", self._pr_file_blob)
+        monkeypatch.setattr(pr_helpers, "pr_files", self._pr_files)
         monkeypatch.setattr(pr_helpers, "resolve_pr_blobs", pr_helpers.resolve_pr_blobs)
         monkeypatch.setattr(
             pr_helpers,
@@ -1456,3 +1476,156 @@ def test_cli_dry_run_reports_pending_work_with_exit_1(adapters, tmp_path):
 
 def test_cli_rejects_an_unknown_adapter_name(tmp_path):
     assert regen.main(["--only", "no-such-adapter"]) == 2
+
+
+def _listed_row(number: int, title: str = PR_TITLE) -> dict:
+    """Return a row shaped exactly like `list_open_prs` emits it -- no `files` key.
+
+    The committed tests mostly inject rows that already carry a `files` list, a
+    shape the production listing never produces. Fixtures in this shape are what
+    caught two defects that the hand-built rows could not see.
+    """
+    return {
+        "number": number,
+        "url": f"https://github.com/dcc-mcp/dcc-mcp-krita/pull/{number}",
+        "title": title,
+        "headRefName": "chore/refresh-catalog-pointer-catalog-pointer",
+        "headRepositoryOwner": {"login": "dcc-mcp"},
+        "headRefOid": "0" * 40,
+        "author": {"login": "dcc-mcp"},
+    }
+
+
+def test_pr_files_returns_the_whole_list_not_one_blob(monkeypatch):
+    """The equivalence guard needs every file, so the lookup must not reduce to one."""
+    payload = json.dumps(
+        [
+            {"path": "README.md", "sha": "a" * 40},
+            {"path": "src/handwritten.py", "sha": "b" * 40},
+        ]
+    )
+    monkeypatch.setattr(
+        pr_helpers,
+        "_run",
+        lambda args, **kw: subprocess.CompletedProcess(args, 0, payload, ""),
+    )
+    assert pr_helpers.pr_files("o/r", 8, timeout=30) == [
+        {"path": "README.md", "sha": "a" * 40},
+        {"path": "src/handwritten.py", "sha": "b" * 40},
+    ]
+
+
+def test_pr_files_raises_when_the_lookup_fails(monkeypatch):
+    """A failed files lookup must not be read as 'this PR touches nothing'."""
+    monkeypatch.setattr(
+        pr_helpers,
+        "_run",
+        lambda args, **kw: subprocess.CompletedProcess(args, 1, "", "HTTP 500"),
+    )
+    with pytest.raises(pr_helpers.PrError, match="HTTP 500"):
+        pr_helpers.pr_files("o/r", 8, timeout=30)
+
+
+def test_pr_files_pages_through_every_page(monkeypatch):
+    """`--paginate` emits one array per line; all of them belong in the result."""
+    payload = "\n".join(
+        [
+            json.dumps([{"path": "README.md", "sha": "a" * 40}]),
+            json.dumps([{"path": "src/second.py", "sha": "b" * 40}]),
+        ]
+    )
+    monkeypatch.setattr(
+        pr_helpers,
+        "_run",
+        lambda args, **kw: subprocess.CompletedProcess(args, 0, payload, ""),
+    )
+    assert len(pr_helpers.pr_files("o/r", 8, timeout=30)) == 2
+
+
+def test_an_open_pr_not_touching_the_generated_file_is_not_unresolved(monkeypatch):
+    """The bug that blocked every refresh: an unrelated PR looked unresolvable.
+
+    A PR touching only `src/main.rs` answers the files lookup with a real, empty
+    match for the generated path. That is a normal non-match, not a failed
+    lookup -- but the resolver dropped the file list whenever the generated path
+    was absent, and the equivalence check then read the missing list as
+    "unreadable content" and refused to open anything.
+    """
+    monkeypatch.setattr(
+        pr_helpers,
+        "pr_files",
+        lambda repo, number, **kw: [{"path": "src/main.rs", "sha": "c" * 40}],
+    )
+    resolved = pr_helpers.resolve_pr_blobs([_listed_row(7)], "o/r", "README.md", timeout=30)
+    assert resolved[0]["files"] == [{"path": "src/main.rs", "sha": "c" * 40}]
+    assert pr_helpers.find_equivalent_pr(resolved, path="README.md", blob_sha="a" * 40, title=PR_TITLE) == {}
+
+
+def test_an_unrelated_open_pr_does_not_block_the_refresh(adapters, tmp_path, monkeypatch):
+    """Full-path regression: an unrelated open PR must still let the PR open."""
+    name = "dcc-mcp-krita"
+    origin = _make_origin(tmp_path, "prodshape1", _stale_readme(adapters, name))
+
+    listed = _listed_row(7, title="refactor: unrelated work")
+    listed["files"] = [{"path": "src/main.rs"}]
+    fake = _FakeGitHub(login="bot", open_prs=[listed])
+    row = _run_regen(adapters, tmp_path, name, origin, fake, monkeypatch)
+
+    assert row["status"] == regen.REGENERATED, f"got {row['status']}: {row['detail']}"
+    assert len(fake.created) == 1
+
+
+def test_a_pr_carrying_extra_files_is_not_reused_in_production(adapters, tmp_path, monkeypatch):
+    """Full-path regression: the extra-files guard must hold for production rows.
+
+    The resolver used to synthesise `files` from a single blob, so a PR carrying
+    the generated README plus a handwritten file looked like it touched only the
+    generated file and was reused -- folding unrelated work into the refresh.
+    """
+    name = "dcc-mcp-krita"
+    origin = _make_origin(tmp_path, "prodshape2", _stale_readme(adapters, name))
+    blob = _generated_blob(adapters, tmp_path, name)
+
+    listed = _listed_row(8)
+    listed["files"] = [{"path": "README.md"}, {"path": "src/handwritten.py"}]
+    fake = _FakeGitHub(login="bot", open_prs=[listed], pr_blobs={8: blob})
+    row = _run_regen(adapters, tmp_path, name, origin, fake, monkeypatch)
+
+    assert row["status"] == regen.REGENERATED, f"got {row['status']}: {row['detail']}"
+    assert len(fake.created) == 1
+
+
+def test_a_single_file_match_is_still_reused_in_production(adapters, tmp_path, monkeypatch):
+    """Control: a genuine single-file equivalent must still be recognised."""
+    name = "dcc-mcp-krita"
+    origin = _make_origin(tmp_path, "prodshape3", _stale_readme(adapters, name))
+    blob = _generated_blob(adapters, tmp_path, name)
+
+    listed = _listed_row(9)
+    listed["files"] = [{"path": "README.md"}]
+    fake = _FakeGitHub(login="bot", open_prs=[listed], pr_blobs={9: blob})
+    row = _run_regen(adapters, tmp_path, name, origin, fake, monkeypatch)
+
+    assert row["status"] == regen.DUPLICATE, f"got {row['status']}: {row['detail']}"
+    assert row["pr_number"] == 9
+    assert fake.created == [] and fake.pushed == []
+
+
+def test_an_empty_file_list_is_a_real_answer_not_a_lookup_failure():
+    """An empty list means 'touches nothing'; a missing key means 'lookup failed'."""
+    assert (
+        pr_helpers.find_equivalent_pr(
+            [{"number": 12, "title": PR_TITLE, "files": []}],
+            path="README.md",
+            blob_sha="d" * 40,
+            title=PR_TITLE,
+        )
+        == {}
+    )
+    with pytest.raises(pr_helpers.UnresolvedCandidate):
+        pr_helpers.find_equivalent_pr(
+            [{"number": 13, "title": PR_TITLE}],
+            path="README.md",
+            blob_sha="d" * 40,
+            title=PR_TITLE,
+        )

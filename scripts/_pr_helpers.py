@@ -16,6 +16,7 @@ This module holds only that plumbing. It knows nothing about pointer blocks.
 
 from __future__ import annotations
 
+import json
 import subprocess
 
 # Matches the generator's own per-operation default. Every `gh` call bounded by
@@ -219,43 +220,81 @@ def list_open_prs(repo: str, base: str, *, timeout: int = DEFAULT_TIMEOUT_SECS) 
     return rows
 
 
-def pr_file_blob(repo: str, number: int, path: str, *, timeout: int = DEFAULT_TIMEOUT_SECS) -> str:
-    """Return the blob SHA an open PR leaves at ``path``, or '' when unknown.
+def pr_files(repo: str, number: int, *, timeout: int = DEFAULT_TIMEOUT_SECS) -> list[dict]:
+    """Return every file an open PR touches as ``{path, sha}`` entries.
 
     ``gh pr list --json files`` does not populate the blob SHA -- it reports
     path, additions and deletions only -- so content comparison based on that
     output would silently degrade to a title match, which cannot tell one
     catalog state from another. The per-PR files endpoint does carry it.
+
+    The whole list is returned, not just the entry for one path, because the
+    caller needs both facts this payload answers at once: which files the PR
+    touches, and what content it leaves in each. Reducing it to a single blob
+    here made "does this PR carry only the generated file" unanswerable.
+
+    Raises ``PrError`` when the lookup fails. Returning an empty list instead
+    would be read as "this PR touches nothing", which is indistinguishable from
+    a PR that genuinely does not touch the generated file -- and the caller
+    would then open a duplicate beside a candidate it never inspected.
     """
     result = _run(
-        ["gh", "api", f"repos/{repo}/pulls/{number}/files", "--jq", f'.[] | select(.filename=="{path}") | .sha'],
+        [
+            "gh",
+            "api",
+            "--paginate",
+            f"repos/{repo}/pulls/{number}/files?per_page={PR_LIST_PAGE_SIZE}",
+            "--jq",
+            "[.[] | {path: .filename, sha}]",
+        ],
         timeout=timeout,
     )
     if result.returncode != 0:
-        return ""
-    return result.stdout.strip().splitlines()[0].strip() if result.stdout.strip() else ""
+        raise PrError(f"gh api pulls/{number}/files failed for {repo}: {(result.stderr or result.stdout).strip()}")
+
+    files: list[dict] = []
+    for line in (result.stdout or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            batch = json.loads(line)
+        except ValueError as exc:
+            raise PrError(f"gh api pulls/{number}/files returned unparsable JSON for {repo}: {exc}") from exc
+        if not isinstance(batch, list):
+            raise PrError(f"gh api pulls/{number}/files returned an unexpected payload for {repo}")
+        for entry in batch:
+            if isinstance(entry, dict) and entry.get("path"):
+                files.append({"path": str(entry["path"]), "sha": str(entry.get("sha") or "")})
+    return files
 
 
 def resolve_pr_blobs(rows: list[dict], repo: str, path: str, *, timeout: int = DEFAULT_TIMEOUT_SECS) -> list[dict]:
-    """Fill in each PR's real blob SHA at ``path``, preserving order.
+    """Fill in each PR's real file list, preserving order.
 
     The PR list payload reports no file list at all, so every row starts out
     without one. The per-PR files endpoint supplies both the file list and the
     blob, which means "does this PR touch only the generated file" and "what
     content does it leave there" are answered by the same call.
 
-    A PR that ends up with a file list of any length other than one is not
-    equivalent by definition, and is left without a blob so the caller treats it
-    as such.
+    The full list is copied onto the row rather than a single ``{path, sha}``
+    pair synthesised from one blob: the caller's "a PR carrying extra files is
+    not equivalent" guard reads this list, and a synthesised single entry made
+    every multi-file PR look like it touched only the generated file.
+
+    A row whose lookup raises is re-raised: an unresolvable candidate is not
+    evidence of irrelevance.
     """
     resolved = []
     for row in rows:
         number = row.get("number")
         row = dict(row)
+        # Resolve whenever the row does not already carry a usable blob for
+        # `path`. A row that arrived with a file list may still lack content
+        # identity -- `gh pr list --json files` reports paths without sha -- so
+        # the list being present is not enough to skip the lookup.
         if not _pr_file_identity(row, path) and isinstance(number, int):
-            sha = pr_file_blob(repo, number, path, timeout=timeout)
-            if sha:
-                row["files"] = [{"path": path, "sha": sha}]
+            row["files"] = pr_files(repo, number, timeout=timeout)
         resolved.append(row)
     return resolved
 
@@ -276,11 +315,19 @@ def _touches_only(row: dict, path: str) -> bool:
     A PR that also carries handwritten work is not the generated change, even if
     its README matches: reusing it would fold unrelated edits into this run's
     output and hide them from the maintainers reviewing the generated PR.
+
+    A row with no ``files`` key at all is *not* reported as touching ``path``:
+    the absence of the list means the lookup failed, and claiming a match on
+    unverified content is the failure this whole module exists to prevent.
+    Callers treat ``None`` and an empty list differently, so this stays strict.
     """
-    files = [f for f in (row.get("files") or []) if isinstance(f, dict)]
-    if len(files) != 1:
+    files = row.get("files")
+    if not isinstance(files, list):
         return False
-    return str(files[0].get("path") or "").strip() == path
+    entries = [f for f in files if isinstance(f, dict)]
+    if len(entries) != 1:
+        return False
+    return str(entries[0].get("path") or "").strip() == path
 
 
 class UnresolvedCandidate(PrError):
@@ -327,14 +374,19 @@ def find_equivalent_pr(
     fallback = None
     unresolved = False
     for row in rows:
-        files = row.get("files") or []
-        if not files:
+        files = row.get("files")
+        if files is None:
             # No file list at all means the lookup that would have produced both
             # the file list and the blob failed. The PR is open against this base
             # and its contents are unknown, which is the dangerous case: it may
             # well be the generated change. Treating it as unrelated would let
             # the run create a PR beside it.
             unresolved = True
+            continue
+        if not files:
+            # An empty list is a real answer: this PR touches nothing at all, so
+            # it cannot be carrying the generated file. That is a normal
+            # non-match -- an unrelated open PR must not stop the refresh.
             continue
         if not _touches_only(row, path):
             continue
