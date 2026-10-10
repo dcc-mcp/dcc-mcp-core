@@ -597,6 +597,47 @@ def test_find_open_pr_matches_on_the_bare_branch_name(monkeypatch):
     assert seen["head"] == "chore/refresh-catalog-pointer-47-adapters"
 
 
+def test_the_push_relies_on_an_inherited_git_credential():
+    """The workflow must export a git credential; the script cannot supply one.
+
+    `GH_TOKEN` is read by `gh` but not by git, and the push is a child process,
+    so `git -c` in the workflow cannot wrap it. The only mechanism that reaches
+    the push is `GIT_CONFIG_*` in the environment. If a future edit drops that
+    export, every cross-repository push fails with 401 -- and nothing in this
+    test suite would notice, because no test performs a real push.
+
+    So the contract is pinned here against the workflow file itself.
+    """
+    workflow = (REPO_ROOT / ".github/workflows/adapter-coverage.yml").read_text(encoding="utf-8")
+    assert "GIT_CONFIG_COUNT=2" in workflow
+    assert "credential.helper" in workflow
+    assert "store --file=" in workflow
+    # The token must come from the org secret that actually exists.
+    assert "secrets.PERSONAL_ACCESS_TOKEN" in workflow
+    # And the file holding it must be removed again.
+    assert "trap 'rm -f \"$credential_file\"'" in workflow
+
+
+def test_pr_calls_forward_the_callers_timeout(monkeypatch):
+    """`create_pr` / `update_pr` accept `timeout`; it must reach `_run`.
+
+    Both silently dropped it, so the workflow's `--timeout 300` was overridden
+    by the 600s default and a hung `gh` could outlive the caller's own budget.
+    """
+    seen = {}
+
+    def fake_run(args, **kwargs):
+        seen.setdefault("timeouts", []).append(kwargs.get("timeout"))
+        return subprocess.CompletedProcess(args, 0, "https://example/pr/1\n", "")
+
+    monkeypatch.setattr(pr_helpers, "_run", fake_run)
+
+    pr_helpers.create_pr("dcc-mcp/x", base="main", head="chore/pointer", title="t", body="b", timeout=300)
+    pr_helpers.update_pr("dcc-mcp/x", "https://example/pr/1", title="t", body="b", timeout=300)
+
+    assert seen["timeouts"] == [300, 300]
+
+
 def test_an_unrelated_change_is_not_allowed():
     assert regen.ALLOWED_CHANGED_FILES == ("README.md",)
 

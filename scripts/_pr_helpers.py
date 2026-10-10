@@ -227,6 +227,9 @@ def create_pr(repo: str, *, base: str, head: str, title: str, body: str, timeout
 
 def update_pr(repo: str, url: str, *, title: str, body: str, timeout: int = DEFAULT_TIMEOUT_SECS) -> None:
     """Refresh the title and body of an existing pull request."""
-    result = _run(["gh", "pr", "edit", url, "--repo", repo, "--title", title, "--body", body])
+    result = _run(
+        ["gh", "pr", "edit", url, "--repo", repo, "--title", title, "--body", body],
+        timeout=timeout,
+    )
     if result.returncode != 0:
         raise PrError(f"gh pr edit failed for {url}: {(result.stderr or result.stdout).strip()}")

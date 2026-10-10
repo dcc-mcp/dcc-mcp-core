@@ -330,6 +330,29 @@ jobs:
           INPUT_ONLY: ${{ inputs.only }}
           INPUT_DRY_RUN: ${{ inputs.dry_run }}
         run: |
+          # `GH_TOKEN` is only read by `gh`. The cross-repository `git push`
+          # inside the Python script is a separate process that git authenticates
+          # on its own, and `actions/checkout` leaves behind a `GITHUB_TOKEN`
+          # credential scoped to this repository alone -- so the push to
+          # `dcc-mcp/dcc-mcp-*` would authenticate with nothing usable and fail
+          # with 401 for every repository in the catalog.
+          #
+          # The push is spawned by Python `subprocess`, so `git -c` on a shell
+          # command cannot wrap it. `GIT_CONFIG_*` is inherited by any child
+          # process instead, which is why the credential is exported rather than
+          # passed as an argument. This matches the pattern already used by
+          # `uv-lock-refresh.yml`, `release-please-lock-sync.yml` and the
+          # `generated-lock-repair` action.
+          credential_file="$(mktemp)"
+          trap 'rm -f "$credential_file"' EXIT
+          chmod 600 "$credential_file"
+          printf 'https://x-access-token:%s@github.com\n' "$GH_TOKEN" > "$credential_file"
+          export GIT_CONFIG_COUNT=2
+          export GIT_CONFIG_KEY_0="credential.helper"
+          export GIT_CONFIG_VALUE_0=""
+          export GIT_CONFIG_KEY_1="credential.helper"
+          export GIT_CONFIG_VALUE_1="store --file=${credential_file}"
+
           args=()
           if [ -n "${INPUT_ONLY}" ]; then
             args+=(--only "${INPUT_ONLY}")

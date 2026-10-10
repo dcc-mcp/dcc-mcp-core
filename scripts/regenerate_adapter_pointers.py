@@ -267,9 +267,16 @@ def _push_target(repo_slug: str, head: str, *, timeout: int) -> tuple[str, str]:
 def _commit_and_push(repo_dir: Path, branch: str, push_target: str, *, timeout: int) -> None:
     """Commit the regenerated README on a new branch and push it to ``push_target``.
 
-    The remote is pushed as a URL rather than as a named remote so the token the
-    runner already holds is used and no credential is written into the
-    repository's config, where a later step could leak it.
+    The remote is pushed as a URL rather than as a named remote, so no
+    credential is written into the repository's config where a later step could
+    leak it. The credential itself comes from the environment: ``GH_TOKEN`` is
+    read by ``gh`` but *not* by git, so the caller must export a git credential
+    helper (``GIT_CONFIG_*``) or the push authenticates with nothing usable.
+
+    That requirement is easy to miss because it is invisible from here -- the
+    push is a child process and inherits whatever the workflow exported. This
+    function deliberately does not assemble a credential itself: keeping the
+    token on the workflow side avoids writing it to disk from Python.
     """
     steps = (
         (["-C", str(repo_dir), "checkout", "-q", "-b", branch], "checkout -b"),
