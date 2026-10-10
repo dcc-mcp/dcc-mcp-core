@@ -540,7 +540,7 @@ impl PyUsdStage {
 #[pyfunction]
 #[pyo3(signature = (scene_info_json, dcc_type = "generic"))]
 pub fn scene_info_json_to_stage(scene_info_json: &str, dcc_type: &str) -> PyResult<PyUsdStage> {
-    let info: dcc_mcp_protocols::adapters::SceneInfo = serde_json::from_str(scene_info_json)
+    let info: dcc_mcp_adapters::SceneInfo = serde_json::from_str(scene_info_json)
         .map_err(|e| PyValueError::new_err(format!("invalid SceneInfo JSON: {e}")))?;
     let stage = scene_info_to_stage(&info, dcc_type);
     Ok(PyUsdStage { inner: stage })

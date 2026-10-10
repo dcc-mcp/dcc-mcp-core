@@ -5,6 +5,7 @@
 members = [
     "crates/dcc-mcp-naming",
     "crates/dcc-mcp-models",
+    "crates/dcc-mcp-adapters",
     "crates/dcc-mcp-actions",
     "crates/dcc-mcp-skills",
     "crates/dcc-mcp-skills-bench",
@@ -67,6 +68,7 @@ repository = "https://github.com/dcc-mcp/dcc-mcp-core"
 # Internal crates
 dcc-mcp-naming = { path = "crates/dcc-mcp-naming" }
 dcc-mcp-models = { path = "crates/dcc-mcp-models" }
+dcc-mcp-adapters = { path = "crates/dcc-mcp-adapters" }
 dcc-mcp-actions = { path = "crates/dcc-mcp-actions" }
 dcc-mcp-skills = { path = "crates/dcc-mcp-skills" }
 dcc-mcp-skills-bench = { path = "crates/dcc-mcp-skills-bench" }

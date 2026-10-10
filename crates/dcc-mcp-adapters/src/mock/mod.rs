@@ -12,7 +12,7 @@
 //! # Quick Start
 //!
 //! ```rust
-//! use dcc_mcp_protocols::mock::{MockDccAdapter, MockConfig};
+//! use dcc_mcp_adapters::mock::{MockDccAdapter, MockConfig};
 //!
 //! // Create with defaults (a "maya" mock)
 //! let mut adapter = MockDccAdapter::new();
@@ -33,8 +33,8 @@
 //! You can inject custom behavior via [`MockConfig::script_handler`]:
 //!
 //! ```rust
-//! use dcc_mcp_protocols::mock::MockConfig;
-//! use dcc_mcp_protocols::adapters::ScriptLanguage;
+//! use dcc_mcp_adapters::mock::MockConfig;
+//! use dcc_mcp_adapters::ScriptLanguage;
 //!
 //! let config = MockConfig::builder()
 //!     .script_handler(|code, lang, _timeout| {

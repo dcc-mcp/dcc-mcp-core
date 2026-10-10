@@ -1,4 +1,4 @@
-use dcc_mcp_protocols::adapters::{SceneInfo, SceneStatistics};
+use dcc_mcp_adapters::{SceneInfo, SceneStatistics};
 use dcc_mcp_usd::bridge::{scene_info_to_stage, stage_to_scene_info};
 use dcc_mcp_usd::{SdfPath, UsdStage, VtValue};
 

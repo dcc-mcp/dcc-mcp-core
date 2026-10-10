@@ -4,7 +4,7 @@
 //! which is useful when an Agent already has a USD representation of a scene
 //! and wants to query it through the standard `DccSceneInfo` interface.
 
-use dcc_mcp_protocols::adapters::{DccResult, DccSceneInfo, SceneInfo};
+use dcc_mcp_adapters::{DccResult, DccSceneInfo, SceneInfo};
 
 use crate::stage::UsdStage;
 

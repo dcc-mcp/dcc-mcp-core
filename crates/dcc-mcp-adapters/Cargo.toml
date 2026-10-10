@@ -1,17 +1,21 @@
 [package]
-name = "dcc-mcp-protocols"
+name = "dcc-mcp-adapters"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "MCP protocol type definitions for the DCC-MCP ecosystem"
+repository.workspace = true
+description = "DCC adapter traits, scene/scription data models, and their PyO3 projections for the DCC-MCP ecosystem"
+
+[lints]
+workspace = true
 
 [dependencies]
-# ADR-037 Cut 3: the DCC adapter surface lives in `dcc-mcp-adapters` and is
-# re-exported from here. The arrow points outward — the protocol crate no
-# longer carries DCC application concepts itself.
-dcc-mcp-adapters = { workspace = true }
+# No dependency on `dcc-mcp-protocols`: the adapter surface converts *into*
+# MCP types at the boundary that knows both layers, not here. Depending on it
+# would create a cycle, since `dcc-mcp-protocols` re-exports this crate for
+# backwards compatibility (ADR-037 Cut 3).
 
 pyo3 = { workspace = true, optional = true }
 
@@ -21,21 +25,16 @@ pyo3-stub-gen-derive = { workspace = true, optional = true }
 
 serde = { workspace = true }
 serde_json = { workspace = true }
-# `parking_lot` moved to `dcc-mcp-adapters` with the mock adapter — the
-# remaining protocol types are plain serde value types (ADR-037 Cut 3).
+parking_lot = { workspace = true }
 uuid = { workspace = true }
+thiserror = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [features]
 default = []
-python-bindings = ["pyo3", "dcc-mcp-adapters/python-bindings"]
+python-bindings = ["pyo3"]
 # Enable `pyo3-stub-gen` annotations on this crate's PyO3 types.
-stub-gen = [
-    "python-bindings",
-    "dep:pyo3-stub-gen",
-    "dep:pyo3-stub-gen-derive",
-    "dcc-mcp-adapters/stub-gen",
-]
+stub-gen = ["python-bindings", "dep:pyo3-stub-gen", "dep:pyo3-stub-gen-derive"]
 
 [dev-dependencies]
 dcc-mcp-models = { workspace = true }

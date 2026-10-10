@@ -1123,6 +1123,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "dcc-mcp-adapters"
+version = "0.20.42"
+dependencies = [
+ "dcc-mcp-models",
+ "parking_lot",
+ "pyo3",
+ "pyo3-stub-gen",
+ "pyo3-stub-gen-derive",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "uuid",
+ "workspace-hack",
+]
+
+[[package]]
 name = "dcc-mcp-artefact"
 version = "0.20.42"
 dependencies = [
@@ -1691,8 +1707,8 @@ dependencies = [
 name = "dcc-mcp-protocols"
 version = "0.20.42"
 dependencies = [
+ "dcc-mcp-adapters",
  "dcc-mcp-models",
- "parking_lot",
  "pyo3",
  "pyo3-stub-gen",
  "pyo3-stub-gen-derive",
@@ -2084,6 +2100,7 @@ dependencies = [
 name = "dcc-mcp-usd"
 version = "0.20.42"
 dependencies = [
+ "dcc-mcp-adapters",
  "dcc-mcp-protocols",
  "pyo3",
  "pyo3-stub-gen",

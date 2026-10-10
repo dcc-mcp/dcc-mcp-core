@@ -8,7 +8,7 @@
 //! # Usage
 //!
 //! ```rust
-//! use dcc_mcp_protocols::adapters::{SceneInfo, SceneStatistics};
+//! use dcc_mcp_adapters::{SceneInfo, SceneStatistics};
 //! use dcc_mcp_usd::bridge::scene_info_to_stage;
 //!
 //! let info = SceneInfo {
@@ -26,7 +26,7 @@
 //! assert!(stage.has_prim("/World"));
 //! ```
 
-use dcc_mcp_protocols::adapters::SceneInfo;
+use dcc_mcp_adapters::SceneInfo;
 
 use crate::stage::UsdStage;
 use crate::types::{SdfPath, UsdLayer, UsdPrim, VtValue};
@@ -235,7 +235,7 @@ pub fn meters_per_unit_to_units(mpu: f64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dcc_mcp_protocols::adapters::SceneStatistics;
+    use dcc_mcp_adapters::SceneStatistics;
 
     mod test_unit_conversion {
         use super::*;

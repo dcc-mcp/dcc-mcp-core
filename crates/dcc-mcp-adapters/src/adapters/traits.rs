@@ -413,7 +413,7 @@ pub trait DccHierarchy: Send + Sync {
 /// # Example
 ///
 /// ```rust
-/// use dcc_mcp_protocols::adapters::*;
+/// use dcc_mcp_adapters::*;
 ///
 /// struct MockAdapter {
 ///     info: DccInfo,
