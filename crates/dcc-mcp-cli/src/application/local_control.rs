@@ -12,13 +12,14 @@ use dcc_mcp_jsonrpc::{JsonRpcRequestBuilder, MCP_PROTOCOL_VERSION};
 use dcc_mcp_transport::discovery::types::ServiceEntry;
 use serde_json::{Map, Value, json};
 
+use crate::application::client::MCP_ACCEPT;
 use crate::application::local_instance;
 use crate::domain::rest::{
     Endpoint, ReloadSkillsRequest, SearchRequest, StopInstanceRequest, WaitReadyRequest,
 };
+use crate::domain::wire_args::normalize_call_args;
 use crate::infra::http::HttpGateway;
 
-const MCP_ACCEPT: &str = "application/json, text/event-stream";
 const DEFAULT_REQUIRED_READINESS_FIELDS: &[&str] =
     &["process", "dcc", "skill_catalog", "dispatcher"];
 
@@ -1014,11 +1015,13 @@ async fn mcp_call_tool_correlated(
     arguments: Value,
     meta: Option<Value>,
 ) -> anyhow::Result<CorrelatedMcpToolCall> {
+    let (arguments, meta) =
+        normalize_call_args(arguments, meta).context("normalise tools/call arguments")?;
     let mut params = Map::new();
     params.insert("name".to_string(), Value::String(name.to_string()));
     params.insert("arguments".to_string(), arguments);
     if let Some(meta) = meta {
-        params.insert("_meta".to_string(), meta);
+        params.insert("_meta".to_string(), Value::Object(meta));
     }
     let response = mcp_request(gateway, mcp_url, "tools/call", Value::Object(params)).await?;
     let result = response

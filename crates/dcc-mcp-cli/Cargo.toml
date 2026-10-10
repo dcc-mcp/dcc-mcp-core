@@ -24,6 +24,9 @@ dcc-mcp-http-server.workspace = true
 # Keep the path override: Cargo cannot override inherited workspace default features.
 dcc-mcp-sidecar = { path = "../dcc-mcp-sidecar", default-features = false, features = ["gateway-daemon", "admin"] }
 dcc-mcp-transport.workspace = true
+# Share argument/meta normalisation with the server side instead of
+# re-implementing serde quirks on the client (B2, ADR-037).
+dcc-mcp-wire.workspace = true
 dcc-mcp-updater.workspace = true
 dcc-mcp-marketplace.workspace = true
 dcc-mcp-models.workspace = true

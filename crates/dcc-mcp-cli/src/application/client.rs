@@ -9,9 +9,13 @@ use crate::domain::rest::{
     CallRequest, DescribeRequest, DirectCallRequest, Endpoint, FeedbackQueryRequest,
     LoadSkillRequest, SearchRequest, StatsRequest, StopInstanceRequest, WaitReadyRequest,
 };
+use crate::domain::wire_args::normalize_call_args;
 use crate::infra::http::{HttpError, HttpGateway};
 
-const MCP_STREAMABLE_HTTP_ACCEPT: &str = "application/json, text/event-stream";
+/// `Accept` header for MCP Streamable HTTP: JSON when the server answers in a
+/// single body, `text/event-stream` when it streams. Shared with
+/// `local_control` so both client paths negotiate identically.
+pub(crate) const MCP_ACCEPT: &str = "application/json, text/event-stream";
 
 /// Wire transport used for model-facing tool calls.
 ///
@@ -175,10 +179,13 @@ impl DccMcpClient {
         if self.transport == TransportMode::Mcp {
             return self.call_mcp_tool(request, &request_id).await;
         }
+        let (arguments, meta) =
+            normalize_call_args(request.arguments.clone(), request.meta.clone())
+                .map_err(|error| ClientError::Protocol(error.to_string()))?;
         let body = json!({
             "tool_slug": &request.tool_slug,
-            "arguments": &request.arguments,
-            "meta": &request.meta,
+            "arguments": &arguments,
+            "meta": &meta,
         });
         match self
             .gateway
@@ -199,12 +206,14 @@ impl DccMcpClient {
         request_id: &str,
     ) -> Result<Value, ClientError> {
         let tool_slug = request.tool_slug;
+        let (arguments, meta) = normalize_call_args(request.arguments, request.meta)
+            .map_err(|error| ClientError::Protocol(error.to_string()))?;
         let mut params = json!({
             "name": &tool_slug,
-            "arguments": request.arguments,
+            "arguments": arguments,
         });
-        if let Some(meta) = request.meta {
-            params["_meta"] = meta;
+        if let Some(meta) = meta {
+            params["_meta"] = Value::Object(meta);
         }
         let response = self
             .gateway
@@ -218,7 +227,7 @@ impl DccMcpClient {
                 }),
                 &[
                     ("Mcp-Protocol-Version", MCP_PROTOCOL_VERSION),
-                    ("Accept", MCP_STREAMABLE_HTTP_ACCEPT),
+                    ("Accept", MCP_ACCEPT),
                     ("X-Request-ID", request_id),
                 ],
             )
@@ -252,10 +261,12 @@ impl DccMcpClient {
 
     pub async fn direct_call(&self, request: DirectCallRequest) -> Result<Value, ClientError> {
         let request_id = next_request_id();
+        let (arguments, meta) = normalize_call_args(request.arguments, request.meta)
+            .map_err(|error| ClientError::Protocol(error.to_string()))?;
         let body = json!({
             "backend_tool": request.backend_tool,
-            "arguments": request.arguments,
-            "meta": request.meta,
+            "arguments": arguments,
+            "meta": meta,
         });
         let path = format!(
             "/v1/dcc/{}/instances/{}/call",
@@ -446,7 +457,7 @@ impl DccMcpClient {
                 }),
                 &[
                     ("Mcp-Protocol-Version", MCP_PROTOCOL_VERSION),
-                    ("Accept", MCP_STREAMABLE_HTTP_ACCEPT),
+                    ("Accept", MCP_ACCEPT),
                 ],
             )
             .await;
@@ -464,7 +475,7 @@ impl DccMcpClient {
                 }),
                 &[
                     ("Mcp-Protocol-Version", MCP_PROTOCOL_VERSION),
-                    ("Accept", MCP_STREAMABLE_HTTP_ACCEPT),
+                    ("Accept", MCP_ACCEPT),
                 ],
             )
             .await;

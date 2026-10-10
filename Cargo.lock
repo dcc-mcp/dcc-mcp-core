@@ -1207,6 +1207,7 @@ dependencies = [
  "dcc-mcp-skills",
  "dcc-mcp-transport",
  "dcc-mcp-updater",
+ "dcc-mcp-wire",
  "dirs",
  "flate2",
  "hex",
