@@ -83,6 +83,7 @@ pub mod debug_session;
 pub mod dynamic_tools;
 pub mod error;
 pub mod output;
+pub mod policy;
 pub mod prompts;
 pub mod resources;
 pub mod session;

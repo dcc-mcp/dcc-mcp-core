@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use dcc_mcp_gateway_core::policy::GatewayPolicy;
+use crate::policy::GatewayPolicy;
 
 /// Configured tunnel relay source for gateway discovery.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

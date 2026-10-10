@@ -1362,6 +1362,7 @@ version = "0.20.42"
 dependencies = [
  "chrono",
  "dcc-mcp-gateway-search",
+ "dcc-mcp-http-types",
  "dcc-mcp-jsonrpc",
  "dcc-mcp-naming",
  "serde",
@@ -1545,7 +1546,6 @@ name = "dcc-mcp-http-types"
 version = "0.20.42"
 dependencies = [
  "base64 0.22.1",
- "dcc-mcp-gateway-core",
  "dcc-mcp-jsonrpc",
  "dcc-mcp-models",
  "serde",

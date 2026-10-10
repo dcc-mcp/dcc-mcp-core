@@ -22,6 +22,11 @@ serde_json = { workspace = true }
 uuid = { workspace = true }
 chrono = { version = "0.4", features = ["serde"] }
 dcc-mcp-gateway-search = { workspace = true }
+# ADR-037 Cut 1: the gateway policy value types are operator-facing
+# configuration, so they live in the transport-neutral config crate. This
+# crate implements `PolicySubject` for `CapabilityRecord` and re-exports
+# the policy types so `dcc_mcp_gateway_core::policy::*` paths still work.
+dcc-mcp-http-types = { workspace = true }
 dcc-mcp-jsonrpc = { workspace = true }
 # `naming` domain depends on the tool-name validator and emits one-shot
 # warnings through `tracing`. Both are pure / facade-only deps so the

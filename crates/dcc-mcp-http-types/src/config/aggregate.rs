@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use dcc_mcp_gateway_core::policy::GatewayPolicy;
+use crate::policy::GatewayPolicy;
 
 use super::{
     FeatureFlags, GatewaySettings, InstanceConfig, JobConfig, JobRecoveryPolicy, QueueConfig,
