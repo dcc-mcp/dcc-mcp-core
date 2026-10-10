@@ -33,6 +33,7 @@ class DistributionSetError(ValueError):
 _EXPECTED_WHEEL_CONTRACTS = {
     "native_py37/linux-x86_64",
     "native_py37/windows-x86_64",
+    "native_py37/macos-x86_64",
     "abi3/linux-x86_64",
     "abi3/windows-x86_64",
     "abi3/macos-universal2",
@@ -59,6 +60,8 @@ def _classify_wheel(filename: str, version: str) -> tuple[str, str]:
         return "native_py37", "linux-x86_64"
     if tags == "cp37-cp37m-win_amd64":
         return "native_py37", "windows-x86_64"
+    if tags.startswith("cp37-cp37m-macosx_") and tags.endswith("_x86_64"):
+        return "native_py37", "macos-x86_64"
     if tags.startswith("cp38-abi3-manylinux_"):
         return "abi3", "linux-x86_64"
     if tags == "cp38-abi3-win_amd64":
