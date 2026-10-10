@@ -5,8 +5,8 @@ halves need the same pieces of GitHub plumbing for different reasons:
 
 - The branch name must be stable across runs, or a second catalog change would
   open a duplicate PR next to the first instead of refreshing it.
-- Forks cannot be pushed to directly, so the push target depends on whether the
-  authenticated user owns the repository.
+- The push target depends on the token's actual push permission, not on whether
+  its login happens to own the repository.
 - The PR must be created once and updated afterwards, because re-opening it on
   every scheduled run would spam subscribers.
 
@@ -81,36 +81,67 @@ def repo_owner(repo: str) -> str:
     return repo.split("/", 1)[0] if "/" in repo else ""
 
 
+def has_push_access(repo: str, *, timeout: int = DEFAULT_TIMEOUT_SECS) -> bool:
+    """Return True when the authenticated user may push to ``repo``.
+
+    Ownership is not a proxy for this: an organisation repository grants push to
+    its members without them owning it, and a token with a narrow scope can be
+    read-only on a repository the login *does* own. The REST ``/repos/{repo}``
+    payload carries both, so ``permissions.push`` is read directly instead.
+
+    A login is not required first -- the permission is the token's, and the
+    token is what pushes.
+    """
+    result = _run(["gh", "api", f"repos/{repo}", "--jq", ".permissions.push"], timeout=timeout)
+    if result.returncode != 0:
+        return False
+    return result.stdout.strip().lower() == "true"
+
+
+def _fork_query_jq(login: str) -> str:
+    """Build the jq filter that picks the caller's own fork out of ``forks``."""
+    return f'.data.repository.forks.nodes[] | select(.owner.login=="{login}") | .nameWithOwner'
+
+
 def ensure_fork(upstream: str, *, timeout: int = DEFAULT_TIMEOUT_SECS) -> str:
     """Return a repository the authenticated user can push to.
 
-    ``upstream`` when the caller already owns it; otherwise a fork of it.
-    Cross-repository pull requests are opened from a fork because the job's
-    token is not guaranteed write access to every adapter in the catalog, and a
-    fork keeps the automation working regardless of which repositories it is
-    later granted.
+    ``upstream`` whenever the authenticated user already has push access to it.
+    That is the normal case for an organisation repository the job's token is a
+    member of, and pushing there keeps the branch and the pull request in one
+    repository instead of splitting them across a personal fork.
 
-    ``gh repo fork`` is idempotent: it reports the existing fork when one
-    already exists, so this is safe to call on every run.
+    A fork is only a last resort, used when the push permission is absent:
+    cross-repository pull requests keep the automation working against a
+    repository it was not granted write access to. Creating one is never
+    automatic -- see ``_ensure_existing_fork`` for why that distinction matters.
+
+    Raises ``PrError`` when neither is available, so a repository the job cannot
+    act on is reported as a gap rather than silently skipped.
     """
-    login = authenticated_login(timeout=timeout)
-    if not login or login.lower() == repo_owner(upstream).lower():
+    if has_push_access(upstream, timeout=timeout):
         return upstream
 
-    # `--clone=false` with an equals sign: `--clone false` is read as a clone
-    # destination named "false". No clone is wanted -- this function only needs
-    # the fork to exist so a branch can be pushed to it.
-    result = _run(["gh", "repo", "fork", upstream, "--clone=false"], timeout=timeout)
-    # An existing fork is reported on stderr with a non-zero exit, which is the
-    # success case for this call, not a failure. The lookup below is what
-    # actually proves the fork is usable.
-    if result.returncode != 0 and "already exists" not in (result.stderr or ""):
-        raise PrError(f"gh repo fork failed for {upstream}: {(result.stderr or result.stdout).strip()}")
+    login = authenticated_login(timeout=timeout)
+    if not login:
+        raise PrError(
+            f"no push access to {upstream} and the authenticated login is unknown; cannot fall back to a fork"
+        )
+    return _ensure_existing_fork(upstream, login, timeout=timeout)
 
-    # The fork's slug is resolved through the API rather than parsed out of
-    # `gh repo fork`'s prose: that command has no `--json` mode, and `gh repo
-    # view <upstream>` reports the upstream even after a fork exists. The API
-    # `forks` connection is authoritative.
+
+def _ensure_existing_fork(upstream: str, login: str, *, timeout: int = DEFAULT_TIMEOUT_SECS) -> str:
+    """Return the caller's existing fork of ``upstream``, or raise.
+
+    The fork is looked up but never created. Auto-forking was the earlier
+    behaviour and it is deliberately gone: it silently forked repositories the
+    operator had *just* said to work on directly, leaving behind permanent
+    personal forks nobody asked for and pull requests opened from the wrong
+    place. A missing fork is now an explicit error the operator resolves once.
+
+    Looking the fork up first is also what makes repeat runs safe: an existing
+    fork is reused as-is rather than re-created.
+    """
     owner, name = upstream.split("/", 1) if "/" in upstream else ("", upstream)
     # Filtered in jq rather than through a query argument: `forks` does not take
     # an affiliation filter, and other people's forks are not pushable.
@@ -130,14 +161,17 @@ def ensure_fork(upstream: str, *, timeout: int = DEFAULT_TIMEOUT_SECS) -> str:
             "-F",
             f"name={name}",
             "--jq",
-            f'.data.repository.forks.nodes[] | select(.owner.login=="{login}") | .nameWithOwner',
+            _fork_query_jq(login),
         ],
         timeout=timeout,
     )
     if api.returncode == 0 and api.stdout.strip():
         return api.stdout.strip().splitlines()[0].strip()
 
-    raise PrError(f"could not find or create a fork of {upstream} for {login}")
+    raise PrError(
+        f"no push access to {upstream} and no fork belonging to {login} was found; "
+        f"grant the job's token write access to {upstream}, or create the fork once by hand"
+    )
 
 
 def find_open_pr(repo: str, head: str, base: str, *, timeout: int = DEFAULT_TIMEOUT_SECS) -> str:
