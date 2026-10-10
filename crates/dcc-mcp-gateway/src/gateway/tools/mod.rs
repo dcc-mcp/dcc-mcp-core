@@ -1144,7 +1144,7 @@ pub(crate) fn describe_needs_refresh(
     _args: &Value,
     _meta: Option<&Value>,
 ) -> bool {
-    crate::gateway::capability_service::describe_service(&gs.capability_index, slug)
+    crate::gateway::capability_service::describe_service(&gs.capability_index, slug, &gs.policy)
         .map(|_| false)
         .unwrap_or(true)
 }
