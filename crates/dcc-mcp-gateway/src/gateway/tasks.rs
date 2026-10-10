@@ -70,6 +70,17 @@ pub(crate) struct GatewayTasks {
     /// `GatewayHandle` so the task is not silently detached — this is the
     /// fix for the "Run A: TIMEOUT" leg of issue #303.
     pub(crate) supervisor: tokio::task::JoinHandle<()>,
+    /// AbortHandle per HTTP listener, so a caller that stops the supervisor
+    /// can also stop the listeners directly.
+    ///
+    /// The supervisor aborts these itself when it finishes, but only once it
+    /// gets to run. A caller that aborts the supervisor from outside (the
+    /// challenger promotion path) may drop the supervisor future before that
+    /// line is reached, and a dropped [`tokio::task::JoinHandle`] *detaches*
+    /// its task — which would leave the axum listener serving on the gateway
+    /// port. Callers therefore hold these and abort them before dropping the
+    /// supervisor.
+    pub(crate) listener_aborts: Vec<AbortHandle>,
     /// Yield signal used by the caller to trigger graceful shutdown.
     #[allow(dead_code)]
     pub(crate) yield_tx: Arc<watch::Sender<bool>>,
@@ -1266,7 +1277,15 @@ pub(crate) async fn start_gateway_tasks(
     // listener that outlives the drain window. Dropping a JoinHandle
     // *detaches* the task in tokio — it does not cancel it — which would leak
     // the axum listener and hold the gateway port open.
+    //
+    // Two copies are needed: one for the supervisor's own end-of-drain
+    // cleanup, and one handed back in `GatewayTasks` so a caller that stops
+    // the supervisor from outside (the challenger promotion path, where the
+    // supervisor future is dropped rather than awaited) can still stop the
+    // listeners. `AbortHandle` is cheap to clone and both copies abort the
+    // same tasks.
     let listener_aborts = vec![gw_handle.abort_handle(), remote_handle.abort_handle()];
+    let supervisor_listener_aborts = listener_aborts.clone();
     let listener_handles = vec![gw_handle, remote_handle];
     let mut task_handles = vec![
         cleanup_handle,
@@ -1340,7 +1359,7 @@ pub(crate) async fn start_gateway_tasks(
         // still running, so without this a listener holding a long-lived SSE
         // stream would keep serving on the gateway port after shutdown. This
         // preserves the pre-drain guarantee that teardown releases the port.
-        for abort in &listener_aborts {
+        for abort in &supervisor_listener_aborts {
             abort.abort();
         }
     });
@@ -1385,6 +1404,7 @@ pub(crate) async fn start_gateway_tasks(
     Ok(GatewayTasks {
         abort: combined.abort_handle(),
         supervisor: combined,
+        listener_aborts,
         yield_tx,
     })
 }

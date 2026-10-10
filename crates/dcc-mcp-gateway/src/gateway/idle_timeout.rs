@@ -61,10 +61,12 @@ pub const DRAIN_GRACE: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// Polling cadence of the idle timer.
 ///
-/// The timer samples the live-backend count on this interval, so shutdown
-/// actually lands somewhere in `[grace, grace + IDLE_POLL)`. That is
+/// The timer samples the live-backend count on this interval and the
+/// listeners then get [`DRAIN_GRACE`] to finish in-flight requests, so
+/// shutdown actually lands somewhere in
+/// `[grace + IDLE_POLL, grace + IDLE_POLL + DRAIN_GRACE)`. That is
 /// immaterial for a 300 s grace period but worth knowing when debugging
-/// with a small one.
+/// with a small one: a 1 s grace still exits at roughly t=10 s.
 pub const IDLE_POLL: std::time::Duration = std::time::Duration::from_secs(5);
 
 #[cfg(test)]
