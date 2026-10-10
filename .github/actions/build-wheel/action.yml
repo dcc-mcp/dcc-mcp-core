@@ -222,7 +222,20 @@ runs:
         if [[ "${{ inputs.python-version }}" == "3.7" ]]; then
           profile="native_py37"
           case "${{ runner.os }}" in
-            Linux|Windows) ;;
+            Linux) platform="linux-x86_64" ;;
+            Windows) platform="windows-x86_64" ;;
+            macOS)
+              # CPython 3.7 has no ARM64 macOS build, so the only contracted
+              # macOS cp37 wheel is the x86_64 one cross-compiled on the ARM64
+              # runner. An ARM64 or universal2 tag means maturin resolved the
+              # host architecture instead of --target and must fail here.
+              if [[ "${{ inputs.target }}" == "x86_64-apple-darwin" ]]; then
+                platform="macos-x86_64"
+              else
+                echo "::error::macOS Python 3.7 wheels must target x86_64-apple-darwin, got '${{ inputs.target }}'"
+                exit 1
+              fi
+              ;;
             *)
               echo "::error::Native Python 3.7 wheels are not contracted for ${{ runner.os }}"
               exit 1

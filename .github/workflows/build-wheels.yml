@@ -357,6 +357,82 @@ jobs:
         run: |
           python .workflow-tools/scripts/ci/python37_wheel_smoke.py \
             --wheel 'dist/*.whl' --profile native_py37 --checkout-ref "$CHECKOUT_REF"
+  macos-py37:
+    needs: [classify-release-assets]
+    if: >-
+      always() && (inputs.reuse-release-assets != true ||
+      needs.classify-release-assets.outputs.mode == 'rebuild')
+    # CPython 3.7 never shipped an ARM64 macOS build, so the ARM64 runner
+    # installs the x86_64 python.org package and lets Rosetta 2 run it. The
+    # Rust extension is cross-compiled to x86_64-apple-darwin, which is also
+    # the slice Maya 2022 on macOS consumes (Apple Silicon via Rosetta 2).
+    runs-on: macos-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.checkout-ref || github.ref }}
+
+      - name: Ensure Rosetta 2 is available
+        shell: bash
+        run: |
+          set -euo pipefail
+          if pgrep -q oahd; then
+            echo "Rosetta 2 already running"
+            exit 0
+          fi
+          echo "Installing Rosetta 2"
+          sudo softwareupdate --install-rosetta --agree-to-license
+
+      - name: Install Python 3.7.9 (x86_64)
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/python-3.7.9-macosx10.9.pkg \
+            https://www.python.org/ftp/python/3.7.9/python-3.7.9-macosx10.9.pkg
+          sudo installer -pkg /tmp/python-3.7.9-macosx10.9.pkg -target /
+          PY37=/Library/Frameworks/Python.framework/Versions/3.7/bin/python3.7
+          echo "PY37=${PY37}" >> "$GITHUB_ENV"
+          "${PY37}" --version
+          "${PY37}" -m pip install --upgrade "pip>=20.0"
+
+      - name: Add x86_64-apple-darwin Rust target
+        shell: bash
+        run: rustup target add x86_64-apple-darwin
+
+      - uses: ./.github/actions/build-wheel
+        with:
+          target: x86_64-apple-darwin
+          python-version: '3.7'
+          # Shell-expanded by the action's bash step, so maturin resolves the
+          # Rosetta x86_64 interpreter rather than the ARM64 host Python.
+          maturin-extra-args: '-i "${PY37}"'
+          artifact-name: wheels-macos-x86_64-py37
+
+      - name: Checkout workflow compatibility tooling
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .workflow-tools
+          sparse-checkout: |
+            compatibility
+            scripts/ci
+          persist-credentials: false
+      - name: Check native Python 3.7 wheel contract
+        shell: bash
+        run: >-
+          python .workflow-tools/scripts/ci/check_python_wheel.py
+          --profile native_py37
+          --platform macos-x86_64
+          dist/*.whl
+      - name: Test native Python 3.7 wheel with workflow smoke
+        env:
+          CHECKOUT_REF: ${{ inputs.checkout-ref || github.ref }}
+        shell: bash
+        run: |
+          python .workflow-tools/scripts/ci/python37_wheel_smoke.py \
+            --wheel 'dist/*.whl' --profile native_py37 --checkout-ref "$CHECKOUT_REF"
   macos:
     needs: [classify-release-assets]
     if: >-
