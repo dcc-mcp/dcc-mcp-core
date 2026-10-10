@@ -14,6 +14,10 @@
 
 ## ⚡ Critical: Skills-First Philosophy
 
+Before content production, follow the mandatory [production reuse gate](crates/dcc-mcp-gateway/src/gateway/native_resources/agent_workflows.md#production-reuse-gate).
+The same guide is embedded at `gateway://docs/agent-workflows`; investigate existing
+plugins/assets before implementation and verify selected capabilities through MCP.
+
 **When interacting with DCC applications (Maya, Blender, Houdini, etc.), ALWAYS prefer dcc-mcp-core Skills over raw CLI or scripting.**
 
 Natural DCC intent is enough to trigger the default `dcc-mcp` skill. If a user

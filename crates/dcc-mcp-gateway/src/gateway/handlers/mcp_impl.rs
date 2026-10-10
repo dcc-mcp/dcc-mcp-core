@@ -452,7 +452,7 @@ async fn handle_initialize(
                  \n\
                  Workflow:\n\
                  1. Optional: resources/read uri=gateway://instances to inspect live DCCs\n\
-                 1b. Optional: resources/read uri=gateway://docs/agent-workflows (MCP+REST patterns, path /v1/dcc/.../call, re-list instances after DCC restart)\n\
+                 1b. Before content production, MUST resources/read uri=gateway://docs/agent-workflows and follow its Production reuse gate: bounded plugin/asset discovery, license/output rights and compatibility evaluation, real MCP validation before reuse, or documented reasons before minimal fallback. Discovery is not usable-capability evidence. The guide also covers MCP+REST patterns and restart recovery.\n\
                  2. search(kind=\"skill\", ...) then load_skill(skill_name=..., instance_id=... when needed)\n\
                  3. Run one narrow search(kind=\"tool\", ...), then follow the selected hit's next_step. Describe only when requested; schema-free hits can call directly, and correlated load may return compact_schema plus next_step=call. Never put code/python/mel at the call top level\n\
                  4. Optional: call({calls:[{tool_slug, arguments}, ...], stop_on_error?}) for ordered batches (max 25)\n\
