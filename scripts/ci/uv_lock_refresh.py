@@ -347,7 +347,34 @@ def describe_change(report: dict) -> str:
     return f"marker-only relock: {detail}; no package version changed"
 
 
-def verify_refresh(before: dict, after: dict, allowed: tuple = ALLOWED_REFRESH_PACKAGES) -> list:
+def _editable_root_sync(before: dict, after: dict, project: dict | None) -> bool:
+    """Accept only a version-only synchronization of the declared local root.
+
+    Registry packages and transitive updates never qualify. The declaration
+    comes from the checked-out pyproject, not from the resolver's output.
+    """
+    if not isinstance(project, dict) or project.get("name") != "dcc-mcp-core":
+        return False
+    declared = project.get("version")
+    if not isinstance(declared, str) or not declared:
+        return False
+    old = [p for p in _package_entries(before) if p.get("name") == "dcc-mcp-core"]
+    new = [p for p in _package_entries(after) if p.get("name") == "dcc-mcp-core"]
+    if len(old) != 1 or len(new) != 1:
+        return False
+    if old[0].get("source") != {"editable": "."} or new[0].get("source") != {"editable": "."}:
+        return False
+    previous = old[0].get("version")
+    if not isinstance(previous, str) or version_key(declared) < version_key(previous):
+        return False
+    return new[0].get("version") == declared and {k: v for k, v in old[0].items() if k != "version"} == {
+        k: v for k, v in new[0].items() if k != "version"
+    }
+
+
+def verify_refresh(
+    before: dict, after: dict, allowed: tuple = ALLOWED_REFRESH_PACKAGES, *, project: dict | None = None
+) -> list:
     """Return errors when a lock refresh escaped its allowed blast radius."""
     allowed_names = set(allowed)
     errors = []
@@ -367,7 +394,11 @@ def verify_refresh(before: dict, after: dict, allowed: tuple = ALLOWED_REFRESH_P
         for name in set(before_versions) | set(after_versions)
         if before_versions.get(name) != after_versions.get(name)
     )
-    unexpected = [name for name in drifted if name not in allowed_names]
+    unexpected = [
+        name
+        for name in drifted
+        if name not in allowed_names and not (name == "dcc-mcp-core" and _editable_root_sync(before, after, project))
+    ]
     if unexpected:
         errors.append(
             "uv.lock refresh changed dependencies outside the allowed refresh set "
@@ -425,6 +456,7 @@ def main(argv: list | None = None) -> int:
     verify = subcommands.add_parser("verify", help="Compare a lockfile before and after a refresh")
     verify.add_argument("before", help="Path to the lockfile captured before the refresh")
     verify.add_argument("after", help="Path to the lockfile produced by the refresh")
+    verify.add_argument("--pyproject", help="Allow version-only editable root sync to this declaration")
     verify.add_argument(
         "--package",
         action="append",
@@ -456,7 +488,8 @@ def main(argv: list | None = None) -> int:
         return 0
 
     allowed = tuple(args.packages) if args.packages else ALLOWED_REFRESH_PACKAGES
-    errors = verify_refresh(before, after, allowed)
+    project = _load_toml(Path(args.pyproject)).get("project") if args.pyproject else None
+    errors = verify_refresh(before, after, allowed, project=project)
     if errors:
         for error in errors:
             print(f"::error::{error}", file=sys.stderr)
