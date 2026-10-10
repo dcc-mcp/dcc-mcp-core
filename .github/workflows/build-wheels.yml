@@ -401,13 +401,19 @@ jobs:
         shell: bash
         run: rustup target add x86_64-apple-darwin
 
-      # The python.org 3.7.9 package is built against the 10.9 SDK, so its
-      # pip only accepts wheels tagged macosx_10_9_*. Without this the build
-      # picks up the runner's newer SDK and tags the wheel 10_12, which the
-      # target interpreter then rejects as "not a supported wheel".
-      - name: Pin the macOS deployment target to the Python 3.7 SDK floor
+      # rustc 1.95.0 refuses any deployment target below 10.12 ("the minimum
+      # supported by rustc is 10.12"), so the wheel is tagged 10_12 even when
+      # MACOSX_DEPLOYMENT_TARGET asks for lower. The python.org 3.7.9
+      # interpreter reports a 10.9 deployment target, and pip only accepts
+      # macOS wheel tags at or below the interpreter's own, so the wheel that
+      # this job produces cannot be pip-installed into Python 3.7.9 as-is.
+      # Kept explicit so the constraint is visible in the log rather than
+      # silently inherited from the runner image.
+      - name: Record the macOS deployment-target floor
         shell: bash
-        run: echo "MACOSX_DEPLOYMENT_TARGET=10.9" >> "$GITHUB_ENV"
+        run: |
+          echo "MACOSX_DEPLOYMENT_TARGET=10.12" >> "$GITHUB_ENV"
+          rustc --print deployment-target 2>/dev/null || true
 
       - uses: ./.github/actions/build-wheel
         with:
