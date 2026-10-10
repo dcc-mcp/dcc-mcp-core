@@ -45,6 +45,15 @@ pub const MIN_AUTOLAUNCH: u64 = 30;
 /// point opts out of idle shutdown entirely.
 pub const CLI_DAEMON_START_DEFAULT: u64 = 0;
 
+/// Default grace period for the gateway that `dcc-mcp-cli` auto-launches
+/// for a single endpoint (`ensure_local_gateway_for_endpoint`).
+///
+/// Distinct from [`AUTO_ENSURE_DEFAULT`] (300 s, used by the Rust sidecar
+/// and the Python guardian). This entry point has historically used 30 s;
+/// changing it would be a behaviour change, so the value is pinned here and
+/// locked by a test rather than aligned with the other auto-ensure paths.
+pub const CLI_AUTO_ENSURE_DEFAULT: u64 = 30;
+
 /// How long the gateway waits for in-flight requests to finish after the
 /// idle timeout fires, before the listeners are aborted.
 ///
@@ -61,12 +70,12 @@ pub const DRAIN_GRACE: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// Polling cadence of the idle timer.
 ///
-/// The timer samples the live-backend count on this interval and the
-/// listeners then get [`DRAIN_GRACE`] to finish in-flight requests, so
-/// shutdown actually lands somewhere in
-/// `[grace + IDLE_POLL, grace + IDLE_POLL + DRAIN_GRACE)`. That is
-/// immaterial for a 300 s grace period but worth knowing when debugging
-/// with a small one: a 1 s grace still exits at roughly t=10 s.
+/// `spawn_gateway_idle_shutdown_task` sleeps *first* and samples the
+/// live-backend count afterwards, so `idle_since` is only stamped at the
+/// first sample after the last backend disappears. Shutdown therefore lands
+/// roughly in `[grace + IDLE_POLL, grace + 2 * IDLE_POLL)` — a 1 s grace
+/// period exits around t=10 s. Immaterial for a 300 s grace period, but
+/// worth knowing when debugging with a small one.
 pub const IDLE_POLL: std::time::Duration = std::time::Duration::from_secs(5);
 
 #[cfg(test)]
@@ -81,7 +90,11 @@ mod tests {
         assert_eq!(AUTO_ENSURE_DEFAULT, 300);
         assert_eq!(MIN_AUTOLAUNCH, 30);
         assert_eq!(CLI_DAEMON_START_DEFAULT, 0);
+        assert_eq!(CLI_AUTO_ENSURE_DEFAULT, 30);
         assert_ne!(SERVER_DEFAULT, AUTO_ENSURE_DEFAULT);
+        // The two auto-ensure entry points differ on purpose: the CLI's
+        // per-endpoint gateway is not the shared machine-wide one.
+        assert_ne!(CLI_AUTO_ENSURE_DEFAULT, AUTO_ENSURE_DEFAULT);
     }
 
     #[test]
