@@ -203,6 +203,10 @@ async fn production_reuse_gate_is_reachable_from_initialize_without_a_host() {
     assert_eq!(payload["uri"], uri);
     assert_eq!(payload["format"], "markdown");
     assert_eq!(
+        payload["production_reuse_contract"],
+        "dcc-mcp-production-reuse/v1"
+    );
+    assert_eq!(
         payload["document"],
         include_str!("../native_resources/agent_workflows.md")
     );
