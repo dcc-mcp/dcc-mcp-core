@@ -30,7 +30,7 @@ registry is the source of truth, and the count is reproducible from a checkout:
 rg -c '^    tags: \[.*"adapter".*\]' dcc-mcp-catalog.yml
 ~~~
 
-That reports **38 adapter entries** in [`dcc-mcp-catalog.yml`](dcc-mcp-catalog.yml),
+That reports **47 adapter entries** in [`dcc-mcp-catalog.yml`](dcc-mcp-catalog.yml),
 covering these hosts:
 
 | Area | Hosts |
@@ -46,7 +46,7 @@ The full list, with install metadata, is published in the
 
 **Three shared contracts keep it one matrix.** Host coverage is only useful if
 the adapters stay interchangeable. Three contracts published by core are what
-stop 38 adapters from becoming 38 unrelated servers:
+stop 47 adapters from becoming 47 unrelated servers:
 
 | Contract | What it guarantees | Where to verify |
 |---|---|---|
