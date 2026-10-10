@@ -177,11 +177,15 @@ def test_abi3_backfill_uses_workflow_smoke_without_changing_tag_source() -> None
         assert steps[0]["with"]["ref"] == "${{ inputs.checkout-ref || github.ref }}"
         build_index = next(i for i, step in enumerate(steps) if step.get("uses") == "./.github/actions/build-wheel")
         assert steps[build_index]["with"]["test-wheel"] == "false"
-        tooling_index = next(i for i, step in enumerate(steps) if step.get("name") == "Checkout workflow compatibility tooling")
+        tooling_index = next(
+            i for i, step in enumerate(steps) if step.get("name") == "Checkout workflow compatibility tooling"
+        )
         tooling = steps[tooling_index]["with"]
         assert tooling["ref"] == "${{ github.workflow_sha }}"
         assert "tests/test_imports.py" in tooling["sparse-checkout"]
-        smoke_index = next(i for i, step in enumerate(steps) if step.get("name") == "Test wheel with workflow import smoke")
+        smoke_index = next(
+            i for i, step in enumerate(steps) if step.get("name") == "Test wheel with workflow import smoke"
+        )
         assert build_index < tooling_index < smoke_index
         smoke = steps[smoke_index]["run"]
         assert "python -m venv test-env" in smoke
