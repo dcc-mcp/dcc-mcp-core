@@ -444,6 +444,12 @@ create_skill_server(
 | `extra_paths` | `list[str] \| None` | 除环境变量外的额外 Skill 目录 |
 | `dcc_name` | `str \| None` | 覆盖扫描的 DCC 过滤条件（默认与 `app_name` 相同）|
 
+**配置契约：** `config` 的标注是 `McpHttpConfig | None`，与实际接受的类型一致。传入其他类型（最常见的是
+`dict`）会在调用处直接抛 `TypeError`，错误信息里给出构造合法配置的示例，不会静默转换。`None` 是受支持的
+取值，表示「使用后端默认配置」（操作系统分配端口、共享 gateway 端口、不持久化任务），而不是跳过校验。
+两种写法的配置对象都被接受：已安装 wheel 解析出的 PyO3 类型，或 py37-lite profile 使用的纯 Python
+dataclass。两者是暴露相同属性的不同类，因此按属性判定而非按类型身份判定。
+
 **返回值：** `McpHttpServer` — 调用 `.start()` 开始服务。
 
 **示例：**
