@@ -21,6 +21,16 @@ a runtime without authorization. In-process dispatch tests do not establish
 installed-build or wire-session acceptance; verify those separately for a
 deployed gateway version.
 
+Direct `dcc-mcp-cli` production follows the same gate through the verified Core
+source or public Skill entrypoint. It currently has no `resources`/`prompts`
+subcommands: `--transport mcp call` sends `tools/call`, without reading this
+guide or consuming initialize instructions. `smoke` retains initialize output
+in diagnostic JSON; that is not gate execution. `dcc-mcp-cli gateway` runs the
+gateway whose `/mcp` endpoint supports `resources/list`, `resources/read`,
+`prompts/list` and `prompts/get` (including arguments). An MCP client can read
+this guide there; `resources/templates/list` is not currently implemented.
+Do not claim direct CLI protocol-feature parity or automatic enforcement.
+
 Before creating or materially revising content in any DCC (including Unreal,
 Maya and Blender), agents MUST perform a short, bounded reuse investigation.
 Aim for about one minute for initial discovery; this is a discovery budget,
