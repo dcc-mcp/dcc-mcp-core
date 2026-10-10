@@ -3,13 +3,14 @@
 //! Kept in a sibling module so `tasks.rs` stays under the repository's
 //! file-size gate.
 
+use super::runner::PromotedGatewayGuard;
 use super::tasks::{
     InstanceMembership, build_backend_http_client, poll_list_fingerprint, removed_instances,
-    wait_for_startup_ready,
+    start_gateway_tasks, wait_for_startup_ready,
 };
 use super::*;
 use axum::{Router, response::Redirect, routing::get};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use tokio::sync::Notify;
 
 fn membership(dcc_type: &str, instance_id: &str) -> (String, InstanceMembership) {
@@ -84,32 +85,17 @@ async fn list_fingerprint_poll_runs_for_a_subscriber() {
 
 /// Mirror of the supervisor's listener teardown: await the drain window,
 /// then abort whatever is still running.
-///
-/// Mirroring the shape here means the `listener_aborts` fallback in
-/// `start_gateway_tasks` has a test that fails if the fallback is removed.
-async fn drain_then_abort(
-    handles: Vec<tokio::task::JoinHandle<()>>,
-    aborts: Vec<tokio::task::AbortHandle>,
-    grace: Duration,
-) -> bool {
-    let drain = async {
-        for handle in handles {
-            let _ = handle.await;
-        }
-    };
-    let finished = tokio::time::timeout(grace, drain).await.is_ok();
-    for abort in &aborts {
-        abort.abort();
-    }
-    finished
-}
-
 /// Regression: a listener that outlives the drain window (a long-lived SSE
 /// stream, for example) must still be aborted, not detached. Dropping its
 /// JoinHandle would leave the axum listener running and hold the gateway
 /// port open — the teardown regression this guards against.
+///
+/// This routes through the real `GatewayHandle::abort_listeners` (the same
+/// call the winner shutdown path makes) rather than re-implementing the
+/// abort order, so the production teardown is what is under test.
 #[tokio::test]
 async fn drain_aborts_a_listener_that_outlives_the_window() {
+    let dir = tempfile::tempdir().unwrap();
     let finished_flag = Arc::new(AtomicUsize::new(0));
     let task_flag = finished_flag.clone();
     let handle = tokio::spawn(async move {
@@ -117,14 +103,39 @@ async fn drain_aborts_a_listener_that_outlives_the_window() {
         std::future::pending::<()>().await;
         task_flag.fetch_add(1, Ordering::SeqCst);
     });
-    let abort = handle.abort_handle();
+    let listener_abort = handle.abort_handle();
 
-    let drained = drain_then_abort(vec![handle], vec![abort], Duration::from_millis(50)).await;
-
+    // Awaiting the stuck task is the drain; it cannot finish on its own.
+    let drain = async {
+        let _ = handle.await;
+    };
     assert!(
-        !drained,
+        tokio::time::timeout(Duration::from_millis(50), drain)
+            .await
+            .is_err(),
         "a stuck listener must report the drain window as elapsed"
     );
+
+    let mut gateway = GatewayHandle {
+        is_gateway: true,
+        service_key: ServiceKey {
+            dcc_type: "__gateway__".to_string(),
+            instance_id: uuid::Uuid::new_v4(),
+        },
+        heartbeat_abort: None,
+        gateway_abort: None,
+        gateway_supervisor: None,
+        listener_aborts: vec![listener_abort],
+        gateway_thread: None,
+        challenger_abort: None,
+        registry: Arc::new(FileRegistry::new(dir.path()).unwrap()),
+        pending_deregister: Vec::new(),
+        registration_active: Arc::new(AtomicBool::new(false)),
+    };
+    gateway.abort_listeners();
+
+    // Give the abort a scheduling turn to take effect.
+    tokio::time::sleep(Duration::from_millis(50)).await;
     assert_eq!(
         finished_flag.load(Ordering::SeqCst),
         0,
@@ -240,4 +251,102 @@ async fn backend_http_client_does_not_follow_redirects() {
         .unwrap();
     assert!(response.status().is_redirection());
     assert_eq!(private_hits.load(Ordering::SeqCst), 0);
+}
+
+/// Regression (challenger promotion path): dropping the supervisor without
+/// awaiting it must still release the gateway port.
+///
+/// The challenger path builds a `PromotedGatewayGuard` around
+/// `tasks.supervisor.await`. When an external abort hits that future it is
+/// *dropped* rather than run to completion, so the supervisor never reaches
+/// its own end-of-drain listener aborts; the listener `JoinHandle`s are then
+/// detached rather than cancelled, and axum keeps serving on the gateway
+/// port. The guard carries listener abort handles so teardown stops them
+/// regardless of how the supervisor ends.
+///
+/// This drives the production `start_gateway_tasks`, then drops a real
+/// `PromotedGatewayGuard` mid-flight exactly as the challenger path does —
+/// the production teardown is what makes the assertion pass, not a
+/// test-local copy of it.
+#[tokio::test]
+async fn dropping_a_promoted_gateway_releases_the_gateway_port() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = Arc::new(FileRegistry::new(dir.path()).unwrap());
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let sentinel_key = ServiceKey {
+        dcc_type: "__gateway__".to_string(),
+        instance_id: uuid::Uuid::new_v4(),
+    };
+
+    let tasks = start_gateway_tasks(
+        listener,
+        None,
+        registry.clone(),
+        Duration::from_secs(30),
+        Duration::from_secs(5),
+        Duration::from_secs(5),
+        Duration::from_secs(5),
+        Duration::from_secs(60),
+        64,
+        "dcc-mcp-gateway-test".to_string(),
+        env!("CARGO_PKG_VERSION").to_string(),
+        sentinel_key.clone(),
+        "127.0.0.1".to_string(),
+        port,
+        false,
+        Vec::new(),
+        Default::default(),
+        None,
+        None,
+        Default::default(),
+        #[cfg(feature = "admin")]
+        false,
+        #[cfg(feature = "admin")]
+        "admin".to_string(),
+        #[cfg(feature = "admin")]
+        Default::default(),
+        30,
+        3,
+        Default::default(),
+        None,
+        false,
+        30,
+        false,
+        None,
+    )
+    .await
+    .expect("gateway tasks must start");
+
+    assert!(
+        tokio::net::TcpStream::connect(("127.0.0.1", port))
+            .await
+            .is_ok(),
+        "gateway must be listening before shutdown"
+    );
+
+    // The guard takes ownership exactly as the challenger path does; the
+    // supervisor is deliberately still in flight when it drops.
+    let guard = PromotedGatewayGuard {
+        abort: Some(tasks.abort),
+        listener_aborts: tasks.listener_aborts,
+        registry,
+        sentinel_key: Some(sentinel_key),
+    };
+    drop(tasks.supervisor);
+    drop(guard);
+
+    let mut released = false;
+    for _ in 0..50 {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        if let Ok(bound) = tokio::net::TcpListener::bind(("127.0.0.1", port)).await {
+            drop(bound);
+            released = true;
+            break;
+        }
+    }
+    assert!(
+        released,
+        "gateway port {port} must be released once a promoted gateway is dropped"
+    );
 }

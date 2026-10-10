@@ -230,8 +230,11 @@ Python's guardian mirrors `AUTO_ENSURE_DEFAULT` in
 Two operational notes:
 
 - **Shutdown is not exact.** The idle timer samples the live-backend count
-  every 5 s, so shutdown lands somewhere in `[grace, grace + 5)`. Immaterial
-  for a 300 s grace period, but confusing when debugging with a small one.
+  every 5 s, and listeners then get a further 10 s drain window before they
+  are stopped, so shutdown lands somewhere in `[grace + 5, grace + 10)`.
+  Immaterial for a 300 s grace period, but confusing when debugging with a
+  small one: with `--gateway-idle-timeout-secs 1` the process exits at
+  roughly t=10 s, not t=1 s.
 - **An explicit value is honoured even when it equals the default.** Passing
   `--gateway-idle-timeout-secs 30` is recorded and forwarded; it is not
   mistaken for "not supplied".
