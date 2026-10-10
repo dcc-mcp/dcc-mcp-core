@@ -201,13 +201,15 @@ def regenerate_repository(
 
         title = PR_TITLE
         body = render_pr_body(entry, host_count=host_count, source_ref=source_ref)
-        existing = pr_helpers.find_open_pr(repo_slug, head_ref, default_branch)
+        existing = pr_helpers.find_open_pr(repo_slug, head_ref, default_branch, timeout=timeout)
         if existing:
-            pr_helpers.update_pr(repo_slug, existing, title=title, body=body)
+            pr_helpers.update_pr(repo_slug, existing, title=title, body=body, timeout=timeout)
             row["action"] = "updated-pr"
             row["pr"] = existing
         else:
-            row["pr"] = pr_helpers.create_pr(repo_slug, base=default_branch, head=head_ref, title=title, body=body)
+            row["pr"] = pr_helpers.create_pr(
+                repo_slug, base=default_branch, head=head_ref, title=title, body=body, timeout=timeout
+            )
             row["action"] = "opened-pr"
 
         row["status"] = REGENERATED
@@ -226,14 +228,16 @@ def regenerate_repository(
 
 
 def _fingerprint(host_count: int) -> str:
-    """Return a short, stable suffix identifying what this batch regenerates.
+    """Return the branch suffix this batch regenerates under.
 
-    Keyed on the host count because that is the value the block quotes. A later
-    catalog change moves the count, which moves the branch, which deliberately
-    opens a fresh PR rather than silently rewriting the body of one a maintainer
-    may already be reviewing.
+    Deliberately independent of ``host_count``. An earlier revision returned
+    ``f"{host_count}-adapters"``, which meant a catalog change moved the branch
+    and opened a second pull request beside the first: every count change would
+    leave a fresh batch of orphan PRs across the fleet with nothing closing
+    them. One branch per repository, force-pushed on each run, so a later
+    catalog change refreshes the same PR.
     """
-    return f"{host_count}-adapters"
+    return "catalog-pointer"
 
 
 def _repo_slug(url: str) -> str:
@@ -250,7 +254,7 @@ def _repo_slug(url: str) -> str:
 
 def _push_target(repo_slug: str, head: str, *, timeout: int) -> tuple[str, str]:
     """Return the repository to push to and the head ref the PR should name."""
-    target = pr_helpers.ensure_fork(repo_slug)
+    target = pr_helpers.ensure_fork(repo_slug, timeout=timeout)
     owner = pr_helpers.repo_owner(target)
     return target, f"{owner}:{head}" if owner else head
 
@@ -439,8 +443,14 @@ def _report(results: list[dict], args, *, host_count: int) -> int:
     if args.dry_run:
         # A dry run exists to answer "would this batch do anything?", so pending
         # work is the expected finding and must be visible in the exit code.
+        # An error is also reported as non-zero: a repository this run could not
+        # even read is not a clean result, and silently exiting 0 would let a
+        # broken scan look like an empty one.
         if regenerated:
             print("Dry run: the repositories above would be refreshed. Re-run without --dry-run.")
+            return 1
+        if errored:
+            print("Dry run: some repositories could not be read; see the errors above.")
             return 1
         return 0
 

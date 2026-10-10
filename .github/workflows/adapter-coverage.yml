@@ -274,8 +274,13 @@ jobs:
     name: Regenerate adapter pointers
     runs-on: ubuntu-latest
     needs: pointer-drift
-    # Blocking everywhere. A failure here means the fleet was left stale, which
-    # is the state this job exists to clear.
+    # `always()` is load-bearing, not decorative. `pointer-drift` blocks on push
+    # and dispatch, so without it a drifted fleet fails that job, `needs` goes
+    # unsatisfied, and regeneration is skipped -- the exact situation it exists
+    # to fix. It would only ever run when the scan was already clean.
+    #
+    # The scan's red verdict stays visible: `pointer-drift` still fails on its
+    # own, and GitHub reports per-job conclusions.
     #
     # Opt-in rather than automatic on `schedule`: the weekly run's job is to
     # report drift loudly, and a weekly run that also opened ~40 pull requests
@@ -283,8 +288,9 @@ jobs:
     # `main`, and on demand through `workflow_dispatch` with `regenerate: true`,
     # but never on a pull request, which has no business touching the fleet.
     if: >-
-      github.event_name == 'push'
-      || (github.event_name == 'workflow_dispatch' && inputs.regenerate)
+      always()
+      && (github.event_name == 'push'
+          || (github.event_name == 'workflow_dispatch' && inputs.regenerate))
     permissions:
       contents: write
       pull-requests: write
@@ -307,13 +313,20 @@ jobs:
           python -m pytest tests/test_regenerate_adapter_pointers.py \
             -q --no-header --noconftest
 
-      # The default `GITHUB_TOKEN` cannot open a pull request in another
-      # repository even when it can push a branch, so regeneration runs with a
-      # token that can. Without it the job would push branches and then fail at
-      # the PR step, leaving orphan branches behind.
+      # The default `GITHUB_TOKEN` is scoped to this repository alone: it can
+      # neither fork nor open a pull request in another repository, so
+      # regeneration runs under a token that can.
+      #
+      # `PERSONAL_ACCESS_TOKEN` is the org-level secret that already exists. An
+      # earlier revision referenced `DCC_MCP_POINTER_REGEN_TOKEN`, which exists
+      # at neither the repo nor the org level, so the `||` fallback silently
+      # degraded to `GITHUB_TOKEN` and every repository failed before pushing.
+      # A fallback to `GITHUB_TOKEN` is kept out on purpose: it would hide a
+      # missing credential behind 47 confusing errors instead of failing once
+      # and clearly.
       - name: Regenerate every drifted adapter README
         env:
-          GH_TOKEN: ${{ secrets.DCC_MCP_POINTER_REGEN_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
           INPUT_ONLY: ${{ inputs.only }}
           INPUT_DRY_RUN: ${{ inputs.dry_run }}
         run: |

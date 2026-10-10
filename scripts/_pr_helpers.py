@@ -17,6 +17,10 @@ from __future__ import annotations
 
 import subprocess
 
+# Matches the generator's own per-operation default. Every `gh` call bounded by
+# this can be overridden per call site when a shorter bound is wanted.
+DEFAULT_TIMEOUT_SECS = 600
+
 
 class PrError(RuntimeError):
     """Raised when a git or ``gh`` command fails."""
@@ -35,10 +39,18 @@ def branch_slug(prefix: str, value: str) -> str:
     return f"{prefix}{cleaned.strip('-')}"
 
 
-def _run(args: list[str]) -> subprocess.CompletedProcess:
-    """Run a command and return the result, converting OS errors into PrError."""
+def _run(args: list[str], *, timeout: int = DEFAULT_TIMEOUT_SECS) -> subprocess.CompletedProcess:
+    """Run a command and return the result, converting failures into PrError.
+
+    The timeout matters because this loop walks every catalog repository: a
+    single hung ``gh`` call would otherwise consume the whole run and abort it
+    before the summary and JSON report are written, leaving the remaining
+    repositories silently unchecked.
+    """
     try:
-        return subprocess.run(args, capture_output=True, text=True, check=False)
+        return subprocess.run(args, capture_output=True, text=True, check=False, timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        raise PrError(f"{args[0]} timed out after {timeout}s: {' '.join(args[:3])}") from exc
     except OSError as exc:  # pragma: no cover - gh or git missing
         raise PrError(f"could not run {args[0]}: {exc}") from exc
 
@@ -56,9 +68,9 @@ def _gh_json(args: list[str]) -> list[dict]:
         raise PrError(f"gh {' '.join(args)} returned no JSON: {exc}") from exc
 
 
-def authenticated_login() -> str:
+def authenticated_login(*, timeout: int = DEFAULT_TIMEOUT_SECS) -> str:
     """Return the GitHub login of the authenticated user, or '' when unknown."""
-    result = _run(["gh", "api", "user", "--jq", ".login"])
+    result = _run(["gh", "api", "user", "--jq", ".login"], timeout=timeout)
     if result.returncode != 0:
         return ""
     return result.stdout.strip()
@@ -69,7 +81,7 @@ def repo_owner(repo: str) -> str:
     return repo.split("/", 1)[0] if "/" in repo else ""
 
 
-def ensure_fork(upstream: str) -> str:
+def ensure_fork(upstream: str, *, timeout: int = DEFAULT_TIMEOUT_SECS) -> str:
     """Return a repository the authenticated user can push to.
 
     ``upstream`` when the caller already owns it; otherwise a fork of it.
@@ -81,14 +93,14 @@ def ensure_fork(upstream: str) -> str:
     ``gh repo fork`` is idempotent: it reports the existing fork when one
     already exists, so this is safe to call on every run.
     """
-    login = authenticated_login()
+    login = authenticated_login(timeout=timeout)
     if not login or login.lower() == repo_owner(upstream).lower():
         return upstream
 
     # `--clone=false` with an equals sign: `--clone false` is read as a clone
     # destination named "false". No clone is wanted -- this function only needs
     # the fork to exist so a branch can be pushed to it.
-    result = _run(["gh", "repo", "fork", upstream, "--clone=false"])
+    result = _run(["gh", "repo", "fork", upstream, "--clone=false"], timeout=timeout)
     # An existing fork is reported on stderr with a non-zero exit, which is the
     # success case for this call, not a failure. The lookup below is what
     # actually proves the fork is usable.
@@ -119,7 +131,8 @@ def ensure_fork(upstream: str) -> str:
             f"name={name}",
             "--jq",
             f'.data.repository.forks.nodes[] | select(.owner.login=="{login}") | .nameWithOwner',
-        ]
+        ],
+        timeout=timeout,
     )
     if api.returncode == 0 and api.stdout.strip():
         return api.stdout.strip().splitlines()[0].strip()
@@ -127,7 +140,7 @@ def ensure_fork(upstream: str) -> str:
     raise PrError(f"could not find or create a fork of {upstream} for {login}")
 
 
-def find_open_pr(repo: str, head: str, base: str) -> str:
+def find_open_pr(repo: str, head: str, base: str, *, timeout: int = DEFAULT_TIMEOUT_SECS) -> str:
     """Return the URL of an open pull request for ``head``, or '' if there is none.
 
     Matched on the head ref rather than on the title so a reworded title still
@@ -153,7 +166,8 @@ def find_open_pr(repo: str, head: str, base: str) -> str:
             base,
             "--json",
             "url",
-        ]
+        ],
+        timeout=timeout,
     )
     if result.returncode != 0:
         return ""
@@ -170,7 +184,7 @@ def find_open_pr(repo: str, head: str, base: str) -> str:
     return ""
 
 
-def create_pr(repo: str, *, base: str, head: str, title: str, body: str) -> str:
+def create_pr(repo: str, *, base: str, head: str, title: str, body: str, timeout: int = DEFAULT_TIMEOUT_SECS) -> str:
     """Open a pull request and return its URL."""
     result = _run(
         [
@@ -187,14 +201,15 @@ def create_pr(repo: str, *, base: str, head: str, title: str, body: str) -> str:
             title,
             "--body",
             body,
-        ]
+        ],
+        timeout=timeout,
     )
     if result.returncode != 0:
         raise PrError(f"gh pr create failed for {repo}: {(result.stderr or result.stdout).strip()}")
     return result.stdout.strip().splitlines()[-1].strip()
 
 
-def update_pr(repo: str, url: str, *, title: str, body: str) -> None:
+def update_pr(repo: str, url: str, *, title: str, body: str, timeout: int = DEFAULT_TIMEOUT_SECS) -> None:
     """Refresh the title and body of an existing pull request."""
     result = _run(["gh", "pr", "edit", url, "--repo", repo, "--title", title, "--body", body])
     if result.returncode != 0:

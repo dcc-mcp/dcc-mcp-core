@@ -90,13 +90,13 @@ class _FakeGitHub:
         self.pushed: list[str] = []
 
     def install(self, monkeypatch) -> None:
-        monkeypatch.setattr(pr_helpers, "authenticated_login", lambda: self.login)
-        monkeypatch.setattr(pr_helpers, "ensure_fork", lambda upstream: self.fork or upstream)
+        monkeypatch.setattr(pr_helpers, "authenticated_login", lambda **kw: self.login)
+        monkeypatch.setattr(pr_helpers, "ensure_fork", lambda upstream, **kw: self.fork or upstream)
         monkeypatch.setattr(pr_helpers, "find_open_pr", lambda *a, **k: self.existing_pr)
         monkeypatch.setattr(
             pr_helpers,
             "create_pr",
-            lambda repo, *, base, head, title, body: (
+            lambda repo, *, base, head, title, body, **kw: (
                 self.created.append({"repo": repo, "base": base, "head": head, "title": title, "body": body})
                 or "https://github.com/example/pr/1"
             ),
@@ -104,26 +104,45 @@ class _FakeGitHub:
         monkeypatch.setattr(
             pr_helpers,
             "update_pr",
-            lambda repo, url, *, title, body: self.updated.append(
+            lambda repo, url, *, title, body, **kw: self.updated.append(
                 {"repo": repo, "url": url, "title": title, "body": body}
             ),
         )
         monkeypatch.setattr(
             regen,
             "_commit_and_push",
-            lambda repo_dir, branch, push_target, *, timeout: self.pushed.append(f"{push_target}:{branch}"),
+            lambda repo_dir, branch, push_target, *, timeout, **kw: self.pushed.append(f"{push_target}:{branch}"),
         )
 
 
 # --- guard rail ------------------------------------------------------------
 
 
-def test_unrelated_working_tree_changes_are_refused(adapters, tmp_path):
-    """A repository that changed more than README.md is left alone, not committed."""
+def test_unrelated_working_tree_changes_are_refused(adapters, tmp_path, monkeypatch):
+    """A repository that changed more than README.md is left alone, not committed.
+
+    This is the regression net for the guard rail the PR description calls a core
+    safety property, so it has to actually reach the guard. An earlier revision
+    asserted `ERROR or REGENERATED`, which passed both before and after the guard
+    was disabled -- it was verifying nothing.
+    """
     name = "dcc-mcp-krita"
     origin = _make_origin(tmp_path, "unrelated", _stale_readme(adapters, name))
-    # A second file the regeneration did not create. The guard rail must see it.
-    (tmp_path / "work").mkdir(parents=True, exist_ok=True)
+
+    # The clone must be dirty with a file this script did not create, and it has
+    # to be dirty *before* the guard runs `git status`. So the seed is injected
+    # right after the clone rather than at the push step.
+    original_clone = regen._clone
+    seeded = []
+
+    def clone_then_seed(url, dest, branch, *, timeout):
+        original_clone(url, dest, branch, timeout=timeout)
+        (dest / "unrelated.txt").write_text("not created by the generator\n", encoding="utf-8")
+        seeded.append(dest)
+
+    fake = _FakeGitHub(login="bot", fork="bot/dcc-mcp-krita")
+    fake.install(monkeypatch)
+    monkeypatch.setattr(regen, "_clone", clone_then_seed)
 
     row = regen.regenerate_repository(
         _local_entry(adapters, name, origin),
@@ -135,8 +154,50 @@ def test_unrelated_working_tree_changes_are_refused(adapters, tmp_path):
         dry_run=False,
         source_ref="dcc-mcp/dcc-mcp-core@dcc-mcp-catalog.yml",
     )
-    # The entry is stale, so regeneration is attempted; it must fail closed.
-    assert row["status"] == regen.ERROR or row["status"] == regen.REGENERATED
+
+    assert row["status"] == regen.ERROR
+    assert "unrelated" in row["detail"]
+    # Nothing may be pushed and no PR opened when the guard fires.
+    assert fake.pushed == []
+    assert fake.created == [] and fake.updated == []
+
+
+def test_the_guard_rail_test_really_covers_the_guard(adapters, tmp_path, monkeypatch):
+    """Metatest: widening the guard's allow-list must flip the test above.
+
+    Without this, the guard-rail test could silently rot back into an assertion
+    that passes either way. It is cheap: it only re-runs one repository.
+    """
+    source = Path(regen.__file__).read_text(encoding="utf-8")
+    assert "if unexpected:" in source
+
+    name = "dcc-mcp-krita"
+    origin = _make_origin(tmp_path, "metatest", _stale_readme(adapters, name))
+
+    original_clone = regen._clone
+
+    def clone_then_seed(url, dest, branch, *, timeout):
+        original_clone(url, dest, branch, timeout=timeout)
+        (dest / "unrelated.txt").write_text("not created by the generator\n", encoding="utf-8")
+
+    fake = _FakeGitHub(login="bot", fork="bot/dcc-mcp-krita")
+    fake.install(monkeypatch)
+    monkeypatch.setattr(regen, "_clone", clone_then_seed)
+
+    # With the guard's allow-list widened to accept the seeded file, the same run
+    # must NOT report an error -- the opposite of what the real test asserts.
+    monkeypatch.setattr(regen, "ALLOWED_CHANGED_FILES", ("README.md", "unrelated.txt"))
+    row = regen.regenerate_repository(
+        _local_entry(adapters, name, origin),
+        0,
+        host_count=len(adapters),
+        workdir=tmp_path / "work",
+        timeout=60,
+        branch_prefix=regen.BRANCH_PREFIX,
+        dry_run=False,
+        source_ref="dcc-mcp/dcc-mcp-core@dcc-mcp-catalog.yml",
+    )
+    assert row["status"] != regen.ERROR
 
 
 def test_dry_run_touches_nothing_and_reports_what_it_would_do(adapters, tmp_path):
@@ -253,6 +314,24 @@ def test_the_branch_name_is_stable_across_runs(adapters):
     assert " " not in first and "//" not in first
 
 
+def test_the_branch_name_survives_a_catalog_count_change():
+    """A catalog change must not move the branch, or it orphans the open PR.
+
+    An earlier revision keyed the branch on the host count, so 47 -> 48 opened a
+    second PR beside the first and left the old batch open with nothing closing
+    it. The branch is one per repository for the life of the automation.
+    """
+    assert regen._fingerprint(47) == regen._fingerprint(48)
+    assert regen._fingerprint(47) == regen._fingerprint(99)
+    # And the rendered PR body still promises the refresh-in-place behaviour the
+    # stable branch is what makes true.
+    assert "refreshes this PR instead of opening another one" in _body_for_host_count(47)
+
+
+def _body_for_host_count(host_count: int) -> str:
+    return regen.render_pr_body({"name": "dcc-mcp-example"}, host_count=host_count, source_ref="dcc-mcp/core@x.yml")
+
+
 # --- pure helpers ----------------------------------------------------------
 
 
@@ -275,13 +354,13 @@ def test_an_existing_fork_is_not_an_error(monkeypatch):
     """`gh repo fork` exits non-zero with 'already exists'; that is success here."""
     calls = []
 
-    def fake_run(args):
+    def fake_run(args, **kwargs):
         calls.append(args)
         if args[:3] == ["gh", "repo", "fork"]:
             return subprocess.CompletedProcess(args, 1, "", "loonghao/x already exists\n")
         return subprocess.CompletedProcess(args, 0, "loonghao/dcc-mcp-maya\n", "")
 
-    monkeypatch.setattr(pr_helpers, "authenticated_login", lambda: "loonghao")
+    monkeypatch.setattr(pr_helpers, "authenticated_login", lambda **kw: "loonghao")
     monkeypatch.setattr(pr_helpers, "_run", fake_run)
 
     assert pr_helpers.ensure_fork("dcc-mcp/dcc-mcp-maya") == "loonghao/dcc-mcp-maya"
@@ -292,10 +371,10 @@ def test_an_existing_fork_is_not_an_error(monkeypatch):
 
 
 def test_a_fork_failure_that_is_not_already_exists_still_raises(monkeypatch):
-    def fake_run(args):
+    def fake_run(args, **kwargs):
         return subprocess.CompletedProcess(args, 1, "", "permission denied\n")
 
-    monkeypatch.setattr(pr_helpers, "authenticated_login", lambda: "loonghao")
+    monkeypatch.setattr(pr_helpers, "authenticated_login", lambda **kw: "loonghao")
     monkeypatch.setattr(pr_helpers, "_run", fake_run)
 
     with pytest.raises(pr_helpers.PrError, match="gh repo fork failed"):
@@ -311,7 +390,7 @@ def test_find_open_pr_matches_on_the_bare_branch_name(monkeypatch):
     """`--head` rejects the `owner:branch` form used to create a cross-repo PR."""
     seen = {}
 
-    def fake_run(args):
+    def fake_run(args, **kwargs):
         seen["head"] = args[args.index("--head") + 1]
         return subprocess.CompletedProcess(args, 0, '[{"url":"https://example/pr/9"}]', "")
 
