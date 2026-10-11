@@ -561,16 +561,19 @@ jobs:
           test-wheel: "false"
           generate-stubs: "false"
           prebuild-admin-ui: "false"
+      # `python3.7`, not `python`: on the macOS lane the runner image keeps its
+      # own CPython ahead of the action-installed 3.7 on PATH, and these steps
+      # must run against the interpreter the wheel was built for.
       - name: Install native wheel
         shell: bash
         run: |
-          python -m pip install --force-reinstall dist/*.whl
-          python -m pip check
+          python3.7 -m pip install --force-reinstall dist/*.whl
+          python3.7 -m pip check
       - name: Run native Python 3.7 runtime smoke
-        run: python scripts/ci/smoke_python37_runtime.py --profile native_py37
+        run: python3.7 scripts/ci/smoke_python37_runtime.py --profile native_py37
       - name: Install Python 3.7 test toolchain
         if: matrix.full_suite || runner.os == 'Windows'
-        run: python scripts/ci/install_python37_test_toolchain.py
+        run: python3.7 scripts/ci/install_python37_test_toolchain.py
       - name: Run trusted validator Python 3.7 contract
         if: runner.os == 'Windows'
         run: >-
