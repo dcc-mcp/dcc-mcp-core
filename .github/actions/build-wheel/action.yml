@@ -10,15 +10,6 @@ inputs:
     description: 'Python version'
     required: false
     default: '3.11'
-  skip-setup-python:
-    description: 'Skip actions/setup-python because the caller installed the interpreter itself'
-    required: false
-    default: 'false'
-  python-exe:
-    description: 'Interpreter used for validation and wheel testing. Defaults to
-      the python on PATH, which is the one setup-python installs.'
-    required: false
-    default: 'python'
   rust-version:
     description: 'Rust toolchain version'
     required: false
@@ -53,11 +44,10 @@ runs:
   using: 'composite'
   steps:
     - name: Setup Python
-      # Callers that install Python themselves set skip-setup-python: the macOS
-      # cp37 job needs the x86_64 python.org build, which actions/setup-python
-      # cannot provide on the ARM64 runner because no arm64 CPython 3.7 exists.
-      # Windows py37 is handled by its own setup action below.
-      if: inputs.skip-setup-python != 'true' && (runner.os != 'Windows' || inputs.python-version != '3.7')
+      # Windows and macOS py37 are handled by their own setup actions below:
+      # CPython 3.7 predates Apple Silicon, so no arm64 build exists upstream
+      # and actions/setup-python cannot provide one.
+      if: inputs.python-version != '3.7'
       uses: actions/setup-python@v6
       with:
         python-version: ${{ inputs.python-version }}
@@ -65,6 +55,10 @@ runs:
     - name: Setup Windows Python 3.7
       if: runner.os == 'Windows' && inputs.python-version == '3.7'
       uses: ./.github/actions/setup-windows-python37
+
+    - name: Setup macOS Python 3.7
+      if: runner.os == 'macOS' && inputs.python-version == '3.7'
+      uses: ./.github/actions/setup-macos-python37
 
     - name: Remove pre-installed cargo-clippy (conflict workaround)
       # GitHub-hosted runners (macOS aarch64 AND ubuntu-latest) pre-install Rust
@@ -84,6 +78,10 @@ runs:
       with:
         toolchain: ${{ inputs.rust-version }}
         components: clippy rustfmt
+        # Cross-compiling to x86_64-apple-darwin is how the ARM64 macOS runner
+        # produces the Python 3.7 wheel, so the target belongs to the action
+        # rather than to any single caller. An empty target means host-only.
+        targets: ${{ inputs.target == 'x86_64-apple-darwin' && 'x86_64-apple-darwin' || '' }}
 
     - name: Install vx
       uses: loonghao/vx@v0.9.34
@@ -255,7 +253,7 @@ runs:
               ;;
           esac
         fi
-        ${{ inputs.python-exe }} scripts/ci/check_python_wheel.py \
+        python scripts/ci/check_python_wheel.py \
           --profile "$profile" \
           --platform "$platform" \
           dist/*.whl
@@ -265,7 +263,7 @@ runs:
       shell: bash
       run: |
         if [[ -f tests/test_issue_2388_zero_typing_extensions.py ]]; then
-          ${{ inputs.python-exe }} scripts/ci/smoke_zero_typing_extensions.py --wheel 'dist/*.whl'
+          python scripts/ci/smoke_zero_typing_extensions.py --wheel 'dist/*.whl'
         fi
 
     - name: Test wheel
@@ -273,7 +271,7 @@ runs:
       shell: bash
       run: |
         # Use python -m venv for Python 3.7 (uv does not support 3.7)
-        ${{ inputs.python-exe }} -m venv test-env
+        python -m venv test-env
         if [ "${{ runner.os }}" = "Windows" ]; then
           source test-env/Scripts/activate
         else

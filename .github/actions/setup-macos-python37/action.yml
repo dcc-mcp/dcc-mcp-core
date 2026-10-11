@@ -1,0 +1,36 @@
+name: Setup macOS Python 3.7
+description: >-
+  Install the x86_64 CPython 3.7.9 build on macOS runners. actions/setup-python
+  cannot provide it: CPython 3.7 predates Apple Silicon and no arm64 build
+  exists upstream, so the ARM64 runner installs the python.org x86_64 package
+  and runs it through Rosetta 2.
+
+runs:
+  using: composite
+  steps:
+    - name: Ensure Rosetta 2 is available
+      shell: bash
+      run: |
+        set -euo pipefail
+        if pgrep -q oahd; then
+          echo "Rosetta 2 already running"
+          exit 0
+        fi
+        echo "Installing Rosetta 2"
+        sudo softwareupdate --install-rosetta --agree-to-license
+
+    - name: Install Python 3.7.9 (x86_64)
+      shell: bash
+      run: |
+        set -euo pipefail
+        curl -fsSL -o "$RUNNER_TEMP/python-3.7.9-macosx10.9.pkg" \
+          https://www.python.org/ftp/python/3.7.9/python-3.7.9-macosx10.9.pkg
+        sudo installer -pkg "$RUNNER_TEMP/python-3.7.9-macosx10.9.pkg" -target /
+        bindir=/Library/Frameworks/Python.framework/Versions/3.7/bin
+        # The installer already links python3.7 here; also expose `python` and
+        # `python3` so callers that rely on the default names keep working.
+        ln -sf "$bindir/python3.7" "$bindir/python"
+        ln -sf "$bindir/python3.7" "$bindir/python3"
+        echo "$bindir" >> "$GITHUB_PATH"
+        "$bindir/python3.7" --version
+        "$bindir/python3.7" -m pip install --upgrade "pip<24.1" "setuptools<69" "wheel<0.43"

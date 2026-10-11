@@ -374,29 +374,6 @@ jobs:
         with:
           ref: ${{ inputs.checkout-ref || github.ref }}
 
-      - name: Ensure Rosetta 2 is available
-        shell: bash
-        run: |
-          set -euo pipefail
-          if pgrep -q oahd; then
-            echo "Rosetta 2 already running"
-            exit 0
-          fi
-          echo "Installing Rosetta 2"
-          sudo softwareupdate --install-rosetta --agree-to-license
-
-      - name: Install Python 3.7.9 (x86_64)
-        shell: bash
-        run: |
-          set -euo pipefail
-          curl -fsSL -o /tmp/python-3.7.9-macosx10.9.pkg \
-            https://www.python.org/ftp/python/3.7.9/python-3.7.9-macosx10.9.pkg
-          sudo installer -pkg /tmp/python-3.7.9-macosx10.9.pkg -target /
-          PY37=/Library/Frameworks/Python.framework/Versions/3.7/bin/python3.7
-          echo "PY37=${PY37}" >> "$GITHUB_ENV"
-          "${PY37}" --version
-          "${PY37}" -m pip install --upgrade "pip>=20.0"
-
       - name: Add x86_64-apple-darwin Rust target
         shell: bash
         run: rustup target add x86_64-apple-darwin
@@ -419,15 +396,10 @@ jobs:
         with:
           target: x86_64-apple-darwin
           python-version: '3.7'
-          # actions/setup-python has no arm64 CPython 3.7, so the job installs
-          # the x86_64 python.org build itself and points the action at it:
-          # setup-python is skipped, and every validation step runs under the
-          # Rosetta interpreter instead of the ARM64 host Python.
-          skip-setup-python: 'true'
-          python-exe: '/Library/Frameworks/Python.framework/Versions/3.7/bin/python3.7'
-          # Shell-expanded by the action's bash step, so maturin resolves the
-          # Rosetta x86_64 interpreter rather than the ARM64 host Python.
-          maturin-extra-args: '-i "${PY37}"'
+          # Like the Windows py37 job, the interpreter comes from the reusable
+          # action: it installs the x86_64 python.org build under Rosetta 2
+          # because actions/setup-python has no arm64 CPython 3.7.
+          maturin-extra-args: '-i python3.7'
           artifact-name: wheels-macos-x86_64-py37
 
       - name: Checkout workflow compatibility tooling
