@@ -23,6 +23,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import sys
 import zipfile
 
@@ -120,17 +121,10 @@ def read_frontmatter(skill_dir: Path) -> dict[str, str]:
     keys are ignored here and handled by :func:`read_skill_version` /
     :func:`read_min_core_version`, which need to walk indentation.
     """
-    skill_md = skill_dir / "SKILL.md"
-    if not skill_md.is_file():
-        return {}
     fields: dict[str, str] = {}
-    in_frontmatter = False
-    for line in skill_md.read_text(encoding="utf-8").splitlines():
+    for line in _frontmatter_lines(skill_dir):
         stripped = line.strip()
-        if stripped == "---":
-            in_frontmatter = not in_frontmatter
-            continue
-        if not in_frontmatter or not stripped or stripped.startswith("#"):
+        if not stripped or stripped.startswith("#"):
             continue
         if line[:1].isspace():
             continue
@@ -150,22 +144,17 @@ def _strip_inline_comment(value: str) -> str:
 
 
 def _frontmatter_lines(skill_dir: Path) -> list[str]:
-    """Return the SKILL.md frontmatter body, one line per entry."""
+    """Return only a complete frontmatter block at the start of SKILL.md."""
     skill_md = skill_dir / "SKILL.md"
     if not skill_md.is_file():
         return []
-    lines: list[str] = []
-    in_frontmatter = False
-    for line in skill_md.read_text(encoding="utf-8").splitlines():
-        stripped = line.strip()
-        if stripped == "---":
-            if in_frontmatter:
-                break
-            in_frontmatter = True
-            continue
-        if in_frontmatter:
-            lines.append(line)
-    return lines
+    lines = skill_md.read_text(encoding="utf-8").splitlines()
+    if not lines or lines[0].strip() != "---":
+        return []
+    for index, line in enumerate(lines[1:], start=1):
+        if line.strip() == "---":
+            return lines[1:index]
+    return []
 
 
 def read_skill_name(skill_dir: Path) -> str:
@@ -182,22 +171,23 @@ def read_skill_version(skill_dir: Path) -> str | None:
     marker, which is stripped so the value stays comparable.
     """
     lines = _frontmatter_lines(skill_dir)
-    in_metadata = False
-    in_dcc_mcp = False
+    parents: list[tuple[int, str]] = []
     for line in lines:
         if not line.strip() or line.strip().startswith("#"):
             continue
         indent = len(line) - len(line.lstrip())
         stripped = line.strip()
-        if indent == 0:
-            in_metadata = stripped.startswith("metadata:")
-            in_dcc_mcp = False
+        while parents and indent <= parents[-1][0]:
+            parents.pop()
+        key, separator, value = stripped.partition(":")
+        if not separator:
             continue
-        if in_metadata and stripped.startswith("dcc-mcp:"):
-            in_dcc_mcp = True
-            continue
-        if in_dcc_mcp and stripped.startswith("version:"):
-            return _strip_inline_comment(stripped.split(":", 1)[1])
+        key = key.strip()
+        if [parent for _, parent in parents] == ["metadata", "dcc-mcp"] and key == "version":
+            return _strip_inline_comment(value)
+        # Track each field's indentation, including intervening nested fields,
+        # so a version from a sibling or deeper namespace cannot leak in.
+        parents.append((indent, key))
     return None
 
 
@@ -213,21 +203,16 @@ def read_min_core_version(skill_dir: Path) -> str | None:
     compatibility = read_frontmatter(skill_dir).get("compatibility", "")
     for term in compatibility.split(","):
         term = term.strip()
-        if term.lower().startswith("dcc-mcp-core"):
-            return _normalize_semver(term[len("dcc-mcp-core") :].strip().rstrip("+").strip())
+        match = re.fullmatch(r"dcc-mcp-core\s+([0-9]+(?:\.[0-9]+){0,2})\+?", term, flags=re.IGNORECASE)
+        if match:
+            return _normalize_semver(match.group(1))
     return None
 
 
 def _normalize_semver(value: str) -> str:
     """Pad a partial core version out to the three parts semver requires."""
     parts = value.split(".")
-    numeric = []
-    for part in parts[:3]:
-        digits = "".join(ch for ch in part if ch.isdigit())
-        numeric.append(digits or "0")
-    while len(numeric) < 3:
-        numeric.append("0")
-    return ".".join(numeric)
+    return ".".join(parts + ["0"] * (3 - len(parts)))
 
 
 def pack_skill(skill_dir: Path, out_dir: Path, version: str) -> dict[str, object]:

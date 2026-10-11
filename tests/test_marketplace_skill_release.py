@@ -120,6 +120,121 @@ def test_read_skill_version_strips_release_please_marker() -> None:
         assert packer.read_skill_version(skill) == "0.20.42"
 
 
+def test_frontmatter_stops_before_markdown_body() -> None:
+    """Body examples and later horizontal rules cannot supply missing fields."""
+    with tempfile.TemporaryDirectory() as raw:
+        skill = build_fixture(Path(raw))
+        (skill / "SKILL.md").write_text(
+            "---\nname: frontmatter-name\n---\n\nBody.\n\n---\n"
+            "name: body-name\n"
+            'compatibility: "dcc-mcp-core 0.17+"\n'
+            'metadata:\n  dcc-mcp:\n    version: "9.9.9"\n---\n',
+            encoding="utf-8",
+        )
+        assert packer.read_frontmatter(skill) == {"name": "frontmatter-name"}
+        assert packer.read_skill_name(skill) == "frontmatter-name"
+        assert packer.read_skill_version(skill) is None
+        assert packer.read_min_core_version(skill) is None
+
+
+def test_frontmatter_requires_opening_and_closing_delimiters() -> None:
+    with tempfile.TemporaryDirectory() as raw:
+        skill = build_fixture(Path(raw))
+        metadata = (
+            'name: misplaced-name\ncompatibility: "dcc-mcp-core 0.17+"\nmetadata:\n  dcc-mcp:\n    version: "9.9.9"\n'
+        )
+        for content in ("Body.\n---\n" + metadata + "---\n", "---\n" + metadata, metadata, ""):
+            (skill / "SKILL.md").write_text(content, encoding="utf-8")
+            assert packer.read_frontmatter(skill) == {}, content
+            assert packer.read_skill_name(skill) == "sample-skill", content
+            assert packer.read_skill_version(skill) is None, content
+            assert packer.read_min_core_version(skill) is None, content
+
+
+def test_skill_version_rejects_other_mapping_scopes() -> None:
+    """Only metadata.dcc-mcp.version can supply the archive version."""
+    with tempfile.TemporaryDirectory() as raw:
+        root = Path(raw)
+        skill = build_fixture(root)
+        for metadata in (
+            'metadata:\n  dcc-mcp:\n    layer: domain\n  other:\n    version: "9.9.9"\n',
+            'metadata:\n  dcc-mcp:\n    layer: domain\n  version: "9.9.9"\n',
+            'metadata:\n  dcc-mcp:\n    other:\n      version: "9.9.9"\n',
+            'metadata:\n  other:\n    dcc-mcp:\n      version: "9.9.9"\n',
+            'metadata:\n  dcc-mcp:\n    layer: domain\nother:\n  version: "9.9.9"\n',
+        ):
+            (skill / "SKILL.md").write_text("---\n" + metadata + "---\n", encoding="utf-8")
+            assert packer.read_skill_version(skill) is None, metadata
+            try:
+                packer.pack_skill(skill, root / "out", "1.0.0")
+            except SystemExit as exc:
+                assert "has no metadata.dcc-mcp.version" in str(exc)
+            else:
+                raise AssertionError("packing must reject a missing skill version")
+            assert not (root / "out").exists()
+
+
+def test_skill_version_accepts_direct_mapping_after_nested_siblings() -> None:
+    with tempfile.TemporaryDirectory() as raw:
+        skill = build_fixture(Path(raw))
+        for indent in ("  ", "    "):
+            (skill / "SKILL.md").write_text(
+                "---\nmetadata:\n"
+                f"{indent}other:\n{indent * 2}version: '9.9.9'\n"
+                f"{indent}dcc-mcp:\n"
+                f"{indent * 2}other:\n{indent * 3}version: '8.8.8'\n"
+                "\n# A comment does not leave the mapping.\n"
+                f"{indent * 2}version: '1.2.3' # x-release-please-version\n---\n",
+                encoding="utf-8",
+            )
+            assert packer.read_skill_version(skill) == "1.2.3", indent
+
+
+def test_min_core_version_requires_exact_package_and_numeric_version() -> None:
+    with tempfile.TemporaryDirectory() as raw:
+        skill = build_fixture(Path(raw))
+        for compatibility in (
+            "dcc-mcp-core",
+            "dcc-mcp-core   ",
+            "dcc-mcp-core +",
+            "dcc-mcp-core latest",
+            "dcc-mcp-core 0.invalid.17+",
+            "dcc-mcp-core 0.17.0.1+",
+            "dcc-mcp-core-extra 0.17+",
+            "dcc-mcp-core0.17+",
+        ):
+            (skill / "SKILL.md").write_text(
+                f'---\ncompatibility: "{compatibility}, Python 3.7+"\n---\n', encoding="utf-8"
+            )
+            assert packer.read_min_core_version(skill) is None, compatibility
+
+
+def test_bare_core_compatibility_uses_renderer_fallback() -> None:
+    with tempfile.TemporaryDirectory() as raw:
+        root = Path(raw)
+        skill = build_fixture(root)
+        skill_md = skill / "SKILL.md"
+        skill_md.write_text(
+            skill_md.read_text(encoding="utf-8").replace("dcc-mcp-core 0.19.91+", "dcc-mcp-core"),
+            encoding="utf-8",
+        )
+        out = root / "out"
+        manifest = out / "manifest.json"
+        assert (
+            packer.main(["--skill", str(skill), "--out", str(out), "--manifest", str(manifest), "--version", "9.9.9"])
+            == 0
+        )
+        packed = json.loads(manifest.read_text(encoding="utf-8"))
+        assert packed["min_core_version_fallback"] == ["sample-skill"]
+        assert packed["skills"][0]["min_core_version"] is None
+
+        entries = out / "entries.json"
+        args = ["--manifest", str(manifest), "--base-url", "https://example.test/v9.9.9", "--out", str(entries)]
+        assert renderer.main(args) == 1
+        assert renderer.main([*args, "--min-core-version", "9.9.9"]) == 0
+        assert json.loads(entries.read_text(encoding="utf-8"))[0]["minCoreVersion"] == "9.9.9"
+
+
 def test_zip_metadata_is_host_independent() -> None:
     """Pinning create_system is what makes a digest verifiable cross-OS."""
     import zipfile

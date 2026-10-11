@@ -97,6 +97,7 @@ jobs:
           PY
 
       - name: Pack skill bundles
+        shell: bash
         env:
           VERSION: ${{ steps.version.outputs.value }}
         run: |
@@ -355,8 +356,13 @@ jobs:
           PY
 
   upload:
-    needs: [pack, cross-os]
-    if: ${{ inputs.upload_release }}
+    needs: [pack, cross-os, version-drift]
+    if: >-
+      ${{ always() && inputs.upload_release
+          && needs.pack.result == 'success'
+          && needs.cross-os.result == 'success'
+          && (needs.version-drift.result == 'success'
+              || (!inputs.check_version_drift && needs.version-drift.result == 'skipped')) }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -366,9 +372,14 @@ jobs:
           name: marketplace-skill-bundles-ubuntu-latest
           path: dist/marketplace
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: marketplace-manifest-ubuntu-latest
+          path: dist/marketplace
+
       - name: Upload archives to the GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ needs.pack.outputs.version }}
         run: |
-          gh release upload "v$VERSION" dist/marketplace/*.zip --clobber
+          gh release upload "v$VERSION" dist/marketplace/*.zip dist/marketplace/manifest.json --clobber
