@@ -256,7 +256,7 @@ runs:
               ;;
           esac
         fi
-        python scripts/ci/check_python_wheel.py \
+        ${{ inputs.python-version == '3.7' && 'python3.7' || 'python' }} scripts/ci/check_python_wheel.py \
           --profile "$profile" \
           --platform "$platform" \
           dist/*.whl
@@ -266,7 +266,7 @@ runs:
       shell: bash
       run: |
         if [[ -f tests/test_issue_2388_zero_typing_extensions.py ]]; then
-          python scripts/ci/smoke_zero_typing_extensions.py --wheel 'dist/*.whl'
+          ${{ inputs.python-version == '3.7' && 'python3.7' || 'python' }} scripts/ci/smoke_zero_typing_extensions.py --wheel 'dist/*.whl'
         fi
 
     - name: Test wheel
@@ -274,7 +274,7 @@ runs:
       shell: bash
       run: |
         # Use python -m venv for Python 3.7 (uv does not support 3.7)
-        python -m venv test-env
+        ${{ inputs.python-version == '3.7' && 'python3.7' || 'python' }} -m venv test-env
         if [ "${{ runner.os }}" = "Windows" ]; then
           source test-env/Scripts/activate
         else
