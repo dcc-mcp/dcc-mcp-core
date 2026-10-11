@@ -311,6 +311,17 @@ def regenerate_repository(
 
         _commit_and_push(repo_dir, head, push_target, timeout=timeout)
 
+        # A push to our stable branch refreshes its existing PR, even while
+        # GitHub's files endpoint still reports the previous blob.
+        existing = pr_helpers.find_open_pr(repo_slug, head_ref, default_branch, timeout=timeout)
+        if existing:
+            pr_helpers.update_pr(repo_slug, existing, title=title, body=body, timeout=timeout)
+            row["status"] = REGENERATED
+            row["action"] = "refreshed-pr"
+            row["pr"] = existing
+            row["detail"] = f"refreshed the pointer block ({host_count} adapters)"
+            return row
+
         # Re-checked after the push and immediately before creating: two runs
         # that reached this point together would otherwise both see no
         # equivalent PR and both open one.

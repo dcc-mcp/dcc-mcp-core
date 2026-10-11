@@ -1387,7 +1387,9 @@ def test_find_open_pr_matches_on_the_bare_branch_name(monkeypatch):
 
     def fake_run(args, **kwargs):
         seen["head"] = args[args.index("--head") + 1]
-        return subprocess.CompletedProcess(args, 0, '[{"url":"https://example/pr/9"}]', "")
+        return subprocess.CompletedProcess(
+            args, 0, '[{"url":"https://example/pr/9","headRepositoryOwner":{"login":"loonghao"}}]', ""
+        )
 
     monkeypatch.setattr(pr_helpers, "_run", fake_run)
 
@@ -1629,3 +1631,85 @@ def test_an_empty_file_list_is_a_real_answer_not_a_lookup_failure():
             blob_sha="d" * 40,
             title=PR_TITLE,
         )
+
+
+@pytest.mark.parametrize("reindexed", [False, True])
+def test_same_head_pr_is_refreshed_after_push(adapters, tmp_path, monkeypatch, reindexed):
+    """Updating our stable branch is a refresh, regardless of API indexing lag."""
+    name = "dcc-mcp-krita"
+    blob = _generated_blob(adapters, tmp_path, name)
+    url = "https://github.com/dcc-mcp/dcc-mcp-krita/pull/7"
+
+    class SameHead(_FakeGitHub):
+        def install(self, monkeypatch):
+            super().install(monkeypatch)
+
+            def push(repo_dir, branch, push_target, **kwargs):
+                self.pushed.append(branch)
+                if reindexed:
+                    self.open_prs[0]["files"][0]["sha"] = blob
+
+            monkeypatch.setattr(regen, "_commit_and_push", push)
+
+    fake = SameHead(existing_pr=url, open_prs=[_pr_row(7, url, sha="f" * 40)])
+    origin = _make_origin(tmp_path, "same-head", _stale_readme(adapters, name))
+    row = _run_regen(adapters, tmp_path, name, origin, fake, monkeypatch)
+    assert row["status"] == regen.REGENERATED
+    assert row["action"] == "refreshed-pr"
+    assert row["pr"] == url
+    assert len(fake.pushed) == len(fake.updated) == 1
+    assert fake.updated[0]["title"] == PR_TITLE
+    assert fake.updated[0]["body"]
+    assert fake.created == []
+
+
+@pytest.mark.parametrize("payload", ["", " ", "[null]", "[{}]", '[{"number":true}]', '[{"number":0}]'])
+def test_list_open_prs_rejects_incomplete_payload(monkeypatch, payload):
+    """Malformed candidates must not be silently lost during deduplication."""
+    monkeypatch.setattr(pr_helpers, "_run", lambda args, **kw: subprocess.CompletedProcess(args, 0, payload, ""))
+    with pytest.raises(pr_helpers.PrError):
+        pr_helpers.list_open_prs("o/r", "main")
+
+
+@pytest.mark.parametrize("bad_entry", [None, {}, {"path": ""}, {"path": 12}])
+def test_pr_files_rejects_malformed_extra_file(monkeypatch, bad_entry):
+    """Dropping an invalid second entry would falsely prove a one-file match."""
+    payload = json.dumps([{"path": "README.md", "sha": "a" * 40}, bad_entry])
+    monkeypatch.setattr(pr_helpers, "_run", lambda args, **kw: subprocess.CompletedProcess(args, 0, payload, ""))
+    with pytest.raises(pr_helpers.PrError, match="invalid file entry"):
+        pr_helpers.pr_files("o/r", 1)
+
+
+@pytest.mark.parametrize("payload", ["", " "])
+def test_pr_files_rejects_empty_response(monkeypatch, payload):
+    """An absent response is not a confirmed empty file list."""
+    monkeypatch.setattr(pr_helpers, "_run", lambda args, **kw: subprocess.CompletedProcess(args, 0, payload, ""))
+    with pytest.raises(pr_helpers.PrError, match="empty response"):
+        pr_helpers.pr_files("o/r", 1)
+
+
+@pytest.mark.parametrize("payload", ["", "null", "[null]", "[{}]"])
+def test_find_open_pr_rejects_invalid_response(monkeypatch, payload):
+    """A failed same-head lookup must not authorize creating another PR."""
+    monkeypatch.setattr(pr_helpers, "_run", lambda args, **kw: subprocess.CompletedProcess(args, 0, payload, ""))
+    with pytest.raises(pr_helpers.PrError):
+        pr_helpers.find_open_pr("o/r", "branch", "main")
+
+
+def test_find_open_pr_does_not_refresh_a_same_named_fork_branch(monkeypatch):
+    """Only the upstream branch received this run's push."""
+    payload = json.dumps(
+        [
+            {"url": "https://example/pr/1", "headRepositoryOwner": {"login": "someone"}},
+            {"url": "https://example/pr/2", "headRepositoryOwner": {"login": "o"}},
+        ]
+    )
+    monkeypatch.setattr(pr_helpers, "_run", lambda args, **kw: subprocess.CompletedProcess(args, 0, payload, ""))
+    assert pr_helpers.find_open_pr("o/r", "branch", "main") == "https://example/pr/2"
+
+
+def test_find_open_pr_raises_on_lookup_failure(monkeypatch):
+    """API errors cannot be interpreted as permission to create a PR."""
+    monkeypatch.setattr(pr_helpers, "_run", lambda args, **kw: subprocess.CompletedProcess(args, 1, "", "HTTP 500"))
+    with pytest.raises(pr_helpers.PrError, match="HTTP 500"):
+        pr_helpers.find_open_pr("o/r", "branch", "main")

@@ -203,6 +203,8 @@ def list_open_prs(repo: str, base: str, *, timeout: int = DEFAULT_TIMEOUT_SECS) 
     # truncation this function exists to avoid.
     rows: list[dict] = []
     seen: set[int] = set()
+    if not (result.stdout or "").strip():
+        raise PrError(f"gh api pulls returned an empty response for {repo}")
     for line in (result.stdout or "").splitlines():
         line = line.strip()
         if not line:
@@ -214,7 +216,9 @@ def list_open_prs(repo: str, base: str, *, timeout: int = DEFAULT_TIMEOUT_SECS) 
         if not isinstance(batch, list):
             raise PrError(f"gh api pulls returned an unexpected payload for {repo}")
         for row in batch:
-            if isinstance(row, dict) and row.get("number") not in seen:
+            if not isinstance(row, dict) or type(row.get("number")) is not int or row["number"] <= 0:
+                raise PrError(f"gh api pulls returned an invalid PR entry for {repo}")
+            if row["number"] not in seen:
                 seen.add(row["number"])
                 rows.append(row)
     return rows
@@ -253,6 +257,8 @@ def pr_files(repo: str, number: int, *, timeout: int = DEFAULT_TIMEOUT_SECS) -> 
         raise PrError(f"gh api pulls/{number}/files failed for {repo}: {(result.stderr or result.stdout).strip()}")
 
     files: list[dict] = []
+    if not (result.stdout or "").strip():
+        raise PrError(f"gh api pulls/{number}/files returned an empty response for {repo}")
     for line in (result.stdout or "").splitlines():
         line = line.strip()
         if not line:
@@ -264,8 +270,9 @@ def pr_files(repo: str, number: int, *, timeout: int = DEFAULT_TIMEOUT_SECS) -> 
         if not isinstance(batch, list):
             raise PrError(f"gh api pulls/{number}/files returned an unexpected payload for {repo}")
         for entry in batch:
-            if isinstance(entry, dict) and entry.get("path"):
-                files.append({"path": str(entry["path"]), "sha": str(entry.get("sha") or "")})
+            if not isinstance(entry, dict) or not isinstance(entry.get("path"), str) or not entry["path"].strip():
+                raise PrError(f"gh api pulls/{number}/files returned an invalid file entry for {repo}")
+            files.append({"path": entry["path"], "sha": str(entry.get("sha") or "")})
     return files
 
 
@@ -324,10 +331,9 @@ def _touches_only(row: dict, path: str) -> bool:
     files = row.get("files")
     if not isinstance(files, list):
         return False
-    entries = [f for f in files if isinstance(f, dict)]
-    if len(entries) != 1:
+    if len(files) != 1 or not isinstance(files[0], dict):
         return False
-    return str(entries[0].get("path") or "").strip() == path
+    return str(files[0].get("path") or "").strip() == path
 
 
 class UnresolvedCandidate(PrError):
@@ -415,16 +421,16 @@ def find_equivalent_pr(
 def find_open_pr(repo: str, head: str, base: str, *, timeout: int = DEFAULT_TIMEOUT_SECS) -> str:
     """Return the URL of an open pull request for ``head``, or '' if there is none.
 
-    Kept for callers that want the narrow, head-branch-scoped lookup. The
-    regeneration path uses :func:`find_equivalent_pr` instead: this one only
-    matches on the head ref, so it cannot see an equivalent PR opened from a
-    fork, under a previous branch name or by another author.
+    Used after pushing to distinguish a refreshed branch from a content-only
+    duplicate. Match the head owner as well: a fork can have the same branch
+    name without receiving this run's push.
 
     ``--head`` takes the bare branch name, not the ``owner:branch`` form that a
     cross-repository PR is *created* with; passing the qualified form matches
     nothing and every rerun would try to open a duplicate.
     """
     bare = head.split(":", 1)[1] if ":" in head else head
+    owner = head.split(":", 1)[0] if ":" in head else repo.split("/", 1)[0]
     result = _run(
         [
             "gh",
@@ -439,19 +445,26 @@ def find_open_pr(repo: str, head: str, base: str, *, timeout: int = DEFAULT_TIME
             "--base",
             base,
             "--json",
-            "url",
+            "url,headRepositoryOwner",
         ],
         timeout=timeout,
     )
     if result.returncode != 0:
-        return ""
+        raise PrError(f"gh pr list failed for {repo}: {(result.stderr or result.stdout).strip()}")
     import json
 
     try:
-        rows = json.loads(result.stdout or "[]")
-    except ValueError:
-        return ""
+        rows = json.loads(result.stdout)
+    except ValueError as exc:
+        raise PrError(f"gh pr list returned unparsable JSON for {repo}: {exc}") from exc
+    if not isinstance(rows, list) or any(not isinstance(row, dict) or not row.get("url") for row in rows):
+        raise PrError(f"gh pr list returned an unexpected payload for {repo}")
     for row in rows:
+        head_owner = row.get("headRepositoryOwner")
+        if not isinstance(head_owner, dict) or not isinstance(head_owner.get("login"), str):
+            raise PrError(f"gh pr list returned an unknown head owner for {repo}")
+        if head_owner["login"].casefold() != owner.casefold():
+            continue
         url = str(row.get("url") or "").strip()
         if url:
             return url
