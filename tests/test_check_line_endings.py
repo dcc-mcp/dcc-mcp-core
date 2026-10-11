@@ -148,15 +148,43 @@ def test_repository_covered_sources_are_lf() -> None:
     assert gate.find_cr_files(REPO_ROOT) == []
 
 
+def _pinned_extensions(gitattributes: str) -> set[str]:
+    """Return the extensions pinned to LF by ``*.ext ... text eol=lf`` rules.
+
+    Tolerates a trailing comment and any attribute order: a gitattributes rule
+    is a pattern followed by attributes, and ``#`` starts a comment that may
+    sit on the same line as a rule.
+    """
+    pinned: set[str] = set()
+    for raw_line in gitattributes.splitlines():
+        line = raw_line.split("#", 1)[0].strip()
+        if not line.startswith("*."):
+            continue
+        tokens = line.split()
+        if len(tokens) >= 2 and "text" in tokens and "eol=lf" in tokens:
+            pinned.add(tokens[0][2:])
+    return pinned
+
+
+def test_pinned_extensions_tolerates_comments_and_attribute_order() -> None:
+    """A trailing comment or reordered attributes must not hide a pinned extension."""
+    content = "\n".join(
+        [
+            "# a standalone comment",
+            "*.py text eol=lf  # inline comment",
+            "*.toml eol=lf text",
+            "*.rs -text",
+            "",
+            "*.md text",
+        ]
+    )
+
+    assert _pinned_extensions(content) == {"py", "toml"}
+
+
 def test_every_gated_extension_is_pinned_to_lf_in_gitattributes() -> None:
     """DEFAULT_PATTERNS and .gitattributes must not drift apart."""
-    content = (REPO_ROOT / ".gitattributes").read_text(encoding="utf-8")
-
-    pinned = set()
-    for line in content.splitlines():
-        rule = line.strip()
-        if rule.startswith("*.") and rule.endswith("text eol=lf"):
-            pinned.add(rule.split()[0][2:])
+    pinned = _pinned_extensions((REPO_ROOT / ".gitattributes").read_text(encoding="utf-8"))
 
     for pattern in gate.DEFAULT_PATTERNS:
         assert pattern.startswith("*."), f"unexpected non-extension pattern: {pattern}"
