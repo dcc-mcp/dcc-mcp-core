@@ -148,15 +148,56 @@ def test_repository_covered_sources_are_lf() -> None:
     assert gate.find_cr_files(REPO_ROOT) == []
 
 
+def _pinned_extensions(gitattributes: str) -> set[str]:
+    """Return the extensions pinned to LF by a ``*.ext ... text eol=lf`` rule.
+
+    Mirrors how git actually parses a rule: a pattern followed by a set of
+    attributes. Two consequences a plain suffix match gets wrong:
+
+    * Attribute order is irrelevant -- ``*.toml eol=lf text`` pins exactly as
+      much as ``*.toml text eol=lf``, and a suffix match misses it.
+    * ``#`` starts a comment only at the beginning of a line. Inline, git
+      reads it as an attribute name, rejects it ("# is not a valid attribute
+      name") and discards the **whole** rule -- so a rule carrying a trailing
+      comment pins nothing, and the guard has to report that rather than
+      treat it as a pin.
+    * Later rules win, so a trailing ``*.ext -text`` removes an earlier pin.
+    """
+    pinned: set[str] = set()
+    for raw_line in gitattributes.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or not line.startswith("*."):
+            continue
+        tokens = line.split()
+        if any(token.startswith("#") for token in tokens):
+            continue  # git discards the rule; see the docstring
+        extension = tokens[0][2:]
+        if any(token.startswith("-") for token in tokens):
+            pinned.discard(extension)  # later rule wins: unset removes the pin
+        elif len(tokens) >= 2 and "text" in tokens and "eol=lf" in tokens:
+            pinned.add(extension)
+    return pinned
+
+
+def test_pinned_extensions_matches_git_rule_semantics() -> None:
+    """Reordered attributes pin; a trailing `#` makes git drop the whole rule."""
+    content = "\n".join(
+        [
+            "# a standalone comment is ignored",
+            "*.py text eol=lf  # trailing comment -> git discards this rule",
+            "*.toml eol=lf text",
+            "*.rs -text",
+            "",
+            "*.md text",
+        ]
+    )
+
+    assert _pinned_extensions(content) == {"toml"}
+
+
 def test_every_gated_extension_is_pinned_to_lf_in_gitattributes() -> None:
     """DEFAULT_PATTERNS and .gitattributes must not drift apart."""
-    content = (REPO_ROOT / ".gitattributes").read_text(encoding="utf-8")
-
-    pinned = set()
-    for line in content.splitlines():
-        rule = line.strip()
-        if rule.startswith("*.") and rule.endswith("text eol=lf"):
-            pinned.add(rule.split()[0][2:])
+    pinned = _pinned_extensions((REPO_ROOT / ".gitattributes").read_text(encoding="utf-8"))
 
     for pattern in gate.DEFAULT_PATTERNS:
         assert pattern.startswith("*."), f"unexpected non-extension pattern: {pattern}"
