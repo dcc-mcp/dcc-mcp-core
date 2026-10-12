@@ -23,7 +23,7 @@ CI_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 VERSION_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "version-consistency.yml"
 EXPECTED_ROOT_PACKAGE = "dcc-mcp-core"
 TRUSTED_VALIDATOR_PATH = "scripts/ci/generated_lock_sync.py"
-TRUSTED_VALIDATOR_COMMIT = "b8e294e8a64abba426871b1e86eb106e75aab075"
+TRUSTED_VALIDATOR_COMMIT = "2e1619203434a23a4e019cca8aa93809d072b32d"
 # Probe children create their PID file and only afterwards write the payload.
 # On Windows that pair is not atomic for a reader, so a parent that observes
 # the path immediately after ``run_bounded`` fails closed can read an empty or
@@ -380,14 +380,9 @@ def test_release_workflows_regenerate_and_validate_uv_lock() -> None:
         step_name="Check uv lock consistency",
     )
     assert check_commands == ["python scripts/ci/check_uv_lock.py", "vx uv lock --check"]
-    assert {
-        "release-please-config.json",
-        ".release-please-manifest.json",
-        "pyproject.toml",
-        "uv.lock",
-        "scripts/ci/check_uv_lock.py",
-        ".github/workflows/version-consistency.yml",
-    }.issubset(_workflow_pull_request_paths(version_workflow))
+    # All PRs must run the contract, including a new unregistered projection.
+    trigger = yaml_loads(version_workflow)["on"]["pull_request"]
+    assert "paths" not in trigger and "paths-ignore" not in trigger
 
 
 def test_generated_lock_workflow_is_read_only_until_fixed_push() -> None:

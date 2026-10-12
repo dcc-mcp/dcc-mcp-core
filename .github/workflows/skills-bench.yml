@@ -16,6 +16,8 @@ on:
       - "crates/dcc-mcp-skills/src/catalog/**"
       - "crates/dcc-mcp-skills-bench/**"
       - "benchmarks/skills/**"
+      - "scripts/ci/core_version_contract.py"
+      - "tests/test_core_version_contract.py"
       - "skills/**"
       # SkillMetadata field changes alter what the index actually contains.
       - "crates/dcc-mcp-models/**"

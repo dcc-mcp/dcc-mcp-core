@@ -167,3 +167,8 @@ This project uses [Release Please](https://github.com/googleapis/release-please)
 ## Questions?
 
 Open an [issue](https://github.com/dcc-mcp/dcc-mcp-core/issues) or start a [discussion](https://github.com/dcc-mcp/dcc-mcp-core/discussions).
+
+## Release version metadata
+
+See the [Core release version contract](docs/guide/core-release-version-contract.md)
+for synchronized projections, independent versions, and fail-closed validation.

@@ -1,37 +1,11 @@
 name: Version Consistency Check
 
-# Verifies that all version-bearing files agree on the same version.
-# Triggers on any PR that modifies a version-bearing file:
-#   - Cargo.toml (workspace version)
-#   - pyproject.toml (Python package version)
-#   - uv.lock (editable root package version and resolved lock state)
-#   - release-please-config.json (fixed root package identity)
-#   - .release-please-manifest.json (release-please source-of-truth)
-#   - python/dcc_mcp_core/_core.pyi (Python-visible declaration of the version
-#     compiled into the native extension; mirrors src/lib.rs's
-#     env!("CARGO_PKG_VERSION"))
-#   - Any __version__.py files
+# Run on every PR: path filters cannot see a newly introduced release claim.
 
 on:
   pull_request:
     types: [opened, reopened, synchronize]
     branches: [main]
-    paths:
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "crates/**/Cargo.toml"
-      - "pyproject.toml"
-      - "pkg/**/pyproject.toml"
-      - "uv.lock"
-      - "CHANGELOG.md"
-      - "release-please-config.json"
-      - ".release-please-manifest.json"
-      - "python/dcc_mcp_core/_core.pyi"
-      - "**/__version__.py"
-      - "scripts/ci/check_uv_lock.py"
-      - "tests/test_version_single_source.py"
-      - "scripts/ci/check_lock_versions.py"
-      - ".github/workflows/version-consistency.yml"
 
 permissions:
   contents: read
@@ -57,120 +31,7 @@ jobs:
           cache-key-prefix: "vx-tools-v0.9.34"
 
       - name: Check version consistency
-        run: |
-          python - <<'PY'
-          import json
-          import sys
-          import tomllib
-          from pathlib import Path
-
-          errors = []
-          warnings = []
-
-          # Read the manifest version (source of truth for release-please)
-          manifest_path = Path(".release-please-manifest.json")
-          if not manifest_path.exists():
-              print("::warning::No .release-please-manifest.json found; skipping version check.")
-              sys.exit(0)
-
-          manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-          manifest_version = manifest.get(".")
-          if not manifest_version:
-              print("::error::Missing root package version in .release-please-manifest.json")
-              sys.exit(1)
-
-          print(f"Manifest version (source of truth): {manifest_version}")
-
-          # Check Cargo.toml workspace version
-          cargo_path = Path("Cargo.toml")
-          if cargo_path.exists():
-              cargo = tomllib.loads(cargo_path.read_text(encoding="utf-8"))
-              cargo_version = cargo.get("workspace", {}).get("package", {}).get("version")
-              if cargo_version is not None:
-                  if cargo_version != manifest_version:
-                      errors.append(
-                          f"Cargo.toml workspace.package.version={cargo_version!r} "
-                          f"!= manifest {manifest_version!r}"
-                      )
-                  else:
-                      print(f"  Cargo.toml: {cargo_version} ✓")
-
-          # Check pyproject.toml project version
-          pyproject_path = Path("pyproject.toml")
-          if pyproject_path.exists():
-              pyproject = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
-              py_version = pyproject.get("project", {}).get("version")
-              if py_version is not None:
-                  if py_version != manifest_version:
-                      errors.append(
-                          f"pyproject.toml project.version={py_version!r} "
-                          f"!= manifest {manifest_version!r}"
-                      )
-                  else:
-                      print(f"  pyproject.toml: {py_version} ✓")
-
-          # Check sub-package pyproject.toml files
-          for sub_pyproject in Path("pkg").glob("*/pyproject.toml") if Path("pkg").exists() else []:
-              sub = tomllib.loads(sub_pyproject.read_text(encoding="utf-8"))
-              sub_version = sub.get("project", {}).get("version")
-              if sub_version is not None:
-                  if sub_version != manifest_version:
-                      errors.append(
-                          f"{sub_pyproject}: version={sub_version!r} != manifest {manifest_version!r}"
-                      )
-                  else:
-                      print(f"  {sub_pyproject}: {sub_version} ✓")
-
-          # Check the native extension stub: this is the version type-checkers and
-          # readers see, and it must match the Cargo version src/lib.rs compiles in.
-          stub_path = Path("python/dcc_mcp_core/_core.pyi")
-          if stub_path.exists():
-              import re
-
-              content = stub_path.read_text(encoding="utf-8")
-              match = re.search(r'^__version__\s*:\s*builtins\.str\s*=\s*["\']([^"\']+)["\']', content, re.MULTILINE)
-              if match is None:
-                  errors.append(f"{stub_path}: no __version__ declaration found")
-              elif match.group(1) != manifest_version:
-                  errors.append(
-                      f"{stub_path}: __version__={match.group(1)!r} != manifest {manifest_version!r}"
-                  )
-              else:
-                  print(f"  {stub_path}: {match.group(1)} ✓")
-
-          # Check any __version__.py files
-          for version_py in Path(".").rglob("__version__.py"):
-              if ".git" in version_py.parts:
-                  continue
-              content = version_py.read_text(encoding="utf-8")
-              # Look for __version__ = "x.y.z"
-              import re
-              match = re.search(r'__version__\s*=\s*["\']([^"\']+)["\']', content)
-              if match:
-                  file_version = match.group(1)
-                  if file_version != manifest_version:
-                      warnings.append(
-                          f"{version_py}: __version__={file_version!r} != manifest {manifest_version!r}"
-                      )
-                  else:
-                      print(f"  {version_py}: {file_version} ✓")
-
-          if warnings:
-              for w in warnings:
-                  print(f"::warning::{w}")
-
-          if errors:
-              for e in errors:
-                  print(f"::error::{e}")
-              print(
-                  "::error::Version mismatch detected. All version-bearing files must agree. "
-                  "If this is a release-please PR, ensure release-please-config.json extra-files "
-                  "covers all version locations."
-              )
-              sys.exit(1)
-
-          print("Version consistency check passed.")
-          PY
+        run: python -I scripts/ci/core_version_contract.py check
 
       - name: Check uv lock consistency
         run: |
