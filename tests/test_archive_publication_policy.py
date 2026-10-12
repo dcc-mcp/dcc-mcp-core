@@ -32,7 +32,7 @@ _SDIST_ROOT = f"dcc_mcp_core-{_VERSION}"
 # scripts/ci/check_release_distribution_set.py: the macOS cp37 wheel is built
 # and contract-checked by the `macos-py37` lane but is not a release artefact.
 # It is withheld by scope, not because it is broken: pip-installing it into
-# python.org 3.7.9 works on macOS 10.15+ (pip compares the wheel tag against the
+# python.org 3.7.9 works on macOS 10.12+ (pip compares the wheel tag against the
 # running OS version, not the interpreter's MACOSX_DEPLOYMENT_TARGET).
 _WHEEL_TAGS = (
     "cp37-cp37m-manylinux_2_17_x86_64.manylinux2014_x86_64",

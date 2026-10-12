@@ -34,7 +34,7 @@ class DistributionSetError(ValueError):
 # lane, but it is deliberately NOT part of this release contract, so it must not
 # reach the distribution set. It is withheld as a scope decision, not because it
 # is broken: the wheel builds, passes its contract, and pip-installs into
-# python.org 3.7.9 on any macOS 10.15+ host (pip compares the wheel tag against
+# python.org 3.7.9 on any macOS 10.12+ host (pip compares the wheel tag against
 # the running OS version, not the interpreter's MACOSX_DEPLOYMENT_TARGET).
 # Promoting it to a release artefact is a product decision, not a bug fix.
 #
