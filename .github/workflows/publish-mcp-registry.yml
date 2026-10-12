@@ -32,7 +32,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to publish, e.g. 0.20.41. Defaults to the version in server.json."
+        description: "Version to publish, e.g. 0.20.41. Defaults to the Core release manifest."
         required: false
         type: string
       dry_run:
@@ -84,7 +84,7 @@ jobs:
           set -euo pipefail
           version="${INPUT_VERSION:-${RELEASE_TAG#v}}"
           if [ -z "$version" ]; then
-            version="$(python -c 'import json;print(json.load(open("server.json"))["version"])')"
+            version="$(python -c 'import json;print(json.load(open(".release-please-manifest.json"))["."])')"
           fi
           printf 'Publishing version %s\n' "$version"
           echo "version=$version" >> "$GITHUB_OUTPUT"

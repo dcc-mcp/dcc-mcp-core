@@ -230,7 +230,8 @@ def test_repair_fails_closed_on_an_unexpected_generated_diff() -> None:
     """A surprising re-resolution is reported, never merged."""
     steps = {step.get("name"): step for step in _action()["runs"]["steps"]}
     guard = steps["Fail closed on an unexpected generated diff"]
-    assert guard["run"] == "python -I scripts/ci/generated_lock_sync.py verify-diff"
+    assert "python -I scripts/ci/generated_lock_sync.py verify-diff" in guard["run"]
+    assert "python -I scripts/ci/core_version_contract.py verify-diff" in guard["run"]
     assert guard["if"] == "steps.generate.outputs.changed == 'true'"
     assert steps["Regenerate the committed lock outputs"]["id"] == "generate"
 

@@ -14,7 +14,28 @@ on:
       - "pyproject.toml"
       - "release-please-config.json"
       - "scripts/ci/generated_lock_sync.py"
+      - "scripts/ci/core_version_contract.py"
+      - ".release-please-manifest.json"
+      - "admin-ui/package*.json"
+      - "server.json"
+      - "skills/**/SKILL.md"
+      - "benchmarks/skills/seeds.json"
       - ".github/workflows/release-please-lock-sync.yml"
+      - ".agents/skills/dcc-mcp-core/SKILL.md"
+      - "admin-ui/package-lock.json"
+      - "admin-ui/package.json"
+      - "docs/.vitepress/config.mts"
+      - "docs/guide/what-is-dcc-mcp-core.md"
+      - "docs/zh/guide/what-is-dcc-mcp-core.md"
+      - "llms.txt"
+      - "pkg/dcc-mcp-cli-bin/pyproject.toml"
+      - "pkg/dcc-mcp-cli-bin/python/dcc_mcp_cli/__init__.py"
+      - "pkg/dcc-mcp-core-semantic/pyproject.toml"
+      - "pkg/dcc-mcp-server-bin/pyproject.toml"
+      - "pkg/dcc-mcp-server-bin/python/dcc_mcp_server/__init__.py"
+      - "python/dcc_mcp_core/_core.pyi"
+      - "skills/marketplace-create-extension/SKILL.md"
+      - "skills/marketplace-publish-extension/SKILL.md"
 
 permissions:
   contents: read
@@ -31,7 +52,7 @@ jobs:
     outputs:
       target: ${{ steps.target.outputs.target }}
     env:
-      TRUSTED_VALIDATOR_REF: b8e294e8a64abba426871b1e86eb106e75aab075
+      TRUSTED_VALIDATOR_REF: 2e1619203434a23a4e019cca8aa93809d072b32d
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
       (
@@ -43,7 +64,7 @@ jobs:
       - uses: actions/checkout@v6
         name: Checkout trusted lock validator
         with:
-          ref: b8e294e8a64abba426871b1e86eb106e75aab075
+          ref: 2e1619203434a23a4e019cca8aa93809d072b32d
           path: trusted-lock-validator
           persist-credentials: false
 
@@ -51,8 +72,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Every execution below pipes this same pinned, self-contained object.
+          # Every execution below pipes a pinned, self-contained object.
           git -C trusted-lock-validator cat-file -e "$TRUSTED_VALIDATOR_REF:scripts/ci/generated_lock_sync.py"
+          git -C trusted-lock-validator cat-file -e "$TRUSTED_VALIDATOR_REF:scripts/ci/core_version_contract.py"
 
       - uses: actions/checkout@v6
         name: Checkout pull request head
@@ -126,6 +148,13 @@ jobs:
             printf 'PR_HEAD_SHA=%s\n' "$live_sha"
             printf 'EXPECTED_HEAD_SHA=%s\n' "$live_sha"
           } >> "$GITHUB_ENV"
+
+      - name: Sync Core release projections
+        working-directory: pull-request
+        run: |
+          set -euo pipefail
+          # Only parse data from the PR. Never import or execute its scripts.
+          git -C ../trusted-lock-validator show "$TRUSTED_VALIDATOR_REF:scripts/ci/core_version_contract.py" | python -I - sync
 
       - name: Sync generated lock metadata
         working-directory: pull-request
@@ -234,13 +263,14 @@ jobs:
           set -euo pipefail
           git -C ../trusted-lock-validator show "$TRUSTED_VALIDATOR_REF:scripts/ci/generated_lock_sync.py" | python -I - preflight
           git -C ../trusted-lock-validator show "$TRUSTED_VALIDATOR_REF:scripts/ci/generated_lock_sync.py" | python -I - verify-diff
+          git -C ../trusted-lock-validator show "$TRUSTED_VALIDATOR_REF:scripts/ci/core_version_contract.py" | python -I - verify-diff
 
       - name: Commit and push changes
         id: commit
         if: steps.target.outputs.target == 'pr'
         working-directory: pull-request
         run: |
-          if git diff --quiet -- Cargo.lock uv.lock crates/workspace-hack/Cargo.toml; then
+          if git diff --quiet -- Cargo.lock uv.lock crates/workspace-hack/Cargo.toml .agents/skills/dcc-mcp-core/SKILL.md Cargo.toml admin-ui/package-lock.json admin-ui/package.json benchmarks/skills/seeds.json docs/.vitepress/config.mts docs/guide/what-is-dcc-mcp-core.md docs/zh/guide/what-is-dcc-mcp-core.md llms.txt pkg/dcc-mcp-cli-bin/pyproject.toml pkg/dcc-mcp-cli-bin/python/dcc_mcp_cli/__init__.py pkg/dcc-mcp-core-semantic/pyproject.toml pkg/dcc-mcp-server-bin/pyproject.toml pkg/dcc-mcp-server-bin/python/dcc_mcp_server/__init__.py pyproject.toml python/dcc_mcp_core/_core.pyi server.json skills/marketplace-create-extension/SKILL.md skills/marketplace-publish-extension/SKILL.md; then
             echo "Generated lock metadata is already in sync."
             echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
@@ -249,6 +279,7 @@ jobs:
           git config user.name "loonghao"
           git config user.email "hal.long@outlook.com"
           git add Cargo.lock uv.lock crates/workspace-hack/Cargo.toml
+          git add .agents/skills/dcc-mcp-core/SKILL.md Cargo.toml admin-ui/package-lock.json admin-ui/package.json benchmarks/skills/seeds.json docs/.vitepress/config.mts docs/guide/what-is-dcc-mcp-core.md docs/zh/guide/what-is-dcc-mcp-core.md llms.txt pkg/dcc-mcp-cli-bin/pyproject.toml pkg/dcc-mcp-cli-bin/python/dcc_mcp_cli/__init__.py pkg/dcc-mcp-core-semantic/pyproject.toml pkg/dcc-mcp-server-bin/pyproject.toml pkg/dcc-mcp-server-bin/python/dcc_mcp_server/__init__.py pyproject.toml python/dcc_mcp_core/_core.pyi server.json skills/marketplace-create-extension/SKILL.md skills/marketplace-publish-extension/SKILL.md
           git commit --no-verify -m "chore(ci): sync generated lock metadata"
           echo "changed=true" >> "$GITHUB_OUTPUT"
 
@@ -272,6 +303,7 @@ jobs:
           env -u PUSH_TOKEN git -C ../trusted-lock-validator show "$TRUSTED_VALIDATOR_REF:scripts/ci/generated_lock_sync.py" | env -u PUSH_TOKEN python -I - validate-remote
           env -u PUSH_TOKEN git -C ../trusted-lock-validator show "$TRUSTED_VALIDATOR_REF:scripts/ci/generated_lock_sync.py" | env -u PUSH_TOKEN python -I - remote-preflight
           env -u PUSH_TOKEN git -C ../trusted-lock-validator show "$TRUSTED_VALIDATOR_REF:scripts/ci/generated_lock_sync.py" | env -u PUSH_TOKEN python -I - verify-commit
+          env -u PUSH_TOKEN git -C ../trusted-lock-validator show "$TRUSTED_VALIDATOR_REF:scripts/ci/core_version_contract.py" | env -u PUSH_TOKEN python -I - verify-commit --expected-parent "$EXPECTED_HEAD_SHA"
           credential_file="$(mktemp)"
           trap 'rm -f "$credential_file"' EXIT
           chmod 600 "$credential_file"
