@@ -128,9 +128,6 @@ def test_release_wheels_are_uploaded_once_after_every_build() -> None:
         assert with_["merge-multiple"] is True
         downloaded_names.add(with_["name"])
     assert downloaded_names == PUBLISH_ARTIFACT_NAMES
-    # Pin the invariant, not the current name: this stays true for any rename
-    # and fails if the spike is ever moved back inside the `wheels-*` namespace.
-    assert all(not fnmatch(name, "wheels-*") or name in PUBLISH_ARTIFACT_NAMES for name in downloaded_names)
 
     validate_index = next(
         index
@@ -159,6 +156,22 @@ def test_release_wheels_are_uploaded_once_after_every_build() -> None:
         "overwrite_files": "${{ inputs.overwrite-release-assets }}",
         "fail_on_unmatched_files": True,
     }
+
+
+def test_verification_spike_producer_stays_outside_publication_globs() -> None:
+    jobs = _jobs()
+    build = next(step for step in jobs["macos-py37"]["steps"] if step.get("uses") == "./.github/actions/build-wheel")
+    artifact_name = build["with"]["artifact-name"]
+    assert artifact_name not in PUBLISH_ARTIFACT_NAMES
+
+    release = yaml_loads((REPO_ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8"))
+    for job_id in ("publish-core-pypi", "publish-github-release-assets"):
+        download = next(
+            step
+            for step in release["jobs"][job_id]["steps"]
+            if step.get("name") == "Download dcc-mcp-core wheel artefacts"
+        )
+        assert not fnmatch(artifact_name, download["with"]["pattern"]), job_id
 
 
 def test_callable_workflow_declares_the_release_token_secret() -> None:
