@@ -559,6 +559,22 @@ jobs:
           pattern: wheels-*
           path: dist
           merge-multiple: true
+      - name: Exclude the CI-only macOS cp37 wheel from the release set
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The macOS cp37 wheel is a CI gate, not a release artifact: rustc
+          # refuses a deployment target below 10.12, so it is tagged
+          # macosx_10_12 and cannot be installed by python.org 3.7.9 (10.9).
+          # "wheels-*" sweeps the whole run, so drop it here by filename.
+          # Only the cp37 abi tag is matched -- the abi3 macOS wheel must stay.
+          removed=0
+          while IFS= read -r wheel; do
+            rm -f "$wheel"
+            echo "excluded $(basename "$wheel")"
+            removed=$((removed + 1))
+          done < <(find dist -maxdepth 1 -name '*-cp37-cp37m-macosx_*.whl' -type f)
+          echo "excluded $removed CI-only macOS cp37 wheel(s)"
       - name: Checkout immutable distribution verification tooling
         uses: actions/checkout@v6
         with:

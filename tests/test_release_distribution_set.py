@@ -22,7 +22,8 @@ VERSION = "0.20.8"
 WHEEL_NAMES = [
     f"dcc_mcp_core-{VERSION}-cp37-cp37m-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
     f"dcc_mcp_core-{VERSION}-cp37-cp37m-win_amd64.whl",
-    f"dcc_mcp_core-{VERSION}-cp37-cp37m-macosx_10_9_x86_64.whl",
+    # No macOS cp37 wheel: the macOS cp37 native wheel is a CI gate only and is
+    # excluded from the release set (see check_release_distribution_set.py).
     (f"dcc_mcp_core-{VERSION}-cp38-abi3-macosx_10_12_x86_64.macosx_11_0_arm64.macosx_10_12_universal2.whl"),
     f"dcc_mcp_core-{VERSION}-cp38-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
     f"dcc_mcp_core-{VERSION}-cp38-abi3-win_amd64.whl",
@@ -214,7 +215,7 @@ def _asset_payload(dist_dir: Path) -> dict:
     return {"assets": assets}
 
 
-def test_verify_distribution_set_requires_all_eight_contracts(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_verify_distribution_set_requires_all_release_contracts(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     dist_dir = tmp_path / "dist"
     _write_fixture_set(dist_dir)
     payload = _asset_payload(dist_dir)
@@ -223,7 +224,7 @@ def test_verify_distribution_set_requires_all_eight_contracts(monkeypatch: pytes
 
     evidence = verify_distribution_set(payload, dist_dir, VERSION)
 
-    assert evidence == {"asset_count": 8, "total_bytes": sum(path.stat().st_size for path in dist_dir.iterdir())}
+    assert evidence == {"asset_count": 7, "total_bytes": sum(path.stat().st_size for path in dist_dir.iterdir())}
 
 
 def test_verify_distribution_set_rejects_incomplete_release(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

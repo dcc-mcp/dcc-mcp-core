@@ -31,7 +31,8 @@ _SDIST_ROOT = f"dcc_mcp_core-{_VERSION}"
 _WHEEL_TAGS = (
     "cp37-cp37m-manylinux_2_17_x86_64.manylinux2014_x86_64",
     "cp37-cp37m-win_amd64",
-    "cp37-cp37m-macosx_10_9_x86_64",
+    # No macOS cp37 wheel: the macOS cp37 native wheel is a CI gate only and is
+    # excluded from the release set (see check_release_distribution_set.py).
     "cp38-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64",
     "cp38-abi3-win_amd64",
     "cp38-abi3-macosx_10_12_universal2",
@@ -135,7 +136,7 @@ def test_complete_prepublication_cli_accepts_clean_set(tmp_path: Path, target: s
     _write_distribution_set(tmp_path / "dist", target)
     result = _publication_cli(tmp_path / "dist")
     assert result.returncode == 0, (result.stdout, result.stderr)
-    assert "Validated 8 fresh Core distribution(s)" in result.stdout
+    assert "Validated 7 fresh Core distribution(s)" in result.stdout
 
 
 @pytest.mark.parametrize("target", ["wheel", "sdist"])

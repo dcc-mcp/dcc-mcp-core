@@ -33,7 +33,12 @@ class DistributionSetError(ValueError):
 _EXPECTED_WHEEL_CONTRACTS = {
     "native_py37/linux-x86_64",
     "native_py37/windows-x86_64",
-    "native_py37/macos-x86_64",
+    # "native_py37/macos-x86_64" is intentionally absent: the macOS cp37 wheel
+    # is built as a CI gate only. rustc >= 1.74 refuses a deployment target
+    # below 10.12, so the artifact is tagged macosx_10_12 and is not
+    # installable by python.org 3.7.9 (which reports 10.9). Shipping it would
+    # publish a wheel that CI's own interpreter cannot install. macOS Python
+    # 3.7 users are served by "lite_py37/any" instead.
     "abi3/linux-x86_64",
     "abi3/windows-x86_64",
     "abi3/macos-universal2",
