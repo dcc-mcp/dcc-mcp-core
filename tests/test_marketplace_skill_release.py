@@ -114,7 +114,7 @@ def test_read_skill_version_strips_release_please_marker() -> None:
     with tempfile.TemporaryDirectory() as raw:
         skill = build_fixture(Path(raw))
         (skill / "SKILL.md").write_text(
-            '---\nname: sample-skill\nmetadata:\n  dcc-mcp:\n    version: "0.20.42"  # x-release-please-version\n---\n',
+            '---\nname: sample-skill\nmetadata:\n  dcc-mcp:\n    version: "0.20.42"  # pragma: version-pin\n---\n',
             encoding="utf-8",
         )
         assert packer.read_skill_version(skill) == "0.20.42"
@@ -184,7 +184,7 @@ def test_skill_version_accepts_direct_mapping_after_nested_siblings() -> None:
                 f"{indent}dcc-mcp:\n"
                 f"{indent * 2}other:\n{indent * 3}version: '8.8.8'\n"
                 "\n# A comment does not leave the mapping.\n"
-                f"{indent * 2}version: '1.2.3' # x-release-please-version\n---\n",
+                f"{indent * 2}version: '1.2.3' # pragma: version-pin\n---\n",
                 encoding="utf-8",
             )
             assert packer.read_skill_version(skill) == "1.2.3", indent
