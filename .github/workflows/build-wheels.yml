@@ -362,6 +362,19 @@ jobs:
     if: >-
       always() && (inputs.reuse-release-assets != true ||
       needs.classify-release-assets.outputs.mode == 'rebuild')
+    # This lane is a build-verification spike, not a release contract: the
+    # publish-release allowlist below deliberately omits the
+    # wheels-macos-x86_64-py37 artifact this lane uploads. A red spike here
+    # therefore says nothing about the artefacts a release ships.
+    #
+    # build-wheels is nonetheless one called workflow, and its result gates
+    # publish-github-release-assets, so letting this lane fail the caller
+    # strands an otherwise-complete release. v0.20.44 is the proof: every
+    # contracted lane passed, yet no core wheel was uploaded and
+    # dcc-mcp-core stayed on PyPI 0.20.43 while the other three packages
+    # moved to 0.20.44. Keep the spike running and visible; stop it from
+    # blocking the distributions that are the release.
+    continue-on-error: true
     # CPython 3.7 never shipped an ARM64 macOS build, so the ARM64 runner
     # installs the x86_64 python.org package and lets Rosetta 2 run it. The
     # Rust extension is cross-compiled to x86_64-apple-darwin, which is also
