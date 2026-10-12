@@ -30,23 +30,24 @@ registry is the source of truth, and the count is reproducible from a checkout:
 rg -c '^    tags: \[.*"adapter".*\]' dcc-mcp-catalog.yml
 ~~~
 
-That reports **38 adapter entries** in [`dcc-mcp-catalog.yml`](dcc-mcp-catalog.yml),
+That reports **47 adapter entries** in [`dcc-mcp-catalog.yml`](dcc-mcp-catalog.yml),
 covering these hosts:
 
 | Area | Hosts |
 |---|---|
-| Desktop DCC | Maya, Blender, Houdini, 3ds Max, Cinema 4D, Nuke, Katana, MotionBuilder, ZBrush, Mari, Substance 3D Designer, Substance 3D Painter, Marmoset |
-| Engines and real-time | Unreal, Unity, Godot, Tiled, TouchDesigner |
-| Design, image, video | Photoshop, Illustrator, GIMP, Krita, After Effects, Premiere, Kdenlive, PowerPoint, OBS, ComfyUI |
-| CAD, procedural, interchange | FreeCAD, OpenSCAD, SketchUp, Material Maker, LiquiGen, OpenUSD |
-| Production tracking and QA | Flow Production Tracking (ShotGrid), RenderDoc, Shogun, Wwise |
+| Desktop DCC | Maya, Blender, Houdini, 3ds Max, Cinema 4D, Nuke, Katana, MotionBuilder, ZBrush, Mari, Substance 3D Designer, Substance 3D Painter, Marmoset, Gaea, SpeedTree |
+| Engines and real-time | Unreal, Unity, Godot, Tiled, TouchDesigner, Epic Games Launcher |
+| Design, image, video | Photoshop, Illustrator, GIMP, Krita, After Effects, Premiere, Kdenlive, PowerPoint, OBS, ComfyUI, CapCut, OpenScreen |
+| CAD, procedural, interchange | FreeCAD, OpenSCAD, SketchUp, Material Maker, LiquiGen, OpenUSD, AutoCAD |
+| Production tracking and QA | Flow Production Tracking (ShotGrid), RenderDoc, Shogun, Wwise, Tracy |
+| Documents and office | Excel, Word |
 
 The full list, with install metadata, is published in the
 [ecosystem directory](https://dcc-mcp.github.io/ecosystem).
 
 **Three shared contracts keep it one matrix.** Host coverage is only useful if
 the adapters stay interchangeable. Three contracts published by core are what
-stop 38 adapters from becoming 38 unrelated servers:
+stop 47 adapters from becoming 47 unrelated servers:
 
 | Contract | What it guarantees | Where to verify |
 |---|---|---|
