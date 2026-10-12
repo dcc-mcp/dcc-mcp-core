@@ -364,7 +364,9 @@ jobs:
       needs.classify-release-assets.outputs.mode == 'rebuild')
     # This lane is a build-verification spike, not a release contract: the
     # publish-release allowlist below deliberately omits the
-    # wheels-macos-x86_64-py37 artifact this lane uploads. A red spike here
+    # spike-wheels-macos-x86_64-py37 artifact this lane uploads, and that
+    # artifact is named outside the `wheels-*` namespace so the publication
+    # globs in release.yml cannot sweep it in either. A red spike here
     # therefore says nothing about the artefacts a release ships.
     #
     # build-wheels is nonetheless one called workflow, and its result gates
@@ -393,12 +395,17 @@ jobs:
 
       # rustc 1.95.0 refuses any deployment target below 10.12 ("the minimum
       # supported by rustc is 10.12"), so the wheel is tagged 10_12 even when
-      # MACOSX_DEPLOYMENT_TARGET asks for lower. The python.org 3.7.9
-      # interpreter reports a 10.9 deployment target, and pip only accepts
-      # macOS wheel tags at or below the interpreter's own, so the wheel that
-      # this job produces cannot be pip-installed into Python 3.7.9 as-is.
-      # Kept explicit so the constraint is visible in the log rather than
-      # silently inherited from the runner image.
+      # MACOSX_DEPLOYMENT_TARGET asks for lower.
+      #
+      # Note that this does NOT make the wheel uninstallable on Python 3.7.9.
+      # pip's macOS tag check reads the version of the RUNNING OS
+      # (packaging.tags.mac_platforms -> platform.mac_ver()), not the
+      # interpreter's MACOSX_DEPLOYMENT_TARGET. python.org 3.7.9 reports a 10.9
+      # deployment target, but installed on macOS 10.15 or newer it happily
+      # accepts a macosx_10_12_x86_64 wheel; only a literal macOS 10.9-10.14
+      # host would reject it. This job verifies that by installing the wheel it
+      # just built. Kept explicit so the constraint is visible in the log rather
+      # than silently inherited from the runner image.
       - name: Record the macOS deployment-target floor
         shell: bash
         run: |
@@ -413,7 +420,12 @@ jobs:
           # action: it installs the x86_64 python.org build under Rosetta 2
           # because actions/setup-python has no arm64 CPython 3.7.
           maturin-extra-args: '-i python3.7'
-          artifact-name: wheels-macos-x86_64-py37
+          # Deliberately outside the `wheels-*` namespace: `release.yml` globs
+          # `pattern: wheels-*` to collect what a release publishes, so a spike
+          # named `wheels-*` would be swept into the distribution set and trip
+          # the release distribution contract. The `spike-` prefix keeps this
+          # lane's build verification out of every publication path.
+          artifact-name: spike-wheels-macos-x86_64-py37
 
       - name: Checkout workflow compatibility tooling
         uses: actions/checkout@v6
@@ -570,8 +582,9 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           # Explicit allowlist rather than `wheels-*`: the `macos-py37` lane
-          # uploads `wheels-macos-x86_64-py37` as a build-verification spike,
-          # and a glob would pull that into the published distribution set even
+          # uploads `spike-wheels-macos-x86_64-py37` as a build-verification
+          # spike, and it deliberately sits outside the `wheels-*` namespace so
+          # a glob cannot pull it into the published distribution set even
           # though it is not a release contract. Keep this list in sync with
           # `_EXPECTED_WHEEL_CONTRACTS` in
           # scripts/ci/check_release_distribution_set.py.

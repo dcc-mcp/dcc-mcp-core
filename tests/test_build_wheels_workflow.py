@@ -16,13 +16,12 @@ BUILD_JOB_IDS = {
     "macos",
 }
 # The macOS cp37 wheel stays a build-verification spike rather than a release
-# artefact: rustc 1.95.0 refuses a deployment target below 10.12 while the
-# python.org 3.7.9 interpreter reports 10.9, and pip only accepts macOS tags at
-# or below the interpreter's own, so the cross-compiled wheel cannot be
-# pip-installed into Python 3.7.9 as built. It therefore trails both
-# `publish-release.needs` and the published artifact list. Promoting it to a
-# release artefact is a separate change that must land only once the wheel is
-# installable on a real Python 3.7.9 interpreter.
+# artefact, so it trails both `publish-release.needs` and the published artifact
+# list. It is withheld by scope, not because it is broken: the lane builds it,
+# passes the native_py37 contract, and pip-installs it into python.org 3.7.9 on
+# macOS 10.15+ (pip compares the wheel tag against the running OS version, not
+# the interpreter's MACOSX_DEPLOYMENT_TARGET). Promoting it to a release
+# artefact is a product decision, not a bug fix.
 PUBLISH_JOB_IDS = BUILD_JOB_IDS - {"macos-py37"}
 PUBLISH_ARTIFACT_NAMES = {
     "wheels-linux-x86_64",
@@ -113,8 +112,10 @@ def test_release_wheels_are_uploaded_once_after_every_build() -> None:
 
     # The macOS cp37 wheel is a build-verification spike, not a release
     # artefact, so `publish-release` downloads each published wheel by name
-    # instead of globbing `wheels-*`. A glob would sweep
-    # `wheels-macos-x86_64-py37` into the published distribution set.
+    # instead of globbing `wheels-*`. The spike is uploaded as
+    # `spike-wheels-macos-x86_64-py37`, deliberately outside the `wheels-*`
+    # namespace, so publication globs cannot sweep it into the distribution
+    # set even if this allowlist is ever relaxed.
     downloads = [step for step in publish["steps"] if step.get("uses") == "actions/download-artifact@v8"]
     assert downloads
     downloaded_names = set()
@@ -125,7 +126,7 @@ def test_release_wheels_are_uploaded_once_after_every_build() -> None:
         assert with_["merge-multiple"] is True
         downloaded_names.add(with_["name"])
     assert downloaded_names == PUBLISH_ARTIFACT_NAMES
-    assert "wheels-macos-x86_64-py37" not in downloaded_names
+    assert "spike-wheels-macos-x86_64-py37" not in downloaded_names
 
     validate_index = next(
         index

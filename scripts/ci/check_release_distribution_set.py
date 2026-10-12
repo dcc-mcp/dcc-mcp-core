@@ -31,11 +31,16 @@ class DistributionSetError(ValueError):
 
 
 # The macOS cp37 wheel is built and contract-checked by the `macos-py37` CI
-# lane, but it is deliberately NOT a release artefact: rustc 1.95.0 refuses a
-# deployment target below 10.12, while the python.org 3.7.9 interpreter reports
-# 10.9 and pip only accepts macOS tags at or below the interpreter's own. The
-# wheel therefore cannot be pip-installed into Python 3.7.9 as built. macOS
-# Python 3.7 users keep the pure-Python `lite_py37/any` wheel.
+# lane, but it is deliberately NOT part of this release contract, so it must not
+# reach the distribution set. It is withheld as a scope decision, not because it
+# is broken: the wheel builds, passes its contract, and pip-installs into
+# python.org 3.7.9 on any macOS 10.15+ host (pip compares the wheel tag against
+# the running OS version, not the interpreter's MACOSX_DEPLOYMENT_TARGET).
+# Promoting it to a release artefact is a product decision, not a bug fix.
+#
+# Because the lane's artefact is a build-verification spike rather than a
+# release candidate, it is uploaded outside the `wheels-*` namespace so that the
+# publication globs in release.yml cannot sweep it in here.
 _EXPECTED_WHEEL_CONTRACTS = {
     "native_py37/linux-x86_64",
     "native_py37/windows-x86_64",
