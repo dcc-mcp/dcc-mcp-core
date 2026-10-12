@@ -17,7 +17,7 @@ metadata:
       domain: marketplace
       workflow_stage: authoring
       task_category: mutate
-    version: "0.20.44"  # x-release-please-version
+    version: "0.20.45"  # x-release-please-version
     layer: infrastructure
     maintainer: dcc-mcp
     search-hint: >-

@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.45](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.44...v0.20.45) (2026-10-12)
+
+
+### Features
+
+* **gateway:** require production reuse investigation before content creation ([44bd3f8](https://github.com/dcc-mcp/dcc-mcp-core/commit/44bd3f83692d05734b54891ba424cfe22eb871c6))
+
+
+### Bug Fixes
+
+* **docs:** link reuse gate outside the VitePress site via source URL ([18b0e97](https://github.com/dcc-mcp/dcc-mcp-core/commit/18b0e976fb08e855fe2db86a97d55465bfe51b37))
+* **gateway:** version the production reuse guide rollout contract ([774201d](https://github.com/dcc-mcp/dcc-mcp-core/commit/774201d77f096b8a5b8ec99126ceb870bba06a13))
+* **release:** anchor trusted validator ref to a main-reachable commit ([#2768](https://github.com/dcc-mcp/dcc-mcp-core/issues/2768)) ([0617336](https://github.com/dcc-mcp/dcc-mcp-core/commit/0617336af147e073b127e2ad637ce029ac7e5df6))
+* **release:** define a strict Core version projection contract ([0b281b4](https://github.com/dcc-mcp/dcc-mcp-core/commit/0b281b4df8bd394ad4085484f31ab9c58b81ce1f))
+* **release:** sync Core projections in trusted automation and enforce discovery ([a64cb38](https://github.com/dcc-mcp/dcc-mcp-core/commit/a64cb38e53fcde02818c11181dcfa51abfce6b65))
+
+
+### Documentation
+
+* **gateway:** clarify direct CLI reuse gate coverage ([874a7ab](https://github.com/dcc-mcp/dcc-mcp-core/commit/874a7aba4df3736323a97be93afeacad09461faf))
+
 ## [0.20.44](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.43...v0.20.44) (2026-10-12)
 
 
