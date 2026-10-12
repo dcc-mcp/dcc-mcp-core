@@ -991,3 +991,91 @@ def test_skill_unknown_sibling_cannot_reuse_a_previous_metadata_ancestor(contrac
     with pytest.raises(contract.ContractError):
         contract.run(repository, "sync")
     assert _snapshot(repository) == before
+
+
+STAGING_LANES = (
+    ".github/workflows/release-please-lock-sync.yml",
+    ".github/actions/generated-lock-repair/action.yml",
+)
+IGNORED_PROJECTION = ".agents/skills/dcc-mcp-core/SKILL.md"
+
+
+def _staging_commands(lane):
+    """Execute the real staging arguments, without generation or remote writes."""
+    return [shlex.split(line.strip()) for line in _read(ROOT, lane).splitlines() if line.strip().startswith("git add ")]
+
+
+@pytest.mark.parametrize("lane", STAGING_LANES)
+def test_projection_staging_uses_exact_tracked_output_allowlist(lane):
+    locks, projections = _staging_commands(lane)
+    assert locks == ["git", "add", "Cargo.lock", "uv.lock", "crates/workspace-hack/Cargo.toml"]
+    assert projections[:4] == ["git", "add", "--update", "--"]
+    assert set(projections[4:]) == OUTPUTS
+    assert len(projections[4:]) == len(OUTPUTS)
+
+
+@pytest.mark.parametrize("lane", STAGING_LANES)
+@pytest.mark.parametrize("ignored_changes", [False, True], ids=["release-2774-three-files", "all-projections"])
+def test_projection_staging_handles_tracked_files_under_ignored_directories(
+    contract, repository, lane, ignored_changes
+):
+    # Track the projections before applying the real ignore rules. Ordinary
+    # `git add <tracked ignored path>` still returns 1 on this worktree shape.
+    original = {path: _read(repository, path) for path in OUTPUTS}
+    _git(repository, "add", "--all")
+    _write(repository, ".gitignore", _read(ROOT, ".gitignore"))
+    _write(repository, "Cargo.lock", "fixture lock\n")
+    _bump(repository)
+    contract.run(repository, "sync")
+    stale = OUTPUTS if ignored_changes else {"admin-ui/package-lock.json", SEEDS, "server.json"}
+    for path in stale:
+        _write(repository, path, original[path])
+    parent = _commit(repository, "Fixture release with tracked ignored projections")
+    assert IGNORED_PROJECTION in _tracked(repository)
+    assert _git(repository, "check-ignore", "--no-index", IGNORED_PROJECTION) == IGNORED_PROJECTION
+    assert set(contract.run(repository, "sync")) == stale
+    _write(repository, "Cargo.lock", "regenerated fixture lock\n")
+    ignored_sibling = ".agents/private-local.txt"
+    _write(repository, ignored_sibling, "Must remain untracked.\n")
+    assert contract.run(repository, "verify-diff") == []
+
+    for command in _staging_commands(lane):
+        _git(repository, *command[1:])
+
+    assert set(_git(repository, "diff", "--cached", "--name-only").splitlines()) == stale | {"Cargo.lock"}
+    assert ignored_sibling not in _tracked(repository)
+    assert _git(repository, "diff", "--name-only") == ""
+    _git(repository, "-c", "commit.gpgsign=false", "commit", "-qm", "Fixture staged projection repair")
+    assert contract.run(repository, "verify-commit", parent) == []
+    # The same staging commands stay idempotent on an already repaired tree.
+    for command in _staging_commands(lane):
+        _git(repository, *command[1:])
+    assert _git(repository, "diff", "--cached", "--name-only") == ""
+
+
+@pytest.mark.parametrize("lane", STAGING_LANES)
+@pytest.mark.parametrize("untracked_projection", [False, True])
+def test_projection_staging_never_admits_untracked_or_unlisted_files(repository, lane, untracked_projection):
+    _commit(repository, "Fixture tracked projection boundary")
+    _write(repository, ".gitignore", _read(ROOT, ".gitignore"))
+    _git(repository, "add", ".gitignore")
+    if untracked_projection:
+        _git(repository, "rm", "--cached", "--", IGNORED_PROJECTION)
+    _git(repository, "-c", "commit.gpgsign=false", "commit", "-qm", "Fixture ignored projection boundary")
+    _write(repository, "untracked.txt", "Must remain untracked.\n")
+    _write(repository, "compatibility/python.json", "Unrelated tracked change must not be staged.\n")
+    _write(repository, "llms.txt", _read(repository, "llms.txt") + "Projection staging fixture.\n")
+    command = _staging_commands(lane)[1]
+
+    if untracked_projection:
+        # A projection missing from the index is an invalid checkout. Do not
+        # silently admit it with --force or continue to commit a partial repair.
+        with pytest.raises(subprocess.CalledProcessError) as error:
+            _git(repository, *command[1:])
+        assert IGNORED_PROJECTION in error.value.stderr.decode()
+        assert _git(repository, "diff", "--cached", "--name-only") == ""
+        assert IGNORED_PROJECTION not in _tracked(repository)
+    else:
+        _git(repository, *command[1:])
+        assert _git(repository, "diff", "--cached", "--name-only") == "llms.txt"
+    assert "untracked.txt" not in _tracked(repository)

@@ -142,7 +142,10 @@ runs:
         git switch -C "$REPAIR_BRANCH" HEAD
         original_head="$(git rev-parse HEAD)"
         git add Cargo.lock uv.lock crates/workspace-hack/Cargo.toml
-        git add .agents/skills/dcc-mcp-core/SKILL.md Cargo.toml admin-ui/package-lock.json admin-ui/package.json benchmarks/skills/seeds.json docs/.vitepress/config.mts docs/guide/what-is-dcc-mcp-core.md docs/zh/guide/what-is-dcc-mcp-core.md llms.txt pkg/dcc-mcp-cli-bin/pyproject.toml pkg/dcc-mcp-cli-bin/python/dcc_mcp_cli/__init__.py pkg/dcc-mcp-core-semantic/pyproject.toml pkg/dcc-mcp-server-bin/pyproject.toml pkg/dcc-mcp-server-bin/python/dcc_mcp_server/__init__.py pyproject.toml python/dcc_mcp_core/_core.pyi server.json skills/marketplace-create-extension/SKILL.md skills/marketplace-publish-extension/SKILL.md
+        # Projections already exist in the index, including the tracked Skill
+        # under ignored .agents/. Update only these exact paths; never force-add
+        # an ignored directory or admit untracked projection files.
+        git add --update -- .agents/skills/dcc-mcp-core/SKILL.md Cargo.toml admin-ui/package-lock.json admin-ui/package.json benchmarks/skills/seeds.json docs/.vitepress/config.mts docs/guide/what-is-dcc-mcp-core.md docs/zh/guide/what-is-dcc-mcp-core.md llms.txt pkg/dcc-mcp-cli-bin/pyproject.toml pkg/dcc-mcp-cli-bin/python/dcc_mcp_cli/__init__.py pkg/dcc-mcp-core-semantic/pyproject.toml pkg/dcc-mcp-server-bin/pyproject.toml pkg/dcc-mcp-server-bin/python/dcc_mcp_server/__init__.py pyproject.toml python/dcc_mcp_core/_core.pyi server.json skills/marketplace-create-extension/SKILL.md skills/marketplace-publish-extension/SKILL.md
         git commit --no-verify -m "$REPAIR_TITLE"
         python -I scripts/ci/core_version_contract.py verify-commit --expected-parent "$original_head"
 
