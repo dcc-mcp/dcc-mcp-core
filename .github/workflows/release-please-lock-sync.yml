@@ -52,7 +52,7 @@ jobs:
     outputs:
       target: ${{ steps.target.outputs.target }}
     env:
-      TRUSTED_VALIDATOR_REF: 2e1619203434a23a4e019cca8aa93809d072b32d
+      TRUSTED_VALIDATOR_REF: 0b281b4df8bd394ad4085484f31ab9c58b81ce1f
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
       (
@@ -64,7 +64,7 @@ jobs:
       - uses: actions/checkout@v6
         name: Checkout trusted lock validator
         with:
-          ref: 2e1619203434a23a4e019cca8aa93809d072b32d
+          ref: 0b281b4df8bd394ad4085484f31ab9c58b81ce1f
           path: trusted-lock-validator
           persist-credentials: false
 
