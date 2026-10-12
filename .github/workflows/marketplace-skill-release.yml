@@ -18,7 +18,7 @@ on:
       check_version_drift:
         description: Fail if a skill's digest changed without a version bump
         type: boolean
-        default: false
+        default: true
   push:
     branches: [main]
     paths:
@@ -313,12 +313,23 @@ jobs:
 
           # The baseline is the manifest.json asset uploaded with the last
           # publish. Without one there is nothing to diff against, which is
-          # the normal case for a first release.
+          # the normal case for a first release. Only a genuine "no such
+          # release" counts as absent: the gate fails closed on transport,
+          # auth or rate-limit errors so a gh hiccup cannot pass as a pass.
           view = subprocess.run(
               ["gh", "release", "view", "v" + version, "--json", "assets"],
               capture_output=True, text=True,
           )
           if view.returncode != 0:
+              output = (view.stderr or "") + (view.stdout or "")
+              missing = (
+                  "release not found" in output.lower()
+                  or "could not resolve to a release" in output.lower()
+              )
+              if not missing:
+                  print("gh release view v{} failed; refusing to pass the drift gate".format(version))
+                  print(output.strip())
+                  sys.exit(1)
               print("no published release v{}; nothing to compare".format(version))
               sys.exit(0)
 

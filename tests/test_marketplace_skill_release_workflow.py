@@ -13,8 +13,12 @@ import yaml
 WORKFLOW = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "marketplace-skill-release.yml"
 
 
+def _workflow() -> dict:
+    return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+
+
 def _jobs() -> dict:
-    return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+    return _workflow()["jobs"]
 
 
 def test_cross_os_pack_step_reads_version_under_bash() -> None:
@@ -43,6 +47,16 @@ def test_upload_publishes_matching_manifest_and_archives() -> None:
         "--clobber",
     ]
     assert upload["env"]["VERSION"] == "${{ needs.pack.outputs.version }}"
+
+
+def test_version_drift_gate_is_enabled_by_default() -> None:
+    # The gate only protects published assets when a dispatch that omits the
+    # input still runs it. The upload condition above is asserted as a literal
+    # string, so flipping this default would not turn any test red without it.
+    # PyYAML parses the bare `on:` key as the boolean True (YAML 1.1).
+    triggers = _workflow()[True]
+    drift = triggers["workflow_dispatch"]["inputs"]["check_version_drift"]
+    assert drift["default"] is True
 
 
 def test_upload_waits_for_drift_gate_and_only_allows_disabled_skip() -> None:
