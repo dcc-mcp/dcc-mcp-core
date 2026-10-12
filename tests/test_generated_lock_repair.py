@@ -196,7 +196,8 @@ def test_repair_shares_the_single_generated_lock_repair_action() -> None:
     # Reached through the `main` checkout: this workflow only ever checks out
     # sibling directories, so `./.github/...` at the workspace root would not
     # resolve. Same action definition, a different route to it.
-    assert _step(REPAIR_STEP)["uses"] == "./main-checkout/.github/actions/generated-lock-repair"
+    checkout_path = _step("Checkout the merge target branch")["with"]["path"]
+    assert _step(REPAIR_STEP)["uses"] == f"./{checkout_path}/.github/actions/generated-lock-repair"
     repair_workflow = yaml_loads(REPAIR_WORKFLOW_PATH.read_text(encoding="utf-8"))
     uses = [step.get("uses") for step in repair_workflow["jobs"]["repair"]["steps"]]
     assert uses.count("./.github/actions/generated-lock-repair") == 1
