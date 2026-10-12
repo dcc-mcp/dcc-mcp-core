@@ -213,7 +213,9 @@ def _asset_payload(dist_dir: Path) -> dict:
     return {"assets": assets}
 
 
-def test_verify_distribution_set_requires_all_seven_contracts(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_verify_distribution_set_requires_all_release_contracts(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     dist_dir = tmp_path / "dist"
     _write_fixture_set(dist_dir)
     payload = _asset_payload(dist_dir)
