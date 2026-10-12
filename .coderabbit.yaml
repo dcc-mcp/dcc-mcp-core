@@ -1,0 +1,10 @@
+# Keep CodeRabbit from writing a generated summary into PR descriptions.
+#
+# PR descriptions are authored by humans and are the source for the squashed
+# commit message on main. With the default configuration, CodeRabbit appends a
+# "Summary by CodeRabbit" block to the description after every review, which
+# both misattributes the text and lets stale generated wording survive into the
+# commit message. Reviews and inline comments are unaffected.
+reviews:
+  high_level_summary: false
+  high_level_summary_placeholder: ""
