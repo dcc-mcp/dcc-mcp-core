@@ -402,7 +402,7 @@ jobs:
       # (packaging.tags.mac_platforms -> platform.mac_ver()), not the
       # interpreter's MACOSX_DEPLOYMENT_TARGET. python.org 3.7.9 reports a 10.9
       # deployment target, but installed on macOS 10.15 or newer it happily
-      # accepts a macosx_10_12_x86_64 wheel; only a literal macOS 10.9-10.14
+      # accepts a macosx_10_12_x86_64 wheel; only a literal macOS 10.9-10.11
       # host would reject it. This job verifies that by installing the wheel it
       # just built. Kept explicit so the constraint is visible in the log rather
       # than silently inherited from the runner image.
