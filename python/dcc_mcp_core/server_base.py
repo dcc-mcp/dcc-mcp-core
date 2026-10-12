@@ -444,11 +444,7 @@ class DccServerBase:
     # --- readiness publication (#1206) -------------------------------------------
 
     def set_readiness_probe(self, probe: Any) -> bool:
-        """Publish before startup; return False if the backend declines.
-
-        The embedded backend shares the probe across MCP and REST call
-        surfaces. The sidecar facade cannot publish an in-process probe.
-        """
+        """Publish before startup; False means backend rejection (including sidecars)."""
         return self._get_observability().set_readiness_probe(probe)
 
     # --- skill search path helpers -----------------------------------------------
