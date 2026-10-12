@@ -21,7 +21,7 @@ BUILD_JOB_IDS = {
 # artefact, so it trails both `publish-release.needs` and the published artifact
 # list. It is withheld by scope, not because it is broken: the lane builds it,
 # passes the native_py37 contract, and pip-installs it into python.org 3.7.9 on
-# macOS 10.15+ (pip compares the wheel tag against the running OS version, not
+# macOS 10.12+ (pip compares the wheel tag against the running OS version, not
 # the interpreter's MACOSX_DEPLOYMENT_TARGET). Promoting it to a release
 # artefact is a product decision, not a bug fix.
 PUBLISH_JOB_IDS = BUILD_JOB_IDS - {"macos-py37"}
