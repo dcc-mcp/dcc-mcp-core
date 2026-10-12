@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from fnmatch import fnmatch
+
 from conftest import REPO_ROOT
 from dcc_mcp_core import yaml_loads
 
@@ -126,7 +128,9 @@ def test_release_wheels_are_uploaded_once_after_every_build() -> None:
         assert with_["merge-multiple"] is True
         downloaded_names.add(with_["name"])
     assert downloaded_names == PUBLISH_ARTIFACT_NAMES
-    assert "spike-wheels-macos-x86_64-py37" not in downloaded_names
+    # Pin the invariant, not the current name: this stays true for any rename
+    # and fails if the spike is ever moved back inside the `wheels-*` namespace.
+    assert all(not fnmatch(name, "wheels-*") or name in PUBLISH_ARTIFACT_NAMES for name in downloaded_names)
 
     validate_index = next(
         index
