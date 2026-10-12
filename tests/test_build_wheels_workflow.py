@@ -15,12 +15,23 @@ BUILD_JOB_IDS = {
     "macos-py37",
     "macos",
 }
-# The macOS cp37 wheel is built as a spike before it joins the release gate, so
-# `publish-release.needs` intentionally trails BUILD_JOB_IDS. Merging these two
-# constants is the second-stage change that promotes the wheel to a release
-# artefact, and it must land only after a workflow_dispatch run proves the
-# cross-compiled wheel builds and validates on the ARM64 runner.
+# The macOS cp37 wheel stays a build-verification spike rather than a release
+# artefact: rustc 1.95.0 refuses a deployment target below 10.12 while the
+# python.org 3.7.9 interpreter reports 10.9, and pip only accepts macOS tags at
+# or below the interpreter's own, so the cross-compiled wheel cannot be
+# pip-installed into Python 3.7.9 as built. It therefore trails both
+# `publish-release.needs` and the published artifact list. Promoting it to a
+# release artefact is a separate change that must land only once the wheel is
+# installable on a real Python 3.7.9 interpreter.
 PUBLISH_JOB_IDS = BUILD_JOB_IDS - {"macos-py37"}
+PUBLISH_ARTIFACT_NAMES = {
+    "wheels-linux-x86_64",
+    "wheels-windows-x64",
+    "wheels-py37-lite",
+    "wheels-linux-x86_64-py37",
+    "wheels-windows-x64-py37",
+    "wheels-macos-universal2",
+}
 
 
 def _jobs() -> dict:
@@ -100,13 +111,21 @@ def test_release_wheels_are_uploaded_once_after_every_build() -> None:
     assert publish["if"] == "inputs.release-tag-name != ''"
     assert publish["permissions"] == {"actions": "read", "contents": "write"}
 
-    download = publish["steps"][0]
-    assert download["uses"] == "actions/download-artifact@v8"
-    assert download["with"] == {
-        "pattern": "wheels-*",
-        "path": "dist",
-        "merge-multiple": True,
-    }
+    # The macOS cp37 wheel is a build-verification spike, not a release
+    # artefact, so `publish-release` downloads each published wheel by name
+    # instead of globbing `wheels-*`. A glob would sweep
+    # `wheels-macos-x86_64-py37` into the published distribution set.
+    downloads = [step for step in publish["steps"] if step.get("uses") == "actions/download-artifact@v8"]
+    assert downloads
+    downloaded_names = set()
+    for step in downloads:
+        with_ = step["with"]
+        assert "pattern" not in with_
+        assert with_["path"] == "dist"
+        assert with_["merge-multiple"] is True
+        downloaded_names.add(with_["name"])
+    assert downloaded_names == PUBLISH_ARTIFACT_NAMES
+    assert "wheels-macos-x86_64-py37" not in downloaded_names
 
     validate_index = next(
         index

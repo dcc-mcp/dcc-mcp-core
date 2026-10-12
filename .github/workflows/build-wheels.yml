@@ -556,7 +556,38 @@ jobs:
     steps:
       - uses: actions/download-artifact@v8
         with:
-          pattern: wheels-*
+          # Explicit allowlist rather than `wheels-*`: the `macos-py37` lane
+          # uploads `wheels-macos-x86_64-py37` as a build-verification spike,
+          # and a glob would pull that into the published distribution set even
+          # though it is not a release contract. Keep this list in sync with
+          # `_EXPECTED_WHEEL_CONTRACTS` in
+          # scripts/ci/check_release_distribution_set.py.
+          name: wheels-linux-x86_64
+          path: dist
+          merge-multiple: true
+      - uses: actions/download-artifact@v8
+        with:
+          name: wheels-windows-x64
+          path: dist
+          merge-multiple: true
+      - uses: actions/download-artifact@v8
+        with:
+          name: wheels-py37-lite
+          path: dist
+          merge-multiple: true
+      - uses: actions/download-artifact@v8
+        with:
+          name: wheels-linux-x86_64-py37
+          path: dist
+          merge-multiple: true
+      - uses: actions/download-artifact@v8
+        with:
+          name: wheels-windows-x64-py37
+          path: dist
+          merge-multiple: true
+      - uses: actions/download-artifact@v8
+        with:
+          name: wheels-macos-universal2
           path: dist
           merge-multiple: true
       - name: Checkout immutable distribution verification tooling

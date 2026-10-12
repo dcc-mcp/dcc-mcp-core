@@ -28,10 +28,13 @@ from test_python_wheel_contract import _write_wheel
 _ROOT = Path(__file__).resolve().parents[1]
 _VERSION = "0.20.22"
 _SDIST_ROOT = f"dcc_mcp_core-{_VERSION}"
+# Mirrors `_EXPECTED_WHEEL_CONTRACTS` in
+# scripts/ci/check_release_distribution_set.py: the macOS cp37 wheel is built
+# and contract-checked by the `macos-py37` lane but is not a release artefact,
+# because the cross-compiled wheel cannot be pip-installed into Python 3.7.9.
 _WHEEL_TAGS = (
     "cp37-cp37m-manylinux_2_17_x86_64.manylinux2014_x86_64",
     "cp37-cp37m-win_amd64",
-    "cp37-cp37m-macosx_10_9_x86_64",
     "cp38-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64",
     "cp38-abi3-win_amd64",
     "cp38-abi3-macosx_10_12_universal2",
@@ -135,7 +138,7 @@ def test_complete_prepublication_cli_accepts_clean_set(tmp_path: Path, target: s
     _write_distribution_set(tmp_path / "dist", target)
     result = _publication_cli(tmp_path / "dist")
     assert result.returncode == 0, (result.stdout, result.stderr)
-    assert "Validated 8 fresh Core distribution(s)" in result.stdout
+    assert "Validated 7 fresh Core distribution(s)" in result.stdout
 
 
 @pytest.mark.parametrize("target", ["wheel", "sdist"])

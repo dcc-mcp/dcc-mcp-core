@@ -30,10 +30,15 @@ class DistributionSetError(ValueError):
     """Raised when archived Release distributions are incomplete or invalid."""
 
 
+# The macOS cp37 wheel is built and contract-checked by the `macos-py37` CI
+# lane, but it is deliberately NOT a release artefact: rustc 1.95.0 refuses a
+# deployment target below 10.12, while the python.org 3.7.9 interpreter reports
+# 10.9 and pip only accepts macOS tags at or below the interpreter's own. The
+# wheel therefore cannot be pip-installed into Python 3.7.9 as built. macOS
+# Python 3.7 users keep the pure-Python `lite_py37/any` wheel.
 _EXPECTED_WHEEL_CONTRACTS = {
     "native_py37/linux-x86_64",
     "native_py37/windows-x86_64",
-    "native_py37/macos-x86_64",
     "abi3/linux-x86_64",
     "abi3/windows-x86_64",
     "abi3/macos-universal2",
@@ -194,7 +199,7 @@ def classify_distribution_assets(payload: dict, version: str) -> str:
 
 
 def validate_distribution_directory(dist_dir: Path, version: str) -> dict[str, int]:
-    """Validate a freshly built seven-file Core distribution set before publication."""
+    """Validate a freshly built Core distribution set before publication."""
     if not re.fullmatch(r"\d+\.\d+\.\d+(?:[A-Za-z0-9.+-]*)", version):
         raise DistributionSetError(f"invalid release version {version!r}")
     if not dist_dir.is_dir():
@@ -209,7 +214,9 @@ def validate_distribution_directory(dist_dir: Path, version: str) -> dict[str, i
     sdist_name = f"dcc_mcp_core-{version}.tar.gz"
     wheel_names = {name for name in downloaded if name.endswith(".whl")}
     if set(downloaded) != {*wheel_names, sdist_name}:
-        raise DistributionSetError("Core distribution set must contain six wheels and one exact-version sdist")
+        raise DistributionSetError(
+            f"Core distribution set must contain {len(_EXPECTED_WHEEL_CONTRACTS)} wheels and one exact-version sdist"
+        )
     _validate_wheels(dist_dir, version, wheel_names)
     _validate_sdist(dist_dir / sdist_name, version, load_contract())
     return {
@@ -219,7 +226,7 @@ def validate_distribution_directory(dist_dir: Path, version: str) -> dict[str, i
 
 
 def verify_distribution_set(payload: dict, dist_dir: Path, version: str) -> dict[str, int]:
-    """Verify the exact seven-file Core distribution set and return evidence."""
+    """Verify the exact Core distribution set and return evidence."""
     if not re.fullmatch(r"\d+\.\d+\.\d+(?:[A-Za-z0-9.+-]*)", version):
         raise DistributionSetError(f"invalid release version {version!r}")
     if not dist_dir.is_dir():
