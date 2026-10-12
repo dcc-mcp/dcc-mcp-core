@@ -1016,12 +1016,21 @@ def test_projection_staging_uses_exact_tracked_output_allowlist(lane):
 
 @pytest.mark.parametrize("lane", STAGING_LANES)
 @pytest.mark.parametrize("ignored_changes", [False, True], ids=["release-2774-three-files", "all-projections"])
+@pytest.mark.parametrize("windows_text_io", [False, True], ids=["native-text-io", "windows-text-io"])
 def test_projection_staging_handles_tracked_files_under_ignored_directories(
-    contract, repository, lane, ignored_changes
+    contract, repository, lane, ignored_changes, windows_text_io, monkeypatch
 ):
+    if windows_text_io:
+        # Exercise Windows text-mode newline translation on every platform.
+        # Projection fixtures must retain canonical bytes through this path.
+        def write_windows_text(path, data, encoding=None, errors=None):
+            with path.open("w", encoding=encoding, errors=errors, newline="\r\n") as stream:
+                return stream.write(data)
+
+        monkeypatch.setattr(Path, "write_text", write_windows_text)
     # Track the projections before applying the real ignore rules. Ordinary
     # `git add <tracked ignored path>` still returns 1 on this worktree shape.
-    original = {path: _read(repository, path) for path in OUTPUTS}
+    original = {path: (repository / path).read_bytes() for path in OUTPUTS}
     _git(repository, "add", "--all")
     _write(repository, ".gitignore", _read(ROOT, ".gitignore"))
     _write(repository, "Cargo.lock", "fixture lock\n")
@@ -1029,7 +1038,9 @@ def test_projection_staging_handles_tracked_files_under_ignored_directories(
     contract.run(repository, "sync")
     stale = OUTPUTS if ignored_changes else {"admin-ui/package-lock.json", SEEDS, "server.json"}
     for path in stale:
-        _write(repository, path, original[path])
+        # A text round trip translates LF to CRLF on Windows, creating
+        # unrelated byte drift before the staging commands can be exercised.
+        (repository / path).write_bytes(original[path])
     parent = _commit(repository, "Fixture release with tracked ignored projections")
     assert IGNORED_PROJECTION in _tracked(repository)
     assert _git(repository, "check-ignore", "--no-index", IGNORED_PROJECTION) == IGNORED_PROJECTION
