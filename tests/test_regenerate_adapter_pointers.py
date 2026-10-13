@@ -1787,9 +1787,8 @@ def test_real_git_no_change_or_equivalent_pr_creates_no_commit_or_branch(adapter
         "# adapter\n\n## Install\n", generator.render_pointer(entry, host_count=len(adapters))
     )
     origin = _make_origin(tmp_path, "no-write", fresh if current else _stale_readme(adapters, name))
-    blob = subprocess.run(
-        ["git", "hash-object", "--stdin"], input=fresh, text=True, capture_output=True, check=True
-    ).stdout.strip()
+    # Hash the generated UTF-8 file, not locale-encoded text-mode stdin.
+    blob = _generated_blob(adapters, tmp_path, name)
     fake = _FakeGitHub(open_prs=[_pr_row(49, "https://example/pr/49", sha=blob, owner="loonghao")])
     real_commit = regen._commit_and_push
     fake.install(monkeypatch)
@@ -1817,7 +1816,7 @@ def test_real_git_no_change_or_equivalent_pr_creates_no_commit_or_branch(adapter
         dry_run=False,
         source_ref="test",
     )
-    assert row["status"] == (regen.CURRENT if current else regen.DUPLICATE)
+    assert row["status"] == (regen.CURRENT if current else regen.DUPLICATE), row
     assert not fake.created and not fake.updated
     assert not any("commit" in args or ("checkout" in args and "-b" in args) for args in calls)
     assert subprocess.check_output(["git", "-C", origin, "show-ref"], text=True) == before
@@ -1963,12 +1962,8 @@ def test_summary_does_not_call_missing_readmes_current():
 def test_equivalent_fork_pr_needs_no_push_permission(adapters, tmp_path, monkeypatch, push_state):
     name = "dcc-mcp-krita"
     origin = _make_origin(tmp_path, "readonly-dedupe", _stale_readme(adapters, name))
-    expected = generator.upsert_pointer(
-        "# adapter\n\n## Install\n", generator.render_pointer(_entry(adapters, name), host_count=len(adapters))
-    )
-    blob = subprocess.run(
-        ["git", "hash-object", "--stdin"], input=expected, text=True, capture_output=True, check=True
-    ).stdout.strip()
+    # Match the generator's on-disk bytes and Git's platform normalization.
+    blob = _generated_blob(adapters, tmp_path, name)
     fake = _FakeGitHub(
         push_state=push_state, open_prs=[_pr_row(49, "https://example/pr/49", sha=blob, owner="loonghao")]
     )
