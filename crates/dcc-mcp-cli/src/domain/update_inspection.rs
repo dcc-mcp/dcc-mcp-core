@@ -324,6 +324,11 @@ fn fix_evidence(
 
 fn ambiguous_fix_context(notes: &str) -> bool {
     let lower = notes.to_ascii_lowercase();
+    // Raw HTML can contain non-prose content under arbitrary element names.
+    // The accepted prose subset therefore excludes all angle-bracket context.
+    if notes.contains(['<', '>']) {
+        return true;
+    }
     if ["`", "~~~", "<!--", "-->", "<pre", "<code", "<blockquote"]
         .iter()
         .any(|marker| lower.contains(marker))
