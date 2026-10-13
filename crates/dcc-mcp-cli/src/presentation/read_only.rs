@@ -10,11 +10,12 @@ use clap::{CommandFactory, FromArgMatches};
 use super::cli::Args;
 use super::feedback_cmd::{FeedbackBundleArgs, FeedbackFileArgs};
 use super::output::{ErrorEnvelope, ExitCode, OutputFormat, OutputWriter};
-use super::update_cmd::{InspectArgs, run_inspection};
+use super::update_cmd::{DiscoverArgs, InspectArgs, run_discovery, run_inspection};
 
 #[derive(Debug)]
 enum ReadOnlyCommand {
     Update(InspectArgs),
+    Discover(DiscoverArgs),
     Bundle(FeedbackBundleArgs),
     FeedbackPlan(FeedbackFileArgs),
 }
@@ -31,6 +32,9 @@ fn read_only_args(
         Some(("update", update)) => match update.subcommand() {
             Some(("inspect", inspect)) => {
                 ReadOnlyCommand::Update(InspectArgs::from_arg_matches(inspect)?)
+            }
+            Some(("discover", discover)) => {
+                ReadOnlyCommand::Discover(DiscoverArgs::from_arg_matches(discover)?)
             }
             _ => return Ok(None),
         },
@@ -86,6 +90,11 @@ pub async fn run() -> anyhow::Result<Option<ExitCode>> {
     let result = match command {
         ReadOnlyCommand::Update(args) => {
             let result = run_inspection(args).await?;
+            writer.write_data(&result.value)?;
+            return Ok(Some(result.exit_code));
+        }
+        ReadOnlyCommand::Discover(args) => {
+            let result = run_discovery(args).await?;
             writer.write_data(&result.value)?;
             return Ok(Some(result.exit_code));
         }

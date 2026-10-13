@@ -39,6 +39,60 @@ fn canonical_parser_accepts_global_options_before_and_after_inspection() {
 }
 
 #[test]
+fn discovery_uses_safe_gate_with_global_options_in_either_position() {
+    for arguments in [
+        vec![
+            "dcc-mcp-cli",
+            "--output",
+            "json",
+            "update",
+            "discover",
+            "--offline",
+            "--target",
+            "application:future-editor",
+        ],
+        vec![
+            "dcc-mcp-cli",
+            "update",
+            "discover",
+            "--offline",
+            "--target",
+            "application:future-editor",
+            "--output",
+            "json",
+        ],
+    ] {
+        let (ReadOnlyCommand::Discover(args), output) = parse(&arguments).unwrap().unwrap() else {
+            panic!("expected discovery");
+        };
+        assert!(args.offline);
+        assert_eq!(args.target.unwrap().id, "future-editor");
+        assert_eq!(output, OutputFormat::Json);
+    }
+    for arguments in [
+        vec!["dcc-mcp-cli", "update", "discover", "--unknown"],
+        vec!["dcc-mcp-cli", "update", "discover", "--provider", "private"],
+        vec![
+            "dcc-mcp-cli",
+            "update",
+            "discover",
+            "--target",
+            "invalid:host",
+        ],
+        vec!["dcc-mcp-cli", "update", "discover", "--limit", "0"],
+        vec!["dcc-mcp-cli", "update", "discover", "--limit", "201"],
+    ] {
+        assert_eq!(parse(&arguments).unwrap_err().exit_code(), 2);
+    }
+    assert_eq!(
+        parse(&["dcc-mcp-cli", "update", "discover", "--help"])
+            .unwrap_err()
+            .exit_code(),
+        0
+    );
+}
+
+#[test]
 fn malformed_inspection_and_help_never_return_legacy_fallback() {
     for arguments in [
         vec!["dcc-mcp-cli", "update", "inspect", "--unknown"],

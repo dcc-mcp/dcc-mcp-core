@@ -9,6 +9,8 @@ use crate::application::update::{
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum UpdateAction {
+    /// Discover components in official catalogs without installing or probing hosts.
+    Discover(DiscoverArgs),
     /// Inspect official releases without installing, starting services, or writing caches.
     Inspect(InspectArgs),
     /// Check whether a newer version is available.
@@ -24,6 +26,52 @@ pub(crate) enum UpdateAction {
         #[arg(long)]
         yes: bool,
     },
+}
+
+#[derive(Debug, Clone, clap::Args)]
+pub(crate) struct DiscoverArgs {
+    /// Read existing verified installation metadata and bundled entries only.
+    #[arg(long)]
+    pub offline: bool,
+    /// Search names, descriptions, requirements, and package metadata.
+    #[arg(long, default_value = "")]
+    pub query: String,
+    /// Exact generic target, for example application:editor or dcc:blender.
+    #[arg(long, value_parser = parse_discovery_target)]
+    pub target: Option<dcc_mcp_catalog::CatalogTarget>,
+    /// Restrict discovery to one official provider.
+    #[arg(long, value_parser = crate::domain::ecosystem_discovery::PROVIDER_IDS)]
+    pub provider: Option<String>,
+    /// Maximum returned components across providers (1-200).
+    #[arg(long, default_value_t = 50, value_parser = clap::value_parser!(u16).range(1..=200))]
+    pub limit: u16,
+}
+
+fn parse_discovery_target(value: &str) -> Result<dcc_mcp_catalog::CatalogTarget, String> {
+    dcc_mcp_marketplace::parse_target(value).map_err(|error| error.to_string())
+}
+
+pub(crate) async fn run_discovery(args: DiscoverArgs) -> anyhow::Result<UpdateCommandResult> {
+    let report = crate::application::ecosystem_discovery::discover(
+        crate::domain::ecosystem_discovery::DiscoveryRequest {
+            offline: args.offline,
+            query: args.query,
+            target: args.target,
+            provider: args.provider,
+            limit: usize::from(args.limit),
+        },
+    )
+    .await;
+    let exit_code = if report.status == "complete" {
+        ExitCode::Success
+    } else {
+        ExitCode::Unavailable
+    };
+    Ok(UpdateCommandResult {
+        value: serde_json::to_value(report)?,
+        failed: exit_code != ExitCode::Success,
+        exit_code,
+    })
 }
 
 #[derive(Debug, Clone, clap::Args)]
@@ -84,6 +132,7 @@ pub(crate) async fn run(
         // The executable dispatches this before cli::run(), which can apply
         // staged updates. Keep this handler free of cache writes as well.
         UpdateAction::Inspect(args) => return run_inspection(args).await,
+        UpdateAction::Discover(args) => return run_discovery(args).await,
         UpdateAction::Check {
             binary,
             current_version,
