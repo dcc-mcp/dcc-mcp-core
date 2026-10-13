@@ -70,10 +70,10 @@ runs:
         python-version: "3.12"
 
     - name: Install vx
-      uses: loonghao/vx@v0.9.11
+      uses: loonghao/vx@v0.9.34
       with:
-        version: "0.9.11"
-        cache-key-prefix: "vx-tools-v0.9.7"
+        version: "0.9.34"
+        cache-key-prefix: "vx-tools-v0.9.34"
 
     # Pin cargo-hakari to the release that generated the committed
     # crates/workspace-hack/Cargo.toml, matching ci.yml and
