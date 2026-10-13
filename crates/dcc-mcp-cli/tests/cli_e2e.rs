@@ -1665,7 +1665,7 @@ fn update_check_auto_starts_builtin_local_gateway() {
 }
 
 #[test]
-fn legacy_unsigned_update_is_quarantined_before_version_short_circuit() {
+fn version_preserves_staging_and_normal_startup_quarantines_unsigned_updates() {
     let temp = TempDir::new().unwrap();
     let source = std::path::Path::new(env!("CARGO_BIN_EXE_dcc-mcp-cli"));
     let cli = temp.path().join(source.file_name().unwrap());
@@ -1700,10 +1700,37 @@ fn legacy_unsigned_update_is_quarantined_before_version_short_circuit() {
         "stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
+    assert_eq!(std::fs::read(&marker).unwrap(), b"pending");
+    assert_eq!(std::fs::read_dir(&staging).unwrap().count(), 2);
+    assert_eq!(
+        std::fs::read(staging.join("pending.bin")).unwrap(),
+        std::fs::read(source).unwrap(),
+        "--version must leave staged bytes unchanged"
+    );
+
+    // A valid normal command still reaches updater quarantine. The missing
+    // profile stops execution before health I/O, and background work is off.
+    let normal = std::process::Command::new(&cli)
+        .args([
+            "--gateway",
+            "read-only-test-missing-profile",
+            "--no-auto-gateway",
+            "health",
+        ])
+        .env("APPDATA", &appdata)
+        .env("XDG_DATA_HOME", &xdg_data)
+        .env("HOME", &home)
+        .env("DCC_MCP_UPDATE_BACKGROUND", "1")
+        .env_remove("DCC_MCP_UPDATE_JUST_APPLIED")
+        .output()
+        .unwrap();
+    assert!(
+        !normal.status.success(),
+        "the missing profile must reject the command"
+    );
     assert!(
         !marker.exists(),
-        "--version must quarantine a legacy staged update before clap exits; stderr: {}",
-        String::from_utf8_lossy(&output.stderr)
+        "normal startup must quarantine unsigned staged bytes"
     );
     assert_eq!(
         std::fs::read(&cli).unwrap(),
