@@ -114,7 +114,7 @@ pub fn build_issue_document(
     .expect("validated finding reproduction serializes");
     let marker = format!("<!-- dcc-mcp-finding:{} -->", finding.fingerprint);
     let body = format!(
-        "{marker}\n\n## Agent report\n\n| Field | Value |\n|---|---|\n{table}\n\n## Intent\n\n<pre>{}</pre>\n\n## Observed\n\n<pre>{}</pre>\n\n## Expected\n\n<pre>{}</pre>\n\n## Reproduction\n\n<pre>{}</pre>\n\nThis report contains only reviewed Finding v1 fields; raw evidence and private correlation identifiers are excluded.\n",
+        "{marker}\n\n## Agent report\n\n| Field | Value |\n|---|---|\n{table}\n\n## Intent\n\n<pre>{}</pre>\n\n## Observed\n\n<pre>{}</pre>\n\n## Expected\n\n<pre>{}</pre>\n\n## Reproduction\n\n<pre>{}</pre>\n\nReview this exact draft before publication. Finding review flags are declarations, not proof that free text contains no confidential information; raw evidence is excluded.\n",
         html_escape(&finding.intent),
         html_escape(&finding.observed),
         html_escape(&finding.expected),
@@ -131,11 +131,10 @@ pub fn build_issue_document(
             });
         }
     }
-    let search_terms = vec![
-        search_term(&finding.dcc_type),
-        finding.phase.to_string(),
-        search_term(subject),
-    ];
+    // The draft has not been reviewed yet. Only send a fixed phase category;
+    // arbitrary DCC names, tool slugs, and error strings can identify a studio.
+    // The tracker already scopes both lookups to the routed official repository.
+    let search_terms = vec![finding.phase.to_string()];
     Ok(FeedbackIssueDocument {
         title,
         body,
@@ -179,10 +178,6 @@ fn title_component(value: &str, max_chars: usize) -> String {
         .chars()
         .take(max_chars)
         .collect()
-}
-
-fn search_term(value: &str) -> String {
-    title_component(&value.replace([':', '/'], "_"), 96)
 }
 
 fn html_escape(value: &str) -> String {
@@ -292,10 +287,7 @@ mod tests {
         assert!(document.body.contains("startup_failed"));
         assert!(document.body.contains("eval-run-42"));
         assert!(document.comment_body.contains("Agent re-observation"));
-        assert_eq!(
-            document.search_terms,
-            vec!["godot", "startup", "startup_failed"]
-        );
+        assert_eq!(document.search_terms, vec!["startup"]);
         for private in [
             "raw_payload",
             "secret-extra",
@@ -351,10 +343,10 @@ mod tests {
     }
 
     #[test]
-    fn search_terms_cannot_be_interpreted_as_github_qualifiers() {
-        assert_eq!(
-            super::search_term("gateway:error/retry"),
-            "gateway_error_retry"
-        );
+    fn search_terms_do_not_include_private_identifiers_or_github_qualifiers() {
+        let mut finding = finding(FindingRedactionMode::PublicSafe);
+        finding.dcc_type = "studio_alice_private repo:private/repository".to_string();
+        let document = build_issue_document(&finding, &route()).unwrap();
+        assert_eq!(document.search_terms, vec!["startup"]);
     }
 }

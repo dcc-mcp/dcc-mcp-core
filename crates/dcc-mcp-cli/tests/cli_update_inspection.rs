@@ -164,3 +164,81 @@ fn write_cache(path: &Path) {
         "payload": { "latest_version": "99.0.0", "release_notes": "Fixes #42", "update_available": true }
     })).unwrap()).unwrap();
 }
+
+#[test]
+fn diagnostic_bundle_bypasses_startup_and_implicit_probes() {
+    let isolated = IsolatedCli::new();
+    let finding_path = isolated.root.path().join("finding.json");
+    let finding = json!({
+        "schema_version": 1, "fingerprint": format!("sha256:{}", "a".repeat(64)),
+        "dcc_type": "godot", "adapter": "dcc-mcp-godot", "adapter_version": "0.3.0+studio_private",
+        "core_version": "0.20.11", "host_version": "4.4.1", "os": "windows",
+        "phase": "startup", "severity": "blocker", "tool_slug": null,
+        "intent": "studio_private", "observed": "studio_private", "expected": "studio_private",
+        "repro": {"argv": ["dcc-mcp-cli", "status"], "steps": []}, "evidence": {"error_kind": "startup_failed"},
+        "redaction_status": {
+            "mode": "public-safe", "redaction_markers_detected": false,
+            "raw_payloads_excluded": true, "prompts_excluded": true, "scripts_excluded": true,
+            "auth_material_excluded": true, "local_urls_excluded": true,
+            "absolute_paths_excluded": true, "private_identifiers_excluded": true
+        }
+    });
+    std::fs::write(&finding_path, serde_json::to_vec(&finding).unwrap()).unwrap();
+    let before = std::fs::read(&finding_path).unwrap();
+    let output = isolated
+        .command()
+        .args([
+            "--gateway",
+            "profile-that-does-not-exist",
+            "--require-gateway",
+            "--base-url",
+            "http://127.0.0.1:1",
+            "feedback",
+            "bundle",
+        ])
+        .arg(&finding_path)
+        .arg("--json")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["schema_version"], "dcc-mcp.feedback-bundle.v2");
+    assert_eq!(
+        report["components"]["doctor"]["reason"],
+        "not_collected_by_default"
+    );
+    assert_eq!(
+        report["components"]["host_errors"]["reason"],
+        "host_errors_not_collected_by_default"
+    );
+    assert_eq!(report["redaction_status"]["secret_free_guarantee"], false);
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("studio_private"));
+    assert_eq!(std::fs::read(finding_path).unwrap(), before);
+    isolated.assert_staging_untouched();
+    assert!(!isolated.cache_root().exists());
+}
+
+#[test]
+fn invalid_feedback_plan_cannot_enter_startup_or_contact_tracker() {
+    let isolated = IsolatedCli::new();
+    let output = isolated
+        .command()
+        .args(["feedback", "file", "absent-private-file.json", "--json"])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    let report: Value = serde_json::from_slice(&output.stderr).unwrap();
+    assert!(
+        serde_json::to_string(&report)
+            .unwrap()
+            .contains("FEEDBACK_PREVIEW_FAILED")
+    );
+    assert!(!String::from_utf8_lossy(&output.stderr).contains("absent-private-file"));
+    isolated.assert_staging_untouched();
+    assert!(!isolated.cache_root().exists());
+}
