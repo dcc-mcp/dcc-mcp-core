@@ -18,6 +18,7 @@ import subprocess
 import sys
 
 import pytest
+from scripts import _adapter_pointer_budget as budget
 from scripts import _pr_helpers as pr_helpers
 from scripts import generate_adapter_pointer as generator
 from scripts import regenerate_adapter_pointers as regen
@@ -1981,3 +1982,136 @@ def test_equivalent_fork_pr_needs_no_push_permission(adapters, tmp_path, monkeyp
     assert row["status"] == regen.DUPLICATE
     assert row["pr"] == "https://example/pr/49"
     assert not fake.pushed and not fake.created and not fake.updated
+
+
+def test_deadline_inside_pr_file_resolution_never_reaches_any_write(adapters, tmp_path, monkeypatch):
+    now = [0.0]
+    calls = []
+    name = "dcc-mcp-krita"
+    monkeypatch.setattr(budget.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(regen.drift, "_default_branch_name", lambda *a, **kw: "main")
+
+    def clone(url, dest, branch, **kwargs):
+        dest.mkdir(parents=True)
+        (dest / "README.md").write_text(_stale_readme(adapters, name), encoding="utf-8")
+
+    monkeypatch.setattr(regen, "_clone", clone)
+    monkeypatch.setattr(regen, "changed_files", lambda *a, **kw: ["README.md"])
+    monkeypatch.setattr(regen, "_blob_sha", lambda *a, **kw: "a" * 40)
+
+    def run(args, **kwargs):
+        calls.append(args)
+        assert args[:3] == ["gh", "api", "--paginate"]
+        if len(calls) == 1:
+            return subprocess.CompletedProcess(args, 0, json.dumps([_listed_row(1), _listed_row(2)]), "")
+        assert len(calls) == 2 and "/pulls/1/files" in args[3]
+        now[0] = 5.0
+        return subprocess.CompletedProcess(args, 0, '[{"path":"README.md","sha":"b"}]', "")
+
+    monkeypatch.setattr(subprocess, "run", run)
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("deadline must prevent permission lookup, commit, push, and PR mutations")
+
+    for owner, attribute in [
+        (regen, "_push_target"),
+        (regen, "_commit_and_push"),
+        (pr_helpers, "create_pr"),
+        (pr_helpers, "update_pr"),
+    ]:
+        monkeypatch.setattr(owner, attribute, forbidden)
+    with budget.batch_timeout(5):
+        row = regen.regenerate_repository(
+            _entry(adapters, name),
+            0,
+            host_count=47,
+            workdir=tmp_path,
+            timeout=300,
+            branch_prefix=regen.BRANCH_PREFIX,
+            dry_run=False,
+            source_ref="test",
+        )
+    assert row["status"] == regen.ERROR
+    assert "batch deadline exhausted" in row["detail"]
+    assert row["action"] == "none"
+    assert len(calls) == 2
+
+
+@pytest.mark.parametrize("stop_after", ["checkout", "add", "commit"])
+def test_deadline_prevents_the_next_git_write(tmp_path, monkeypatch, stop_after):
+    now = [0.0]
+    calls = []
+    monkeypatch.setattr(budget.time, "monotonic", lambda: now[0])
+
+    def run(args, **kwargs):
+        calls.append(args)
+        if "ls-remote" in args:
+            return subprocess.CompletedProcess(args, 0, "", "")
+        assert "push" not in args
+        if stop_after in args:
+            now[0] = 5.0
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", run)
+    with budget.batch_timeout(5), pytest.raises(budget.BatchDeadlineExceeded):
+        regen._commit_and_push(tmp_path, regen.BRANCH_PREFIX + "catalog-pointer", "test/example", timeout=300)
+    assert len(calls) == {"checkout": 2, "add": 3, "commit": 4}[stop_after]
+    assert not any("push" in args for args in calls)
+    if stop_after != "commit":
+        assert not any("commit" in args for args in calls)
+
+
+def test_deadline_after_push_reports_uncertainty_and_never_creates_a_pr(adapters, tmp_path, monkeypatch):
+    now = [0.0]
+    name = "dcc-mcp-krita"
+    monkeypatch.setattr(budget.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(regen.drift, "_default_branch_name", lambda *a, **kw: "main")
+
+    def clone(url, dest, branch, **kwargs):
+        dest.mkdir(parents=True)
+        (dest / "README.md").write_text(_stale_readme(adapters, name), encoding="utf-8")
+
+    monkeypatch.setattr(regen, "_clone", clone)
+    monkeypatch.setattr(regen, "changed_files", lambda *a, **kw: ["README.md"])
+    monkeypatch.setattr(regen, "_blob_sha", lambda *a, **kw: "a" * 40)
+    monkeypatch.setattr(regen, "_find_equivalent", lambda *a, **kw: {})
+    monkeypatch.setattr(regen, "_push_target", lambda *a, **kw: ("test/example", "generated"))
+
+    def push(*args, **kwargs):
+        now[0] = 5.0
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("no command or PR creation is allowed after the exhausted push budget")
+
+    monkeypatch.setattr(regen, "_commit_and_push", push)
+    monkeypatch.setattr(subprocess, "run", forbidden)
+    monkeypatch.setattr(pr_helpers, "create_pr", forbidden)
+    monkeypatch.setattr(pr_helpers, "update_pr", forbidden)
+    with budget.batch_timeout(5):
+        row = regen.regenerate_repository(
+            _entry(adapters, name),
+            0,
+            host_count=47,
+            workdir=tmp_path,
+            timeout=300,
+            branch_prefix=regen.BRANCH_PREFIX,
+            dry_run=False,
+            source_ref="test",
+        )
+    assert row["status"] == regen.ERROR
+    assert row["action"] == "incomplete"
+    assert "writes may have completed remotely" in row["detail"]
+
+
+def test_workflow_batches_have_report_headroom_and_track_budget_helper():
+    import yaml
+
+    workflow = yaml.safe_load((REPO_ROOT / ".github/workflows/adapter-coverage.yml").read_text(encoding="utf-8"))
+    for job in ("pointer-drift", "regenerate-pointers"):
+        steps = workflow["jobs"][job]["steps"]
+        batch = next(step["run"] for step in steps if "--json-out" in step.get("run", ""))
+        assert "--batch-timeout 1200" in batch
+        assert workflow["jobs"][job]["timeout-minutes"] == 30
+    events = workflow.get("on", workflow.get(True))
+    for event in ("push", "pull_request"):
+        assert "scripts/_adapter_pointer_budget.py" in events[event]["paths"]

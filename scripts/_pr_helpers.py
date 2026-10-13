@@ -19,6 +19,8 @@ from __future__ import annotations
 import json
 import subprocess
 
+from scripts import _adapter_pointer_budget as budget
+
 # Matches the generator's own per-operation default. Every `gh` call bounded by
 # this can be overridden per call site when a shorter bound is wanted.
 DEFAULT_TIMEOUT_SECS = 600
@@ -49,10 +51,11 @@ def _run(args: list[str], *, timeout: int = DEFAULT_TIMEOUT_SECS) -> subprocess.
     before the summary and JSON report are written, leaving the remaining
     repositories silently unchecked.
     """
+    effective_timeout = budget.command_timeout(timeout)
     try:
-        return subprocess.run(args, capture_output=True, text=True, check=False, timeout=timeout)
+        return subprocess.run(args, capture_output=True, text=True, check=False, timeout=effective_timeout)
     except subprocess.TimeoutExpired as exc:
-        raise PrError(f"{args[0]} timed out after {timeout}s: {' '.join(args[:3])}") from exc
+        raise PrError(f"{args[0]} timed out after {effective_timeout}s: {' '.join(args[:3])}") from exc
     except OSError as exc:  # pragma: no cover - gh or git missing
         raise PrError(f"could not run {args[0]}: {exc}") from exc
 

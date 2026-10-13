@@ -15,8 +15,11 @@ import subprocess
 import sys
 
 import pytest
+from scripts import _adapter_pointer_budget as budget
+from scripts import _pr_helpers as pr_helpers
 from scripts import check_adapter_pointer_drift as drift
 from scripts import generate_adapter_pointer as generator
+from scripts import regenerate_adapter_pointers as regen
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CATALOG = REPO_ROOT / "dcc-mcp-catalog.yml"
@@ -488,3 +491,142 @@ def test_safe_dirname_avoids_collisions_and_unsafe_characters():
     assert drift._safe_dirname("../../etc/passwd", 4) == "004-.._.._etc_passwd"
     # The index prefix keeps two entries with names that sanitise identically apart.
     assert drift._safe_dirname("a/b", 1) != drift._safe_dirname("a/b", 2)
+
+
+def test_initial_branch_lookup_timeout_keeps_every_result(adapters, tmp_path, monkeypatch):
+    calls = []
+
+    def timed_out(args, **kwargs):
+        calls.append(args)
+        raise subprocess.TimeoutExpired(args, kwargs["timeout"])
+
+    monkeypatch.setattr(drift.subprocess, "run", timed_out)
+    rows = drift.scan(adapters, workdir=tmp_path, timeout=180)
+    assert len(rows) == len(adapters) == 47
+    assert len(calls) == len(adapters)
+    assert all(row["status"] == drift.ERROR for row in rows)
+    assert all("TimeoutExpired" in row["detail"] for row in rows)
+
+
+def test_error_only_scan_never_claims_all_repositories_are_current():
+    rows = [{"name": "a", "url": "", "status": drift.ERROR, "branch": "", "detail": "not scanned"}]
+    summary = drift.render_summary(rows, host_count=47)
+    assert "All 1 scanned repositories match" not in summary
+    assert "Default branches already current: **0**" in summary
+
+
+@pytest.mark.parametrize("runner", [drift._git, regen._git, pr_helpers._run])
+def test_each_command_recomputes_the_shared_remaining_budget(monkeypatch, runner):
+    now = [100.0]
+    seen = []
+    monkeypatch.setattr(budget.time, "monotonic", lambda: now[0])
+
+    def run(args, **kwargs):
+        seen.append(kwargs["timeout"])
+        now[0] += 3 if len(seen) == 1 else 2
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", run)
+    with budget.batch_timeout(5):
+        runner(["example"], timeout=3)
+        runner(["example"], timeout=3)
+        with pytest.raises(budget.BatchDeadlineExceeded):
+            runner(["must-not-start"], timeout=3)
+    assert seen == [3, 2]
+    # Leaving the scope restores other callers' original per-operation timeout.
+    runner(["unrelated-caller"], timeout=17)
+    assert seen == [3, 2, 17]
+
+
+def test_nested_budget_cannot_extend_the_outer_deadline(monkeypatch):
+    now = [0.0]
+    monkeypatch.setattr(budget.time, "monotonic", lambda: now[0])
+    with pytest.raises(RuntimeError, match="unwind"):
+        with budget.batch_timeout(5):
+            now[0] = 4
+            with budget.batch_timeout(100):
+                assert budget.command_timeout(300) == 1
+            with budget.batch_timeout(None):
+                assert budget.command_timeout(300) == 1
+            raise RuntimeError("unwind")
+    assert budget.command_timeout(300) == 300
+
+
+@pytest.mark.parametrize("module", [drift, regen])
+@pytest.mark.parametrize("value", ["0", "-1", "not-a-number"])
+def test_invalid_batch_timeout_is_an_argument_error(module, value):
+    with pytest.raises(SystemExit) as exc:
+        module._build_parser().parse_args(["--batch-timeout", value])
+    assert exc.value.code == 2
+
+
+@pytest.mark.parametrize("module", [drift, regen])
+@pytest.mark.parametrize("before_first", [False, True])
+@pytest.mark.parametrize("filtered", [False, True])
+def test_deadline_retains_all_selected_rows_and_real_catalog_count(
+    adapters, tmp_path, monkeypatch, module, before_first, filtered
+):
+    now = [0.0]
+    clock_calls = []
+    commands = []
+
+    def monotonic():
+        clock_calls.append(1)
+        return 2.0 if before_first and len(clock_calls) > 1 else now[0]
+
+    def run(args, **kwargs):
+        commands.append(args)
+        now[0] += kwargs["timeout"]
+        raise subprocess.TimeoutExpired(args, kwargs["timeout"])
+
+    monkeypatch.setattr(budget.time, "monotonic", monotonic)
+    monkeypatch.setattr(subprocess, "run", run)
+    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+    out = tmp_path / "results.json"
+    args = ["--batch-timeout", "1", "--json-out", str(out), "--summary"]
+    selected = adapters[:2] if filtered else adapters
+    if filtered:
+        args += ["--only", ",".join(entry["name"] for entry in selected)]
+    if module is drift:
+        args += ["--allow-missing"]
+    assert module.main(args) == 1
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    assert payload["adapter_count"] == len(adapters) == 47
+    rows = payload["results"]
+    assert [row["name"] for row in rows] == [entry["name"] for entry in selected]
+    assert all(row["status"] == module.ERROR for row in rows)
+    not_started = rows if before_first else rows[1:]
+    assert all("before this repository started" in row["detail"] for row in not_started)
+    assert len(commands) == (0 if before_first else 1)
+
+
+@pytest.mark.parametrize("module", [drift, regen])
+def test_results_are_written_before_outer_cleanup_failure(adapters, tmp_path, monkeypatch, module, capsys):
+    out = tmp_path / "results.json"
+    summary = tmp_path / "summary.md"
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
+
+    class FailedCleanup:
+        name = str(tmp_path / "managed")
+
+        def cleanup(self):
+            assert json.loads(out.read_text(encoding="utf-8"))["adapter_count"] == 47
+            assert "Default branches already current" in summary.read_text(encoding="utf-8")
+            raise OSError("cleanup unavailable")
+
+    row = {
+        "name": adapters[0]["name"],
+        "url": "",
+        "status": module.CURRENT,
+        "branch": "main",
+        "detail": "checked",
+        "action": "none",
+        "pr": "",
+    }
+    monkeypatch.setattr(module.tempfile, "TemporaryDirectory", lambda **kw: FailedCleanup())
+    if module is drift:
+        monkeypatch.setattr(module, "scan", lambda *a, **kw: [row])
+    else:
+        monkeypatch.setattr(module, "regenerate_repository", lambda *a, **kw: row)
+    assert module.main(["--only", adapters[0]["name"], "--json-out", str(out), "--summary"]) == 1
+    assert "cleanup unavailable" in capsys.readouterr().err

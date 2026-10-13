@@ -36,6 +36,7 @@ on:
       - "scripts/check_adapter_pointer_drift.py"
       - "scripts/regenerate_adapter_pointers.py"
       - "scripts/_pr_helpers.py"
+      - "scripts/_adapter_pointer_budget.py"
       - "tests/test_generate_adapter_pointer.py"
       - "tests/test_check_adapter_pointer_drift.py"
       - "tests/test_regenerate_adapter_pointers.py"
@@ -47,6 +48,7 @@ on:
       - "scripts/generate_adapter_pointer.py"
       - "scripts/regenerate_adapter_pointers.py"
       - "scripts/_pr_helpers.py"
+      - "scripts/_adapter_pointer_budget.py"
       - ".github/workflows/adapter-coverage.yml"
   schedule:
     # Weekly, Monday 04:17 UTC. Off the top of the hour so the run does not
@@ -242,16 +244,20 @@ jobs:
           if [ "${INPUT_ALLOW_MISSING}" != "false" ]; then
             args+=(--allow-missing)
           fi
+          # Stop repository work before the job limit so all result rows,
+          # cleanup and artifact upload still have time to complete.
           python scripts/check_adapter_pointer_drift.py \
-            --timeout 180 --summary --json-out drift-results.json "${args[@]}"
+            --timeout 180 --batch-timeout 1200 --summary --json-out drift-results.json "${args[@]}"
 
       - name: Report the drift verdict
         if: always() && steps.scan.outcome != 'skipped'
         run: |
           if [ "${{ steps.scan.outcome }}" = "failure" ]; then
-            echo "::warning::adapter README pointer drift detected; see the job summary and the adapter-pointer-drift artifact."
+            echo "::warning::adapter scan reported drift or errors; see the job summary and the adapter-pointer-drift artifact."
+          elif [ "${{ steps.scan.outcome }}" = "success" ]; then
+            echo "Adapter scan completed; see the per-repository verdicts in the summary."
           else
-            echo "Every adapter README matches the current catalog output."
+            echo "::warning::adapter scan did not complete; do not treat unreported repositories as current."
           fi
 
       - name: Upload drift results
@@ -364,8 +370,10 @@ jobs:
           if [ "${INPUT_DRY_RUN}" = "true" ]; then
             args+=(--dry-run)
           fi
+          # Keep the same batch budget as the read-only scanner, including
+          # all paginated PR lookups and writes, not just each git call.
           python scripts/regenerate_adapter_pointers.py \
-            --timeout 300 --summary --json-out regen-results.json "${args[@]}"
+            --timeout 300 --batch-timeout 1200 --summary --json-out regen-results.json "${args[@]}"
 
       - name: Upload regeneration results
         if: always() && hashFiles('regen-results.json') != ''

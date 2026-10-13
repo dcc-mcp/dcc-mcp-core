@@ -49,6 +49,7 @@ import tempfile
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
+from scripts import _adapter_pointer_budget as budget  # noqa: E402
 from scripts import _pr_helpers as pr_helpers  # noqa: E402
 from scripts import check_adapter_pointer_drift as drift  # noqa: E402
 from scripts import generate_adapter_pointer as generator  # noqa: E402
@@ -103,7 +104,7 @@ def _git(args: list[str], *, timeout: int) -> subprocess.CompletedProcess:
         ["git", *args],
         capture_output=True,
         text=True,
-        timeout=timeout,
+        timeout=budget.command_timeout(timeout),
         check=False,
     )
 
@@ -258,6 +259,7 @@ def regenerate_repository(
         return row
 
     repo_dir = workdir / drift._safe_dirname(name, entry_index)
+    write_started = False
 
     try:
         default_branch = drift._default_branch_name(url, timeout=timeout) or "main"
@@ -319,6 +321,7 @@ def regenerate_repository(
         # Reusing identical content is read-only and must not require push
         # permission or a fork. Resolve write access only when a write is needed.
         push_target, head_ref = _push_target(repo_slug, head, timeout=timeout)
+        write_started = True
         _commit_and_push(repo_dir, head, push_target, timeout=timeout)
 
         # A push to our stable branch refreshes its existing PR, even while
@@ -363,9 +366,16 @@ def regenerate_repository(
         # processed or the report is written.
         row["status"] = ERROR
         row["detail"] = f"{type(exc).__name__}: {exc}".strip()
+        if write_started:
+            row["action"] = "incomplete"
+            row["detail"] += "; writes may have completed remotely; inspect the generated branch/PR before retrying"
         return row
     finally:
-        drift._remove_clone(repo_dir)
+        try:
+            drift._remove_clone(repo_dir)
+        except Exception as exc:
+            row["status"] = ERROR
+            row["detail"] += f"; clone cleanup failed: {type(exc).__name__}: {exc}"
 
 
 def _fingerprint(host_count: int) -> str:
@@ -505,6 +515,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help=f"Per-git-operation timeout in seconds (default: {DEFAULT_TIMEOUT_SECS}).",
     )
     parser.add_argument(
+        "--batch-timeout",
+        type=budget.positive_seconds,
+        help="Total repository-work budget in seconds; omitted means only per-command timeouts apply.",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Report what would change without writing, pushing or opening anything.",
@@ -549,29 +564,50 @@ def main(argv: list[str] | None = None) -> int:
     source_ref = f"{generator.SOURCE_REPO}@{args.catalog.name}"
     managed = tempfile.TemporaryDirectory(prefix="adapter-pointer-regen-")
     results = []
+    cleanup_failed = False
     try:
         workdir = args.workdir or Path(managed.name)
         workdir.mkdir(parents=True, exist_ok=True)
-        for index, entry in enumerate(entries):
-            name = str(entry.get("name") or "").strip()
-            if only is not None and name.lower() not in only:
-                continue
-            results.append(
-                regenerate_repository(
-                    entry,
-                    index,
-                    host_count=host_count,
-                    workdir=workdir,
-                    timeout=args.timeout,
-                    branch_prefix=BRANCH_PREFIX,
-                    dry_run=args.dry_run,
-                    source_ref=source_ref,
+        with budget.batch_timeout(args.batch_timeout):
+            for index, entry in enumerate(entries):
+                name = str(entry.get("name") or "").strip()
+                if only is not None and name.lower() not in only:
+                    continue
+                try:
+                    budget.command_timeout(args.timeout)
+                except budget.BatchDeadlineExceeded:
+                    results.append(
+                        {
+                            "name": name or f"<entry {index}>",
+                            "url": str(entry.get("url") or "").strip(),
+                            "status": ERROR,
+                            "branch": "",
+                            "detail": "not regenerated: batch deadline exhausted before this repository started",
+                            "pr": "",
+                            "action": "none",
+                        }
+                    )
+                    continue
+                results.append(
+                    regenerate_repository(
+                        entry,
+                        index,
+                        host_count=host_count,
+                        workdir=workdir,
+                        timeout=args.timeout,
+                        branch_prefix=BRANCH_PREFIX,
+                        dry_run=args.dry_run,
+                        source_ref=source_ref,
+                    )
                 )
-            )
+        code = _report(results, args, host_count=host_count)
     finally:
-        managed.cleanup()
-
-    return _report(results, args, host_count=host_count)
+        try:
+            managed.cleanup()
+        except Exception as exc:
+            cleanup_failed = True
+            print(f"error: temporary directory cleanup failed: {exc}", file=sys.stderr)
+    return 1 if cleanup_failed else code
 
 
 def _report(results: list[dict], args, *, host_count: int) -> int:
@@ -614,7 +650,7 @@ def _report(results: list[dict], args, *, host_count: int) -> int:
     verb = "would regenerate" if args.dry_run else "regenerated"
     duplicated = [r for r in results if r["status"] == DUPLICATE]
     print(
-        f"{len(results)} repositories checked against a catalog of {host_count} adapters:"
+        f"{len(results)} repository results against a catalog of {host_count} adapters:"
         f" {len(regenerated)} {verb}, {len(duplicated)} already covered by an open PR,"
         f" {len(missing)} without a README,"
         f" {len(errored)} failed."
