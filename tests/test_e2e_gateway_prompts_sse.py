@@ -145,30 +145,48 @@ def gateway_with_prompts_skill(tmp_path):
     if not (Path(FIXTURE_SKILL_PARENT) / "maya-prompts-demo" / "prompts.yaml").exists():
         pytest.skip(f"fixture skill not present at {FIXTURE_SKILL_PARENT}")
 
-    gw_port = allocate_gateway_port()
+    handle = None
+    gw_port = 0
+    last_start_error = None
+    for _ in range(8):
+        gw_port = allocate_gateway_port()
+        cfg = McpHttpConfig(port=0, server_name="prompts-backend")
+        cfg.gateway_port = gw_port
+        cfg.gateway_remote_host = "127.0.0.1"
+        cfg.gateway_remote_port = 0
+        cfg.registry_dir = str(registry_dir)
+        cfg.dcc_type = "maya"
+        cfg.heartbeat_secs = 1
+        cfg.stale_timeout_secs = 10
 
-    cfg = McpHttpConfig(port=0, server_name="prompts-backend")
-    cfg.gateway_port = gw_port
-    cfg.registry_dir = str(registry_dir)
-    cfg.dcc_type = "maya"
-    cfg.heartbeat_secs = 1
-    cfg.stale_timeout_secs = 10
-
-    server = create_skill_server(
-        "maya",
-        cfg,
-        extra_paths=[FIXTURE_SKILL_PARENT],
-        accumulated=False,
-    )
-    handle = server.start()
-
-    assert wait_tcp_reachable("127.0.0.1", handle.port, budget=3.0), (
-        f"backend port {handle.port} unreachable after start()"
-    )
-    if handle.is_gateway:
-        assert wait_tcp_reachable("127.0.0.1", gw_port, budget=3.0), f"gateway port {gw_port} unreachable after start()"
+        server = create_skill_server(
+            "maya",
+            cfg,
+            extra_paths=[FIXTURE_SKILL_PARENT],
+            accumulated=False,
+        )
+        try:
+            candidate = server.start()
+        except RuntimeError as exc:
+            last_start_error = exc
+            if "Only one usage of each socket address" in str(exc) or "os error 10048" in str(exc):
+                continue
+            raise
+        if candidate.is_gateway:
+            handle = candidate
+            break
+        # A listening port does not prove that this fixture owns its gateway.
+        # Never send load/unload operations to an unrelated election winner.
+        candidate.shutdown()
+    if handle is None:
+        detail = f": {last_start_error}" if last_start_error is not None else ""
+        pytest.fail(f"failed to start single-backend gateway after retrying ports{detail}")
 
     try:
+        assert wait_tcp_reachable("127.0.0.1", handle.port, budget=3.0), (
+            f"backend port {handle.port} unreachable after start()"
+        )
+        assert wait_tcp_reachable("127.0.0.1", gw_port, budget=3.0), f"gateway port {gw_port} unreachable after start()"
         yield {
             "handle": handle,
             "gateway_url": f"http://127.0.0.1:{gw_port}/mcp",
@@ -216,7 +234,13 @@ class TestGatewayPromptsListChangedSse:
             # Surface the structured result so failures show *why* load_skill
             # was a no-op (e.g. ambiguous target, unknown skill, missing DCC).
             lr_text = load_resp["result"]["content"][0]["text"]
-            lr_body = json.loads(lr_text)
+            try:
+                lr_body = json.loads(lr_text)
+            except json.JSONDecodeError:
+                pytest.fail(
+                    f"load_skill returned non-JSON tool text (isError={load_resp['result'].get('isError')}): "
+                    f"{lr_text[:2000]!r}"
+                )
             assert lr_body.get("loaded") or lr_body.get("newly_loaded"), (
                 f"load_skill did not load maya-prompts-demo: {lr_text}"
             )
