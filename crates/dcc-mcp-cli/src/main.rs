@@ -29,7 +29,13 @@ async fn main() {
         std::process::exit(ExitCode::Cancelled.as_i32());
     }
 
-    let result = cli::run().await;
+    // Parse and dispatch read-only inspection before the legacy startup path
+    // can apply a staged update or start background maintenance.
+    let result = match dcc_mcp_cli::presentation::read_only::run().await {
+        Ok(Some(code)) => std::process::exit(code.as_i32()),
+        Ok(None) => cli::run().await,
+        Err(error) => Err(error),
+    };
 
     match result {
         Ok(()) => std::process::exit(ExitCode::Success.as_i32()),

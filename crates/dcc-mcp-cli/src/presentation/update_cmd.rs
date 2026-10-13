@@ -9,6 +9,8 @@ use crate::application::update::{
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum UpdateAction {
+    /// Inspect official releases without installing, starting services, or writing caches.
+    Inspect(InspectArgs),
     /// Check whether a newer version is available.
     Check {
         #[arg(long)]
@@ -24,6 +26,50 @@ pub(crate) enum UpdateAction {
     },
 }
 
+#[derive(Debug, Clone, clap::Args)]
+pub(crate) struct InspectArgs {
+    /// Use existing observations only; never contact a release service.
+    #[arg(long)]
+    pub offline: bool,
+    /// Release channel. This provider currently supports stable only.
+    #[arg(long, default_value = "stable")]
+    pub channel: String,
+    /// Canonical official Core issue URL to check for exact release-note fix evidence.
+    #[arg(long, value_parser = parse_official_issue)]
+    pub issue: Option<String>,
+}
+
+fn parse_official_issue(value: &str) -> Result<String, String> {
+    crate::domain::update_inspection::official_issue_number(value)
+        .map(|_| value.to_owned())
+        .ok_or_else(|| {
+            "expected https://github.com/dcc-mcp/dcc-mcp-core/issues/<positive-number>".to_owned()
+        })
+}
+
+pub(crate) async fn run_inspection(args: InspectArgs) -> anyhow::Result<UpdateCommandResult> {
+    let report = crate::application::update_inspection::inspect_current_cli(
+        crate::application::update_inspection::InspectRequest {
+            offline: args.offline,
+            channel: args.channel,
+            issue_url: args.issue,
+        },
+    )
+    .await;
+    let exit_code = if report.version_reason == "unsupported_channel" {
+        ExitCode::InvalidInput
+    } else if report.source.refresh_error.is_some() {
+        ExitCode::Unavailable
+    } else {
+        ExitCode::Success
+    };
+    Ok(UpdateCommandResult {
+        value: serde_json::to_value(report)?,
+        failed: exit_code != ExitCode::Success,
+        exit_code,
+    })
+}
+
 pub(crate) struct UpdateCommandResult {
     pub value: Value,
     pub failed: bool,
@@ -35,6 +81,9 @@ pub(crate) async fn run(
     action: UpdateAction,
 ) -> anyhow::Result<UpdateCommandResult> {
     let (value, exit_code) = match action {
+        // The executable dispatches this before cli::run(), which can apply
+        // staged updates. Keep this handler free of cache writes as well.
+        UpdateAction::Inspect(args) => return run_inspection(args).await,
         UpdateAction::Check {
             binary,
             current_version,

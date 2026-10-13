@@ -22,3 +22,4 @@ pub mod local_registry;
 pub mod marketplace;
 pub mod package_manager;
 pub mod update;
+pub mod update_inspection;
