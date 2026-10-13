@@ -14,6 +14,7 @@ import time
 import types
 
 import pytest
+from scripts.ci.guardian_patrol_diagnostics import guardian_snapshot
 
 import dcc_mcp_core._server._gateway_server_bin as gsb
 import dcc_mcp_core._server.gateway_guardian as gg
@@ -1116,10 +1117,15 @@ def test_guardian_run_catches_crash_and_increments_crash_count(monkeypatch):
 def test_guardian_run_continues_after_exception(monkeypatch):
     """P0: _run() loop survives exception and keeps probing."""
     calls = []
+    foreign_calls = []
+    guardian = None
     crash_reported = threading.Event()
     continued_after_crash = threading.Event()
 
     def _probe(*args, **kwargs):
+        if guardian is None or threading.current_thread() is not guardian._thread:
+            foreign_calls.append((threading.current_thread().name, threading.get_ident()))
+            return False
         calls.append(1)
         if len(calls) == 1:
             raise RuntimeError("first probe crash")
@@ -1144,8 +1150,12 @@ def test_guardian_run_continues_after_exception(monkeypatch):
 
     guardian.start()
     try:
-        assert crash_reported.wait(timeout=10.0), "Expected guardian crash status to be published"
-        assert continued_after_crash.wait(timeout=10.0), "Expected guardian loop to continue probing"
+        assert crash_reported.wait(timeout=10.0), (
+            "Expected guardian crash status to be published; " + guardian_snapshot(guardian, calls, foreign_calls, gg)
+        )
+        assert continued_after_crash.wait(timeout=10.0), (
+            "Expected guardian loop to continue probing; " + guardian_snapshot(guardian, calls, foreign_calls, gg)
+        )
     finally:
         stopped = guardian.stop(timeout=2.0)
 
