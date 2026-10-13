@@ -13,6 +13,8 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+import time
+from types import SimpleNamespace
 
 import pytest
 from scripts import _adapter_pointer_budget as budget
@@ -519,7 +521,7 @@ def test_error_only_scan_never_claims_all_repositories_are_current():
 def test_each_command_recomputes_the_shared_remaining_budget(monkeypatch, runner):
     now = [100.0]
     seen = []
-    monkeypatch.setattr(budget.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(budget, "time", SimpleNamespace(monotonic=lambda: now[0]))
 
     def run(args, **kwargs):
         seen.append(kwargs["timeout"])
@@ -540,7 +542,7 @@ def test_each_command_recomputes_the_shared_remaining_budget(monkeypatch, runner
 
 def test_nested_budget_cannot_extend_the_outer_deadline(monkeypatch):
     now = [0.0]
-    monkeypatch.setattr(budget.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(budget, "time", SimpleNamespace(monotonic=lambda: now[0]))
     with pytest.raises(RuntimeError, match="unwind"):
         with budget.batch_timeout(5):
             now[0] = 4
@@ -579,7 +581,7 @@ def test_deadline_retains_all_selected_rows_and_real_catalog_count(
         now[0] += kwargs["timeout"]
         raise subprocess.TimeoutExpired(args, kwargs["timeout"])
 
-    monkeypatch.setattr(budget.time, "monotonic", monotonic)
+    monkeypatch.setattr(budget, "time", SimpleNamespace(monotonic=monotonic))
     monkeypatch.setattr(subprocess, "run", run)
     monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
     out = tmp_path / "results.json"
@@ -589,6 +591,8 @@ def test_deadline_retains_all_selected_rows_and_real_catalog_count(
         args += ["--only", ",".join(entry["name"] for entry in selected)]
     if module is drift:
         args += ["--allow-missing"]
+    # Test infrastructure may read the global clock before entering the budget.
+    time.monotonic()
     assert module.main(args) == 1
     payload = json.loads(out.read_text(encoding="utf-8"))
     assert payload["adapter_count"] == len(adapters) == 47

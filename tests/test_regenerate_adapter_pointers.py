@@ -16,6 +16,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+from types import SimpleNamespace
 
 import pytest
 from scripts import _adapter_pointer_budget as budget
@@ -1988,7 +1989,7 @@ def test_deadline_inside_pr_file_resolution_never_reaches_any_write(adapters, tm
     now = [0.0]
     calls = []
     name = "dcc-mcp-krita"
-    monkeypatch.setattr(budget.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(budget, "time", SimpleNamespace(monotonic=lambda: now[0]))
     monkeypatch.setattr(regen.drift, "_default_branch_name", lambda *a, **kw: "main")
 
     def clone(url, dest, branch, **kwargs):
@@ -2041,7 +2042,7 @@ def test_deadline_inside_pr_file_resolution_never_reaches_any_write(adapters, tm
 def test_deadline_prevents_the_next_git_write(tmp_path, monkeypatch, stop_after):
     now = [0.0]
     calls = []
-    monkeypatch.setattr(budget.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(budget, "time", SimpleNamespace(monotonic=lambda: now[0]))
 
     def run(args, **kwargs):
         calls.append(args)
@@ -2064,7 +2065,7 @@ def test_deadline_prevents_the_next_git_write(tmp_path, monkeypatch, stop_after)
 def test_deadline_after_push_reports_uncertainty_and_never_creates_a_pr(adapters, tmp_path, monkeypatch):
     now = [0.0]
     name = "dcc-mcp-krita"
-    monkeypatch.setattr(budget.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(budget, "time", SimpleNamespace(monotonic=lambda: now[0]))
     monkeypatch.setattr(regen.drift, "_default_branch_name", lambda *a, **kw: "main")
 
     def clone(url, dest, branch, **kwargs):
