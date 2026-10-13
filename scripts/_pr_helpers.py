@@ -60,32 +60,6 @@ def _run(args: list[str], *, timeout: int = DEFAULT_TIMEOUT_SECS) -> subprocess.
         raise PrError(f"could not run {args[0]}: {exc}") from exc
 
 
-def _gh_json(args: list[str]) -> list[dict]:
-    """Run a ``gh`` command that returns JSON and raise PrError on failure."""
-    import json
-
-    result = _run(["gh", *args])
-    if result.returncode != 0:
-        raise PrError(f"gh {' '.join(args)} failed: {(result.stderr or result.stdout).strip()}")
-    try:
-        return json.loads(result.stdout or "[]")
-    except ValueError as exc:
-        raise PrError(f"gh {' '.join(args)} returned no JSON: {exc}") from exc
-
-
-def authenticated_login(*, timeout: int = DEFAULT_TIMEOUT_SECS) -> str:
-    """Return the GitHub login of the authenticated user, or '' when unknown."""
-    result = _run(["gh", "api", "user", "--jq", ".login"], timeout=timeout)
-    if result.returncode != 0:
-        return ""
-    return result.stdout.strip()
-
-
-def repo_owner(repo: str) -> str:
-    """Return the owner part of an ``owner/name`` repository slug."""
-    return repo.split("/", 1)[0] if "/" in repo else ""
-
-
 # The push-permission lookup has three outcomes, not two. Collapsing the
 # failure into a plain False made a transient API error indistinguishable from a
 # real "no write access", so a broken lookup fell through to the fork path and
