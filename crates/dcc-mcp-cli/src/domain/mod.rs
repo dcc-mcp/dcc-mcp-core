@@ -1,3 +1,4 @@
+pub mod ecosystem_discovery;
 pub mod feedback;
 pub mod feedback_bundle;
 pub mod feedback_file;

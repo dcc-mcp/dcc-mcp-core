@@ -5,6 +5,7 @@ pub mod components;
 pub mod control_plane;
 pub mod current_exe;
 pub mod doctor;
+pub mod ecosystem_discovery;
 pub mod feedback;
 pub mod feedback_bundle;
 pub mod feedback_file;
