@@ -295,18 +295,21 @@ def decode_ppm(data: bytes) -> Tuple[int, int, int, bytes]:
     pixel_count = width * height * channels
 
     if binary:
-        # Skip exactly one whitespace byte after maxval.
-        while index < len(data) and data[index : index + 1].isspace():
-            index += 1
-        raw = data[index : index + pixel_count * (2 if maxval > 255 else 1)]
-        if len(raw) < pixel_count * (2 if maxval > 255 else 1):
+        # The single separator ends the header; later whitespace is pixel data.
+        if index >= len(data) or not data[index : index + 1].isspace():
+            raise ValueError("PPM maxval must be followed by whitespace")
+        index += 1
+        sample_bytes = 2 if maxval > 255 else 1
+        raw = data[index : index + pixel_count * sample_bytes]
+        if len(raw) < pixel_count * sample_bytes:
             raise ValueError("truncated PPM pixel data")
-        if maxval <= 255:
+        if maxval == 255:
             return width, height, channels, raw
-        # 16-bit big-endian: downsample to 8-bit.
+        # Normalize complete samples to 8-bit; two-byte samples are big-endian.
         out = bytearray(pixel_count)
         for position in range(pixel_count):
-            out[position] = (raw[position * 2] * 255) // maxval
+            sample = raw[position] if sample_bytes == 1 else (raw[position * 2] << 8) | raw[position * 2 + 1]
+            out[position] = (min(sample, maxval) * 255) // maxval
         return width, height, channels, bytes(out)
 
     # ASCII (P2/P3): gather the remaining integer tokens.
