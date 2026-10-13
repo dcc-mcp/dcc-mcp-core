@@ -48,7 +48,8 @@ pub(crate) struct DiscoverArgs {
 }
 
 fn parse_discovery_target(value: &str) -> Result<dcc_mcp_catalog::CatalogTarget, String> {
-    dcc_mcp_marketplace::parse_target(value).map_err(|error| error.to_string())
+    dcc_mcp_marketplace::parse_target(value)
+        .map_err(|_| "expected dcc|application|game|web:ID with a non-empty ID".to_owned())
 }
 
 pub(crate) async fn run_discovery(args: DiscoverArgs) -> anyhow::Result<UpdateCommandResult> {
