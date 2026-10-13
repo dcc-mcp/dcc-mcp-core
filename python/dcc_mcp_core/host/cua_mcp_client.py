@@ -14,6 +14,7 @@ from dcc_mcp_core.host.cua_mcp_cleanup import OwnedPixelsTaskCleanup
 from dcc_mcp_core.host.cua_mcp_errors import OwnedCuaMcpError
 from dcc_mcp_core.host.cua_mcp_geometry import validate_geometry
 from dcc_mcp_core.host.cua_mcp_keyboard import keypress_payload
+from dcc_mcp_core.host.cua_mcp_managed_process import ManagedLauncher
 from dcc_mcp_core.host.cua_mcp_pointer import pointer_payload
 from dcc_mcp_core.host.cua_mcp_popup import decode_popup_observation
 from dcc_mcp_core.host.cua_mcp_popup import requested_popup_handles
@@ -44,6 +45,7 @@ class PixelsMcpHostClient:
         allow_raw_input: bool,
         options: UiControlRuntimeOptions,
         window_title: str | None = None,
+        managed_launcher: ManagedLauncher | None = None,
     ) -> None:
         if type(process_id) is not int or process_id <= 0 or type(window_handle) is not int or window_handle <= 0:
             raise CuaCliError("invalid_target", "Owned pixels MCP requires an exact positive PID and HWND.")
@@ -97,7 +99,11 @@ class PixelsMcpHostClient:
                     "authorization_category": "window_state",
                 }
             )
-        self._transport = OwnedCuaMcpTransport(options)
+        self._transport = (
+            OwnedCuaMcpTransport(options)
+            if managed_launcher is None
+            else OwnedCuaMcpTransport(options, managed_launcher=managed_launcher)
+        )
         try:
             opened = self._transport.tool(
                 "start_task",
