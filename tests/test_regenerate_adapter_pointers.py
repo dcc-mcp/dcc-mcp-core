@@ -4,9 +4,9 @@ The scanner can only report drift; these tests cover the half that clears it.
 Every test that needs a repository builds one on disk and points the
 regenerator at it through a local path, so the suite stays offline and hermetic.
 
-The tests that would push or open a pull request do not do either. They stub the
-``gh`` boundary and assert on what the regenerator *asked* for, which is the
-only thing this repository can verify without touching 47 real ones.
+The GitHub boundary is stubbed. Push regressions use real git against temporary
+local repositories, including concurrent-ref changes; none access or mutate
+GitHub. Other tests record the requested operations without performing a push.
 """
 
 from __future__ import annotations
@@ -1405,7 +1405,7 @@ def test_the_push_relies_on_an_inherited_git_credential():
     so `git -c` in the workflow cannot wrap it. The only mechanism that reaches
     the push is `GIT_CONFIG_*` in the environment. If a future edit drops that
     export, every cross-repository push fails with 401 -- and nothing in this
-    test suite would notice, because no test performs a real push.
+    test suite would notice: the real-push tests use local, unauthenticated repos.
 
     So the contract is pinned here against the workflow file itself.
     """
@@ -1713,3 +1713,276 @@ def test_find_open_pr_raises_on_lookup_failure(monkeypatch):
     monkeypatch.setattr(pr_helpers, "_run", lambda args, **kw: subprocess.CompletedProcess(args, 1, "", "HTTP 500"))
     with pytest.raises(pr_helpers.PrError, match="HTTP 500"):
         pr_helpers.find_open_pr("o/r", "branch", "main")
+
+
+def test_update_pr_keeps_literal_fields_and_forwards_timeout(monkeypatch):
+    calls = []
+
+    def fake_run(args, **kwargs):
+        calls.append((args, kwargs))
+        return subprocess.CompletedProcess(args, 0, "{}", "")
+
+    monkeypatch.setattr(pr_helpers, "_run", fake_run)
+    pr_helpers.update_pr(
+        "dcc-mcp/x",
+        "https://github.com/dcc-mcp/x/pull/50",
+        title="@literal-title",
+        body="@not-a-file\nfalse\n123",
+        timeout=31,
+    )
+    args, kwargs = calls[0]
+    assert "-F" not in args
+    assert args[args.index("title=@literal-title") - 1] == "-f"
+    assert args[args.index("body=@not-a-file\nfalse\n123") - 1] == "-f"
+    assert kwargs["timeout"] == 31
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "  https://github.com/dcc-mcp/x/pull/50  ",
+        "\thttps://github.com/dcc-mcp/x/pull/50/\n",
+    ],
+)
+def test_pr_number_strips_url_whitespace(url):
+    assert pr_helpers.pr_number_from_url(url) == 50
+
+
+def test_pointer_jobs_have_bounded_timeouts():
+    import yaml
+
+    workflow = yaml.safe_load((REPO_ROOT / ".github/workflows/adapter-coverage.yml").read_text(encoding="utf-8"))
+    for name in ("coverage", "pointer-drift", "regenerate-pointers"):
+        assert workflow["jobs"][name].get("timeout-minutes") == 30
+    # PyYAML's YAML 1.1 loader interprets the Actions `on` key as True.
+    events = workflow.get("on", workflow.get(True))
+    assert "README.md" in events["pull_request"]["paths"]
+    assert "README.md" not in events["push"]["paths"]
+
+
+@pytest.mark.parametrize(("stdout", "returncode"), [("", 128), ("", 0), ("not-a-blob", 0)])
+def test_unreadable_generated_blob_stops_before_writes(adapters, tmp_path, monkeypatch, stdout, returncode):
+    name = "dcc-mcp-krita"
+    origin = _make_origin(tmp_path, "blob-failure", _stale_readme(adapters, name))
+    fake = _FakeGitHub()
+    fake.install(monkeypatch)
+    real_git = regen._git
+
+    def fail_hash(args, *, timeout):
+        if "hash-object" in args:
+            return subprocess.CompletedProcess(args, returncode, stdout, "cannot read generated file")
+        return real_git(args, timeout=timeout)
+
+    monkeypatch.setattr(regen, "_git", fail_hash)
+    row = _run_regen(adapters, tmp_path, name, origin, fake, monkeypatch)
+    assert row["status"] == regen.ERROR
+    assert not fake.pushed and not fake.created and not fake.updated
+
+
+@pytest.mark.parametrize("current", [False, True])
+def test_real_git_no_change_or_equivalent_pr_creates_no_commit_or_branch(adapters, tmp_path, monkeypatch, current):
+    name = "dcc-mcp-krita"
+    entry = _entry(adapters, name)
+    fresh = generator.upsert_pointer(
+        "# adapter\n\n## Install\n", generator.render_pointer(entry, host_count=len(adapters))
+    )
+    origin = _make_origin(tmp_path, "no-write", fresh if current else _stale_readme(adapters, name))
+    blob = subprocess.run(
+        ["git", "hash-object", "--stdin"], input=fresh, text=True, capture_output=True, check=True
+    ).stdout.strip()
+    fake = _FakeGitHub(open_prs=[_pr_row(49, "https://example/pr/49", sha=blob, owner="loonghao")])
+    real_commit = regen._commit_and_push
+    fake.install(monkeypatch)
+    monkeypatch.setattr(regen, "_commit_and_push", real_commit)
+    real_git = regen._git
+    calls = []
+
+    def local_git(args, *, timeout):
+        calls.append(args)
+        assert not any(argument.startswith(("https://", "http://")) for argument in args), (
+            "a no-op must not query a remote push target"
+        )
+        assert "push" not in args, "a no-op must never reach a real push"
+        return real_git(args, timeout=timeout)
+
+    monkeypatch.setattr(regen, "_git", local_git)
+    before = subprocess.check_output(["git", "-C", origin, "show-ref"], text=True)
+    row = regen.regenerate_repository(
+        _local_entry(adapters, name, origin),
+        0,
+        host_count=len(adapters),
+        workdir=tmp_path / "work",
+        timeout=60,
+        branch_prefix=regen.BRANCH_PREFIX,
+        dry_run=False,
+        source_ref="test",
+    )
+    assert row["status"] == (regen.CURRENT if current else regen.DUPLICATE)
+    assert not fake.created and not fake.updated
+    assert not any("commit" in args or ("checkout" in args and "-b" in args) for args in calls)
+    assert subprocess.check_output(["git", "-C", origin, "show-ref"], text=True) == before
+
+
+def _real_push_setup(tmp_path, monkeypatch):
+    """Redirect only the synthetic test remote; all git operations remain real."""
+    origin = _make_origin(tmp_path, "lease", "# adapter\n")
+    real_git = regen._git
+    calls = []
+    before_push = []
+
+    def local_git(args, *, timeout):
+        calls.append(list(args))
+        url = "https://github.com/test/pointer-lease"
+        for argument in args:
+            if argument.startswith(("https://", "http://")):
+                assert argument == url, "tests must never access a real network remote"
+        local_args = [origin if argument == url else argument for argument in args]
+        if "push" in args and before_push:
+            before_push.pop(0)()
+        return real_git(local_args, timeout=timeout)
+
+    monkeypatch.setattr(regen, "_git", local_git)
+
+    def checkout(name, content):
+        path = tmp_path / name
+        subprocess.run(["git", "clone", "-q", "--branch", "main", origin, str(path)], check=True)
+        (path / "README.md").write_text(content, encoding="utf-8")
+        return path
+
+    return origin, calls, before_push, checkout
+
+
+def test_real_git_push_creates_then_refreshes_with_explicit_lease(tmp_path, monkeypatch):
+    origin, calls, _, checkout = _real_push_setup(tmp_path, monkeypatch)
+    branch = regen.BRANCH_PREFIX + "catalog-pointer"
+    ref = "refs/heads/" + branch
+    regen._commit_and_push(checkout("first", "first\n"), branch, "test/pointer-lease", timeout=60)
+    first = subprocess.check_output(["git", "-C", origin, "rev-parse", ref], text=True).strip()
+    regen._commit_and_push(checkout("second", "second\n"), branch, "test/pointer-lease", timeout=60)
+    pushes = [args for args in calls if "push" in args]
+    assert "--force" not in pushes[0] and "--force" not in pushes[1]
+    assert "--force-with-lease=" + ref + ":" in pushes[0]
+    assert "--force-with-lease=" + ref + ":" + first in pushes[1]
+    assert subprocess.check_output(["git", "-C", origin, "show", ref + ":README.md"], text=True) == "second\n"
+    identity = subprocess.check_output(
+        ["git", "-C", origin, "show", "-s", "--format=%an <%ae>", ref], text=True
+    ).strip()
+    assert identity == regen.committer_name() + " <" + regen.committer_email() + ">"
+
+
+@pytest.mark.parametrize("existing", [False, True])
+def test_real_git_lease_rejects_a_concurrent_branch_update(tmp_path, monkeypatch, existing):
+    origin, _, before_push, checkout = _real_push_setup(tmp_path, monkeypatch)
+    branch = regen.BRANCH_PREFIX + "catalog-pointer"
+    ref = "refs/heads/" + branch
+    if existing:
+        regen._commit_and_push(checkout("first", "first\n"), branch, "test/pointer-lease", timeout=60)
+    parent = subprocess.check_output(["git", "-C", origin, "rev-parse", ref if existing else "main"], text=True).strip()
+    competitor = subprocess.check_output(
+        [
+            "git",
+            "-C",
+            origin,
+            "-c",
+            "user.name=Competitor",
+            "-c",
+            "user.email=test@example.com",
+            "commit-tree",
+            "main^{tree}",
+            "-p",
+            parent,
+            "-m",
+            "Concurrent writer",
+        ],
+        text=True,
+    ).strip()
+    before_push.append(lambda: subprocess.run(["git", "-C", origin, "update-ref", ref, competitor], check=True))
+    with pytest.raises(regen.RegenError, match="git push failed"):
+        regen._commit_and_push(checkout("racing", "racing\n"), branch, "test/pointer-lease", timeout=60)
+    assert subprocess.check_output(["git", "-C", origin, "rev-parse", ref], text=True).strip() == competitor
+
+
+@pytest.mark.parametrize(
+    ("stdout", "returncode"),
+    [("", 1), ("not-a-sha\trefs/heads/chore/pointer\n", 0), ("a" * 40 + "\trefs/heads/other\n", 0)],
+)
+def test_invalid_remote_ref_lookup_never_commits_or_pushes(monkeypatch, tmp_path, stdout, returncode):
+    calls = []
+
+    def fail_lookup(args, *, timeout):
+        calls.append(args)
+        if "ls-remote" in args:
+            return subprocess.CompletedProcess(args, returncode, stdout, "lookup failed")
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    monkeypatch.setattr(regen, "_git", fail_lookup)
+    with pytest.raises(regen.RegenError, match="remote branch"):
+        regen._commit_and_push(tmp_path, regen.BRANCH_PREFIX + "catalog-pointer", "test/pointer-lease", timeout=60)
+    assert not any("commit" in args or "push" in args for args in calls)
+
+
+@pytest.mark.parametrize("branch", ["main", "feature/user-work", "chore/something-else"])
+def test_writer_refuses_non_generated_branches(monkeypatch, tmp_path, branch):
+    def forbidden_git(*args, **kwargs):
+        raise AssertionError("a user branch must be rejected before any git operation")
+
+    monkeypatch.setattr(regen, "_git", forbidden_git)
+    with pytest.raises(regen.RegenError, match="non-generated branch"):
+        regen._commit_and_push(tmp_path, branch, "test/pointer-lease", timeout=60)
+
+
+def test_summary_distinguishes_current_duplicate_and_failed_repositories():
+    results = [
+        {"name": "current", "status": regen.CURRENT, "action": "none", "pr": "", "detail": "current"},
+        {
+            "name": "duplicate",
+            "status": regen.DUPLICATE,
+            "action": "reused-pr",
+            "pr": "https://example/pr/1",
+            "detail": "open",
+        },
+        {"name": "error", "status": regen.ERROR, "action": "none", "pr": "", "detail": "lookup failed"},
+    ]
+    summary = regen.render_summary(results, host_count=3, dry_run=False)
+    assert "All 3 scanned repositories already match" not in summary
+    assert "Default branches already current: **1**." in summary
+    assert "Equivalent open PRs awaiting merge: **1**." in summary
+    assert "1 repositories could not be regenerated" in summary
+    assert "refused to commit" not in summary
+
+
+def test_summary_does_not_call_missing_readmes_current():
+    results = [{"name": "missing", "status": regen.MISSING, "action": "none", "pr": "", "detail": "no README"}]
+    summary = regen.render_summary(results, host_count=1, dry_run=False)
+    assert "All 1 scanned repositories already match" not in summary
+    assert "Default branches already current: **0**." in summary
+    assert "1 repositories have no README.md to regenerate." in summary
+
+
+@pytest.mark.parametrize("push_state", [pr_helpers.PUSH_DENIED, pr_helpers.PUSH_UNKNOWN])
+def test_equivalent_fork_pr_needs_no_push_permission(adapters, tmp_path, monkeypatch, push_state):
+    name = "dcc-mcp-krita"
+    origin = _make_origin(tmp_path, "readonly-dedupe", _stale_readme(adapters, name))
+    expected = generator.upsert_pointer(
+        "# adapter\n\n## Install\n", generator.render_pointer(_entry(adapters, name), host_count=len(adapters))
+    )
+    blob = subprocess.run(
+        ["git", "hash-object", "--stdin"], input=expected, text=True, capture_output=True, check=True
+    ).stdout.strip()
+    fake = _FakeGitHub(
+        push_state=push_state, open_prs=[_pr_row(49, "https://example/pr/49", sha=blob, owner="loonghao")]
+    )
+    fake.install(monkeypatch)
+    row = regen.regenerate_repository(
+        _local_entry(adapters, name, origin),
+        0,
+        host_count=len(adapters),
+        workdir=tmp_path / "work",
+        timeout=60,
+        branch_prefix=regen.BRANCH_PREFIX,
+        dry_run=False,
+        source_ref="test",
+    )
+    assert row["status"] == regen.DUPLICATE
+    assert row["pr"] == "https://example/pr/49"
+    assert not fake.pushed and not fake.created and not fake.updated

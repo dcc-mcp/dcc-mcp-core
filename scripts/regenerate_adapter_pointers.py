@@ -164,8 +164,16 @@ def _blob_sha(repo_dir: Path, rel_path: str, *, timeout: int) -> str:
     """
     result = _git(["-C", str(repo_dir), "hash-object", rel_path], timeout=timeout)
     if result.returncode != 0:
-        return ""
-    return result.stdout.strip()
+        raise RegenError(f"could not read generated blob: {(result.stderr or result.stdout).strip()}")
+    blob = result.stdout.strip()
+    if not _is_git_sha(blob):
+        raise RegenError("could not read generated blob: git returned an invalid object id")
+    return blob
+
+
+def _is_git_sha(value: str) -> bool:
+    """Accept the hexadecimal object IDs emitted by SHA-1 or SHA-256 git repos."""
+    return len(value) in (40, 64) and all(character in "0123456789abcdef" for character in value)
 
 
 def _find_equivalent(repo_slug: str, base: str, rel_path: str, blob: str, title: str, *, timeout: int) -> dict:
@@ -182,7 +190,7 @@ def _find_equivalent(repo_slug: str, base: str, rel_path: str, blob: str, title:
     that may duplicate the one it could not inspect.
     """
     if not blob:
-        return {}
+        raise RegenError("could not read generated blob; refusing to guess whether a PR exists")
     candidates = pr_helpers.list_open_prs(repo_slug, base, timeout=timeout)
     candidates = pr_helpers.resolve_pr_blobs(candidates, repo_slug, rel_path, timeout=timeout)
     return pr_helpers.find_equivalent_pr(candidates, path=rel_path, blob_sha=blob, title=title)
@@ -216,8 +224,8 @@ def render_pr_body(entry: dict, *, host_count: int, source_ref: str) -> str:
         " coverage-pointer markers changes; nothing else in the README is touched.\n\n"
         "The block is generated from `dcc-mcp-catalog.yml` in"
         " https://github.com/dcc-mcp/dcc-mcp-core and is not edited by hand. A"
-        " scheduled job keeps it in sync, so a later catalog change refreshes this"
-        " PR instead of opening another one."
+        " main-branch catalog update or an explicit regeneration dispatch refreshes"
+        " this PR instead of opening another one. The weekly schedule only reports drift."
     )
 
 
@@ -280,7 +288,6 @@ def regenerate_repository(
 
         repo_slug = _repo_slug(url)
         head = pr_helpers.branch_slug(branch_prefix, _fingerprint(host_count))
-        push_target, head_ref = _push_target(repo_slug, head, timeout=timeout)
 
         # Decide whether to write *before* writing anything.
         #
@@ -309,6 +316,9 @@ def regenerate_repository(
             )
             return row
 
+        # Reusing identical content is read-only and must not require push
+        # permission or a fork. Resolve write access only when a write is needed.
+        push_target, head_ref = _push_target(repo_slug, head, timeout=timeout)
         _commit_and_push(repo_dir, head, push_target, timeout=timeout)
 
         # A push to our stable branch refreshes its existing PR, even while
@@ -365,7 +375,7 @@ def _fingerprint(host_count: int) -> str:
     ``f"{host_count}-adapters"``, which meant a catalog change moved the branch
     and opened a second pull request beside the first: every count change would
     leave a fresh batch of orphan PRs across the fleet with nothing closing
-    them. One branch per repository, force-pushed on each run, so a later
+    them. One branch per repository, updated with an explicit lease, so a later
     catalog change refreshes the same PR.
     """
     return "catalog-pointer"
@@ -395,6 +405,21 @@ def _push_target(repo_slug: str, head: str, *, timeout: int) -> tuple[str, str]:
     return target, head
 
 
+def _remote_branch_sha(repo_dir: Path, remote: str, ref: str, *, timeout: int) -> str:
+    """Read the exact ref value for a compare-and-swap push, or an absent ref."""
+    result = _git(["-C", str(repo_dir), "ls-remote", "--heads", remote, ref], timeout=timeout)
+    if result.returncode != 0:
+        raise RegenError(f"remote branch lookup failed: {(result.stderr or result.stdout).strip()}")
+    rows = result.stdout.splitlines()
+    if not rows:
+        return ""
+    if len(rows) == 1:
+        fields = rows[0].split()
+        if len(fields) == 2 and fields[1] == ref and _is_git_sha(fields[0]):
+            return fields[0]
+    raise RegenError("remote branch lookup returned an invalid or ambiguous ref; refusing to push")
+
+
 def _commit_and_push(repo_dir: Path, branch: str, push_target: str, *, timeout: int) -> None:
     """Commit the regenerated README on a new branch and push it to ``push_target``.
 
@@ -408,7 +433,17 @@ def _commit_and_push(repo_dir: Path, branch: str, push_target: str, *, timeout: 
     push is a child process and inherits whatever the workflow exported. This
     function deliberately does not assemble a credential itself: keeping the
     token on the workflow side avoids writing it to disk from Python.
+
+    Only the dedicated generated branch may be replaced. An explicit expected
+    SHA prevents overwriting a concurrent writer; an empty expected SHA permits
+    creation only while the remote branch is still absent. Neither API lookup
+    errors nor stale-lease rejection are retried with a less restrictive push.
     """
+    if branch != pr_helpers.branch_slug(BRANCH_PREFIX, _fingerprint(0)):
+        raise RegenError(f"refusing to push a non-generated branch: {branch}")
+    remote = f"https://github.com/{push_target}"
+    ref = f"refs/heads/{branch}"
+    expected_sha = _remote_branch_sha(repo_dir, remote, ref, timeout=timeout)
     steps = (
         (["-C", str(repo_dir), "checkout", "-q", "-b", branch], "checkout -b"),
         (["-C", str(repo_dir), "add", "README.md"], "add"),
@@ -433,9 +468,9 @@ def _commit_and_push(repo_dir: Path, branch: str, push_target: str, *, timeout: 
                 str(repo_dir),
                 "push",
                 "--quiet",
-                "--force",
-                f"https://github.com/{push_target}",
-                f"{branch}:{branch}",
+                f"--force-with-lease={ref}:{expected_sha}",
+                remote,
+                f"HEAD:{ref}",
             ],
             "push",
         ),
@@ -621,22 +656,20 @@ def render_summary(results: list[dict], *, host_count: int, dry_run: bool) -> st
         pr = f"[PR]({row['pr']})" if row["pr"] else "—"
         lines.append(f"| `{row['name']}` | {row['status']} | {row['action']} | {pr} | {row['detail']} |")
 
+    current = [r for r in results if r["status"] == CURRENT]
+    duplicated = [r for r in results if r["status"] == DUPLICATE]
     regenerated = [r for r in results if r["status"] == REGENERATED]
     errored = [r for r in results if r["status"] == ERROR]
     missing = [r for r in results if r["status"] == MISSING]
 
     lines.append("")
+    lines.append(f"Default branches already current: **{len(current)}**.")
+    lines.append(f"Equivalent open PRs awaiting merge: **{len(duplicated)}**.")
     if regenerated:
         lines.append(f"**{len(regenerated)} of {len(results)} repositories {verb}.**")
-    else:
-        lines.append(f"All {len(results)} scanned repositories already match the catalog output.")
     if errored:
         lines.append("")
-        lines.append(
-            f"{len(errored)} repositories could not be regenerated. These need"
-            " manual attention; the guard rail refused to commit anything it did"
-            " not recognise."
-        )
+        lines.append(f"{len(errored)} repositories could not be regenerated. See the per-repository errors above.")
     if missing:
         lines.append("")
         lines.append(f"{len(missing)} repositories have no README.md to regenerate.")

@@ -498,7 +498,7 @@ def create_pr(repo: str, *, base: str, head: str, title: str, body: str, timeout
 
 def pr_number_from_url(url: str) -> int:
     """Return the PR number embedded in a pull request URL, or 0."""
-    tail = str(url or "").rstrip("/").split("/")[-1]
+    tail = str(url or "").strip().rstrip("/").split("/")[-1]
     return int(tail) if tail.isdigit() else 0
 
 

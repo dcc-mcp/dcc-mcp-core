@@ -30,10 +30,11 @@ registry is the source of truth, and the count is reproducible from a checkout:
 rg -c '^    tags: \[.*"adapter".*\]' dcc-mcp-catalog.yml
 ~~~
 
-That reports **38 adapter entries** in [`dcc-mcp-catalog.yml`](dcc-mcp-catalog.yml),
-covering these hosts:
+That reports **47 adapter entries** in [`dcc-mcp-catalog.yml`](dcc-mcp-catalog.yml).
+See the [complete generated host list](docs/adapter-coverage.md) for every current
+entry and its install metadata. Selected examples include:
 
-| Area | Hosts |
+| Area | Selected hosts |
 |---|---|
 | Desktop DCC | Maya, Blender, Houdini, 3ds Max, Cinema 4D, Nuke, Katana, MotionBuilder, ZBrush, Mari, Substance 3D Designer, Substance 3D Painter, Marmoset |
 | Engines and real-time | Unreal, Unity, Godot, Tiled, TouchDesigner |
@@ -46,7 +47,7 @@ The full list, with install metadata, is published in the
 
 **Three shared contracts keep it one matrix.** Host coverage is only useful if
 the adapters stay interchangeable. Three contracts published by core are what
-stop 38 adapters from becoming 38 unrelated servers:
+stop host adapters from becoming unrelated servers:
 
 | Contract | What it guarantees | Where to verify |
 |---|---|---|

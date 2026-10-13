@@ -677,3 +677,16 @@ def test_cli_apply_exits_non_zero_when_the_readme_is_stale(adapters, tmp_path):
 def test_cli_render_rejects_an_unknown_adapter():
     with pytest.raises(generator.CoverageError, match="no adapter named"):
         generator.main(["--catalog", str(CATALOG), "render", "--adapter", "dcc-mcp-nope"])
+
+
+def test_core_readme_count_matches_catalog_and_links_complete_list(adapters):
+    """Core's summary must not advertise a stale count beside current pointers."""
+    import re
+
+    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    match = re.search(r"That reports \*\*(\d+) adapter entries\*\*", readme)
+    assert match, "the reproducible catalog count must be explicit in the README"
+    assert int(match.group(1)) == len(adapters)
+    assert "[complete generated host list](docs/adapter-coverage.md)" in readme
+    assert "Selected hosts" in readme
+    assert not re.search(r"stop \d+ adapters from becoming \d+ unrelated servers", readme)
