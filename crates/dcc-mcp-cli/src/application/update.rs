@@ -7,8 +7,8 @@ use crate::domain::rest::Endpoint;
 mod cache;
 
 pub use cache::{
-    cached_cli_update, is_background_refresh, just_applied_status, record_cli_update,
-    spawn_cli_update_refresh,
+    ReadOnlyCliUpdateCache, cached_cli_update, is_background_refresh, just_applied_status,
+    read_cli_update_cache, record_cli_update, spawn_cli_update_refresh,
 };
 
 pub const CLI_BINARY_NAME: &str = env!("CARGO_PKG_NAME");

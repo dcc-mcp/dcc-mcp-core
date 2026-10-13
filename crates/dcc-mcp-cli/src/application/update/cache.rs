@@ -33,6 +33,49 @@ struct CacheRecord {
     payload: Value,
 }
 
+/// A read-only observation, independent from automatic-refresh policy.
+pub struct ReadOnlyCliUpdateCache {
+    pub checked_at_unix_secs: u64,
+    pub latest_version: String,
+}
+
+/// Read existing update metadata without creating a cache, lock, or process.
+///
+/// The legacy record does not bind official release provenance. Consumers must
+/// retain that limitation instead of treating its notes as verified fix evidence.
+pub fn read_cli_update_cache() -> Option<ReadOnlyCliUpdateCache> {
+    read_cli_update_cache_at(&cache_path(), CLI_VERSION)
+}
+
+fn read_cli_update_cache_at(path: &Path, current_version: &str) -> Option<ReadOnlyCliUpdateCache> {
+    use std::io::Read as _;
+
+    const LIMIT: u64 = 1024 * 1024;
+    let file = std::fs::File::open(path).ok()?;
+    if !file.metadata().ok()?.is_file() {
+        return None;
+    }
+    let mut bytes = Vec::new();
+    file.take(LIMIT + 1).read_to_end(&mut bytes).ok()?;
+    if bytes.len() as u64 > LIMIT {
+        return None;
+    }
+    let record: CacheRecord = serde_json::from_slice(&bytes).ok()?;
+    if record.schema_version != CACHE_SCHEMA_VERSION
+        || record.binary_name != CLI_BINARY_NAME
+        || record.current_version != current_version
+        || !record.successful
+    {
+        return None;
+    }
+    let version = record.payload.get("latest_version")?.as_str()?;
+    semver::Version::parse(version.strip_prefix('v').unwrap_or(version)).ok()?;
+    Some(ReadOnlyCliUpdateCache {
+        checked_at_unix_secs: record.checked_at_unix_secs,
+        latest_version: version.to_owned(),
+    })
+}
+
 pub fn cached_cli_update() -> CachedCliUpdate {
     if !automatic_checks_enabled() || is_background_refresh() {
         return CachedCliUpdate::default();
@@ -255,6 +298,44 @@ mod tests {
             "latest_version": "0.20.23",
             "check": {"source": "live", "cache_age_secs": 0},
         })
+    }
+
+    #[test]
+    fn read_only_cache_accessor_does_not_create_or_change_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("missing/check.json");
+        assert!(read_cli_update_cache_at(&path, CLI_VERSION).is_none());
+        assert!(!path.parent().unwrap().exists());
+
+        write_cache(&path, &available_payload(), 100, CLI_VERSION).unwrap();
+        let before = std::fs::read(&path).unwrap();
+        let snapshot = read_cli_update_cache_at(&path, CLI_VERSION).unwrap();
+        assert_eq!(snapshot.checked_at_unix_secs, 100);
+        assert_eq!(snapshot.latest_version, "0.20.23");
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        assert_eq!(
+            std::fs::read_dir(path.parent().unwrap()).unwrap().count(),
+            1
+        );
+        assert!(read_cli_update_cache_at(&path, "0.0.0").is_none());
+    }
+
+    #[test]
+    fn read_only_cache_accessor_rejects_oversized_or_failed_observations() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("check.json");
+        std::fs::write(&path, vec![b' '; 1024 * 1024 + 1]).unwrap();
+        assert!(read_cli_update_cache_at(&path, CLI_VERSION).is_none());
+        write_cache(
+            &path,
+            &serde_json::json!({
+                "version_status": "check_failed", "latest_version": "99.0.0"
+            }),
+            100,
+            CLI_VERSION,
+        )
+        .unwrap();
+        assert!(read_cli_update_cache_at(&path, CLI_VERSION).is_none());
     }
 
     #[test]
