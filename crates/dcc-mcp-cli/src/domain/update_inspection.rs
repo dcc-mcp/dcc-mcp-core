@@ -282,11 +282,26 @@ fn fix_evidence(
         evidence.reason = "release_notes_unavailable";
         return evidence;
     };
+    // This deliberately accepts a small prose subset rather than attempting a
+    // partial Markdown parser. A closing statement anywhere in an example,
+    // code block, quotation, or comment is not a release fix declaration.
+    // Reject the entire note when its context is ambiguous, even if another
+    // line looks like a closing statement.
+    if ambiguous_fix_context(notes) {
+        evidence.reason = "release_note_context_requires_manual_review";
+        return evidence;
+    }
     // Accept a standalone closing statement only. Keywords elsewhere, issue
     // mentions, PR numbers, and "may fix" language are not fix evidence.
     let references = [format!("#{number}"), issue_url.to_owned()];
     let declares_fix = notes.lines().any(|line| {
-        let line = line.trim().trim_start_matches("- ").trim_end_matches('.');
+        let line = line.trim_end();
+        let line = line
+            .strip_prefix("- ")
+            .or_else(|| line.strip_prefix("* "))
+            .or_else(|| line.strip_prefix("+ "))
+            .unwrap_or(line)
+            .trim_end_matches('.');
         let Some((verb, reference)) = line.split_once(' ') else {
             return false;
         };
@@ -305,6 +320,33 @@ fn fix_evidence(
         evidence.reason = "no_exact_fix_reference_in_checked_release_only";
     }
     evidence
+}
+
+fn ambiguous_fix_context(notes: &str) -> bool {
+    let lower = notes.to_ascii_lowercase();
+    if ["`", "~~~", "<!--", "-->", "<pre", "<code", "<blockquote"]
+        .iter()
+        .any(|marker| lower.contains(marker))
+    {
+        return true;
+    }
+    if [
+        "example",
+        "sample",
+        "template",
+        "syntax",
+        "demonstrat",
+        "illustrat",
+        "hypothet",
+    ]
+    .iter()
+    .any(|context| lower.contains(context))
+    {
+        return true;
+    }
+    notes.lines().any(|line| {
+        !line.trim().is_empty() && (line.starts_with(char::is_whitespace) || line.starts_with('>'))
+    })
 }
 
 #[cfg(test)]

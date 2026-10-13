@@ -66,6 +66,43 @@ fn vague_issue_mentions_and_similar_numbers_are_not_fix_evidence() {
 }
 
 #[test]
+fn code_comments_quotations_and_examples_never_declare_a_fix() {
+    for notes in [
+        "New release tooling example:\n```text\nFixes #42\n```\n",
+        "~~~text\nFixes #42\n~~~",
+        "~~~\nFixes #42",
+        "    Fixes #42",
+        "\tFixes #42",
+        "<!--\nFixes #42\n-->",
+        "<!--\nFixes #42",
+        "> Fixes #42",
+        "<pre>\nFixes #42\n</pre>",
+        "<code>\nFixes #42\n</code>",
+        "Example closing statement:\n\nFixes #42",
+        "## Release template\nFixes #42",
+        "## Changes\n- Fixes #42\n\n```text\nother code\n```",
+    ] {
+        let result = report(notes);
+        assert_eq!(result.fix.status, "unknown", "{notes}");
+        assert_eq!(
+            result.fix.reason,
+            "release_note_context_requires_manual_review"
+        );
+    }
+}
+
+#[test]
+fn unambiguous_standalone_prose_and_bullets_are_supported() {
+    for notes in [
+        "Fixes #42",
+        "## Changes\n\n* Fixes #42.",
+        "+ Resolves https://github.com/dcc-mcp/dcc-mcp-core/issues/42",
+    ] {
+        assert_eq!(report(notes).fix.status, "release_declares_fix", "{notes}");
+    }
+}
+
+#[test]
 fn missing_notes_and_foreign_release_are_unknown() {
     let mut observed = release("Fixes #42");
     observed.notes = None;
