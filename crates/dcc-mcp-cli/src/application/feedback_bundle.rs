@@ -521,13 +521,16 @@ mod tests {
         assert_eq!(validated["next_steps"][0]["confirmation"], "operator");
         let projected =
             crate::domain::feedback_bundle::project_public_install_execution_report(&validated);
-        assert_eq!(projected["steps"][0]["duration_ms"], 12);
+        assert_eq!(projected["steps"], json!([{"status": "failed"}]));
         let projected_text = serde_json::to_string(&projected).unwrap();
         for omitted in [
+            "duration_ms",
             "encoding",
             "confirmation",
             "adapter_diagnostic",
             "unreviewed-adapter-value",
+            "private/install.md",
+            "private registration content",
         ] {
             assert!(!projected_text.contains(omitted), "projected {omitted}");
         }
