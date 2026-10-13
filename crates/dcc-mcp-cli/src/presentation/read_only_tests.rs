@@ -1,7 +1,7 @@
 use super::*;
 
-fn parse(arguments: &[&str]) -> Result<Option<(InspectArgs, OutputFormat)>, clap::Error> {
-    inspection_args(arguments.iter().map(OsString::from))
+fn parse(arguments: &[&str]) -> Result<Option<(ReadOnlyCommand, OutputFormat)>, clap::Error> {
+    read_only_args(arguments.iter().map(OsString::from))
 }
 
 #[test]
@@ -29,6 +29,9 @@ fn canonical_parser_accepts_global_options_before_and_after_inspection() {
         ],
     ] {
         let (args, output) = parse(&arguments).unwrap().unwrap();
+        let ReadOnlyCommand::Update(args) = args else {
+            panic!("expected update inspection");
+        };
         assert!(args.offline);
         assert_eq!(args.channel, "stable");
         assert_eq!(output, OutputFormat::Json);
@@ -74,4 +77,60 @@ fn only_valid_other_commands_return_legacy_fallback() {
     );
     assert!(parse(&["dcc-mcp-cli", "health"]).unwrap().is_none());
     assert!(parse(&["dcc-mcp-cli", "health", "--invalid"]).is_err());
+}
+
+#[test]
+fn feedback_previews_use_read_only_gate_and_canonical_global_options() {
+    for arguments in [
+        vec![
+            "dcc-mcp-cli",
+            "--require-gateway",
+            "feedback",
+            "bundle",
+            "finding.json",
+            "--json",
+        ],
+        vec![
+            "dcc-mcp-cli",
+            "feedback",
+            "bundle",
+            "finding.json",
+            "--output",
+            "json",
+        ],
+    ] {
+        let (command, output) = parse(&arguments).unwrap().unwrap();
+        assert!(matches!(command, ReadOnlyCommand::Bundle(_)));
+        assert_eq!(output, OutputFormat::Json);
+    }
+    let (command, output) = parse(&["dcc-mcp-cli", "feedback", "file", "finding.json", "--json"])
+        .unwrap()
+        .unwrap();
+    assert!(matches!(command, ReadOnlyCommand::FeedbackPlan(_)));
+    assert_eq!(output, OutputFormat::Json);
+    for arguments in [
+        vec![
+            "dcc-mcp-cli",
+            "feedback",
+            "file",
+            "finding.json",
+            "--yes",
+            "--create",
+        ],
+        vec![
+            "dcc-mcp-cli",
+            "feedback",
+            "bundle",
+            "finding.json",
+            "--unknown",
+        ],
+    ] {
+        assert_eq!(parse(&arguments).unwrap_err().exit_code(), 2);
+    }
+    assert_eq!(
+        parse(&["dcc-mcp-cli", "feedback", "bundle", "--help"])
+            .unwrap_err()
+            .exit_code(),
+        0
+    );
 }

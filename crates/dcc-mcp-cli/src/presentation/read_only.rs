@@ -8,24 +8,58 @@ use std::ffi::OsString;
 use clap::{CommandFactory, FromArgMatches};
 
 use super::cli::Args;
-use super::output::{ExitCode, OutputFormat, OutputWriter};
+use super::feedback_cmd::{FeedbackBundleArgs, FeedbackFileArgs};
+use super::output::{ErrorEnvelope, ExitCode, OutputFormat, OutputWriter};
 use super::update_cmd::{InspectArgs, run_inspection};
 
-fn inspection_args(
+#[derive(Debug)]
+enum ReadOnlyCommand {
+    Update(InspectArgs),
+    Bundle(FeedbackBundleArgs),
+    FeedbackPlan(FeedbackFileArgs),
+}
+
+fn read_only_args(
     arguments: impl IntoIterator<Item = OsString>,
-) -> Result<Option<(InspectArgs, OutputFormat)>, clap::Error> {
+) -> Result<Option<(ReadOnlyCommand, OutputFormat)>, clap::Error> {
     let matches = Args::command().try_get_matches_from(arguments)?;
-    let Some(("update", update)) = matches.subcommand() else {
-        return Ok(None);
-    };
-    let Some(("inspect", inspect)) = update.subcommand() else {
-        return Ok(None);
-    };
-    let output = matches
+    let mut output = matches
         .get_one::<OutputFormat>("output")
         .copied()
         .unwrap_or_else(OutputFormat::auto_detect);
-    Ok(Some((InspectArgs::from_arg_matches(inspect)?, output)))
+    let command = match matches.subcommand() {
+        Some(("update", update)) => match update.subcommand() {
+            Some(("inspect", inspect)) => {
+                ReadOnlyCommand::Update(InspectArgs::from_arg_matches(inspect)?)
+            }
+            _ => return Ok(None),
+        },
+        Some(("feedback", feedback)) => match feedback.subcommand() {
+            Some(("bundle", bundle)) => {
+                let args = FeedbackBundleArgs::from_arg_matches(bundle)?;
+                if args.json {
+                    output = OutputFormat::Json;
+                }
+                ReadOnlyCommand::Bundle(args)
+            }
+            Some(("file", file)) => {
+                let args = FeedbackFileArgs::from_arg_matches(file)?;
+                args.validate().map_err(|message| {
+                    Args::command().error(clap::error::ErrorKind::ValueValidation, message)
+                })?;
+                if args.yes {
+                    return Ok(None);
+                }
+                if args.json {
+                    output = OutputFormat::Json;
+                }
+                ReadOnlyCommand::FeedbackPlan(args)
+            }
+            _ => return Ok(None),
+        },
+        _ => return Ok(None),
+    };
+    Ok(Some((command, output)))
 }
 
 /// Return `None` only for a valid command using the existing execution path.
@@ -33,7 +67,7 @@ fn inspection_args(
 /// Call this before `cli::run`; calling the latter directly retains its existing
 /// startup update behavior and is not a read-only inspection entrypoint.
 pub async fn run() -> anyhow::Result<Option<ExitCode>> {
-    let parsed = match inspection_args(std::env::args_os()) {
+    let parsed = match read_only_args(std::env::args_os()) {
         Ok(parsed) => parsed,
         Err(error) => {
             let code = if error.exit_code() == 0 {
@@ -45,12 +79,55 @@ pub async fn run() -> anyhow::Result<Option<ExitCode>> {
             return Ok(Some(code));
         }
     };
-    let Some((args, output)) = parsed else {
+    let Some((command, output)) = parsed else {
         return Ok(None);
     };
-    let result = run_inspection(args).await?;
-    OutputWriter::new(output).write_data(&result.value)?;
-    Ok(Some(result.exit_code))
+    let writer = OutputWriter::new(output);
+    let result = match command {
+        ReadOnlyCommand::Update(args) => {
+            let result = run_inspection(args).await?;
+            writer.write_data(&result.value)?;
+            return Ok(Some(result.exit_code));
+        }
+        ReadOnlyCommand::Bundle(args) => {
+            use crate::application::feedback_bundle::{
+                FeedbackBundleRequest, FeedbackBundleService,
+            };
+            FeedbackBundleService
+                .bundle(FeedbackBundleRequest {
+                    finding_path: args.finding,
+                    install_report_path: args.install_report,
+                    log_dir: args.log_dir,
+                    dcc_pid: args.dcc_pid,
+                    host_error_lines: usize::from(args.host_error_lines),
+                })
+                .await
+                .map_err(|_| "DIAGNOSTIC_PREVIEW_FAILED")
+                .and_then(|bundle| {
+                    serde_json::to_value(bundle).map_err(|_| "DIAGNOSTIC_PREVIEW_FAILED")
+                })
+        }
+        ReadOnlyCommand::FeedbackPlan(args) => {
+            use crate::application::feedback_file::FeedbackFileService;
+            use crate::infra::github_issues::GhFeedbackIssueTracker;
+            FeedbackFileService::new(&GhFeedbackIssueTracker::default())
+                .file(args.into_request())
+                .map_err(|_| "FEEDBACK_PREVIEW_FAILED")
+                .and_then(|plan| serde_json::to_value(plan).map_err(|_| "FEEDBACK_PREVIEW_FAILED"))
+        }
+    };
+    match result {
+        Ok(value) => {
+            writer.write_data(&value)?;
+            Ok(Some(ExitCode::Success))
+        }
+        Err(code) => {
+            writer.write_error(&ErrorEnvelope::new(code,
+                "Preview failed. Check the explicitly selected files and, for duplicate lookup, official issue-tracker access. No issue was submitted.",
+                ExitCode::Unavailable))?;
+            Ok(Some(ExitCode::Unavailable))
+        }
+    }
 }
 
 #[cfg(test)]

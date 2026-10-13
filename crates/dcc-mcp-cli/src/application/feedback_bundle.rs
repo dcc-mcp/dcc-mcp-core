@@ -6,8 +6,6 @@ use dcc_mcp_models::FindingV1;
 use serde_json::Value;
 use thiserror::Error;
 
-use crate::application::control_plane::DccControlPlane;
-use crate::application::doctor::{DoctorRequest, run_doctor};
 use crate::application::feedback::{FeedbackRouteServiceError, read_finding};
 use crate::domain::feedback_bundle::{
     FeedbackBundle, FeedbackBundleError, FeedbackBundleInput, HostErrorTail, MAX_HOST_ERROR_BYTES,
@@ -26,7 +24,6 @@ const INSTALL_SOP_V2_SCHEMA_JSON: &str = include_str!(concat!(
 pub struct FeedbackBundleRequest {
     pub finding_path: std::path::PathBuf,
     pub install_report_path: Option<std::path::PathBuf>,
-    pub doctor_request: DoctorRequest,
     pub log_dir: Option<std::path::PathBuf>,
     pub dcc_pid: Option<u32>,
     pub host_error_lines: usize,
@@ -39,7 +36,6 @@ impl FeedbackBundleService {
     pub async fn bundle(
         &self,
         request: FeedbackBundleRequest,
-        control: &DccControlPlane,
     ) -> Result<FeedbackBundle, FeedbackBundleServiceError> {
         let finding = read_finding(&request.finding_path)?;
         validate_public_finding(&finding)?;
@@ -48,30 +44,25 @@ impl FeedbackBundleService {
             .as_deref()
             .map(|path| read_install_execution_report(path, &finding))
             .transpose()?;
-        let doctor = run_doctor(request.doctor_request)
-            .await
-            .map_err(|error| FeedbackBundleServiceError::Doctor(error.to_string()))?;
-        let issue_report = if let Some(request_id) = finding.evidence.request_id.as_deref() {
-            control.issue_report(request_id).await.ok()
-        } else {
-            None
-        };
-        let host_errors = match resolve_dcc_pid(&finding, request.dcc_pid) {
-            Some(dcc_pid) => match resolve_log_dir(request.log_dir) {
-                Some(log_dir) => read_host_error_tail(
+        // Default collection reads only explicitly supplied files. Doctor can
+        // probe interpreters and evict registry entries; implicit host logs and
+        // gateway reports are outside this minimal preview's collection scope.
+        let host_errors = match request.log_dir {
+            Some(log_dir) => match resolve_dcc_pid(&finding, request.dcc_pid) {
+                Some(dcc_pid) => read_host_error_tail(
                     &log_dir,
                     &finding.dcc_type,
                     dcc_pid,
                     request.host_error_lines,
                 ),
-                None => HostErrorTail::not_available("host_error_log_directory_not_available"),
+                None => HostErrorTail::not_available("dcc_pid_not_available"),
             },
-            None => HostErrorTail::not_available("dcc_pid_not_available"),
+            None => HostErrorTail::not_available("host_errors_not_collected_by_default"),
         };
         assemble_public_bundle(FeedbackBundleInput {
             finding,
-            doctor,
-            issue_report,
+            doctor: Value::Null,
+            issue_report: None,
             host_errors,
             install_execution_report,
         })
@@ -83,8 +74,6 @@ impl FeedbackBundleService {
 pub enum FeedbackBundleServiceError {
     #[error(transparent)]
     Finding(#[from] FeedbackRouteServiceError),
-    #[error("doctor snapshot failed: {0}")]
-    Doctor(String),
     #[error(transparent)]
     Bundle(#[from] FeedbackBundleError),
     #[error("install execution report could not be read")]
@@ -176,12 +165,6 @@ fn read_install_execution_report(
         return Err(FeedbackBundleServiceError::InstallReportMismatch);
     }
     Ok(raw_report)
-}
-
-fn resolve_log_dir(explicit: Option<std::path::PathBuf>) -> Option<std::path::PathBuf> {
-    explicit
-        .or_else(|| std::env::var_os("DCC_MCP_LOG_DIR").map(std::path::PathBuf::from))
-        .or_else(|| dirs::data_local_dir().map(|base| base.join("dcc-mcp").join("log")))
 }
 
 #[must_use]
@@ -448,7 +431,7 @@ mod tests {
         let value = serde_json::to_value(tail.into_component()).unwrap();
 
         assert_eq!(value["status"], "unavailable");
-        assert_eq!(value["reason"], "host_error_log_not_found");
+        assert_eq!(value["reason"], "host_error_tail_not_available");
         assert!(value.get("data").is_none());
     }
 
