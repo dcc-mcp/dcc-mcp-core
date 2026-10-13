@@ -77,7 +77,7 @@ on:
 # Read-only on purpose. Every write in this workflow goes through the
 # repository automation token (`secrets.PERSONAL_ACCESS_TOKEN`): the branch
 # push uses a credential-store file after `-c credential.helper=` clears the
-# inherited helper, and `gh pr` / `gh issue` run with `GH_TOKEN` set to the
+# inherited helper, and `gh pr` / `gh api` / `gh issue` use `GH_TOKEN` set to the
 # same token. The workflow token never writes anything, so it keeps read-only
 # scope.
 permissions:
@@ -308,7 +308,12 @@ jobs:
             gh pr create --base main --head "$REFRESH_BRANCH" --title "$refresh_title" --body-file "$body_file"
           else
             echo "Refresh PR #$existing is already open; the push above updated it."
-            gh pr edit "$existing" --title "$refresh_title" --body-file "$body_file"
+            # Match the pointer refresh REST strategy: gh pr edit's GraphQL
+            # lookup requires unrelated read:org scope. Raw fields preserve
+            # literal text (including leading @) without file/type coercion.
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/pulls/$existing" \
+              -f "title=$refresh_title" \
+              -f "body=$(cat "$body_file")" >/dev/null
           fi
 
           # The pull request stops here on purpose. `main` carries no required
@@ -443,8 +448,10 @@ jobs:
           - Run: $RUN_URL
           - Resolver: uv $UV_VERSION
 
-          The failing operation was stopped by the guard. A main refresh PR may
-          already have been opened before a later release-branch failure. Check the run log
-          for the failing step: an out-of-scope re-resolution, a dropped \`cp37\`
-          wheel, a narrowed \`requires-python\`, or a pin that moved backwards.
+          A main refresh PR may already have been opened or updated before a
+          later failure, and the release-branch refresh may have been skipped.
+          Check the run log for the failing step: dependency resolution, a lock
+          guard (scope, \`cp37\` wheels, \`requires-python\`, or backwards pins),
+          branch push, or PR metadata. A failed run does not by itself mean a
+          guard rejected the lock.
           BODY
