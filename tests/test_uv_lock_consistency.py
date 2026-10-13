@@ -644,9 +644,6 @@ def test_generation_uses_ephemeral_credential_roots(tmp_path: Path, monkeypatch:
 
 def test_trusted_validator_ref_attests_self_contained_job_object() -> None:
     source = _trusted_validator_source()
-    # This existing test also runs in the focused native Windows Python 3.7 lane.
-    assert_landed_validator_pin(REPO_ROOT, _trusted_validator_ref())
-
     assert "class WindowsJob:" in source
     assert "WINDOWS_CREATE_SUSPENDED" in source
     assert "ResumeThread" in source
@@ -664,6 +661,42 @@ def test_trusted_validator_ref_attests_self_contained_job_object() -> None:
         timeout=30,
     )
     assert result.returncode == 0, result.stdout
+
+
+def test_trusted_validator_ref_attests_self_contained_job_object_ancestry() -> None:
+    """Keep ancestry skips separate from source and executable attestation."""
+    # Preserve the shared name prefix selected by the native Windows Python 3.7 lane.
+    assert_landed_validator_pin(REPO_ROOT, _trusted_validator_ref())
+
+
+@pytest.mark.parametrize("valid_source", [True, False], ids=["valid-source", "invalid-source"])
+def test_trusted_validator_ref_attests_self_contained_job_object_in_shallow_checkout(
+    monkeypatch: pytest.MonkeyPatch, valid_source: bool
+) -> None:
+    """Available source must still be attested when ancestry cannot be proven."""
+    source = "class WindowsJob:\n    pass\n# WINDOWS_CREATE_SUSPENDED ResumeThread\n" if valid_source else "# invalid\n"
+    executed = []
+
+    def run(command, **kwargs):
+        if command[:2] == ["git", "show"]:
+            return subprocess.CompletedProcess(command, 0, source, "")
+        if command[-2:] == ["rev-parse", "--is-shallow-repository"]:
+            return subprocess.CompletedProcess(command, 0, "true\n", "")
+        assert command == [sys.executable, "-I", "-", "--help"]
+        assert kwargs["input"] == source
+        executed.append(command)
+        return subprocess.CompletedProcess(command, 0, "usage: validator\n", "")
+
+    monkeypatch.setattr(subprocess, "run", run)
+    try:
+        if valid_source:
+            test_trusted_validator_ref_attests_self_contained_job_object()
+        else:
+            with pytest.raises(AssertionError):
+                test_trusted_validator_ref_attests_self_contained_job_object()
+    except pytest.skip.Exception:
+        pytest.fail("shallow ancestry must not skip available source attestation")
+    assert len(executed) == int(valid_source)
 
 
 def test_native_python37_windows_executes_pinned_validator_contract() -> None:
