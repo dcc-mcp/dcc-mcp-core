@@ -6,6 +6,98 @@
 
 ---
 
+## Production reuse gate
+
+**Contract:** `dcc-mcp-production-reuse/v1`
+
+Roll out this Core contract before companion Skill/host/showcase references.
+Verify that Core main contains this section and contract before distributing
+those references. A readable resource URI from an old installed gateway does
+not establish the v1 contract: check its returned contract identifier and this
+substantive section, or read the verified canonical Core source. If neither
+has v1, report the rollout dependency; planning/read-only discovery may continue
+but dependent production must wait. Do not silently waive the gate or upgrade
+a runtime without authorization. In-process dispatch tests do not establish
+installed-build or wire-session acceptance; verify those separately for a
+deployed gateway version.
+
+Direct `dcc-mcp-cli` production follows the same gate through the verified Core
+source or public Skill entrypoint. It currently has no `resources`/`prompts`
+subcommands: `--transport mcp call` sends `tools/call`, without reading this
+guide or consuming initialize instructions. `smoke` retains initialize output
+in diagnostic JSON; that is not gate execution. `dcc-mcp-cli gateway` runs the
+gateway whose `/mcp` endpoint supports `resources/list`, `resources/read`,
+`prompts/list` and `prompts/get` (including arguments). An MCP client can read
+this guide there; `resources/templates/list` is not currently implemented.
+Do not claim direct CLI protocol-feature parity or automatic enforcement.
+
+Before creating or materially revising content in any DCC (including Unreal,
+Maya and Blender), agents MUST perform a short, bounded reuse investigation.
+Aim for about one minute for initial discovery; this is a discovery budget,
+not a timer to wait out or a deadline for necessary verification. Search the
+existing skills/providers, DCC-MCP marketplace, the target application's
+official plugin/asset marketplace, and trusted upstream internet resources
+for the actual task. Record unavailable sources and avoid unbounded research.
+Marketplace discovery needs no live DCC; host calls still require a ready,
+task-owned instance and the usual authorization boundaries.
+
+Record the search queries, sources, dates and candidate identities/versions in
+the task's existing recipe or evidence report. For each plausible candidate,
+evaluate functional and visual fit, quality and maintenance, cost (prefer
+quality free options), target host/version compatibility, and callable public
+API/operator coverage. Separately verify software license obligations and the
+rights to use, export and share generated output and bundled/source assets,
+including attribution and redistribution restrictions. Free price or an
+open-source code license does not establish asset/output sharing rights.
+Unknown rights or compatibility are unresolved, not passes.
+
+Prefer a suitable, compatible, license-cleared existing plugin/asset and its
+mature interface. Search results, an installed package, or a historical render
+do not establish usability: obtain the exact source version, verify package
+identity/checksum, then validate the selected capability through a real MCP
+call and inspect the host result. Record parameters, seed where applicable,
+tool/schema and host versions, returned values and artifact measurements.
+Install/enable only within the authorized task; do not acquire paid content,
+change accounts/permissions, or launch paused hosts merely to satisfy this gate.
+
+If no suitable option exists, record candidate rejection reasons or discovery
+failures and the remaining capability gap before using a native solution or
+minimal implementation. Bridge only missing parameters/data between mature
+interfaces; do not build a second marketplace, installer or plugin system.
+Only a high-frequency, repeated gap with a stable, accepted script justifies
+later promotion into a complementary plugin/API/skill through the existing
+skill improvement workflow. This gate does not require creating one now.
+
+### Blender provider to host example
+
+Reuse `dcc-asset-blender-extensions`'s `blender-extension-store` skill:
+`search_blender_extensions` → `inspect_blender_extension` →
+`download_blender_extension`. Pass its checksum-verified `package` unchanged
+to the bundled `blender-extensions` skill's `plan_extension_install`, then
+`install_extension(enable=true)` when installation is authorized and the plan
+is compatible. Discover current slugs/schemas; do not invent or replay old
+ones. Provider discovery/download and host installation are separate evidence.
+The existing skills are version 0.1.0; record the versions actually loaded.
+
+For a tree demonstration, first check whether the chosen free tree package's
+exact version is obtainable now; do not assume an old Sapling archive remains
+available. Use the existing Sapling parameter bridge only after discovering
+and validating its current interface, with fixed seed and recorded parameters.
+Save and reopen the native scene, then rebuild from the recipe in a blank
+scene and compare geometry/counts, bounds, materials and a controlled render
+with predefined tolerances. Reopening a populated scene is not rebuilding.
+This is a next-run acceptance plan, not a completed experiment, and does not
+assert equivalent provider/host support for any other DCC.
+
+Keep historical evidence separate from newly dated acceptance runs. Never
+retroactively label old calls as provider search/download evidence. Missing
+steps stay unverified; a new run proves only that new run. Showcase entries
+also follow the [showcase evidence contract](https://github.com/dcc-mcp/showcase/blob/main/docs/showcase/CONTRACT.md).
+Canal v11 still lacks provider search/download history and a complete rebuild
+from scratch and remains under quality review, without automatic publication.
+Internal Unreal scenes must not be shared publicly. This guidance neither
+resumes paused Unreal work nor changes publication authorization.
+
 ## Use MCP the way the gateway expects
 
 1. **`tools/list`** — Small, stable set: exactly **`search`**, **`describe`**, **`load_skill`**, and **`call`**. Treat it as an **index of gateway verbs**, not the full catalog of every backend action.

@@ -54,7 +54,7 @@ vx just test
 
 - **Formatter**: `ruff format` (line length: 120)
 - **Linter**: `ruff check` (includes import sorting via `I` rules)
-- **Target**: Python 3.7-3.14 (native cp37 wheels on Linux/Windows, full 3.7 suite on Linux, maintained-version matrix for 3.8+)
+- **Target**: Python 3.7-3.14 (native cp37 wheels on Linux/Windows/macOS x86_64, full 3.7 suite on Linux, maintained-version matrix for 3.8+)
 - **Quotes**: Double quotes (`"`)
 - **Docstrings**: Google-style
 
@@ -167,3 +167,8 @@ This project uses [Release Please](https://github.com/googleapis/release-please)
 ## Questions?
 
 Open an [issue](https://github.com/dcc-mcp/dcc-mcp-core/issues) or start a [discussion](https://github.com/dcc-mcp/dcc-mcp-core/discussions).
+
+## Release version metadata
+
+See the [Core release version contract](docs/guide/core-release-version-contract.md)
+for synchronized projections, independent versions, and fail-closed validation.

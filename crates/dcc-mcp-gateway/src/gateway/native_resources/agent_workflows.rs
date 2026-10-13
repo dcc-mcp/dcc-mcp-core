@@ -32,6 +32,7 @@ pub async fn build_payload() -> Result<Value, String> {
     Ok(json!({
         "uri":     ROOT_URI,
         "format":  "markdown",
+        "production_reuse_contract": "dcc-mcp-production-reuse/v1",
         "document": include_str!("agent_workflows.md"),
     }))
 }

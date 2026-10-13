@@ -1,7 +1,7 @@
 name: 'Repair generated lock metadata'
 description: >-
   Regenerate Cargo.lock, uv.lock and crates/workspace-hack/Cargo.toml in a
-  checkout of the default branch and open a chore(lock) pull request when the
+  checkout of the default branch, sync Core release projections, and open a chore(lock) pull request when the
   committed copies are stale. Shared by the post-merge repair workflow and by
   the release-please lock sync job after it loses the merge race.
 
@@ -25,7 +25,7 @@ description: >-
 # * Idempotent -- an already-consistent checkout produces no diff, no commit
 #   and no pull request.
 # * Scoped -- `generated_lock_sync.py verify-diff` fails the run when
-#   generation touches anything outside the three lock outputs, so a surprising
+#   generation touches anything outside the fixed lock/projection outputs, so a surprising
 #   re-resolution is reported, never merged.
 # * Non-releasing -- the commit type is `chore(lock)`, which release-please
 #   hides from the changelog and never turns into a version bump, so the
@@ -91,20 +91,24 @@ runs:
       working-directory: ${{ inputs.workdir }}
       run: |
         set -euo pipefail
+        python -I scripts/ci/core_version_contract.py sync
         python -I scripts/ci/generated_lock_sync.py generate
-        if git diff --quiet -- Cargo.lock uv.lock crates/workspace-hack/Cargo.toml; then
+        if git diff --quiet -- Cargo.lock uv.lock crates/workspace-hack/Cargo.toml .agents/skills/dcc-mcp-core/SKILL.md Cargo.toml admin-ui/package-lock.json admin-ui/package.json benchmarks/skills/seeds.json docs/.vitepress/config.mts docs/guide/what-is-dcc-mcp-core.md docs/zh/guide/what-is-dcc-mcp-core.md llms.txt pkg/dcc-mcp-cli-bin/pyproject.toml pkg/dcc-mcp-cli-bin/python/dcc_mcp_cli/__init__.py pkg/dcc-mcp-core-semantic/pyproject.toml pkg/dcc-mcp-server-bin/pyproject.toml pkg/dcc-mcp-server-bin/python/dcc_mcp_server/__init__.py pyproject.toml python/dcc_mcp_core/_core.pyi server.json skills/marketplace-create-extension/SKILL.md skills/marketplace-publish-extension/SKILL.md; then
           echo "changed=false" >> "$GITHUB_OUTPUT"
           echo "The committed lock outputs already match a fresh generation."
         else
           echo "changed=true" >> "$GITHUB_OUTPUT"
-          git diff --stat -- Cargo.lock uv.lock crates/workspace-hack/Cargo.toml
+          git diff --stat
         fi
 
     - name: Fail closed on an unexpected generated diff
       if: steps.generate.outputs.changed == 'true'
       shell: bash
       working-directory: ${{ inputs.workdir }}
-      run: python -I scripts/ci/generated_lock_sync.py verify-diff
+      run: |
+        set -euo pipefail
+        python -I scripts/ci/generated_lock_sync.py verify-diff
+        python -I scripts/ci/core_version_contract.py verify-diff
 
     - name: Verify the regenerated workspace-hack output
       if: steps.generate.outputs.changed == 'true'
@@ -136,8 +140,14 @@ runs:
         git config user.name "loonghao"
         git config user.email "hal.long@outlook.com"
         git switch -C "$REPAIR_BRANCH" HEAD
+        original_head="$(git rev-parse HEAD)"
         git add Cargo.lock uv.lock crates/workspace-hack/Cargo.toml
+        # Projections already exist in the index, including the tracked Skill
+        # under ignored .agents/. Update only these exact paths; never force-add
+        # an ignored directory or admit untracked projection files.
+        git add --update -- .agents/skills/dcc-mcp-core/SKILL.md Cargo.toml admin-ui/package-lock.json admin-ui/package.json benchmarks/skills/seeds.json docs/.vitepress/config.mts docs/guide/what-is-dcc-mcp-core.md docs/zh/guide/what-is-dcc-mcp-core.md llms.txt pkg/dcc-mcp-cli-bin/pyproject.toml pkg/dcc-mcp-cli-bin/python/dcc_mcp_cli/__init__.py pkg/dcc-mcp-core-semantic/pyproject.toml pkg/dcc-mcp-server-bin/pyproject.toml pkg/dcc-mcp-server-bin/python/dcc_mcp_server/__init__.py pyproject.toml python/dcc_mcp_core/_core.pyi server.json skills/marketplace-create-extension/SKILL.md skills/marketplace-publish-extension/SKILL.md
         git commit --no-verify -m "$REPAIR_TITLE"
+        python -I scripts/ci/core_version_contract.py verify-commit --expected-parent "$original_head"
 
         # The branch is rebuilt from the default branch on every run, so the
         # push is a force push; the lease still protects against a concurrent
@@ -165,7 +175,8 @@ runs:
         opens the result for review, because the committed copies no longer match
         what `cargo update -w`, `cargo hakari generate` and `vx uv lock` produce.
 
-        - Changed: `Cargo.lock`, `uv.lock`, `crates/workspace-hack/Cargo.toml`
+        - Changed: generated locks and exact Core release projections
+        - Projection guard: `core_version_contract.py` (`sync`, `verify-diff`, `verify-commit`)
         - Guards: `scripts/ci/generated_lock_sync.py` (`generate`, `verify-diff`),
           `cargo-hakari hakari verify`
         - Commit type: `chore(lock)`, which release-please hides and never bumps

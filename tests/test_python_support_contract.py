@@ -63,10 +63,10 @@ def test_pyo3_series_is_a_required_projection() -> None:
     assert 'pyo3 = { version = "0.28"' in fragments
 
 
-def test_native_python37_requires_linux_and_windows() -> None:
+def test_native_python37_requires_linux_windows_and_macos() -> None:
     contract = load_contract(_REPO_ROOT)
     contract["build"]["native_py37"]["pr_matrix"] = [contract["build"]["native_py37"]["pr_matrix"][0]]
-    with pytest.raises(ContractError, match="Linux and Windows"):
+    with pytest.raises(ContractError, match="Linux, Windows, and macOS"):
         validate_contract(contract)
 
 
@@ -76,8 +76,11 @@ def test_native_matrix_and_test_toolchain_are_generated_from_contract() -> None:
     assert [row["platform"] for row in matrix["include"]] == [
         "linux-x86_64",
         "windows-x86_64",
+        "macos-x86_64",
     ]
     assert [row["platform"] for row in matrix["include"] if row["full_suite"]] == ["linux-x86_64"]
+    macos_row = next(row for row in matrix["include"] if row["platform"] == "macos-x86_64")
+    assert macos_row["target"] == "x86_64-apple-darwin"
     assert python37_test_requirements(contract) == [
         "jsonschema==4.17.3",
         "pytest==7.4.4",
@@ -357,7 +360,7 @@ def test_backfill_jobs_must_use_workflow_owned_validation_tooling(tmp_path: Path
     )
     workflow.write_text(comment_only, encoding="utf-8")
     errors = collect_backfill_tooling_errors(tmp_path)
-    assert len([error for error in errors if "github.workflow_sha" in error]) == 6
+    assert len([error for error in errors if "github.workflow_sha" in error]) == 7
 
 
 def test_semantic_release_must_validate_every_wheel_before_upload(tmp_path: Path) -> None:

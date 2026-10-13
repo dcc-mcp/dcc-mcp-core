@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from fnmatch import fnmatch
+
 from conftest import REPO_ROOT
 from dcc_mcp_core import yaml_loads
 
@@ -12,7 +14,24 @@ BUILD_JOB_IDS = {
     "py37-lite",
     "linux-py37",
     "windows-py37",
+    "macos-py37",
     "macos",
+}
+# The macOS cp37 wheel stays a build-verification spike rather than a release
+# artefact, so it trails both `publish-release.needs` and the published artifact
+# list. It is withheld by scope, not because it is broken: the lane builds it,
+# passes the native_py37 contract, and pip-installs it into python.org 3.7.9 on
+# macOS 10.12+ (pip compares the wheel tag against the running OS version, not
+# the interpreter's MACOSX_DEPLOYMENT_TARGET). Promoting it to a release
+# artefact is a product decision, not a bug fix.
+PUBLISH_JOB_IDS = BUILD_JOB_IDS - {"macos-py37"}
+PUBLISH_ARTIFACT_NAMES = {
+    "wheels-linux-x86_64",
+    "wheels-windows-x64",
+    "wheels-py37-lite",
+    "wheels-linux-x86_64-py37",
+    "wheels-windows-x64-py37",
+    "wheels-macos-universal2",
 }
 
 
@@ -89,17 +108,26 @@ def test_release_wheels_are_uploaded_once_after_every_build() -> None:
         assert all(step.get("uses") != "softprops/action-gh-release@v3" for step in steps)
 
     publish = jobs["publish-release"]
-    assert set(publish["needs"]) == BUILD_JOB_IDS
+    assert set(publish["needs"]) == PUBLISH_JOB_IDS
     assert publish["if"] == "inputs.release-tag-name != ''"
     assert publish["permissions"] == {"actions": "read", "contents": "write"}
 
-    download = publish["steps"][0]
-    assert download["uses"] == "actions/download-artifact@v8"
-    assert download["with"] == {
-        "pattern": "wheels-*",
-        "path": "dist",
-        "merge-multiple": True,
-    }
+    # The macOS cp37 wheel is a build-verification spike, not a release
+    # artefact, so `publish-release` downloads each published wheel by name
+    # instead of globbing `wheels-*`. The spike is uploaded as
+    # `spike-wheels-macos-x86_64-py37`, deliberately outside the `wheels-*`
+    # namespace, so publication globs cannot sweep it into the distribution
+    # set even if this allowlist is ever relaxed.
+    downloads = [step for step in publish["steps"] if step.get("uses") == "actions/download-artifact@v8"]
+    assert downloads
+    downloaded_names = set()
+    for step in downloads:
+        with_ = step["with"]
+        assert "pattern" not in with_
+        assert with_["path"] == "dist"
+        assert with_["merge-multiple"] is True
+        downloaded_names.add(with_["name"])
+    assert downloaded_names == PUBLISH_ARTIFACT_NAMES
 
     validate_index = next(
         index
@@ -130,6 +158,22 @@ def test_release_wheels_are_uploaded_once_after_every_build() -> None:
     }
 
 
+def test_verification_spike_producer_stays_outside_publication_globs() -> None:
+    jobs = _jobs()
+    build = next(step for step in jobs["macos-py37"]["steps"] if step.get("uses") == "./.github/actions/build-wheel")
+    artifact_name = build["with"]["artifact-name"]
+    assert artifact_name not in PUBLISH_ARTIFACT_NAMES
+
+    release = yaml_loads((REPO_ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8"))
+    for job_id in ("publish-core-pypi", "publish-github-release-assets"):
+        download = next(
+            step
+            for step in release["jobs"][job_id]["steps"]
+            if step.get("name") == "Download dcc-mcp-core wheel artefacts"
+        )
+        assert not fnmatch(artifact_name, download["with"]["pattern"]), job_id
+
+
 def test_callable_workflow_declares_the_release_token_secret() -> None:
     """Reusable workflows do not inherit secrets, so it must be declared."""
     workflow = yaml_loads(BUILD_WHEELS_WORKFLOW.read_text(encoding="utf-8"))
@@ -157,6 +201,7 @@ def test_python37_runtime_smokes_share_version_and_ref_bound_dependency_preparat
         "py37-lite": "Test py37-lite wheel",
         "linux-py37": "Test native Python 3.7 wheel with workflow smoke",
         "windows-py37": "Test native Python 3.7 wheel with workflow smoke",
+        "macos-py37": "Test native Python 3.7 wheel with workflow smoke",
     }
 
     for job_id, smoke_step_name in smoke_steps.items():
