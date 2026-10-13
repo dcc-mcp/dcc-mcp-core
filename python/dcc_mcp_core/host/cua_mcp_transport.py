@@ -16,6 +16,7 @@ from typing import Any
 from dcc_mcp_core.cua_cli import CuaCliError
 from dcc_mcp_core.host.cua_mcp_errors import OwnedCuaMcpError
 from dcc_mcp_core.host.cua_mcp_managed_process import ManagedLauncher
+from dcc_mcp_core.host.cua_mcp_managed_process import ManagedLaunchRefusal
 from dcc_mcp_core.host.cua_mcp_managed_process import accept_managed_process
 from dcc_mcp_core.host.ui_control_options import UiControlRuntimeOptions
 
@@ -40,6 +41,7 @@ class OwnedCuaMcpTransport:
         self._index = 0
         self._responses = queue.Queue(maxsize=16)
         self.managed_process_identity = None
+        self._reader = None
         path = Path(options.binary)
         try:
             digest = hashlib.sha256()
@@ -77,9 +79,9 @@ class OwnedCuaMcpTransport:
                 )
         except (OSError, ValueError):
             raise CuaCliError("backend_unavailable", "Cannot start the selected UI Control MCP runtime.") from None
-        self._reader = threading.Thread(target=self._read, name="dcc-cua-owned-mcp-reader", daemon=True)
-        self._reader.start()
         try:
+            self._reader = threading.Thread(target=self._read, name="dcc-cua-owned-mcp-reader", daemon=True)
+            self._reader.start()
             initialized = self.rpc(
                 "initialize",
                 {
@@ -106,10 +108,20 @@ class OwnedCuaMcpTransport:
                 tools, recording=options.recording is not None, preparation=options.capture_preparation is not None
             ):
                 raise CuaCliError("protocol_mismatch", "The owned runtime lacks the public bounded-task MCP tools.")
-        except Exception:
-            with suppress(Exception):
+        except Exception as primary:
+            try:
                 self.close()
+            except Exception as cleanup_error:
+                self.retain_failed_startup(primary, cleanup_error)
             raise
+
+    def retain_failed_startup(self, primary: Exception, cleanup_error: Exception, *, owner=None) -> None:
+        """Keep transferred process/task ownership reachable until settlement."""
+        if self.managed_process_identity is not None:
+            failure = ManagedLaunchRefusal(self._process, primary, cleanup_error, self._process.returncode)
+            failure.identity = self.managed_process_identity
+            failure.owner = self if owner is None else owner
+            raise failure from primary
 
     def _read(self) -> None:
         try:
@@ -234,13 +246,17 @@ class OwnedCuaMcpTransport:
                         self._cleanup_error = "The owned UI Control runtime did not acknowledge forced process exit."
             finally:
                 try:
-                    self._reader.join(timeout=1)
+                    if self._reader is None or self._reader.ident is None:
+                        # No reader owns this stream when thread startup failed.
+                        self._process.stdout.close()
+                    else:
+                        self._reader.join(timeout=1)
                 except Exception:
                     self._cleanup_error = "The owned UI Control response reader did not finish cleanly."
                 try:
                     if self._reader_output_error:
                         self._cleanup_error = "The owned UI Control runtime output did not close cleanly."
-                    if self._reader.is_alive() or self._process.poll() != 0:
+                    if (self._reader is not None and self._reader.is_alive()) or self._process.poll() != 0:
                         self._cleanup_error = (
                             self._cleanup_error or "The owned UI Control runtime did not finish cleanly."
                         )

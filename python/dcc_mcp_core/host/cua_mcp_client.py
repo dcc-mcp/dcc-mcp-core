@@ -132,9 +132,11 @@ class PixelsMcpHostClient:
             self._target = deepcopy(opened["target"])
             self._recording.bind(opened)
             self._cleanup.output_dir = self._recording.output_dir
-        except Exception:
-            with suppress(Exception):
+        except Exception as primary:
+            try:
                 self.stop()
+            except Exception as cleanup_error:
+                self._transport.retain_failed_startup(primary, cleanup_error, owner=self)
             raise
 
     @property

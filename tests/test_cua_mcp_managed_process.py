@@ -216,3 +216,54 @@ def test_managed_worker_requires_native_platform_proof(owner, monkeypatch):
     monkeypatch.setattr(managed, "os", SimpleNamespace(name="posix"))
     with pytest.raises(OSError, match="requires Windows"):
         managed.original_independent_identity(process, process.args, config.sha256, Path(config.binary).stat())
+
+
+@pytest.mark.parametrize("phase", ["identity", "eof", "thread_create", "thread_start", "task"])
+def test_unknown_after_transfer_keeps_startup_error_and_owner(owner, monkeypatch, phase):
+    config, process = owner
+    identity = managed.OriginalProcessIdentity(process.pid, 12345, config.binary, config.sha256)
+    monkeypatch.setattr(managed, "original_independent_identity", Mock(return_value=identity))
+    process.stdin.close = lambda: None
+    process.wait = Mock(side_effect=subprocess.TimeoutExpired(process.args, 2))
+    process.terminate = Mock(side_effect=OSError("terminate unproven"))
+    process.kill = Mock(side_effect=OSError("kill unproven"))
+    if phase == "identity":
+        process.version = "foreign-runtime"
+    elif phase == "eof":
+        process.stdin.write = lambda data: process.lines.put(b"")
+    elif phase == "thread_create":
+        monkeypatch.setattr(
+            "dcc_mcp_core.host.cua_mcp_transport.threading.Thread",
+            Mock(side_effect=RuntimeError("reader construction failed")),
+        )
+    elif phase == "thread_start":
+        monkeypatch.setattr(
+            "dcc_mcp_core.host.cua_mcp_transport.threading.Thread.start",
+            Mock(side_effect=RuntimeError("reader start failed")),
+        )
+    else:
+        process.mutate_open = lambda raw: raw.update(provider="foreign-provider")
+    launch = Mock(return_value=process)
+    try:
+        with pytest.raises(managed.ManagedLaunchRefusal) as caught:
+            PixelsMcpHostClient(
+                session_id="owned",
+                dcc_type="unreal",
+                process_id=42,
+                window_handle=500,
+                allow_raw_input=False,
+                options=config,
+                managed_launcher=launch,
+            )
+        error = caught.value
+        assert error.process is process and error.identity is identity
+        assert error.owner is not None and error.cleanup_verified is False and error.exit_code is None
+        assert isinstance(error.primary, RuntimeError if phase.startswith("thread") else CuaCliError)
+        assert isinstance(error.cleanup_error, CuaCliError) and error.cleanup_error.code == "cleanup_failed"
+        launch.assert_called_once()
+        assert process.terminate.call_count == process.kill.call_count == 1
+        if phase == "task":
+            assert error.owner.task_id == "public-task"
+    finally:
+        # Release only the in-memory reader fixture; no real process was launched.
+        process.finish()

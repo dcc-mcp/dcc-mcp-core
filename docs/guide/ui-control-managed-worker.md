@@ -36,6 +36,11 @@ exception, cleanup exception, and exit code. An unproven exit remains unknown;
 the embedding must retain this exception/owner until settlement. No PID
 reacquisition, process-tree kill, replacement worker, or retry is performed.
 
+After transfer, reader startup, MCP initialization, and task startup failures
+also preserve the primary and cleanup errors. If cleanup is unproven, the
+exception retains the verified identity and the transport or task client as
+`identity` and `owner`, keeping original process/task/reader state reachable.
+
 ## Authorization and remaining product work
 
 The full pinned DCC-CUA MCP worker still owns `start_task`, the process-local
