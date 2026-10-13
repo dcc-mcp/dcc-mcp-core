@@ -19,7 +19,7 @@ impl IsolatedCli {
         } else {
             root.path().to_owned()
         };
-        let staging = data.join("dcc-mcp/update/dcc-mcp-cli");
+        let staging = data.join("update/dcc-mcp-cli");
         std::fs::create_dir_all(&staging).unwrap();
         std::fs::write(staging.join("pending.marker"), b"sentinel-marker").unwrap();
         std::fs::write(staging.join("pending.bin"), b"sentinel-binary").unwrap();
@@ -57,6 +57,34 @@ impl IsolatedCli {
         );
         assert_eq!(std::fs::read_dir(&self.staging).unwrap().count(), 2);
     }
+}
+
+#[test]
+fn isolated_staging_fixture_is_observed_by_normal_startup() {
+    let isolated = IsolatedCli::new();
+    let output = isolated
+        .command()
+        .args([
+            "--gateway",
+            "read-only-test-missing-profile",
+            "--no-auto-gateway",
+            "health",
+        ])
+        .env("DCC_MCP_UPDATE_BACKGROUND", "1")
+        .env_remove("DCC_MCP_UPDATE_JUST_APPLIED")
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(!isolated.staging.join("pending.marker").exists());
+    assert!(
+        std::fs::read_dir(&isolated.staging)
+            .unwrap()
+            .filter_map(Result::ok)
+            .any(|entry| entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with("legacy-unsigned-"))
+    );
 }
 
 #[test]
