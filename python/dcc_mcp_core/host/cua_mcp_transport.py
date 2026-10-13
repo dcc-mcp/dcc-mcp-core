@@ -15,6 +15,8 @@ from typing import Any
 
 from dcc_mcp_core.cua_cli import CuaCliError
 from dcc_mcp_core.host.cua_mcp_errors import OwnedCuaMcpError
+from dcc_mcp_core.host.cua_mcp_managed_process import ManagedLauncher
+from dcc_mcp_core.host.cua_mcp_managed_process import accept_managed_process
 from dcc_mcp_core.host.ui_control_options import UiControlRuntimeOptions
 
 _MAX_LINE_BYTES = 96 * 1024 * 1024
@@ -29,7 +31,7 @@ class OwnedCuaMcpTransport:
     reader thread only drains this child's stdout; it owns no UI or server.
     """
 
-    def __init__(self, options: UiControlRuntimeOptions) -> None:
+    def __init__(self, options: UiControlRuntimeOptions, *, managed_launcher: ManagedLauncher | None = None) -> None:
         self.options = options
         self._lock = threading.RLock()
         self._closed = False
@@ -37,10 +39,12 @@ class OwnedCuaMcpTransport:
         self._reader_output_error = False
         self._index = 0
         self._responses = queue.Queue(maxsize=16)
+        self.managed_process_identity = None
         path = Path(options.binary)
         try:
             digest = hashlib.sha256()
             with path.open("rb") as source:
+                binary_identity = os.fstat(source.fileno())
                 for block in iter(lambda: source.read(1024 * 1024), b""):
                     digest.update(block)
         except OSError:
@@ -55,15 +59,22 @@ class OwnedCuaMcpTransport:
                 child_env["DCC_CUA_CAPTURE_PREPARATION_JOURNAL_ROOT"] = options.capture_preparation.journal_root
             if options.recording is not None:
                 child_env["DCC_CUA_RECORDING_OUTPUT_ROOT"] = options.recording.output_root
-            self._process = subprocess.Popen(
-                [str(path), "mcp-server"],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-                close_fds=True,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-                env=child_env,
-            )
+            if managed_launcher is not None:
+                command = [str(path), "mcp-server"]
+                self._process = managed_launcher(command.copy(), child_env)
+                self.managed_process_identity = accept_managed_process(
+                    self._process, command, options.sha256, binary_identity
+                )
+            else:
+                self._process = subprocess.Popen(
+                    [str(path), "mcp-server"],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                    close_fds=True,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                    env=child_env,
+                )
         except (OSError, ValueError):
             raise CuaCliError("backend_unavailable", "Cannot start the selected UI Control MCP runtime.") from None
         self._reader = threading.Thread(target=self._read, name="dcc-cua-owned-mcp-reader", daemon=True)
