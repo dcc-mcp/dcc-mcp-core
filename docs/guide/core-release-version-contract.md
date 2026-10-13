@@ -58,8 +58,12 @@ Before committing, projection bytes must equal a canonical render of the
 original HEAD. After committing, the committed blobs must equal the render of
 the exact original parent. This rejects non-version changes even inside an
 allowlisted file. Existing identity, remote, exact-head and force-with-lease
-checks still guard the push. Update the trusted pin only to an already-created,
-reviewable commit containing both standalone scripts; do not use a mutable ref.
+checks still guard the push. Update the trusted pin only to an immutable commit
+already reachable from Core `main` and containing both reviewed standalone
+scripts; do not use a mutable ref or an unmerged PR's commit. Rebase merging
+rewrites PR commit IDs, so a PR-local pin can pass its own CI and then disappear
+from fresh default-branch checkouts. The native Python 3.7 attestation checks
+default-branch ancestry as well as script contents to prevent that regression.
 
 The merge-race repair action runs the same synchronization on trusted `main`,
 opens a reviewable repair PR, and never auto-merges it. Registry dispatch without
