@@ -16,7 +16,10 @@ This module holds only that plumbing. It knows nothing about pointer blocks.
 
 from __future__ import annotations
 
+import json
 import subprocess
+
+from scripts import _adapter_pointer_budget as budget
 
 # Matches the generator's own per-operation default. Every `gh` call bounded by
 # this can be overridden per call site when a shorter bound is wanted.
@@ -48,10 +51,11 @@ def _run(args: list[str], *, timeout: int = DEFAULT_TIMEOUT_SECS) -> subprocess.
     before the summary and JSON report are written, leaving the remaining
     repositories silently unchecked.
     """
+    effective_timeout = budget.command_timeout(timeout)
     try:
-        return subprocess.run(args, capture_output=True, text=True, check=False, timeout=timeout)
+        return subprocess.run(args, capture_output=True, text=True, check=False, timeout=effective_timeout)
     except subprocess.TimeoutExpired as exc:
-        raise PrError(f"{args[0]} timed out after {timeout}s: {' '.join(args[:3])}") from exc
+        raise PrError(f"{args[0]} timed out after {effective_timeout}s: {' '.join(args[:3])}") from exc
     except OSError as exc:  # pragma: no cover - gh or git missing
         raise PrError(f"could not run {args[0]}: {exc}") from exc
 
@@ -156,17 +160,280 @@ def ensure_push_target(upstream: str, *, timeout: int = DEFAULT_TIMEOUT_SECS) ->
     raise PrError(_push_access_error(upstream, state))
 
 
+# `gh pr list` has no paging flag -- its `--limit` is a hard cap, so a capped
+# single call silently returns "the first N" rather than "all", and an equivalent
+# PR past the cap would make the run open a duplicate. `gh api --paginate` walks
+# every page instead, which is what the dedup needs to be trustworthy.
+PR_LIST_PAGE_SIZE = 100
+
+
+def list_open_prs(repo: str, base: str, *, timeout: int = DEFAULT_TIMEOUT_SECS) -> list[dict]:
+    """Return every open pull request against ``repo``'s ``base`` branch.
+
+    Deliberately unfiltered by head: the caller needs to see PRs opened from a
+    fork, from the upstream repository itself, under an older branch name or by
+    a different author, because all of those are the same generated change and
+    must be recognised as such.
+
+    Fetches every page rather than one capped result. Raises ``PrError`` when
+    the lookup fails: silently returning fewer rows than exist is
+    indistinguishable from "no PR exists", and the caller would open a
+    duplicate -- which is exactly the failure this replaced.
+    """
+    import json
+
+    result = _run(
+        [
+            "gh",
+            "api",
+            "--paginate",
+            f"repos/{repo}/pulls?state=open&base={base}&per_page={PR_LIST_PAGE_SIZE}",
+            "--jq",
+            (
+                "[.[] | {number, url: .html_url, title, headRefName: .head.ref,"
+                " headRepositoryOwner: {login: .head.repo.owner.login},"
+                " headRefOid: .head.sha, author: {login: .user.login}}]"
+            ),
+        ],
+        timeout=timeout,
+    )
+    if result.returncode != 0:
+        raise PrError(f"gh api pulls failed for {repo}: {(result.stderr or result.stdout).strip()}")
+
+    # `--paginate` applies the jq expression per page and prints one JSON array
+    # per page, so the output is a stream of arrays rather than a single one.
+    # Parsing only the first line would silently keep just page one -- the exact
+    # truncation this function exists to avoid.
+    rows: list[dict] = []
+    seen: set[int] = set()
+    if not (result.stdout or "").strip():
+        raise PrError(f"gh api pulls returned an empty response for {repo}")
+    for line in (result.stdout or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            batch = json.loads(line)
+        except ValueError as exc:
+            raise PrError(f"gh api pulls returned unparsable JSON for {repo}: {exc}") from exc
+        if not isinstance(batch, list):
+            raise PrError(f"gh api pulls returned an unexpected payload for {repo}")
+        for row in batch:
+            if not isinstance(row, dict) or type(row.get("number")) is not int or row["number"] <= 0:
+                raise PrError(f"gh api pulls returned an invalid PR entry for {repo}")
+            if row["number"] not in seen:
+                seen.add(row["number"])
+                rows.append(row)
+    return rows
+
+
+def pr_files(repo: str, number: int, *, timeout: int = DEFAULT_TIMEOUT_SECS) -> list[dict]:
+    """Return every file an open PR touches as ``{path, sha}`` entries.
+
+    ``gh pr list --json files`` does not populate the blob SHA -- it reports
+    path, additions and deletions only -- so content comparison based on that
+    output would silently degrade to a title match, which cannot tell one
+    catalog state from another. The per-PR files endpoint does carry it.
+
+    The whole list is returned, not just the entry for one path, because the
+    caller needs both facts this payload answers at once: which files the PR
+    touches, and what content it leaves in each. Reducing it to a single blob
+    here made "does this PR carry only the generated file" unanswerable.
+
+    Raises ``PrError`` when the lookup fails. Returning an empty list instead
+    would be read as "this PR touches nothing", which is indistinguishable from
+    a PR that genuinely does not touch the generated file -- and the caller
+    would then open a duplicate beside a candidate it never inspected.
+    """
+    result = _run(
+        [
+            "gh",
+            "api",
+            "--paginate",
+            f"repos/{repo}/pulls/{number}/files?per_page={PR_LIST_PAGE_SIZE}",
+            "--jq",
+            "[.[] | {path: .filename, sha}]",
+        ],
+        timeout=timeout,
+    )
+    if result.returncode != 0:
+        raise PrError(f"gh api pulls/{number}/files failed for {repo}: {(result.stderr or result.stdout).strip()}")
+
+    files: list[dict] = []
+    if not (result.stdout or "").strip():
+        raise PrError(f"gh api pulls/{number}/files returned an empty response for {repo}")
+    for line in (result.stdout or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            batch = json.loads(line)
+        except ValueError as exc:
+            raise PrError(f"gh api pulls/{number}/files returned unparsable JSON for {repo}: {exc}") from exc
+        if not isinstance(batch, list):
+            raise PrError(f"gh api pulls/{number}/files returned an unexpected payload for {repo}")
+        for entry in batch:
+            if not isinstance(entry, dict) or not isinstance(entry.get("path"), str) or not entry["path"].strip():
+                raise PrError(f"gh api pulls/{number}/files returned an invalid file entry for {repo}")
+            files.append({"path": entry["path"], "sha": str(entry.get("sha") or "")})
+    return files
+
+
+def resolve_pr_blobs(rows: list[dict], repo: str, path: str, *, timeout: int = DEFAULT_TIMEOUT_SECS) -> list[dict]:
+    """Fill in each PR's real file list, preserving order.
+
+    The PR list payload reports no file list at all, so every row starts out
+    without one. The per-PR files endpoint supplies both the file list and the
+    blob, which means "does this PR touch only the generated file" and "what
+    content does it leave there" are answered by the same call.
+
+    The full list is copied onto the row rather than a single ``{path, sha}``
+    pair synthesised from one blob: the caller's "a PR carrying extra files is
+    not equivalent" guard reads this list, and a synthesised single entry made
+    every multi-file PR look like it touched only the generated file.
+
+    A row whose lookup raises is re-raised: an unresolvable candidate is not
+    evidence of irrelevance.
+    """
+    resolved = []
+    for row in rows:
+        number = row.get("number")
+        row = dict(row)
+        # Resolve whenever the row does not already carry a usable blob for
+        # `path`. A row that arrived with a file list may still lack content
+        # identity -- `gh pr list --json files` reports paths without sha -- so
+        # the list being present is not enough to skip the lookup.
+        if not _pr_file_identity(row, path) and isinstance(number, int):
+            row["files"] = pr_files(repo, number, timeout=timeout)
+        resolved.append(row)
+    return resolved
+
+
+def _pr_file_identity(row: dict, path: str) -> str:
+    """Return the blob SHA a PR leaves at ``path``, or '' when it is unknown."""
+    for entry in row.get("files") or []:
+        if not isinstance(entry, dict):
+            continue
+        if str(entry.get("path") or "").strip() == path:
+            return str(entry.get("sha") or "").strip()
+    return ""
+
+
+def _touches_only(row: dict, path: str) -> bool:
+    """Report whether the PR changes ``path`` and nothing else.
+
+    A PR that also carries handwritten work is not the generated change, even if
+    its README matches: reusing it would fold unrelated edits into this run's
+    output and hide them from the maintainers reviewing the generated PR.
+
+    A row with no ``files`` key at all is *not* reported as touching ``path``:
+    the absence of the list means the lookup failed, and claiming a match on
+    unverified content is the failure this whole module exists to prevent.
+    Callers treat ``None`` and an empty list differently, so this stays strict.
+    """
+    files = row.get("files")
+    if not isinstance(files, list):
+        return False
+    if len(files) != 1 or not isinstance(files[0], dict):
+        return False
+    return str(files[0].get("path") or "").strip() == path
+
+
+class UnresolvedCandidate(PrError):
+    """A candidate PR touches the generated file but its content is unknown.
+
+    Reusing such a PR on the strength of its title alone would be a guess: this
+    automation gives every refresh the same title, so the title cannot tell one
+    catalog state from another. The caller must fail instead of opening a PR.
+    """
+
+
+def find_equivalent_pr(
+    rows: list[dict],
+    *,
+    path: str,
+    blob_sha: str,
+    title: str,
+) -> dict:
+    """Return the open PR that already carries this generated change, or {}.
+
+    Equivalence is decided on content alone: the PR must touch only ``path`` and
+    leave ``blob_sha`` there. Everything else -- head branch name, head owner,
+    fork or same-repository, author, creation time -- is deliberately ignored,
+    because a generated PR legitimately differs in all of those across runs:
+
+    - the branch fingerprint was renamed, moving old PRs to a different head
+    - the head moved from a personal fork to the upstream repository
+    - a scheduled run, a push run and an operator dispatch each open their own
+
+    Identity-based matching (head branch + base) treated every one of those as
+    new work and opened a second PR beside an open, byte-identical first one.
+
+    ``title`` is only used to choose *between* candidates that already match on
+    content; it never makes a match on its own.
+
+    Raises ``UnresolvedCandidate`` when a PR touches ``path`` but its blob could
+    not be read. That is not "no match": the run cannot prove the candidate is
+    different, so it must stop rather than create what may be a duplicate.
+
+    A PR carrying additional files is not equivalent: it contains work this
+    automation did not generate and must not be reused.
+    """
+    wanted_title = str(title or "").strip()
+    fallback = None
+    unresolved = False
+    for row in rows:
+        files = row.get("files")
+        if files is None:
+            # No file list at all means the lookup that would have produced both
+            # the file list and the blob failed. The PR is open against this base
+            # and its contents are unknown, which is the dangerous case: it may
+            # well be the generated change. Treating it as unrelated would let
+            # the run create a PR beside it.
+            unresolved = True
+            continue
+        if not files:
+            # An empty list is a real answer: this PR touches nothing at all, so
+            # it cannot be carrying the generated file. That is a normal
+            # non-match -- an unrelated open PR must not stop the refresh.
+            continue
+        if not _touches_only(row, path):
+            continue
+        identity = _pr_file_identity(row, path)
+        if not identity:
+            # Same file, unknown content. The blob lookup failed for this PR.
+            unresolved = True
+            continue
+        if identity != blob_sha:
+            continue
+        if wanted_title and str(row.get("title") or "").strip() == wanted_title:
+            return row
+        fallback = fallback or row
+
+    if fallback:
+        return fallback
+    if unresolved:
+        raise UnresolvedCandidate(
+            f"an open PR touching {path} has unreadable content, so it cannot be "
+            f"confirmed as this generated change or as different from it; refusing "
+            f"to open a pull request that may duplicate it"
+        )
+    return {}
+
+
 def find_open_pr(repo: str, head: str, base: str, *, timeout: int = DEFAULT_TIMEOUT_SECS) -> str:
     """Return the URL of an open pull request for ``head``, or '' if there is none.
 
-    Matched on the head ref rather than on the title so a reworded title still
-    finds the existing PR and refreshes it instead of opening a second one.
+    Used after pushing to distinguish a refreshed branch from a content-only
+    duplicate. Match the head owner as well: a fork can have the same branch
+    name without receiving this run's push.
 
     ``--head`` takes the bare branch name, not the ``owner:branch`` form that a
     cross-repository PR is *created* with; passing the qualified form matches
     nothing and every rerun would try to open a duplicate.
     """
     bare = head.split(":", 1)[1] if ":" in head else head
+    owner = head.split(":", 1)[0] if ":" in head else repo.split("/", 1)[0]
     result = _run(
         [
             "gh",
@@ -181,19 +448,26 @@ def find_open_pr(repo: str, head: str, base: str, *, timeout: int = DEFAULT_TIME
             "--base",
             base,
             "--json",
-            "url",
+            "url,headRepositoryOwner",
         ],
         timeout=timeout,
     )
     if result.returncode != 0:
-        return ""
+        raise PrError(f"gh pr list failed for {repo}: {(result.stderr or result.stdout).strip()}")
     import json
 
     try:
-        rows = json.loads(result.stdout or "[]")
-    except ValueError:
-        return ""
+        rows = json.loads(result.stdout)
+    except ValueError as exc:
+        raise PrError(f"gh pr list returned unparsable JSON for {repo}: {exc}") from exc
+    if not isinstance(rows, list) or any(not isinstance(row, dict) or not row.get("url") for row in rows):
+        raise PrError(f"gh pr list returned an unexpected payload for {repo}")
     for row in rows:
+        head_owner = row.get("headRepositoryOwner")
+        if not isinstance(head_owner, dict) or not isinstance(head_owner.get("login"), str):
+            raise PrError(f"gh pr list returned an unknown head owner for {repo}")
+        if head_owner["login"].casefold() != owner.casefold():
+            continue
         url = str(row.get("url") or "").strip()
         if url:
             return url
@@ -225,11 +499,42 @@ def create_pr(repo: str, *, base: str, head: str, title: str, body: str, timeout
     return result.stdout.strip().splitlines()[-1].strip()
 
 
+def pr_number_from_url(url: str) -> int:
+    """Return the PR number embedded in a pull request URL, or 0."""
+    tail = str(url or "").strip().rstrip("/").split("/")[-1]
+    return int(tail) if tail.isdigit() else 0
+
+
 def update_pr(repo: str, url: str, *, title: str, body: str, timeout: int = DEFAULT_TIMEOUT_SECS) -> None:
-    """Refresh the title and body of an existing pull request."""
+    """Refresh the title and body of an existing pull request.
+
+    Uses the REST ``PATCH /repos/{repo}/pulls/{n}`` endpoint rather than
+    ``gh pr edit``. Both change the same two fields, but ``gh pr edit`` is a
+    GraphQL call that also reads organisation fields (``login``, ``name``,
+    ``slug``), which need the ``read:org`` scope. The workflow token does not
+    have it, so every edit failed with a scope error even though editing the
+    title and body is well within what the token is allowed to do.
+
+    Raising on failure is deliberate: the caller must not fall back to creating
+    a pull request, which is what would turn an edit failure into a duplicate.
+    """
+    number = pr_number_from_url(url)
+    if number <= 0:
+        raise PrError(f"could not read a pull request number out of {url!r}")
+
     result = _run(
-        ["gh", "pr", "edit", url, "--repo", repo, "--title", title, "--body", body],
+        [
+            "gh",
+            "api",
+            "--method",
+            "PATCH",
+            f"repos/{repo}/pulls/{number}",
+            "-f",
+            f"title={title}",
+            "-f",
+            f"body={body}",
+        ],
         timeout=timeout,
     )
     if result.returncode != 0:
-        raise PrError(f"gh pr edit failed for {url}: {(result.stderr or result.stdout).strip()}")
+        raise PrError(f"could not update PR {repo}#{number}: {(result.stderr or result.stdout).strip()}")

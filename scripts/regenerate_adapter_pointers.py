@@ -40,6 +40,7 @@ Exit codes
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -48,6 +49,7 @@ import tempfile
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
+from scripts import _adapter_pointer_budget as budget  # noqa: E402
 from scripts import _pr_helpers as pr_helpers  # noqa: E402
 from scripts import check_adapter_pointer_drift as drift  # noqa: E402
 from scripts import generate_adapter_pointer as generator  # noqa: E402
@@ -61,8 +63,30 @@ CURRENT = "current"
 REGENERATED = "regenerated"
 MISSING = "missing"
 ERROR = "error"
+# The repository already carries this exact generated change in an open PR, so
+# the run reuses that one instead of opening another.
+DUPLICATE = "duplicate"
 
 DEFAULT_TIMEOUT_SECS = 600
+
+# Commit identity for the generated commits this job pushes.
+#
+# The earlier `github-actions[bot]` / `actions@github.com` pair is the Actions
+# convenience default, not an authorised identity, and it attributes the work to
+# a platform bot the maintainers do not employ. These commits carry a change on
+# behalf of a real person, so they carry that person's identity -- the same one
+# their existing commits in this organisation already use.
+#
+# Both are explicit rather than inherited from the runner: whatever git config
+# the runner happens to have is an accident of the image, and this job must not
+# silently attribute commits to it. The values are overridable through the
+# environment so an operator can re-point them without a code change, and both
+# are validated before use -- an empty or malformed value raises instead of
+# falling back to the bot, because a wrong author is worse than a stopped run.
+COMMITTER_NAME_ENV = "DCC_MCP_POINTER_COMMIT_NAME"
+COMMITTER_EMAIL_ENV = "DCC_MCP_POINTER_COMMIT_EMAIL"
+DEFAULT_COMMITTER_NAME = "Hal"
+DEFAULT_COMMITTER_EMAIL = "13111745+loonghao@users.noreply.github.com"
 
 # The regeneration only ever rewrites the pointer block inside README.md. A
 # repository whose working tree picks up any other change has something running
@@ -80,7 +104,7 @@ def _git(args: list[str], *, timeout: int) -> subprocess.CompletedProcess:
         ["git", *args],
         capture_output=True,
         text=True,
-        timeout=timeout,
+        timeout=budget.command_timeout(timeout),
         check=False,
     )
 
@@ -101,6 +125,76 @@ def _clone(url: str, dest: Path, branch: str, *, timeout: int) -> None:
     )
     if result.returncode != 0:
         raise RegenError(f"clone failed for {url}: {(result.stderr or result.stdout).strip()}")
+
+
+def committer_name() -> str:
+    """Return the name generated commits are attributed to.
+
+    Raises when unset or blank. A missing identity is a configuration error, not
+    a reason to fall back to the platform bot: attributing someone's work to a
+    bot is worse than failing the run.
+    """
+    name = (os.environ.get(COMMITTER_NAME_ENV) or DEFAULT_COMMITTER_NAME).strip()
+    if not name:
+        raise RegenError(f"{COMMITTER_NAME_ENV} is set but empty; refusing to commit without a name")
+    return name
+
+
+def committer_email() -> str:
+    """Return the email generated commits are attributed to.
+
+    Raises when unset, blank or not a single well-formed address, for the same
+    reason as :func:`committer_name`. git will happily commit a malformed
+    address and the damage only surfaces later, in the receiving repository.
+    """
+    email = (os.environ.get(COMMITTER_EMAIL_ENV) or DEFAULT_COMMITTER_EMAIL).strip()
+    if not email or "@" not in email or email.count("@") != 1:
+        raise RegenError(f"{COMMITTER_EMAIL_ENV} must be a single email address, got {email!r}")
+    local, _, domain = email.partition("@")
+    if not local or not domain or "." not in domain:
+        raise RegenError(f"{COMMITTER_EMAIL_ENV} must be a single email address, got {email!r}")
+    return email
+
+
+def _blob_sha(repo_dir: Path, rel_path: str, *, timeout: int) -> str:
+    """Return git's blob SHA for ``rel_path`` as it now stands in ``repo_dir``.
+
+    This is the identity the dedup compares: two PRs that leave the same blob at
+    the same path produced the same generated content, regardless of which
+    branch, fork or author delivered it.
+    """
+    result = _git(["-C", str(repo_dir), "hash-object", rel_path], timeout=timeout)
+    if result.returncode != 0:
+        raise RegenError(f"could not read generated blob: {(result.stderr or result.stdout).strip()}")
+    blob = result.stdout.strip()
+    if not _is_git_sha(blob):
+        raise RegenError("could not read generated blob: git returned an invalid object id")
+    return blob
+
+
+def _is_git_sha(value: str) -> bool:
+    """Accept the hexadecimal object IDs emitted by SHA-1 or SHA-256 git repos."""
+    return len(value) in (40, 64) and all(character in "0123456789abcdef" for character in value)
+
+
+def _find_equivalent(repo_slug: str, base: str, rel_path: str, blob: str, title: str, *, timeout: int) -> dict:
+    """Return the open PR that already carries this generated change, or {}.
+
+    Two steps because one query is not enough: `gh pr list --json files` omits
+    the blob SHA, so the rows it returns cannot be compared by content until
+    each single-file PR's real blob is resolved from the per-PR files endpoint.
+    Without that second step the comparison silently degrades to a title match,
+    and every refresh this automation has ever opened shares the same title.
+
+    Raises ``UnresolvedCandidate`` when a candidate's content cannot be read.
+    That propagates on purpose: the caller must stop rather than create a PR
+    that may duplicate the one it could not inspect.
+    """
+    if not blob:
+        raise RegenError("could not read generated blob; refusing to guess whether a PR exists")
+    candidates = pr_helpers.list_open_prs(repo_slug, base, timeout=timeout)
+    candidates = pr_helpers.resolve_pr_blobs(candidates, repo_slug, rel_path, timeout=timeout)
+    return pr_helpers.find_equivalent_pr(candidates, path=rel_path, blob_sha=blob, title=title)
 
 
 def changed_files(repo_dir: Path, *, timeout: int) -> list[str]:
@@ -131,8 +225,8 @@ def render_pr_body(entry: dict, *, host_count: int, source_ref: str) -> str:
         " coverage-pointer markers changes; nothing else in the README is touched.\n\n"
         "The block is generated from `dcc-mcp-catalog.yml` in"
         " https://github.com/dcc-mcp/dcc-mcp-core and is not edited by hand. A"
-        " scheduled job keeps it in sync, so a later catalog change refreshes this"
-        " PR instead of opening another one."
+        " main-branch catalog update or an explicit regeneration dispatch refreshes"
+        " this PR instead of opening another one. The weekly schedule only reports drift."
     )
 
 
@@ -165,6 +259,7 @@ def regenerate_repository(
         return row
 
     repo_dir = workdir / drift._safe_dirname(name, entry_index)
+    write_started = False
 
     try:
         default_branch = drift._default_branch_name(url, timeout=timeout) or "main"
@@ -195,22 +290,71 @@ def regenerate_repository(
 
         repo_slug = _repo_slug(url)
         head = pr_helpers.branch_slug(branch_prefix, _fingerprint(host_count))
-        push_target, head_ref = _push_target(repo_slug, head, timeout=timeout)
 
-        _commit_and_push(repo_dir, head, push_target, timeout=timeout)
-
+        # Decide whether to write *before* writing anything.
+        #
+        # The generated content is identified by the blob it produces, not by the
+        # branch or fork carrying it. An earlier run may have opened a PR from a
+        # personal fork under a previous branch fingerprint; that PR is the same
+        # change and must be reused. Checking here -- while the tree still holds
+        # the regenerated file but no commit, branch or push exists yet -- is
+        # what makes a duplicate a true no-op: nothing is committed and nothing
+        # is pushed, so a rerun cannot leave a second branch behind.
+        rel_path = path.name
+        blob = _blob_sha(repo_dir, rel_path, timeout=timeout)
         title = PR_TITLE
         body = render_pr_body(entry, host_count=host_count, source_ref=source_ref)
+
+        equivalent = _find_equivalent(repo_slug, default_branch, rel_path, blob, title, timeout=timeout)
+
+        if equivalent:
+            row["status"] = DUPLICATE
+            row["action"] = "reused-pr"
+            row["pr"] = str(equivalent.get("url") or "").strip()
+            row["pr_number"] = equivalent.get("number")
+            row["detail"] = (
+                f"an open PR already carries this generated {rel_path} "
+                f"(blob {blob[:12]}); reused it instead of opening another"
+            )
+            return row
+
+        # Reusing identical content is read-only and must not require push
+        # permission or a fork. Resolve write access only when a write is needed.
+        push_target, head_ref = _push_target(repo_slug, head, timeout=timeout)
+        write_started = True
+        _commit_and_push(repo_dir, head, push_target, timeout=timeout)
+
+        # A push to our stable branch refreshes its existing PR, even while
+        # GitHub's files endpoint still reports the previous blob.
         existing = pr_helpers.find_open_pr(repo_slug, head_ref, default_branch, timeout=timeout)
         if existing:
             pr_helpers.update_pr(repo_slug, existing, title=title, body=body, timeout=timeout)
-            row["action"] = "updated-pr"
+            row["status"] = REGENERATED
+            row["action"] = "refreshed-pr"
             row["pr"] = existing
-        else:
-            row["pr"] = pr_helpers.create_pr(
-                repo_slug, base=default_branch, head=head_ref, title=title, body=body, timeout=timeout
+            row["detail"] = f"refreshed the pointer block ({host_count} adapters)"
+            return row
+
+        # Re-checked after the push and immediately before creating: two runs
+        # that reached this point together would otherwise both see no
+        # equivalent PR and both open one.
+        equivalent = _find_equivalent(repo_slug, default_branch, rel_path, blob, title, timeout=timeout)
+
+        if equivalent:
+            row["status"] = DUPLICATE
+            row["action"] = "reused-pr"
+            row["pr"] = str(equivalent.get("url") or "").strip()
+            row["pr_number"] = equivalent.get("number")
+            row["detail"] = (
+                f"an open PR already carries this generated {rel_path} "
+                f"(blob {blob[:12]}); reused it instead of opening another"
             )
-            row["action"] = "opened-pr"
+            return row
+
+        row["pr"] = pr_helpers.create_pr(
+            repo_slug, base=default_branch, head=head_ref, title=title, body=body, timeout=timeout
+        )
+        row["action"] = "opened-pr"
 
         row["status"] = REGENERATED
         row["detail"] = f"refreshed the pointer block ({host_count} adapters)"
@@ -222,9 +366,16 @@ def regenerate_repository(
         # processed or the report is written.
         row["status"] = ERROR
         row["detail"] = f"{type(exc).__name__}: {exc}".strip()
+        if write_started:
+            row["action"] = "incomplete"
+            row["detail"] += "; writes may have completed remotely; inspect the generated branch/PR before retrying"
         return row
     finally:
-        drift._remove_clone(repo_dir)
+        try:
+            drift._remove_clone(repo_dir)
+        except Exception as exc:
+            row["status"] = ERROR
+            row["detail"] += f"; clone cleanup failed: {type(exc).__name__}: {exc}"
 
 
 def _fingerprint(host_count: int) -> str:
@@ -234,7 +385,7 @@ def _fingerprint(host_count: int) -> str:
     ``f"{host_count}-adapters"``, which meant a catalog change moved the branch
     and opened a second pull request beside the first: every count change would
     leave a fresh batch of orphan PRs across the fleet with nothing closing
-    them. One branch per repository, force-pushed on each run, so a later
+    them. One branch per repository, updated with an explicit lease, so a later
     catalog change refreshes the same PR.
     """
     return "catalog-pointer"
@@ -264,6 +415,21 @@ def _push_target(repo_slug: str, head: str, *, timeout: int) -> tuple[str, str]:
     return target, head
 
 
+def _remote_branch_sha(repo_dir: Path, remote: str, ref: str, *, timeout: int) -> str:
+    """Read the exact ref value for a compare-and-swap push, or an absent ref."""
+    result = _git(["-C", str(repo_dir), "ls-remote", "--heads", remote, ref], timeout=timeout)
+    if result.returncode != 0:
+        raise RegenError(f"remote branch lookup failed: {(result.stderr or result.stdout).strip()}")
+    rows = result.stdout.splitlines()
+    if not rows:
+        return ""
+    if len(rows) == 1:
+        fields = rows[0].split()
+        if len(fields) == 2 and fields[1] == ref and _is_git_sha(fields[0]):
+            return fields[0]
+    raise RegenError("remote branch lookup returned an invalid or ambiguous ref; refusing to push")
+
+
 def _commit_and_push(repo_dir: Path, branch: str, push_target: str, *, timeout: int) -> None:
     """Commit the regenerated README on a new branch and push it to ``push_target``.
 
@@ -277,7 +443,17 @@ def _commit_and_push(repo_dir: Path, branch: str, push_target: str, *, timeout: 
     push is a child process and inherits whatever the workflow exported. This
     function deliberately does not assemble a credential itself: keeping the
     token on the workflow side avoids writing it to disk from Python.
+
+    Only the dedicated generated branch may be replaced. An explicit expected
+    SHA prevents overwriting a concurrent writer; an empty expected SHA permits
+    creation only while the remote branch is still absent. Neither API lookup
+    errors nor stale-lease rejection are retried with a less restrictive push.
     """
+    if branch != pr_helpers.branch_slug(BRANCH_PREFIX, _fingerprint(0)):
+        raise RegenError(f"refusing to push a non-generated branch: {branch}")
+    remote = f"https://github.com/{push_target}"
+    ref = f"refs/heads/{branch}"
+    expected_sha = _remote_branch_sha(repo_dir, remote, ref, timeout=timeout)
     steps = (
         (["-C", str(repo_dir), "checkout", "-q", "-b", branch], "checkout -b"),
         (["-C", str(repo_dir), "add", "README.md"], "add"),
@@ -286,9 +462,9 @@ def _commit_and_push(repo_dir: Path, branch: str, push_target: str, *, timeout: 
                 "-C",
                 str(repo_dir),
                 "-c",
-                "user.email=actions@github.com",
+                f"user.name={committer_name()}",
                 "-c",
-                "user.name=github-actions[bot]",
+                f"user.email={committer_email()}",
                 "commit",
                 "-q",
                 "-m",
@@ -302,9 +478,9 @@ def _commit_and_push(repo_dir: Path, branch: str, push_target: str, *, timeout: 
                 str(repo_dir),
                 "push",
                 "--quiet",
-                "--force",
-                f"https://github.com/{push_target}",
-                f"{branch}:{branch}",
+                f"--force-with-lease={ref}:{expected_sha}",
+                remote,
+                f"HEAD:{ref}",
             ],
             "push",
         ),
@@ -337,6 +513,11 @@ def _build_parser() -> argparse.ArgumentParser:
         type=int,
         default=DEFAULT_TIMEOUT_SECS,
         help=f"Per-git-operation timeout in seconds (default: {DEFAULT_TIMEOUT_SECS}).",
+    )
+    parser.add_argument(
+        "--batch-timeout",
+        type=budget.positive_seconds,
+        help="Total repository-work budget in seconds; omitted means only per-command timeouts apply.",
     )
     parser.add_argument(
         "--dry-run",
@@ -383,29 +564,50 @@ def main(argv: list[str] | None = None) -> int:
     source_ref = f"{generator.SOURCE_REPO}@{args.catalog.name}"
     managed = tempfile.TemporaryDirectory(prefix="adapter-pointer-regen-")
     results = []
+    cleanup_failed = False
     try:
         workdir = args.workdir or Path(managed.name)
         workdir.mkdir(parents=True, exist_ok=True)
-        for index, entry in enumerate(entries):
-            name = str(entry.get("name") or "").strip()
-            if only is not None and name.lower() not in only:
-                continue
-            results.append(
-                regenerate_repository(
-                    entry,
-                    index,
-                    host_count=host_count,
-                    workdir=workdir,
-                    timeout=args.timeout,
-                    branch_prefix=BRANCH_PREFIX,
-                    dry_run=args.dry_run,
-                    source_ref=source_ref,
+        with budget.batch_timeout(args.batch_timeout):
+            for index, entry in enumerate(entries):
+                name = str(entry.get("name") or "").strip()
+                if only is not None and name.lower() not in only:
+                    continue
+                try:
+                    budget.command_timeout(args.timeout)
+                except budget.BatchDeadlineExceeded:
+                    results.append(
+                        {
+                            "name": name or f"<entry {index}>",
+                            "url": str(entry.get("url") or "").strip(),
+                            "status": ERROR,
+                            "branch": "",
+                            "detail": "not regenerated: batch deadline exhausted before this repository started",
+                            "pr": "",
+                            "action": "none",
+                        }
+                    )
+                    continue
+                results.append(
+                    regenerate_repository(
+                        entry,
+                        index,
+                        host_count=host_count,
+                        workdir=workdir,
+                        timeout=args.timeout,
+                        branch_prefix=BRANCH_PREFIX,
+                        dry_run=args.dry_run,
+                        source_ref=source_ref,
+                    )
                 )
-            )
+        code = _report(results, args, host_count=host_count)
     finally:
-        managed.cleanup()
-
-    return _report(results, args, host_count=host_count)
+        try:
+            managed.cleanup()
+        except Exception as exc:
+            cleanup_failed = True
+            print(f"error: temporary directory cleanup failed: {exc}", file=sys.stderr)
+    return 1 if cleanup_failed else code
 
 
 def _report(results: list[dict], args, *, host_count: int) -> int:
@@ -414,7 +616,7 @@ def _report(results: list[dict], args, *, host_count: int) -> int:
     import os
 
     for row in results:
-        marker = "ok  " if row["status"] in (CURRENT, REGENERATED) else "FAIL"
+        marker = "ok  " if row["status"] in (CURRENT, REGENERATED, DUPLICATE) else "FAIL"
         action = f" [{row['action']}]" if row["action"] != "none" else ""
         print(f"{marker} {row['name']:<32} {row['status']:<12} {row['detail']}{action}")
 
@@ -446,9 +648,11 @@ def _report(results: list[dict], args, *, host_count: int) -> int:
 
     print()
     verb = "would regenerate" if args.dry_run else "regenerated"
+    duplicated = [r for r in results if r["status"] == DUPLICATE]
     print(
-        f"{len(results)} repositories checked against a catalog of {host_count} adapters:"
-        f" {len(regenerated)} {verb}, {len(missing)} without a README,"
+        f"{len(results)} repository results against a catalog of {host_count} adapters:"
+        f" {len(regenerated)} {verb}, {len(duplicated)} already covered by an open PR,"
+        f" {len(missing)} without a README,"
         f" {len(errored)} failed."
     )
 
@@ -488,22 +692,20 @@ def render_summary(results: list[dict], *, host_count: int, dry_run: bool) -> st
         pr = f"[PR]({row['pr']})" if row["pr"] else "—"
         lines.append(f"| `{row['name']}` | {row['status']} | {row['action']} | {pr} | {row['detail']} |")
 
+    current = [r for r in results if r["status"] == CURRENT]
+    duplicated = [r for r in results if r["status"] == DUPLICATE]
     regenerated = [r for r in results if r["status"] == REGENERATED]
     errored = [r for r in results if r["status"] == ERROR]
     missing = [r for r in results if r["status"] == MISSING]
 
     lines.append("")
+    lines.append(f"Default branches already current: **{len(current)}**.")
+    lines.append(f"Equivalent open PRs awaiting merge: **{len(duplicated)}**.")
     if regenerated:
         lines.append(f"**{len(regenerated)} of {len(results)} repositories {verb}.**")
-    else:
-        lines.append(f"All {len(results)} scanned repositories already match the catalog output.")
     if errored:
         lines.append("")
-        lines.append(
-            f"{len(errored)} repositories could not be regenerated. These need"
-            " manual attention; the guard rail refused to commit anything it did"
-            " not recognise."
-        )
+        lines.append(f"{len(errored)} repositories could not be regenerated. See the per-repository errors above.")
     if missing:
         lines.append("")
         lines.append(f"{len(missing)} repositories have no README.md to regenerate.")
