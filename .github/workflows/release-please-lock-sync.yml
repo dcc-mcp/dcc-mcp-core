@@ -52,6 +52,7 @@ jobs:
     outputs:
       target: ${{ steps.target.outputs.target }}
     env:
+      # Use a commit already reachable from main; a PR-local pin is lost on rebase merge.
       TRUSTED_VALIDATOR_REF: 0b281b4df8bd394ad4085484f31ab9c58b81ce1f
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&

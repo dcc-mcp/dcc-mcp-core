@@ -16,6 +16,7 @@ import pytest
 
 from conftest import REPO_ROOT
 from dcc_mcp_core import yaml_loads
+from test_trusted_validator_history import assert_landed_validator_pin
 
 SCRIPT_PATH = REPO_ROOT / "scripts" / "ci" / "check_uv_lock.py"
 LOCK_SYNC_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "release-please-lock-sync.yml"
@@ -643,6 +644,8 @@ def test_generation_uses_ephemeral_credential_roots(tmp_path: Path, monkeypatch:
 
 def test_trusted_validator_ref_attests_self_contained_job_object() -> None:
     source = _trusted_validator_source()
+    # This existing test also runs in the focused native Windows Python 3.7 lane.
+    assert_landed_validator_pin(REPO_ROOT, _trusted_validator_ref())
 
     assert "class WindowsJob:" in source
     assert "WINDOWS_CREATE_SUSPENDED" in source
