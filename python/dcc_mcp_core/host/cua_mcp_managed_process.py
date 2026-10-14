@@ -7,6 +7,7 @@ original Popen handle, exclusive stdio, and all exit responsibility to Core.
 
 from __future__ import annotations
 
+from asyncio import CancelledError
 import ctypes
 from dataclasses import dataclass
 import hashlib
@@ -16,6 +17,7 @@ import subprocess
 from typing import Callable
 from typing import Dict
 from typing import List
+from typing import NoReturn
 
 
 @dataclass(frozen=True)
@@ -32,7 +34,11 @@ class ManagedLaunchRefusal(RuntimeError):
     """Retain the transferred owner and both errors when cleanup is unknown."""
 
     def __init__(
-        self, process: subprocess.Popen, primary: Exception, cleanup_error: Exception | None, exit_code: int | None
+        self,
+        process: subprocess.Popen,
+        primary: BaseException,
+        cleanup_error: BaseException | None,
+        exit_code: int | None,
     ) -> None:
         super().__init__("Managed UI Control worker refused before MCP initialization.")
         self.process = process
@@ -40,6 +46,25 @@ class ManagedLaunchRefusal(RuntimeError):
         self.cleanup_error = cleanup_error
         self.exit_code = exit_code
         self.cleanup_verified = cleanup_error is None and type(exit_code) is int
+
+    def reraise(self, *, preserve_primary: bool = False) -> NoReturn:
+        """Keep cancellation observable while attaching the original owner."""
+        # CancelledError was an Exception on Python 3.7. Never convert any
+        # cancellation into an ordinary, catchable launch refusal. Preserve
+        # the default launcher's existing primary-error contract as well.
+        error = next(
+            (value for value in (self.primary, self.cleanup_error) if _is_interruption(value)),
+            self.primary if preserve_primary else self,
+        )
+        if error is self:
+            raise self from self.primary
+        error.process = self.process
+        error.managed_launch_refusal = self
+        raise error
+
+
+def _is_interruption(error: BaseException | None) -> bool:
+    return error is not None and (not isinstance(error, Exception) or isinstance(error, CancelledError))
 
 
 def _file_identity(info: os.stat_result) -> tuple[int, int, int, int]:
@@ -122,16 +147,29 @@ def accept_managed_process(
         if process.args != command or process.stdin is None or process.stdout is None:
             raise ValueError("Managed launcher changed the pinned command or exclusive stdio.")
         return original_independent_identity(process, command, sha256, binary_identity)
-    except Exception as primary:
+    except BaseException as primary:
         cleanup_error, exit_code = None, None
         try:
             if process.poll() is None:
                 process.terminate()
             exit_code = process.wait(timeout=2)
-        except Exception as error:
+        except BaseException as error:
             cleanup_error = error
-        # Keep the owner reachable even if the original handle has no terminal.
-        raise ManagedLaunchRefusal(process, primary, cleanup_error, exit_code) from primary
+        finally:
+            # A buffered stdin close can flush. If exit is unproven, retain
+            # both pipes with the original owner rather than risk blocking.
+            if type(exit_code) is int:
+                for stream in (process.stdin, process.stdout):
+                    if stream is not None:
+                        try:
+                            stream.close()
+                        except BaseException as error:
+                            if cleanup_error is None or (
+                                _is_interruption(error) and not _is_interruption(cleanup_error)
+                            ):
+                                cleanup_error = error
+        # Keep the owner reachable even if cleanup is interrupted or unproven.
+        ManagedLaunchRefusal(process, primary, cleanup_error, exit_code).reraise()
 
 
 ManagedLauncher = Callable[[List[str], Dict[str, str]], subprocess.Popen]
