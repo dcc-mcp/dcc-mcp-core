@@ -223,9 +223,7 @@ def test_py37_contract_check_keeps_macos_target_gate_off_linux_and_windows() -> 
     reusing the Apple triple check for them rejects every non-macOS cp37 lane
     before the wheel contract ever runs.
     """
-    action = yaml_loads(
-        (REPO_ROOT / ".github" / "actions" / "build-wheel" / "action.yml").read_text(encoding="utf-8")
-    )
+    action = yaml_loads((REPO_ROOT / ".github" / "actions" / "build-wheel" / "action.yml").read_text(encoding="utf-8"))
     contract = next(
         step for step in action["runs"]["steps"] if step.get("name") == "Check Python compatibility wheel contract"
     )
@@ -255,9 +253,7 @@ def test_py37_wheel_test_creates_venv_with_the_path_python() -> None:
     setup action created that alias, so pinning it breaks the Windows lane with
     "The system cannot find the file specified" while the build is fine.
     """
-    action = yaml_loads(
-        (REPO_ROOT / ".github" / "actions" / "build-wheel" / "action.yml").read_text(encoding="utf-8")
-    )
+    action = yaml_loads((REPO_ROOT / ".github" / "actions" / "build-wheel" / "action.yml").read_text(encoding="utf-8"))
     test_wheel = next(step for step in action["runs"]["steps"] if step.get("name") == "Test wheel")
     run = test_wheel["run"]
     assert "python -m venv test-env" in run
