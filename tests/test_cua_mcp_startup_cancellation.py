@@ -308,23 +308,38 @@ def test_concurrent_cancellations_only_settle_their_transferred_children(real_ch
     assert untouched.poll() is None and not untouched.stdin.closed
 
 
-def test_async_cancelled_error_keeps_task_cancelled(real_children, monkeypatch):
+@pytest.mark.parametrize("unknown", [False, True])
+def test_async_cancelled_error_keeps_task_cancelled(real_children, monkeypatch, unknown):
     process = real_children()
     primary = asyncio.CancelledError("proof cancelled")
+    retained = []
 
     async def run():
         async def start():
-            accept(process)
+            try:
+                accept(process)
+            except asyncio.CancelledError as error:
+                # Assert identity at Core's boundary: Python 3.7's Task
+                # synthesizes a fresh CancelledError when later awaited.
+                assert error is primary
+                assert error.process is process
+                retained.append(error.managed_launch_refusal)
+                raise
 
         task = asyncio.create_task(start())
-        with pytest.raises(asyncio.CancelledError) as caught:
+        with pytest.raises(asyncio.CancelledError):
             await task
-        assert task.cancelled() and caught.value is primary
+        assert task.cancelled()
 
     with monkeypatch.context() as patch:
         patch.setattr(managed, "original_independent_identity", Mock(side_effect=primary))
+        if unknown:
+            patch.setattr(process, "terminate", Mock())
+            patch.setattr(process, "wait", Mock(side_effect=subprocess.TimeoutExpired(process.args, 2)))
         asyncio.run(run())
-    assert primary.managed_launch_refusal.cleanup_verified and process.poll() is not None
+    assert len(retained) == 1 and retained[0] is primary.managed_launch_refusal
+    assert retained[0].process is process and retained[0].cleanup_verified is (not unknown)
+    assert (process.poll() is None) is unknown
 
 
 @pytest.mark.parametrize("error_type", INTERRUPTIONS)
