@@ -216,6 +216,55 @@ def test_python37_runtime_smokes_share_version_and_ref_bound_dependency_preparat
         assert all("test_issue_2388_zero_typing_extensions.py" not in step.get("run", "") for step in steps)
 
 
+def test_py37_contract_check_keeps_macos_target_gate_off_linux_and_windows() -> None:
+    """The macOS cp37 target gate must stay scoped to macOS.
+
+    Linux and Windows pass their own `target` values (`x86_64`, `x64`), so
+    reusing the Apple triple check for them rejects every non-macOS cp37 lane
+    before the wheel contract ever runs.
+    """
+    action = yaml_loads(
+        (REPO_ROOT / ".github" / "actions" / "build-wheel" / "action.yml").read_text(encoding="utf-8")
+    )
+    contract = next(
+        step for step in action["runs"]["steps"] if step.get("name") == "Check Python compatibility wheel contract"
+    )
+    run = contract["run"]
+
+    # The Apple-triple guard is the only thing that may reference the triple.
+    assert "x86_64-apple-darwin" in run
+    # Linux and Windows fall through without touching `inputs.target`.
+    linux_windows_branch = "Linux|Windows) ;;"
+    assert linux_windows_branch in run
+    # The macOS target check must sit inside the macOS arm of the *py37* case,
+    # never in an unguarded or Windows-reachable position. Scope the search to
+    # the py37 block: the abi3 block above also has a macOS arm.
+    py37_block = run.split('profile="native_py37"')[1]
+    macos_arm = py37_block.split("macOS)")[1].split(";;")[0]
+    assert "x86_64-apple-darwin" in macos_arm
+    # The py37 case must not assign a platform on Linux/Windows at all.
+    assert 'platform="linux-x86_64"' not in py37_block
+    assert 'platform="windows-x86_64"' not in py37_block
+
+
+def test_py37_wheel_test_creates_venv_with_the_path_python() -> None:
+    """The py37 venv must be created by the interpreter the setup step put on PATH.
+
+    Each py37 lane installs its own interpreter (Windows via a python.org
+    package, macOS via Rosetta 2). A literal `python3.7` only exists where the
+    setup action created that alias, so pinning it breaks the Windows lane with
+    "The system cannot find the file specified" while the build is fine.
+    """
+    action = yaml_loads(
+        (REPO_ROOT / ".github" / "actions" / "build-wheel" / "action.yml").read_text(encoding="utf-8")
+    )
+    test_wheel = next(step for step in action["runs"]["steps"] if step.get("name") == "Test wheel")
+    run = test_wheel["run"]
+    assert "python -m venv test-env" in run
+    # No lane may force a versioned interpreter name to build the venv.
+    assert "python3.7 -m venv" not in run
+
+
 def test_abi3_backfill_uses_workflow_smoke_without_changing_tag_source() -> None:
     for job_id in ("linux", "windows", "macos"):
         steps = _jobs()[job_id]["steps"]

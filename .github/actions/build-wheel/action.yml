@@ -236,13 +236,15 @@ runs:
         if [[ "${{ inputs.python-version }}" == "3.7" ]]; then
           profile="native_py37"
           case "${{ runner.os }}" in
-            Linux) platform="linux-x86_64" ;;
-            Windows) platform="windows-x86_64" ;;
+            Linux|Windows) ;;
             macOS)
               # CPython 3.7 has no ARM64 macOS build, so the only contracted
               # macOS cp37 wheel is the x86_64 one cross-compiled on the ARM64
               # runner. An ARM64 or universal2 tag means maturin resolved the
               # host architecture instead of --target and must fail here.
+              # This target check is macOS-specific: Linux and Windows lanes
+              # pass their own target values (x64, x86_64-*) and must not be
+              # validated against the Apple triple.
               if [[ "${{ inputs.target }}" == "x86_64-apple-darwin" ]]; then
                 platform="macos-x86_64"
               else
@@ -273,8 +275,11 @@ runs:
       if: inputs.test-wheel == 'true'
       shell: bash
       run: |
-        # Use python -m venv for Python 3.7 (uv does not support 3.7)
-        ${{ inputs.python-version == '3.7' && 'python3.7' || 'python' }} -m venv test-env
+        # Use python -m venv for Python 3.7 (uv does not support 3.7).
+        # The py37 lanes rely on the interpreter their setup action put first on
+        # PATH; a bare 'python3.7' only exists where that action created the
+        # alias and breaks the Windows lane, which resolves 'python' instead.
+        python -m venv test-env
         if [ "${{ runner.os }}" = "Windows" ]; then
           source test-env/Scripts/activate
         else
