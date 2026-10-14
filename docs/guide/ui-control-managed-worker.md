@@ -72,6 +72,12 @@ exit code, and verification status. An interruption during cleanup does not
 replace an earlier interruption. Keep the record and original owner when exit
 or task settlement remains unproven; a second close is not evidence of success.
 
+This guarantee applies at Core's synchronous constructor boundary. Python 3.7
+`asyncio.Task` synthesizes a new `CancelledError` when awaited, discarding the
+original exception's attached fields. An async embedding must retain the
+original exception/owner inside its coroutine before re-raising cancellation;
+it cannot rely on those fields surviving the later Task await boundary.
+
 After transfer, reader startup, MCP initialization, and task startup failures
 also preserve the primary and cleanup errors. If cleanup is unproven, the
 exception retains the verified identity and the transport or task client as
