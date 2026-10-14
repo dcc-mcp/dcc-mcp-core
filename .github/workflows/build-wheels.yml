@@ -293,6 +293,9 @@ jobs:
           python-version: '3.7'
           maturin-extra-args: '-i python3.7'
           artifact-name: wheels-linux-x86_64-py37
+          # Keep tagged package source immutable; venv verification belongs to
+          # this workflow so backfills do not rerun a tag's broken test step.
+          test-wheel: 'false'
       - name: Checkout workflow compatibility tooling
         uses: actions/checkout@v6
         with:
@@ -314,8 +317,12 @@ jobs:
           CHECKOUT_REF: ${{ inputs.checkout-ref || github.ref }}
         shell: bash
         run: |
-          python .workflow-tools/scripts/ci/python37_wheel_smoke.py \
+          python -m venv test-env
+          test-env/bin/python -c "import sys; assert sys.version_info[:2] == (3, 7), sys.version; assert sys.prefix != sys.base_prefix"
+          test-env/bin/python -m pip --version
+          test-env/bin/python .workflow-tools/scripts/ci/python37_wheel_smoke.py \
             --wheel 'dist/*.whl' --profile native_py37 --checkout-ref "$CHECKOUT_REF"
+          test-env/bin/python -m pip check
   windows-py37:
     needs: [classify-release-assets]
     if: >-
@@ -334,6 +341,9 @@ jobs:
           python-version: '3.7'
           maturin-extra-args: '-i python3.7'
           artifact-name: wheels-windows-x64-py37
+          # A release tag can retain the renamed-interpreter venv regression.
+          # Use the workflow-owned clean-venv smoke below instead.
+          test-wheel: 'false'
       - name: Checkout workflow compatibility tooling
         uses: actions/checkout@v6
         with:
@@ -355,8 +365,13 @@ jobs:
           CHECKOUT_REF: ${{ inputs.checkout-ref || github.ref }}
         shell: bash
         run: |
-          python .workflow-tools/scripts/ci/python37_wheel_smoke.py \
+          # CPython 3.7 venv must use the original python.exe name on Windows.
+          python -m venv test-env
+          test-env/Scripts/python.exe -c "import sys; assert sys.version_info[:2] == (3, 7), sys.version; assert sys.prefix != sys.base_prefix"
+          test-env/Scripts/python.exe -m pip --version
+          test-env/Scripts/python.exe .workflow-tools/scripts/ci/python37_wheel_smoke.py \
             --wheel 'dist/*.whl' --profile native_py37 --checkout-ref "$CHECKOUT_REF"
+          test-env/Scripts/python.exe -m pip check
   macos-py37:
     needs: [classify-release-assets]
     if: >-

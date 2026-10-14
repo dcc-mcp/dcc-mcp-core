@@ -284,3 +284,65 @@ def test_abi3_backfill_uses_workflow_smoke_without_changing_tag_source() -> None
         assert "python .workflow-tools/tests/test_imports.py" in smoke
         assert "test-env/Scripts/activate" in smoke
         assert "test-env/bin/activate" in smoke
+
+
+def test_native_py37_backfill_uses_workflow_owned_clean_venv() -> None:
+    """An old tag must not supply the venv implementation for its own backfill."""
+    for job_id, interpreter in (
+        ("linux-py37", "test-env/bin/python"),
+        ("windows-py37", "test-env/Scripts/python.exe"),
+    ):
+        steps = _jobs()[job_id]["steps"]
+        assert steps[0]["with"]["ref"] == "${{ inputs.checkout-ref || github.ref }}"
+        build_index = next(i for i, step in enumerate(steps) if step.get("uses") == "./.github/actions/build-wheel")
+        assert steps[build_index]["with"]["test-wheel"] == "false"
+        tooling_index = next(
+            i for i, step in enumerate(steps) if step.get("name") == "Checkout workflow compatibility tooling"
+        )
+        tooling = steps[tooling_index]["with"]
+        assert tooling["ref"] == "${{ github.workflow_sha }}"
+        assert tooling["path"] == ".workflow-tools"
+        assert tooling["persist-credentials"] is False
+        assert "compatibility" in tooling["sparse-checkout"]
+        assert "scripts/ci" in tooling["sparse-checkout"]
+        smoke_index = next(
+            i for i, step in enumerate(steps) if step.get("name") == "Test native Python 3.7 wheel with workflow smoke"
+        )
+        assert build_index < tooling_index < smoke_index
+        smoke = steps[smoke_index]
+        assert "if" not in smoke
+        run = smoke["run"]
+        assert "python -m venv test-env" in run
+        assert "--system-site-packages" not in run
+        assert "python3.7 -m venv" not in run
+        assert "source " not in run
+        assert "sys.version_info[:2] == (3, 7)" in run
+        assert "sys.prefix != sys.base_prefix" in run
+        assert interpreter + " -m pip --version" in run
+        assert interpreter + " .workflow-tools/scripts/ci/python37_wheel_smoke.py" in run
+        assert interpreter + " -m pip check" in run
+        assert run.index("python -m venv") < run.index("python37_wheel_smoke.py") < run.index(" -m pip check")
+
+
+def test_windows_py37_ci_exercises_the_real_action_venv() -> None:
+    """Keep the Windows venv/ensurepip regression on the native wheel CI path."""
+    ci = yaml_loads((REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8"))
+    job = ci["jobs"]["python37-native"]
+    build = next(step for step in job["steps"] if step.get("uses") == "./.github/actions/build-wheel")
+    assert build["with"]["python-version"] == "3.7"
+    assert build["with"]["test-wheel"] == "${{ matrix.platform == 'windows-x86_64' && 'true' || 'false' }}"
+    action = yaml_loads((REPO_ROOT / ".github" / "actions" / "build-wheel" / "action.yml").read_text(encoding="utf-8"))
+    test_wheel = next(step for step in action["runs"]["steps"] if step.get("name") == "Test wheel")
+    assert test_wheel["if"] == "inputs.test-wheel == 'true'"
+    assert "python -m venv test-env" in test_wheel["run"]
+    assert "pip install --force-reinstall dist/*.whl" in test_wheel["run"]
+    verify = next(step for step in job["steps"] if step.get("name") == "Verify Windows Python 3.7 clean venv")
+    install = next(step for step in job["steps"] if step.get("name") == "Install native wheel")
+    assert job["steps"].index(build) < job["steps"].index(verify) < job["steps"].index(install)
+    assert verify["if"] == "runner.os == 'Windows'"
+    run = verify["run"]
+    assert "test-env/Scripts/python.exe -c" in run
+    assert "sys.prefix != sys.base_prefix" in run
+    assert "sys.version_info[:2] == (3, 7)" in run
+    assert "test-env/Scripts/python.exe -m pip check" in run
+    assert "test-env/Scripts/python.exe -I scripts/ci/smoke_python37_runtime.py --profile native_py37" in run
