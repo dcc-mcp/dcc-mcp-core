@@ -558,9 +558,18 @@ jobs:
           python-version: "3.7"
           maturin-extra-args: "-i python3.7"
           artifact-name: wheel-py37-native-${{ matrix.platform }}
-          test-wheel: "false"
+          # Exercise the real Windows venv/ensurepip path before a release;
+          # installing the wheel directly below cannot detect that regression.
+          test-wheel: ${{ matrix.platform == 'windows-x86_64' && 'true' || 'false' }}
           generate-stubs: "false"
           prebuild-admin-ui: "false"
+      - name: Verify Windows Python 3.7 clean venv
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          test-env/Scripts/python.exe -c "import sys; assert sys.version_info[:2] == (3, 7), sys.version; assert sys.prefix != sys.base_prefix"
+          test-env/Scripts/python.exe -m pip check
+          test-env/Scripts/python.exe -I scripts/ci/smoke_python37_runtime.py --profile native_py37
       # `python3.7`, not `python`: on the macOS lane the runner image keeps its
       # own CPython ahead of the action-installed 3.7 on PATH, and these steps
       # must run against the interpreter the wheel was built for.
