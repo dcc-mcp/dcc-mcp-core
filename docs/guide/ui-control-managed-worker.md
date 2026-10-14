@@ -60,6 +60,17 @@ terminate/wait. `ManagedLaunchRefusal` retains the original process, primary
 exception, cleanup exception, and exit code. An unproven exit remains unknown;
 the embedding must retain this exception/owner until settlement. No PID
 reacquisition, process-tree kill, replacement worker, or retry is performed.
+The pre-initialization refusal path also closes both exclusively owned pipes
+after verified process exit. If exit is unknown, it retains the pipes without
+attempting a potentially blocking buffered-input flush.
+
+`KeyboardInterrupt`, `SystemExit`, and `asyncio.CancelledError` still propagate
+as the original interruption, after a bounded cleanup attempt. If interruption
+or unknown cleanup needs ownership retention, the exception carries `process`
+and a `managed_launch_refusal` record with the primary error, cleanup error,
+exit code, and verification status. An interruption during cleanup does not
+replace an earlier interruption. Keep the record and original owner when exit
+or task settlement remains unproven; a second close is not evidence of success.
 
 After transfer, reader startup, MCP initialization, and task startup failures
 also preserve the primary and cleanup errors. If cleanup is unproven, the
@@ -100,6 +111,12 @@ The mocked tests exercise client initialization, task start/stop, protocol ident
 refusal, EOF, exclusive-child cleanup, native image/birth/Job checks, and
 preservation of unknown cleanup. Process pipes and Win32 APIs are fixtures, not
 proof of a real independent worker.
+
+`tests/test_cua_mcp_startup_cancellation.py` uses real stdin-waiting Python
+children with mocked identity proof and MCP responses. It checks interrupted
+proof, reader/MCP/task startup, cleanup interruption, concurrent ownership, and
+async task cancellation. Every fixture retains and settles only its own
+children. These tests do not establish Windows independence or authorization.
 
 `tests/test_cua_mcp_managed_process_native.py` separately launches one ordinary
 Python child with real Win32 APIs and its original `Popen` handle. It changes

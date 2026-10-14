@@ -95,12 +95,13 @@ class PixelsMcpHostClient:
                     "authorization_category": "window_state",
                 }
             )
-        self._transport = (
-            OwnedCuaMcpTransport(options)
-            if managed_launcher is None
-            else OwnedCuaMcpTransport(options, managed_launcher=managed_launcher)
-        )
+        self._transport = None
         try:
+            self._transport = (
+                OwnedCuaMcpTransport(options)
+                if managed_launcher is None
+                else OwnedCuaMcpTransport(options, managed_launcher=managed_launcher)
+            )
             opened = self._transport.tool(
                 "start_task",
                 {
@@ -132,10 +133,13 @@ class PixelsMcpHostClient:
             self._target = deepcopy(opened["target"])
             self._recording.bind(opened)
             self._cleanup.output_dir = self._recording.output_dir
-        except Exception as primary:
+        except BaseException as primary:
+            if self._transport is None:
+                # Transport construction retains its own failed launch.
+                raise
             try:
                 self.stop()
-            except Exception as cleanup_error:
+            except BaseException as cleanup_error:
                 self._transport.retain_failed_startup(primary, cleanup_error, owner=self)
             raise
 

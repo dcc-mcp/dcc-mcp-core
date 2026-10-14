@@ -42,6 +42,7 @@ class OwnedCuaMcpTransport:
         self._responses = queue.Queue(maxsize=16)
         self.managed_process_identity = None
         self._reader = None
+        self._process = None
         path = Path(options.binary)
         try:
             digest = hashlib.sha256()
@@ -77,9 +78,6 @@ class OwnedCuaMcpTransport:
                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                     env=child_env,
                 )
-        except (OSError, ValueError):
-            raise CuaCliError("backend_unavailable", "Cannot start the selected UI Control MCP runtime.") from None
-        try:
             self._reader = threading.Thread(target=self._read, name="dcc-cua-owned-mcp-reader", daemon=True)
             self._reader.start()
             initialized = self.rpc(
@@ -108,20 +106,39 @@ class OwnedCuaMcpTransport:
                 tools, recording=options.recording is not None, preparation=options.capture_preparation is not None
             ):
                 raise CuaCliError("protocol_mismatch", "The owned runtime lacks the public bounded-task MCP tools.")
-        except Exception as primary:
+        except BaseException as primary:
+            if self._process is None:
+                if isinstance(primary, (OSError, ValueError)):
+                    raise CuaCliError(
+                        "backend_unavailable", "Cannot start the selected UI Control MCP runtime."
+                    ) from None
+                raise
+            if managed_launcher is not None and not isinstance(self._process, subprocess.Popen):
+                # A rejected PID/remote record never transferred a child.
+                raise
+            refusal = (
+                primary
+                if isinstance(primary, ManagedLaunchRefusal)
+                else getattr(primary, "managed_launch_refusal", None)
+            )
+            if isinstance(refusal, ManagedLaunchRefusal) and refusal.process is self._process:
+                # The verifier already settled or explicitly retained this
+                # owner. Do not repeat its cleanup after a cancellation.
+                raise
             try:
                 self.close()
-            except Exception as cleanup_error:
+            except BaseException as cleanup_error:
                 self.retain_failed_startup(primary, cleanup_error)
             raise
 
-    def retain_failed_startup(self, primary: Exception, cleanup_error: Exception, *, owner=None) -> None:
+    def retain_failed_startup(self, primary: BaseException, cleanup_error: BaseException, *, owner=None) -> None:
         """Keep transferred process/task ownership reachable until settlement."""
-        if self.managed_process_identity is not None:
-            failure = ManagedLaunchRefusal(self._process, primary, cleanup_error, self._process.returncode)
-            failure.identity = self.managed_process_identity
-            failure.owner = self if owner is None else owner
-            raise failure from primary
+        # Interrupted close must never look successful on a repeated call.
+        self._cleanup_error = self._cleanup_error or "The owned UI Control runtime startup cleanup is unverified."
+        failure = ManagedLaunchRefusal(self._process, primary, cleanup_error, self._process.returncode)
+        failure.identity = self.managed_process_identity
+        failure.owner = self if owner is None else owner
+        failure.reraise(preserve_primary=self.managed_process_identity is None)
 
     def _read(self) -> None:
         try:
