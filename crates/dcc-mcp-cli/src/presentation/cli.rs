@@ -119,11 +119,33 @@ pub struct Args {
     command: Command,
 }
 
+impl Args {
+    /// Keep clap's value sources so explicit gateway booleans override env values.
+    fn try_parse_annotated_from<I, T>(argv: I) -> Result<Self, clap::Error>
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<std::ffi::OsString> + Clone,
+    {
+        use clap::{CommandFactory, FromArgMatches};
+
+        let matches = Self::command().try_get_matches_from(argv)?;
+        let mut args = Self::from_arg_matches(&matches)?;
+        if let Command::Gateway { ref mut daemon, .. } = args.command
+            && let Some(gateway_matches) = matches.subcommand_matches("gateway")
+        {
+            daemon.note_value_sources(gateway_matches);
+        }
+        Ok(args)
+    }
+}
+
 pub async fn run() -> anyhow::Result<()> {
     if apply_staged_update() {
         return restart_after_update();
     }
-    run_with_args(Args::parse()).await
+    let args =
+        Args::try_parse_annotated_from(std::env::args_os()).unwrap_or_else(|error| error.exit());
+    run_with_args(args).await
 }
 
 fn apply_staged_update() -> bool {
@@ -943,3 +965,7 @@ mod tests;
 #[cfg(test)]
 #[path = "cli/confirmation_timeout_tests.rs"]
 mod confirmation_timeout_tests;
+
+#[cfg(test)]
+#[path = "cli/gateway_precedence_tests.rs"]
+mod gateway_precedence_tests;
