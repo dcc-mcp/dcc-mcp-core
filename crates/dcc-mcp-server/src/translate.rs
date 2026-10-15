@@ -46,6 +46,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
+mod command;
+use command::parse_command;
+
 use anyhow::Context as _;
 use axum::Router;
 use axum::body::Body;
@@ -174,7 +177,7 @@ fn build_translate_gateway_daemon_options(
 /// Bridge any stdio MCP server to HTTP/SSE/Streamable-HTTP.
 #[derive(Debug, Args)]
 pub struct TranslateArgs {
-    /// Shell command to launch the stdio MCP server (e.g. "uvx mcp-server-git").
+    /// Command to launch the stdio MCP server; quote paths containing spaces.
     #[arg(long, value_name = "CMD")]
     pub stdio: String,
 
@@ -490,17 +493,9 @@ impl StdioBridge {
     }
 }
 
-/// Parse a shell command string into program + args (very basic: splits on whitespace).
-fn parse_command(cmd: &str) -> (String, Vec<String>) {
-    let mut parts = cmd.split_whitespace();
-    let program = parts.next().unwrap_or_default().to_string();
-    let args = parts.map(String::from).collect();
-    (program, args)
-}
-
 /// Spawn the child stdio MCP server and return it.
 fn spawn_child(cmd: &str) -> anyhow::Result<Child> {
-    let (program, args) = parse_command(cmd);
+    let (program, args) = parse_command(cmd)?;
     let child = Command::new(&program)
         .args(&args)
         .stdin(std::process::Stdio::piped())

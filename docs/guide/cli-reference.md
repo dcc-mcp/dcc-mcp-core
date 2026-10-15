@@ -718,11 +718,23 @@ even when `DCC_MCP_GATEWAY_PERSIST=1` is set in the host environment.
 
 | Flag | Env | Default | Meaning |
 |---|---|---|---|
-| `--stdio` | — | — | Shell command launching the stdio MCP server to bridge (e.g. `"uvx mcp-server-git"`). |
+| `--stdio` | — | — | Command launching the stdio MCP server to bridge (e.g. `"uvx mcp-server-git"`). |
 | `--app-type` | — | `external` | App tag used for the gateway registration row. |
 | `--restart-on-exit` | — | `true` | Restart the stdio child when it exits. |
 | `--max-restarts` | — | `10` | Maximum restart attempts. `0` = unlimited. |
 | `--bridge-timeout-secs` | `DCC_MCP_BRIDGE_TIMEOUT_SECS` | `600` | Upper bound on how long a caller waits for the child's response. `0` waits indefinitely. A child that never answers the request id fails the call closed when the bound expires instead of pinning the HTTP request open. |
+
+`--stdio` launches a program directly without a shell. Single or double quotes
+keep paths and arguments containing spaces together; empty quoted arguments
+are preserved. Unquoted Unicode whitespace separates arguments. Outside quotes,
+backslash-escaped spaces are supported for non-Windows paths such as
+`/opt/my\ tools/python3`. Windows drive, rooted, and relative paths (including values after `=`)
+keep their backslash separators: use quotes for spaces, for example
+`"C:\Program Files\Python311\python.exe" -u C:\scripts\bridge.py`.
+A bare backslash stays a root path; quote arguments that start with whitespace.
+Hash-prefixed arguments, shell operators, and variable references stay literal;
+there is no comment processing or expansion. Unterminated quotes are rejected.
+Quoting needed by your outer shell is separate from these command-string rules.
 
 Responses are routed by JSON-RPC request id, so a response whose id matches no
 request in flight is dropped and the child keeps being read. Integers and
