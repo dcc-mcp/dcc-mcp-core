@@ -249,9 +249,11 @@ def test_py37_wheel_test_creates_venv_with_the_path_python() -> None:
     """The py37 venv must be created by the interpreter the setup step put on PATH.
 
     Each py37 lane installs its own interpreter (Windows via a python.org
-    package, macOS via Rosetta 2). A literal `python3.7` only exists where the
-    setup action created that alias, so pinning it breaks the Windows lane with
-    "The system cannot find the file specified" while the build is fine.
+    package, macOS via Rosetta 2). The Windows lane does expose `python3.7`, but
+    only as a renamed copy of python.exe, and CPython 3.7 venv resolves the
+    interpreter through sys._base_executable. A renamed copy makes that lookup
+    fail with "The system cannot find the file specified" while the build and
+    every direct `python3.7 <script>` call still succeed.
     """
     action = yaml_loads((REPO_ROOT / ".github" / "actions" / "build-wheel" / "action.yml").read_text(encoding="utf-8"))
     test_wheel = next(step for step in action["runs"]["steps"] if step.get("name") == "Test wheel")
