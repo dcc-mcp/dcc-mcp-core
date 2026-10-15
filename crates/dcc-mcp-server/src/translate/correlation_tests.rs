@@ -63,6 +63,7 @@ mod id_key {
 }
 
 mod bridge {
+    use super::command::quote_argument;
     use super::*;
 
     /// A stdio child that answers the first request correctly and every later
@@ -254,11 +255,10 @@ while time.time() < deadline and os.path.exists(marker):
     /// Like [`child_command`], but with the `__MARKER__` placeholder replaced
     /// by `marker`, and with the child launched through `program`.
     ///
-    /// The path is baked into the script instead of passed as an argument
-    /// because [`parse_command`] splits the command on whitespace, so a path
-    /// containing spaces would reach the child mangled. It lands in a raw
-    /// Python string, so backslashes are rewritten to forward slashes (which
-    /// Windows accepts) and nothing else needs escaping.
+    /// The path is baked into the script instead of passed as an argument so
+    /// the marker survives regardless of where the temp dir lands. It sits in a
+    /// raw Python string, so backslashes are rewritten to forward slashes
+    /// (which Windows accepts) and nothing else needs escaping.
     fn child_command_with(
         source: &str,
         marker: &std::path::Path,
@@ -276,6 +276,11 @@ while time.time() < deadline and os.path.exists(marker):
     /// Write a stdio child script to a temp file and return a command line
     /// that runs it with `program`.
     ///
+    /// `program` is quoted: [`parse_command`] understands quotes, and a
+    /// resolved interpreter under `C:\Program Files\...` has to reach
+    /// [`spawn_child`] as one token. The script path is quoted for the same
+    /// reason -- a temp dir can contain spaces too.
+    ///
     /// The handle is returned as well: dropping it deletes the script while the
     /// child may still be starting up.
     fn write_child_script_with(source: &str, program: &str) -> (String, tempfile::NamedTempFile) {
@@ -286,7 +291,12 @@ while time.time() < deadline and os.path.exists(marker):
             .expect("tempfile");
         script.write_all(source.as_bytes()).expect("write script");
         script.flush().expect("flush");
-        (format!("{program} {}", script.path().display()), script)
+        let script_path = script.path().to_string_lossy().into_owned();
+        let quoted_path = quote_argument(&script_path);
+        (
+            format!("{} {}", quote_argument(program), quoted_path),
+            script,
+        )
     }
 
     /// Block until the child has closed its stdin: until the marker it writes
@@ -343,9 +353,12 @@ while time.time() < deadline and os.path.exists(marker):
     /// open, so the child closing its own fd 0 never breaks the pipe.
     ///
     /// `None` when the interpreter cannot be resolved, or when it is not
-    /// something this test can launch on its own -- notably when the path
-    /// contains whitespace, which [`parse_command`] would split. Callers fall
-    /// back to [`child_program`] in that case.
+    /// something this test can launch on its own. Callers fall back to
+    /// [`child_program`] in that case.
+    ///
+    /// A resolved path containing whitespace is fine: [`parse_command`] is
+    /// quote-aware, and [`child_command_with`] quotes the program before it
+    /// builds the command line.
     fn resolved_interpreter() -> Option<String> {
         let probe = std::process::Command::new(child_program())
             .arg("-c")
@@ -358,7 +371,7 @@ while time.time() < deadline and os.path.exists(marker):
             return None;
         }
         let path = String::from_utf8_lossy(&probe.stdout).trim().to_string();
-        if path.is_empty() || path.contains(char::is_whitespace) || !interpreter_runs(&path) {
+        if path.is_empty() || !interpreter_runs(&path) {
             return None;
         }
         Some(path)
@@ -401,6 +414,72 @@ while time.time() < deadline and os.path.exists(marker):
             "skipping: no usable python interpreter on PATH; the stdio bridge tests need one"
         );
         true
+    }
+
+    /// Exercise the actual spawn boundary: a quoted script path, Windows
+    /// arguments and hash-prefixed tokens must reach the child unchanged.
+    #[tokio::test]
+    async fn spawn_child_preserves_quoted_paths_and_literal_arguments() {
+        if skip_without_python() {
+            return;
+        }
+        let temp = tempfile::Builder::new()
+            .prefix("stdio argv ")
+            .tempdir()
+            .expect("tempdir with spaces");
+        let script = temp.path().join("echo args.py");
+        std::fs::write(
+            &script,
+            "import json, sys\nprint(json.dumps(sys.argv[1:]))\n",
+        )
+        .expect("write argv child");
+        let interpreter = resolved_interpreter().expect("resolve Python interpreter");
+        // A symlink proves that the program itself may contain spaces, even
+        // when CI installed Python under a whitespace-free prefix. Windows
+        // uses the resolved interpreter because symlinks require privileges.
+        #[cfg(unix)]
+        let interpreter = {
+            let alias = temp.path().join("python with spaces");
+            std::os::unix::fs::symlink(interpreter, &alias).expect("symlink interpreter");
+            alias.to_string_lossy().into_owned()
+        };
+        let cmd = format!(
+            "{} {} {}\u{2003}{}",
+            quote_argument(&interpreter),
+            quote_argument(&script.to_string_lossy()),
+            r#"C:\scripts\bridge.py "C:\scene files\bridge.py" \\server\share\bridge.py C:\cache\ --output=C:\cache\ --output=\\server\share\ \ #tag "two words" one\ two ''"#,
+            "last"
+        );
+        let mut child = spawn_child(&cmd).expect("spawn argv child");
+        let stdout = child.stdout.take().expect("child stdout");
+        let mut lines = BufReader::new(stdout).lines();
+        let line = tokio::time::timeout(Duration::from_secs(10), lines.next_line()).await;
+        // Always reap the child before asserting so a failed regression leaves
+        // no process running (including on platforms without kill-on-drop).
+        child.kill().await.ok();
+        child.wait().await.expect("reap argv child");
+        let line = line
+            .expect("argv child response timeout")
+            .expect("read argv")
+            .expect("argv line");
+        let args: Vec<String> = serde_json::from_str(&line).expect("JSON argv");
+        assert_eq!(
+            args,
+            [
+                r"C:\scripts\bridge.py",
+                r"C:\scene files\bridge.py",
+                r"\\server\share\bridge.py",
+                r"C:\cache\",
+                r"--output=C:\cache\",
+                r"--output=\\server\share\",
+                r"\",
+                "#tag",
+                "two words",
+                "one two",
+                "",
+                "last"
+            ]
+        );
     }
 
     fn request(id: i64) -> JsonRpcRequest {
