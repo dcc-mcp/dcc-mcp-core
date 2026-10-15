@@ -322,6 +322,9 @@ jobs:
           test-env/bin/python -m pip --version
           test-env/bin/python .workflow-tools/scripts/ci/python37_wheel_smoke.py \
             --wheel 'dist/*.whl' --profile native_py37 --checkout-ref "$CHECKOUT_REF"
+          # The isolated smoke deliberately installs without dependencies.
+          # Resolve this wheel's declared dependencies before checking them.
+          test-env/bin/python -m pip install --force-reinstall dist/*.whl
           test-env/bin/python -m pip check
   windows-py37:
     needs: [classify-release-assets]
@@ -371,6 +374,8 @@ jobs:
           test-env/Scripts/python.exe -m pip --version
           test-env/Scripts/python.exe .workflow-tools/scripts/ci/python37_wheel_smoke.py \
             --wheel 'dist/*.whl' --profile native_py37 --checkout-ref "$CHECKOUT_REF"
+          # Keep the zero-backport smoke ahead of normal dependency resolution.
+          test-env/Scripts/python.exe -m pip install --force-reinstall dist/*.whl
           test-env/Scripts/python.exe -m pip check
   macos-py37:
     needs: [classify-release-assets]

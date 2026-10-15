@@ -346,3 +346,24 @@ def test_windows_py37_ci_exercises_the_real_action_venv() -> None:
     assert "sys.version_info[:2] == (3, 7)" in run
     assert "test-env/Scripts/python.exe -m pip check" in run
     assert "test-env/Scripts/python.exe -I scripts/ci/smoke_python37_runtime.py --profile native_py37" in run
+
+
+def test_native_py37_backfill_resolves_declared_dependencies_after_isolated_smoke() -> None:
+    """A no-deps runtime smoke cannot satisfy a declared-dependency check."""
+    for job_id, interpreter in (
+        ("linux-py37", "test-env/bin/python"),
+        ("windows-py37", "test-env/Scripts/python.exe"),
+    ):
+        smoke = next(
+            step
+            for step in _jobs()[job_id]["steps"]
+            if step.get("name") == "Test native Python 3.7 wheel with workflow smoke"
+        )
+        run = smoke["run"]
+        install = interpreter + " -m pip install --force-reinstall dist/*.whl"
+        check = interpreter + " -m pip check"
+        assert install in run.splitlines()
+        assert check in run.splitlines()
+        assert run.index("python37_wheel_smoke.py") < run.index(install) < run.index(check)
+        assert "--no-deps" not in run
+        assert "--ignore-requires-python" not in run
