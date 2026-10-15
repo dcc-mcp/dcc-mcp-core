@@ -674,6 +674,10 @@ jobs:
       PYTHON_BASIC_REPL: "1"
     steps:
       - uses: actions/checkout@v6
+        with:
+          # The released-schema gate discovers releases independently of its pins.
+          # Fetch once here; tests fail closed on missing history and never fetch.
+          fetch-depth: 0
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
@@ -921,8 +925,8 @@ jobs:
       - uses: actions/checkout@v6
         with:
           # `git cat-file blob <tag>:<path>` needs the release tags. The
-          # default depth-1 checkout fetches none of them, which would leave
-          # the gate skipped and therefore unenforced.
+          # default depth-1 checkout cannot establish release completeness;
+          # the gate fails closed instead of skipping or fetching at runtime.
           fetch-depth: 0
       - uses: actions/setup-python@v6
         with:
@@ -936,7 +940,8 @@ jobs:
           output_file="$(mktemp)"
           trap 'rm -f "$output_file"' EXIT
           set +e
-          python -m pytest tests/test_released_schema_immutability.py --noconftest \
+          python -m pytest tests/test_released_schema_immutability.py \
+            tests/test_released_schema_immutability_regressions.py --noconftest \
             -q --tb=short 2>&1 | tee "$output_file"
           status="${PIPESTATUS[0]}"
           set -e
