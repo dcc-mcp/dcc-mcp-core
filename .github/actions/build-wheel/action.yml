@@ -276,9 +276,12 @@ runs:
       shell: bash
       run: |
         # Use python -m venv for Python 3.7 (uv does not support 3.7).
-        # The py37 lanes rely on the interpreter their setup action put first on
-        # PATH; a bare 'python3.7' only exists where that action created the
-        # alias and breaks the Windows lane, which resolves 'python' instead.
+        # Build the venv with the interpreter the py37 setup action put on PATH.
+        # `python3.7` does exist on the Windows lane, but it is a renamed copy of
+        # python.exe (setup-windows-python37 copies it with Copy-Item), and
+        # CPython 3.7 venv resolves the interpreter through sys._base_executable.
+        # A renamed copy makes that lookup fail with WinError 2, so only the
+        # original name works here. Running scripts as `python3.7` is fine.
         python -m venv test-env
         if [ "${{ runner.os }}" = "Windows" ]; then
           source test-env/Scripts/activate
