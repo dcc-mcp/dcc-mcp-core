@@ -13,6 +13,57 @@ from scripts import generate_adapter_pointer as generator
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CATALOG = REPO_ROOT / "dcc-mcp-catalog.yml"
 
+# The catalog is the authoritative source of the host matrix, so no adapter
+# count may be written as a literal here: every registration or removal would
+# have to be mirrored by hand across as many assertions, and a missed one is
+# exactly the drift these tests exist to catch (PIP-2385).
+#
+# The expected sets below are parsed with a plain YAML read rather than through
+# ``generator.load_catalog`` / ``generator.adapter_entries``, and the deferred
+# split re-derives the install test from the raw catalog instead of calling
+# ``generator.coverage_rows``. Both sides of every comparison therefore reach the
+# same rule by a different path, so a generator that drops or reorders an entry
+# cannot agree with itself and pass.
+#
+# Only the two rules that define the matrix are duplicated: an adapter is an
+# entry carrying the ``adapter`` tag, and it is deferred when its ``install:``
+# block names no ``pip_package``. Those are the catalog's own contract; the
+# generator's job is to render them, and the tests check that it does.
+_ADAPTER_TAG = "adapter"
+
+
+def _read_catalog_entries(path: Path = CATALOG) -> list[dict]:
+    """Read catalog entries without going through the generator module."""
+    try:
+        import yaml
+    except ImportError:  # pragma: no cover - installed by every test lane
+        raise
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    return [e for e in data["entries"] if isinstance(e, dict)]
+
+
+def _expected_adapter_names(path: Path = CATALOG) -> set[str]:
+    """Every catalog entry the matrix is defined to contain."""
+    return {str(e["name"]) for e in _read_catalog_entries(path) if _ADAPTER_TAG in (e.get("tags") or [])}
+
+
+def _expected_deferred_names(path: Path = CATALOG) -> set[str]:
+    """Adapters the catalog lists without an attested ``install.pip_package``."""
+    return {
+        str(e["name"])
+        for e in _read_catalog_entries(path)
+        if _ADAPTER_TAG in (e.get("tags") or []) and not ((e.get("install") or {}).get("pip_package"))
+    }
+
+
+def _expected_pending_names(path: Path = CATALOG) -> set[str]:
+    """Adapters the catalog does attest an ``install.pip_package`` for."""
+    return {
+        str(e["name"])
+        for e in _read_catalog_entries(path)
+        if _ADAPTER_TAG in (e.get("tags") or []) and (e.get("install") or {}).get("pip_package")
+    }
+
 
 @pytest.fixture(scope="module")
 def catalog():
@@ -57,17 +108,30 @@ def _write_catalog(tmp_path: Path, entries: list[dict]) -> Path:
 
 
 def test_catalog_is_the_single_source_of_host_count(catalog, adapters):
-    """The host count the narrative quotes must come from the catalog, not a literal."""
-    assert len(adapters) == 47
+    """The host count the narrative quotes must come from the catalog, not a literal.
+
+    Exact two-way equality rather than a floor: ``len(adapters) >= n`` stays
+    green while an adapter is missing, which is the failure this test exists to
+    report (PIP-4345).
+    """
+    assert len(adapters) == len(_expected_adapter_names())
+    assert {e["name"] for e in adapters} == _expected_adapter_names()
 
 
 def test_host_count_matches_the_documented_reproducible_command(catalog):
-    """The issue's acceptance criterion pins the count to one reproducible command."""
+    """The issue's acceptance criterion pins the count to one reproducible command.
+
+    The command is replayed against the raw file, so the number it prints is
+    independent of both the generator and the parsed catalog; it is then held
+    against the catalog-derived set rather than a literal. Counting lines can
+    only ever produce a total, so the name comparison that gives this test its
+    power to notice a swapped or dropped entry lives in the test above.
+    """
     import re
 
     pattern = re.compile(r'^    tags: \[.*"adapter".*\]$')
     count = sum(1 for line in CATALOG.read_text(encoding="utf-8").splitlines() if pattern.match(line))
-    assert count == 47
+    assert count == len(_expected_adapter_names())
 
 
 def test_load_catalog_rejects_a_file_without_entries(tmp_path):
@@ -534,22 +598,36 @@ def test_apply_fails_loudly_when_the_readme_is_missing(adapters, tmp_path):
 
 
 def test_every_adapter_gets_a_coverage_row(adapters):
-    """Acceptance: no adapter may be silently skipped."""
+    """Acceptance: no adapter may be silently skipped.
+
+    Held against the catalog-derived set, not against ``adapters``: the fixture
+    is the generator's own output, so comparing the rows to it would let both
+    sides drop the same entry and still agree.
+    """
     rows = generator.coverage_rows(adapters)
-    assert len(rows) == len(adapters) == 47
-    assert {r["name"] for r in rows} == {e["name"] for e in adapters}
+    assert len(rows) == len(adapters) == len(_expected_adapter_names())
+    assert {r["name"] for r in rows} == _expected_adapter_names()
 
 
 def test_rows_split_on_whether_the_catalog_attests_a_pip_package(adapters):
+    """The pending/deferred split is the catalog's install metadata, read twice.
+
+    A literal count and a hard-coded deferred list were the original form; both
+    drift on every registration, and a stale name in the list silently stopped
+    protecting its adapter. The split is re-derived from the raw catalog here,
+    and compared in both directions so an adapter that loses or gains an
+    ``install:`` block is caught either way.
+    """
     rows = generator.coverage_rows(adapters)
     pending = {r["name"] for r in rows if r["registry"] == "pending"}
     deferred = {r["name"] for r in rows if r["registry"] == "deferred"}
-    assert len(pending) == 44
-    assert deferred == {
-        "dcc-mcp-excel",
-        "dcc-mcp-word",
-        "dcc-mcp-material-maker",
-    }
+
+    assert pending == _expected_pending_names()
+    assert deferred == _expected_deferred_names()
+    # The two buckets partition the matrix: no adapter lands in neither, and
+    # none lands in both, so a row that keeps its name cannot escape the split.
+    assert pending | deferred == _expected_adapter_names()
+    assert not pending & deferred
 
 
 def test_deferred_rows_carry_a_reason_so_the_gap_stays_enumerable(adapters):
@@ -631,8 +709,8 @@ def test_report_check_accepts_a_current_map(adapters, tmp_path):
         == 0
     )
     payload = json.loads(json_out.read_text(encoding="utf-8"))
-    assert payload["adapter_count"] == 47
-    assert len(payload["entries"]) == 47
+    assert payload["adapter_count"] == len(_expected_adapter_names())
+    assert {e["name"] for e in payload["entries"]} == _expected_adapter_names()
 
 
 # --- cli -------------------------------------------------------------------
