@@ -22,6 +22,42 @@
         "v0.20.29": "e6b82bf8bfd14df585d4606d9ae26ab78b6455ad2c93486195a1d80a3889be9e",
         "v0.20.30": "ec5cf3696cb989d3961bf686677f740e17bbd8eb42278edd00155b4041d65ffa"
       }
+    },
+    "https://dcc-mcp.github.io/dcc-mcp-core/schemas/anim-curves-v1.schema.json": {
+      "path": "python/dcc_mcp_core/schemas/anim-curves-v1.schema.json",
+      "released": {
+        "v0.20.31": "8d3b595e3e6ba0c829f995d44450d40a991132a38c1d951952ac747226f88649"
+      }
+    },
+    "https://dcc-mcp.github.io/dcc-mcp-core/schemas/graph-state-v1.schema.json": {
+      "path": "python/dcc_mcp_core/schemas/graph-state-v1.schema.json",
+      "released": {
+        "v0.20.31": "a132bfd956ba224403eeae2a66c3b775747af4e080a65d9f9c64e46c03331c56"
+      }
+    },
+    "https://dcc-mcp.github.io/dcc-mcp-core/schemas/production-acceptance-v1.schema.json": {
+      "path": "python/dcc_mcp_core/schemas/production-acceptance-v1.schema.json",
+      "released": {
+        "v0.20.31": "3c37c1f24cf2ce5e9c9566a5a5cda8c7d904a9cf638e539c96ce857f7d6b65f5"
+      }
+    },
+    "https://dcc-mcp.github.io/dcc-mcp-core/schemas/rig-state-v1.schema.json": {
+      "path": "python/dcc_mcp_core/schemas/rig-state-v1.schema.json",
+      "released": {
+        "v0.20.31": "753bda0aabd4ada6b667a26c13861e3e06f7bf9d97cc5f5d92290f7293cbf476"
+      }
+    },
+    "https://dcc-mcp.github.io/dcc-mcp-core/schemas/sim-status-v1.schema.json": {
+      "path": "python/dcc_mcp_core/schemas/sim-status-v1.schema.json",
+      "released": {
+        "v0.20.31": "3c8a9297930add70ebf61b2bde7fc8d3e79f93dfe34d61b8bb5603835e916c72"
+      }
+    },
+    "https://dcc-mcp.github.io/schemas/adapter-install-sop-v2.schema.json": {
+      "path": "python/dcc_mcp_core/schemas/adapter-install-sop-v2.schema.json",
+      "released": {
+        "v0.20.34": "daa5840e07c956d7c9269e5709d6993a3988b905f986c06e7c4c02f5023e9422"
+      }
     }
   }
 }
