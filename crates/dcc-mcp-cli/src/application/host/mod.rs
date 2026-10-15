@@ -1207,9 +1207,35 @@ mod tests {
         assert!(!hint.contains("host install"), "{hint}");
     }
 
+    /// A Blender definition whose probe surface cannot resolve on any machine.
+    ///
+    /// The bundled Blender entry globs real install locations
+    /// (`C:\Program Files\Blender Foundation\...`, `/usr/bin/blender`, …), so a
+    /// probe against it answers "is Blender installed *here*?" — which made the
+    /// `doctor_value` test flip between green (CI, no Blender) and red
+    /// (developer machine, Blender present). Everything the report payload
+    /// asserts is kept from the bundled entry; only the probe surface is
+    /// replaced, so the outcome is `missing` everywhere.
+    ///
+    /// The name still resolves *as a candidate* (rather than leaving
+    /// `executables` empty), so this exercises the `ExecutableNotFound` path
+    /// and not the unrelated `unsupported_platform` short-circuit.
+    fn unfound_blender_def() -> HostDefinition {
+        let mut def = fake_def_for_current_platform("blender");
+        def.display_name = "Blender".to_string();
+        def.self_provision = true;
+        def.min_version = Some("5.1".to_string());
+        def.pinned_version = Some("5.1.1".to_string());
+        def.version_arg = vec!["--version".to_string()];
+        def
+    }
+
     #[test]
     fn doctor_value_summarises_availability() {
-        let manifest = bundled();
+        let manifest = HostManifest {
+            version: "1".to_string(),
+            hosts: vec![unfound_blender_def()],
+        };
         let probes = doctor(&["blender".to_string()], &manifest, &env_without_path());
         let value = doctor_value(&probes);
         assert_eq!(value["read_only"], true);
@@ -1218,7 +1244,65 @@ mod tests {
         assert!(host["gate"].is_string());
         assert!(host["sources_checked"].is_array());
         assert_eq!(host["expected"]["pinned_version"], "5.1.1");
+        assert_eq!(value["summary"]["unavailable"], 1);
+        // The host is unreachable by construction, so the probe reports where
+        // it looked rather than what it found — identically on a machine with
+        // Blender installed and on one without.
+        assert_eq!(probes[0].status, HostStatus::Missing);
+        assert_eq!(probes[0].reason, HostReason::ExecutableNotFound);
+        assert!(probes[0].executable.is_none());
+        assert!(
+            !host["sources_checked"]
+                .as_array()
+                .expect("array")
+                .is_empty(),
+            "an unfound host must still report its search sources"
+        );
         assert!(has_unavailable(&probes));
+    }
+
+    /// The regression this guards: `doctor_value_summarises_availability` used
+    /// to probe the bundled Blender entry, whose search roots glob real install
+    /// locations. On a machine with Blender installed the probe found it, the
+    /// host read as available, and `has_unavailable` was false — so the test
+    /// only passed on hosts without Blender (CI) and failed on developer
+    /// machines.
+    ///
+    /// The hermetic definition must therefore share no probe surface with the
+    /// bundled one, and its verdict must not move when the searchable PATH does.
+    #[test]
+    fn the_hermetic_blender_shares_no_probe_surface_with_the_bundled_one() {
+        let bundled_def = bundled()
+            .hosts
+            .into_iter()
+            .find(|def| def.id == "blender")
+            .expect("blender is in the bundled manifest");
+        let hermetic = unfound_blender_def();
+
+        assert!(
+            hermetic.search_roots.for_current().is_empty(),
+            "search roots would glob real install locations"
+        );
+        for bundled_name in bundled_def.executables.for_current() {
+            assert!(
+                !hermetic.executables.for_current().contains(bundled_name),
+                "{bundled_name} is a real Blender binary name; probing it makes the \
+                 test depend on whether Blender is installed"
+            );
+        }
+
+        // A populated PATH is the other way a host install leaks in.
+        let mut on_path = env_without_path();
+        on_path.path_entries = Some(vec![std::env::temp_dir()]);
+        let manifest = HostManifest {
+            version: "1".to_string(),
+            hosts: vec![hermetic],
+        };
+        assert_eq!(
+            doctor(&["blender".to_string()], &manifest, &on_path)[0].status,
+            HostStatus::Missing,
+            "the verdict must not depend on what PATH can reach"
+        );
     }
 
     /// A host that declares an executable on every platform, so probing is
