@@ -60,6 +60,61 @@ impl FromStr for RelaySourceArg {
     }
 }
 
+/// Clap argument ids of the env-backed boolean flags.
+///
+/// These are the derive-generated ids (snake_case field names), not the
+/// `--kebab-case` long flags: `ArgMatches::value_source` is keyed by id, and
+/// passing a long flag there panics.
+pub const GATEWAY_PERSIST_ID: &str = "gateway_persist";
+pub const SEMANTIC_SEARCH_ENABLED_ID: &str = "semantic_search_enabled";
+pub const NO_ADMIN_ID: &str = "no_admin";
+
+/// Environment variables backing the boolean flags above.
+pub const GATEWAY_PERSIST_ENV: &str = "DCC_MCP_GATEWAY_PERSIST";
+pub const SEMANTIC_SEARCH_ENABLED_ENV: &str = "DCC_MCP_SEMANTIC_SEARCH_ENABLED";
+pub const NO_ADMIN_ENV: &str = "DCC_MCP_NO_ADMIN";
+
+/// True when `matches` shows this flag was supplied on the command line.
+///
+/// `ValueSource::CommandLine` is the only source that means "the operator
+/// typed it": `EnvVariable` and `DefaultValue` both mean the value was
+/// inferred, and only an inferred value may be overridden by precedence.
+///
+/// Guards the [`clap::ArgMatches::value_source`] call with `try_contains_id`,
+/// because `value_source` panics on an id this `ArgMatches` does not know.
+/// That is not hypothetical: `GatewayArgs` is flattened into the `gateway`
+/// subcommand by `dcc-mcp-server`, so the ids live in the subcommand's
+/// matches, and a caller holding a different `ArgMatches` (or one from
+/// another subcommand) must get `false` rather than a panic.
+fn explicit_on_command_line(matches: &clap::ArgMatches, id: &str) -> bool {
+    matches.try_contains_id(id).unwrap_or(false)
+        && matches.value_source(id) == Some(clap::parser::ValueSource::CommandLine)
+}
+
+/// Read a `1`/`0`/`true`/`false`-style flag from the environment.
+///
+/// Mirrors the accepted inputs of clap's boolish parser *exactly*, so a value
+/// the CLI would have rejected cannot sneak in through the environment and
+/// change the effective configuration. Two consequences worth stating:
+///
+/// * No numeric fallback. `--gateway-persist=2` is rejected by clap, so
+///   `DCC_MCP_GATEWAY_PERSIST=2` reads as `false` here rather than as "any
+///   non-zero integer is true".
+/// * No trimming. clap's boolish parser rejects `" 1"`, so an untrimmed env
+///   value with stray whitespace reads as `false` too.
+///
+/// The accepted set is `1`/`0`, `true`/`false`, `yes`/`no`, `on`/`off`, and
+/// the single letters `y`/`n`/`t`/`f`, each case-insensitively.
+fn env_flag_enabled(key: &str) -> bool {
+    matches!(
+        std::env::var(key)
+            .ok()
+            .map(|raw| raw.to_ascii_lowercase())
+            .as_deref(),
+        Some("1") | Some("true") | Some("yes") | Some("on") | Some("y") | Some("t")
+    )
+}
+
 /// CLI surface for the machine-wide gateway process.
 ///
 /// The env-backed boolean flags use clap's boolish value parser: clap's
@@ -68,6 +123,12 @@ impl FromStr for RelaySourceArg {
 /// startup with `invalid value '1'` (issue dcc-mcp-core#2642). The boolish
 /// parser accepts `1`/`0`, `true`/`false`, `yes`/`no` and `on`/`off`, which
 /// is what `build_gateway_config` and `docs/guide/gateway.md` already assume.
+///
+/// The boolish parser fixes *parsing*, not *precedence*. An explicit
+/// `--gateway-persist=false` must still beat `DCC_MCP_GATEWAY_PERSIST=1`,
+/// which is why [`GatewayArgs::note_value_sources`] records the
+/// `ArgMatches` value source and the effective-value helpers below consult it
+/// instead of OR-ing the parsed flag with the raw environment.
 #[derive(Debug, Args, Clone)]
 pub struct GatewayArgs {
     /// Gateway host/interface to bind.
@@ -201,9 +262,148 @@ pub struct GatewayArgs {
     /// Prints the new PID, crate version, and log directory on success.
     #[arg(long, default_value = "false")]
     pub restart: bool,
+
+    // ── Value-source bookkeeping ──────────────────────────────────────────
+    // Populated by [`GatewayArgs::note_value_sources`], never by clap. They
+    // exist because a resolved `false` cannot be distinguished from "not
+    // supplied" by looking at the value alone, and an explicit CLI `false`
+    // must win over an inherited env `true`.
+    /// True when `--gateway-persist` was supplied on the command line.
+    #[arg(skip)]
+    pub gateway_persist_explicit: bool,
+
+    /// True when `--semantic-search-enabled` was supplied on the command line.
+    #[arg(skip)]
+    pub semantic_search_enabled_explicit: bool,
+
+    /// True when `--no-admin` was supplied on the command line.
+    #[arg(skip)]
+    pub no_admin_explicit: bool,
 }
 
 impl GatewayArgs {
+    /// The defaults clap would apply with no argv and no environment.
+    ///
+    /// Written out literally rather than derived by running the clap command
+    /// over an empty argv: several fields read an `env` variable, so a
+    /// parse-based default could **fail** on a malformed value (say
+    /// `DCC_MCP_GATEWAY_PORT=not-a-port`, where `port` is a `u16`). Rust
+    /// callers assume `Default::default()` cannot panic, and this value also
+    /// has to stay stable regardless of whatever the host exported.
+    ///
+    /// The trade-off is that these literals must be kept in step with the
+    /// `#[arg(default_value = ...)]` attributes above; [`gateway_defaults_match_clap`]
+    /// pins them from the test side.
+    fn clap_defaults() -> Self {
+        Self {
+            host: "127.0.0.1".to_string(),
+            port: 9765,
+            name: None,
+            remote_host: "127.0.0.1".to_string(),
+            remote_port: 59765,
+            registry_dir: None,
+            no_admin: false,
+            admin_path: "/admin".to_string(),
+            stale_timeout_secs: 30,
+            #[cfg(feature = "mdns")]
+            discover_mdns: false,
+            relay_sources: Vec::new(),
+            gateway_persist: false,
+            gateway_idle_timeout_secs: None,
+            semantic_search_enabled: false,
+            daemon: false,
+            pidfile: None,
+            restart: false,
+            gateway_persist_explicit: false,
+            semantic_search_enabled_explicit: false,
+            no_admin_explicit: false,
+        }
+    }
+}
+
+impl Default for GatewayArgs {
+    /// Constructs a `GatewayArgs` with clap's own defaults for the parsed
+    /// fields and "nothing supplied" for the value-source bookkeeping.
+    ///
+    /// Handy in tests and for embedders that build the struct directly: they
+    /// spread `..GatewayArgs::default()` instead of enumerating the
+    /// bookkeeping fields, which are never set by clap.
+    fn default() -> Self {
+        Self::clap_defaults()
+    }
+}
+
+impl GatewayArgs {
+    /// Record which value source last satisfied each env-backed boolean flag.
+    ///
+    /// Clap resolves `env` + `default_value` before this point, so by the time
+    /// the derive struct exists a `false` is ambiguous: the operator may have
+    /// typed `--gateway-persist=false` or said nothing at all. Only the
+    /// `ArgMatches` value source can tell those apart, and it is what makes an
+    /// explicit CLI `false` win over a `true` inherited from the environment
+    /// (issue dcc-mcp-core#2642 follow-up).
+    ///
+    /// The `&mut self` receiver only writes bookkeeping fields; every field it
+    /// touches is also directly settable, so callers that construct
+    /// `GatewayArgs` by hand (tests, embedders) keep their values.
+    pub fn note_value_sources(&mut self, matches: &clap::ArgMatches) {
+        self.gateway_persist_explicit = explicit_on_command_line(matches, GATEWAY_PERSIST_ID);
+        self.semantic_search_enabled_explicit =
+            explicit_on_command_line(matches, SEMANTIC_SEARCH_ENABLED_ID);
+        self.no_admin_explicit = explicit_on_command_line(matches, NO_ADMIN_ID);
+    }
+
+    /// Did the operator type this flag explicitly on the command line?
+    ///
+    /// Unknown ids return `false`, which is the conservative reading: a flag
+    /// we cannot attribute is treated as "not explicitly supplied", so the
+    /// derived value (and therefore the env var) still applies.
+    pub fn explicitly_supplied(&self, id: &str) -> bool {
+        match id {
+            GATEWAY_PERSIST_ID => self.gateway_persist_explicit,
+            SEMANTIC_SEARCH_ENABLED_ID => self.semantic_search_enabled_explicit,
+            NO_ADMIN_ID => self.no_admin_explicit,
+            _ => false,
+        }
+    }
+
+    /// Resolve the effective gateway persist flag.
+    ///
+    /// Precedence: an explicit CLI value beats `DCC_MCP_GATEWAY_PERSIST`;
+    /// otherwise the env-var/default value clap already resolved wins. The
+    /// former `args.gateway_persist || env == "1"` made an explicit
+    /// `--gateway-persist=false` unreachable whenever the variable was set to
+    /// `1` in the host environment.
+    pub fn effective_gateway_persist(&self) -> bool {
+        if self.gateway_persist_explicit {
+            self.gateway_persist
+        } else {
+            self.gateway_persist || env_flag_enabled(GATEWAY_PERSIST_ENV)
+        }
+    }
+
+    /// Resolve the effective semantic-search flag, using the same
+    /// explicit-CLI-wins precedence as [`Self::effective_gateway_persist`].
+    pub fn effective_semantic_search_enabled(&self) -> bool {
+        if self.semantic_search_enabled_explicit {
+            self.semantic_search_enabled
+        } else {
+            self.semantic_search_enabled || env_flag_enabled(SEMANTIC_SEARCH_ENABLED_ENV)
+        }
+    }
+
+    /// Resolve the effective admin-disable flag.
+    ///
+    /// Explicit CLI values win over the environment. Programmatic callers
+    /// retain the same env fallback as the other gateway boolean helpers.
+    pub fn effective_no_admin(&self) -> bool {
+        if self.no_admin_explicit {
+            self.no_admin
+        } else {
+            self.no_admin || env_flag_enabled(NO_ADMIN_ENV)
+        }
+    }
+
     /// Effective idle timeout in seconds.
     ///
     /// `None` means the operator supplied neither `--gateway-idle-timeout-secs`
@@ -286,65 +486,7 @@ async fn restart_spawn_new(args: &GatewayArgs) -> anyhow::Result<()> {
     let exe = std::env::current_exe()
         .map_err(|e| anyhow::anyhow!("cannot resolve current executable: {e}"))?;
 
-    // Build the CLI args for the child: `gateway --host ... --daemon --pidfile ...`
-    // The child will daemonize itself (DCC_MCP__DAEMONIZED=1).
-    let mut child_args: Vec<std::ffi::OsString> = Vec::new();
-    child_args.push(std::ffi::OsString::from("gateway"));
-    push_arg(&mut child_args, "--host", &args.host);
-    push_arg(&mut child_args, "--port", &args.port.to_string());
-    if let Some(ref name) = args.name {
-        child_args.push(std::ffi::OsString::from("--name"));
-        child_args.push(std::ffi::OsString::from(name));
-    }
-    push_arg(&mut child_args, "--remote-host", &args.remote_host);
-    push_arg(
-        &mut child_args,
-        "--remote-port",
-        &args.remote_port.to_string(),
-    );
-    if args.no_admin {
-        child_args.push(std::ffi::OsString::from("--no-admin"));
-    }
-    if args.admin_path != "/admin" {
-        child_args.push(std::ffi::OsString::from("--admin-path"));
-        child_args.push(std::ffi::OsString::from(&args.admin_path));
-    }
-    if let Some(ref dir) = args.registry_dir {
-        child_args.push(std::ffi::OsString::from("--registry-dir"));
-        child_args.push(std::ffi::OsString::from(dir.as_os_str()));
-    }
-    if args.gateway_persist {
-        child_args.push(std::ffi::OsString::from("--gateway-persist"));
-    }
-    // Forward the flag only when it was actually supplied. Comparing the
-    // *value* against the default (the old `!= 30`) conflated an explicit
-    // `--gateway-idle-timeout-secs 30` with "not supplied" and silently
-    // dropped the operator's choice.
-    if let Some(idle_timeout) = args.gateway_idle_timeout_secs {
-        push_arg(
-            &mut child_args,
-            "--gateway-idle-timeout-secs",
-            &idle_timeout.to_string(),
-        );
-    }
-    child_args.push(std::ffi::OsString::from("--daemon"));
-    if let Some(ref pidfile) = args.pidfile {
-        child_args.push(std::ffi::OsString::from("--pidfile"));
-        child_args.push(std::ffi::OsString::from(pidfile.as_os_str()));
-    }
-    #[cfg(feature = "mdns")]
-    {
-        if args.discover_mdns {
-            child_args.push(std::ffi::OsString::from("--discover-mdns"));
-        }
-    }
-    for rs in &args.relay_sources {
-        child_args.push(std::ffi::OsString::from("--relay-source"));
-        child_args.push(std::ffi::OsString::from(format!(
-            "{}={}",
-            rs.0.admin_url, rs.0.public_base_url
-        )));
-    }
+    let child_args = restart_child_args(args);
 
     // Re-read pidfile after child daemonizes (child writes its new PID).
     let pidfile_path = args.pidfile.as_deref().unwrap(); // guaranteed Some by caller
@@ -382,6 +524,83 @@ async fn restart_spawn_new(args: &GatewayArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Preserve the resolved gateway configuration across the restart process boundary.
+/// `--restart` is deliberately omitted; the replacement only daemonizes.
+fn restart_child_args(args: &GatewayArgs) -> Vec<std::ffi::OsString> {
+    let mut child_args: Vec<std::ffi::OsString> = Vec::new();
+    child_args.push(std::ffi::OsString::from("gateway"));
+    push_arg(&mut child_args, "--host", &args.host);
+    push_arg(&mut child_args, "--port", &args.port.to_string());
+    if let Some(ref name) = args.name {
+        child_args.push(std::ffi::OsString::from("--name"));
+        child_args.push(std::ffi::OsString::from(name));
+    }
+    push_arg(&mut child_args, "--remote-host", &args.remote_host);
+    push_arg(
+        &mut child_args,
+        "--remote-port",
+        &args.remote_port.to_string(),
+    );
+    // Forward the effective values, including false. The child inherits the
+    // environment, so omitting a false flag revives an overridden env value.
+    push_arg(
+        &mut child_args,
+        "--no-admin",
+        &args.effective_no_admin().to_string(),
+    );
+    push_arg(&mut child_args, "--admin-path", &args.admin_path);
+    push_arg(
+        &mut child_args,
+        "--stale-timeout-secs",
+        &args.stale_timeout_secs.to_string(),
+    );
+    if let Some(ref dir) = args.registry_dir {
+        child_args.push(std::ffi::OsString::from("--registry-dir"));
+        child_args.push(std::ffi::OsString::from(dir.as_os_str()));
+    }
+    push_arg(
+        &mut child_args,
+        "--gateway-persist",
+        &args.effective_gateway_persist().to_string(),
+    );
+    push_arg(
+        &mut child_args,
+        "--semantic-search-enabled",
+        &args.effective_semantic_search_enabled().to_string(),
+    );
+    // Forward the flag only when it was actually supplied. Comparing the
+    // *value* against the default (the old `!= 30`) conflated an explicit
+    // `--gateway-idle-timeout-secs 30` with "not supplied" and silently
+    // dropped the operator's choice.
+    if let Some(idle_timeout) = args.gateway_idle_timeout_secs {
+        push_arg(
+            &mut child_args,
+            "--gateway-idle-timeout-secs",
+            &idle_timeout.to_string(),
+        );
+    }
+    child_args.push(std::ffi::OsString::from("--daemon"));
+    if let Some(ref pidfile) = args.pidfile {
+        child_args.push(std::ffi::OsString::from("--pidfile"));
+        child_args.push(std::ffi::OsString::from(pidfile.as_os_str()));
+    }
+    #[cfg(feature = "mdns")]
+    push_arg(
+        &mut child_args,
+        "--discover-mdns",
+        &args.discover_mdns.to_string(),
+    );
+    for rs in &args.relay_sources {
+        child_args.push(std::ffi::OsString::from("--relay-source"));
+        child_args.push(std::ffi::OsString::from(format!(
+            "{}={}",
+            rs.0.admin_url, rs.0.public_base_url
+        )));
+    }
+
+    child_args
+}
+
 /// Push a `--flag` and its value.
 fn push_arg(args: &mut Vec<std::ffi::OsString>, flag: &str, value: &str) {
     args.push(std::ffi::OsString::from(flag));
@@ -416,24 +635,16 @@ pub fn build_gateway_config(args: &GatewayArgs, gateway_name: &str) -> GatewayCo
             .iter()
             .map(|source| source.0.clone())
             .collect(),
-        admin_enabled: !args.no_admin,
+        admin_enabled: !args.effective_no_admin(),
         admin_path: args.admin_path.clone(),
         admin_persist: AdminPersistConfig {
             sqlite_path: std::env::var_os("DCC_MCP_GATEWAY_ADMIN_DB").map(PathBuf::from),
             sqlite_retention_days: admin_retention,
             ..AdminPersistConfig::default()
         },
-        gateway_persist: args.gateway_persist
-            || std::env::var("DCC_MCP_GATEWAY_PERSIST")
-                .ok()
-                .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-                .unwrap_or(false),
+        gateway_persist: args.effective_gateway_persist(),
         gateway_idle_timeout_secs: args.gateway_idle_timeout_secs(),
-        semantic_search_enabled: args.semantic_search_enabled
-            || std::env::var("DCC_MCP_SEMANTIC_SEARCH_ENABLED")
-                .ok()
-                .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-                .unwrap_or(false),
+        semantic_search_enabled: args.effective_semantic_search_enabled(),
         ..GatewayConfig::default()
     }
 }
@@ -466,11 +677,7 @@ pub async fn run(args: GatewayArgs) -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let gateway_persist = args.gateway_persist
-        || std::env::var("DCC_MCP_GATEWAY_PERSIST")
-            .ok()
-            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-            .unwrap_or(false);
+    let gateway_persist = args.effective_gateway_persist();
     let gateway_idle_timeout_secs = args.gateway_idle_timeout_secs();
 
     tracing::info!(
@@ -634,6 +841,9 @@ fn default_gateway_name() -> String {
 }
 
 #[cfg(test)]
+mod restart_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use clap::Parser as _;
@@ -673,6 +883,7 @@ mod tests {
             daemon: false,
             pidfile: None,
             restart: false,
+            ..Default::default()
         };
 
         let cfg = build_gateway_config(&args, "relay-source-test");
@@ -817,6 +1028,7 @@ mod tests {
             daemon: false,
             pidfile: None,
             restart: false,
+            ..Default::default()
         };
         let cfg = build_gateway_config(&args, args.name.as_deref().unwrap());
         assert_eq!(
@@ -877,6 +1089,7 @@ mod tests {
             daemon: false,
             pidfile: None,
             restart: false,
+            ..Default::default()
         };
         let cfg = build_gateway_config(&args, args.name.as_deref().unwrap());
         let runner = GatewayRunner::new(cfg).expect("creating GatewayRunner");
@@ -957,6 +1170,7 @@ mod tests {
             daemon: false,
             pidfile: None,
             restart: false,
+            ..Default::default()
         };
         assert!(!args.restart, "restart flag must default to false");
     }
@@ -982,6 +1196,7 @@ mod tests {
             daemon: false,
             pidfile: Some(std::path::PathBuf::from("/tmp/gw.pid")),
             restart: false,
+            ..Default::default()
         };
         args.restart = true;
         assert!(args.restart);
@@ -1009,6 +1224,7 @@ mod tests {
             daemon: true,
             pidfile: None, // no pidfile → restart must fail
             restart: true,
+            ..Default::default()
         };
         let result = restart_gateway(&args).await;
         assert!(result.is_err(), "restart without --pidfile must fail");
@@ -1051,6 +1267,7 @@ mod tests {
             daemon: false,
             pidfile: None,
             restart: false,
+            ..Default::default()
         }
     }
 

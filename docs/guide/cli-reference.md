@@ -708,6 +708,12 @@ The env-backed boolean flags (`--daemon`, `--no-admin`, `--gateway-persist`,
 through the environment variable, so `DCC_MCP_GATEWAY_PERSIST=1` is equivalent
 to `--gateway-persist`.
 
+The same spellings work for the server-level boolean flags that read an
+environment variable: `--legacy-gateway-election`, `--no-admin`,
+`--no-log-file`, and `--advertise-mdns`. An explicit command-line value always
+wins over the environment, so `--gateway-persist=false` turns persist mode off
+even when `DCC_MCP_GATEWAY_PERSIST=1` is set in the host environment.
+
 ### Translate flags (`dcc-mcp-server translate`)
 
 | Flag | Env | Default | Meaning |

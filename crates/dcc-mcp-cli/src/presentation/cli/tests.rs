@@ -1395,5 +1395,6 @@ fn default_gateway_daemon_args() -> dcc_mcp_sidecar::gateway_daemon::GatewayArgs
         daemon: false,
         pidfile: None,
         restart: false,
+        ..Default::default()
     }
 }

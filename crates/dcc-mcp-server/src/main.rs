@@ -72,6 +72,10 @@ use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::time::Duration;
 
+// `main_tests` parses argv through `use super::*`, so the trait has to be in
+// scope for the test target even though the binary itself no longer calls
+// `Args::parse` directly.
+#[cfg_attr(not(test), allow(unused_imports))]
 use clap::Parser;
 use cli::{Args, CatalogAction, ServerArgs, SubCmd};
 use dcc_mcp_actions::{ToolDispatcher, ToolRegistry};
@@ -723,7 +727,7 @@ async fn async_main() -> anyhow::Result<()> {
     #[cfg(feature = "sentry")]
     let _sentry_guard = sentry_init::init_sentry();
 
-    let args = Args::parse();
+    let args = Args::parse_annotated();
 
     // ── Dispatch to subcommands ───────────────────────────────────────────
     // Extract values needed by the Update subcommand before the match
