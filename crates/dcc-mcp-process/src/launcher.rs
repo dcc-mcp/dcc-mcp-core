@@ -408,7 +408,7 @@ mod tests {
             // Use a cross-platform trivial command that exits quickly.
             let (executable, args): (&str, &[&str]) = core::cfg_select! {
                 windows => ("cmd", &["/C", "timeout /T 5 /NOBREAK > nul"]),
-                _ => ("sh", &["-c", "sleep 5"]),
+                _ => ("sh", &["-c", "exec sleep 5"]),
             };
 
             let mut cfg = DccProcessConfig::new("test-echo", executable);
@@ -471,7 +471,7 @@ mod tests {
                     vec![
                         "-c".to_string(),
                         format!(
-                            "printf '%s\\n%s\\n' \"${ENV_KEY}\" \"$PWD\" > child.txt; cd \"$DCC_MCP_PROCESS_TEST_RELEASE_CWD\"; printf ready > \"$DCC_MCP_PROCESS_TEST_READY\"; sleep 30"
+                            "printf '%s\\n%s\\n' \"${ENV_KEY}\" \"$PWD\" > child.txt; cd \"$DCC_MCP_PROCESS_TEST_RELEASE_CWD\"; printf ready > \"$DCC_MCP_PROCESS_TEST_READY\"; exec sleep 30"
                         ),
                     ],
                 ),

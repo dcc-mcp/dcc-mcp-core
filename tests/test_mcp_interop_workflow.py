@@ -22,7 +22,28 @@ def test_modern_sdk_gate_is_explicit_bounded_and_keeps_normal_rust_tests():
     for target in ["stateless_response_contract", "stateless_request_boundary", "stateless_param_headers"]:
         assert f"--test {target}" in step
     assert "continue-on-error" not in step
-    assert "run: vx just test-rust" in job
+    rust_tests = re.search(r"(?ms)^      - name: Rust tests\n(.*?)(?=^      - |\Z)", job)
+    assert rust_tests is not None, "the normal Rust test gate must remain a separate step"
+    rust_tests = rust_tests.group(1)
+    assert "if: matrix.rust-validation == 'full'" in rust_tests
+    assert "shell: bash" in rust_tests
+    assert "set -o pipefail" in rust_tests
+    assert re.search(r"(?m)^\s+vx just test-rust 2>&1 \| tee rust-test-results\.log$", rust_tests)
+    assert "continue-on-error" not in rust_tests
+
+
+def test_rust_terminal_diagnostics_preserve_names_without_enabling_success_output():
+    workflow = (REPO_ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    step = re.search(r"(?ms)^      - name: Rust tests\n(.*?)(?=^      - |\Z)", workflow).group(1)
+    assert "NEXTEST_FINAL_STATUS_LEVEL: all" in step
+    assert "NEXTEST_SUCCESS_OUTPUT" not in step
+    assert "NEXTEST_RETRIES" not in step
+    artifact = re.search(
+        r"(?ms)^      - name: Upload Rust test diagnostics\n(.*?)(?=^      - |\Z)", workflow
+    ).group(1)
+    assert "if: always() && matrix.rust-validation == 'full'" in artifact
+    assert "path: rust-test-results.log" in artifact
+    assert "retention-days: 14" in artifact
 
 
 def test_parameter_sdk_script_has_bounded_deadline_and_pinned_public_client():
