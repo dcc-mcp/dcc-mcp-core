@@ -153,19 +153,23 @@ jobs:
         with:
           name: admin-ui-bundle
           path: crates/dcc-mcp-gateway-admin/src/generated/index.html
+      - name: Test Admin UI units
+        working-directory: admin-ui
+        run: vx npm run test:unit -- --maxWorkers=2
       - name: Install Admin UI test browser
         working-directory: admin-ui
         run: vx npm exec -- playwright install --with-deps chromium
-      # These cases exercise the real browser with deterministic API fixtures.
-      # They validate UI interactions, not the live gateway/backend integration.
-      - name: Test Skills state in Chromium
+      # Real Chromium against deterministic API fixtures: UI acceptance, not
+      # live gateway/backend integration coverage.
+      - name: Test Admin UI in Chromium
         working-directory: admin-ui
-        run: vx npm test -- skill-state.spec.ts --project=chromium --reporter=line,html
-      - name: Upload Skills browser evidence
+        timeout-minutes: 20
+        run: vx npm test -- --project=chromium --reporter=line,html
+      - name: Upload Admin UI browser evidence
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
-          name: admin-ui-skill-state-browser
+          name: admin-ui-dashboard-browser
           path: |
             admin-ui/playwright-report/
             admin-ui/test-results/

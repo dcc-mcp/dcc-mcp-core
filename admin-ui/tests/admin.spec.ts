@@ -623,7 +623,7 @@ test.describe('Admin Page', () => {
     await expect(page.locator('.trace-detail-panel')).toContainText('cursor / windows / workstation-7');
     await expect(page.locator('.trace-detail-panel')).toContainText('192.0.2.44');
     await expect(page.locator('.trace-detail-panel')).toContainText('trusted_proxy');
-    await page.locator('.trace-raw-context > summary').click();
+    await page.locator('.agent-context-card .trace-raw-context > summary').click();
     await expect(page.locator('.caller-context-pre')).toContainText('"auth_subject": "user:artist-1"');
     await expect(page.locator('.caller-context-pre')).toContainText('"auth_subject": "auth"');
   });

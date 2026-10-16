@@ -97,3 +97,50 @@ describe('LogsPanel', () => {
     expect(container).not.toHaveTextContent('undefined');
   });
 });
+
+describe('LogsPanel live refresh', () => {
+  it('preserves an expanded gateway entry when a newer log is prepended', () => {
+    const original = rows[2];
+    const newer = { ...original, timestamp: '2026-10-15T12:00:05Z', message: 'New event' };
+    const { container, rerender } = render(<LogsPanel {...props} logs={[original]} filteredLogs={[original]} />);
+    const entry = container.querySelector<HTMLDetailsElement>('.log-entry')!;
+    fireEvent.click(entry.querySelector('summary')!);
+    expect(entry.open).toBe(true);
+
+    rerender(<LogsPanel {...props} logs={[newer, original]} filteredLogs={[newer, original]} />);
+    const retained = Array.from(container.querySelectorAll<HTMLDetailsElement>('.log-entry'))
+      .find((item) => item.textContent?.includes(original.message))!;
+    expect(retained).toBe(entry);
+    expect(retained.open).toBe(true);
+  });
+
+  it('preserves an expanded request step when the older log leaves the poll window', () => {
+    const { container, rerender } = render(<LogsPanel {...props} />);
+    const request = container.querySelector<HTMLDetailsElement>('.log-request')!;
+    fireEvent.click(request.querySelector('summary')!);
+    const step = Array.from(request.querySelectorAll<HTMLDetailsElement>('.log-entry'))
+      .find((item) => item.textContent?.includes(rows[0].message))!;
+    fireEvent.click(step.querySelector('summary')!);
+    expect(step.open).toBe(true);
+
+    rerender(<LogsPanel {...props} logs={[rows[0], rows[2]]} filteredLogs={[rows[0], rows[2]]} />);
+    const retained = container.querySelector<HTMLDetailsElement>('.log-request .log-entry')!;
+    expect(retained).toBe(step);
+    expect(retained.open).toBe(true);
+    expect(retained.querySelector('summary')).toHaveTextContent('Step 1: tools/call');
+  });
+
+  it('keeps identical log occurrences distinct across a prepend', () => {
+    const original = rows[2];
+    const newer = { ...original, timestamp: '2026-10-15T12:00:05Z', message: 'New event' };
+    const { container, rerender } = render(<LogsPanel {...props} logs={[original, original]} filteredLogs={[original, original]} />);
+    const second = container.querySelectorAll<HTMLDetailsElement>('.log-entry')[1];
+    fireEvent.click(second.querySelector('summary')!);
+    rerender(<LogsPanel {...props} logs={[newer, original, original]} filteredLogs={[newer, original, original]} />);
+    const entries = container.querySelectorAll<HTMLDetailsElement>('.log-entry');
+    expect(entries).toHaveLength(3);
+    expect(entries[1].open).toBe(false);
+    expect(entries[2]).toBe(second);
+    expect(entries[2].open).toBe(true);
+  });
+});

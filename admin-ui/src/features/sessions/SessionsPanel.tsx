@@ -25,50 +25,8 @@ import { useQuery } from '@tanstack/react-query';
 import type { Translator } from '../../admin-types';
 import type { MessageKey } from '../../i18n';
 import type { SessionsTab } from '../../navigation';
+import { normalizeSessionsPayload, type SessionRow, type SessionStatus, type SessionsApiPayload } from './session-data';
 import './sessions.css';
-
-// ── types ──────────────────────────────────────────────────────────────────
-
-type SessionStatus =
-  | 'active'
-  | 'ended'
-  | 'interrupted'
-  | 'disconnected'
-  | 'crashed'
-  | 'gpu_crashed'
-  | 'timed_out'
-  | 'cancelled'
-  | 'thread_affinity_failure'
-  | 'unknown';
-
-type SessionRow = {
-  session_id: string;
-  parent_session_id?: string | null;
-  dcc_type?: string | null;
-  instance_id?: string | null;
-  status: SessionStatus;
-  started_at: string;
-  ended_at?: string | null;
-  duration_ms?: number | null;
-  end_reason?: string | null;
-  turn_count: number;
-  tool_call_count: number;
-  version?: string | null;
-  agent_name?: string | null;
-  actor_name?: string | null;
-};
-
-type SessionsPayload = {
-  sessions: SessionRow[];
-  total: number;
-  kpi: {
-    total: number;
-    active: number;
-    ended: number;
-    crashed: number;
-    by_dcc: Record<string, number>;
-  };
-};
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -186,7 +144,7 @@ export function SessionsPanel({
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['admin', 'sessions'],
-    queryFn: () => apiJson<SessionsPayload>(`/sessions`),
+    queryFn: async () => normalizeSessionsPayload(await apiJson<SessionsApiPayload>('/sessions')),
     enabled: active,
     refetchInterval: active ? POLL_INTERVAL_MS : false,
   });
@@ -386,7 +344,7 @@ export function SessionsPanel({
                     </td>
                     <td className="session-activity">
                       <span>{s.tool_call_count} {t('sessions.label.toolCalls')}</span>
-                      <small>{s.turn_count} {t('sessions.label.turns')}</small>
+                      <small>{s.turn_count ?? '—'} {t('sessions.label.turns')}</small>
                     </td>
                     <td className="session-time">
                       <time dateTime={startedAt} title={formatTime(startedAt)}>{formatTime(startedAt)}</time>
@@ -423,7 +381,7 @@ export function SessionsPanel({
                           </span>
                           <span>
                             <strong>{t('sessions.label.turns')}</strong>
-                            {s.turn_count}
+                            {s.turn_count ?? '—'}
                           </span>
                           <span>
                             <strong>{t('sessions.label.startTime')}</strong>
