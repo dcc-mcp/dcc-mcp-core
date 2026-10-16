@@ -12,17 +12,19 @@ async function navigate(page: Page, name: string) {
   }
 }
 
-async function evidence(page: Page, testInfo: TestInfo, name: string, sheet = false) {
+async function evidence(page: Page, testInfo: TestInfo, name: string, viewportOnly = false) {
   const path = testInfo.outputPath(`${name}.png`);
-  // Fixed sheets must be captured at viewport size; lists use full-page output.
-  await page.screenshot({ path, fullPage: !sheet });
+  // Fixed sheets and scrolled trace evidence need actual viewport captures.
+  // Long inventories use full-page output only before interaction scrolls them.
+  await page.screenshot({ path, fullPage: !viewportOnly });
   await testInfo.attach(name, { path, contentType: 'image/png' });
 }
 
-async function expectSheet(page: Page, dialog: Locator) {
+async function expectSheet(page: Page, dialog: Locator, exerciseKeyboard = true) {
   await expect(dialog).toBeVisible();
   await expect(dialog).toBeInViewport({ ratio: 1 });
   await expect(dialog.getByRole('button', { name: 'Close', exact: true })).toBeInViewport();
+  if (!exerciseKeyboard) return;
   // Check keyboard containment in both directions, including wrap-around.
   for (let index = 0; index < 12; index += 1) {
     await page.keyboard.press(index < 6 ? 'Tab' : 'Shift+Tab');
@@ -61,6 +63,16 @@ for (const width of [390, 1440]) {
     test('all four navigation groups remain reachable through browser history', async ({ page }, testInfo) => {
       await page.goto('/admin/?panel=instances');
       await expect(page.locator('.instances-panel')).toBeVisible();
+      await expect(page.locator('.instance-link-groups a')).toHaveCount(12);
+      const clippedLinks = await page.locator('.instance-link-groups > span').evaluateAll((groups) => groups.some((group) => {
+        const bounds = group.getBoundingClientRect();
+        return bounds.right > document.documentElement.clientWidth + 1
+          || Array.from(group.querySelectorAll('a')).some((link) => {
+            const rect = link.getBoundingClientRect();
+            return rect.left < bounds.left - 1 || rect.right > bounds.right + 1;
+          });
+      }));
+      expect(clippedLinks).toBe(false);
       if (width > 760) {
         await expect(page.locator('.nav-section-title')).toHaveText(['Runtime', 'Extensions', 'Execution', 'Observability']);
         await expect(page.locator('.nav-links .nav-link')).toHaveCount(20);
@@ -98,12 +110,27 @@ for (const width of [390, 1440]) {
       await navigate(page, 'Skills');
       const opener = page.getByRole('button', { name: 'Open maya-modeling detail', exact: true });
       await expect(opener).toBeVisible();
+      const sources = page.locator('.skill-path-table-wrap .source-pill');
+      await expect(sources).toHaveCount(2);
+      expect(await sources.evaluateAll((badges) => badges.some((badge) => badge.scrollHeight > badge.clientHeight + 1))).toBe(false);
       await evidence(page, testInfo, 'skills-inventory');
       await opener.click();
       const dialog = page.getByRole('dialog', { name: 'maya-modeling', exact: true });
-      await expectSheet(page, dialog);
+      await expectSheet(page, dialog, false);
       await expect(dialog.locator('.skill-detail-path')).toContainText('SKILL.md');
-      await evidence(page, testInfo, 'skill-detail-sheet', true);
+      await evidence(page, testInfo, 'skill-detail-initial', true);
+      await expectSheet(page, dialog);
+      await dialog.evaluate((node) => { node.scrollTop = 180; });
+      if (width === 390) await expect.poll(() => dialog.evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
+      await expect.poll(() => dialog.evaluate((node) => {
+        const bounds = node.getBoundingClientRect();
+        const heading = node.querySelector('.skill-detail-heading')!;
+        const headingBounds = heading.getBoundingClientRect();
+        const hit = document.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + 2);
+        return headingBounds.top <= bounds.top + 1 && Boolean(hit?.closest('.skill-detail-heading'));
+      })).toBe(true);
+      await expect(dialog.getByRole('button', { name: 'Close', exact: true })).toBeInViewport();
+      await evidence(page, testInfo, 'skill-detail-scrolled', true);
       await page.keyboard.press('Escape');
       await expect(dialog).toBeHidden();
       await expect(opener).toBeFocused();
@@ -192,6 +219,10 @@ for (const width of [390, 1440]) {
       await expect(page).toHaveURL(/trace=req-123/);
       const detail = page.locator('.trace-detail-panel');
       await expect(detail).toContainText('Scene Builder');
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await detail.locator('.trace-run-header').scrollIntoViewIfNeeded();
+      await expect(detail.locator('.trace-run-header')).toBeInViewport({ ratio: 1 });
+      await evidence(page, testInfo, 'trace-overview-viewport', true);
       const steps = detail.locator('.span-row');
       await expect(steps).toHaveCount(1);
       await detail.getByRole('searchbox', { name: 'Search steps' }).fill('missing-step');
@@ -210,7 +241,15 @@ for (const width of [390, 1440]) {
       await expect(detail.locator('.trace-payload-section').first().locator('pre')).toContainText('"radius":1');
       await detail.locator('.trace-record-section > summary').click();
       await expect(detail.locator('.trace-record-grid').first()).toContainText('req-123');
-      await evidence(page, testInfo, 'trace-expanded');
+      await detail.locator('.trace-record-section .trace-raw-context > summary').click();
+      const rawRecord = detail.locator('.trace-record-section .trace-raw-context pre');
+      await expect(rawRecord).toContainText('req-123');
+      await rawRecord.scrollIntoViewIfNeeded();
+      if (width === 390) {
+        await expect(page.locator('.workspace-bar')).toBeInViewport();
+        expect(await page.locator('.workspace-bar').evaluate((node) => Math.abs(node.getBoundingClientRect().top))).toBeLessThanOrEqual(1);
+      }
+      await evidence(page, testInfo, 'trace-evidence-viewport', true);
       await page.goBack();
       await expect(page.locator('.tasks-panel')).toBeVisible();
       await page.goForward();

@@ -2282,7 +2282,7 @@ tbody tr:hover td {
   gap: 0.16rem;
   min-height: 3.0rem;
   min-width: 0;
-  padding: 0.45rem 0.55rem;
+  padding: 0.4rem 0.55rem;
 }
 
 .instance-detail-item.wide {
@@ -2325,6 +2325,13 @@ tbody tr:hover td {
   min-height: 3.45rem;
   min-width: 0;
   padding: 0.45rem 0.55rem;
+}
+
+.instance-link-groups .mcp-backend-links {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  text-align: left;
+  white-space: normal;
 }
 
 .instance-update-cell {

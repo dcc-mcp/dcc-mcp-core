@@ -76,6 +76,8 @@
 
 .skill-paths-panel .source-pill,
 .skill-paths-panel .skill-adoption-badge {
+  height: auto;
+  min-height: 1.25rem;
   overflow-wrap: anywhere;
   white-space: normal;
 }

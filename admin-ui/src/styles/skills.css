@@ -384,6 +384,11 @@
   border-left-color: transparent !important;
 }
 
+.detail-dialog-content.skill-detail-modal {
+  --skill-detail-inset: 24px;
+  padding: var(--skill-detail-inset);
+}
+
 .skill-detail-modal .skill-detail-panel {
   background: transparent;
   border: 0;
@@ -395,9 +400,9 @@
 
 .skill-detail-modal .skill-detail-heading {
   position: sticky;
-  top: 0;
-  padding: 0 0 16px;
-  margin: 0 0 16px;
+  top: calc(-1 * var(--skill-detail-inset));
+  padding: var(--skill-detail-inset) 0 16px;
+  margin: calc(-1 * var(--skill-detail-inset)) 0 16px;
   background: var(--card);
   border-bottom: 1px solid var(--border);
   z-index: 1;
@@ -432,8 +437,8 @@
   .skill-card-surface {
     padding: 14px 14px;
   }
-  .skill-detail-modal {
+  .detail-dialog-content.skill-detail-modal {
+    --skill-detail-inset: 18px;
     width: 100%;
-    padding: 18px 18px 24px;
   }
 }
