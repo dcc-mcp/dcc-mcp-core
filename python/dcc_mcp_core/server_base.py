@@ -194,7 +194,9 @@ class DccServerBase:
         self._init_job_persistence(options.dcc_name)
 
         # Create the inner skill manager (embedded _core or sidecar binary).
-        self._server: Any = create_adapter_server(options.dcc_name, self._config, options)
+        self._server: Any = create_adapter_server(
+            options.dcc_name, self._config, options, gateway_managed_by_adapter=True
+        )
         self._host_error_capture = self._get_observability().init_host_error_capture(
             core_version=_package_version(),
             adapter_version=options.sidecar.adapter_version,

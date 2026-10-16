@@ -243,3 +243,26 @@ fn healthy_gateway_without_registry_sentinel_coexists() {
     // /health probe must run as a plain DCC instance, not challenger mode.
     assert_eq!(challenger_reason(ResidentGatewayHealth::Healthy), None);
 }
+
+#[tokio::test]
+async fn remote_listener_zero_never_binds_even_with_wildcard_intent() {
+    for host in [
+        None,
+        Some("127.0.0.1".to_string()),
+        Some("0.0.0.0".to_string()),
+    ] {
+        assert!(bind_remote_gateway_listener(host, 0).await.is_none());
+    }
+}
+
+#[tokio::test]
+async fn remote_listener_port_only_opt_in_binds_loopback() {
+    let reservation = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = reservation.local_addr().unwrap().port();
+    drop(reservation);
+    let listener = bind_remote_gateway_listener(None, port)
+        .await
+        .expect("test-owned loopback port should bind");
+    assert!(listener.local_addr().unwrap().ip().is_loopback());
+    assert_eq!(listener.local_addr().unwrap().port(), port);
+}

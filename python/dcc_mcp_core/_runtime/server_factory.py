@@ -37,6 +37,8 @@ def create_adapter_server(
     dcc_name: str,
     config: McpHttpConfig | None = None,
     options: DccServerOptions | None = None,
+    *,
+    gateway_managed_by_adapter: bool = False,
 ) -> McpHttpServer | SidecarBackedSkillServer:
     """Create the inner server object used by :class:`DccServerBase`.
 
@@ -57,6 +59,9 @@ def create_adapter_server(
         options: Resolved :class:`DccServerOptions`. Only the py37-lite sidecar
             path reads it (``sidecar`` for the RPC endpoint, ``diagnostics``
             for the watched PID); the embedded path ignores it.
+        gateway_managed_by_adapter: Delegate sidecar gateway ownership to the
+            adapter lifecycle. Direct factory callers keep sidecar ownership
+            unless they explicitly opt in; the embedded path ignores it.
 
     Returns:
         The embedded ``McpHttpServer`` when the compiled extension is
@@ -86,6 +91,7 @@ def create_adapter_server(
         wait_ready_timeout_secs=_resolve_wait_ready(sidecar),
         server_bin=getattr(sidecar, "server_bin", None) if sidecar is not None else None,
         extra_args=_resolve_extra_args(sidecar),
+        gateway_managed_by_adapter=gateway_managed_by_adapter,
     )
 
 

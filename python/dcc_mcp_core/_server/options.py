@@ -69,11 +69,11 @@ class GatewayOptions:
             ``None`` means the server will call ``_version_string()`` at startup.
         scene: Currently open scene file path for the gateway registry.
         enable_failover: Enable automatic gateway failover / election.
-        remote_host: Explicit bind address for the embedded gateway's second
-            listener. ``None`` preserves the native constructor default.
-        remote_port: Embedded second listener port. ``0`` disables it;
-            ``None`` preserves the native constructor default. This does not
-            reconfigure a separately owned gateway daemon.
+        remote_host: Secondary listener bind address for gateways this adapter
+            starts. ``None`` resolves to loopback (127.0.0.1).
+        remote_port: Secondary listener port. ``None`` and ``0`` disable it
+            without disabling primary gateway registration or failover.
+            Existing independently owned gateways are not reconfigured.
 
     """
 

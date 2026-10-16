@@ -223,10 +223,10 @@ def build_mcp_http_config(
     # Explicit port (including 0 to disable) overrides the Rust default.
     if gateway.port is not None:
         config.gateway_port = gateway.port
-    if gateway.remote_host is not None:
-        config.gateway_remote_host = gateway.remote_host
-    if gateway.remote_port is not None:
-        config.gateway_remote_port = gateway.remote_port
+    # The adapter composition root is local-only unless explicitly opted in.
+    # Do not inherit the legacy raw McpHttpConfig wildcard listener defaults.
+    config.gateway_remote_host = gateway.remote_host if gateway.remote_host is not None else "127.0.0.1"
+    config.gateway_remote_port = gateway.remote_port if gateway.remote_port is not None else 0
     if gateway.registry_dir:
         config.registry_dir = gateway.registry_dir
 
