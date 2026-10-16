@@ -1,10 +1,9 @@
 import { useMemo } from 'react';
-import { RiRefreshLine } from '@remixicon/react';
+import { RiArrowDownSLine, RiRefreshLine } from '@remixicon/react';
 import { Button } from '../../components/ui/button';
 import {
   PanelHeader,
   StatusLine,
-  MetricTile,
   StatusBadge,
   TimeValue,
   taskPrimaryRequestId,
@@ -19,6 +18,7 @@ import {
   isOkStatus,
 } from '../../admin-ui-core';
 import type { TaskRow, NavigateOptions, Panel, Translator } from '../../admin-types';
+import './tasks.css';
 
 export type TasksPanelProps = {
   updatedAt: string;
@@ -67,28 +67,15 @@ export function TasksPanel({
         }
       />
       <StatusLine text={updatedAt} error={error} />
-      <div className="metric-grid compact">
-        <MetricTile label={t('common.metric.total')} value={taskSummary.total} />
-        <MetricTile
-          tone={taskSummary.successRate >= 80 || taskSummary.total === 0 ? 'ok' : 'warn'}
-          label={t('common.metric.successRate')}
-          value={`${taskSummary.successRate.toFixed(1)}%`}
-          detail={t('stats.detail.okFailed', { ok: taskSummary.completed, failed: taskSummary.failed })}
-        />
-        <MetricTile tone="ok" label={t('tasks.metric.completed')} value={taskSummary.completed} />
-        <MetricTile
-          tone={taskSummary.failed > 0 ? 'err' : undefined}
-          label={t('tasks.metric.failed')}
-          value={taskSummary.failed}
-        />
-        <MetricTile
-          tone={taskSummary.active > 0 ? 'warn' : undefined}
-          label={t('tasks.metric.activeWaiting')}
-          value={taskSummary.active}
-        />
-        <MetricTile label={t('common.metric.avgDuration')} value={formatDurationMs(taskSummary.avgDurationMs)} />
-        <MetricTile label={t('common.metric.visible')} value={`${filteredTasks.length} / ${tasks.length}`} />
-      </div>
+      <dl className="task-summary" aria-label={t('tasks.title')}>
+        <div><dt>{t('common.metric.total')}</dt><dd>{taskSummary.total}</dd></div>
+        <div><dt>{t('tasks.metric.completed')}</dt><dd>{taskSummary.completed}</dd></div>
+        <div><dt>{t('tasks.metric.failed')}</dt><dd>{taskSummary.failed}</dd></div>
+        <div><dt>{t('tasks.metric.activeWaiting')}</dt><dd>{taskSummary.active}</dd></div>
+        <div><dt>{t('common.metric.successRate')}</dt><dd>{taskSummary.successRate.toFixed(1)}%</dd></div>
+        <div><dt>{t('common.metric.avgDuration')}</dt><dd>{formatDurationMs(taskSummary.avgDurationMs)}</dd></div>
+        <div><dt>{t('common.metric.visible')}</dt><dd>{filteredTasks.length} / {tasks.length}</dd></div>
+      </dl>
       {tasks.length === 0 ? (
         <p className="empty">{t('tasks.empty.none')}</p>
       ) : filteredTasks.length === 0 ? (
@@ -97,93 +84,72 @@ export function TasksPanel({
         <div className="task-board">
           {filteredTasks.map((task) => {
             const requestId = taskPrimaryRequestId(task);
-            const tone = isErrStatus(task.status)
-              ? 'err'
-              : isWarnStatus(task.status)
-              ? 'warn'
-              : isOkStatus(task.status)
-              ? 'ok'
-              : 'muted';
+            const tone = isErrStatus(task.status) ? 'err' : isWarnStatus(task.status) ? 'warn' : isOkStatus(task.status) ? 'ok' : 'muted';
             const outcome = taskOutcomeText(task);
             const requestCount = taskRequestCount(task);
             return (
-              <article key={task.task_id} className={`task-card ${tone}`}>
-                <div className="task-main">
-                  <div className="task-title-row">
-                    <StatusBadge value={task.status} />
-                    <span className="task-type">{task.task_type}</span>
-                    <TimeValue className="task-time" value={task.started_at} />
-                    <span>{formatDurationMs(task.duration_ms)}</span>
-                  </div>
-                  <h3 title={task.title}>{task.title}</h3>
+              <details key={task.task_id} className={`task-card ${tone}`}>
+                <summary className="task-title-row">
+                  <span className="task-row-copy">
+                    <strong className="task-title">{task.title}</strong>
+                    <span className="task-meta">
+                      <span>{task.task_type}</span>
+                      <span>{compactList(task.app_types, task.correlation?.dcc_type ?? 'gateway')}</span>
+                      <TimeValue value={task.started_at} />
+                      <span>{formatDurationMs(task.duration_ms)}</span>
+                    </span>
+                  </span>
+                  <StatusBadge value={task.status} />
+                  <RiArrowDownSLine className="task-disclosure-icon" aria-hidden="true" />
+                </summary>
+                <div className="task-detail">
                   {task.goal && task.goal !== task.title ? (
-                    <p className="task-outcome">
-                      <strong>{t('tasks.label.goal')}</strong>
-                      {task.goal}
-                    </p>
+                    <p className="task-outcome"><strong>{t('tasks.label.goal')}</strong>{task.goal}</p>
                   ) : null}
                   {outcome ? (
-                    <p className={`task-outcome ${tone === 'err' ? 'err' : ''}`}>
-                      <strong>
-                        {tone === 'err' ? t('tasks.label.failure') : t('tasks.label.result')}
-                      </strong>
-                      {outcome}
-                    </p>
+                    <p className="task-outcome"><strong>{tone === 'err' ? t('tasks.label.failure') : t('tasks.label.result')}</strong>{outcome}</p>
                   ) : null}
                   <div className="task-meta">
-                    <span>{compactList(task.app_types, task.correlation?.dcc_type ?? 'gateway')}</span>
                     <span>{t('tasks.label.workflow', { id: taskWorkflowLabel(task) })}</span>
                     <span>{t('tasks.label.calls', { count: requestCount })}</span>
                     <span>{t('tasks.label.client', { value: taskActorLabel(task) })}</span>
+                    <code>{task.task_id}</code>
                   </div>
                   {task.artifacts?.length ? (
-                    <div className="task-chip-row" aria-label={t('tasks.label.artifacts')}>
-                      {task.artifacts.map((artifact) => (
-                        <span key={`${artifact.kind}-${artifact.name}-${artifact.request_id ?? ''}`}>
-                          {artifact.kind}: {artifact.name}
-                        </span>
-                      ))}
-                    </div>
+                    <section className="task-detail-section" aria-label={t('tasks.label.artifacts')}>
+                      <h3>{t('tasks.label.artifacts')}</h3>
+                      <ul>{task.artifacts.map((artifact) => (
+                        <li key={`${artifact.kind}-${artifact.name}-${artifact.request_id ?? ''}`}>{artifact.kind}: {artifact.name}</li>
+                      ))}</ul>
+                    </section>
                   ) : null}
                   {task.validation_checks?.length ? (
-                    <div className="task-chip-row" aria-label={t('tasks.label.validation')}>
-                      {task.validation_checks.map((check) => (
-                        <span key={`${check.title}-${check.request_id ?? ''}`}>
-                          {check.title} <StatusBadge value={check.status} />
-                        </span>
-                      ))}
-                    </div>
+                    <section className="task-detail-section" aria-label={t('tasks.label.validation')}>
+                      <h3>{t('tasks.label.validation')}</h3>
+                      <ul>{task.validation_checks.map((check) => (
+                        <li key={`${check.title}-${check.request_id ?? ''}`}><span>{check.title}</span><StatusBadge value={check.status} /></li>
+                      ))}</ul>
+                    </section>
                   ) : null}
+                  <div className="task-side">
+                    {requestId ? (
+                      <Button variant="outline" size="sm" type="button" title={requestId} onClick={() => onGoToPanel('traces', { traceId: requestId })}>
+                        {t('tasks.link.trace', { id: requestId.slice(0, 12) })}
+                      </Button>
+                    ) : null}
+                    {task.related?.workflow_ids?.length ? (
+                      <Button variant="ghost" size="sm" type="button" onClick={() => onGoToPanel('workflows')}>
+                        {t('tasks.link.workflows', { count: task.related.workflow_ids.length })}
+                      </Button>
+                    ) : null}
+                    {requestCount ? (
+                      <Button variant="ghost" size="sm" type="button" onClick={() => onGoToPanel('traces', { tracesTab: 'calls' })}>
+                        {t('tasks.link.calls', { count: requestCount })}
+                      </Button>
+                    ) : null}
+                  </div>
                 </div>
-                <div className="task-side">
-                  {requestId ? (
-                    <button
-                      className="link-chip"
-                      type="button"
-                      title={requestId}
-                      onClick={() => onGoToPanel('traces', { traceId: requestId })}
-                    >
-                      {t('tasks.link.trace', { id: requestId.slice(0, 12) })}
-                    </button>
-                  ) : (
-                    <span className="mono-path">{task.task_id.slice(0, 12)}</span>
-                  )}
-                  {task.related?.workflow_ids?.length ? (
-                    <button className="link-chip" type="button" onClick={() => onGoToPanel('workflows')}>
-                      {t('tasks.link.workflows', { count: task.related.workflow_ids.length })}
-                    </button>
-                  ) : null}
-                  {requestCount ? (
-                    <button
-                      className="link-chip"
-                      type="button"
-                      onClick={() => onGoToPanel('traces', { tracesTab: 'calls' })}
-                    >
-                      {t('tasks.link.calls', { count: requestCount })}
-                    </button>
-                  ) : null}
-                </div>
-              </article>
+              </details>
             );
           })}
         </div>

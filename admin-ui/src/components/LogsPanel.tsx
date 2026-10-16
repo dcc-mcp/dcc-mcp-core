@@ -1,11 +1,10 @@
-import { RiRefreshLine } from '@remixicon/react';
+import { RiArrowRightSLine, RiRefreshLine } from '@remixicon/react';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { type InterpolationValues, type MessageKey } from '../i18n';
 import {
   buildRequestLogGroups,
   LOG_SEVERITIES,
-  logStepDetail,
   logStepTitle,
   normalizeLogSeverity,
   requestLogSeverity,
@@ -43,49 +42,69 @@ function groupRows<T>(rows: T[], keyFn: (row: T) => string): Map<string, T[]> {
 }
 
 function severityLabel(severity: LogSeverityFilter, t: Translator): string {
-  if (severity === 'all') return t('logs.filter.all');
-  if (severity === 'error') return t('logs.filter.error');
-  if (severity === 'warn') return t('logs.filter.warn');
-  if (severity === 'info') return t('logs.filter.info');
-  if (severity === 'debug') return t('logs.filter.debug');
-  if (severity === 'trace') return t('logs.filter.trace');
-  return t('logs.filter.unknown');
+  return t(`logs.filter.${severity}`);
 }
 
 function SeverityBadge({ severity, t }: { severity: LogSeverity; t: Translator }) {
   return <Badge variant="outline" className={`severity-badge severity-${severity}`}>{severityLabel(severity, t)}</Badge>;
 }
 
-function TimeValue({ value, className }: { value?: string | null; className?: string }) {
-  if (!value) {
-    return <span className={className}>-</span>;
-  }
+function TimeValue({ value }: { value?: string | null }) {
+  if (!value) return <span className="log-time">—</span>;
+  return <time dateTime={value} title={timestampTitle(value)} className="log-time">{formatTime(value)}</time>;
+}
+
+function LogDetails({ log, t }: { log: LogRow; t: Translator }) {
+  const metadata: Array<[MessageKey, string | null | undefined]> = [
+    ['logs.label.timestamp', log.timestamp],
+    ['logs.label.level', log.level],
+    ['logs.label.source', log.source],
+    ['logs.label.target', log.target],
+    ['logs.label.thread', log.thread],
+    ['logs.label.dcc', log.dcc_type],
+    ['logs.label.instance', log.instance_id],
+    ['logs.label.requestId', log.request_id],
+    ['logs.label.tool', log.tool],
+  ];
   return (
-    <time dateTime={value} title={timestampTitle(value)} className={className}>
-      {formatTime(value)}
-    </time>
+    <div className="log-entry-details">
+      {log.message && <p className="log-entry-message">{log.message}</p>}
+      {log.detail && <p className="log-entry-message">{log.detail}</p>}
+      {log.reason && <p className="log-entry-reason">{t('logs.label.reason')}: {log.reason}</p>}
+      <dl className="log-entry-metadata">
+        {metadata.filter(([, value]) => value).map(([label, value]) => (
+          <div key={label}><dt>{t(label)}</dt><dd>{value}</dd></div>
+        ))}
+      </dl>
+    </div>
   );
 }
 
-function gatewayGroupLabel(log: LogRow): string {
-  return log.dcc_type ?? log.target ?? 'gateway';
-}
-
-function StatusLine({ text, error }: { text: string; error?: string }) {
-  return <div className="status-bar">{error ? `Error: ${error}` : text}</div>;
+function LogEntry({ log, step, t }: { log: LogRow; step?: number; t: Translator }) {
+  const severity = normalizeLogSeverity(log);
+  return (
+    <details className={`log-entry severity-${severity}`}>
+      <summary className="log-entry-summary">
+        <RiArrowRightSLine className="log-disclosure-icon" aria-hidden="true" />
+        <TimeValue value={log.timestamp} />
+        {step == null ? <SeverityBadge severity={severity} t={t} /> : (
+          <span className="log-step-status" title={severityLabel(severity, t)}>
+            <span aria-hidden="true" /><span className="sr-only">{severityLabel(severity, t)}</span>
+          </span>
+        )}
+        <span className="log-entry-title">
+          {step == null ? logStepTitle(log) : `${t('logs.label.step', { index: step })}: ${logStepTitle(log)}`}
+        </span>
+        <span className="log-entry-excerpt">{log.message}</span>
+      </summary>
+      <LogDetails log={log} t={t} />
+    </details>
+  );
 }
 
 export function LogsPanel({
-  logs,
-  filteredLogs,
-  severityCounts,
-  severityFilter,
-  serverVersion,
-  updatedAt,
-  error,
-  onSeverityFilterChange,
-  onRefresh,
-  t,
+  logs, filteredLogs, severityCounts, severityFilter, serverVersion, updatedAt,
+  error, onSeverityFilterChange, onRefresh, t,
 }: LogsPanelProps) {
   const requestLogGroups = buildRequestLogGroups(filteredLogs);
   const gatewayLogs = filteredLogs.filter((log) => !log.request_id);
@@ -93,21 +112,22 @@ export function LogsPanel({
 
   return (
     <section className="panel active logs-panel">
-      <div className="logs-hero">
+      <div className="log-panel-heading">
         <div>
           <h2>{t('logs.title')}</h2>
-          <p className="empty log-hint">{t('logs.description')}</p>
-          <Badge variant="outline" className="source-pill">
-            {t('logs.label.serverVersion')}: {serverVersion ?? '-'}
-          </Badge>
+          <p className="log-panel-description">{t('logs.description')}</p>
         </div>
-        <Button type="button" size="sm" onClick={onRefresh}>
+        <Button type="button" size="sm" variant="outline" onClick={onRefresh}>
           <RiRefreshLine data-icon="inline-start" aria-hidden="true" />
           {t('action.refresh')}
         </Button>
       </div>
-      <StatusLine text={updatedAt} error={error} />
-      <div className="log-severity-grid" aria-label={t('logs.filter.ariaLabel')}>
+      <div className="log-panel-meta">
+        <span>{t('logs.label.serverVersion')}: {serverVersion ?? '—'}</span>
+        {updatedAt && <span>{updatedAt}</span>}
+      </div>
+      {error && <p className="log-panel-error" role="alert">{error}</p>}
+      <div className="log-filter-bar" role="group" aria-label={t('logs.filter.ariaLabel')}>
         {filterOptions.map((severity) => (
           <button
             key={severity}
@@ -120,78 +140,53 @@ export function LogsPanel({
             <strong>{severity === 'all' ? severityCounts.total : severityCounts[severity]}</strong>
           </button>
         ))}
+        <span className="log-visible-count">{t('logs.label.entries', { count: filteredLogs.length })}</span>
       </div>
       {logs.length === 0 ? <p className="empty">{t('logs.empty.none')}</p> : filteredLogs.length === 0 ? (
         <p className="empty">{t('logs.empty.search')}</p>
       ) : (
-        <div className="live-log-board">
-          {requestLogGroups.map((run) => {
-            const severity = requestLogSeverity(run);
-            return (
-              <div key={run.requestId} className={`request-run severity-${severity}`}>
-                <div className="run-header">
-                  <div>
-                    <div className="run-title">
-                      {t('logs.label.request')} <span className="mono-path">{run.requestId}</span>
+        <div className="log-stream">
+          {requestLogGroups.length > 0 && (
+            <section className="log-stream-section" aria-label={t('logs.section.requests')}>
+              <h3 className="log-section-title">{t('logs.section.requests')} <span>{requestLogGroups.length}</span></h3>
+              <div className="log-request-list">
+                {requestLogGroups.map((run) => (
+                  <details key={run.requestId} className="log-request">
+                    <summary className="log-request-summary">
+                      <RiArrowRightSLine className="log-disclosure-icon" aria-hidden="true" />
+                      <span className="log-request-identity">
+                        <span className="log-request-title">{t('logs.label.request')} <code>{run.requestId}</code></span>
+                        <span className="log-request-context">{run.dccType !== '?' && `${run.dccType} · `}{run.tool}</span>
+                      </span>
+                      <TimeValue value={run.timestamp} />
+                      <span className="log-step-count">{t('logs.label.steps', { count: run.steps.length })}</span>
+                      <SeverityBadge severity={requestLogSeverity(run)} t={t} />
+                    </summary>
+                    <div className="log-request-steps">
+                      {run.steps.map((log, index) => (
+                        <LogEntry key={`${log.timestamp}-${log.source ?? ''}-${index}`} log={log} step={index + 1} t={t} />
+                      ))}
                     </div>
-                    <div className="run-meta">
-                      <TimeValue value={run.timestamp} /> · {run.dccType} · {run.tool}
-                    </div>
-                  </div>
-                  <SeverityBadge severity={severity} t={t} />
-                </div>
-                <div className="run-steps">
-                  {run.steps.map((log, idx) => {
-                    const stepSeverity = normalizeLogSeverity(log);
-                    return (
-                      <div key={`${log.timestamp}-${log.source ?? ''}-${idx}`} className={`run-step severity-${stepSeverity}`}>
-                        <span className={`step-dot ${stepSeverity}`} aria-hidden="true" />
-                        <div className="step-body">
-                          <div className="step-head">
-                            <span className="step-name">{t('logs.label.step', { index: idx + 1 })}: {logStepTitle(log)}</span>
-                            <TimeValue className="muted" value={log.timestamp} />
-                            <Badge variant="outline" className="source-pill" data-source={log.source ?? 'contention'}>{log.source ?? 'contention'}</Badge>
-                            <SeverityBadge severity={stepSeverity} t={t} />
-                          </div>
-                          <div className="step-detail">{logStepDetail(log)}</div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                  </details>
+                ))}
               </div>
-            );
-          })}
-          {gatewayLogs.length > 0 ? (
-            <div className="group-block">
-              <h3 className="group-title">{t('logs.section.gatewayEvents')}</h3>
-              {Array.from(groupRows(gatewayLogs, gatewayGroupLabel).entries())
+            </section>
+          )}
+          {gatewayLogs.length > 0 && (
+            <section className="log-stream-section" aria-label={t('logs.section.gatewayEvents')}>
+              <h3 className="log-section-title">{t('logs.section.gatewayEvents')} <span>{gatewayLogs.length}</span></h3>
+              {Array.from(groupRows(gatewayLogs, (log) => log.dcc_type ?? log.target ?? 'gateway').entries())
                 .sort(([a], [b]) => a.localeCompare(b))
                 .map(([group, groupLogs]) => (
-                  <div key={group} className="gateway-event-group">
-                    <p className="group-meta">{group}</p>
-                    {groupLogs.map((log, idx) => {
-                      const severity = normalizeLogSeverity(log);
-                      return (
-                        <div key={`${log.timestamp}-${log.request_id ?? ''}-${idx}`} className={`log-line severity-${severity}`}>
-                          <Badge variant="outline" className="source-pill" data-source={log.source ?? 'contention'}>{log.source ?? 'contention'}</Badge>
-                          {' '}
-                          <TimeValue className="muted" value={log.timestamp} />
-                          {' '}
-                          <SeverityBadge severity={severity} t={t} />
-                          {' '}
-                          {log.thread ? <><Badge variant="outline" className="source-pill">{log.thread}</Badge>{' '}</> : null}
-                          {log.event ? <span className="log-event">{String(log.event)}</span> : null}
-                          {' '}
-                          {log.message}
-                          {log.detail ? <span className="muted"> - {log.detail}</span> : null}
-                        </div>
-                      );
-                    })}
+                  <div key={group} className="log-gateway-group">
+                    <h4>{group}</h4>
+                    <div className="log-gateway-entries">
+                      {groupLogs.map((log, index) => <LogEntry key={`${log.timestamp}-${index}`} log={log} t={t} />)}
+                    </div>
                   </div>
                 ))}
-            </div>
-          ) : null}
+            </section>
+          )}
         </div>
       )}
     </section>

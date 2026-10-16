@@ -4,11 +4,9 @@ import { Button } from '../../components/ui/button';
 import {
   PanelHeader,
   StatusLine,
-  MetricTile,
   StatusBadge,
   TimeValue,
   LatencyValue,
-  TraceDetailPanel,
   groupRows,
   traceGroupLabel,
   compactId,
@@ -22,7 +20,6 @@ import {
   isWarnStatus,
   isOkStatus,
   latencyClass,
-  latencyTone,
   firstTrust,
   trustChip,
   trustFor,
@@ -37,6 +34,7 @@ import {
   formatTokenCount,
 } from '../../admin-ui-core';
 import type { TraceRow, CallRow, TraceDetailPayload, StatsPayload, Translator } from '../../admin-types';
+import { TraceDetailPanel } from './TraceDetailPanel';
 
 export type TracesPanelProps = {
   updatedAt: string;
@@ -142,13 +140,13 @@ export function TracesPanel({
     const agentContext = traces.filter((trace) => agentLabel(trace) !== '-').length;
     const spans = traces.reduce((sum, trace) => sum + (trace.span_count ?? 0), 0);
     const slow = traces.filter((trace) => isSlowLatency(trace.total_ms)).length;
-    const totalTokens = traces.reduce((sum, trace) => {
-      const next = totalTraceTokens(trace);
-      return sum + (next ?? 0);
-    }, 0);
-    const avgTokens = traces.length > 0 ? totalTokens / traces.length : 0;
-    const totalInputTokens = traces.reduce((sum, trace) => sum + (trace.input_tokens ?? 0), 0);
-    const totalOutputTokens = traces.reduce((sum, trace) => sum + (trace.output_tokens ?? 0), 0);
+    const sumRecorded = (values: Array<number | null | undefined>) => {
+      const recorded = values.filter((value): value is number => value != null && Number.isFinite(value));
+      return recorded.length ? recorded.reduce((sum, value) => sum + value, 0) : null;
+    };
+    const totalTokens = sumRecorded(traces.map(totalTraceTokens));
+    const totalInputTokens = sumRecorded(traces.map((trace) => trace.input_tokens));
+    const totalOutputTokens = sumRecorded(traces.map((trace) => trace.output_tokens));
     return {
       ok,
       failed,
@@ -158,7 +156,6 @@ export function TracesPanel({
       agentContext,
       spans,
       totalTokens,
-      avgTokens,
       totalInputTokens,
       totalOutputTokens,
     };
@@ -208,45 +205,21 @@ export function TracesPanel({
       <StatusLine text={copiedNotice || updatedAt} error={error} />
       {tracesTab === 'traces' ? (
         <>
-          <div className="metric-grid compact">
-            <MetricTile tone="ok" label="OK" value={traceSummary.ok} />
-            <MetricTile
-              tone={traceSummary.failed > 0 ? 'err' : undefined}
-              label={t('workflows.metric.failed')}
-              value={traceSummary.failed}
-            />
-            <MetricTile
-              tone={latencyTone(traceSummary.p95)}
-              label={t('debug.metric.latency')}
-              value={formatDurationMs(traceSummary.p95)}
-            />
-            <MetricTile
-              tone={latencyTone(traceSummary.p99)}
-              label={t('stats.metric.p99Latency')}
-              value={formatDurationMs(traceSummary.p99)}
-              detail={latencyThresholdDetail}
-            />
-            <MetricTile
-              tone={traceSummary.slow > 0 ? 'warn' : undefined}
-              label={t('stats.metric.slowCalls')}
-              value={traceSummary.slow}
-              detail={slowLatencyDetail}
-            />
-            <MetricTile
-              label={t('traces.metric.totalTokens')}
-              value={formatTokenCount(traceSummary.totalTokens)}
-              detail={t('traces.detail.inputOutput', {
-                input: formatTokenCount(traceSummary.totalInputTokens),
-                output: formatTokenCount(traceSummary.totalOutputTokens),
-              })}
-            />
-            <MetricTile
-              label={t('traces.metric.agentContext')}
-              value={traceSummary.agentContext}
-              detail={t('traces.detail.agentCoverage', { count: traceSummary.agentContext, total: traces.length })}
-            />
-            <MetricTile label={t('traces.metric.spans')} value={traceSummary.spans} />
-            <MetricTile label={t('common.metric.visible')} value={`${filteredTraces.length} / ${traces.length}`} />
+          <div className="trace-metrics">
+            <span>{t('common.metric.visible')} <strong>{filteredTraces.length} / {traces.length}</strong></span>
+            <span>OK <strong>{traceSummary.ok}</strong></span>
+            <span className={traceSummary.failed ? 'has-failures' : ''}>{t('workflows.metric.failed')} <strong>{traceSummary.failed}</strong></span>
+            <span>{t('debug.metric.latency')} <strong>{formatDurationMs(traceSummary.p95)}</strong></span>
+            <details className="trace-extra-metrics">
+              <summary>{t('traces.detail.moreMetrics')}</summary>
+              <dl>
+                <div><dt>{t('stats.metric.p99Latency')}</dt><dd>{formatDurationMs(traceSummary.p99)}<small>{latencyThresholdDetail}</small></dd></div>
+                <div><dt>{t('stats.metric.slowCalls')}</dt><dd>{traceSummary.slow}<small>{slowLatencyDetail}</small></dd></div>
+                <div><dt>{t('traces.metric.totalTokens')}</dt><dd>{formatTokenCount(traceSummary.totalTokens)}<small>{t('traces.detail.inputOutput', { input: formatTokenCount(traceSummary.totalInputTokens), output: formatTokenCount(traceSummary.totalOutputTokens) })}</small></dd></div>
+                <div><dt>{t('traces.metric.agentContext')}</dt><dd>{t('traces.detail.agentCoverage', { count: traceSummary.agentContext, total: traces.length })}</dd></div>
+                <div><dt>{t('traces.metric.spans')}</dt><dd>{traceSummary.spans}</dd></div>
+              </dl>
+            </details>
           </div>
           {traces.length === 0 ? (
             <p className="empty">{t('traces.empty.none')}</p>
@@ -276,6 +249,7 @@ export function TracesPanel({
                               : ''
                           } ${latencyClass(trace.total_ms)}`}
                           type="button"
+                          aria-current={traceDetailPayload?.request_id === trace.request_id ? 'true' : undefined}
                           onClick={() => onSelectTraceId(trace.request_id)}
                         >
                           <span className="trace-item-main">
@@ -284,41 +258,11 @@ export function TracesPanel({
                               {compactId(trace.request_id)} - {compactInstanceId(trace.instance_id)} -{' '}
                               <TimeValue value={trace.timestamp} /> - {trace.transport ?? '?'}
                             </span>
-                            <span>
-                              {actorLabel(trace)}{' '}
-                              {trustChip(
-                                firstTrust(trace, [
-                                  'actor_name',
-                                  'actor_id',
-                                  'actor_email_hash',
-                                  'auth_subject',
-                                ])
-                              )}
-                              {' - '}
-                              {platformLabel(trace)}{' '}
-                              {trustChip(firstTrust(trace, ['client_platform', 'client_os', 'client_host']))}
-                              {' - '}
-                              {sourceIpLabel(trace)} {trustChip(trustFor(trace, 'source_ip'))}
-                            </span>
-                            <span>
-                              {agentLabel(trace)}
-                              {trace.slowest_span_name
-                                ? ` - ${t('traces.detail.slowestSpan', {
-                                    name: trace.slowest_span_name,
-                                    duration: formatDurationMs(trace.slowest_span_ms),
-                                  })}`
-                                : ''}
-                            </span>
+                            {agentLabel(trace) !== '-' ? <span>{agentLabel(trace)}</span> : null}
                           </span>
                           <span className="trace-item-side">
                             <StatusBadge value={trace.status} />
                             <LatencyValue value={trace.total_ms} t={t} />
-                            <span>{t('traces.detail.spanCount', { count: trace.span_count ?? 0 })}</span>
-                            <span>
-                              {t('traces.detail.tokenCount', {
-                                count: formatTokenCount(totalTraceTokens(trace)),
-                              })}
-                            </span>
                           </span>
                         </button>
                       ))}
@@ -327,6 +271,7 @@ export function TracesPanel({
               </div>
               <TraceDetailPanel
                 trace={traceDetailPayload}
+                record={traceByRequest.get(traceDetailPayload?.request_id ?? '')}
                 fallback={traceDetail}
                 t={t}
                 onCopy={onCopyText}

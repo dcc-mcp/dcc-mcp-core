@@ -50,5 +50,6 @@
   "filter.dccType": "DCC Type",
   "filter.status": "Status",
   "filter.search": "Search sessions",
-  "filter.all": "All"
+  "filter.all": "All",
+  "action.toggleChildren": "Toggle child sessions of {id}"
 }
