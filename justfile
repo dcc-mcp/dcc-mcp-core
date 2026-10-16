@@ -159,6 +159,10 @@ build-release:
 build-cli:
     cargo build --release -p dcc-mcp-cli
 
+# Focused controlled HTTP fixtures for official CLI MCP inventory pagination.
+test-cli-smoke:
+    cargo nextest run --locked -p dcc-mcp-cli --test cli_smoke --no-fail-fast
+
 # Build dcc-mcp-cli universal2 binary for macOS (requires both targets installed)
 [unix]
 build-cli-universal:

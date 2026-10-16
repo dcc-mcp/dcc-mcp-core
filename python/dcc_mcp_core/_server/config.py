@@ -77,6 +77,7 @@ except ImportError:
         host_pid: int | None = None
         instance_metadata: dict[str, str] = field(default_factory=dict)
         standalone_main_thread_execution: bool = False
+        bare_tool_names: bool = True
         sandbox_policy: Any = None
         exclude_skill_stubs_from_tools_list: bool = False
         exclude_group_stubs_from_tools_list: bool = False
@@ -237,6 +238,7 @@ def build_mcp_http_config(
         config.scene = gateway.scene
 
     config.dcc_type = options.dcc_name
+    config.bare_tool_names = options.bare_tool_names
     if options.observability.job_retention_hours is not None:
         config.job_retention_hours = options.observability.job_retention_hours
     # Only an explicitly supplied DCC PID creates a second lifetime. When the
