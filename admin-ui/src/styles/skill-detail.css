@@ -84,6 +84,21 @@
   table-layout: fixed;
 }
 
+.skill-path-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+  border-radius: var(--radius-lg);
+}
+
+.skill-path-table-wrap:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.skill-path-table-wrap table {
+  min-width: 560px;
+}
+
 .skill-paths-panel th,
 .skill-paths-panel td {
   overflow-wrap: anywhere;
