@@ -20,6 +20,52 @@
   margin-bottom: 1rem;
 }
 
+.skill-panel-description {
+  color: var(--muted-foreground);
+  font-size: 13px;
+  line-height: 1.6;
+  max-width: 88ch;
+  margin: 12px 0 20px;
+}
+
+.skill-paths-panel {
+  container: skill-panel / inline-size;
+}
+
+.skill-paths-panel .metric-grid.skill-summary-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--card);
+}
+
+.skill-summary-grid .metric-tile {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+  padding: 16px 20px;
+  min-width: 0;
+}
+
+.skill-summary-grid .metric-tile:nth-child(-n + 3) { border-bottom: 1px solid var(--border); }
+.skill-summary-grid .metric-tile:not(:nth-child(3n)) { border-right: 1px solid var(--border); }
+.skill-summary-grid .metric-label { font-size: 12px; font-weight: 500; text-transform: none; letter-spacing: 0; }
+.skill-summary-grid .metric-value { font-size: 28px; line-height: 1.4; font-weight: 600; font-variant-numeric: tabular-nums; }
+.skill-summary-grid .metric-detail { font-size: 12px; }
+.skill-summary-grid .metric-tile:nth-child(n + 4) .metric-value { font-size: 18px; }
+
+@container skill-panel (max-width: 600px) {
+  .skill-paths-panel .metric-grid.skill-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .skill-summary-grid .metric-tile { padding: 12px; }
+  .skill-summary-grid .metric-tile:not(:nth-child(3n)) { border-right: 0; }
+  .skill-summary-grid .metric-tile:nth-child(odd) { border-right: 1px solid var(--border); }
+  .skill-summary-grid .metric-tile:nth-child(-n + 4) { border-bottom: 1px solid var(--border); }
+  .skill-summary-grid .metric-value { font-size: 24px; }
+}
+
 .skill-inventory-section {
   margin-bottom: 1rem;
 }

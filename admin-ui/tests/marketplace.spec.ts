@@ -326,7 +326,7 @@ test.describe('Marketplace Panel', () => {
     const card = page.locator('.marketplace-card[data-name="texture-pipeline"]');
     await card.getByRole('button', { name: 'Install maya' }).click();
 
-    const modal = page.locator('.marketplace-detail-backdrop');
+    const modal = page.getByRole('dialog');
     await expect(modal).toContainText('Requirements');
     await expect(modal).toContainText('OPENAI_API_KEY · env');
     await expect(modal).toContainText('reported only');
@@ -469,7 +469,7 @@ test.describe('Marketplace Panel', () => {
     await expect(modal.locator('.marketplace-detail-warning')).not.toBeVisible();
 
     // Close via backdrop click
-    await page.locator('.marketplace-detail-backdrop').click({ position: { x: 10, y: 10 } });
+    await page.locator('.detail-dialog-overlay').click({ position: { x: 10, y: 10 } });
     await expect(modal).not.toBeVisible();
   });
 

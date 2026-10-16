@@ -1,30 +1,5 @@
-/* Slide-out detail panel for installed marketplace packages.
- * Follows the same visual pattern as skill-detail-backdrop / skill-detail-modal
- * in styles/skills.css — right-aligned slide-in with blur backdrop. */
-
-.marketplace-installed-detail-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 90;
-  background: rgba(15, 23, 42, 0.45);
-  backdrop-filter: blur(4px);
-  display: flex;
-  align-items: stretch;
-  justify-content: flex-end;
-  animation: mkp-installed-fade 180ms ease-out;
-}
-
-.marketplace-installed-detail-modal {
-  position: relative;
+.detail-dialog-content.marketplace-installed-detail-modal {
   width: min(720px, 100%);
-  max-width: 100%;
-  height: 100%;
-  overflow-y: auto;
-  background: var(--card);
-  border-left: 1px solid var(--border);
-  box-shadow: -24px 0 48px -24px rgba(0, 0, 0, 0.35);
-  padding: 22px 26px 32px;
-  animation: mkp-installed-slide-in 220ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .marketplace-installed-detail-modal .marketplace-installed-detail-panel {
@@ -36,50 +11,10 @@
   overflow: visible;
 }
 
-.marketplace-installed-detail-modal .marketplace-installed-detail-heading {
-  position: sticky;
-  top: -22px;
-  margin: -22px -26px 16px;
-  padding: 18px 26px;
-  background: color-mix(in srgb, var(--card) 92%, transparent);
-  backdrop-filter: blur(8px);
-  border-bottom: 1px solid var(--border);
-  z-index: 1;
-}
-
 .marketplace-installed-detail-close {
-  position: absolute;
-  top: 14px;
-  right: 16px;
-  width: 32px;
-  height: 32px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  color: var(--muted-foreground);
-  cursor: pointer;
-  font-size: 18px;
-  line-height: 1;
-  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
-}
-
-.marketplace-installed-detail-close:hover {
-  background: var(--muted);
-  color: var(--foreground);
-  border-color: color-mix(in srgb, var(--skill-brand) 35%, var(--border));
-}
-
-@keyframes mkp-installed-fade {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-@keyframes mkp-installed-slide-in {
-  from { transform: translateX(24px); opacity: 0; }
-  to { transform: translateX(0); opacity: 1; }
+  flex-shrink: 0;
+  min-height: 2.5rem;
+  min-width: 2.5rem;
 }
 
 /* ── Panel content ───────────────────────────────────────────────────────── */
@@ -98,14 +33,22 @@
   display: flex;
   gap: 1rem;
   justify-content: space-between;
+  padding-bottom: 1.25rem;
 }
 
-.marketplace-installed-detail-heading .table-actions {
+.marketplace-installed-detail-heading > div {
+  min-width: 0;
+}
+
+.marketplace-installed-detail-actions {
   align-items: center;
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
-  justify-content: flex-end;
+  padding: 0.75rem 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 1.25rem;
 }
 
 .marketplace-installed-detail-action {
@@ -114,7 +57,8 @@
 
 .marketplace-installed-detail-heading h3 {
   color: var(--foreground);
-  font-size: 1rem;
+  font-size: 1.5rem;
+  font-weight: 650;
   line-height: 1.25;
   margin: 0 0 0.35rem;
   overflow-wrap: anywhere;
@@ -142,28 +86,25 @@
 
 .marketplace-installed-detail-summary-grid {
   display: grid;
-  gap: 0.45rem;
+  gap: 0.75rem;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   margin: 0.75rem 0;
 }
 
 .marketplace-installed-detail-summary-grid span {
-  background: var(--muted);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-bottom: 1px solid var(--border);
   color: var(--foreground);
   min-width: 0;
   overflow-wrap: anywhere;
-  padding: 0.5rem 0.6rem;
+  padding: 0.75rem 0;
 }
 
 .marketplace-installed-detail-summary-grid strong {
   color: var(--muted-foreground);
   display: block;
-  font-size: 0.68rem;
-  letter-spacing: 0;
-  margin-bottom: 0.15rem;
-  text-transform: uppercase;
+  font-size: 0.75rem;
+  font-weight: 500;
+  margin-bottom: 0.35rem;
 }
 
 .marketplace-installed-detail-summary-grid code,
@@ -212,20 +153,13 @@
   gap: 0.35rem;
 }
 
-@media (max-width: 720px) {
-  .marketplace-installed-detail-modal {
-    width: 100%;
-    padding: 18px 18px 24px;
-  }
-
-  .marketplace-installed-detail-heading {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .marketplace-installed-detail-heading .table-actions,
+@media (max-width: 520px) {
   .marketplace-installed-detail-action {
-    justify-content: flex-start;
-    width: 100%;
+    flex: 1 1 auto;
+    min-height: 2.5rem;
+  }
+
+  .marketplace-installed-detail-summary-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

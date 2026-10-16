@@ -496,40 +496,10 @@
 
 /* ── Marketplace detail modal ─────────────────────────────────────────────── */
 
-.marketplace-detail-backdrop {
-  align-items: center;
-  animation: mkpFadeIn 0.15s ease;
-  background: rgba(0, 0, 0, 0.55);
-  display: flex;
-  inset: 0;
-  justify-content: center;
-  padding: 1.5rem;
-  position: fixed;
-  z-index: 200;
-}
-
-@keyframes mkpFadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-.marketplace-detail-modal {
-  animation: mkpSlideUp 0.18s ease;
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+.detail-dialog-content.marketplace-detail-modal {
   display: flex;
   flex-direction: column;
-  max-height: min(85vh, 640px);
-  max-width: 720px;
-  overflow-y: auto;
-  padding: 1.5rem;
-  width: 100%;
-}
-
-@keyframes mkpSlideUp {
-  from { opacity: 0; transform: translateY(12px); }
-  to { opacity: 1; transform: translateY(0); }
+  width: min(720px, 100%);
 }
 
 .marketplace-detail-close {
@@ -541,18 +511,24 @@
   cursor: pointer;
   display: flex;
   font-size: 1.2rem;
-  height: 2rem;
+  height: 2.5rem;
   justify-content: center;
   line-height: 1;
   margin-left: auto;
   margin-bottom: 0.75rem;
-  width: 2rem;
+  width: 2.5rem;
+  flex-shrink: 0;
 }
 
 .marketplace-detail-close:hover {
   background: var(--err-soft);
   border-color: var(--err);
   color: var(--err);
+}
+
+.marketplace-detail-close:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
 }
 
 .marketplace-detail-header {

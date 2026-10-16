@@ -1,4 +1,7 @@
 {
   "app.title": "管理仪表盘",
-  "app.subtitle": "DCC-MCP 网关"
+  "app.subtitle": "DCC-MCP 网关",
+  "navigate": "切换页面",
+  "skipToContent": "跳到内容",
+  "currentPage": "当前位置"
 }

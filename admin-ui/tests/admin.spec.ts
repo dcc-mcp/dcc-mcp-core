@@ -12,13 +12,13 @@ test.describe('Admin Page', () => {
     await expect(page.locator('html')).toHaveAttribute('lang', 'en');
     await expect(page.locator('html')).toHaveAttribute('data-admin-locale', 'en');
     await expect(page.getByRole('img', { name: 'DCC MCP' })).toBeVisible();
-    const preferenceBox = await page.locator('.sidebar-preferences').boundingBox();
+    const preferenceBox = await page.locator('.workspace-preferences').boundingBox();
     expect(preferenceBox?.height ?? 0).toBeLessThanOrEqual(48);
-    await expect(page.locator('.sidebar-preferences .preference-icon')).toHaveCount(2);
+    await expect(page.locator('.workspace-preferences .preference-icon')).toHaveCount(2);
     await expect(page.locator('#admin-locale-select .preference-select-visible-value')).toHaveText('EN');
     await expect(page.locator('#admin-locale-select')).toHaveAttribute('aria-label', 'Language: English');
     await expect(page.locator('#admin-locale-select')).toHaveText('EN');
-    await expect(page.locator('.sidebar-preferences')).not.toContainText('navigator');
+    await expect(page.locator('.workspace-preferences')).not.toContainText('navigator');
     await page.locator('#admin-locale-select').click();
     const localeMenu = page.locator('[data-slot="select-content"]').last();
     await expect(localeMenu).toBeVisible();
@@ -76,12 +76,12 @@ test.describe('Admin Page', () => {
     await expect(page.locator('.brand-logo-image-dark')).toBeVisible();
     await expect(page.locator('.command-agent-prompt [data-slot="button"]').first()).toBeVisible();
     await expect(page.locator('.brand-tag')).toContainText('DCC-MCP Gateway');
-    await expect(page.locator('h1')).toContainText('Admin Dashboard');
+    await expect(page.locator('.workspace-page')).toHaveText('Command Center');
     await expect(page.getByRole('navigation').getByRole('link', { name: 'Command Center' })).toHaveClass(/active/);
-    for (const label of ['Command Center', 'Debug', 'Activity', 'Health', 'Instances', 'Tools', 'Workflows', 'Agent Experiments', 'Tasks', 'Sessions', 'Calls', 'Traces', 'Overview', 'Analytics', 'Reliability', 'OpenAPI Inspector', 'Skills', 'Marketplace', 'Integrations', 'Logs', 'Docs']) {
+    for (const label of ['Command Center', 'Debug', 'Activity', 'Health', 'Instances', 'Tools', 'Workflows', 'Agent Experiments', 'Tasks', 'Sessions', 'Calls', 'Traces', 'Overview', 'Analytics', 'Reliability', 'OpenAPI Inspector', 'Skills', 'Marketplace', 'Integrations', 'Logs']) {
       await expect(page.getByRole('navigation').getByRole('link', { name: label })).toBeVisible();
     }
-    await expect(page.getByRole('navigation').getByRole('link', { name: 'Docs' })).toHaveAttribute('href', 'https://github.com/dcc-mcp/dcc-mcp-core/tree/main/docs');
+    await expect(page.getByRole('link', { name: 'Open project docs on GitHub' })).toHaveAttribute('href', 'https://github.com/dcc-mcp/dcc-mcp-core/tree/main/docs');
     await expect(page.locator('.setup-panel')).toContainText('Claude Desktop');
     await expect(page.locator('.setup-panel')).toContainText('DCC CLI Command Center');
     await expect(page.getByRole('tab', { name: /Agent Prompt/ })).toHaveAttribute('aria-selected', 'true');
@@ -1058,6 +1058,27 @@ test.describe('Admin Page', () => {
     expect(layout.searchFits).toBe(true);
   });
 
+  for (const [panel, row] of [
+    ['skill-paths', '.skill-inventory-row'],
+    ['integrations', '.integration-card-body'],
+  ] as const) {
+    test(`keeps ${panel} actions inside the content area beside the desktop rail`, async ({ page }) => {
+      await page.setViewportSize({ width: 1121, height: 900 });
+      await page.goto(`/admin/?panel=${panel}`);
+      const rows = page.locator(row);
+      await expect(rows.first()).toBeVisible();
+      const clipped = await rows.evaluateAll((items) => items.some((item) => {
+        const bounds = item.getBoundingClientRect();
+        return item.scrollWidth > item.clientWidth + 2
+          || Array.from(item.querySelectorAll('button')).some((button) => {
+            const rect = button.getBoundingClientRect();
+            return rect.width > 0 && (rect.left < bounds.left - 2 || rect.right > bounds.right + 2);
+          });
+      }));
+      expect(clipped).toBe(false);
+    });
+  }
+
   test('keeps skill inventory rows compact on mobile', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/admin/?panel=discover&discoverTab=skills');
@@ -1213,8 +1234,8 @@ test.describe('Admin Page', () => {
     await expect(page.locator('.logs-panel')).toContainText('No log lines match your search.');
   });
 
-  test('collapses the sidebar into a horizontal nav on mobile widths', async ({ page }) => {
-    await page.setViewportSize({ width: 480, height: 900 });
+  test('provides a grouped page picker on mobile widths', async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 900 });
     await page.goto('/admin/');
     // Let the SPA finish its initial mount (it normalizes the URL via
     // history.replaceState) before reading computed styles.
@@ -1224,10 +1245,14 @@ test.describe('Admin Page', () => {
       .poll(() => page.locator('.app-shell').evaluate((node) => getComputedStyle(node).flexDirection))
       .toBe('column');
 
-    const navDirection = await page
-      .locator('.nav-links')
-      .evaluate((node) => getComputedStyle(node).flexDirection);
-    expect(navDirection).toBe('row');
+    await expect(page.locator('.side-rail')).toBeHidden();
+    const pagePicker = page.getByRole('combobox', { name: 'Go to page' });
+    await expect(pagePicker).toBeVisible();
+    await pagePicker.click();
+    await page.getByRole('option', { name: 'Skills', exact: true }).click();
+    await expect(page).toHaveURL(/panel=discover/);
+    await expect(page).toHaveURL(/discoverTab=skills/);
+    await expect(pagePicker).toContainText('Skills');
 
     const noPageOverflow = await page.evaluate(
       () => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 2,

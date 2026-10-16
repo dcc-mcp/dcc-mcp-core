@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { DetailDialog } from '../../components/ui/detail-dialog';
 import type { InterpolationValues, MessageKey } from '../../i18n';
 import {
   AdminApiError,
@@ -730,8 +730,7 @@ export function MarketplacePanel({
   );
 }
 
-/// Portal-based modal that renders the installed detail panel as a slide-in overlay.
-/// Follows the same pattern as SkillDetailModal in SkillsPanel.
+/// Accessible side sheet for an installed package.
 function MarketplaceInstalledDetailModal({
   detail,
   isOutdated,
@@ -749,58 +748,28 @@ function MarketplaceInstalledDetailModal({
   onClose: () => void;
   t: Translator;
 }) {
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    },
-    [onClose],
-  );
-
-  useEffect(() => {
-    if (!detail) return;
-    document.addEventListener('keydown', handleKeyDown);
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown);
-      document.body.style.overflow = '';
-    };
-  }, [detail, handleKeyDown]);
-
   if (!detail) return null;
 
   const pkgKey = `${detail.pkg.name}:${detail.pkg.dcc}`;
   const isInstalling = installingKey === pkgKey;
 
-  return createPortal(
-    <div
-      className="marketplace-installed-detail-backdrop"
-      role="dialog"
-      aria-modal="true"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
+  return (
+    <DetailDialog
+      open
+      onClose={onClose}
+      title={detail.pkg.name}
+      className="marketplace-installed-detail-modal"
     >
-      <div className="marketplace-installed-detail-modal">
-        <button
-          type="button"
-          className="marketplace-installed-detail-close"
-          aria-label={t('action.close')}
-          onClick={onClose}
-        >
-          &times;
-        </button>
-        <MarketplaceInstalledDetailPanel
-          pkg={detail.pkg}
-          catalogEntry={detail.catalogEntry}
-          isOutdated={isOutdated}
-          installing={isInstalling}
-          onUninstall={() => onUninstall(detail.pkg)}
-          onUpdate={onUpdate ? () => onUpdate(detail.pkg.name, detail.pkg.dcc) : undefined}
-          onClose={onClose}
-          t={t}
-        />
-      </div>
-    </div>,
-    document.body,
+      <MarketplaceInstalledDetailPanel
+        pkg={detail.pkg}
+        catalogEntry={detail.catalogEntry}
+        isOutdated={isOutdated}
+        installing={isInstalling}
+        onUninstall={() => onUninstall(detail.pkg)}
+        onUpdate={onUpdate ? () => onUpdate(detail.pkg.name, detail.pkg.dcc) : undefined}
+        onClose={onClose}
+        t={t}
+      />
+    </DetailDialog>
   );
 }
