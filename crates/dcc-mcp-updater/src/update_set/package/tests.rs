@@ -68,12 +68,21 @@ impl Fixture {
         &self,
         validate: impl FnOnce(&Path) -> Result<(), UpdateError>,
     ) -> Result<(), UpdateError> {
+        self.run_with_legacy(None, validate)
+    }
+
+    fn run_with_legacy(
+        &self,
+        legacy: Option<PackageFile<'_>>,
+        validate: impl FnOnce(&Path) -> Result<(), UpdateError>,
+    ) -> Result<(), UpdateError> {
         install_verified_package(
             &self.name,
             &self.current,
             PackageIdentity {
                 name: "dcc-cua",
                 version: "1.0.0",
+                verified_legacy_foreground: legacy,
             },
             &self.source,
             &self.directories,
@@ -659,6 +668,7 @@ fn fully_published_applying_package_restores_local_source_before_fresh_archive_r
         PackageIdentity {
             name: "dcc-cua",
             version: "1.0.0",
+            verified_legacy_foreground: None,
         },
         &fixture.directories,
         &fixture.plan(),
@@ -717,7 +727,8 @@ fn fully_published_applying_package_restores_local_source_before_fresh_archive_r
             &fixture.current,
             PackageIdentity {
                 name: "dcc-cua",
-                version: "1.0.0"
+                version: "1.0.0",
+                verified_legacy_foreground: None,
             },
             &fixture.install,
             &fixture.directories,
@@ -745,4 +756,111 @@ fn fully_published_applying_package_restores_local_source_before_fresh_archive_r
         )
         .unwrap();
     }
+}
+
+#[test]
+fn verified_legacy_foreground_upgrade_commits_receipt_and_rolls_back_on_validation_failure() {
+    for should_fail in [false, true] {
+        let fixture = Fixture::new();
+        let target = fixture.install.join("dcc-cua");
+        std::fs::write(&target, b"official old foreground").unwrap();
+        let old_hash = sha256_file(&target).unwrap();
+        let result = fixture.run_with_legacy(
+            Some(PackageFile {
+                path: "dcc-cua",
+                sha256: &old_hash,
+            }),
+            |_| {
+                if should_fail {
+                    Err(UpdateError::Stage("runtime validation failed".into()))
+                } else {
+                    Ok(())
+                }
+            },
+        );
+        if should_fail {
+            assert!(result.is_err());
+            assert_eq!(std::fs::read(target).unwrap(), b"official old foreground");
+            assert!(!fixture.install.join("dcc-cua-background").exists());
+            assert!(!fixture.install.join(receipt_name("dcc-cua")).exists());
+        } else {
+            result.unwrap();
+            assert_eq!(std::fs::read(target).unwrap(), b"foreground");
+            assert!(fixture.install.join("dcc-cua-background").is_file());
+            assert!(fixture.install.join(receipt_name("dcc-cua")).is_file());
+        }
+        assert!(!fixture.journal().exists());
+    }
+}
+
+#[test]
+fn legacy_proof_is_rechecked_under_the_lock_and_never_adopts_background_or_data_files() {
+    let old_hash = sha256_bytes(b"official old foreground");
+    for conflicting in ["dcc-cua", "dcc-cua-background", "assets/theme.json"] {
+        let fixture = Fixture::new();
+        std::fs::write(fixture.install.join("dcc-cua"), b"official old foreground").unwrap();
+        let path = fixture.install.join(conflicting);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        // A changed foreground invalidates a proof computed before the lock.
+        // Identical bytes at other paths cannot inherit foreground ownership.
+        let bytes = if conflicting == "dcc-cua" {
+            b"replaced after verification".as_slice()
+        } else {
+            b"official old foreground"
+        };
+        std::fs::write(&path, bytes).unwrap();
+        assert!(
+            fixture
+                .run_with_legacy(
+                    Some(PackageFile {
+                        path: "dcc-cua",
+                        sha256: &old_hash
+                    }),
+                    |_| Ok(())
+                )
+                .is_err()
+        );
+        assert_eq!(std::fs::read(path).unwrap(), bytes);
+        assert!(!fixture.install.join(receipt_name("dcc-cua")).exists());
+        assert!(!fixture.journal().exists());
+    }
+}
+
+#[test]
+fn legacy_proof_cannot_override_modified_receipt_owned_files_or_name_a_resource() {
+    let fixture = Fixture::new();
+    fixture.run(|_| Ok(())).unwrap();
+    std::fs::write(fixture.install.join("dcc-cua"), b"other official version").unwrap();
+    let other_hash = sha256_bytes(b"other official version");
+    let receipt = std::fs::read(fixture.install.join(receipt_name("dcc-cua"))).unwrap();
+    assert!(
+        fixture
+            .run_with_legacy(
+                Some(PackageFile {
+                    path: "dcc-cua",
+                    sha256: &other_hash
+                }),
+                |_| Ok(())
+            )
+            .is_err()
+    );
+    assert_eq!(
+        std::fs::read(fixture.install.join("dcc-cua")).unwrap(),
+        b"other official version"
+    );
+    assert_eq!(
+        std::fs::read(fixture.install.join(receipt_name("dcc-cua"))).unwrap(),
+        receipt
+    );
+    assert!(
+        fixture
+            .run_with_legacy(
+                Some(PackageFile {
+                    path: "assets/theme.json",
+                    sha256: &other_hash
+                }),
+                |_| Ok(())
+            )
+            .is_err()
+    );
 }

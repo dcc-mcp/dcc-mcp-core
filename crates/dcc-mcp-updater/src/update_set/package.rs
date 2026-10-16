@@ -22,6 +22,10 @@ pub struct PackageFile<'a> {
 pub struct PackageIdentity<'a> {
     pub name: &'a str,
     pub version: &'a str,
+    /// Optional hash of a legacy foreground binary verified against an
+    /// official, version/platform-bound manifest by the caller. Never derive
+    /// this proof solely from the executable's self-reported runtime contract.
+    pub verified_legacy_foreground: Option<PackageFile<'a>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -134,6 +138,14 @@ pub fn install_verified_package(
     validate_installed: impl FnOnce(&Path) -> Result<(), UpdateError>,
 ) -> Result<(), UpdateError> {
     validate_sibling_name(identity.name)?;
+    if let Some(file) = identity.verified_legacy_foreground {
+        validate_expected_sha(file.sha256)?;
+        if file.path != identity.name && file.path != format!("{}.exe", identity.name) {
+            return Err(UpdateError::Stage(
+                "legacy package proof must name the foreground executable".into(),
+            ));
+        }
+    }
     validate_package_paths(directories, files)?;
     let source_root = std::fs::canonicalize(source_root)?;
     for directory in directories {

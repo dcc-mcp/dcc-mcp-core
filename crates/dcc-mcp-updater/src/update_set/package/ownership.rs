@@ -44,7 +44,8 @@ pub(super) fn prepare_receipt(
     }
     let receipt_path = root.join(&name);
     let mut owned = BTreeMap::new();
-    if ensure_reserved_file_path(&receipt_path, "package ownership receipt")? {
+    let has_receipt = ensure_reserved_file_path(&receipt_path, "package ownership receipt")?;
+    if has_receipt {
         if std::fs::metadata(&receipt_path)?.len() > MAX_PACKAGE_JOURNAL_BYTES {
             return Err(UpdateError::Stage(
                 "package ownership receipt exceeds the size limit".into(),
@@ -76,7 +77,8 @@ pub(super) fn prepare_receipt(
         }
     }
     // Legacy installs have no receipt. Adopt only bytes that already match the
-    // requested official manifest, including the foreground/background binary.
+    // requested official manifest. Only the exact foreground may additionally
+    // match a caller-verified older official manifest, rechecked under the lock.
     // A modified previously owned resource is also a conflict, not consent to
     // discard user changes. Missing files can still be repaired automatically.
     for file in files {
@@ -84,7 +86,12 @@ pub(super) fn prepare_receipt(
         let target = root.join(file.path);
         if ensure_reserved_file_path(&target, "package destination")? {
             let actual = sha256_file(&target)?;
+            let verified_legacy_foreground = !has_receipt
+                && identity.verified_legacy_foreground.is_some_and(|legacy| {
+                    file.path == legacy.path && actual.eq_ignore_ascii_case(legacy.sha256)
+                });
             if !actual.eq_ignore_ascii_case(file.sha256)
+                && !verified_legacy_foreground
                 && !owned
                     .get(&file.path.to_ascii_lowercase())
                     .is_some_and(|hash| actual.eq_ignore_ascii_case(hash))

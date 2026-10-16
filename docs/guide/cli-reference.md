@@ -598,8 +598,14 @@ rolls back the package and its ownership receipt if installation or the final
 runtime check fails. This package transaction does not include the Core CLI.
 
 The `.dcc-cua-install-receipt.json` beside the CLI records only package-relative
-paths and verified hashes. Legacy installs without a receipt adopt only files
-whose contents already match the requested release. An unowned conflicting
+paths and verified hashes. Legacy installs without a receipt adopt files whose
+contents match the requested release. An older foreground executable may also
+be adopted when its full hash matches the official manifest for that exact
+older version and platform. Core reads a bounded, unambiguous version banner
+from its bytes without executing it; the banner is only a hint for a fixed
+official manifest URL, never proof of ownership. Missing/ambiguous banners,
+unavailable old manifests, and hash mismatches fail closed. Background runtimes
+and data files do not receive this migration exception. An unowned conflicting
 file, or an owned file modified since installation, stops the operation before
 replacement. Preserve or relocate that conflicting file before retrying; do not
 edit the receipt to bypass the conflict. Unrelated and obsolete files are kept.
