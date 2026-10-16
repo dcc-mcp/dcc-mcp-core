@@ -34,6 +34,8 @@ from dcc_mcp_core.constants import ENV_GATEWAY_IDLE_TIMEOUT_SECS
 from dcc_mcp_core.constants import ENV_GATEWAY_LAUNCH_LOCK_STALE_SECS
 from dcc_mcp_core.constants import ENV_GATEWAY_PERSIST
 from dcc_mcp_core.constants import ENV_GATEWAY_PORT
+from dcc_mcp_core.constants import ENV_GATEWAY_REMOTE_HOST
+from dcc_mcp_core.constants import ENV_GATEWAY_REMOTE_PORT
 from dcc_mcp_core.constants import ENV_REGISTRY_DIR
 from dcc_mcp_core.daemon_launch import launch_detached
 from dcc_mcp_core.env import env_float
@@ -307,6 +309,8 @@ def build_gateway_daemon_command(
     gateway_persist: bool | None = None,
     gateway_idle_timeout_secs: int | None = None,
     server_bin: str | None = None,
+    gateway_remote_host: str | None = None,
+    gateway_remote_port: int | None = None,
 ) -> tuple[list[str], dict[str, str]]:
     """Build argv and env for ``dcc-mcp-server gateway``."""
     exe = (server_bin or "").strip() or _resolve_server_bin()
@@ -326,6 +330,13 @@ def build_gateway_daemon_command(
         cmd.extend(["--gateway-idle-timeout-secs", str(idle_timeout)])
 
     env = os.environ.copy()
+    # Explicit flags win over inherited process environment, including zero.
+    if gateway_remote_host is not None:
+        cmd.extend(["--remote-host", gateway_remote_host])
+        env[ENV_GATEWAY_REMOTE_HOST] = gateway_remote_host
+    if gateway_remote_port is not None:
+        cmd.extend(["--remote-port", str(gateway_remote_port)])
+        env[ENV_GATEWAY_REMOTE_PORT] = str(gateway_remote_port)
     if not env.get(ENV_GATEWAY_PORT):
         env[ENV_GATEWAY_PORT] = str(gateway_port)
     registry_path = _resolve_registry_dir(registry_dir)
@@ -349,12 +360,21 @@ def _try_version_takeover(
     gateway_persist: bool | None,
     gateway_idle_timeout_secs: int | None,
     server_bin: str | None,
+    gateway_remote_host: str | None = None,
+    gateway_remote_port: int | None = None,
 ) -> dict[str, Any] | None:
     """Attempt version-aware gateway takeover when a running gateway is older.
 
     Returns a result dict if takeover was attempted (success or failure),
     or None if the running gateway is sufficiently new.
     """
+    # A healthy shared daemon may be independently configured for LAN use.
+    # Without its observed listener policy/ownership, replacing it with this
+    # adapter's defaults would silently reconfigure somebody else's listener.
+    if gateway_remote_host is not None or gateway_remote_port is not None:
+        logger.debug("Skipping healthy gateway version takeover: resident listener policy is unverified")
+        return None
+
     our_version = _get_core_version()
     # Skip takeover when version is a dev placeholder.
     if not our_version or our_version == "0.0.0-dev":
@@ -439,6 +459,8 @@ def _try_version_takeover(
             gateway_persist=gateway_persist,
             gateway_idle_timeout_secs=gateway_idle_timeout_secs,
             server_bin=server_bin,
+            gateway_remote_host=gateway_remote_host,
+            gateway_remote_port=gateway_remote_port,
         )
         try:
             spawn = launch_detached(cmd, env=env, cwd=Path.cwd())
@@ -491,6 +513,8 @@ def ensure_gateway_daemon(
     gateway_persist: bool | None = None,
     gateway_idle_timeout_secs: int | None = None,
     server_bin: str | None = None,
+    gateway_remote_host: str | None = None,
+    gateway_remote_port: int | None = None,
 ) -> dict[str, Any]:
     """Ensure a machine-wide gateway daemon is healthy on ``gateway_port``.
 
@@ -511,6 +535,8 @@ def ensure_gateway_daemon(
             gateway_persist=gateway_persist,
             gateway_idle_timeout_secs=gateway_idle_timeout_secs,
             server_bin=server_bin,
+            gateway_remote_host=gateway_remote_host,
+            gateway_remote_port=gateway_remote_port,
         )
         if takeover_result is not None:
             return takeover_result
@@ -540,6 +566,8 @@ def ensure_gateway_daemon(
         gateway_persist=gateway_persist,
         gateway_idle_timeout_secs=gateway_idle_timeout_secs,
         server_bin=server_bin,
+        gateway_remote_host=gateway_remote_host,
+        gateway_remote_port=gateway_remote_port,
     )
 
     try:

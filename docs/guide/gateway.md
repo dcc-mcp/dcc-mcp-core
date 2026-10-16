@@ -102,34 +102,85 @@ Use `serve --no-auto-gateway` or `translate --no-register` when an external
 daemon owns the shared gateway port and this process should never try to bind
 or register with it.
 
-## Embedded Python gateway listener policy
+## Python adapter gateway listener policy
 
-The native Python `McpHttpConfig` constructor preserves its existing secondary
-listener defaults (`0.0.0.0:59765`). Embedded adapters can explicitly disable
-that listener through the public options API:
+`DccServerBase` resolves secondary-listener policy through `GatewayOptions`.
+With no explicit argument or remote-listener environment setting, adapters
+start gateways with **no secondary listener** (`remote_port=0`). The primary
+loopback gateway still supports registration, routing, and failover. A positive
+secondary port enables a second listener on `127.0.0.1` unless the operator
+explicitly supplies another bind address.
 
 ```python
 options = DccServerOptions.from_env(
     "blender", builtin_skills_dir,
     gateway_port=19765,
     gateway_remote_port=0,
-    enable_gateway_failover=False,
 )
 ```
 
-`GatewayOptions(remote_port=0)` provides the same override for direct options.
-`remote_host` / `gateway_remote_host` select an explicit bind address when a
-secondary listener is wanted. Omitting both preserves constructor behavior.
-`from_env` also reads the existing `DCC_MCP_GATEWAY_REMOTE_HOST` and
-`DCC_MCP_GATEWAY_REMOTE_PORT`; explicit values, including zero, take precedence.
-Invalid supplied ports fail during option resolution. Changing the primary
-gateway port or disabling failover alone does not disable the second listener.
+There is no need to disable failover to request local-only startup.
+`gateway_port=0` is different: it disables primary gateway participation.
+`GatewayOptions(remote_port=0)` provides the same secondary-only policy for
+direct options. `None` resolves to port `0` and host `127.0.0.1` at the adapter
+composition root; the dataclass's optional fields remain source-compatible.
 
-These options configure the embedded native listener. They do not reconfigure
-an already running or separately owned daemon. A local-only embedded instance
-uses `enable_gateway_failover=False` as above; configure a standalone daemon
-with its own public `--remote-host` / `--remote-port` flags below. Verify actual
-listener addresses after installing a matching wheel in the target application.
+### Precedence and explicit opt-in
+
+- `DccServerOptions.from_env(...)` / `GatewayOptions.from_env(...)`: explicit
+  non-`None` argument > `DCC_MCP_GATEWAY_REMOTE_HOST` /
+  `DCC_MCP_GATEWAY_REMOTE_PORT` > adapter defaults. Explicit zero wins.
+- Direct `GatewayOptions(...)` does not read remote-listener environment
+  variables. Supplied ports and host values are validated before native config.
+- To enable a loopback secondary listener, pass `gateway_remote_port=59765`.
+- An intentional LAN deployment must also set `gateway_remote_host="0.0.0.0"`
+  or an explicit LAN interface. A host by itself does not enable a listener;
+  supply a positive port as well. Binding is not an authentication or firewall
+  guarantee; apply the gateway security controls below.
+
+### Ownership and recovery
+
+The resolved policy is forwarded to native config, adapter-initiated daemon
+launch and retry, guardian crash recovery, and embedded election/promotion.
+Child-process arguments/environment carry the resolved values, so inherited
+environment cannot silently replace an explicit zero. Promotion reuses the
+existing configured server instead of reconstructing default native config.
+
+For a `DccServerBase` sidecar, Python owns daemon ensure and its guardian.
+The sidecar receives the existing `--no-ensure-gateway` and
+`--legacy-gateway-election` flags: registration and embedded fallback remain
+available without a second, independently configured daemon guardian.
+Direct sidecar/factory callers retain their previous ownership defaults.
+
+A healthy pre-existing daemon is reused without reconfiguration. The adapter
+also skips version-based replacement of that healthy daemon while its listener
+policy is unverified; use the operator's explicit daemon upgrade process.
+If multiple adapters share a gateway, the winning owner determines its actual
+listener state. An adapter's requested local-only policy cannot prove that a
+pre-existing/shared daemon has no LAN listener.
+
+`get_gateway_election_status()` and the supported
+`dcc_diagnostics__gateway_failover` tool expose `remote_listener` with
+`configured_host`, `configured_port`, `configured_enabled`,
+`scope="adapter_started_gateways"`, and `effective_state="unverified"`.
+These fields describe resolved configuration, **not observed bound sockets**.
+Inspect the running gateway's listeners separately before asserting effective
+LAN exposure or absence of exposure.
+
+### Compatibility and migration
+
+This is a safety-default change at the `DccServerBase` composition root.
+Adapters that intentionally relied on the previous implicit secondary listener
+must set both their desired host and a positive port, through public options or
+the two environment variables above. Upgrading Core alone does not reconfigure
+a healthy resident gateway.
+
+The low-level native `McpHttpConfig` constructor still retains its historical
+`0.0.0.0:59765` defaults. Direct standalone CLI startup keeps its own
+`127.0.0.1:59765` defaults. This change does not claim globally unified defaults;
+configure those entry points explicitly with their documented listener fields
+or `--remote-host` / `--remote-port` flags. Rebuild/install a matching release
+and verify it in the target application before production rollout.
 
 ## Standalone gateway daemon (#1358)
 

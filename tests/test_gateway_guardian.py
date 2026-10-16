@@ -1063,6 +1063,8 @@ def test_gateway_daemon_guardian_audits_version_when_endpoint_is_healthy(monkeyp
             "gateway_persist": None,
             "gateway_idle_timeout_secs": None,
             "server_bin": None,
+            "gateway_remote_host": None,
+            "gateway_remote_port": None,
         }
     ]
 

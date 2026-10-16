@@ -19,7 +19,6 @@ use std::time::Instant;
 use tempfile::TempDir;
 use uuid::Uuid;
 
-#[cfg(feature = "gateway-daemon")]
 fn guardian_test_args() -> SidecarArgs {
     SidecarArgs {
         dcc: "maya".to_string(),
@@ -166,7 +165,6 @@ fn gateway_daemon_guardian_runs_only_in_daemon_backed_mode() {
     );
 }
 
-#[cfg(feature = "gateway-daemon")]
 #[test]
 fn sidecar_service_entry_reports_gateway_guardian_metadata() {
     fn assert_mode(args: SidecarArgs, mode: &str, enabled: bool, recovery_driver: &str) {
@@ -265,11 +263,20 @@ fn sidecar_service_entry_reports_gateway_guardian_metadata() {
         );
     }
 
+    let daemon_available = cfg!(feature = "gateway-daemon");
     assert_mode(
         guardian_test_args(),
-        "daemon-backed",
-        true,
-        GATEWAY_RECOVERY_DRIVER_DAEMON_GUARDIAN,
+        if daemon_available {
+            "daemon-backed"
+        } else {
+            "daemon-unavailable"
+        },
+        daemon_available,
+        if daemon_available {
+            GATEWAY_RECOVERY_DRIVER_DAEMON_GUARDIAN
+        } else {
+            GATEWAY_RECOVERY_DRIVER_NONE
+        },
     );
 
     let mut disabled = guardian_test_args();
@@ -297,6 +304,27 @@ fn sidecar_service_entry_reports_gateway_guardian_metadata() {
         "embedded-fallback",
         false,
         GATEWAY_RECOVERY_DRIVER_EMBEDDED_ELECTION,
+    );
+
+    let mut adapter_managed = guardian_test_args();
+    adapter_managed.no_ensure_gateway = true;
+    adapter_managed.legacy_gateway_election = true;
+    assert_mode(
+        adapter_managed,
+        "embedded-fallback",
+        false,
+        GATEWAY_RECOVERY_DRIVER_EMBEDDED_ELECTION,
+    );
+
+    let mut adapter_managed_disabled = guardian_test_args();
+    adapter_managed_disabled.gateway_port = 0;
+    adapter_managed_disabled.no_ensure_gateway = true;
+    adapter_managed_disabled.legacy_gateway_election = true;
+    assert_mode(
+        adapter_managed_disabled,
+        "not_configured",
+        false,
+        GATEWAY_RECOVERY_DRIVER_NONE,
     );
 }
 

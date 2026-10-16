@@ -351,6 +351,11 @@ jobs:
       - name: Shared fixture feature tests
         if: matrix.rust-validation == 'full'
         run: vx cargo test -p dcc-mcp-test-utils --features skill-rest
+      - name: Sidecar gateway-auto metadata tests
+        if: matrix.rust-validation == 'full'
+        run: >-
+          vx cargo test -p dcc-mcp-sidecar --no-default-features --features gateway-auto
+          --lib sidecar_service_entry_reports_gateway_guardian_metadata
       - name: Rust compile smoke
         if: matrix.rust-validation == 'smoke'
         run: vx cargo check --workspace --all-targets

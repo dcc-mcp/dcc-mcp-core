@@ -306,6 +306,7 @@ class LifecycleController:
                 "gateway_recovery_driver": gateway_metadata["gateway_recovery_driver"],
                 "registration_refresh_mode": gateway_metadata["registration_refresh_mode"],
                 "gateway_daemon_status": dict(getattr(owner, "_gateway_daemon_status", {}) or {}),
+                "remote_listener": self._remote_listener_policy_status(),
             }
         status = owner._gateway_election.get_status()
         status["enabled"] = bool(owner._enable_gateway_failover)
@@ -315,7 +316,20 @@ class LifecycleController:
         status["gateway_recovery_driver"] = gateway_metadata["gateway_recovery_driver"]
         status["registration_refresh_mode"] = gateway_metadata["registration_refresh_mode"]
         status["gateway_daemon_status"] = dict(getattr(owner, "_gateway_daemon_status", {}) or {})
+        status["remote_listener"] = self._remote_listener_policy_status()
         return status
+
+    def _remote_listener_policy_status(self) -> dict[str, Any]:
+        """Report configured intent without claiming an observed socket state."""
+        config = self._owner._config
+        port = getattr(config, "gateway_remote_port", None)
+        return {
+            "configured_host": getattr(config, "gateway_remote_host", None),
+            "configured_port": port,
+            "configured_enabled": port > 0 if port is not None else None,
+            "scope": "adapter_started_gateways",
+            "effective_state": "unverified",
+        }
 
     # -- plugin manifest ------------------------------------------------------
 
