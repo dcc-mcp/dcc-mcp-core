@@ -23,6 +23,8 @@ from conftest import McpClient
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import McpHttpServer
 from dcc_mcp_core import ToolRegistry
+from dcc_mcp_core._server.config import build_mcp_http_config
+from dcc_mcp_core._server.options import DccServerOptions
 
 # ── helpers ───────────────────────────────────────────────────────────────
 
@@ -191,6 +193,85 @@ class TestToolsListPagination:
         assert any(hit.get("name") == target for hit in payload.get("tools", [])), (
             f"search_tools should find loaded tools beyond the first tools/list page; got {payload}"
         )
+
+
+@pytest.mark.parametrize("dcc_name", ["blender", "unity"])
+@pytest.mark.parametrize("bare_tool_names", [True, False])
+def test_public_options_preserve_native_tool_names_across_pages(tmp_path, dcc_name, bare_tool_names):
+    """Public options must reach native naming before the listener starts."""
+    options = DccServerOptions.from_env(
+        dcc_name,
+        tmp_path,
+        port=0,
+        gateway_port=0,
+        gateway_remote_host="127.0.0.1",
+        gateway_remote_port=0,
+        registry_dir=str(tmp_path / "registry"),
+        bare_tool_names=bare_tool_names,
+    )
+    config = build_mcp_http_config(options, package_version="test", version_provider=lambda: "test")
+    assert config.bare_tool_names is bare_tool_names
+    registry = ToolRegistry()
+    for index in range(40):
+        registry.register(
+            f"pagination_fixture__item_{index:03d}",
+            skill_name="pagination-fixture",
+            dcc=dcc_name,
+            input_schema=json.dumps({"type": "object", "properties": {}}),
+        )
+    for skill in ("fixture-one", "fixture-two"):
+        registry.register(
+            skill.replace("-", "_") + "__shared",
+            skill_name=skill,
+            dcc=dcc_name,
+            input_schema=json.dumps({"type": "object", "properties": {}}),
+        )
+    server = McpHttpServer(registry, config)
+    handle = server.start()
+    try:
+        assert handle.bind_addr.startswith("127.0.0.1:")
+        inventories = []
+        for _ in range(2):
+            pages = []
+            seen_cursors = set()
+            cursor = None
+            for index in range(16):
+                request_id = f"native-names-{index}"
+                code, body = _post(
+                    handle.mcp_url(),
+                    {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "method": "tools/list",
+                        "params": {} if cursor is None else {"cursor": cursor},
+                    },
+                )
+                assert code == 200 and body["id"] == request_id
+                assert "error" not in body
+                page = body["result"]
+                pages.append(page)
+                assert all(tool["inputSchema"]["type"] == "object" for tool in page["tools"])
+                cursor = page.get("nextCursor")
+                if cursor is None:
+                    break
+                assert isinstance(cursor, str) and cursor and cursor not in seen_cursors
+                seen_cursors.add(cursor)
+            else:
+                pytest.fail("Native tools/list did not finish within 16 pages")
+            assert len(pages) >= 2
+            assert len(pages[0]["tools"]) == TestToolsListPagination.PAGE_SIZE
+            names = [tool["name"] for page in pages for tool in page["tools"]]
+            assert len(names) == len(set(names))
+            prefix = "" if bare_tool_names else "pagination-fixture__"
+            assert {f"{prefix}item_{index:03d}" for index in range(40)} <= set(names)
+            opposite_prefix = "pagination-fixture__" if bare_tool_names else ""
+            assert {f"{opposite_prefix}item_{index:03d}" for index in range(40)}.isdisjoint(names)
+            assert {"fixture-one__shared", "fixture-two__shared"} <= set(names)
+            assert "shared" not in names
+            inventories.append(pages)
+        assert inventories[0] == inventories[1]
+    finally:
+        handle.shutdown()
 
 
 # ── delta notification capability negotiation ─────────────────────────────

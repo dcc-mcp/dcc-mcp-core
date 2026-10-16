@@ -751,6 +751,7 @@ fn gateway_endpoint_for_command_ensures_gateway_for_agent_control_commands() {
                 query: "sphere".to_string(),
                 limit: 5,
                 timeout_secs: Some(5),
+                max_pages: 16,
             },
             &local,
         )
@@ -764,6 +765,7 @@ fn gateway_endpoint_for_command_ensures_gateway_for_agent_control_commands() {
                 query: "sphere".to_string(),
                 limit: 5,
                 timeout_secs: Some(5),
+                max_pages: 16,
             },
             &local,
         )
