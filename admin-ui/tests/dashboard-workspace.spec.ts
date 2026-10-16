@@ -256,6 +256,33 @@ for (const width of [390, 1440]) {
       await expect(detail).toContainText('Scene Builder');
     });
 
+    test('a task goal without a recorded outcome is not labeled as a result', async ({ page }, testInfo) => {
+      await page.route('**/admin/api/tasks*', async (route) => route.fulfill({ json: {
+        total: 2,
+        tasks: [{ task_id: 'goal-only', task_type: 'agent_turn', title: 'Prepare a preview',
+          status: 'running', started_at: now, goal: 'Create a reviewable scene.',
+          summary: 'Create a reviewable scene.', app_types: ['maya'] },
+        { task_id: 'summary-only', task_type: 'agent_turn', title: 'Inspect scene inputs',
+          status: 'running', started_at: now, summary: 'Check source geometry.', app_types: ['maya'] }],
+      } }));
+      await page.goto('/admin/?panel=tasks');
+      const tasks = page.locator('.task-card');
+      await expect(tasks).toHaveCount(2);
+      const task = tasks.filter({ hasText: 'Prepare a preview' });
+      await task.locator('.task-title-row').click();
+      await expect(task.getByText('Goal', { exact: true })).toBeVisible();
+      await expect(task.getByText('Create a reviewable scene.', { exact: true })).toBeVisible();
+      await expect(task.getByText('Result', { exact: true })).toHaveCount(0);
+      await expect(task.getByText('Summary', { exact: true })).toHaveCount(0);
+      const summaryTask = tasks.filter({ hasText: 'Inspect scene inputs' });
+      await summaryTask.locator('.task-title-row').click();
+      await expect(summaryTask.getByText('Summary', { exact: true })).toBeVisible();
+      await expect(summaryTask.getByText('Check source geometry.', { exact: true })).toBeVisible();
+      await expect(summaryTask.getByText('Result', { exact: true })).toHaveCount(0);
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await evidence(page, testInfo, 'task-goal-without-result');
+    });
+
     test('polling prepends logs without closing the expanded gateway event', async ({ page }, testInfo) => {
       const original = { timestamp: now, level: 'info', source: 'contention', dcc_type: 'gateway', message: 'Original gateway event', detail: 'Original event diagnostic detail' };
       const incoming = { ...original, timestamp: '2026-05-18T08:00:01.000Z', message: 'New gateway event', detail: 'New event diagnostic detail' };

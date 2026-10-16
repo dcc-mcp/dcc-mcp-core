@@ -106,6 +106,9 @@ export function TasksPanel({
                   {task.goal && task.goal !== task.title ? (
                     <p className="task-outcome"><strong>{t('tasks.label.goal')}</strong>{task.goal}</p>
                   ) : null}
+                  {task.summary && ![task.title, task.goal, outcome].includes(task.summary) ? (
+                    <p className="task-outcome"><strong>{t('common.table.summary')}</strong>{task.summary}</p>
+                  ) : null}
                   {outcome ? (
                     <p className="task-outcome"><strong>{tone === 'err' ? t('tasks.label.failure') : t('tasks.label.result')}</strong>{outcome}</p>
                   ) : null}

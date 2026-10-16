@@ -1011,9 +1011,10 @@ export function taskRequestCount(task: TaskRow): number {
 }
 
 export function taskOutcomeText(task: TaskRow): string | null {
+  // Summary can contain user intent, so it is not evidence of an outcome.
   return task.status && isErrStatus(task.status)
-    ? task.failure_reason ?? task.final_result ?? task.summary ?? null
-    : task.final_result ?? task.summary ?? task.goal ?? null;
+    ? task.failure_reason ?? task.final_result ?? null
+    : task.final_result ?? null;
 }
 
 export function gatewayLabel(health: HealthPayload | null): string {
