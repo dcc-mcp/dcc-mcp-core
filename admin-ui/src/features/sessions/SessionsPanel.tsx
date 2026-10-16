@@ -1,10 +1,9 @@
 import { Fragment, useMemo, useState } from 'react';
-import { RiRefreshLine } from '@remixicon/react';
+import { RiArrowDownSLine, RiArrowRightSLine, RiRefreshLine } from '@remixicon/react';
 import {
   PanelHeader,
   PanelTabs,
   StatusLine,
-  MetricTile,
   apiJson,
   compactId,
   formatDurationMs,
@@ -12,7 +11,7 @@ import {
   matchesListFilter,
 } from '../../admin-ui-core';
 import { formatTime } from '../../time';
-import { Badge } from '../../components/ui/badge';
+import { Input } from '../../components/ui/input';
 import { Button } from '../../components/ui/button';
 import {
   Select,
@@ -234,27 +233,19 @@ export function SessionsPanel({
     });
   }
 
-  const visibleNodeIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const node of filtered) {
-      let visible = true;
-      if (node.session.parent_session_id) {
-        const parent = flatNodes.find((n) => n.session.session_id === node.session.parent_session_id);
-        if (!parent || !filtered.includes(parent)) {
-          visible = false;
-        } else if (collapsedIds.has(parent.session.session_id)) {
-          visible = false;
-        }
-      }
-      if (visible) ids.add(node.session.session_id);
-    }
-    return ids;
-  }, [filtered, collapsedIds, flatNodes]);
-
+  const hasFilters = dccFilter !== ALL_DCC || statusFilter !== ALL_STATUS || Boolean(search.trim());
   const displayNodes = useMemo(() => {
-    return filtered.filter((node) => visibleNodeIds.has(node.session.session_id));
-  }, [filtered, visibleNodeIds]);
-
+    if (hasFilters) return filtered;
+    const hiddenIds = new Set<string>();
+    return filtered.filter((node) => {
+      const parentId = node.session.parent_session_id;
+      if (parentId && (collapsedIds.has(parentId) || hiddenIds.has(parentId))) {
+        hiddenIds.add(node.session.session_id);
+        return false;
+      }
+      return true;
+    });
+  }, [filtered, collapsedIds, hasFilters]);
   if (!active) return null;
 
   return (
@@ -281,45 +272,29 @@ export function SessionsPanel({
         }
       />
 
-      {/* ── KPI metrics ─────────────────────────────────────────────── */}
-      <div className="sessions-metrics sessions-kpi-row">
-        <MetricTile
-          label={t('sessions.kpi.total')}
-          value={data?.total ?? '-'}
-        />
-        <MetricTile
-          tone="ok"
-          label={t('sessions.kpi.active')}
-          value={data?.kpi.active ?? '-'}
-        />
-        <MetricTile
-          label={t('sessions.kpi.ended')}
-          value={data?.kpi.ended ?? '-'}
-        />
-        <MetricTile
-          label={t('sessions.kpi.byDcc')}
-          value={data?.kpi.by_dcc ? Object.keys(data.kpi.by_dcc).length : '-'}
-        />
+      <div className="sessions-overview">
+        <dl className="sessions-summary" aria-label={t('sessions.section.summary')}>
+          <div><dt>{t('sessions.kpi.total')}</dt><dd>{data?.total ?? '—'}</dd></div>
+          <div><dt>{t('sessions.kpi.active')}</dt><dd>{data?.kpi.active ?? '—'}</dd></div>
+          <div><dt>{t('sessions.kpi.ended')}</dt><dd>{data?.kpi.ended ?? '—'}</dd></div>
+          <div><dt>{t('sessions.kpi.byDcc')}</dt><dd>{data?.kpi.by_dcc ? Object.keys(data.kpi.by_dcc).length : '—'}</dd></div>
+        </dl>
+        {data?.kpi.by_dcc && Object.keys(data.kpi.by_dcc).length > 0 && (
+          <details className="sessions-by-dcc">
+            <summary>{t('sessions.kpi.byDcc')}</summary>
+            <dl>{Object.entries(data.kpi.by_dcc).map(([dcc, count]) => (
+              <div key={dcc}><dt>{dcc}</dt><dd>{count}</dd></div>
+            ))}</dl>
+          </details>
+        )}
       </div>
-
-      {/* ── DCC chips ───────────────────────────────────────────────── */}
-      {data?.kpi.by_dcc && Object.keys(data.kpi.by_dcc).length > 0 && (
-        <div className="sessions-by-dcc">
-          {Object.entries(data.kpi.by_dcc).map(([dcc, count]) => (
-            <span className="dcc-chip" key={dcc}>
-              {dcc}: {count}
-            </span>
-          ))}
-        </div>
-      )}
-
       {/* ── filters ─────────────────────────────────────────────────── */}
       <div className="sessions-filter-bar">
         <Select value={dccFilter} onValueChange={setDccFilter}>
-          <SelectTrigger className="w-36">
+          <SelectTrigger className="admin-select-trigger" aria-label={t('sessions.filter.dccType')}>
             <SelectValue placeholder={t('sessions.filter.dccType')} />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className="admin-select-content">
             <SelectGroup>
               <SelectItem value={ALL_DCC}>{t('sessions.filter.all')}</SelectItem>
               {dccTypes.map((dcc) => (
@@ -330,10 +305,10 @@ export function SessionsPanel({
         </Select>
 
         <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-40">
+          <SelectTrigger className="admin-select-trigger" aria-label={t('sessions.filter.status')}>
             <SelectValue placeholder={t('sessions.filter.status')} />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className="admin-select-content">
             <SelectGroup>
               <SelectItem value={ALL_STATUS}>{t('sessions.filter.all')}</SelectItem>
               {allStatuses.map((status) => (
@@ -343,9 +318,9 @@ export function SessionsPanel({
           </SelectContent>
         </Select>
 
-        <input
-          type="text"
-          className="input sessions-search-input"
+        <Input
+          type="search"
+          className="sessions-search-input" aria-label={t('sessions.filter.search')}
           data-testid="sessions-search"
           placeholder={t('sessions.filter.search')}
           value={search}
@@ -373,14 +348,10 @@ export function SessionsPanel({
         <table className="sessions-tree-table sessions-table">
           <thead>
             <tr>
-              <th style={{ width: '22%' }}>{t('sessions.label.sessionId')}</th>
-              <th style={{ width: '10%' }}>{t('sessions.label.dccType')}</th>
-              <th style={{ width: '12%' }}>{t('sessions.label.status')}</th>
-              <th style={{ width: '8%' }}>{t('sessions.label.toolCalls')}</th>
-              <th style={{ width: '8%' }}>{t('sessions.label.turns')}</th>
-              <th style={{ width: '18%' }}>{t('sessions.label.startTime')}</th>
-              <th style={{ width: '12%' }}>{t('sessions.label.duration')}</th>
-              <th style={{ width: '10%' }}>{t('sessions.label.instanceId')}</th>
+              <th>{t('sessions.label.sessionId')}</th>
+              <th>{t('sessions.label.toolCalls')} / {t('sessions.label.turns')}</th>
+              <th>{t('sessions.label.startTime')}</th>
+              <th>{t('sessions.label.status')}</th>
             </tr>
           </thead>
           <tbody>
@@ -389,65 +360,44 @@ export function SessionsPanel({
               const isDetailOpen = detailId === s.session_id;
               const isCollapsed = collapsedIds.has(s.session_id);
               const hasChildren = node.children.length > 0;
-              const indentStr = node.depth > 0 ? '\u00A0\u00A0\u00A0'.repeat(node.depth) : '';
-              const branchPrefix = node.depth > 0 ? '\u2514\u2500 ' : '';
               const startedAt = s.started_at;
 
               return (
                 <Fragment key={s.session_id}>
-                  <tr
-                    className={`session-tree-row sessions-row ${node.depth > 0 ? 'child' : ''} ${isDetailOpen ? 'expanded' : ''}`}
-                  >
-                    <td>
-                      <span className="session-tree-indent">
-                        <span className="tree-lines">
-                          {indentStr}{branchPrefix}
-                        </span>
-                        <span className="session-id-cell">
-                          <button
-                            type="button"
-                            className="sessions-detail-btn"
-                            aria-expanded={isDetailOpen}
-                            onClick={() => setDetailId(isDetailOpen ? null : s.session_id)}
-                          >
-                            <code title={s.session_id}>{compactId(s.session_id)}</code>
-                          </button>
-                        </span>
-                        {hasChildren && (
-                          <button type="button" className="sessions-tree-btn" aria-expanded={!isCollapsed} onClick={() => toggleCollapsed(s.session_id)}>
-                            {isCollapsed ? '\u25B6' : '\u25BC'} {node.children.length}
-                          </button>
+                  <tr className={`session-tree-row sessions-row ${node.depth > 0 ? 'child' : ''} ${isDetailOpen ? 'expanded' : ''}`}>
+                    <td className="session-identity">
+                      <div className="session-tree-indent" style={{ paddingInlineStart: hasFilters ? 0 : Math.min(node.depth, 4) * 12 }}>
+                        <Button type="button" variant="ghost" size="sm" className="sessions-detail-btn"
+                          aria-expanded={isDetailOpen} aria-controls={`session-detail-${s.session_id}`}
+                          onClick={() => setDetailId(isDetailOpen ? null : s.session_id)}>
+                          {isDetailOpen ? <RiArrowDownSLine aria-hidden="true" /> : <RiArrowRightSLine aria-hidden="true" />}
+                          <span title={s.session_id}>{compactId(s.session_id)}</span>
+                        </Button>
+                        {hasChildren && !hasFilters && (
+                          <Button type="button" variant="ghost" size="sm" className="sessions-tree-btn"
+                            aria-label={t('sessions.action.toggleChildren', { id: compactId(s.session_id) })}
+                            aria-expanded={!isCollapsed} onClick={() => toggleCollapsed(s.session_id)}>
+                            {isCollapsed ? <RiArrowRightSLine aria-hidden="true" /> : <RiArrowDownSLine aria-hidden="true" />}
+                            {node.children.length}
+                          </Button>
                         )}
-                        {!s.parent_session_id ? (
-                          <Badge variant="outline" className="badge-muted">{t('sessions.badge.root')}</Badge>
-                        ) : null}
-                      </span>
+                      </div>
+                      <div className="session-context">{s.dcc_type || '—'}<span>{s.agent_name || s.actor_name || compactId(s.instance_id)}</span></div>
                     </td>
-                    <td>{s.dcc_type}</td>
-                    <td>
-                      <span className={statusBadgeClass(s.status)}>
-                        {t(STATUS_LABEL_KEYS[s.status])}
-                      </span>
+                    <td className="session-activity">
+                      <span>{s.tool_call_count} {t('sessions.label.toolCalls')}</span>
+                      <small>{s.turn_count} {t('sessions.label.turns')}</small>
                     </td>
-                    <td>{s.tool_call_count}</td>
-                    <td>
-                      {s.turn_count}
+                    <td className="session-time">
+                      <time dateTime={startedAt} title={formatTime(startedAt)}>{formatTime(startedAt)}</time>
+                      <small>{formatDurationMs(sessionDurationMs(s))}</small>
                     </td>
-                    <td>
-                      <time dateTime={startedAt} title={formatTime(startedAt)}>
-                        {formatTime(startedAt)}
-                      </time>
-                    </td>
-                    <td>{formatDurationMs(sessionDurationMs(s))}</td>
-                    <td>
-                      <code title={s.instance_id ?? ''}>{compactId(s.instance_id)}</code>
-                    </td>
+                    <td className="session-status"><span className={statusBadgeClass(s.status)}>{t(STATUS_LABEL_KEYS[s.status])}</span></td>
                   </tr>
-
                   {/* ── expanded detail row ─────────────────────────── */}
                   {isDetailOpen && (
                     <tr className="sessions-detail-row">
-                      <td colSpan={8} className="session-expand-detail" style={{ padding: 0 }}>
+                      <td colSpan={4} className="session-expand-detail" id={`session-detail-${s.session_id}`}>
                         <div className="detail-grid">
                           <span>
                             <strong>{t('sessions.label.sessionId')}</strong>

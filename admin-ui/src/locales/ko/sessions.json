@@ -50,5 +50,6 @@
   "filter.dccType": "DCC 유형",
   "filter.status": "상태",
   "filter.search": "세션 검색",
-  "filter.all": "전체"
+  "filter.all": "전체",
+  "action.toggleChildren": "{id}의 하위 세션 펼치기 또는 접기"
 }

@@ -601,19 +601,18 @@ test.describe('Admin Page', () => {
     await expect(page).toHaveURL(/trace=req-123/);
     await expect(page.locator('.trace-detail-panel')).toContainText('req-123');
     await expect(page.locator('.trace-detail-panel')).toContainText('dispatch');
-    await expect(page.locator('.trace-detail-panel')).toContainText('Agent timeline');
+    await expect(page.getByLabel('Search steps')).toBeVisible();
+    await page.locator('.trace-evidence-section > summary').click();
     await expect(page.locator('.trace-related-head')).toContainText('Related evidence');
     await expect(page.locator('.trace-links a', { hasText: 'Calls' })).toHaveAttribute('href', /tracesTab=calls/);
-    await expect(page.locator('.agent-swimlane')).toHaveCount(4);
-    await expect(page.locator('.agent-timeline-card')).toContainText('Agent Invocation');
-    await expect(page.locator('.agent-timeline-card')).toContainText('LLM Operations');
-    await expect(page.locator('.agent-timeline-card')).toContainText('Tool Calls');
-    await expect(page.locator('.agent-timeline-card')).toContainText('Failures');
-    await expect(page.locator('.agent-timeline-card')).toContainText('Create a sphere and report scene status.');
-    await expect(page.locator('.agent-timeline-card')).toContainText('Plan 2');
-    await expect(page.locator('.agent-timeline-card')).toContainText('Call create_sphere');
-    await expect(page.locator('.agent-timeline-card')).toContainText('Observation 1');
-    await expect(page.locator('.agent-timeline-card')).toContainText('Sphere created.');
+    await expect(page.locator('.agent-swimlane')).toHaveCount(0);
+    await expect(page.locator('.trace-detail-panel')).not.toContainText('LLM Operations');
+    await page.locator('.agent-context-card > summary').click();
+    await expect(page.locator('.agent-context-card')).toContainText('Create a sphere and report scene status.');
+    await expect(page.locator('.agent-context-card')).toContainText('Call create_sphere');
+    await expect(page.locator('.agent-context-card')).toContainText('Observations');
+    await expect(page.locator('.agent-context-card')).toContainText('Sphere created.');
+    await page.locator('.trace-record-section > summary').click();
     await expect(page.locator('.trace-detail-panel')).toContainText('Token accounting');
     await expect(page.locator('.trace-detail-panel')).toContainText('dcc-mcp-byte4-v1');
     await expect(page.locator('.trace-detail-panel')).toContainText(/Input tokens\s*3/);
@@ -624,6 +623,7 @@ test.describe('Admin Page', () => {
     await expect(page.locator('.trace-detail-panel')).toContainText('cursor / windows / workstation-7');
     await expect(page.locator('.trace-detail-panel')).toContainText('192.0.2.44');
     await expect(page.locator('.trace-detail-panel')).toContainText('trusted_proxy');
+    await page.locator('.trace-raw-context > summary').click();
     await expect(page.locator('.caller-context-pre')).toContainText('"auth_subject": "user:artist-1"');
     await expect(page.locator('.caller-context-pre')).toContainText('"auth_subject": "auth"');
   });
@@ -649,6 +649,7 @@ test.describe('Admin Page', () => {
     await expect(page.locator('.list-search-meta')).toContainText('2 / 5');
     await expect(tracesPanel.locator('.trace-item.latency-critical', { hasText: 'req-slow' })).toContainText('TAIL');
     await expect(tracesPanel.locator('.trace-item.err.latency-slow', { hasText: 'req-failed-s' })).toContainText('SLOW');
+    await tracesPanel.locator('.trace-extra-metrics > summary').click();
     await expect(tracesPanel).toContainText('p99 latency');
     await expect(tracesPanel).toContainText('tail >= 5.00 s');
     await expect(tracesPanel).toContainText('slowest upload_texture 5.40 s');
@@ -689,10 +690,14 @@ test.describe('Admin Page', () => {
     await expect(page.locator('.tasks-panel')).toContainText('workflow session-1');
     await expect(page.locator('.tasks-panel')).toContainText('client Layout Artist');
     await expect(page.locator('.tasks-panel')).toContainText('Backend failed while opening [path-redacted].');
-    await expect(page.locator('.tasks-panel .metric-grid')).toContainText('Avg duration');
-    await expect(page.locator('.tasks-panel .metric-grid')).toContainText('Success rate');
+    await expect(page.locator('.tasks-panel .task-summary')).toContainText('Avg duration');
+    await expect(page.locator('.tasks-panel .task-summary')).toContainText('Success rate');
     await expect(page.locator('.task-card.ok', { hasText: 'Create a sphere' }).locator('.task-title-row .badge-ok')).toContainText('completed');
     await expect(page.locator('.task-card.err', { hasText: 'Render preview' }).locator('.task-title-row .badge-err')).toContainText('failed');
+    const sphereTask = page.locator('.task-card.ok', { hasText: 'Create a sphere' });
+    await expect(sphereTask.locator('.task-detail')).toBeHidden();
+    await sphereTask.locator('summary').click();
+    await expect(sphereTask.locator('.task-detail')).toBeVisible();
     await page.getByRole('button', { name: /trace req-123/ }).click();
     await expect(page).toHaveURL(/panel=traces/);
     await expect(page).toHaveURL(/trace=req-123/);
@@ -1052,7 +1057,7 @@ test.describe('Admin Page', () => {
 
     expect(layout.searchAlignedWithTabs).toBe(true);
     expect(layout.toolbarBeforeHeader).toBe(true);
-    expect(layout.firstRowHeight).toBeLessThanOrEqual(260);
+    expect(layout.firstRowHeight).toBeLessThanOrEqual(150);
     expect(layout.firstRowCoveredBySearch).toBe(false);
     expect(layout.noHorizontalOverflow).toBe(true);
     expect(layout.searchFits).toBe(true);
@@ -1103,10 +1108,35 @@ test.describe('Admin Page', () => {
     });
     expect(metrics.documentWidth).toBeLessThanOrEqual(metrics.viewportWidth + 2);
     expect(metrics.insightWidth).toBeLessThanOrEqual(metrics.insightClientWidth + 1);
-    expect(Math.max(...metrics.rowHeights)).toBeLessThanOrEqual(250);
+    expect(Math.max(...metrics.rowHeights)).toBeLessThanOrEqual(200);
     expect(metrics.firstRowText).toContain('maya-modeling');
     expect(metrics.firstRowText).toContain('create_sphere');
     await expect(panel.getByRole('button', { name: /Open maya-modeling detail|查看 maya-modeling 详情/ })).toBeVisible();
+  });
+
+  test('keeps the skill identity and metadata compact at the reviewed workspace width', async ({ page }) => {
+    await page.setViewportSize({ width: 1012, height: 764 });
+    await page.goto('/admin/?panel=discover&discoverTab=skills');
+    const row = page.locator('.skill-inventory-row[data-skill-name="maya-modeling"]');
+    await expect(row).toBeVisible();
+    await expect(row.locator('[data-slot="badge"]')).toHaveCount(1);
+    const layout = await row.evaluate((element) => {
+      const title = element.querySelector('.skill-inventory-title')!;
+      const action = element.querySelector('.skill-inventory-action')!;
+      return {
+        height: element.getBoundingClientRect().height,
+        overflow: element.scrollWidth - element.clientWidth,
+        titleFont: getComputedStyle(title).fontFamily,
+        buttonRadius: getComputedStyle(action).borderRadius,
+      };
+    });
+    expect(layout.height).toBeLessThanOrEqual(150);
+    expect(layout.overflow).toBeLessThanOrEqual(1);
+    expect(layout.titleFont).not.toMatch(/mono/i);
+    expect(layout.buttonRadius).toBe('8px');
+    await expect(row.getByText('create_sphere', { exact: true })).toBeHidden();
+    await row.locator('summary').click();
+    await expect(row.getByText('create_sphere', { exact: true })).toBeVisible();
   });
 
   test('mounts only the selected Discover tab content', async ({ page }) => {
@@ -1582,19 +1612,19 @@ test.describe('Admin Page', () => {
 });
 
 test.describe('Sessions and Reliability panels', () => {
-  test('sessions panel renders KPIs, tree, and status badges', async ({ page }) => {
+  test('sessions panel renders a summary, session list, and status', async ({ page }) => {
     await page.goto('/admin/');
     await page.getByRole('navigation').getByRole('link', { name: 'Sessions' }).click();
 
     const panel = page.locator('section.sessions-panel');
     await expect(panel).toBeVisible();
 
-    const kpiTiles = panel.locator('.sessions-kpi-row .metric-tile');
+    const kpiTiles = panel.locator('.sessions-summary > div');
     await expect(kpiTiles).toHaveCount(4);
-    await expect(kpiTiles.nth(0).locator('.metric-value')).toHaveText('3');
-    await expect(kpiTiles.nth(1).locator('.metric-value')).toHaveText('1');
-    await expect(kpiTiles.nth(2).locator('.metric-value')).toHaveText('1');
-    await expect(kpiTiles.nth(3).locator('.metric-value')).toHaveText('2');
+    await expect(kpiTiles.nth(0).locator('dd')).toHaveText('3');
+    await expect(kpiTiles.nth(1).locator('dd')).toHaveText('1');
+    await expect(kpiTiles.nth(2).locator('dd')).toHaveText('1');
+    await expect(kpiTiles.nth(3).locator('dd')).toHaveText('2');
 
     const rows = panel.locator('table.sessions-table tbody tr.sessions-row');
     await expect(rows).toHaveCount(3);

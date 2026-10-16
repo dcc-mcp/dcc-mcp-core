@@ -8,12 +8,12 @@
 :root {
   color-scheme: light;
   /* Neutral workbench surfaces keep DCC content and state colors readable. */
-  --background: #f4f5f5;
-  --foreground: #202626;
+  --background: #f5f5f7;
+  --foreground: #25262b;
   --card: #ffffff;
-  --card-foreground: #202626;
+  --card-foreground: #25262b;
   --popover: #ffffff;
-  --popover-foreground: #202626;
+  --popover-foreground: #25262b;
   /* Brand: muted forest green (#059669) with emerald light/dark variants. */
   --brand: #059669;
   --brand-dark: #047857;
@@ -24,15 +24,15 @@
   --primary-foreground: #ffffff;
   --secondary: #f5f5f5;
   --secondary-foreground: #171717;
-  --muted: #ecefef;
-  --muted-foreground: #606b6b;
+  --muted: #ededf0;
+  --muted-foreground: #62646d;
   --accent: #047857;
   --accent-foreground: #ffffff;
   --destructive: #c03636;
-  --border: rgba(32, 38, 38, 0.12);
+  --border: rgba(37, 38, 43, 0.08);
   --input: rgba(32, 38, 38, 0.18);
-  --input-background: #eff2f2;
-  --text-secondary: #465252;
+  --input-background: #eeeef1;
+  --text-secondary: #494b54;
   --ring: #10b981;
   --chart-1: #6ee7b7;
   --chart-2: #34d399;
@@ -40,12 +40,12 @@
   --chart-4: #059669;
   --chart-5: #047857;
   /* Compact surface geometry; pills and circular controls keep their explicit radii. */
-  --radius: 0.25rem;
+  --radius: 8px;
   --sidebar: var(--background);
   --sidebar-foreground: var(--foreground);
   --sidebar-primary: #059669;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #e8eded;
+  --sidebar-accent: #eaeaec;
   --sidebar-accent-foreground: #171717;
   --sidebar-border: var(--border);
   --sidebar-ring: #10b981;
@@ -66,14 +66,14 @@
   --accent-soft: rgba(16, 185, 129, 0.12);
   --accent-line: rgba(16, 185, 129, 0.32);
 
-  --font-sans: 'Inter Variable', -apple-system, BlinkMacSystemFont,
-    'Segoe UI', Roboto, ui-sans-serif, system-ui, sans-serif;
+  --font-sans: 'Inter Variable', 'Segoe UI Variable Text', 'Segoe UI', 'PingFang SC',
+    'Microsoft YaHei UI', 'Noto Sans CJK SC', -apple-system, BlinkMacSystemFont, sans-serif;
   --font-serif: 'Libre Baskerville', georgia, 'Times New Roman', serif;
   --font-mono: 'SF Mono', SFMono-Regular, 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace;
-  --radius-sm: 2px;
-  --radius-md: 3px;
-  --radius-lg: 4px;
-  --radius-xl: 6px;
+  --radius-sm: 5px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
   /* Floating menus use shadows; the workbench uses surface borders. */
   --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
   --shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
@@ -88,12 +88,12 @@
    brand carry over. The brand brightens slightly for AA contrast on dark. */
 :root.dark {
   color-scheme: dark;
-  --background: #171b1b;
-  --foreground: #edf1f1;
-  --card: #1e2323;
-  --card-foreground: #edf1f1;
-  --popover: #272e2e;
-  --popover-foreground: #edf1f1;
+  --background: #19191c;
+  --foreground: #e9e9ed;
+  --card: #202024;
+  --card-foreground: #e9e9ed;
+  --popover: #29292e;
+  --popover-foreground: #e9e9ed;
   --brand: #10b981;
   --brand-dark: #059669;
   --brand-light: #34d399;
@@ -101,23 +101,23 @@
   --brand-100: #073d2b;
   --primary: #10b981;
   --primary-foreground: #04140d;
-  --secondary: #272e2e;
+  --secondary: #29292e;
   --secondary-foreground: #fafafa;
-  --muted: #252c2c;
-  --muted-foreground: #a4b0b0;
+  --muted: #27272c;
+  --muted-foreground: #adadb7;
   --accent: #10b981;
   --accent-foreground: #04140d;
   --destructive: #f87171;
-  --border: rgba(237, 241, 241, 0.1);
+  --border: rgba(233, 233, 237, 0.07);
   --input: rgba(237, 241, 241, 0.18);
-  --input-background: #181e1e;
-  --text-secondary: #c1cccc;
+  --input-background: #242428;
+  --text-secondary: #c7c7cf;
   --ring: #34d399;
   --sidebar: var(--background);
   --sidebar-foreground: var(--foreground);
   --sidebar-primary: #10b981;
   --sidebar-primary-foreground: #04140d;
-  --sidebar-accent: #252c2c;
+  --sidebar-accent: #27272c;
   --sidebar-accent-foreground: #fafafa;
   --sidebar-border: var(--border);
   --sidebar-ring: #34d399;
@@ -272,13 +272,12 @@ select {
 
 .nav-section-title {
   color: var(--muted-foreground);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
   line-height: 16px;
   margin: 0 0 4px;
   padding: 0 8px;
-  text-transform: uppercase;
 }
 
 .nav-link {
@@ -606,40 +605,42 @@ h2 {
 
 .badge {
   align-items: center;
+  border: 0;
   border-radius: var(--radius-sm);
   display: inline-flex;
-  font-family: var(--font-mono);
-  font-size: 0.68rem;
-  font-weight: 650;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 450;
   letter-spacing: 0;
-  line-height: 1;
-  min-height: 1.25rem;
-  padding: 0.18rem 0.42rem;
+  line-height: 16px;
+  min-height: 20px;
+  padding: 2px 6px;
   text-transform: none;
+  white-space: nowrap;
 }
 
 .badge-ok {
-  background: color-mix(in srgb, var(--ok) 9%, transparent);
-  border: 1px solid color-mix(in srgb, var(--ok) 24%, var(--border));
-  color: color-mix(in srgb, var(--ok) 78%, var(--foreground));
+  background: color-mix(in srgb, var(--ok) 8%, transparent);
+  border: 0;
+  color: var(--ok);
 }
 
 .badge-err {
-  background: color-mix(in srgb, var(--err) 9%, transparent);
-  border: 1px solid color-mix(in srgb, var(--err) 24%, var(--border));
-  color: color-mix(in srgb, var(--err) 78%, var(--foreground));
+  background: color-mix(in srgb, var(--err) 8%, transparent);
+  border: 0;
+  color: var(--err);
 }
 
 .badge-warn {
-  background: color-mix(in srgb, var(--warn) 10%, transparent);
-  border: 1px solid color-mix(in srgb, var(--warn) 26%, var(--border));
-  color: color-mix(in srgb, var(--warn) 72%, var(--foreground));
+  background: color-mix(in srgb, var(--warn) 8%, transparent);
+  border: 0;
+  color: var(--warn);
 }
 
 .badge-muted {
-  background: var(--secondary);
-  border: 1px solid var(--border);
-  color: var(--muted-foreground);
+  background: var(--muted);
+  border: 0;
+  color: var(--text-secondary);
 }
 
 .badge-latency {
@@ -732,7 +733,7 @@ h2 {
   cursor: pointer;
   font-family: var(--font-sans);
   font-size: 0.875rem;
-  font-weight: 750;
+  font-weight: 500;
   min-height: 2.5rem;
   padding: 0.55rem 0.85rem;
   transition: border-color 0.15s ease, color 0.15s ease;
@@ -751,11 +752,13 @@ h2 {
   align-items: center;
   color: var(--muted-foreground);
   display: inline-flex;
-  font-size: 0.6875rem;
+  font-size: 12px;
   gap: 0.5rem;
-  letter-spacing: 0.08em;
+  letter-spacing: 0;
   margin-bottom: 0;
-  text-transform: uppercase;
+  text-transform: none;
+  font-family: var(--font-sans);
+  font-weight: 500;
 }
 
 .range-control {
@@ -795,18 +798,18 @@ h2 {
 
 .health-card .label {
   color: var(--muted-foreground);
-  font-size: 0.6875rem;
-  font-weight: 600;
-  letter-spacing: 0.08em;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
   margin-bottom: 0.35rem;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .health-card .value {
   color: var(--foreground);
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-size: 1.35rem;
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .health-card.ok {
@@ -837,18 +840,18 @@ h2 {
 }
 
 .metric-tile.ok {
-  background: linear-gradient(180deg, rgba(56, 193, 114, 0.14), var(--card));
-  border-color: rgba(56, 193, 114, 0.32);
+  background: color-mix(in srgb, var(--ok) 3%, var(--card));
+  border-color: var(--border);
 }
 
 .metric-tile.warn {
-  background: linear-gradient(180deg, rgba(242, 184, 75, 0.14), var(--card));
-  border-color: rgba(242, 184, 75, 0.32);
+  background: color-mix(in srgb, var(--warn) 3%, var(--card));
+  border-color: var(--border);
 }
 
 .metric-tile.err {
-  background: linear-gradient(180deg, rgba(239, 91, 99, 0.14), var(--card));
-  border-color: rgba(239, 91, 99, 0.32);
+  background: color-mix(in srgb, var(--err) 3%, var(--card));
+  border-color: var(--border);
 }
 
 .overview-issues {
@@ -902,10 +905,12 @@ h2 {
 
 .overview-issue h4 {
   color: var(--foreground);
-  font-size: 0.84rem;
-  font-weight: 800;
+  font-size: 14px;
+  font-weight: 550;
   margin: 0;
   overflow-wrap: anywhere;
+  letter-spacing: 0;
+  font-family: var(--font-sans);
 }
 
 .overview-issue p {
@@ -917,19 +922,21 @@ h2 {
 
 .metric-label {
   color: var(--muted-foreground);
-  font-size: 0.7rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  font-family: var(--font-sans);
 }
 
 .metric-value {
   color: var(--foreground);
-  font-family: var(--font-mono);
-  font-size: 1.55rem;
-  font-weight: 800;
+  font-family: var(--font-sans);
+  font-size: 24px;
+  font-weight: 600;
   line-height: 1.25;
   margin-top: 0.25rem;
+  font-variant-numeric: tabular-nums;
 }
 
 .metric-detail {
@@ -997,9 +1004,11 @@ h2 {
 
 .governance-kv strong {
   color: var(--muted-foreground);
-  font-size: 0.67rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: none;
+  font-family: var(--font-sans);
+  font-weight: 500;
 }
 
 .debug-hero {
@@ -1085,8 +1094,9 @@ h2 {
 .debug-card-head h3 {
   color: var(--foreground);
   font-family: var(--font-sans);
-  font-size: 1rem;
-  font-weight: 750;
+  font-size: 14px;
+  font-weight: 550;
+  letter-spacing: 0;
 }
 
 .debug-signal-list {
@@ -1123,16 +1133,19 @@ h2 {
 
 .debug-signal span {
   color: var(--muted-foreground);
-  font-size: 0.7rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  font-family: var(--font-sans);
 }
 
 .debug-signal strong {
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-size: 1.05rem;
   overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+  font-weight: 550;
 }
 
 .debug-signal em {
@@ -1165,9 +1178,11 @@ h2 {
 
 .contract-row strong {
   color: var(--foreground);
-  font-size: 0.86rem;
-  font-weight: 750;
+  font-size: 14px;
+  font-weight: 550;
   overflow-wrap: anywhere;
+  letter-spacing: 0;
+  font-family: var(--font-sans);
 }
 
 .contract-row em {
@@ -1191,10 +1206,11 @@ h2 {
 
 .contract-group h4 {
   color: var(--muted-foreground);
-  font-size: 0.72rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  font-family: var(--font-sans);
 }
 
 .openapi-backend-links {
@@ -1249,10 +1265,12 @@ h2 {
   color: var(--muted-foreground);
   display: flex;
   flex-wrap: wrap;
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
+  font-family: var(--font-sans);
+  font-size: 12px;
   gap: 0.45rem 1rem;
   margin-top: 0.75rem;
+  letter-spacing: 0;
+  font-weight: 400;
 }
 
 .mini-sparkline {
@@ -1275,7 +1293,7 @@ h2 {
 
 table {
   border-collapse: collapse;
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-size: 0.8125rem;
   margin-bottom: 1rem;
   width: 100%;
@@ -1285,12 +1303,12 @@ th {
   background: var(--muted);
   border-bottom: 1px solid var(--border);
   color: var(--muted-foreground);
-  font-size: 0.6875rem;
-  font-weight: 600;
-  letter-spacing: 0.08em;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
   padding: 0.6rem 0.65rem;
   text-align: left;
-  text-transform: uppercase;
+  text-transform: none;
   white-space: nowrap;
 }
 
@@ -1333,105 +1351,6 @@ tbody tr:hover td {
 .trace-row:focus-within td,
 .trace-row:hover td {
   background: rgba(16, 185, 129, 0.12);
-}
-
-.task-board {
-  display: grid;
-  gap: 0.75rem;
-}
-
-.task-card {
-  align-items: center;
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-left: 4px solid var(--muted-foreground);
-  border-radius: var(--radius);
-  display: grid;
-  gap: 1rem;
-  grid-template-columns: minmax(0, 1fr) auto;
-  padding: 0.85rem 1rem;
-}
-
-.task-card.ok {
-  border-left-color: var(--ok);
-}
-
-.task-card.warn {
-  border-left-color: var(--warn);
-}
-
-.task-card.err {
-  border-left-color: var(--err);
-}
-
-.task-card h3 {
-  color: var(--foreground);
-  font-size: 0.95rem;
-  font-weight: 750;
-  line-height: 1.35;
-  margin-top: 0.45rem;
-  overflow-wrap: anywhere;
-}
-
-.task-outcome {
-  color: var(--muted-foreground);
-  font-size: 0.82rem;
-  line-height: 1.45;
-  margin-top: 0.45rem;
-  overflow-wrap: anywhere;
-}
-
-.task-outcome strong {
-  color: var(--foreground);
-  display: inline-block;
-  margin-right: 0.45rem;
-}
-
-.task-outcome.err strong {
-  color: var(--err);
-}
-
-.task-title-row,
-.task-meta,
-.task-chip-row {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.45rem;
-}
-
-.task-chip-row {
-  margin-top: 0.55rem;
-}
-
-.task-chip-row span {
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  color: var(--muted-foreground);
-  font-size: 0.74rem;
-  padding: 0.25rem 0.5rem;
-}
-
-.task-type,
-.task-time,
-.task-meta,
-.task-side {
-  color: var(--muted-foreground);
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-}
-
-.task-type {
-  color: var(--muted-foreground);
-}
-
-.task-side {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-  justify-content: flex-end;
 }
 
 .link-chip {
@@ -1489,17 +1408,21 @@ tbody tr:hover td {
 .workflow-step-meta,
 .workflow-chip-row {
   color: var(--muted-foreground);
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  letter-spacing: 0;
+  font-weight: 400;
 }
 
 .workflow-card h3,
 .workflow-step h4 {
   color: var(--foreground);
-  font-size: 0.94rem;
-  font-weight: 800;
+  font-size: 14px;
+  font-weight: 550;
   line-height: 1.3;
   overflow-wrap: anywhere;
+  letter-spacing: 0;
+  font-family: var(--font-sans);
 }
 
 .workflow-subline {
@@ -1583,8 +1506,11 @@ tbody tr:hover td {
 
 .workflow-kind {
   color: var(--foreground);
-  font-weight: 800;
-  text-transform: uppercase;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 12px;
+  font-family: var(--font-sans);
 }
 
 .workflow-step-actions {
@@ -1700,19 +1626,22 @@ tbody tr:hover td {
   border-radius: 999px;
   color: var(--foreground);
   display: inline-flex;
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  font-weight: 800;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
   height: 1.65rem;
   justify-content: center;
   width: 1.65rem;
+  font-variant-numeric: tabular-nums;
 }
 
 .workflow-node-stage,
 .workflow-node-meta {
   color: var(--muted-foreground);
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  letter-spacing: 0;
+  font-weight: 400;
 }
 
 .workflow-node-stage,
@@ -1748,9 +1677,11 @@ tbody tr:hover td {
 
 .workflow-detail-kv strong {
   color: var(--muted-foreground);
-  font-size: 0.67rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: none;
+  font-family: var(--font-sans);
+  font-weight: 500;
 }
 
 .workflow-selected-step {
@@ -2186,14 +2117,18 @@ tbody tr:hover td {
 }
 
 .instance-group-head h3 {
-  font-size: 0.85rem;
-  font-weight: 800;
+  font-size: 14px;
+  font-weight: 550;
+  letter-spacing: 0;
+  font-family: var(--font-sans);
 }
 
 .instance-group-head span {
   color: var(--muted-foreground);
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  letter-spacing: 0;
+  font-weight: 400;
 }
 
 .instances-list {
@@ -2286,9 +2221,11 @@ tbody tr:hover td {
   color: var(--muted-foreground);
   display: flex;
   flex-wrap: wrap;
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
+  font-family: var(--font-sans);
+  font-size: 12px;
   gap: 0.3rem 0.65rem;
+  letter-spacing: 0;
+  font-weight: 400;
 }
 
 .instance-state-strip {
@@ -2315,10 +2252,11 @@ tbody tr:hover td {
 .instance-link-groups small,
 .instance-update-heading {
   color: var(--muted-foreground);
-  font-size: 0.68rem;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  font-family: var(--font-sans);
 }
 
 .instance-state-failure {
@@ -2799,14 +2737,16 @@ pre.empty {
 
 .list-search-meta {
   color: var(--muted-foreground);
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
+  font-family: var(--font-sans);
+  font-size: 12px;
   grid-column: 3;
   justify-self: end;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  letter-spacing: 0;
+  font-weight: 400;
 }
 
 .discover-toolbar {
@@ -2848,8 +2788,8 @@ pre.empty {
 .group-title {
   color: var(--foreground);
   font-family: var(--font-sans);
-  font-size: 1.05rem;
-  font-weight: 750;
+  font-size: 16px;
+  font-weight: 550;
   letter-spacing: 0;
   margin-bottom: 0.25rem;
 }
