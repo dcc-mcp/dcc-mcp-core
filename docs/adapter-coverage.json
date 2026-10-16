@@ -241,7 +241,7 @@
         "obs"
       ],
       "url": "https://github.com/dcc-mcp/dcc-mcp-obs",
-      "version": "1.4.0",
+      "version": "1.5.1",
       "pip_package": "dcc-mcp-obs",
       "pointer": true,
       "registry": "pending",
@@ -277,7 +277,7 @@
         "godot"
       ],
       "url": "https://github.com/dcc-mcp/dcc-mcp-godot",
-      "version": "0.4.0",
+      "version": "0.9.6",
       "pip_package": "dcc-mcp-godot",
       "pointer": true,
       "registry": "pending",
