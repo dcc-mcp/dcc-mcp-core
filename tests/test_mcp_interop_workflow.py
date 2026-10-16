@@ -38,9 +38,7 @@ def test_rust_terminal_diagnostics_preserve_names_without_enabling_success_outpu
     assert "NEXTEST_FINAL_STATUS_LEVEL: all" in step
     assert "NEXTEST_SUCCESS_OUTPUT" not in step
     assert "NEXTEST_RETRIES" not in step
-    artifact = re.search(
-        r"(?ms)^      - name: Upload Rust test diagnostics\n(.*?)(?=^      - |\Z)", workflow
-    ).group(1)
+    artifact = re.search(r"(?ms)^      - name: Upload Rust test diagnostics\n(.*?)(?=^      - |\Z)", workflow).group(1)
     assert "if: always() && matrix.rust-validation == 'full'" in artifact
     assert "path: rust-test-results.log" in artifact
     assert "retention-days: 14" in artifact
