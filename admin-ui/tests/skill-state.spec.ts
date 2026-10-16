@@ -14,7 +14,7 @@ for (const locale of SUPPORTED_LOCALES) {
           skills: [
             { name: 'maya-modeling', dcc_type: 'maya', loaded: false, action_count: 1,
               instance_count: 1, instances: ['12345678'], tools: ['create_sphere'],
-              adoption: { used: true, call_count: 2 } },
+              adoption: { used: true, call_count: 2, last_used: '2026-10-15T12:00:00Z' } },
             { name: 'blender-lookdev', dcc_type: 'blender', loaded: true, action_count: 1,
               instance_count: 1, instances: ['abcdef12'], tools: ['render_preview'],
               adoption: { used: false, call_count: 0 } },
@@ -29,6 +29,7 @@ for (const locale of SUPPORTED_LOCALES) {
         const row = page.locator('.skill-inventory-row[data-skill-name="maya-modeling"]');
         await expect(row).toContainText(t('skillPaths.state.unloaded'));
         await expect(row).toContainText(t('skillPaths.state.used'));
+        await expect(row).not.toContainText(t('skillPaths.usage.neverUsed'));
         await expect(page.locator('.skill-inventory-row[data-skill-name="blender-lookdev"]'))
           .toContainText(t('skillPaths.state.notUsed'));
         await expect(page.locator('html')).toHaveAttribute('lang', locale);
@@ -50,9 +51,18 @@ for (const locale of SUPPORTED_LOCALES) {
         await expect(dialog.locator('.skill-detail-summary-grid > span').first())
           .toHaveText(`${t('skillPaths.detail.loadingState')}unloaded`);
         await expect(dialog.getByRole('button', { name: t('action.reload'), exact: true })).toBeEnabled();
-        await page.screenshot({ path: testInfo.outputPath('skill-loading-detail.png'), fullPage: true });
+        const closeButton = dialog.locator('.skill-detail-panel')
+          .getByRole('button', { name: t('action.close'), exact: true });
+        await expect(dialog).toBeInViewport({ ratio: 1 });
+        await expect(closeButton).toBeInViewport();
+        await page.screenshot({ path: testInfo.outputPath('skill-loading-detail.png') });
         await page.keyboard.press('Escape');
         await expect(dialog).toBeHidden();
+        await row.getByRole('button', { name: t('skillPaths.action.openDetail', { name: 'maya-modeling' }) }).click();
+        await expect(dialog).toBeVisible();
+        await closeButton.click();
+        await expect(dialog).toBeHidden();
+        await expect(search).toHaveValue(t('skillPaths.state.used'));
         await search.fill(t('skillPaths.state.notUsed'));
         await expect(page.locator('.skill-inventory-row')).toHaveCount(1);
         await expect(page.locator('.skill-inventory-row')).toContainText('blender-lookdev');
