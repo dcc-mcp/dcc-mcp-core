@@ -124,7 +124,7 @@ export function SkillDetailPanel({
       ) : null}
       <div className="skill-detail-summary-grid">
         <span>
-          <strong>{t('skillPaths.table.state')}</strong>
+          <strong>{t('skillPaths.detail.loadingState')}</strong>
           {selected?.state
             ?? (skill.loaded ? t('skillPaths.state.loaded') : t('skillPaths.state.unloaded'))}
         </span>
