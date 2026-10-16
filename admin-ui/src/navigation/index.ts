@@ -50,6 +50,7 @@ export const NAVIGATION: NavigationDefinition[] = [
   { id: 'marketplace', icon: 'marketplace', panel: 'discover', discoverTab: 'marketplace', labelKey: 'navigation.panel.marketplace', groupKey: 'navigation.group.discoverExtend' },
   { id: 'integrations', icon: 'integrations', panel: 'discover', discoverTab: 'integrations', labelKey: 'navigation.panel.integrations', groupKey: 'navigation.group.discoverExtend' },
   { id: 'tools', icon: 'tools', panel: 'tools', labelKey: 'navigation.panel.tools', groupKey: 'navigation.group.discoverExtend' },
+  { id: 'openapi', icon: 'openapi', panel: 'openapi', labelKey: 'navigation.panel.openapi', groupKey: 'navigation.group.discoverExtend' },
   { id: 'workflows', icon: 'workflows', panel: 'workflows', labelKey: 'navigation.panel.workflows', groupKey: 'navigation.group.workflows' },
   { id: 'experiments', icon: 'experiments', panel: 'experiments', labelKey: 'experiments.title', groupKey: 'navigation.group.workflows' },
   { id: 'tasks', icon: 'tasks', panel: 'tasks', labelKey: 'navigation.panel.tasks', groupKey: 'navigation.group.workflows' },
@@ -60,8 +61,7 @@ export const NAVIGATION: NavigationDefinition[] = [
   { id: 'overview', icon: 'overview', panel: 'overview', labelKey: 'navigation.panel.overview', groupKey: 'navigation.group.observe' },
   { id: 'logs', icon: 'logs', panel: 'logs', labelKey: 'navigation.panel.logs', groupKey: 'navigation.group.observe' },
   { id: 'reliability', icon: 'reliability', panel: 'reliability', reliabilityTab: 'status', labelKey: 'navigation.panel.reliability', groupKey: 'navigation.group.observe' },
-  { id: 'analytics', icon: 'analytics', panel: 'analytics', labelKey: 'navigation.panel.analytics', groupKey: 'navigation.group.insights' },
-  { id: 'openapi', icon: 'openapi', panel: 'openapi', labelKey: 'navigation.panel.openapi', groupKey: 'navigation.group.governContracts' },
+  { id: 'analytics', icon: 'analytics', panel: 'analytics', labelKey: 'navigation.panel.analytics', groupKey: 'navigation.group.observe' },
 ];
 
 export const PANEL_ID_SET = new Set<Panel>(PANELS.map((p) => p.id));

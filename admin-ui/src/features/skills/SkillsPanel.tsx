@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useMemo } from 'react';
-import { createPortal } from 'react-dom';
+import { useEffect, useMemo } from 'react';
 import { RiRefreshLine } from '@remixicon/react';
 import { type InterpolationValues, type MessageKey } from '../../i18n';
 import { haystack, matchesListFilter, PanelHeader, StatusLine } from '../../admin-ui-core';
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
+import { DetailDialog } from '../../components/ui/detail-dialog';
 import { type SkillPathRow, type SkillRow } from '../../admin-types';
 import { SkillDetailPanel } from './SkillDetailPanel';
 import { SkillInventoryList } from './SkillInventoryList';
@@ -234,7 +234,7 @@ export function SkillsPanel({
         }
       />
       <StatusLine text={updatedAt} error={error} />
-      <p className="empty log-hint">{t('skillPaths.description')}</p>
+      <p className="skill-panel-description">{t('skillPaths.description')}</p>
       <SkillsSummaryGrid totals={inventory.totals} pathCount={pathStore.paths.length} t={t} />
       <div className="skill-insight-strip" aria-label={t('skillPaths.insight.title')}>
         {skillInsights.map((insight) => (
@@ -264,14 +264,23 @@ export function SkillsPanel({
             t={t}
           />
         )}
-        <SkillDetailModal
-          skill={detailStore.selected}
-          detail={detailStore.detail}
-          busy={detailStore.busy}
-          onReload={detailStore.reload}
+        <DetailDialog
+          open={detailStore.selected !== null}
+          title={detailStore.selected?.name ?? t('skillPaths.title')}
+          className="skill-detail-modal"
           onClose={detailStore.close}
-          t={t}
-        />
+        >
+          {detailStore.selected ? (
+            <SkillDetailPanel
+              skill={detailStore.selected}
+              detail={detailStore.detail}
+              busy={detailStore.busy}
+              onReload={detailStore.reload}
+              onClose={detailStore.close}
+              t={t}
+            />
+          ) : null}
+        </DetailDialog>
       </div>
       <SkillSearchPathsTable
         paths={pathStore.paths}
@@ -284,74 +293,5 @@ export function SkillsPanel({
         t={t}
       />
     </section>
-  );
-}
-
-/// Portal-based modal that renders the detail panel as a slide-in overlay.
-/// Handles backdrop dismiss, Escape key close, and body scroll lock.
-function SkillDetailModal({
-  skill,
-  detail,
-  busy,
-  onReload,
-  onClose,
-  t,
-}: {
-  skill: import('../../admin-types').SkillRow | null;
-  detail: import('../../admin-types').SkillDetailPayload | null;
-  busy: boolean;
-  onReload: () => void;
-  onClose: () => void;
-  t: (key: import('../../i18n').MessageKey, values?: import('../../i18n').InterpolationValues) => string;
-}) {
-  // Escape key closes the modal.
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    },
-    [onClose],
-  );
-
-  useEffect(() => {
-    if (!skill) return;
-    document.addEventListener('keydown', handleKeyDown);
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown);
-      document.body.style.overflow = '';
-    };
-  }, [skill, handleKeyDown]);
-
-  if (!skill) return null;
-
-  return createPortal(
-    <div
-      className="skill-detail-backdrop"
-      role="dialog"
-      aria-modal="true"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <div className="skill-detail-modal">
-        <button
-          type="button"
-          className="skill-detail-close"
-          aria-label={t('action.close')}
-          onClick={onClose}
-        >
-          &times;
-        </button>
-        <SkillDetailPanel
-          skill={skill}
-          detail={detail}
-          busy={busy}
-          onReload={onReload}
-          onClose={onClose}
-          t={t}
-        />
-      </div>
-    </div>,
-    document.body,
   );
 }

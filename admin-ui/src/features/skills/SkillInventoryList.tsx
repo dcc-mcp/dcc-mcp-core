@@ -1,4 +1,4 @@
-import { RiEyeLine } from '@remixicon/react';
+import { RiArrowDownSLine, RiEyeLine } from '@remixicon/react';
 import { type InterpolationValues, type MessageKey } from '../../i18n';
 import { formatTraceDate, resolveDccIcon } from '../../admin-ui-core';
 import { type SkillRow } from '../../admin-types';
@@ -16,11 +16,7 @@ export type SkillInventoryListProps = {
   t: Translator;
 };
 
-/// Dense operator list for live skill inventory.
-///
-/// Skills are operational records, not marketplace promos: each row keeps the
-/// DCC, load state, adoption signal, tools, and instance coverage visible while
-/// preserving the detail drawer for full SKILL.md inspection.
+/// Keep identity and state scannable; expand a row for tool and instance details.
 export function SkillInventoryList({ skills, selected, onOpen, t }: SkillInventoryListProps) {
   return (
     <div className="skill-inventory-list" role="list">
@@ -28,8 +24,6 @@ export function SkillInventoryList({ skills, selected, onOpen, t }: SkillInvento
         <span>{t('skillPaths.table.skill')}</span>
         <span>{t('skillPaths.table.state')}</span>
         <span>{t('skillPaths.table.usage')}</span>
-        <span>{t('skillPaths.table.tools')}</span>
-        <span>{t('skillPaths.table.instances')}</span>
         <span>{t('action.view')}</span>
       </div>
       {skills.map((skill) => {
@@ -45,8 +39,6 @@ export function SkillInventoryList({ skills, selected, onOpen, t }: SkillInvento
             <SkillIdentityCell skill={skill} t={t} onOpen={onOpen} />
             <SkillStateCell skill={skill} t={t} />
             <SkillUsageCell skill={skill} t={t} />
-            <SkillToolsCell skill={skill} t={t} />
-            <SkillInstancesCell skill={skill} t={t} />
             <div className="skill-inventory-action-cell">
               <Button
                 type="button"
@@ -60,6 +52,26 @@ export function SkillInventoryList({ skills, selected, onOpen, t }: SkillInvento
                 {t('action.view')}
               </Button>
             </div>
+            <details className="skill-inventory-disclosure">
+              <summary>
+                <RiArrowDownSLine aria-hidden="true" />
+                <span><strong>{skill.action_count}</strong> {t('skillPaths.metric.actions')}</span>
+                <span><strong>{skill.instances.length}</strong> {t('skillPaths.table.instances')}</span>
+              </summary>
+              <div className="skill-inventory-expanded">
+                <SkillToolsCell skill={skill} t={t} />
+                <SkillInstancesCell skill={skill} t={t} />
+                <div className="skill-inventory-usage-detail">
+                  <h4>{t('skillPaths.table.usage')}</h4>
+                  <span>{skill.adoption.best_rank == null
+                    ? t('skillPaths.usage.noRank')
+                    : t('skillPaths.usage.bestRank', { rank: skill.adoption.best_rank })}</span>
+                  <span>{skill.adoption.last_used
+                    ? t('skillPaths.usage.lastUsed', { time: formatTraceDate(skill.adoption.last_used) })
+                    : t('skillPaths.usage.neverUsed')}</span>
+                </div>
+              </div>
+            </details>
           </article>
         );
       })}
@@ -165,23 +177,12 @@ function SkillUsageCell({ skill, t }: { skill: SkillRow; t: Translator }) {
         })}
       </strong>
       <span>{t('skillPaths.usage.searchHits', { count: adoption.search_hits })}</span>
-      <span>
-        {adoption.best_rank == null
-          ? t('skillPaths.usage.noRank')
-          : t('skillPaths.usage.bestRank', { rank: adoption.best_rank })}
-      </span>
-      <span>
-        {adoption.last_used
-          ? t('skillPaths.usage.lastUsed', { time: formatTraceDate(adoption.last_used) })
-          : t('skillPaths.usage.neverUsed')}
-      </span>
     </div>
   );
 }
 
 function SkillToolsCell({ skill, t }: { skill: SkillRow; t: Translator }) {
-  const tools = skill.tools.slice(0, 4);
-  const overflow = skill.tools.length - tools.length;
+  const tools = skill.tools;
   return (
     <div className="skill-inventory-tools-cell">
       <span className="skill-inventory-count">
@@ -193,7 +194,6 @@ function SkillToolsCell({ skill, t }: { skill: SkillRow; t: Translator }) {
           {tools.map((tool) => (
             <code key={tool} title={tool}>{tool}</code>
           ))}
-          {overflow > 0 ? <span>+{overflow}</span> : null}
         </div>
       ) : null}
     </div>
@@ -201,8 +201,7 @@ function SkillToolsCell({ skill, t }: { skill: SkillRow; t: Translator }) {
 }
 
 function SkillInstancesCell({ skill, t }: { skill: SkillRow; t: Translator }) {
-  const instances = skill.instances.slice(0, 3);
-  const overflow = skill.instances.length - instances.length;
+  const instances = skill.instances;
   return (
     <div className="skill-inventory-instances-cell">
       <span className="skill-inventory-count">
@@ -216,7 +215,6 @@ function SkillInstancesCell({ skill, t }: { skill: SkillRow; t: Translator }) {
               {instance}
             </code>
           ))}
-          {overflow > 0 ? <span>+{overflow}</span> : null}
         </div>
       ) : null}
     </div>

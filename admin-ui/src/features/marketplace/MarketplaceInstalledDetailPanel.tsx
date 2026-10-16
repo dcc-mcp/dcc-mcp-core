@@ -23,11 +23,7 @@ export type MarketplaceInstalledDetailPanelProps = {
   t: Translator;
 };
 
-/// Slide-out detail panel for an installed marketplace package.
-///
-/// Follows the same layout/behaviour as SkillDetailPanel — right-aligned
-/// slide-in with backdrop blur, sticky heading, summary grid, and action
-/// buttons. Reuses existing marketplace locale keys where possible.
+/// Package metadata and actions inside the shared detail sheet.
 export function MarketplaceInstalledDetailPanel({
   pkg,
   catalogEntry,
@@ -62,41 +58,41 @@ export function MarketplaceInstalledDetailPanel({
             ) : null}
           </div>
         </div>
-        <div className="table-actions">
-          {isOutdated && onUpdate ? (
-            <Button
-              className="marketplace-installed-detail-action"
-              type="button"
-              size="sm"
-              disabled={installing}
-              onClick={onUpdate}
-            >
-              <RiRefreshLine data-icon="inline-start" aria-hidden="true" />
-              {installing ? t('marketplace.card.updating') : t('marketplace.card.update')}
-            </Button>
-          ) : null}
+        <Button
+          className="marketplace-installed-detail-close"
+          variant="ghost"
+          size="icon"
+          type="button"
+          aria-label={t('action.close')}
+          onClick={onClose}
+        >
+          <RiCloseLine aria-hidden="true" />
+        </Button>
+      </div>
+      <div className="marketplace-installed-detail-actions">
+        {isOutdated && onUpdate ? (
           <Button
             className="marketplace-installed-detail-action"
             type="button"
-            variant="destructive"
             size="sm"
             disabled={installing}
-            onClick={onUninstall}
+            onClick={onUpdate}
           >
-            <RiDeleteBinLine data-icon="inline-start" aria-hidden="true" />
-            {installing ? t('marketplace.card.installing') : t('marketplace.card.uninstall')}
+            <RiRefreshLine data-icon="inline-start" aria-hidden="true" />
+            {installing ? t('marketplace.card.updating') : t('marketplace.card.update')}
           </Button>
-          <Button
-            className="marketplace-installed-detail-action"
-            variant="ghost"
-            size="sm"
-            type="button"
-            onClick={onClose}
-          >
-            <RiCloseLine data-icon="inline-start" aria-hidden="true" />
-            {t('action.close')}
-          </Button>
-        </div>
+        ) : null}
+        <Button
+          className="marketplace-installed-detail-action"
+          type="button"
+          variant="destructive"
+          size="sm"
+          disabled={installing}
+          onClick={onUninstall}
+        >
+          <RiDeleteBinLine data-icon="inline-start" aria-hidden="true" />
+          {installing ? t('marketplace.card.installing') : t('marketplace.card.uninstall')}
+        </Button>
       </div>
 
       {description ? (
