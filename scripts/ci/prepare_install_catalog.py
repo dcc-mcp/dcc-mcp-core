@@ -212,7 +212,7 @@ def _verify_wheel(data: bytes, package: str, version: str, requires_python: str,
                 raise CatalogPreparationError("wheel is missing its declared entry-point module")
 
 
-def _verify_pip(transport, entry: dict) -> None:
+def _verify_pip(transport, entry: dict) -> tuple:
     install = entry["install"]
     package, version = install.get("pip_package"), entry.get("version")
     if not isinstance(package, str) or not _NAME.fullmatch(package) or not isinstance(version, str) or not version:
@@ -260,6 +260,7 @@ def _verify_pip(transport, entry: dict) -> None:
     if artifact.get("size") != len(data):
         raise CatalogPreparationError("PyPI artifact size mismatch")
     _verify_wheel(data, package, version, requires_python, install.get("entry_point"))
+    return metadata, data
 
 
 def _official_repo(entry: dict) -> str:

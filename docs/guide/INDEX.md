@@ -76,6 +76,7 @@ Documentation contract:
 | [translate.md](translate.md) | `translate` subcommand: bridge any stdio MCP server to HTTP/SSE |
 | [openapi-mount.md](openapi-mount.md) | OpenAPI-to-MCP mount helper: expose any REST API as MCP tools |
 | [catalog.md](catalog.md) | DCC-MCP public adapter catalog: search and describe |
+| [adapter-release-index.md](adapter-release-index.md) | Opt-in release discovery, exact artifact evidence and reviewed promotion |
 | [adapter-install-lifecycle.md](adapter-install-lifecycle.md) | Import-light adapter install/uninstall helpers for registry query, sidecar stop, and Windows native-file lock handling |
 | [adapter-install-sop.md](adapter-install-sop.md) | Install SOP: shared command, JSON result, exit-code, receipt, verification, and rollback contract |
 | [adapter-install-sop-v2-migration.md](adapter-install-sop-v2-migration.md) | Install SOP v2 migration: field delta from frozen v1, compatibility verdict, and adapter steps |

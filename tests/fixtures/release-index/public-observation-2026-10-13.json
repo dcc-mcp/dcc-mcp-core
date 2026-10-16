@@ -1,0 +1,296 @@
+{
+  "approved_catalog_sha256": "941ecbed254797959699ec220bbf4dc7315ff24d9d9451962a1e5dae641493b3",
+  "authority": "candidate_only",
+  "candidates": [
+    {
+      "approved_entry_sha256": "bdd079e256d4e324b03c2c1904f2333afe9180bae25cf3142f59bcb4376a83d9",
+      "artifact": {
+        "platform_tag": "py3-none-any",
+        "sha256": "dffbfb4de088d309f66bc2e5e28ddd1a24404ba9511a8263fd2873a9fac30cff",
+        "size": 114887,
+        "url": "https://files.pythonhosted.org/packages/65/d9/290297227c6980a73a0599631978cd715cd7e8b8ea5a677fc190b86a5565/dcc_mcp_openusd-0.11.0-py3-none-any.whl"
+      },
+      "blockers": [
+        "core_upper_bound_too_wide"
+      ],
+      "catalog_entry": null,
+      "changes": {
+        "artifact_url": {
+          "after": "https://files.pythonhosted.org/packages/65/d9/290297227c6980a73a0599631978cd715cd7e8b8ea5a677fc190b86a5565/dcc_mcp_openusd-0.11.0-py3-none-any.whl",
+          "before": "https://files.pythonhosted.org/packages/fd/f6/36fced0c6c3799545c40852194178038fead5fb6e971121f855785e1d7c8/dcc_mcp_openusd-0.8.1-py3-none-any.whl"
+        },
+        "instructions_url": {
+          "after": "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-openusd/e7f01d36f7e9cc6fc707a63865fced84228a0e49/install.md",
+          "before": "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-openusd/main/README.md"
+        },
+        "sha256": {
+          "after": "dffbfb4de088d309f66bc2e5e28ddd1a24404ba9511a8263fd2873a9fac30cff",
+          "before": "82902d82b12c6d037afe69e040cf33339461de51c85d7e3b4cab8a57313ae4c6"
+        },
+        "version": {
+          "after": "0.11.0",
+          "before": "0.8.1"
+        }
+      },
+      "compatibility": {
+        "core_bounds": {
+          "codes": [
+            "upper_bound_too_wide"
+          ],
+          "declaration": "dcc-mcp-core<1.0.0,>=0.19.45",
+          "lower": ">=0.19.45",
+          "message": "declaration 'dcc-mcp-core<1.0.0,>=0.19.45' upper bound admits more than one core minor line, and every minor bump may break an adapter; use '>=0.19.45,<0.20.0'",
+          "ok": false,
+          "suggestion": ">=0.19.45,<0.20.0",
+          "upper": "<1.0.0"
+        },
+        "entry_points": {
+          "console_scripts": {
+            "dcc-mcp-openusd": "dcc_mcp_openusd.cli:main"
+          },
+          "dcc_mcp.adapters": {
+            "openusd": "dcc_mcp_openusd:OpenUsdMcpServer"
+          }
+        },
+        "host_status": "not_checked",
+        "native_extras_status": "not_checked",
+        "packaged_compatibility": null,
+        "requires_dist": [
+          "dcc-mcp-core<1.0.0,>=0.19.45",
+          "dcc-mcp-server<1.0.0,>=0.18.0; extra == 'daemon'",
+          "build; extra == 'dev'",
+          "dcc-mcp-server<1.0.0,>=0.18.0; extra == 'dev'",
+          "opentimelineio<1.0,>=0.15; extra == 'dev'",
+          "pytest>=7.0; extra == 'dev'",
+          "pyyaml>=6.0; extra == 'dev'",
+          "ruff>=0.8.0; extra == 'dev'",
+          "twine; extra == 'dev'",
+          "usd-core<27,>=24.11; extra == 'openusd'",
+          "opentimelineio<1.0,>=0.15; extra == 'timeline'"
+        ],
+        "requires_python": ">=3.9"
+      },
+      "metadata_url": "https://pypi.org/pypi/dcc-mcp-openusd/0.11.0/json",
+      "name": "dcc-mcp-openusd",
+      "provenance": {
+        "url": "https://pypi.org/integrity/dcc-mcp-openusd/0.11.0/dcc_mcp_openusd-0.11.0-py3-none-any.whl/provenance",
+        "verification": "not_checked"
+      },
+      "repository": "dcc-mcp/dcc-mcp-openusd",
+      "selection": "observed_latest",
+      "source_commit": "e7f01d36f7e9cc6fc707a63865fced84228a0e49",
+      "status": "blocked",
+      "version": "0.11.0"
+    },
+    {
+      "approved_entry_sha256": "955edd0cc6e0dc0c0ae6c5c33d741676bd3cc513a75e2327b76795e8ab051ef3",
+      "artifact": {
+        "platform_tag": "py3-none-any",
+        "sha256": "ff54860bb455c74f8570473c1e26a22a13a7474cbba5b7d8b96acc0666eccd1b",
+        "size": 223698,
+        "url": "https://files.pythonhosted.org/packages/d8/32/b4dee73179b295f354a85c28ff2e5ac7963f36dc2d152ea157d11c4a5781/dcc_mcp_freecad-0.9.1-py3-none-any.whl"
+      },
+      "blockers": [
+        "core_upper_bound_too_wide"
+      ],
+      "catalog_entry": null,
+      "changes": {
+        "artifact_url": {
+          "after": "https://files.pythonhosted.org/packages/d8/32/b4dee73179b295f354a85c28ff2e5ac7963f36dc2d152ea157d11c4a5781/dcc_mcp_freecad-0.9.1-py3-none-any.whl",
+          "before": "https://files.pythonhosted.org/packages/3e/d4/54b4786c85a692e429a53f941145a406fb1d8444c4f85fa039469b196d76/dcc_mcp_freecad-0.3.0-py3-none-any.whl"
+        },
+        "instructions_url": {
+          "after": "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-freecad/459e77534e545dcd3ce265d104960a2bf8285b88/install.md",
+          "before": "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-freecad/main/README.md"
+        },
+        "sha256": {
+          "after": "ff54860bb455c74f8570473c1e26a22a13a7474cbba5b7d8b96acc0666eccd1b",
+          "before": "bfd21e4e7d1cd12076f4a93f65396b742e4c563e24c8b208a8663d9fc1e4f59f"
+        },
+        "version": {
+          "after": "0.9.1",
+          "before": "0.3.0"
+        }
+      },
+      "compatibility": {
+        "core_bounds": {
+          "codes": [
+            "upper_bound_too_wide"
+          ],
+          "declaration": "dcc-mcp-core<1.0.0,>=0.20.36",
+          "lower": ">=0.20.36",
+          "message": "declaration 'dcc-mcp-core<1.0.0,>=0.20.36' upper bound admits more than one core minor line, and every minor bump may break an adapter; use '>=0.20.36,<0.21.0'",
+          "ok": false,
+          "suggestion": ">=0.20.36,<0.21.0",
+          "upper": "<1.0.0"
+        },
+        "entry_points": {
+          "console_scripts": {
+            "dcc-mcp-freecad": "dcc_mcp_freecad.cli:main"
+          },
+          "dcc_mcp.adapters": {
+            "freecad": "dcc_mcp_freecad:FreecadMcpServer"
+          }
+        },
+        "host_status": "not_checked",
+        "native_extras_status": "not_checked",
+        "packaged_compatibility": {
+          "document": {
+            "breaking_changes": [
+              {
+                "adapter_usage": "unused",
+                "affected_tools": [],
+                "applies_from": "1.1",
+                "changed_in": "1.1",
+                "enforcement": "guard",
+                "id": "sketcher-symmetric-renamed-to-midplane",
+                "kind": "renamed",
+                "probe": {
+                  "attribute": "Symmetric",
+                  "expected_before_changed_in": "unverified",
+                  "expected_on_or_after_changed_in": "absent",
+                  "module": "Sketcher",
+                  "owner_type_id": "Sketcher::SketchObject",
+                  "pre_change_note": "A freshly added Sketcher::SketchObject on real FreeCAD 1.0.2 does not expose Symmetric as an instance attribute either, so the pre-change presence claim is recorded as unverified instead of being assumed.",
+                  "replacement_attribute": "Midplane"
+                },
+                "remediation": "Use `Midplane` on FreeCAD 1.1+; keep the `Symmetric` spelling only on 1.0.x.",
+                "removed_symbol": "Symmetric",
+                "replacement": "Midplane",
+                "symptom": "Sketch constraints set through the old property name are dropped; the document recomputes as if the constraint never existed, so the tool reports success while the geometry stays wrong.",
+                "title": "Sketcher constraint property `Symmetric` renamed to `Midplane`"
+              },
+              {
+                "adapter_usage": "unused",
+                "affected_tools": [],
+                "applies_from": "1.1",
+                "changed_in": "1.1",
+                "enforcement": "guard",
+                "id": "sketcher-external-geometry-count-removed",
+                "kind": "removed",
+                "probe": {
+                  "attribute": "ExternalGeometryCount",
+                  "expected_before_changed_in": "unverified",
+                  "expected_on_or_after_changed_in": "absent",
+                  "module": "Sketcher",
+                  "owner_type_id": "Sketcher::SketchObject",
+                  "pre_change_note": "A freshly added Sketcher::SketchObject on real FreeCAD 1.0.2 does not expose ExternalGeometryCount as an instance attribute either, so the pre-change presence claim is recorded as unverified instead of being assumed.",
+                  "replacement_attribute": "ExternalGeometry"
+                },
+                "remediation": "Read `len(ExternalGeometry)` on FreeCAD 1.1+.",
+                "removed_symbol": "ExternalGeometryCount",
+                "replacement": "ExternalGeometry (list)",
+                "symptom": "Reading the count returns nothing instead of a number, so sketch bookkeeping silently reports zero external references.",
+                "title": "Sketcher `ExternalGeometryCount` removed"
+              },
+              {
+                "adapter_usage": "guarded",
+                "applies_from": "1.1",
+                "changed_in": "1.1",
+                "enforcement": "guard",
+                "id": "partdesign-reversal-property-side-type",
+                "kind": "renamed",
+                "probe": {
+                  "alternate_attributes": [
+                    "SideType"
+                  ],
+                  "attribute": "Symmetric",
+                  "expected_before_changed_in": "unverified",
+                  "expected_on_or_after_changed_in": "unverified",
+                  "module": "PartDesign",
+                  "owner_type_id": "PartDesign::Pad",
+                  "pre_change_note": "Neither the pre-change nor the post-change presence is asserted: which spelling a given build exposes is exactly what this probe measures. Both expectations stay unverified until a real host has reported them, so the matrix records evidence instead of a guess.",
+                  "replacement_attribute": "Midplane"
+                },
+                "remediation": "The adapter resolves the property by capability, trying `SideType`, then `Midplane`, then `Symmetric`, and refuses when a host exposes none of them instead of writing to a name that silently does nothing.",
+                "removed_symbol": "Symmetric",
+                "replacement": "SideType",
+                "symptom": "Writing the reversal property under the wrong generation's name is dropped, so a two-sided pad is computed one-sided and the feature still reports success.",
+                "title": "PartDesign feature reversal property moved: `Symmetric` -> `Midplane` -> `SideType`"
+              },
+              {
+                "adapter_usage": "guarded",
+                "affected_tools": [
+                  "export_geometry"
+                ],
+                "applies_from": "1.1",
+                "changed_in": "1.1",
+                "enforcement": "postcondition",
+                "id": "meshpart-tessellate-deflection",
+                "kind": "behaviour",
+                "probe": {
+                  "attribute": "meshFromShape",
+                  "expected_on_or_after_changed_in": "present",
+                  "module": "MeshPart"
+                },
+                "remediation": "The adapter asserts the tessellated mesh is non-empty and bounded before exporting: an empty mesh, or one whose bounding box is missing or not finite, raises an explicit error naming the host version instead of writing a plausible-looking file.",
+                "removed_symbol": "MeshPart.meshFromShape",
+                "replacement": "MeshPart.meshFromShape with an explicitly asserted mesh result",
+                "symptom": "Tessellation honours deflection differently, so an STL/OBJ export can succeed with an empty or degenerate mesh instead of failing.",
+                "title": "MeshPart tessellation (`meshFromShape`) deflection behaviour changed"
+              }
+            ],
+            "executable_names": [
+              "FreeCADCmd",
+              "freecadcmd"
+            ],
+            "host": "freecad",
+            "matrix_version": "2026-09-29",
+            "notes": "Single source of truth for FreeCAD host support. Read by dcc_mcp_freecad.compat (service side) and by freecad_driver.py (inside FreeCAD's interpreter). A version outside `supported_ranges` is rejected explicitly; it is never silently downgraded. Each breaking change names the tools it limits in `affected_tools`; an `unused` break names none, because the adapter never calls the moved API. get_capabilities reads that list, so the capability declaration and the guard cannot disagree.",
+            "schema_version": 1,
+            "supported_ranges": [
+              {
+                "ci_matrix_entry": "FreeCAD_1.0.2-conda-Linux-x86_64-py311.AppImage",
+                "evidence": "Real FreeCAD 1.0.2 end-to-end run in CI: create/add/update/transform/boolean/validate/inspect/export STEP+STL/import/save_copy/remove, plus scale/copy/mirror, the wedge and helix primitives, and 3MF export - 40 passed / 0 skipped. Wedge and helix geometry and the 3MF millimetre unit declaration are measured against the request on this line, not merely reported.",
+                "id": "1.0.x",
+                "max_version": "1.0.9999",
+                "min_version": "1.0.0",
+                "status": "supported"
+              },
+              {
+                "ci_matrix_entry": "FreeCAD_1.1.4-Linux-x86_64-py311.AppImage",
+                "evidence": "Real FreeCAD 1.1.4 end-to-end run in CI: the same end-to-end path plus scale/copy/mirror, the wedge and helix primitives, and 3MF export - 40 passed / 0 skipped. No adapter-visible API break: the Part/Placement/boolean/MeshPart surface used by the driver is unchanged, and the wedge, helix and 3MF measurements agree with the 1.0.x line.",
+                "id": "1.1.x",
+                "max_version": "1.1.9999",
+                "min_version": "1.1.0",
+                "status": "supported"
+              }
+            ]
+          },
+          "path": "dcc_mcp_freecad/compat_matrix.json",
+          "sha256": "aeafd4677ffb06f00bb60fa05e924fd6cbaa40da77b2e8b29554b6d931115f6e"
+        },
+        "requires_dist": [
+          "dcc-mcp-core<1.0.0,>=0.20.36",
+          "build>=1.2; extra == 'dev'",
+          "jsonschema>=4.0; extra == 'dev'",
+          "pytest<8,>=7.4; (python_version < '3.8') and extra == 'dev'",
+          "pytest>=8; (python_version >= '3.8') and extra == 'dev'",
+          "pyyaml>=6; extra == 'dev'",
+          "ruff>=0.8; extra == 'dev'",
+          "twine>=6; extra == 'dev'",
+          "jsonschema>=4.0; extra == 'test'",
+          "pytest<8,>=7.4; (python_version < '3.8') and extra == 'test'",
+          "pytest>=8; (python_version >= '3.8') and extra == 'test'",
+          "pyyaml>=6; extra == 'test'",
+          "ruff>=0.8; extra == 'test'"
+        ],
+        "requires_python": ">=3.7"
+      },
+      "metadata_url": "https://pypi.org/pypi/dcc-mcp-freecad/0.9.1/json",
+      "name": "dcc-mcp-freecad",
+      "provenance": {
+        "url": "https://pypi.org/integrity/dcc-mcp-freecad/0.9.1/dcc_mcp_freecad-0.9.1-py3-none-any.whl/provenance",
+        "verification": "not_checked"
+      },
+      "repository": "dcc-mcp/dcc-mcp-freecad",
+      "selection": "observed_latest",
+      "source_commit": "459e77534e545dcd3ce265d104960a2bf8285b88",
+      "status": "blocked",
+      "version": "0.9.1"
+    }
+  ],
+  "index_sha256": "09e9701d7e75ee1fc2edf0374b4c21f62109ffe81f8facea725757a8f2ccda7e",
+  "observed_at": 1791912451,
+  "schema_version": 1
+}
