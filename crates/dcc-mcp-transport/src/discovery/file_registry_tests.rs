@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 fn remove_sentinel_for_pid_fallback(registry: &FileRegistry, key: &ServiceKey) {
     registry.sentinel_handles.remove(key);
-    if let Some(mut entry) = registry.services.get_mut(key) {
+    if let Some(entry) = registry.services.write().get_mut(key) {
         entry.sentinel_path = None;
     }
 }
