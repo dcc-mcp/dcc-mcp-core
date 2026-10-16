@@ -153,6 +153,24 @@ jobs:
         with:
           name: admin-ui-bundle
           path: crates/dcc-mcp-gateway-admin/src/generated/index.html
+      - name: Install Admin UI test browser
+        working-directory: admin-ui
+        run: vx npm exec -- playwright install --with-deps chromium
+      # These cases exercise the real browser with deterministic API fixtures.
+      # They validate UI interactions, not the live gateway/backend integration.
+      - name: Test Skills state in Chromium
+        working-directory: admin-ui
+        run: vx npm test -- skill-state.spec.ts --project=chromium --reporter=line,html
+      - name: Upload Skills browser evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: admin-ui-skill-state-browser
+          path: |
+            admin-ui/playwright-report/
+            admin-ui/test-results/
+          if-no-files-found: warn
+          retention-days: 14
 
   # ── Rust checks ────────────────────────────────────────────────────────────
   # Keep the PR critical path focused:
