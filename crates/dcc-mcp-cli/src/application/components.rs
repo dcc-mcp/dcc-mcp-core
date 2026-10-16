@@ -14,6 +14,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tempfile::TempDir;
 
+mod legacy;
+
 const OFFICIAL_RELEASES: &str = "https://github.com/dcc-mcp/dcc-cua/releases";
 const COMPONENT_NAME: &str = "dcc-cua";
 const MANIFEST_SCHEMA_VERSION: u64 = 1;
@@ -133,7 +135,7 @@ impl ComponentService {
             && status["status"] == "ready"
             && status["version"] == manifest.version
             && reconcile_existing_package(install_dir, &manifest.install, || {
-                self.install_package(install_dir, &manifest)
+                self.install_package(install_dir, &manifest, None)
             })?
         {
             return Ok(json!({
@@ -145,6 +147,10 @@ impl ComponentService {
                 "path": self.component_path()?,
             }));
         }
+
+        let legacy_digest =
+            legacy::verified_foreground_digest(&self.client, install_dir, self.target, &manifest)
+                .await?;
 
         let archive =
             download_bounded(&self.client, &manifest.asset.url, MAX_ARCHIVE_BYTES).await?;
@@ -166,7 +172,7 @@ impl ComponentService {
         prepare_package_executables(&extracted, &manifest.install)?;
         let candidate = extracted.join(component_file_name());
         let candidate_version = validate_candidate(&candidate, Some(&manifest.version))?;
-        self.install_package(&extracted, &manifest)?;
+        self.install_package(&extracted, &manifest, legacy_digest.as_deref())?;
         let installed = self.component_path()?;
 
         Ok(json!({
@@ -180,7 +186,12 @@ impl ComponentService {
         }))
     }
 
-    fn install_package(&self, source: &Path, manifest: &InstallManifest) -> anyhow::Result<()> {
+    fn install_package(
+        &self,
+        source: &Path,
+        manifest: &InstallManifest,
+        legacy_digest: Option<&str>,
+    ) -> anyhow::Result<()> {
         let mut files = package_files(&manifest.install);
         // Publish the foreground entry point after its background runtime and assets.
         files.sort_by_key(|file| file.path == component_file_name());
@@ -190,6 +201,12 @@ impl ComponentService {
             dcc_mcp_updater::PackageIdentity {
                 name: COMPONENT_NAME,
                 version: &manifest.version,
+                verified_legacy_foreground: legacy_digest.map(|sha256| {
+                    dcc_mcp_updater::PackageFile {
+                        path: component_file_name(),
+                        sha256,
+                    }
+                }),
             },
             source,
             &manifest.install.directories,
@@ -960,12 +977,14 @@ mod tests {
         std::fs::copy(source.join("dcc-cua"), installed.join("dcc-cua")).unwrap();
         assert!(verify_extracted_install_plan(&installed, &manifest.install).is_err());
         let service = ComponentService::new(current, "x86_64-unknown-linux-gnu").unwrap();
-        service.install_package(&source, &manifest).unwrap();
+        service.install_package(&source, &manifest, None).unwrap();
         verify_extracted_install_plan(&installed, &manifest.install).unwrap();
         assert!(package_executables_ready(&installed, &manifest.install).unwrap());
         assert_eq!(service.status().unwrap()["status"], "ready");
         assert!(installed.join(".dcc-cua-install-receipt.json").is_file());
-        service.install_package(&installed, &manifest).unwrap();
+        service
+            .install_package(&installed, &manifest, None)
+            .unwrap();
         verify_extracted_install_plan(&installed, &manifest.install).unwrap();
     }
 
