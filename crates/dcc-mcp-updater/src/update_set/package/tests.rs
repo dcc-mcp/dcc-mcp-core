@@ -291,6 +291,8 @@ fn crash_recovery_rolls_back_a_partly_applied_package_before_retry() {
     let journal = PackageJournal {
         bound_executable: std::fs::canonicalize(&fixture.current).unwrap(),
         created_directories: vec![],
+        #[cfg(unix)]
+        original_modes: vec![Some(0o644)],
         update: UpdateJournal {
             state: JournalState::Applying,
             entries: vec![JournalEntry {
@@ -322,6 +324,8 @@ fn committed_recovery_keeps_verified_files_and_finishes_cleanup() {
     let journal = PackageJournal {
         bound_executable: std::fs::canonicalize(&fixture.current).unwrap(),
         created_directories: vec![],
+        #[cfg(unix)]
+        original_modes: vec![Some(0o644)],
         update: UpdateJournal {
             state: JournalState::Committed,
             entries: vec![JournalEntry {
@@ -507,6 +511,12 @@ fn mid_apply_failure_recovers_the_full_set_and_preserves_unrecognized_content() 
     let journal = PackageJournal {
         bound_executable: std::fs::canonicalize(&fixture.current).unwrap(),
         created_directories: vec![],
+        #[cfg(unix)]
+        original_modes: entries
+            .iter()
+            .map(original_mode)
+            .collect::<Result<_, _>>()
+            .unwrap(),
         update: UpdateJournal {
             state: JournalState::Applying,
             entries,
@@ -564,4 +574,175 @@ fn receipt_directory_overlap_fails_before_creating_any_package_content() {
     assert!(!fixture.install.join("dcc-cua").exists());
     assert!(!fixture.install.join(receipt_name("dcc-cua")).exists());
     assert!(!fixture.journal().exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn failed_mode_only_repair_restores_the_previous_permissions() {
+    use std::os::unix::fs::PermissionsExt;
+    let fixture = Fixture::new();
+    fixture.run(|_| Ok(())).unwrap();
+    std::fs::set_permissions(
+        fixture.source.join("dcc-cua-background"),
+        std::fs::Permissions::from_mode(0o755),
+    )
+    .unwrap();
+    let installed = fixture.install.join("dcc-cua-background");
+    std::fs::set_permissions(&installed, std::fs::Permissions::from_mode(0o600)).unwrap();
+    assert!(
+        fixture
+            .run(|root| {
+                assert_eq!(
+                    std::fs::metadata(root.join("dcc-cua-background"))
+                        .unwrap()
+                        .permissions()
+                        .mode()
+                        & 0o777,
+                    0o755
+                );
+                Err(UpdateError::Stage("final runtime validation failed".into()))
+            })
+            .is_err()
+    );
+    assert_eq!(
+        std::fs::metadata(installed).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    assert!(!fixture.journal().exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn applying_recovery_restores_permissions_when_original_and_new_hashes_match() {
+    use std::os::unix::fs::PermissionsExt;
+    let fixture = Fixture::new();
+    let target = fixture.install.join("dcc-cua-background");
+    let prepared = fixture.install.join("dcc-cua-background.dcc-mcp-new");
+    let backup = fixture.install.join("dcc-cua-background.dcc-mcp-backup");
+    std::fs::write(&target, b"background").unwrap();
+    std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::fs::write(&backup, b"background").unwrap();
+    std::fs::set_permissions(&backup, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let journal = PackageJournal {
+        bound_executable: std::fs::canonicalize(&fixture.current).unwrap(),
+        created_directories: vec![],
+        original_modes: vec![Some(0o600)],
+        update: UpdateJournal {
+            state: JournalState::Applying,
+            entries: vec![JournalEntry {
+                target: target.clone(),
+                prepared,
+                backup,
+                had_original: true,
+                original_sha256: Some(sha256_bytes(b"background")),
+                expected_sha256: sha256_bytes(b"background"),
+            }],
+        },
+    };
+    write_json_atomic(&fixture.journal(), &journal).unwrap();
+    recover_package(&fixture.journal(), &journal.bound_executable).unwrap();
+    assert_eq!(
+        std::fs::metadata(target).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    assert!(!fixture.journal().exists());
+}
+
+#[test]
+fn fully_published_applying_package_restores_local_source_before_fresh_archive_retry() {
+    let mut fixture = Fixture::new();
+    fixture.run(|_| Ok(())).unwrap();
+    fixture.replace_source("dcc-cua", b"new foreground");
+    fixture.replace_source("dcc-cua-background", b"new background");
+    let receipt = prepare_receipt(
+        &fixture.install,
+        PackageIdentity {
+            name: "dcc-cua",
+            version: "1.0.0",
+        },
+        &fixture.directories,
+        &fixture.plan(),
+    )
+    .unwrap();
+    let receipt_path = receipt_name("dcc-cua");
+    let receipt_hash = sha256_bytes(&receipt);
+    let mut plan = fixture.plan();
+    plan.push(PackageFile {
+        path: &receipt_path,
+        sha256: &receipt_hash,
+    });
+    let mut entries = Vec::new();
+    for file in &plan {
+        let target = fixture.install.join(file.path);
+        let name = target.file_name().unwrap().to_str().unwrap();
+        let prepared = target.with_file_name(format!("{name}.dcc-mcp-new"));
+        if file.path == receipt_path {
+            std::fs::write(&prepared, &receipt).unwrap();
+        } else {
+            std::fs::copy(fixture.source.join(file.path), &prepared).unwrap();
+        }
+        entries.push(JournalEntry {
+            backup: target.with_file_name(format!("{name}.dcc-mcp-backup")),
+            original_sha256: Some(sha256_file(&target).unwrap()),
+            target,
+            prepared,
+            had_original: true,
+            expected_sha256: file.sha256.into(),
+        });
+    }
+    let journal = PackageJournal {
+        bound_executable: std::fs::canonicalize(&fixture.current).unwrap(),
+        created_directories: vec![],
+        #[cfg(unix)]
+        original_modes: entries
+            .iter()
+            .map(original_mode)
+            .collect::<Result<_, _>>()
+            .unwrap(),
+        update: UpdateJournal {
+            state: JournalState::Applying,
+            entries,
+        },
+    };
+    write_json_atomic(&fixture.journal(), &journal).unwrap();
+    apply_entries(&journal.update).unwrap();
+    // All published hashes now match, but no commit marker exists. Recovery
+    // must restore the old source directory instead of accepting the new set.
+    for file in fixture.plan() {
+        require_file_hash(&fixture.install.join(file.path), file.sha256, "published").unwrap();
+    }
+    assert!(
+        install_verified_package(
+            &fixture.name,
+            &fixture.current,
+            PackageIdentity {
+                name: "dcc-cua",
+                version: "1.0.0"
+            },
+            &fixture.install,
+            &fixture.directories,
+            &fixture.plan(),
+            |_| Ok(())
+        )
+        .is_err()
+    );
+    assert_eq!(
+        std::fs::read(fixture.install.join("dcc-cua")).unwrap(),
+        b"foreground"
+    );
+    assert_eq!(
+        std::fs::read(fixture.install.join("dcc-cua-background")).unwrap(),
+        b"background"
+    );
+    assert!(!fixture.journal().exists());
+    // The CLI's same-call fallback supplies a fresh verified archive root.
+    fixture.run(|_| Ok(())).unwrap();
+    for file in fixture.plan() {
+        require_file_hash(
+            &fixture.install.join(file.path),
+            file.sha256,
+            "fresh archive retry",
+        )
+        .unwrap();
+    }
 }
