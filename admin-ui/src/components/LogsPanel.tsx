@@ -41,6 +41,16 @@ function groupRows<T>(rows: T[], keyFn: (row: T) => string): Map<string, T[]> {
   return map;
 }
 
+function keyedLogRows(rows: LogRow[]) {
+  const occurrences = new Map<string, number>();
+  return rows.map((log) => {
+    const identity = JSON.stringify(log);
+    const occurrence = occurrences.get(identity) ?? 0;
+    occurrences.set(identity, occurrence + 1);
+    return { log, key: `${identity}:${occurrence}` };
+  });
+}
+
 function severityLabel(severity: LogSeverityFilter, t: Translator): string {
   return t(`logs.filter.${severity}`);
 }
@@ -163,8 +173,8 @@ export function LogsPanel({
                       <SeverityBadge severity={requestLogSeverity(run)} t={t} />
                     </summary>
                     <div className="log-request-steps">
-                      {run.steps.map((log, index) => (
-                        <LogEntry key={`${log.timestamp}-${log.source ?? ''}-${index}`} log={log} step={index + 1} t={t} />
+                      {keyedLogRows(run.steps).map(({ log, key }, index) => (
+                        <LogEntry key={key} log={log} step={index + 1} t={t} />
                       ))}
                     </div>
                   </details>
@@ -181,7 +191,7 @@ export function LogsPanel({
                   <div key={group} className="log-gateway-group">
                     <h4>{group}</h4>
                     <div className="log-gateway-entries">
-                      {groupLogs.map((log, index) => <LogEntry key={`${log.timestamp}-${index}`} log={log} t={t} />)}
+                      {keyedLogRows(groupLogs).map(({ log, key }) => <LogEntry key={key} log={log} t={t} />)}
                     </div>
                   </div>
                 ))}
