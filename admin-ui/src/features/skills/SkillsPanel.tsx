@@ -175,16 +175,18 @@ export function SkillsPanel({
           skill.name,
           skill.dcc_type,
           skill.loaded ? 'loaded' : 'unloaded',
+          t(skill.loaded ? 'skillPaths.state.loaded' : 'skillPaths.state.unloaded'),
           skill.summary ?? '',
           skill.instances.join(' '),
           skill.tools.join(' '),
           skill.adoption.low_adoption ? 'low adoption' : '',
           skill.adoption.searched ? 'searched' : '',
           skill.adoption.used ? 'used' : '',
+          t(skill.adoption.used ? 'skillPaths.state.used' : 'skillPaths.state.notUsed'),
         ),
       ),
     );
-  }, [inventory.skills, search]);
+  }, [inventory.skills, search, t]);
 
   const filteredPaths = useMemo(() => {
     const q = search.trim().toLowerCase();
