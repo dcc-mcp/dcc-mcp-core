@@ -132,10 +132,10 @@ impl ComponentService {
             && let Ok(status) = self.status()
             && status["status"] == "ready"
             && status["version"] == manifest.version
+            && reconcile_existing_package(install_dir, &manifest.install, || {
+                self.install_package(install_dir, &manifest)
+            })?
         {
-            // Enter the transaction lock even on the fast path: recover a prior
-            // interrupted install and adopt matching legacy files with a receipt.
-            self.install_package(install_dir, &manifest)?;
             return Ok(json!({
                 "schema_version": 1,
                 "component": COMPONENT_NAME,
@@ -385,6 +385,23 @@ fn prepare_package_executables(root: &Path, plan: &InstallPlan) -> anyhow::Resul
     Ok(())
 }
 
+fn reconcile_existing_package(
+    root: &Path,
+    plan: &InstallPlan,
+    reconcile: impl FnOnce() -> anyhow::Result<()>,
+) -> anyhow::Result<bool> {
+    // Enter the shared transaction even for a complete legacy installation.
+    // Recovery of an uncommitted upgrade can restore old files in this same
+    // directory, invalidating the fast path's source. Continue with a fresh
+    // verified archive in that case; a receipt/ownership error with an intact
+    // current plan must still fail closed rather than report `existing`.
+    match reconcile() {
+        Ok(()) => Ok(true),
+        Err(_) if verify_extracted_install_plan(root, plan).is_err() => Ok(false),
+        Err(error) => Err(error),
+    }
+}
+
 fn package_executables_ready(root: &Path, plan: &InstallPlan) -> anyhow::Result<bool> {
     #[cfg(unix)]
     {
@@ -610,13 +627,6 @@ fn validate_relative_path(path: &Path) -> anyhow::Result<()> {
 fn validate_candidate(path: &Path, expected_version: Option<&str>) -> anyhow::Result<String> {
     if !path.is_file() {
         bail!("dcc-cua archive does not contain the expected executable");
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut permissions = std::fs::metadata(path)?.permissions();
-        permissions.set_mode(0o755);
-        std::fs::set_permissions(path, permissions)?;
     }
     let stdout = tempfile::NamedTempFile::new()?;
     let stdout_writer = stdout.reopen()?;
@@ -957,5 +967,54 @@ mod tests {
         assert!(installed.join(".dcc-cua-install-receipt.json").is_file());
         service.install_package(&installed, &manifest).unwrap();
         verify_extracted_install_plan(&installed, &manifest.install).unwrap();
+    }
+
+    #[test]
+    fn existing_reconciliation_falls_back_after_recovery_but_preserves_intact_plan_errors() {
+        let root = tempfile::tempdir().unwrap();
+        let target = root.path().join("dcc-cua");
+        std::fs::write(&target, b"published new runtime").unwrap();
+        let plan = InstallPlan {
+            directories: vec![],
+            files: vec![InstallFile {
+                path: "dcc-cua".into(),
+                sha256: dcc_mcp_updater::sha256_file(&target).unwrap(),
+            }],
+        };
+        verify_extracted_install_plan(root.path(), &plan).unwrap();
+        let existing = reconcile_existing_package(root.path(), &plan, || {
+            std::fs::write(&target, b"recovered old runtime")?;
+            bail!("local fast-path source was rolled back");
+        })
+        .unwrap();
+        assert!(
+            !existing,
+            "the same ensure must continue with a fresh verified archive"
+        );
+        std::fs::write(&target, b"published new runtime").unwrap();
+        let error = reconcile_existing_package(root.path(), &plan, || {
+            bail!("invalid ownership receipt");
+        })
+        .unwrap_err();
+        assert!(error.to_string().contains("invalid ownership receipt"));
+        assert!(reconcile_existing_package(root.path(), &plan, || Ok(())).unwrap());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn status_does_not_change_permissions_of_a_non_executable_runtime() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = tempfile::tempdir().unwrap();
+        let current = root.path().join("dcc-mcp-cli");
+        std::fs::write(&current, b"core cli").unwrap();
+        let runtime = root.path().join("dcc-cua");
+        std::fs::write(&runtime, b"#!/bin/sh\nexit 0\n").unwrap();
+        std::fs::set_permissions(&runtime, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let service = ComponentService::new(current, "x86_64-unknown-linux-gnu").unwrap();
+        assert_eq!(service.status().unwrap()["status"], "incompatible");
+        assert_eq!(
+            std::fs::metadata(runtime).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
     }
 }

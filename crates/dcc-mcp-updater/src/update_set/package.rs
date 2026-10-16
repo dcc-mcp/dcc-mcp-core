@@ -29,6 +29,8 @@ pub struct PackageIdentity<'a> {
 struct PackageJournal {
     bound_executable: PathBuf,
     created_directories: Vec<PathBuf>,
+    #[cfg(unix)]
+    original_modes: Vec<Option<u32>>,
     update: UpdateJournal,
 }
 
@@ -211,6 +213,11 @@ pub fn install_verified_package(
     let mut journal = PackageJournal {
         bound_executable: current_exe.clone(),
         created_directories: created_directories.into_iter().collect(),
+        #[cfg(unix)]
+        original_modes: entries
+            .iter()
+            .map(original_mode)
+            .collect::<Result<_, _>>()?,
         update: UpdateJournal {
             state: JournalState::Applying,
             entries,
@@ -357,6 +364,8 @@ fn recover_package(journal_path: &Path, current_exe: &Path) -> Result<(), Update
     validate_package_journal(&journal, current_exe)?;
     if journal.update.state == JournalState::Applying {
         rollback(&journal.update)?;
+        #[cfg(unix)]
+        restore_original_modes(&journal)?;
     } else {
         for entry in &journal.update.entries {
             require_file_hash(
@@ -402,6 +411,20 @@ fn validate_package_journal(
         ));
     }
     let root = current_exe.parent().unwrap();
+    #[cfg(unix)]
+    if journal.original_modes.len() != journal.update.entries.len()
+        || journal
+            .original_modes
+            .iter()
+            .zip(&journal.update.entries)
+            .any(|(mode, entry)| {
+                mode.is_some() != entry.had_original || mode.is_some_and(|mode| mode & !0o777 != 0)
+            })
+    {
+        return Err(UpdateError::Stage(
+            "package journal has invalid original permissions".into(),
+        ));
+    }
     let relative = |path: &Path| -> Result<String, UpdateError> {
         let path = path.strip_prefix(root).map_err(|_| {
             UpdateError::Stage("package journal path escapes the installation".into())
@@ -471,6 +494,37 @@ fn validate_package_journal(
         }
         if let Some(hash) = &entry.original_sha256 {
             validate_expected_sha(hash)?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn original_mode(entry: &JournalEntry) -> Result<Option<u32>, UpdateError> {
+    use std::os::unix::fs::PermissionsExt;
+    if !entry.had_original {
+        return Ok(None);
+    }
+    let mode = std::fs::metadata(&entry.target)?.permissions().mode();
+    if mode & 0o7000 != 0 {
+        return Err(UpdateError::Stage(
+            "package destination has unsupported special permission bits".into(),
+        ));
+    }
+    Ok(Some(mode & 0o777))
+}
+
+#[cfg(unix)]
+fn restore_original_modes(journal: &PackageJournal) -> Result<(), UpdateError> {
+    use std::os::unix::fs::PermissionsExt;
+    for (entry, mode) in journal.update.entries.iter().zip(&journal.original_modes) {
+        if let Some(mode) = mode {
+            require_file_hash(
+                &entry.target,
+                entry.original_sha256.as_deref().unwrap(),
+                "restored package file",
+            )?;
+            std::fs::set_permissions(&entry.target, std::fs::Permissions::from_mode(*mode))?;
         }
     }
     Ok(())
