@@ -20,9 +20,9 @@ describe('SkillInventoryList', () => {
     const onOpen = vi.fn();
     render(<SkillInventoryList skills={[skill]} selected={null} onOpen={onOpen} t={t} />);
     const row = screen.getByRole('listitem');
-    expect(within(row).getByText('unloaded')).toBeInTheDocument();
-    expect(within(row).getByText('used')).toBeInTheDocument();
-    expect(within(row).getByText('used')).not.toBeVisible();
+    expect(within(row).getByText(t('skillPaths.state.unloaded'))).toBeInTheDocument();
+    expect(within(row).getByText(t('skillPaths.state.used'))).toBeInTheDocument();
+    expect(within(row).getByText(t('skillPaths.state.used'))).not.toBeVisible();
     expect(within(row).getByText('12 calls, 1 failures')).toBeInTheDocument();
     const details = row.querySelector('details')!;
     expect(details).not.toHaveAttribute('open');
@@ -32,7 +32,7 @@ describe('SkillInventoryList', () => {
     expect(within(row).getByText('fifth')).toBeVisible();
     expect(within(row).getByText('four', { selector: 'code' })).toBeVisible();
     expect(within(row).getByText('best rank 2')).toBeVisible();
-    expect(within(row).getByText('used')).toBeVisible();
+    expect(within(row).getByText(t('skillPaths.state.used'))).toBeVisible();
     fireEvent.click(within(row).getByRole('button', { name: 'Open blender-geometry detail' }));
     expect(onOpen).toHaveBeenCalledWith(skill);
   });

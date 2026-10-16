@@ -32,7 +32,16 @@ for (const locale of SUPPORTED_LOCALES) {
         await expect(row).not.toContainText(t('skillPaths.usage.neverUsed'));
         await expect(page.locator('.skill-inventory-row[data-skill-name="blender-lookdev"]'))
           .toContainText(t('skillPaths.state.notUsed'));
+        const unusedRow = page.locator('.skill-inventory-row[data-skill-name="blender-lookdev"]');
+        await row.locator('.skill-inventory-disclosure > summary').click();
+        await unusedRow.locator('.skill-inventory-disclosure > summary').click();
+        await expect(row.getByText(t('skillPaths.state.used'), { exact: true })).toBeVisible();
+        await expect(unusedRow.getByText(t('skillPaths.state.notUsed'), { exact: true })).toBeVisible();
+        await expect(row.locator('.skill-inventory-load-state')).toBeVisible();
+        await expect(unusedRow.locator('.skill-inventory-load-state')).toHaveText(t('skillPaths.state.loaded'));
         await expect(page.locator('html')).toHaveAttribute('lang', locale);
+        // Capture the expanded inventory from the page top, without scrolled fixed chrome.
+        await page.evaluate(() => window.scrollTo(0, 0));
         await page.screenshot({ path: testInfo.outputPath('skills-loading-and-history.png'), fullPage: true });
         const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
         expect(overflow).toBeLessThanOrEqual(2);

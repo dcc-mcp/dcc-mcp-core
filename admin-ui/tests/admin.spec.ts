@@ -112,7 +112,7 @@ test.describe('Admin Page', () => {
     await expect(page.locator('.setup-panel')).toContainText('dcc-mcp-cli update check --binary dcc-mcp-server --current-version <server_version>');
     await expect(page.locator('.command-aside-action')).toHaveCount(2);
     await expect(page.locator('.command-aside-action').first()).toContainText('Manage loaded skills');
-    await expect(page.locator('.command-aside-action').last()).toContainText('Install and update skill packages');
+    await expect(page.locator('.command-aside-action').last()).toContainText('Install and update marketplace packages');
     await expect(page.locator('.command-center-aside')).toContainText('Session context');
     await expect(page.locator('.command-center-aside')).toContainText('Agent flow');
     await expect(page.locator('.command-center-aside')).toContainText('Search');
@@ -438,6 +438,14 @@ test.describe('Admin Page', () => {
     expect(rowLayout.valueOverflow).toBe('hidden');
     expect(rowLayout.valueTextOverflow).toBe('ellipsis');
     expect(rowLayout.valueWhiteSpace).toBe('nowrap');
+    const clippedLinks = await page.locator('.instance-link-groups > span').evaluateAll((groups) => groups.some((group) => {
+      const bounds = group.getBoundingClientRect();
+      return Array.from(group.querySelectorAll('a')).some((link) => {
+        const rect = link.getBoundingClientRect();
+        return rect.left < bounds.left - 1 || rect.right > bounds.right + 1;
+      });
+    }));
+    expect(clippedLinks).toBe(false);
     const mayaRow = page.locator('.instance-row').filter({ hasText: 'Maya Layout' });
     await expect(mayaRow).toContainText('Update');
     await expect(mayaRow).toContainText('Current version: 0.19.56');
@@ -1133,7 +1141,9 @@ test.describe('Admin Page', () => {
     expect(layout.height).toBeLessThanOrEqual(150);
     expect(layout.overflow).toBeLessThanOrEqual(1);
     expect(layout.titleFont).not.toMatch(/mono/i);
-    expect(layout.buttonRadius).toBe('8px');
+    const sharedButtonRadius = await page.locator('.skill-paths-panel .panel-header button').evaluate((button) => getComputedStyle(button).borderRadius);
+    expect(layout.buttonRadius).toBe(sharedButtonRadius);
+    expect(parseFloat(layout.buttonRadius)).toBeLessThanOrEqual(8);
     await expect(row.getByText('create_sphere', { exact: true })).toBeHidden();
     await row.locator('summary').click();
     await expect(row.getByText('create_sphere', { exact: true })).toBeVisible();
