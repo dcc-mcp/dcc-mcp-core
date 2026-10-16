@@ -383,11 +383,13 @@ def test_shared_build_wheel_venv_upgrades_pip_before_installing() -> None:
     action = yaml_loads((REPO_ROOT / ".github" / "actions" / "build-wheel" / "action.yml").read_text(encoding="utf-8"))
     test_wheel = next(step for step in action["runs"]["steps"] if step.get("name") == "Test wheel")
     run = test_wheel["run"]
-    assert "pip install --upgrade" in run
     # The ceiling keeps Python 3.7 installable: pip 24.1+ drops py37.
-    assert 'pip install --upgrade "pip<24.1" wheel' in run
+    assert 'python -m pip install --upgrade "pip<24.1" wheel' in run
+    # `pip install --upgrade pip` replaces the running pip.exe and dies with
+    # WinError 5 on Windows; upgrading through `python -m pip` avoids that.
+    assert "pip install --upgrade pip" not in run
     install = "pip install --force-reinstall dist/*.whl"
-    assert run.index("pip install --upgrade") < run.index(install)
+    assert run.index("--upgrade") < run.index(install)
 
 
 def test_macos_py37_smoke_upgrades_pip_before_installing() -> None:
