@@ -43,7 +43,7 @@
   "examplePrompts.label": "Try saying",
   "examplePrompts.more": "+{count} more",
   "state.loaded": "currently loaded",
-  "state.unloaded": "not currently loaded",
+  "state.unloaded": "currently unloaded",
   "state.used": "previously called",
   "state.notUsed": "no recorded calls",
   "state.lowAdoption": "low adoption",
