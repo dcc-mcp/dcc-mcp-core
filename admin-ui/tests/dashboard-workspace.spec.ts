@@ -271,13 +271,13 @@ for (const width of [390, 1440]) {
       const task = tasks.filter({ hasText: 'Prepare a preview' });
       await task.locator('.task-title-row').click();
       await expect(task.getByText('Goal', { exact: true })).toBeVisible();
-      await expect(task.getByText('Create a reviewable scene.', { exact: true })).toBeVisible();
+      await expect(task.locator('.task-outcome').filter({ has: page.getByText('Goal', { exact: true }) })).toContainText('Create a reviewable scene.');
       await expect(task.getByText('Result', { exact: true })).toHaveCount(0);
       await expect(task.getByText('Summary', { exact: true })).toHaveCount(0);
       const summaryTask = tasks.filter({ hasText: 'Inspect scene inputs' });
       await summaryTask.locator('.task-title-row').click();
       await expect(summaryTask.getByText('Summary', { exact: true })).toBeVisible();
-      await expect(summaryTask.getByText('Check source geometry.', { exact: true })).toBeVisible();
+      await expect(summaryTask.locator('.task-outcome').filter({ has: page.getByText('Summary', { exact: true }) })).toContainText('Check source geometry.');
       await expect(summaryTask.getByText('Result', { exact: true })).toHaveCount(0);
       await page.evaluate(() => window.scrollTo(0, 0));
       await evidence(page, testInfo, 'task-goal-without-result');
