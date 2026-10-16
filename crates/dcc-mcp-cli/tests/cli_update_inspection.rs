@@ -88,6 +88,64 @@ fn isolated_staging_fixture_is_observed_by_normal_startup() {
 }
 
 #[test]
+fn ordinary_inventory_opt_out_preserves_pending_and_update_cache() {
+    let isolated = IsolatedCli::new();
+    let registry = isolated.root.path().join("private-registry");
+    std::fs::create_dir_all(&registry).unwrap();
+    let catalog = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    catalog.set_nonblocking(true).unwrap();
+    let marketplace = isolated.root.path().join("marketplace");
+    std::fs::create_dir_all(&marketplace).unwrap();
+    let ledger = marketplace.join("installed.json");
+    let installed = serde_json::to_vec(&json!({ "packages": [{
+        "name": "fixture-tools", "dcc": "maya", "version": "1.0.0",
+        "path": marketplace.join("fixture-tools"), "source_name": "fixture",
+        "source_url": format!("http://{}/marketplace.json", catalog.local_addr().unwrap()),
+        "install_type": "git", "install_url": null, "install_ref": null,
+        "installed_at_ms": 1
+    }] }))
+    .unwrap();
+    std::fs::write(&ledger, &installed).unwrap();
+    let output = isolated
+        .command()
+        .args([
+            "--no-update-maintenance",
+            "--no-auto-gateway",
+            "--gateway",
+            "local",
+            "--output",
+            "json",
+            "list",
+        ])
+        .env("DCC_MCP_REGISTRY_DIR", &registry)
+        .env_remove("DCC_MCP_BASE_URL")
+        .env("DCC_MCP_MARKETPLACE_INSTALL_ROOT", &marketplace)
+        .env("DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES", "1")
+        .env(
+            "DCC_MCP_GATEWAY_PROFILES_FILE",
+            isolated.root.path().join("profiles.json"),
+        )
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["total"], 0);
+    assert!(report.get("cli_update").is_none());
+    assert!(report.get("marketplace_updates").is_none());
+    isolated.assert_staging_untouched();
+    assert!(!isolated.cache_root().exists());
+    assert_eq!(std::fs::read(&ledger).unwrap(), installed);
+    match catalog.accept() {
+        Err(error) => assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock),
+        Ok(_) => panic!("incidental marketplace update check contacted the fixture catalog"),
+    }
+}
+
+#[test]
 fn offline_inspection_bypasses_gateway_staged_update_and_cache_writes() {
     let isolated = IsolatedCli::new();
     let output = isolated

@@ -7,6 +7,7 @@ use clap::Parser;
 use serde_json::Value;
 
 use super::output::{ExitCode, OutputFormat, OutputWriter, failure_envelope, to_json};
+use super::update_maintenance::UpdateMaintenance;
 
 use crate::application::adapter_import;
 use crate::application::call_attribution::{
@@ -78,6 +79,10 @@ pub struct Args {
     /// Disable the default local gateway auto-start before agent control commands.
     #[arg(long, env = "DCC_MCP_CLI_NO_AUTO_GATEWAY", default_value = "false")]
     no_auto_gateway: bool,
+    /// Skip automatic staged updates, marketplace checks and CLI update-cache refresh.
+    /// Explicit update commands still perform the operation requested by the caller.
+    #[arg(long, global = true)]
+    no_update_maintenance: bool,
     /// Require local agent-control calls to pass through the gateway for audit and stats.
     #[arg(
         long,
@@ -140,11 +145,16 @@ impl Args {
 }
 
 pub async fn run() -> anyhow::Result<()> {
-    if apply_staged_update() {
-        return restart_after_update();
-    }
+    // Parse before any update side effect, even when this library entrypoint is
+    // called directly instead of through the executable's read-only gate.
     let args =
         Args::try_parse_annotated_from(std::env::args_os()).unwrap_or_else(|error| error.exit());
+    if UpdateMaintenance::from_skip_flag(args.no_update_maintenance)
+        .run(apply_staged_update)
+        .unwrap_or(false)
+    {
+        return restart_after_update();
+    }
     run_with_args(args).await
 }
 
@@ -216,6 +226,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
         base_url,
         gateway,
         no_auto_gateway,
+        no_update_maintenance,
         require_gateway,
         agent_session_id,
         auto_gateway_bin,
@@ -235,8 +246,13 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
     };
     let writer = OutputWriter::new(output.map_err(anyhow::Error::msg)?);
     let explicit_update_command = matches!(&command, Command::Update { .. });
-    let marketplace_update_check = (!crate::application::update::is_background_refresh())
-        .then(|| tokio::spawn(check_marketplace_updates()));
+    let update_maintenance = UpdateMaintenance::from_skip_flag(no_update_maintenance);
+    let marketplace_update_check = update_maintenance
+        .run(|| {
+            (!crate::application::update::is_background_refresh())
+                .then(|| tokio::spawn(check_marketplace_updates()))
+        })
+        .flatten();
 
     if global_timeout_secs.is_some()
         && (command_has_distinct_per_timeout(&command, global_timeout_secs)
@@ -937,12 +953,16 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
         );
     }
 
-    super::update_cmd::surface_cached_cli_update(
-        &mut value,
-        &writer,
-        &base_url,
-        !explicit_update_command,
-    )?;
+    update_maintenance
+        .run(|| {
+            super::update_cmd::surface_cached_cli_update(
+                &mut value,
+                &writer,
+                &base_url,
+                !explicit_update_command,
+            )
+        })
+        .transpose()?;
 
     writer.write_data(&value)?;
     if let Some(code) = explicit_exit_code

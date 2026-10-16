@@ -134,6 +134,30 @@ fn only_valid_other_commands_return_legacy_fallback() {
 }
 
 #[test]
+fn update_maintenance_opt_out_is_canonical_global_syntax() {
+    for arguments in [
+        vec!["dcc-mcp-cli", "--no-update-maintenance", "list"],
+        vec!["dcc-mcp-cli", "list", "--no-update-maintenance"],
+    ] {
+        let matches = Args::command()
+            .try_get_matches_from(arguments)
+            .expect("canonical global update-maintenance opt-out");
+        assert!(matches.get_flag("no_update_maintenance"));
+    }
+    assert!(
+        parse(&["dcc-mcp-cli", "list", "--no-update-maintenance"])
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(
+        parse(&["dcc-mcp-cli", "--no-update-maintenance", "list", "--help"])
+            .unwrap_err()
+            .exit_code(),
+        0
+    );
+}
+
+#[test]
 fn feedback_previews_use_read_only_gate_and_canonical_global_options() {
     for arguments in [
         vec![
