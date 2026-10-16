@@ -318,7 +318,22 @@ jobs:
         run: vx just clippy
       - name: Rust tests
         if: matrix.rust-validation == 'full'
-        run: vx just test-rust
+        shell: bash
+        env:
+          # Preserve individual terminal statuses, including passing tests with
+          # leaked handles, without enabling successful test output or debug logs.
+          NEXTEST_FINAL_STATUS_LEVEL: all
+        run: |
+          set -o pipefail
+          vx just test-rust 2>&1 | tee rust-test-results.log
+      - name: Upload Rust test diagnostics
+        if: always() && matrix.rust-validation == 'full'
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-test-results-${{ matrix.os }}
+          path: rust-test-results.log
+          if-no-files-found: ignore
+          retention-days: 14
       - name: MCP 2026 official SDK interoperability
         if: matrix.rust-validation == 'full'
         timeout-minutes: 15
