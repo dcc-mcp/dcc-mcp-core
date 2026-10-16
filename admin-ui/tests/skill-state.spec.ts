@@ -36,6 +36,9 @@ for (const locale of SUPPORTED_LOCALES) {
         const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
         expect(overflow).toBeLessThanOrEqual(2);
         const search = page.locator('.list-search-wrap[data-panel="discover"] .list-search-input');
+        await search.fill(t('skillPaths.state.loaded'));
+        await expect(page.locator('.skill-inventory-row')).toHaveCount(1);
+        await expect(page.locator('.skill-inventory-row')).toContainText('blender-lookdev');
         await search.fill(t('skillPaths.state.used'));
         await expect(page.locator('.skill-inventory-row')).toHaveCount(1);
         await expect(row).toBeVisible();

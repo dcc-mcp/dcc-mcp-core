@@ -41,6 +41,8 @@ describe.each(SUPPORTED_LOCALES)('skill loading and call history in %s', (locale
     mockInventory();
     render(<SkillsPanel active search={t(key)} updatedAt="" t={t} {...callbacks} />);
     expect(await screen.findByText(name, { selector: '.skill-inventory-title' })).toBeVisible();
+    const excluded = name === 'maya-history' ? 'blender-ready' : 'maya-history';
+    expect(screen.queryByText(excluded, { selector: '.skill-inventory-title' })).not.toBeInTheDocument();
   });
 
   it('labels detail loading state separately from call history', () => {
