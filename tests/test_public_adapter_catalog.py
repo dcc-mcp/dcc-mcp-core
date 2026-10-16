@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from conftest import REPO_ROOT
 from dcc_mcp_core import yaml_loads
 
@@ -39,20 +41,43 @@ def test_obs_release_is_available_to_the_install_planner() -> None:
     obs = entries["dcc-mcp-obs"]
 
     assert obs["dcc"] == ["obs"]
-    assert obs["version"] == "1.4.0"
+    assert obs["version"] == "1.5.1"
     assert obs["min_core_version"] == "0.20.14"
     assert obs["install"] == {
         "type": "pip",
         "pip_package": "dcc-mcp-obs",
         "url": (
-            "https://files.pythonhosted.org/packages/c1/7e/"
-            "e928e483625278c43a84aced9f6c9243964f94e521bce8a77f66c0aedf03/"
-            "dcc_mcp_obs-1.4.0-py3-none-any.whl"
+            "https://files.pythonhosted.org/packages/50/37/"
+            "65b42856500d50548d5673a399ccfa1a85a61a7458858bb52881422ed6c2/"
+            "dcc_mcp_obs-1.5.1-py3-none-any.whl"
         ),
-        "sha256": "31afb647da5c999147fd6629e8abb5a2020b30519a1fc68d39fb5c134bdbbddb",
+        "sha256": "c47e2127e2331e5b8650a98ff777e97f76cedfccaf0fe2a5187981dfbffe57af",
         "entry_point": "dcc_mcp_obs:ObsMcpServer",
         "instructions_url": (
-            "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-obs/4ae80d4a7f062c6a496ad2848cf3eaeaea08ffbe/install.md"
+            "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-obs/475046ba823a199195f32ee729983770c2da6898/install.md"
+        ),
+    }
+
+
+def test_godot_release_replaces_the_resolved_timeout_hold() -> None:
+    entries = {entry["name"]: entry for entry in _entries()}
+    godot = entries["dcc-mcp-godot"]
+
+    assert godot["dcc"] == ["godot"]
+    assert godot["version"] == "0.9.6"
+    assert godot["min_core_version"] == "0.20.41"
+    assert "policy" not in godot
+    assert godot["install"] == {
+        "type": "pip",
+        "pip_package": "dcc-mcp-godot",
+        "url": (
+            "https://files.pythonhosted.org/packages/c3/f3/"
+            "4a104c92c6a7b9dd9dc7519d08a8804c50896a1ecc9bbf796a80493f89a6/"
+            "dcc_mcp_godot-0.9.6-py3-none-any.whl"
+        ),
+        "sha256": "1aa17201803e800638033e2581002e5d01d00c6ac772d6b54688bf2a1cc384dc",
+        "instructions_url": (
+            "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-godot/141a2a2253d72035ef099dab8e81e0f98aa4db80/install.md"
         ),
     }
 
@@ -84,3 +109,13 @@ def test_liquigen_is_installable_from_pinned_pypi_wheel() -> None:
         "entry_point": "dcc_mcp_liquigen.server:main",
         "instructions_url": "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-liquigen/main/README.md",
     }
+
+
+def test_discovery_decision_fixtures_match_curated_instructions() -> None:
+    entries = {entry["name"]: entry for entry in _entries()}
+    fixture_path = REPO_ROOT / "tests" / "fixtures" / "discovery-decision" / "game-engines.json"
+    fixtures = json.loads(fixture_path.read_text(encoding="utf-8"))
+
+    for case in fixtures["cases"]:
+        entry = entries[f"dcc-mcp-{case['dcc_type']}"]
+        assert case["expected_instructions_url"] == entry["install"]["instructions_url"], case["id"]

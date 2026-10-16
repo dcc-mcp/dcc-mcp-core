@@ -24,19 +24,19 @@ fn bundled_plan(dcc: &str) -> Value {
 #[test]
 fn obs_plan_uses_approved_release_bytes_and_matching_instructions() {
     let plan = bundled_plan("obs");
-    assert_eq!(plan["version"], "1.4.0");
+    assert_eq!(plan["version"], "1.5.1");
     let install = &plan["adapter"]["install"];
     assert_eq!(
         install["url"],
-        "https://files.pythonhosted.org/packages/c1/7e/e928e483625278c43a84aced9f6c9243964f94e521bce8a77f66c0aedf03/dcc_mcp_obs-1.4.0-py3-none-any.whl"
+        "https://files.pythonhosted.org/packages/50/37/65b42856500d50548d5673a399ccfa1a85a61a7458858bb52881422ed6c2/dcc_mcp_obs-1.5.1-py3-none-any.whl"
     );
     assert_eq!(
         install["sha256"],
-        "31afb647da5c999147fd6629e8abb5a2020b30519a1fc68d39fb5c134bdbbddb"
+        "c47e2127e2331e5b8650a98ff777e97f76cedfccaf0fe2a5187981dfbffe57af"
     );
     assert_eq!(
         install["instructions_url"],
-        "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-obs/4ae80d4a7f062c6a496ad2848cf3eaeaea08ffbe/install.md"
+        "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-obs/475046ba823a199195f32ee729983770c2da6898/install.md"
     );
     let pip = plan["steps"]
         .as_array()
@@ -44,23 +44,37 @@ fn obs_plan_uses_approved_release_bytes_and_matching_instructions() {
         .iter()
         .find(|step| step["action"]["type"] == "PipInstall")
         .unwrap();
-    assert_eq!(pip["action"]["version"], "1.4.0");
+    assert_eq!(pip["action"]["version"], "1.5.1");
     assert_eq!(pip["action"]["artifact_url"], install["url"]);
     assert_eq!(pip["action"]["sha256"], install["sha256"]);
 }
 
 #[test]
-fn godot_plan_explains_why_the_newer_unapproved_release_is_held() {
+fn godot_plan_uses_approved_release_bytes_without_the_resolved_hold() {
     let plan = bundled_plan("godot");
-    assert_eq!(plan["version"], "0.4.0");
-    let policy = &plan["adapter"]["policy"];
-    assert_eq!(policy["installation"], "available");
-    let reason = policy["reason"].as_str().unwrap();
-    assert!(reason.contains("0.8.0"));
-    assert!(reason.contains("release-commit CI"));
-    assert!(reason.contains("https://github.com/dcc-mcp/dcc-mcp-godot/actions/runs/34250828960"));
+    assert_eq!(plan["version"], "0.9.6");
+    assert_eq!(plan["adapter"]["min_core_version"], "0.20.41");
+    assert!(plan["adapter"]["policy"]["reason"].is_null());
+    let install = &plan["adapter"]["install"];
     assert_eq!(
-        plan["adapter"]["install"]["instructions_url"],
-        "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-godot/f8aaf7a3d8d810eec372b5cb77f1f79aa44a236f/README.md"
+        install["url"],
+        "https://files.pythonhosted.org/packages/c3/f3/4a104c92c6a7b9dd9dc7519d08a8804c50896a1ecc9bbf796a80493f89a6/dcc_mcp_godot-0.9.6-py3-none-any.whl"
     );
+    assert_eq!(
+        install["sha256"],
+        "1aa17201803e800638033e2581002e5d01d00c6ac772d6b54688bf2a1cc384dc"
+    );
+    assert_eq!(
+        install["instructions_url"],
+        "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-godot/141a2a2253d72035ef099dab8e81e0f98aa4db80/install.md"
+    );
+    let pip = plan["steps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|step| step["action"]["type"] == "PipInstall")
+        .unwrap();
+    assert_eq!(pip["action"]["version"], "0.9.6");
+    assert_eq!(pip["action"]["artifact_url"], install["url"]);
+    assert_eq!(pip["action"]["sha256"], install["sha256"]);
 }

@@ -36,10 +36,10 @@ rg -c '^    tags: \[.*"adapter".*\]' dcc-mcp-catalog.yml
 | `dcc-mcp-katana` | katana | 0.4.0 | `dcc-mcp-katana` | generated | pending | registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first |
 | `dcc-mcp-mobu` | mobu | 0.3.0 | `dcc-mcp-mobu` | generated | pending | registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first |
 | `dcc-mcp-renderdoc` | renderdoc | 0.3.0 | `dcc-mcp-renderdoc` | generated | pending | registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first |
-| `dcc-mcp-obs` | obs | 1.4.0 | `dcc-mcp-obs` | generated | pending | registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first |
+| `dcc-mcp-obs` | obs | 1.5.1 | `dcc-mcp-obs` | generated | pending | registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first |
 | `dcc-mcp-substance3d-designer` | substance3d_designer | 0.3.0 | `dcc-mcp-substance3d-designer` | generated | pending | registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first |
 | `dcc-mcp-substance3d-painter` | substance3d_painter | 0.1.3 | `dcc-mcp-substance3d-painter` | generated | pending | registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first |
-| `dcc-mcp-godot` | godot | 0.4.0 | `dcc-mcp-godot` | generated | pending | registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first |
+| `dcc-mcp-godot` | godot | 0.9.6 | `dcc-mcp-godot` | generated | pending | registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first |
 | `dcc-mcp-unity` | unity | 0.11.2 | `dcc-mcp-unity` | generated | pending | registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first |
 | `dcc-mcp-marmoset` | marmoset | 0.1.1 | `dcc-mcp-marmoset` | generated | pending | registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first |
 | `dcc-mcp-openscad` | openscad | 0.2.1 | `dcc-mcp-openscad` | generated | pending | registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first |

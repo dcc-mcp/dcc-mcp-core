@@ -360,16 +360,16 @@ entries:
     url: "https://github.com/dcc-mcp/dcc-mcp-obs"
     issues_url: "https://github.com/dcc-mcp/dcc-mcp-obs/issues"
     tags: ["adapter", "obs", "official", "pip", "recording", "streaming", "broadcast"]
-    version: "1.4.0"
+    version: "1.5.1"
     min_core_version: "0.20.14"
     maintainer: "dcc-mcp"
     install:
       type: pip
       pip_package: "dcc-mcp-obs"
-      url: "https://files.pythonhosted.org/packages/c1/7e/e928e483625278c43a84aced9f6c9243964f94e521bce8a77f66c0aedf03/dcc_mcp_obs-1.4.0-py3-none-any.whl"
-      sha256: "31afb647da5c999147fd6629e8abb5a2020b30519a1fc68d39fb5c134bdbbddb"
+      url: "https://files.pythonhosted.org/packages/50/37/65b42856500d50548d5673a399ccfa1a85a61a7458858bb52881422ed6c2/dcc_mcp_obs-1.5.1-py3-none-any.whl"
+      sha256: "c47e2127e2331e5b8650a98ff777e97f76cedfccaf0fe2a5187981dfbffe57af"
       entry_point: "dcc_mcp_obs:ObsMcpServer"
-      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-obs/4ae80d4a7f062c6a496ad2848cf3eaeaea08ffbe/install.md"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-obs/475046ba823a199195f32ee729983770c2da6898/install.md"
 
   - name: "dcc-mcp-substance3d-designer"
     description: "Substance 3D Designer adapter for DCC-MCP"
@@ -409,18 +409,15 @@ entries:
     url: "https://github.com/dcc-mcp/dcc-mcp-godot"
     issues_url: "https://github.com/dcc-mcp/dcc-mcp-godot/issues"
     tags: ["adapter", "godot", "official", "pip", "game-engine"]
-    version: "0.4.0"
-    min_core_version: "0.19.45"
+    version: "0.9.6"
+    min_core_version: "0.20.41"
     maintainer: "dcc-mcp"
-    policy:
-      installation: "available"
-      reason: "Held at 0.4.0 until a newer release passes release-commit CI. The 0.8.0 timeout-cancellation regression still committed an action after timeout: https://github.com/dcc-mcp/dcc-mcp-godot/actions/runs/34250828960."
     install:
       type: pip
       pip_package: "dcc-mcp-godot"
-      url: "https://files.pythonhosted.org/packages/57/c8/f81a9d014d24747a2219fd8ceec002decdab304df3fb8303ff74700294cb/dcc_mcp_godot-0.4.0-py3-none-any.whl"
-      sha256: "4d260738e0b2823b802c01a3571d0d660c19d9f390a5505991e6c2aed41c1186"
-      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-godot/f8aaf7a3d8d810eec372b5cb77f1f79aa44a236f/README.md"
+      url: "https://files.pythonhosted.org/packages/c3/f3/4a104c92c6a7b9dd9dc7519d08a8804c50896a1ecc9bbf796a80493f89a6/dcc_mcp_godot-0.9.6-py3-none-any.whl"
+      sha256: "1aa17201803e800638033e2581002e5d01d00c6ac772d6b54688bf2a1cc384dc"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-godot/141a2a2253d72035ef099dab8e81e0f98aa4db80/install.md"
 
   - name: "dcc-mcp-unity"
     description: "Unity Editor adapter and typed game-authoring skills for DCC-MCP"
