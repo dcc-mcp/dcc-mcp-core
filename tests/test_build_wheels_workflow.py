@@ -369,3 +369,34 @@ def test_native_py37_backfill_resolves_declared_dependencies_after_isolated_smok
         assert run.index("python37_wheel_smoke.py") < run.index(install) < run.index(check)
         assert "--no-deps" not in run
         assert "--ignore-requires-python" not in run
+
+
+def test_shared_build_wheel_venv_upgrades_pip_before_installing() -> None:
+    """A fresh py37 venv seeds pip 20.1.1, which rejects the macOS cp37 tag.
+
+    `python -m venv` does not inherit the upgraded pip the py37 setup actions
+    install; ensurepip seeds CPython 3.7.9's pip 20.1.1. Its vendored
+    `packaging` cannot classify the cross-compiled `macosx_10_12_x86_64` tag,
+    so `pip install dist/*.whl` fails with "not a supported wheel on this
+    platform" even though the wheel is the right artefact for the host.
+    """
+    action = yaml_loads((REPO_ROOT / ".github" / "actions" / "build-wheel" / "action.yml").read_text(encoding="utf-8"))
+    test_wheel = next(step for step in action["runs"]["steps"] if step.get("name") == "Test wheel")
+    run = test_wheel["run"]
+    assert "pip install --upgrade" in run
+    # The ceiling keeps Python 3.7 installable: pip 24.1+ drops py37.
+    assert 'pip install --upgrade "pip<24.1" wheel' in run
+    install = "pip install --force-reinstall dist/*.whl"
+    assert run.index("pip install --upgrade") < run.index(install)
+
+
+def test_macos_py37_smoke_upgrades_pip_before_installing() -> None:
+    """The macOS lane's smoke installs through the same stale-pip interpreter."""
+    smoke = next(
+        step
+        for step in _jobs()["macos-py37"]["steps"]
+        if step.get("name") == "Test native Python 3.7 wheel with workflow smoke"
+    )
+    run = smoke["run"]
+    assert 'python -m pip install --upgrade "pip<24.1" wheel' in run
+    assert run.index("--upgrade") < run.index("python37_wheel_smoke.py")
