@@ -11,6 +11,7 @@ from typing import Callable
 
 from dcc_mcp_core._install_lifecycle_sidecar import build_sidecar_command
 from dcc_mcp_core._install_lifecycle_sidecar import launch_sidecar
+from dcc_mcp_core._runtime.mcp_http_config import McpHttpConfig
 from dcc_mcp_core._runtime.pure_skill_catalog import PurePythonSkillCatalog
 from dcc_mcp_core._runtime.skill_paths import get_app_skill_paths_from_env
 from dcc_mcp_core._runtime.skill_paths import get_local_skills_dir
@@ -63,7 +64,7 @@ class SidecarBackedSkillServer:
     def __init__(
         self,
         dcc_name: str,
-        config: Any,
+        config: McpHttpConfig | None,
         *,
         host_rpc: str,
         watch_pid: int | None = None,

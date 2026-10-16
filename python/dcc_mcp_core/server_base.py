@@ -23,9 +23,8 @@ from typing import Callable
 
 from dcc_mcp_core._install_lifecycle_runtime import default_registry_dir
 from dcc_mcp_core._lifecycle_events import LifecycleEventDispatcher
-from dcc_mcp_core._runtime.core_availability import is_core_extension_available
 from dcc_mcp_core._runtime.server_factory import create_adapter_server
-from dcc_mcp_core._runtime.skill_paths import get_app_skill_paths_from_env
+from dcc_mcp_core._runtime.server_factory import create_skill_server
 from dcc_mcp_core._server import ExecutionBridgeBinder
 from dcc_mcp_core._server import LifecycleController
 from dcc_mcp_core._server import ObservabilityFacade
@@ -65,27 +64,10 @@ _PKG_VERSION: str = getattr(_core, "__version__", "0.0.0-dev") if _core is not N
 logger = logging.getLogger(__name__)
 
 
-def create_skill_server(
-    app_name: str,
-    config: Any | None = None,
-    extra_paths: list[str] | None = None,
-    dcc_name: str | None = None,
-    accumulated: bool = True,
-) -> Any:
-    """Public one-call Skills-First server factory."""
-    if _core is not None and is_core_extension_available():
-        return _core.create_skill_server(
-            app_name,
-            config=config,
-            extra_paths=extra_paths,
-            dcc_name=dcc_name,
-            accumulated=accumulated,
-        )
-    server = create_adapter_server(dcc_name or app_name, config, None)
-    discovery_paths = list(extra_paths or [])
-    discovery_paths.extend(get_app_skill_paths_from_env(app_name))
-    server.discover(extra_paths=list(dict.fromkeys(discovery_paths)), accumulated=accumulated)
-    return server
+# ``create_skill_server`` lives in ``_runtime.server_factory`` next to the
+# adapter factory it delegates to; the public symbol is still resolved from
+# this module (``_exports._ALL_LAZY``), so it is re-exported here.
+__all__ = ["DccServerBase", "create_adapter_server", "create_skill_server"]
 
 
 _package_version = partial(package_version, fallback=_PKG_VERSION, load_core=True)
