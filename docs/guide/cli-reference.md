@@ -589,6 +589,21 @@ server binary. The standalone `dcc-cua` CLI is released independently and is
 reconciled through `components ensure`; it is not part of the gateway update
 manifest.
 
+`components ensure dcc-cua --yes` installs the complete verified release plan,
+including the foreground and background runtimes, skills, plugin metadata, and
+assets. A same-version installation is `existing` only after every declared
+file and directory passes verification. Missing package files are repaired.
+Each file is renamed atomically under the installation lock; a recovery journal
+rolls back the package and its ownership receipt if installation or the final
+runtime check fails. This package transaction does not include the Core CLI.
+
+The `.dcc-cua-install-receipt.json` beside the CLI records only package-relative
+paths and verified hashes. Legacy installs without a receipt adopt only files
+whose contents already match the requested release. An unowned conflicting
+file, or an owned file modified since installation, stops the operation before
+replacement. Preserve or relocate that conflicting file before retrying; do not
+edit the receipt to bypass the conflict. Unrelated and obsolete files are kept.
+
 `lint` reuses the production `dcc-mcp-skills` validator, so local checks and
 runtime loading fail for the same structural problems. It also loads every
 sibling `tools.yaml` table and calls each declaration through Core's real
