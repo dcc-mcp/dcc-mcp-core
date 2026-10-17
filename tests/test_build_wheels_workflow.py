@@ -326,28 +326,38 @@ def test_native_py37_backfill_uses_workflow_owned_clean_venv() -> None:
         assert run.index("python -m venv") < run.index("python37_wheel_smoke.py") < run.index(" -m pip check")
 
 
-def test_windows_py37_ci_exercises_the_real_action_venv() -> None:
-    """Keep the Windows venv/ensurepip regression on the native wheel CI path."""
+def test_native_py37_ci_exercises_the_real_action_venv() -> None:
+    """Keep Windows and macOS venv/ensurepip regressions on the native CI path."""
     ci = yaml_loads((REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8"))
     job = ci["jobs"]["python37-native"]
     build = next(step for step in job["steps"] if step.get("uses") == "./.github/actions/build-wheel")
     assert build["with"]["python-version"] == "3.7"
-    assert build["with"]["test-wheel"] == "${{ matrix.platform == 'windows-x86_64' && 'true' || 'false' }}"
+    assert build["with"]["test-wheel"] == (
+        "${{ (matrix.platform == 'windows-x86_64' || matrix.platform == 'macos-x86_64') && 'true' || 'false' }}"
+    )
     action = yaml_loads((REPO_ROOT / ".github" / "actions" / "build-wheel" / "action.yml").read_text(encoding="utf-8"))
     test_wheel = next(step for step in action["runs"]["steps"] if step.get("name") == "Test wheel")
     assert test_wheel["if"] == "inputs.test-wheel == 'true'"
     assert "python -m venv test-env" in test_wheel["run"]
     assert "pip install --force-reinstall dist/*.whl" in test_wheel["run"]
-    verify = next(step for step in job["steps"] if step.get("name") == "Verify Windows Python 3.7 clean venv")
     install = next(step for step in job["steps"] if step.get("name") == "Install native wheel")
-    assert job["steps"].index(build) < job["steps"].index(verify) < job["steps"].index(install)
-    assert verify["if"] == "runner.os == 'Windows'"
-    run = verify["run"]
-    assert "test-env/Scripts/python.exe -c" in run
-    assert "sys.prefix != sys.base_prefix" in run
-    assert "sys.version_info[:2] == (3, 7)" in run
-    assert "test-env/Scripts/python.exe -m pip check" in run
-    assert "test-env/Scripts/python.exe -I scripts/ci/smoke_python37_runtime.py --profile native_py37" in run
+    for os_name, interpreter in (
+        ("Windows", "test-env/Scripts/python.exe"),
+        ("macOS", "test-env/bin/python"),
+    ):
+        verify = next(
+            step for step in job["steps"] if step.get("name") == "Verify " + os_name + " Python 3.7 clean venv"
+        )
+        assert job["steps"].index(build) < job["steps"].index(verify) < job["steps"].index(install)
+        assert verify["if"] == "runner.os == '" + os_name + "'"
+        assert verify["shell"] == "bash"
+        assert "continue-on-error" not in verify
+        run = verify["run"]
+        assert interpreter + " -c" in run
+        assert "sys.prefix != sys.base_prefix" in run
+        assert "sys.version_info[:2] == (3, 7)" in run
+        assert interpreter + " -m pip check" in run
+        assert interpreter + " -I scripts/ci/smoke_python37_runtime.py --profile native_py37" in run
 
 
 def test_native_py37_backfill_resolves_declared_dependencies_after_isolated_smoke() -> None:
