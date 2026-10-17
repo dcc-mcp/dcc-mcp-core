@@ -297,14 +297,6 @@ runs:
         # this platform". That is a tag-filter limitation, not a runtime
         # incompatibility, so upgrade pip before installing. The `pip<24.1`
         # ceiling matches the py37 setup actions: pip 24.1+ drops Python 3.7.
-        # A brand-new venv does not inherit the upgraded pip from the py37
-        # setup action: it seeds pip 20.1.1 from CPython 3.7.9's ensurepip.
-        # pip 20.1.1's vendored `packaging` cannot recognise the
-        # macosx_10_12_x86_64 tag produced by the x86_64-apple-darwin
-        # cross-compile, so it rejects the wheel as "not a supported wheel on
-        # this platform". That is a tag-filter limitation, not a runtime
-        # incompatibility, so upgrade pip before installing. The `pip<24.1`
-        # ceiling matches the py37 setup actions: pip 24.1+ drops Python 3.7.
         #
         # Upgrade through `python -m pip`, not the `pip` shim: the console
         # script is a copy of pip.exe inside the venv, so replacing it while
