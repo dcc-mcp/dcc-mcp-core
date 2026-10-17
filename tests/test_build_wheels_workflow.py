@@ -245,22 +245,20 @@ def test_py37_contract_check_keeps_macos_target_gate_off_linux_and_windows() -> 
     assert 'platform="windows-x86_64"' not in py37_block
 
 
-def test_py37_wheel_test_creates_venv_with_the_path_python() -> None:
-    """The py37 venv must be created by the interpreter the setup step put on PATH.
+def test_py37_wheel_test_selects_the_native_interpreter() -> None:
+    """The macOS lane must not create a cp37 venv with the runner's default Python.
 
-    Each py37 lane installs its own interpreter (Windows via a python.org
-    package, macOS via Rosetta 2). The Windows lane does expose `python3.7`, but
-    only as a renamed copy of python.exe, and CPython 3.7 venv resolves the
-    interpreter through sys._base_executable. A renamed copy makes that lookup
-    fail with "The system cannot find the file specified" while the build and
-    every direct `python3.7 <script>` call still succeed.
+    Windows needs the original python.exe name instead: its python3.7 alias
+    is a renamed copy, which breaks CPython 3.7's venv executable lookup.
     """
     action = yaml_loads((REPO_ROOT / ".github" / "actions" / "build-wheel" / "action.yml").read_text(encoding="utf-8"))
     test_wheel = next(step for step in action["runs"]["steps"] if step.get("name") == "Test wheel")
     run = test_wheel["run"]
-    assert "python -m venv test-env" in run
-    # No lane may force a versioned interpreter name to build the venv.
-    assert "python3.7 -m venv" not in run
+    guard = 'if [[ "${{ inputs.python-version }}" == "3.7" && "${{ runner.os }}" != "Windows" ]]; then'
+    native_branch, default_branch = run.split(guard, 1)[1].split("fi", 1)[0].split("else", 1)
+    assert native_branch.strip() == "python3.7 -m venv test-env"
+    assert default_branch.strip() == "python -m venv test-env"
+    assert run.index(guard) < run.index("source test-env/")
 
 
 def test_abi3_backfill_uses_workflow_smoke_without_changing_tag_source() -> None:
@@ -382,13 +380,10 @@ def test_native_py37_backfill_resolves_declared_dependencies_after_isolated_smok
 
 
 def test_shared_build_wheel_venv_upgrades_pip_before_installing() -> None:
-    """A fresh py37 venv seeds pip 20.1.1, which rejects the macOS cp37 tag.
+    """Fresh py37 venvs need their own Python 3.7-compatible pip upgrade.
 
-    `python -m venv` does not inherit the upgraded pip the py37 setup actions
-    install; ensurepip seeds CPython 3.7.9's pip 20.1.1. Its vendored
-    `packaging` cannot classify the cross-compiled `macosx_10_12_x86_64` tag,
-    so `pip install dist/*.whl` fails with "not a supported wheel on this
-    platform" even though the wheel is the right artefact for the host.
+    The venv does not inherit the setup interpreter's upgraded pip; CPython
+    3.7.9 seeds pip 20.1.1 through ensurepip.
     """
     action = yaml_loads((REPO_ROOT / ".github" / "actions" / "build-wheel" / "action.yml").read_text(encoding="utf-8"))
     test_wheel = next(step for step in action["runs"]["steps"] if step.get("name") == "Test wheel")
@@ -403,12 +398,16 @@ def test_shared_build_wheel_venv_upgrades_pip_before_installing() -> None:
 
 
 def test_macos_py37_smoke_upgrades_pip_before_installing() -> None:
-    """The macOS lane's smoke installs through the same stale-pip interpreter."""
+    """The macOS smoke must use the native interpreter, not runner Python."""
     smoke = next(
         step
         for step in _jobs()["macos-py37"]["steps"]
         if step.get("name") == "Test native Python 3.7 wheel with workflow smoke"
     )
     run = smoke["run"]
-    assert 'python -m pip install --upgrade "pip<24.1" wheel' in run
+    assert 'python3.7 -m pip install --upgrade "pip<24.1" wheel' in run
     assert run.index("--upgrade") < run.index("python37_wheel_smoke.py")
+    assert "python3.7 -m pip --version" in run
+    assert "python3.7 .workflow-tools/scripts/ci/python37_wheel_smoke.py" in run
+    assert "python -m pip" not in run
+    assert "python .workflow-tools/" not in run
