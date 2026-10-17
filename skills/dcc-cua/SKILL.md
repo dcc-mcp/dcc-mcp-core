@@ -51,6 +51,13 @@ the target is Maya, Chrome, a browser, or another desktop application.
 This boundary is provider selection, not an authorization bypass. DCC-CUA task
 grants, target binding, interruption, and confirmation policy still apply.
 
+Embedding developers may use Core's constructor-only `managed_launcher`
+dependency only for an exclusively transferred local MCP child. Read
+[owned worker launch](../../docs/guide/ui-control-managed-worker.md) before
+integration. The embedding must supply the actual authorized launcher; this
+preparatory interface does not establish independent supervisor readiness,
+attach to a shared worker, export a lease, or permit changing Job policy.
+
 ## Automatic route from search
 
 The contract above also covers requests that never name `dcc-cua`. When a
