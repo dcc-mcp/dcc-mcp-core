@@ -275,28 +275,25 @@ runs:
       if: inputs.test-wheel == 'true'
       shell: bash
       run: |
-        # Use python -m venv for Python 3.7 (uv does not support 3.7).
-        # Build the venv with the interpreter the py37 setup action put on PATH.
-        # `python3.7` does exist on the Windows lane, but it is a renamed copy of
-        # python.exe (setup-windows-python37 copies it with Copy-Item), and
-        # CPython 3.7 venv resolves the interpreter through sys._base_executable.
-        # A renamed copy makes that lookup fail with WinError 2, so only the
-        # original name works here. Running scripts as `python3.7` is fine.
-        python -m venv test-env
+        # macOS can still resolve bare `python` to the runner's interpreter,
+        # so select the installed native 3.7 explicitly on non-Windows lanes.
+        # Windows must use the original python.exe name: its python3.7 copy
+        # breaks CPython 3.7 venv's sys._base_executable lookup (WinError 2).
+        if [[ "${{ inputs.python-version }}" == "3.7" && "${{ runner.os }}" != "Windows" ]]; then
+          python3.7 -m venv test-env
+        else
+          python -m venv test-env
+        fi
         if [ "${{ runner.os }}" = "Windows" ]; then
           source test-env/Scripts/activate
         else
           source test-env/bin/activate
         fi
 
-        # A brand-new venv does not inherit the upgraded pip from the py37
-        # setup action: it seeds pip 20.1.1 from CPython 3.7.9's ensurepip.
-        # pip 20.1.1's vendored `packaging` cannot recognise the
-        # macosx_10_12_x86_64 tag produced by the x86_64-apple-darwin
-        # cross-compile, so it rejects the wheel as "not a supported wheel on
-        # this platform". That is a tag-filter limitation, not a runtime
-        # incompatibility, so upgrade pip before installing. The `pip<24.1`
-        # ceiling matches the py37 setup actions: pip 24.1+ drops Python 3.7.
+        # A brand-new py37 venv does not inherit the setup action's upgraded
+        # pip: CPython 3.7.9 seeds pip 20.1.1 through ensurepip. Upgrade before
+        # installing the wheel, while retaining the Python 3.7-compatible
+        # ceiling used by the setup actions (pip 24.1+ drops Python 3.7).
         #
         # Upgrade through `python -m pip`, not the `pip` shim: the console
         # script is a copy of pip.exe inside the venv, so replacing it while

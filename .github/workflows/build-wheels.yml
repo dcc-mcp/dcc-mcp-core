@@ -468,12 +468,12 @@ jobs:
           CHECKOUT_REF: ${{ inputs.checkout-ref || github.ref }}
         shell: bash
         run: |
-          # The smoke installs the wheel through this interpreter's pip, and
-          # pip 20.1.1 rejects the cross-compiled macosx_10_12_x86_64 tag.
-          # Keep the `pip<24.1` ceiling used by the py37 setup actions.
-          python -m pip install --upgrade "pip<24.1" wheel
-          python -m pip --version
-          python .workflow-tools/scripts/ci/python37_wheel_smoke.py \
+          # The smoke installs through sys.executable, so select native 3.7
+          # explicitly instead of the runner's default Python. Keep the
+          # `pip<24.1` ceiling used by the py37 setup actions.
+          python3.7 -m pip install --upgrade "pip<24.1" wheel
+          python3.7 -m pip --version
+          python3.7 .workflow-tools/scripts/ci/python37_wheel_smoke.py \
             --wheel 'dist/*.whl' --profile native_py37 --checkout-ref "$CHECKOUT_REF"
   macos:
     needs: [classify-release-assets]
