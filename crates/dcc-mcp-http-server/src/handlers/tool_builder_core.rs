@@ -337,7 +337,7 @@ pub fn build_core_tools_inner() -> Vec<McpTool> {
                           How to use:\n\
                           - Short query; matches name, description, tags, schema keys.\n\
                           - `include_stubs=true` shows `__skill__*` / `__group__*` for debug.\n\
-                          - `limit` caps each hit array (default 25, max 100)."
+                          - `limit` caps both hit arrays combined (default 25, max 100)."
                 .to_string(),
             input_schema: json!({
                 "type": "object",
@@ -370,7 +370,7 @@ pub fn build_core_tools_inner() -> Vec<McpTool> {
                         "minimum": 1,
                         "maximum": 100,
                         "default": 25,
-                        "description": "Maximum entries returned for each of `tools` and `skill_candidates`."
+                        "description": "Maximum rows across `tools` and `skill_candidates` combined; callable tools are returned first."
                     }
                 },
                 "required": ["query"]
