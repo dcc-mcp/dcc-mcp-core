@@ -456,6 +456,59 @@ fn install_refuses_without_consent_when_unattended() {
     }
 }
 
+/// The consent gate is consulted at the *call site*, not only inside the
+/// predicate.
+///
+/// The unit tests cover `consent_allows_install` as a function; they cannot
+/// cover whether `host install` actually asks it before announcing. Deleting
+/// the consent term from the announce gate leaves every unit test green while
+/// the CLI starts claiming it is about to install a host that `provision` is
+/// about to refuse. This test drives the real binary so the conjunction itself
+/// is what is under test.
+///
+/// `DCC_MCP_HOST_INSTALL=never` is the one input that makes the conjunction
+/// observable without installing anything: consent resolves to `Refused`, so
+/// `will_install` is true (blender is allowlisted and, on a host-free machine,
+/// missing) while `consent_allows_install` is false. Only the consent term can
+/// make the announcement disappear, so asserting its absence here is a
+/// discriminating test of the call site rather than of the predicate.
+#[test]
+fn install_never_announces_nothing_at_the_call_site() {
+    let lock = std::env::temp_dir().join(format!("hosts-{}.lock", uuid::Uuid::new_v4()));
+
+    // An already-usable host short-circuits to `already_satisfied` before
+    // consent is ever consulted, so on a machine that has Blender this command
+    // says nothing about the call site. Assert the precondition instead of
+    // silently testing nothing.
+    let baseline = host_json(&["doctor", "blender"], &lock);
+    if blender_already_available(&baseline["hosts"][0]) {
+        return;
+    }
+
+    let output = host_command(&lock)
+        .args(["install", "blender", "--output", "json"])
+        .env("DCC_MCP_HOST_INSTALL", "never")
+        .output()
+        .expect("host install should run");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("installing host"),
+        "a host the operator refused to install must not be announced as being installed, got {stderr}"
+    );
+
+    let value: Value = serde_json::from_slice(&output.stdout).expect("JSON report");
+    assert_eq!(value["status"], "consent_required");
+    assert_eq!(value["reason"], "policy_never");
+    assert_eq!(value["installed"], false);
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "a consent refusal must exit 3 so a runner can gate on it; status was {:?}, stderr {stderr}",
+        output.status.code()
+    );
+}
+
 /// P1-A: `host pin` may not write a version below the manifest minimum.
 ///
 /// The Windows winget channel takes an arbitrary `--version`, so without a
