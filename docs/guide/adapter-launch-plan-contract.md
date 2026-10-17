@@ -205,7 +205,9 @@ keys and the intended row matches without relying on the PID path. This does not
 suppress PID matching: a stale row whose `pid` or `host_pid` equals the owning
 operation's PID still enters the match set, which surfaces as
 `ambiguous_reuse` — or converges onto the stale row when the intended row is not
-yet direct-control routable.
+yet direct-control routable. When at least one matched entry is direct-control
+routable, a stale row that is not itself direct-control routable is filtered out
+of the reuse pool before that comparison, so it changes nothing.
 
 ### Native window handle
 
