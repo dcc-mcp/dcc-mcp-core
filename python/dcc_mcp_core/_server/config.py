@@ -247,7 +247,11 @@ def build_mcp_http_config(
     config.host_pid = options.diagnostics.dcc_pid
     execution = resolve_execution_binding(options.execution.mode)
     instance_metadata = collect_context_metadata_from_env(options.dcc_name)
-    instance_metadata["dcc_mcp_server_version"] = str(config.server_version)
+    # `config.server_version` is the identity an adapter advertises over MCP
+    # (`serverInfo.version`) and may be overridden independently of the core
+    # runtime. Registry consumers compare `dcc_mcp_server_version` against core
+    # release metadata, so it always reports the resolved core runtime version.
+    instance_metadata["dcc_mcp_server_version"] = str(package_version)
     # Runtime lifetime and execution/threading are separate contracts. Keep the
     # legacy inference only when an adapter has not declared its runtime shape.
     legacy_instance_type = "standalone" if execution.standalone_main_thread else "gui"
