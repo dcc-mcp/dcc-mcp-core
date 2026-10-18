@@ -13,6 +13,7 @@ from dcc_mcp_core.cua_cli import CuaCliError
 from dcc_mcp_core.host.cua_mcp_cleanup import OwnedPixelsTaskCleanup
 from dcc_mcp_core.host.cua_mcp_errors import OwnedCuaMcpError
 from dcc_mcp_core.host.cua_mcp_geometry import validate_geometry
+from dcc_mcp_core.host.cua_mcp_managed_process import ManagedLauncher
 from dcc_mcp_core.host.cua_mcp_pointer import pointer_payload
 from dcc_mcp_core.host.cua_mcp_preparation import PixelsMcpPreparation
 from dcc_mcp_core.host.cua_mcp_recording import RECORDING_METHODS
@@ -41,6 +42,7 @@ class PixelsMcpHostClient:
         allow_raw_input: bool,
         options: UiControlRuntimeOptions,
         window_title: str | None = None,
+        managed_launcher: ManagedLauncher | None = None,
     ) -> None:
         if type(process_id) is not int or process_id <= 0 or type(window_handle) is not int or window_handle <= 0:
             raise CuaCliError("invalid_target", "Owned pixels MCP requires an exact positive PID and HWND.")
@@ -93,8 +95,13 @@ class PixelsMcpHostClient:
                     "authorization_category": "window_state",
                 }
             )
-        self._transport = OwnedCuaMcpTransport(options)
+        self._transport = None
         try:
+            self._transport = (
+                OwnedCuaMcpTransport(options)
+                if managed_launcher is None
+                else OwnedCuaMcpTransport(options, managed_launcher=managed_launcher)
+            )
             opened = self._transport.tool(
                 "start_task",
                 {
@@ -126,9 +133,14 @@ class PixelsMcpHostClient:
             self._target = deepcopy(opened["target"])
             self._recording.bind(opened)
             self._cleanup.output_dir = self._recording.output_dir
-        except Exception:
-            with suppress(Exception):
+        except BaseException as primary:
+            if self._transport is None:
+                # Transport construction retains its own failed launch.
+                raise
+            try:
                 self.stop()
+            except BaseException as cleanup_error:
+                self._transport.retain_failed_startup(primary, cleanup_error, owner=self)
             raise
 
     @property

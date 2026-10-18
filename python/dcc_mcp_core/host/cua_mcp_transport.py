@@ -15,6 +15,9 @@ from typing import Any
 
 from dcc_mcp_core.cua_cli import CuaCliError
 from dcc_mcp_core.host.cua_mcp_errors import OwnedCuaMcpError
+from dcc_mcp_core.host.cua_mcp_managed_process import ManagedLauncher
+from dcc_mcp_core.host.cua_mcp_managed_process import ManagedLaunchRefusal
+from dcc_mcp_core.host.cua_mcp_managed_process import accept_managed_process
 from dcc_mcp_core.host.ui_control_options import UiControlRuntimeOptions
 
 _MAX_LINE_BYTES = 96 * 1024 * 1024
@@ -29,7 +32,7 @@ class OwnedCuaMcpTransport:
     reader thread only drains this child's stdout; it owns no UI or server.
     """
 
-    def __init__(self, options: UiControlRuntimeOptions) -> None:
+    def __init__(self, options: UiControlRuntimeOptions, *, managed_launcher: ManagedLauncher | None = None) -> None:
         self.options = options
         self._lock = threading.RLock()
         self._closed = False
@@ -37,10 +40,14 @@ class OwnedCuaMcpTransport:
         self._reader_output_error = False
         self._index = 0
         self._responses = queue.Queue(maxsize=16)
+        self.managed_process_identity = None
+        self._reader = None
+        self._process = None
         path = Path(options.binary)
         try:
             digest = hashlib.sha256()
             with path.open("rb") as source:
+                binary_identity = os.fstat(source.fileno())
                 for block in iter(lambda: source.read(1024 * 1024), b""):
                     digest.update(block)
         except OSError:
@@ -55,20 +62,24 @@ class OwnedCuaMcpTransport:
                 child_env["DCC_CUA_CAPTURE_PREPARATION_JOURNAL_ROOT"] = options.capture_preparation.journal_root
             if options.recording is not None:
                 child_env["DCC_CUA_RECORDING_OUTPUT_ROOT"] = options.recording.output_root
-            self._process = subprocess.Popen(
-                [str(path), "mcp-server"],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-                close_fds=True,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-                env=child_env,
-            )
-        except (OSError, ValueError):
-            raise CuaCliError("backend_unavailable", "Cannot start the selected UI Control MCP runtime.") from None
-        self._reader = threading.Thread(target=self._read, name="dcc-cua-owned-mcp-reader", daemon=True)
-        self._reader.start()
-        try:
+            if managed_launcher is not None:
+                command = [str(path), "mcp-server"]
+                self._process = managed_launcher(command.copy(), child_env)
+                self.managed_process_identity = accept_managed_process(
+                    self._process, command, options.sha256, binary_identity
+                )
+            else:
+                self._process = subprocess.Popen(
+                    [str(path), "mcp-server"],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                    close_fds=True,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                    env=child_env,
+                )
+            self._reader = threading.Thread(target=self._read, name="dcc-cua-owned-mcp-reader", daemon=True)
+            self._reader.start()
             initialized = self.rpc(
                 "initialize",
                 {
@@ -95,10 +106,39 @@ class OwnedCuaMcpTransport:
                 tools, recording=options.recording is not None, preparation=options.capture_preparation is not None
             ):
                 raise CuaCliError("protocol_mismatch", "The owned runtime lacks the public bounded-task MCP tools.")
-        except Exception:
-            with suppress(Exception):
+        except BaseException as primary:
+            if self._process is None:
+                if isinstance(primary, (OSError, ValueError)):
+                    raise CuaCliError(
+                        "backend_unavailable", "Cannot start the selected UI Control MCP runtime."
+                    ) from None
+                raise
+            if managed_launcher is not None and not isinstance(self._process, subprocess.Popen):
+                # A rejected PID/remote record never transferred a child.
+                raise
+            refusal = (
+                primary
+                if isinstance(primary, ManagedLaunchRefusal)
+                else getattr(primary, "managed_launch_refusal", None)
+            )
+            if isinstance(refusal, ManagedLaunchRefusal) and refusal.process is self._process:
+                # The verifier already settled or explicitly retained this
+                # owner. Do not repeat its cleanup after a cancellation.
+                raise
+            try:
                 self.close()
+            except BaseException as cleanup_error:
+                self.retain_failed_startup(primary, cleanup_error)
             raise
+
+    def retain_failed_startup(self, primary: BaseException, cleanup_error: BaseException, *, owner=None) -> None:
+        """Keep transferred process/task ownership reachable until settlement."""
+        # Interrupted close must never look successful on a repeated call.
+        self._cleanup_error = self._cleanup_error or "The owned UI Control runtime startup cleanup is unverified."
+        failure = ManagedLaunchRefusal(self._process, primary, cleanup_error, self._process.returncode)
+        failure.identity = self.managed_process_identity
+        failure.owner = self if owner is None else owner
+        failure.reraise(preserve_primary=self.managed_process_identity is None)
 
     def _read(self) -> None:
         try:
@@ -223,13 +263,17 @@ class OwnedCuaMcpTransport:
                         self._cleanup_error = "The owned UI Control runtime did not acknowledge forced process exit."
             finally:
                 try:
-                    self._reader.join(timeout=1)
+                    if self._reader is None or self._reader.ident is None:
+                        # No reader owns this stream when thread startup failed.
+                        self._process.stdout.close()
+                    else:
+                        self._reader.join(timeout=1)
                 except Exception:
                     self._cleanup_error = "The owned UI Control response reader did not finish cleanly."
                 try:
                     if self._reader_output_error:
                         self._cleanup_error = "The owned UI Control runtime output did not close cleanly."
-                    if self._reader.is_alive() or self._process.poll() != 0:
+                    if (self._reader is not None and self._reader.is_alive()) or self._process.poll() != 0:
                         self._cleanup_error = (
                             self._cleanup_error or "The owned UI Control runtime did not finish cleanly."
                         )
