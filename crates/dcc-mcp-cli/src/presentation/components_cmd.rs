@@ -8,7 +8,7 @@ use crate::application::components::ComponentService;
 #[derive(Debug, Subcommand)]
 pub(crate) enum ComponentsAction {
     /// Install an externally qualified local package with exact byte admission.
-    InstallVerified(VerifiedInstallArgs),
+    InstallVerified(Box<VerifiedInstallArgs>),
     /// Inspect one installed companion executable without downloading anything.
     Status {
         #[arg(value_parser = ["dcc-cua"])]
@@ -78,7 +78,7 @@ fn run_verified(args: VerifiedInstallArgs) -> anyhow::Result<Value> {
 
 pub(crate) async fn run(action: ComponentsAction) -> anyhow::Result<Value> {
     match action {
-        ComponentsAction::InstallVerified(args) => run_verified(args),
+        ComponentsAction::InstallVerified(args) => run_verified(*args),
         ComponentsAction::Status { component } => {
             debug_assert_eq!(component, "dcc-cua");
             ComponentService::for_current_process()
