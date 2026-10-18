@@ -191,3 +191,10 @@ def test_adobepy_012_adapter_releases_are_available_to_the_install_planner(
     assert entry["min_core_version"] == min_core_version
     assert "policy" not in entry
     assert entry["install"] == install
+
+    matrix = (REPO_ROOT / "docs/guide/adapter-compatibility-matrix.md").read_text(encoding="utf-8")
+    row = next(line for line in matrix.splitlines() if "[dcc-mcp-" + app + "](" in line)
+    columns = [column.strip() for column in row.split("|")]
+    upper_core = "0.21.0" if app == "photoshop" else "1.0.0"
+    assert columns[3] == version
+    assert columns[4] == ">=" + min_core_version + ",<" + upper_core

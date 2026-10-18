@@ -385,7 +385,10 @@ fn bundled_catalog_reports_current_core_adapter_versions() {
         ("houdini", "0.31.5"),
         ("blender", "0.1.43"),
         ("3dsmax", "0.1.40"),
-        ("photoshop", "0.1.37"),
+        ("photoshop", "0.1.44"),
+        ("aftereffects", "0.7.3"),
+        ("premiere", "0.6.3"),
+        ("illustrator", "0.3.3"),
     ] {
         let plan = run_json_with_env_removed(
             &["install", "--dcc-type", dcc_type],

@@ -51,10 +51,10 @@ drops both bounds.
 | Unreal | [dcc-mcp-unreal](https://github.com/dcc-mcp/dcc-mcp-unreal) | 0.3.0 | >=0.19.45,<1.0.0 | — | Unreal Python bridge | — |
 | LiquiGen | [dcc-mcp-liquigen](https://github.com/dcc-mcp/dcc-mcp-liquigen) | 0.1.0 | >=0.20.22,<1.0.0 | 1.0.5+ | Standalone native host bridge with typed node-graph, simulation, VAT export, and Unreal handoff tools | 2026-09 |
 | ZBrush | [dcc-mcp-zbrush](https://github.com/dcc-mcp/dcc-mcp-zbrush) | 0.2.18 | >=0.19.45,<1.0.0 | — | Socket bridge + sidecar | — |
-| Photoshop | [dcc-mcp-photoshop](https://github.com/dcc-mcp/dcc-mcp-photoshop) | 0.1.37 | >=0.19.45,<1.0.0 | Photoshop UXP | WebSocket bridge | 2026-06 |
-| Premiere Pro | [dcc-mcp-premiere](https://github.com/dcc-mcp/dcc-mcp-premiere) | 0.5.0 | >=0.19.45,<1.0.0 | 25.6+ | UXP WebSocket bridge | — |
-| After Effects | [dcc-mcp-aftereffects](https://github.com/dcc-mcp/dcc-mcp-aftereffects) | 0.6.0 | >=0.19.91,<1.0.0 | — | Authenticated CEP bridge + broker | 2026-08 |
-| Illustrator | [dcc-mcp-illustrator](https://github.com/dcc-mcp/dcc-mcp-illustrator) | 0.2.0 | >=0.19.91,<1.0.0 | — | Authenticated CEP bridge + broker | 2026-08 |
+| Photoshop | [dcc-mcp-photoshop](https://github.com/dcc-mcp/dcc-mcp-photoshop) | 0.1.44 | >=0.20.14,<0.21.0 | Photoshop UXP | WebSocket bridge | 2026-10 (package) |
+| Premiere Pro | [dcc-mcp-premiere](https://github.com/dcc-mcp/dcc-mcp-premiere) | 0.6.3 | >=0.20.34,<1.0.0 | 25.6+ | UXP WebSocket bridge | 2026-10 (package) |
+| After Effects | [dcc-mcp-aftereffects](https://github.com/dcc-mcp/dcc-mcp-aftereffects) | 0.7.3 | >=0.20.14,<1.0.0 | — | Authenticated CEP bridge + broker | 2026-10 (package) |
+| Illustrator | [dcc-mcp-illustrator](https://github.com/dcc-mcp/dcc-mcp-illustrator) | 0.3.3 | >=0.20.14,<1.0.0 | — | Authenticated CEP bridge + broker | 2026-10 (package) |
 | GIMP | [dcc-mcp-gimp](https://github.com/dcc-mcp/dcc-mcp-gimp) | 0.4.1 | >=0.19.91,<1.0.0 | 3.0+ | Authenticated JSON-lines bridge + GLib main-thread dispatcher | — |
 | Krita | [dcc-mcp-krita](https://github.com/dcc-mcp/dcc-mcp-krita) | 0.3.0 | >=0.19.38,<1.0.0 | — | Authenticated JSON-lines bridge + UI main-thread queue | — |
 | SketchUp | [dcc-mcp-sketchup](https://github.com/dcc-mcp/dcc-mcp-sketchup) | 0.2.0 | >=0.20.36,<1.0.0 | 2021+ | Authenticated Ruby main-thread bridge + sidecar | 2026-08 |
@@ -86,6 +86,10 @@ bundled catalog omits automatic install metadata until each project publishes a
 wheel that can be pinned by URL and SHA-256. LiquiGen is pinned to its immutable
 PyPI wheel published through the repository's GitHub Actions trusted publisher;
 the adapter identity remains stable across future wheel updates.
+
+The Adobe rows marked `2026-10 (package)` were verified against the published
+wheel metadata, CLI entry points, and release-pinned installation guides. These
+checks do not establish native Adobe GUI readiness or identity-bootstrap acceptance.
 
 ## Column Reference
 
