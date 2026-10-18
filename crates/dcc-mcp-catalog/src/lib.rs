@@ -1327,8 +1327,14 @@ entries:
                 "compatibility matrix row for {} has stale version: {row}",
                 entry.name
             );
+            // Photoshop's released wheel now bounds the supported Core minor.
+            let upper_core = if entry.name == "dcc-mcp-photoshop" {
+                "0.21.0"
+            } else {
+                "1.0.0"
+            };
             assert!(
-                row.contains(&format!("| >={min_core},<1.0.0 |")),
+                row.contains(&format!("| >={min_core},<{upper_core} |")),
                 "compatibility matrix row for {} has stale core pin: {row}",
                 entry.name
             );
