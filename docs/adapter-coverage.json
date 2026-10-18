@@ -447,11 +447,11 @@
         "excel"
       ],
       "url": "https://github.com/dcc-mcp/dcc-mcp-excel",
-      "version": "0.1.0",
-      "pip_package": null,
+      "version": "0.1.3",
+      "pip_package": "dcc-mcp-excel",
       "pointer": true,
-      "registry": "deferred",
-      "blocker": "catalog has no `install:` block; registration waits on catalog install metadata"
+      "registry": "pending",
+      "blocker": "registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first"
     },
     {
       "name": "dcc-mcp-word",
@@ -459,11 +459,11 @@
         "word"
       ],
       "url": "https://github.com/dcc-mcp/dcc-mcp-word",
-      "version": "0.1.0",
-      "pip_package": null,
+      "version": "0.1.2",
+      "pip_package": "dcc-mcp-word",
       "pointer": true,
-      "registry": "deferred",
-      "blocker": "catalog has no `install:` block; registration waits on catalog install metadata"
+      "registry": "pending",
+      "blocker": "registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first"
     },
     {
       "name": "dcc-mcp-fpt",

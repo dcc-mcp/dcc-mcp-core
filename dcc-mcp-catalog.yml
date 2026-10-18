@@ -635,12 +635,17 @@ entries:
     url: "https://github.com/dcc-mcp/dcc-mcp-excel"
     issues_url: "https://github.com/dcc-mcp/dcc-mcp-excel/issues"
     tags: ["adapter", "excel", "office", "official", "xlsx", "spreadsheet"]
-    version: "0.1.0"
+    version: "0.1.3"
     min_core_version: "0.18.2"
     maintainer: "dcc-mcp"
-    # No `install:` block yet: every curating entry must pin an attested
-    # published wheel, and 0.1.0 reaches PyPI only after release-please tags
-    # it on merge. Add the pip block in the follow-up once that release lands.
+    install:
+      type: pip
+      pip_package: "dcc-mcp-excel"
+      pip_extras: ["headless"]
+      url: "https://files.pythonhosted.org/packages/fe/73/f08ed9e8a3b909a7c24b4d3d6c12a0bd75602fb4bb76ebdd7cf5bfd31684/dcc_mcp_excel-0.1.3-py3-none-any.whl"
+      sha256: "3a6d12bb6bd63891e7b63c5b8436620fe351fe371a37dfdaa5302f0b080da84b"
+      entry_point: "dcc_mcp_excel._standalone_entry:main"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-excel/0fe44fa5fd42f3a4098679561b65088d4f5efd29/install.md"
 
   - name: "dcc-mcp-word"
     description: "Word adapter for DCC-MCP — headless Word IR to DOCX compile with read-back verification over the dcc-mcp-office runtime"
@@ -648,12 +653,16 @@ entries:
     url: "https://github.com/dcc-mcp/dcc-mcp-word"
     issues_url: "https://github.com/dcc-mcp/dcc-mcp-word/issues"
     tags: ["adapter", "word", "office", "official", "docx", "document"]
-    version: "0.1.0"
+    version: "0.1.2"
     min_core_version: "0.18.2"
     maintainer: "dcc-mcp"
-    # No `install:` block yet: every curating entry must pin an attested
-    # published wheel, and 0.1.0 reaches PyPI only after release-please tags
-    # it on merge. Add the pip block in the follow-up once that release lands.
+    install:
+      type: pip
+      pip_package: "dcc-mcp-word"
+      pip_extras: ["headless"]
+      url: "https://files.pythonhosted.org/packages/ed/9e/95453a48bbeda3a2971fd8d5598105673cf245c793cc43f2ab2280521ebb/dcc_mcp_word-0.1.2-py3-none-any.whl"
+      sha256: "f4ac79722b4ad653b0acd9844fa1a992994e8a8935f2a65bb7d473376c833a5c"
+      entry_point: "dcc_mcp_word._standalone_entry:main"
 
   - name: "dcc-mcp-fpt"
     description: "Autodesk Flow Production Tracking adapter for DCC-MCP"

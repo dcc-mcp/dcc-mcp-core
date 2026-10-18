@@ -360,19 +360,92 @@ fn install_rejects_pip_version_without_a_catalog_pinned_artifact() {
 
 #[test]
 fn unpublished_adapters_do_not_advertise_automatic_install_steps() {
-    for dcc_type in ["excel", "material-maker", "word"] {
+    // Material Maker still has no published wheel, so the catalog keeps it
+    // discoverable without advertising an automatic pip install action.
+    // Excel and Word publish immutable wheels and now resolve to a pinned
+    // PipInstall step; see install_bundled_catalog_pins_office_adapter_wheels.
+    let plan = run_json_with_env_removed(
+        &["install", "--dcc-type", "material-maker"],
+        &[],
+        &["DCC_MCP_CATALOG_PATH", "DCC_MCP_INSTALL_PYTHON"],
+    );
+    assert_eq!(plan["dcc_type"], "material-maker");
+    assert!(
+        plan["adapter"]["install"].is_null(),
+        "material-maker must not advertise install metadata before a wheel is published"
+    );
+    assert!(
+        plan["steps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|step| step["action"].is_null()),
+        "material-maker must not advertise an automatic install action"
+    );
+}
+
+#[test]
+fn install_bundled_catalog_pins_office_adapter_wheels() {
+    for (dcc_type, package, version, wheel, sha256, entry_point) in [
+        (
+            "excel",
+            "dcc-mcp-excel",
+            "0.1.3",
+            "dcc_mcp_excel-0.1.3-py3-none-any.whl",
+            "3a6d12bb6bd63891e7b63c5b8436620fe351fe371a37dfdaa5302f0b080da84b",
+            "dcc_mcp_excel._standalone_entry:main",
+        ),
+        (
+            "word",
+            "dcc-mcp-word",
+            "0.1.2",
+            "dcc_mcp_word-0.1.2-py3-none-any.whl",
+            "f4ac79722b4ad653b0acd9844fa1a992994e8a8935f2a65bb7d473376c833a5c",
+            "dcc_mcp_word._standalone_entry:main",
+        ),
+    ] {
         let plan = run_json_with_env_removed(
             &["install", "--dcc-type", dcc_type],
             &[],
             &["DCC_MCP_CATALOG_PATH", "DCC_MCP_INSTALL_PYTHON"],
         );
-        assert!(plan["adapter"]["install"].is_null(), "{dcc_type}");
+
+        assert_eq!(plan["dcc_type"], dcc_type);
+        assert_eq!(plan["adapter"]["name"], package);
+        assert_eq!(plan["adapter"]["version"], version);
+        assert!(!plan["adapter"]["install"].is_null(), "{dcc_type}");
+
+        let install_step = &plan["steps"][0];
+        assert_eq!(install_step["name"], "install-pip", "{dcc_type}");
+        assert_eq!(install_step["action"]["type"], "PipInstall", "{dcc_type}");
+        assert_eq!(install_step["action"]["package"], package, "{dcc_type}");
+        assert_eq!(install_step["action"]["version"], version, "{dcc_type}");
+        assert_eq!(
+            install_step["action"]["extras"],
+            serde_json::json!(["headless"]),
+            "{dcc_type} must install its headless document backend"
+        );
+        assert_eq!(install_step["action"]["sha256"], sha256, "{dcc_type}");
         assert!(
-            plan["steps"]
-                .as_array()
+            install_step["action"]["artifact_url"]
+                .as_str()
                 .unwrap()
-                .iter()
-                .all(|step| step["action"].is_null()),
+                .starts_with("https://files.pythonhosted.org/packages/"),
+            "{dcc_type} must pin an immutable PyPI wheel URL"
+        );
+        assert!(
+            install_step["action"]["artifact_url"]
+                .as_str()
+                .unwrap()
+                .ends_with(wheel),
+            "{dcc_type} must resolve to the pinned published wheel"
+        );
+
+        let register_step = &plan["steps"][1];
+        assert_eq!(register_step["action"]["type"], "RegisterDcc", "{dcc_type}");
+        assert_eq!(register_step["action"]["dcc_type"], dcc_type, "{dcc_type}");
+        assert_eq!(
+            register_step["action"]["entry_point"], entry_point,
             "{dcc_type}"
         );
     }

@@ -1342,6 +1342,23 @@ entries:
     }
 
     #[test]
+    fn bundled_office_adapters_install_headless_backends() {
+        let entries = load_from_str(include_str!("../../../dcc-mcp-catalog.yml")).unwrap();
+        for name in ["dcc-mcp-excel", "dcc-mcp-word"] {
+            let install = entries
+                .iter()
+                .find(|entry| entry.name == name)
+                .and_then(|entry| entry.install.as_ref())
+                .unwrap_or_else(|| panic!("{name} must publish install metadata"));
+            assert_eq!(
+                install.pip_extras.as_deref(),
+                Some(&["headless".to_string()][..]),
+                "{name} must install its headless document backend"
+            );
+        }
+    }
+
+    #[test]
     fn bundled_pip_adapters_bind_published_wheels_and_entry_points() {
         let entries = load_from_str(include_str!("../../../dcc-mcp-catalog.yml")).unwrap();
         validate_catalog_entries(&entries).unwrap();
@@ -1395,6 +1412,16 @@ entries:
             ("dcc-mcp-krita", "krita", "dcc_mcp_krita.server:main"),
             ("dcc-mcp-gimp", "gimp", "dcc_mcp_gimp.server:main"),
             ("dcc-mcp-kdenlive", "kdenlive", "dcc_mcp_kdenlive.cli:main"),
+            (
+                "dcc-mcp-excel",
+                "excel",
+                "dcc_mcp_excel._standalone_entry:main",
+            ),
+            (
+                "dcc-mcp-word",
+                "word",
+                "dcc_mcp_word._standalone_entry:main",
+            ),
         ] {
             let entry = entries
                 .iter()
@@ -1461,15 +1488,15 @@ entries:
             "the bundled catalog must keep entries that omit sop_version"
         );
 
-        for name in ["dcc-mcp-excel", "dcc-mcp-material-maker", "dcc-mcp-word"] {
-            let entry = entries
-                .iter()
-                .find(|entry| entry.name == name)
-                .unwrap_or_else(|| panic!("bundled catalog is missing {name}"));
-            assert!(
-                entry.install.is_none(),
-                "{name} must not advertise automatic installation before an artifact is published"
-            );
-        }
+        // Material Maker still has no published wheel, so the catalog must keep
+        // it discoverable without advertising automatic installation.
+        let material_maker = entries
+            .iter()
+            .find(|entry| entry.name == "dcc-mcp-material-maker")
+            .expect("bundled catalog is missing dcc-mcp-material-maker");
+        assert!(
+            material_maker.install.is_none(),
+            "dcc-mcp-material-maker must not advertise automatic installation before an artifact is published"
+        );
     }
 }
