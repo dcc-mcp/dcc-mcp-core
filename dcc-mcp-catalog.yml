@@ -145,16 +145,16 @@ entries:
     url: "https://github.com/dcc-mcp/dcc-mcp-photoshop"
     issues_url: "https://github.com/dcc-mcp/dcc-mcp-photoshop/issues"
     tags: ["adapter", "photoshop", "official", "pip", "uxp", "core", "setup"]
-    version: "0.1.37"
-    min_core_version: "0.19.45"
+    version: "0.1.44"
+    min_core_version: "0.20.14"
     maintainer: "dcc-mcp"
     install:
       type: pip
       pip_package: "dcc-mcp-photoshop"
-      url: "https://files.pythonhosted.org/packages/e0/77/23de5e60335b229708ae75f399a6591503065c624dfdc0dad5ea0b0105da/dcc_mcp_photoshop-0.1.37-py3-none-any.whl"
-      sha256: "210d7b47a590ad4a9d39d942b2df9997418427edf326e9fe6169482e6e569aff"
+      url: "https://files.pythonhosted.org/packages/fc/b2/db13d1dbb4d39559e83b77be87bc7151fd6c6840b7c6edd7e359c313f3ee/dcc_mcp_photoshop-0.1.44-py3-none-any.whl"
+      sha256: "302dd849e52c69587e17822be4343f9136db9e25220c12a7ea073301fbbf13a7"
       entry_point: "dcc_mcp_photoshop.cli:main"
-      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-photoshop/main/docs/distribution.md"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-photoshop/57f7ad4c60ab2597fbdd6eeb8d3e1ef1eeb50ff3/install.md"
 
   - name: "dcc-mcp-nuke"
     description: "Foundry Nuke adapter for DCC-MCP"
@@ -228,15 +228,16 @@ entries:
     url: "https://github.com/dcc-mcp/dcc-mcp-premiere"
     issues_url: "https://github.com/dcc-mcp/dcc-mcp-premiere/issues"
     tags: ["adapter", "premiere", "official", "pip", "editing"]
-    version: "0.5.0"
-    min_core_version: "0.19.45"
+    version: "0.6.3"
+    min_core_version: "0.20.34"
     maintainer: "dcc-mcp"
     install:
       type: pip
       pip_package: "dcc-mcp-premiere"
-      url: "https://files.pythonhosted.org/packages/5c/e1/f7602fec72ded139a7a10bde8783cd5690b14f4377278e0ead284f2137e2/dcc_mcp_premiere-0.5.0-py3-none-any.whl"
-      sha256: "e35061610b0aba182b2eec29f2dc111cffb9d92194f9321f43805213456c3252"
-      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-premiere/main/README.md"
+      url: "https://files.pythonhosted.org/packages/45/e4/21e305116bee10ce6153665528e4fc65fd21bf2e4039a4fa60c31c0e7ae4/dcc_mcp_premiere-0.6.3-py3-none-any.whl"
+      sha256: "d872850c2c693c5aa423bffca262eaf8d1c2a81b150a3f7532909c91ca54d999"
+      entry_point: "dcc_mcp_premiere.cli:main"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-premiere/a4a541492e7f8ab3e3192aafcb44f66b13388f98/install.md"
 
   - name: "dcc-mcp-aftereffects"
     description: "Adobe After Effects adapter with typed project, layer, render queue, and official DOM workflows"
@@ -244,16 +245,16 @@ entries:
     url: "https://github.com/dcc-mcp/dcc-mcp-aftereffects"
     issues_url: "https://github.com/dcc-mcp/dcc-mcp-aftereffects/issues"
     tags: ["adapter", "aftereffects", "after-effects", "official", "pip", "cep", "motion-graphics"]
-    version: "0.6.0"
-    min_core_version: "0.19.91"
+    version: "0.7.3"
+    min_core_version: "0.20.14"
     maintainer: "dcc-mcp"
     install:
       type: pip
       pip_package: "dcc-mcp-aftereffects"
-      url: "https://files.pythonhosted.org/packages/af/63/4d000ba740d427d27984f40edaacaf8e06ddf16ef888f2d96674813828cb/dcc_mcp_aftereffects-0.6.0-py3-none-any.whl"
-      sha256: "b48e27139027790117a3d5fa8da7d3d92920ab94b68007b56800840a2e30e702"
+      url: "https://files.pythonhosted.org/packages/f0/eb/39410aedfd363aa8f9877d35da52c472e29b4f2b4a4b5df98c77b4bdaa58/dcc_mcp_aftereffects-0.7.3-py3-none-any.whl"
+      sha256: "e2ca0e74ad03c6314a2788793cac38669a67fdd8457ec3b5e2a02e4f4dd41417"
       entry_point: "dcc_mcp_aftereffects.cli:main"
-      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-aftereffects/main/README.md"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-aftereffects/3907a3da3e318efd78a43833b9e518cd4c8a0bbc/install.md"
 
   - name: "dcc-mcp-illustrator"
     description: "Adobe Illustrator adapter with typed document, artwork, export, and official DOM workflows"
@@ -261,16 +262,16 @@ entries:
     url: "https://github.com/dcc-mcp/dcc-mcp-illustrator"
     issues_url: "https://github.com/dcc-mcp/dcc-mcp-illustrator/issues"
     tags: ["adapter", "illustrator", "official", "pip", "cep", "vector-graphics"]
-    version: "0.2.0"
-    min_core_version: "0.19.91"
+    version: "0.3.3"
+    min_core_version: "0.20.14"
     maintainer: "dcc-mcp"
     install:
       type: pip
       pip_package: "dcc-mcp-illustrator"
-      url: "https://files.pythonhosted.org/packages/c5/ef/ca6090fadcfb57402f82e99cfebf3b0b16dde59421dd482bebb970d909dc/dcc_mcp_illustrator-0.2.0-py3-none-any.whl"
-      sha256: "506266fe09aa38a66a08bb28f6bad8aadaacdf868336f59c85f8aad912b6f630"
+      url: "https://files.pythonhosted.org/packages/6e/9a/c335d49bb8768e4eb32407459a922e387f4f57eac76511392fe257ad4ebe/dcc_mcp_illustrator-0.3.3-py3-none-any.whl"
+      sha256: "36f1261b36f9126972e15b2d7b7d6bf7ca6a58e6e0f2980f359b8bc4eff3e85e"
       entry_point: "dcc_mcp_illustrator.cli:main"
-      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-illustrator/main/README.md"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-illustrator/6a6b6fdf607e362089c5355663c85f126701953e/install.md"
 
   - name: "dcc-mcp-gimp"
     description: "GIMP 3 adapter with typed image, layer, save, and production export workflows"

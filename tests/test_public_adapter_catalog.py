@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from conftest import REPO_ROOT
 from dcc_mcp_core import yaml_loads
 
@@ -119,3 +121,73 @@ def test_discovery_decision_fixtures_match_curated_instructions() -> None:
     for case in fixtures["cases"]:
         entry = entries[f"dcc-mcp-{case['dcc_type']}"]
         assert case["expected_instructions_url"] == entry["install"]["instructions_url"], case["id"]
+
+
+@pytest.mark.parametrize(
+    "app,version,min_core_version,install",
+    [
+        (
+            "photoshop",
+            "0.1.44",
+            "0.20.14",
+            {
+                "type": "pip",
+                "pip_package": "dcc-mcp-photoshop",
+                "url": "https://files.pythonhosted.org/packages/fc/b2/db13d1dbb4d39559e83b77be87bc7151fd6c6840b7c6edd7e359c313f3ee/dcc_mcp_photoshop-0.1.44-py3-none-any.whl",
+                "sha256": "302dd849e52c69587e17822be4343f9136db9e25220c12a7ea073301fbbf13a7",
+                "entry_point": "dcc_mcp_photoshop.cli:main",
+                "instructions_url": "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-photoshop/57f7ad4c60ab2597fbdd6eeb8d3e1ef1eeb50ff3/install.md",
+            },
+        ),
+        (
+            "premiere",
+            "0.6.3",
+            "0.20.34",
+            {
+                "type": "pip",
+                "pip_package": "dcc-mcp-premiere",
+                "url": "https://files.pythonhosted.org/packages/45/e4/21e305116bee10ce6153665528e4fc65fd21bf2e4039a4fa60c31c0e7ae4/dcc_mcp_premiere-0.6.3-py3-none-any.whl",
+                "sha256": "d872850c2c693c5aa423bffca262eaf8d1c2a81b150a3f7532909c91ca54d999",
+                "entry_point": "dcc_mcp_premiere.cli:main",
+                "instructions_url": "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-premiere/a4a541492e7f8ab3e3192aafcb44f66b13388f98/install.md",
+            },
+        ),
+        (
+            "aftereffects",
+            "0.7.3",
+            "0.20.14",
+            {
+                "type": "pip",
+                "pip_package": "dcc-mcp-aftereffects",
+                "url": "https://files.pythonhosted.org/packages/f0/eb/39410aedfd363aa8f9877d35da52c472e29b4f2b4a4b5df98c77b4bdaa58/dcc_mcp_aftereffects-0.7.3-py3-none-any.whl",
+                "sha256": "e2ca0e74ad03c6314a2788793cac38669a67fdd8457ec3b5e2a02e4f4dd41417",
+                "entry_point": "dcc_mcp_aftereffects.cli:main",
+                "instructions_url": "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-aftereffects/3907a3da3e318efd78a43833b9e518cd4c8a0bbc/install.md",
+            },
+        ),
+        (
+            "illustrator",
+            "0.3.3",
+            "0.20.14",
+            {
+                "type": "pip",
+                "pip_package": "dcc-mcp-illustrator",
+                "url": "https://files.pythonhosted.org/packages/6e/9a/c335d49bb8768e4eb32407459a922e387f4f57eac76511392fe257ad4ebe/dcc_mcp_illustrator-0.3.3-py3-none-any.whl",
+                "sha256": "36f1261b36f9126972e15b2d7b7d6bf7ca6a58e6e0f2980f359b8bc4eff3e85e",
+                "entry_point": "dcc_mcp_illustrator.cli:main",
+                "instructions_url": "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-illustrator/6a6b6fdf607e362089c5355663c85f126701953e/install.md",
+            },
+        ),
+    ],
+)
+def test_adobepy_012_adapter_releases_are_available_to_the_install_planner(
+    app, version, min_core_version, install
+) -> None:
+    """Keep published wheel pins, CLI entry points, and release runbooks together."""
+    entries = {entry["name"]: entry for entry in _entries()}
+    entry = entries["dcc-mcp-" + app]
+
+    assert entry["version"] == version
+    assert entry["min_core_version"] == min_core_version
+    assert "policy" not in entry
+    assert entry["install"] == install

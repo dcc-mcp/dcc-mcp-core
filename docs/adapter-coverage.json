@@ -83,7 +83,7 @@
         "photoshop"
       ],
       "url": "https://github.com/dcc-mcp/dcc-mcp-photoshop",
-      "version": "0.1.37",
+      "version": "0.1.44",
       "pip_package": "dcc-mcp-photoshop",
       "pointer": true,
       "registry": "pending",
@@ -143,7 +143,7 @@
         "premiere"
       ],
       "url": "https://github.com/dcc-mcp/dcc-mcp-premiere",
-      "version": "0.5.0",
+      "version": "0.6.3",
       "pip_package": "dcc-mcp-premiere",
       "pointer": true,
       "registry": "pending",
@@ -157,7 +157,7 @@
         "after effects"
       ],
       "url": "https://github.com/dcc-mcp/dcc-mcp-aftereffects",
-      "version": "0.6.0",
+      "version": "0.7.3",
       "pip_package": "dcc-mcp-aftereffects",
       "pointer": true,
       "registry": "pending",
@@ -169,7 +169,7 @@
         "illustrator"
       ],
       "url": "https://github.com/dcc-mcp/dcc-mcp-illustrator",
-      "version": "0.2.0",
+      "version": "0.3.3",
       "pip_package": "dcc-mcp-illustrator",
       "pointer": true,
       "registry": "pending",
