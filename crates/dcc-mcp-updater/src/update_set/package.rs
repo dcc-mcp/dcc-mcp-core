@@ -32,6 +32,8 @@ pub struct PackageIdentity<'a> {
 #[serde(deny_unknown_fields)]
 struct PackageJournal {
     bound_executable: PathBuf,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    transaction_id: Option<String>,
     created_directories: Vec<PathBuf>,
     #[cfg(unix)]
     original_modes: Vec<Option<u32>>,
@@ -112,6 +114,7 @@ fn validate_package_path(path: &str) -> Result<(), UpdateError> {
                 && matches!(stem.as_bytes()[3], b'1'..=b'9'))
             || part.to_ascii_lowercase().ends_with(".dcc-mcp-new")
             || part.to_ascii_lowercase().ends_with(".dcc-mcp-backup")
+            || part.to_ascii_lowercase().contains(".dcc-mcp-")
         {
             return Err(UpdateError::Stage(
                 "package contains a reserved filename".into(),
@@ -137,6 +140,71 @@ pub fn install_verified_package(
     files: &[PackageFile<'_>],
     validate_installed: impl FnOnce(&Path) -> Result<(), UpdateError>,
 ) -> Result<(), UpdateError> {
+    install_package(
+        binary_name,
+        current_exe,
+        identity,
+        None,
+        source_root,
+        directories,
+        files,
+        |_| Ok(()),
+        validate_installed,
+    )
+}
+
+/// Exact installation bytes required under the shared installation lock.
+#[derive(Debug, Clone, Copy)]
+pub struct PackagePreconditions<'a> {
+    pub executable_sha256: &'a str,
+    pub foreground: PackageFile<'a>,
+}
+
+/// A package installation with mandatory byte admission and no implicit recovery.
+#[derive(Debug, Clone, Copy)]
+pub struct CheckedPackage<'a> {
+    pub identity: PackageIdentity<'a>,
+    pub preconditions: PackagePreconditions<'a>,
+}
+
+/// Install a qualified local package without recovering any pending transaction.
+/// The anchor and foreground are checked under the same lock used for writes.
+/// Runtime validation runs on the verified source after locked admission, then
+/// on the installed tree before commit. Source failure makes no package writes.
+pub fn install_verified_package_checked(
+    binary_name: &str,
+    current_exe: &Path,
+    package: CheckedPackage<'_>,
+    source_root: &Path,
+    directories: &[String],
+    files: &[PackageFile<'_>],
+    validate_runtime: impl Fn(&Path) -> Result<(), UpdateError>,
+) -> Result<(), UpdateError> {
+    install_package(
+        binary_name,
+        current_exe,
+        package.identity,
+        Some(package.preconditions),
+        source_root,
+        directories,
+        files,
+        |root| validate_runtime(root),
+        |root| validate_runtime(root),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn install_package(
+    binary_name: &str,
+    current_exe: &Path,
+    identity: PackageIdentity<'_>,
+    preconditions: Option<PackagePreconditions<'_>>,
+    source_root: &Path,
+    directories: &[String],
+    files: &[PackageFile<'_>],
+    validate_source: impl FnOnce(&Path) -> Result<(), UpdateError>,
+    validate_installed: impl FnOnce(&Path) -> Result<(), UpdateError>,
+) -> Result<(), UpdateError> {
     validate_sibling_name(identity.name)?;
     if let Some(file) = identity.verified_legacy_foreground {
         validate_expected_sha(file.sha256)?;
@@ -155,6 +223,10 @@ pub fn install_verified_package(
         check_parent_chain(&source_root, Path::new(file.path))?;
         require_file_hash(&source_root.join(file.path), file.sha256, "package source")?;
     }
+    if preconditions.is_some() {
+        // Reject a linked anchor before canonicalization can hide it.
+        ensure_reserved_file_path(current_exe, "installation anchor")?;
+    }
     let current_exe = canonical_existing(current_exe)?;
     let install_dir = current_exe
         .parent()
@@ -162,7 +234,43 @@ pub fn install_verified_package(
     let root = installation_staging_dir(binary_name, &current_exe)?;
     let _lock = acquire_installation_lock(&root, &current_exe, UPDATE_LOCK_TIMEOUT)?;
     let journal_path = root.join(format!("package-{}.json", identity.name));
-    recover_package(&journal_path, &current_exe)?;
+    if let Some(expected) = preconditions {
+        validate_expected_sha(expected.executable_sha256)?;
+        validate_expected_sha(expected.foreground.sha256)?;
+        if expected.foreground.path != identity.name
+            && expected.foreground.path != format!("{}.exe", identity.name)
+        {
+            return Err(UpdateError::Stage(
+                "precondition must name the package foreground".into(),
+            ));
+        }
+        if !files
+            .iter()
+            .any(|file| file.path == expected.foreground.path)
+        {
+            return Err(UpdateError::Stage(
+                "package plan must include the admitted foreground".into(),
+            ));
+        }
+        if ensure_reserved_file_path(&journal_path, "package journal")? {
+            return Err(UpdateError::Stage(
+                "package recovery required before a fixed-byte installation".into(),
+            ));
+        }
+        require_file_hash(
+            &current_exe,
+            expected.executable_sha256,
+            "installation anchor",
+        )?;
+        check_parent_chain(install_dir, Path::new(expected.foreground.path))?;
+        require_file_hash(
+            &install_dir.join(expected.foreground.path),
+            expected.foreground.sha256,
+            "expected package foreground",
+        )?;
+    } else {
+        recover_package(&journal_path, &current_exe)?;
+    }
     let receipt = prepare_receipt(install_dir, identity, directories, files)?;
     let mut created_directories = BTreeSet::new();
     for directory in directories {
@@ -174,6 +282,7 @@ pub fn install_verified_package(
         path: &receipt_name,
         sha256: &receipt_hash,
     };
+    let transaction_id = unique_nonce()?;
     let mut entries = Vec::new();
     for file in files.iter().chain(std::iter::once(&receipt_file)) {
         let relative = Path::new(file.path);
@@ -187,8 +296,8 @@ pub fn install_verified_package(
             ));
         }
         let name = relative.file_name().and_then(|name| name.to_str()).unwrap();
-        let prepared = target.with_file_name(format!("{name}.dcc-mcp-new"));
-        let backup = target.with_file_name(format!("{name}.dcc-mcp-backup"));
+        let prepared = target.with_file_name(format!("{name}.dcc-mcp-{transaction_id}-new"));
+        let backup = target.with_file_name(format!("{name}.dcc-mcp-{transaction_id}-backup"));
         if ensure_reserved_file_path(&prepared, "package prepared path")?
             || ensure_reserved_file_path(&backup, "package backup path")?
         {
@@ -212,6 +321,21 @@ pub fn install_verified_package(
             "expanded package install plan exceeds the size limit".into(),
         ));
     }
+    // Fixed-byte entrypoints validate metadata only after locked admission and
+    // ownership preflight, before the first installation journal or file write.
+    // Source files may have changed while this caller waited for the lock.
+    for directory in directories {
+        require_directory_chain(&source_root, Path::new(directory), false)?;
+    }
+    for file in files {
+        check_parent_chain(&source_root, Path::new(file.path))?;
+        require_file_hash(
+            &source_root.join(file.path),
+            file.sha256,
+            "locked package source",
+        )?;
+    }
+    validate_source(&source_root)?;
     // A complete installation still enters the shared lock and validates its
     // receipt. Avoid needless replacements after a successful previous ensure.
     if entries
@@ -224,6 +348,7 @@ pub fn install_verified_package(
     }
     let mut journal = PackageJournal {
         bound_executable: current_exe.clone(),
+        transaction_id: Some(transaction_id),
         created_directories: created_directories.into_iter().collect(),
         #[cfg(unix)]
         original_modes: entries
@@ -250,15 +375,22 @@ pub fn install_verified_package(
         }
         for (file, entry) in files.iter().zip(&journal.update.entries) {
             check_parent_chain(install_dir, entry.target.strip_prefix(install_dir).unwrap())?;
-            prepare_verified_copy(
-                &source_root.join(file.path),
-                &entry.prepared,
-                "package prepared file",
-                file.sha256,
-            )?;
+            let source = source_root.join(file.path);
+            let mut input = File::open(&source)?;
+            let mut output = create_package_prepared(&entry.prepared)?;
+            std::io::copy(&mut input, &mut output)?;
+            output.sync_all()?;
+            drop(output);
+            std::fs::set_permissions(&entry.prepared, std::fs::metadata(&source)?.permissions())?;
+            require_file_hash(&entry.prepared, file.sha256, "package prepared file")?;
         }
         let receipt_entry = journal.update.entries.last().unwrap();
-        std::fs::write(&receipt_entry.prepared, &receipt)?;
+        {
+            use std::io::Write;
+            let mut output = create_package_prepared(&receipt_entry.prepared)?;
+            output.write_all(&receipt)?;
+            output.sync_all()?;
+        }
         require_file_hash(
             &receipt_entry.prepared,
             &receipt_hash,
@@ -277,10 +409,16 @@ pub fn install_verified_package(
     }
     journal.update.state = JournalState::Committed;
     if let Err(error) = write_json_atomic(&journal_path, &journal) {
-        recover_package(&journal_path, &current_exe)?;
+        if let Err(recovery_error) = recover_package(&journal_path, &current_exe) {
+            return Err(UpdateError::Stage(format!(
+                "package commit persistence failed ({error}); recovery failed ({recovery_error})"
+            )));
+        }
         return Err(error);
     }
-    recover_package(&journal_path, &current_exe)
+    recover_package(&journal_path, &current_exe).map_err(|error| {
+        UpdateError::Stage(format!("package committed; cleanup required ({error})"))
+    })
 }
 
 fn package_modes_match(
@@ -374,6 +512,22 @@ fn recover_package(journal_path: &Path, current_exe: &Path) -> Result<(), Update
     }
     let journal: PackageJournal = read_json(journal_path)?;
     validate_package_journal(&journal, current_exe)?;
+    for entry in &journal.update.entries {
+        if ensure_reserved_file_path(&entry.prepared, "package prepared file")? {
+            let hash = sha256_file(&entry.prepared)?;
+            if !hash.eq_ignore_ascii_case(&entry.expected_sha256)
+                && !entry
+                    .original_sha256
+                    .as_ref()
+                    .is_some_and(|old| hash.eq_ignore_ascii_case(old))
+            {
+                return Err(UpdateError::Stage(
+                    "unrecognized package prepared file preserved; recovery requires inspection"
+                        .into(),
+                ));
+            }
+        }
+    }
     if journal.update.state == JournalState::Applying {
         rollback(&journal.update)?;
         #[cfg(unix)]
@@ -405,10 +559,25 @@ fn recover_package(journal_path: &Path, current_exe: &Path) -> Result<(), Update
     Ok(())
 }
 
+fn create_package_prepared(path: &Path) -> Result<File, UpdateError> {
+    // Even a transaction-specific filename may have appeared after preflight.
+    // Never truncate it, follow a link, or claim it merely because it is here.
+    Ok(OpenOptions::new().write(true).create_new(true).open(path)?)
+}
+
 fn validate_package_journal(
     journal: &PackageJournal,
     current_exe: &Path,
 ) -> Result<(), UpdateError> {
+    if journal.transaction_id.as_ref().is_some_and(|id| {
+        id.is_empty()
+            || id.len() > 64
+            || !id.bytes().all(|byte| byte.is_ascii_digit() || byte == b'-')
+    }) {
+        return Err(UpdateError::Stage(
+            "package journal has an invalid transaction identity".into(),
+        ));
+    }
     if journal.bound_executable != current_exe
         || journal.update.entries.is_empty()
         || journal
@@ -492,12 +661,14 @@ fn validate_package_journal(
             .file_name()
             .and_then(|name| name.to_str())
             .unwrap();
+        let prefix = journal
+            .transaction_id
+            .as_ref()
+            .map(|id| format!("{name}.dcc-mcp-{id}"))
+            .unwrap_or_else(|| format!("{name}.dcc-mcp"));
         if paths_equal(&entry.target, current_exe)
-            || entry.prepared != entry.target.with_file_name(format!("{name}.dcc-mcp-new"))
-            || entry.backup
-                != entry
-                    .target
-                    .with_file_name(format!("{name}.dcc-mcp-backup"))
+            || entry.prepared != entry.target.with_file_name(format!("{prefix}-new"))
+            || entry.backup != entry.target.with_file_name(format!("{prefix}-backup"))
             || entry.had_original != entry.original_sha256.is_some()
         {
             return Err(UpdateError::Stage(
