@@ -25,10 +25,10 @@ mod update_set;
 const MAX_UPDATE_BYTES: u64 = 256 * 1024 * 1024;
 
 pub use update_set::{
-    PackageFile, PackageIdentity, UpdateSetSource, UpdateTarget, apply_staged_binary_update,
-    apply_staged_update_set, clear_staged_binary_update, install_verified_package,
-    install_verified_sibling, stage_update_set, stage_verified_binary_update,
-    validate_package_paths,
+    CheckedPackage, PackageFile, PackageIdentity, PackagePreconditions, UpdateSetSource,
+    UpdateTarget, apply_staged_binary_update, apply_staged_update_set, clear_staged_binary_update,
+    install_verified_package, install_verified_package_checked, install_verified_sibling,
+    stage_update_set, stage_verified_binary_update, validate_package_paths,
 };
 
 #[doc(hidden)]

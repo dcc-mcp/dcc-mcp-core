@@ -15,6 +15,7 @@ use serde_json::{Value, json};
 use tempfile::TempDir;
 
 mod legacy;
+pub mod verified_local;
 
 const OFFICIAL_RELEASES: &str = "https://github.com/dcc-mcp/dcc-cua/releases";
 const COMPONENT_NAME: &str = "dcc-cua";
