@@ -300,6 +300,7 @@ fn crash_recovery_rolls_back_a_partly_applied_package_before_retry() {
     std::fs::write(&backup, b"old").unwrap();
     std::fs::copy(fixture.source.join("dcc-cua"), &target).unwrap();
     let journal = PackageJournal {
+        created_prepared: BTreeSet::new(),
         transaction_id: None,
         bound_executable: std::fs::canonicalize(&fixture.current).unwrap(),
         created_directories: vec![],
@@ -334,6 +335,7 @@ fn committed_recovery_keeps_verified_files_and_finishes_cleanup() {
     std::fs::write(&backup, b"old").unwrap();
     std::fs::copy(fixture.source.join("dcc-cua"), &target).unwrap();
     let journal = PackageJournal {
+        created_prepared: BTreeSet::new(),
         transaction_id: None,
         bound_executable: std::fs::canonicalize(&fixture.current).unwrap(),
         created_directories: vec![],
@@ -522,6 +524,7 @@ fn mid_apply_failure_recovers_the_full_set_and_preserves_unrecognized_content() 
         });
     }
     let journal = PackageJournal {
+        created_prepared: BTreeSet::new(),
         transaction_id: None,
         bound_executable: std::fs::canonicalize(&fixture.current).unwrap(),
         created_directories: vec![],
@@ -638,6 +641,7 @@ fn applying_recovery_restores_permissions_when_original_and_new_hashes_match() {
     std::fs::write(&backup, b"background").unwrap();
     std::fs::set_permissions(&backup, std::fs::Permissions::from_mode(0o600)).unwrap();
     let journal = PackageJournal {
+        created_prepared: BTreeSet::new(),
         transaction_id: None,
         bound_executable: std::fs::canonicalize(&fixture.current).unwrap(),
         created_directories: vec![],
@@ -707,6 +711,7 @@ fn fully_published_applying_package_restores_local_source_before_fresh_archive_r
         });
     }
     let journal = PackageJournal {
+        created_prepared: BTreeSet::new(),
         transaction_id: None,
         bound_executable: std::fs::canonicalize(&fixture.current).unwrap(),
         created_directories: vec![],

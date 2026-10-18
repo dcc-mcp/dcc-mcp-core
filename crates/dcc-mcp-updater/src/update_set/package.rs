@@ -5,6 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use super::*;
 
 mod ownership;
+mod recovery;
 use ownership::{prepare_receipt, receipt_name};
 
 const MAX_PACKAGE_ENTRIES: usize = 4096;
@@ -34,6 +35,8 @@ struct PackageJournal {
     bound_executable: PathBuf,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     transaction_id: Option<String>,
+    #[serde(default)]
+    created_prepared: BTreeSet<PathBuf>,
     created_directories: Vec<PathBuf>,
     #[cfg(unix)]
     original_modes: Vec<Option<u32>>,
@@ -129,8 +132,10 @@ fn validate_package_path(path: &str) -> Result<(), UpdateError> {
 /// All source hashes and destination paths are checked before preparing files.
 /// The installation uses the same lock and verified file rollback machinery as
 /// binary updates. The caller's final runtime validation is part of the
-/// transaction; an error restores the complete previous package. File renames
-/// are individually atomic, while the journal makes the whole set recoverable.
+/// transaction. Errors roll back recognizable transaction files; ambiguous or
+/// incomplete prepared files retain the journal and require inspection instead
+/// of being adopted or deleted. File renames are individually atomic. A crash
+/// between relinquishing a prepared path and publishing it also requires inspection.
 pub fn install_verified_package(
     binary_name: &str,
     current_exe: &Path,
@@ -349,6 +354,7 @@ fn install_package(
     let mut journal = PackageJournal {
         bound_executable: current_exe.clone(),
         transaction_id: Some(transaction_id),
+        created_prepared: BTreeSet::new(),
         created_directories: created_directories.into_iter().collect(),
         #[cfg(unix)]
         original_modes: entries
@@ -373,21 +379,23 @@ fn install_package(
         for directory in &journal.created_directories {
             std::fs::create_dir(directory)?;
         }
-        for (file, entry) in files.iter().zip(&journal.update.entries) {
+        for (index, file) in files.iter().enumerate() {
+            let entry = journal.update.entries[index].clone();
             check_parent_chain(install_dir, entry.target.strip_prefix(install_dir).unwrap())?;
             let source = source_root.join(file.path);
             let mut input = File::open(&source)?;
-            let mut output = create_package_prepared(&entry.prepared)?;
+            let mut output = recovery::create_owned(&journal_path, &mut journal, index)?;
             std::io::copy(&mut input, &mut output)?;
             output.sync_all()?;
             drop(output);
             std::fs::set_permissions(&entry.prepared, std::fs::metadata(&source)?.permissions())?;
             require_file_hash(&entry.prepared, file.sha256, "package prepared file")?;
         }
-        let receipt_entry = journal.update.entries.last().unwrap();
+        let receipt_index = journal.update.entries.len() - 1;
+        let receipt_entry = journal.update.entries[receipt_index].clone();
         {
             use std::io::Write;
-            let mut output = create_package_prepared(&receipt_entry.prepared)?;
+            let mut output = recovery::create_owned(&journal_path, &mut journal, receipt_index)?;
             output.write_all(&receipt)?;
             output.sync_all()?;
         }
@@ -396,7 +404,14 @@ fn install_package(
             &receipt_hash,
             "prepared package receipt",
         )?;
-        apply_entries(&journal.update)?;
+        for index in 0..journal.update.entries.len() {
+            // Once publication begins, a new file at this path is not ours.
+            recovery::relinquish(&journal_path, &mut journal, index)?;
+            apply_entries(&UpdateJournal {
+                state: JournalState::Applying,
+                entries: vec![journal.update.entries[index].clone()],
+            })?;
+        }
         validate_installed(install_dir)
     })();
     if let Err(error) = result {
@@ -510,10 +525,15 @@ fn recover_package(journal_path: &Path, current_exe: &Path) -> Result<(), Update
             "package journal exceeds the size limit".into(),
         ));
     }
-    let journal: PackageJournal = read_json(journal_path)?;
+    let mut journal: PackageJournal = read_json(journal_path)?;
     validate_package_journal(&journal, current_exe)?;
     for entry in &journal.update.entries {
         if ensure_reserved_file_path(&entry.prepared, "package prepared file")? {
+            if !journal.created_prepared.contains(&entry.prepared) {
+                return Err(UpdateError::Stage(
+                    "unowned package prepared file preserved; recovery requires inspection".into(),
+                ));
+            }
             let hash = sha256_file(&entry.prepared)?;
             if !hash.eq_ignore_ascii_case(&entry.expected_sha256)
                 && !entry
@@ -529,7 +549,7 @@ fn recover_package(journal_path: &Path, current_exe: &Path) -> Result<(), Update
         }
     }
     if journal.update.state == JournalState::Applying {
-        rollback(&journal.update)?;
+        recovery::rollback_package(journal_path, &mut journal)?;
         #[cfg(unix)]
         restore_original_modes(&journal)?;
     } else {
@@ -541,7 +561,7 @@ fn recover_package(journal_path: &Path, current_exe: &Path) -> Result<(), Update
             )?;
         }
     }
-    cleanup_committed_entries(&journal.update)?;
+    recovery::cleanup(journal_path, &mut journal)?;
     if journal.update.state == JournalState::Applying {
         for directory in journal.created_directories.iter().rev() {
             match std::fs::remove_dir(directory) {
@@ -560,15 +580,43 @@ fn recover_package(journal_path: &Path, current_exe: &Path) -> Result<(), Update
 }
 
 fn create_package_prepared(path: &Path) -> Result<File, UpdateError> {
+    #[cfg(test)]
+    prepared_write_hook(path, "forward");
     // Even a transaction-specific filename may have appeared after preflight.
     // Never truncate it, follow a link, or claim it merely because it is here.
     Ok(OpenOptions::new().write(true).create_new(true).open(path)?)
+}
+
+#[cfg(test)]
+thread_local! {
+    static PREPARED_WRITE_HOOK: std::cell::RefCell<Option<Box<dyn Fn(&Path, &str)>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+pub(super) fn prepared_write_hook(path: &Path, stage: &str) {
+    PREPARED_WRITE_HOOK.with(|hook| {
+        if let Some(hook) = hook.borrow().as_ref() {
+            hook(path, stage);
+        }
+    });
 }
 
 fn validate_package_journal(
     journal: &PackageJournal,
     current_exe: &Path,
 ) -> Result<(), UpdateError> {
+    if journal.created_prepared.iter().any(|path| {
+        !journal
+            .update
+            .entries
+            .iter()
+            .any(|entry| &entry.prepared == path)
+    }) {
+        return Err(UpdateError::Stage(
+            "package journal has invalid prepared ownership".into(),
+        ));
+    }
     if journal.transaction_id.as_ref().is_some_and(|id| {
         id.is_empty()
             || id.len() > 64
