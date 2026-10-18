@@ -808,6 +808,8 @@ fn prepare_verified_copy(
     expected_sha256: &str,
 ) -> Result<(), UpdateError> {
     ensure_reserved_file_path(target, label)?;
+    #[cfg(test)]
+    package::prepared_write_hook(target, "recovery");
     std::fs::copy(source, target)?;
     require_file_hash(target, expected_sha256, label)
 }

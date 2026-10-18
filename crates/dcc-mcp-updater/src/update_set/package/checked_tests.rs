@@ -1,5 +1,167 @@
 use super::*;
 
+struct PreparedHook;
+
+impl Drop for PreparedHook {
+    fn drop(&mut self) {
+        PREPARED_WRITE_HOOK.with(|hook| *hook.borrow_mut() = None);
+    }
+}
+
+#[test]
+fn forward_expected_collision_keeps_unknown_file_and_recovery_journal() {
+    forward_matching_collision(b"foreground");
+}
+
+#[test]
+fn forward_original_collision_keeps_unknown_file_and_recovery_journal() {
+    forward_matching_collision(b"old");
+}
+
+fn forward_matching_collision(bytes: &[u8]) {
+    let fixture = Fixture::new();
+    std::fs::write(fixture.install.join("dcc-cua"), b"old").unwrap();
+    let protected = std::rc::Rc::new(std::cell::RefCell::new(None));
+    let saved = protected.clone();
+    let bytes = bytes.to_vec();
+    let collision = bytes.clone();
+    PREPARED_WRITE_HOOK.with(|hook| {
+        *hook.borrow_mut() = Some(Box::new(move |path, stage| {
+            if stage == "forward" && saved.borrow().is_none() {
+                std::fs::write(path, &collision).unwrap();
+                *saved.borrow_mut() = Some(path.to_path_buf());
+            }
+        }));
+    });
+    let _hook = PreparedHook;
+    let result = checked(
+        &fixture,
+        &sha256_bytes(b"cli"),
+        &sha256_bytes(b"old"),
+        |_| Ok(()),
+    );
+    assert!(result.is_err());
+    assert!(
+        protected.borrow().as_ref().unwrap().exists(),
+        "forward create_new collision was deleted during recovery"
+    );
+    assert_eq!(
+        std::fs::read(protected.borrow().as_ref().unwrap()).unwrap(),
+        bytes
+    );
+    assert_eq!(
+        std::fs::read(fixture.install.join("dcc-cua")).unwrap(),
+        b"old"
+    );
+    assert!(
+        fixture.journal().exists(),
+        "ambiguous ownership must retain recovery evidence"
+    );
+    assert!(result.unwrap_err().to_string().contains("recovery"));
+}
+
+#[test]
+fn recovery_write_collision_keeps_unknown_file_and_recovery_journal() {
+    let fixture = Fixture::new();
+    let target = fixture.install.join("dcc-cua");
+    let prepared = fixture.install.join("dcc-cua.dcc-mcp-new");
+    let backup = fixture.install.join("dcc-cua.dcc-mcp-backup");
+    std::fs::write(&target, b"foreground").unwrap();
+    std::fs::write(&backup, b"old").unwrap();
+    let entry = JournalEntry {
+        target: target.clone(),
+        prepared: prepared.clone(),
+        backup,
+        had_original: true,
+        original_sha256: Some(sha256_bytes(b"old")),
+        expected_sha256: sha256_bytes(b"foreground"),
+    };
+    let journal = PackageJournal {
+        created_prepared: BTreeSet::new(),
+        bound_executable: std::fs::canonicalize(&fixture.current).unwrap(),
+        transaction_id: None,
+        created_directories: vec![],
+        #[cfg(unix)]
+        original_modes: vec![original_mode(&entry).unwrap()],
+        update: UpdateJournal {
+            state: JournalState::Applying,
+            entries: vec![entry],
+        },
+    };
+    write_json_atomic(&fixture.journal(), &journal).unwrap();
+    PREPARED_WRITE_HOOK.with(|hook| {
+        *hook.borrow_mut() = Some(Box::new(|path, stage| {
+            if stage == "recovery" {
+                std::fs::write(path, b"unknown recovery collision").unwrap();
+            }
+        }));
+    });
+    let _hook = PreparedHook;
+    let result = recover_package(&fixture.journal(), &journal.bound_executable);
+    assert!(
+        prepared.exists(),
+        "recovery writer consumed an unknown collision"
+    );
+    assert_eq!(
+        std::fs::read(&prepared).unwrap(),
+        b"unknown recovery collision"
+    );
+    assert!(result.is_err());
+    assert_eq!(std::fs::read(&target).unwrap(), b"foreground");
+    assert!(fixture.journal().exists());
+}
+
+#[test]
+fn legacy_or_partial_prepared_files_are_preserved_for_inspection() {
+    for (bytes, owned) in [
+        (b"old".as_slice(), false),
+        (b"foreground".as_slice(), false),
+        (b"partial".as_slice(), true),
+    ] {
+        let fixture = Fixture::new();
+        let target = fixture.install.join("dcc-cua");
+        let prepared = fixture.install.join("dcc-cua.dcc-mcp-new");
+        let backup = fixture.install.join("dcc-cua.dcc-mcp-backup");
+        std::fs::write(&target, b"foreground").unwrap();
+        std::fs::write(&prepared, bytes).unwrap();
+        std::fs::write(&backup, b"old").unwrap();
+        let entry = JournalEntry {
+            target: target.clone(),
+            prepared: prepared.clone(),
+            backup,
+            had_original: true,
+            original_sha256: Some(sha256_bytes(b"old")),
+            expected_sha256: sha256_bytes(b"foreground"),
+        };
+        let journal = PackageJournal {
+            bound_executable: std::fs::canonicalize(&fixture.current).unwrap(),
+            transaction_id: None,
+            created_prepared: if owned {
+                BTreeSet::from([prepared.clone()])
+            } else {
+                BTreeSet::new()
+            },
+            created_directories: vec![],
+            #[cfg(unix)]
+            original_modes: vec![original_mode(&entry).unwrap()],
+            update: UpdateJournal {
+                state: JournalState::Applying,
+                entries: vec![entry],
+            },
+        };
+        let mut legacy = serde_json::to_value(&journal).unwrap();
+        if !owned {
+            legacy.as_object_mut().unwrap().remove("created_prepared");
+        }
+        write_json_atomic(&fixture.journal(), &legacy).unwrap();
+        let before = std::fs::read(fixture.journal()).unwrap();
+        assert!(recover_package(&fixture.journal(), &journal.bound_executable).is_err());
+        assert_eq!(std::fs::read(&prepared).unwrap(), bytes);
+        assert_eq!(std::fs::read(&target).unwrap(), b"foreground");
+        assert_eq!(std::fs::read(fixture.journal()).unwrap(), before);
+    }
+}
+
 fn checked(
     fixture: &Fixture,
     core: &str,
