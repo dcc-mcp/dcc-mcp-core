@@ -72,6 +72,8 @@ drops both bounds.
 | Unity | [dcc-mcp-unity](https://github.com/dcc-mcp/dcc-mcp-unity) | 0.11.2 | >=0.19.45,<1.0.0 | 2018.4.36f1+ | EditorApplication.update + WebSocket bridge | — |
 | OpenUSD | [dcc-mcp-openusd](https://github.com/dcc-mcp/dcc-mcp-openusd) | 0.8.1 | >=0.19.45,<1.0.0 | — | Headless USD stage adapter | 2026-07 |
 | PowerPoint | [dcc-mcp-PowerPoint](https://github.com/dcc-mcp/dcc-mcp-PowerPoint) | 0.2.3 | >=0.18.2,<1.0.0 | — | Deck IR → Open XML compile → COM render | — |
+| Excel | [dcc-mcp-excel](https://github.com/dcc-mcp/dcc-mcp-excel) | 0.1.3 | >=0.18.2,<1.0.0 | — | Headless Workbook IR → XLSX compile (Open XML) with read-back verification | 2026-10 |
+| Word | [dcc-mcp-word](https://github.com/dcc-mcp/dcc-mcp-word) | 0.1.2 | >=0.18.2,<1.0.0 | — | Headless Word IR → DOCX compile (Open XML) with read-back verification | 2026-10 |
 | AutoCAD | [dcc-mcp-autocad](https://github.com/dcc-mcp/dcc-mcp-autocad) | 0.1.2 | >=0.20.36,<1.0.0 | — | Interactive COM or headless `accoreconsole` | — |
 | CapCut | [dcc-mcp-capcut](https://github.com/dcc-mcp/dcc-mcp-capcut) | 0.5.0 | >=0.19.90,<1.0.0 | — | Typed local bridge for edit plans, timelines and exports | — |
 | Epic Games Launcher | [dcc-mcp-epic](https://github.com/dcc-mcp/dcc-mcp-epic) | 0.2.1 | >=0.20.14,<1.0.0 | — | Engine, project and local asset library inspection; engine install is plan-only | — |
@@ -81,11 +83,11 @@ drops both bounds.
 | Tracy | [dcc-mcp-tracy](https://github.com/dcc-mcp/dcc-mcp-tracy) | 0.2.5 | >=0.19.38,<1.0.0 | — | Instrumented capture, trace CSV export and zone timing analysis | — |
 | Custom Studio Tool | _(your repo here)_ | _your version_ | _your pin_ | _your min_ | _your pattern_ | _date_ |
 
-Material Maker, Excel, and Word remain discoverable source projects, but the
-bundled catalog omits automatic install metadata until each project publishes a
-wheel that can be pinned by URL and SHA-256. LiquiGen is pinned to its immutable
-PyPI wheel published through the repository's GitHub Actions trusted publisher;
-the adapter identity remains stable across future wheel updates.
+Material Maker remains a discoverable source project, but the bundled catalog
+omits automatic install metadata until it publishes a wheel that can be pinned
+by URL and SHA-256. Excel, Word, and LiquiGen are pinned to immutable PyPI
+wheels published through each repository's GitHub Actions trusted publisher, so
+the adapter identity stays stable across future wheel updates.
 
 The Adobe rows marked `2026-10 (package)` were verified against the published
 wheel metadata, CLI entry points, and release-pinned installation guides. These
