@@ -135,6 +135,17 @@ impl Args {
 
         let matches = Self::command().try_get_matches_from(argv)?;
         let mut args = Self::from_arg_matches(&matches)?;
+        if matches!(
+            &args.command,
+            Command::Components {
+                action: super::components_cmd::ComponentsAction::InstallVerified(_)
+            }
+        ) {
+            // A fixed-byte offline installation cannot apply an unrelated staged
+            // update, launch a gateway, or refresh an update cache on entry.
+            args.no_update_maintenance = true;
+            args.no_auto_gateway = true;
+        }
         if let Command::Gateway { ref mut daemon, .. } = args.command
             && let Some(gateway_matches) = matches.subcommand_matches("gateway")
         {
@@ -245,6 +256,14 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
         _ => Ok(output.unwrap_or_else(OutputFormat::auto_detect)),
     };
     let writer = OutputWriter::new(output.map_err(anyhow::Error::msg)?);
+    if let Command::Components {
+        action: action @ super::components_cmd::ComponentsAction::InstallVerified(_),
+    } = command
+    {
+        // Dispatch before constructing gateway/profile/doctor infrastructure.
+        let value = super::components_cmd::run(action).await?;
+        return writer.write_data(&value);
+    }
     let explicit_update_command = matches!(&command, Command::Update { .. });
     let update_maintenance = UpdateMaintenance::from_skip_flag(no_update_maintenance);
     let marketplace_update_check = update_maintenance
@@ -992,3 +1011,7 @@ mod confirmation_timeout_tests;
 #[cfg(test)]
 #[path = "cli/gateway_precedence_tests.rs"]
 mod gateway_precedence_tests;
+
+#[cfg(test)]
+#[path = "cli/verified_component_tests.rs"]
+mod verified_component_tests;

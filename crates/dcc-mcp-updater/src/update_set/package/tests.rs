@@ -17,6 +17,8 @@ impl Fixture {
         let install = root.path().join("install");
         std::fs::create_dir(&source).unwrap();
         std::fs::create_dir(&install).unwrap();
+        // Journals bind canonical executable paths, including Windows' extended prefix.
+        let install = std::fs::canonicalize(install).unwrap();
         let current = install.join("dcc-mcp-cli");
         std::fs::write(&current, b"cli").unwrap();
         let name = format!("package-test-{}", unique_nonce().unwrap());
@@ -250,14 +252,14 @@ fn rejects_unsafe_names_case_collisions_and_file_directory_overlaps() {
 }
 
 #[test]
-fn package_cannot_replace_the_cli_or_unrecognized_transaction_sidecars() {
+fn package_cannot_replace_the_cli_and_preserves_unrelated_legacy_sidecars() {
     let mut fixture = Fixture::new();
     fixture.add("dcc-mcp-cli", b"not a companion");
     assert!(fixture.run(|_| Ok(())).is_err());
     assert_eq!(std::fs::read(&fixture.current).unwrap(), b"cli");
     fixture.files.pop();
     std::fs::write(fixture.install.join("dcc-cua.dcc-mcp-new"), b"unrecognized").unwrap();
-    assert!(fixture.run(|_| Ok(())).is_err());
+    fixture.run(|_| Ok(())).unwrap();
     assert_eq!(
         std::fs::read(fixture.install.join("dcc-cua.dcc-mcp-new")).unwrap(),
         b"unrecognized"
@@ -298,6 +300,7 @@ fn crash_recovery_rolls_back_a_partly_applied_package_before_retry() {
     std::fs::write(&backup, b"old").unwrap();
     std::fs::copy(fixture.source.join("dcc-cua"), &target).unwrap();
     let journal = PackageJournal {
+        transaction_id: None,
         bound_executable: std::fs::canonicalize(&fixture.current).unwrap(),
         created_directories: vec![],
         #[cfg(unix)]
@@ -331,6 +334,7 @@ fn committed_recovery_keeps_verified_files_and_finishes_cleanup() {
     std::fs::write(&backup, b"old").unwrap();
     std::fs::copy(fixture.source.join("dcc-cua"), &target).unwrap();
     let journal = PackageJournal {
+        transaction_id: None,
         bound_executable: std::fs::canonicalize(&fixture.current).unwrap(),
         created_directories: vec![],
         #[cfg(unix)]
@@ -518,6 +522,7 @@ fn mid_apply_failure_recovers_the_full_set_and_preserves_unrecognized_content() 
         });
     }
     let journal = PackageJournal {
+        transaction_id: None,
         bound_executable: std::fs::canonicalize(&fixture.current).unwrap(),
         created_directories: vec![],
         #[cfg(unix)]
@@ -633,6 +638,7 @@ fn applying_recovery_restores_permissions_when_original_and_new_hashes_match() {
     std::fs::write(&backup, b"background").unwrap();
     std::fs::set_permissions(&backup, std::fs::Permissions::from_mode(0o600)).unwrap();
     let journal = PackageJournal {
+        transaction_id: None,
         bound_executable: std::fs::canonicalize(&fixture.current).unwrap(),
         created_directories: vec![],
         original_modes: vec![Some(0o600)],
@@ -701,6 +707,7 @@ fn fully_published_applying_package_restores_local_source_before_fresh_archive_r
         });
     }
     let journal = PackageJournal {
+        transaction_id: None,
         bound_executable: std::fs::canonicalize(&fixture.current).unwrap(),
         created_directories: vec![],
         #[cfg(unix)]
@@ -864,3 +871,6 @@ fn legacy_proof_cannot_override_modified_receipt_owned_files_or_name_a_resource(
             .is_err()
     );
 }
+
+#[path = "checked_tests.rs"]
+mod checked_tests;
