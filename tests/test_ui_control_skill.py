@@ -1436,6 +1436,41 @@ def test_ui_control_cua_host_protected_system_ui_requires_manual_operator_recove
     assert "fresh ui_control__snapshot" in result["prompt"]
 
 
+def test_ui_control_cua_host_bounds_native_advisory_to_reason() -> None:
+    backend = _load_cua_module()
+    advisory = (
+        "get_window_state timed out after 4s (UIA provider unresponsive on hwnd 0x1234, class 'UnrealWindow'). "
+        "Fallback options: (a) re-call this tool with a depth-limited scan (`max_elements` / `max_depth`) ... "
+        "if the tree stays unusable, act by pixel `click(x, y)` off the screenshot in the response; "
+        "(b) if the target is a transient VCL / message-box dialog, send `press_key` with "
+        '`delivery_mode:"foreground"` (SendInput) to fire the default accelerator.'
+    )
+    result = backend._host_error(backend.UiControlHostError("input_failed", advisory))
+
+    assert result["success"] is False
+    assert result["error"] == "input_failed"
+    assert result["message"] == (
+        "get_window_state timed out after 4s (UIA provider unresponsive on hwnd 0x1234, class 'UnrealWindow')."
+    )
+    for token in ("Fallback options", "max_elements", "max_depth", "click(x", "press_key", "delivery_mode"):
+        assert token not in result["message"]
+
+
+def test_ui_control_cua_host_strips_escalate_session_visual_fallback_advisory() -> None:
+    backend = _load_cua_module()
+    result = backend._host_error(
+        backend.UiControlHostError(
+            "timeout",
+            "UIA window snapshot timed out; call escalate_session with explicit approval before using the "
+            "visual fallback",
+        )
+    )
+
+    assert result["message"] == "UIA window snapshot timed out"
+    assert "escalate_session" not in result["message"]
+    assert "visual fallback" not in result["message"]
+
+
 def test_ui_control_cua_host_propagates_trusted_confirmation_denial(monkeypatch: Any) -> None:
     backend = _load_cua_module()
 

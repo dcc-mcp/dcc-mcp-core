@@ -88,6 +88,39 @@ def _safe_session_id(session_id: Any) -> str:
     return cleaned[:80] or "default"
 
 
+# dcc-cua appends recovery instructions aimed at its own CLI surface (a
+# depth-limited ``max_elements``/``max_depth`` rescan, a pixel ``click`` off the
+# response screenshot, a transient-dialog ``press_key``, or ``escalate_session``)
+# after the native failure reason. Those names are not arguments of the Core
+# ``ui_control__*`` tools, whose schemas are ``additionalProperties: false``, and
+# may point at a screenshot a failed capture never produced. Core therefore keeps
+# only the diagnostic reason and authors its own schema-accurate recovery.
+_NATIVE_ADVISORY_MARKERS = (
+    "fallback options:",
+    "fallback option:",
+    "call escalate_session",
+)
+
+
+def _native_reason(message: Any) -> str:
+    """Bound a native backend message to its diagnostic failure reason.
+
+    The returned text never contains dcc-cua's tool-specific recovery prose. When
+    no advisory marker is present the original message is returned unchanged, so
+    a future Host phrasing change degrades to today's full-reason behaviour
+    instead of dropping diagnostics.
+    """
+    text = str(message or "").strip()
+    lowered = text.lower()
+    cut = len(text)
+    for marker in _NATIVE_ADVISORY_MARKERS:
+        index = lowered.find(marker)
+        if index > 0:
+            cut = min(cut, index)
+    reason = text[:cut].strip().rstrip(";:,-").strip()
+    return reason or text
+
+
 def _scope_error(scope: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     if scope.get("invalid_reason"):
         return skill_error(str(scope["invalid_reason"]), UiErrorCode.INVALID_TARGET)

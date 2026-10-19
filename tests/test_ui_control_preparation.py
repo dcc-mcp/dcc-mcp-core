@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import json
 from typing import Any
 
+import jsonschema
 import pytest
+import yaml
 
+from conftest import REPO_ROOT
 from dcc_mcp_core._server.inprocess_executor import HostExecutionBridge
 from test_cua_mcp_pixels import SCRIPTS
 from test_cua_mcp_pixels import TARGET
@@ -62,6 +66,25 @@ def methods(process) -> list[str]:
         for request in process.requests
         if request.get("params", {}).get("name") == "dcc_cua_task_call"
     ]
+
+
+def _ui_control_tool_schemas() -> dict[str, dict]:
+    """Load the exposed ``ui-control`` tool input schemas keyed by bare tool name.
+
+    Read straight from the skill's ``tools.yaml`` (the source of truth for the
+    exposed schema) so the assertion holds regardless of whether the runtime
+    resolved ``parse_skill_md`` through the compiled ``_core`` extension or the
+    pure-Python lite fallback, whose tool representations differ.
+    """
+    tools_yaml = REPO_ROOT / "python" / "dcc_mcp_core" / "skills" / "ui-control" / "tools.yaml"
+    data = yaml.safe_load(tools_yaml.read_text(encoding="utf-8"))
+    schemas: dict[str, dict] = {}
+    for tool in data["tools"]:
+        schema = tool["input_schema"]
+        if isinstance(schema, str):
+            schema = json.loads(schema)
+        schemas[tool["name"]] = schema
+    return schemas
 
 
 @pytest.mark.parametrize("operation", ["activate", "restore_activate"])
@@ -244,3 +267,142 @@ def test_native_capture_refusal_retains_stage_and_reason_without_retry(route, co
     if reason:
         assert result["context"]["details"]["reason"] == reason
     assert methods(process) == ["change_window_state", "get_window_state", "snapshot"]
+
+
+# The native dcc-cua UIA-timeout error Core passes through; its trailing
+# "Fallback options" prose targets dcc-cua's own CLI surface, not the Core
+# ``prepare_foreground`` schema (issue #2819).
+_UIA_ADVISORY = (
+    "get_window_state timed out after 4s (UIA provider unresponsive on hwnd 0x1234, class 'UnrealWindow'). "
+    "Fallback options: (a) re-call this tool with a depth-limited scan (`max_elements` / `max_depth`) ... "
+    "if the tree stays unusable, act by pixel `click(x, y)` off the screenshot in the response; "
+    "(b) if the target is a transient VCL / message-box dialog, send `press_key` with "
+    '`delivery_mode:"foreground"` (SendInput) to fire the default accelerator (Esc / Enter / Y / N) '
+    "without needing the tree..."
+)
+
+
+def test_uia_capture_failure_is_failed_schema_bound_and_image_free(monkeypatch, _isolated_scope):
+    """Acceptance criteria for a semantic UIA capture timeout after activation succeeds.
+
+    (1) overall readiness stays failed and no content input is sent; (2) every
+    suggested next call is supported by the exposed schema; (3) the response never
+    advertises an image that is absent; (4) no fresh alternate observation is
+    fabricated. It also asserts the native reason is retained while dcc-cua's
+    tool-specific advisory is not echoed back to the caller.
+    """
+    from test_cua_mcp_pixels import window_response
+    from test_ui_control_window_recovery import _load_backend
+
+    backend = _load_backend()
+    calls = []
+
+    class SemanticClient:
+        def __init__(self, **kwargs):
+            self.target = dict(TARGET)
+
+        def change_window_state(self, operation):
+            calls.append(operation)
+            return window_response(operation)
+
+        def window_state(self):
+            calls.append("readback")
+            return {"state": window_response()["state"]}
+
+        def snapshot(self, **kwargs):
+            calls.append("snapshot")
+            raise backend.UiControlHostError("input_failed", _UIA_ADVISORY)
+
+        def stop(self):
+            return {"active": False}
+
+    monkeypatch.setattr(backend, "_HostClient", SemanticClient)
+    monkeypatch.setattr(backend, "_ensure_idle_reaper", lambda: None)
+    try:
+        result = backend.prepare_foreground_tool(
+            {"session_id": "uia-test", **TARGET, "operation": "restore_activate", "trusted_adapter_scope": TARGET}
+        )
+    finally:
+        backend.cleanup()
+
+    context = result["context"]
+    preparation = context["foreground_preparation"]
+    recovery = context["recovery"]
+
+    # (1) Overall readiness stays failed and no content input was sent.
+    assert result["success"] is False
+    assert result["error"] == "input_failed"
+    assert preparation["stage"] == "capture"
+    assert preparation["fresh_observation_ready"] is False
+    assert preparation["content_input_sent"] is False
+    assert recovery["content_input_sent"] is False and recovery["content_input_allowed"] is False
+    assert calls == ["restore_activate", "readback", "snapshot"]
+    # Activation success is retained, clearly separated from the observation failure.
+    assert preparation["activation"]["state"]["foreground"] is True
+    assert preparation["window_state"]["foreground"] is True
+    assert recovery["activation_succeeded"] is True and recovery["observation_failed"] is True
+
+    # Native failure reason is retained; the vendor advisory is not echoed.
+    assert "UIA provider unresponsive" in result["message"]
+    assert "Fallback options" not in result["message"]
+    assert "UIA provider unresponsive" in recovery["native_reason"]
+
+    # (2) Every suggested next call is supported by the exposed schema.
+    schemas = _ui_control_tool_schemas()
+    assert recovery["next_steps"], "capture failure must expose at least one real next step"
+    for step in recovery["next_steps"]:
+        tool = step["tool"]
+        assert tool.startswith("ui_control__")
+        name = tool[len("ui_control__") :]
+        assert name in schemas, f"{tool} is not exposed by ui-control tools.yaml"
+        jsonschema.Draft202012Validator(schemas[name]).validate(step["arguments"])
+    for action in context["recovery_actions"]:
+        assert action in schemas, f"recovery action {action!r} is not a real ui-control tool"
+
+    # Re-observation must stay on the same exact target.
+    reobserve = next(step for step in recovery["next_steps"] if step["tool"] == "ui_control__snapshot")
+    assert reobserve["arguments"]["process_id"] == TARGET["process_id"]
+    assert reobserve["arguments"]["window_handle"] == TARGET["window_handle"]
+
+    # (3) The response never advertises an image that is absent.
+    assert recovery["image_available"] is False
+    assert "__rich__" not in result and "__rich__" not in context
+    for key in ("image", "mime_type", "snapshot_id", "observation", "state_delta"):
+        assert key not in context, f"failed capture must not advertise {key}"
+
+    # (4) No successful alternate observation is fabricated, and no pixels route exists.
+    assert recovery["fresh_observation_available"] is False
+    assert recovery["pixels_only_route_available"] is False
+    assert context.get("snapshot_id") is None
+
+    # The response must not surface vendor advisory aimed at a different tool surface.
+    serialized = json.dumps(result)
+    for token in (
+        "max_elements",
+        "max_depth",
+        "click(x",
+        "press_key",
+        "delivery_mode",
+        "escalate_session",
+        "transient",
+        "VCL",
+        "SendInput",
+        "screenshot",
+    ):
+        assert token not in serialized, f"response must not surface vendor advisory token {token!r}"
+
+
+@pytest.mark.parametrize("operation", ["activate", "restore_activate"])
+def test_pixels_preparation_success_has_fresh_same_target_observation(route, operation):
+    """Criterion (4): a successful pixels-only observation carries fresh, same-target evidence."""
+    call, _process, _launches, _config = route
+    old = call("snapshot")["context"]["snapshot_id"]
+    ready = call("prepare_foreground", {"operation": operation})
+    assert ready["success"] is True, ready
+    context = ready["context"]
+    # Fresh: a new native observation id, not the pre-preparation one.
+    assert context["snapshot_id"] != old
+    # Same target: bound to the exact same PID/HWND that was authorized.
+    assert context["observation"]["window_handle"] == TARGET["window_handle"]
+    assert context["observation"]["process_id"] == TARGET["process_id"]
+    assert context["capture_provenance"]["pixels_captured"] is True
