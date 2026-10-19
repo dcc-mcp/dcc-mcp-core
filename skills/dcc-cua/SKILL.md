@@ -91,6 +91,12 @@ Run `components ensure` only when installation or repair is authorized. It
 consumes the official versionless manifest, verifies the declared SHA-256, and
 reconciles the independently released companion executable.
 
+The two binaries come from different releases: `dcc-mcp-cli` ships with
+`dcc-mcp-core` (`https://github.com/dcc-mcp/dcc-mcp-core/releases`), while the
+`dcc-cua` runtime is an independent companion released from
+`https://github.com/dcc-mcp/dcc-cua/releases`. `components ensure dcc-cua`
+fetches the runtime from that dcc-cua release, never from a Core release.
+
 For semantic application profiles:
 
 ```bash
