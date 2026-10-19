@@ -18,6 +18,7 @@ import os
 from pathlib import Path
 import shutil
 import sys
+import sysconfig
 
 __all__ = ["__version__", "binary_path"]
 
@@ -25,6 +26,18 @@ __all__ = ["__version__", "binary_path"]
 __version__ = "0.20.45"  # x-release-please-version
 
 _BINARY_NAME = "dcc-mcp-server.exe" if os.name == "nt" else "dcc-mcp-server"
+
+
+def _user_scheme() -> str:
+    """Use the installer's user scheme, including on Python 3.7-3.9."""
+    preferred = getattr(sysconfig, "get_preferred_scheme", None)
+    if preferred is not None:
+        return preferred("user")
+    if os.name == "nt":
+        return "nt_user"
+    if sys.platform == "darwin" and sysconfig.get_config_var("PYTHONFRAMEWORK"):
+        return "osx_framework_user"
+    return "posix_user"
 
 
 def binary_path() -> Path:
@@ -37,7 +50,9 @@ def binary_path() -> Path:
        maturin places ``bindings = "bin"`` artefacts inside the wheel).
     3. ``sys.prefix/Scripts`` (Windows) or ``sys.prefix/bin`` (POSIX) —
        the scripts directory for the *current* interpreter environment.
-    4. ``shutil.which("dcc-mcp-server")`` — a final system PATH fallback.
+    4. ``sysconfig`` scripts directories for the current interpreter and
+       its user-install scheme (including ``PYTHONUSERBASE``).
+    5. ``shutil.which("dcc-mcp-server")`` — a final system PATH fallback.
 
     Raises:
         FileNotFoundError: if no installation of the binary is found.
@@ -58,6 +73,19 @@ def binary_path() -> Path:
     candidate = scripts_dir / _BINARY_NAME
     if candidate.is_file():
         return candidate
+
+    # pip relocates wheel data/scripts into the selected installation scheme.
+    # In particular, --user scripts need not be on a DCC host's PATH.
+    for user in (False, True):
+        try:
+            scripts = sysconfig.get_path("scripts", scheme=_user_scheme()) if user else sysconfig.get_path("scripts")
+        except (AttributeError, ImportError, KeyError, OSError, ValueError):
+            # Embedded interpreters can omit schemes or build configuration.
+            continue
+        if scripts:
+            candidate = Path(scripts) / _BINARY_NAME
+            if candidate.is_file():
+                return candidate
 
     on_path = shutil.which("dcc-mcp-server")
     if on_path:
