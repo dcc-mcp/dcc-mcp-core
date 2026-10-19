@@ -84,7 +84,7 @@ def binary_path() -> Path:
             continue
         if scripts:
             candidate = Path(scripts) / _BINARY_NAME
-            if candidate.is_file():
+            if candidate.is_file() and (os.name == "nt" or os.access(candidate, os.X_OK)):
                 return candidate
 
     on_path = shutil.which("dcc-mcp-server")

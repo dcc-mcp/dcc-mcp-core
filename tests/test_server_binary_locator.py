@@ -36,7 +36,7 @@ def _binary(directory, name):
 def locator(request, monkeypatch, tmp_path):
     """Isolate every discovery source without changing the host's os.name."""
     module = _load_locator_module()
-    module.os = SimpleNamespace(name=request.param, environ=os.environ)
+    module.os = SimpleNamespace(name=request.param, environ=os.environ, access=os.access, X_OK=os.X_OK)
     module.sys = SimpleNamespace(prefix=str(tmp_path / "venv"), platform="win32" if request.param == "nt" else "linux")
     module._BINARY_NAME = "dcc-mcp-server.exe" if request.param == "nt" else "dcc-mcp-server"
     module.__file__ = str(tmp_path / "site-packages" / "dcc_mcp_server" / "__init__.py")
@@ -172,6 +172,20 @@ def test_binary_path_keeps_path_executable_checks(locator, monkeypatch, tmp_path
     with pytest.raises(FileNotFoundError):
         locator.binary_path()
     path_binary.chmod(0o755)
+    assert locator.binary_path() == path_binary
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX execute permission bits")
+def test_binary_path_skips_non_executable_user_install_for_path(locator, monkeypatch, tmp_path):
+    """A non-executable --user script must not shadow an executable PATH binary."""
+    locator.os.name = "posix"
+    locator._BINARY_NAME = "dcc-mcp-server"
+    user_binary = _binary(tmp_path / "user-scripts", locator._BINARY_NAME)
+    user_binary.chmod(0o644)
+    path_binary = _binary(tmp_path / "path", locator._BINARY_NAME)
+    locator.shutil = shutil
+    monkeypatch.setenv("PATH", str(path_binary.parent))
+
     assert locator.binary_path() == path_binary
 
 
