@@ -363,6 +363,9 @@ tools:
       to mock/CDP or the explicit owner-selected pixels MCP transport and is not
       a portable Windows action. Pixels MCP permits only the owner's physical
       action ceiling; tool policy and the operator raw-input ceiling can narrow it.
+      Owner-selected pixels keypress supports an optional 1..10000 ms hold
+      for one or two unique WASD/arrow keys, with no modifiers. It releases
+      within the same Native transaction; this is not cross-call key ownership.
       Windows keypress rejects ordinary printable, Shift-text, and AltGr-text
       input; use only navigation/control/function keys or genuine Ctrl/Alt
       shortcuts. Windows game_navigation is the separately governed game-canvas
@@ -552,7 +555,10 @@ tools:
             Optional drag duration, or visible system-cursor travel plus
             pointer-effect dwell for a non-drag pointer action, in
             milliseconds. For game_navigation it is an optional key hold and
-            must be between 0 and 500 ms.
+            must be between 0 and 500 ms. Owner-selected pixels keypress permits
+            1..10000 ms with one or two unique WASD/arrow keys and no modifiers;
+            omission preserves an immediate press/release. Other keyboard actions
+            do not support a hold duration.
         snapshot_id:
           type: string
           description: >-
