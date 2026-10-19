@@ -1395,6 +1395,7 @@ dependencies = [
  "nucleo-matcher",
  "serde",
  "serde_json",
+ "tempfile",
  "uuid",
  "workspace-hack",
 ]
