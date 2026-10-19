@@ -23,6 +23,12 @@
         "v0.20.30": "ec5cf3696cb989d3961bf686677f740e17bbd8eb42278edd00155b4041d65ffa"
       }
     },
+    "https://dcc-mcp.dev/contracts/adapter-release-candidate-v1.schema.json": {
+      "path": "contracts/adapter-release-candidate-v1.schema.json",
+      "released": {
+        "v0.20.46": "b75a18ba7662860b725eceae2a04720d59181f2137eff7286de27aacb2106ce4"
+      }
+    },
     "https://dcc-mcp.github.io/dcc-mcp-core/schemas/anim-curves-v1.schema.json": {
       "path": "python/dcc_mcp_core/schemas/anim-curves-v1.schema.json",
       "released": {
