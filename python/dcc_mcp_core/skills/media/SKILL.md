@@ -71,27 +71,52 @@ Use `media__transcode_audio` for a fresh `.wav`/`pcm_s16le` or
 are rejected before launch. Optional `audio_quality` is Vorbis-only (-1 to 10,
 default 5). No resampling, channel conversion, overwrite, padding, trimming,
 or codec fallback is exposed. The first audio stream is selected explicitly;
-video, subtitle, data and inherited metadata are excluded.
+video, subtitle, data and inherited metadata are excluded. Source sample rate
+and channel count are preserved, and a known source channel layout must match.
 
-This tool requires **already installed** vx-managed FFmpeg and FFprobe. It
-resolves FFmpeg using `vx --output-format json where ffmpeg`, rejects
-system/global fallback, and finds FFprobe only in the same resolved bundle
-directory (the official vx provider layout). It records each executable's
-version, SHA-256 and resolution basis, and pins these absolute paths for execution. It checks encoder capability before encoding. Unlike the older
-video helpers, this operation does not install vx or FFmpeg automatically.
+This operation requires **already installed** vx-managed FFmpeg and FFprobe;
+it does not install anything. The launcher from `DCC_MCP_MEDIA_VX_BIN` or PATH
+is an **operator-trusted prerequisite**, not a supply-chain attestation. Its
+absolute path, version and hash are recorded. The tool resolves FFmpeg using
+`vx --output-format json where ffmpeg`, rejects reported system/global fallback,
+and resolves FFprobe only in the same real bundle directory (the official vx
+provider layout). It pins these absolute paths and records each executable's
+version, SHA-256 and resolution basis. Hashes identify the bytes used; neither
+a hash nor vx's self-reported source independently authenticates those bytes.
+Requested encoder and PCM verification-encoder capabilities are checked before
+encoding; a missing encoder fails without silently choosing another build.
 
-One total timeout bounds commands and streamed hashing/decoding. PCM decoding
-is streamed and counted in sample frames (not container duration or packet
-count); stderr retains a bounded tail. Receipts include source/output hashes,
-actual codec/container/rate/channels, full-decode sample counts and PCM hashes,
-resolved executable evidence and every exact argv. A sample count change is a
-failure, never silently repaired. Lossy waveform quality and browser playback
-remain separate acceptance checks; matching counts alone do not prove quality.
+Input is limited to 128 MiB, 8–192 kHz and 1–8 channels. Full f32le PCM decode
+is streamed, never saved, with a 256 MiB cap for each source/output decode.
+Text stdout has a 1 MiB cap; stderr has a 4 MiB total cap and retains only a
+4 KiB diagnostic tail. Crossing a stream cap stops the owned process. Output
+uses FFmpeg's `-fs` limit, owner-thread size monitoring, and a strict 64 MiB
+pre-publication acceptance gate. FFmpeg can slightly overshoot `-fs`; this is
+**not an OS disk quota**. Limits and the shared operation timeout appear in
+receipts. Hashing also checks cancellation, time and byte budgets.
 
-The tool uses the existing Core async job lifecycle. Poll the returned owned
-Core job to terminal state; do not treat admission as artifact acceptance.
-Timeout/error receipts retain the unverified partial output path and status;
-no retry or cleanup of the artifact is implicit. POSIX child processes run in
-an owned process group which is killed and reaped on interruption. Windows
-uses `taskkill /T /F` followed by launcher reaping; Windows live cancellation
-qualification is separate from POSIX unit coverage.
+Encoding writes only to a private staging directory beside the destination.
+The final pathname is published through an atomic no-replace hard link only
+after complete validation. Filesystems without that operation fail closed;
+there is no copy/replace fallback. Failed operations retain diagnostic staging
+artifacts, never publish them or retry automatically. Successful publication
+is the commit point; a late cancellation does not retract a published file.
+
+Receipts bind source/output hashes, actual codec/container/rate/channels,
+full-decode sample-frame counts and PCM hashes, resolved executable evidence,
+exact argv, Core-owned job identity when present, and cleanup state. Counts
+come from decoder PCM (including its codec-delay/skip handling), not container
+duration or packet count. A count change is a failure, never repaired. Lossy
+waveform quality, independent decoder/loop-boundary checks and browser playback
+remain separate qualification; matching counts alone do not prove quality.
+
+The existing Core async job lifecycle supplies job identity and cancellation.
+The owner thread checks `check_dcc_cancelled()` at most 50 ms between process
+polls, and during hashing and before publication. Cancellation and timeout stop
+the owned group and retain the original reason/receipt. Poll the Core job to
+terminal state; admission is not artifact acceptance. POSIX processes run in
+owned groups. Windows uses `taskkill /T /F` and launcher reaping; failure or an
+already-exited launcher leaves cleanup `unknown`. Windows live cancellation,
+real Core transport cancellation and native codec qualification remain separate
+from host-free/POSIX subprocess tests. Cleanup has a separate bounded grace
+period; an uncertain cleanup never grants permission to retry.
