@@ -320,8 +320,12 @@ def _host_error(
             "recovery_scope": "same_exact_pid_hwnd",
         }
     recovery.update(_PIXELS.error_context(exc, params or {}, fresh_observation=fresh_observation))
+    # Keep only the native diagnostic reason: dcc-cua recovery prose targets its
+    # own CLI surface (``max_elements``/``max_depth``, pixel ``click``,
+    # ``press_key``, ``escalate_session``) and may reference a screenshot this
+    # response does not contain. Core must not echo those as its own message.
     return skill_error(
-        message,
+        _SUPPORT._native_reason(message),
         mapped_code,
         error_code=mapped_code,
         backend="dcc-cua",
