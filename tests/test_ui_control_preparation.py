@@ -392,6 +392,79 @@ def test_uia_capture_failure_is_failed_schema_bound_and_image_free(monkeypatch, 
         assert token not in serialized, f"response must not surface vendor advisory token {token!r}"
 
 
+def test_capture_stage_cancellation_keeps_abort_prompt_without_observation_recovery(route):
+    """A cancellation during capture is an abort, not an observation failure.
+
+    Issue #2819 acceptance requires cancellation/interruption rules to be
+    preserved: cancelling during the native snapshot must keep its
+    cancellation-specific prompt and retained receipts, and must not be
+    overwritten by the schema-accurate observation-failure recovery Core
+    authors for a genuine ``input_failed`` / ``capture_failed`` observation
+    miss.
+    """
+    from dcc_mcp_core.cancellation import CancelToken
+
+    call, process, _, _ = route
+    # Establish a session first, then arm cancellation on the capture snapshot.
+    assert call("snapshot")["success"] is True
+    token = CancelToken()
+    process.mutate_snapshot = lambda raw: token.cancel()
+
+    result = call("prepare_foreground", {"operation": "restore_activate"}, cancel_token=token)
+
+    assert result["success"] is False
+    assert result["error"] == "cancelled"
+    assert "Foreground preparation was cancelled" in result["message"]
+    # The abort keeps its own cancellation-specific guidance ...
+    assert "Inspect retained native receipts" in result["prompt"]
+    assert "explicitly stop the owned session" in result["prompt"]
+    # ... and is not rewritten as an observation-failure recovery.
+    assert "observation capture failed at the capture stage" not in result["prompt"]
+    assert "Foreground activation succeeded" not in result["prompt"]
+    context = result["context"]
+    assert "recovery" not in context
+    assert "recovery_actions" not in context
+    assert "possible_solutions" not in context
+    assert "recovery_scope" not in context
+    assert context["foreground_preparation"]["fresh_observation_ready"] is False
+
+
+def test_capture_stage_user_interrupted_keeps_abort_without_observation_recovery(route):
+    """A user interruption during capture is an abort, not an observation failure.
+
+    ``user_interrupted`` must not be misclassified as a missing-observation
+    defect: Core must not author the observation-failure recovery over it, and
+    no recovery context may appear in the response.
+    """
+    call, process, _, _ = route
+
+    def interrupt(raw):
+        task_context = raw["task_context"]
+        raw.clear()
+        raw.update(
+            type="error",
+            code="user_interrupted",
+            message="Operator interrupted the capture.",
+            task_context=task_context,
+            details={"fresh_observation_required": True, "blind_retry": False},
+        )
+
+    process.mutate_snapshot = interrupt
+    result = call("prepare_foreground", {"operation": "restore_activate"})
+
+    assert result["success"] is False
+    assert result["error"] == "user_interrupted"
+    # No observation-failure recovery was authored for this abort.
+    assert "observation capture failed at the capture stage" not in result["prompt"]
+    assert "Foreground activation succeeded" not in result["prompt"]
+    context = result["context"]
+    assert "recovery" not in context
+    assert "recovery_actions" not in context
+    assert "possible_solutions" not in context
+    assert "recovery_scope" not in context
+    assert context["foreground_preparation"]["fresh_observation_ready"] is False
+
+
 @pytest.mark.parametrize("operation", ["activate", "restore_activate"])
 def test_pixels_preparation_success_has_fresh_same_target_observation(route, operation):
     """Criterion (4): a successful pixels-only observation carries fresh, same-target evidence."""

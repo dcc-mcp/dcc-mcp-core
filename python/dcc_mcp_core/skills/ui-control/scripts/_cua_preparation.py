@@ -15,6 +15,24 @@ from dcc_mcp_core.host.cua_mcp_client import PixelsMcpHostClient
 from dcc_mcp_core.host.ui_control_options import UiControlRuntimeOptions
 from dcc_mcp_core.skill import skill_error
 
+# Capture-stage error codes that mean "activation and readback succeeded, but no
+# usable observation was captured". Only for these does Core author its own
+# schema-accurate observation-failure recovery. A whitelist (not a blacklist)
+# is used so an abort outcome can never be misclassified as an observation
+# failure: ``cancelled`` and ``user_interrupted`` must keep their own abort
+# prompt and receipts, and ``invalid_target`` already carries backend-authored
+# same-target recovery. Environment codes (``desktop_unavailable`` /
+# ``focus_lost``) are excluded to preserve their pre-existing handling.
+_OBSERVATION_FAILURE_CODES = frozenset(
+    {
+        "input_failed",
+        "capture_failed",
+        "stale_observation",
+        "backend_unavailable",
+        "timeout",
+    }
+)
+
 
 def _capture_recovery_context(
     session_id: str,
@@ -153,11 +171,16 @@ def run(
         )
         # A failed capture happens only after activation and readback succeeded, so
         # the defect is a missing observation, not a failed activation. Author
-        # schema-accurate recovery only when the backend error did not already
-        # attach its own targeted recovery, preserving specific guidance such as
+        # schema-accurate recovery only for a genuine observation-failure code
+        # (whitelist), never for an abort such as ``cancelled`` /
+        # ``user_interrupted`` — those must keep their own abort prompt and
+        # receipts. Also require the backend error not to have already attached
+        # its own targeted recovery, preserving specific guidance such as
         # window-recovery for an invalid same-target activation.
-        if stage == "capture" and not any(
-            key in context for key in ("recovery_actions", "possible_solutions", "recovery_scope")
+        if (
+            stage == "capture"
+            and result.get("error") in _OBSERVATION_FAILURE_CODES
+            and not any(key in context for key in ("recovery_actions", "possible_solutions", "recovery_scope"))
         ):
             capture_mode = str(receipts.get("capture_mode") or getattr(client, "observation_mode", "semantic"))
             recovery = _capture_recovery_context(

@@ -1471,6 +1471,30 @@ def test_ui_control_cua_host_strips_escalate_session_visual_fallback_advisory() 
     assert "visual fallback" not in result["message"]
 
 
+def test_ui_control_cua_host_native_reason_preserves_non_ascii_and_trailing_punctuation() -> None:
+    """``_native_reason`` bounds advisory on the original text, not a lowered copy.
+
+    A character whose ``str.lower()`` expands to multiple code points (``U+0130``
+    dotted capital I) must not shift the advisory cut offset and leak advisory
+    text into the reason. With no advisory marker present, the message is
+    returned whitespace-stripped with its trailing punctuation preserved, so a
+    future Host phrasing change degrades to the full diagnostic reason.
+    """
+    backend = _load_cua_module()
+
+    # Non-ASCII reason before an advisory marker: the marker must be cut at its
+    # true offset in the original text, so no advisory leaks into the reason.
+    result = backend._host_error(
+        backend.UiControlHostError("input_failed", "İstanbul probe failed. Fallback options: do X")
+    )
+    assert result["message"] == "İstanbul probe failed."
+    assert "Fallback" not in result["message"]
+
+    # No advisory marker: trailing punctuation is preserved verbatim.
+    result = backend._host_error(backend.UiControlHostError("capture_failed", "native observation unavailable;"))
+    assert result["message"] == "native observation unavailable;"
+
+
 def test_ui_control_cua_host_propagates_trusted_confirmation_denial(monkeypatch: Any) -> None:
     backend = _load_cua_module()
 

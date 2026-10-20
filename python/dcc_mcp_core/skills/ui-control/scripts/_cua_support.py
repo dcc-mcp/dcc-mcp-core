@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import re
 import threading
 from typing import Any
 from typing import Dict
@@ -100,23 +101,33 @@ _NATIVE_ADVISORY_MARKERS = (
     "fallback option:",
     "call escalate_session",
 )
+# Compiled case-insensitive patterns searched on the ORIGINAL text, so a marker
+# offset is never computed against a ``str.lower()`` string whose code-point
+# length can differ (e.g. ``U+0130``), which would leak advisory into the reason.
+_NATIVE_ADVISORY_RES = tuple(re.compile(re.escape(marker), re.IGNORECASE) for marker in _NATIVE_ADVISORY_MARKERS)
 
 
 def _native_reason(message: Any) -> str:
     """Bound a native backend message to its diagnostic failure reason.
 
-    The returned text never contains dcc-cua's tool-specific recovery prose. When
-    no advisory marker is present the original message is returned unchanged, so
-    a future Host phrasing change degrades to today's full-reason behaviour
-    instead of dropping diagnostics.
+    The returned text never contains dcc-cua's tool-specific recovery prose. The
+    marker search runs case-insensitively on the original text, so a character
+    whose ``str.lower()`` expands to multiple code points (for example ``U+0130``)
+    cannot shift the cut offset and leak advisory text into the reason. When no
+    advisory marker is present the message is returned with only its surrounding
+    whitespace stripped (trailing punctuation is preserved), so a future Host
+    phrasing change degrades to today's full-reason behaviour instead of dropping
+    diagnostics.
     """
     text = str(message or "").strip()
-    lowered = text.lower()
     cut = len(text)
-    for marker in _NATIVE_ADVISORY_MARKERS:
-        index = lowered.find(marker)
-        if index > 0:
-            cut = min(cut, index)
+    for pattern in _NATIVE_ADVISORY_RES:
+        match = pattern.search(text)
+        if match and match.start() > 0:
+            cut = min(cut, match.start())
+    if cut == len(text):
+        # No advisory was found: keep the diagnostic reason verbatim.
+        return text
     reason = text[:cut].strip().rstrip(";:,-").strip()
     return reason or text
 
