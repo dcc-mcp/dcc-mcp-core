@@ -1,8 +1,4 @@
-"""Bounded, owned subprocess execution for audio verification.
-
-PCM is counted and hashed while streaming, never retained in memory or on disk.
-Other stdout is capped; stderr retains only a diagnostic tail.
-"""
+"""Bounded, cooperatively cancellable subprocess execution for audio receipts."""
 
 from __future__ import annotations
 
@@ -16,11 +12,25 @@ import time
 
 from _media_common import MediaToolError
 
-_CAPTURE_LIMIT = 1024 * 1024
+from dcc_mcp_core.cancellation import DccMcpCancelledError
+from dcc_mcp_core.cancellation import check_dcc_cancelled
+
+CAPTURE_LIMIT = 1024 * 1024
+PCM_LIMIT = 256 * 1024 * 1024
+STDERR_LIMIT = 4 * 1024 * 1024
+OUTPUT_LIMIT = 64 * 1024 * 1024
+
+
+def check_audio_cancelled():
+    """Preserve the Core cancellation reason rather than a generic error."""
+    try:
+        check_dcc_cancelled()
+    except DccMcpCancelledError as exc:
+        raise MediaToolError("Audio operation cancelled.", "cancelled", context={"cancel_reason": str(exc)}) from exc
 
 
 def _stop(process):
-    """Stop the owned process tree, then reap the launcher."""
+    """Stop the owned process tree, then reap the launcher; report uncertainty."""
     tree_error = None
     try:
         if os.name == "nt":
@@ -51,11 +61,22 @@ def _stop(process):
         )
 
 
-def run_audio_command(command, deadline, *, pcm=False):
-    """Run a fixed argv with bounded capture and a shared monotonic deadline."""
+def run_audio_command(command, deadline, *, pcm=False, output_path=None):
+    """Run fixed argv with cancellation, byte budgets and one shared deadline.
+
+    Output-path monitoring is a fail-closed acceptance limit, not an OS disk
+    quota. The encoding argv also supplies FFmpeg's own bounded `-fs` limit.
+    """
+    try:
+        check_audio_cancelled()
+    except MediaToolError as exc:
+        exc.context["cleanup_status"] = "not_started"
+        raise
     remaining = deadline - time.monotonic()
     if remaining <= 0:
-        raise MediaToolError("Audio operation timed out.", "timeout", context={"command": command})
+        raise MediaToolError(
+            "Audio operation timed out.", "timeout", context={"command": command, "cleanup_status": "not_started"}
+        )
     options = {"start_new_session": True} if os.name != "nt" else {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
     try:
         process = subprocess.Popen(
@@ -63,11 +84,12 @@ def run_audio_command(command, deadline, *, pcm=False):
         )
     except OSError as exc:
         raise MediaToolError(
-            "Cannot launch vx-managed audio command; install vx explicitly if missing.",
+            "Cannot launch the resolved audio command.",
             "command_unavailable",
-            context={"command": command, "detail": str(exc)},
+            context={"command": command, "detail": str(exc), "cleanup_status": "not_started"},
         ) from exc
-    state = {"stdout": bytearray(), "stderr": bytearray(), "bytes": 0, "overflow": False, "errors": []}
+    state = {"stdout": bytearray(), "stderr": bytearray(), "bytes": 0, "stderr_bytes": 0, "error": None}
+    failed = threading.Event()
     digest = hashlib.sha256()
 
     def read_stream(stream, name):
@@ -78,17 +100,25 @@ def run_audio_command(command, deadline, *, pcm=False):
                     break
                 if name == "stdout":
                     state["bytes"] += len(chunk)
+                    if state["bytes"] > (PCM_LIMIT if pcm else CAPTURE_LIMIT):
+                        state["error"] = "decoded_pcm_limit" if pcm else "text_capture_limit"
+                        failed.set()
+                        break
                     if pcm:
                         digest.update(chunk)
-                    elif len(state[name]) + len(chunk) <= _CAPTURE_LIMIT:
-                        state[name].extend(chunk)
                     else:
-                        state["overflow"] = True
+                        state[name].extend(chunk)
                 else:
+                    state["stderr_bytes"] += len(chunk)
                     state[name].extend(chunk)
                     del state[name][:-4096]
+                    if state["stderr_bytes"] > STDERR_LIMIT:
+                        state["error"] = "stderr_limit"
+                        failed.set()
+                        break
         except OSError as exc:
-            state["errors"].append(str(exc))
+            state["error"] = str(exc)
+            failed.set()
         finally:
             stream.close()
 
@@ -96,14 +126,28 @@ def run_audio_command(command, deadline, *, pcm=False):
         threading.Thread(target=read_stream, args=(stream, name), daemon=True)
         for stream, name in ((process.stdout, "stdout"), (process.stderr, "stderr"))
     ]
-    for thread in threads:
-        thread.start()
     try:
-        process.wait(timeout=max(0.001, deadline - time.monotonic()))
         for thread in threads:
-            thread.join(timeout=max(0.001, deadline - time.monotonic()))
-        if any(thread.is_alive() for thread in threads):
-            raise subprocess.TimeoutExpired(command, remaining)
+            thread.start()
+        while True:
+            check_audio_cancelled()
+            if failed.is_set():
+                raise MediaToolError(
+                    "Audio stream exceeded a byte budget or could not be read.",
+                    "resource_limit",
+                    context={"reason": state["error"]},
+                )
+            if output_path is not None and output_path.exists() and output_path.stat().st_size > OUTPUT_LIMIT:
+                raise MediaToolError(
+                    "Audio output exceeded the acceptance size limit.",
+                    "resource_limit",
+                    context={"reason": "output_size_limit"},
+                )
+            if time.monotonic() >= deadline:
+                raise MediaToolError("Audio operation timed out.", "timeout")
+            if process.poll() is not None and not any(thread.is_alive() for thread in threads):
+                break
+            failed.wait(timeout=min(0.05, max(0, deadline - time.monotonic())))
     except BaseException as original:
         cleanup_error = None
         try:
@@ -111,35 +155,38 @@ def run_audio_command(command, deadline, *, pcm=False):
         except Exception as exc:
             cleanup_error = str(exc)
         for thread in threads:
-            thread.join(timeout=1)
-        if cleanup_error or any(thread.is_alive() for thread in threads):
-            raise MediaToolError(
-                "Audio command interrupted; process cleanup could not be confirmed.",
-                "timeout" if isinstance(original, subprocess.TimeoutExpired) else "interrupted",
-                context={
-                    "command": command,
-                    "cleanup_status": "unknown",
-                    "cleanup_error": cleanup_error,
-                    "original_error": type(original).__name__,
-                },
-            ) from original
-        raise
+            if thread.ident is not None:
+                thread.join(timeout=1)
+        cleanup_status = "unknown" if cleanup_error or any(t.is_alive() for t in threads) else "terminated_and_reaped"
+        if isinstance(original, MediaToolError):
+            original.context.update(command=command, cleanup_status=cleanup_status, cleanup_error=cleanup_error)
+            raise
+        raise MediaToolError(
+            "Audio command interrupted.",
+            "interrupted",
+            context={
+                "command": command,
+                "cleanup_status": cleanup_status,
+                "cleanup_error": cleanup_error,
+                "original_error": type(original).__name__,
+            },
+        ) from original
     stderr = bytes(state["stderr"]).decode("utf-8", "replace")
     if process.returncode != 0:
         code = "encoder_unavailable" if "Unknown encoder" in stderr else "command_failed"
         raise MediaToolError(
             "Audio command failed.",
             code,
-            context={"command": command, "returncode": process.returncode, "stderr": stderr},
-        )
-    if state["overflow"] or state["errors"]:
-        raise MediaToolError(
-            "Audio command capture was incomplete.",
-            "capture_failed",
-            context={"command": command, "errors": state["errors"]},
+            context={
+                "command": command,
+                "returncode": process.returncode,
+                "stderr": stderr,
+                "cleanup_status": "reaped",
+            },
         )
     return {
         "stdout": bytes(state["stdout"]).decode("utf-8", "replace"),
         "decoded_bytes": state["bytes"],
         "decoded_sha256": digest.hexdigest() if pcm else None,
+        "cleanup_status": "reaped",
     }

@@ -197,10 +197,10 @@ tools:
       properties:
         input_path:
           type: string
-          description: "Existing local media file containing audio."
+          description: "Existing local audio source: at most 128 MiB, 8–192 kHz, 1–8 channels."
         output_path:
           type: string
-          description: "Fresh .wav or .ogg destination; parent must exist. Never overwrites."
+          description: "Fresh .wav or .ogg destination; parent must exist. Verified staging is atomically published, never overwritten."
         container:
           type: string
           enum: [wav, ogg]

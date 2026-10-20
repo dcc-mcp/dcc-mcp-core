@@ -37,9 +37,10 @@ class FakeRuntime:
     def __init__(self, tmp_path, source, output):
         self.source, self.output = source, output
         self.paths = {}
-        for tool in ("ffmpeg", "ffprobe"):
+        for tool in ("vx", "ffmpeg", "ffprobe"):
             path = tmp_path / tool
             path.write_bytes(tool.encode())
+            path.chmod(0o700)
             self.paths[tool] = path
         self.calls = []
         self.encoder_available = True
@@ -54,16 +55,18 @@ class FakeRuntime:
         self.mutate_executable = False
         self.invalid_decode = False
 
-    def __call__(self, command, deadline, *, pcm=False):
-        assert len(self.calls) < 16  # A runaway loop cannot grow an unbounded mock log.
+    def __call__(self, command, deadline, *, pcm=False, output_path=None):
+        assert len(self.calls) < 20  # A runaway loop cannot grow an unbounded mock log.
         self.calls.append(command)
-        result = {"stdout": "", "decoded_bytes": 0, "decoded_sha256": "a" * 64}
+        result = {"stdout": "", "decoded_bytes": 0, "decoded_sha256": "a" * 64, "cleanup_status": "reaped"}
         if "where" in command:
             request = command[-1]
             tool = "ffprobe" if request == "ffmpeg::ffprobe" else "ffmpeg"
             result["stdout"] = json.dumps(
                 {"path": str(self.paths[tool]), "tool": request, "source": self.resolution_source}
             )
+        elif "--version" in command:
+            result["stdout"] = "vx 0.9.37\n"
         elif "-version" in command:
             result["stdout"] = Path(command[0]).name + " version test-build\n"
         elif "-encoders" in command:
@@ -71,7 +74,7 @@ class FakeRuntime:
             if self.encoder_available:
                 result["stdout"] += " A..... libvorbis Vorbis\n"
         elif "-show_streams" in command:
-            is_output = command[-1] == str(self.output)
+            is_output = command[-1] != str(self.source)
             stream = {
                 "codec_type": "audio",
                 "codec_name": self.output_codec if is_output else "pcm_s16le",
@@ -86,13 +89,14 @@ class FakeRuntime:
                 }
             )
         elif pcm:
-            is_output = command[command.index("-i") + 1] == str(self.output)
+            is_output = command[command.index("-i") + 1] != str(self.source)
             result["decoded_bytes"] = (self.output_frames if is_output else self.input_frames) * 8
             if self.invalid_decode and is_output:
                 result["decoded_bytes"] += 1
         else:
-            assert "-c:a" in command and command[-1] == str(self.output)
-            self.output.write_bytes(b"encoded")
+            assert "-c:a" in command and Path(command[-1]).name.startswith("artifact")
+            assert not self.output.exists()
+            Path(command[-1]).write_bytes(b"encoded")
             if self.mutate_source:
                 self.source.write_bytes(b"changed")
             if self.mutate_executable:
@@ -105,6 +109,7 @@ class FakeRuntime:
 @pytest.fixture
 def runtime(audio, files, tmp_path, monkeypatch):
     fake = FakeRuntime(tmp_path, *files)
+    monkeypatch.setenv("DCC_MCP_MEDIA_VX_BIN", str(fake.paths["vx"]))
     monkeypatch.setattr(audio, "run_audio_command", fake)
     return fake
 
@@ -176,7 +181,7 @@ def test_success_receipt_binds_hashes_metadata_decode_counts_and_exact_argv(audi
     result = invoke(audio, files)
     assert result["success"], result
     receipt = result["context"]
-    assert receipt["accepted"] is True and receipt["output_status"] == "verified"
+    assert receipt["accepted"] is True and receipt["output_status"] == "verified_published"
     assert receipt["input_sha256"] == receipt["input_sha256_after"] == hashlib.sha256(b"source-master").hexdigest()
     assert receipt["output_sha256"] == hashlib.sha256(b"encoded").hexdigest()
     assert receipt["input_decode"]["sample_frames"] == receipt["output_decode"]["sample_frames"] == 1536000
@@ -193,7 +198,7 @@ def test_success_receipt_binds_hashes_metadata_decode_counts_and_exact_argv(audi
 def test_unmanaged_resolution_fails_closed_without_encoding(audio, files, runtime, source):
     runtime.resolution_source = source
     assert invoke(audio, files)["error"] == "untrusted_executable"
-    assert not files[1].exists() and len(runtime.calls) == 1
+    assert not files[1].exists() and len(runtime.calls) == 2
 
 
 def test_unavailable_encoder_fails_before_source_decode_or_encoding(audio, files, runtime):
@@ -202,22 +207,21 @@ def test_unavailable_encoder_fails_before_source_decode_or_encoding(audio, files
     assert result["error"] == "encoder_unavailable"
     assert not files[1].exists()
     assert all("-i" not in call for call in runtime.calls)
-    assert result["context"]["output_status"] == "not_created"
+    assert result["context"]["output_status"] == "not_published"
 
 
 @pytest.mark.parametrize("failure", ["timeout", "command_failed"])
 def test_partial_failure_retains_receipt_without_retry_or_acceptance(audio, files, runtime, failure):
-    runtime.failure = (
-        subprocess.TimeoutExpired(["fake"], 1)
-        if failure == "timeout"
-        else audio.MediaToolError("Encoder failed", failure)
-    )
+    runtime.failure = audio.MediaToolError("Encoder failed", failure)
     result = invoke(audio, files)
     assert result["error"] == failure
-    assert result["context"]["output_status"] == "unverified_partial"
+    assert result["context"]["staging_status"] == "unverified_partial"
     assert not result["context"]["accepted"]
     assert sum("-n" in call for call in runtime.calls) == 1
-    assert files[0].read_bytes() == b"source-master" and files[1].read_bytes() == b"encoded"
+    assert (
+        files[0].read_bytes() == b"source-master" and Path(result["context"]["staging_path"]).read_bytes() == b"encoded"
+    )
+    assert not files[1].exists()
 
 
 def test_missing_128_samples_are_rejected_without_padding(audio, files, runtime):
@@ -225,7 +229,7 @@ def test_missing_128_samples_are_rejected_without_padding(audio, files, runtime)
     result = invoke(audio, files)
     assert result["error"] == "sample_count_mismatch"
     assert result["context"]["output_decode"]["sample_frames"] == 1535872
-    assert result["context"]["output_status"] == "unverified_partial"
+    assert result["context"]["staging_status"] == "unverified_partial"
     assert sum("-n" in call for call in runtime.calls) == 1
 
 
@@ -261,7 +265,7 @@ def test_text_capture_is_bounded(audio):
     from _media_audio_process import run_audio_command
 
     command = [sys.executable, "-c", "import sys; sys.stdout.buffer.write(b'x' * 2097152)"]
-    with pytest.raises(audio.MediaToolError, match="capture was incomplete"):
+    with pytest.raises(audio.MediaToolError, match="exceeded a byte budget"):
         run_audio_command(command, time.monotonic() + 10)
 
 
@@ -282,7 +286,7 @@ def test_timeout_stops_owned_child_and_grandchild(audio, tmp_path):
     child = f"import time,pathlib; time.sleep(1.0); pathlib.Path({str(marker)!r}).write_text('orphan')"
     parent = f"import subprocess,sys,time; subprocess.Popen([sys.executable,'-c',{child!r}]); time.sleep(20)"
     started = time.monotonic()
-    with pytest.raises(subprocess.TimeoutExpired):
+    with pytest.raises(audio.MediaToolError, match="timed out"):
         run_audio_command([sys.executable, "-c", parent], started + 0.3)
     assert time.monotonic() - started < 3
     time.sleep(1.1)
@@ -292,17 +296,17 @@ def test_timeout_stops_owned_child_and_grandchild(audio, tmp_path):
 @pytest.mark.parametrize(
     "payload", ["bad JSON", "{}", "null", '{"path": null}', '{"path": "relative", "tool": "ffmpeg", "source": "vx"}']
 )
-def test_malformed_resolution_fails_without_encoder_launch(audio, files, monkeypatch, payload):
+def test_malformed_resolution_fails_without_encoder_launch(audio, files, runtime, monkeypatch, payload):
     calls = []
 
     def malformed(command, deadline, **kwargs):
         calls.append(command)
-        return {"stdout": payload}
+        return {"stdout": "vx 0.9.37\n" if "--version" in command else payload}
 
     monkeypatch.setattr(audio, "run_audio_command", malformed)
     result = invoke(audio, files)
     assert result["error"] == "untrusted_executable"
-    assert len(calls) == 1 and not files[1].exists()
+    assert len(calls) == 2 and not files[1].exists()
 
 
 def test_probe_symlink_outside_managed_bundle_is_rejected(audio, files, runtime, tmp_path):
@@ -317,7 +321,7 @@ def test_probe_symlink_outside_managed_bundle_is_rejected(audio, files, runtime,
         pytest.skip("Symlink creation unavailable")
     result = invoke(audio, files)
     assert result["error"] == "untrusted_executable"
-    assert len(runtime.calls) == 1
+    assert len(runtime.calls) == 2
 
 
 def test_probe_must_identify_itself_as_ffprobe(audio, files, runtime, monkeypatch):
@@ -371,3 +375,247 @@ def test_audio_schema_declares_core_async_and_no_conversion_options(audio):
     block = text.split("  - name: transcode_audio\n", 1)[1].split("  - name:", 1)[0]
     assert "execution: async" in block and "additionalProperties: false" in block
     assert "sample_rate:" not in block and "channels:" not in block and "overwrite:" not in block
+
+
+def test_unknown_error_preserves_stage_receipt_and_job_identity(audio, files, runtime):
+    from dcc_mcp_core.cancellation import CancelToken
+    from dcc_mcp_core.cancellation import reset_cancel_token
+    from dcc_mcp_core.cancellation import set_cancel_token
+
+    reset = set_cancel_token(CancelToken(job_id="owned-audio-test"))
+    runtime.failure = RuntimeError("unexpected encoding fault")
+    try:
+        result = invoke(audio, files)
+    finally:
+        reset_cancel_token(reset)
+    assert result["error"] == "unexpected_error"
+    assert result["context"]["core_job_id"] == "owned-audio-test"
+    assert result["context"]["job_id_owner"] == "core"
+    assert result["context"]["commands"]
+    assert Path(result["context"]["staging_path"]).read_bytes() == b"encoded"
+    assert not files[1].exists()
+
+
+def test_late_destination_race_does_not_replace_existing_file(audio, files, runtime, monkeypatch):
+    original_link = audio.os.link
+
+    def concurrent_publish(source, destination):
+        files[1].write_bytes(b"other-owner")
+        original_link(source, destination)
+
+    monkeypatch.setattr(audio.os, "link", concurrent_publish)
+    result = invoke(audio, files)
+    assert result["error"] == "publish_failed"
+    assert not result["context"]["accepted"]
+    assert result["context"]["staging_status"] == "verified_unpublished"
+    assert files[1].read_bytes() == b"other-owner"
+    assert Path(result["context"]["staging_path"]).read_bytes() == b"encoded"
+
+
+def test_cancel_during_encoding_keeps_job_and_never_publishes(audio, files, runtime, monkeypatch):
+    from dcc_mcp_core.cancellation import CancelToken
+    from dcc_mcp_core.cancellation import reset_cancel_token
+    from dcc_mcp_core.cancellation import set_cancel_token
+
+    token = CancelToken(job_id="cancelled-audio-test")
+    reset = set_cancel_token(token)
+
+    def cancel_encoding(command, deadline, **kwargs):
+        result = runtime(command, deadline, **kwargs)
+        if "-n" in command:
+            token.cancel()
+        return result
+
+    monkeypatch.setattr(audio, "run_audio_command", cancel_encoding)
+    try:
+        result = invoke(audio, files)
+    finally:
+        reset_cancel_token(reset)
+    assert result["error"] == "cancelled"
+    assert result["context"]["core_job_id"] == "cancelled-audio-test"
+    assert result["context"]["cancel_reason"]
+    assert not files[1].exists()
+    assert Path(result["context"]["staging_path"]).is_file()
+    assert sum("-n" in call for call in runtime.calls) == 1
+
+
+def test_input_limit_rejects_before_process_creation(audio, files, runtime, monkeypatch):
+    monkeypatch.setattr(audio, "INPUT_LIMIT", 4)
+    assert invoke(audio, files)["error"] == "resource_limit"
+    assert runtime.calls == [] and not files[1].exists()
+
+
+@pytest.mark.parametrize("field,value", [("output_rate", 1000000000), ("output_channels", 1000000000)])
+def test_out_of_bounds_audio_metadata_is_rejected(audio, files, runtime, field, value):
+    setattr(runtime, field, value)
+    result = invoke(audio, files)
+    assert result["error"] == "invalid_audio_metadata"
+    assert not files[1].exists()
+
+
+def test_pcm_limit_stops_writer_before_deadline(audio, monkeypatch):
+    import _media_audio_process as process_module
+
+    monkeypatch.setattr(process_module, "PCM_LIMIT", 1024)
+    command = [
+        sys.executable,
+        "-c",
+        "import sys,time; sys.stdout.buffer.write(b'x'*65536); sys.stdout.flush(); time.sleep(20)",
+    ]
+    start = time.monotonic()
+    with pytest.raises(audio.MediaToolError) as caught:
+        process_module.run_audio_command(command, start + 10, pcm=True)
+    assert caught.value.code == "resource_limit"
+    assert caught.value.context["reason"] == "decoded_pcm_limit"
+    assert caught.value.context["cleanup_status"] == "terminated_and_reaped"
+    assert time.monotonic() - start < 3
+
+
+def test_output_acceptance_limit_stops_process(audio, tmp_path, monkeypatch):
+    import _media_audio_process as process_module
+
+    output = tmp_path / "oversized-stage"
+    monkeypatch.setattr(process_module, "OUTPUT_LIMIT", 1024)
+    command = [
+        sys.executable,
+        "-c",
+        f"import pathlib,time; pathlib.Path({str(output)!r}).write_bytes(b'x'*2048); time.sleep(20)",
+    ]
+    start = time.monotonic()
+    with pytest.raises(audio.MediaToolError) as caught:
+        process_module.run_audio_command(command, start + 10, output_path=output)
+    assert caught.value.code == "resource_limit"
+    assert caught.value.context["reason"] == "output_size_limit"
+    assert time.monotonic() - start < 3
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX owned process-group cancellation")
+def test_core_cancellation_stops_native_child_and_preserves_reason(audio, tmp_path):
+    import threading
+
+    from _media_audio_process import run_audio_command
+
+    from dcc_mcp_core.cancellation import CancelToken
+    from dcc_mcp_core.cancellation import reset_cancel_token
+    from dcc_mcp_core.cancellation import set_cancel_token
+
+    marker = tmp_path / "cancel-orphan"
+    child = f"import time,pathlib; time.sleep(1); pathlib.Path({str(marker)!r}).write_text('orphan')"
+    parent = f"import subprocess,sys,time; subprocess.Popen([sys.executable,'-c',{child!r}]); time.sleep(20)"
+    token = CancelToken(job_id="process-cancel-test")
+    reset = set_cancel_token(token)
+    timer = threading.Timer(0.2, token.cancel)
+    timer.start()
+    start = time.monotonic()
+    try:
+        with pytest.raises(audio.MediaToolError) as caught:
+            run_audio_command([sys.executable, "-c", parent], start + 10)
+    finally:
+        timer.join()
+        reset_cancel_token(reset)
+    assert caught.value.code == "cancelled"
+    assert caught.value.context["cancel_reason"]
+    assert caught.value.context["cleanup_status"] == "terminated_and_reaped"
+    assert time.monotonic() - start < 3
+    time.sleep(1.1)
+    assert not marker.exists()
+
+
+def test_cleanup_uncertainty_is_preserved_in_the_final_receipt(audio, files, runtime):
+    runtime.failure = audio.MediaToolError(
+        "Cancelled with unknown cleanup", "cancelled", context={"cleanup_status": "unknown", "cancel_reason": "request"}
+    )
+    result = invoke(audio, files)
+    assert result["error"] == "cancelled"
+    assert result["context"]["cleanup_status"] == "unknown"
+    assert result["context"]["cancel_reason"] == "request"
+    assert not files[1].exists()
+
+
+def test_cancel_immediately_before_publication_leaves_verified_stage(audio, files, runtime, monkeypatch):
+    from dcc_mcp_core.cancellation import CancelToken
+    from dcc_mcp_core.cancellation import reset_cancel_token
+    from dcc_mcp_core.cancellation import set_cancel_token
+
+    token = CancelToken(job_id="pre-publication-cancel")
+    reset = set_cancel_token(token)
+    original_hash = audio._hash_file
+    probe_hashes = 0
+
+    def cancel_after_final_hash(path, deadline, maximum=audio.INPUT_LIMIT):
+        nonlocal probe_hashes
+        result = original_hash(path, deadline, maximum)
+        if path == runtime.paths["ffprobe"]:
+            probe_hashes += 1
+            if probe_hashes == 2:
+                token.cancel()
+        return result
+
+    monkeypatch.setattr(audio, "_hash_file", cancel_after_final_hash)
+    try:
+        result = invoke(audio, files)
+    finally:
+        reset_cancel_token(reset)
+    assert result["error"] == "cancelled"
+    assert result["context"]["staging_status"] == "verified_unpublished"
+    assert result["context"]["core_job_id"] == "pre-publication-cancel"
+    assert not files[1].exists()
+
+
+def test_already_cancelled_request_runs_no_process(audio, files, runtime):
+    from dcc_mcp_core.cancellation import CancelToken
+    from dcc_mcp_core.cancellation import reset_cancel_token
+    from dcc_mcp_core.cancellation import set_cancel_token
+
+    token = CancelToken(job_id="pre-cancel")
+    token.cancel()
+    reset = set_cancel_token(token)
+    try:
+        result = invoke(audio, files)
+    finally:
+        reset_cancel_token(reset)
+    assert result["error"] == "cancelled"
+    assert result["context"]["cleanup_status"] == "not_started"
+    assert runtime.calls == []
+
+
+def test_stderr_total_limit_stops_noisy_writer(audio, monkeypatch):
+    import _media_audio_process as process_module
+
+    monkeypatch.setattr(process_module, "STDERR_LIMIT", 1024)
+    command = [sys.executable, "-c", "import sys,time; sys.stderr.write('x'*65536); sys.stderr.flush(); time.sleep(20)"]
+    started = time.monotonic()
+    with pytest.raises(audio.MediaToolError) as caught:
+        process_module.run_audio_command(command, started + 10)
+    assert caught.value.code == "resource_limit"
+    assert caught.value.context["reason"] == "stderr_limit"
+    assert time.monotonic() - started < 3
+
+
+def test_oversized_staged_artifact_is_never_published(audio, files, runtime, monkeypatch):
+    monkeypatch.setattr(audio, "OUTPUT_LIMIT", 4)
+    result = invoke(audio, files)
+    assert result["error"] == "resource_limit"
+    assert not files[1].exists()
+    assert Path(result["context"]["staging_path"]).read_bytes() == b"encoded"
+    command = next(command for command in runtime.calls if "-n" in command)
+    assert command[command.index("-fs") + 1] == "4"
+
+
+def test_success_removes_only_owned_staging_and_records_launcher(audio, files, runtime):
+    result = invoke(audio, files)
+    assert result["success"]
+    receipt = result["context"]
+    assert files[1].read_bytes() == b"encoded"
+    assert not Path(receipt["staging_path"]).exists()
+    assert receipt["executables"]["vx"]["path"] == str(runtime.paths["vx"])
+    assert receipt["executables"]["vx"]["source"] == "operator_configured"
+    assert receipt["limits"]["decoded_pcm_bytes_per_stream"] == 256 * 1024 * 1024
+
+
+def test_unknown_error_does_not_reuse_previous_commands_cleanup_status(audio, files, runtime):
+    runtime.failure = RuntimeError("worker outcome uncertain")
+    result = invoke(audio, files)
+    assert result["error"] == "unexpected_error"
+    assert result["context"]["cleanup_status"] == "unknown"
+    assert not files[1].exists()

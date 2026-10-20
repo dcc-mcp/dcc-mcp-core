@@ -5,10 +5,17 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 from pathlib import Path
-import subprocess
+import shutil
+import tempfile
 import time
 
+from _media_audio_process import CAPTURE_LIMIT
+from _media_audio_process import OUTPUT_LIMIT
+from _media_audio_process import PCM_LIMIT
+from _media_audio_process import STDERR_LIMIT
+from _media_audio_process import check_audio_cancelled
 from _media_audio_process import run_audio_command
 from _media_common import MediaToolError
 from _media_common import assert_nonempty_file
@@ -18,6 +25,11 @@ from _media_common import int_value
 from _media_common import output_file
 from _media_common import skill_success
 from _media_common import vx_command
+
+from dcc_mcp_core.cancellation import current_job_id
+
+INPUT_LIMIT = 128 * 1024 * 1024
+BINARY_LIMIT = 512 * 1024 * 1024
 
 _FORMATS = {"wav": ("pcm_s16le", ".wav", "pcm_s16le"), "ogg": ("libvorbis", ".ogg", "vorbis")}
 
@@ -30,7 +42,10 @@ def build_audio_command(input_path, output_path, container, audio_codec, audio_q
     container = enum_value("container", container, _FORMATS, "wav")
     codec, suffix, _ = _FORMATS[container]
     audio_codec = enum_value("audio_codec", audio_codec, (codec,), codec)
-    output = output_file("output_path", output_path, overwrite=False, suffixes=(suffix,)).resolve()
+    output = output_file("output_path", output_path, overwrite=False, suffixes=(suffix,))
+    if output.is_symlink():
+        raise MediaToolError("Output must not be a symlink.", "invalid_output")
+    output = output.parent.resolve() / output.name
     if source == output:
         raise MediaToolError("Input and output must differ.", "invalid_output")
     args = [
@@ -63,19 +78,28 @@ def build_audio_command(input_path, output_path, container, audio_codec, audio_q
         args += ["-q:a", str(quality)]
     elif container == "ogg":
         args += ["-q:a", "5"]
-    args += ["-f", container, str(output)]
+    args += ["-fs", str(OUTPUT_LIMIT), "-f", container, str(output)]
     return vx_command("ffmpeg", args), source, output
 
 
-def _hash_file(path, deadline):
+def _hash_file(path, deadline, maximum=INPUT_LIMIT):
     digest = hashlib.sha256()
+    count = 0
     with path.open("rb") as stream:
         while True:
+            check_audio_cancelled()
             if time.monotonic() >= deadline:
                 raise MediaToolError("Audio operation timed out while hashing.", "timeout")
             chunk = stream.read(1024 * 1024)
             if not chunk:
                 break
+            count += len(chunk)
+            if count > maximum:
+                raise MediaToolError(
+                    "File exceeded the hashing byte budget.",
+                    "resource_limit",
+                    context={"path": str(path), "maximum_bytes": maximum},
+                )
             digest.update(chunk)
     return digest.hexdigest()
 
@@ -83,7 +107,20 @@ def _hash_file(path, deadline):
 def _resolve_binaries(execute, deadline):
     """Pin existing vx-managed executables; reject system/global fallback."""
     binaries = {}
-    launcher = vx_command("ffmpeg", [])[0]
+    configured_launcher = vx_command("ffmpeg", [])[0]
+    launcher = shutil.which(configured_launcher)
+    if launcher is None:
+        raise MediaToolError("Cannot resolve the operator's vx launcher.", "command_unavailable")
+    launcher = str(Path(launcher).resolve())
+    binaries["vx"] = {
+        "path": launcher,
+        "sha256": _hash_file(Path(launcher), deadline, BINARY_LIMIT),
+        "source": "operator_configured" if "DCC_MCP_MEDIA_VX_BIN" in os.environ else "operator_PATH",
+    }
+    launcher_version = execute([launcher, "--version"])["stdout"]
+    if not launcher_version.startswith("vx "):
+        raise MediaToolError("Cannot identify the operator's vx launcher.", "invalid_encoder_version")
+    binaries["vx"]["version"] = launcher_version.splitlines()[0]
     command = [launcher, "--output-format", "json", "where", "ffmpeg"]
     try:
         result = json.loads(execute(command)["stdout"])
@@ -109,7 +146,7 @@ def _resolve_binaries(execute, deadline):
             raise MediaToolError("Cannot identify the resolved media executable.", "invalid_encoder_version")
         binaries[tool] = {
             "path": str(path),
-            "sha256": _hash_file(path, deadline),
+            "sha256": _hash_file(path, deadline, BINARY_LIMIT),
             "source": "vx" if tool == "ffmpeg" else "vx_bundle_sibling",
             "version": version.splitlines()[0],
             "resolution_command": command,
@@ -126,7 +163,7 @@ def _inspect(path, execute):
         streams = data["streams"]
         stream = next(item for item in streams if item.get("codec_type") == "audio")
         rate, channels = int(stream["sample_rate"]), int(stream["channels"])
-        if rate <= 0 or channels <= 0:
+        if not 8000 <= rate <= 192000 or not 1 <= channels <= 8:
             raise ValueError("Invalid audio dimensions")
         return {
             "codec": stream["codec_name"],
@@ -179,7 +216,7 @@ def _decode(path, metadata, execute):
 
 
 def transcode_audio(input_path, output_path, container, audio_codec, audio_quality=None, timeout_secs=300):
-    """Encode a fresh audio artifact; accept only verified full-decode results."""
+    """Verify a private staging artifact, then publish atomically without overwrite."""
     command, source, output = build_audio_command(input_path, output_path, container, audio_codec, audio_quality)
     if isinstance(timeout_secs, bool):
         raise MediaToolError("Timeout must be an integer.", "invalid_input")
@@ -189,24 +226,58 @@ def transcode_audio(input_path, output_path, container, audio_codec, audio_quali
         raise MediaToolError("Timeout must be finite.", "invalid_input") from None
     deadline = time.monotonic() + timeout
     binaries = {}
+    stage = None
+    verified = False
+    job_id = current_job_id()
     receipt = {
         "input_path": str(source),
         "output_path": str(output),
         "commands": [],
         "accepted": False,
-        "output_status": "not_created",
+        "output_status": "not_published",
+        "cleanup_status": "not_started",
+        "core_job_id": job_id,
+        "job_id_owner": "core" if job_id else None,
+        "limits": {
+            "input_bytes": INPUT_LIMIT,
+            "decoded_pcm_bytes_per_stream": PCM_LIMIT,
+            "output_acceptance_bytes": OUTPUT_LIMIT,
+            "text_stdout_bytes": CAPTURE_LIMIT,
+            "stderr_bytes": STDERR_LIMIT,
+            "executable_bytes": BINARY_LIMIT,
+            "sample_rate_min": 8000,
+            "sample_rate_max": 192000,
+            "channels_max": 8,
+            "timeout_secs": timeout,
+        },
     }
 
-    def execute(argv, *, pcm=False):
+    def execute(argv, *, pcm=False, output_path=None):
+        check_audio_cancelled()
         if len(argv) > 1 and argv[1] in binaries:
             argv = [binaries[argv[1]]["path"], *argv[2:]]
         receipt["commands"].append(argv)
+        receipt["cleanup_status"] = "running"
+        result = run_audio_command(argv, deadline, pcm=pcm, output_path=output_path)
+        receipt["cleanup_status"] = result.get("cleanup_status", "reaped")
+        return result
+
+    def failure_receipt(error):
+        receipt["staging_path"] = str(stage) if stage else None
+        receipt["staging_status"] = "verified_unpublished" if verified else "unverified_partial"
         try:
-            return run_audio_command(argv, deadline, pcm=pcm)
-        except subprocess.TimeoutExpired as exc:
-            raise MediaToolError("Audio operation timed out.", "timeout", context={"command": argv}) from exc
+            receipt["staging_size_bytes"] = stage.stat().st_size if stage and stage.is_file() else None
+        except OSError:
+            receipt["staging_size_bytes"] = None
+        details = dict(error.context)
+        error.context.update(receipt)
+        error.context.update(details)  # Preserve cancellation and cleanup uncertainty.
+        return error
 
     try:
+        check_audio_cancelled()
+        if source.stat().st_size > INPUT_LIMIT:
+            raise MediaToolError("Input exceeds the audio input byte budget.", "resource_limit")
         receipt["input_sha256"] = _hash_file(source, deadline)
         binaries = _resolve_binaries(execute, deadline)
         receipt["executables"] = binaries
@@ -225,36 +296,68 @@ def transcode_audio(input_path, output_path, container, audio_codec, audio_quali
             )
         receipt["input_media"] = _inspect(source, execute)
         receipt["input_decode"] = _decode(source, receipt["input_media"], execute)
-        execute(command)
-        assert_nonempty_file(output, "output_path")
-        receipt["output_sha256"] = _hash_file(output, deadline)
-        receipt["output_media"] = _inspect(output, execute)
+        check_audio_cancelled()
+        staging_dir = Path(tempfile.mkdtemp(prefix=".dcc-audio-", dir=str(output.parent)))
+        stage = staging_dir / ("artifact" + output.suffix)
+        receipt["staging_path"] = str(stage)
+        # Only the private staging pathname is handed to the encoder.
+        command[-1] = str(stage)
+        execute(command, output_path=stage)
+        assert_nonempty_file(stage, "staging_path")
+        if stage.stat().st_size > OUTPUT_LIMIT:
+            raise MediaToolError("Encoded output exceeds the acceptance byte budget.", "resource_limit")
+        receipt["output_sha256"] = _hash_file(stage, deadline, OUTPUT_LIMIT)
+        receipt["output_media"] = _inspect(stage, execute)
         actual = receipt["output_media"]
-        expected_rate = receipt["input_media"]["sample_rate"]
-        expected_channels = receipt["input_media"]["channels"]
         if (
             actual["codec"] != _FORMATS[container][2]
             or actual["container"] != container
             or actual["stream_count"] != 1
-            or actual["sample_rate"] != expected_rate
-            or actual["channels"] != expected_channels
+            or actual["sample_rate"] != receipt["input_media"]["sample_rate"]
+            or actual["channels"] != receipt["input_media"]["channels"]
         ):
             raise MediaToolError("Output does not match the requested audio contract.", "audio_contract_mismatch")
-        receipt["output_decode"] = _decode(output, actual, execute)
+        source_layout = receipt["input_media"]["channel_layout"]
+        if source_layout and actual["channel_layout"] != source_layout:
+            raise MediaToolError("Output channel layout changed.", "audio_contract_mismatch")
+        receipt["output_decode"] = _decode(stage, actual, execute)
         if receipt["input_decode"]["sample_frames"] != receipt["output_decode"]["sample_frames"]:
             raise MediaToolError("Full decode sample count changed without resampling.", "sample_count_mismatch")
         receipt["input_sha256_after"] = _hash_file(source, deadline)
         if receipt["input_sha256_after"] != receipt["input_sha256"]:
             raise MediaToolError("Source changed during audio transcoding.", "source_changed")
-        if _hash_file(output, deadline) != receipt["output_sha256"]:
+        if _hash_file(stage, deadline, OUTPUT_LIMIT) != receipt["output_sha256"]:
             raise MediaToolError("Output changed during verification.", "output_changed")
         for binary in binaries.values():
-            if _hash_file(Path(binary["path"]), deadline) != binary["sha256"]:
+            if _hash_file(Path(binary["path"]), deadline, BINARY_LIMIT) != binary["sha256"]:
                 raise MediaToolError("Resolved executable changed during operation.", "executable_changed")
-        receipt.update(accepted=True, output_status="verified")
-        return skill_success("Audio transcoded and fully decoded for verification.", **receipt)
+        verified = True
+        check_audio_cancelled()
+        if time.monotonic() >= deadline:
+            raise MediaToolError("Audio operation timed out before publication.", "timeout")
+        try:
+            os.link(str(stage), str(output))  # Same filesystem, atomic and no-replace.
+        except OSError as exc:
+            raise MediaToolError(
+                "Verified audio could not be published without replacing the destination.",
+                "publish_failed",
+                context={"detail": str(exc)},
+            ) from exc
+        receipt.update(accepted=True, output_status="verified_published", staging_status="published")
+        # Publication is the commit point. Do not turn a subsequent cleanup failure
+        # or late cancellation into a claim that no output was published.
+        try:
+            stage.unlink()
+            staging_dir.rmdir()
+        except OSError as exc:
+            receipt["staging_cleanup_error"] = str(exc)
+        return skill_success("Audio fully decoded, verified and atomically published.", **receipt)
     except MediaToolError as exc:
-        receipt["output_status"] = "unverified_partial" if output.exists() else "not_created"
-        receipt["output_size_bytes"] = output.stat().st_size if output.is_file() else None
-        exc.context.update(receipt)
+        failure_receipt(exc)
         raise
+    except Exception as exc:
+        if receipt["cleanup_status"] == "running":
+            receipt["cleanup_status"] = "unknown"
+        raise failure_receipt(
+            MediaToolError("Unexpected audio operation failure.", "unexpected_error", context={"detail": repr(exc)})
+        ) from exc
