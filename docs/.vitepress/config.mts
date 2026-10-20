@@ -175,6 +175,7 @@ export default defineConfig({
                 { text: 'Capture', link: '/api/capture' },
                 { text: 'USD', link: '/api/usd' },
                 { text: 'Utilities', link: '/api/utilities' },
+                { text: 'Memory Providers', link: '/api/memory-providers' },
                 { text: 'Observability', link: '/api/observability' },
                 { text: 'Resources', link: '/api/resources' },
                 { text: 'Workflow', link: '/api/workflow' },
