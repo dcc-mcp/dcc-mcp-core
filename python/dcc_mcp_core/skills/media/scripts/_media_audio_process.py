@@ -148,6 +148,26 @@ def run_audio_command(command, deadline, *, pcm=False, output_path=None):
             if process.poll() is not None and not any(thread.is_alive() for thread in threads):
                 break
             failed.wait(timeout=min(0.05, max(0, deadline - time.monotonic())))
+        # A reader can fail after the loop's first failed check but before its
+        # final is_alive check. Join the terminal readers, then recheck every
+        # acceptance condition before considering returncode or decoded bytes.
+        for thread in threads:
+            thread.join(timeout=max(0, deadline - time.monotonic()))
+        check_audio_cancelled()
+        if failed.is_set():
+            raise MediaToolError(
+                "Audio stream exceeded a byte budget or could not be read.",
+                "resource_limit",
+                context={"reason": state["error"]},
+            )
+        if any(thread.is_alive() for thread in threads) or time.monotonic() >= deadline:
+            raise MediaToolError("Audio operation timed out.", "timeout")
+        if output_path is not None and output_path.exists() and output_path.stat().st_size > OUTPUT_LIMIT:
+            raise MediaToolError(
+                "Audio output exceeded the acceptance size limit.",
+                "resource_limit",
+                context={"reason": "output_size_limit"},
+            )
     except BaseException as original:
         cleanup_error = None
         try:
