@@ -619,3 +619,51 @@ def test_unknown_error_does_not_reuse_previous_commands_cleanup_status(audio, fi
     assert result["error"] == "unexpected_error"
     assert result["context"]["cleanup_status"] == "unknown"
     assert not files[1].exists()
+
+
+def test_terminal_reader_overflow_cannot_race_owner_success(audio, monkeypatch):
+    """Schedule reader overflow strictly after the first owner failed check."""
+    import io
+    from types import SimpleNamespace
+
+    import _media_audio_process as process_module
+
+    schedule = []
+
+    class DeferredReader:
+        def __init__(self, target, args, daemon):
+            self.target, self.args = target, args
+            self.ident = None
+            self.finished = False
+
+        def start(self):
+            self.ident = 1
+
+        def is_alive(self):
+            if not self.finished:
+                assert schedule == ["owner-polled"], schedule
+                self.target(*self.args)
+                self.finished = True
+            return False
+
+        def join(self, timeout):
+            assert self.finished
+
+    def poll():
+        schedule.append("owner-polled")
+        return 0
+
+    process = SimpleNamespace(
+        stdout=io.BytesIO(b"x" * 2048), stderr=io.BytesIO(b""), pid=12345, returncode=0, poll=poll
+    )
+    stopped = []
+    monkeypatch.setattr(process_module, "PCM_LIMIT", 1024)
+    monkeypatch.setattr(process_module.subprocess, "Popen", lambda *args, **kwargs: process)
+    monkeypatch.setattr(process_module.threading, "Thread", DeferredReader)
+    monkeypatch.setattr(process_module, "_stop", lambda process: stopped.append(True))
+    with pytest.raises(audio.MediaToolError) as caught:
+        process_module.run_audio_command(["never-launched"], time.monotonic() + 10, pcm=True)
+    assert caught.value.code == "resource_limit"
+    assert caught.value.context["reason"] == "decoded_pcm_limit"
+    assert caught.value.context["cleanup_status"] == "terminated_and_reaped"
+    assert stopped == [True]
