@@ -479,3 +479,74 @@ def test_pixels_preparation_success_has_fresh_same_target_observation(route, ope
     assert context["observation"]["window_handle"] == TARGET["window_handle"]
     assert context["observation"]["process_id"] == TARGET["process_id"]
     assert context["capture_provenance"]["pixels_captured"] is True
+
+
+@pytest.mark.parametrize(
+    "code",
+    ["input_failed", "capture_failed", "stale_observation", "backend_unavailable", "timeout"],
+)
+def test_pixels_capture_failure_recovery_never_suggests_doomed_snapshot(route, code):
+    """Pixels-only capture-failure recovery must not offer ``ui_control__snapshot``.
+
+    A pixels-only capture failure closes the owned pixels task inside
+    ``PixelsMcpHostClient.snapshot`` (it stops the task on any ``CuaCliError``), so
+    a follow-up ``ui_control__snapshot`` against the same session always fails with
+    ``backend_unavailable`` ("The owned pixels task is closed."). The recovery
+    context therefore must not suggest that step and must report no usable
+    pixels-only re-observation route. Every whitelisted observation-failure code
+    takes this path; the semantic route still offers ``ui_control__snapshot`` and
+    is covered separately.
+    """
+    call, process, _launches, _config = route
+
+    def refuse(raw):
+        task_context = raw["task_context"]
+        raw.clear()
+        raw.update(
+            type="error",
+            code=code,
+            message="Native capture refused.",
+            task_context=task_context,
+            details={"fresh_observation_required": True, "blind_retry": False},
+        )
+
+    process.mutate_snapshot = refuse
+    result = call("prepare_foreground", {"operation": "restore_activate"})
+
+    # Overall readiness stays failed at the capture stage, on the pixels route.
+    assert result["success"] is False
+    assert result["error"] == code
+    preparation = result["context"]["foreground_preparation"]
+    assert preparation["stage"] == "capture"
+    assert preparation["capture_mode"] == "pixels_only"
+    assert preparation["fresh_observation_ready"] is False
+
+    context = result["context"]
+    recovery = context["recovery"]
+    # No usable pixels-only re-observation route is advertised ...
+    assert recovery["pixels_only_route_available"] is False
+    # ... and the doomed ui_control__snapshot step is not offered ...
+    next_step_tools = [step["tool"] for step in recovery["next_steps"]]
+    assert "ui_control__snapshot" not in next_step_tools
+    assert context["recovery_actions"] == ["stop_computer_use"]
+    assert "snapshot" not in context["recovery_actions"]
+    # ... while the schema-real release step remains available.
+    assert next_step_tools == ["ui_control__stop_computer_use"]
+    schemas = _ui_control_tool_schemas()
+    for step in recovery["next_steps"]:
+        tool = step["tool"]
+        assert tool.startswith("ui_control__")
+        name = tool[len("ui_control__") :]
+        assert name in schemas, f"{tool} is not exposed by ui-control tools.yaml"
+        jsonschema.Draft202012Validator(schemas[name]).validate(step["arguments"])
+
+    # The prompt must steer the caller away from the closed task, not toward it.
+    assert "do not call ui_control__snapshot against this closed task" in result["prompt"]
+    assert "re-authorize a fresh owned pixels task" in result["prompt"]
+
+    # Lock the regression: following the previously-suggested snapshot is in fact
+    # unusable against the closed owned pixels task.
+    follow_up = call("snapshot")
+    assert follow_up["success"] is False
+    assert follow_up["error"] == "backend_unavailable"
+    assert "owned pixels task is closed" in follow_up["message"]
