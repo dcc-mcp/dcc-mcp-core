@@ -165,6 +165,7 @@ def test_media_skill_parseable_and_declares_expected_tools():
         "image_stats",
         "sequence_to_mp4",
         "transcode",
+        "transcode_audio",
         "extract_frames",
         "thumbnail",
     }
@@ -182,7 +183,7 @@ def test_media_skill_discoverable_from_source_skill_path():
     assert "media" in names
 
     results = catalog.search_skills(query="convert image sequence to mp4", limit=10)
-    assert any(result.name == "media" and result.tool_count == 6 for result in results)
+    assert any(result.name == "media" and result.tool_count == 7 for result in results)
 
 
 def test_media_tool_registers_prefixed_actions_after_load():

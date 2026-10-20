@@ -17,7 +17,7 @@ metadata:
       task_category: export
     version: "0.1.0"
     layer: infrastructure
-    search-hint: "media, ffmpeg, ffprobe, vx ffmpeg, image sequence, render output, playblast, mp4, transcode, extract frames, thumbnail, probe video"
+    search-hint: "media, ffmpeg, ffprobe, vx ffmpeg, image sequence, render output, playblast, mp4, transcode, extract frames, thumbnail, probe video, audio-only, wav, ogg, vorbis"
     tags: "media, video, image-sequence, ffmpeg, ffprobe, vx, infrastructure, dcc-agnostic"
     tools: tools.yaml
 ---
@@ -63,3 +63,35 @@ powershell -c "irm https://raw.githubusercontent.com/loonghao/vx/main/install.ps
 Use absolute paths where possible. Relative paths are resolved by the process
 running the DCC-MCP server, which may not be the same working directory as the
 agent.
+
+## Verified audio-only encoding
+
+Use `media__transcode_audio` for a fresh `.wav`/`pcm_s16le` or
+`.ogg`/`libvorbis` output. Container and codec are explicit; incompatible pairs
+are rejected before launch. Optional `audio_quality` is Vorbis-only (-1 to 10,
+default 5). No resampling, channel conversion, overwrite, padding, trimming,
+or codec fallback is exposed. The first audio stream is selected explicitly;
+video, subtitle, data and inherited metadata are excluded.
+
+This tool requires **already installed** vx-managed FFmpeg and FFprobe. It
+resolves FFmpeg using `vx --output-format json where ffmpeg`, rejects
+system/global fallback, and finds FFprobe only in the same resolved bundle
+directory (the official vx provider layout). It records each executable's
+version, SHA-256 and resolution basis, and pins these absolute paths for execution. It checks encoder capability before encoding. Unlike the older
+video helpers, this operation does not install vx or FFmpeg automatically.
+
+One total timeout bounds commands and streamed hashing/decoding. PCM decoding
+is streamed and counted in sample frames (not container duration or packet
+count); stderr retains a bounded tail. Receipts include source/output hashes,
+actual codec/container/rate/channels, full-decode sample counts and PCM hashes,
+resolved executable evidence and every exact argv. A sample count change is a
+failure, never silently repaired. Lossy waveform quality and browser playback
+remain separate acceptance checks; matching counts alone do not prove quality.
+
+The tool uses the existing Core async job lifecycle. Poll the returned owned
+Core job to terminal state; do not treat admission as artifact acceptance.
+Timeout/error receipts retain the unverified partial output path and status;
+no retry or cleanup of the artifact is implicit. POSIX child processes run in
+an owned process group which is killed and reaped on interruption. Windows
+uses `taskkill /T /F` followed by launcher reaping; Windows live cancellation
+qualification is separate from POSIX unit coverage.
