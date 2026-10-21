@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 from pathlib import Path
 import sys
@@ -31,7 +32,7 @@ class QualificationLogTests(unittest.TestCase):
         import yaml
 
         workflow = Path(__file__).parents[1] / ".github/workflows/ci.yml"
-        job = yaml.safe_load(workflow.read_text())["jobs"]["media-audio-native"]
+        job = yaml.safe_load(workflow.read_text(encoding="utf-8"))["jobs"]["media-audio-native"]
         self.assertNotIn("MEDIA_AUDIO_EVIDENCE", job["env"])
         self.assertFalse(any("runner." in str(value) for value in job["env"].values()))
         first = job["steps"][0]
@@ -171,6 +172,40 @@ class QualificationLogTests(unittest.TestCase):
             self.assertEqual(receipt["cleanup_status"], "unknown")
             self.assertIn("test cleanup failure", receipt["cleanup_errors"][0])
             self.assertTrue(receipt["launcher_reaped"])
+
+
+class QualificationPlatformSimulationTests(unittest.TestCase):
+    def test_supervisor_mocks_work_without_posix_symbols(self):
+        # Remove POSIX APIs before the nested tests install their mocks, exactly
+        # as on Windows. No subprocess is launched by any selected test.
+        removed = []
+        for module, names in (
+            (qualification.os, ("killpg", "getpgid")),
+            (qualification.signal, ("SIGKILL",)),
+        ):
+            for name in names:
+                if hasattr(module, name):
+                    removed.append((module, name, getattr(module, name)))
+                    delattr(module, name)
+        try:
+            suite = unittest.TestSuite(
+                QualificationLogTests(name)
+                for name in (
+                    "test_terminal_stdout_overflow_rejected_before_read",
+                    "test_terminal_stderr_overflow_rejected_before_diagnostics",
+                    "test_failure_diagnostic_reads_only_tail",
+                    "test_cleanup_uncertainty_preserved",
+                )
+            )
+            output = io.StringIO()
+            result = unittest.TextTestRunner(stream=output).run(suite)
+            self.assertEqual(result.testsRun, 4)
+            self.assertTrue(result.wasSuccessful(), output.getvalue())
+            self.assertFalse(hasattr(qualification.os, "killpg"))
+            self.assertFalse(hasattr(qualification.signal, "SIGKILL"))
+        finally:
+            for module, name, value in removed:
+                setattr(module, name, value)
 
 
 if __name__ == "__main__":
