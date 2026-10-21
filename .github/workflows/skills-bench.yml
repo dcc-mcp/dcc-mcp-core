@@ -19,6 +19,9 @@ on:
       - "scripts/ci/core_version_contract.py"
       - "tests/test_core_version_contract.py"
       - "skills/**"
+      - "examples/skills/**"
+      - "python/dcc_mcp_core/skills/**"
+      - "tests/fixtures/skills/**"
       # SkillMetadata field changes alter what the index actually contains.
       - "crates/dcc-mcp-models/**"
       # Root manifests: a dependency bump (notably `rand`) can change the seeded
@@ -140,6 +143,26 @@ jobs:
           name: skills-bench-report
           path: skills-bench.json
           if-no-files-found: ignore
+
+
+      # Temporary recovery evidence only: the original gate remains failed.
+      # Remove after the official generated snapshot is committed and reviewed.
+      - name: Generate recovery seed snapshot
+        id: regenerate_seeds
+        if: failure()
+        run: |
+          cargo run --locked --release -p dcc-mcp-skills-bench --bin skills-bench -- regenerate-seeds
+          test -s benchmarks/skills/seeds.json
+        shell: bash
+
+      - name: Upload recovery seed snapshot
+        if: ${{ failure() && steps.regenerate_seeds.outcome == 'success' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: generated-skills-seeds
+          path: benchmarks/skills/seeds.json
+          if-no-files-found: error
+          retention-days: 3
 
   latency-trend:
     name: Query efficiency trend (not a gate)
