@@ -21,6 +21,12 @@ SPEC.loader.exec_module(qualification)
 
 
 class QualificationLogTests(unittest.TestCase):
+    def setUp(self):
+        # The Linux supervisor is fully mocked: Windows has no SIGKILL.
+        signal_patch = mock.patch.object(qualification.signal, "SIGKILL", 9, create=True)
+        signal_patch.start()
+        self.addCleanup(signal_patch.stop)
+
     def test_workflow_resolves_runner_temp_inside_a_step(self):
         import yaml
 
@@ -77,7 +83,7 @@ class QualificationLogTests(unittest.TestCase):
         self.assertEqual(env["DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS"], "1")
         self.assertEqual(env["DCC_MCP_REGISTRY_DIR"], str(Path("/evidence") / "registry"))
         self.assertEqual(env["DCC_MCP_CHECKPOINT_DIR"], str(Path("/evidence") / "checkpoints"))
-        self.assertEqual(env["DCC_MCP_MEDIA_VX_BIN"], "/verified/bin/vx")
+        self.assertEqual(env["DCC_MCP_MEDIA_VX_BIN"], str(Path("/verified/bin/vx")))
         self.assertEqual(env["DCC_MCP_MEDIA_FFMPEG_BIN"], "/verified/ffmpeg")
         self.assertEqual(env["DCC_MCP_MEDIA_FFPROBE_BIN"], "/verified/ffprobe")
 
