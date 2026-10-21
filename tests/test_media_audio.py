@@ -664,3 +664,38 @@ def test_ogg_uses_fixed_pagination_without_sample_filters(audio, files):
 def test_wav_does_not_receive_ogg_pagination_options(audio, files):
     command, _, _ = audio.build_audio_command(str(files[0]), str(files[1].with_suffix(".wav")), "wav", "pcm_s16le")
     assert "-page_duration" not in command
+
+
+@pytest.mark.parametrize("extra_frames", [-1, 0, 1])
+def test_wav_payload_lower_bound_precedes_staging(audio, files, runtime, monkeypatch, extra_frames):
+    from unittest import mock
+
+    from _media_common import run_tool
+
+    runtime.input_frames = audio.OUTPUT_LIMIT // 4 + extra_frames  # Stereo PCM16.
+    output = files[1].with_suffix(".wav")
+    with mock.patch.object(audio.tempfile, "mkdtemp", wraps=audio.tempfile.mkdtemp) as stage:
+        result = run_tool(
+            audio.transcode_audio,
+            dict(input_path=str(files[0]), output_path=str(output), container="wav", audio_codec="pcm_s16le"),
+        )
+    encoded = any("-c:a" in command and "-n" in command for command in runtime.calls)
+    if extra_frames > 0:
+        assert result["error"] == "resource_limit"
+        assert result["context"]["minimum_output_bytes"] == audio.OUTPUT_LIMIT + 4
+        stage.assert_not_called()
+        assert not encoded
+        assert result["context"]["staging_path"] is None
+    else:
+        # Header overhead is deliberately not guessed. Existing post-encode
+        # checks remain authoritative (the fake output is OGG, not WAV).
+        assert result["error"] == "audio_contract_mismatch"
+        stage.assert_called_once()
+        assert encoded
+    assert not output.exists()
+    assert files[0].read_bytes() == b"source-master"
+
+
+def test_pcm_lower_bound_does_not_reject_compressed_ogg(audio, files, runtime):
+    runtime.input_frames = runtime.output_frames = audio.OUTPUT_LIMIT // 4 + 1
+    assert invoke(audio, files)["success"] is True
