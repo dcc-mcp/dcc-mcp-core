@@ -145,25 +145,6 @@ jobs:
           if-no-files-found: ignore
 
 
-      # Temporary recovery evidence only: the original gate remains failed.
-      # Remove after the official generated snapshot is committed and reviewed.
-      - name: Generate recovery seed snapshot
-        id: regenerate_seeds
-        if: failure()
-        run: |
-          cargo run --locked --release -p dcc-mcp-skills-bench --bin skills-bench -- regenerate-seeds
-          test -s benchmarks/skills/seeds.json
-        shell: bash
-
-      - name: Upload recovery seed snapshot
-        if: ${{ failure() && steps.regenerate_seeds.outcome == 'success' }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: generated-skills-seeds
-          path: benchmarks/skills/seeds.json
-          if-no-files-found: error
-          retention-days: 3
-
   latency-trend:
     name: Query efficiency trend (not a gate)
     # Latency moves with the machine, not with the code, so it only runs
