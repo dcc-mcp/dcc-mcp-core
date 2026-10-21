@@ -279,7 +279,18 @@ runs:
         # so select the installed native 3.7 explicitly on non-Windows lanes.
         # Windows must use the original python.exe name: its python3.7 copy
         # breaks CPython 3.7 venv's sys._base_executable lookup (WinError 2).
-        if [[ "${{ inputs.python-version }}" == "3.7" && "${{ runner.os }}" != "Windows" ]]; then
+        #
+        # On macOS the runner is arm64 while the cp37 wheel is the x86_64
+        # cross-compiled one (CPython 3.7 predates Apple Silicon, so no arm64
+        # interpreter exists upstream and no arm64 wheel is contracted). A venv
+        # created without `arch -x86_64` is bound to the arm64 slice, so pip
+        # inside it rejects the wheel with "not a supported wheel on this
+        # platform": pip derives the platform tag from the RUNNING interpreter's
+        # architecture. Rosetta 2 does not help on its own -- it only translates
+        # processes that explicitly request translation.
+        if [[ "${{ inputs.python-version }}" == "3.7" && "${{ runner.os }}" == "macOS" ]]; then
+          arch -x86_64 python3.7 -m venv test-env
+        elif [[ "${{ inputs.python-version }}" == "3.7" && "${{ runner.os }}" != "Windows" ]]; then
           python3.7 -m venv test-env
         else
           python -m venv test-env
@@ -288,6 +299,15 @@ runs:
           source test-env/Scripts/activate
         else
           source test-env/bin/activate
+        fi
+        # A venv created under Rosetta still runs arm64 when the shell that
+        # spawned it is arm64: `source` only rewrites PATH, it does not change
+        # the architecture the subsequent processes are translated to. Every
+        # command in this step whose platform tag or imported extension depends
+        # on the architecture therefore needs the explicit x86_64 prefix too.
+        rosetta="false"
+        if [[ "${{ inputs.python-version }}" == "3.7" && "${{ runner.os }}" == "macOS" ]]; then
+          rosetta="true"
         fi
 
         # A brand-new py37 venv does not inherit the setup action's upgraded
@@ -298,13 +318,24 @@ runs:
         # Upgrade through `python -m pip`, not the `pip` shim: the console
         # script is a copy of pip.exe inside the venv, so replacing it while
         # that process is running fails with WinError 5 (access denied).
-        python -m pip install --upgrade "pip<24.1" wheel
-        python -m pip --version
-        pip install --force-reinstall dist/*.whl
-        pip check
+        if [[ "$rosetta" == "true" ]]; then
+          arch -x86_64 python -m pip install --upgrade "pip<24.1" wheel
+          arch -x86_64 python -m pip --version
+          arch -x86_64 pip install --force-reinstall dist/*.whl
+          arch -x86_64 pip check
+        else
+          python -m pip install --upgrade "pip<24.1" wheel
+          python -m pip --version
+          pip install --force-reinstall dist/*.whl
+          pip check
+        fi
 
         if [[ "${{ inputs.python-version }}" == "3.7" ]]; then
-          python scripts/ci/smoke_python37_runtime.py --profile native_py37
+          if [[ "$rosetta" == "true" ]]; then
+            arch -x86_64 python scripts/ci/smoke_python37_runtime.py --profile native_py37
+          else
+            python scripts/ci/smoke_python37_runtime.py --profile native_py37
+          fi
         else
           python tests/test_imports.py
         fi

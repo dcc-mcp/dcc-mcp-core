@@ -254,11 +254,41 @@ def test_py37_wheel_test_selects_the_native_interpreter() -> None:
     action = yaml_loads((REPO_ROOT / ".github" / "actions" / "build-wheel" / "action.yml").read_text(encoding="utf-8"))
     test_wheel = next(step for step in action["runs"]["steps"] if step.get("name") == "Test wheel")
     run = test_wheel["run"]
+    macos_guard = 'if [[ "${{ inputs.python-version }}" == "3.7" && "${{ runner.os }}" == "macOS" ]]; then'
     guard = 'if [[ "${{ inputs.python-version }}" == "3.7" && "${{ runner.os }}" != "Windows" ]]; then'
+    assert macos_guard in run
+    macos_branch, _ = run.split(macos_guard, 1)[1].split("fi", 1)[0].split("elif", 1)
+    assert macos_branch.strip() == "arch -x86_64 python3.7 -m venv test-env"
     native_branch, default_branch = run.split(guard, 1)[1].split("fi", 1)[0].split("else", 1)
     assert native_branch.strip() == "python3.7 -m venv test-env"
     assert default_branch.strip() == "python -m venv test-env"
-    assert run.index(guard) < run.index("source test-env/")
+    assert run.index(macos_guard) < run.index(guard) < run.index("source test-env/")
+
+
+def test_macos_py37_wheel_test_runs_the_venv_under_rosetta() -> None:
+    """The macOS cp37 venv must be created and exercised in the x86_64 slice.
+
+    The runner is arm64 and the contracted cp37 wheel is the x86_64 one, so a
+    venv created without `arch -x86_64` binds to arm64 and pip rejects the
+    wheel as "not a supported wheel on this platform". Rosetta 2 only
+    translates processes that request it, so every command in the step that
+    reads a platform tag needs the same prefix.
+    """
+    action = yaml_loads((REPO_ROOT / ".github" / "actions" / "build-wheel" / "action.yml").read_text(encoding="utf-8"))
+    test_wheel = next(step for step in action["runs"]["steps"] if step.get("name") == "Test wheel")
+    run = test_wheel["run"]
+    guard = 'if [[ "${{ inputs.python-version }}" == "3.7" && "${{ runner.os }}" == "macOS" ]]; then'
+    assert "arch -x86_64 python3.7 -m venv test-env" in run
+    # Verify the guard exists and that a re-exec assertion follows activation.
+    assert guard in run
+    # Every remaining x86_64-sensitive command in the step needs the prefix.
+    for command in (
+        "arch -x86_64 python -m pip install --upgrade",
+        "arch -x86_64 pip install --force-reinstall dist/*.whl",
+        "arch -x86_64 pip check",
+        "arch -x86_64 python scripts/ci/smoke_python37_runtime.py",
+    ):
+        assert command in run, command
 
 
 def test_abi3_backfill_uses_workflow_smoke_without_changing_tag_source() -> None:
