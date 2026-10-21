@@ -1,7 +1,37 @@
 tools:
+  - name: check_runtime
+    description: >-
+      Check installed FFmpeg/FFprobe versions, hashes, build configuration and
+      required encoders before production. Read-only; never downloads or installs.
+    input_schema:
+      type: object
+      properties:
+        required_encoders:
+          type: array
+          maxItems: 32
+          items:
+            type: string
+            pattern: "^[A-Za-z0-9_][A-Za-z0-9_-]{0,79}$"
+          default: [pcm_s16le, libvorbis, pcm_f32le]
+          description: "Encoder names required by the planned media work."
+        timeout_secs:
+          type: integer
+          minimum: 1
+          maximum: 60
+          default: 30
+          description: "Shared deadline for runtime checks."
+      additionalProperties: false
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: any
+    timeout_hint_secs: 30
+    source_file: scripts/check_runtime.py
+
   - name: probe
     description: >-
-      Inspect a media file with vx-managed ffprobe and return format, stream,
+      Inspect a media file with the selected ffprobe and return format, stream,
       duration, size, codec, and frame-rate metadata. Read-only; does not
       modify the input.
     input_schema:
@@ -29,7 +59,7 @@ tools:
     description: >-
       Compute in-band image statistics — mean/min/max/stddev luma, a 16-bin
       luma histogram, and uniform-frame detection — for a media file (PNG,
-      JPEG, EXR, ...) or the first frame of a video, using vx-managed ffmpeg.
+      JPEG, EXR, ...) or the first frame of a video, using the selected ffmpeg.
       Flags near-black, blown-out, and blank/uniform frames without shipping
       pixels to the model. Read-only; does not modify the input.
     input_schema:
@@ -62,7 +92,7 @@ tools:
   - name: sequence_to_mp4
     description: >-
       Convert an image sequence from DCC render/playblast output into an MP4
-      video using vx-managed ffmpeg. Accepts either a printf-style
+      video using the selected ffmpeg. Accepts either a printf-style
       input_pattern such as frame_%04d.png or input_dir plus frame_glob.
     input_schema:
       type: object
@@ -235,7 +265,7 @@ tools:
   - name: extract_frames
     description: >-
       Extract image frames from a video into an output directory using
-      vx-managed ffmpeg. The output filename pattern is validated and must be a
+      the selected ffmpeg. The output filename pattern is validated and must be a
       basename such as frame_%04d.png.
     input_schema:
       type: object
@@ -284,7 +314,7 @@ tools:
   - name: thumbnail
     description: >-
       Extract one thumbnail image from a media file at a safe timestamp using
-      vx-managed ffmpeg. Optionally scales to a requested width.
+      the selected ffmpeg. Optionally scales to a requested width.
     input_schema:
       type: object
       required: [input_path, output_path]

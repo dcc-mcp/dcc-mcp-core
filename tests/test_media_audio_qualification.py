@@ -62,6 +62,8 @@ class QualificationLogTests(unittest.TestCase):
         self.assertEqual(env["DCC_MCP_REGISTRY_DIR"], "/evidence/registry")
         self.assertEqual(env["DCC_MCP_CHECKPOINT_DIR"], "/evidence/checkpoints")
         self.assertEqual(env["DCC_MCP_MEDIA_VX_BIN"], "/verified/bin/vx")
+        self.assertEqual(env["DCC_MCP_MEDIA_FFMPEG_BIN"], "/verified/ffmpeg")
+        self.assertEqual(env["DCC_MCP_MEDIA_FFPROBE_BIN"], "/verified/ffprobe")
 
     def test_native_launcher_executes_only_hosted_module_with_closed_environment(self):
         receipt = {
