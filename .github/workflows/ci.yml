@@ -1337,10 +1337,13 @@ jobs:
     permissions:
       contents: read
     env:
-      MEDIA_AUDIO_EVIDENCE: ${{ runner.temp }}/media-audio-evidence
       DCC_MCP_AUDIO_NATIVE: "1"
       DCC_MCP_MEDIA_AUTO_INSTALL_VX: "0"
     steps:
+      # runner context is not available in job-level env expressions.
+      - name: Set isolated media evidence directory
+        shell: bash
+        run: echo "MEDIA_AUDIO_EVIDENCE=$RUNNER_TEMP/media-audio-evidence" >> "$GITHUB_ENV"
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
         with:

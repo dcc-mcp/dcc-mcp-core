@@ -21,6 +21,22 @@ SPEC.loader.exec_module(qualification)
 
 
 class QualificationLogTests(unittest.TestCase):
+    def test_workflow_resolves_runner_temp_inside_a_step(self):
+        import yaml
+
+        workflow = Path(__file__).parents[1] / ".github/workflows/ci.yml"
+        job = yaml.safe_load(workflow.read_text())["jobs"]["media-audio-native"]
+        self.assertNotIn("MEDIA_AUDIO_EVIDENCE", job["env"])
+        self.assertFalse(any("runner." in str(value) for value in job["env"].values()))
+        first = job["steps"][0]
+        self.assertEqual(first["shell"], "bash")
+        self.assertEqual(
+            first["run"],
+            'echo "MEDIA_AUDIO_EVIDENCE=$RUNNER_TEMP/media-audio-evidence" >> "$GITHUB_ENV"',
+        )
+        upload = next(step for step in job["steps"] if step.get("uses", "").startswith("actions/upload-artifact@"))
+        self.assertIn("${{ runner.temp }}/media-audio-evidence/", upload["with"]["path"])
+
     def test_child_environment_does_not_inherit_runner_secrets(self):
         sentinels = {
             "GITHUB_TOKEN": "synthetic-github-sentinel",
