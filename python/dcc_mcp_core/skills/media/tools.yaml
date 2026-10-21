@@ -218,8 +218,9 @@ tools:
     description: >-
       Encode the first audio stream to a fresh WAV/PCM or OGG/Vorbis artifact.
       Preserve sample rate and channel count; verify full decoded sample counts,
-      hashes and actual output metadata. Requires installed vx-managed FFmpeg
-      and FFprobe with the requested encoder. Never installs or substitutes codecs.
+      hashes and actual output metadata. Requires external FFmpeg and matching FFprobe
+      with the requested encoder: explicit executable overrides, then installed
+      local vx store, then system PATH. Never installs or substitutes codecs.
     input_schema:
       type: object
       additionalProperties: false

@@ -6,7 +6,7 @@ description: >-
   FFmpeg. Use when agents need to preflight, inspect, or share media outputs.
   Not for arbitrary shell or vx execution - use typed media tools only.
 license: MIT
-compatibility: Requires external FFmpeg and matching FFprobe; explicit executable overrides, then installed vx runtime, then system PATH. Never installs or downloads dependencies.
+compatibility: Python 3.7+. Requires external FFmpeg and matching FFprobe; explicit executable overrides, then installed vx runtime, then system PATH. Never installs or downloads dependencies.
 metadata:
   dcc-mcp:
     dcc: python

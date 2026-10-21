@@ -260,6 +260,16 @@ def transcode_audio(input_path, output_path, container, audio_codec, audio_quali
         receipt["input_media"] = _inspect(source, execute)
         receipt["input_decode"] = _decode(source, receipt["input_media"], execute)
         check_audio_cancelled()
+        if container == "wav":
+            # PCM16 payload alone is a lower bound; do not guess a WAV header
+            # size or invoke an encoder when even the payload cannot fit.
+            minimum_output_bytes = receipt["input_decode"]["sample_frames"] * receipt["input_media"]["channels"] * 2
+            if minimum_output_bytes > OUTPUT_LIMIT:
+                raise MediaToolError(
+                    "PCM16 WAV payload exceeds the output acceptance byte budget.",
+                    "resource_limit",
+                    context={"minimum_output_bytes": minimum_output_bytes},
+                )
         staging_dir = Path(tempfile.mkdtemp(prefix=".dcc-audio-", dir=str(output.parent)))
         stage = staging_dir / ("artifact" + output.suffix)
         receipt["staging_path"] = str(stage)
