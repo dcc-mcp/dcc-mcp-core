@@ -59,7 +59,7 @@ class QualificationLogTests(unittest.TestCase):
                 "DCC_MCP_MEDIA_AUTO_INSTALL_VX",
             },
         )
-        self.assertEqual(env["PATH"], "/isolated/bin")
+        self.assertEqual(env["PATH"], str(Path("/isolated/bin")))
         self.assertFalse(set(sentinels.values()) & set(env.values()))
 
     def test_native_environment_retains_only_explicit_isolation_controls(self):
@@ -75,8 +75,8 @@ class QualificationLogTests(unittest.TestCase):
         self.assertNotIn("ARBITRARY_TOKEN", env)
         self.assertEqual(env["DCC_MCP_GATEWAY_PORT"], "0")
         self.assertEqual(env["DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS"], "1")
-        self.assertEqual(env["DCC_MCP_REGISTRY_DIR"], "/evidence/registry")
-        self.assertEqual(env["DCC_MCP_CHECKPOINT_DIR"], "/evidence/checkpoints")
+        self.assertEqual(env["DCC_MCP_REGISTRY_DIR"], str(Path("/evidence") / "registry"))
+        self.assertEqual(env["DCC_MCP_CHECKPOINT_DIR"], str(Path("/evidence") / "checkpoints"))
         self.assertEqual(env["DCC_MCP_MEDIA_VX_BIN"], "/verified/bin/vx")
         self.assertEqual(env["DCC_MCP_MEDIA_FFMPEG_BIN"], "/verified/ffmpeg")
         self.assertEqual(env["DCC_MCP_MEDIA_FFPROBE_BIN"], "/verified/ffprobe")
@@ -109,6 +109,8 @@ class QualificationLogTests(unittest.TestCase):
             self.assertNotIn("GITHUB_ACTIONS", env)
             self.assertTrue(Path(env["DCC_MCP_CHECKPOINT_DIR"]).is_dir())
 
+    # The supervisor targets Linux; create mocked killpg on Windows too so these
+    # host-free failure-path tests exercise the same contract without native calls.
     def fake_process(self, *, stdout_size=0, stderr_size=0, returncode=0):
         def start(argv, **kwargs):
             kwargs["stdout"].write(b"o" * stdout_size)
@@ -124,7 +126,9 @@ class QualificationLogTests(unittest.TestCase):
     def test_terminal_stdout_overflow_rejected_before_read(self):
         with tempfile.TemporaryDirectory() as tmp, mock.patch.object(
             qualification.subprocess, "Popen", self.fake_process(stdout_size=4 * 1024**2 + 1)
-        ), mock.patch.object(qualification.os, "killpg"), mock.patch.object(qualification, "_bounded_text") as read:
+        ), mock.patch.object(qualification.os, "killpg", create=True), mock.patch.object(
+            qualification, "_bounded_text"
+        ) as read:
             with self.assertRaisesRegex(RuntimeError, "Closed command logs exceeded"):
                 qualification.run(["test-double"], Path(tmp), {})
             read.assert_not_called()
@@ -136,7 +140,9 @@ class QualificationLogTests(unittest.TestCase):
     def test_terminal_stderr_overflow_rejected_before_diagnostics(self):
         with tempfile.TemporaryDirectory() as tmp, mock.patch.object(
             qualification.subprocess, "Popen", self.fake_process(stderr_size=4 * 1024**2 + 1, returncode=1)
-        ), mock.patch.object(qualification.os, "killpg"), mock.patch.object(qualification, "_stderr_tail") as tail:
+        ), mock.patch.object(qualification.os, "killpg", create=True), mock.patch.object(
+            qualification, "_stderr_tail"
+        ) as tail:
             with self.assertRaisesRegex(RuntimeError, "Closed command logs exceeded"):
                 qualification.run(["test-double"], Path(tmp), {})
             tail.assert_not_called()
@@ -144,7 +150,7 @@ class QualificationLogTests(unittest.TestCase):
     def test_failure_diagnostic_reads_only_tail(self):
         with tempfile.TemporaryDirectory() as tmp, mock.patch.object(
             qualification.subprocess, "Popen", self.fake_process(stderr_size=100000, returncode=1)
-        ), mock.patch.object(qualification.os, "killpg"):
+        ), mock.patch.object(qualification.os, "killpg", create=True):
             with self.assertRaises(RuntimeError) as raised:
                 qualification.run(["test-double"], Path(tmp), {})
             self.assertEqual(raised.exception.args[0][2], "e" * 4000)
@@ -152,7 +158,7 @@ class QualificationLogTests(unittest.TestCase):
     def test_cleanup_uncertainty_preserved(self):
         with tempfile.TemporaryDirectory() as tmp, mock.patch.object(
             qualification.subprocess, "Popen", self.fake_process()
-        ), mock.patch.object(qualification.os, "killpg", side_effect=OSError("test cleanup failure")):
+        ), mock.patch.object(qualification.os, "killpg", create=True, side_effect=OSError("test cleanup failure")):
             with self.assertRaisesRegex(RuntimeError, "cleanup is uncertain"):
                 qualification.run(["test-double"], Path(tmp), {})
             receipt = json.loads((Path(tmp) / "command-000.json").read_text())
