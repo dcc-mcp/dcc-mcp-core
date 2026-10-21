@@ -2103,9 +2103,9 @@
     },
     {
       "name": "media",
-      "description": "Infrastructure skill - DCC-agnostic media probing, transcoding, thumbnails, frame extraction, and image-sequence-to-MP4 conversion through vx-managed FFmpeg. Use when agents need to inspect or share render/playblast outputs. Not for arbitrary shell or vx execution - use typed media tools only.",
+      "description": "Infrastructure skill - DCC-agnostic media probing, transcoding, thumbnails, frame extraction, and image-sequence-to-MP4 conversion through installed FFmpeg. Use when agents need to preflight, inspect, or share media outputs. Not for arbitrary shell or vx execution - use typed media tools only.",
       "license": "MIT",
-      "compatibility": "Uses vx on PATH; non-read-only media tools can bootstrap vx with the official install script.",
+      "compatibility": "Python 3.7+. Requires external FFmpeg and matching FFprobe; explicit executable overrides, then installed vx runtime, then system PATH. Never installs or downloads dependencies.",
       "allowed-tools": [],
       "metadata": {
         "dcc-mcp.dcc": "python",
@@ -2117,7 +2117,7 @@
         },
         "dcc-mcp.version": "0.1.0",
         "dcc-mcp.layer": "infrastructure",
-        "dcc-mcp.search-hint": "media, ffmpeg, ffprobe, vx ffmpeg, image sequence, render output, playblast, mp4, transcode, extract frames, thumbnail, probe video",
+        "dcc-mcp.search-hint": "media, ffmpeg, ffprobe, vx ffmpeg, check runtime, preflight, encoder, image sequence, render output, playblast, mp4, transcode, extract frames, thumbnail, probe video, audio-only, wav, ogg, vorbis",
         "dcc-mcp.tags": "media, video, image-sequence, ffmpeg, ffprobe, vx, infrastructure, dcc-agnostic",
         "dcc-mcp.tools": "tools.yaml"
       },
@@ -2132,11 +2132,55 @@
         "infrastructure",
         "dcc-agnostic"
       ],
-      "search-hint": "media, ffmpeg, ffprobe, vx ffmpeg, image sequence, render output, playblast, mp4, transcode, extract frames, thumbnail, probe video",
+      "search-hint": "media, ffmpeg, ffprobe, vx ffmpeg, check runtime, preflight, encoder, image sequence, render output, playblast, mp4, transcode, extract frames, thumbnail, probe video, audio-only, wav, ogg, vorbis",
       "tools": [
         {
+          "name": "check_runtime",
+          "description": "Check installed FFmpeg/FFprobe versions, hashes, build configuration and required encoders before production. Read-only; never downloads or installs.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "required_encoders": {
+                "type": "array",
+                "maxItems": 32,
+                "items": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_][A-Za-z0-9_-]{0,79}$"
+                },
+                "default": [
+                  "pcm_s16le",
+                  "libvorbis",
+                  "pcm_f32le"
+                ],
+                "description": "Encoder names required by the planned media work."
+              },
+              "timeout_secs": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 60,
+                "default": 30,
+                "description": "Shared deadline for runtime checks."
+              }
+            },
+            "additionalProperties": false
+          },
+          "read_only": true,
+          "destructive": false,
+          "idempotent": true,
+          "defer-loading": false,
+          "source_file": "scripts/check_runtime.py",
+          "next-tools": {
+            "on-success": [],
+            "on-failure": []
+          },
+          "group": "",
+          "execution": "sync",
+          "timeout_hint_secs": 30,
+          "enforce_thread_affinity": true
+        },
+        {
           "name": "probe",
-          "description": "Inspect a media file with vx-managed ffprobe and return format, stream, duration, size, codec, and frame-rate metadata. Read-only; does not modify the input.",
+          "description": "Inspect a media file with the selected ffprobe and return format, stream, duration, size, codec, and frame-rate metadata. Read-only; does not modify the input.",
           "input_schema": {
             "type": "object",
             "required": [
@@ -2172,7 +2216,7 @@
         },
         {
           "name": "image_stats",
-          "description": "Compute in-band image statistics — mean/min/max/stddev luma, a 16-bin luma histogram, and uniform-frame detection — for a media file (PNG, JPEG, EXR, ...) or the first frame of a video, using vx-managed ffmpeg. Flags near-black, blown-out, and blank/uniform frames without shipping pixels to the model. Read-only; does not modify the input.",
+          "description": "Compute in-band image statistics — mean/min/max/stddev luma, a 16-bin luma histogram, and uniform-frame detection — for a media file (PNG, JPEG, EXR, ...) or the first frame of a video, using the selected ffmpeg. Flags near-black, blown-out, and blank/uniform frames without shipping pixels to the model. Read-only; does not modify the input.",
           "input_schema": {
             "type": "object",
             "required": [
@@ -2215,7 +2259,7 @@
         },
         {
           "name": "sequence_to_mp4",
-          "description": "Convert an image sequence from DCC render/playblast output into an MP4 video using vx-managed ffmpeg. Accepts either a printf-style input_pattern such as frame_%04d.png or input_dir plus frame_glob.",
+          "description": "Convert an image sequence from DCC render/playblast output into an MP4 video using the selected ffmpeg. Accepts either a printf-style input_pattern such as frame_%04d.png or input_dir plus frame_glob.",
           "input_schema": {
             "type": "object",
             "required": [
@@ -2396,8 +2440,77 @@
           "enforce_thread_affinity": true
         },
         {
+          "name": "transcode_audio",
+          "description": "Encode the first audio stream to a fresh WAV/PCM or OGG/Vorbis artifact. Preserve sample rate and channel count; verify full decoded sample counts, hashes and actual output metadata. Requires external FFmpeg and matching FFprobe with the requested encoder: explicit executable overrides, then installed local vx store, then system PATH. Never installs or substitutes codecs.",
+          "input_schema": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "input_path",
+              "output_path",
+              "container",
+              "audio_codec"
+            ],
+            "properties": {
+              "input_path": {
+                "type": "string",
+                "description": "Existing local audio source: at most 128 MiB, 8–192 kHz, 1–8 channels."
+              },
+              "output_path": {
+                "type": "string",
+                "description": "Fresh .wav or .ogg destination; parent must exist. Verified staging is atomically published, never overwritten."
+              },
+              "container": {
+                "type": "string",
+                "enum": [
+                  "wav",
+                  "ogg"
+                ]
+              },
+              "audio_codec": {
+                "type": "string",
+                "enum": [
+                  "pcm_s16le",
+                  "libvorbis"
+                ],
+                "description": "wav requires pcm_s16le; ogg requires libvorbis."
+              },
+              "audio_quality": {
+                "type": "number",
+                "minimum": -1,
+                "maximum": 10,
+                "description": "Vorbis q:a only. Defaults to 5 for ogg; invalid for wav."
+              },
+              "timeout_secs": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 3600,
+                "default": 300,
+                "description": "Total command, hashing and full-decode budget in seconds."
+              }
+            }
+          },
+          "read_only": false,
+          "destructive": false,
+          "idempotent": false,
+          "defer-loading": false,
+          "source_file": "scripts/transcode_audio.py",
+          "next-tools": {
+            "on-success": [
+              "media__probe"
+            ],
+            "on-failure": [
+              "dcc_diagnostics__audit_log"
+            ]
+          },
+          "group": "",
+          "execution": "async",
+          "timeout_hint_secs": 300,
+          "enforce_thread_affinity": true
+        },
+        {
           "name": "extract_frames",
-          "description": "Extract image frames from a video into an output directory using vx-managed ffmpeg. The output filename pattern is validated and must be a basename such as frame_%04d.png.",
+          "description": "Extract image frames from a video into an output directory using the selected ffmpeg. The output filename pattern is validated and must be a basename such as frame_%04d.png.",
           "input_schema": {
             "type": "object",
             "required": [
@@ -2461,7 +2574,7 @@
         },
         {
           "name": "thumbnail",
-          "description": "Extract one thumbnail image from a media file at a safe timestamp using vx-managed ffmpeg. Optionally scales to a requested width.",
+          "description": "Extract one thumbnail image from a media file at a safe timestamp using the selected ffmpeg. Optionally scales to a requested width.",
           "input_schema": {
             "type": "object",
             "required": [
@@ -2532,15 +2645,20 @@
       "version": "0.1.0",
       "depends": [],
       "scripts": [
+        "python/dcc_mcp_core/skills/media/scripts/_media_audio.py",
+        "python/dcc_mcp_core/skills/media/scripts/_media_audio_process.py",
         "python/dcc_mcp_core/skills/media/scripts/_media_common.py",
         "python/dcc_mcp_core/skills/media/scripts/_media_image_stats.py",
+        "python/dcc_mcp_core/skills/media/scripts/_media_runtime.py",
         "python/dcc_mcp_core/skills/media/scripts/_vx_bootstrap.py",
+        "python/dcc_mcp_core/skills/media/scripts/check_runtime.py",
         "python/dcc_mcp_core/skills/media/scripts/extract_frames.py",
         "python/dcc_mcp_core/skills/media/scripts/image_stats.py",
         "python/dcc_mcp_core/skills/media/scripts/probe.py",
         "python/dcc_mcp_core/skills/media/scripts/sequence_to_mp4.py",
         "python/dcc_mcp_core/skills/media/scripts/thumbnail.py",
-        "python/dcc_mcp_core/skills/media/scripts/transcode.py"
+        "python/dcc_mcp_core/skills/media/scripts/transcode.py",
+        "python/dcc_mcp_core/skills/media/scripts/transcode_audio.py"
       ],
       "skill_path": "python/dcc_mcp_core/skills/media",
       "metadata_files": [],
@@ -3904,7 +4022,7 @@
         },
         {
           "name": "act",
-          "description": "Perform one scoped semantic or DCC UI Control action. Supports control ids, snapshot coordinates, pointer paths, text, and key presses where the selected backend supports them. Request policy may narrow or deny raw input. Every Windows mutation requires an adapter/operator-bound PID/HWND so the visible capsule and user interruption monitor cover semantic UIA as well as raw input. Raw input is enabled by default inside that exact bound scope and can be disabled with DCC_MCP_CUA_ALLOW_RAW_INPUT=false. The default Windows semantic transport hard-denies raw type: enter non-sensitive text only through semantic set_text with an exact control_id. Passwords, authentication codes, and other credential material require a user hand-off or a host-owned secure credential flow. The type action is backend-specific to mock/CDP or the explicit owner-selected pixels MCP transport and is not a portable Windows action. Pixels MCP permits only the owner's physical action ceiling; tool policy and the operator raw-input ceiling can narrow it. Windows keypress rejects ordinary printable, Shift-text, and AltGr-text input; use only navigation/control/function keys or genuine Ctrl/Alt shortcuts. Windows game_navigation is the separately governed game-canvas path: it accepts up to four simultaneous supported canvas keys or `+` chords and an optional 0..500 ms hold, while preserving the existing raw-text denial. For application menu bars, invoke_menu resolves an explicit native menu_path inside the exact bound window. Prefer it when semantic menu clicks or Alt mnemonics cannot prove that a Qt popup opened; it never guesses pixels and always requires a fresh snapshot for verification. For a custom-drawn DCC canvas or face control that has no semantic node, use a path from the latest snapshot for one drag; Ctrl, Shift, and Alt in keys are held as pointer modifiers. Snapshot again immediately afterward. get_window_state, restore_window, show_window, and activate_window are recovery operations for the same host-bound PID/HWND and do not require a prior snapshot. They cannot enumerate or target another process/window; restore/show/activate invalidate any prior snapshot and are audited. In owner-selected pixels MCP mode, activate_window and restore_window require explicit owner window_operations; restore_window uses native restore_activate. minimize_window is available only in this mode with an explicit owner grant and the matching latest snapshot_id. Window changes never activate or capture implicitly; take fresh pixels before more input. set_frame is available only in owner-selected pixels MCP mode with explicit window_operations=set_frame. First get_window_state, then forward its window_state_id and a complete physical frame. This metadata token is not a snapshot or input token. Frame changes never activate or restore the window. desktop_unavailable means no Windows UI input was sent; keep the logical session, stop issuing UI calls, and ask the user to unlock or reconnect. Take a fresh snapshot only after that happens. Never use coordinates from the gateway, another host, or another logon session.",
+          "description": "Perform one scoped semantic or DCC UI Control action. Supports control ids, snapshot coordinates, pointer paths, text, and key presses where the selected backend supports them. Request policy may narrow or deny raw input. Every Windows mutation requires an adapter/operator-bound PID/HWND so the visible capsule and user interruption monitor cover semantic UIA as well as raw input. Raw input is enabled by default inside that exact bound scope and can be disabled with DCC_MCP_CUA_ALLOW_RAW_INPUT=false. The default Windows semantic transport hard-denies raw type: enter non-sensitive text only through semantic set_text with an exact control_id. Passwords, authentication codes, and other credential material require a user hand-off or a host-owned secure credential flow. The type action is backend-specific to mock/CDP or the explicit owner-selected pixels MCP transport and is not a portable Windows action. Pixels MCP permits only the owner's physical action ceiling; tool policy and the operator raw-input ceiling can narrow it. Owner-selected pixels keypress supports an optional 1..10000 ms hold for one or two unique WASD/arrow keys, with no modifiers. It releases within the same Native transaction; this is not cross-call key ownership. Windows keypress rejects ordinary printable, Shift-text, and AltGr-text input; use only navigation/control/function keys or genuine Ctrl/Alt shortcuts. Windows game_navigation is the separately governed game-canvas path: it accepts up to four simultaneous supported canvas keys or `+` chords and an optional 0..500 ms hold, while preserving the existing raw-text denial. For application menu bars, invoke_menu resolves an explicit native menu_path inside the exact bound window. Prefer it when semantic menu clicks or Alt mnemonics cannot prove that a Qt popup opened; it never guesses pixels and always requires a fresh snapshot for verification. For a custom-drawn DCC canvas or face control that has no semantic node, use a path from the latest snapshot for one drag; Ctrl, Shift, and Alt in keys are held as pointer modifiers. Snapshot again immediately afterward. get_window_state, restore_window, show_window, and activate_window are recovery operations for the same host-bound PID/HWND and do not require a prior snapshot. They cannot enumerate or target another process/window; restore/show/activate invalidate any prior snapshot and are audited. In owner-selected pixels MCP mode, activate_window and restore_window require explicit owner window_operations; restore_window uses native restore_activate. minimize_window is available only in this mode with an explicit owner grant and the matching latest snapshot_id. Window changes never activate or capture implicitly; take fresh pixels before more input. set_frame is available only in owner-selected pixels MCP mode with explicit window_operations=set_frame. First get_window_state, then forward its window_state_id and a complete physical frame. This metadata token is not a snapshot or input token. Frame changes never activate or restore the window. desktop_unavailable means no Windows UI input was sent; keep the logical session, stop issuing UI calls, and ask the user to unlock or reconnect. Take a fresh snapshot only after that happens. Never use coordinates from the gateway, another host, or another logon session.",
           "input_schema": {
             "type": "object",
             "required": [
@@ -4066,7 +4184,7 @@
                 "type": "integer",
                 "minimum": 0,
                 "maximum": 60000,
-                "description": "Optional drag duration, or visible system-cursor travel plus pointer-effect dwell for a non-drag pointer action, in milliseconds. For game_navigation it is an optional key hold and must be between 0 and 500 ms."
+                "description": "Optional drag duration, or visible system-cursor travel plus pointer-effect dwell for a non-drag pointer action, in milliseconds. For game_navigation it is an optional key hold and must be between 0 and 500 ms. Owner-selected pixels keypress permits 1..10000 ms with one or two unique WASD/arrow keys and no modifiers; omission preserves an immediate press/release. Other keyboard actions do not support a hold duration."
               },
               "snapshot_id": {
                 "type": "string",
