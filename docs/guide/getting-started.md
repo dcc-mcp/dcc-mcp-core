@@ -111,6 +111,109 @@ The build is handled by [maturin](https://www.maturin.rs/) which compiles the Ru
 - **License**: MIT
 - **Python Dependencies**: Zero — everything is in the compiled Rust extension
 
+### Optional media runtime: FFmpeg and FFprobe
+
+The `media` skill requires external **FFmpeg and FFprobe executables** for
+probing, audio/video transcoding, thumbnails, and frame extraction. Core does
+not bundle these binaries or add them to its Python runtime dependencies. The
+Core package remains MIT-licensed; FFmpeg's license depends on the selected
+build and enabled components (LGPL or GPL). Review the distributor's license
+and build configuration before redistribution.
+
+Media tools select already-installed FFmpeg in this order:
+
+1. `DCC_MCP_MEDIA_FFMPEG_BIN`: an explicit absolute executable path.
+2. An existing FFmpeg installation in the local vx store, rooted at `VX_HOME`
+   or `~/.vx` by default.
+3. `ffmpeg` on the server process's system `PATH` when no vx installation is
+   available.
+
+The vx lookup supports the vx 0.9.37 provider layouts under
+`<vx-root>/store/ffmpeg/<version>`, selects the highest numeric stable version,
+and is bounded to 128 entries. An unreadable or larger store is treated as
+unavailable and discovery continues to PATH. It does not read `vx.toml` or `vx.lock`, select
+preview/custom versions, or require a vx launcher to be installed. Use the
+explicit executable overrides to pin a version or use another layout.
+
+Discovery inspects local files; it does not run a vx launcher, install a
+runtime, or download anything. Only native ELF, PE, or Mach-O executables are
+accepted; scripts and known vx shim directories are rejected. Native wrappers
+cannot be identified reliably from their file headers. An invalid explicit override
+fails rather than silently using another installation. FFprobe defaults to
+the sibling of the resolved FFmpeg executable. Set
+`DCC_MCP_MEDIA_FFPROBE_BIN` to an absolute executable path when the matching
+probe is elsewhere. The pair must come from the same release/build; an
+unrelated `ffprobe` on `PATH` is not a fallback.
+
+Set overrides in the environment of the process that runs the media tools,
+before starting the DCC-MCP server. They name executables, not shell commands
+or extra arguments. Paths containing spaces are supported:
+
+```bash
+export DCC_MCP_MEDIA_FFMPEG_BIN="/opt/media tools/ffmpeg/bin/ffmpeg"
+export DCC_MCP_MEDIA_FFPROBE_BIN="/opt/media tools/ffmpeg/bin/ffprobe"
+```
+
+```powershell
+$env:DCC_MCP_MEDIA_FFMPEG_BIN = 'C:\Media Tools\ffmpeg\bin\ffmpeg.exe'
+$env:DCC_MCP_MEDIA_FFPROBE_BIN = 'C:\Media Tools\ffmpeg\bin\ffprobe.exe'
+```
+
+Replace these example paths with the installed binaries. The legacy
+`DCC_MCP_MEDIA_VX_BIN` and `DCC_MCP_MEDIA_AUTO_INSTALL_VX` settings no longer
+control media execution. Migrate a pinned launcher configuration to the
+executable overrides above; setting an auto-install flag does not enable
+downloads.
+
+#### Prepare once, preflight before expensive work
+
+Ask the user before installing or downloading dependencies. In an approved
+online preparation step, use an already-installed vx to install a pinned
+FFmpeg release, or use the operating system's package manager:
+
+```bash
+# Only after the user approves dependency installation:
+vx install ffmpeg@8.1
+```
+
+Obtain FFmpeg and FFprobe together from the approved distribution. If vx itself
+must be installed, review its official installer as a local file before
+execution; never pipe a remote installer into a shell. For offline render
+workers, preinstall the approved binaries and their required shared libraries
+before disconnecting, then configure the server's environment. Runtime tools
+never bootstrap missing dependencies, even for operations that write media.
+
+Agents should perform this preflight before rendering or scheduling a large
+batch:
+
+1. Discover the media runtime-check capability through the normal Skill/tool
+   search flow. Follow the returned `next_step` to load the Skill or describe
+   the tool as required, and use the returned tool slug rather than inventing
+   CLI syntax.
+2. Call the typed, read-only `media__check_runtime`. Its optional
+   `required_encoders` array defaults to `pcm_s16le`, `libvorbis`, and
+   `pcm_f32le`; select the encoders needed by the intended workflow. Its
+   `timeout_secs` is bounded to 60 seconds. The check inspects installed
+   binaries and capabilities without creating a media output or installing
+   anything.
+3. Review the selected source, absolute executable paths, versions, SHA-256
+   hashes, and required encoder availability in the result. Preserve that
+   evidence with the job; paths and hashes identify the bytes used, not an
+   independent supply-chain attestation. Missing dependencies, mismatched
+   builds, or unavailable encoders must be resolved before production work,
+   not bypassed by silently changing codecs or downloading a replacement.
+
+The resolver itself starts no package manager or network request. Preflight
+does execute the selected local binaries to inspect their versions and
+capabilities; they remain operator-trusted code, not a sandboxed guarantee
+against arbitrary binary behavior.
+
+For verified audio-only output, use `media__transcode_audio`: WAV requires
+`pcm_s16le`, OGG requires `libvorbis`, and full-decode verification also needs
+`pcm_f32le`. Availability alone is not a native codec-quality or playback
+qualification. See the media Skill for its preservation, validation, staging,
+and cancellation guarantees.
+
 ## Quick Start
 
 ### Operate a live DCC from an agent

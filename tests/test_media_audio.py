@@ -37,9 +37,9 @@ class FakeRuntime:
     def __init__(self, tmp_path, source, output):
         self.source, self.output = source, output
         self.paths = {}
-        for tool in ("vx", "ffmpeg", "ffprobe"):
+        for tool in ("ffmpeg", "ffprobe"):
             path = tmp_path / tool
-            path.write_bytes(tool.encode())
+            path.write_bytes(b"\x7fELF" + tool.encode())
             path.chmod(0o700)
             self.paths[tool] = path
         self.calls = []
@@ -109,7 +109,8 @@ class FakeRuntime:
 @pytest.fixture
 def runtime(audio, files, tmp_path, monkeypatch):
     fake = FakeRuntime(tmp_path, *files)
-    monkeypatch.setenv("DCC_MCP_MEDIA_VX_BIN", str(fake.paths["vx"]))
+    monkeypatch.setenv("DCC_MCP_MEDIA_FFMPEG_BIN", str(fake.paths["ffmpeg"]))
+    monkeypatch.delenv("DCC_MCP_MEDIA_FFPROBE_BIN", raising=False)
     monkeypatch.setattr(audio, "run_audio_command", fake)
     return fake
 
@@ -194,11 +195,11 @@ def test_success_receipt_binds_hashes_metadata_decode_counts_and_exact_argv(audi
     assert files[0].read_bytes() == b"source-master"
 
 
-@pytest.mark.parametrize("source", ["system", "global_package", "detected", "not_found"])
-def test_unmanaged_resolution_fails_closed_without_encoding(audio, files, runtime, source):
-    runtime.resolution_source = source
-    assert invoke(audio, files)["error"] == "untrusted_executable"
-    assert not files[1].exists() and len(runtime.calls) == 2
+@pytest.mark.parametrize("value", ["", "relative", "/missing/ffmpeg"])
+def test_invalid_explicit_resolution_fails_without_encoding(audio, files, runtime, monkeypatch, value):
+    monkeypatch.setenv("DCC_MCP_MEDIA_FFMPEG_BIN", value)
+    assert invoke(audio, files)["error"] == "invalid_runtime_override"
+    assert not files[1].exists() and not runtime.calls
 
 
 def test_unavailable_encoder_fails_before_source_decode_or_encoding(audio, files, runtime):
@@ -293,22 +294,6 @@ def test_timeout_stops_owned_child_and_grandchild(audio, tmp_path):
     assert not marker.exists()
 
 
-@pytest.mark.parametrize(
-    "payload", ["bad JSON", "{}", "null", '{"path": null}', '{"path": "relative", "tool": "ffmpeg", "source": "vx"}']
-)
-def test_malformed_resolution_fails_without_encoder_launch(audio, files, runtime, monkeypatch, payload):
-    calls = []
-
-    def malformed(command, deadline, **kwargs):
-        calls.append(command)
-        return {"stdout": "vx 0.9.37\n" if "--version" in command else payload}
-
-    monkeypatch.setattr(audio, "run_audio_command", malformed)
-    result = invoke(audio, files)
-    assert result["error"] == "untrusted_executable"
-    assert len(calls) == 2 and not files[1].exists()
-
-
 def test_probe_symlink_outside_managed_bundle_is_rejected(audio, files, runtime, tmp_path):
     outside = tmp_path / "elsewhere"
     outside.mkdir()
@@ -321,7 +306,7 @@ def test_probe_symlink_outside_managed_bundle_is_rejected(audio, files, runtime,
         pytest.skip("Symlink creation unavailable")
     result = invoke(audio, files)
     assert result["error"] == "untrusted_executable"
-    assert len(runtime.calls) == 2
+    assert not runtime.calls
 
 
 def test_probe_must_identify_itself_as_ffprobe(audio, files, runtime, monkeypatch):
@@ -602,14 +587,14 @@ def test_oversized_staged_artifact_is_never_published(audio, files, runtime, mon
     assert command[command.index("-fs") + 1] == "4"
 
 
-def test_success_removes_only_owned_staging_and_records_launcher(audio, files, runtime):
+def test_success_removes_only_owned_staging_and_records_runtime(audio, files, runtime):
     result = invoke(audio, files)
     assert result["success"]
     receipt = result["context"]
     assert files[1].read_bytes() == b"encoded"
     assert not Path(receipt["staging_path"]).exists()
-    assert receipt["executables"]["vx"]["path"] == str(runtime.paths["vx"])
-    assert receipt["executables"]["vx"]["source"] == "operator_configured"
+    assert receipt["executables"]["ffmpeg"]["path"] == str(runtime.paths["ffmpeg"])
+    assert receipt["executables"]["ffmpeg"]["source"] == "environment"
     assert receipt["limits"]["decoded_pcm_bytes_per_stream"] == 256 * 1024 * 1024
 
 
@@ -667,3 +652,15 @@ def test_terminal_reader_overflow_cannot_race_owner_success(audio, monkeypatch):
     assert caught.value.context["reason"] == "decoded_pcm_limit"
     assert caught.value.context["cleanup_status"] == "terminated_and_reaped"
     assert stopped == [True]
+
+
+def test_ogg_uses_fixed_pagination_without_sample_filters(audio, files):
+    command, _, _ = audio.build_audio_command(str(files[0]), str(files[1]), "ogg", "libvorbis")
+    assert command[command.index("-page_duration") + 1] == "1"
+    assert command.index("-page_duration") < command.index("-f")
+    assert not any(flag in command for flag in ("-af", "-ar", "-ac", "-t", "-ss", "-frames:a"))
+
+
+def test_wav_does_not_receive_ogg_pagination_options(audio, files):
+    command, _, _ = audio.build_audio_command(str(files[0]), str(files[1].with_suffix(".wav")), "wav", "pcm_s16le")
+    assert "-page_duration" not in command

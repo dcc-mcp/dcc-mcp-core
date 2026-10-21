@@ -162,6 +162,7 @@ def test_media_skill_parseable_and_declares_expected_tools():
     assert meta.dcc == "python"
     assert {tool.name for tool in meta.tools} == {
         "probe",
+        "check_runtime",
         "image_stats",
         "sequence_to_mp4",
         "transcode",
@@ -183,7 +184,7 @@ def test_media_skill_discoverable_from_source_skill_path():
     assert "media" in names
 
     results = catalog.search_skills(query="convert image sequence to mp4", limit=10)
-    assert any(result.name == "media" and result.tool_count == 7 for result in results)
+    assert any(result.name == "media" and result.tool_count == 8 for result in results)
 
 
 def test_media_tool_registers_prefixed_actions_after_load():
@@ -207,7 +208,7 @@ def test_media_read_only_metadata_is_limited_to_probe_and_image_stats():
     assert meta is not None
     read_only_tools = {tool.name for tool in meta.tools if tool.read_only}
 
-    assert read_only_tools == {"probe", "image_stats"}
+    assert read_only_tools == {"probe", "image_stats", "check_runtime"}
     probe_tool = next(tool for tool in meta.tools if tool.name == "probe")
     assert probe_tool.destructive is False
     assert probe_tool.idempotent is True
@@ -344,75 +345,45 @@ def test_extract_frames_rejects_existing_outputs_without_overwrite(media_common,
     assert exc.value.context["frame_count"] == 1
 
 
-def test_run_command_reports_missing_vx(media_common):
+def test_run_command_reports_missing_runtime(media_common, monkeypatch):
+    def missing(error_cls):
+        raise error_cls("Missing native runtime", "command_unavailable")
+
+    monkeypatch.setattr(media_common, "resolve_runtime", missing)
     with pytest.raises(media_common.MediaToolError) as exc:
-        media_common.run_command(["definitely_missing_vx_binary", "ffmpeg", "-version"], 1)
-
-    assert exc.value.code == "vx_not_found"
-    assert "possible_solutions" not in exc.value.context
+        media_common.run_command(["vx", "ffmpeg", "-version"], 1)
+    assert exc.value.code == "command_unavailable"
 
 
-def test_run_command_bootstraps_vx_when_default_vx_is_missing(media_common, tmp_path, monkeypatch):
-    downloaded_vx = tmp_path / ("vx.exe" if sys.platform == "win32" else "vx")
-    downloaded_vx.write_bytes(b"stub")
+@pytest.mark.parametrize("timeout", [1, 5])
+def test_run_command_resolves_without_launching_vx(media_common, monkeypatch, timeout):
     calls = []
-
-    class Completed:
-        returncode = 0
-        stdout = "ok"
-        stderr = ""
+    binaries = {name: {"path": "/native/" + name} for name in ("ffmpeg", "ffprobe")}
+    monkeypatch.setattr(media_common, "resolve_runtime", lambda error_cls: binaries)
 
     def fake_run(command, **kwargs):
-        calls.append(list(command))
-        if len(calls) == 1:
-            raise FileNotFoundError("vx")
-        return Completed()
+        calls.append(command)
+        name = Path(command[0]).name
+        stdout = name + " version 8.1\n" if command[-1] == "-version" else "ok"
+        return subprocess.CompletedProcess(command, 0, stdout, "")
 
-    monkeypatch.delenv("DCC_MCP_MEDIA_VX_BIN", raising=False)
-    monkeypatch.delenv("DCC_MCP_MEDIA_AUTO_INSTALL_VX", raising=False)
-    monkeypatch.setattr(media_common, "_download_and_install_vx", lambda: str(downloaded_vx))
     monkeypatch.setattr(media_common.subprocess, "run", fake_run)
-
-    assert media_common.run_command(["vx", "ffmpeg", "-version"], 5) == "ok"
-    assert calls[0][0] == "vx"
-    assert calls[1][0] == str(downloaded_vx)
+    assert media_common.run_command(["vx", "ffmpeg", "-encoders"], timeout) == "ok"
+    assert [command[0] for command in calls] == ["/native/ffmpeg", "/native/ffprobe", "/native/ffmpeg"]
 
 
-def test_run_command_can_disable_vx_bootstrap(media_common, monkeypatch):
-    def fake_run(command, **kwargs):
-        raise FileNotFoundError("vx")
-
-    monkeypatch.delenv("DCC_MCP_MEDIA_VX_BIN", raising=False)
-    monkeypatch.setenv("DCC_MCP_MEDIA_AUTO_INSTALL_VX", "0")
-    monkeypatch.setattr(media_common.subprocess, "run", fake_run)
-
-    with pytest.raises(media_common.MediaToolError) as exc:
-        media_common.run_command(["vx", "ffmpeg", "-version"], 5)
-
-    assert exc.value.code == "vx_not_found"
-    assert "automatic vx bootstrap is disabled" in exc.value.message
-
-
-def test_probe_does_not_bootstrap_vx_when_marked_read_only(media_common, tmp_path, monkeypatch):
-    input_file = tmp_path / "clip.mp4"
-    _write_stub_file(input_file)
-
-    def fake_run(command, **kwargs):
-        raise FileNotFoundError("vx")
-
+@pytest.mark.parametrize("allow_auto_install", [False, True])
+def test_missing_runtime_never_bootstraps(media_common, monkeypatch, allow_auto_install):
     def fail_bootstrap():
-        pytest.fail("read-only probe must not bootstrap vx")
+        pytest.fail("Media execution must never bootstrap vx")
 
-    monkeypatch.delenv("DCC_MCP_MEDIA_VX_BIN", raising=False)
-    monkeypatch.delenv("DCC_MCP_MEDIA_AUTO_INSTALL_VX", raising=False)
-    monkeypatch.setattr(media_common.subprocess, "run", fake_run)
+    def missing(error_cls):
+        raise error_cls("Missing runtime", "command_unavailable")
+
     monkeypatch.setattr(media_common, "_download_and_install_vx", fail_bootstrap)
-
-    with pytest.raises(media_common.MediaToolError) as exc:
-        media_common.probe(str(input_file), timeout_secs=5)
-
-    assert exc.value.code == "vx_not_found"
-    assert exc.value.context["allow_auto_install"] is False
+    monkeypatch.setattr(media_common, "resolve_runtime", missing)
+    with pytest.raises(media_common.MediaToolError):
+        media_common.run_command(["vx", "ffmpeg", "-version"], 5, allow_auto_install=allow_auto_install)
 
 
 def test_vx_bootstrap_uses_official_install_scripts(media_common, monkeypatch):

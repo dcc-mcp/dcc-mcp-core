@@ -179,6 +179,8 @@ def native_environment(root, qualification):
     env.update(
         {
             "DCC_MCP_MEDIA_VX_BIN": str(vx),
+            "DCC_MCP_MEDIA_FFMPEG_BIN": qualification["executables"]["ffmpeg"]["path"],
+            "DCC_MCP_MEDIA_FFPROBE_BIN": qualification["executables"]["ffprobe"]["path"],
             "MEDIA_AUDIO_EVIDENCE": str(root),
             "MEDIA_AUDIO_FFMPEG": qualification["executables"]["ffmpeg"]["path"],
             "MEDIA_AUDIO_FFPROBE": qualification["executables"]["ffprobe"]["path"],

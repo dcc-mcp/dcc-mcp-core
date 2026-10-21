@@ -7,7 +7,6 @@ import json
 import math
 import os
 from pathlib import Path
-import shutil
 import tempfile
 import time
 
@@ -25,6 +24,9 @@ from _media_common import int_value
 from _media_common import output_file
 from _media_common import skill_success
 from _media_common import vx_command
+from _media_runtime import encoder_names
+from _media_runtime import inspect_versions
+from _media_runtime import resolve_runtime
 
 from dcc_mcp_core.cancellation import current_job_id
 
@@ -78,6 +80,11 @@ def build_audio_command(input_path, output_path, container, audio_codec, audio_q
         args += ["-q:a", str(quality)]
     elif container == "ogg":
         args += ["-q:a", "5"]
+    if container == "ogg":
+        # Separate the priming packet from the EOS page. This avoids FFmpeg's
+        # single-page Vorbis duration accounting bug without changing samples.
+        # https://ffmpeg.org/pipermail/ffmpeg-devel/2022-May/295939.html
+        args += ["-page_duration", "1"]
     args += ["-fs", str(OUTPUT_LIMIT), "-f", container, str(output)]
     return vx_command("ffmpeg", args), source, output
 
@@ -105,52 +112,11 @@ def _hash_file(path, deadline, maximum=INPUT_LIMIT):
 
 
 def _resolve_binaries(execute, deadline):
-    """Pin existing vx-managed executables; reject system/global fallback."""
-    binaries = {}
-    configured_launcher = vx_command("ffmpeg", [])[0]
-    launcher = shutil.which(configured_launcher)
-    if launcher is None:
-        raise MediaToolError("Cannot resolve the operator's vx launcher.", "command_unavailable")
-    launcher = str(Path(launcher).resolve())
-    binaries["vx"] = {
-        "path": launcher,
-        "sha256": _hash_file(Path(launcher), deadline, BINARY_LIMIT),
-        "source": "operator_configured" if "DCC_MCP_MEDIA_VX_BIN" in os.environ else "operator_PATH",
-    }
-    launcher_version = execute([launcher, "--version"])["stdout"]
-    if not launcher_version.startswith("vx "):
-        raise MediaToolError("Cannot identify the operator's vx launcher.", "invalid_encoder_version")
-    binaries["vx"]["version"] = launcher_version.splitlines()[0]
-    command = [launcher, "--output-format", "json", "where", "ffmpeg"]
-    try:
-        result = json.loads(execute(command)["stdout"])
-        encoder = Path(result["path"])
-        if result["source"] != "vx" or result["tool"] != "ffmpeg" or not encoder.is_absolute() or not encoder.is_file():
-            raise ValueError("Not an existing vx-managed executable")
-        encoder = encoder.resolve()
-    except (ValueError, TypeError, KeyError) as exc:
-        raise MediaToolError(
-            "Cannot resolve a managed audio executable; no PATH fallback is allowed.",
-            "untrusted_executable",
-            context={"tool": "ffmpeg"},
-        ) from exc
-    # The official vx ffmpeg provider bundles ffprobe in the same bin directory.
-    # `where ffmpeg::ffprobe` in vx 0.9.37 can resolve the primary executable,
-    # so never treat that query or a PATH lookup as proof of ffprobe provenance.
-    probe = encoder.with_name("ffprobe.exe" if encoder.suffix.lower() == ".exe" else "ffprobe").resolve()
-    if not probe.is_file() or probe.parent != encoder.parent:
-        raise MediaToolError("FFprobe is missing from the managed FFmpeg bundle.", "untrusted_executable")
-    for tool, path in (("ffmpeg", encoder), ("ffprobe", probe)):
-        version = execute([str(path), "-version"])["stdout"]
-        if not version.startswith(tool + " version "):
-            raise MediaToolError("Cannot identify the resolved media executable.", "invalid_encoder_version")
-        binaries[tool] = {
-            "path": str(path),
-            "sha256": _hash_file(path, deadline, BINARY_LIMIT),
-            "source": "vx" if tool == "ffmpeg" else "vx_bundle_sibling",
-            "version": version.splitlines()[0],
-            "resolution_command": command,
-        }
+    """Pin an installed compatible pair without invoking vx or installing tools."""
+    binaries = resolve_runtime(MediaToolError)
+    inspect_versions(binaries, lambda argv: execute(argv)["stdout"], MediaToolError)
+    for binary in binaries.values():
+        binary["sha256"] = _hash_file(Path(binary["path"]), deadline, BINARY_LIMIT)
     return binaries
 
 
@@ -282,12 +248,9 @@ def transcode_audio(input_path, output_path, container, audio_codec, audio_quali
         binaries = _resolve_binaries(execute, deadline)
         receipt["executables"] = binaries
         encoders = execute([binaries["ffmpeg"]["path"], "-hide_banner", "-encoders"])["stdout"]
-        available = {
-            parts[1]
-            for line in encoders.splitlines()
-            for parts in [line.split()]
-            if len(parts) >= 2 and parts[0].startswith("A")
-        }
+        available = encoder_names(encoders)
+        receipt["available_encoders"] = sorted(available)
+        receipt["required_encoders"] = sorted({audio_codec, "pcm_f32le"})
         if not {audio_codec, "pcm_f32le"}.issubset(available):
             raise MediaToolError(
                 "Requested audio encoder is unavailable; no fallback was attempted.",
