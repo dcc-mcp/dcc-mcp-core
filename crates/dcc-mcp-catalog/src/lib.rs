@@ -1333,8 +1333,12 @@ entries:
             } else {
                 "1.0.0"
             };
+            let core_pin = entry
+                .core_requirement
+                .clone()
+                .unwrap_or_else(|| format!(">={min_core},<{upper_core}"));
             assert!(
-                row.contains(&format!("| >={min_core},<{upper_core} |")),
+                row.contains(&format!("| {core_pin} |")),
                 "compatibility matrix row for {} has stale core pin: {row}",
                 entry.name
             );

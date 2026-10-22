@@ -35,7 +35,7 @@ drops both bounds.
 | DCC | Repository | Adapter Version | Core Pin | DCC Min Version | Dispatcher Pattern | Last Verified |
 |-----|-----------|----------------|----------|-----------------|-------------------|---------------|
 | Kdenlive | [dcc-mcp-kdenlive](https://github.com/dcc-mcp/dcc-mcp-kdenlive) | 0.1.2 | >=0.20.28,<1.0.0 | 26.08.1 verified | Copy-on-write MLT project tools, core async render jobs, shared DCC-CUA UI Control | 2026-09 |
-| Maya | [dcc-mcp-maya](https://github.com/dcc-mcp/dcc-mcp-maya) | 0.9.22 | >=0.19.45,<1.0.0 | 2024+ | Qt sidecar + HostUiDispatcherBase | 2026-08 |
+| Maya | [dcc-mcp-maya](https://github.com/dcc-mcp/dcc-mcp-maya) | 0.9.42 | >=0.20.0,<0.21.0 | 2020-2027 with Python 3.7+ (declared) | Qt sidecar + HostUiDispatcherBase | 2026-10-22 |
 | Marmoset Toolbag | [dcc-mcp-marmoset](https://github.com/dcc-mcp/dcc-mcp-marmoset) | 0.1.1 | >=0.19.86,<1.0.0 | 4.03+ | External sidecar + Toolbag periodic callback | 2026-07 |
 | OpenSCAD | [dcc-mcp-openscad](https://github.com/dcc-mcp/dcc-mcp-openscad) | 0.2.1 | >=0.20.36,<1.0.0 | 2021.01+ | External OpenSCAD CLI subprocess | 2026-08 |
 | FreeCAD | [dcc-mcp-freecad](https://github.com/dcc-mcp/dcc-mcp-freecad) | 0.3.0 | >=0.20.36,<1.0.0 | 1.0+ | External FreeCADCmd subprocess | 2026-08 |
@@ -82,6 +82,13 @@ drops both bounds.
 | SpeedTree | [dcc-mcp-speedtree](https://github.com/dcc-mcp/dcc-mcp-speedtree) | 0.1.1 | >=0.20.22,<1.0.0 | — | Experimental native generator graph editing + licensed Modeler CLI | — |
 | Tracy | [dcc-mcp-tracy](https://github.com/dcc-mcp/dcc-mcp-tracy) | 0.2.5 | >=0.19.38,<1.0.0 | — | Instrumented capture, trace CSV export and zone timing analysis | — |
 | Custom Studio Tool | _(your repo here)_ | _your version_ | _your pin_ | _your min_ | _your pattern_ | _date_ |
+
+Maya 0.9.42's declared Core range and Python-constrained host support come from its
+[release-pinned requirements](https://github.com/dcc-mcp/dcc-mcp-maya/blob/e582e5881f01e1a7e6e77eca54f5b3ec7ec08350/pyproject.toml)
+and [install runbook](https://github.com/dcc-mcp/dcc-mcp-maya/blob/e582e5881f01e1a7e6e77eca54f5b3ec7ec08350/install.md#supported-versions).
+The [released-runtime GUI acceptance](https://github.com/dcc-mcp/dcc-mcp-maya/pull/590#issuecomment-6346643693)
+covers Maya 2023.3.4 and 2027.2. This does not constitute a runtime test of the
+declared Core 0.20.0 lower bound or every Maya release.
 
 Material Maker remains a discoverable source project, but the bundled catalog
 omits automatic install metadata until it publishes a wheel that can be pinned
