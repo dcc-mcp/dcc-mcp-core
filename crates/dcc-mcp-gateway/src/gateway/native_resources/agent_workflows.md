@@ -68,6 +68,32 @@ Only a high-frequency, repeated gap with a stable, accepted script justifies
 later promotion into a complementary plugin/API/skill through the existing
 skill improvement workflow. This gate does not require creating one now.
 
+### Game templates and asset packs
+
+For game-making tasks, actively consider quality free game templates, starter
+projects and coherent environment, animation, audio and UI packs before bespoke
+construction. Favor maintained candidates that improve the intended visual and
+playable result on the target engine/version, not just the cheapest placeholder.
+Reuse is encouraged, not mandatory: document why a candidate fits, or why a
+focused native solution is the better choice. Do not require every asset or
+system to be built from scratch.
+
+Keep an asset manifest in the existing recipe/evidence report: source URL and
+publisher, exact version or retrieval date, checksum, license URL/version,
+attribution, modification/export rights, and source/binary redistribution rights
+for the actual deliverable. Free price does not grant redistribution rights;
+unknown rights remain unresolved. Retain required notices with the deliverable.
+
+Validate a representative template/asset through an actual MCP import or open
+operation in the ready, task-owned project before expanding reuse. Inspect
+materials, textures, units/scale, collisions and engine compatibility where
+applicable. Agree visual/playable acceptance targets and a target-device
+performance budget first; retain controlled screenshots or gameplay evidence
+and measured frame-time and memory alongside engine/tool versions and run
+parameters. Successful import alone is not visual or performance acceptance;
+unrun checks remain unverified. Apply the existing installation, paid-content
+and account authorization boundaries above.
+
 ### Blender provider to host example
 
 Reuse `dcc-asset-blender-extensions`'s `blender-extension-store` skill:

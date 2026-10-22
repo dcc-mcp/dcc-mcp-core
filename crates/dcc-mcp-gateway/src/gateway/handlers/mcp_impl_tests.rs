@@ -210,6 +210,29 @@ async fn production_reuse_gate_is_reachable_from_initialize_without_a_host() {
         payload["document"],
         include_str!("../native_resources/agent_workflows.md")
     );
+    let game_reuse = payload["document"]
+        .as_str()
+        .unwrap()
+        .split("### Game templates and asset packs\n")
+        .nth(1)
+        .expect("the shared guide must cover game template and asset reuse")
+        .split("\n### ")
+        .next()
+        .unwrap();
+    for requirement in [
+        "quality free game templates",
+        "Reuse is encouraged, not mandatory",
+        "asset manifest",
+        "source URL",
+        "checksum",
+        "license URL/version",
+        "redistribution rights",
+        "actual MCP import or open",
+        "frame-time and memory",
+        "unrun checks remain unverified",
+    ] {
+        assert!(game_reuse.contains(requirement), "missing {requirement}");
+    }
     // The embedded contract is the same source the repository entrypoint links.
     let entry = include_str!("../../../../../AGENTS.md");
     let target = entry
