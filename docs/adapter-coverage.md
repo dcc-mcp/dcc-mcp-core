@@ -19,7 +19,7 @@ rg -c '^    tags: \[.*"adapter".*\]' dcc-mcp-catalog.yml
 |---|---|---|---|---|---|---|
 | `dcc-mcp-kdenlive` | kdenlive | 0.1.2 | `dcc-mcp-kdenlive` | generated | pending | registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first |
 | `dcc-mcp-PowerPoint` | powerpoint | 0.2.3 | `dcc-mcp-powerpoint` | generated | pending | registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first |
-| `dcc-mcp-maya` | maya | 0.9.22 | `dcc-mcp-maya` | generated | pending | registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first |
+| `dcc-mcp-maya` | maya | 0.9.42 | `dcc-mcp-maya` | generated | pending | registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first |
 | `dcc-mcp-blender` | blender | 0.1.43 | `dcc-mcp-blender` | generated | pending | registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first |
 | `dcc-mcp-houdini` | houdini | 0.31.5 | `dcc-mcp-houdini` | generated | pending | registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first |
 | `dcc-mcp-3dsmax` | 3dsmax, 3ds max, 3ds-max, max | 0.1.40 | `dcc-mcp-3dsmax` | generated | pending | registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first |

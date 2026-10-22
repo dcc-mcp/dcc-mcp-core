@@ -78,15 +78,16 @@ entries:
     url: "https://github.com/dcc-mcp/dcc-mcp-maya"
     issues_url: "https://github.com/dcc-mcp/dcc-mcp-maya/issues"
     tags: ["adapter", "maya", "official", "pip", "core"]
-    version: "0.9.22"
-    min_core_version: "0.19.45"
+    version: "0.9.42"
+    min_core_version: "0.20.0"
+    core_requirement: ">=0.20.0,<0.21.0"
     maintainer: "dcc-mcp"
     install:
       type: pip
       pip_package: "dcc-mcp-maya"
-      url: "https://files.pythonhosted.org/packages/98/cb/204ff09455e119520635592e039c1fa16b12824a54cc34850d12894356e7/dcc_mcp_maya-0.9.22-py3-none-any.whl"
-      sha256: "b288c2bf95014f827d3833ef5af4f7c36b2ff8a465ac647f9feb2163bc44397b"
-      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-maya/main/install.md"
+      url: "https://files.pythonhosted.org/packages/30/ba/681a80c257a9a502328e6afdb31d8ec5730379e25a35ab0e197ec65b4c0a/dcc_mcp_maya-0.9.42-py3-none-any.whl"
+      sha256: "9df720c154bfeacedd4241ee80925bc13ddb700f71dc6a0e74c6e1dd1c225965"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-maya/e582e5881f01e1a7e6e77eca54f5b3ec7ec08350/install.md"
       sop_version: 1
       sop_schema_digest: "2b3a8a101384a5163c7569c4a2b0de6586c672c5ee291735f94334a33b7d37a0"
 

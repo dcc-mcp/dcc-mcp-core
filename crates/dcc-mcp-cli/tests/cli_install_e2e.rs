@@ -191,7 +191,7 @@ fn install_uses_bundled_adapter_metadata_and_python_override() {
             "--dcc-type",
             "maya",
             "--version",
-            "0.9.22",
+            "0.9.42",
             "--python",
             "C:/Autodesk/Maya2026/bin/mayapy.exe",
         ],
@@ -201,20 +201,20 @@ fn install_uses_bundled_adapter_metadata_and_python_override() {
 
     assert_eq!(plan["dcc_type"], "maya");
     assert_eq!(plan["adapter"]["name"], "dcc-mcp-maya");
-    assert_eq!(plan["adapter"]["min_core_version"], "0.19.45");
+    assert_eq!(plan["adapter"]["min_core_version"], "0.20.0");
     assert_eq!(plan["steps"][0]["name"], "install-pip");
     assert_eq!(plan["steps"][0]["action"]["type"], "PipInstall");
     assert_eq!(plan["steps"][0]["action"]["package"], "dcc-mcp-maya");
-    assert_eq!(plan["steps"][0]["action"]["version"], "0.9.22");
+    assert_eq!(plan["steps"][0]["action"]["version"], "0.9.42");
     assert_eq!(
         plan["steps"][0]["action"]["sha256"],
-        "b288c2bf95014f827d3833ef5af4f7c36b2ff8a465ac647f9feb2163bc44397b"
+        "9df720c154bfeacedd4241ee80925bc13ddb700f71dc6a0e74c6e1dd1c225965"
     );
     assert!(
         plan["steps"][0]["action"]["artifact_url"]
             .as_str()
             .unwrap()
-            .ends_with("dcc_mcp_maya-0.9.22-py3-none-any.whl")
+            .ends_with("dcc_mcp_maya-0.9.42-py3-none-any.whl")
     );
     assert_eq!(
         plan["steps"][0]["action"]["python"],
@@ -224,7 +224,7 @@ fn install_uses_bundled_adapter_metadata_and_python_override() {
     assert_eq!(plan["next_steps"][0]["name"], "read-install-instructions");
     assert_eq!(
         plan["next_steps"][0]["url"],
-        "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-maya/main/install.md"
+        "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-maya/e582e5881f01e1a7e6e77eca54f5b3ec7ec08350/install.md"
     );
     assert!(plan["next_steps"][0]["command"].is_null());
     assert_eq!(
@@ -354,7 +354,7 @@ fn install_rejects_pip_version_without_a_catalog_pinned_artifact() {
 
     assert!(!output.status.success());
     assert!(
-        String::from_utf8_lossy(&output.stderr).contains("differs from catalog version '0.9.22'")
+        String::from_utf8_lossy(&output.stderr).contains("differs from catalog version '0.9.42'")
     );
 }
 
@@ -454,7 +454,7 @@ fn install_bundled_catalog_pins_office_adapter_wheels() {
 #[test]
 fn bundled_catalog_reports_current_core_adapter_versions() {
     for (dcc_type, expected_version) in [
-        ("maya", "0.9.22"),
+        ("maya", "0.9.42"),
         ("houdini", "0.31.5"),
         ("blender", "0.1.43"),
         ("3dsmax", "0.1.40"),

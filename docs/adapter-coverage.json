@@ -32,7 +32,7 @@
         "maya"
       ],
       "url": "https://github.com/dcc-mcp/dcc-mcp-maya",
-      "version": "0.9.22",
+      "version": "0.9.42",
       "pip_package": "dcc-mcp-maya",
       "pointer": true,
       "registry": "pending",
