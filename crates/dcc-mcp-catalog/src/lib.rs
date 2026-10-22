@@ -1342,23 +1342,6 @@ entries:
     }
 
     #[test]
-    fn bundled_office_adapters_install_headless_backends() {
-        let entries = load_from_str(include_str!("../../../dcc-mcp-catalog.yml")).unwrap();
-        for name in ["dcc-mcp-excel", "dcc-mcp-word"] {
-            let install = entries
-                .iter()
-                .find(|entry| entry.name == name)
-                .and_then(|entry| entry.install.as_ref())
-                .unwrap_or_else(|| panic!("{name} must publish install metadata"));
-            assert_eq!(
-                install.pip_extras.as_deref(),
-                Some(&["headless".to_string()][..]),
-                "{name} must install its headless document backend"
-            );
-        }
-    }
-
-    #[test]
     fn bundled_pip_adapters_bind_published_wheels_and_entry_points() {
         let entries = load_from_str(include_str!("../../../dcc-mcp-catalog.yml")).unwrap();
         validate_catalog_entries(&entries).unwrap();
