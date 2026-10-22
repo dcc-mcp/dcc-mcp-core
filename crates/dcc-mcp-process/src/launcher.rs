@@ -121,6 +121,18 @@ impl DccLauncher {
         }
         // Detach stdin so the DCC doesn't block on terminal input.
         cmd.stdin(std::process::Stdio::null());
+        // Windows does not propagate console suppression to children. A
+        // console-subsystem DCC (Blender `--background`, Maya batch, …)
+        // launched from a GUI host, a service, or another console-less
+        // worker would otherwise allocate a visible console window, and a
+        // crash-recovery respawn repeats the flash on every restart.
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+            cmd.creation_flags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP);
+        }
 
         let child = time::timeout(
             Duration::from_millis(config.launch_timeout_ms),
