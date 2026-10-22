@@ -215,6 +215,22 @@ def test_annotated_release_tag_and_pinned_document_fallback():
     assert _prepare(document, transport)["entries"][0]["install"]["instructions_url"] == RAW_BASE + "README.md"
 
 
+def test_missing_runbook_requires_a_curated_readme_fallback():
+    document, transport, _ = _fixture()
+    install = document["entries"][0]["install"]
+    install.pop("instructions_url")
+    install["pip_extras"] = ["headless"]
+    transport.responses[RAW_BASE + "install.md"] = None
+    with pytest.raises(publisher.CatalogPreparationError, match="fallback instructions must belong"):
+        _prepare(document, transport)
+
+    install["instructions_url"] = RAW_BASE + "README.md"
+    transport.responses[RAW_BASE + "README.md"] = b"# Install the headless extra\n"
+    prepared = _prepare(document, transport)["entries"][0]
+    assert prepared["install"] == install
+    assert "policy" not in prepared
+
+
 @pytest.mark.parametrize("where", ["info", "wheel"])
 def test_yanked_release_or_file_blocks_before_artifact_download(where):
     document, transport, pypi = _fixture()
