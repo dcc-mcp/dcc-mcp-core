@@ -18,3 +18,21 @@ fn bundled_office_adapters_install_headless_backends() {
         );
     }
 }
+
+#[test]
+fn bundled_word_pins_release_readme_as_install_instructions() {
+    let entries = load_from_str(include_str!("../../../dcc-mcp-catalog.yml")).unwrap();
+    let word = entries
+        .iter()
+        .find(|entry| entry.name == "dcc-mcp-word")
+        .unwrap();
+    assert_eq!(word.version.as_deref(), Some("0.1.2"));
+    let install = word.install.as_ref().unwrap();
+    assert_eq!(
+        install.instructions_url.as_deref(),
+        Some(concat!(
+            "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-word/",
+            "8e59aa34b34ac23ffc9c419979c5644046561d22/README.md"
+        ))
+    );
+}

@@ -664,6 +664,7 @@ entries:
       url: "https://files.pythonhosted.org/packages/ed/9e/95453a48bbeda3a2971fd8d5598105673cf245c793cc43f2ab2280521ebb/dcc_mcp_word-0.1.2-py3-none-any.whl"
       sha256: "f4ac79722b4ad653b0acd9844fa1a992994e8a8935f2a65bb7d473376c833a5c"
       entry_point: "dcc_mcp_word._standalone_entry:main"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-word/8e59aa34b34ac23ffc9c419979c5644046561d22/README.md"
 
   - name: "dcc-mcp-fpt"
     description: "Autodesk Flow Production Tracking adapter for DCC-MCP"
