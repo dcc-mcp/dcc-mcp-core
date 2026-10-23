@@ -78,6 +78,12 @@ resume are unsupported. `get_window_state` only reads the same exact target.
 Do not switch transports, restart with another session id, or retry another
 input route after authorization/policy/security/Escape/desktop failures.
 
+Rejected native input may include `context.details.native_input_fence`:
+a closed, bounded diagnostic with `authorizes_input: false`, the actual target,
+attempted physical point, native hit identity and redaction count/completeness.
+Unavailable point facts remain null. This failure-only metadata grants no input
+and does not replace fresh pixels or change the rejection's retry rules.
+
 Cleanup stops the owned task and owned MCP executable only. It does not stop
 the shared Host, another adapter, or another logical consumer.
 
