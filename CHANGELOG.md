@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.47](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.46...v0.20.47) (2026-10-23)
+
+
+### Features
+
+* **media:** add verified audio-only WAV and Vorbis transcoding ([03f5455](https://github.com/dcc-mcp/dcc-mcp-core/commit/03f5455a97fa8cef9303ff9aa9cc33cfc5124eb4))
+* **media:** select installed FFmpeg runtimes without provisioning ([81b04b9](https://github.com/dcc-mcp/dcc-mcp-core/commit/81b04b952b969a30b0a837caf616d6e5791f81d3))
+* support bounded popup observations ([#2832](https://github.com/dcc-mcp/dcc-mcp-core/issues/2832)) ([0460786](https://github.com/dcc-mcp/dcc-mcp-core/commit/0460786d36af0e2274f1705bf7c4bcbdcc60b11c))
+
+
+### Bug Fixes
+
+* **catalog:** pin Office wheels with required headless backends ([5302ece](https://github.com/dcc-mcp/dcc-mcp-core/commit/5302ece5b2a18777258ed6d8d61d609270baa056))
+* **catalog:** pin Word release instructions fallback ([ba62e6f](https://github.com/dcc-mcp/dcc-mcp-core/commit/ba62e6f7079a800b9064928302259a4bf5f56290))
+* **catalog:** promote the verified Maya 0.9.42 release ([72af293](https://github.com/dcc-mcp/dcc-mcp-core/commit/72af293eba80013d97a365e71b02df0e957f6f6c))
+* **ci:** initialize media evidence path inside runner step ([56c21f8](https://github.com/dcc-mcp/dcc-mcp-core/commit/56c21f88e6fb0f7b35077c3a2d3ea584bfb77ae3))
+* **ci:** pin released adapter-release-candidate-v1 schema digest ([872c0f2](https://github.com/dcc-mcp/dcc-mcp-core/commit/872c0f2dac5c9cd87d4656f9e1c63744178b7cd7))
+* **ci:** run the macOS py37 wheel test venv under Rosetta ([#2806](https://github.com/dcc-mcp/dcc-mcp-core/issues/2806)) ([790551b](https://github.com/dcc-mcp/dcc-mcp-core/commit/790551b530cb8f4afdeab5122ee830a26c325525))
+* **cua:** preserve bounded keypress duration and root-bounds failure evidence ([d936a42](https://github.com/dcc-mcp/dcc-mcp-core/commit/d936a42062da482a02e0c5499e7365ffdf2ee268))
+* **gateway-search:** detect off-PATH dcc-cua runtime in PathCuaProbe ([a782e19](https://github.com/dcc-mcp/dcc-mcp-core/commit/a782e1949c003a1bb3fde5f1566d6402498ee1d8))
+* **launcher:** spawn DCC children without a console window on Windows ([026cc4c](https://github.com/dcc-mcp/dcc-mcp-core/commit/026cc4c051861209dda8a05f325dd20f0fbc2362))
+* **media:** honor cancellation and atomically publish verified audio ([aa65c80](https://github.com/dcc-mcp/dcc-mcp-core/commit/aa65c80ee3b45be9173d218fc8c58663efe53e0d))
+* **media:** recheck terminal reader failures before success ([24856ee](https://github.com/dcc-mcp/dcc-mcp-core/commit/24856ee6b35ac0c37d03f9771338d82cb69de923))
+* **media:** reject oversized PCM payloads before staging ([09ec491](https://github.com/dcc-mcp/dcc-mcp-core/commit/09ec491ac932ef0fd02d1a23b15c797f931ac963))
+* **search:** rank callable tools ahead of skill candidates on the first page ([#2784](https://github.com/dcc-mcp/dcc-mcp-core/issues/2784)) ([fa1b8e7](https://github.com/dcc-mcp/dcc-mcp-core/commit/fa1b8e788b2c15821a42ba418e6d452dedb94e0f))
+* **skills:** refresh official seeds and remove recovery diagnostics ([213d483](https://github.com/dcc-mcp/dcc-mcp-core/commit/213d48351a4112e4fb0ae5f0710e4669243e05c9))
+* **ui-control:** bound native reason and author schema-accurate capture recovery ([38ff8a2](https://github.com/dcc-mcp/dcc-mcp-core/commit/38ff8a235a2e0ac04a3fdeef5e92e124640a6686)), closes [#2819](https://github.com/dcc-mcp/dcc-mcp-core/issues/2819)
+* **ui-control:** omit unusable snapshot step from pixels-only capture recovery ([641281a](https://github.com/dcc-mcp/dcc-mcp-core/commit/641281aed24734f700fc8caefdceb3e7c0e80fcb))
+
+
+### Documentation
+
+* **api:** expose memory-providers page in VitePress sidebar ([7cdbf25](https://github.com/dcc-mcp/dcc-mcp-core/commit/7cdbf25a918c2d536da1171310b28a7bb41e311a))
+* **workflows:** encourage quality free game templates and assets ([14955da](https://github.com/dcc-mcp/dcc-mcp-core/commit/14955da063341d8c7c24af72d85efc46d4ca9e3b))
+
 ## [0.20.46](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.45...v0.20.46) (2026-10-19)
 
 
