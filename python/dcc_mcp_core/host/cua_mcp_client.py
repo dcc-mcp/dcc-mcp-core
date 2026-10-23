@@ -15,6 +15,8 @@ from dcc_mcp_core.host.cua_mcp_errors import OwnedCuaMcpError
 from dcc_mcp_core.host.cua_mcp_geometry import validate_geometry
 from dcc_mcp_core.host.cua_mcp_keyboard import keypress_payload
 from dcc_mcp_core.host.cua_mcp_pointer import pointer_payload
+from dcc_mcp_core.host.cua_mcp_popup import decode_popup_observation
+from dcc_mcp_core.host.cua_mcp_popup import requested_popup_handles
 from dcc_mcp_core.host.cua_mcp_preparation import PixelsMcpPreparation
 from dcc_mcp_core.host.cua_mcp_recording import RECORDING_METHODS
 from dcc_mcp_core.host.cua_mcp_recording import PixelsMcpRecording
@@ -57,6 +59,7 @@ class PixelsMcpHostClient:
         self._window_state_id: str | None = None
         self._last_window_state_id: str | None = None
         self._last_observation_id: str | None = None
+        self._capture_popup_observation = False
         self._closed = False
         self._recording = PixelsMcpRecording(self)
         self._cleanup = OwnedPixelsTaskCleanup(self)
@@ -109,6 +112,11 @@ class PixelsMcpHostClient:
                     "ttl_minutes": options.ttl_minutes,
                     **({"allow_recording": True} if options.recording is not None else {}),
                     **({"allow_capture_preparation": True} if options.capture_preparation is not None else {}),
+                    **(
+                        {"allow_native_capture_popup_keyboard": True}
+                        if options.allow_native_capture_popup_keyboard
+                        else {}
+                    ),
                 },
             )["structuredContent"]
             # Retain the returned id before validation so failed startup can revoke it.
@@ -121,6 +129,10 @@ class PixelsMcpHostClient:
                 or opened.get("provider") != "dcc-cua"
                 or opened.get("runtime_version") != options.runtime_version
                 or not self.task_id
+                or (
+                    options.allow_native_capture_popup_keyboard
+                    and opened.get("allow_native_capture_popup_keyboard") is not True
+                )
             ):
                 raise CuaCliError("protocol_mismatch", "The runtime did not start the expected bounded pixels task.")
             self._check_target(opened.get("target"), verify_title=True)
@@ -209,12 +221,21 @@ class PixelsMcpHostClient:
             raise CuaCliError("protocol_mismatch", "The owned MCP task identity changed.")
         self._check_target(context.get("target"))
 
-    def snapshot(self, *, max_depth: int, max_nodes: int) -> dict[str, Any]:
+    def snapshot(
+        self, *, max_depth: int, max_nodes: int, native_capture_popup_window_handles: list[int] | None = None
+    ) -> dict[str, Any]:
         """Capture real pixels and retain the native provenance with AX absent."""
+        selected = requested_popup_handles(
+            native_capture_popup_window_handles,
+            allowed=self.options.allow_native_capture_popup_keyboard,
+            root_handle=self._target["window_handle"],
+        )
         self._observation_id = None
         self._observation_size = None
+        self._capture_popup_observation = False
         try:
-            raw = self._call("snapshot", {}, "snapshot")
+            params = {"native_capture_popup_window_handles": selected} if selected else {}
+            raw = self._call("snapshot", params, "snapshot")
             observation = raw.get("observation")
             if (
                 raw.get("observation_mode") != "pixels_only"
@@ -267,8 +288,8 @@ class PixelsMcpHostClient:
                 for block in raw.pop("_mcp_content", [])
                 if isinstance(block, dict) and block.get("type") == "image"
             ]
-            if len(images) != 1 or images[0].get("mimeType") != "image/png":
-                raise CuaCliError("capture_failed", "Owned pixels MCP must return exactly one native PNG.")
+            if len(images) != 1 + len(selected) or images[0].get("mimeType") != "image/png":
+                raise CuaCliError("capture_failed", "Owned pixels MCP must return exactly the selected native PNGs.")
             encoded = images[0].get("data")
             if not isinstance(encoded, str) or len(encoded) > 90 * 1024 * 1024:
                 raise CuaCliError("capture_failed", "Owned pixels MCP returned invalid image content.")
@@ -284,6 +305,10 @@ class PixelsMcpHostClient:
             ):
                 raise CuaCliError("capture_failed", "Owned pixels MCP image does not match its native descriptor.")
             raw["image_bytes"] = pixels
+            overlays = decode_popup_observation(raw, observation, selected, images[1:])
+            if selected:
+                raw["native_capture_popup_overlays"] = overlays
+                self._capture_popup_observation = True
             raw["node_count"] = 0
             self._observation_id = observation_id
             self._observation_size = (observation["width"], observation["height"])
@@ -302,7 +327,18 @@ class PixelsMcpHostClient:
         """Deliver one allowed physical action against the latest native pixels."""
         if not self._observation_id:
             raise CuaCliError("stale_observation", "Take a fresh pixels snapshot before acting.")
+        observation_id = self._observation_id
         name = action.get("action")
+        if self._capture_popup_observation:
+            self._capture_popup_observation = False
+            self._observation_id = None
+            if (
+                name not in {"keypress", "keyboard_shortcut", "type", "type_chars"}
+                or action.get("duration_ms") is not None
+            ):
+                raise CuaCliError(
+                    "unsupported_action", "Native capture popup observations permit one unheld keyboard action."
+                )
         if action.get("input_kind") != "raw_input" or name not in self._actions:
             raise CuaCliError("unsupported_action", "This pixels task does not authorize that physical action.")
         if any(key in action for key in ("element_token", "element_index", "accessibility_state_id", "secret_handle")):
@@ -324,7 +360,6 @@ class PixelsMcpHostClient:
         payload["delivery_mode"] = "foreground"
         if name == "type":
             payload["type_chars_only"] = True
-        observation_id = self._observation_id
         self._observation_id = None
         raw = self._call(
             "execute_action",

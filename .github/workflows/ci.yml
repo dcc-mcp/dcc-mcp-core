@@ -272,6 +272,9 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-hakari@0.9.38
+          # Unsupported prebuilt targets use the same locked version without
+          # depending on a runner's pre-existing cargo-binstall installation.
+          fallback: cargo-install
       - name: Install cargo-nextest
         uses: taiki-e/install-action@v2
         with:

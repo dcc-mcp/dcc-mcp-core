@@ -15,6 +15,26 @@ def render(capture: Dict[str, Any], session_id: str, policy: UiControlPolicy, pa
         return capture
     accessibility_available = bool(capture.get("accessibility_available", True))
     pixels_only = capture.get("observation_mode") == "pixels_only"
+    popup_context = {}
+    if "native_capture_popup_overlays" in capture:
+        popup_context["native_capture_popup_observation"] = capture["native_capture_popup_observation"]
+        popup_context["native_capture_popup_overlays"] = [
+            {
+                **{key: value for key, value in overlay.items() if key != "image_bytes"},
+                "__rich__": {
+                    "kind": "image",
+                    "data": base64.b64encode(overlay["image_bytes"]).decode("ascii"),
+                    "mime": "image/png",
+                    "display_name": "ui-control-popup-{}-{}.png".format(
+                        capture["snapshot_id"], overlay["window_handle"]
+                    ),
+                    "alt": "Native capture popup {} (secondary observation; keyboard target remains main root)".format(
+                        overlay["window_handle"]
+                    ),
+                },
+            }
+            for overlay in capture["native_capture_popup_overlays"]
+        ]
     return skill_success(
         (
             "Captured scoped CUA application snapshot."
@@ -43,6 +63,7 @@ def render(capture: Dict[str, Any], session_id: str, policy: UiControlPolicy, pa
         task_context=capture.get("task_context"),
         target=capture.get("target"),
         policy=policy.to_dict(),
+        **popup_context,
         __rich__={
             "kind": "image",
             "data": base64.b64encode(capture["image"]).decode("ascii"),

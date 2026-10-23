@@ -598,6 +598,99 @@ fn native_mcp_image_reuses_ui_control_canonical_name() {
 }
 
 #[test]
+fn secondary_popup_images_keep_their_own_pixels_and_names() {
+    let root = tempfile::tempdir().unwrap();
+    let main = b"main application pixels";
+    let popup = b"transient popup pixels";
+    let mut value = serde_json::json!({"output":{"context":{
+        "__rich__":{"kind":"image","mime":"image/png","data":BASE64_STANDARD.encode(main),"display_name":"ui-control-main-nuke.png"},
+        "overlays":[{"__rich__":{"kind":"image","mime":"image/png","data":BASE64_STANDARD.encode(popup),"display_name":"ui-control-popup-nuke.png"}}]
+    }}});
+    materialize_call_images(&mut value, root.path());
+    let main_path = value["output"]["context"]["__rich__"]["artifact_path"]
+        .as_str()
+        .unwrap();
+    let popup_path = value["output"]["context"]["overlays"][0]["__rich__"]["artifact_path"]
+        .as_str()
+        .unwrap();
+    assert_ne!(main_path, popup_path);
+    assert_eq!(std::fs::read(main_path).unwrap(), main);
+    assert_eq!(std::fs::read(popup_path).unwrap(), popup);
+}
+
+#[test]
+fn multiple_native_images_do_not_alias_the_main_frame() {
+    let root = tempfile::tempdir().unwrap();
+    let mut value = serde_json::json!({"result":{
+        "content":[
+            {"type":"image","mimeType":"image/png","data":BASE64_STANDARD.encode(b"maya root")},
+            {"type":"image","mimeType":"image/png","data":BASE64_STANDARD.encode(b"maya popup")}
+        ],
+        "structuredContent":{"context":{"__rich__":{"display_name":"ui-control-main-maya.png"}}}
+    }});
+    materialize_call_images(&mut value, root.path());
+    let frames = value["result"]["content"].as_array().unwrap();
+    assert_ne!(frames[0]["artifact_path"], frames[1]["artifact_path"]);
+    assert_eq!(
+        std::fs::read(frames[0]["artifact_path"].as_str().unwrap()).unwrap(),
+        b"maya root"
+    );
+    assert_eq!(
+        std::fs::read(frames[1]["artifact_path"].as_str().unwrap()).unwrap(),
+        b"maya popup"
+    );
+}
+
+#[test]
+fn reused_display_name_never_returns_another_images_pixels() {
+    let root = tempfile::tempdir().unwrap();
+    let frame = |bytes: &[u8]| {
+        serde_json::json!({"kind":"image","mime":"image/png",
+        "data":BASE64_STANDARD.encode(bytes),"display_name":"ui-control-same-name.png"})
+    };
+    let mut value = serde_json::json!([
+        frame(b"first pixels"),
+        frame(b"other pixels"),
+        frame(b"first pixels")
+    ]);
+    materialize_call_images(&mut value, root.path());
+    let frames = value.as_array().unwrap();
+    assert_ne!(frames[0]["artifact_path"], frames[1]["artifact_path"]);
+    assert_eq!(frames[0]["artifact_path"], frames[2]["artifact_path"]);
+    for (index, bytes) in [b"first pixels", b"other pixels", b"first pixels"]
+        .iter()
+        .enumerate()
+    {
+        assert_eq!(
+            std::fs::read(frames[index]["artifact_path"].as_str().unwrap()).unwrap(),
+            *bytes
+        );
+    }
+}
+
+#[test]
+fn multiple_rich_images_without_names_do_not_inherit_the_main_name() {
+    let root = tempfile::tempdir().unwrap();
+    let mut value = serde_json::json!({"output":{"context":{
+    "__rich__":{"display_name":"ui-control-main.png"},
+    "frames":[
+        {"kind":"image","mime":"image/png","data":BASE64_STANDARD.encode(b"root")},
+        {"kind":"image","mime":"image/png","data":BASE64_STANDARD.encode(b"popup")}
+    ]}}});
+    materialize_call_images(&mut value, root.path());
+    let frames = value["output"]["context"]["frames"].as_array().unwrap();
+    assert_ne!(frames[0]["artifact_path"], frames[1]["artifact_path"]);
+    assert_eq!(
+        std::fs::read(frames[0]["artifact_path"].as_str().unwrap()).unwrap(),
+        b"root"
+    );
+    assert_eq!(
+        std::fs::read(frames[1]["artifact_path"].as_str().unwrap()).unwrap(),
+        b"popup"
+    );
+}
+
+#[test]
 fn call_materializes_native_mcp_image_and_reports_invalid_data_safely() {
     let root = tempfile::tempdir().expect("create artifact directory");
     let bytes = b"native image";

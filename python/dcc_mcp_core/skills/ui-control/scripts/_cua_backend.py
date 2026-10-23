@@ -341,12 +341,13 @@ def _capture_snapshot(
     client_entry: Optional[Tuple[Any, Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     try:
+        _PIXELS.check_capture_popup_owner(params)
         client, entry = client_entry if client_entry is not None else _client_for(session_id, params, policy)
         if params.get("resume_computer_use"):
             client.resume()
         max_depth = max(1, min(12, int(os.environ.get("DCC_MCP_CUA_MAX_DEPTH", "5"))))
         max_nodes = max(1, min(2_000, int(os.environ.get("DCC_MCP_CUA_MAX_NODES", "250"))))
-        raw = client.snapshot(max_depth=max_depth, max_nodes=max_nodes)
+        raw = _PIXELS.request_snapshot(client, max_depth, max_nodes, params.get("native_capture_popup_window_handles"))
     except (UiControlHostError, OSError, ValueError) as exc:
         return _host_error(exc, params)
 

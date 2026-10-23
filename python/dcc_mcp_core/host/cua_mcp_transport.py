@@ -92,7 +92,10 @@ class OwnedCuaMcpTransport:
             catalog = self.rpc("tools/list", {})
             tools = catalog.get("tools")
             if not isinstance(tools, list) or not _public_tool_schemas_valid(
-                tools, recording=options.recording is not None, preparation=options.capture_preparation is not None
+                tools,
+                recording=options.recording is not None,
+                preparation=options.capture_preparation is not None,
+                capture_popup_keyboard=options.allow_native_capture_popup_keyboard,
             ):
                 raise CuaCliError("protocol_mismatch", "The owned runtime lacks the public bounded-task MCP tools.")
         except Exception:
@@ -239,7 +242,9 @@ class OwnedCuaMcpTransport:
                 raise CuaCliError("cleanup_failed", self._cleanup_error)
 
 
-def _public_tool_schemas_valid(tools: list[Any], *, recording: bool = False, preparation: bool = False) -> bool:
+def _public_tool_schemas_valid(
+    tools: list[Any], *, recording: bool = False, preparation: bool = False, capture_popup_keyboard: bool = False
+) -> bool:
     """Check the public envelope we consume, without interpreting task leases."""
     schemas = {item.get("name"): item.get("inputSchema") for item in tools if isinstance(item, dict)}
     expected = {
@@ -261,6 +266,8 @@ def _public_tool_schemas_valid(tools: list[Any], *, recording: bool = False, pre
         expected["start_task"]["allow_recording"] = "boolean"
     if preparation:
         expected["start_task"]["allow_capture_preparation"] = "boolean"
+    if capture_popup_keyboard:
+        expected["start_task"]["allow_native_capture_popup_keyboard"] = "boolean"
     for name, properties in expected.items():
         schema = schemas.get(name)
         if (

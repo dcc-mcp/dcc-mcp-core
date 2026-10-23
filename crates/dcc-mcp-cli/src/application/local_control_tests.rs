@@ -671,7 +671,6 @@ async fn spawn_search_stub(tools: Vec<Value>) -> (String, tokio::task::JoinHandl
         post(move |Json(request): Json<Value>| {
             let tools = tools.clone();
             async move {
-                let method = request.get("method").and_then(Value::as_str);
                 let params = request.get("params").cloned().unwrap_or(Value::Null);
                 let requested_limit = params
                     .get("arguments")
@@ -681,11 +680,7 @@ async fn spawn_search_stub(tools: Vec<Value>) -> (String, tokio::task::JoinHandl
                     .unwrap_or(usize::MAX);
                 // `tools/list` is the unfiltered inventory; `search_tools` is
                 // the ranked-and-capped one.
-                let mut listed = if method == Some("tools/call") {
-                    tools.clone()
-                } else {
-                    tools.clone()
-                };
+                let mut listed = tools.clone();
                 listed.truncate(requested_limit);
                 let payload = json!({
                     "tools": listed,

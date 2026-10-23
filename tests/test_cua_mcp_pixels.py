@@ -190,6 +190,8 @@ class FakeMcpProcess:
         self.drop_response = False
         self.stop_error = False
         self.snapshots = 0
+        self.expected_snapshot_params = {}
+        self.extra_images = []
 
     def write(self, data: bytes) -> None:
         request = json.loads(data)
@@ -242,12 +244,13 @@ class FakeMcpProcess:
                 assert name == "dcc_cua_task_call"
                 assert arguments["task_id"] == "public-task"
                 if arguments["method"] == "snapshot":
-                    assert arguments["params"] == {}
+                    assert arguments["params"] == self.expected_snapshot_params
                     self.snapshots += 1
                     raw = pixel_response(self.snapshots)
                     self.mutate_snapshot(raw)
                     content = [
-                        {"type": "image", "mimeType": "image/png", "data": base64.b64encode(PNG).decode("ascii")}
+                        {"type": "image", "mimeType": "image/png", "data": base64.b64encode(PNG).decode("ascii")},
+                        *deepcopy(self.extra_images),
                     ]
                 elif arguments["method"] in {"change_window_state", "minimize_window", "get_window_state"}:
                     params = arguments["params"]

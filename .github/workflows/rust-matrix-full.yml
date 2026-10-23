@@ -78,6 +78,7 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-hakari@0.9.38
+          fallback: cargo-install
       - name: Install cargo-nextest
         uses: taiki-e/install-action@v2
         with:
