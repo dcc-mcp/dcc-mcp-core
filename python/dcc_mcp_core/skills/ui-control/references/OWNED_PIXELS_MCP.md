@@ -24,6 +24,35 @@ are PNG-relative. Delivery is `effect=unverifiable`; re-observe and verify befor
 claiming success. Every attempted action consumes the previous observation.
 Timeouts are not retried.
 
+## Explicit secondary popup pixels
+
+The owner may separately set `allow_native_capture_popup_keyboard=True` in
+`UiControlRuntimeOptions`; it defaults to false and cannot be enabled by tool
+arguments or ambient environment variables. The pinned native runtime must
+advertise and acknowledge this ceiling. Existing physical-input policy and
+allowed actions still apply; this option creates no authorization authority.
+
+Pass `native_capture_popup_window_handles=[...]` to `ui_control__snapshot`,
+selecting one through eight unique positive HWNDs from the exact main root's
+fresh native capture inventory. Omission or an empty list uses ordinary capture.
+The original root image, observation and redactions remain unchanged. Each
+selected popup is returned in request order as a separate labeled PNG under
+`native_capture_popup_overlays`, with its complete native observation, instance,
+physical geometry and attachment descriptor. CLI materialization retains each
+image's own bytes and artifact path. These secondary images grant no pointer
+coordinates, window rebinding or independent input authority.
+
+`native_capture_popup_observation` reports `purpose=main_root_keyboard`,
+`one_use=true`, `max_age_ms=5000` and the root observation id. It permits one
+unheld `keypress`, `keyboard_shortcut` or text action to the original main root.
+Every action attempt consumes the observation, including a refused pointer or
+held key. The native runtime independently enforces task lifetime, fresh window
+birth/identity, desktop/foreground state, complete unredacted coverage and the
+five-second limit. A new, foreign or unselected occluder fails closed. Core
+validates the reported root/popup identities and separate PNGs; it never
+synthesizes the private composite input authority. Re-observe after any attempt,
+verify actual application state, and stop the owned task normally.
+
 The default window mutation ceiling is empty. With explicit owner
 `window_operations`, `activate_window` activates the exact window,
 `restore_window` restores and activates it, and `minimize_window` consumes the

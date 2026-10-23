@@ -46,6 +46,17 @@ tools:
             Explicitly resume native DCC UI Control after the user stopped a
             session with Esc. Agents must leave this false unless the user asks to
             resume control.
+        native_capture_popup_window_handles:
+          type: array
+          maxItems: 8
+          uniqueItems: true
+          items: {type: integer, minimum: 1}
+          description: >-
+            Explicit secondary popup HWNDs from this exact root's fresh native capture inventory.
+            Requires the independent operator native-capture-popup keyboard ceiling.
+            Returns separately labeled popup pixels while the root image stays redacted.
+            This observation permits one unheld keyboard action within five seconds;
+            input remains bound to the exact main root. Never infer ownership from PID alone.
         policy:
           type: object
           description: "Optional ui_control policy override for this call."

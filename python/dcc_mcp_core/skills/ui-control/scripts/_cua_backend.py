@@ -21,6 +21,7 @@ from dcc_mcp_core.adapter_contracts import UiControlAuditRecord
 from dcc_mcp_core.adapter_contracts import UiControlPolicy
 from dcc_mcp_core.adapter_contracts import UiErrorCode
 from dcc_mcp_core.adapter_contracts import UiSnapshot
+from dcc_mcp_core.cua_cli import CuaCliError
 from dcc_mcp_core.host.cua_mcp_client import PixelsMcpHostClient
 from dcc_mcp_core.host.ui_control_options import UiControlRuntimeOptions
 from dcc_mcp_core.skill import skill_error
@@ -341,12 +342,21 @@ def _capture_snapshot(
     client_entry: Optional[Tuple[Any, Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     try:
+        _PIXELS.check_capture_popup_owner(params)
         client, entry = client_entry if client_entry is not None else _client_for(session_id, params, policy)
         if params.get("resume_computer_use"):
             client.resume()
         max_depth = max(1, min(12, int(os.environ.get("DCC_MCP_CUA_MAX_DEPTH", "5"))))
         max_nodes = max(1, min(2_000, int(os.environ.get("DCC_MCP_CUA_MAX_NODES", "250"))))
-        raw = client.snapshot(max_depth=max_depth, max_nodes=max_nodes)
+        popup_handles = params.get("native_capture_popup_window_handles")
+        if popup_handles is not None and popup_handles != []:
+            if not isinstance(client, PixelsMcpHostClient):
+                raise CuaCliError("unsupported_action", "Native capture popup observation requires owned pixels MCP.")
+            raw = client.snapshot(
+                max_depth=max_depth, max_nodes=max_nodes, native_capture_popup_window_handles=popup_handles
+            )
+        else:
+            raw = client.snapshot(max_depth=max_depth, max_nodes=max_nodes)
     except (UiControlHostError, OSError, ValueError) as exc:
         return _host_error(exc, params)
 
