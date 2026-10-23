@@ -1,5 +1,7 @@
 """Secondary frame contracts; fake pipes never observe or operate an application."""
 
+from __future__ import annotations
+
 import base64
 from copy import deepcopy
 from dataclasses import replace
@@ -288,7 +290,7 @@ def test_two_popup_order_matches_explicit_selection_and_unique_generations(runti
         owned.stop()
 
 
-@pytest.mark.parametrize("mode", ["truncated", "crc", "trailing", "zlib", "short_raster", "long_raster"])
+@pytest.mark.parametrize("mode", ["truncated", "crc", "trailing", "zlib", "short_raster", "long_raster", "filter"])
 def test_corrupt_secondary_png_is_refused_even_with_matching_descriptor_length(runtime, mode):
     config, process, _ = runtime
     config = enable(config, process)
@@ -300,6 +302,7 @@ def test_corrupt_secondary_png_is_refused_even_with_matching_descriptor_length(r
         "zlib": popup_png(compressed=b"not a zlib stream"),
         "short_raster": popup_png(compressed=zlib.compress(b"\0")),
         "long_raster": popup_png(compressed=zlib.compress(b"\0" * ((80 * 4 + 1) * 40 + 1))),
+        "filter": popup_png(compressed=zlib.compress(b"\x05" + b"\0" * ((80 * 4 + 1) * 40 - 1))),
     }[mode]
 
     def mutate(raw):
@@ -357,3 +360,21 @@ def test_complete_png_validation_streams_large_valid_rasters():
     from dcc_mcp_core.host.cua_mcp_popup import _complete_png
 
     assert _complete_png(popup_png(1024, 128), 1024, 128)
+
+
+@pytest.mark.parametrize("row", [0, 16, 127])
+def test_invalid_scanline_filter_is_rejected_across_streamed_output_blocks(row):
+    from dcc_mcp_core.host.cua_mcp_popup import _complete_png
+
+    width, height = 1024, 128
+    rows = bytearray((b"\0" + b"\xff" * width * 4) * height)
+    rows[row * (width * 4 + 1)] = 5
+    assert not _complete_png(popup_png(width, height, compressed=zlib.compress(rows)), width, height)
+
+
+@pytest.mark.parametrize("filter_type", range(5))
+def test_each_legal_filter_is_accepted_without_constraining_pixel_bytes(filter_type):
+    from dcc_mcp_core.host.cua_mcp_popup import _complete_png
+
+    rows = (bytes([filter_type]) + b"\xff" * 80 * 4) * 40
+    assert _complete_png(popup_png(compressed=zlib.compress(rows)), 80, 40)

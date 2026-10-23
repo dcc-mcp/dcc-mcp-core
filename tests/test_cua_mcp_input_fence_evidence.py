@@ -1,5 +1,7 @@
 """Rejected native input evidence is bounded metadata, never an authority token."""
 
+from __future__ import annotations
+
 from copy import deepcopy
 
 import pytest
@@ -128,3 +130,9 @@ def test_diagnostic_only_projects_at_its_exact_failure_location():
         "details": {"capture": {}}
     }
     assert safe_failure_evidence({"details": {"authorizes_input": True}}) == {"details": {}}
+
+
+@pytest.mark.parametrize("parent", ["native_outcome", "task_context"])
+def test_other_top_level_parents_cannot_publish_a_fence_diagnostic(parent):
+    source = {**payload(diagnostic()), parent: {"native_input_fence": diagnostic()}}
+    assert safe_failure_evidence(source) == {**payload(diagnostic()), parent: {}}

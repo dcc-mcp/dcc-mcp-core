@@ -172,14 +172,14 @@ def safe_failure_evidence(payload: dict[str, Any]) -> dict[str, Any]:
     """Keep typed diagnostic fields, never text, paths, secrets, or image data."""
     budget = [128]
 
-    def project(value: Any, depth: int = 0) -> dict[str, Any]:
+    def project(value: Any, depth: int = 0, parent: str | None = None) -> dict[str, Any]:
         result = {}
         if not isinstance(value, dict) or depth > 5:
             return result
         for key, item in value.items():
             if budget[0] <= 0:
                 break
-            if key == "native_input_fence" and depth == 1:
+            if key == "native_input_fence" and depth == 1 and parent == "details":
                 diagnostic = _input_fence_evidence(item)
                 if diagnostic is None or budget[0] <= len(diagnostic):
                     continue
@@ -194,7 +194,7 @@ def safe_failure_evidence(payload: dict[str, Any]) -> dict[str, Any]:
             ):
                 result[key] = item
             elif key in _OBJECTS and isinstance(item, dict):
-                result[key] = project(item, depth + 1)
+                result[key] = project(item, depth + 1, key)
             elif (
                 key in _RECTS
                 and isinstance(item, list)

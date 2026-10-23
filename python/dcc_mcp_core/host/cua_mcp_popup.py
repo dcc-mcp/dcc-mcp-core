@@ -162,7 +162,7 @@ def decode_popup_observation(
 
 def _complete_png(pixels: bytes, width: int, height: int) -> bool:
     """Check the bounded native PNG stream without retaining decoded pixels."""
-    offset, decoded, expected = 8, 0, 0
+    offset, decoded, expected, stride = 8, 0, 0, 1
     decoder = zlib.decompressobj()
     try:
         while offset + 12 <= len(pixels):
@@ -186,7 +186,8 @@ def _complete_png(pixels: bytes, width: int, height: int) -> bool:
                     or (compression, filtering, interlace) != (0, 0, 0)
                 ):
                     return False
-                expected = (width * channels + 1) * height
+                stride = width * channels + 1
+                expected = stride * height
             elif kind == b"IHDR":
                 return False
             if kind == b"IDAT":
@@ -194,8 +195,11 @@ def _complete_png(pixels: bytes, width: int, height: int) -> bool:
                 while True:
                     block = decoder.decompress(pending, 65536)
                     pending = decoder.unconsumed_tail
+                    start = decoded
                     decoded += len(block)
                     if decoded > expected or decoder.unused_data:
+                        return False
+                    if any(value > 4 for value in block[(-start) % stride :: stride]):
                         return False
                     if not pending and len(block) < 65536:
                         break
