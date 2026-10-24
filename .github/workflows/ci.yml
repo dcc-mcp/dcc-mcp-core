@@ -329,6 +329,18 @@ jobs:
         run: |
           set -o pipefail
           vx just test-rust 2>&1 | tee rust-test-results.log
+      - name: Host install consent branch evidence
+        if: matrix.rust-validation == 'full'
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence="$(mktemp)"
+          trap 'rm -f "$evidence"' EXIT
+          vx cargo nextest run --workspace \
+            -E 'binary(=cli_host_e2e) & test(=install_never_announces_nothing_at_the_call_site)' \
+            --no-tests fail --success-output immediate --no-output-indent --color never \
+            2>&1 | tee "$evidence"
+          grep -Fx 'host-install-consent-gate exercised baseline=missing' "$evidence"
       - name: Upload Rust test diagnostics
         if: always() && matrix.rust-validation == 'full'
         uses: actions/upload-artifact@v4
