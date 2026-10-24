@@ -97,11 +97,7 @@ fn unsuccessful_archive_http_status_cannot_create_the_destination() {
 fn archive_status_gate_checks_the_final_response_without_disabling_redirects() {
     let bytes = archive_bytes();
     let checksum = hex::encode(Sha256::digest(&bytes));
-    for (redirect, status) in [
-        (false, "200 OK"),
-        (true, "200 OK"),
-        (true, "404 Not Found"),
-    ] {
+    for (redirect, status) in [(false, "200 OK"), (true, "200 OK"), (true, "404 Not Found")] {
         let root = tempfile::tempdir().unwrap();
         let dest = root.path().join("not-created/adapter");
         let mut replies = Vec::new();
