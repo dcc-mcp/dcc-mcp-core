@@ -247,13 +247,19 @@ fn invalid_local_entries_fail_before_planning_even_when_not_selected() {
                 };
                 let requested_path = explicit.then_some(path.as_path());
                 assert!(
-                    matches!(local.load_entries(requested_path), Err(InstallError::Catalog(_))),
+                    matches!(
+                        local.load_entries(requested_path),
+                        Err(InstallError::Catalog(_))
+                    ),
                     "{case}, yaml={yaml}, explicit={explicit}"
                 );
                 assert!(local.dcc_types(requested_path).is_err());
                 let mut selected = request();
                 selected.catalog_path = requested_path.map(Path::to_path_buf);
-                assert!(matches!(local.plan(selected), Err(InstallError::Catalog(_))));
+                assert!(matches!(
+                    local.plan(selected),
+                    Err(InstallError::Catalog(_))
+                ));
                 assert_eq!(
                     local.catalog_provenance(requested_path).source,
                     CatalogSource::Unavailable
