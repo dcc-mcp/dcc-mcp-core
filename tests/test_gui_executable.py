@@ -66,9 +66,23 @@ def test_is_gui_executable_returns_none_for_non_dcc(path: str) -> None:
     assert is_gui_executable(path) is None
 
 
-def test_hint_recommended_replacement_when_sibling_exists(tmp_path: Path) -> None:
-    maya = tmp_path / "maya.exe"
-    mayapy = tmp_path / "mayapy.exe"
+@pytest.mark.parametrize(
+    ("gui_name", "python_name"),
+    [
+        ("maya.exe", "mayapy.exe"),
+        ("MAYA.EXE", "Mayapy.EXE"),
+        ("maya", "mayapy"),
+        ("maya.bin", "mayapy"),
+        ("MAYA.BIN", "Mayapy"),
+        ("houdinifx.exe", "hython.exe"),
+        ("Houdini", "hython"),
+    ],
+)
+def test_hint_recommended_replacement_when_sibling_exists(
+    tmp_path: Path, gui_name: str, python_name: str
+) -> None:
+    maya = tmp_path / gui_name
+    mayapy = tmp_path / python_name
     maya.write_bytes(b"")
     mayapy.write_bytes(b"")
 
@@ -77,6 +91,16 @@ def test_hint_recommended_replacement_when_sibling_exists(tmp_path: Path) -> Non
     assert hint.recommended_replacement is not None
     # str() to normalise path separators across Windows / POSIX.
     assert Path(hint.recommended_replacement).resolve() == mayapy.resolve()
+
+
+def test_maya_bin_does_not_recommend_a_bin_suffixed_interpreter(tmp_path: Path) -> None:
+    maya = tmp_path / "maya.bin"
+    maya.write_bytes(b"")
+    (tmp_path / "mayapy.bin").write_bytes(b"")
+    hint = is_gui_executable(str(maya))
+    assert hint is not None
+    assert hint.recommended_replacement is None
+    assert correct_python_executable(str(maya)) == maya
 
 
 def test_hint_recommended_replacement_none_when_sibling_missing(tmp_path: Path) -> None:
