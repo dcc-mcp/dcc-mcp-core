@@ -123,3 +123,32 @@ fn non_python_replacements_and_custom_hosts_keep_existing_policy() {
         assert!(result["steps"][0]["action"].get("python").is_none());
     }
 }
+
+#[test]
+fn missing_or_directory_selected_embedded_hosts_fail_preflight() {
+    for (dcc, gui, embedded) in [
+        ("maya", "maya.exe", "mayapy.exe"),
+        ("maya", "MAYA.BIN", "mayapy"),
+        ("houdini", "houdinifx", "hython"),
+        ("houdini", "HOUDINI.EXE", "hython.exe"),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let host = dir.path().join(gui);
+        std::fs::write(dir.path().join(embedded), b"").unwrap();
+        for directory in [false, true] {
+            if directory {
+                std::fs::create_dir(&host).unwrap();
+            }
+            assert!(matches!(
+                plan(dcc, Some(host.clone()), None, None),
+                Err(InstallPlanError::InvalidPythonExecutable { .. })
+            ));
+            let explicit = plan(dcc, Some(host.clone()), Some("operator-python"), None).unwrap();
+            assert_eq!(explicit["steps"][0]["action"]["python"], "operator-python");
+            let catalog = plan(dcc, Some(host.clone()), None, Some("catalog-python")).unwrap();
+            assert_eq!(catalog["steps"][0]["action"]["python"], "catalog-python");
+            let unrelated = plan("custom-editor", Some(host.clone()), None, None).unwrap();
+            assert!(unrelated["steps"][0]["action"].get("python").is_none());
+        }
+    }
+}
