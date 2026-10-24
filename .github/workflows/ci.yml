@@ -868,9 +868,21 @@ jobs:
         shell: bash
       - name: Run py37-lite runtime smoke
         run: python scripts/ci/smoke_python37_runtime.py --profile lite_py37
-      - name: Run py37 sidecar factory tests (source tree)
+      - name: Run py37 sidecar and interpreter tests (source tree)
         shell: bash
-        run: PYTHONPATH=python pytest tests/test_py37_sidecar_server_factory.py -q
+        run: |
+          PYTHONPATH=python python - <<'PYTHON'
+          from dcc_mcp_core import is_gui_executable
+          from dcc_mcp_core._runtime.core_availability import is_core_extension_available
+          assert not is_core_extension_available()
+          assert is_gui_executable.__module__ == "dcc_mcp_core._lite_fallback"
+          print("GUI interpreter regressions use the Python lite fallback")
+          PYTHON
+          PYTHONPATH=python pytest \
+            tests/test_py37_sidecar_server_factory.py \
+            tests/test_gui_executable.py::test_hint_recommended_replacement_when_sibling_exists \
+            tests/test_gui_executable.py::test_maya_bin_does_not_recommend_a_bin_suffixed_interpreter \
+            -q
 
   # ── Lint Python source ──
   lint:
