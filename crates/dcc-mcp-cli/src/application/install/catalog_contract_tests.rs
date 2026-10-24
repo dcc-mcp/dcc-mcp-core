@@ -526,3 +526,51 @@ fn local_file_read_errors_are_not_mistaken_for_an_empty_catalog() {
         }
     }
 }
+
+#[test]
+fn repeated_json_collection_keys_reach_the_original_typed_parser_and_are_rejected() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("repeated.json");
+    let entries = serde_json::to_string(&vec![local_pip_entry("dcc-mcp-godot", "godot")]).unwrap();
+    let valid = format!(r#"{{"entries":{entries}}}"#);
+    assert_eq!(dcc_mcp_catalog::load_from_str(&valid).unwrap().len(), 1);
+    for (key, repeated_key, fields) in [
+        ("entries", "entries", 1),
+        ("items", "items", 1),
+        ("skills", "skills", 1),
+        ("entries", r"entr\u0069es", 1),
+        ("entries", "items", 2),
+        ("items", "skills", 2),
+    ] {
+        for (first, last) in [(entries.as_str(), "[]"), ("[]", entries.as_str())] {
+            let text = format!(r#"{{"{key}":{first},"{repeated_key}":{last}}}"#);
+            let collapsed: serde_json::Value = serde_json::from_str(&text).unwrap();
+            assert_eq!(collapsed.as_object().unwrap().len(), fields);
+            // Admission must pass the original text, not the collapsed Value,
+            // to the typed decoder that already rejects repeated fields.
+            // Its YAML fallback must also reject this original JSON text.
+            assert!(dcc_mcp_catalog::load_from_str(&text).is_err());
+            std::fs::write(&path, &text).unwrap();
+            for explicit in [false, true] {
+                let mut local = InstallService::new(path.clone());
+                local.auto_install_policy.enabled = true;
+                let requested_path = explicit.then_some(path.as_path());
+                assert!(local.load_entries(requested_path).is_err());
+                assert_eq!(
+                    local.catalog_provenance(requested_path).source,
+                    CatalogSource::Unavailable
+                );
+                let mut selected = request();
+                selected.catalog_path = requested_path.map(Path::to_path_buf);
+                selected.python = Some(root.path().join("must-not-launch").display().to_string());
+                let report = local.execute(selected, true);
+                assert_eq!(report.exit_code, 10);
+                assert_eq!(report.stage, "preflight");
+                assert!(report.steps.is_empty());
+                assert!(!report.rollback.attempted);
+                assert!(report.receipt_path.is_none());
+                assert_eq!(report.error.unwrap().code, "INSTALL_PLAN_FAILED");
+            }
+        }
+    }
+}
