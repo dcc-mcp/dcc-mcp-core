@@ -78,9 +78,7 @@ def test_is_gui_executable_returns_none_for_non_dcc(path: str) -> None:
         ("Houdini", "hython"),
     ],
 )
-def test_hint_recommended_replacement_when_sibling_exists(
-    tmp_path: Path, gui_name: str, python_name: str
-) -> None:
+def test_hint_recommended_replacement_when_sibling_exists(tmp_path: Path, gui_name: str, python_name: str) -> None:
     maya = tmp_path / gui_name
     mayapy = tmp_path / python_name
     maya.write_bytes(b"")
