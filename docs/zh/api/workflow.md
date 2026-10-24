@@ -10,8 +10,9 @@
 - **`dcc-mcp-workflow`** — 所有工作流类型、目录、DDL、工具注册
   以及 `WorkflowExecutor` 引擎。在工作区级别通过顶层 `workflow`
   feature 门控（默认关闭）。
-- **`dcc-mcp-http`** — `McpHttpConfig::enable_workflows` 在 `start()` 时
-  门控内置工具的注册。
+- **`dcc-mcp-http`** — `McpHttpConfig` 暴露了 `enable_workflows`，但当前 HTTP
+  启动路径不读取该配置，也不会自动注册工作流工具。嵌入方必须显式注册工作流
+  元数据和处理函数；仅设置该标志无法使这些工具可用。
 
 ## 类型 (Rust)
 
@@ -21,9 +22,10 @@ use dcc_mcp_workflow::{
     Step, StepKind, StepId, WorkflowId,
     WorkflowCatalog, WorkflowSummary,
     WorkflowExecutor, WorkflowHost, WorkflowRunHandle,
-    register_builtin_workflow_tools, register_workflow_handlers,
+    register_builtin_workflow_tools,
     WorkflowError,
 };
+use dcc_mcp_workflow::tools::register_workflow_handlers;
 ```
 
 所有结构类型都是 `Serialize + Deserialize + Clone`。ID 是 newtype
@@ -175,8 +177,10 @@ steps:
 
 ## 内置 MCP 工具
 
-由 `register_builtin_workflow_tools(&registry)` 注册。功能型 handler
-由 `register_workflow_handlers(&dispatcher, &host)` 绑定。
+`register_builtin_workflow_tools(&registry)` 注册工具元数据。
+`register_workflow_handlers(&dispatcher, &host)` 绑定运行、状态、取消以及 feature 门控的恢复处理函数。
+该 helper 不绑定 `workflows_lookup`；需要暴露目录查询的嵌入方还必须绑定基于自身
+`WorkflowCatalog` 的处理函数。仅注册元数据并不意味着 lookup 可以被调用。
 
 | 工具 | 说明 | ToolAnnotations |
 |------|------|-----------------|
@@ -245,7 +249,11 @@ steps:
 运行**不会**自动恢复 — `interrupted` 是终止状态；客户端可以
 在其上实现一个恢复工具（如果需要）。
 
-## HTTP 服务器门控
+## HTTP 配置与注册
+
+此标志在当前实现中仅记录配置。Rust HTTP 启动和 Python 封装均不会自动注册工作流工具；
+嵌入方仍需提供 `WorkflowHost`，并接入上文所述的元数据与处理函数。请勿仅凭以下代码
+判断工具是否可用。
 
 ```python
 from dcc_mcp_core import McpHttpConfig
