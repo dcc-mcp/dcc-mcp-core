@@ -1,7 +1,19 @@
 {
   "source": "dcc-mcp-catalog.yml",
-  "adapter_count": 47,
+  "adapter_count": 48,
   "entries": [
+    {
+      "name": "dcc-mcp-photocraft",
+      "dcc": [
+        "photocraft"
+      ],
+      "url": "https://github.com/dcc-mcp/dcc-mcp-photocraft",
+      "version": "0.2.0",
+      "pip_package": null,
+      "pointer": true,
+      "registry": "deferred",
+      "blocker": "catalog has no `install:` block; registration waits on catalog install metadata"
+    },
     {
       "name": "dcc-mcp-kdenlive",
       "dcc": [

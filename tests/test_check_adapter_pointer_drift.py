@@ -93,7 +93,10 @@ def _fake_scan(*rows):
     pending = list(rows)
 
     def _scan(entries, *, workdir, only=None, timeout=60):
-        return [drift.check_repository(entry, 0, host_count=47, workdir=workdir, timeout=timeout) for entry in pending]
+        return [
+            drift.check_repository(entry, 0, host_count=len(entries), workdir=workdir, timeout=timeout)
+            for entry in pending
+        ]
 
     return _scan
 
@@ -504,7 +507,7 @@ def test_initial_branch_lookup_timeout_keeps_every_result(adapters, tmp_path, mo
 
     monkeypatch.setattr(drift.subprocess, "run", timed_out)
     rows = drift.scan(adapters, workdir=tmp_path, timeout=180)
-    assert len(rows) == len(adapters) == 47
+    assert len(rows) == len(adapters)
     assert len(calls) == len(adapters)
     assert all(row["status"] == drift.ERROR for row in rows)
     assert all("TimeoutExpired" in row["detail"] for row in rows)
@@ -595,7 +598,7 @@ def test_deadline_retains_all_selected_rows_and_real_catalog_count(
     time.monotonic()
     assert module.main(args) == 1
     payload = json.loads(out.read_text(encoding="utf-8"))
-    assert payload["adapter_count"] == len(adapters) == 47
+    assert payload["adapter_count"] == len(adapters)
     rows = payload["results"]
     assert [row["name"] for row in rows] == [entry["name"] for entry in selected]
     assert all(row["status"] == module.ERROR for row in rows)
@@ -614,7 +617,7 @@ def test_results_are_written_before_outer_cleanup_failure(adapters, tmp_path, mo
         name = str(tmp_path / "managed")
 
         def cleanup(self):
-            assert json.loads(out.read_text(encoding="utf-8"))["adapter_count"] == 47
+            assert json.loads(out.read_text(encoding="utf-8"))["adapter_count"] == len(adapters)
             assert "Default branches already current" in summary.read_text(encoding="utf-8")
             raise OSError("cleanup unavailable")
 
