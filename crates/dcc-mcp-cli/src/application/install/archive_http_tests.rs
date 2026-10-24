@@ -164,3 +164,22 @@ fn archive_http_failure_preserves_the_acquire_report_contract() {
     assert!(!report.verify.directly_usable);
     assert!(!dest.parent().unwrap().exists());
 }
+
+#[test]
+fn archive_integrity_fails_before_network_or_filesystem_io() {
+    let root = tempfile::tempdir().unwrap();
+    let zip_dest = root.path().join("zip-install");
+    let zip_error = execute_zip_extract(
+        "https://__nonexistent__.invalid/archive.zip",
+        None,
+        &zip_dest,
+    )
+    .unwrap_err();
+    assert!(zip_error.to_string().contains("64 hexadecimal"));
+    assert!(!zip_dest.exists());
+
+    assert_eq!(
+        required_archive_sha256(Some(&format!("sha256:{}", "A".repeat(64)))).unwrap(),
+        "a".repeat(64)
+    );
+}
