@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import asyncio
 from concurrent.futures import Future
+from concurrent.futures import TimeoutError as FutureTimeoutError
 from dataclasses import dataclass
 from functools import partial
 import logging
@@ -291,7 +292,7 @@ class ReverseBridgeSession:
         self._queue.put(request)
         try:
             return future.result(timeout=self._timeout)
-        except TimeoutError as exc:
+        except FutureTimeoutError as exc:
             with self._pending_lock:
                 self._pending.pop(request.id, None)
             raise BridgeTimeoutError(f"Method '{method}' (id={request.id}) timed out after {self._timeout}s.") from exc
@@ -508,7 +509,7 @@ class DccBridge:
                 raise BridgeConnectionError("Bridge request scheduling failed.", outcome="not_dispatched") from exc
             try:
                 return fut.result(timeout=self._timeout)
-            except TimeoutError as exc:
+            except FutureTimeoutError as exc:
                 raise BridgeTimeoutError(f"Method '{method}' (id={req_id}) timed out after {self._timeout}s.") from exc
         finally:
             with self._pending_lock:

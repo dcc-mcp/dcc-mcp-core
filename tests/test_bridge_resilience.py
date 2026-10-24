@@ -439,3 +439,13 @@ def test_disconnect_before_queued_send_allows_safe_fallback() -> None:
         assert len(secondary.calls) == 1
 
     asyncio.run(scenario())
+
+
+def test_reverse_bridge_timeout_preserves_unknown_outcome_and_cleans_pending() -> None:
+    from dcc_mcp_core import BridgeTimeoutError
+
+    session = ReverseBridgeSession(timeout=0.01)
+    with pytest.raises(BridgeTimeoutError) as caught:
+        session.call("ps.document.info")
+    assert caught.value.outcome == "unknown"
+    assert session._pending == {}
