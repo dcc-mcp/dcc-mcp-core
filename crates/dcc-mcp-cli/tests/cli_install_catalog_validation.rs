@@ -166,3 +166,33 @@ fn malformed_explicit_document_shapes_preserve_the_bounded_preflight_contract() 
         }
     }
 }
+
+#[test]
+fn repeated_json_collection_keys_fail_before_the_real_cli_launches_pip() {
+    let root = TempDir::new().unwrap();
+    let sentinel = pip_execution_sentinel(&root);
+    let entries = serde_json::to_string(&vec![pip_entry("dcc-mcp-godot", "godot")]).unwrap();
+    for (key, repeated_key) in [
+        ("entries", "entries"),
+        ("items", "items"),
+        ("skills", "skills"),
+        ("entries", r"entr\u0069es"),
+        ("entries", "items"),
+        ("items", "skills"),
+    ] {
+        for (first, last) in [(entries.as_str(), "[]"), ("[]", entries.as_str())] {
+            let text = format!(r#"{{"{key}":{first},"{repeated_key}":{last}}}"#);
+            std::fs::write(root.path().join("catalog.json"), text).unwrap();
+            let output = execute_catalog(&root, &sentinel);
+            assert_eq!(output.status.code(), Some(10));
+            let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+            assert_eq!(report["stage"], "preflight");
+            assert_eq!(report["error"]["code"], "INSTALL_PLAN_FAILED");
+            assert_eq!(report["steps"], json!([]));
+            assert_eq!(report["receipt_path"], Value::Null);
+            assert_eq!(report["rollback"]["attempted"], false);
+            assert!(!sentinel.exists(), "repeated collection launched pip");
+            assert_eq!(String::from_utf8_lossy(&output.stdout).lines().count(), 1);
+        }
+    }
+}
