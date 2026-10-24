@@ -395,6 +395,7 @@ def test_loopback_response_loss_never_replays_mutation() -> None:
             async with websockets.connect(f"ws://127.0.0.1:{port}") as peer:
                 await peer.send(json.dumps({"type": "hello", "client": "test-unity", "version": "1"}))
                 assert json.loads(await peer.recv())["type"] == "hello_ack"
+                assert await asyncio.get_running_loop().run_in_executor(None, bridge._dcc_connected.wait, 1)
                 call = asyncio.get_running_loop().run_in_executor(None, client.call, "scene.create_node")
                 request = json.loads(await asyncio.wait_for(peer.recv(), 1))
                 assert request["method"] == "scene.create_node"
