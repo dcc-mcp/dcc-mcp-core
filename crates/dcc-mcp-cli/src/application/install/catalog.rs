@@ -60,7 +60,10 @@ fn load_local_entries(text: &str) -> Result<Vec<CatalogEntry>, dcc_mcp_catalog::
                 .into_iter()
                 .flat_map(|mapping| mapping.iter())
                 .filter(|(key, _)| {
-                    matches!(untag_yaml(key).as_str(), Some("entries" | "items" | "skills"))
+                    matches!(
+                        untag_yaml(key).as_str(),
+                        Some("entries" | "items" | "skills")
+                    )
                 })
                 .map(|(_, value)| untag_yaml(value).is_sequence())
                 .collect()
