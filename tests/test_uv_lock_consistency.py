@@ -1125,6 +1125,14 @@ def test_windows_job_settle_forgives_the_leaders_own_reaping_delay(monkeypatch: 
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    # Drive only this imported module's clock: scheduler delays must not consume
+    # the stub's settle window, and the process-wide time module stays untouched.
+    clock = SimpleNamespace(now=0.0)
+
+    def advance_clock(seconds: float) -> None:
+        clock.now += seconds
+
+    monkeypatch.setattr(module, "time", SimpleNamespace(monotonic=lambda: clock.now, sleep=advance_clock))
     # Every listed PID claims to be live: the leader must still be filtered
     # out by identity rather than by a liveness probe.
     monkeypatch.setattr(module, "process_exists", lambda pid: True)
@@ -1132,6 +1140,7 @@ def test_windows_job_settle_forgives_the_leaders_own_reaping_delay(monkeypatch: 
     settled = job.wait_settled(0.2, leader_pid=111)
     assert settled.active == 0
     assert settled.survivors == ()
+    assert clock.now == pytest.approx(2 * module.WINDOWS_JOB_SETTLE_POLL_SECONDS)
 
 
 def test_windows_job_settle_reports_descendant_that_ends_inside_window(monkeypatch: pytest.MonkeyPatch) -> None:
