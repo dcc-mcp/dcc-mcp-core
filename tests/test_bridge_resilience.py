@@ -411,3 +411,31 @@ def test_loopback_response_loss_never_replays_mutation() -> None:
             bridge.disconnect()
 
     asyncio.run(scenario())
+
+
+def test_disconnect_before_queued_send_allows_safe_fallback() -> None:
+    from concurrent.futures import Future
+
+    async def scenario():
+        bridge = DccBridge()
+        socket = _MemoryWebSocket()
+        future = Future()
+        bridge._pending[7] = future
+        queued_send = bridge._send_request('{"id":7}', socket, 7, future)
+        bridge._fail_pending("connection closed before queued send")
+        await queued_send
+        assert socket._outgoing.empty()
+        assert future.exception().outcome == "not_dispatched"
+        assert bridge._pending == {}
+        assert bridge._send_started == set()
+
+        class QueuedStrategy(_Strategy):
+            def call(self, method, **params):
+                raise future.exception()
+
+        secondary = _Strategy("fallback")
+        client = BridgeFallbackClient([QueuedStrategy("queued"), secondary])
+        assert client.call("scene.create_node")["strategy"] == "fallback"
+        assert len(secondary.calls) == 1
+
+    asyncio.run(scenario())
