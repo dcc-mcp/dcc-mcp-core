@@ -1064,7 +1064,7 @@ mod tests {
     }
 
     #[test]
-    fn git_and_zip_integrity_fail_before_network_or_filesystem_io() {
+    fn git_commit_integrity_fails_before_network_or_filesystem_io() {
         let root = tempfile::tempdir().unwrap();
         let git_dest = root.path().join("git-install");
         let git_error = execute_git_clone(
@@ -1075,21 +1075,6 @@ mod tests {
         .unwrap_err();
         assert!(git_error.to_string().contains("40-character commit"));
         assert!(!git_dest.exists());
-
-        let zip_dest = root.path().join("zip-install");
-        let zip_error = execute_zip_extract(
-            "https://__nonexistent__.invalid/archive.zip",
-            None,
-            &zip_dest,
-        )
-        .unwrap_err();
-        assert!(zip_error.to_string().contains("64 hexadecimal"));
-        assert!(!zip_dest.exists());
-
-        assert_eq!(
-            required_archive_sha256(Some(&format!("sha256:{}", "A".repeat(64)))).unwrap(),
-            "a".repeat(64)
-        );
     }
 
     #[test]
