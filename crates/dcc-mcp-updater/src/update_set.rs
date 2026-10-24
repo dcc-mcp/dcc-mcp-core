@@ -12,7 +12,10 @@ use serde::{Deserialize, Serialize};
 use super::{UpdateError, sha256_bytes, sha256_file, staging_dir};
 
 mod package;
-pub use package::{PackageFile, PackageIdentity, install_verified_package, validate_package_paths};
+pub use package::{
+    CheckedPackage, PackageFile, PackageIdentity, PackagePreconditions, install_verified_package,
+    install_verified_package_checked, validate_package_paths,
+};
 
 const PENDING_SET_DIR: &str = "pending-set";
 const PREVIOUS_SET_DIR: &str = "pending-set.previous";
@@ -805,6 +808,8 @@ fn prepare_verified_copy(
     expected_sha256: &str,
 ) -> Result<(), UpdateError> {
     ensure_reserved_file_path(target, label)?;
+    #[cfg(test)]
+    package::prepared_write_hook(target, "recovery");
     std::fs::copy(source, target)?;
     require_file_hash(target, expected_sha256, label)
 }

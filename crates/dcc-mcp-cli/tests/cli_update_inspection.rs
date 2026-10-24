@@ -11,6 +11,59 @@ struct IsolatedCli {
     staging: PathBuf,
 }
 
+#[test]
+fn fixed_local_component_failures_never_apply_staged_updates_or_open_profiles() {
+    for yes in [false, true] {
+        let isolated = IsolatedCli::new();
+        let manifest = isolated.root.path().join("manifest.json");
+        std::fs::write(&manifest, b"{}").unwrap();
+        let mut command = isolated.command();
+        command.args([
+            "--gateway",
+            "missing-profile-must-not-be-opened",
+            "components",
+            "install-verified",
+            "dcc-cua",
+            "--target-core-cli",
+            "missing/dcc-mcp-cli",
+            "--expected-core-cli-sha256",
+            &"a".repeat(64),
+            "--manifest",
+            manifest.to_str().unwrap(),
+            "--manifest-sha256",
+            &"a".repeat(64),
+            "--previous-manifest",
+            "missing/previous.json",
+            "--previous-manifest-sha256",
+            &"a".repeat(64),
+            "--source-root",
+            "missing/source",
+            "--version",
+            "1.11.1",
+            "--expected-current-sha256",
+            &"a".repeat(64),
+            "--expected-new-sha256",
+            &"b".repeat(64),
+        ]);
+        if yes {
+            command.arg("--yes");
+        }
+        let output = command.output().unwrap();
+        assert!(!output.status.success());
+        let error = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            error.contains(if yes {
+                "qualified install manifest SHA-256 mismatch"
+            } else {
+                "explicit --yes"
+            }),
+            "{error}"
+        );
+        isolated.assert_staging_untouched();
+        assert!(!isolated.cache_root().exists());
+    }
+}
+
 impl IsolatedCli {
     fn new() -> Self {
         let root = tempfile::tempdir().unwrap();
