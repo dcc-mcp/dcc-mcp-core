@@ -15,7 +15,7 @@ pub(crate) fn resolve_python(
         }
         return Ok(Some(python));
     }
-    let Some(path) = dcc_path.filter(|path| path.is_file()) else {
+    let Some(path) = dcc_path else {
         return Ok(None);
     };
     let Some(hint) = is_gui_executable(path) else {
@@ -24,6 +24,9 @@ pub(crate) fn resolve_python(
     // Commandlet/GUI replacements are not generic `python -m pip` interpreters.
     if hint.dcc_kind != dcc_type || !matches!(hint.dcc_kind, "maya" | "houdini") {
         return Ok(None);
+    }
+    if !path.is_file() {
+        return Err(hint);
     }
     let python = hint
         .recommended_replacement
