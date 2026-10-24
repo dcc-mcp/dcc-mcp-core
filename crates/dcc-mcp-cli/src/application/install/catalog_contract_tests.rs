@@ -514,7 +514,10 @@ fn local_file_read_errors_are_not_mistaken_for_an_empty_catalog() {
             let requested_path = explicit.then_some(path.as_path());
             assert!(matches!(
                 local.load_entries(requested_path),
-                Err(InstallError::Catalog(dcc_mcp_catalog::CatalogError::Io(_, _)))
+                Err(InstallError::Catalog(dcc_mcp_catalog::CatalogError::Io(
+                    _,
+                    _
+                )))
             ));
             assert_eq!(
                 local.catalog_provenance(requested_path).source,
