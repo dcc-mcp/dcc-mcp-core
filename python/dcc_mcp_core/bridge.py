@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import asyncio
 from concurrent.futures import Future
+from concurrent.futures import TimeoutError as FutureTimeoutError
 from dataclasses import dataclass
 from functools import partial
 import logging
@@ -57,7 +58,13 @@ logger = logging.getLogger(__name__)
 
 
 class BridgeError(DccMcpError):
-    """Base class for all DccBridge errors."""
+    """Base bridge error; only proven pre-dispatch failures permit replay."""
+
+    def __init__(self, *args: Any, outcome: str = "unknown") -> None:
+        if outcome not in ("unknown", "not_dispatched"):
+            raise ValueError("outcome must be unknown or not_dispatched")
+        super().__init__(*args)
+        self.outcome = outcome
 
 
 class BridgeConnectionError(BridgeError):
@@ -182,7 +189,7 @@ class BridgeTransportStrategy:
 
 
 class BridgeFallbackClient:
-    """Try multiple bridge transports in order and fail over on connection loss."""
+    """Connect in order; replay only a proven not-dispatched request."""
 
     def __init__(
         self,
@@ -229,9 +236,11 @@ class BridgeFallbackClient:
         assert self._active is not None
         try:
             return self._active.call(method, **params)
-        except BridgeConnectionError:
+        except BridgeConnectionError as exc:
             failed = self._active
             self._active = None
+            if exc.outcome != "not_dispatched":
+                raise
             if failed in self._strategies:
                 failed_idx = self._strategies.index(failed)
                 candidates = self._strategies[failed_idx + 1 :] + self._strategies[:failed_idx]
@@ -283,7 +292,7 @@ class ReverseBridgeSession:
         self._queue.put(request)
         try:
             return future.result(timeout=self._timeout)
-        except TimeoutError as exc:
+        except FutureTimeoutError as exc:
             with self._pending_lock:
                 self._pending.pop(request.id, None)
             raise BridgeTimeoutError(f"Method '{method}' (id={request.id}) timed out after {self._timeout}s.") from exc
@@ -385,6 +394,7 @@ class DccBridge:
 
         # Pending futures keyed by request id.
         self._pending: dict[str | int, Future] = {}
+        self._send_started: set[str | int] = set()
         self._pending_lock = threading.Lock()
         self._next_id = 0
         self._id_lock = threading.Lock()
@@ -439,11 +449,7 @@ class DccBridge:
             self._thread.join(timeout=5.0)
             self._thread = None
         # Fail all pending futures.
-        with self._pending_lock:
-            for fut in self._pending.values():
-                if not fut.done():
-                    fut.set_exception(BridgeConnectionError("Bridge disconnected."))
-            self._pending.clear()
+        self._fail_pending("Bridge disconnected.")
 
     def call(self, method: str, **params: Any) -> Any:
         """Invoke a method on the connected DCC plugin (synchronous).
@@ -470,14 +476,13 @@ class DccBridge:
             If the DCC plugin returns a JSON-RPC error response.
 
         """
-        if not self._connected:
-            raise BridgeConnectionError("No DCC plugin is connected.")
+        ws = self._ws
+        loop = self._loop
+        if not self._connected or ws is None or loop is None or not loop.is_running():
+            raise BridgeConnectionError("No DCC plugin is connected.", outcome="not_dispatched")
 
         req_id = self._next_request_id()
         fut: Future = Future()
-
-        with self._pending_lock:
-            self._pending[req_id] = fut
 
         message = {
             "type": "request",
@@ -488,16 +493,37 @@ class DccBridge:
         if params:
             message["params"] = params
 
-        asyncio.run_coroutine_threadsafe(self._send(json_dumps(message)), self._loop)
-
         try:
-            result = fut.result(timeout=self._timeout)
-        except TimeoutError as exc:
+            text = json_dumps(message)
+        except Exception as exc:
+            raise BridgeError("Bridge request serialization failed.", outcome="not_dispatched") from exc
+
+        with self._pending_lock:
+            self._pending[req_id] = fut
+        send = self._send_request(text, ws, req_id, fut)
+        try:
+            try:
+                asyncio.run_coroutine_threadsafe(send, loop)
+            except Exception as exc:
+                send.close()
+                raise BridgeConnectionError("Bridge request scheduling failed.", outcome="not_dispatched") from exc
+            try:
+                return fut.result(timeout=self._timeout)
+            except FutureTimeoutError as exc:
+                raise BridgeTimeoutError(f"Method '{method}' (id={req_id}) timed out after {self._timeout}s.") from exc
+        finally:
             with self._pending_lock:
                 self._pending.pop(req_id, None)
-            raise BridgeTimeoutError(f"Method '{method}' (id={req_id}) timed out after {self._timeout}s.") from exc
+                self._send_started.discard(req_id)
 
-        return result
+    def _fail_pending(self, reason: str) -> None:
+        with self._pending_lock:
+            for req_id, fut in self._pending.items():
+                if not fut.done():
+                    outcome = "unknown" if req_id in self._send_started else "not_dispatched"
+                    fut.set_exception(BridgeConnectionError(reason, outcome=outcome))
+            self._pending.clear()
+            self._send_started.clear()
 
     # ── Context manager ──────────────────────────────────────────────────────
 
@@ -561,11 +587,7 @@ class DccBridge:
                 self._connected = self._ws is not None
                 # Requests already sent to the disconnected active plugin
                 # cannot be completed by a fallback connection.
-                with self._pending_lock:
-                    for fut in list(self._pending.values()):
-                        if not fut.done():
-                            fut.set_exception(BridgeConnectionError("DCC plugin disconnected."))
-                    self._pending.clear()
+                self._fail_pending("DCC plugin disconnected.")
             logger.debug("DCC plugin disconnected")
 
     async def _dispatch(self, raw: str, ws: Any) -> None:
@@ -642,11 +664,24 @@ class DccBridge:
 
     async def _send(self, text: str, ws: Any = None) -> None:
         target = self._ws if ws is None else ws
-        if target is not None:
-            try:
-                await target.send(text)
-            except Exception as exc:
-                logger.debug("Failed to send message: %s", exc)
+        if target is None:
+            raise BridgeConnectionError("No DCC plugin is connected.", outcome="not_dispatched")
+        try:
+            await target.send(text)
+        except Exception as exc:
+            raise BridgeConnectionError("Bridge send failed; inspect state before retrying.") from exc
+
+    async def _send_request(self, text: str, ws: Any, req_id: int, fut: Future) -> None:
+        with self._pending_lock:
+            if self._pending.get(req_id) is not fut:
+                return
+            self._send_started.add(req_id)
+        try:
+            await self._send(text, ws)
+        except BridgeConnectionError as exc:
+            with self._pending_lock:
+                if self._pending.pop(req_id, None) is fut and not fut.done():
+                    fut.set_exception(exc)
 
     # ── Internal: id generation ──────────────────────────────────────────────
 
