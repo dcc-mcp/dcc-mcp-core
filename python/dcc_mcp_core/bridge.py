@@ -393,6 +393,7 @@ class DccBridge:
 
         # Pending futures keyed by request id.
         self._pending: dict[str | int, Future] = {}
+        self._send_started: set[str | int] = set()
         self._pending_lock = threading.Lock()
         self._next_id = 0
         self._id_lock = threading.Lock()
@@ -447,11 +448,7 @@ class DccBridge:
             self._thread.join(timeout=5.0)
             self._thread = None
         # Fail all pending futures.
-        with self._pending_lock:
-            for fut in self._pending.values():
-                if not fut.done():
-                    fut.set_exception(BridgeConnectionError("Bridge disconnected."))
-            self._pending.clear()
+        self._fail_pending("Bridge disconnected.")
 
     def call(self, method: str, **params: Any) -> Any:
         """Invoke a method on the connected DCC plugin (synchronous).
@@ -516,6 +513,16 @@ class DccBridge:
         finally:
             with self._pending_lock:
                 self._pending.pop(req_id, None)
+                self._send_started.discard(req_id)
+
+    def _fail_pending(self, reason: str) -> None:
+        with self._pending_lock:
+            for req_id, fut in self._pending.items():
+                if not fut.done():
+                    outcome = "unknown" if req_id in self._send_started else "not_dispatched"
+                    fut.set_exception(BridgeConnectionError(reason, outcome=outcome))
+            self._pending.clear()
+            self._send_started.clear()
 
     # ── Context manager ──────────────────────────────────────────────────────
 
@@ -579,11 +586,7 @@ class DccBridge:
                 self._connected = self._ws is not None
                 # Requests already sent to the disconnected active plugin
                 # cannot be completed by a fallback connection.
-                with self._pending_lock:
-                    for fut in list(self._pending.values()):
-                        if not fut.done():
-                            fut.set_exception(BridgeConnectionError("DCC plugin disconnected."))
-                    self._pending.clear()
+                self._fail_pending("DCC plugin disconnected.")
             logger.debug("DCC plugin disconnected")
 
     async def _dispatch(self, raw: str, ws: Any) -> None:
@@ -671,6 +674,7 @@ class DccBridge:
         with self._pending_lock:
             if self._pending.get(req_id) is not fut:
                 return
+            self._send_started.add(req_id)
         try:
             await self._send(text, ws)
         except BridgeConnectionError as exc:
