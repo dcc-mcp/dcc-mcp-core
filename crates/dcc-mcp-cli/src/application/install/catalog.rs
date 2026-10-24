@@ -27,7 +27,9 @@ pub(super) struct ResolvedCatalog {
 impl ResolvedCatalog {
     fn bundled() -> Result<Self, dcc_mcp_catalog::CatalogError> {
         Ok(Self {
-            entries: dcc_mcp_catalog::load_from_str(super::BUNDLED_CATALOG)?,
+            entries: validate_local_entries(dcc_mcp_catalog::load_from_str(
+                super::BUNDLED_CATALOG,
+            )?)?,
             provenance: CatalogProvenance {
                 sha256: Some(
                     Sha256::digest(super::BUNDLED_CATALOG.as_bytes())
@@ -39,6 +41,23 @@ impl ResolvedCatalog {
             },
         })
     }
+}
+
+fn validate_local_entries(
+    entries: Vec<CatalogEntry>,
+) -> Result<Vec<CatalogEntry>, dcc_mcp_catalog::CatalogError> {
+    let mut names = HashSet::new();
+    if entries
+        .iter()
+        .any(|entry| !names.insert(entry.name.to_lowercase()))
+    {
+        return Err(dcc_mcp_catalog::CatalogError::Parse(
+            "duplicate package names".into(),
+        ));
+    }
+    dcc_mcp_catalog::validate_catalog_entries(&entries)
+        .map_err(|error| dcc_mcp_catalog::CatalogError::Parse(error.to_string()))?;
+    Ok(entries)
 }
 
 #[derive(Serialize, Deserialize)]
@@ -115,7 +134,7 @@ impl super::InstallService {
     ) -> Result<ResolvedCatalog, super::InstallError> {
         if let Some(path) = requested_path {
             return Ok(ResolvedCatalog {
-                entries: dcc_mcp_catalog::load_from_file(path)?,
+                entries: validate_local_entries(dcc_mcp_catalog::load_from_file(path)?)?,
                 provenance: CatalogProvenance::local(CatalogSource::Explicit),
             });
         }
@@ -126,7 +145,7 @@ impl super::InstallService {
             return Ok(snapshot.clone());
         }
         if let Some(path) = &self.default_catalog_path {
-            let entries = dcc_mcp_catalog::load_from_file(path)?;
+            let entries = validate_local_entries(dcc_mcp_catalog::load_from_file(path)?)?;
             if !entries.is_empty() {
                 return Ok(ResolvedCatalog {
                     entries,
