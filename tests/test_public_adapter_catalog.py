@@ -92,6 +92,29 @@ def test_skill_only_packages_are_not_pip_adapters() -> None:
     assert "dcc-mcp-cache-inspector" not in entry_names
 
 
+def test_experimental_photocraft_remains_discoverable_without_install_authority() -> None:
+    from scripts.ci.prepare_install_catalog import prepare_catalog
+
+    entries = {entry["name"]: entry for entry in _entries()}
+    entry = entries["dcc-mcp-photocraft"]
+    assert entry["dcc"] == ["photocraft"]
+    assert entry["url"] == "https://github.com/dcc-mcp/dcc-mcp-photocraft"
+    assert {"adapter", "experimental", "storytold"} <= set(entry["tags"])
+    assert entry["policy"]["installation"] == "not_available"
+    assert entry["policy"]["reason"]
+    assert "install" not in entry
+    # The published adapter has a broad upper bound. Do not manufacture a
+    # narrower package requirement or an executable artifact binding in Core.
+    assert "core_requirement" not in entry
+
+    class NoNetwork:
+        def fetch(self, *args, **kwargs):
+            pytest.fail("discovery-only publication must not fetch or install an artifact")
+
+    payload = prepare_catalog({"version": "1", "entries": [entry]}, "a" * 40, 1, NoNetwork())
+    assert payload["entries"] == [entry]
+
+
 def test_liquigen_is_installable_from_pinned_pypi_wheel() -> None:
     entries = {entry["name"]: entry for entry in _entries()}
     liquigen = entries["dcc-mcp-liquigen"]
