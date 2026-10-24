@@ -100,6 +100,27 @@ The Adobe rows marked `2026-10 (package)` were verified against the published
 wheel metadata, CLI entry points, and release-pinned installation guides. These
 checks do not establish native Adobe GUI readiness or identity-bootstrap acceptance.
 
+## Experimental Discovery-Only Adapters
+
+These existing adapter projects are discoverable but have no automatic install
+metadata in the catalog. They are outside the release-qualified matrix above;
+catalog presence does not establish a usable host, desktop acceptance, or a
+completed Install SOP lifecycle.
+
+| DCC | Repository | Adapter Version | Declared Core Requirement | Qualified Host Scope | Automatic Installation |
+|-----|------------|-----------------|---------------------------|----------------------|------------------------|
+| PhotoCraft | [dcc-mcp-photocraft](https://github.com/dcc-mcp/dcc-mcp-photocraft) | 0.2.0 | >=0.20.44,<1.0.0 (declared) | Adapter-recorded Linux x86_64 PhotoCraft v0.8.2 headless image workflow; desktop and Web unqualified | Unavailable |
+
+PhotoCraft's [release-pinned package metadata](https://github.com/dcc-mcp/dcc-mcp-photocraft/blob/e39955dabf025ac7a290cd1da0f3ef4c2481097e/pyproject.toml)
+declares Python 3.9+ and the legacy broad Core upper bound recorded here. The
+catalog records only its `0.20.44` Core floor rather than inventing a bounded
+requirement. Promotion requires a bounded adapter dependency, exact artifact
+validation, and the installation lifecycle gates. The adapter's
+[native qualification record](https://github.com/dcc-mcp/dcc-mcp-photocraft/blob/e39955dabf025ac7a290cd1da0f3ef4c2481097e/docs/native-image-workflow.md)
+is evidence for that specific Linux headless workflow, not every upstream
+version or platform. Its secure image batch publication is unavailable on
+Windows. PhotoCraft's official desktop/CLI capabilities remain upstream-owned.
+
 ## Column Reference
 
 | Column | Description |

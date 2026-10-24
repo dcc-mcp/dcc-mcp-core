@@ -22,6 +22,19 @@
 
 version: "1"
 entries:
+  - name: "dcc-mcp-photocraft"
+    description: "Experimental PhotoCraft adapter with native CLI discovery and a bounded headless image workflow; desktop and Web acceptance remain unqualified"
+    dcc: ["photocraft"]
+    url: "https://github.com/dcc-mcp/dcc-mcp-photocraft"
+    issues_url: "https://github.com/dcc-mcp/dcc-mcp-photocraft/issues"
+    tags: ["adapter", "photocraft", "experimental", "storytold", "image-editing", "native-cli"]
+    version: "0.2.0"
+    min_core_version: "0.20.44"
+    maintainer: "dcc-mcp"
+    policy:
+      installation: "not_available"
+      reason: "Discovery only: automatic installation awaits a bounded Core requirement, pinned artifact and Install SOP qualification."
+
   - name: "dcc-mcp-kdenlive"
     description: "Kdenlive adapter with 27 typed project, media, timeline, effect, catalog, export, interchange, native and setup tools, plus shared DCC-CUA editor control"
     dcc: ["kdenlive"]
