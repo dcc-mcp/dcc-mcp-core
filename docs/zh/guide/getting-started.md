@@ -79,6 +79,53 @@ release manifest 的 SHA-256、校验下载的 CLI，并为下一次启动暂存
 CLI 也提供了独立 ZIP 包（`dcc-mcp-cli-<version>-<platform>.zip`），
 可从每个 [GitHub Release](https://github.com/dcc-mcp/dcc-mcp-core/releases) 下载。
 
+### MCP Registry
+
+[官方 MCP Registry](https://github.com/modelcontextprotocol/registry) 提供带版本的
+server 元数据，方便发现服务；它不是托管 DCC 网关，也不是所有客户端通用的一键安装器。
+本项目条目是 `io.github.dcc-mcp/dcc-mcp-core`；
+[0.20.47 元数据](https://registry.modelcontextprotocol.io/v0.1/servers/io.github.dcc-mcp%2Fdcc-mcp-core/versions/0.20.47)
+指向 **`dcc-mcp-server`** 包，而不是 Python SDK `dcc-mcp-core`。
+
+Agent 操作 DCC 时，仍推荐先按上面的[公开 Agent Skills](#公开-agent-skills)安装
+`dcc-mcp` Skill 和 CLI。使用标准 MCP 客户端时，可走以下本机 Streamable HTTP 路径：
+
+1. 先检查选定版本，下载或安装前征得用户同意。已有
+   [uv](https://docs.astral.sh/uv/getting-started/installation/) 时，在 DCC 所在电脑的
+   隔离工具环境中启动固定版本：
+
+   ```bash
+   uvx --from "dcc-mcp-server==0.20.47" dcc-mcp-server gateway --host 127.0.0.1 --port 9765 --remote-port 0 --gateway-persist
+   ```
+
+   保持此前台进程运行。`gateway` 明确选择网关模式；`--remote-port 0` 关闭第二监听
+   端口，`--gateway-persist` 防止尚无 DCC 注册时因空闲而退出。这个包**不包含**
+   `dcc-mcp-cli`，也不会安装 DCC adapter。所选版本必须有匹配当前平台的 wheel，
+   不要静默换用未经检查的版本。如果 9765 已占用，应先核对现有网关，或选择空闲的
+   `--port` 并相应修改客户端 URL。
+
+2. 在支持 **Streamable HTTP** 的客户端中，把 MCP URL 配为
+   **`http://127.0.0.1:9765/mcp`**，使用该客户端的 HTTP 配置格式，而非 stdio command
+   模板。Registry 网页和 JSON API 都不是 MCP endpoint。客户端连接必须发生在
+   网关所在电脑，或通过已批准的路径访问它；云端服务的 `127.0.0.1` 并不是你的电脑。
+   保持网关绑定 loopback，不要直接暴露到公网，也不要把注册 token 支持理解成全部
+   路由都已受认证保护。凭据只放在受支持的本地安全存储中，不回传聊天或提交到 Git。
+
+3. 分层验证，避免把网关可用误当成 DCC 已连接：
+   - `GET http://127.0.0.1:9765/health` 只检查网关存活。
+   - 通过 MCP 客户端完成 `initialize` → `notifications/initialized` → `tools/list`，
+     如有 `nextCursor` 则继续分页。0.20.47 返回 `search`、`describe`、`load_skill`、
+     `call` 四项工具，不会把所有后端工具平铺到列表里。
+   - 用 `resources/read` 读取 `gateway://instances`，或查看
+     `GET http://127.0.0.1:9765/v1/instances`，确认目标 DCC 实例已注册。列表为空不等于
+     Registry 安装失败。
+   - 查看 `GET http://127.0.0.1:9765/v1/readyz` 中的 `ready_instance_count` 和目标实例的
+     readiness/dispatch 状态；仅 HTTP 200 或网关 `ok: true` 不能证明 DCC 已就绪。
+
+另按[适配器安装生命周期](./adapter-install-lifecycle.md)在目标 DCC 内安装并启用对应
+adapter，再核验该实例，做一次窄范围能力搜索并遵循返回的 `next_step`。发现 Registry
+条目或列出网关工具，都不代表已经安装、启动或验证 Maya、Blender 等宿主。
+
 ### 从 PyPI 安装
 
 ```bash

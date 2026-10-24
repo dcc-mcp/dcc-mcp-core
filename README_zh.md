@@ -119,6 +119,9 @@ instance row -> gateway 统一路由所有 live DCC instance。
 
 ## 快速开始
 
+通过 [MCP Registry 接入指南](docs/zh/guide/getting-started.md#mcp-registry)了解版本发现、
+本机网关启动、标准 MCP 客户端配置与分层验证。
+
 ### 按任务安装 Agent Skill
 
 三个公开 Skill 各自负责一个边界。操作现有 DCC 时只需先安装 `dcc-mcp`；只有

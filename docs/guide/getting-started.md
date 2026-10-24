@@ -85,6 +85,63 @@ The CLI is also available as a standalone ZIP archive
 (`dcc-mcp-cli-<version>-<platform>.zip`) from each
 [GitHub Release](https://github.com/dcc-mcp/dcc-mcp-core/releases).
 
+### MCP Registry
+
+The [official MCP Registry](https://github.com/modelcontextprotocol/registry)
+provides versioned server metadata for discovery. It is not a hosted DCC gateway
+or a universal one-click installer. Our entry is
+`io.github.dcc-mcp/dcc-mcp-core`; its
+[0.20.47 metadata](https://registry.modelcontextprotocol.io/v0.1/servers/io.github.dcc-mcp%2Fdcc-mcp-core/versions/0.20.47)
+points to the **`dcc-mcp-server`** package, not the Python SDK `dcc-mcp-core`.
+
+For agent-driven DCC work, start with the recommended
+[public `dcc-mcp` Skill](#public-agent-skills) and its CLI setup above. For a
+standard MCP client, use this local Streamable HTTP path instead:
+
+1. Review the selected release and obtain consent before downloading/installing.
+   With [uv installed](https://docs.astral.sh/uv/getting-started/installation/),
+   run the pinned server in an isolated tool environment on the DCC workstation:
+
+   ```bash
+   uvx --from "dcc-mcp-server==0.20.47" dcc-mcp-server gateway --host 127.0.0.1 --port 9765 --remote-port 0 --gateway-persist
+   ```
+
+   Keep this foreground process running. `gateway` selects the gateway mode;
+   `--remote-port 0` disables the secondary listener, and `--gateway-persist`
+   prevents idle exit while no DCC is registered. This package does **not**
+   install `dcc-mcp-cli` or a DCC adapter. The pinned release needs a matching
+   platform wheel; do not silently substitute an unreviewed version. If port
+   9765 is occupied, inspect the existing gateway before reusing it, or select
+   an unused `--port` and update the client URL accordingly.
+
+2. In a client that supports **Streamable HTTP**, configure the MCP URL as
+   **`http://127.0.0.1:9765/mcp`**. Follow that client's HTTP configuration format,
+   not a stdio command template. Neither the Registry website nor its JSON API
+   is an MCP endpoint. The client connection must run on, or have an approved
+   route to, the gateway's workstation; a cloud service's `127.0.0.1` is not
+   your computer. Keep the gateway on loopback. Do not expose it directly to the
+   public internet or assume registration-token support protects every route.
+   Keep any credentials in supported local secret storage, never chat or Git.
+
+3. Verify each layer separately:
+   - `GET http://127.0.0.1:9765/health` checks gateway liveness only.
+   - Through the MCP client, complete `initialize` → `notifications/initialized`
+     → `tools/list`, following `nextCursor` when present. Version 0.20.47 exposes
+     `search`, `describe`, `load_skill`, and `call`; backend tools are not all
+     flattened into this list.
+   - Read `gateway://instances` with `resources/read`, or inspect
+     `GET http://127.0.0.1:9765/v1/instances`, to confirm the intended DCC instance
+     is registered. An empty inventory is not a Registry installation failure.
+   - Inspect `GET http://127.0.0.1:9765/v1/readyz`, including
+     `ready_instance_count` and the target instance's readiness/dispatch state.
+     HTTP 200 or gateway `ok: true` alone does not prove a DCC is ready.
+
+Install and enable the appropriate adapter in the target DCC using the
+[adapter installation lifecycle](./adapter-install-lifecycle.md), then verify
+that instance and perform one narrow capability search, following its returned
+`next_step`. Discovering the Registry entry or listing gateway tools does not
+install, launch, or validate Maya, Blender, or another host.
+
 ### From PyPI
 
 ```bash
