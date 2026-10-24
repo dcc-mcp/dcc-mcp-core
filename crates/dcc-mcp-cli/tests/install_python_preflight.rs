@@ -48,6 +48,11 @@ fn plan(
 fn records_existing_embedded_python_in_the_executable_plan() {
     for (dcc, gui, embedded) in [
         ("maya", "maya.exe", "mayapy.exe"),
+        ("maya", "MAYA.EXE", "Mayapy.EXE"),
+        ("maya", "maya", "mayapy"),
+        ("maya", "maya.bin", "mayapy"),
+        ("maya", "MAYA.BIN", "Mayapy"),
+        ("houdini", "Houdini", "hython"),
         ("houdini", "houdinifx.exe", "hython.exe"),
     ] {
         let dir = tempfile::tempdir().unwrap();
