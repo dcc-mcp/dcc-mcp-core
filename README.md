@@ -595,6 +595,8 @@ repository does not duplicate version or package counts in this README.
 
 - [Getting started](docs/guide/getting-started.md) — install the package and
   start a first server.
+- [MCP Registry setup](docs/guide/getting-started.md#mcp-registry) — discover a
+  version, start a local gateway, and verify a standard MCP client.
 - [CLI reference](docs/guide/cli-reference.md) — complete operator commands and
   flags.
 - [Gateway guide](docs/guide/gateway.md) — daemon, registry, routing, relay, and
