@@ -132,3 +132,37 @@ fn invalid_explicit_catalogs_fail_before_the_real_cli_launches_pip() {
     assert_eq!(output.status.code(), Some(30));
     assert_eq!(std::fs::read_to_string(sentinel).unwrap(), "executed");
 }
+
+#[test]
+fn malformed_explicit_document_shapes_preserve_the_bounded_preflight_contract() {
+    let root = TempDir::new().unwrap();
+    let sentinel = pip_execution_sentinel(&root);
+    let selected = pip_entry("dcc-mcp-godot", "godot");
+    // Explicit --catalog already failed closed for a missing collection. The
+    // default-path fallback regression is covered by the service tests instead.
+    for yaml in [false, true] {
+        for document in [
+            json!({"version": "1", "entires": [selected.clone()]}),
+            json!({"version": "1"}),
+            json!({"entries": [selected.clone()], "skills": []}),
+            json!(["1", [selected.clone()]]),
+        ] {
+            let contents = if yaml {
+                serde_yaml_ng::to_string(&document).unwrap()
+            } else {
+                serde_json::to_string(&document).unwrap()
+            };
+            std::fs::write(root.path().join("catalog.json"), contents).unwrap();
+            let output = execute_catalog(&root, &sentinel);
+            assert_eq!(output.status.code(), Some(10));
+            let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+            assert_eq!(report["stage"], "preflight");
+            assert_eq!(report["error"]["code"], "INSTALL_PLAN_FAILED");
+            assert_eq!(report["steps"], json!([]));
+            assert_eq!(report["receipt_path"], Value::Null);
+            assert_eq!(report["rollback"]["attempted"], false);
+            assert!(!sentinel.exists(), "malformed document launched pip");
+            assert_eq!(String::from_utf8_lossy(&output.stdout).lines().count(), 1);
+        }
+    }
+}

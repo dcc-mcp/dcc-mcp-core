@@ -352,3 +352,174 @@ fn bundled_local_catalog_is_valid_and_preserves_its_provenance() {
     assert!(provenance.sha256.is_some());
     assert!(!provenance.latest_checked);
 }
+
+#[test]
+fn generic_parser_stays_permissive_but_a_local_collection_typo_cannot_fall_back() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("typo.catalog");
+    let document = serde_json::json!({
+        "version": "1",
+        "entires": [local_pip_entry("dcc-mcp-godot", "godot")]
+    });
+    for yaml in [false, true] {
+        write_local_catalog(&path, &document, yaml);
+        // The generic decoder intentionally retains its existing behavior.
+        // Before the local shape gate, this empty result selected bundled data.
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(dcc_mcp_catalog::load_from_str(&text).unwrap().is_empty());
+        let local = InstallService::new(path.clone());
+        assert!(matches!(
+            local.plan(request()),
+            Err(InstallError::Catalog(_))
+        ));
+        assert_eq!(
+            local.catalog_provenance(None).source,
+            CatalogSource::Unavailable
+        );
+    }
+}
+
+#[test]
+fn malformed_local_document_shapes_fail_before_planning_or_execution() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("malformed.catalog");
+    let entry = local_pip_entry("dcc-mcp-godot", "godot");
+    for document in [
+        serde_json::json!({}),
+        serde_json::json!({"version": "1"}),
+        serde_json::json!({"entries": [entry.clone()], "items": []}),
+        serde_json::json!({"entries": null}),
+        serde_json::json!({"entries": entry.clone()}),
+        serde_json::json!(["1", [entry]]),
+    ] {
+        for yaml in [false, true] {
+            write_local_catalog(&path, &document, yaml);
+            if document.get("items").is_some() {
+                // Multiple aliases already fail in the generic decoder. Keep
+                // that error path distinct from the missing-collection bug.
+                let text = std::fs::read_to_string(&path).unwrap();
+                assert!(dcc_mcp_catalog::load_from_str(&text).is_err());
+            }
+            for explicit in [false, true] {
+                let mut local = InstallService::new(path.clone());
+                local.auto_install_policy.enabled = true;
+                let requested_path = explicit.then_some(path.as_path());
+                assert!(matches!(
+                    local.load_entries(requested_path),
+                    Err(InstallError::Catalog(_))
+                ));
+                assert!(local.dcc_types(requested_path).is_err());
+                let mut selected = request();
+                selected.catalog_path = requested_path.map(Path::to_path_buf);
+                selected.python = Some(root.path().join("must-not-launch").display().to_string());
+                let report = local.execute(selected, true);
+                assert_eq!(report.exit_code, 10);
+                assert_eq!(report.stage, "preflight");
+                assert!(report.steps.is_empty());
+                assert!(!report.rollback.attempted);
+                assert!(report.receipt_path.is_none());
+                assert!(!report.verify.directly_usable);
+                assert_eq!(report.error.unwrap().code, "INSTALL_PLAN_FAILED");
+            }
+        }
+    }
+}
+
+#[test]
+fn local_document_metadata_and_discovery_only_entries_keep_their_source() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("discovery.catalog");
+    for yaml in [false, true] {
+        for collection in ["entries", "items", "skills"] {
+            let mut document = serde_json::json!({
+                "name": "dcc-mcp-official",
+                "version": "1.0.0",
+                "$schema": "https://example.invalid/catalog.schema.json",
+                "$comment": "Informational catalog annotation",
+                "metadata": {"label": "legacy metadata"}
+            });
+            document[collection] = serde_json::json!([{
+                "name": "catalog-only",
+                "description": "Discovery-only adapter",
+                "dcc": ["godot"],
+                "tags": ["adapter"]
+            }]);
+            write_local_catalog(&path, &document, yaml);
+            if yaml {
+                let text = std::fs::read_to_string(&path).unwrap();
+                let text = format!("{text}extra_yaml_metadata:\n  42: retained\n");
+                assert!(dcc_mcp_catalog::load_from_str(&text).is_ok());
+                std::fs::write(&path, text).unwrap();
+            }
+            let local = InstallService::new(path.clone());
+            for explicit in [false, true] {
+                let requested_path = explicit.then_some(path.as_path());
+                let entries = local.load_entries(requested_path).unwrap();
+                assert_eq!(entries.len(), 1);
+                assert_eq!(entries[0].name, "catalog-only");
+                assert!(entries[0].install.is_none());
+                assert_eq!(
+                    local.catalog_provenance(requested_path).source,
+                    CatalogSource::Explicit
+                );
+                assert!(local.dcc_types(requested_path).is_ok());
+            }
+            document[collection] = serde_json::json!([]);
+            write_local_catalog(&path, &document, yaml);
+            assert!(local.load_entries(Some(&path)).unwrap().is_empty());
+            assert_eq!(
+                local.catalog_provenance(None).source,
+                CatalogSource::Bundled
+            );
+        }
+    }
+}
+
+#[test]
+fn yaml_tags_keep_the_generic_parsers_acceptance() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("tagged.yml");
+    let mut documents = Vec::new();
+    for (document_tag, collection_tag) in [
+        ("", ""),
+        ("!catalog\n", ""),
+        ("", "!collection "),
+        ("!catalog\n", "!collection "),
+    ] {
+        documents.push(format!(
+            "{document_tag}entries: {collection_tag}\n  - name: catalog-only\n    description: Discovery-only entry\n"
+        ));
+    }
+    documents.push("entries: []\nmetadata: !note\n  42: retained\n".into());
+    for text in documents {
+        std::fs::write(&path, &text).unwrap();
+        let local = InstallService::new(path.clone());
+        match dcc_mcp_catalog::load_from_str(&text) {
+            Ok(entries) => assert_eq!(local.load_entries(Some(&path)).unwrap(), entries),
+            Err(_) => assert!(local.load_entries(Some(&path)).is_err()),
+        }
+    }
+}
+
+#[test]
+fn local_file_read_errors_are_not_mistaken_for_an_empty_catalog() {
+    let root = tempfile::tempdir().unwrap();
+    let directory = root.path().join("catalog-directory");
+    std::fs::create_dir(&directory).unwrap();
+    let non_utf8 = root.path().join("non-utf8.catalog");
+    std::fs::write(&non_utf8, [0xff, 0xfe]).unwrap();
+    for path in [directory, non_utf8] {
+        let local = InstallService::new(path.clone());
+        for explicit in [false, true] {
+            let requested_path = explicit.then_some(path.as_path());
+            assert!(matches!(
+                local.load_entries(requested_path),
+                Err(InstallError::Catalog(dcc_mcp_catalog::CatalogError::Io(_, _)))
+            ));
+            assert_eq!(
+                local.catalog_provenance(requested_path).source,
+                CatalogSource::Unavailable
+            );
+        }
+    }
+}

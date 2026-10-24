@@ -27,9 +27,7 @@ pub(super) struct ResolvedCatalog {
 impl ResolvedCatalog {
     fn bundled() -> Result<Self, dcc_mcp_catalog::CatalogError> {
         Ok(Self {
-            entries: validate_local_entries(dcc_mcp_catalog::load_from_str(
-                super::BUNDLED_CATALOG,
-            )?)?,
+            entries: load_local_entries(super::BUNDLED_CATALOG)?,
             provenance: CatalogProvenance {
                 sha256: Some(
                     Sha256::digest(super::BUNDLED_CATALOG.as_bytes())
@@ -41,6 +39,55 @@ impl ResolvedCatalog {
             },
         })
     }
+}
+
+fn load_local_entries(text: &str) -> Result<Vec<CatalogEntry>, dcc_mcp_catalog::CatalogError> {
+    // Keep JSON/YAML and metadata aliases compatible with the generic parser,
+    // but never interpret a misspelled collection as an empty local catalog.
+    let collections: Vec<bool> = match serde_json::from_str::<serde_json::Value>(text) {
+        Ok(document) => document
+            .as_object()
+            .into_iter()
+            .flat_map(|object| object.iter())
+            .filter(|(key, _)| matches!(key.as_str(), "entries" | "items" | "skills"))
+            .map(|(_, value)| value.is_array())
+            .collect(),
+        Err(_) => {
+            let document: serde_yaml_ng::Value = serde_yaml_ng::from_str(text)
+                .map_err(|error| dcc_mcp_catalog::CatalogError::Parse(error.to_string()))?;
+            untag_yaml(&document)
+                .as_mapping()
+                .into_iter()
+                .flat_map(|mapping| mapping.iter())
+                .filter(|(key, _)| {
+                    matches!(untag_yaml(key).as_str(), Some("entries" | "items" | "skills"))
+                })
+                .map(|(_, value)| untag_yaml(value).is_sequence())
+                .collect()
+        }
+    };
+    if collections.len() != 1 || !collections[0] {
+        return Err(dcc_mcp_catalog::CatalogError::Parse(
+            "local catalog must declare one entries, items, or skills array".into(),
+        ));
+    }
+    validate_local_entries(dcc_mcp_catalog::load_from_str(text)?)
+}
+
+fn untag_yaml(mut value: &serde_yaml_ng::Value) -> &serde_yaml_ng::Value {
+    while let serde_yaml_ng::Value::Tagged(tagged) = value {
+        value = &tagged.value;
+    }
+    value
+}
+
+fn load_local_file(path: &Path) -> Result<Vec<CatalogEntry>, dcc_mcp_catalog::CatalogError> {
+    if !path.exists() {
+        return Ok(vec![]);
+    }
+    let text = std::fs::read_to_string(path)
+        .map_err(|error| dcc_mcp_catalog::CatalogError::Io(path.display().to_string(), error))?;
+    load_local_entries(&text)
 }
 
 fn validate_local_entries(
@@ -134,7 +181,7 @@ impl super::InstallService {
     ) -> Result<ResolvedCatalog, super::InstallError> {
         if let Some(path) = requested_path {
             return Ok(ResolvedCatalog {
-                entries: validate_local_entries(dcc_mcp_catalog::load_from_file(path)?)?,
+                entries: load_local_file(path)?,
                 provenance: CatalogProvenance::local(CatalogSource::Explicit),
             });
         }
@@ -145,7 +192,7 @@ impl super::InstallService {
             return Ok(snapshot.clone());
         }
         if let Some(path) = &self.default_catalog_path {
-            let entries = validate_local_entries(dcc_mcp_catalog::load_from_file(path)?)?;
+            let entries = load_local_file(path)?;
             if !entries.is_empty() {
                 return Ok(ResolvedCatalog {
                     entries,
