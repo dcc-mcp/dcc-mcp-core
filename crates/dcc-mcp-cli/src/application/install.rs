@@ -13,6 +13,8 @@ use crate::domain::install::{
 const BUNDLED_CATALOG: &str = include_str!("../../../../dcc-mcp-catalog.yml");
 
 mod adobe;
+#[cfg(test)]
+mod archive_http_tests;
 mod catalog;
 #[cfg(test)]
 mod catalog_contract_tests;
@@ -601,6 +603,13 @@ fn execute_zip_extract(
         step: "zip-download".into(),
         message: format!("failed to download {url}: {e}"),
     })?;
+
+    if !response.status().is_success() {
+        return Err(InstallError::StepFailed {
+            step: "zip-download".into(),
+            message: format!("archive download returned HTTP {}", response.status()),
+        });
+    }
 
     let bytes = response.bytes().map_err(|e| InstallError::StepFailed {
         step: "zip-download".into(),
