@@ -238,6 +238,8 @@ def build_mcp_http_config(
         config.scene = gateway.scene
 
     config.dcc_type = options.dcc_name
+    # Adapter identity must be explicit, never inferred from MCP or Core versions.
+    config.adapter_version = options.sidecar.adapter_version
     config.bare_tool_names = options.bare_tool_names
     if options.observability.job_retention_hours is not None:
         config.job_retention_hours = options.observability.job_retention_hours
