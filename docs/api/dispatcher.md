@@ -456,6 +456,18 @@ smokes. The core reference is
 it exercises Maya-like and 3ds Max-like dispatch flows, malformed payloads,
 missing servers, missing source files, executor errors, cancellation, timeout,
 and shutdown cleanup without launching a real DCC.
+
+Script entry points may use named keyword parameters or the legacy single
+mapping convention (`main(params)`). Unknown keywords must not turn a declared
+scalar or scalar-sequence parameter into the complete request dictionary:
+`main(force: bool = False)` must reject `{"unsupported": true}` before entering
+the handler. Core preserves the existing `TypeError` error envelope, named
+arguments, defaults, untyped/mapping entry points and explicit `**kwargs`.
+Unresolved host annotations retain the legacy convention; adapters must keep
+their published `input_schema` authoritative for value and capability checks.
+Host-free signature fixtures are not evidence of native API behavior, DCC
+version support or verified scene postconditions.
+
 ## In-process split-phase continuations
 
 Main-affinity in-process tools may return `dcc_mcp_core.SplitPhaseOutcome`

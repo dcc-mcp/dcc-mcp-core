@@ -16,6 +16,7 @@ this module supplies its executor closure and dispatcher protocol.
 # Import built-in modules
 from __future__ import annotations
 
+from contextlib import suppress
 from dataclasses import dataclass
 from dataclasses import field
 import importlib.machinery
@@ -28,10 +29,13 @@ from pathlib import Path
 import sys
 import threading
 import time
+import types
 from typing import Any
 from typing import Callable
 from typing import Mapping
 from typing import Sequence
+from typing import Union
+from typing import get_type_hints
 import uuid
 
 from dcc_mcp_core._server._continuation_lifecycle import resolve_bridge_result
@@ -658,6 +662,25 @@ def _call_script_main(main: Callable[..., Any], params: Mapping[str, Any]) -> An
         )
     ]
     if len(positional) == 1 and len(required) <= 1:
+        parameter = positional[0]
+        annotation = parameter.annotation
+        if isinstance(annotation, str):
+            # shortcut: unresolved host hints keep legacy mapping until a complete annotation is available.
+            with suppress(NameError, TypeError):
+                annotation = get_type_hints(inspect.unwrap(main)).get(parameter.name, annotation)
+        options = (
+            annotation.__args__
+            if getattr(annotation, "__origin__", None) is Union
+            or isinstance(annotation, getattr(types, "UnionType", ()))
+            else (annotation,)
+        )
+        if options and all(
+            (getattr(option, "__origin__", None) or option)
+            in (bool, int, float, str, bytes, list, tuple, set, frozenset, type(None))
+            for option in options
+        ):
+            signature.bind_partial(**params_dict)
+            return main(**params_dict)
         return main(params_dict)
 
     return main(**params_dict)
