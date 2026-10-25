@@ -28,7 +28,9 @@ use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use dcc_mcp_catalog::CatalogEntry;
+use dcc_mcp_catalog::{
+    CatalogEntry, CoreBoundPolicy, CoreRuntimeReport, RuntimeVerdict, check_runtime,
+};
 use serde::Serialize;
 use serde_json::{Map, Value, json};
 
@@ -56,6 +58,8 @@ pub enum AdapterImportStatus {
     Unimportable,
     /// Importable, but the module version differs from the distribution version.
     VersionMismatch,
+    /// Importable, but the target Core is outside the adapter's declared range.
+    IncompatibleCore,
     /// The probe could not be executed at all.
     Unavailable,
 }
@@ -69,7 +73,7 @@ impl AdapterImportStatus {
     pub fn is_failure(self) -> bool {
         matches!(
             self,
-            Self::Missing | Self::Unimportable | Self::VersionMismatch
+            Self::Missing | Self::Unimportable | Self::VersionMismatch | Self::IncompatibleCore
         )
     }
 }
@@ -370,9 +374,28 @@ fn probe_target(target: &AdapterImportTarget) -> Value {
 
     match run_probe(python, &target.module, &target.distribution) {
         Ok(report) => {
-            let status = grade(&report);
+            let core = core_compatibility(&report);
+            let status = grade(&report, core.as_ref());
             obj.extend(report);
             obj.insert("status".to_string(), json!(status));
+            if let Some(core) = core {
+                obj.insert(
+                    "core_compatibility".into(),
+                    json!({
+                        "requirement": core.declaration,
+                        "running": core.running,
+                        "status": core.verdict.as_str(),
+                    }),
+                );
+            } else {
+                obj.insert(
+                    "core_compatibility".into(),
+                    json!({
+                        "status": "not_checked",
+                        "reason": "no_unambiguous_unconditional_core_requirement",
+                    }),
+                );
+            }
         }
         Err(reason) => {
             obj.insert(
@@ -386,7 +409,7 @@ fn probe_target(target: &AdapterImportTarget) -> Value {
 }
 
 /// Grade a probe report using the distribution and import observations.
-fn grade(report: &Map<String, Value>) -> AdapterImportStatus {
+fn grade(report: &Map<String, Value>, core: Option<&CoreRuntimeReport>) -> AdapterImportStatus {
     let imported = report
         .get("imported")
         .and_then(Value::as_bool)
@@ -404,8 +427,30 @@ fn grade(report: &Map<String, Value>) -> AdapterImportStatus {
     let module_version = report.get("module_version").and_then(Value::as_str);
     match (dist_version, module_version) {
         (Some(dist), Some(module)) if dist != module => AdapterImportStatus::VersionMismatch,
+        _ if core.is_some_and(|core| {
+            matches!(
+                core.verdict,
+                RuntimeVerdict::CoreOlderThanDeclared | RuntimeVerdict::CoreNewerThanDeclared
+            )
+        }) =>
+        {
+            AdapterImportStatus::IncompatibleCore
+        }
         _ => AdapterImportStatus::Ok,
     }
+}
+
+fn core_compatibility(report: &Map<String, Value>) -> Option<CoreRuntimeReport> {
+    let requirement = report.get("core_requirement")?.as_str()?;
+    let running = report
+        .get("core_version")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    Some(check_runtime(
+        requirement,
+        running,
+        &CoreBoundPolicy::default(),
+    ))
 }
 
 /// Read back the status recorded on a probe row.
@@ -418,6 +463,7 @@ fn probe_status(probe: &Value) -> AdapterImportStatus {
             "missing" => Some(AdapterImportStatus::Missing),
             "unimportable" => Some(AdapterImportStatus::Unimportable),
             "version_mismatch" => Some(AdapterImportStatus::VersionMismatch),
+            "incompatible_core" => Some(AdapterImportStatus::IncompatibleCore),
             "unavailable" => Some(AdapterImportStatus::Unavailable),
             _ => None,
         })
@@ -536,6 +582,7 @@ fn first_line(text: &str) -> Option<&str> {
 /// scan of `*.dist-info` directories so a Python 3.7 host still reports the
 /// "installed but not importable" case that motivated this check.
 const PROBE_SCRIPT: &str = r#"
+from email.parser import Parser
 import json
 import os
 import re
@@ -554,6 +601,10 @@ report = {
     "dist_source": None,
     "module_version": None,
     "module_origin": None,
+    "core_requirement": None,
+    "core_version": None,
+    "core_version_source": None,
+    "core_dist_version": None,
     "error_type": None,
     "error": None,
 }
@@ -562,7 +613,7 @@ report = {
 def _scan_dist_dirs(name):
     normalised = re.sub(r"[-_.]+", "_", name).strip("_").lower()
     if not normalised:
-        return None, None
+        return None, None, []
     prefix = normalised + "-"
     suffix = ".dist-info"
     legacy = normalised + ".egg-info"
@@ -574,32 +625,49 @@ def _scan_dist_dirs(name):
         for name in names:
             if name.startswith(prefix) and name.endswith(suffix):
                 version = name[len(prefix):-len(suffix)]
-                return (version or None), "dist_info_dir"
+                requirements = []
+                try:
+                    with open(os.path.join(entry_path, name, "METADATA"), encoding="utf-8", errors="replace") as handle:
+                        requirements = Parser().parsestr(handle.read(1024 * 1024)).get_all("Requires-Dist", [])
+                except OSError:
+                    pass
+                return (version or None), "dist_info_dir", requirements
             if name == legacy:
-                return None, "egg_info_dir"
-    return None, None
+                return None, "egg_info_dir", []
+    return None, None, []
 
 
 def _dist_version(name):
     try:
         import importlib.metadata as metadata
 
-        return metadata.version(name), "importlib.metadata"
+        return metadata.version(name), "importlib.metadata", metadata.requires(name) or []
     except Exception:
         pass
     try:
         import pkg_resources
 
-        return pkg_resources.get_distribution(name).version, "pkg_resources"
+        distribution = pkg_resources.get_distribution(name)
+        requirements = []
+        for metadata_file in ("METADATA", "PKG-INFO"):
+            if distribution.has_metadata(metadata_file):
+                contents = distribution.get_metadata(metadata_file)[:1024 * 1024]
+                requirements = Parser().parsestr(contents).get_all("Requires-Dist", [])
+                break
+        return distribution.version, "pkg_resources", requirements
     except Exception:
         pass
     return _scan_dist_dirs(name)
 
 
 if dist_name:
-    version, source = _dist_version(dist_name)
+    version, source, requirements = _dist_version(dist_name)
     report["dist_version"] = version
     report["dist_source"] = source
+    core_requirements = [value for value in requirements
+                         if re.match(r"^dcc[-_.]mcp[-_.]core(?=\s|[<=>!~(\[]|$)", value, re.I)]
+    if len(core_requirements) == 1 and ";" not in core_requirements[0]:
+        report["core_requirement"] = core_requirements[0]
 
 if module_name:
     try:
@@ -612,6 +680,13 @@ if module_name:
     except Exception as exc:
         report["error_type"] = type(exc).__name__
         report["error"] = str(exc)
+
+version, source, _ = _dist_version("dcc-mcp-core")
+report["core_dist_version"] = version
+core_module = sys.modules.get("dcc_mcp_core")
+observed = getattr(core_module, "__version__", None) if core_module is not None else None
+report["core_version"] = str(observed) if observed is not None else version
+report["core_version_source"] = "imported_module" if observed is not None else source
 
 print(json.dumps(report))
 "#;
@@ -719,23 +794,123 @@ mod tests {
         let mut report = Map::new();
         report.insert("imported".to_string(), json!(false));
         report.insert("dist_version".to_string(), json!("0.9.2"));
-        assert_eq!(grade(&report), AdapterImportStatus::Unimportable);
+        assert_eq!(grade(&report, None), AdapterImportStatus::Unimportable);
 
         let mut absent = Map::new();
         absent.insert("imported".to_string(), json!(false));
-        assert_eq!(grade(&absent), AdapterImportStatus::Missing);
+        assert_eq!(grade(&absent, None), AdapterImportStatus::Missing);
 
         let mut mismatch = Map::new();
         mismatch.insert("imported".to_string(), json!(true));
         mismatch.insert("dist_version".to_string(), json!("0.9.2"));
         mismatch.insert("module_version".to_string(), json!("0.9.1"));
-        assert_eq!(grade(&mismatch), AdapterImportStatus::VersionMismatch);
+        assert_eq!(grade(&mismatch, None), AdapterImportStatus::VersionMismatch);
 
         let mut ok = Map::new();
         ok.insert("imported".to_string(), json!(true));
         ok.insert("dist_version".to_string(), json!("0.9.2"));
         ok.insert("module_version".to_string(), json!("0.9.2"));
-        assert_eq!(grade(&ok), AdapterImportStatus::Ok);
+        assert_eq!(grade(&ok, None), AdapterImportStatus::Ok);
+    }
+
+    #[test]
+    fn core_bounds_grade_the_target_version_without_guessing_unknown_versions() {
+        for (running, verdict, status) in [
+            (
+                Some("0.20.48"),
+                RuntimeVerdict::Supported,
+                AdapterImportStatus::Ok,
+            ),
+            (
+                Some("0.20.0"),
+                RuntimeVerdict::CoreOlderThanDeclared,
+                AdapterImportStatus::IncompatibleCore,
+            ),
+            (
+                Some("0.21.0"),
+                RuntimeVerdict::CoreNewerThanDeclared,
+                AdapterImportStatus::IncompatibleCore,
+            ),
+            (
+                None,
+                RuntimeVerdict::UnknownCoreVersion,
+                AdapterImportStatus::Ok,
+            ),
+        ] {
+            let report = json!({
+                "imported": true, "dist_version": "1.0.0", "module_version": "1.0.0",
+                "core_requirement": "dcc-mcp-core>=0.20.24,<0.21.0", "core_version": running,
+            });
+            let report = report.as_object().unwrap();
+            let core = core_compatibility(report).unwrap();
+            assert_eq!(core.verdict, verdict);
+            assert_eq!(grade(report, Some(&core)), status);
+        }
+        assert!(probe_status(&json!({"status": "incompatible_core"})).is_failure());
+        assert!(
+            core_compatibility(json!({"core_version": "0.21.0"}).as_object().unwrap()).is_none()
+        );
+    }
+
+    #[test]
+    fn interpreter_probe_uses_imported_core_and_actual_distribution_requirement() {
+        let dir = tempfile::tempdir().unwrap();
+        for (name, text) in [
+            (
+                "fixture_adapter.py",
+                "import dcc_mcp_core\n__version__ = '1.0.0'\n",
+            ),
+            ("dcc_mcp_core.py", "__version__ = '0.21.0'\n"),
+        ] {
+            std::fs::write(dir.path().join(name), text).unwrap();
+        }
+        for (folder, metadata) in [
+            (
+                "dcc_mcp_fixture-1.0.0.dist-info",
+                "Metadata-Version: 2.1\nName: dcc-mcp-fixture\nVersion: 1.0.0\nRequires-Dist: dcc-mcp-core>=0.20.24,<0.21.0\n\n",
+            ),
+            (
+                "dcc_mcp_core-0.20.48.dist-info",
+                "Metadata-Version: 2.1\nName: dcc-mcp-core\nVersion: 0.20.48\n\n",
+            ),
+        ] {
+            let folder = dir.path().join(folder);
+            std::fs::create_dir(&folder).unwrap();
+            std::fs::write(folder.join("METADATA"), metadata).unwrap();
+        }
+        let python = std::env::var_os("PYTHON").unwrap_or_else(|| "python".into());
+        let probe = || {
+            let output = Command::new(&python)
+                .args([
+                    "-S",
+                    "-c",
+                    "import sys;sys.path.insert(0,sys.argv.pop(1));exec(sys.argv.pop(1))",
+                ])
+                .arg(dir.path())
+                .args([PROBE_SCRIPT, "fixture_adapter", "dcc-mcp-fixture"])
+                .output()
+                .expect("Python is required for the host-free probe fixture");
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            serde_json::from_slice::<Map<String, Value>>(&output.stdout).unwrap()
+        };
+        let report = probe();
+        assert_eq!(report["core_version"], "0.21.0");
+        assert_eq!(report["core_dist_version"], "0.20.48");
+        assert_eq!(report["core_version_source"], "imported_module");
+        let core = core_compatibility(&report).unwrap();
+        assert_eq!(
+            grade(&report, Some(&core)),
+            AdapterImportStatus::IncompatibleCore
+        );
+        std::fs::write(dir.path().join("dcc_mcp_fixture-1.0.0.dist-info/METADATA"),
+            "Name: dcc-mcp-fixture\nVersion: 1.0.0\nRequires-Dist: dcc-mcp-core>=0.20.24,<0.21.0\nRequires-Dist: dcc-mcp-core>=0.20.40,<0.21.0; python_version >= '3.7'\n\n").unwrap();
+        let report = probe();
+        assert!(report["core_requirement"].is_null());
+        assert!(core_compatibility(&report).is_none());
     }
 
     /// Locate a real interpreter for tests that need one.
