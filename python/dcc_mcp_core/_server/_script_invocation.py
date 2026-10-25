@@ -7,6 +7,7 @@ from collections.abc import Set
 from contextlib import suppress
 import inspect
 import types
+import typing
 from typing import Any
 from typing import Callable
 from typing import Mapping
@@ -16,7 +17,13 @@ from typing import get_type_hints
 
 def _rejects_mapping_payload(annotation: Any) -> bool:
     origin = getattr(annotation, "__origin__", None) or annotation
-    return isinstance(origin, type) and issubclass(origin, (bool, int, float, str, bytes, Sequence, Set, type(None)))
+    literal = getattr(typing, "Literal", None)
+    if literal is not None and origin is literal:
+        values = getattr(annotation, "__args__", ())
+        return bool(values) and all(_rejects_mapping_payload(type(value)) for value in values)
+    return isinstance(origin, type) and issubclass(
+        origin, (bool, int, float, complex, str, bytes, Sequence, Set, type(None))
+    )
 
 
 def call_script_main(main: Callable[..., Any], params: Mapping[str, Any]) -> Any:
