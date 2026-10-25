@@ -886,7 +886,7 @@ mod tests {
             std::fs::create_dir(&folder).unwrap();
             std::fs::write(folder.join("METADATA"), metadata).unwrap();
         }
-        let python = std::env::var_os("PYTHON").unwrap_or_else(|| "python".into());
+        let python = real_python().expect("Python is required for the host-free probe regression");
         let probe = || {
             let output = Command::new(&python)
                 .args([

@@ -68,14 +68,15 @@ impl CoreVersion {
         }
     }
 
-    /// Parse `0.19.3`, `0.20`, `0`, `v0.19.3`, or `0.19.3rc1`.
+    /// Parse `0.19.3`, `0.20`, `0`, or `v0.19.3`.
     ///
-    /// Missing components default to `0`; pre-release and build suffixes are
-    /// dropped. Returns `None` for anything that is not numeric.
+    /// Missing components default to `0`; local build metadata is dropped.
+    /// Release suffixes and extra components remain unknown.
     #[must_use]
     pub fn parse(text: &str) -> Option<Self> {
         let trimmed = text.trim().trim_start_matches(['v', 'V']);
-        let numeric = trimmed.split(['-', '+']).next().unwrap_or(trimmed);
+        // shortcut: release suffixes remain unknown until PEP 440 ordering is represented.
+        let numeric = trimmed.split('+').next().unwrap_or(trimmed);
         if numeric.is_empty() {
             return None;
         }
@@ -89,6 +90,9 @@ impl CoreVersion {
             Some(part) => Self::component(part)?,
             None => 0,
         };
+        if parts.next().is_some() {
+            return None;
+        }
         Some(Self {
             major,
             minor,
@@ -1025,6 +1029,31 @@ mod tests {
         }
         let exclusive = check_runtime(">0.20.0,<0.21.0", "0.20.0", &policy());
         assert_eq!(exclusive.verdict, RuntimeVerdict::CoreOlderThanDeclared);
+    }
+
+    #[test]
+    fn unsupported_release_suffixes_cannot_establish_compatibility() {
+        for version in [
+            "0.20.24rc1",
+            "0.20.24a1",
+            "0.20.24b1",
+            "0.20.24.dev1",
+            "0.20.24.post1",
+            "0.20.24-rc1",
+            "0.20.24.1",
+        ] {
+            let report = check_runtime(">=0.20.24,<0.21.0", version, &policy());
+            assert_eq!(
+                report.verdict,
+                RuntimeVerdict::UnknownCoreVersion,
+                "{version}"
+            );
+            assert!(!report.is_ok());
+        }
+        assert_eq!(
+            CoreVersion::parse("0.20.24+build.1"),
+            Some(CoreVersion::new(0, 20, 24))
+        );
     }
 
     #[test]
