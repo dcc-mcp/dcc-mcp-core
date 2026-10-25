@@ -44,7 +44,12 @@ def build_audio_command(input_path, output_path, container, audio_codec, audio_q
     container = enum_value("container", container, _FORMATS, "wav")
     codec, suffix, _ = _FORMATS[container]
     audio_codec = enum_value("audio_codec", audio_codec, (codec,), codec)
-    output = output_file("output_path", output_path, overwrite=False, suffixes=(suffix,))
+    try:
+        output = output_file("output_path", output_path, overwrite=False, suffixes=(suffix,))
+    except MediaToolError as exc:
+        if exc.code == "output_exists":
+            exc.prompt = "Choose a fresh audio output path; overwriting audio artifacts is not supported."
+        raise
     if output.is_symlink():
         raise MediaToolError("Output must not be a symlink.", "invalid_output")
     output = output.parent.resolve() / output.name

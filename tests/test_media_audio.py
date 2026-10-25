@@ -398,6 +398,16 @@ def test_audio_schema_declares_core_async_and_no_conversion_options(audio):
     assert "sample_rate:" not in block and "channels:" not in block and "overwrite:" not in block
 
 
+def test_existing_audio_output_requests_a_fresh_path(audio, files, runtime):
+    files[1].write_bytes(b"existing audio")
+    result = invoke(audio, files)
+    assert result["error"] == "output_exists"
+    assert "fresh" in result["prompt"].lower()
+    assert "overwrite=true" not in result["prompt"]
+    assert files[1].read_bytes() == b"existing audio"
+    assert not runtime.calls
+
+
 def test_unknown_error_preserves_stage_receipt_and_job_identity(audio, files, runtime):
     from dcc_mcp_core.cancellation import CancelToken
     from dcc_mcp_core.cancellation import reset_cancel_token
