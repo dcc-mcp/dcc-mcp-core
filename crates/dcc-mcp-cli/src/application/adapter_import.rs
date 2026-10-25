@@ -611,11 +611,36 @@ report = {
 }
 
 
+def _egg_requirements(contents):
+    requirements, marker = [], ""
+    for line in contents.splitlines():
+        line = line.strip()
+        if not line or line.startswith('#'):
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            extra, _, condition = line[1:-1].partition(":")
+            terms = (["(" + condition + ")"] if condition else [])
+            if extra:
+                terms.append('extra == "' + extra + '"')
+            marker = "; " + " and ".join(terms) if terms else ""
+        else:
+            # Preserve legacy section markers without evaluating applicability.
+            requirements.append(line + (" " if "@" in line else "") + marker)
+    return requirements
+
+
 def _read_metadata(path):
     try:
         with open(path, encoding="utf-8", errors="replace") as handle:
             metadata = Parser().parsestr(handle.read(1024 * 1024))
-        return metadata.get("Version"), metadata.get_all("Requires-Dist", [])
+        requirements = metadata.get_all("Requires-Dist", [])
+        if not requirements and os.path.basename(path) == "PKG-INFO":
+            try:
+                with open(os.path.join(os.path.dirname(path), "requires.txt"), encoding="utf-8", errors="replace") as handle:
+                    requirements = _egg_requirements(handle.read(1024 * 1024))
+            except OSError:
+                pass
+        return metadata.get("Version"), requirements
     except OSError:
         return None, []
 
@@ -662,6 +687,8 @@ def _dist_version(name):
                 contents = distribution.get_metadata(metadata_file)[:1024 * 1024]
                 requirements = Parser().parsestr(contents).get_all("Requires-Dist", [])
                 break
+        if not requirements and distribution.has_metadata("requires.txt"):
+            requirements = _egg_requirements(distribution.get_metadata("requires.txt")[:1024 * 1024])
         return distribution.version, "pkg_resources", requirements
     except Exception:
         pass
@@ -887,7 +914,7 @@ mod tests {
             std::fs::write(folder.join("METADATA"), metadata).unwrap();
         }
         let python = real_python().expect("Python is required for the host-free probe regression");
-        let probe = || {
+        let probe = |script: &str| {
             let output = Command::new(&python)
                 .args([
                     "-S",
@@ -895,7 +922,7 @@ mod tests {
                     "import sys;sys.path.insert(0,sys.argv.pop(1));exec(sys.argv.pop(1))",
                 ])
                 .arg(dir.path())
-                .args([PROBE_SCRIPT, "fixture_adapter", "dcc-mcp-fixture"])
+                .args([script, "fixture_adapter", "dcc-mcp-fixture"])
                 .output()
                 .expect("Python is required for the host-free probe fixture");
             assert!(
@@ -905,7 +932,7 @@ mod tests {
             );
             serde_json::from_slice::<Map<String, Value>>(&output.stdout).unwrap()
         };
-        let report = probe();
+        let report = probe(PROBE_SCRIPT);
         assert_eq!(report["core_version"], "0.21.0");
         assert_eq!(report["core_dist_version"], "0.20.48");
         assert_eq!(report["core_version_source"], "imported_module");
@@ -916,7 +943,7 @@ mod tests {
         );
         std::fs::write(dir.path().join("dcc_mcp_fixture-1.0.0.dist-info/METADATA"),
             "Name: dcc-mcp-fixture\nVersion: 1.0.0\nRequires-Dist: dcc-mcp-core>=0.20.24,<0.21.0\nRequires-Dist: dcc-mcp-core>=0.20.40,<0.21.0; python_version >= '3.7'\n\n").unwrap();
-        let report = probe();
+        let report = probe(PROBE_SCRIPT);
         assert!(report["core_requirement"].is_null());
         assert!(core_compatibility(&report).is_none());
         let metadata_dir = dir.path().join("dcc_mcp_fixture-1.0.0.dist-info");
@@ -926,7 +953,7 @@ mod tests {
         let metadata =
             "Name: dcc-mcp-fixture\nVersion: 1.0.0\nRequires-Dist: dcc-mcp-core>=0.20.0,<1.0.0\n\n";
         std::fs::write(legacy.join("PKG-INFO"), metadata).unwrap();
-        let report = probe();
+        let report = probe(PROBE_SCRIPT);
         assert_eq!(report["dist_version"], "1.0.0");
         assert_eq!(report["core_requirement"], "dcc-mcp-core>=0.20.0,<1.0.0");
         let mut older = report.clone();
@@ -940,13 +967,16 @@ mod tests {
         std::fs::remove_file(legacy.join("PKG-INFO")).unwrap();
         std::fs::remove_dir(&legacy).unwrap();
         std::fs::write(&legacy, metadata).unwrap();
-        assert_eq!(probe()["core_requirement"], "dcc-mcp-core>=0.20.0,<1.0.0");
+        assert_eq!(
+            probe(PROBE_SCRIPT)["core_requirement"],
+            "dcc-mcp-core>=0.20.0,<1.0.0"
+        );
         let normalized = metadata.replace(
             "dcc-mcp-core>=0.20.0,<1.0.0",
             "DCC__mCp..CoRe>=0.20.24,<0.21.0",
         );
         std::fs::write(&legacy, normalized).unwrap();
-        let report = probe();
+        let report = probe(PROBE_SCRIPT);
         assert_eq!(
             report["core_requirement"],
             "DCC__mCp..CoRe>=0.20.24,<0.21.0"
@@ -956,6 +986,36 @@ mod tests {
             grade(&report, Some(&core)),
             AdapterImportStatus::IncompatibleCore
         );
+        std::fs::remove_file(&legacy).unwrap();
+        std::fs::create_dir(&legacy).unwrap();
+        std::fs::write(
+            legacy.join("PKG-INFO"),
+            "Name: dcc-mcp-fixture\nVersion: 1.0.0\n\n",
+        )
+        .unwrap();
+        let fallback = format!(
+            "import sys\nsys.modules['importlib.metadata'] = None\nsys.modules['pkg_resources'] = None\n{PROBE_SCRIPT}"
+        );
+        for script in [PROBE_SCRIPT, fallback.as_str()] {
+            std::fs::write(
+                legacy.join("requires.txt"),
+                "dcc-mcp-core>=0.20.24,<0.21.0\n",
+            )
+            .unwrap();
+            let report = probe(script);
+            let core = core_compatibility(&report).unwrap();
+            assert_eq!(
+                grade(&report, Some(&core)),
+                AdapterImportStatus::IncompatibleCore
+            );
+            for contents in [
+                "[feature]\ndcc-mcp-core>=0.20.24,<0.21.0\n",
+                "dcc-mcp-core>=0.20.24,<0.21.0\n[:python_version >= '3.7']\ndcc-mcp-core>=0.20.40,<0.21.0\n",
+            ] {
+                std::fs::write(legacy.join("requires.txt"), contents).unwrap();
+                assert!(core_compatibility(&probe(script)).is_none());
+            }
+        }
     }
 
     /// Locate a real interpreter for tests that need one.
