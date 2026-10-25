@@ -209,6 +209,8 @@ reports `not_checked`). An unknown version
 grade does not establish host capabilities or native readiness.
   Release suffixes whose ordering is not represented by the shared numeric
   checker remain unknown; they are never normalized into supported final releases.
+  Legacy `requires.txt` metadata is read when `Requires-Dist` is absent; extras
+  and environment sections remain conditional and are never evaluated by the probe.
 
 Probing needs the interpreter that actually hosts the adapter. `doctor` never
 guesses an ambient `python`, because that reports false `missing` rows for
