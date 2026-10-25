@@ -154,7 +154,23 @@ auto-start the gateway.
 Use `dcc-mcp-cli doctor` when startup state is ambiguous: it reports the
 current profile config, selected mode, registry directory and inventory, local
 direct-control readiness counts, gateway daemon status, and server binary
-path/source/version without launching or downloading anything.
+path/source/version without starting services or downloading binaries. Existing
+binary version probes and explicitly configured adapter interpreter probes may
+run subprocesses.
+
+The local inventory is a `read_only_snapshot`: doctor never creates the registry
+directory, opens `services.lock`, prunes rows, or quarantines malformed JSON.
+`evicted` is zero and `liveness: not_checked` means readiness counts describe
+persisted metadata, not freshly verified live hosts. Use the normal runtime
+inventory/readiness route for liveness after its required access is authorized.
+Unreadable snapshots report `ok: false`, `liveness: unknown`, the read operation
+and file path, a bounded error chain with the home directory redacted, and
+`error_kind`/`os_error` when an I/O cause exists. An unknown errno is null; parser
+errors include category and location without echoing registry values. These are
+local operator diagnostics; the existing `registry_dir` field retains its path
+for compatibility and reports still need review before sharing publicly.
+Server-binary metadata errors report `status: unknown` and do not suggest a
+download; only confirmed absence is `missing`.
 
 ### MCP inventory smoke checks
 

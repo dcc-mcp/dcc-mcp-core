@@ -24,6 +24,7 @@ use super::types::{
 use crate::error::{TransportError, TransportResult};
 
 mod membership;
+mod snapshot;
 use membership::membership_delta;
 
 /// File name for the registry JSON.
@@ -211,6 +212,12 @@ pub struct FileRegistry {
 }
 
 impl FileRegistry {
+    /// Read persisted rows without creating directories, locking, pruning or repairing files.
+    /// Rows are an unverified snapshot; their process liveness is not checked.
+    pub fn read_snapshot(registry_dir: &Path) -> TransportResult<Vec<ServiceEntry>> {
+        snapshot::read_snapshot(&registry_dir.join(REGISTRY_FILE))
+    }
+
     /// Create a new file registry at the given directory.
     pub fn new(registry_dir: impl Into<PathBuf>) -> TransportResult<Self> {
         Self::new_with_lock_policy(

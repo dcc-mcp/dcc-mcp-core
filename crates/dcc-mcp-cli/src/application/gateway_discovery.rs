@@ -34,24 +34,23 @@ const DEFAULT_GITHUB_RELEASE_BASE: &str =
 /// 4. GitHub Releases download (matching the current CLI version)
 /// 5. Sub-command fallback (current executable)
 ///
-/// Returns an error only when the explicit path is missing; all other
-/// failures fall through to the next layer.
+/// Filesystem inspection errors are returned; absence may fall through.
 pub async fn resolve_gateway_bin(gateway_bin: Option<&PathBuf>) -> anyhow::Result<PathBuf> {
     // Layer 0: Explicit path provided by caller
     if let Some(explicit) = gateway_bin {
-        if explicit.exists() {
+        if binary_is_file(explicit)? {
             return Ok(explicit.clone());
         }
         anyhow::bail!("explicit gateway binary not found: {}", explicit.display());
     }
 
     // Layer 1: Same-directory lookup
-    if let Some(found) = find_in_same_dir() {
+    if let Some(found) = find_in_same_dir()? {
         return Ok(found);
     }
 
     // Layer 2: Cached binary from a previous download
-    if let Some(cached) = find_cached_binary() {
+    if let Some(cached) = find_cached_binary()? {
         return Ok(cached);
     }
 
@@ -85,14 +84,18 @@ pub struct GatewayBinaryDiagnostic {
 /// Diagnose the gateway/server binary path without downloading or launching it.
 pub fn diagnose_gateway_bin(gateway_bin: Option<&PathBuf>) -> GatewayBinaryDiagnostic {
     if let Some(explicit) = gateway_bin {
-        if explicit.exists() {
-            return binary_diagnostic(
-                "ok",
-                "explicit",
-                Some(explicit.clone()),
-                Some(explicit.clone()),
-                false,
-            );
+        match binary_is_file(explicit) {
+            Err(error) => return inspection_error("explicit", Some(explicit.clone()), error),
+            Ok(false) => {}
+            Ok(true) => {
+                return binary_diagnostic(
+                    "ok",
+                    "explicit",
+                    Some(explicit.clone()),
+                    Some(explicit.clone()),
+                    false,
+                );
+            }
         }
         return GatewayBinaryDiagnostic {
             status: "missing",
@@ -108,12 +111,16 @@ pub fn diagnose_gateway_bin(gateway_bin: Option<&PathBuf>) -> GatewayBinaryDiagn
         };
     }
 
-    if let Some(found) = find_in_same_dir() {
-        return binary_diagnostic("ok", "same_dir", Some(found), None, false);
+    match find_in_same_dir() {
+        Ok(Some(found)) => return binary_diagnostic("ok", "same_dir", Some(found), None, false),
+        Err(error) => return inspection_error("same_dir", None, error),
+        Ok(None) => {}
     }
 
-    if let Some(cached) = find_cached_binary() {
-        return binary_diagnostic("ok", "cache", Some(cached), None, false);
+    match find_cached_binary() {
+        Ok(Some(cached)) => return binary_diagnostic("ok", "cache", Some(cached), None, false),
+        Err(error) => return inspection_error("cache", None, error),
+        Ok(None) => {}
     }
 
     GatewayBinaryDiagnostic {
@@ -126,6 +133,41 @@ pub fn diagnose_gateway_bin(gateway_bin: Option<&PathBuf>) -> GatewayBinaryDiagn
         error: Some(format!(
             "{GATEWAY_BINARY_NAME_WITH_EXT} was not found beside the CLI or in the gateway cache"
         )),
+    }
+}
+
+fn inspection_error(
+    source: &'static str,
+    configured_path: Option<PathBuf>,
+    error: anyhow::Error,
+) -> GatewayBinaryDiagnostic {
+    GatewayBinaryDiagnostic {
+        status: "unknown",
+        source,
+        path: None,
+        configured_path,
+        would_download_if_started: false,
+        version: None,
+        error: Some(
+            format!("{error:#}")
+                .chars()
+                .filter(|c| !c.is_control())
+                .take(2048)
+                .collect(),
+        ),
+    }
+}
+
+fn binary_is_file(path: &std::path::Path) -> anyhow::Result<bool> {
+    classify_binary_metadata(std::fs::metadata(path))
+        .with_context(|| format!("inspecting gateway binary {}", path.display()))
+}
+
+fn classify_binary_metadata(metadata: std::io::Result<std::fs::Metadata>) -> std::io::Result<bool> {
+    match metadata {
+        Ok(metadata) => Ok(metadata.is_file()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error),
     }
 }
 
@@ -188,25 +230,23 @@ fn probe_binary_version(path: &std::path::Path) -> (Option<String>, Option<Strin
 /// The executable is resolved first so a symlinked launch (WinGet portable
 /// exposes the CLI through `Microsoft\WinGet\Links`) looks beside the real
 /// binary, which is where a sibling install would have put the server.
-fn find_in_same_dir() -> Option<PathBuf> {
-    let current_exe = crate::application::current_exe::current_exe().ok()?;
-    let exe_dir = current_exe.parent()?;
+fn find_in_same_dir() -> anyhow::Result<Option<PathBuf>> {
+    let current_exe = crate::application::current_exe::current_exe()?;
+    let exe_dir = current_exe
+        .parent()
+        .context("current executable has no parent directory")?;
     let candidate = exe_dir.join(GATEWAY_BINARY_NAME_WITH_EXT);
-    if candidate.is_file() {
-        Some(candidate)
-    } else {
-        None
-    }
+    Ok(binary_is_file(&candidate)?.then_some(candidate))
 }
 
 // ── Layer 2: Cached binary ──────────────────────────────────────────────
 
 /// Look for a previously downloaded gateway binary in the cache directory.
-fn find_cached_binary() -> Option<PathBuf> {
-    let cache_dir = gateway_cache_dir()?;
+fn find_cached_binary() -> anyhow::Result<Option<PathBuf>> {
+    let cache_dir = gateway_cache_dir().context("cannot determine gateway cache directory")?;
     let version = env!("CARGO_PKG_VERSION");
     let cached = cache_dir.join(version).join(GATEWAY_BINARY_NAME_WITH_EXT);
-    if cached.is_file() { Some(cached) } else { None }
+    Ok(binary_is_file(&cached)?.then_some(cached))
 }
 
 // ── Layer 3: GitHub Releases download ───────────────────────────────────
@@ -358,7 +398,7 @@ mod tests {
     fn test_find_in_same_dir_returns_none_when_binary_missing() {
         // Our test binary is not named dcc-mcp-server, so this should
         // return None in test builds.
-        let result = find_in_same_dir();
+        let result = find_in_same_dir().unwrap();
         // Accept both None (binary not found) and Some (coincidental match
         // in an unusual test layout).
         if let Some(path) = &result {
@@ -370,6 +410,35 @@ mod tests {
                 path.display()
             );
         }
+    }
+
+    #[test]
+    fn binary_metadata_distinguishes_missing_from_permission_and_io_errors() {
+        use std::io::{Error, ErrorKind};
+        assert!(!classify_binary_metadata(Err(Error::from(ErrorKind::NotFound))).unwrap());
+        for kind in [ErrorKind::PermissionDenied, ErrorKind::Other] {
+            assert_eq!(
+                classify_binary_metadata(Err(Error::from(kind)))
+                    .unwrap_err()
+                    .kind(),
+                kind
+            );
+        }
+        let dir = tempfile::tempdir().unwrap();
+        assert!(!binary_is_file(dir.path()).unwrap());
+        assert!(!binary_is_file(&dir.path().join("missing")).unwrap());
+        let code = if cfg!(windows) { 5 } else { 13 };
+        let error =
+            anyhow::Error::new(Error::from_raw_os_error(code)).context("inspecting fixture binary");
+        let diagnostic = inspection_error("explicit", None, error);
+        assert_eq!(diagnostic.status, "unknown");
+        assert!(!diagnostic.would_download_if_started);
+        assert!(
+            diagnostic
+                .error
+                .unwrap()
+                .contains(&format!("os error {code}"))
+        );
     }
 
     #[test]
