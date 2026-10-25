@@ -65,7 +65,7 @@ async fn fixture(version: &str, sha: Option<&str>, serve_manifest: bool) -> Fixt
 
 #[tokio::test]
 async fn bootstrap_uses_manifest_asset_url_and_verified_download_without_launching() {
-    let sha = format!("{:x}", Sha256::digest(BYTES));
+    let sha = hex::encode(Sha256::digest(BYTES));
     let fixture = fixture(VERSION, Some(&sha), true).await;
     let cache = tempfile::tempdir().unwrap();
     let path = download_release_binary(VERSION, &fixture.base, cache.path())
