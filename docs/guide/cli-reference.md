@@ -207,6 +207,8 @@ reports `not_checked`). An unknown version
   range can still reject an out-of-range Core even when its policy is invalid;
   `declaration_valid` records that policy result separately. An import
 grade does not establish host capabilities or native readiness.
+  Release suffixes whose ordering is not represented by the shared numeric
+  checker remain unknown; they are never normalized into supported final releases.
 
 Probing needs the interpreter that actually hosts the adapter. `doctor` never
 guesses an ambient `python`, because that reports false `missing` rows for
