@@ -21,6 +21,9 @@ from dcc_mcp_core._server.inprocess_executor import run_skill_script
         "value: List[str]",
         "value: Optional[List[str]] = None",
         "value: Tuple[str, ...]",
+        "value: Sequence[str]",
+        "value: MutableSequence[str]",
+        "value: AbstractSet[str]",
     ],
 )
 def test_unknown_arguments_do_not_enter_a_typed_single_parameter_handler(tmp_path: Path, signature: str) -> None:
@@ -29,7 +32,7 @@ def test_unknown_arguments_do_not_enter_a_typed_single_parameter_handler(tmp_pat
     script.write_text(
         "from __future__ import annotations\n"
         "from pathlib import Path\n"
-        "from typing import List, Optional, Tuple\n"
+        "from typing import AbstractSet, List, MutableSequence, Optional, Sequence, Tuple\n"
         f"def main({signature}):\n"
         f"    Path({str(marker)!r}).write_text('entered')\n"
         "    return {'success': True, 'value': value}\n",
