@@ -163,6 +163,9 @@ directory, opens `services.lock`, prunes rows, or quarantines malformed JSON.
 `evicted` is zero and `liveness: not_checked` means readiness counts describe
 persisted metadata, not freshly verified live hosts. Use the normal runtime
 inventory/readiness route for liveness after its required access is authorized.
+Doctor's gateway status reads only the pidfile: when it is absent, `pid` remains
+null even if the health probe succeeds, rather than recovering it via a registry
+write transaction. Normal gateway lifecycle commands retain their PID recovery.
 Unreadable snapshots report `ok: false`, `liveness: unknown`, the read operation
 and file path, a bounded error chain with the home directory redacted, and
 `error_kind`/`os_error` when an I/O cause exists. An unknown errno is null; parser

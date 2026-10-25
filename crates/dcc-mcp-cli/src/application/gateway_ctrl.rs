@@ -173,8 +173,23 @@ fn prune_stopped_gateway_registry(args: &GatewayCtrlArgs) -> anyhow::Result<usiz
 
 /// Query the gateway status: health check + PID liveness.
 pub async fn gateway_status(args: &GatewayCtrlArgs) -> GatewayStatus {
+    gateway_status_with(args, resolve_gateway_pid).await
+}
+
+/// Doctor must not enter registry pruning while recovering a missing gateway pidfile.
+pub(crate) async fn gateway_status_readonly(args: &GatewayCtrlArgs) -> GatewayStatus {
+    gateway_status_with(args, |args, _| {
+        gateway_ensure::read_pid_from_pidfile(Some(&args.pidfile))
+    })
+    .await
+}
+
+async fn gateway_status_with(
+    args: &GatewayCtrlArgs,
+    resolve_pid: impl FnOnce(&GatewayCtrlArgs, bool) -> Option<u32>,
+) -> GatewayStatus {
     let healthy = gateway_ensure::gateway_health_ok(&args.host, args.port).await;
-    let pid = resolve_gateway_pid(args, healthy);
+    let pid = resolve_pid(args, healthy);
     let alive = pid.is_some_and(gateway_ensure::is_process_alive);
     GatewayStatus {
         host: args.host.clone(),
