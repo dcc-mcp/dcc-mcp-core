@@ -683,6 +683,16 @@ fn install_verified_sibling_with_timeout(
 }
 
 fn apply_entries(journal: &UpdateJournal) -> Result<(), UpdateError> {
+    apply_entries_with(journal, |entry| {
+        std::fs::rename(&entry.prepared, &entry.target)?;
+        Ok(())
+    })
+}
+
+fn apply_entries_with(
+    journal: &UpdateJournal,
+    mut publish: impl FnMut(&JournalEntry) -> Result<(), UpdateError>,
+) -> Result<(), UpdateError> {
     for index in 0..journal.entries.len() {
         let target = journal.entries[index].target.clone();
         let prepared = journal.entries[index].prepared.clone();
@@ -722,7 +732,7 @@ fn apply_entries(journal: &UpdateJournal) -> Result<(), UpdateError> {
             )));
         }
         require_file_hash(&prepared, &expected_sha256, "prepared update component")?;
-        std::fs::rename(&prepared, &target)?;
+        publish(&journal.entries[index])?;
         require_file_hash(&target, &expected_sha256, "installed update component")?;
     }
     Ok(())

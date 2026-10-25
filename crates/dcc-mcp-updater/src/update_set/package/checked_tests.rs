@@ -1,5 +1,237 @@
 use super::*;
 
+fn owned_retry_fixture(target_bytes: &[u8]) -> (Fixture, PackageJournal) {
+    let fixture = Fixture::new();
+    let target = fixture.install.join("dcc-cua");
+    let prepared = fixture.install.join("dcc-cua.dcc-mcp-new");
+    let backup = fixture.install.join("dcc-cua.dcc-mcp-backup");
+    std::fs::write(&target, target_bytes).unwrap();
+    std::fs::write(&backup, b"old").unwrap();
+    let entry = JournalEntry {
+        target,
+        prepared: prepared.clone(),
+        backup,
+        had_original: true,
+        original_sha256: Some(sha256_bytes(b"old")),
+        expected_sha256: sha256_bytes(b"foreground"),
+    };
+    let mut journal = PackageJournal {
+        bound_executable: std::fs::canonicalize(&fixture.current).unwrap(),
+        transaction_id: None,
+        created_prepared: BTreeSet::new(),
+        created_directories: vec![],
+        #[cfg(unix)]
+        original_modes: vec![original_mode(&entry).unwrap()],
+        update: UpdateJournal {
+            state: JournalState::Applying,
+            entries: vec![entry],
+        },
+    };
+    write_json_atomic(&fixture.journal(), &journal).unwrap();
+    use std::io::Write;
+    let mut file = recovery::create_owned(&fixture.journal(), &mut journal, 0).unwrap();
+    file.write_all(b"foreground").unwrap();
+    file.sync_all().unwrap();
+    (fixture, journal)
+}
+
+#[test]
+fn failed_prepared_rename_retains_identity_even_when_target_has_expected_bytes() {
+    for bytes in [b"old".as_slice(), b"foreground"] {
+        let (fixture, mut journal) = owned_retry_fixture(bytes);
+        let prepared = journal.update.entries[0].prepared.clone();
+        let blocked = fixture.install.join("blocked-directory");
+        std::fs::create_dir(&blocked).unwrap();
+        assert!(
+            recovery::consume_owned(&fixture.journal(), &mut journal, 0, "publish", || {
+                std::fs::rename(&prepared, &blocked)
+            })
+            .is_err()
+        );
+        let persisted: PackageJournal = read_json(&fixture.journal()).unwrap();
+        assert!(persisted.created_prepared.contains(&prepared));
+        recover_package(&fixture.journal(), &journal.bound_executable).unwrap();
+        assert_eq!(
+            std::fs::read(fixture.install.join("dcc-cua")).unwrap(),
+            b"old"
+        );
+        assert!(!fixture.journal().exists());
+    }
+}
+
+#[test]
+fn failed_consume_does_not_reclaim_replaced_files_even_with_matching_bytes() {
+    for bytes in [b"foreground".as_slice(), b"old", b"unknown"] {
+        let (fixture, mut journal) = owned_retry_fixture(b"old");
+        let prepared = journal.update.entries[0].prepared.clone();
+        let moved = fixture.install.join("original-prepared");
+        assert!(
+            recovery::consume_owned(&fixture.journal(), &mut journal, 0, "publish", || {
+                std::fs::rename(&prepared, &moved)?;
+                std::fs::write(&prepared, bytes)?;
+                Err(std::io::Error::other(
+                    "injected failure after path replacement",
+                ))
+            })
+            .is_err()
+        );
+        let persisted: PackageJournal = read_json(&fixture.journal()).unwrap();
+        assert!(!persisted.created_prepared.contains(&prepared));
+        assert!(recover_package(&fixture.journal(), &journal.bound_executable).is_err());
+        assert_eq!(std::fs::read(&prepared).unwrap(), bytes);
+        assert_eq!(std::fs::read(&moved).unwrap(), b"foreground");
+        assert!(fixture.journal().exists());
+    }
+}
+
+#[test]
+fn successful_consume_never_reclaims_a_recreated_prepared_path() {
+    let (fixture, mut journal) = owned_retry_fixture(b"old");
+    let entry = journal.update.entries[0].clone();
+    recovery::consume_owned(&fixture.journal(), &mut journal, 0, "publish", || {
+        std::fs::rename(&entry.prepared, &entry.target)?;
+        std::fs::write(&entry.prepared, b"foreground")
+    })
+    .unwrap();
+    let persisted: PackageJournal = read_json(&fixture.journal()).unwrap();
+    assert!(!persisted.created_prepared.contains(&entry.prepared));
+    // A later validation failure must not make the new occupant ours.
+    assert!(recover_package(&fixture.journal(), &journal.bound_executable).is_err());
+    assert_eq!(std::fs::read(&entry.prepared).unwrap(), b"foreground");
+    assert!(fixture.journal().exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn failed_consume_preserves_a_replacement_symlink_without_reclaiming_it() {
+    let (fixture, mut journal) = owned_retry_fixture(b"old");
+    let prepared = journal.update.entries[0].prepared.clone();
+    let moved = fixture.install.join("original-prepared");
+    assert!(
+        recovery::consume_owned(&fixture.journal(), &mut journal, 0, "publish", || {
+            std::fs::rename(&prepared, &moved)?;
+            std::os::unix::fs::symlink(&moved, &prepared)?;
+            Err(std::io::Error::other(
+                "injected failure after symlink replacement",
+            ))
+        })
+        .is_err()
+    );
+    let persisted: PackageJournal = read_json(&fixture.journal()).unwrap();
+    assert!(!persisted.created_prepared.contains(&prepared));
+    assert!(recover_package(&fixture.journal(), &journal.bound_executable).is_err());
+    assert!(
+        std::fs::symlink_metadata(&prepared)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    assert_eq!(std::fs::read(&moved).unwrap(), b"foreground");
+}
+
+#[cfg(windows)]
+fn deny_delete(path: &Path) -> File {
+    use std::os::windows::fs::OpenOptionsExt;
+    use windows_sys::Win32::Storage::FileSystem::{FILE_SHARE_READ, FILE_SHARE_WRITE};
+    OpenOptions::new()
+        .read(true)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+        .open(path)
+        .unwrap()
+}
+
+#[cfg(windows)]
+#[test]
+fn locked_later_target_rolls_back_earlier_publication_without_losing_ownership() {
+    let mut fixture = Fixture::new();
+    fixture.run(|_| Ok(())).unwrap();
+    let receipt = fixture.install.join(receipt_name("dcc-cua"));
+    let original_receipt = std::fs::read(&receipt).unwrap();
+    std::fs::write(fixture.install.join("unrelated.txt"), b"keep").unwrap();
+    fixture.replace_source("dcc-cua", b"new foreground");
+    fixture.replace_source("dcc-cua-background", b"new background");
+    let _locked = deny_delete(&fixture.install.join("dcc-cua-background"));
+    assert!(fixture.run(|_| Ok(())).is_err());
+    assert_eq!(
+        std::fs::read(fixture.install.join("dcc-cua")).unwrap(),
+        b"foreground"
+    );
+    assert_eq!(
+        std::fs::read(fixture.install.join("dcc-cua-background")).unwrap(),
+        b"background"
+    );
+    assert_eq!(std::fs::read(&receipt).unwrap(), original_receipt);
+    assert_eq!(
+        std::fs::read(fixture.install.join("unrelated.txt")).unwrap(),
+        b"keep"
+    );
+    assert!(!fixture.journal().exists());
+}
+
+#[cfg(windows)]
+#[test]
+fn locked_rollback_target_is_recoverable_after_the_lock_is_released() {
+    let mut fixture = Fixture::new();
+    fixture.run(|_| Ok(())).unwrap();
+    fixture.replace_source("dcc-cua", b"new foreground");
+    let locked = std::cell::RefCell::new(None);
+    assert!(
+        fixture
+            .run(|root| {
+                *locked.borrow_mut() = Some(deny_delete(&root.join("dcc-cua")));
+                Err(UpdateError::Stage("force rollback".into()))
+            })
+            .is_err()
+    );
+    let journal: PackageJournal = read_json(&fixture.journal()).unwrap();
+    assert!(!journal.created_prepared.is_empty());
+    drop(locked.into_inner());
+    recover_package(&fixture.journal(), &journal.bound_executable).unwrap();
+    assert_eq!(
+        std::fs::read(fixture.install.join("dcc-cua")).unwrap(),
+        b"foreground"
+    );
+    assert!(!fixture.journal().exists());
+}
+
+#[cfg(windows)]
+#[test]
+fn locked_prepared_rollback_and_cleanup_can_be_retried_without_adopting_files() {
+    for stage in ["rollback", "remove"] {
+        let target = if stage == "rollback" {
+            b"foreground".as_slice()
+        } else {
+            b"old"
+        };
+        let (fixture, journal) = owned_retry_fixture(target);
+        let locked = std::rc::Rc::new(std::cell::RefCell::new(None));
+        let held = locked.clone();
+        PREPARED_WRITE_HOOK.with(|hook| {
+            *hook.borrow_mut() = Some(Box::new(move |path, actual_stage| {
+                if actual_stage == stage && held.borrow().is_none() {
+                    *held.borrow_mut() = Some(deny_delete(path));
+                }
+            }));
+        });
+        let hook = PreparedHook;
+        assert!(recover_package(&fixture.journal(), &journal.bound_executable).is_err());
+        let persisted: PackageJournal = read_json(&fixture.journal()).unwrap();
+        assert!(
+            persisted
+                .created_prepared
+                .contains(&journal.update.entries[0].prepared)
+        );
+        drop(hook);
+        drop(locked.borrow_mut().take());
+        recover_package(&fixture.journal(), &journal.bound_executable).unwrap();
+        assert_eq!(
+            std::fs::read(fixture.install.join("dcc-cua")).unwrap(),
+            b"old"
+        );
+        assert!(!fixture.journal().exists());
+    }
+}
+
 struct PreparedHook;
 
 impl Drop for PreparedHook {

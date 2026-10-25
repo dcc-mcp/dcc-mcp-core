@@ -4,6 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::*;
 
+mod identity;
 mod ownership;
 mod recovery;
 use ownership::{prepare_receipt, receipt_name};
@@ -405,11 +406,14 @@ fn install_package(
             "prepared package receipt",
         )?;
         for index in 0..journal.update.entries.len() {
-            // Once publication begins, a new file at this path is not ours.
-            recovery::relinquish(&journal_path, &mut journal, index)?;
-            apply_entries(&UpdateJournal {
+            let update = UpdateJournal {
                 state: JournalState::Applying,
                 entries: vec![journal.update.entries[index].clone()],
+            };
+            apply_entries_with(&update, |entry| {
+                recovery::consume_owned(&journal_path, &mut journal, index, "publish", || {
+                    std::fs::rename(&entry.prepared, &entry.target)
+                })
             })?;
         }
         validate_installed(install_dir)
