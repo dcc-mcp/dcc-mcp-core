@@ -2071,6 +2071,7 @@ version = "0.20.47"
 dependencies = [
  "anyhow",
  "fs4",
+ "libc",
  "reqwest 0.13.4",
  "serde",
  "serde_json",
@@ -2079,6 +2080,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
+ "windows-sys 0.61.2",
  "workspace-hack",
 ]
 

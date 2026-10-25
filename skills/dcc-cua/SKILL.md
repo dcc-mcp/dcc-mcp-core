@@ -111,6 +111,18 @@ recovery is a separate operation. An error after commit can require cleanup;
 read back installed hashes and the journal before reporting an unchanged
 installation or retrying. Installing files does not reconnect loaded callers.
 
+Retryable rename/delete failures retain prepared ownership only when a live
+OS file identity still matches. Windows requires the OS and filesystem to
+support [`FileIdInfo` / 128-bit file IDs](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_id_info);
+availability of the older basic handle-information API alone is insufficient.
+An unsupported or unreadable initial identity check preserves the ownership
+ticket without attempting consumption. If identity cannot be rechecked after
+a failed operation, the ticket remains relinquished and inspection is required.
+Do not assume compatibility with every older Windows version or filesystem,
+or delete an ambiguous sidecar to force recovery.
+These checks complement the installation lock, not a filesystem sandbox
+against unrelated writers that ignore that lock.
+
 For semantic application profiles:
 
 ```bash

@@ -36,6 +36,49 @@ pub(super) fn relinquish(
     persist(journal_path, journal)
 }
 
+pub(super) fn consume_owned(
+    journal_path: &Path,
+    journal: &mut PackageJournal,
+    index: usize,
+    stage: &str,
+    consume: impl FnOnce() -> std::io::Result<()>,
+) -> Result<(), UpdateError> {
+    let prepared = journal.update.entries[index].prepared.clone();
+    if !journal.created_prepared.contains(&prepared) {
+        return Err(UpdateError::Stage(
+            "cannot consume an unowned prepared file".into(),
+        ));
+    }
+    // This ticket is already backed by persisted exclusive creation. Keep its
+    // current file open across the exact consuming syscall, not its postchecks.
+    let identity = identity::PreparedIdentity::capture(&prepared)?;
+    relinquish(journal_path, journal, index)?;
+    #[cfg(test)]
+    prepared_write_hook(&prepared, stage);
+    #[cfg(not(test))]
+    let _ = stage;
+    if let Err(error) = consume() {
+        match identity.still_at(&prepared) {
+            Ok(true) => {
+                journal.created_prepared.insert(prepared);
+                if let Err(persist_error) = persist(journal_path, journal) {
+                    return Err(UpdateError::Stage(format!(
+                        "prepared operation failed ({error}); ownership persistence failed ({persist_error})"
+                    )));
+                }
+            }
+            Ok(false) => (),
+            Err(identity_error) => {
+                return Err(UpdateError::Stage(format!(
+                    "prepared operation failed ({error}); identity is uncertain ({identity_error})"
+                )));
+            }
+        }
+        return Err(error.into());
+    }
+    Ok(())
+}
+
 fn remove_owned(
     journal_path: &Path,
     journal: &mut PackageJournal,
@@ -64,9 +107,9 @@ fn remove_owned(
             "changed package prepared file preserved; recovery requires inspection".into(),
         ));
     }
-    relinquish(journal_path, journal, index)?;
-    std::fs::remove_file(&entry.prepared)?;
-    Ok(())
+    consume_owned(journal_path, journal, index, "remove", || {
+        std::fs::remove_file(&entry.prepared)
+    })
 }
 
 pub(super) fn rollback_package(
@@ -109,11 +152,12 @@ pub(super) fn rollback_package(
                 std::fs::metadata(&entry.backup)?.permissions(),
             )?;
             require_file_hash(&entry.prepared, old, "package rollback prepared file")?;
-            relinquish(journal_path, journal, index)?;
             if target_exists {
                 std::fs::remove_file(&entry.target)?;
             }
-            std::fs::rename(&entry.prepared, &entry.target)?;
+            consume_owned(journal_path, journal, index, "rollback", || {
+                std::fs::rename(&entry.prepared, &entry.target)
+            })?;
             require_file_hash(&entry.target, old, "restored package target")?;
         } else {
             if entry.original_sha256.is_some()
