@@ -118,7 +118,7 @@ pub async fn run_doctor(request: DoctorRequest) -> anyhow::Result<Value> {
         .registry_dir
         .unwrap_or_else(gateway_ensure::default_registry_dir);
     let pidfile = gateway_ctrl::default_pidfile(&registry_dir);
-    let gateway_status = gateway_ctrl::gateway_status(&gateway_ctrl::GatewayCtrlArgs {
+    let gateway_status = gateway_ctrl::gateway_status_readonly(&gateway_ctrl::GatewayCtrlArgs {
         host: request.gateway_host.clone(),
         port: request.gateway_port,
         registry_dir: registry_dir.clone(),
