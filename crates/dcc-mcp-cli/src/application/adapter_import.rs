@@ -673,7 +673,7 @@ if dist_name:
     report["dist_version"] = version
     report["dist_source"] = source
     core_requirements = [value for value in requirements
-                         if re.match(r"^dcc[-_.]mcp[-_.]core(?=\s|[<=>!~(\[]|$)", value, re.I)]
+                         if re.match(r"^dcc[-_.]+mcp[-_.]+core(?=\s|[<=>!~(\[]|$)", value, re.I)]
     if len(core_requirements) == 1 and ";" not in core_requirements[0]:
         report["core_requirement"] = core_requirements[0]
 
@@ -941,6 +941,21 @@ mod tests {
         std::fs::remove_dir(&legacy).unwrap();
         std::fs::write(&legacy, metadata).unwrap();
         assert_eq!(probe()["core_requirement"], "dcc-mcp-core>=0.20.0,<1.0.0");
+        let normalized = metadata.replace(
+            "dcc-mcp-core>=0.20.0,<1.0.0",
+            "DCC__mCp..CoRe>=0.20.24,<0.21.0",
+        );
+        std::fs::write(&legacy, normalized).unwrap();
+        let report = probe();
+        assert_eq!(
+            report["core_requirement"],
+            "DCC__mCp..CoRe>=0.20.24,<0.21.0"
+        );
+        let core = core_compatibility(&report).unwrap();
+        assert_eq!(
+            grade(&report, Some(&core)),
+            AdapterImportStatus::IncompatibleCore
+        );
     }
 
     /// Locate a real interpreter for tests that need one.
