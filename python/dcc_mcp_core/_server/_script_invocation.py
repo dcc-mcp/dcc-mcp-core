@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from collections.abc import Set
 from contextlib import suppress
 import inspect
 import types
@@ -10,6 +12,11 @@ from typing import Callable
 from typing import Mapping
 from typing import Union
 from typing import get_type_hints
+
+
+def _rejects_mapping_payload(annotation: Any) -> bool:
+    origin = getattr(annotation, "__origin__", None) or annotation
+    return isinstance(origin, type) and issubclass(origin, (bool, int, float, str, bytes, Sequence, Set, type(None)))
 
 
 def call_script_main(main: Callable[..., Any], params: Mapping[str, Any]) -> Any:
@@ -61,11 +68,7 @@ def call_script_main(main: Callable[..., Any], params: Mapping[str, Any]) -> Any
             or isinstance(annotation, getattr(types, "UnionType", ()))
             else (annotation,)
         )
-        if options and all(
-            (getattr(option, "__origin__", None) or option)
-            in (bool, int, float, str, bytes, list, tuple, set, frozenset, type(None))
-            for option in options
-        ):
+        if options and all(_rejects_mapping_payload(option) for option in options):
             signature.bind_partial(**params_dict)
             return main(**params_dict)
         return main(params_dict)
