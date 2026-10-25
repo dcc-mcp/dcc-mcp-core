@@ -463,7 +463,10 @@ scalar or scalar-sequence parameter into the complete request dictionary:
 `main(force: bool = False)` must reject `{"unsupported": true}` before entering
 the handler. Core preserves the existing `TypeError` error envelope, named
 arguments, defaults, untyped/mapping entry points and explicit `**kwargs`.
-Unresolved host annotations retain the legacy convention; adapters must keep
+Recognized numeric/text scalars (including `complex`), scalar `Literal` alternatives
+and sequence/set annotations reject this fallback. This is a calling-convention
+guard, not general runtime type validation: opaque and unresolved host annotations
+retain the legacy convention; adapters must keep
 their published `input_schema` authoritative for value and capability checks.
 Host-free signature fixtures are not evidence of native API behavior, DCC
 version support or verified scene postconditions.
