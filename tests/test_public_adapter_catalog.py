@@ -17,10 +17,29 @@ def _entries() -> list:
     return document["entries"]
 
 
+@pytest.mark.parametrize(
+    "release",
+    json.loads((REPO_ROOT / "tests/fixtures/install-sop-catalog.json").read_text(encoding="utf-8")),
+    ids=lambda release: release["name"],
+)
+def test_delivered_install_sop_releases_keep_artifact_and_runbook_parity(release) -> None:
+    entry = next(entry for entry in _entries() if entry["name"] == release["name"])
+    assert entry["version"] == release["version"]
+    assert entry["min_core_version"] == release["min_core_version"]
+    assert entry["install"]["url"] == release["artifact_url"]
+    assert entry["install"]["sha256"] == release["sha256"]
+    assert entry["install"]["instructions_url"] == release["instructions_url"]
+    assert release["instructions_url"] == (
+        f"https://raw.githubusercontent.com/dcc-mcp/{release['name']}/{release['source_ref']}/install.md"
+    )
+    assert len(release["source_ref"]) == 40
+    assert release["release_url"].endswith(f"/releases/tag/v{release['version']}")
+
+
 def test_recent_adapter_releases_are_current() -> None:
     entries = {entry["name"]: entry for entry in _entries()}
     expected_versions = {
-        "dcc-mcp-comfyui": "0.1.1",
+        "dcc-mcp-comfyui": "0.1.4",
         "dcc-mcp-touchdesigner": "0.1.1",
         "dcc-mcp-shogun": "0.10.0",
         "dcc-mcp-tiled": "0.5.1",
@@ -29,7 +48,7 @@ def test_recent_adapter_releases_are_current() -> None:
     }
 
     assert {name: entries[name]["version"] for name in expected_versions} == expected_versions
-    assert entries["dcc-mcp-comfyui"]["min_core_version"] == "0.19.91"
+    assert entries["dcc-mcp-comfyui"]["min_core_version"] == "0.20.8"
     assert "21 typed" in entries["dcc-mcp-comfyui"]["description"]
     assert "19 typed" in entries["dcc-mcp-touchdesigner"]["description"]
     shogun = entries["dcc-mcp-shogun"]
