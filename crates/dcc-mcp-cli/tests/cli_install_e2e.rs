@@ -5,6 +5,43 @@ use tempfile::{NamedTempFile, TempDir};
 
 use support::*;
 
+#[test]
+fn bundled_install_sop_plans_keep_verified_release_bindings() {
+    let releases: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../tests/fixtures/install-sop-catalog.json"
+    ))
+    .unwrap();
+    for release in releases.as_array().unwrap() {
+        let dcc_type = release["dcc_type"].as_str().unwrap();
+        let plan = run_json_with_env_removed(
+            &["install", "--dcc-type", dcc_type],
+            &[],
+            &["DCC_MCP_CATALOG_PATH", "DCC_MCP_INSTALL_PYTHON"],
+        );
+        assert_eq!(plan["adapter"]["name"], release["name"], "{dcc_type}");
+        assert_eq!(plan["adapter"]["version"], release["version"], "{dcc_type}");
+        let action = &plan["steps"][0]["action"];
+        assert_eq!(action["version"], release["version"], "{dcc_type}");
+        assert_eq!(
+            action["artifact_url"], release["artifact_url"],
+            "{dcc_type}"
+        );
+        assert_eq!(action["sha256"], release["sha256"], "{dcc_type}");
+        assert_eq!(
+            plan["next_steps"][0]["url"], release["instructions_url"],
+            "{dcc_type}"
+        );
+        let output = cli_command()
+            .args(["install", "--dcc-type", dcc_type, "--version", "0.0.0"])
+            .env_remove("DCC_MCP_CATALOG_PATH")
+            .env_remove("DCC_MCP_INSTALL_PYTHON")
+            .output()
+            .unwrap();
+        assert!(!output.status.success(), "{dcc_type}");
+        assert!(String::from_utf8_lossy(&output.stderr).contains("differs from catalog version"));
+    }
+}
+
 fn fake_pip(temp: &TempDir, version: &str) -> std::path::PathBuf {
     let package = temp.path().join("pip");
     std::fs::create_dir(&package).unwrap();
