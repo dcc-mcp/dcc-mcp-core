@@ -67,8 +67,10 @@ def call_script_main(main: Callable[..., Any], params: Mapping[str, Any]) -> Any
         annotation = parameter.annotation
         if isinstance(annotation, str):
             # shortcut: unresolved host hints keep legacy mapping until a complete annotation is available.
-            with suppress(NameError, TypeError):
-                annotation = get_type_hints(inspect.unwrap(main)).get(parameter.name, annotation)
+            with suppress(Exception):
+                target = inspect.unwrap(main)
+                hints = type("_ParameterHint", (), {"__annotations__": {parameter.name: annotation}})
+                annotation = get_type_hints(hints, globalns=getattr(target, "__globals__", None))[parameter.name]
         options = (
             annotation.__args__
             if getattr(annotation, "__origin__", None) is Union

@@ -468,6 +468,9 @@ and sequence/set annotations reject this fallback. This is a calling-convention
 guard, not general runtime type validation: opaque and unresolved host annotations
 retain the legacy convention; adapters must keep
 their published `input_schema` authoritative for value and capability checks.
+Resolution examines only that parameter's annotation; unrelated return or
+keyword-only hints do not disable its guard, and failed optional resolution
+preserves the legacy calling convention.
 Host-free signature fixtures are not evidence of native API behavior, DCC
 version support or verified scene postconditions.
 

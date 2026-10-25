@@ -183,3 +183,39 @@ def test_literal_named_arguments_and_defaults_still_work(tmp_path: Path, payload
         encoding="utf-8",
     )
     assert run_skill_script(str(script), payload) == expected
+
+
+@pytest.mark.parametrize(
+    "signature",
+    ["value: bool = False) -> MissingReturn", "value: bool = False, *, other: MissingType = None)"],
+)
+def test_unrelated_unresolved_annotation_does_not_disable_parameter_guard(tmp_path: Path, signature: str) -> None:
+    marker = tmp_path / "handler-entered"
+    script = tmp_path / "unresolved.py"
+    script.write_text(
+        "from __future__ import annotations\n"
+        "from pathlib import Path\n"
+        f"def main({signature}:\n"
+        f"    Path({str(marker)!r}).write_text('entered')\n"
+        "    return {'success': True}\n",
+        encoding="utf-8",
+    )
+    bridge = HostExecutionBridge()
+    try:
+        result = bridge.execute_script(str(script), {"unsupported_argument": True})
+        assert result["success"] is False
+        assert result["error"] == "TypeError"
+        assert not marker.exists()
+    finally:
+        bridge.shutdown_script_execution()
+
+
+def test_failed_optional_annotation_resolution_preserves_legacy_payload(tmp_path: Path) -> None:
+    script = tmp_path / "opaque.py"
+    script.write_text(
+        "from __future__ import annotations\n"
+        "def host_annotation():\n    raise RuntimeError('host type unavailable')\n"
+        "def main(payload: host_annotation()):\n    return payload\n",
+        encoding="utf-8",
+    )
+    assert run_skill_script(str(script), {"descriptor": "fixture"}) == {"descriptor": "fixture"}
