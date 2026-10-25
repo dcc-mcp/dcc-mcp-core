@@ -203,7 +203,9 @@ and `core_dist_version` preserve the distinction. `core_compatibility` uses the
 existing shared version-bound checker, never the CLI's own version. Missing,
 ambiguous or conditional declarations are not guessed (`core_compatibility`
 reports `not_checked`). An unknown version
-or unusable declaration cannot establish supported compatibility, and an import
+  or unusable declaration cannot establish supported compatibility. A fully parsed
+  range can still reject an out-of-range Core even when its policy is invalid;
+  `declaration_valid` records that policy result separately. An import
 grade does not establish host capabilities or native readiness.
 
 Probing needs the interpreter that actually hosts the adapter. `doctor` never

@@ -385,6 +385,7 @@ fn probe_target(target: &AdapterImportTarget) -> Value {
                         "requirement": core.declaration,
                         "running": core.running,
                         "status": core.verdict.as_str(),
+                        "declaration_valid": core.bound.is_ok(),
                     }),
                 );
             } else {
@@ -610,6 +611,15 @@ report = {
 }
 
 
+def _read_metadata(path):
+    try:
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            metadata = Parser().parsestr(handle.read(1024 * 1024))
+        return metadata.get("Version"), metadata.get_all("Requires-Dist", [])
+    except OSError:
+        return None, []
+
+
 def _scan_dist_dirs(name):
     normalised = re.sub(r"[-_.]+", "_", name).strip("_").lower()
     if not normalised:
@@ -624,16 +634,14 @@ def _scan_dist_dirs(name):
             continue
         for name in names:
             if name.startswith(prefix) and name.endswith(suffix):
-                version = name[len(prefix):-len(suffix)]
-                requirements = []
-                try:
-                    with open(os.path.join(entry_path, name, "METADATA"), encoding="utf-8", errors="replace") as handle:
-                        requirements = Parser().parsestr(handle.read(1024 * 1024)).get_all("Requires-Dist", [])
-                except OSError:
-                    pass
+                version, requirements = _read_metadata(os.path.join(entry_path, name, "METADATA"))
                 return (version or None), "dist_info_dir", requirements
             if name == legacy:
-                return None, "egg_info_dir", []
+                path = os.path.join(entry_path, name)
+                if os.path.isdir(path):
+                    path = os.path.join(path, "PKG-INFO")
+                version, requirements = _read_metadata(path)
+                return version, "egg_info_dir", requirements
     return None, None, []
 
 
@@ -911,6 +919,29 @@ mod tests {
         let report = probe();
         assert!(report["core_requirement"].is_null());
         assert!(core_compatibility(&report).is_none());
+        let metadata_dir = dir.path().join("dcc_mcp_fixture-1.0.0.dist-info");
+        let legacy = dir.path().join("dcc_mcp_fixture.egg-info");
+        std::fs::rename(&metadata_dir, &legacy).unwrap();
+        std::fs::rename(legacy.join("METADATA"), legacy.join("PKG-INFO")).unwrap();
+        let metadata =
+            "Name: dcc-mcp-fixture\nVersion: 1.0.0\nRequires-Dist: dcc-mcp-core>=0.20.0,<1.0.0\n\n";
+        std::fs::write(legacy.join("PKG-INFO"), metadata).unwrap();
+        let report = probe();
+        assert_eq!(report["dist_version"], "1.0.0");
+        assert_eq!(report["core_requirement"], "dcc-mcp-core>=0.20.0,<1.0.0");
+        let core = check_runtime(
+            "dcc-mcp-core>=0.20.0,<1.0.0",
+            "0.19.9",
+            &CoreBoundPolicy::default(),
+        );
+        assert_eq!(
+            grade(&report, Some(&core)),
+            AdapterImportStatus::IncompatibleCore
+        );
+        std::fs::remove_file(legacy.join("PKG-INFO")).unwrap();
+        std::fs::remove_dir(&legacy).unwrap();
+        std::fs::write(&legacy, metadata).unwrap();
+        assert_eq!(probe()["core_requirement"], "dcc-mcp-core>=0.20.0,<1.0.0");
     }
 
     /// Locate a real interpreter for tests that need one.
