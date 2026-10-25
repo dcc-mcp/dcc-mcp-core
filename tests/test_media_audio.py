@@ -346,7 +346,43 @@ def test_windows_cleanup_failure_is_not_reported_as_success(audio, monkeypatch):
     with pytest.raises(audio.MediaToolError) as caught:
         process_module._stop(process)
     assert caught.value.code == "cleanup_uncertain"
+    assert caught.value.context["taskkill_returncode"] == 1
     assert process.killed and process.reaped
+
+
+@pytest.mark.parametrize("interrupted", [False, True])
+def test_cleanup_failure_retains_its_structured_cause(audio, monkeypatch, interrupted):
+    import _media_audio_process as process_module
+
+    calls = 0
+
+    def check():
+        nonlocal calls
+        calls += 1
+        if calls > 1:
+            if interrupted:
+                raise ValueError("interrupted fixture")
+            raise audio.MediaToolError("Timed out fixture.", "timeout")
+
+    def stop(process):
+        process.kill()
+        process.wait(timeout=5)
+        raise audio.MediaToolError(
+            "Audio process-tree cleanup is uncertain.",
+            "cleanup_uncertain",
+            context={"detail": "taskkill did not confirm tree cleanup", "taskkill_returncode": 128},
+        )
+
+    monkeypatch.setattr(process_module, "check_audio_cancelled", check)
+    monkeypatch.setattr(process_module, "_stop", stop)
+    with pytest.raises(audio.MediaToolError) as caught:
+        process_module.run_audio_command([sys.executable, "-c", "import time; time.sleep(10)"], time.monotonic() + 5)
+    assert caught.value.code == ("interrupted" if interrupted else "timeout")
+    assert caught.value.context["cleanup_status"] == "unknown"
+    cause = caught.value.context["cleanup_error_context"]
+    assert cause["error"] == "cleanup_uncertain"
+    assert cause["context"]["detail"] == "taskkill did not confirm tree cleanup"
+    assert cause["context"]["taskkill_returncode"] == 128
 
 
 def test_audio_schema_declares_core_async_and_no_conversion_options(audio):

@@ -179,3 +179,7 @@ already-exited launcher leaves cleanup `unknown`. Windows live cancellation,
 real Core transport cancellation and native codec qualification remain separate
 from host-free/POSIX subprocess tests. Cleanup has a separate bounded grace
 period; an uncertain cleanup never grants permission to retry.
+`cleanup_error` keeps the summary string; `cleanup_error_context` additionally
+retains the cleanup error code and its structured context. For Windows tree
+cleanup this includes `detail` and nullable `taskkill_returncode` (null when no
+taskkill result exists). These diagnostics do not turn `unknown` into success.
