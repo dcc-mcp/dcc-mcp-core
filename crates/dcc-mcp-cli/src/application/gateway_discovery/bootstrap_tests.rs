@@ -118,7 +118,8 @@ async fn bootstrap_404_preserves_the_error_and_explicit_cli_fallback_evidence() 
     let cache = tempfile::tempdir().unwrap();
     let error = download_release_binary(VERSION, &fixture.base, cache.path())
         .await
-        .unwrap_err();
+        .unwrap_err()
+        .context("x".repeat(4096));
     let message = bootstrap_fallback_message(&error, std::path::Path::new("fixture-cli"));
     assert!(message.contains("404"), "{message}");
     assert!(message.contains("resolving gateway bootstrap"));

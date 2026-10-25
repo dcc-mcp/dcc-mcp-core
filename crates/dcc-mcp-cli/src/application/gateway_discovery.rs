@@ -272,14 +272,27 @@ async fn download_release_binary(
 }
 
 fn bootstrap_fallback_message(error: &anyhow::Error, fallback: &std::path::Path) -> String {
-    format!(
-        "gateway bootstrap failed: {error:#}; using current CLI sub-command fallback {}",
-        fallback.display()
-    )
-    .chars()
-    .filter(|c| !c.is_control())
-    .take(2048)
-    .collect()
+    let chain = error
+        .chain()
+        .take(8)
+        .map(|cause| {
+            cause
+                .to_string()
+                .chars()
+                .filter(|c| !c.is_control())
+                .take(160)
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join(": ");
+    let fallback = fallback
+        .display()
+        .to_string()
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(512)
+        .collect::<String>();
+    format!("gateway bootstrap failed: {chain}; using current CLI sub-command fallback {fallback}")
 }
 // ── Cache directory ─────────────────────────────────────────────────────
 
