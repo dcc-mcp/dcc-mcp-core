@@ -219,3 +219,38 @@ def test_failed_optional_annotation_resolution_preserves_legacy_payload(tmp_path
         encoding="utf-8",
     )
     assert run_skill_script(str(script), {"descriptor": "fixture"}) == {"descriptor": "fixture"}
+
+
+@pytest.mark.parametrize("decorated", [False, True])
+def test_annotation_cancellation_does_not_enter_handler_or_wrapper(tmp_path: Path, decorated: bool) -> None:
+    marker = tmp_path / "cancelled-handler-entered"
+    script = tmp_path / "cancelled_annotation.py"
+    script.write_text(
+        "from __future__ import annotations\n"
+        "from functools import wraps\n"
+        "from pathlib import Path\n"
+        "from dcc_mcp_core.cancellation import CancelToken, check_cancelled, set_cancel_token, reset_cancel_token\n"
+        "def host_annotation():\n"
+        "    token = CancelToken()\n"
+        "    token.cancel()\n"
+        "    reset = set_cancel_token(token)\n"
+        "    try:\n        check_cancelled()\n"
+        "    finally:\n        reset_cancel_token(reset)\n"
+        "def wrap(handler):\n"
+        "    @wraps(handler)\n"
+        "    def invoke(*args, **kwargs):\n"
+        f"        Path({str(marker)!r}).write_text('wrapper entered')\n"
+        "        return handler(*args, **kwargs)\n"
+        "    return invoke\n" + ("@wrap\n" if decorated else "") + "def main(payload: host_annotation()):\n"
+        f"    Path({str(marker)!r}).write_text('handler entered')\n"
+        "    return {'success': True}\n",
+        encoding="utf-8",
+    )
+    bridge = HostExecutionBridge()
+    try:
+        result = bridge.execute_script(str(script), {"descriptor": "fixture"})
+        assert result["success"] is False
+        assert result["error"] == "DccMcpCancelledError"
+        assert not marker.exists()
+    finally:
+        bridge.shutdown_script_execution()
