@@ -126,7 +126,7 @@ pub async fn run_doctor(request: DoctorRequest) -> anyhow::Result<Value> {
         start_opts: None,
     })
     .await;
-    let inventory = local_registry::list_local_instances(registry_dir.clone());
+    let inventory = local_registry::snapshot_local_instances(registry_dir.clone());
     let adapter_imports = probe_adapters(&AdapterImportRequest {
         inventory: inventory.as_ref().ok().cloned(),
         python_overrides: request.adapter_python.clone(),
@@ -137,6 +137,8 @@ pub async fn run_doctor(request: DoctorRequest) -> anyhow::Result<Value> {
             let direct_control = direct_control_summary(value);
             json!({
                 "ok": true,
+                "mode": "read_only_snapshot",
+                "liveness": "not_checked",
                 "source": value.get("source").cloned().unwrap_or(Value::Null),
                 "total": value.get("total").cloned().unwrap_or(Value::Null),
                 "evicted": value.get("evicted").cloned().unwrap_or(Value::Null),
@@ -144,11 +146,7 @@ pub async fn run_doctor(request: DoctorRequest) -> anyhow::Result<Value> {
                 "direct_control": direct_control,
             })
         }
-        Err(err) => json!({
-            "ok": false,
-            "registry_dir": registry_dir.clone(),
-            "error": err.to_string(),
-        }),
+        Err(err) => inventory_error(err, &registry_dir),
     };
 
     Ok(json!({
@@ -190,6 +188,79 @@ pub async fn run_doctor(request: DoctorRequest) -> anyhow::Result<Value> {
         },
         "server_binary": gateway_discovery::diagnose_gateway_bin(request.server_bin.as_ref()),
     }))
+}
+
+fn inventory_error(error: &anyhow::Error, registry_dir: &std::path::Path) -> Value {
+    let io = error
+        .chain()
+        .find_map(|cause| cause.downcast_ref::<std::io::Error>());
+    let home = dirs::home_dir().map(|path| path.to_string_lossy().into_owned());
+    let redact = |text: String| {
+        let text = match &home {
+            Some(home) if !home.is_empty() => text.replace(home, "<home>"),
+            _ => text,
+        };
+        text.chars()
+            .filter(|c| !c.is_control())
+            .take(2048)
+            .collect::<String>()
+    };
+    json!({
+        "ok": false,
+        "mode": "read_only_snapshot",
+        "liveness": "unknown",
+        "registry_dir": registry_dir,
+        "error": redact(error.chain().take(8).map(|cause| cause.to_string().chars().take(240).collect::<String>()).collect::<Vec<_>>().join(": ")),
+        "operation": "read_registry_snapshot",
+        "path": redact(registry_dir.join("services.json").display().to_string()),
+        "error_kind": io.map(|error| format!("{:?}", error.kind())).unwrap_or_else(|| "unknown".to_string()),
+        "os_error": io.and_then(std::io::Error::raw_os_error),
+    })
+}
+
+#[cfg(test)]
+mod diagnostic_tests {
+    use super::*;
+
+    #[test]
+    fn inventory_error_retains_os_cause_and_bounds_redacts_context() {
+        let code = if cfg!(windows) { 5 } else { 13 };
+        let path = dirs::home_dir().unwrap().join("registry");
+        let error = anyhow::Error::new(std::io::Error::from_raw_os_error(code)).context(format!(
+            "reading {}\n{}",
+            path.display(),
+            "x".repeat(4096)
+        ));
+        let report = inventory_error(&error, &path);
+        assert_eq!(report["os_error"], code);
+        assert_eq!(report["error_kind"], "PermissionDenied");
+        assert_eq!(report["operation"], "read_registry_snapshot");
+        assert!(report["path"].as_str().unwrap().starts_with("<home>"));
+        assert!(report["error"].as_str().unwrap().chars().count() <= 2048);
+        assert!(!report["error"].as_str().unwrap().contains('\n'));
+        let short = inventory_error(
+            &anyhow::Error::new(std::io::Error::from_raw_os_error(code))
+                .context("reading snapshot"),
+            &path,
+        );
+        assert!(
+            short["error"]
+                .as_str()
+                .unwrap()
+                .contains(&format!("os error {code}"))
+        );
+    }
+
+    #[test]
+    fn inventory_error_does_not_invent_an_errno() {
+        let report = inventory_error(
+            &anyhow::anyhow!("invalid registry"),
+            std::path::Path::new("fixture"),
+        );
+        assert_eq!(report["error_kind"], "unknown");
+        assert_eq!(report["os_error"], Value::Null);
+        assert_eq!(report["liveness"], "unknown");
+    }
 }
 
 fn direct_control_summary(inventory: &Value) -> Value {

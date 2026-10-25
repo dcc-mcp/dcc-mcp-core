@@ -13,6 +13,34 @@ use crate::application::local_instance;
 
 pub fn list_local_instances(registry_dir: PathBuf) -> anyhow::Result<Value> {
     let (entries, evicted) = local_instance::live_dcc_entries(&registry_dir)?;
+    inventory_to_value(registry_dir, entries, evicted)
+}
+
+/// Inspect persisted rows without invoking runtime liveness pruning or file repair.
+pub(crate) fn snapshot_local_instances(registry_dir: PathBuf) -> anyhow::Result<Value> {
+    use anyhow::Context;
+    use dcc_mcp_transport::discovery::{
+        file_registry::FileRegistry, types::GATEWAY_SENTINEL_DCC_TYPE,
+    };
+
+    let entries = FileRegistry::read_snapshot(&registry_dir)
+        .with_context(|| {
+            format!(
+                "reading local DCC snapshot at {}",
+                registry_dir.join("services.json").display()
+            )
+        })?
+        .into_iter()
+        .filter(|entry| entry.dcc_type != GATEWAY_SENTINEL_DCC_TYPE)
+        .collect();
+    inventory_to_value(registry_dir, entries, 0)
+}
+
+fn inventory_to_value(
+    registry_dir: PathBuf,
+    entries: Vec<dcc_mcp_transport::discovery::types::ServiceEntry>,
+    evicted: usize,
+) -> anyhow::Result<Value> {
     let mut instances: Vec<_> = entries
         .into_iter()
         .map(local_instance::instance_to_value)
