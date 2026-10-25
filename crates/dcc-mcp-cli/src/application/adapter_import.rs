@@ -929,13 +929,12 @@ mod tests {
         let report = probe();
         assert_eq!(report["dist_version"], "1.0.0");
         assert_eq!(report["core_requirement"], "dcc-mcp-core>=0.20.0,<1.0.0");
-        let core = check_runtime(
-            "dcc-mcp-core>=0.20.0,<1.0.0",
-            "0.19.9",
-            &CoreBoundPolicy::default(),
-        );
+        let mut older = report.clone();
+        older.insert("core_version".into(), json!("0.19.9"));
+        let core = core_compatibility(&older).unwrap();
+        assert!(!core.bound.is_ok());
         assert_eq!(
-            grade(&report, Some(&core)),
+            grade(&older, Some(&core)),
             AdapterImportStatus::IncompatibleCore
         );
         std::fs::remove_file(legacy.join("PKG-INFO")).unwrap();
