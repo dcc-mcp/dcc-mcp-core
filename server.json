@@ -15,7 +15,7 @@
       "registryType": "pypi",
       "registryBaseUrl": "https://pypi.org",
       "identifier": "dcc-mcp-server",
-      "version": "0.20.47",
+      "version": "0.20.48",
       "runtimeHint": "uvx",
       "transport": {
         "type": "streamable-http",
