@@ -16,12 +16,10 @@ this module supplies its executor closure and dispatcher protocol.
 # Import built-in modules
 from __future__ import annotations
 
-from contextlib import suppress
 from dataclasses import dataclass
 from dataclasses import field
 import importlib.machinery
 import importlib.util
-import inspect
 import json
 import logging
 import os
@@ -29,13 +27,10 @@ from pathlib import Path
 import sys
 import threading
 import time
-import types
 from typing import Any
 from typing import Callable
 from typing import Mapping
 from typing import Sequence
-from typing import Union
-from typing import get_type_hints
 import uuid
 
 from dcc_mcp_core._server._continuation_lifecycle import resolve_bridge_result
@@ -49,6 +44,7 @@ from dcc_mcp_core._server._inprocess_contracts import is_host_queue_dispatcher a
 from dcc_mcp_core._server._inprocess_contracts import resolve_sandbox_action_name as _resolve_sandbox_action_name
 from dcc_mcp_core._server._inprocess_contracts import sandbox_denied_envelope
 from dcc_mcp_core._server._inprocess_contracts import timeout_hint_secs_to_ms
+from dcc_mcp_core._server._script_invocation import call_script_main as _call_script_main
 from dcc_mcp_core.cancellation import _reset_current_job_id
 from dcc_mcp_core.cancellation import _set_current_job_id
 from dcc_mcp_core.cancellation import check_cancelled
@@ -623,67 +619,6 @@ class HostExecutionBridge:
             )
 
         return _executor
-
-
-def _call_script_main(main: Callable[..., Any], params: Mapping[str, Any]) -> Any:
-    """Invoke a skill ``main`` using the best supported calling convention."""
-    params_dict = {key: value for key, value in params.items() if not key.startswith("_")}
-    try:
-        signature = inspect.signature(main)
-    except (TypeError, ValueError):
-        return main(**params_dict)
-
-    parameters = list(signature.parameters.values())
-    if any(param.kind is inspect.Parameter.VAR_KEYWORD for param in parameters):
-        return main(**params_dict)
-
-    keyword_names = {
-        param.name
-        for param in parameters
-        if param.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
-    }
-    if set(params_dict).issubset(keyword_names):
-        return main(**params_dict)
-
-    positional = [
-        param
-        for param in parameters
-        if param.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
-    ]
-    required = [
-        param
-        for param in parameters
-        if param.default is inspect.Parameter.empty
-        and param.kind
-        in (
-            inspect.Parameter.POSITIONAL_ONLY,
-            inspect.Parameter.POSITIONAL_OR_KEYWORD,
-            inspect.Parameter.KEYWORD_ONLY,
-        )
-    ]
-    if len(positional) == 1 and len(required) <= 1:
-        parameter = positional[0]
-        annotation = parameter.annotation
-        if isinstance(annotation, str):
-            # shortcut: unresolved host hints keep legacy mapping until a complete annotation is available.
-            with suppress(NameError, TypeError):
-                annotation = get_type_hints(inspect.unwrap(main)).get(parameter.name, annotation)
-        options = (
-            annotation.__args__
-            if getattr(annotation, "__origin__", None) is Union
-            or isinstance(annotation, getattr(types, "UnionType", ()))
-            else (annotation,)
-        )
-        if options and all(
-            (getattr(option, "__origin__", None) or option)
-            in (bool, int, float, str, bytes, list, tuple, set, frozenset, type(None))
-            for option in options
-        ):
-            signature.bind_partial(**params_dict)
-            return main(**params_dict)
-        return main(params_dict)
-
-    return main(**params_dict)
 
 
 def _script_package_name(script_dir: Path, package_owner: str | None = None) -> str:
