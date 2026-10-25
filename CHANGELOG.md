@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.48](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.47...v0.20.48) (2026-10-25)
+
+
+### Features
+
+* **catalog:** discover experimental PhotoCraft adapter ([d4a0d18](https://github.com/dcc-mcp/dcc-mcp-core/commit/d4a0d18780ef5835ff842f08eb6d281b5c50d558))
+
+
+### Bug Fixes
+
+* **catalog:** synchronize PhotoCraft discovery coverage ([9d7d7f4](https://github.com/dcc-mcp/dcc-mcp-core/commit/9d7d7f4d37b54a4d1d17f44c7ae5bb0816b8da62))
+* **cli:** bound verified install command storage ([7350302](https://github.com/dcc-mcp/dcc-mcp-core/commit/735030226ea2b894fda36b151631bc2657aa855b))
+* **cli:** prepare pinned offline component installation ([a3cf2a2](https://github.com/dcc-mcp/dcc-mcp-core/commit/a3cf2a2ce463a17cb45f0976b1cc93567fbbebb6))
+* **cli:** reject missing selected embedded hosts before pip planning ([9329a68](https://github.com/dcc-mcp/dcc-mcp-core/commit/9329a6871e3657fa6048ed61b731adb674020390))
+* **examples:** report design provider tool errors in CLI status ([35adb64](https://github.com/dcc-mcp/dcc-mcp-core/commit/35adb64bfa6eed67264be54b38902da04326ece9))
+* **install:** reject unsuccessful archive HTTP responses ([29d7044](https://github.com/dcc-mcp/dcc-mcp-core/commit/29d7044681c9afd4f3307be7af42c42857981c63))
+* **install:** require an unambiguous local catalog collection ([9b9152d](https://github.com/dcc-mcp/dcc-mcp-core/commit/9b9152d6230459c8655287d65d59ed892d2749ff))
+* **install:** resolve extensionless Maya Python siblings ([b1c5f76](https://github.com/dcc-mcp/dcc-mcp-core/commit/b1c5f76cc2898fc58b7786eeb2ea7a73e6fb1216))
+* **install:** resolve selected host Python before planning pip ([64c32cf](https://github.com/dcc-mcp/dcc-mcp-core/commit/64c32cf19b61287ca442b8f4bfe5a61ba9f91496))
+* **install:** validate local catalog snapshots ([4c2011e](https://github.com/dcc-mcp/dcc-mcp-core/commit/4c2011ea723ceaa8cff30b50f5bbb8f917835315))
+* preserve unowned package recovery files ([faae192](https://github.com/dcc-mcp/dcc-mcp-core/commit/faae1924100ddee8868dd7bb5537f210168f6a5e))
+* **updater:** retain prepared ownership after failed file operations ([85c6b9e](https://github.com/dcc-mcp/dcc-mcp-core/commit/85c6b9eb5c8115b3f250b0a01f2085cf4b892e95))
+
+
+### Documentation
+
+* explain MCP Registry setup and verification ([a901a1f](https://github.com/dcc-mcp/dcc-mcp-core/commit/a901a1fe598ebc237659c7516b2dc208e4a7d32a))
+
 ## [0.20.47](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.46...v0.20.47) (2026-10-23)
 
 
