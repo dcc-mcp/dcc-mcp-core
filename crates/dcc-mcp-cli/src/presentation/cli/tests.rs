@@ -13,6 +13,37 @@ use crate::application::gateway_profile::GatewayTarget;
 use crate::presentation::feedback_cmd::FeedbackAction;
 
 #[test]
+fn result_view_flags_are_global_and_invalid_pointers_fail_before_dispatch() {
+    let args = Args::try_parse_from([
+        "dcc-mcp-cli",
+        "call",
+        "houdini.abc.inspect",
+        "--raw-result",
+        "--select",
+        "/result/structuredContent",
+        "--show-maintenance",
+    ])
+    .unwrap();
+    assert!(args.raw_result);
+    assert!(args.show_maintenance);
+    assert!(!command_shows_maintenance(&args.command, false));
+    assert!(command_shows_maintenance(&args.command, true));
+    assert_eq!(args.select, ["/result/structuredContent"]);
+    let quiet = Args::try_parse_from(["dcc-mcp-cli", "list", "--quiet"]).unwrap();
+    assert!(quiet.no_update_maintenance);
+    assert!(!command_shows_maintenance(&quiet.command, false));
+    let doctor = Args::try_parse_from(["dcc-mcp-cli", "doctor"]).unwrap();
+    assert!(command_shows_maintenance(&doctor.command, false));
+    assert!(
+        Args::try_parse_from(["dcc-mcp-cli", "call", "tool", "--select", "not-a-pointer",])
+            .is_err()
+    );
+    assert!(
+        Args::try_parse_from(["dcc-mcp-cli", "list", "--quiet", "--show-maintenance",]).is_err()
+    );
+}
+
+#[test]
 fn require_gateway_is_a_global_fail_closed_control_flag() {
     let args = Args::try_parse_from([
         "dcc-mcp-cli",

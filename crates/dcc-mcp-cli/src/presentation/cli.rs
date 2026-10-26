@@ -37,6 +37,7 @@ mod job_progress;
 mod lint;
 mod marketplace_output;
 mod record_replay;
+mod result_output;
 mod transport_args;
 mod ui_control;
 mod ui_control_output;
@@ -81,8 +82,11 @@ pub struct Args {
     no_auto_gateway: bool,
     /// Skip automatic staged updates, marketplace checks and CLI update-cache refresh.
     /// Explicit update commands still perform the operation requested by the caller.
-    #[arg(long, global = true)]
+    #[arg(long, global = true, visible_alias = "quiet")]
     no_update_maintenance: bool,
+    /// Include maintenance metadata on call/list/search/describe (quiet by default).
+    #[arg(long, global = true, conflicts_with = "no_update_maintenance")]
+    show_maintenance: bool,
     /// Require local agent-control calls to pass through the gateway for audit and stats.
     #[arg(
         long,
@@ -112,10 +116,16 @@ pub struct Args {
         value_parser = parse_output_format
     )]
     output: Option<OutputFormat>,
+    /// Keep redundant MCP JSON text mirrors in CLI output for legacy consumers.
+    #[arg(long, global = true)]
+    raw_result: bool,
+    /// Select a JSON pointer from the output; repeat for multiple fields. Missing = null.
+    #[arg(long, global = true, value_parser = result_output::parse_pointer)]
+    select: Vec<String>,
     /// Non-interactive mode: zero prompts, missing input fails immediately (exit code 2).
     #[arg(long, global = true, env = "DCC_MCP_NON_INTERACTIVE")]
     non_interactive: bool,
-    /// Global timeout in seconds for all operations.
+    /// Per-request timeout override; call --wait-timeout-secs is an independent total wait budget.
     #[arg(long, global = true, env = "DCC_MCP_TIMEOUT_SECS")]
     timeout_secs: Option<u64>,
     #[command(flatten)]
@@ -237,17 +247,32 @@ fn restart_after_update() -> anyhow::Result<()> {
     Ok(())
 }
 
+fn command_shows_maintenance(command: &Command, requested: bool) -> bool {
+    requested
+        || !matches!(
+            command,
+            Command::Call { .. }
+                | Command::CallBatch { .. }
+                | Command::List
+                | Command::Search { .. }
+                | Command::Describe { .. }
+        )
+}
+
 async fn run_with_args(args: Args) -> anyhow::Result<()> {
     let Args {
         base_url,
         gateway,
         no_auto_gateway,
         no_update_maintenance,
+        show_maintenance,
         require_gateway,
         agent_session_id,
         auto_gateway_bin,
         auto_gateway_timeout_secs,
         output,
+        raw_result,
+        select,
         non_interactive,
         timeout_secs: global_timeout_secs,
         transport: transport_args,
@@ -270,7 +295,11 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
         return writer.write_data(&value);
     }
     let explicit_update_command = matches!(&command, Command::Update { .. });
-    let update_maintenance = UpdateMaintenance::from_skip_flag(no_update_maintenance);
+    let project_result =
+        !raw_result && matches!(&command, Command::Call { .. } | Command::CallBatch { .. });
+    let quiet_control = !command_shows_maintenance(&command, show_maintenance);
+    let update_maintenance =
+        UpdateMaintenance::from_skip_flag(no_update_maintenance || quiet_control);
     let marketplace_update_check = update_maintenance
         .run(|| {
             (!crate::application::update::is_background_refresh())
@@ -991,14 +1020,18 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
         })
         .transpose()?;
 
+    let failure = failed.then(|| failure_envelope(&value, exit_code));
+    if project_result {
+        result_output::canonical_result(&mut value);
+    }
+    let value = result_output::select_fields(value, &select);
     writer.write_data(&value)?;
     if let Some(code) = explicit_exit_code
         && code != 0
     {
         std::process::exit(code);
     }
-    if failed {
-        let envelope = failure_envelope(&value, exit_code);
+    if let Some(envelope) = failure {
         writer.write_error(&envelope)?;
         std::process::exit(exit_code.as_i32());
     }
