@@ -8,6 +8,7 @@ use std::ffi::OsString;
 use clap::{CommandFactory, FromArgMatches};
 
 use super::cli::Args;
+use super::cli::result_output::select_fields;
 use super::feedback_cmd::{FeedbackBundleArgs, FeedbackFileArgs};
 use super::output::{ErrorEnvelope, ExitCode, OutputFormat, OutputWriter};
 use super::update_cmd::{DiscoverArgs, InspectArgs, run_discovery, run_inspection};
@@ -20,9 +21,11 @@ enum ReadOnlyCommand {
     FeedbackPlan(FeedbackFileArgs),
 }
 
+type ReadOnlyArgs = (ReadOnlyCommand, OutputFormat, Vec<String>);
+
 fn read_only_args(
     arguments: impl IntoIterator<Item = OsString>,
-) -> Result<Option<(ReadOnlyCommand, OutputFormat)>, clap::Error> {
+) -> Result<Option<ReadOnlyArgs>, clap::Error> {
     let matches = Args::command().try_get_matches_from(arguments)?;
     let mut output = matches
         .get_one::<OutputFormat>("output")
@@ -63,7 +66,13 @@ fn read_only_args(
         },
         _ => return Ok(None),
     };
-    Ok(Some((command, output)))
+    let select = matches
+        .get_many::<String>("select")
+        .into_iter()
+        .flatten()
+        .cloned()
+        .collect();
+    Ok(Some((command, output, select)))
 }
 
 /// Return `None` only for a valid command using the existing execution path.
@@ -83,19 +92,19 @@ pub async fn run() -> anyhow::Result<Option<ExitCode>> {
             return Ok(Some(code));
         }
     };
-    let Some((command, output)) = parsed else {
+    let Some((command, output, select)) = parsed else {
         return Ok(None);
     };
     let writer = OutputWriter::new(output);
     let result = match command {
         ReadOnlyCommand::Update(args) => {
             let result = run_inspection(args).await?;
-            writer.write_data(&result.value)?;
+            writer.write_data(&select_fields(result.value, &select))?;
             return Ok(Some(result.exit_code));
         }
         ReadOnlyCommand::Discover(args) => {
             let result = run_discovery(args).await?;
-            writer.write_data(&result.value)?;
+            writer.write_data(&select_fields(result.value, &select))?;
             return Ok(Some(result.exit_code));
         }
         ReadOnlyCommand::Bundle(args) => {
@@ -127,7 +136,7 @@ pub async fn run() -> anyhow::Result<Option<ExitCode>> {
     };
     match result {
         Ok(value) => {
-            writer.write_data(&value)?;
+            writer.write_data(&select_fields(value, &select))?;
             Ok(Some(ExitCode::Success))
         }
         Err(code) => {

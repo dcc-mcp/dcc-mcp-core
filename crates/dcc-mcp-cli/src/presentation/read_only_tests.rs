@@ -1,7 +1,23 @@
 use super::*;
 
-fn parse(arguments: &[&str]) -> Result<Option<(ReadOnlyCommand, OutputFormat)>, clap::Error> {
+fn parse(arguments: &[&str]) -> Result<Option<ReadOnlyArgs>, clap::Error> {
     read_only_args(arguments.iter().map(OsString::from))
+}
+
+#[test]
+fn read_only_selection_preserves_the_safe_entrypoint() {
+    let (command, _, select) = parse(&[
+        "dcc-mcp-cli",
+        "update",
+        "inspect",
+        "--offline",
+        "--select",
+        "/schema_version",
+    ])
+    .unwrap()
+    .unwrap();
+    assert!(matches!(command, ReadOnlyCommand::Update(_)));
+    assert_eq!(select, ["/schema_version"]);
 }
 
 #[test]
@@ -28,7 +44,7 @@ fn canonical_parser_accepts_global_options_before_and_after_inspection() {
             "http://127.0.0.1:1",
         ],
     ] {
-        let (args, output) = parse(&arguments).unwrap().unwrap();
+        let (args, output, _) = parse(&arguments).unwrap().unwrap();
         let ReadOnlyCommand::Update(args) = args else {
             panic!("expected update inspection");
         };
@@ -62,7 +78,8 @@ fn discovery_uses_safe_gate_with_global_options_in_either_position() {
             "json",
         ],
     ] {
-        let (ReadOnlyCommand::Discover(args), output) = parse(&arguments).unwrap().unwrap() else {
+        let (ReadOnlyCommand::Discover(args), output, _) = parse(&arguments).unwrap().unwrap()
+        else {
             panic!("expected discovery");
         };
         assert!(args.offline);
@@ -177,13 +194,14 @@ fn feedback_previews_use_read_only_gate_and_canonical_global_options() {
             "json",
         ],
     ] {
-        let (command, output) = parse(&arguments).unwrap().unwrap();
+        let (command, output, _) = parse(&arguments).unwrap().unwrap();
         assert!(matches!(command, ReadOnlyCommand::Bundle(_)));
         assert_eq!(output, OutputFormat::Json);
     }
-    let (command, output) = parse(&["dcc-mcp-cli", "feedback", "file", "finding.json", "--json"])
-        .unwrap()
-        .unwrap();
+    let (command, output, _) =
+        parse(&["dcc-mcp-cli", "feedback", "file", "finding.json", "--json"])
+            .unwrap()
+            .unwrap();
     assert!(matches!(command, ReadOnlyCommand::FeedbackPlan(_)));
     assert_eq!(output, OutputFormat::Json);
     for arguments in [
