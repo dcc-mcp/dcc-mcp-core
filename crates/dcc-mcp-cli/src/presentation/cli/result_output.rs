@@ -48,7 +48,7 @@ pub(super) fn parse_pointer(pointer: &str) -> Result<String, String> {
 }
 
 /// Missing fields are null; selection never turns a completed mutation into a retry.
-pub(super) fn select_fields(value: Value, pointers: &[String]) -> Value {
+pub(crate) fn select_fields(value: Value, pointers: &[String]) -> Value {
     if pointers.is_empty() {
         return value;
     }

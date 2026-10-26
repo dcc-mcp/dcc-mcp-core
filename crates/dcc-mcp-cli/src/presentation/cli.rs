@@ -37,7 +37,7 @@ mod job_progress;
 mod lint;
 mod marketplace_output;
 mod record_replay;
-mod result_output;
+pub(crate) mod result_output;
 mod transport_args;
 mod ui_control;
 mod ui_control_output;
