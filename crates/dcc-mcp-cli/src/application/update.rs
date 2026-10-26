@@ -14,6 +14,11 @@ pub use cache::{
 pub const CLI_BINARY_NAME: &str = env!("CARGO_PKG_NAME");
 pub const CLI_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// The single command that checks, downloads, and stages a CLI update. Both
+/// the update policy and the post-apply notification point here so the
+/// advertised command cannot drift between them.
+const CLI_UPDATE_COMMAND: &str = "dcc-mcp-cli update";
+
 const SUCCESS_CHECK_INTERVAL_SECS: u64 = 24 * 60 * 60;
 const FAILURE_RETRY_INTERVAL_SECS: u64 = 60 * 60;
 
@@ -61,14 +66,17 @@ impl UpdateService {
 
     /// Check for and stage an update (download + verify; applied on relaunch).
     ///
+    /// `dcc-mcp-cli update` performs the whole update in one step: it reuses
+    /// the same gateway version check as `update check`, then downloads and
+    /// stages the release without requiring a separate confirmation flag.
     /// Self-update is enabled for every install, package-managed ones
-    /// included: `dcc-mcp-cli update` replaces the running binary on the next
-    /// launch and is the supported flow everywhere. Nothing has been applied
-    /// yet when this returns, so the payload says `staged` and the advisory
-    /// speaks in the future tense. When a package manager installed this copy,
-    /// the result carries an advisory naming the version that manager still
-    /// records, because the staged update will move the binary past it.
-    pub async fn apply_update(&self, confirmed: bool) -> anyhow::Result<Value> {
+    /// included: it replaces the running binary on the next launch and is the
+    /// supported flow everywhere. Nothing has been applied yet when this
+    /// returns, so the payload says `staged` and the advisory speaks in the
+    /// future tense. When a package manager installed this copy, the result
+    /// carries an advisory naming the version that manager still records,
+    /// because the staged update will move the binary past it.
+    pub async fn apply_update(&self) -> anyhow::Result<Value> {
         let package_manager = crate::application::package_manager::detect();
 
         let info = match self.updater.check_update().await {
@@ -98,24 +106,6 @@ impl UpdateService {
                     "update_available": false,
                     "binary_name": self.updater.binary_name(),
                     "message": "Already running the latest version."
-                }),
-                true,
-                "live",
-                unix_timestamp(),
-            ));
-        }
-
-        if !confirmed {
-            return Ok(enrich_check_payload(
-                serde_json::json!({
-                    "status": "confirmation_required",
-                    "error": "confirmation_required",
-                    "message": "User confirmation is required before downloading an update.",
-                    "current_version": info.current_version,
-                    "latest_version": info.latest_version,
-                    "update_available": true,
-                    "binary_name": self.updater.binary_name(),
-                    "release_notes": info.release_notes,
                 }),
                 true,
                 "live",
@@ -239,11 +229,13 @@ fn update_policy(binary_name: &str, manager: Option<&str>) -> Value {
     let is_cli = binary_name == CLI_BINARY_NAME;
     // Self-update works for package-managed installs too; `manager` only
     // records provenance so callers can re-sync the manager's metadata.
+    // A single `dcc-mcp-cli update` checks, downloads, and stages the release,
+    // so no separate user-confirmation step is required.
     let apply_supported = is_cli;
     serde_json::json!({
-        "requires_user_confirmation": true,
+        "requires_user_confirmation": false,
         "apply_supported_by_this_command": apply_supported,
-        "apply_command": apply_supported.then_some("dcc-mcp-cli update apply --yes"),
+        "apply_command": apply_supported.then_some(CLI_UPDATE_COMMAND),
         "staged_for_next_launch": true,
         "running_server_restarted": false,
         "managed_by_package_manager": manager,
@@ -300,10 +292,13 @@ mod tests {
         assert_eq!(payload["check"]["source"], "live");
         assert_eq!(payload["check"]["checked_at_unix_secs"], 42);
         assert_eq!(payload["compatibility"]["status"], "eligible");
-        assert_eq!(payload["update_policy"]["requires_user_confirmation"], true);
+        assert_eq!(
+            payload["update_policy"]["requires_user_confirmation"],
+            false
+        );
         assert_eq!(
             payload["update_policy"]["apply_command"],
-            "dcc-mcp-cli update apply --yes"
+            "dcc-mcp-cli update"
         );
         assert_eq!(payload["update_policy"]["running_server_restarted"], false);
     }
@@ -319,11 +314,12 @@ mod tests {
             binary: "dcc-mcp-cli-bin.exe".into(),
         };
 
-        // `update check` must keep pointing agents at the apply command even
-        // when a package manager installed this copy.
+        // `update check` must keep pointing agents at the one-command update
+        // even when a package manager installed this copy.
         let policy = update_policy(CLI_BINARY_NAME, Some(&marker.manager));
         assert_eq!(policy["apply_supported_by_this_command"], true);
-        assert_eq!(policy["apply_command"], "dcc-mcp-cli update apply --yes");
+        assert_eq!(policy["apply_command"], "dcc-mcp-cli update");
+        assert_eq!(policy["requires_user_confirmation"], false);
         assert_eq!(policy["managed_by_package_manager"], "pypi");
 
         // A staged self-update reports the version the manager still records.
