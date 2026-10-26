@@ -166,7 +166,14 @@ fn binary_is_file(path: &std::path::Path) -> anyhow::Result<bool> {
 fn classify_binary_metadata(metadata: std::io::Result<std::fs::Metadata>) -> std::io::Result<bool> {
     match metadata {
         Ok(metadata) => Ok(metadata.is_file()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+            ) =>
+        {
+            Ok(false)
+        }
         Err(error) => Err(error),
     }
 }
@@ -243,7 +250,13 @@ fn find_in_same_dir() -> anyhow::Result<Option<PathBuf>> {
 
 /// Look for a previously downloaded gateway binary in the cache directory.
 fn find_cached_binary() -> anyhow::Result<Option<PathBuf>> {
-    let cache_dir = gateway_cache_dir().context("cannot determine gateway cache directory")?;
+    find_cached_binary_in(gateway_cache_dir())
+}
+
+fn find_cached_binary_in(cache_dir: Option<PathBuf>) -> anyhow::Result<Option<PathBuf>> {
+    let Some(cache_dir) = cache_dir else {
+        return Ok(None);
+    };
     let version = env!("CARGO_PKG_VERSION");
     let cached = cache_dir.join(version).join(GATEWAY_BINARY_NAME_WITH_EXT);
     Ok(binary_is_file(&cached)?.then_some(cached))
@@ -415,7 +428,9 @@ mod tests {
     #[test]
     fn binary_metadata_distinguishes_missing_from_permission_and_io_errors() {
         use std::io::{Error, ErrorKind};
-        assert!(!classify_binary_metadata(Err(Error::from(ErrorKind::NotFound))).unwrap());
+        for kind in [ErrorKind::NotFound, ErrorKind::NotADirectory] {
+            assert!(!classify_binary_metadata(Err(Error::from(kind))).unwrap());
+        }
         for kind in [ErrorKind::PermissionDenied, ErrorKind::Other] {
             assert_eq!(
                 classify_binary_metadata(Err(Error::from(kind)))
@@ -424,9 +439,19 @@ mod tests {
                 kind
             );
         }
+        #[cfg(unix)]
+        assert_eq!(
+            classify_binary_metadata(Err(Error::from_raw_os_error(libc::ELOOP)))
+                .unwrap_err()
+                .raw_os_error(),
+            Some(libc::ELOOP)
+        );
         let dir = tempfile::tempdir().unwrap();
         assert!(!binary_is_file(dir.path()).unwrap());
         assert!(!binary_is_file(&dir.path().join("missing")).unwrap());
+        let parent_file = dir.path().join("not-a-directory");
+        std::fs::write(&parent_file, b"fixture").unwrap();
+        assert!(!binary_is_file(&parent_file.join(GATEWAY_BINARY_NAME_WITH_EXT)).unwrap());
         let code = if cfg!(windows) { 5 } else { 13 };
         let error =
             anyhow::Error::new(Error::from_raw_os_error(code)).context("inspecting fixture binary");
@@ -439,6 +464,11 @@ mod tests {
                 .unwrap()
                 .contains(&format!("os error {code}"))
         );
+    }
+
+    #[test]
+    fn unavailable_cache_directory_is_a_discovery_miss() {
+        assert!(find_cached_binary_in(None).unwrap().is_none());
     }
 
     #[test]
