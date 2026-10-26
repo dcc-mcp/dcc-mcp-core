@@ -157,6 +157,8 @@ direct-control readiness counts, gateway daemon status, and server binary
 path/source/version without starting services or downloading binaries. Existing
 binary version probes and explicitly configured adapter interpreter probes may
 run subprocesses.
+Doctor also skips staged-update application/quarantine, marketplace update
+checks, and background CLI update-cache refresh without requiring an opt-out.
 
 The local inventory is a `read_only_snapshot`: doctor never creates the registry
 directory, opens `services.lock`, prunes rows, or quarantines malformed JSON.
