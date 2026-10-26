@@ -167,6 +167,37 @@ fn cached_cli_update_is_agent_readable_without_a_network_check() {
         true
     );
     assert!(String::from_utf8_lossy(&output.stderr).contains("Ask the user before updating"));
+
+    for show in [false, true] {
+        let mut command = cli_command();
+        command.args([
+            "--base-url",
+            &fixture.base_url,
+            "--output",
+            "json",
+            "--no-auto-gateway",
+            "list",
+        ]);
+        if show {
+            command.arg("--show-maintenance");
+        }
+        let output = command
+            .env("DCC_MCP_FORCE_UPDATE_CHECK", "1")
+            .env("DCC_MCP_UPDATE_CACHE_DIR", cache_root.path())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(value.get("cli_update").is_some(), show);
+        assert_eq!(
+            String::from_utf8_lossy(&output.stderr).contains("Ask the user before updating"),
+            show
+        );
+    }
 }
 
 #[test]

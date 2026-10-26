@@ -125,7 +125,8 @@ pub struct Args {
     /// Non-interactive mode: zero prompts, missing input fails immediately (exit code 2).
     #[arg(long, global = true, env = "DCC_MCP_NON_INTERACTIVE")]
     non_interactive: bool,
-    /// Per-request timeout override; call --wait-timeout-secs is an independent total wait budget.
+    /// Timeout override: per request for call; total budget for wait-ready/start-instance.
+    /// call --wait-timeout-secs independently limits total job polling.
     #[arg(long, global = true, env = "DCC_MCP_TIMEOUT_SECS")]
     timeout_secs: Option<u64>,
     #[command(flatten)]
@@ -292,15 +293,16 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
     {
         // Dispatch before constructing gateway/profile/doctor infrastructure.
         let value = super::components_cmd::run(action).await?;
-        return writer.write_data(&value);
+        return writer.write_data(&result_output::select_fields(value, &select));
     }
     let explicit_update_command = matches!(&command, Command::Update { .. });
     let project_result =
         !raw_result && matches!(&command, Command::Call { .. } | Command::CallBatch { .. });
     let quiet_control = !command_shows_maintenance(&command, show_maintenance);
-    let update_maintenance =
+    // Staged application already ran in run(), controlled only by the explicit skip flag.
+    let output_maintenance =
         UpdateMaintenance::from_skip_flag(no_update_maintenance || quiet_control);
-    let marketplace_update_check = update_maintenance
+    let marketplace_update_check = output_maintenance
         .run(|| {
             (!crate::application::update::is_background_refresh())
                 .then(|| tokio::spawn(check_marketplace_updates()))
@@ -1009,7 +1011,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
         );
     }
 
-    update_maintenance
+    output_maintenance
         .run(|| {
             super::update_cmd::surface_cached_cli_update(
                 &mut value,
