@@ -240,3 +240,21 @@ def test_adobepy_012_adapter_releases_are_available_to_the_install_planner(
     upper_core = "0.21.0" if app == "photoshop" else "1.0.0"
     assert columns[3] == version
     assert columns[4] == ">=" + min_core_version + ",<" + upper_core
+
+
+def test_comfyui_install_sop_host_floor_matches_pinned_release() -> None:
+    matrix = (REPO_ROOT / "docs/guide/adapter-compatibility-matrix.md").read_text(encoding="utf-8")
+    row = next(line for line in matrix.splitlines() if "[dcc-mcp-comfyui](" in line)
+    columns = [column.strip() for column in row.split("|")]
+    assert columns[3] == "0.1.4"
+    assert columns[5] == "0.32.0+"
+
+
+@pytest.mark.parametrize("app,version", [("fpt", "0.1.9"), ("openusd", "0.8.2")])
+def test_install_sop_releases_without_smoke_receipts_do_not_inherit_dates(app, version) -> None:
+    """Artifact hash verification is not a release-specific host smoke receipt."""
+    matrix = (REPO_ROOT / "docs/guide/adapter-compatibility-matrix.md").read_text(encoding="utf-8")
+    row = next(line for line in matrix.splitlines() if "[dcc-mcp-" + app + "](" in line)
+    columns = [column.strip() for column in row.split("|")]
+    assert columns[3] == version
+    assert columns[7] == "—"
