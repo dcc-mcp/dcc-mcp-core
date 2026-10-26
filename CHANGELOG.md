@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.49](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.48...v0.20.49) (2026-10-26)
+
+
+### Bug Fixes
+
+* **catalog:** sync verified install SOP releases ([6271726](https://github.com/dcc-mcp/dcc-mcp-core/commit/6271726a33f855da876f85bf0cf7d4149bfce3a5))
+* **discovery:** preserve confirmed absence and optional cache fallback ([e289574](https://github.com/dcc-mcp/dcc-mcp-core/commit/e289574a0985a11fc070ac1c57cd2a7b4de3f886))
+* **doctor:** avoid gateway status registry recovery writes ([a9d7949](https://github.com/dcc-mcp/dcc-mcp-core/commit/a9d79492e2cb7402726b0d5e85f76e74dfc52ec6))
+* **doctor:** bypass automatic update maintenance ([e714170](https://github.com/dcc-mcp/dcc-mcp-core/commit/e7141707c7921448f8e28148c6128569e5339254))
+* **doctor:** inspect registry snapshots without mutation ([2b78ec3](https://github.com/dcc-mcp/dcc-mcp-core/commit/2b78ec35516f28dc596f857f7f212746a98b9a8f))
+* **registry:** forward explicit adapter version from server options ([957304e](https://github.com/dcc-mcp/dcc-mcp-core/commit/957304ed09f85b3aa8151df72d0d3d924ea40efb))
+
+
+### Documentation
+
+* **catalog:** align compatibility and coverage versions ([a4b21ae](https://github.com/dcc-mcp/dcc-mcp-core/commit/a4b21aeec9f23cd8679b8fe570180c0a1eaa94e9))
+* **catalog:** correct pinned host and smoke evidence ([f92e0d5](https://github.com/dcc-mcp/dcc-mcp-core/commit/f92e0d59d87f96e09e3064b51893e67076db400f))
+
 ## [0.20.48](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.47...v0.20.48) (2026-10-25)
 
 
