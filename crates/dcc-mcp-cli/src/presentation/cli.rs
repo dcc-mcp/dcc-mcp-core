@@ -146,6 +146,11 @@ impl Args {
             args.no_update_maintenance = true;
             args.no_auto_gateway = true;
         }
+        if matches!(&args.command, Command::Doctor { .. }) {
+            // Diagnostics must not mutate the inspected installation or update caches.
+            // Keep the existing bounded version and adapter-import probes unchanged.
+            args.no_update_maintenance = true;
+        }
         if let Command::Gateway { ref mut daemon, .. } = args.command
             && let Some(gateway_matches) = matches.subcommand_matches("gateway")
         {

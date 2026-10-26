@@ -1493,3 +1493,11 @@ fn default_gateway_daemon_args() -> dcc_mcp_sidecar::gateway_daemon::GatewayArgs
         ..Default::default()
     }
 }
+
+#[test]
+fn doctor_disables_automatic_update_maintenance_without_an_opt_out() {
+    let doctor = Args::try_parse_annotated_from(["dcc-mcp-cli", "doctor"]).unwrap();
+    assert!(doctor.no_update_maintenance);
+    let health = Args::try_parse_annotated_from(["dcc-mcp-cli", "health"]).unwrap();
+    assert!(!health.no_update_maintenance);
+}
