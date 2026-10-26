@@ -40,13 +40,13 @@ drops both bounds.
 | OpenSCAD | [dcc-mcp-openscad](https://github.com/dcc-mcp/dcc-mcp-openscad) | 0.2.1 | >=0.20.36,<1.0.0 | 2021.01+ | External OpenSCAD CLI subprocess | 2026-08 |
 | FreeCAD | [dcc-mcp-freecad](https://github.com/dcc-mcp/dcc-mcp-freecad) | 0.3.0 | >=0.20.36,<1.0.0 | 1.0+ | External FreeCADCmd subprocess | 2026-08 |
 | Cinema 4D | [dcc-mcp-cinema4d](https://github.com/dcc-mcp/dcc-mcp-cinema4d) | 0.2.0 | >=0.20.36,<1.0.0 | R21+ | External headless c4dpy subprocess | 2026-08 |
-| ComfyUI | [dcc-mcp-comfyui](https://github.com/dcc-mcp/dcc-mcp-comfyui) | 0.1.4 | >=0.20.8,<1.0.0 | 0.31+ | 17 typed workflow, catalog, queue, and artifact tools over the local REST bridge | 2026-08 |
+| ComfyUI | [dcc-mcp-comfyui](https://github.com/dcc-mcp/dcc-mcp-comfyui) | 0.1.4 | >=0.20.8,<1.0.0 | 0.32.0+ | 17 typed workflow, catalog, queue, and artifact tools over the local REST bridge | 2026-08 |
 | Shogun | [dcc-mcp-shogun](https://github.com/dcc-mcp/dcc-mcp-shogun) | 0.10.0 | >=0.19.86,<1.0.0 | Vicon Shogun Post 1.19+ | 67 typed Scene, channel, camera, file, Timeline, editing, production-context, pipeline-context, and Offline tools; SDK-dependent surfaces remain capability-gated | 2026-08 |
 | Mari | [dcc-mcp-mari](https://github.com/dcc-mcp/dcc-mcp-mari) | 0.2.1 | >=0.19.91,<1.0.0 | 5.0+ | Authenticated loopback sidecar + Qt UI timer | 2026-08 |
 | 3ds Max | [dcc-mcp-3dsmax](https://github.com/dcc-mcp/dcc-mcp-3dsmax) | 0.1.40 | >=0.19.45,<1.0.0 | 2025+ | Sidecar + HostPumpController | 2026-08 |
 | Blender | [dcc-mcp-blender](https://github.com/dcc-mcp/dcc-mcp-blender) | 0.1.43 | >=0.19.45,<1.0.0 | 3.6+ | In-process MCP + optional diagnostics sidecar | 2026-08 |
 | Houdini | [dcc-mcp-houdini](https://github.com/dcc-mcp/dcc-mcp-houdini) | 0.31.5 | >=0.19.45,<1.0.0 | 20.5+ | Event-loop callback | 2026-08 |
-| FPT / ShotGrid | [dcc-mcp-fpt](https://github.com/dcc-mcp/dcc-mcp-fpt) | 0.1.9 | >=0.19.45,<1.0.0 | — | REST bridge | 2026-06 |
+| FPT / ShotGrid | [dcc-mcp-fpt](https://github.com/dcc-mcp/dcc-mcp-fpt) | 0.1.9 | >=0.19.45,<1.0.0 | — | REST bridge | — |
 | Nuke | [dcc-mcp-nuke](https://github.com/dcc-mcp/dcc-mcp-nuke) | 0.13.1 | >=0.19.45,<1.0.0 | — | Host main-thread dispatcher | — |
 | Unreal | [dcc-mcp-unreal](https://github.com/dcc-mcp/dcc-mcp-unreal) | 0.3.0 | >=0.19.45,<1.0.0 | — | Unreal Python bridge | — |
 | LiquiGen | [dcc-mcp-liquigen](https://github.com/dcc-mcp/dcc-mcp-liquigen) | 0.1.0 | >=0.20.22,<1.0.0 | 1.0.5+ | Standalone native host bridge with typed node-graph, simulation, VAT export, and Unreal handoff tools | 2026-09 |
@@ -70,7 +70,7 @@ drops both bounds.
 | Substance 3D Painter | [dcc-mcp-substance3d-painter](https://github.com/dcc-mcp/dcc-mcp-substance3d-painter) | 0.4.1 | >=0.20.15,<1.0.0 | — | Host bridge | — |
 | Godot | [dcc-mcp-godot](https://github.com/dcc-mcp/dcc-mcp-godot) | 0.9.6 | >=0.20.41,<1.0.0 | 4.x | EditorPlugin + runtime bridge | 2026-10 |
 | Unity | [dcc-mcp-unity](https://github.com/dcc-mcp/dcc-mcp-unity) | 0.11.2 | >=0.19.45,<1.0.0 | 2018.4.36f1+ | EditorApplication.update + WebSocket bridge | — |
-| OpenUSD | [dcc-mcp-openusd](https://github.com/dcc-mcp/dcc-mcp-openusd) | 0.8.2 | >=0.19.45,<1.0.0 | — | Headless USD stage adapter | 2026-07 |
+| OpenUSD | [dcc-mcp-openusd](https://github.com/dcc-mcp/dcc-mcp-openusd) | 0.8.2 | >=0.19.45,<1.0.0 | — | Headless USD stage adapter | — |
 | PowerPoint | [dcc-mcp-PowerPoint](https://github.com/dcc-mcp/dcc-mcp-PowerPoint) | 0.2.3 | >=0.18.2,<1.0.0 | — | Deck IR → Open XML compile → COM render | — |
 | Excel | [dcc-mcp-excel](https://github.com/dcc-mcp/dcc-mcp-excel) | 0.1.3 | >=0.18.2,<1.0.0 | — | Headless Workbook IR → XLSX compile (Open XML) with read-back verification | 2026-10 |
 | Word | [dcc-mcp-word](https://github.com/dcc-mcp/dcc-mcp-word) | 0.1.2 | >=0.18.2,<1.0.0 | — | Headless Word IR → DOCX compile (Open XML) with read-back verification | 2026-10 |
