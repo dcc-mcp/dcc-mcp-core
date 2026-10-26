@@ -460,6 +460,21 @@ pub(crate) fn spawn_gateway_fixture() -> GatewayFixture {
                             })),
                         );
                     }
+                    if body["tool_slug"] == "houdini.abc12345.result_view" {
+                        let failed = body["arguments"]["fail"] == true;
+                        let payload = json!({
+                            "success": !failed, "message": "result view fixture",
+                            "context": {"reason":"fixture_reason", "flotation_verified":false,
+                                "flotation_status":"not_evaluated", "cached":true,
+                                "artifacts":[{"path":"metrics.json"}]}
+                        });
+                        return (StatusCode::OK, Json(json!({
+                            "success":!failed,"tool_slug":body["tool_slug"],
+                            "request_id":"result-view-fixture",
+                            "result":{"isError":failed,"structuredContent":payload,
+                                "content":[{"type":"text","text":payload.to_string()}]}
+                        })));
+                    }
                     if body["tool_slug"] == "maya.abc12345.long_render" {
                         return (
                             StatusCode::OK,
