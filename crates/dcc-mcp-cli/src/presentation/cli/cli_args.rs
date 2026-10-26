@@ -194,7 +194,7 @@ pub(crate) enum Command {
             conflicts_with = "batch"
         )]
         wait_timeout_secs: u64,
-        /// Per-request timeout for the tool call. Increase for renders and other long-running sync tools.
+        /// Per-request timeout for the tool call; --wait-timeout-secs independently limits total job polling.
         #[arg(long, env = "DCC_MCP_CLI_CALL_TIMEOUT_SECS")]
         timeout_secs: Option<u64>,
     },

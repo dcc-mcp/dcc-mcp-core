@@ -83,6 +83,38 @@ cost. The default remains JSON for backward-compatible scripts; use
 `--output json` only when a downstream program requires JSON, `--output ndjson`
 for streams, and `--output human` for interactive display.
 
+### Result views and field queries
+
+`call` (including batches) prints each structured result once: the CLI omits
+unannotated `content` text blocks whose complete JSON value equals
+`structuredContent`. Both fields remain present; distinct text, annotated
+blocks, media, errors, metrics and artifact references remain intact. MCP/REST
+wire responses, SDK results and existing evidence files are unchanged.
+Legacy CLI consumers that read the JSON text mirror must use `--raw-result`.
+The same view feeds human, JSON, NDJSON and TOON output.
+
+Use repeatable RFC 6901 pointers to query that view without parsing embedded
+JSON text, for example:
+
+```bash
+dcc-mcp-cli call <tool-slug> --output json \
+  --select /result/structuredContent/context/output_summary/artifacts \
+  --select /result/structuredContent/context/result
+```
+
+The response contains a `selected` map keyed by the exact pointers, plus the
+original `success`, `request_id` and `tool_slug` when present. Missing fields
+are `null`. Selection never changes failure detection, exit codes or the
+original error envelope on stderr. Do not select away acceptance metrics
+when saving an acceptance record. Artifact references remain references;
+the CLI does not copy stdout to another file or delete run/checkpoint data.
+
+`call`, `list`, `search` and `describe` omit maintenance metadata by default.
+Pass `--show-maintenance` to include it. `--quiet` aliases the existing
+`--no-update-maintenance` (also skips automatic staged-update application).
+Explicit `update` commands retain their behavior. Progress, update hints and
+errors use stderr; stdout contains only the requested result representation.
+
 Register and select remote profiles with:
 
 ```bash
