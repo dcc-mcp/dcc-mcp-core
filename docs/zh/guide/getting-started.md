@@ -64,17 +64,18 @@ installer 与 bundled helper 使用相同的固定官方来源、manifest 和 SH
 
 ```bash
 dcc-mcp-cli update check
-dcc-mcp-cli update apply --yes  # 仅在用户确认后执行
+dcc-mcp-cli update          # 一步完成检查、下载并暂存
 ```
 
 官方 release build 最多每 24 小时通过独立后台进程刷新一次更新状态缓存；检查失败
 会在一小时后再试，不会阻塞或破坏当前命令。若结果包含
-`cli_update.version_status: "update_available"`，agent 必须展示当前/最新版本并先
-询问用户，再运行 `update_policy.apply_command`。`update apply --yes` 会强制读取
-release manifest 的 SHA-256、校验下载的 CLI，并为下一次启动暂存。替换前会再次
-校验 staged bytes，之后用相同参数重启 CLI。它不会替换或重启正在运行的
-`dcc-mcp-server` 或 DCC host，server 需要在自己的运行环境中单独更新。设置
-`DCC_MCP_DISABLE_UPDATE_CHECK=1` 可关闭被动检查，但不影响显式 `update check`。
+`cli_update.version_status: "update_available"`，agent 应展示当前/最新版本；
+`update_policy.apply_command` 为 `dcc-mcp-cli update`，可一步完成检查、下载与暂存，
+无需单独确认标志。`dcc-mcp-cli update` 会强制读取 release manifest 的 SHA-256、
+校验下载的 CLI，并为下一次启动暂存。替换前会再次校验 staged bytes，之后用相同
+参数重启 CLI。它不会替换或重启正在运行的 `dcc-mcp-server` 或 DCC host，server
+需要在自己的运行环境中单独更新。设置 `DCC_MCP_DISABLE_UPDATE_CHECK=1` 可关闭
+被动检查，但不影响显式 `update check`。
 
 CLI 也提供了独立 ZIP 包（`dcc-mcp-cli-<version>-<platform>.zip`），
 可从每个 [GitHub Release](https://github.com/dcc-mcp/dcc-mcp-core/releases) 下载。
