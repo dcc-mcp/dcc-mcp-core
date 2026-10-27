@@ -221,7 +221,6 @@ def test_ui_control_tool_schema_supports_computer_use_actions() -> None:
         "invoke_menu",
         "get_window_state",
         "restore_window",
-        "show_window",
         "activate_window",
         "minimize_window",
         "set_frame",
@@ -1424,9 +1423,8 @@ def test_ui_control_cua_host_hidden_state_guidance_matches_host_capabilities() -
     result = backend._FRAME.state_result(
         {"state": {"exists": True, "visible": False, "minimized": False}},
         "hidden",
-        None,
         {},
-        ["restore_window", "activate_window"],
+        ["get_window_state", "restore_window", "activate_window"],
     )
 
     assert result["success"] is True

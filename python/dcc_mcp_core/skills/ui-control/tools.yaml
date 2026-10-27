@@ -394,7 +394,7 @@ tools:
       operations for the same host-bound PID/HWND and do not require a prior
       snapshot. They cannot enumerate or target another process/window.
       restore/activate invalidate any prior snapshot and are audited. The
-      default dcc-cua Host and owner-selected pixels routes do not advertise
+      default dcc-cua Host and owner-selected pixels routes do not support
       show_window; when a target is hidden but not minimized, ask the operator
       to restore its visibility manually before activating it.
       In owner-selected pixels MCP mode, activate_window and restore_window
@@ -453,7 +453,6 @@ tools:
             - invoke_menu
             - get_window_state
             - restore_window
-            - show_window
             - activate_window
             - minimize_window
             - set_frame

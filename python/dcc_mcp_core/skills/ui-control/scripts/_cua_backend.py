@@ -305,12 +305,17 @@ def _host_error(
             "recovery_actions": ["stop", "snapshot"],
             "recovery_scope": "same_exact_pid_hwnd",
         }
-    elif mapped_code == UiErrorCode.INVALID_TARGET:
-        if isinstance((params or {}).get("trusted_ui_control_runtime"), UiControlRuntimeOptions):
-            recovery = _FRAME.owner_invalid_target_recovery(_PIXELS.window_state_recovery_actions(params or {}))
-        else:
-            recovery = _FRAME.host_invalid_target_recovery()
-    recovery.update(_PIXELS.error_context(exc, params or {}, fresh_observation=fresh_observation))
+    elif "protected system ui" not in message.lower() and (
+        mapped_code == UiErrorCode.INVALID_TARGET
+        or (
+            code in {"target_unavailable", "target_minimized"}
+            and isinstance((params or {}).get("trusted_ui_control_runtime"), UiControlRuntimeOptions)
+        )
+    ):
+        recovery = _FRAME.invalid_target_recovery(
+            _FRAME.recovery_actions(params or {}, _policy_from_params(params or {}))
+        )
+    recovery.update(_PIXELS.error_context(exc, fresh_observation=fresh_observation))
     # Keep only the native diagnostic reason: dcc-cua recovery prose targets its
     # own CLI surface (``max_elements``/``max_depth``, pixel ``click``,
     # ``press_key``, ``escalate_session``) and may reference a screenshot this
@@ -721,6 +726,11 @@ def act_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     )
     if not policy.allows_request(request):
         return skill_error(f"ui_control action {action!r} disabled by policy", UiErrorCode.POLICY_DISABLED)
+    if action == UiActionKind.SHOW_WINDOW:
+        return skill_error(
+            "Showing hidden windows is unsupported; ask the operator to restore visibility manually.",
+            "unsupported_action",
+        )
     if action == UiActionKind.SET_FRAME:
         try:
             frame, rejection = _FRAME.prepare_request(params)
@@ -740,16 +750,7 @@ def act_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         except (UiControlHostError, OSError, ValueError) as exc:
             return _host_error(exc, params)
         audit = _audit_record(action, True, None, session_id, policy, None, _FRAME.STATE_MESSAGE)
-        recovery_actions = _PIXELS.window_state_recovery_actions(params)
-        if not recovery_actions and not isinstance(params.get("trusted_ui_control_runtime"), UiControlRuntimeOptions):
-            recovery_actions = ["restore_window", "activate_window"]
-        return _FRAME.state_result(
-            raw,
-            session_id,
-            _PIXELS.window_state_prompt(params),
-            audit,
-            recovery_actions,
-        )
+        return _FRAME.state_result(raw, session_id, audit, _FRAME.recovery_actions(params, policy))
     if action == UiActionKind.SET_FRAME:
         entry["snapshot_id"] = None
         try:

@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from dcc_mcp_core.adapter_contracts import UiActionKind
+from dcc_mcp_core.adapter_contracts import UiControlPolicy
 from dcc_mcp_core.adapter_contracts import UiErrorCode
 from dcc_mcp_core.host.cua_mcp_client import validate_window_frame
 from dcc_mcp_core.host.ui_control_options import UiControlRuntimeOptions
@@ -15,42 +16,58 @@ STATE_MESSAGE = "Read exact scoped application state from the CUA Host."
 FRAME_MESSAGE = "Completed exact scoped window frame change without activation."
 WINDOW_OPERATIONS = {
     UiActionKind.RESTORE_WINDOW: "restore",
-    UiActionKind.SHOW_WINDOW: "show",
     UiActionKind.ACTIVATE_WINDOW: "activate",
     UiActionKind.MINIMIZE_WINDOW: "minimize",
 }
 
 
-def host_invalid_target_recovery() -> dict[str, Any]:
-    """Return recovery guidance supported by the default Host route."""
-    return {
-        "prompt": (
-            "Read the same exact PID/HWND with get_window_state. If minimized, call restore_window; "
-            "if hidden but not minimized, ask the operator to restore visibility manually. Then call "
-            "activate_window and retry ui_control__snapshot. These operations cannot change the "
-            "authorized PID/HWND scope."
-        ),
-        "possible_solutions": [
-            "Read the authorized window with ui_control__act(action='get_window_state').",
-            "Restore the same exact window, or ask the operator to restore hidden visibility manually.",
-        ],
-        "recovery_actions": ["get_window_state", "restore_window", "activate_window"],
-        "recovery_scope": "same_exact_pid_hwnd",
-    }
+def recovery_actions(params: dict[str, Any], policy: UiControlPolicy) -> list[str]:
+    """Intersect Host capabilities or owner grants with the effective policy."""
+    runtime = params.get("trusted_ui_control_runtime")
+    operations = (
+        runtime.window_operations if isinstance(runtime, UiControlRuntimeOptions) else ("restore_activate", "activate")
+    )
+    return [
+        action
+        for operation, action in (
+            (None, "get_window_state"),
+            ("restore_activate", "restore_window"),
+            ("activate", "activate_window"),
+        )
+        if (operation is None or operation in operations) and policy.allows_action(action)
+    ]
 
 
-def owner_invalid_target_recovery(recovery_actions: list[str]) -> dict[str, Any]:
-    """Return recovery guidance bounded by the owner-selected pixels grant."""
+def recovery_prompt(actions: list[str], state: dict[str, Any] | None = None) -> str:
+    """Never imply that a restore/activate grant can show a hidden window."""
+    steps = []
+    if state is None and "get_window_state" in actions:
+        steps.append("Read the same exact PID/HWND with get_window_state.")
+    if state is not None and state.get("visible") is False and state.get("minimized") is False:
+        steps.append("Ask the operator to restore visibility manually before any activation.")
+    elif "restore_window" in actions:
+        steps.append(
+            "If minimized, call restore_window; if hidden but not minimized, "
+            "ask the operator to restore visibility manually."
+        )
+    else:
+        steps.append("Ask the operator to restore visibility manually if needed.")
+    if "activate_window" in actions:
+        steps.append("After visibility is restored, call activate_window if needed.")
+    if "get_window_state" in actions:
+        steps.append("Take a fresh ui_control__snapshot before input.")
+    steps.append(
+        "These operations cannot change the authorized PID/HWND scope; never rebind or retry input automatically."
+    )
+    return " ".join(steps)
+
+
+def invalid_target_recovery(actions: list[str]) -> dict[str, Any]:
+    """Use the same policy- and capability-bounded guidance on failure."""
     return {
-        "prompt": (
-            "Read the same exact PID/HWND with get_window_state, then use only the owner-granted "
-            "window operation listed in recovery_actions. Take a fresh ui_control__snapshot afterward."
-        ),
-        "possible_solutions": [
-            "Read the authorized window with ui_control__act(action='get_window_state').",
-            "Use only the listed owner-granted operation, then take a fresh ui_control__snapshot.",
-        ],
-        "recovery_actions": recovery_actions,
+        "prompt": recovery_prompt(actions),
+        "possible_solutions": ["Ask the operator to restore this exact window manually if no listed recovery applies."],
+        "recovery_actions": actions,
         "recovery_scope": "same_exact_pid_hwnd",
     }
 
@@ -83,28 +100,16 @@ def prepare_request(params: dict[str, Any]) -> tuple[dict[str, int] | None, dict
     return validate_window_frame(params.get("frame")), None
 
 
-def state_result(
-    raw: dict[str, Any],
-    session_id: str,
-    prompt: str | None,
-    audit: dict[str, Any],
-    recovery_actions: list[str] | None = None,
-) -> dict[str, Any]:
+def state_result(raw: dict[str, Any], session_id: str, audit: dict[str, Any], actions: list[str]) -> dict[str, Any]:
     """Project a validated read-only state without minting a mutation token."""
-    context: dict[str, Any] = {}
-    if recovery_actions is not None:
-        context["recovery_actions"] = recovery_actions
+    state = raw.get("state") or {}
     return skill_success(
         STATE_MESSAGE,
-        prompt=prompt
-        or (
-            "If minimized, call ui_control__act with restore_window. If hidden but not minimized, "
-            "ask the operator to restore visibility manually. Then call activate_window and take a fresh snapshot."
-        ),
+        prompt=recovery_prompt(actions, state),
         session_id=session_id,
-        window_state=raw.get("state") or {},
+        window_state=state,
         audit=audit,
-        **context,
+        recovery_actions=[action for action in actions if action != "get_window_state"],
     )
 
 
