@@ -53,7 +53,11 @@ impl InstallService {
             python_source: Some("install_plan".into()),
         };
         let probe = probe_target(&target);
-        let code = if probe["status"] != "ok" {
+        let code = if probe["status"] == "version_mismatch" {
+            Some("ADAPTER_VERSION_MISMATCH")
+        } else if probe["status"] == "unavailable" {
+            Some("ADAPTER_IMPORT_UNAVAILABLE")
+        } else if probe["status"] != "ok" {
             Some("ADAPTER_IMPORT_FAILED")
         } else if version
             .as_deref()
