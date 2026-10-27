@@ -136,3 +136,15 @@ def window_state_prompt(params: dict[str, Any]) -> str | None:
         if names
         else "Ask the operator to restore visibility if needed. "
     ) + "Take fresh pixels before input."
+
+
+def window_state_recovery_actions(params: dict[str, Any]) -> list[str]:
+    """Return only owner-granted frame operations for a window-state response."""
+    options = params.get("trusted_ui_control_runtime")
+    if not isinstance(options, UiControlRuntimeOptions):
+        return []
+    return [
+        name
+        for operation, name in (("restore_activate", "restore_window"), ("activate", "activate_window"))
+        if operation in options.window_operations
+    ]

@@ -49,18 +49,28 @@ def prepare_request(params: dict[str, Any]) -> tuple[dict[str, int] | None, dict
     return validate_window_frame(params.get("frame")), None
 
 
-def state_result(raw: dict[str, Any], session_id: str, prompt: str | None, audit: dict[str, Any]) -> dict[str, Any]:
+def state_result(
+    raw: dict[str, Any],
+    session_id: str,
+    prompt: str | None,
+    audit: dict[str, Any],
+    recovery_actions: list[str] | None = None,
+) -> dict[str, Any]:
     """Project a validated read-only state without minting a mutation token."""
+    context: dict[str, Any] = {}
+    if recovery_actions is not None:
+        context["recovery_actions"] = recovery_actions
     return skill_success(
         STATE_MESSAGE,
         prompt=prompt
         or (
-            "If minimized, call ui_control__act with restore_window; if hidden, use show_window; "
-            "then activate_window and take a fresh snapshot."
+            "If minimized, call ui_control__act with restore_window. If hidden but not minimized, "
+            "ask the operator to restore visibility manually. Then call activate_window and take a fresh snapshot."
         ),
         session_id=session_id,
         window_state=raw.get("state") or {},
         audit=audit,
+        **context,
     )
 
 

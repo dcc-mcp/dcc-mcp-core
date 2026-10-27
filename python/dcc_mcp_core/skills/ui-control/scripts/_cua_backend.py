@@ -306,19 +306,34 @@ def _host_error(
             "recovery_scope": "same_exact_pid_hwnd",
         }
     elif mapped_code == UiErrorCode.INVALID_TARGET:
-        recovery = {
-            "prompt": (
-                "If this exact PID/HWND is still valid but minimized or hidden, call ui_control__act with "
-                "get_window_state, then restore_window or show_window, optionally activate_window, and retry "
-                "ui_control__snapshot. These operations cannot change the authorized PID/HWND scope."
-            ),
-            "possible_solutions": [
-                "Read the authorized window with ui_control__act(action='get_window_state').",
-                "Restore or show only that same window, then take a fresh ui_control__snapshot.",
-            ],
-            "recovery_actions": ["get_window_state", "restore_window", "show_window", "activate_window"],
-            "recovery_scope": "same_exact_pid_hwnd",
-        }
+        if isinstance((params or {}).get("trusted_ui_control_runtime"), UiControlRuntimeOptions):
+            recovery = {
+                "prompt": (
+                    "Read the same exact PID/HWND with get_window_state, then use only the owner-granted "
+                    "window operation listed in recovery_actions. Take a fresh ui_control__snapshot afterward."
+                ),
+                "possible_solutions": [
+                    "Read the authorized window with ui_control__act(action='get_window_state').",
+                    "Use only the listed owner-granted operation, then take a fresh ui_control__snapshot.",
+                ],
+                "recovery_actions": _PIXELS.window_state_recovery_actions(params or {}),
+                "recovery_scope": "same_exact_pid_hwnd",
+            }
+        else:
+            recovery = {
+                "prompt": (
+                    "Read the same exact PID/HWND with get_window_state. If minimized, call restore_window; "
+                    "if hidden but not minimized, ask the operator to restore visibility manually. Then call "
+                    "activate_window and retry ui_control__snapshot. These operations cannot change the "
+                    "authorized PID/HWND scope."
+                ),
+                "possible_solutions": [
+                    "Read the authorized window with ui_control__act(action='get_window_state').",
+                    "Restore the same exact window, or ask the operator to restore hidden visibility manually.",
+                ],
+                "recovery_actions": ["get_window_state", "restore_window", "activate_window"],
+                "recovery_scope": "same_exact_pid_hwnd",
+            }
     recovery.update(_PIXELS.error_context(exc, params or {}, fresh_observation=fresh_observation))
     # Keep only the native diagnostic reason: dcc-cua recovery prose targets its
     # own CLI surface (``max_elements``/``max_depth``, pixel ``click``,
@@ -749,7 +764,16 @@ def act_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         except (UiControlHostError, OSError, ValueError) as exc:
             return _host_error(exc, params)
         audit = _audit_record(action, True, None, session_id, policy, None, _FRAME.STATE_MESSAGE)
-        return _FRAME.state_result(raw, session_id, _PIXELS.window_state_prompt(params), audit)
+        recovery_actions = _PIXELS.window_state_recovery_actions(params)
+        if not recovery_actions and not isinstance(params.get("trusted_ui_control_runtime"), UiControlRuntimeOptions):
+            recovery_actions = ["restore_window", "activate_window"]
+        return _FRAME.state_result(
+            raw,
+            session_id,
+            _PIXELS.window_state_prompt(params),
+            audit,
+            recovery_actions,
+        )
     if action == UiActionKind.SET_FRAME:
         entry["snapshot_id"] = None
         try:
