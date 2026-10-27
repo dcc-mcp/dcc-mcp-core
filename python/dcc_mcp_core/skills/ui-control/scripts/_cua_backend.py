@@ -307,33 +307,9 @@ def _host_error(
         }
     elif mapped_code == UiErrorCode.INVALID_TARGET:
         if isinstance((params or {}).get("trusted_ui_control_runtime"), UiControlRuntimeOptions):
-            recovery = {
-                "prompt": (
-                    "Read the same exact PID/HWND with get_window_state, then use only the owner-granted "
-                    "window operation listed in recovery_actions. Take a fresh ui_control__snapshot afterward."
-                ),
-                "possible_solutions": [
-                    "Read the authorized window with ui_control__act(action='get_window_state').",
-                    "Use only the listed owner-granted operation, then take a fresh ui_control__snapshot.",
-                ],
-                "recovery_actions": _PIXELS.window_state_recovery_actions(params or {}),
-                "recovery_scope": "same_exact_pid_hwnd",
-            }
+            recovery = _FRAME.owner_invalid_target_recovery(_PIXELS.window_state_recovery_actions(params or {}))
         else:
-            recovery = {
-                "prompt": (
-                    "Read the same exact PID/HWND with get_window_state. If minimized, call restore_window; "
-                    "if hidden but not minimized, ask the operator to restore visibility manually. Then call "
-                    "activate_window and retry ui_control__snapshot. These operations cannot change the "
-                    "authorized PID/HWND scope."
-                ),
-                "possible_solutions": [
-                    "Read the authorized window with ui_control__act(action='get_window_state').",
-                    "Restore the same exact window, or ask the operator to restore hidden visibility manually.",
-                ],
-                "recovery_actions": ["get_window_state", "restore_window", "activate_window"],
-                "recovery_scope": "same_exact_pid_hwnd",
-            }
+            recovery = _FRAME.host_invalid_target_recovery()
     recovery.update(_PIXELS.error_context(exc, params or {}, fresh_observation=fresh_observation))
     # Keep only the native diagnostic reason: dcc-cua recovery prose targets its
     # own CLI surface (``max_elements``/``max_depth``, pixel ``click``,

@@ -21,6 +21,40 @@ WINDOW_OPERATIONS = {
 }
 
 
+def host_invalid_target_recovery() -> dict[str, Any]:
+    """Return recovery guidance supported by the default Host route."""
+    return {
+        "prompt": (
+            "Read the same exact PID/HWND with get_window_state. If minimized, call restore_window; "
+            "if hidden but not minimized, ask the operator to restore visibility manually. Then call "
+            "activate_window and retry ui_control__snapshot. These operations cannot change the "
+            "authorized PID/HWND scope."
+        ),
+        "possible_solutions": [
+            "Read the authorized window with ui_control__act(action='get_window_state').",
+            "Restore the same exact window, or ask the operator to restore hidden visibility manually.",
+        ],
+        "recovery_actions": ["get_window_state", "restore_window", "activate_window"],
+        "recovery_scope": "same_exact_pid_hwnd",
+    }
+
+
+def owner_invalid_target_recovery(recovery_actions: list[str]) -> dict[str, Any]:
+    """Return recovery guidance bounded by the owner-selected pixels grant."""
+    return {
+        "prompt": (
+            "Read the same exact PID/HWND with get_window_state, then use only the owner-granted "
+            "window operation listed in recovery_actions. Take a fresh ui_control__snapshot afterward."
+        ),
+        "possible_solutions": [
+            "Read the authorized window with ui_control__act(action='get_window_state').",
+            "Use only the listed owner-granted operation, then take a fresh ui_control__snapshot.",
+        ],
+        "recovery_actions": recovery_actions,
+        "recovery_scope": "same_exact_pid_hwnd",
+    }
+
+
 def prepare_request(params: dict[str, Any]) -> tuple[dict[str, int] | None, dict[str, Any] | None]:
     """Validate the owner ceiling and metadata-only shape without opening a client."""
     runtime = params.get("trusted_ui_control_runtime")
