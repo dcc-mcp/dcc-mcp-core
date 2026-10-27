@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.50](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.49...v0.20.50) (2026-10-27)
+
+
+### Bug Fixes
+
+* **cli:** apply field selection on read-only entrypoints ([3fc63c9](https://github.com/dcc-mcp/dcc-mcp-core/commit/3fc63c9faf930a773c37f9f5100f29794a0adef9))
+* **cli:** emit structured results without duplicate JSON mirrors ([353cceb](https://github.com/dcc-mcp/dcc-mcp-core/commit/353cceb6c0dcb6478c87885563b0bc3c82f7ea73))
+* **cli:** preserve global selection and validate process output views ([e5cc0f3](https://github.com/dcc-mcp/dcc-mcp-core/commit/e5cc0f38de4bfcd67ba2dbf6e1861b45535e15ff))
+
 ## [0.20.49](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.48...v0.20.49) (2026-10-26)
 
 
