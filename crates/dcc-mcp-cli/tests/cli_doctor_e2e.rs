@@ -51,6 +51,7 @@ fn explicit_registry_commands_do_not_require_user_home() {
             assert_eq!(local["registry_dir"], registry_s);
         } else {
             assert_eq!(result["healthy"], true);
+            assert_eq!(result["registry_dir"], registry_s);
         }
     }
 }
