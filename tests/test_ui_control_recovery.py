@@ -118,3 +118,22 @@ def test_error_recovery_does_not_recommend_disabled_observation():
     )
     assert result["context"]["recovery_actions"] == []
     assert "get_window_state" not in result["prompt"] and "snapshot" not in result["prompt"]
+
+
+@pytest.mark.parametrize("owned", [False, True])
+@pytest.mark.parametrize("allow_snapshot", [False, True])
+def test_protected_ui_recovery_keeps_stop_and_filters_observation(frame_runtime, owned, allow_snapshot):
+    config, _, launches = frame_runtime
+    backend = _load_cua_module()
+    params = {"policy": {"allow_snapshot": allow_snapshot}}
+    if owned:
+        params["trusted_ui_control_runtime"] = config
+    result = backend._host_error(
+        backend.UiControlHostError("invalid_target", "Blocked by protected system UI."), params
+    )
+    assert result["success"] is False and result["error"] == "invalid_target"
+    assert result["context"]["recovery_actions"] == (["stop", "snapshot"] if allow_snapshot else ["stop"])
+    assert ("ui_control__snapshot" in result["prompt"]) is allow_snapshot
+    assert "ui_control__stop" in result["prompt"] and "operator" in result["prompt"]
+    assert "Do not hide, override, click through, or ignore protected system UI" in result["prompt"]
+    assert not launches

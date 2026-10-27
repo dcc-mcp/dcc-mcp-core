@@ -72,6 +72,30 @@ def invalid_target_recovery(actions: list[str]) -> dict[str, Any]:
     }
 
 
+def protected_target_recovery(policy: UiControlPolicy) -> dict[str, Any]:
+    """Keep protective cleanup available without suggesting denied observation."""
+    allow_snapshot = policy.allows_action(UiActionKind.GET_WINDOW_STATE)
+    return {
+        "prompt": (
+            "Protected Windows UI is covering the requested point. Call ui_control__stop for this "
+            "session, then ask the operator to close or move that protected system surface manually. "
+            "Do not hide, override, click through, or ignore protected system UI. "
+            + (
+                "After the obstruction is clear, take a fresh ui_control__snapshot for the same exact "
+                "authorized PID/HWND before retrying the action."
+                if allow_snapshot
+                else "Observation is disabled by the current policy; leave this session stopped."
+            )
+        ),
+        "possible_solutions": [
+            "Stop this UI Control session so its native overlays are cleaned up.",
+            "Have the operator close or move the protected Windows surface manually.",
+        ],
+        "recovery_actions": ["stop", "snapshot"] if allow_snapshot else ["stop"],
+        "recovery_scope": "same_exact_pid_hwnd",
+    }
+
+
 def prepare_request(params: dict[str, Any]) -> tuple[dict[str, int] | None, dict[str, Any] | None]:
     """Validate the owner ceiling and metadata-only shape without opening a client."""
     runtime = params.get("trusted_ui_control_runtime")

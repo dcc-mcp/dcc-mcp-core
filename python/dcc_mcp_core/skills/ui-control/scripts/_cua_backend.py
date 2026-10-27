@@ -290,21 +290,7 @@ def _host_error(
     mapped_code = mapping.get(code, code)
     recovery: Dict[str, Any] = {}
     if mapped_code == UiErrorCode.INVALID_TARGET and "protected system ui" in message.lower():
-        recovery = {
-            "prompt": (
-                "Protected Windows UI is covering the requested point. Call ui_control__stop for this "
-                "session, then ask the operator to close or move that protected system surface manually. "
-                "Do not hide, override, click through, or ignore protected system UI. After the obstruction "
-                "is clear, take a fresh ui_control__snapshot for the same exact authorized PID/HWND before "
-                "retrying the action."
-            ),
-            "possible_solutions": [
-                "Stop this UI Control session so its native overlays are cleaned up.",
-                "Have the operator close or move the protected Windows surface, then take a fresh snapshot.",
-            ],
-            "recovery_actions": ["stop", "snapshot"],
-            "recovery_scope": "same_exact_pid_hwnd",
-        }
+        recovery = _FRAME.protected_target_recovery(_policy_from_params(params or {}))
     elif "protected system ui" not in message.lower() and (
         mapped_code == UiErrorCode.INVALID_TARGET
         or (
