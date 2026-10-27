@@ -4,8 +4,28 @@ mod support;
 use serde_json::{Value, json};
 use tempfile::TempDir;
 
+fn target_python() -> String {
+    for candidate in std::env::var("PYTHON")
+        .into_iter()
+        .chain(["python3".into(), "python".into()])
+    {
+        if let Ok(output) = std::process::Command::new(&candidate)
+            .args(["-c", "import sys; print(sys.executable)"])
+            .output()
+            && output.status.success()
+        {
+            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !path.is_empty() {
+                return path;
+            }
+        }
+    }
+    panic!("the verification process regression requires a Python interpreter");
+}
+
 #[test]
 fn verify_checks_real_target_import_and_pinned_metadata_without_installation() {
+    let python = target_python();
     for (module_source, dist_version, expected_code, expected_reason) in [
         (
             "__version__ = '1.0.0'\n",
@@ -22,6 +42,12 @@ fn verify_checks_real_target_import_and_pinned_metadata_without_installation() {
         (
             "__version__ = '0.9.0'\n",
             "0.9.0",
+            40,
+            "ADAPTER_VERSION_MISMATCH",
+        ),
+        (
+            "__version__ = '0.9.0'\n",
+            "1.0.0",
             40,
             "ADAPTER_VERSION_MISMATCH",
         ),
@@ -64,7 +90,7 @@ fn verify_checks_real_target_import_and_pinned_metadata_without_installation() {
                 "--dcc-type",
                 "verify-fixture",
                 "--python",
-                "python",
+                &python,
                 "--json",
                 "--catalog",
             ])
