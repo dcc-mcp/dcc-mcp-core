@@ -584,6 +584,28 @@ empty directory. A DCC is considered online only after its host plugin or
 sidecar starts, remains alive, and appears in `dcc-mcp-cli list`; the CLI does
 not fake gateway registration during install.
 
+Standalone `verify --dcc-type <dcc> --python <target-python> [--catalog <path>]
+--json` checks a pip adapter's catalog-pinned installed distribution version
+and imports its declared module in that exact interpreter. `--python` (or
+`DCC_MCP_INSTALL_PYTHON`) is required; it never falls back to an ambient
+interpreter. It reuses the bounded doctor import probe without calling the
+adapter factory. Imports execute module initialization, so use the intended
+target environment. Bytecode writes are disabled for the probe.
+
+The command bypasses automatic updates, registry/profile reads and gateway
+startup, and never executes install, uninstall or rollback actions. It reads
+the bundled catalog by default and does not refresh the online catalog.
+It emits the existing Install SOP v1 report with only a verification step.
+Malformed arguments exit 2, plan/preflight failures exit 10, and failed or
+unavailable imports/version mismatches exit 40. A successful local check exits
+0 with `status=partial`, `directly_usable=false` and
+`LIVE_DCC_VERIFICATION_REQUIRED`; it cannot establish host readiness.
+Non-pip verification is currently unsupported and exits 40.
+
+This standalone check does not prove wheel-byte integrity, enforce the full
+target Core requirements contract, restore a prior version, or complete the
+automatic install-to-readiness chain. Those Install SOP gates remain open.
+
 Studios with dedicated deployment pipelines can disable automatic install
 execution by setting `DCC_MCP_INSTALL_DISABLED=1`. The plan still returns the
 adapter metadata and `next_steps`, but `install_policy.auto_install_enabled`

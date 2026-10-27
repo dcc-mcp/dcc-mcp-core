@@ -148,9 +148,10 @@ impl Args {
         let mut args = Self::from_arg_matches(&matches)?;
         if matches!(
             &args.command,
-            Command::Components {
-                action: super::components_cmd::ComponentsAction::InstallVerified(_)
-            }
+            Command::Verify { .. }
+                | Command::Components {
+                    action: super::components_cmd::ComponentsAction::InstallVerified(_)
+                }
         ) {
             // A fixed-byte offline installation cannot apply an unrelated staged
             // update, launch a gateway, or refresh an update cache on entry.
@@ -283,10 +284,36 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
     let transport = transport_args.transport;
     let output = match &command {
         Command::Feedback(args) => args.resolve_output(output),
-        Command::Install { json: true, .. } => Ok(OutputFormat::Json),
+        Command::Install { json: true, .. } | Command::Verify { json: true, .. } => {
+            Ok(OutputFormat::Json)
+        }
         _ => Ok(output.unwrap_or_else(OutputFormat::auto_detect)),
     };
     let writer = OutputWriter::new(output.map_err(anyhow::Error::msg)?);
+    if let Command::Verify {
+        dcc_type,
+        python,
+        catalog,
+        dcc_path,
+        ..
+    } = &command
+    {
+        let report = InstallService::bundled().verify(InstallRequest {
+            dcc_type: dcc_type.clone(),
+            version: None,
+            catalog_path: catalog.clone(),
+            python: Some(python.clone()),
+            dcc_path: dcc_path.clone(),
+            plugin_source: None,
+            adobe_debug_root: None,
+        });
+        let code = report.exit_code;
+        writer.write_data(&result_output::select_fields(to_json(report)?, &select))?;
+        if code != 0 {
+            std::process::exit(code);
+        }
+        return Ok(());
+    }
     if let Command::Components {
         action: action @ super::components_cmd::ComponentsAction::InstallVerified(_),
     } = command
@@ -756,6 +783,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             }
             result
         }
+        Command::Verify { .. } => anyhow::bail!("verify must run before control-plane setup"),
         Command::Install {
             offline,
             dcc_type,

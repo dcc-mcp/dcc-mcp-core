@@ -13,6 +13,25 @@ use crate::application::gateway_profile::GatewayTarget;
 use crate::presentation::feedback_cmd::FeedbackAction;
 
 #[test]
+fn verification_disables_automatic_maintenance_and_gateway_startup() {
+    let args = Args::try_parse_annotated_from([
+        "dcc-mcp-cli",
+        "verify",
+        "--dcc-type",
+        "houdini",
+        "--python",
+        "selected-python",
+    ])
+    .unwrap();
+    assert!(args.no_auto_gateway);
+    assert!(args.no_update_maintenance);
+    assert!(
+        gateway_endpoint_for_command(DEFAULT_BASE_URL, &args.command, &GatewayTarget::Local)
+            .is_none()
+    );
+}
+
+#[test]
 fn result_view_flags_are_global_and_invalid_pointers_fail_before_dispatch() {
     let args = Args::try_parse_from([
         "dcc-mcp-cli",
