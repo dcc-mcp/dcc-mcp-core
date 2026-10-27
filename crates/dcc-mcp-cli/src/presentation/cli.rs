@@ -323,14 +323,17 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
     let gateway_target = profile_store.resolve(gateway.as_deref(), base_url.as_deref())?;
     let endpoint = gateway_target.endpoint_or_default(DEFAULT_BASE_URL);
     let base_url = endpoint.base_url.clone();
-    let control = DccControlPlane::new(
-        gateway_target.clone(),
-        endpoint.clone(),
-        gateway_ensure::default_registry_dir(),
-        require_gateway,
-    )
-    .with_auto_gateway_enabled(!no_auto_gateway)
-    .with_transport(transport);
+    // Commands with their own registry option must not resolve the default first.
+    let control = || -> anyhow::Result<DccControlPlane> {
+        Ok(DccControlPlane::new(
+            gateway_target.clone(),
+            endpoint.clone(),
+            gateway_ensure::default_registry_dir()?,
+            require_gateway,
+        )
+        .with_auto_gateway_enabled(!no_auto_gateway)
+        .with_transport(transport))
+    };
     let doctor = DoctorContext::new(
         profile_path.clone(),
         profile_store,
@@ -396,7 +399,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             instance_id,
             session_id,
         } => {
-            control
+            control()?
                 .stats(StatsRequest {
                     range,
                     dcc_type,
@@ -408,7 +411,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 })
                 .await?
         }
-        Command::Feedback(args) => args.run(&control, &doctor).await?,
+        Command::Feedback(args) => args.run(&control()?, &doctor).await?,
         Command::Doctor {
             registry_dir,
             gateway_host,
@@ -431,7 +434,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 adapter_import::has_failures(value.get("adapter_imports").unwrap_or(&Value::Null));
             value
         }
-        Command::List => control.list_instances().await?,
+        Command::List => control()?.list_instances().await?,
         Command::DccTypes {
             catalog,
             dcc_type,
@@ -461,9 +464,9 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 limit,
                 gateway_only,
             };
-            control.search(request).await?
+            control()?.search(request).await?
         }
-        Command::Describe { tool_slug } => control.describe(tool_slug).await?,
+        Command::Describe { tool_slug } => control()?.describe(tool_slug).await?,
         Command::LoadSkill {
             skill_name,
             dcc_type,
@@ -480,7 +483,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 activate_groups,
                 request_json,
             )?;
-            control.load_skill(request).await?
+            control()?.load_skill(request).await?
         }
         Command::Call {
             tool_slug,
@@ -502,7 +505,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 let mut request =
                     read_batch_request(&arguments_json, steps.as_deref(), json_file.as_deref())?;
                 attach_batch_agent_session_id(&mut request, agent_session_id.as_deref())?;
-                control
+                control()?
                     .call_batch(request, Duration::from_secs(effective_timeout.max(1)))
                     .await?
             } else {
@@ -518,7 +521,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 let request_timeout = Duration::from_secs(effective_timeout.max(1));
                 if wait {
                     let mut progress = JobProgressReporter::default();
-                    control
+                    control()?
                         .call_and_wait_with_progress(
                             tool_slug,
                             dcc_type,
@@ -535,7 +538,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                         )
                         .await?
                 } else {
-                    control
+                    control()?
                         .call(
                             tool_slug,
                             dcc_type,
@@ -564,7 +567,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 .unwrap_or(DEFAULT_CALL_TIMEOUT_SECS);
             let mut request = read_call_arguments(&request_json, json_file.as_deref())?;
             attach_batch_agent_session_id(&mut request, agent_session_id.as_deref())?;
-            let mut result = control
+            let mut result = control()?
                 .call_batch(request, Duration::from_secs(effective_timeout.max(1)))
                 .await?;
             materialize_call_images(&mut result, &default_image_artifact_root());
@@ -585,7 +588,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 .map(|raw| parse_json_object(raw, "--meta-json"))
                 .transpose()?;
             let meta = attach_agent_session_id(meta, agent_session_id.as_deref())?;
-            let mut result = control
+            let mut result = control()?
                 .call(
                     tool_name.to_string(),
                     args.dcc_type,
@@ -608,7 +611,8 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
         }
         Command::RecordReplay { action } => {
             let result =
-                run_record_replay(action, agent_session_id.as_deref(), &endpoint, &control).await?;
+                run_record_replay(action, agent_session_id.as_deref(), &endpoint, &control()?)
+                    .await?;
             failed = result.failed;
             if failed {
                 exit_code = ExitCode::GeneralError;
@@ -632,7 +636,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 timeout: Duration::from_secs(effective_timeout),
                 interval: Duration::from_secs(interval_secs.max(1)),
             };
-            let result = control.wait_ready(request).await?;
+            let result = control()?.wait_ready(request).await?;
             failed = !result
                 .get("ready")
                 .and_then(Value::as_bool)
@@ -650,7 +654,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 dcc_type,
                 instance_id,
             };
-            let result = control.reload_skills(request).await?;
+            let result = control()?.reload_skills(request).await?;
             failed = !result.get("ok").and_then(Value::as_bool).unwrap_or(false);
             if failed {
                 exit_code = ExitCode::Unavailable;
@@ -675,7 +679,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             // supplying both --dcc-type and --instance-id can no longer
             // short-circuit the ownership check.
             let owned_operation = crate::application::instance_launch::resolve_owned_operation(
-                &gateway_ensure::default_registry_dir(),
+                &gateway_ensure::default_registry_dir()?,
                 dcc_type.as_deref(),
                 instance_id.as_deref(),
                 operation_id.as_deref(),
@@ -705,7 +709,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 expected_session,
                 operation_id,
             };
-            control.stop_instance(request).await?
+            control()?.stop_instance(request).await?
         }
         Command::StartInstance {
             dcc_type,
@@ -734,7 +738,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 required: require,
                 authorized: yes,
                 dry_run,
-                registry_dir: gateway_ensure::default_registry_dir(),
+                registry_dir: gateway_ensure::default_registry_dir()?,
                 instance_id,
             };
             let result = crate::application::instance_launch::start_instance(request).await?;
@@ -874,7 +878,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                     let mut value = to_json(installed)?;
                     if reload && skill_reload {
                         let (reloaded_value, reload_failed) =
-                            reload_marketplace_value(&control, value, installed_dcc).await;
+                            reload_marketplace_value(&control()?, value, installed_dcc).await;
                         value = reloaded_value;
                         if reload_failed {
                             failed = true;
@@ -912,7 +916,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                     let mut value = to_json(result)?;
                     if reload && skill_reload {
                         let (reloaded_value, reload_failed) =
-                            reload_marketplace_value(&control, value, installed_dcc).await;
+                            reload_marketplace_value(&control()?, value, installed_dcc).await;
                         value = reloaded_value;
                         if reload_failed {
                             failed = true;

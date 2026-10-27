@@ -93,7 +93,7 @@ def _isolated_registry_dir(tmp_path_factory: pytest.TempPathFactory):
 
     Many test modules start ``McpHttpServer`` / ``create_skill_server``
     instances without an explicit ``registry_dir``.  When they do, the Rust
-    runtime falls back to ``<os-tmp>/dcc-mcp-registry`` — a **shared**
+    runtime defaults to ``~/.dcc-mcp/registry-live`` — a **shared**
     directory that persists between test runs and accumulates stale
     ``services.json`` entries (issue #793).
 

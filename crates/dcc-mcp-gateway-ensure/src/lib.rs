@@ -692,11 +692,22 @@ pub fn stop_process(pid: u32) -> anyhow::Result<()> {
 
 // ── Default registry dir ───────────────────────────────────────────────────
 
-/// Default registry directory used by the gateway and sidecar.
-pub fn default_registry_dir() -> PathBuf {
-    std::env::var("DCC_MCP_REGISTRY_DIR")
+/// Shared user registry; explicit overrides may still select a temporary directory.
+pub fn default_registry_dir() -> anyhow::Result<PathBuf> {
+    if let Ok(dir) = std::env::var("DCC_MCP_REGISTRY_DIR") {
+        return Ok(PathBuf::from(dir));
+    }
+    let home_env = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
+    let home = std::env::var_os(home_env)
+        .filter(|value| !value.is_empty())
         .map(PathBuf::from)
-        .unwrap_or_else(|_| std::env::temp_dir().join("dcc-mcp-registry"))
+        .or_else(dirs::home_dir)
+        .context("cannot resolve user home; set DCC_MCP_REGISTRY_DIR explicitly")?;
+    anyhow::ensure!(
+        home.is_absolute(),
+        "cannot resolve absolute user home; set DCC_MCP_REGISTRY_DIR explicitly"
+    );
+    Ok(home.join(".dcc-mcp").join("registry-live"))
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────
@@ -1015,13 +1026,24 @@ mod tests {
 
     #[test]
     fn test_default_registry_dir_matches_gateway_runner_and_sidecar_fallback() {
-        let _guard = EnvVarGuard::set("DCC_MCP_REGISTRY_DIR", None);
+        let home = TempDir::new().unwrap();
+        let temp = TempDir::new().unwrap();
+        let _guard = dcc_mcp_test_utils::EnvVarsGuard::set(&[
+            ("DCC_MCP_REGISTRY_DIR", None),
+            (
+                if cfg!(windows) { "USERPROFILE" } else { "HOME" },
+                home.path().to_str(),
+            ),
+            ("TEMP", temp.path().to_str()),
+            ("TMP", temp.path().to_str()),
+            ("TMPDIR", temp.path().to_str()),
+        ]);
 
-        let dir = default_registry_dir();
+        let dir = default_registry_dir().unwrap();
 
         assert_eq!(
             dir,
-            std::env::temp_dir().join("dcc-mcp-registry"),
+            home.path().join(".dcc-mcp").join("registry-live"),
             "CLI gateway ensure, sidecar startup, and GatewayRunner must share the same default FileRegistry"
         );
     }
@@ -1031,9 +1053,26 @@ mod tests {
         let custom = std::env::temp_dir().join("dcc-mcp-cli-registry-test");
         let _guard = EnvVarGuard::set("DCC_MCP_REGISTRY_DIR", custom.to_str());
 
-        let dir = default_registry_dir();
+        let dir = default_registry_dir().unwrap();
 
         assert_eq!(dir, custom);
+    }
+
+    #[test]
+    fn test_default_registry_dir_rejects_relative_user_home() {
+        let _guard = dcc_mcp_test_utils::EnvVarsGuard::set(&[
+            ("DCC_MCP_REGISTRY_DIR", None),
+            (
+                if cfg!(windows) { "USERPROFILE" } else { "HOME" },
+                Some("relative-home"),
+            ),
+        ]);
+        let error = default_registry_dir().unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("set DCC_MCP_REGISTRY_DIR explicitly")
+        );
     }
 
     // ── Stale lock reclaim integration tests ───────────────────────────

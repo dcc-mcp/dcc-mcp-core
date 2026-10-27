@@ -11,6 +11,36 @@ use axum::http::StatusCode;
 use axum::routing::get;
 
 #[test]
+fn registry_resolution_shares_user_default_and_preserves_override_priority() {
+    let home = tempfile::tempdir().unwrap();
+    let explicit = tempfile::tempdir().unwrap();
+    let override_dir = tempfile::tempdir().unwrap();
+    let _guard = dcc_mcp_test_utils::EnvVarsGuard::set(&[
+        ("DCC_MCP_REGISTRY_DIR", None),
+        (
+            if cfg!(windows) { "USERPROFILE" } else { "HOME" },
+            home.path().to_str(),
+        ),
+    ]);
+    let runner = GatewayRunner::new(GatewayConfig::default()).unwrap();
+    assert_eq!(
+        runner.registry.registry_dir(),
+        home.path().join(".dcc-mcp").join("registry-live")
+    );
+    drop(_guard);
+    let _override_guard =
+        dcc_mcp_test_utils::EnvVarGuard::set("DCC_MCP_REGISTRY_DIR", override_dir.path().to_str());
+    let runner = GatewayRunner::new(GatewayConfig::default()).unwrap();
+    assert_eq!(runner.registry.registry_dir(), override_dir.path());
+    let config = GatewayConfig {
+        registry_dir: Some(explicit.path().to_path_buf()),
+        ..Default::default()
+    };
+    let runner = GatewayRunner::new(config).unwrap();
+    assert_eq!(runner.registry.registry_dir(), explicit.path());
+}
+
+#[test]
 fn registration_identity_rejects_external_endpoint_replacement() {
     let expected = ServiceEntry::new("maya", "127.0.0.1", 18812);
     let mut replaced = expected.clone();

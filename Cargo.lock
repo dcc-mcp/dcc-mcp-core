@@ -1378,6 +1378,7 @@ version = "0.20.52"
 dependencies = [
  "anyhow",
  "dcc-mcp-test-utils",
+ "dirs",
  "libc",
  "reqwest 0.13.4",
  "serde",

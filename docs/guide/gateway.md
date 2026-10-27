@@ -56,6 +56,15 @@ For production, prefer the machine-wide standalone gateway:
 dcc-mcp-server gateway --port 9765 --name studio-gateway
 ```
 
+CLI inventory, gateway runners, sidecars, and Python install lifecycle helpers
+share the default `~/.dcc-mcp/registry-live` (`%USERPROFILE%\.dcc-mcp\registry-live`
+on Windows). An explicit registry option takes precedence over
+`DCC_MCP_REGISTRY_DIR`, which takes precedence over that user default. Redirecting
+`TEMP`, `TMP`, or `TMPDIR` does not change the registry. If the user home cannot
+be resolved, set `DCC_MCP_REGISTRY_DIR` explicitly; there is no temporary fallback.
+No existing registry is moved or merged. During a mixed-version rollout, keep
+`DCC_MCP_REGISTRY_DIR` pinned to the directory already used by the live services.
+
 Per-DCC servers and sidecars auto-launch that process when
 `GET /health` is not reachable. They use a single-flight
 `gateway-launch.lock` in the registry directory so three DCCs starting at

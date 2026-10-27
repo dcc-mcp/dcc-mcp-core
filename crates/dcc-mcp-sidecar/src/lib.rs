@@ -4,6 +4,8 @@
 //! user-facing `dcc-mcp-server` binary while preserving the same CLI entry
 //! points through that binary.
 
+pub use dcc_mcp_gateway_ensure::default_registry_dir;
+
 #[cfg(feature = "gateway-daemon")]
 pub mod gateway_daemon;
 #[cfg(feature = "gateway-auto")]
