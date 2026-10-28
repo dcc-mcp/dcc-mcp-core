@@ -29,6 +29,28 @@ TIMEOUT = 180  # seconds; bounds every vx child process (cancel/timeout evidence
 OTHER_JUST = "1.57"  # a just version guaranteed to differ from the pinned one
 
 
+def _force_utf8_stdio():
+    """Force UTF-8 stdio so captured vx Unicode never hits a cp1252 console.
+
+    vx prints a U+2B07 install arrow when it resolves a tool. That glyph is
+    captured into check details and re-printed; on a Windows runner whose Python
+    stdout uses cp1252 the print raises UnicodeEncodeError and fails the job.
+    ``TextIOWrapper.reconfigure`` exists on Python 3.7+, so this covers the
+    project's floor. ``errors='replace'`` is a last-resort guard for any stream
+    that cannot be reconfigured.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None) if stream is not None else None
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except (ValueError, OSError):
+            # A detached/already-closed stream cannot be reconfigured; skip it
+            # rather than aborting the whole verification run.
+            continue
+
+
 def _run(cmd, cwd, env, timeout=TIMEOUT):
     """Run a command with a hard timeout and always return a 4-tuple."""
     try:
@@ -235,6 +257,7 @@ def check_whitespace_unicode_path(vx, project, env):
 
 def main(argv=None):
     """Run every check and return a process exit code (0 = all non-SKIP passed)."""
+    _force_utf8_stdio()
     parser = argparse.ArgumentParser(description="Verify the VX + just toolchain template.")
     parser.add_argument("--project", default=str(Path(__file__).resolve().parent), help="template project root")
     parser.add_argument(
