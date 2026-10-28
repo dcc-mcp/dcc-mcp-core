@@ -37,6 +37,9 @@ _AUDIT_SENSITIVE_RE = re.compile(
     r"(?i)\b(?P<key>password|token|secret|credential|authorization|bearer|input|title|path|file|filename)\b"
     r"\s*[:=]\s*(?:'[^']*'|\"[^\"]*\"|[^\s,;]+)"
 )
+_AUDIT_STRUCTURED_SENSITIVE_RE = re.compile(
+    r"(?i)[\"'](?:password|token|secret|credential|authorization|bearer|input|title|path|file|filename)[\"']\s*:"
+)
 _AUDIT_PATH_RE = re.compile(r"(?i)(?:[A-Za-z]:[\\/]|\\\\|/)[^\s,;]+")
 
 
@@ -113,8 +116,12 @@ def _audit_token(value: Any) -> Optional[str]:
 
 
 def _audit_reason(value: Any) -> Optional[str]:
+    if not isinstance(value, str):
+        return None
     text = str(value or "").strip()
     if not text:
+        return None
+    if _AUDIT_STRUCTURED_SENSITIVE_RE.search(text):
         return None
     text = _AUDIT_SENSITIVE_RE.sub(lambda match: f"{match.group('key')}=<redacted>", text)
     text = _AUDIT_PATH_RE.sub("<redacted-path>", text)
