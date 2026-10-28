@@ -12,6 +12,7 @@ import subprocess
 import sys
 import threading
 import time
+import types
 from typing import Any
 from typing import ClassVar
 
@@ -70,6 +71,11 @@ def _load_entrypoint_module() -> Any:
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def _stub_core_log_dir(monkeypatch: Any, path: Path) -> None:
+    """Keep audit-only tests independent from the optional native extension."""
+    monkeypatch.setitem(sys.modules, "dcc_mcp_core._core", types.SimpleNamespace(get_log_dir=lambda: str(path)))
 
 
 def test_ui_control_defaults_to_dcc_cua_and_keeps_mock_explicit(monkeypatch: Any) -> None:
@@ -324,6 +330,7 @@ def test_ui_control_entrypoints_accept_inprocess_parameters(
     monkeypatch: Any,
 ) -> None:
     """Sidecar hosts must not require subprocess stdin for bundled ui-control."""
+    _stub_core_log_dir(monkeypatch, tmp_path / "logs")
     monkeypatch.setenv("DCC_MCP_UI_CONTROL_BACKEND", "mock")
     monkeypatch.setenv("DCC_MCP_UI_CONTROL_MOCK_STATE_DIR", str(tmp_path))
     log_dir = tmp_path / "logs"
@@ -521,6 +528,7 @@ def test_ui_control_admin_audit_records_rejection_without_sensitive_text(
     tmp_path: Path,
     monkeypatch: Any,
 ) -> None:
+    _stub_core_log_dir(monkeypatch, tmp_path / "logs")
     monkeypatch.setenv("DCC_MCP_UI_CONTROL_BACKEND", "mock")
     monkeypatch.setenv("DCC_MCP_UI_CONTROL_MOCK_STATE_DIR", str(tmp_path / "state"))
     monkeypatch.setenv("DCC_MCP_LOG_DIR", str(tmp_path / "logs"))
@@ -549,6 +557,7 @@ def test_ui_control_admin_audit_records_rejection_without_sensitive_text(
 
 def test_ui_control_admin_audit_links_state_delta_to_action(tmp_path: Path, monkeypatch: Any) -> None:
     entrypoint = _load_entrypoint_module()
+    _stub_core_log_dir(monkeypatch, tmp_path)
     monkeypatch.setenv("DCC_MCP_LOG_DIR", str(tmp_path))
     monkeypatch.delenv("DCC_MCP_DISABLE_FILE_LOGGING", raising=False)
 
@@ -579,6 +588,72 @@ def test_ui_control_admin_audit_links_state_delta_to_action(tmp_path: Path, monk
     assert row["action_id"] == "action:test"
     assert row["state_delta"]["paths"] == ["/root/name"]
     assert "state_changes=1" in row["detail"]
+
+
+def test_ui_control_admin_audit_retains_bounded_failure_diagnostics(tmp_path: Path, monkeypatch: Any) -> None:
+    entrypoint = _load_entrypoint_module()
+    monkeypatch.setenv("DCC_MCP_LOG_DIR", str(tmp_path))
+    _stub_core_log_dir(monkeypatch, tmp_path)
+    entrypoint._record_operation(
+        "prepare_foreground_tool",
+        {"session_id": "audit-diagnostic", "text": "secret-input", "window_title": "Private Title"},
+        {
+            "success": False,
+            "error": "capture_failed",
+            "context": {
+                "session_id": "audit-diagnostic",
+                "recovery": {
+                    "stage": "capture",
+                    "activation_succeeded": True,
+                    "observation_failed": True,
+                    "capture_mode": "semantic",
+                    "native_reason": (
+                        "UIA provider timed out after 4s for title='Private Title' path=C:\\private\\scene.ma"
+                    ),
+                    "fresh_observation_available": False,
+                    "content_input_sent": False,
+                    "next_steps": [{"tool": "ui_control__snapshot", "arguments": {"text": "secret-input"}}],
+                },
+                "private_response": {
+                    "password": "never-log-this",
+                    "title": "Private Title",
+                    "path": "/private/scene.ma",
+                },
+                "correlation_id": "prepare:abc123",
+            },
+        },
+    )
+
+    row = json.loads(
+        next(tmp_path.glob("dcc-mcp-ui-control.*.log")).read_text(encoding="utf-8").splitlines()[-1].split(": ", 1)[1]
+    )
+    assert row["failure_stage"] == "capture"
+    assert row["diagnostic_reason"].startswith("UIA provider timed out after 4s")
+    assert row["activation_succeeded"] is True
+    assert row["observation_failed"] is True
+    assert row["fresh_observation_available"] is False
+    assert row["capture_mode"] == "semantic"
+    assert row["correlation_id"] == "prepare:abc123"
+    serialized = json.dumps(row)
+    for secret in ("secret-input", "Private Title", "C:\\private\\scene.ma", "/private/scene.ma", "never-log-this"):
+        assert secret not in serialized
+    assert "private_response" not in row
+    assert "next_steps" not in row
+
+
+def test_ui_control_audit_write_failure_does_not_change_tool_result(monkeypatch: Any) -> None:
+    entrypoint = _load_entrypoint_module()
+    assert entrypoint._failure_diagnostics({"recovery": {"stage": [], "capture_mode": {}}}) == {}
+
+    class Backend:
+        @staticmethod
+        def snapshot_tool(params: Any) -> dict[str, Any]:
+            return {"success": False, "error": "capture_failed", "context": {"session_id": "audit"}}
+
+    monkeypatch.setattr(entrypoint, "_load_backend", lambda: Backend)
+    monkeypatch.setattr(entrypoint.Path, "mkdir", lambda *args, **kwargs: (_ for _ in ()).throw(OSError("disk full")))
+    result = entrypoint.snapshot_tool({"session_id": "audit"})
+    assert result == {"success": False, "error": "capture_failed", "context": {"session_id": "audit"}}
 
 
 def test_ui_control_mock_observe_act_wait_verify_loop(tmp_path: Path) -> None:
