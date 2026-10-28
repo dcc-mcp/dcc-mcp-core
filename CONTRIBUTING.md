@@ -22,6 +22,32 @@ vx just install
 vx just test
 ```
 
+## Toolchain: VX + just (new projects and this repo)
+
+New DCC-MCP projects and adapters use the **VX + just** toolchain by default,
+with fixed tool versions and one shared local/CI entry point. Core already uses
+VX + just (`vx.toml` + committed `vx.lock` + `justfile`; CI and local both run
+`vx just <recipe>`); existing projects migrate incrementally — there is no
+blanket rewrite, and Core still has a few `latest` tool pins as it tightens them.
+
+The copy-ready standard lives in
+[`templates/vx-just-project/`](./templates/vx-just-project/README.md):
+
+- Fixed tool versions in `vx.toml` and a committed, generated `vx.lock`
+  (avoid `latest`, never hand-edit — refresh with `vx lock`).
+- Every task in the `justfile`, invoked through `vx` (`vx just ci` is the single
+  local/CI gate); no bare `PATH` tool fallback.
+- CI pins the reviewed `loonghao/vx` release commit and sets the action's
+  `version` explicitly; `cache: false` avoids a stale cached binary. A guard
+  asserts `vx.lock` presence because `vx lock --check` exits 0 when it is
+  missing.
+- A stdlib-only `verify.py` proves real `vx` resolution/install/execute against
+  an isolated `HOME`: version/shim isolation, cold/warm cache, whitespace and
+  Unicode paths, fail-closed lock drift, per-subprocess timeouts and cleanup.
+
+See the [New Adapter Onboarding guide](./docs/guide/new-adapter-onboarding.md)
+for the CI/CD snippet used by new adapters.
+
 ## Development Workflow
 
 1. **Create a branch** from `main`:
