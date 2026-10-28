@@ -370,6 +370,30 @@ async fn second_identical_request_converges_on_the_same_instance() {
 }
 
 #[tokio::test]
+async fn retry_while_owned_launch_is_pending_does_not_spawn_a_second_host() {
+    let dir = tempfile::tempdir().unwrap();
+    let (executable, flag) = noop_executable();
+    let project = project_with_plan(dir.path(), "ProjectA", &argv_for(&executable, flag));
+    let registry = dir.path().join("registry");
+    let store = LifecycleStore::new(&registry);
+    let mut pending = LifecycleOperation::new("pending-op", "unity", &project, &executable, None);
+    pending.launched = true;
+    pending.owned = true;
+    pending.pid = Some(std::process::id());
+    pending.blocking_state = Some(BlockingState::Timeout.as_str().to_string());
+    store.save(&pending).unwrap();
+
+    let value = start_instance(request(&project, &registry, 300))
+        .await
+        .unwrap();
+
+    assert_eq!(value["ok"], false, "{value}");
+    assert_eq!(value["launched"], false);
+    assert_eq!(value["blocking_state"], "adapter_bootstrap");
+    assert_eq!(value["converged_on_operation_id"], "pending-op");
+}
+
+#[tokio::test]
 async fn ambiguous_project_binding_is_refused() {
     let dir = tempfile::tempdir().unwrap();
     let (executable, flag) = noop_executable();

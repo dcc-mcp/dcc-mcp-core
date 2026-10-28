@@ -189,6 +189,23 @@ pub async fn start_instance(request: StartInstanceRequest) -> anyhow::Result<Val
                 json!({ "candidates": candidates, "launch_plan": plan.summary() }),
             ));
         }
+        Reuse::PendingOwner { owning_operation } => {
+            let mut value = report.failure(
+                LaunchStage::Reuse,
+                BlockingState::AdapterBootstrap,
+                format!(
+                    "{dcc_type} launch by operation {} is still running but has not registered; refusing to spawn a second host",
+                    owning_operation.operation_id
+                ),
+                json!({
+                    "pending_operation": operation_summary(&owning_operation),
+                    "launch_plan": plan.summary(),
+                }),
+            );
+            value["converged_on_operation_id"] =
+                Value::String(owning_operation.operation_id.clone());
+            return Ok(value);
+        }
         Reuse::Instance {
             entry,
             owning_operation,
@@ -424,6 +441,9 @@ pub fn owned_operation_for(
 #[allow(clippy::large_enum_variant)]
 enum Reuse {
     None,
+    PendingOwner {
+        owning_operation: LifecycleOperation,
+    },
     Instance {
         entry: ServiceEntry,
         owning_operation: Option<LifecycleOperation>,
@@ -442,9 +462,6 @@ fn find_reusable(
     instance_hint: Option<&str>,
 ) -> anyhow::Result<Reuse> {
     let entries = local_instance::select_entries(registry_dir, Some(dcc_type), instance_hint)?;
-    if entries.is_empty() {
-        return Ok(Reuse::None);
-    }
     let owning_operation = store.find_owned(dcc_type, project)?;
     let owned_id = owning_operation
         .as_ref()
@@ -452,6 +469,23 @@ fn find_reusable(
     let owned_pid = owning_operation
         .as_ref()
         .and_then(|operation| operation.pid);
+
+    // A launch can time out before the host registers. Its operation still
+    // owns a live process in the same registry, so an immediate retry must
+    // converge instead of spawning a second host.
+    if let Some(operation) = owning_operation.as_ref()
+        && operation.owned
+        && operation.instance_id.is_none()
+        && owned_pid.is_some_and(crate::application::gateway_ensure::is_process_alive)
+    {
+        return Ok(Reuse::PendingOwner {
+            owning_operation: operation.clone(),
+        });
+    }
+
+    if entries.is_empty() {
+        return Ok(Reuse::None);
+    }
 
     let matched: Vec<ServiceEntry> = entries
         .into_iter()
