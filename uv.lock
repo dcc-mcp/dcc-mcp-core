@@ -754,7 +754,7 @@ toml = [
 
 [[package]]
 name = "dcc-mcp-core"
-version = "0.20.50"
+version = "0.20.51"
 source = { editable = "." }
 dependencies = [
     { name = "dcc-mcp-server" },
@@ -864,24 +864,24 @@ provides-extras = ["test", "dev", "bridge", "semantic"]
 
 [[package]]
 name = "dcc-mcp-core-semantic"
-version = "0.20.49"
+version = "0.20.50"
 source = { registry = "https://pypi.org/simple" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/aa/11/677ede44ecc3c92cb049237e012192d1af3179ba6f37ffcd3888a77f82b8/dcc_mcp_core_semantic-0.20.49-cp37-cp37m-manylinux_2_28_x86_64.whl", hash = "sha256:bbca3a9a90081c60fa97ebb617b77c47fb79aa1aeccc46012a530e952612fb65", size = 10758621, upload-time = "2026-10-26T12:14:43.218Z" },
-    { url = "https://files.pythonhosted.org/packages/e9/6a/a62728657ca7f8afccfdff3e192647fe958a2ee2a43922d3f5c7c2f6aae5/dcc_mcp_core_semantic-0.20.49-cp37-cp37m-win_amd64.whl", hash = "sha256:20ab2f7f79b162f5576f87cbaf89eddd6213d0b72ef8591e83a99bdee43910b0", size = 10270994, upload-time = "2026-10-26T12:14:45.737Z" },
-    { url = "https://files.pythonhosted.org/packages/71/cf/a31074d41d4becf8ca1ca5170ecebf88cdbb36a8791499b96d4f899723e4/dcc_mcp_core_semantic-0.20.49-cp38-abi3-macosx_11_0_arm64.whl", hash = "sha256:aaa4936aa4c5b9ed7aa235c7ff815837d25e51e14790bdff5a1f6c1afa489a31", size = 9609517, upload-time = "2026-10-26T12:14:47.708Z" },
-    { url = "https://files.pythonhosted.org/packages/2f/9e/67490ea42f60b845be57e7ea4582c9dbd23dcc1f888d38569d996851d5d2/dcc_mcp_core_semantic-0.20.49-cp38-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:1a842a874e4ee77e1d8aea959dcdc7b354d2f552f8ca3e83795e616c7ea45f9f", size = 10760366, upload-time = "2026-10-26T12:14:49.54Z" },
-    { url = "https://files.pythonhosted.org/packages/df/c6/80a98b2e417f951fb64b4d8040e26bfe40158e7c8ed0be3e14462aa66fb1/dcc_mcp_core_semantic-0.20.49-cp38-abi3-win_amd64.whl", hash = "sha256:9c9dbec5d2c5bf66d9216b6e93321aa7d429234b02349179da8296ad67d5e51f", size = 10272895, upload-time = "2026-10-26T12:14:51.54Z" },
+    { url = "https://files.pythonhosted.org/packages/e8/8c/8bbe0382431a7a33e8a4bc10242f86d1f4a403ef9280959c248501dfb469/dcc_mcp_core_semantic-0.20.50-cp37-cp37m-manylinux_2_28_x86_64.whl", hash = "sha256:97115fa18911d5c2e381edede58d8f6d395e6cc48adcffc9183fa0e50664fe19", size = 10758773, upload-time = "2026-10-27T12:32:09.132Z" },
+    { url = "https://files.pythonhosted.org/packages/25/af/c90f2a5e48eefabda2d6a36d492c41c58ac9063c8a54cfbaf3de437e33de/dcc_mcp_core_semantic-0.20.50-cp37-cp37m-win_amd64.whl", hash = "sha256:38013528373771d2f07d9a1b574e5f5f29ed43712e25aab1b1281ed53550dafa", size = 10270665, upload-time = "2026-10-27T12:32:11.679Z" },
+    { url = "https://files.pythonhosted.org/packages/dc/6a/8e5535e3bbfb818b00c5fcfc8ba47237d8d9e0b0aa6b4bf1a656aeafecac/dcc_mcp_core_semantic-0.20.50-cp38-abi3-macosx_11_0_arm64.whl", hash = "sha256:5a7255c8b0557bf82c4ef90fccf4fb6a1d2df3d5fb2667232fa377dc3ba3b245", size = 9609500, upload-time = "2026-10-27T12:32:13.797Z" },
+    { url = "https://files.pythonhosted.org/packages/9b/cf/087f00510d0d83117867bcf0bd13f01e5c21ddea6cbabdbb85716ff7b4aa/dcc_mcp_core_semantic-0.20.50-cp38-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:7fc22f8b219a7adba86a0b8bae299523abaf741a2be35de72ec29aa6ab9757f3", size = 10760277, upload-time = "2026-10-27T12:32:15.946Z" },
+    { url = "https://files.pythonhosted.org/packages/b3/95/670c190e31c26e91e7d1b19422bdf32d4f8ce9e97c4752d678cb86aa7643/dcc_mcp_core_semantic-0.20.50-cp38-abi3-win_amd64.whl", hash = "sha256:45edbc20594f8c12a188c92a0100975aa63971d8b77f3f14acd62e3021524bf4", size = 10273066, upload-time = "2026-10-27T12:32:18.217Z" },
 ]
 
 [[package]]
 name = "dcc-mcp-server"
-version = "0.20.49"
+version = "0.20.50"
 source = { registry = "https://pypi.org/simple" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/64/9f/f8d32f54e3dee50abf853162839eae7c905caad0ba87f1a768e2469a0494/dcc_mcp_server-0.20.49-py3-none-macosx_10_12_universal2.macosx_10_12_x86_64.macosx_11_0_arm64.whl", hash = "sha256:79a504ad88325d91d800d5ba8eb93ddff72a819adf3bd0fc008b7ef41a8e6b88", size = 38999462, upload-time = "2026-10-26T12:58:31.319Z" },
-    { url = "https://files.pythonhosted.org/packages/17/b4/1b905447ae7994b31afb990949268f3b2e9b3998de546a6eedb923224618/dcc_mcp_server-0.20.49-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:714d69e76f63bfe42f601e25eae3fe4e72a897c7999ac6fba8645094ea0cae26", size = 20158747, upload-time = "2026-10-26T12:58:34.457Z" },
-    { url = "https://files.pythonhosted.org/packages/7f/5b/6d4f4f9ce237142adffad0907abfb4beae23a7b0430a1d6a9ff7b04d1462/dcc_mcp_server-0.20.49-py3-none-win_amd64.whl", hash = "sha256:eb80ff7faf61f4f0ed0438d868ff145571835c3d02cb79369d165bdf8ace9d55", size = 19792884, upload-time = "2026-10-26T12:58:36.86Z" },
+    { url = "https://files.pythonhosted.org/packages/b3/92/468acfff610f7b11c239dddf75528d05dbb5ea8557e5f2a27f94c414484b/dcc_mcp_server-0.20.50-py3-none-macosx_10_12_universal2.macosx_10_12_x86_64.macosx_11_0_arm64.whl", hash = "sha256:a902a0fc7d74bfccd58d5f5389fe1b0e140de5f87e1ea603b0f75a4a139dee11", size = 39013623, upload-time = "2026-10-27T12:48:05.737Z" },
+    { url = "https://files.pythonhosted.org/packages/4c/74/ff1c970a0138f63c0c788059e300ec558be86ef195e3db1b855b68d601eb/dcc_mcp_server-0.20.50-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:55dc185e50fd0bd817a86647b96337cf726538bbc1554ec5dd2e621d57490ee3", size = 20144796, upload-time = "2026-10-27T12:48:08.946Z" },
+    { url = "https://files.pythonhosted.org/packages/ae/2c/55b7533332bd66b940d4ddba0ebd26d354012fa647c0a98bcda8e66a3eb6/dcc_mcp_server-0.20.50-py3-none-win_amd64.whl", hash = "sha256:f4f47575b3e90f69e29c1ece12f02e739c70e14391a14fc0bdcc0df77670d9e7", size = 19802438, upload-time = "2026-10-27T12:48:11.927Z" },
 ]
 
 [[package]]
