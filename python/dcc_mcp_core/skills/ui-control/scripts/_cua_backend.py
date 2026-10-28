@@ -290,36 +290,18 @@ def _host_error(
     mapped_code = mapping.get(code, code)
     recovery: Dict[str, Any] = {}
     if mapped_code == UiErrorCode.INVALID_TARGET and "protected system ui" in message.lower():
-        recovery = {
-            "prompt": (
-                "Protected Windows UI is covering the requested point. Call ui_control__stop for this "
-                "session, then ask the operator to close or move that protected system surface manually. "
-                "Do not hide, override, click through, or ignore protected system UI. After the obstruction "
-                "is clear, take a fresh ui_control__snapshot for the same exact authorized PID/HWND before "
-                "retrying the action."
-            ),
-            "possible_solutions": [
-                "Stop this UI Control session so its native overlays are cleaned up.",
-                "Have the operator close or move the protected Windows surface, then take a fresh snapshot.",
-            ],
-            "recovery_actions": ["stop", "snapshot"],
-            "recovery_scope": "same_exact_pid_hwnd",
-        }
-    elif mapped_code == UiErrorCode.INVALID_TARGET:
-        recovery = {
-            "prompt": (
-                "If this exact PID/HWND is still valid but minimized or hidden, call ui_control__act with "
-                "get_window_state, then restore_window or show_window, optionally activate_window, and retry "
-                "ui_control__snapshot. These operations cannot change the authorized PID/HWND scope."
-            ),
-            "possible_solutions": [
-                "Read the authorized window with ui_control__act(action='get_window_state').",
-                "Restore or show only that same window, then take a fresh ui_control__snapshot.",
-            ],
-            "recovery_actions": ["get_window_state", "restore_window", "show_window", "activate_window"],
-            "recovery_scope": "same_exact_pid_hwnd",
-        }
-    recovery.update(_PIXELS.error_context(exc, params or {}, fresh_observation=fresh_observation))
+        recovery = _FRAME.protected_target_recovery(_policy_from_params(params or {}))
+    elif "protected system ui" not in message.lower() and (
+        mapped_code == UiErrorCode.INVALID_TARGET
+        or (
+            code in {"target_unavailable", "target_minimized"}
+            and isinstance((params or {}).get("trusted_ui_control_runtime"), UiControlRuntimeOptions)
+        )
+    ):
+        recovery = _FRAME.invalid_target_recovery(
+            _FRAME.recovery_actions(params or {}, _policy_from_params(params or {}))
+        )
+    recovery.update(_PIXELS.error_context(exc, fresh_observation=fresh_observation))
     # Keep only the native diagnostic reason: dcc-cua recovery prose targets its
     # own CLI surface (``max_elements``/``max_depth``, pixel ``click``,
     # ``press_key``, ``escalate_session``) and may reference a screenshot this
@@ -730,6 +712,11 @@ def act_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     )
     if not policy.allows_request(request):
         return skill_error(f"ui_control action {action!r} disabled by policy", UiErrorCode.POLICY_DISABLED)
+    if action == UiActionKind.SHOW_WINDOW:
+        return skill_error(
+            "Showing hidden windows is unsupported; ask the operator to restore visibility manually.",
+            "unsupported_action",
+        )
     if action == UiActionKind.SET_FRAME:
         try:
             frame, rejection = _FRAME.prepare_request(params)
@@ -749,7 +736,7 @@ def act_tool(params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         except (UiControlHostError, OSError, ValueError) as exc:
             return _host_error(exc, params)
         audit = _audit_record(action, True, None, session_id, policy, None, _FRAME.STATE_MESSAGE)
-        return _FRAME.state_result(raw, session_id, _PIXELS.window_state_prompt(params), audit)
+        return _FRAME.state_result(raw, session_id, audit, _FRAME.recovery_actions(params, policy))
     if action == UiActionKind.SET_FRAME:
         entry["snapshot_id"] = None
         try:

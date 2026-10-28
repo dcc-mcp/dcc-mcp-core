@@ -221,7 +221,6 @@ def test_ui_control_tool_schema_supports_computer_use_actions() -> None:
         "invoke_menu",
         "get_window_state",
         "restore_window",
-        "show_window",
         "activate_window",
         "minimize_window",
         "set_frame",
@@ -255,6 +254,7 @@ def test_ui_control_tool_schema_supports_computer_use_actions() -> None:
     assert schema["properties"]["text"]["maxLength"] == 4096
     assert "default Windows semantic transport hard-denies raw type" in tools["act"].description
     assert "owner-selected pixels MCP transport" in tools["act"].description
+    assert "hidden but not minimized" in tools["act"].description
     assert "exact control_id" in schema["properties"]["text"]["description"]
     assert "secure user/host hand-off" in schema["properties"]["text"]["description"]
     assert schema["properties"]["scroll_x"]["type"] == "integer"
@@ -1411,10 +1411,26 @@ def test_ui_control_cua_host_invalid_snapshot_target_exposes_scoped_recovery() -
     assert result["context"]["recovery_actions"] == [
         "get_window_state",
         "restore_window",
-        "show_window",
         "activate_window",
     ]
+    assert "show_window" not in json.dumps(result)
     assert "cannot change the authorized PID/HWND scope" in result["prompt"]
+
+
+def test_ui_control_cua_host_hidden_state_guidance_matches_host_capabilities() -> None:
+    backend = _load_cua_module()
+
+    result = backend._FRAME.state_result(
+        {"state": {"exists": True, "visible": False, "minimized": False}},
+        "hidden",
+        {},
+        ["get_window_state", "restore_window", "activate_window"],
+    )
+
+    assert result["success"] is True
+    assert result["context"]["recovery_actions"] == ["restore_window", "activate_window"]
+    assert "show_window" not in json.dumps(result)
+    assert "restore visibility manually" in result["prompt"]
 
 
 def test_ui_control_cua_host_protected_system_ui_requires_manual_operator_recovery() -> None:
