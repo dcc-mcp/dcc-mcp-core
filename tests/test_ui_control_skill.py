@@ -644,6 +644,8 @@ def test_ui_control_admin_audit_retains_bounded_failure_diagnostics(tmp_path: Pa
 def test_ui_control_audit_write_failure_does_not_change_tool_result(monkeypatch: Any) -> None:
     entrypoint = _load_entrypoint_module()
     assert entrypoint._failure_diagnostics({"recovery": {"stage": [], "capture_mode": {}}}) == {}
+    for reason in ({"password": "never-log-this"}, '{"password": "never-log-this"}'):
+        assert entrypoint._failure_diagnostics({"recovery": {"native_reason": reason}}) == {}
 
     class Backend:
         @staticmethod
