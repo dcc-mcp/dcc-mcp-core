@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.51](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.50...v0.20.51) (2026-10-28)
+
+
+### Bug Fixes
+
+* align hidden-window recovery guidance ([#2868](https://github.com/dcc-mcp/dcc-mcp-core/issues/2868)) ([9ef3f67](https://github.com/dcc-mcp/dcc-mcp-core/commit/9ef3f677b4cb1908d11c45b6a60f1ef602caab16))
+
 ## [0.20.50](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.49...v0.20.50) (2026-10-27)
 
 
