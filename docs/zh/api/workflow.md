@@ -187,6 +187,7 @@ steps:
 | `workflows_run` | 启动运行（YAML 或 JSON spec + inputs）。 | `destructive_hint=true, open_world_hint=true` |
 | `workflows_get_status` | 轮询终止状态 + 进度。 | `read_only_hint=true, idempotent_hint=true` |
 | `workflows_cancel` | 通过 `workflow_id` 取消运行（级联）。 | `destructive_hint=true, idempotent_hint=true` |
+| `workflows_resume` | 从持久化存储恢复运行。可选 `force_steps` 重跑已完成步骤；可选 `expected_spec_hash` + `strict=true` 在 spec 漂移时拒绝。需要 `WorkflowStorage` + `job-persist-sqlite`。（#565） | `destructive_hint=true, idempotent_hint=true, open_world_hint=true` |
 | `workflows_lookup` | 目录搜索（只读）。 | `read_only_hint=true` |
 
 ## Python 接口
