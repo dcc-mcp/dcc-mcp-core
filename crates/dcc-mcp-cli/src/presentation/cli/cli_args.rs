@@ -325,6 +325,21 @@ pub(crate) enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Verify installed pip metadata and adapter imports without installing or starting a host.
+    Verify {
+        #[arg(long)]
+        dcc_type: String,
+        /// Exact target interpreter; no ambient PATH Python fallback.
+        #[arg(long, env = "DCC_MCP_INSTALL_PYTHON")]
+        python: String,
+        #[arg(long, env = "DCC_MCP_CATALOG_PATH")]
+        catalog: Option<PathBuf>,
+        #[arg(long, env = "DCC_MCP_DCC_PATH")]
+        dcc_path: Option<PathBuf>,
+        /// Emit the existing Install SOP v1 verification report as JSON.
+        #[arg(long)]
+        json: bool,
+    },
     /// Search and manage DCC-MCP marketplace sources.
     Marketplace {
         #[command(subcommand)]

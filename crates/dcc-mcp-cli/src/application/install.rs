@@ -22,6 +22,7 @@ mod discovery;
 mod pip;
 mod policy;
 mod report;
+mod verify;
 
 pub use discovery::{DccAdapterSummary, DccTypeSummary, DccTypesCatalog};
 use pip::{pip_install_args, pip_show_args, pip_uninstall_args};
