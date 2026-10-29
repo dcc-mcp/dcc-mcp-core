@@ -21,6 +21,26 @@ from dcc_mcp_core.skill import skill_error
 
 _AUDIT_LOCK = threading.Lock()
 _CAPTURE_TTL_SECS = 24 * 60 * 60
+_AUDIT_FAILURE_STAGES = frozenset(
+    {
+        "binding",
+        "authorization",
+        "activation",
+        "foreground_readback",
+        "capture",
+        "cancellation",
+    }
+)
+_AUDIT_CAPTURE_MODES = frozenset({"semantic", "pixels_only"})
+_AUDIT_TOKEN_RE = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
+_AUDIT_SENSITIVE_RE = re.compile(
+    r"(?i)\b(?P<key>password|token|secret|credential|authorization|bearer|input|title|path|file|filename)\b"
+    r"\s*[:=]\s*(?:'[^']*'|\"[^\"]*\"|[^\s,;]+)"
+)
+_AUDIT_STRUCTURED_SENSITIVE_RE = re.compile(
+    r"(?i)[\"'](?:password|token|secret|credential|authorization|bearer|input|title|path|file|filename)[\"']\s*:"
+)
+_AUDIT_PATH_RE = re.compile(r"(?i)(?:[A-Za-z]:[\\/]|\\\\|/)[^\s,;]+")
 
 
 def emit(result: Dict[str, Any]) -> None:
@@ -88,6 +108,63 @@ def _operation_error(result: Dict[str, Any]) -> Optional[str]:
 def _result_context(result: Dict[str, Any]) -> Dict[str, Any]:
     context = result.get("context")
     return context if isinstance(context, dict) else {}
+
+
+def _audit_token(value: Any) -> Optional[str]:
+    text = str(value or "").strip()
+    return text if _AUDIT_TOKEN_RE.fullmatch(text) else None
+
+
+def _audit_reason(value: Any) -> Optional[str]:
+    if not isinstance(value, str):
+        return None
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if _AUDIT_STRUCTURED_SENSITIVE_RE.search(text):
+        return None
+    text = _AUDIT_SENSITIVE_RE.sub(lambda match: f"{match.group('key')}=<redacted>", text)
+    text = _AUDIT_PATH_RE.sub("<redacted-path>", text)
+    return text[:256]
+
+
+def _failure_diagnostics(context: Dict[str, Any]) -> Dict[str, Any]:
+    """Project only structured, bounded failure diagnostics into durable audit."""
+    recovery = context.get("recovery")
+    preparation = context.get("foreground_preparation")
+    source = recovery if isinstance(recovery, dict) else preparation if isinstance(preparation, dict) else {}
+    result: Dict[str, Any] = {}
+    stage = source.get("stage") or context.get("failure_stage")
+    if isinstance(stage, str) and stage in _AUDIT_FAILURE_STAGES:
+        result["failure_stage"] = stage
+    reason = source.get("native_reason") or context.get("diagnostic_reason")
+    safe_reason = _audit_reason(reason)
+    if safe_reason:
+        result["diagnostic_reason"] = safe_reason
+    for key in (
+        "activation_succeeded",
+        "observation_failed",
+        "content_input_sent",
+        "fresh_observation_available",
+        "fresh_observation_ready",
+    ):
+        value = source.get(key)
+        if type(value) is bool:
+            result[key] = value
+    capture_mode = source.get("capture_mode")
+    if isinstance(capture_mode, str) and capture_mode in _AUDIT_CAPTURE_MODES:
+        result["capture_mode"] = capture_mode
+    for key in ("correlation_id", "request_id", "operation_id", "action_id", "snapshot_id"):
+        value = _audit_token(context.get(key) or source.get(key))
+        if value:
+            result["correlation_id"] = value
+            break
+    for key in ("native_error_code", "provider_error_code", "reason_code"):
+        value = _audit_token(context.get(key) or source.get(key))
+        if value:
+            result["diagnostic_code"] = value
+            break
+    return result
 
 
 def _canonical_backend(result: Dict[str, Any]) -> str:
@@ -340,6 +417,8 @@ def _record_operation(name: str, params: Dict[str, Any], result: Dict[str, Any])
             "message": f"DCC UI Control {operation} {'succeeded' if success else 'rejected'}",
             "detail": " ".join(detail),
         }
+        if not success:
+            event.update(_failure_diagnostics(context))
         if snapshot_id:
             event["snapshot_id"] = str(snapshot_id)
         if action_id:
