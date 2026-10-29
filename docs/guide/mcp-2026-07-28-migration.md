@@ -113,19 +113,27 @@ yet.** Practically:
 
 ### Tasks are unavailable on the modern route
 
-`tasks/list` does not exist in the final revision. Beyond that, the delivered
-stateless service implements no task methods at all:
+The final MCP `2026-07-28` revision publishes Tasks as the optional
+`io.modelcontextprotocol/tasks` extension. It defines `tasks/get`, `tasks/update`,
+and `tasks/cancel`, with task creation through a task-augmented `tools/call`
+response. `tasks/list` and `tasks/create` are not extension methods. See the
+[versioned Tasks specification](https://tasks.extensions.modelcontextprotocol.io/specification/2026-07-28/tasks).
 
-- Discovery does not advertise a `tasks` capability.
+The delivered Core stateless service does not implement or advertise that
+extension:
+
+- Discovery does not declare `capabilities.extensions["io.modelcontextprotocol/tasks"]`.
 - `tasks/get` and `tasks/cancel` return `METHOD_NOT_FOUND` (HTTP 404 /
   `-32601`).
-- No `tasks/create` handler exists.
+- `tasks/update` is not implemented either. The absence of `tasks/create` is not
+  an implementation gap, because the extension defines no such method.
 
-[ADR-010](../adr/010-mcp-2026-07-28-dual-protocol-migration.md) describes the
-Tasks extension as a first-class feature; **the shipped code does not match
-that description.** Treat Tasks as unavailable and follow the reconciliation in
-a later release before designing against it. A `TasksCapability` value that
-appears in Rust unit-test fixtures is test data, not server behaviour.
+[ADR-010's reconciliation](../adr/010-mcp-2026-07-28-dual-protocol-migration.md#reconciliation-2026-10-20)
+distinguishes the published extension from this Core implementation gap. Treat
+Tasks as unavailable on this route. Host-registered `workflows_*` tools provide
+Core-specific orchestration, not Tasks protocol interoperability. A
+`TasksCapability` value in Rust unit-test fixtures is test data, not server
+behaviour.
 
 ### `roots`, `sampling`, and `logging` are deprecated
 
@@ -363,8 +371,8 @@ are separate work.
 
 ## Known gaps
 
-- **Tasks** — advertised by neither discovery nor code, despite ADR-010
-  describing it as first-class. Pending reconciliation.
+- **Tasks extension** — the published optional extension is not implemented or
+  advertised by Core; see the [ADR-010 reconciliation](../adr/010-mcp-2026-07-28-dual-protocol-migration.md#reconciliation-2026-10-20).
 - **Multi-round-trip input** — not implemented; no replacement for SSE push yet.
 - **Subscriptions and notifications** — not implemented; re-list instead.
 - **OAuth 2.1 / OIDC** — deferred to Phase 2.
