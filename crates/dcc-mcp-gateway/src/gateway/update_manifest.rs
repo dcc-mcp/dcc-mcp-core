@@ -54,7 +54,9 @@ const MAX_MANIFEST_BYTES: usize = 1024 * 1024;
 const MAX_ATTESTATION_BYTES: usize = 1024 * 1024;
 
 #[derive(Debug, Error)]
-pub(crate) enum UpdateManifestError {
+pub enum UpdateManifestError {
+    #[error("invalid update manifest entry for {binary_name}: {reason}")]
+    InvalidEntry { binary_name: String, reason: String },
     #[error("failed to fetch update metadata from '{url}': {source}")]
     Fetch {
         url: String,
@@ -78,6 +80,53 @@ pub(crate) enum UpdateManifestError {
     Parse(#[from] serde_json::Error),
     #[error("official update manifest attestation verification failed: {0}")]
     Attestation(#[from] dcc_mcp_attestation::AttestationError),
+}
+
+/// Platform names used by official release manifests (not Rust target triples).
+pub fn release_platform() -> Option<&'static str> {
+    if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
+        Some("windows-x86_64")
+    } else if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
+        Some("linux-x86_64")
+    } else if cfg!(target_os = "macos") {
+        Some("macos-universal2")
+    } else {
+        None
+    }
+}
+
+/// Resolve one exact-version binary through the shared attested manifest loader.
+/// Custom manifest hosts retain the same operator-supplied trust policy as gateway updates.
+pub async fn resolve_release_update(
+    manifest_url: &str,
+    binary_name: &str,
+    version: &str,
+) -> Result<dcc_mcp_updater::UpdateInfo, UpdateManifestError> {
+    let manifest = fetch_update_manifest(manifest_url).await?;
+    let invalid = |reason| UpdateManifestError::InvalidEntry {
+        binary_name: binary_name.to_owned(),
+        reason,
+    };
+    let entry = manifest
+        .get(binary_name)
+        .ok_or_else(|| invalid("binary is missing".to_owned()))?;
+    if entry.version != version {
+        return Err(invalid(format!(
+            "expected version {version}, received {}",
+            entry.version
+        )));
+    }
+    let asset = entry
+        .require_asset(binary_name)
+        .map_err(|error| invalid(error.to_string()))?;
+    Ok(dcc_mcp_updater::UpdateInfo {
+        update_available: true,
+        current_version: version.to_owned(),
+        latest_version: entry.version.clone(),
+        download_url: Some(asset.url.to_owned()),
+        sha256: Some(asset.sha256.into_string()),
+        release_notes: entry.release_notes.clone(),
+    })
 }
 
 /// Fetch and parse the configured update manifest.
