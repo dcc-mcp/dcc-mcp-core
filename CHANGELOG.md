@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.52](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.51...v0.20.52) (2026-10-29)
+
+
+### Bug Fixes
+
+* **bridge:** catch Future timeouts on legacy Python ([3ec4800](https://github.com/dcc-mcp/dcc-mcp-core/commit/3ec4800590615f181233904599a9355149cfec78))
+* **bridge:** distinguish queued calls during disconnect ([4fbc091](https://github.com/dcc-mcp/dcc-mcp-core/commit/4fbc0915e6c1850fbf63145b1b5beed3a17195f5))
+* **bridge:** prevent fallback replay of unknown outcomes ([90fc71e](https://github.com/dcc-mcp/dcc-mcp-core/commit/90fc71e19a07a065a139c0ca115eb665c00efccd))
+* **dispatch:** preserve cancellation during annotation resolution ([6325d79](https://github.com/dcc-mcp/dcc-mcp-core/commit/6325d79fe0717a9f606665290bdcedc149c3a94f))
+* **dispatch:** reject mapping fallback for abstract sequences ([44c3ba3](https://github.com/dcc-mcp/dcc-mcp-core/commit/44c3ba34623a99a4d83a96842bc0f5711f37d48b))
+* **dispatch:** reject scalar literal mapping fallback ([a583796](https://github.com/dcc-mcp/dcc-mcp-core/commit/a583796479fc85657104d7847df063659ee3c16f))
+* **dispatch:** reject unknown typed script arguments before invocation ([7c4e234](https://github.com/dcc-mcp/dcc-mcp-core/commit/7c4e2345c90833a44cdce553b1547552a809039a))
+* **dispatch:** resolve only the selected parameter annotation ([80eedc1](https://github.com/dcc-mcp/dcc-mcp-core/commit/80eedc1842207dab5aef4140f7a64f16813491c0))
+
+
+### Code Refactoring
+
+* **dispatch:** isolate script invocation within file limits ([4c03dda](https://github.com/dcc-mcp/dcc-mcp-core/commit/4c03dda2b86b628d814a732d639141f5c3232b9d))
+
 ## [0.20.51](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.50...v0.20.51) (2026-10-28)
 
 
