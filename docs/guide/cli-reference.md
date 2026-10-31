@@ -155,9 +155,12 @@ update, and cross-instance control-plane routes. When the current profile is
 remote, or when `--gateway pcA` / `--base-url ...` is supplied, the same
 commands use the gateway `/v1/*` surfaces.
 
-`list` is an inventory and diagnostics command: it keeps live `booting` rows
-and sidecar rows with `dispatch_status=unavailable` visible so operators can
-see startup failures. Local `search`, `describe`, `load-skill`, `call`, and
+`list` is a live inventory and diagnostics command: it keeps live `booting`
+rows and sidecar rows with `dispatch_status=unavailable` visible so operators
+can see startup failures. Local list reads use a shared, read-only registry
+lock and verify owner/host liveness without pruning or rewriting the registry;
+`evicted` counts dead rows omitted from that response and
+`eviction_applied: false` makes the non-mutating behavior explicit. Local `search`, `describe`, `load-skill`, `call`, and
 `reload-skills` only route to direct MCP instances ready for local CLI control
 (`status=available` or `busy`, with `dispatch_status=ready` when that metadata
 is reported). A per-DCC sidecar row is locally routable once it reports
@@ -349,7 +352,7 @@ launching operation.
 | `feedback bundle <finding.json> [--install-report <report.json>] [--dcc-pid <pid>] [--log-dir <path>] [--host-error-lines <1-200>] [--json]` | local Finding/doctor/host errors/Install SOP v1 report + optional `GET /v1/debug/issue-reports/{request_id}` | Assemble `dcc-mcp.feedback-bundle.v1` without auto-starting a Gateway. The Finding must already be marked public-safe. `--install-report` accepts one terminal, regular, non-symlink Install SOP v1 execution report up to 256 KiB, binds its DCC/core/adapter identity to the Finding, and projects only public-safe fields. Invalid or mismatched reports fail closed. Missing components remain explicit; `complete=true` only when every component is resolved. |
 | `feedback file <finding.json> [--catalog <path>] [--existing <number>\|--create] [--yes] [--json]` | local public-safe Finding + GitHub CLI | Route and deduplicate a Finding against open issues. The default is read-only and returns an executable `next_step`; execute that argv exactly after review and user authorization. A write binds the canonical Finding path, canonical catalog path or exact bundled sentinel, content SHA, fingerprint, and repository. Drift, bodies above 65,536 Unicode scalar values, exact conflicts, ambiguity, closed issues, tracker failures, or the bounded full-process-tree `gh` timeout stop the operation before mutation. |
 | `doctor [--registry-dir <path>] [--gateway-port <port>] [--adapter-python <dcc>=<python>] [--adapter-catalog <path>]` | local filesystem + gateway probe + adapter import probes | Report profile config/current selection, effective control route and whether it is recorded by gateway stats, local registry readiness, daemon status, server binary diagnostics, and per-DCC adapter import grades without auto-starting services. Repeated `--adapter-python` covers several DCC types; a probe that cannot run is `unavailable`, never a failure. |
-| `list [--gateway <profile>]` | local FileRegistry or `GET /v1/instances` | List live DCC instances. Defaults to local FileRegistry after ensuring the loopback gateway; remote profiles use the selected gateway. |
+| `list [--gateway <profile>]` | local FileRegistry or `GET /v1/instances` | List live DCC instances. Local mode uses a shared read-only registry lock and liveness probes without pruning; remote profiles use the selected gateway. |
 | `search [-q\|--query <q>] [--instance-id <id>]` | local MCP `search_tools` or remote `POST /v1/search` | Search callable capabilities with the release-compatible query flag; current builds also accept positional natural-language words as an alternative. Optionally scope to a full UUID or unique prefix. |
 | `describe <tool-slug>` | local MCP `tools/list` or remote `POST /v1/describe` | Inspect a capability before calling it. |
 | `load-skill <skill-name> [--dcc-type <dcc>] [--instance-id <id>]` | local MCP `tools/call load_skill` or remote `POST /v1/load_skill` | Activate a progressive skill and print its registered tools. |

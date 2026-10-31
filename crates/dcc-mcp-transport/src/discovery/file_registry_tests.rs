@@ -58,6 +58,47 @@ fn test_membership_delta_ignores_metadata_only_changes() {
 }
 
 #[test]
+fn read_alive_read_only_filters_dead_rows_without_rewriting() {
+    let dir = tempfile::tempdir().unwrap();
+    let lock = dir.path().join(REGISTRY_LOCK_FILE);
+    std::fs::File::create(&lock).unwrap();
+
+    let mut live = ServiceEntry::new("maya", "127.0.0.1", 18812);
+    live.pid = Some(std::process::id());
+    let mut dead = ServiceEntry::new("blender", "127.0.0.1", 18813);
+    dead.pid = Some(u32::MAX);
+    let content = serde_json::to_string(&[live, dead]).unwrap();
+    std::fs::write(dir.path().join(REGISTRY_FILE), &content).unwrap();
+
+    let (entries, evicted) = FileRegistry::read_alive_read_only(dir.path()).unwrap();
+
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].dcc_type, "maya");
+    assert_eq!(evicted, 1);
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join(REGISTRY_FILE)).unwrap(),
+        content
+    );
+    assert!(lock.exists());
+}
+
+#[test]
+fn read_alive_read_only_respects_owned_sentinel_without_writing() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = FileRegistry::new(dir.path()).unwrap();
+    let entry = ServiceEntry::new("maya", "127.0.0.1", 18812);
+    let key = entry.key();
+    registry.register(entry).unwrap();
+
+    let (entries, evicted) = FileRegistry::read_alive_read_only(dir.path()).unwrap();
+
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].key(), key);
+    assert_eq!(evicted, 0);
+    drop(registry);
+}
+
+#[test]
 fn test_file_registry_register_and_list() {
     let dir = tempfile::tempdir().unwrap();
     let registry = FileRegistry::new(dir.path()).unwrap();
@@ -1866,4 +1907,25 @@ fn test_legacy_python_gateway_sentinel_preserves_live_entries() {
         "compatibility parsing must not refresh an expired sentinel"
     );
     assert!(corrupted_registry_files(dir.path()).is_empty());
+}
+
+#[test]
+fn read_only_handle_can_probe_shared_registry_lock() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("services.lock");
+    let owner = OpenOptions::new()
+        .create(true)
+        .read(true)
+        .write(true)
+        .open(&path)
+        .unwrap();
+    FileExt::lock(&owner).unwrap();
+    let reader = OpenOptions::new().read(true).open(&path).unwrap();
+    assert!(matches!(
+        FileExt::try_lock_shared(&reader),
+        Err(TryLockError::WouldBlock)
+    ));
+    drop(owner);
+    FileExt::try_lock_shared(&reader).unwrap();
+    FileExt::unlock(&reader).unwrap();
 }
