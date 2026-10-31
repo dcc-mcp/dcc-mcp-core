@@ -205,6 +205,15 @@ When the adapter repository is managed through Multica, bind these resources:
 
 ## 6. CI/CD Snippet
 
+New adapter projects use the **VX + just** toolchain by default: fixed tool
+versions in a committed `vx.toml`/`vx.lock`, every task in a `justfile`, and a
+single `vx just ci` entry point that local developers and CI share. Pin the
+reviewed `loonghao/vx` action commit and set its `version` input explicitly
+(it defaults to `latest` and ignores the ref); use `cache: false` so a stale
+cached binary cannot skip install. The copy-ready files — `vx.toml`, `vx.lock`,
+`justfile`, a stdlib-only `verify.py`, and CI examples — live in
+[`templates/vx-just-project/`](https://github.com/dcc-mcp/dcc-mcp-core/tree/main/templates/vx-just-project).
+
 Minimum CI workflow (`.github/workflows/ci.yml`):
 
 ```yaml
@@ -214,19 +223,56 @@ on:
   push:
     branches: [main]
 
+# Least-privilege token: `vx just ci` may run dependency installs, so the
+# checkout token must be read-only and never persisted into .git/config.
+permissions:
+  contents: read
+
 jobs:
-  test:
+  lock-guard:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
         with:
-          python-version: "3.11"
-      - run: pip install -e ".[test]"
-      - run: ruff check src tests
-      - run: ruff format --check src tests
-      - run: pytest
+          persist-credentials: false
+      - uses: loonghao/vx@debe4f035713d28366ec0c322e0b87de2a25d2f2 # v0.9.34
+        with:
+          version: "0.9.34"
+          cache: false
+      - name: vx.lock present + current ('vx lock --check' exits 0 when missing)
+        run: |
+          set -euo pipefail
+          test -f vx.lock || { echo "::error::vx.lock missing"; exit 1; }
+          vx lock --check
+
+  test:
+    needs: lock-guard
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      VX_EXPECT_VERSION: "0.9.34" # verify.py asserts the pinned vx binary
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: loonghao/vx@debe4f035713d28366ec0c322e0b87de2a25d2f2 # v0.9.34
+        with:
+          version: "0.9.34"
+          cache: false
+      - run: vx just ci
 ```
+
+Keep the full CI recipe set in the `justfile` (`install`, `ruff check`,
+`ruff format --check`, `pytest`, `python -m build`, `twine check dist/*`) so
+`vx just ci` is the one command everywhere. A project that must support a
+floor/latest Python matrix expresses it with `vx python@3.9` / `vx python@3.12`
+command-line overrides rather than a second drifting tool list. Native DCC
+GUI/license jobs stay `NOT_RUN` in ordinary CI. See the template
+[`README.md`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/templates/vx-just-project/README.md)
+and `verify.py` for the isolation/fail-closed verification harness.
 
 Add an executable Install SOP round trip to the adapter tests: plan -> dry-run
 no mutation -> install/receipt -> verify/status -> uninstall -> idempotent

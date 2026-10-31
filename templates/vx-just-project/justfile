@@ -1,0 +1,83 @@
+# Single source of truth for local development and CI.
+#
+# Every recipe runs the tool through `vx`, so the version that resolves is the
+# one pinned in vx.toml/vx.lock — never a bare tool from PATH. Local and CI call
+# the SAME entry point (`vx just ci`); there is no separate CI-only command set.
+#
+# Recipes are single-line on purpose: `&&` is not valid in Windows PowerShell
+# 5.1 and `just` resolves shebang interpreters unreliably on Windows. All control
+# flow lives in verify.py (pure stdlib) and in the CI lock-guard job.
+#
+#   vx just --list     discover recipes
+#   vx just ci         local pre-commit gate (identical recipe set to CI)
+#   vx just doctor     prove the pinned tools resolve + execute, no deps needed
+#   vx just verify     isolated verification harness (real vx child processes)
+#
+# NOTE ON COMMENTS: a `#` line immediately above a recipe becomes its --list doc
+# string. Long explanations therefore sit in separate blocks, and each recipe
+# gets exactly one short doc line directly above it.
+
+set shell := ["sh", "-cu"]
+set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
+
+# List available recipes.
+default:
+    @vx just --list
+
+# Consistency check only; presence is asserted separately in CI's lock guard.
+# `vx lock --check` prints an error but still exits 0 when vx.lock is MISSING,
+# so a separate `test -f vx.lock` step is what actually fails closed.
+# Check vx.lock matches vx.toml.
+lock-check:
+    vx lock --check
+
+# Real resolution/install/execute proof with no project deps: `vx just --version`
+# proves the vx binary resolves AND the pinned just executes (vx invoking just).
+# Prove the pinned tools resolve + execute (no bare-tool fallback).
+doctor:
+    vx just --version
+
+# --- Adoptable project recipes ------------------------------------------------
+# A real project adds source, a pyproject.toml and tests, then extends `ci`
+# below with fmt-check/lint/test. They stay OUT of the standalone `ci` so the
+# template verifies itself with no project dependencies installed.
+
+# Format project sources.
+fmt:
+    vx ruff format .
+
+# Check formatting of project sources.
+fmt-check:
+    vx ruff format --check .
+
+# Lint project sources.
+lint:
+    vx ruff check .
+
+# --- Project environment ---------------------------------------------------
+# `install` and `test` share ONE environment: create it once (idempotent), then
+# install into it and run through it. A bare `vx python` would silently resolve
+# to a different toolchain than the one the dependencies were installed into.
+# Create the project environment once (idempotent).
+venv:
+    vx uv venv --allow-existing
+
+# Install project dev dependencies into the project environment.
+install: venv
+    vx uv pip install --python .venv -e ".[dev]"
+
+# Run the project's pytest suite through the same project environment.
+test: install
+    vx uv run --no-project python -m pytest -q
+
+# Self-check with an isolated HOME: cold/warm cache, shim/version isolation,
+# whitespace + Unicode paths, fail-closed lock drift, nonzero exit + stderr,
+# per-process timeouts, cleanup. Reads VX_EXPECT_VERSION (CI pins the binary).
+# Run the isolated verification harness.
+verify:
+    vx python verify.py
+
+# The ONE local/CI pipeline entry point. `vx just ci` is identical locally and
+# in CI. An adopting project adds `fmt-check lint test` once it has source.
+# Run the full local/CI pipeline.
+ci: lock-check doctor verify
