@@ -17,22 +17,13 @@
 
 name: CI
 
+# No `paths` filter: this is the project's MAIN CI, so a PR that changes only
+# source, tests or pyproject.toml must still run `vx just ci`. A toolchain-only
+# path filter would silently skip those changes after adoption.
 on:
   push:
     branches: [main]
-    paths:
-      - "vx.toml"
-      - "vx.lock"
-      - "justfile"
-      - "verify.py"
-      - ".github/workflows/ci.yml"
   pull_request:
-    paths:
-      - "vx.toml"
-      - "vx.lock"
-      - "justfile"
-      - "verify.py"
-      - ".github/workflows/ci.yml"
   workflow_dispatch:
 
 permissions:

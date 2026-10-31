@@ -7,10 +7,11 @@
 # pilot passes, no interruption of existing AE work).
 #
 # PRESERVED GATES (do not weaken when applying):
-#   * `dependency-compatibility` (floor/latest) — kept verbatim. It validates
-#     the minimum supported core pin (`dcc-mcp-core==0.20.14`) and the latest
-#     compatible resolution. That job's purpose IS the two dependency extremes,
-#     so it keeps explicit pip floor/latest installs and is NOT migrated here.
+#   * `dependency-compatibility` (floor/latest) — the pip floor/latest installs
+#     are kept verbatim. It validates the minimum supported core pin
+#     (`dcc-mcp-core==0.20.14`) and the latest compatible resolution; that job's
+#     purpose IS the two dependency extremes, so it is NOT migrated here. Its
+#     checkout only adds credential hardening (no token persisted for pip builds).
 #   * build + `twine check dist/*` — the release/security gates, kept as
 #     `vx python -m build` / `vx python -m twine check`, still run in the test
 #     job on every matrix leg.
@@ -55,7 +56,9 @@ jobs:
       matrix:
         lane: [floor, latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
