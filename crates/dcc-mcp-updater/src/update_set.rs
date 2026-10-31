@@ -684,7 +684,17 @@ fn install_verified_sibling_with_timeout(
 
 fn apply_entries(journal: &UpdateJournal) -> Result<(), UpdateError> {
     apply_entries_with(journal, |entry| {
-        std::fs::rename(&entry.prepared, &entry.target)?;
+        record_io_failure(
+            IoOp {
+                stage: "apply",
+                operation: "rename_prepared_to_target",
+                source: "prepared-update-component",
+                target: "current-exe",
+            },
+            &entry.prepared,
+            &entry.target,
+            std::fs::rename(&entry.prepared, &entry.target),
+        )?;
         Ok(())
     })
 }
@@ -711,7 +721,17 @@ fn apply_entries_with(
                 })?;
             require_file_hash(&backup, original_sha256, "stale update backup")?;
             require_file_hash(&target, original_sha256, "restored update target")?;
-            std::fs::remove_file(&backup)?;
+            record_io_failure(
+                IoOp {
+                    stage: "apply",
+                    operation: "remove_stale_backup",
+                    source: "backup",
+                    target: "removed-backup",
+                },
+                &backup,
+                &backup,
+                std::fs::remove_file(&backup),
+            )?;
         }
         if journal.entries[index].had_original {
             let original_sha256 = journal.entries[index]
@@ -724,7 +744,17 @@ fn apply_entries_with(
                     ))
                 })?;
             require_file_hash(&target, original_sha256, "update target")?;
-            std::fs::rename(&target, &backup)?;
+            record_io_failure(
+                IoOp {
+                    stage: "apply",
+                    operation: "rename_target_to_backup",
+                    source: "current-exe",
+                    target: "backup",
+                },
+                &target,
+                &backup,
+                std::fs::rename(&target, &backup),
+            )?;
         } else if ensure_reserved_file_path(&target, "new update target")? {
             return Err(UpdateError::Stage(format!(
                 "new update target appeared during the transaction: {}",
@@ -787,9 +817,29 @@ fn rollback_entry(entry: &JournalEntry) -> Result<(), UpdateError> {
             original_sha256,
         )?;
         if target_is_file {
-            std::fs::remove_file(&entry.target)?;
+            record_io_failure(
+                IoOp {
+                    stage: "rollback",
+                    operation: "remove_installed_target",
+                    source: "current-exe",
+                    target: "removed-target",
+                },
+                &entry.target,
+                &entry.target,
+                std::fs::remove_file(&entry.target),
+            )?;
         }
-        std::fs::rename(&entry.prepared, &entry.target)?;
+        record_io_failure(
+            IoOp {
+                stage: "rollback",
+                operation: "rename_prepared_to_target",
+                source: "prepared-update-component",
+                target: "current-exe",
+            },
+            &entry.prepared,
+            &entry.target,
+            std::fs::rename(&entry.prepared, &entry.target),
+        )?;
         require_file_hash(&entry.target, original_sha256, "restored update target")?;
     } else {
         if entry.original_sha256.is_some()
@@ -802,7 +852,17 @@ fn rollback_entry(entry: &JournalEntry) -> Result<(), UpdateError> {
         }
         if ensure_reserved_file_path(&entry.target, "new update target")? {
             require_file_hash(&entry.target, &entry.expected_sha256, "new update target")?;
-            std::fs::remove_file(&entry.target)?;
+            record_io_failure(
+                IoOp {
+                    stage: "rollback",
+                    operation: "remove_new_target",
+                    source: "current-exe",
+                    target: "removed-target",
+                },
+                &entry.target,
+                &entry.target,
+                std::fs::remove_file(&entry.target),
+            )?;
         }
         if ensure_reserved_file_path(&entry.prepared, "rollback prepared path")? {
             remove_reserved_file(&entry.prepared, "rollback prepared path")?;
@@ -820,13 +880,33 @@ fn prepare_verified_copy(
     ensure_reserved_file_path(target, label)?;
     #[cfg(test)]
     package::prepared_write_hook(target, "recovery");
-    std::fs::copy(source, target)?;
+    record_io_failure(
+        IoOp {
+            stage: "prepare",
+            operation: "copy_staged_to_prepared",
+            source: "verified-update-component",
+            target: "prepared-update-component",
+        },
+        source,
+        target,
+        std::fs::copy(source, target),
+    )?;
     require_file_hash(target, expected_sha256, label)
 }
 
 fn remove_reserved_file(path: &Path, label: &str) -> Result<(), UpdateError> {
     if ensure_reserved_file_path(path, label)? {
-        std::fs::remove_file(path)?;
+        record_io_failure(
+            IoOp {
+                stage: "cleanup",
+                operation: "remove_reserved_file",
+                source: "prepared-update-component",
+                target: "removed-prepared",
+            },
+            path,
+            path,
+            std::fs::remove_file(path),
+        )?;
     }
     Ok(())
 }
@@ -861,7 +941,17 @@ fn remove_known_file(
             path.display()
         )));
     }
-    std::fs::remove_file(path)?;
+    record_io_failure(
+        IoOp {
+            stage: "cleanup",
+            operation: "remove_committed_reserved_file",
+            source: "committed-reserved-file",
+            target: "removed-reserved-file",
+        },
+        path,
+        path,
+        std::fs::remove_file(path),
+    )?;
     Ok(())
 }
 
@@ -887,9 +977,29 @@ fn finish_committed(pending: &Path, journal: &UpdateJournal) -> Result<(), Updat
         .parent()
         .ok_or_else(|| UpdateError::Stage("pending update has no parent directory".into()))?;
     let detached = root.join(format!("{COMMITTED_SET_PREFIX}{}", unique_nonce()?));
-    std::fs::rename(pending, &detached)?;
+    record_io_failure(
+        IoOp {
+            stage: "commit",
+            operation: "rename_pending_to_detached",
+            source: "pending-set",
+            target: "detached-set",
+        },
+        pending,
+        &detached,
+        std::fs::rename(pending, &detached),
+    )?;
     cleanup_committed_entries(journal)?;
-    std::fs::remove_dir_all(detached)?;
+    record_io_failure(
+        IoOp {
+            stage: "commit",
+            operation: "remove_detached_set",
+            source: "detached-set",
+            target: "removed-detached-set",
+        },
+        &detached,
+        &detached,
+        std::fs::remove_dir_all(&detached),
+    )?;
     Ok(())
 }
 
@@ -957,9 +1067,29 @@ fn recover_stage_swap(root: &Path) -> Result<(), UpdateError> {
                 pending.display()
             )));
         }
-        std::fs::remove_dir_all(previous)?;
+        record_io_failure(
+            IoOp {
+                stage: "recover",
+                operation: "remove_superseded_previous_set",
+                source: "previous-set",
+                target: "removed-previous-set",
+            },
+            &previous,
+            &previous,
+            std::fs::remove_dir_all(&previous),
+        )?;
     } else {
-        std::fs::rename(previous, pending)?;
+        record_io_failure(
+            IoOp {
+                stage: "recover",
+                operation: "rename_previous_to_pending",
+                source: "previous-set",
+                target: "pending-set",
+            },
+            &previous,
+            &pending,
+            std::fs::rename(&previous, &pending),
+        )?;
     }
     Ok(())
 }
@@ -1058,14 +1188,34 @@ fn acquire_installation_lock(
     let started = Instant::now();
     let process =
         acquire_process_installation_lock(path_key(canonical_executable), started, timeout)?;
-    std::fs::create_dir_all(root)?;
+    record_io_failure(
+        IoOp {
+            stage: "lock",
+            operation: "create_dir_all",
+            source: "staging-root",
+            target: "staging-root",
+        },
+        root,
+        root,
+        std::fs::create_dir_all(root),
+    )?;
     let lock_path = root.join(TRANSACTION_LOCK_FILE);
-    let file = OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .read(true)
-        .write(true)
-        .open(&lock_path)?;
+    let file = record_io_failure(
+        IoOp {
+            stage: "lock",
+            operation: "open_transaction_lock",
+            source: "staging-root",
+            target: "transaction-lock-file",
+        },
+        root,
+        &lock_path,
+        OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .open(&lock_path),
+    )?;
     loop {
         match FileExt::try_lock(&file) {
             Ok(()) => {
@@ -1264,7 +1414,17 @@ fn canonical_existing(path: &Path) -> Result<PathBuf, UpdateError> {
             path.display()
         )));
     }
-    Ok(std::fs::canonicalize(path)?)
+    record_io_failure(
+        IoOp {
+            stage: "resolve",
+            operation: "canonicalize",
+            source: "current-exe",
+            target: "canonical-exe",
+        },
+        path,
+        path,
+        std::fs::canonicalize(path),
+    )
 }
 
 fn target_key(target: &UpdateTarget) -> String {
@@ -1307,6 +1467,104 @@ fn write_json_atomic<T: Serialize>(path: &Path, value: &T) -> Result<(), UpdateE
 fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<T, UpdateError> {
     let bytes = std::fs::read(path)?;
     Ok(serde_json::from_slice(&bytes)?)
+}
+
+// ── Path-safe I/O diagnostics ───────────────────────────────────────────────
+//
+// The staged-update swap is a chain of filesystem operations, and a failure
+// on Windows can surface as a bare `os error 5` with no indication of which
+// step failed. These helpers attach static, path-free context to that error
+// and to a structured log event. Absolute paths are deliberately kept out of
+// the public error/log: installation paths commonly contain user names and
+// other sensitive layout. Redacted paths are available only on an opt-in
+// local diagnostic channel for byte-level debugging on the affected host.
+
+/// Static, non-sensitive description of one filesystem operation in the
+/// staged-update transaction. Every field is a fixed category, never a path.
+#[derive(Clone, Copy)]
+struct IoOp {
+    stage: &'static str,
+    operation: &'static str,
+    source: &'static str,
+    target: &'static str,
+}
+
+/// Opt-in gate for the controlled local path diagnostic. Unset by default, so
+/// no path (redacted or otherwise) is emitted unless the host explicitly asks
+/// for byte-level diagnostics.
+const UPDATE_DIAG_PATHS_ENV: &str = "DCC_MCP_UPDATE_DIAG_PATHS";
+
+/// Bound and strip control characters before text reaches a log or warning.
+fn sanitize(text: &str, max_chars: usize) -> String {
+    text.chars()
+        .filter(|c| !c.is_control())
+        .take(max_chars)
+        .collect()
+}
+
+/// Redact a path for the controlled local diagnostic channel. User profile
+/// and data-directory prefixes are replaced and the result is bounded. This
+/// is never used by the propagated error or the always-on warning.
+fn redact_path(path: &Path) -> String {
+    let mut text = path.to_string_lossy().into_owned();
+    for (key, label) in [
+        ("USERPROFILE", "<home>"),
+        ("HOME", "<home>"),
+        ("APPDATA", "<appdata>"),
+        ("LOCALAPPDATA", "<localappdata>"),
+    ] {
+        if let Ok(prefix) = std::env::var(key)
+            && !prefix.is_empty()
+        {
+            text = text.replace(&prefix, label);
+        }
+    }
+    sanitize(&text, 256)
+}
+
+/// Run a filesystem operation and, on failure, attach diagnosable but
+/// path-safe context to both the error and a structured log event.
+///
+/// The original [`std::io::Error`] is preserved as the error source, so its
+/// raw OS code and `ErrorKind` remain available and the caller's rollback
+/// semantics are unchanged. Public output carries only static categories;
+/// redacted paths are emitted solely on the opt-in `debug` diagnostic channel.
+fn record_io_failure<T>(
+    op: IoOp,
+    source_path: &Path,
+    target_path: &Path,
+    result: std::io::Result<T>,
+) -> Result<T, UpdateError> {
+    result.map_err(|error| {
+        let os_error = error.raw_os_error();
+        tracing::warn!(
+            stage = op.stage,
+            operation = op.operation,
+            source = op.source,
+            target = op.target,
+            os_error = ?os_error,
+            error_kind = ?error.kind(),
+            error = %sanitize(&error.to_string(), 240),
+            "staged update filesystem operation failed"
+        );
+        if std::env::var_os(UPDATE_DIAG_PATHS_ENV).is_some() {
+            tracing::debug!(
+                stage = op.stage,
+                operation = op.operation,
+                source_path = %redact_path(source_path),
+                target_path = %redact_path(target_path),
+                os_error = ?os_error,
+                "staged update filesystem operation failed (controlled local path diagnostic)"
+            );
+        }
+        UpdateError::IoWithContext {
+            stage: op.stage,
+            operation: op.operation,
+            source: op.source,
+            target: op.target,
+            error,
+        }
+    })
 }
 
 #[cfg(test)]
