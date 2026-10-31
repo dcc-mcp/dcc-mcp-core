@@ -192,6 +192,15 @@ run subprocesses.
 Doctor also skips staged-update application/quarantine, marketplace update
 checks, and background CLI update-cache refresh without requiring an opt-out.
 
+The default registry is `~/.dcc-mcp/registry-live` on all platforms, using
+`USERPROFILE` on Windows and `HOME` on Unix, with native home lookup when the
+variable is absent or empty. `TEMP`/`TMP` redirection does not affect inventory.
+Explicit registry options and `DCC_MCP_REGISTRY_DIR` retain priority; use the
+environment override to share a registry with older running services or select
+a temporary test directory. `list.registry_dir` and `doctor.local.registry_dir`
+report the directory read. Old registries are never scanned, migrated, or merged
+automatically.
+
 The local inventory is a `read_only_snapshot`: doctor never creates the registry
 directory, opens `services.lock`, prunes rows, or quarantines malformed JSON.
 `evicted` is zero and `liveness: not_checked` means readiness counts describe

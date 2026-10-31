@@ -42,13 +42,7 @@ impl LifecycleStore {
 
     /// Persist `operation` and bind it to its `dcc_type|project` key.
     pub fn save(&self, operation: &LifecycleOperation) -> anyhow::Result<()> {
-        std::fs::create_dir_all(&self.dir)
-            .with_context(|| format!("creating lifecycle dir {}", self.dir.display()))?;
-        let path = self.operation_path(&operation.operation_id);
-        let encoded =
-            serde_json::to_string_pretty(operation).context("encoding lifecycle operation")?;
-        std::fs::write(&path, encoded)
-            .with_context(|| format!("writing lifecycle operation {}", path.display()))?;
+        self.save_record(operation)?;
 
         let mut index = self.read_index()?;
         index.operations.insert(
@@ -56,6 +50,25 @@ impl LifecycleStore {
             operation.operation_id.clone(),
         );
         self.write_index(&index)?;
+        Ok(())
+    }
+
+    /// Persist an operation without changing the owning-operation index.
+    ///
+    /// Reuse/convergence requests are observations of an existing instance;
+    /// they must not replace the operation that owns the launched process.
+    pub fn save_unbound(&self, operation: &LifecycleOperation) -> anyhow::Result<()> {
+        self.save_record(operation)
+    }
+
+    fn save_record(&self, operation: &LifecycleOperation) -> anyhow::Result<()> {
+        std::fs::create_dir_all(&self.dir)
+            .with_context(|| format!("creating lifecycle dir {}", self.dir.display()))?;
+        let path = self.operation_path(&operation.operation_id);
+        let encoded =
+            serde_json::to_string_pretty(operation).context("encoding lifecycle operation")?;
+        std::fs::write(&path, encoded)
+            .with_context(|| format!("writing lifecycle operation {}", path.display()))?;
         Ok(())
     }
 

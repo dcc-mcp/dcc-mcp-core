@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -335,30 +335,4 @@ pub(crate) fn build_service_entry(args: &SidecarArgs, registry_dir: &Path) -> Se
     entry
 }
 
-pub(crate) fn default_registry_dir() -> PathBuf {
-    // Must match ``GatewayRunner::new``'s fallback exactly:
-    //     std::env::temp_dir().join("dcc-mcp-registry")
-    //
-    // Previously this used ``<tempdir>/dcc-mcp/registry/`` (extra dir
-    // level), which split-brained the FileRegistry whenever an in-DCC
-    // adapter spawned a sidecar without explicitly forwarding
-    // ``--registry-dir``: the sidecar wrote rows to one path while the
-    // adapter's gateway runner read from another, so gateway election
-    // saw only its own candidates. Observed on 2026-05-16 in a live
-    // three-Maya session: 36 stale sidecar rows accumulated in the
-    // wrong dir, gateway port stayed dark despite all peers alive
-    // (see dcc-mcp-maya #248 follow-up commit a6e4dea7).
-    //
-    // RFC #998 follow-up. Aligned with:
-    //   - ``crates/dcc-mcp-gateway/src/gateway/runner.rs::GatewayRunner::new``
-    //   - ``python/dcc_mcp_core/server_base.py`` defaults
-    //   - ``crates/dcc-mcp-server/src/main.rs`` (the non-sidecar paths)
-    //
-    // The env var ``DCC_MCP_REGISTRY_DIR`` always wins so deployments
-    // pinning an explicit path (CI, multi-host, custom temp policy)
-    // keep working.
-    if let Ok(dir) = std::env::var("DCC_MCP_REGISTRY_DIR") {
-        return PathBuf::from(dir);
-    }
-    std::env::temp_dir().join("dcc-mcp-registry")
-}
+pub(crate) use dcc_mcp_gateway_ensure::default_registry_dir;

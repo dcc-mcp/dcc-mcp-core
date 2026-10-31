@@ -189,6 +189,23 @@ pub async fn start_instance(request: StartInstanceRequest) -> anyhow::Result<Val
                 json!({ "candidates": candidates, "launch_plan": plan.summary() }),
             ));
         }
+        Reuse::PendingOwner { owning_operation } => {
+            let mut value = report.failure(
+                LaunchStage::Reuse,
+                BlockingState::AdapterBootstrap,
+                format!(
+                    "{dcc_type} launch by operation {} is still running but has not registered; refusing to spawn a second host",
+                    owning_operation.operation_id
+                ),
+                json!({
+                    "pending_operation": operation_summary(&owning_operation),
+                    "launch_plan": plan.summary(),
+                }),
+            );
+            value["converged_on_operation_id"] =
+                Value::String(owning_operation.operation_id.clone());
+            return Ok(value);
+        }
         Reuse::Instance {
             entry,
             owning_operation,
@@ -198,7 +215,7 @@ pub async fn start_instance(request: StartInstanceRequest) -> anyhow::Result<Val
                 .map(|owner| owner.operation_id.clone())
                 .filter(|id| id != &operation_id);
             operation.launched = false;
-            operation.owned = owning_operation.as_ref().is_some_and(|owner| owner.owned);
+            operation.owned = false;
             operation.pid = entry.pid.or(entry.host_pid);
             operation.instance_id = Some(entry.instance_id.to_string());
             operation.touch();
@@ -206,8 +223,22 @@ pub async fn start_instance(request: StartInstanceRequest) -> anyhow::Result<Val
             // record, so assigning it after `store.save` would leave the
             // on-disk operation without it.
             let blocking = classify_blocking_state(&entry.metadata);
+            let had_owning_operation = owning_operation.is_some();
+            if let Some(mut owner) = owning_operation.filter(|owner| {
+                owner.owned && owner.instance_id.is_none() && entry_matches_operation(&entry, owner)
+            }) {
+                owner.instance_id = Some(entry.instance_id.to_string());
+                owner.pid = owner.pid.or(entry.pid).or(entry.host_pid);
+                owner.blocking_state = Some(blocking.as_str().to_string());
+                owner.touch();
+                store.save(&owner)?;
+            }
             operation.blocking_state = Some(blocking.as_str().to_string());
-            store.save(&operation)?;
+            if had_owning_operation {
+                store.save_unbound(&operation)?;
+            } else {
+                store.save(&operation)?;
+            }
 
             let ready =
                 blocking == BlockingState::None && local_instance::direct_control_ready(&entry);
@@ -424,6 +455,9 @@ pub fn owned_operation_for(
 #[allow(clippy::large_enum_variant)]
 enum Reuse {
     None,
+    PendingOwner {
+        owning_operation: LifecycleOperation,
+    },
     Instance {
         entry: ServiceEntry,
         owning_operation: Option<LifecycleOperation>,
@@ -442,9 +476,6 @@ fn find_reusable(
     instance_hint: Option<&str>,
 ) -> anyhow::Result<Reuse> {
     let entries = local_instance::select_entries(registry_dir, Some(dcc_type), instance_hint)?;
-    if entries.is_empty() {
-        return Ok(Reuse::None);
-    }
     let owning_operation = store.find_owned(dcc_type, project)?;
     let owned_id = owning_operation
         .as_ref()
@@ -463,6 +494,19 @@ fn find_reusable(
         })
         .collect();
     if matched.is_empty() {
+        // A launch can time out before the host registers. Its operation still
+        // owns a live process in the same registry, so an immediate retry must
+        // converge instead of spawning a second host. Check this only after
+        // matching registry rows so a late registration can be claimed.
+        if let Some(operation) = owning_operation.as_ref()
+            && operation.owned
+            && operation.instance_id.is_none()
+            && owned_pid.is_some_and(crate::application::gateway_ensure::is_process_alive)
+        {
+            return Ok(Reuse::PendingOwner {
+                owning_operation: operation.clone(),
+            });
+        }
         return Ok(Reuse::None);
     }
 
@@ -493,6 +537,13 @@ fn find_reusable(
         entry,
         owning_operation,
     })
+}
+
+fn entry_matches_operation(entry: &ServiceEntry, operation: &LifecycleOperation) -> bool {
+    entry_metadata(entry, OPERATION_METADATA_KEYS).is_some_and(|id| id == operation.operation_id)
+        || operation
+            .pid
+            .is_some_and(|pid| entry.pid == Some(pid) || entry.host_pid == Some(pid))
 }
 
 // ── Registration wait ──────────────────────────────────────────────────────

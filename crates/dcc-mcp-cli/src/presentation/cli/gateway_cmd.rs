@@ -117,7 +117,8 @@ pub(crate) async fn run_gateway_cmd(
             let reg = request
                 .registry_dir
                 .clone()
-                .unwrap_or_else(gateway_ensure::default_registry_dir);
+                .map(Ok)
+                .unwrap_or_else(gateway_ensure::default_registry_dir)?;
             let args = gateway_ensure::EnsureGatewayArgs {
                 host: request.host,
                 port: request.port,

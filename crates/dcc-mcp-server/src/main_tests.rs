@@ -96,7 +96,7 @@ fn resolved_otlp_config_loads_default_local_file() {
 fn resolve_registry_dir_prefers_explicit_path() {
     let explicit = PathBuf::from(r"C:\dcc-mcp\registry");
 
-    assert_eq!(resolve_registry_dir(Some(&explicit)), explicit);
+    assert_eq!(resolve_registry_dir(Some(&explicit)).unwrap(), explicit);
 }
 
 #[cfg(all(feature = "gateway-auto", feature = "gateway-daemon"))]
@@ -187,7 +187,8 @@ fn server_gateway_daemon_options_preserve_cli_identity() {
     .expect("valid CLI args");
     let registry_dir_path = args.server.registry_dir.as_deref().map(PathBuf::from);
 
-    let opts = build_server_gateway_daemon_options(&args.server, registry_dir_path.as_ref());
+    let opts =
+        build_server_gateway_daemon_options(&args.server, registry_dir_path.as_ref()).unwrap();
     assert_eq!(opts.host, "0.0.0.0");
     assert_eq!(opts.port, 9765);
     assert_eq!(opts.name.as_deref(), Some("studio-gateway"));
@@ -197,7 +198,7 @@ fn server_gateway_daemon_options_preserve_cli_identity() {
 
     let args = Args::try_parse_from(["dcc-mcp-server", "--server-name", "houdini-lookdev"])
         .expect("valid CLI args");
-    let opts = build_server_gateway_daemon_options(&args.server, None);
+    let opts = build_server_gateway_daemon_options(&args.server, None).unwrap();
     assert_eq!(opts.host, "127.0.0.1");
     assert_eq!(opts.name.as_deref(), Some("gateway-for-houdini-lookdev"));
 }

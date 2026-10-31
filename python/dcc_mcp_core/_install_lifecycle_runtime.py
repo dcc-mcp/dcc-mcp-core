@@ -7,7 +7,6 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-import tempfile
 from typing import Any
 from typing import Dict
 from typing import Iterable
@@ -51,7 +50,14 @@ _LAUNCH_COMMAND_KEYS = ("launch_command", "dcc_mcp_launch_command")
 
 def default_registry_dir() -> str:
     """Return the shared FileRegistry directory without importing ``_core``."""
-    return os.environ.get(REGISTRY_ENV) or str(Path(tempfile.gettempdir()) / "dcc-mcp-registry")
+    override = os.environ.get(REGISTRY_ENV)
+    if override:
+        return override
+    home = os.environ.get("USERPROFILE" if os.name == "nt" else "HOME")
+    root = Path(home) if home else Path.home()
+    if not root.is_absolute():
+        raise RuntimeError("Cannot resolve absolute user home; set DCC_MCP_REGISTRY_DIR explicitly")
+    return str(root / ".dcc-mcp" / "registry-live")
 
 
 def query_runtime_state(
