@@ -11,11 +11,14 @@ use serde::{Deserialize, Serialize};
 
 use super::{UpdateError, sha256_bytes, sha256_file, staging_dir};
 
+mod io_diagnostics;
 mod package;
 pub use package::{
     CheckedPackage, PackageFile, PackageIdentity, PackagePreconditions, install_verified_package,
     install_verified_package_checked, validate_package_paths,
 };
+
+use io_diagnostics::{IoOp, record_io_failure};
 
 const PENDING_SET_DIR: &str = "pending-set";
 const PREVIOUS_SET_DIR: &str = "pending-set.previous";
@@ -684,7 +687,17 @@ fn install_verified_sibling_with_timeout(
 
 fn apply_entries(journal: &UpdateJournal) -> Result<(), UpdateError> {
     apply_entries_with(journal, |entry| {
-        std::fs::rename(&entry.prepared, &entry.target)?;
+        record_io_failure(
+            IoOp {
+                stage: "apply",
+                operation: "rename_prepared_to_target",
+                source: "prepared-update-component",
+                target: "current-exe",
+            },
+            &entry.prepared,
+            &entry.target,
+            std::fs::rename(&entry.prepared, &entry.target),
+        )?;
         Ok(())
     })
 }
@@ -711,7 +724,17 @@ fn apply_entries_with(
                 })?;
             require_file_hash(&backup, original_sha256, "stale update backup")?;
             require_file_hash(&target, original_sha256, "restored update target")?;
-            std::fs::remove_file(&backup)?;
+            record_io_failure(
+                IoOp {
+                    stage: "apply",
+                    operation: "remove_stale_backup",
+                    source: "backup",
+                    target: "removed-backup",
+                },
+                &backup,
+                &backup,
+                std::fs::remove_file(&backup),
+            )?;
         }
         if journal.entries[index].had_original {
             let original_sha256 = journal.entries[index]
@@ -724,7 +747,17 @@ fn apply_entries_with(
                     ))
                 })?;
             require_file_hash(&target, original_sha256, "update target")?;
-            std::fs::rename(&target, &backup)?;
+            record_io_failure(
+                IoOp {
+                    stage: "apply",
+                    operation: "rename_target_to_backup",
+                    source: "current-exe",
+                    target: "backup",
+                },
+                &target,
+                &backup,
+                std::fs::rename(&target, &backup),
+            )?;
         } else if ensure_reserved_file_path(&target, "new update target")? {
             return Err(UpdateError::Stage(format!(
                 "new update target appeared during the transaction: {}",
@@ -787,9 +820,29 @@ fn rollback_entry(entry: &JournalEntry) -> Result<(), UpdateError> {
             original_sha256,
         )?;
         if target_is_file {
-            std::fs::remove_file(&entry.target)?;
+            record_io_failure(
+                IoOp {
+                    stage: "rollback",
+                    operation: "remove_installed_target",
+                    source: "current-exe",
+                    target: "removed-target",
+                },
+                &entry.target,
+                &entry.target,
+                std::fs::remove_file(&entry.target),
+            )?;
         }
-        std::fs::rename(&entry.prepared, &entry.target)?;
+        record_io_failure(
+            IoOp {
+                stage: "rollback",
+                operation: "rename_prepared_to_target",
+                source: "prepared-update-component",
+                target: "current-exe",
+            },
+            &entry.prepared,
+            &entry.target,
+            std::fs::rename(&entry.prepared, &entry.target),
+        )?;
         require_file_hash(&entry.target, original_sha256, "restored update target")?;
     } else {
         if entry.original_sha256.is_some()
@@ -802,7 +855,17 @@ fn rollback_entry(entry: &JournalEntry) -> Result<(), UpdateError> {
         }
         if ensure_reserved_file_path(&entry.target, "new update target")? {
             require_file_hash(&entry.target, &entry.expected_sha256, "new update target")?;
-            std::fs::remove_file(&entry.target)?;
+            record_io_failure(
+                IoOp {
+                    stage: "rollback",
+                    operation: "remove_new_target",
+                    source: "current-exe",
+                    target: "removed-target",
+                },
+                &entry.target,
+                &entry.target,
+                std::fs::remove_file(&entry.target),
+            )?;
         }
         if ensure_reserved_file_path(&entry.prepared, "rollback prepared path")? {
             remove_reserved_file(&entry.prepared, "rollback prepared path")?;
@@ -820,13 +883,33 @@ fn prepare_verified_copy(
     ensure_reserved_file_path(target, label)?;
     #[cfg(test)]
     package::prepared_write_hook(target, "recovery");
-    std::fs::copy(source, target)?;
+    record_io_failure(
+        IoOp {
+            stage: "prepare",
+            operation: "copy_staged_to_prepared",
+            source: "verified-update-component",
+            target: "prepared-update-component",
+        },
+        source,
+        target,
+        std::fs::copy(source, target),
+    )?;
     require_file_hash(target, expected_sha256, label)
 }
 
 fn remove_reserved_file(path: &Path, label: &str) -> Result<(), UpdateError> {
     if ensure_reserved_file_path(path, label)? {
-        std::fs::remove_file(path)?;
+        record_io_failure(
+            IoOp {
+                stage: "cleanup",
+                operation: "remove_reserved_file",
+                source: "prepared-update-component",
+                target: "removed-prepared",
+            },
+            path,
+            path,
+            std::fs::remove_file(path),
+        )?;
     }
     Ok(())
 }
@@ -861,7 +944,17 @@ fn remove_known_file(
             path.display()
         )));
     }
-    std::fs::remove_file(path)?;
+    record_io_failure(
+        IoOp {
+            stage: "cleanup",
+            operation: "remove_committed_reserved_file",
+            source: "committed-reserved-file",
+            target: "removed-reserved-file",
+        },
+        path,
+        path,
+        std::fs::remove_file(path),
+    )?;
     Ok(())
 }
 
@@ -887,9 +980,29 @@ fn finish_committed(pending: &Path, journal: &UpdateJournal) -> Result<(), Updat
         .parent()
         .ok_or_else(|| UpdateError::Stage("pending update has no parent directory".into()))?;
     let detached = root.join(format!("{COMMITTED_SET_PREFIX}{}", unique_nonce()?));
-    std::fs::rename(pending, &detached)?;
+    record_io_failure(
+        IoOp {
+            stage: "commit",
+            operation: "rename_pending_to_detached",
+            source: "pending-set",
+            target: "detached-set",
+        },
+        pending,
+        &detached,
+        std::fs::rename(pending, &detached),
+    )?;
     cleanup_committed_entries(journal)?;
-    std::fs::remove_dir_all(detached)?;
+    record_io_failure(
+        IoOp {
+            stage: "commit",
+            operation: "remove_detached_set",
+            source: "detached-set",
+            target: "removed-detached-set",
+        },
+        &detached,
+        &detached,
+        std::fs::remove_dir_all(&detached),
+    )?;
     Ok(())
 }
 
@@ -957,9 +1070,29 @@ fn recover_stage_swap(root: &Path) -> Result<(), UpdateError> {
                 pending.display()
             )));
         }
-        std::fs::remove_dir_all(previous)?;
+        record_io_failure(
+            IoOp {
+                stage: "recover",
+                operation: "remove_superseded_previous_set",
+                source: "previous-set",
+                target: "removed-previous-set",
+            },
+            &previous,
+            &previous,
+            std::fs::remove_dir_all(&previous),
+        )?;
     } else {
-        std::fs::rename(previous, pending)?;
+        record_io_failure(
+            IoOp {
+                stage: "recover",
+                operation: "rename_previous_to_pending",
+                source: "previous-set",
+                target: "pending-set",
+            },
+            &previous,
+            &pending,
+            std::fs::rename(&previous, &pending),
+        )?;
     }
     Ok(())
 }
@@ -1058,14 +1191,34 @@ fn acquire_installation_lock(
     let started = Instant::now();
     let process =
         acquire_process_installation_lock(path_key(canonical_executable), started, timeout)?;
-    std::fs::create_dir_all(root)?;
+    record_io_failure(
+        IoOp {
+            stage: "lock",
+            operation: "create_dir_all",
+            source: "staging-root",
+            target: "staging-root",
+        },
+        root,
+        root,
+        std::fs::create_dir_all(root),
+    )?;
     let lock_path = root.join(TRANSACTION_LOCK_FILE);
-    let file = OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .read(true)
-        .write(true)
-        .open(&lock_path)?;
+    let file = record_io_failure(
+        IoOp {
+            stage: "lock",
+            operation: "open_transaction_lock",
+            source: "staging-root",
+            target: "transaction-lock-file",
+        },
+        root,
+        &lock_path,
+        OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .open(&lock_path),
+    )?;
     loop {
         match FileExt::try_lock(&file) {
             Ok(()) => {
@@ -1264,7 +1417,17 @@ fn canonical_existing(path: &Path) -> Result<PathBuf, UpdateError> {
             path.display()
         )));
     }
-    Ok(std::fs::canonicalize(path)?)
+    record_io_failure(
+        IoOp {
+            stage: "resolve",
+            operation: "canonicalize",
+            source: "current-exe",
+            target: "canonical-exe",
+        },
+        path,
+        path,
+        std::fs::canonicalize(path),
+    )
 }
 
 fn target_key(target: &UpdateTarget) -> String {
