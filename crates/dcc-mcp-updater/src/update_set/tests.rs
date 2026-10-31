@@ -922,3 +922,187 @@ fn bootstrap_replaces_missing_or_stale_sibling_after_hash_check() {
     .unwrap();
     assert_eq!(std::fs::read(host).unwrap(), b"new-host");
 }
+
+// ── Path-safe I/O diagnostics (regression for #2864) ──────────────────────
+//
+// These tests only exercise the diagnostic layer: they must NOT assume a
+// particular activation fix. The activation bug itself is still open; what is
+// verified here is that a failing staged-update filesystem operation carries
+// a diagnosable, path-free context and preserves the original OS error and
+// rollback semantics.
+
+fn io_op_fixture() -> IoOp {
+    IoOp {
+        stage: "apply",
+        operation: "rename_target_to_backup",
+        source: "current-exe",
+        target: "backup",
+    }
+}
+
+#[test]
+fn record_io_failure_preserves_raw_os_error_and_path_free_context() {
+    let temp = tempfile::tempdir().unwrap();
+    let secret_dir = temp.path().join("Users").join("private-user").join("bin");
+    let source = secret_dir.join("dcc-mcp-cli.exe.dcc-mcp-new");
+    let target = secret_dir.join("dcc-mcp-cli.exe");
+    let code = if cfg!(windows) { 5 } else { 13 };
+    let io_error = std::io::Error::from_raw_os_error(code);
+
+    let error =
+        record_io_failure(io_op_fixture(), &source, &target, Err::<(), _>(io_error)).unwrap_err();
+
+    // The original OS error stays reachable through the error source chain.
+    let source_io: &std::io::Error = match &error {
+        UpdateError::IoWithContext { error, .. } => error,
+        other => panic!("expected IoWithContext, got {other:?}"),
+    };
+    assert_eq!(source_io.raw_os_error(), Some(code));
+
+    // The public error names the operation and raw OS code but contains no
+    // absolute path (no user directory / credential material).
+    let message = error.to_string();
+    assert!(message.contains("apply"), "missing stage: {message}");
+    assert!(
+        message.contains("rename_target_to_backup"),
+        "missing operation: {message}"
+    );
+    assert!(
+        message.contains("current-exe") && message.contains("backup"),
+        "missing path categories: {message}"
+    );
+    assert!(
+        message.contains(&format!("os error {code}")),
+        "missing raw OS error: {message}"
+    );
+    assert!(
+        !message.contains("private-user") && !message.contains(&*temp.path().to_string_lossy()),
+        "absolute path leaked into public error: {message}"
+    );
+}
+
+#[test]
+fn diagnostic_helpers_redact_and_bound_sensitive_text() {
+    // A path under the user profile must have that prefix redacted so no
+    // user directory leaks into the controlled local diagnostic channel.
+    if let Some(home) = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")) {
+        let home = PathBuf::from(home);
+        let path = home
+            .join("AppData")
+            .join("Roaming")
+            .join("update")
+            .join("dcc-mcp-cli.exe");
+        let redacted = redact_path(&path);
+        assert!(
+            !redacted.contains(&*home.to_string_lossy()),
+            "home prefix was not redacted: {redacted}"
+        );
+        assert!(
+            redacted.ends_with("dcc-mcp-cli.exe"),
+            "redaction dropped the diagnostically useful file name: {redacted}"
+        );
+    }
+    // Control characters are stripped and output is bounded.
+    let noisy = format!("ok\n\u{1b}[31m{}", "x".repeat(1024));
+    let clean = sanitize(&noisy, 32);
+    assert_eq!(clean.chars().count(), 32);
+    assert!(!clean.contains('\n'));
+    assert!(!clean.contains('\u{1b}'));
+}
+
+#[cfg(windows)]
+fn deny_delete(path: &Path) -> std::fs::File {
+    use std::os::windows::fs::OpenOptionsExt;
+    use windows_sys::Win32::Storage::FileSystem::{FILE_SHARE_READ, FILE_SHARE_WRITE};
+    // Deliberately omit FILE_SHARE_DELETE so a rename/delete of this file
+    // fails in a real Windows temp directory. This models the "another
+    // program is using this file" family behind #2864 without touching
+    // ACLs, privileges, services, or any production binary.
+    std::fs::OpenOptions::new()
+        .read(true)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+        .open(path)
+        .unwrap()
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_locked_target_reports_diagnosable_io_error_and_rolls_back() {
+    let temp = tempfile::tempdir().unwrap();
+    let current = write_fixture(temp.path(), "dcc-mcp-cli.exe", b"old-cli");
+    let downloaded = write_fixture(temp.path(), "cli.download", b"new-cli");
+    let expected_sha256 = sha256_file(&downloaded).unwrap();
+    let binary_name = unique_name("win-locked-target");
+
+    stage_verified_binary_update_for(&binary_name, &current, &downloaded, &expected_sha256)
+        .unwrap();
+
+    // Hold a handle without FILE_SHARE_DELETE so the swap's first rename
+    // fails with a real Windows error (ERROR_SHARING_VIOLATION, os error 32,
+    // on this host) in a real temp directory.
+    let _locked = deny_delete(&current);
+    let error = apply_staged_binary_update_for(&binary_name, &current).unwrap_err();
+
+    let source_io = match &error {
+        UpdateError::IoWithContext { error, .. } => error,
+        other => panic!("expected IoWithContext, got {other:?}"),
+    };
+    // A real, non-zero Windows OS error from the failing rename is preserved.
+    assert!(
+        source_io.raw_os_error().is_some_and(|code| code != 0),
+        "failing rename must keep its raw OS error: {error:?}"
+    );
+
+    let message = error.to_string();
+    assert!(
+        message.contains("rename_target_to_backup"),
+        "failing operation not named: {message}"
+    );
+    assert!(
+        message.contains("os error"),
+        "raw OS error not surfaced: {message}"
+    );
+    assert!(
+        !message.contains(&*temp.path().to_string_lossy()),
+        "absolute temp path leaked: {message}"
+    );
+    // Rollback semantics: the original executable is intact.
+    assert_eq!(std::fs::read(&current).unwrap(), b"old-cli");
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_access_denied_error_5_is_preserved_by_the_diagnostic_layer() {
+    // remove_file on a directory yields a real ERROR_ACCESS_DENIED
+    // (os error 5, PermissionDenied) on Windows, with no ACL or privilege
+    // changes. Feed that genuine error through the same wrapping the swap
+    // uses and verify the exact code survives and stays path-free.
+    let temp = tempfile::tempdir().unwrap();
+    let directory = temp.path().join("occupied-directory");
+    std::fs::create_dir_all(&directory).unwrap();
+    std::fs::write(directory.join("child.bin"), b"x").unwrap();
+    let raw_error = std::fs::remove_file(&directory).unwrap_err();
+    assert_eq!(raw_error.raw_os_error(), Some(5));
+
+    let error = record_io_failure(
+        io_op_fixture(),
+        &directory,
+        &directory,
+        Err::<(), _>(raw_error),
+    )
+    .unwrap_err();
+
+    let message = error.to_string();
+    assert!(
+        message.contains("os error 5"),
+        "exact os error 5 not surfaced: {message}"
+    );
+    assert!(
+        message.contains("rename_target_to_backup"),
+        "operation not named: {message}"
+    );
+    assert!(
+        !message.contains(&*temp.path().to_string_lossy()),
+        "absolute path leaked: {message}"
+    );
+}
