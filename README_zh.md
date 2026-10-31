@@ -182,11 +182,12 @@ installer；不要把远程 installer 通过管道交给 shell，也不要绕过
 
 ```bash
 dcc-mcp-cli update check
-dcc-mcp-cli update apply
+dcc-mcp-cli update          # 一步完成检查、下载并暂存
 ```
 
-`update apply` 会下载并暂存最新版 CLI，在下一次启动时生效；它不会更新正在
-运行的 `dcc-mcp-server`，server 需要在自己的运行环境中单独更新。
+`dcc-mcp-cli update` 会一次性完成检查、下载并暂存最新版 CLI，在下一次启动时
+生效；`update apply` 和 `--yes` 仍然保留以兼容旧脚本。它不会更新正在运行的
+`dcc-mcp-server`，server 需要在自己的运行环境中单独更新。
 
 安装后：
 
@@ -220,7 +221,7 @@ dcc-mcp-cli update check --binary dcc-mcp-server --current-version <server_versi
    版本检查、一键暂存 server 更新、skill 路径、marketplace 包更新、集成、
    traces、logs 和 Token 活动。
 4. 对正在运行的 backend，使用 Instances 面板里的更新按钮暂存
-   `dcc-mcp-server` 更新。`dcc-mcp-cli update apply` 只用于更新 CLI 二进制本身。
+   `dcc-mcp-server` 更新。`dcc-mcp-cli update` 只用于更新 CLI 二进制本身。
 
 调用失败时保留 `request_id`，根据故障类型运行 `doctor` 或带
 `--status failure --session-id <id>` 的 `stats`，再使用 gateway 级

@@ -247,9 +247,11 @@ pipx install dcc-mcp-cli
 pip install dcc-mcp-cli
 ~~~
 
-Package-manager installs are managed by the package manager: upgrade with
-`uv tool upgrade dcc-mcp-cli` (or `pip install --upgrade dcc-mcp-cli`) rather
-than `dcc-mcp-cli update apply`, which is disabled for those builds.
+Package-manager installs also support `dcc-mcp-cli update`, which checks,
+downloads, and stages the latest CLI in one step. The package manager's own
+record then lags behind the binary on disk and the CLI reports that mismatch as
+an advisory; prefer `uv tool upgrade dcc-mcp-cli` (or
+`pip install --upgrade dcc-mcp-cli`) when you want its metadata to stay in sync.
 
 Otherwise, obtain the user's consent, install the public `dcc-mcp`
 Skill below, and run its bundled verified helper from the Skill directory:
@@ -328,15 +330,16 @@ Keep an official build current through the release manifest:
 
 ~~~bash
 dcc-mcp-cli update check
-dcc-mcp-cli update apply --yes  # after user confirmation
+dcc-mcp-cli update          # check, download, and stage in one step
 ~~~
 
 Official release builds refresh a cached update status in the background every
 24 hours without blocking the foreground command. Available updates appear as
-structured `cli_update` data; agents must ask the user before running the
-reported apply command. `update apply --yes` downloads and stages the latest
-CLI for the next launch. It does not update or restart a running
-`dcc-mcp-server`; update that server in its own environment.
+structured `cli_update` data. `dcc-mcp-cli update` checks, downloads, and stages
+the latest CLI for the next launch in one step, with no separate confirmation
+flag; `update apply` and `--yes` remain accepted for backward compatibility. It
+does not update or restart a running `dcc-mcp-server`; update that server in its
+own environment.
 
 Then discover a live capability before calling it:
 

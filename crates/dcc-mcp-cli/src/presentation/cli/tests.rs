@@ -60,6 +60,34 @@ fn require_gateway_is_a_global_fail_closed_control_flag() {
 }
 
 #[test]
+fn bare_update_command_defaults_to_the_one_step_apply_action() {
+    let args = Args::try_parse_from(["dcc-mcp-cli", "update"])
+        .expect("a bare `dcc-mcp-cli update` must parse without a subcommand");
+
+    let Command::Update { action } = args.command else {
+        panic!("expected update command");
+    };
+    assert!(
+        action.is_none(),
+        "bare update should default to the one-step apply flow"
+    );
+}
+
+#[test]
+fn update_apply_and_yes_flag_remain_accepted() {
+    let args = Args::try_parse_from(["dcc-mcp-cli", "update", "apply", "--yes"])
+        .expect("`update apply --yes` must stay backward compatible");
+
+    let Command::Update {
+        action: Some(UpdateAction::Apply { yes }),
+    } = args.command
+    else {
+        panic!("expected update apply action");
+    };
+    assert!(yes);
+}
+
+#[test]
 fn record_replay_compile_requires_explicit_review_flag_in_contract() {
     let args = Args::try_parse_from([
         "dcc-mcp-cli",
@@ -1027,10 +1055,10 @@ fn gateway_endpoint_for_command_ensures_gateway_for_agent_control_commands() {
         gateway_endpoint_for_command(
             DEFAULT_BASE_URL,
             &Command::Update {
-                action: UpdateAction::Check {
+                action: Some(UpdateAction::Check {
                     binary: Some("dcc-mcp-server".to_string()),
                     current_version: Some("0.0.0".to_string()),
-                },
+                }),
             },
             &local,
         )
