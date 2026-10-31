@@ -211,11 +211,28 @@ pub struct FileRegistry {
     write_lock_backoff: Duration,
 }
 
+#[path = "file_registry_read_only.rs"]
+mod file_registry_read_only;
+
 impl FileRegistry {
     /// Read persisted rows without creating directories, locking, pruning or repairing files.
     /// Rows are an unverified snapshot; their process liveness is not checked.
     pub fn read_snapshot(registry_dir: &Path) -> TransportResult<Vec<ServiceEntry>> {
         snapshot::read_snapshot(&registry_dir.join(REGISTRY_FILE))
+    }
+
+    /// Read live rows without mutating the registry.
+    ///
+    /// This path is for read-only clients such as the CLI inventory. It holds
+    /// a shared lock on `services.lock` when the lock file is available, reads
+    /// the atomic JSON snapshot, and checks the existing owner/host liveness
+    /// leases. Dead rows are omitted and counted, but no row, sentinel, or
+    /// registry file is removed or rewritten. Runtime writers retain
+    /// [`Self::read_alive`] when they need eviction and repair.
+    pub fn read_alive_read_only(
+        registry_dir: &Path,
+    ) -> TransportResult<(Vec<ServiceEntry>, usize)> {
+        file_registry_read_only::read_alive_read_only(registry_dir)
     }
 
     /// Create a new file registry at the given directory.

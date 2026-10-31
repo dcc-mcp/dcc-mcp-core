@@ -31,14 +31,7 @@ const GATEWAY_GUARDIAN_FAILURES_METADATA_KEY: &str = "gateway_guardian_failures"
 const GATEWAY_GUARDIAN_RESTARTS_METADATA_KEY: &str = "gateway_guardian_restarts";
 
 pub(crate) fn live_dcc_entries(registry_dir: &Path) -> anyhow::Result<(Vec<ServiceEntry>, usize)> {
-    let registry = FileRegistry::new(registry_dir.to_path_buf()).with_context(|| {
-        format!(
-            "opening local DCC FileRegistry at {}",
-            registry_dir.display()
-        )
-    })?;
-    let (entries, evicted) = registry
-        .read_alive()
+    let (entries, evicted) = FileRegistry::read_alive_read_only(registry_dir)
         .context("reading live local DCC instances")?;
     let now = SystemTime::now();
     let mut entries: Vec<_> = entries
