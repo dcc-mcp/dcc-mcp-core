@@ -54,13 +54,21 @@ fmt-check:
 lint:
     vx ruff check .
 
-# Install project dev dependencies.
-install:
-    vx uv pip install -e ".[dev]"
+# --- Project environment ---------------------------------------------------
+# `install` and `test` share ONE environment: create it once (idempotent), then
+# install into it and run through it. A bare `vx python` would silently resolve
+# to a different toolchain than the one the dependencies were installed into.
+# Create the project environment once (idempotent).
+venv:
+    vx uv venv --allow-existing
 
-# Run the project's pytest suite.
-test:
-    vx python -m pytest -q
+# Install project dev dependencies into the project environment.
+install: venv
+    vx uv pip install --python .venv -e ".[dev]"
+
+# Run the project's pytest suite through the same project environment.
+test: install
+    vx uv run --no-project python -m pytest -q
 
 # Self-check with an isolated HOME: cold/warm cache, shim/version isolation,
 # whitespace + Unicode paths, fail-closed lock drift, nonzero exit + stderr,
