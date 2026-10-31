@@ -1,3 +1,4 @@
+use super::io_diagnostics::{IoOp, record_io_failure, redact_path, sanitize};
 use super::*;
 
 fn unique_name(label: &str) -> String {
