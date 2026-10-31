@@ -394,6 +394,59 @@ async fn retry_while_owned_launch_is_pending_does_not_spawn_a_second_host() {
 }
 
 #[tokio::test]
+async fn late_registration_claims_the_original_operation_for_stop() {
+    let dir = tempfile::tempdir().unwrap();
+    let (executable, flag) = noop_executable();
+    let project = project_with_plan(dir.path(), "ProjectA", &argv_for(&executable, flag));
+    let registry = dir.path().join("registry");
+    let store = LifecycleStore::new(&registry);
+    let mut pending = LifecycleOperation::new("pending-op", "unity", &project, &executable, None);
+    pending.launched = true;
+    pending.owned = true;
+    pending.pid = Some(std::process::id());
+    pending.blocking_state = Some(BlockingState::Timeout.as_str().to_string());
+    store.save(&pending).unwrap();
+
+    let entry = register(
+        &registry,
+        "unity",
+        18080,
+        &[
+            ("dcc_mcp_operation_id", "pending-op"),
+            ("dcc_mcp_project", &project.display().to_string()),
+        ],
+    );
+
+    let value = start_instance(request(&project, &registry, 300))
+        .await
+        .unwrap();
+    let entry_id = entry.instance_id.to_string();
+
+    assert_eq!(value["ok"], true, "{value}");
+    assert_eq!(value["reused"], true);
+    assert_eq!(value["owned"], false);
+    assert_eq!(value["instance_id"], entry_id);
+    assert_eq!(value["converged_on_operation_id"], "pending-op");
+
+    let claimed = store.load("pending-op").unwrap().unwrap();
+    assert_eq!(claimed.instance_id.as_deref(), Some(entry_id.as_str()));
+    let entry_id_prefix = entry_id[..8].to_string();
+    assert_eq!(
+        resolve_owned_operation(
+            &registry,
+            Some("unity"),
+            Some(&entry_id_prefix),
+            Some("pending-op"),
+        )
+        .unwrap()
+        .unwrap()
+        .instance_id
+        .as_deref(),
+        Some(entry_id.as_str())
+    );
+}
+
+#[tokio::test]
 async fn ambiguous_project_binding_is_refused() {
     let dir = tempfile::tempdir().unwrap();
     let (executable, flag) = noop_executable();

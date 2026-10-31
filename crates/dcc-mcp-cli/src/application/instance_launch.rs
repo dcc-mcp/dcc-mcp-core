@@ -215,7 +215,7 @@ pub async fn start_instance(request: StartInstanceRequest) -> anyhow::Result<Val
                 .map(|owner| owner.operation_id.clone())
                 .filter(|id| id != &operation_id);
             operation.launched = false;
-            operation.owned = owning_operation.as_ref().is_some_and(|owner| owner.owned);
+            operation.owned = false;
             operation.pid = entry.pid.or(entry.host_pid);
             operation.instance_id = Some(entry.instance_id.to_string());
             operation.touch();
@@ -223,6 +223,15 @@ pub async fn start_instance(request: StartInstanceRequest) -> anyhow::Result<Val
             // record, so assigning it after `store.save` would leave the
             // on-disk operation without it.
             let blocking = classify_blocking_state(&entry.metadata);
+            if let Some(mut owner) =
+                owning_operation.filter(|owner| owner.owned && owner.instance_id.is_none())
+            {
+                owner.instance_id = Some(entry.instance_id.to_string());
+                owner.pid = owner.pid.or(entry.pid).or(entry.host_pid);
+                owner.blocking_state = Some(blocking.as_str().to_string());
+                owner.touch();
+                store.save(&owner)?;
+            }
             operation.blocking_state = Some(blocking.as_str().to_string());
             store.save(&operation)?;
 
@@ -470,23 +479,6 @@ fn find_reusable(
         .as_ref()
         .and_then(|operation| operation.pid);
 
-    // A launch can time out before the host registers. Its operation still
-    // owns a live process in the same registry, so an immediate retry must
-    // converge instead of spawning a second host.
-    if let Some(operation) = owning_operation.as_ref()
-        && operation.owned
-        && operation.instance_id.is_none()
-        && owned_pid.is_some_and(crate::application::gateway_ensure::is_process_alive)
-    {
-        return Ok(Reuse::PendingOwner {
-            owning_operation: operation.clone(),
-        });
-    }
-
-    if entries.is_empty() {
-        return Ok(Reuse::None);
-    }
-
     let matched: Vec<ServiceEntry> = entries
         .into_iter()
         .filter(|entry| {
@@ -497,6 +489,19 @@ fn find_reusable(
         })
         .collect();
     if matched.is_empty() {
+        // A launch can time out before the host registers. Its operation still
+        // owns a live process in the same registry, so an immediate retry must
+        // converge instead of spawning a second host. Check this only after
+        // matching registry rows so a late registration can be claimed.
+        if let Some(operation) = owning_operation.as_ref()
+            && operation.owned
+            && operation.instance_id.is_none()
+            && owned_pid.is_some_and(crate::application::gateway_ensure::is_process_alive)
+        {
+            return Ok(Reuse::PendingOwner {
+                owning_operation: operation.clone(),
+            });
+        }
         return Ok(Reuse::None);
     }
 
