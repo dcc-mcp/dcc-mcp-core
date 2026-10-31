@@ -223,9 +223,10 @@ pub async fn start_instance(request: StartInstanceRequest) -> anyhow::Result<Val
             // record, so assigning it after `store.save` would leave the
             // on-disk operation without it.
             let blocking = classify_blocking_state(&entry.metadata);
-            if let Some(mut owner) =
-                owning_operation.filter(|owner| owner.owned && owner.instance_id.is_none())
-            {
+            let had_owning_operation = owning_operation.is_some();
+            if let Some(mut owner) = owning_operation.filter(|owner| {
+                owner.owned && owner.instance_id.is_none() && entry_matches_operation(&entry, owner)
+            }) {
                 owner.instance_id = Some(entry.instance_id.to_string());
                 owner.pid = owner.pid.or(entry.pid).or(entry.host_pid);
                 owner.blocking_state = Some(blocking.as_str().to_string());
@@ -233,7 +234,11 @@ pub async fn start_instance(request: StartInstanceRequest) -> anyhow::Result<Val
                 store.save(&owner)?;
             }
             operation.blocking_state = Some(blocking.as_str().to_string());
-            store.save(&operation)?;
+            if had_owning_operation {
+                store.save_unbound(&operation)?;
+            } else {
+                store.save(&operation)?;
+            }
 
             let ready =
                 blocking == BlockingState::None && local_instance::direct_control_ready(&entry);
@@ -532,6 +537,13 @@ fn find_reusable(
         entry,
         owning_operation,
     })
+}
+
+fn entry_matches_operation(entry: &ServiceEntry, operation: &LifecycleOperation) -> bool {
+    entry_metadata(entry, OPERATION_METADATA_KEYS).is_some_and(|id| id == operation.operation_id)
+        || operation
+            .pid
+            .is_some_and(|pid| entry.pid == Some(pid) || entry.host_pid == Some(pid))
 }
 
 // ── Registration wait ──────────────────────────────────────────────────────

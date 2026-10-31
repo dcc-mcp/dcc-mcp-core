@@ -104,6 +104,31 @@ fn register(dir: &Path, dcc_type: &str, port: u16, metadata: &[(&str, &str)]) ->
     entry
 }
 
+fn register_with_process(
+    dir: &Path,
+    dcc_type: &str,
+    port: u16,
+    metadata: &[(&str, &str)],
+    pid: Option<u32>,
+    host_pid: Option<u32>,
+) -> ServiceEntry {
+    let registry = registry_handle(dir);
+    let mut entry = ServiceEntry::new(dcc_type, "127.0.0.1", port);
+    entry.pid = pid;
+    entry.host_pid = host_pid;
+    entry.metadata.insert(
+        "dispatch_status".to_string(),
+        DispatchStatus::Ready.to_string(),
+    );
+    for (key, value) in metadata {
+        entry
+            .metadata
+            .insert((*key).to_string(), (*value).to_string());
+    }
+    registry.register(entry.clone()).unwrap();
+    entry
+}
+
 fn argv_for(executable: &Path, flag: &str) -> Vec<String> {
     vec![
         PLACEHOLDER_EXECUTABLE.to_string(),
@@ -443,6 +468,91 @@ async fn late_registration_claims_the_original_operation_for_stop() {
         .instance_id
         .as_deref(),
         Some(entry_id.as_str())
+    );
+}
+
+#[tokio::test]
+async fn unrelated_project_binding_does_not_claim_pending_owner() {
+    let dir = tempfile::tempdir().unwrap();
+    let (executable, flag) = noop_executable();
+    let project = project_with_plan(dir.path(), "ProjectA", &argv_for(&executable, flag));
+    let registry = dir.path().join("registry");
+    let store = LifecycleStore::new(&registry);
+    let mut pending = LifecycleOperation::new("pending-op", "unity", &project, &executable, None);
+    pending.launched = true;
+    pending.owned = true;
+    pending.pid = Some(std::process::id());
+    pending.blocking_state = Some(BlockingState::Timeout.as_str().to_string());
+    store.save(&pending).unwrap();
+
+    let entry = register_with_process(
+        &registry,
+        "unity",
+        18080,
+        &[("dcc_mcp_project", &project.display().to_string())],
+        Some(std::process::id().saturating_add(1)),
+        None,
+    );
+    let value = start_instance(request(&project, &registry, 300))
+        .await
+        .unwrap();
+
+    assert_eq!(value["ok"], true, "{value}");
+    assert_eq!(value["reused"], true);
+    assert_eq!(value["owned"], false);
+    assert_eq!(value["instance_id"], entry.instance_id.to_string());
+    assert_eq!(value["converged_on_operation_id"], "pending-op");
+    assert_eq!(
+        store.load("pending-op").unwrap().unwrap().instance_id,
+        None,
+        "an unrelated project-bound row must not become stop-owned"
+    );
+    assert!(resolve_owned_operation(&registry, Some("unity"), None, Some("pending-op")).is_err());
+}
+
+#[tokio::test]
+async fn unbound_reuse_preserves_pending_owner_after_registry_row_disappears() {
+    let dir = tempfile::tempdir().unwrap();
+    let (executable, flag) = noop_executable();
+    let project = project_with_plan(dir.path(), "ProjectA", &argv_for(&executable, flag));
+    let registry = dir.path().join("registry");
+    let store = LifecycleStore::new(&registry);
+    let mut pending = LifecycleOperation::new("pending-op", "unity", &project, &executable, None);
+    pending.launched = true;
+    pending.owned = true;
+    pending.pid = Some(std::process::id());
+    pending.blocking_state = Some(BlockingState::Timeout.as_str().to_string());
+    store.save(&pending).unwrap();
+
+    let entry = register_with_process(
+        &registry,
+        "unity",
+        18080,
+        &[("dcc_mcp_project", &project.display().to_string())],
+        Some(std::process::id().saturating_add(1)),
+        None,
+    );
+    let first = start_instance(request(&project, &registry, 300))
+        .await
+        .unwrap();
+    assert_eq!(first["reused"], true, "{first}");
+    registry_handle(&registry).deregister(&entry.key()).unwrap();
+
+    let second = start_instance(request(&project, &registry, 300))
+        .await
+        .unwrap();
+    assert_eq!(second["ok"], false, "{second}");
+    assert_eq!(second["launched"], false);
+    assert_eq!(second["blocking_state"], "adapter_bootstrap");
+    assert_eq!(second["converged_on_operation_id"], "pending-op");
+    assert_eq!(
+        store
+            .find_owned("unity", &project)
+            .unwrap()
+            .unwrap()
+            .operation_id,
+        "pending-op",
+        "an unowned reuse record must not replace the owner index"
     );
 }
 
