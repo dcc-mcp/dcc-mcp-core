@@ -223,11 +223,18 @@ on:
   push:
     branches: [main]
 
+# Least-privilege token: `vx just ci` may run dependency installs, so the
+# checkout token must be read-only and never persisted into .git/config.
+permissions:
+  contents: read
+
 jobs:
   lock-guard:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
       - uses: loonghao/vx@debe4f035713d28366ec0c322e0b87de2a25d2f2 # v0.9.34
         with:
           version: "0.9.34"
@@ -248,7 +255,9 @@ jobs:
     env:
       VX_EXPECT_VERSION: "0.9.34" # verify.py asserts the pinned vx binary
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
       - uses: loonghao/vx@debe4f035713d28366ec0c322e0b87de2a25d2f2 # v0.9.34
         with:
           version: "0.9.34"

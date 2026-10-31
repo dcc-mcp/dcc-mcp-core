@@ -158,11 +158,24 @@ def check_lock_drift_fails_closed(vx, project, env):
     with TemporaryDirectory(prefix="vx-drift-") as tmp:
         dest = _copy_project(project, Path(tmp))
         toml = dest / "vx.toml"
-        content = toml.read_text(encoding="utf-8")
-        if "python" in content:
-            content = content.replace('python = "3.12"', 'python = "3.11"')
+        original = toml.read_text(encoding="utf-8")
+        # Drift a value that is ACTUALLY declared in [tools], not a hard-coded
+        # pin: an adopting project may pin a different version. Bump the last
+        # numeric component so the result still parses as a version, and assert
+        # the fixture really changed before trusting the fail-closed result.
+        content = original
+        for name, version in _parse_tools(project).items():
+            parts = version.split(".")
+            if not (parts and parts[-1].isdigit()):
+                continue
+            bumped = ".".join([*parts[:-1], str(int(parts[-1]) + 1)])
+            needle = f'{name} = "{version}"'
+            if needle in content:
+                content = content.replace(needle, f'{name} = "{bumped}"', 1)
+                break
         else:
             content += '\n# injected drift\nnode = "22"\n'
+        injected = content != original
         toml.write_text(content, encoding="utf-8")
         rc, out, err, timed_out = _run([vx, "lock", "--check"], dest, env)
     text = (out + err).strip()
@@ -170,11 +183,13 @@ def check_lock_drift_fails_closed(vx, project, env):
     # lock inconsistency — not merely any non-zero exit (a network/parse error
     # would otherwise count as "drift detected").
     names_drift = "inconsisten" in text.lower() or "drift" in text.lower() or "changed" in text.lower()
-    ok = rc != 0 and not timed_out and names_drift
+    ok = injected and rc != 0 and not timed_out and names_drift
     return _result(
         "lock_drift_fails_closed",
         ok,
-        "rc={} names_drift={} timeout={} :: {}".format(rc, names_drift, timed_out, text or "<empty>"),
+        "injected={} rc={} names_drift={} timeout={} :: {}".format(
+            injected, rc, names_drift, timed_out, text or "<empty>"
+        ),
     )
 
 
