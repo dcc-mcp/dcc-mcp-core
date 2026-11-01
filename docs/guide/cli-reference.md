@@ -246,10 +246,27 @@ type and grades it under `adapter_imports`:
 | `missing` | No distribution metadata and no importable module. |
 | `unimportable` | Distribution metadata present, import failed — the broken-install case. |
 | `version_mismatch` | Importable, but module `__version__` differs from the distribution version. |
+| `incompatible_core` | Importable, but the target Core is outside the adapter's observed dependency range. |
 | `unavailable` | The probe could not run. Never counted as an adapter failure. |
 
 `status` becomes `degraded` and the command exits non-zero when any probe is
-`missing`, `unimportable`, or `version_mismatch`.
+`missing`, `unimportable`, `version_mismatch`, or `incompatible_core`.
+
+The probe records the adapter's unconditional `Requires-Dist` declaration for
+`dcc-mcp-core` and the Core version in that same interpreter. An already imported
+Core module takes precedence over distribution metadata; `core_version_source`
+and `core_dist_version` preserve the distinction. `core_compatibility` uses the
+existing shared version-bound checker, never the CLI's own version. Missing,
+ambiguous or conditional declarations are not guessed (`core_compatibility`
+reports `not_checked`). An unknown version
+  or unusable declaration cannot establish supported compatibility. A fully parsed
+  range can still reject an out-of-range Core even when its policy is invalid;
+  `declaration_valid` records that policy result separately. An import
+grade does not establish host capabilities or native readiness.
+  Release suffixes whose ordering is not represented by the shared numeric
+  checker remain unknown; they are never normalized into supported final releases.
+  Legacy `requires.txt` metadata is read when `Requires-Dist` is absent; extras
+  and environment sections remain conditional and are never evaluated by the probe.
 
 Probing needs the interpreter that actually hosts the adapter. `doctor` never
 guesses an ambient `python`, because that reports false `missing` rows for

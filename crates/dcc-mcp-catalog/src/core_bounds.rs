@@ -68,14 +68,15 @@ impl CoreVersion {
         }
     }
 
-    /// Parse `0.19.3`, `0.20`, `0`, `v0.19.3`, or `0.19.3rc1`.
+    /// Parse `0.19.3`, `0.20`, `0`, or `v0.19.3`.
     ///
-    /// Missing components default to `0`; pre-release and build suffixes are
-    /// dropped. Returns `None` for anything that is not numeric.
+    /// Missing components default to `0`; local build metadata is dropped.
+    /// Release suffixes and extra components remain unknown.
     #[must_use]
     pub fn parse(text: &str) -> Option<Self> {
         let trimmed = text.trim().trim_start_matches(['v', 'V']);
-        let numeric = trimmed.split(['-', '+']).next().unwrap_or(trimmed);
+        // shortcut: release suffixes remain unknown until PEP 440 ordering is represented.
+        let numeric = trimmed.split('+').next().unwrap_or(trimmed);
         if numeric.is_empty() {
             return None;
         }
@@ -89,6 +90,9 @@ impl CoreVersion {
             Some(part) => Self::component(part)?,
             None => 0,
         };
+        if parts.next().is_some() {
+            return None;
+        }
         Some(Self {
             major,
             minor,
@@ -692,21 +696,26 @@ pub fn check_runtime(
 ) -> CoreRuntimeReport {
     let bound = evaluate(declaration, policy);
     let running = CoreVersion::parse(running_core);
-    let verdict = if !bound.is_ok() {
+    let requirement = CoreRequirement::parse(declaration);
+    let outside = running.filter(|version| {
+        requirement.unsupported.is_empty()
+            && !bound.codes.contains(&CoreBoundCode::InvertedRange)
+            && !requirement.contains(*version)
+    });
+    let verdict = if let Some(version) = outside {
+        if requirement.lower.is_some_and(|(lower, kind)| {
+            version < lower || (version == lower && kind == BoundKind::Exclusive)
+        }) {
+            RuntimeVerdict::CoreOlderThanDeclared
+        } else {
+            RuntimeVerdict::CoreNewerThanDeclared
+        }
+    } else if !bound.is_ok() {
         RuntimeVerdict::DeclarationUnusable
     } else {
         match running {
             None => RuntimeVerdict::UnknownCoreVersion,
-            Some(version) => {
-                let requirement = CoreRequirement::parse(declaration);
-                if requirement.contains(version) {
-                    RuntimeVerdict::Supported
-                } else if requirement.lower.is_some_and(|(lower, _)| version < lower) {
-                    RuntimeVerdict::CoreOlderThanDeclared
-                } else {
-                    RuntimeVerdict::CoreNewerThanDeclared
-                }
-            }
+            Some(_) => RuntimeVerdict::Supported,
         }
     };
     CoreRuntimeReport {
@@ -1004,6 +1013,47 @@ mod tests {
 
         let unusable = check_runtime("dcc_mcp_core-0", "0.20.28", &policy());
         assert_eq!(unusable.verdict, RuntimeVerdict::DeclarationUnusable);
+    }
+
+    #[test]
+    fn runtime_mismatch_is_independent_of_declaration_policy() {
+        for declaration in [">=0.20.0,<1.0.0", ">=0.20.0"] {
+            let report = check_runtime(declaration, "0.19.9", &policy());
+            assert_eq!(report.verdict, RuntimeVerdict::CoreOlderThanDeclared);
+            assert!(!report.bound.is_ok());
+            assert!(!report.is_ok());
+        }
+        for declaration in [">=0.20.0,<1.0.0", ">=0.21.0,<0.20.0", ">=0.20.0,!=0.20.1"] {
+            let report = check_runtime(declaration, "0.20.1", &policy());
+            assert_eq!(report.verdict, RuntimeVerdict::DeclarationUnusable);
+        }
+        let exclusive = check_runtime(">0.20.0,<0.21.0", "0.20.0", &policy());
+        assert_eq!(exclusive.verdict, RuntimeVerdict::CoreOlderThanDeclared);
+    }
+
+    #[test]
+    fn unsupported_release_suffixes_cannot_establish_compatibility() {
+        for version in [
+            "0.20.24rc1",
+            "0.20.24a1",
+            "0.20.24b1",
+            "0.20.24.dev1",
+            "0.20.24.post1",
+            "0.20.24-rc1",
+            "0.20.24.1",
+        ] {
+            let report = check_runtime(">=0.20.24,<0.21.0", version, &policy());
+            assert_eq!(
+                report.verdict,
+                RuntimeVerdict::UnknownCoreVersion,
+                "{version}"
+            );
+            assert!(!report.is_ok());
+        }
+        assert_eq!(
+            CoreVersion::parse("0.20.24+build.1"),
+            Some(CoreVersion::new(0, 20, 24))
+        );
     }
 
     #[test]
