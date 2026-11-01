@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.53](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.52...v0.20.53) (2026-11-01)
+
+
+### Features
+
+* **toolchain:** add VX + just new-project template and cross-platform CI pilot ([1c538cb](https://github.com/dcc-mcp/dcc-mcp-core/commit/1c538cbeb991c83be5d0cd8a733e653b25ad3e19))
+
+
+### Bug Fixes
+
+* **cli:** support read-only live registry inventory ([3fa9ee8](https://github.com/dcc-mcp/dcc-mcp-core/commit/3fa9ee8f4077859afbd133b246e73ae372a1e396))
+* **toolchain:** force UTF-8 stdio in verify harness for Windows runners ([8e86464](https://github.com/dcc-mcp/dcc-mcp-core/commit/8e86464921b69a6ad3b1895b5a02bb9ceb12894e))
+* **toolchain:** harden template CI snippets and fix harness drift check ([ab2eb93](https://github.com/dcc-mcp/dcc-mcp-core/commit/ab2eb9300a754edeae71caa76e81cac8528ac232))
+
+
+### Code Refactoring
+
+* **transport:** split read-only registry helper ([ded56ce](https://github.com/dcc-mcp/dcc-mcp-core/commit/ded56cefadbaca55e9ee7f6412c2a5d2190ec9de))
+
 ## [0.20.52](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.51...v0.20.52) (2026-10-29)
 
 
