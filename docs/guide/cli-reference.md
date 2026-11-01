@@ -212,6 +212,19 @@ for compatibility and reports still need review before sharing publicly.
 Server-binary metadata errors report `status: unknown` and do not suggest a
 download; only confirmed absence is `missing`.
 
+When normal gateway startup needs a server download, bootstrap selects the
+CLI's exact release version through `dcc-mcp-update-manifest-<platform>.json`.
+It uses the gateway's shared manifest loader (including Sigstore attestation
+verification for official Core release URLs), follows the manifest's server
+asset URL, and uses the updater's bounded SHA-256-verified download before
+committing a cache file. It does not construct binary names from Rust target
+triples. `DCC_MCP_GATEWAY_DOWNLOAD_BASE` mirrors must supply this manifest and
+its asset metadata; custom hosts keep the existing operator-supplied update
+trust policy. Download failure emits a bounded warning with the error chain
+and current-CLI sub-command fallback path. A fallback is not proof that the
+gateway started or became healthy. Existing explicit, sibling and cached
+binaries retain their discovery policy; this does not requalify their origin.
+
 ### MCP inventory smoke checks
 
 ```bash
