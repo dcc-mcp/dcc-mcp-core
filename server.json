@@ -3,7 +3,7 @@
   "name": "io.github.dcc-mcp/dcc-mcp-core",
   "title": "DCC-MCP Core",
   "description": "Agent control plane for DCC and engine hosts: one MCP endpoint, one tool contract.",
-  "version": "0.20.52",
+  "version": "0.20.53",
   "repository": {
     "url": "https://github.com/dcc-mcp/dcc-mcp-core",
     "source": "github",
