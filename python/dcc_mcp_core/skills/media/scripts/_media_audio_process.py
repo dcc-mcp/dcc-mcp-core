@@ -32,8 +32,10 @@ def check_audio_cancelled():
 def _stop(process):
     """Stop the owned process tree, then reap the launcher; report uncertainty."""
     tree_error = None
+    taskkill_returncode = None
     try:
         if os.name == "nt":
+            # shortcut: taskkill cannot verify an exited launcher's tree; use job containment for stronger guarantees.
             if process.poll() is not None:
                 tree_error = "Launcher exited before Windows tree cleanup could be confirmed."
             else:
@@ -44,6 +46,7 @@ def _stop(process):
                     timeout=10,
                     check=False,
                 )
+                taskkill_returncode = result.returncode
                 if result.returncode != 0:
                     tree_error = "Windows taskkill did not confirm tree cleanup."
         else:
@@ -57,7 +60,9 @@ def _stop(process):
         process.wait(timeout=10)
     if tree_error:
         raise MediaToolError(
-            "Audio process-tree cleanup is uncertain.", "cleanup_uncertain", context={"detail": tree_error}
+            "Audio process-tree cleanup is uncertain.",
+            "cleanup_uncertain",
+            context={"detail": tree_error, "taskkill_returncode": taskkill_returncode},
         )
 
 
@@ -170,16 +175,24 @@ def run_audio_command(command, deadline, *, pcm=False, output_path=None):
             )
     except BaseException as original:
         cleanup_error = None
+        cleanup_error_context = None
         try:
             _stop(process)
         except Exception as exc:
             cleanup_error = str(exc)
+            if isinstance(exc, MediaToolError):
+                cleanup_error_context = {"error": exc.code, "context": dict(exc.context)}
         for thread in threads:
             if thread.ident is not None:
                 thread.join(timeout=1)
         cleanup_status = "unknown" if cleanup_error or any(t.is_alive() for t in threads) else "terminated_and_reaped"
         if isinstance(original, MediaToolError):
-            original.context.update(command=command, cleanup_status=cleanup_status, cleanup_error=cleanup_error)
+            original.context.update(
+                command=command,
+                cleanup_status=cleanup_status,
+                cleanup_error=cleanup_error,
+                cleanup_error_context=cleanup_error_context,
+            )
             raise
         raise MediaToolError(
             "Audio command interrupted.",
@@ -188,6 +201,7 @@ def run_audio_command(command, deadline, *, pcm=False, output_path=None):
                 "command": command,
                 "cleanup_status": cleanup_status,
                 "cleanup_error": cleanup_error,
+                "cleanup_error_context": cleanup_error_context,
                 "original_error": type(original).__name__,
             },
         ) from original
