@@ -14,6 +14,7 @@ import zipfile
 import pytest
 from scripts.ci import check_release_distribution_set
 from scripts.ci.check_release_distribution_set import DistributionSetError
+from scripts.ci.check_release_distribution_set import _classify_wheel
 from scripts.ci.check_release_distribution_set import _validate_sdist
 from scripts.ci.check_release_distribution_set import classify_distribution_assets
 from scripts.ci.check_release_distribution_set import verify_distribution_set
@@ -28,6 +29,27 @@ WHEEL_NAMES = [
     f"dcc_mcp_core-{VERSION}-py3-none-any.whl",
 ]
 SDIST_NAME = f"dcc_mcp_core-{VERSION}.tar.gz"
+
+# The 0.20.53 release emitted the compressed manylinux platform tag set with
+# the legacy ``manylinux2014_x86_64`` alias FIRST (and the macOS universal2
+# wheel with ``universal2`` first). 0.20.52 emitted the same tag sets in the
+# opposite order. PEP 427 treats each component as an unordered SET, so both
+# layouts describe the same wheels and must classify to the same contract.
+MANYLINUX_052_ORDER = "manylinux_2_17_x86_64.manylinux2014_x86_64"
+MANYLINUX_053_ORDER = "manylinux2014_x86_64.manylinux_2_17_x86_64"
+MACOS_UNIVERSAL2_052_ORDER = "macosx_10_12_x86_64.macosx_11_0_arm64.macosx_10_12_universal2"
+MACOS_UNIVERSAL2_053_ORDER = "macosx_10_12_universal2.macosx_10_12_x86_64.macosx_11_0_arm64"
+
+# Complete Core distribution set built the way 0.20.53 built it: both manylinux
+# wheels and the macOS universal2 wheel use the reordered tag sets.
+FLIPPED_WHEEL_NAMES = [
+    f"dcc_mcp_core-{VERSION}-cp37-cp37m-{MANYLINUX_053_ORDER}.whl",
+    f"dcc_mcp_core-{VERSION}-cp37-cp37m-win_amd64.whl",
+    f"dcc_mcp_core-{VERSION}-cp38-abi3-{MACOS_UNIVERSAL2_053_ORDER}.whl",
+    f"dcc_mcp_core-{VERSION}-cp38-abi3-{MANYLINUX_053_ORDER}.whl",
+    f"dcc_mcp_core-{VERSION}-cp38-abi3-win_amd64.whl",
+    f"dcc_mcp_core-{VERSION}-py3-none-any.whl",
+]
 
 
 def test_classify_distribution_assets_rebuilds_when_release_has_no_core_assets() -> None:
@@ -47,6 +69,90 @@ def test_classify_distribution_assets_reuses_complete_core_asset_sets() -> None:
     payload = {"assets": [{"name": name} for name in [*WHEEL_NAMES, SDIST_NAME]]}
 
     assert classify_distribution_assets(payload, VERSION) == "reuse"
+
+
+def test_classify_distribution_assets_reuses_reordered_tag_sets() -> None:
+    # 0.20.53 half-published because a reordered compressed manylinux tag set
+    # failed classification. Reuse must not depend on tag order.
+    payload = {"assets": [{"name": name} for name in [*FLIPPED_WHEEL_NAMES, SDIST_NAME]]}
+
+    assert classify_distribution_assets(payload, VERSION) == "reuse"
+
+
+@pytest.mark.parametrize("manylinux", [MANYLINUX_052_ORDER, MANYLINUX_053_ORDER])
+@pytest.mark.parametrize(
+    "python_abi, expected",
+    [
+        ("cp37-cp37m", ("native_py37", "linux-x86_64")),
+        ("cp38-abi3", ("abi3", "linux-x86_64")),
+    ],
+)
+def test_classify_wheel_manylinux_order_independent(manylinux: str, python_abi: str, expected: tuple[str, str]) -> None:
+    filename = f"dcc_mcp_core-{VERSION}-{python_abi}-{manylinux}.whl"
+
+    assert _classify_wheel(filename, VERSION) == expected
+
+
+@pytest.mark.parametrize("macos", [MACOS_UNIVERSAL2_052_ORDER, MACOS_UNIVERSAL2_053_ORDER])
+def test_classify_wheel_macos_universal2_order_independent(macos: str) -> None:
+    filename = f"dcc_mcp_core-{VERSION}-cp38-abi3-{macos}.whl"
+
+    assert _classify_wheel(filename, VERSION) == ("abi3", "macos-universal2")
+
+
+def test_classify_wheel_accepts_exact_0_20_53_failing_wheel() -> None:
+    # The exact filename that made "Validate complete Core distribution set
+    # before PyPI" exit 1 during the 0.20.53 release.
+    filename = "dcc_mcp_core-0.20.53-cp37-cp37m-manylinux2014_x86_64.manylinux_2_17_x86_64.whl"
+
+    assert _classify_wheel(filename, "0.20.53") == ("native_py37", "linux-x86_64")
+
+
+@pytest.mark.parametrize(
+    "filename",
+    [
+        # A foreign platform tag mixed into a manylinux set must be rejected;
+        # order-independent classification must not become a relaxed gate.
+        f"dcc_mcp_core-{VERSION}-cp37-cp37m-manylinux2014_x86_64.win_amd64.whl",
+        f"dcc_mcp_core-{VERSION}-cp37-cp37m-manylinux2014_x86_64.macosx_10_12_x86_64.whl",
+        f"dcc_mcp_core-{VERSION}-cp39-cp39-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+        f"dcc_mcp_core-{VERSION}-py3-none-any.manylinux2014_x86_64.whl",
+        f"dcc_mcp_core-{VERSION}-cp37-cp37m-.manylinux2014_x86_64.whl",
+    ],
+)
+def test_classify_wheel_still_rejects_unexpected_tag_sets(filename: str) -> None:
+    with pytest.raises(DistributionSetError, match="unexpected Core wheel tags"):
+        _classify_wheel(filename, VERSION)
+
+
+def test_verify_distribution_set_accepts_reordered_0_20_53_tag_sets(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Reproduces the exact "Validate complete Core distribution set before PyPI"
+    # step that failed for 0.20.53: a full set whose manylinux / universal2 tag
+    # sets are in the reordered form must verify successfully.
+    dist_dir = tmp_path / "dist"
+    _write_fixture_set(dist_dir, FLIPPED_WHEEL_NAMES)
+    payload = _asset_payload(dist_dir)
+    monkeypatch.setattr(check_release_distribution_set, "validate_wheel", lambda *_args: [])
+    monkeypatch.setattr(check_release_distribution_set, "load_contract", lambda: {})
+
+    evidence = verify_distribution_set(payload, dist_dir, VERSION)
+
+    assert evidence == {"asset_count": 7, "total_bytes": sum(path.stat().st_size for path in dist_dir.iterdir())}
+
+
+def test_cli_pre_pypi_step_accepts_reordered_0_20_53_tag_sets(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # Reproduces the exact failing release.yml step invocation:
+    #   check_release_distribution_set.py --dist-dir dist --version <version>
+    # It validates a fresh directory (no --assets-json) through
+    # validate_distribution_directory, which must accept the reordered tag sets.
+    dist_dir = tmp_path / "dist"
+    _write_fixture_set(dist_dir, FLIPPED_WHEEL_NAMES)
+    monkeypatch.setattr(check_release_distribution_set, "validate_wheel", lambda *_args: [])
+    monkeypatch.setattr(check_release_distribution_set, "load_contract", lambda: {})
+
+    assert check_release_distribution_set.main(["--dist-dir", str(dist_dir), "--version", VERSION]) == 0
 
 
 @pytest.mark.parametrize("requirement", ["typing-extensions==4.7.1", "typing.extensions==4.7.1"])
@@ -184,9 +290,11 @@ def _metadata_bytes(name: str, version: str, requirements: tuple[str, ...] = ())
     return buffer.getvalue()
 
 
-def _write_fixture_set(dist_dir: Path) -> None:
+def _write_fixture_set(dist_dir: Path, wheel_names: list[str] | None = None) -> None:
+    if wheel_names is None:
+        wheel_names = WHEEL_NAMES
     dist_dir.mkdir()
-    for name in WHEEL_NAMES:
+    for name in wheel_names:
         with zipfile.ZipFile(dist_dir / name, "w") as archive:
             archive.writestr(
                 f"dcc_mcp_core-{VERSION}.dist-info/METADATA",
