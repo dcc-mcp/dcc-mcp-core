@@ -326,7 +326,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
     let control = DccControlPlane::new(
         gateway_target.clone(),
         endpoint.clone(),
-        gateway_ensure::default_registry_dir(),
+        None,
         require_gateway,
     )
     .with_auto_gateway_enabled(!no_auto_gateway)
@@ -674,12 +674,18 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             // operation record rather than straight from the caller, so
             // supplying both --dcc-type and --instance-id can no longer
             // short-circuit the ownership check.
-            let owned_operation = crate::application::instance_launch::resolve_owned_operation(
-                &gateway_ensure::default_registry_dir(),
-                dcc_type.as_deref(),
-                instance_id.as_deref(),
-                operation_id.as_deref(),
-            )?;
+            let owned_operation = if let Some(operation_id) =
+                operation_id.as_deref().filter(|id| !id.trim().is_empty())
+            {
+                crate::application::instance_launch::resolve_owned_operation(
+                    &gateway_ensure::default_registry_dir()?,
+                    dcc_type.as_deref(),
+                    instance_id.as_deref(),
+                    Some(operation_id),
+                )?
+            } else {
+                None
+            };
             let (resolved_dcc_type, resolved_instance_id) = match owned_operation {
                 Some(operation) => {
                     let instance_id = operation.instance_id.clone().ok_or_else(|| {
@@ -734,7 +740,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 required: require,
                 authorized: yes,
                 dry_run,
-                registry_dir: gateway_ensure::default_registry_dir(),
+                registry_dir: gateway_ensure::default_registry_dir()?,
                 instance_id,
             };
             let result = crate::application::instance_launch::start_instance(request).await?;
