@@ -173,7 +173,7 @@ export function CommandCenterPanel({
           key: 'cli-update-apply',
           labelKey: 'setup.cli.cliUpdateApply',
           detailKey: 'setup.cli.cliUpdateApplyDetail',
-          command: 'dcc-mcp-cli update apply',
+          command: 'dcc-mcp-cli update',
         },
       ],
     },

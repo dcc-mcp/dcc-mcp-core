@@ -76,13 +76,13 @@ Start a new agent turn after installation.
 - Official release builds refresh their CLI update cache in the background at
   most once per 24 hours; failures retry after one hour and never block the
   current command. When output contains `cli_update.version_status` set to
-  `update_available`, report the current/latest versions and ask the user
-  before changing anything. After explicit approval, run
-  `dcc-mcp-cli update apply --yes`. The apply step stages the latest CLI for
-  the next launch and re-verifies its mandatory SHA-256 before replacement.
-  Legacy unsigned staging is quarantined. It does not replace or restart a
-  running `dcc-mcp-server` or DCC host. Use `dcc-mcp-cli update check` for an
-  immediate structured status refresh.
+  `update_available`, report the current/latest versions, then run
+  `dcc-mcp-cli update`. It checks, downloads, and stages the latest CLI for the
+  next launch in one step with no separate confirmation flag, and re-verifies
+  its mandatory SHA-256 before replacement. Legacy unsigned staging is
+  quarantined. It does not replace or restart a running `dcc-mcp-server` or DCC
+  host. Use `dcc-mcp-cli update check` for an immediate structured status
+  refresh.
 
 ## Response Language
 
