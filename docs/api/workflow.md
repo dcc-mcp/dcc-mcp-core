@@ -11,8 +11,10 @@
 - **`dcc-mcp-workflow`** — all workflow types, catalog, DDL, tool
   registrations, and the `WorkflowExecutor` engine. Feature-gated at the
   workspace level behind the top-level `workflow` feature (off by default).
-- **`dcc-mcp-http`** — `McpHttpConfig::enable_workflows` gates registration
-  of the built-in tools on `start()`.
+- **`dcc-mcp-http`** — `McpHttpConfig` exposes `enable_workflows`, but the
+  current HTTP startup path does not consume it or automatically register
+  workflow tools. Embedders must register workflow metadata and handlers
+  explicitly; setting the flag alone does not make those tools available.
 
 ## Types (Rust)
 
@@ -22,9 +24,10 @@ use dcc_mcp_workflow::{
     Step, StepKind, StepId, WorkflowId,
     WorkflowCatalog, WorkflowSummary,
     WorkflowExecutor, WorkflowHost, WorkflowRunHandle,
-    register_builtin_workflow_tools, register_workflow_handlers,
+    register_builtin_workflow_tools,
     WorkflowError,
 };
+use dcc_mcp_workflow::tools::register_workflow_handlers;
 ```
 
 All structural types are `Serialize + Deserialize + Clone`. IDs are
@@ -183,8 +186,11 @@ issue #318).
 
 ## Built-in MCP tools
 
-Registered by `register_builtin_workflow_tools(&registry)`. Functional
-handlers are bound by `register_workflow_handlers(&dispatcher, &host)`.
+`register_builtin_workflow_tools(&registry)` registers tool metadata.
+`register_workflow_handlers(&dispatcher, &host)` binds run, status, cancel, and
+feature-gated resume handlers. It does not bind `workflows_lookup`: an embedding
+that exposes lookup must also bind a handler backed by its `WorkflowCatalog`.
+Metadata registration alone does not make lookup dispatchable.
 
 | Tool | Description | ToolAnnotations |
 |------|-------------|-----------------|
@@ -257,7 +263,12 @@ non-terminal row to `interrupted` and emits a final
 `interrupted` is terminal; clients may implement a resume tool on top
 if desired.
 
-## HTTP server gate
+## HTTP configuration and registration
+
+The flag below records configuration only in the current implementation. Neither
+Rust HTTP startup nor the Python wrapper automatically registers workflow tools;
+an embedding must still provide a `WorkflowHost` and wire the metadata and
+handlers described above. Do not use this snippet alone as an availability check.
 
 ```python
 from dcc_mcp_core import McpHttpConfig

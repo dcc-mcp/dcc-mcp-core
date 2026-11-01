@@ -250,7 +250,7 @@ impl StatelessMcpService {
             && (self.registry_context.resource_provider.is_some() || skills_extension);
         StatelessServerCapabilities {
             // Stateless requests do not provide a subscription stream.
-            // The final 2026 revision does not include the task wire surface.
+            // The Tasks extension is not implemented by this service.
             tools: Some(ToolsCapability {
                 list_changed: false,
             }),
