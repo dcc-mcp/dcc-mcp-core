@@ -8,7 +8,7 @@
 //! other sensitive layout. Redacted paths are available only on an opt-in
 //! local diagnostic channel for byte-level debugging on the affected host.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::UpdateError;
 
@@ -51,6 +51,19 @@ pub(super) fn redact_path_with_lookup(
     path: &Path,
     lookup: impl Fn(&str) -> Option<String>,
 ) -> String {
+    redact_path_with_sources(path, lookup, |prefix| std::fs::canonicalize(prefix).ok())
+}
+
+/// Testable seam for [`redact_path_with_lookup`]: collect raw environment
+/// prefixes plus their canonical spellings through injectable sources, then
+/// rewrite `path`. `canonicalize` is injectable so the symlink/junction case
+/// can be verified deterministically, without mutating the process-wide
+/// environment or needing symlink-creation privileges on every CI host.
+pub(super) fn redact_path_with_sources(
+    path: &Path,
+    lookup: impl Fn(&str) -> Option<String>,
+    canonicalize: impl Fn(&Path) -> Option<PathBuf>,
+) -> String {
     let mut prefixes = Vec::new();
     // `XDG_DATA_HOME` is the Linux staging root (`dirs_data_dir`), and it may
     // be configured outside `HOME` (for example a private cache directory), so
@@ -66,7 +79,20 @@ pub(super) fn redact_path_with_lookup(
         if let Some(prefix) = lookup(key)
             && !prefix.is_empty()
         {
-            prefixes.push((prefix, label));
+            prefixes.push((prefix.clone(), label));
+            // `canonical_existing()` resolves `current_exe` with
+            // `std::fs::canonicalize()`. When an environment prefix is a
+            // symlink or junction, the failing path carries the resolved
+            // spelling, which the raw prefix no longer matches. Collect that
+            // canonical spelling under the same label too, so the opt-in
+            // debug channel stays path-safe. `prefix_variants` already covers
+            // case, separator and device-prefix differences between the two.
+            if let Some(canonical) = canonicalize(Path::new(&prefix)) {
+                let canonical = canonical.to_string_lossy().into_owned();
+                if !canonical.is_empty() && !canonical.eq_ignore_ascii_case(&prefix) {
+                    prefixes.push((canonical, label));
+                }
+            }
         }
     }
     redact_path_with_prefixes(path, &prefixes)

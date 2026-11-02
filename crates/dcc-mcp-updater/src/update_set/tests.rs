@@ -1,6 +1,6 @@
 use super::io_diagnostics::{
     IoOp, record_io_failure, redact_path, redact_path_with_lookup, redact_path_with_prefixes,
-    sanitize,
+    redact_path_with_sources, sanitize,
 };
 use super::*;
 
@@ -1130,6 +1130,93 @@ fn redact_path_collects_xdg_data_home_outside_home() {
     assert!(
         redacted_fallback.ends_with("update/example/cli.exe"),
         "HOME fallback path tail lost: {redacted_fallback}"
+    );
+}
+
+#[test]
+fn redact_path_collects_canonical_spelling_of_symlinked_prefix() {
+    // `canonical_existing()` resolves `current_exe` with
+    // `std::fs::canonicalize()`. If an env prefix is a symlink/junction to the
+    // real install directory, the failing path carries the *resolved* spelling,
+    // which the raw env value no longer matches. Without collecting the
+    // canonical spelling too, the opt-in debug channel leaks the resolved
+    // install directory.
+    let raw_prefix = r"C:\Users\hallong\AppData\Local\dcc-mcp";
+    let canonical_prefix = r"\\?\D:\RealInstall\dcc-mcp";
+    let failing_path = Path::new(r"\\?\D:\RealInstall\dcc-mcp\dcc-mcp-cli.exe");
+
+    // Control: redacting with only the raw prefix cannot match the resolved
+    // path, so the install directory survives (this is the bug being fixed).
+    let raw_only =
+        redact_path_with_prefixes(failing_path, &[(raw_prefix.to_string(), "<localappdata>")]);
+    assert!(
+        raw_only.to_ascii_lowercase().contains("realinstall"),
+        "control no longer reproduces the leak: {raw_only}"
+    );
+
+    // With the canonicalizer injected, the resolved spelling is collected and
+    // redacted under the same label, while the file name is preserved.
+    let redacted = redact_path_with_sources(
+        failing_path,
+        |key| match key {
+            "LOCALAPPDATA" => Some(raw_prefix.to_string()),
+            _ => None,
+        },
+        |prefix| {
+            assert_eq!(prefix, Path::new(raw_prefix));
+            Some(PathBuf::from(canonical_prefix))
+        },
+    );
+    assert!(
+        !redacted.to_ascii_lowercase().contains("realinstall"),
+        "resolved install directory leaked: {redacted}"
+    );
+    assert!(
+        redacted.contains("<localappdata>"),
+        "canonical prefix was not labeled: {redacted}"
+    );
+    assert!(
+        redacted.ends_with("dcc-mcp-cli.exe"),
+        "diagnostic file name lost: {redacted}"
+    );
+}
+
+#[test]
+fn redact_path_with_lookup_uses_real_canonical_spelling() {
+    // The production seam wires `std::fs::canonicalize()` into prefix
+    // collection. Exercise that real call path (no injected canonicalizer) with
+    // a genuine on-disk directory whose raw spelling canonicalizes to a
+    // different string, modelling a symlink/junction that resolves elsewhere.
+    let temp = tempfile::tempdir().unwrap();
+    let install = temp.path().join("install");
+    std::fs::create_dir(&install).unwrap();
+    // A `.` component is normalized away by canonicalize on every platform,
+    // so the resolved spelling is guaranteed to differ from the raw prefix.
+    let raw = temp.path().join(".").join("install");
+    let raw_str = raw.to_string_lossy().into_owned();
+    let resolved = std::fs::canonicalize(&raw).unwrap();
+    let resolved_str = resolved.to_string_lossy().into_owned();
+    assert_ne!(
+        resolved_str, raw_str,
+        "canonicalize did not change the spelling"
+    );
+    let failing = resolved.join("dcc-mcp-cli.exe");
+
+    let redacted = redact_path_with_lookup(&failing, |key| match key {
+        "LOCALAPPDATA" => Some(raw_str.clone()),
+        _ => None,
+    });
+    assert!(
+        !redacted.contains(&resolved_str),
+        "real canonicalized install directory leaked: {redacted}"
+    );
+    assert!(
+        redacted.contains("<localappdata>"),
+        "canonical prefix not labeled by production seam: {redacted}"
+    );
+    assert!(
+        redacted.ends_with("dcc-mcp-cli.exe"),
+        "diagnostic file name lost: {redacted}"
     );
 }
 
