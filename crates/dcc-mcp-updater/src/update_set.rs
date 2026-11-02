@@ -31,6 +31,11 @@ const TRANSACTION_LOCK_FILE: &str = "transaction.lock";
 const UPDATE_LOCK_TIMEOUT: Duration = Duration::from_secs(10);
 const UPDATE_LOCK_BACKOFF: Duration = Duration::from_millis(10);
 
+/// Static category for the installed file a journal entry targets. A staged
+/// update set can replace the current executable *or* sibling components, so
+/// diagnostics must not claim that every target is the current executable.
+const INSTALLED_COMPONENT: &str = "installed-component";
+
 static PROCESS_INSTALLATION_LOCKS: OnceLock<(Mutex<HashSet<String>>, Condvar)> = OnceLock::new();
 
 struct ProcessInstallationGuard {
@@ -692,7 +697,7 @@ fn apply_entries(journal: &UpdateJournal) -> Result<(), UpdateError> {
                 stage: "apply",
                 operation: "rename_prepared_to_target",
                 source: "prepared-update-component",
-                target: "current-exe",
+                target: INSTALLED_COMPONENT,
             },
             &entry.prepared,
             &entry.target,
@@ -751,7 +756,7 @@ fn apply_entries_with(
                 IoOp {
                     stage: "apply",
                     operation: "rename_target_to_backup",
-                    source: "current-exe",
+                    source: INSTALLED_COMPONENT,
                     target: "backup",
                 },
                 &target,
@@ -824,7 +829,7 @@ fn rollback_entry(entry: &JournalEntry) -> Result<(), UpdateError> {
                 IoOp {
                     stage: "rollback",
                     operation: "remove_installed_target",
-                    source: "current-exe",
+                    source: INSTALLED_COMPONENT,
                     target: "removed-target",
                 },
                 &entry.target,
@@ -837,7 +842,7 @@ fn rollback_entry(entry: &JournalEntry) -> Result<(), UpdateError> {
                 stage: "rollback",
                 operation: "rename_prepared_to_target",
                 source: "prepared-update-component",
-                target: "current-exe",
+                target: INSTALLED_COMPONENT,
             },
             &entry.prepared,
             &entry.target,
@@ -859,7 +864,7 @@ fn rollback_entry(entry: &JournalEntry) -> Result<(), UpdateError> {
                 IoOp {
                     stage: "rollback",
                     operation: "remove_new_target",
-                    source: "current-exe",
+                    source: INSTALLED_COMPONENT,
                     target: "removed-target",
                 },
                 &entry.target,
@@ -1417,6 +1422,8 @@ fn canonical_existing(path: &Path) -> Result<PathBuf, UpdateError> {
             path.display()
         )));
     }
+    // This resolves the actual current executable, not a journal entry, so
+    // `current-exe` is the accurate category here.
     record_io_failure(
         IoOp {
             stage: "resolve",

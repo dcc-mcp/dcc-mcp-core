@@ -1,4 +1,6 @@
-use super::io_diagnostics::{IoOp, record_io_failure, redact_path, sanitize};
+use super::io_diagnostics::{
+    IoOp, record_io_failure, redact_path, redact_path_with_prefixes, sanitize,
+};
 use super::*;
 
 fn unique_name(label: &str) -> String {
@@ -21,6 +23,27 @@ fn write_fixture(root: &Path, name: &str, bytes: &[u8]) -> PathBuf {
 fn installation_root(binary_name: &str, current_exe: &Path) -> PathBuf {
     let current_exe = canonical_existing(current_exe).unwrap();
     installation_staging_dir(binary_name, &current_exe).unwrap()
+}
+
+/// Removes one test's isolated staging subtree on every exit path, including
+/// assertion panics. Staging writes under the user's real data dir (`APPDATA`
+/// on Windows), which a `tempfile::tempdir()` does not cover; `unique_name`
+/// keeps that subtree isolated from real user data and from other tests.
+#[cfg(windows)]
+struct StagingRootGuard(PathBuf);
+
+#[cfg(windows)]
+impl StagingRootGuard {
+    fn new(binary_name: &str) -> Self {
+        Self(crate::staging_dir(binary_name).expect("test staging dir must be resolvable"))
+    }
+}
+
+#[cfg(windows)]
+impl Drop for StagingRootGuard {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
 }
 
 #[test]
@@ -936,7 +959,7 @@ fn io_op_fixture() -> IoOp {
     IoOp {
         stage: "apply",
         operation: "rename_target_to_backup",
-        source: "current-exe",
+        source: INSTALLED_COMPONENT,
         target: "backup",
     }
 }
@@ -969,7 +992,7 @@ fn record_io_failure_preserves_raw_os_error_and_path_free_context() {
         "missing operation: {message}"
     );
     assert!(
-        message.contains("current-exe") && message.contains("backup"),
+        message.contains("installed-component") && message.contains("backup"),
         "missing path categories: {message}"
     );
     assert!(
@@ -1011,6 +1034,112 @@ fn diagnostic_helpers_redact_and_bound_sensitive_text() {
     assert!(!clean.contains('\u{1b}'));
 }
 
+#[test]
+fn redact_path_is_case_insensitive_and_handles_device_prefixes() {
+    // The opt-in diagnostic channel is used for byte-level forensics on an
+    // affected host, so a surviving profile directory is a privacy leak.
+    // Windows paths are case-insensitive and may use extended-length / UNC
+    // device prefixes; every spelling must still be redacted.
+    let home = r"C:\Users\hallong";
+    let prefixes = vec![(home.to_string(), "<home>")];
+    for case in [
+        r"C:\Users\hallong\secret\cli.exe",
+        r"C:\USERS\HALLONG\secret\cli.exe",
+        r"C:/USERS/HALLONG/secret/cli.exe",
+        r"\\?\C:\USERS\HALLONG\secret\cli.exe",
+        r"//?/C:/USERS/HALLONG/secret/cli.exe",
+    ] {
+        let redacted = redact_path_with_prefixes(Path::new(case), &prefixes);
+        assert!(
+            !redacted.to_ascii_lowercase().contains("hallong"),
+            "profile path survived redaction for {case}: {redacted}"
+        );
+        assert!(
+            redacted.ends_with("cli.exe"),
+            "diagnostic file name lost for {case}: {redacted}"
+        );
+    }
+
+    // The environment value itself may be written with a device prefix.
+    let long_prefix = vec![(r"\\?\C:\Users\hallong".to_string(), "<home>")];
+    let redacted =
+        redact_path_with_prefixes(Path::new(r"C:\USERS\HALLONG\secret\cli.exe"), &long_prefix);
+    assert!(
+        !redacted.to_ascii_lowercase().contains("hallong"),
+        "device-prefixed env prefix was not redacted: {redacted}"
+    );
+    assert!(redacted.ends_with("cli.exe"), "file name lost: {redacted}");
+
+    // A UNC profile path may appear on the failing path in extended-length
+    // UNC form; both spellings of the prefix must be recognized.
+    let unc_prefix = vec![(r"\\server\share\hallong".to_string(), "<appdata>")];
+    for case in [
+        r"\\server\share\hallong\secret\cli.exe",
+        r"\\?\UNC\server\share\hallong\secret\cli.exe",
+        r"//?/UNC/server/share/hallong/secret/cli.exe",
+        r"\\?\UNC\SERVER\SHARE\HALLONG\secret\cli.exe",
+    ] {
+        let redacted = redact_path_with_prefixes(Path::new(case), &unc_prefix);
+        assert!(
+            !redacted.to_ascii_lowercase().contains("hallong"),
+            "UNC profile path survived redaction for {case}: {redacted}"
+        );
+        assert!(
+            redacted.ends_with("cli.exe"),
+            "diagnostic file name lost for {case}: {redacted}"
+        );
+    }
+}
+
+#[test]
+fn sibling_target_failure_is_not_labeled_as_current_exe() {
+    // A staged update set may target a sibling component rather than the
+    // current executable. A failing rename on such a journal entry must not
+    // claim the failed file was `current-exe`, or operators will inspect the
+    // wrong file on the affected host. Force the rename to fail in a
+    // platform-independent way by giving the backup a missing parent.
+    let temp = tempfile::tempdir().unwrap();
+    let _current = write_fixture(temp.path(), "dcc-mcp-server.exe", b"server");
+    let sibling = write_fixture(temp.path(), "dcc-mcp-cli.exe", b"old-cli");
+    let prepared = write_fixture(temp.path(), "dcc-mcp-cli.exe.dcc-mcp-new", b"new-cli");
+    let original_sha256 = sha256_file(&sibling).unwrap();
+    let expected_sha256 = sha256_file(&prepared).unwrap();
+    let journal = UpdateJournal {
+        state: JournalState::Applying,
+        entries: vec![JournalEntry {
+            target: sibling.clone(),
+            prepared,
+            backup: temp
+                .path()
+                .join("absent")
+                .join("dcc-mcp-cli.exe.dcc-mcp-backup"),
+            had_original: true,
+            original_sha256: Some(original_sha256),
+            expected_sha256,
+        }],
+    };
+
+    let error = apply_entries(&journal).unwrap_err();
+    let message = error.to_string();
+    assert!(
+        matches!(error, UpdateError::IoWithContext { .. }),
+        "expected a diagnosable I/O failure, got {error:?}"
+    );
+    assert!(
+        message.contains("rename_target_to_backup"),
+        "failing operation not named: {message}"
+    );
+    assert!(
+        message.contains("installed-component"),
+        "journal entry lost its installed-component category: {message}"
+    );
+    assert!(
+        !message.contains("current-exe"),
+        "sibling target was mislabeled as the current executable: {message}"
+    );
+    assert_eq!(std::fs::read(&sibling).unwrap(), b"old-cli");
+}
+
 #[cfg(windows)]
 fn deny_delete(path: &Path) -> std::fs::File {
     use std::os::windows::fs::OpenOptionsExt;
@@ -1034,6 +1163,9 @@ fn windows_locked_target_reports_diagnosable_io_error_and_rolls_back() {
     let downloaded = write_fixture(temp.path(), "cli.download", b"new-cli");
     let expected_sha256 = sha256_file(&downloaded).unwrap();
     let binary_name = unique_name("win-locked-target");
+    // Remove this test's isolated staging subtree on every exit path,
+    // including assertion panics, so no pending dir is left in APPDATA.
+    let _staging_guard = StagingRootGuard::new(&binary_name);
 
     stage_verified_binary_update_for(&binary_name, &current, &downloaded, &expected_sha256)
         .unwrap();
