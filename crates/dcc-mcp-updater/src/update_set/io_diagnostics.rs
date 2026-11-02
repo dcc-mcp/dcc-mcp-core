@@ -39,14 +39,31 @@ pub(super) fn sanitize(text: &str, max_chars: usize) -> String {
 /// and data-directory prefixes are replaced and the result is bounded. This
 /// is never used by the propagated error or the always-on warning.
 pub(super) fn redact_path(path: &Path) -> String {
+    redact_path_with_lookup(path, |key| std::env::var(key).ok())
+}
+
+/// Testable seam for [`redact_path`]: collect the configured prefixes through
+/// an injectable environment lookup, then rewrite the path. The lookup is
+/// injectable so prefix collection can be verified without mutating the
+/// process-wide environment, which parallel tests also read when resolving
+/// staging directories.
+pub(super) fn redact_path_with_lookup(
+    path: &Path,
+    lookup: impl Fn(&str) -> Option<String>,
+) -> String {
     let mut prefixes = Vec::new();
+    // `XDG_DATA_HOME` is the Linux staging root (`dirs_data_dir`), and it may
+    // be configured outside `HOME` (for example a private cache directory), so
+    // it needs its own entry. The `HOME/.local/share` fallback is already
+    // covered by `HOME`.
     for (key, label) in [
         ("USERPROFILE", "<home>"),
         ("HOME", "<home>"),
         ("APPDATA", "<appdata>"),
         ("LOCALAPPDATA", "<localappdata>"),
+        ("XDG_DATA_HOME", "<xdg-data-home>"),
     ] {
-        if let Ok(prefix) = std::env::var(key)
+        if let Some(prefix) = lookup(key)
             && !prefix.is_empty()
         {
             prefixes.push((prefix, label));

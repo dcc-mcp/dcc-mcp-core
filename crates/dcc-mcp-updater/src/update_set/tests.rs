@@ -1,5 +1,6 @@
 use super::io_diagnostics::{
-    IoOp, record_io_failure, redact_path, redact_path_with_prefixes, sanitize,
+    IoOp, record_io_failure, redact_path, redact_path_with_lookup, redact_path_with_prefixes,
+    sanitize,
 };
 use super::*;
 
@@ -1089,6 +1090,47 @@ fn redact_path_is_case_insensitive_and_handles_device_prefixes() {
             "diagnostic file name lost for {case}: {redacted}"
         );
     }
+}
+
+#[test]
+fn redact_path_collects_xdg_data_home_outside_home() {
+    // On Linux `dirs_data_dir()` prefers `XDG_DATA_HOME` as the staging root.
+    // When it is configured outside `HOME`, that prefix must still be collected
+    // or the full staging path leaks into the opt-in diagnostic channel.
+    let path = Path::new("/var/cache/dcc-mcp-private/update/example/cli.exe");
+    let redacted = redact_path_with_lookup(path, |key| match key {
+        "HOME" => Some("/home/alice".to_string()),
+        "XDG_DATA_HOME" => Some("/var/cache/dcc-mcp-private".to_string()),
+        _ => None,
+    });
+    assert!(
+        !redacted.contains("/var/cache") && !redacted.contains("dcc-mcp-private"),
+        "external XDG staging root leaked: {redacted}"
+    );
+    assert!(
+        redacted.contains("<xdg-data-home>"),
+        "XDG prefix label missing: {redacted}"
+    );
+    assert!(
+        redacted.ends_with("update/example/cli.exe"),
+        "diagnostic path tail lost: {redacted}"
+    );
+
+    // The `HOME/.local/share` fallback remains covered by the `HOME` prefix
+    // when `XDG_DATA_HOME` is unset.
+    let fallback = Path::new("/home/alice/.local/share/update/example/cli.exe");
+    let redacted_fallback = redact_path_with_lookup(fallback, |key| match key {
+        "HOME" => Some("/home/alice".to_string()),
+        _ => None,
+    });
+    assert!(
+        !redacted_fallback.contains("/home/alice"),
+        "HOME fallback prefix leaked: {redacted_fallback}"
+    );
+    assert!(
+        redacted_fallback.ends_with("update/example/cli.exe"),
+        "HOME fallback path tail lost: {redacted_fallback}"
+    );
 }
 
 #[test]
