@@ -1221,6 +1221,91 @@ fn redact_path_with_lookup_uses_real_canonical_spelling() {
 }
 
 #[test]
+fn redact_path_redacts_cross_drive_descendant_junction() {
+    // A junction *below* a protected prefix (not the prefix itself) can
+    // resolve `current_exe` onto another drive. The resolved path keeps the
+    // profile identity (`Users\hallong`) but matches neither the raw env
+    // prefix nor the prefix's own canonical spelling, which is the case
+    // prefix canonicalization alone cannot cover.
+    let raw_prefix = r"C:\Users\hallong\AppData\Local";
+    let canonical_prefix = r"\\?\C:\Users\hallong\AppData\Local";
+    let failing = Path::new(r"\\?\D:\Users\hallong\RealInstall\dcc-mcp\dcc-mcp-cli.exe");
+
+    // Control: with no protected prefix collected the raw path survives, so
+    // the synthetic fixture really does reproduce the identity leak.
+    let unredacted = redact_path_with_prefixes(failing, &[]);
+    assert!(
+        unredacted.to_ascii_lowercase().contains("hallong"),
+        "control no longer reproduces the leak: {unredacted}"
+    );
+
+    let assert_redacted = |redacted: String| {
+        assert!(
+            !redacted.to_ascii_lowercase().contains("hallong"),
+            "profile identity leaked after descendant junction: {redacted}"
+        );
+        assert!(
+            redacted.contains("<localappdata>"),
+            "derived path was not labeled: {redacted}"
+        );
+        assert!(
+            redacted.contains("RealInstall"),
+            "diagnostic tail of the resolved target was dropped: {redacted}"
+        );
+        assert!(
+            redacted.ends_with("dcc-mcp-cli.exe"),
+            "diagnostic file name lost: {redacted}"
+        );
+    };
+
+    // Injected source: only the prefix itself is canonicalized; the junction
+    // is a descendant, so its resolved spelling still carries the identity.
+    assert_redacted(redact_path_with_sources(
+        failing,
+        |key| match key {
+            "LOCALAPPDATA" => Some(raw_prefix.to_string()),
+            _ => None,
+        },
+        |prefix| {
+            assert_eq!(prefix, Path::new(raw_prefix));
+            Some(PathBuf::from(canonical_prefix))
+        },
+    ));
+
+    // Production seam: the same path stays redacted with the real
+    // `std::fs::canonicalize()` wiring (no injected canonicalizer).
+    assert_redacted(redact_path_with_lookup(failing, |key| match key {
+        "LOCALAPPDATA" => Some(raw_prefix.to_string()),
+        _ => None,
+    }));
+}
+
+#[test]
+fn redact_path_keeps_similar_but_unrelated_paths_visible() {
+    // Identity redaction is a bounded fallback, not a substring filter: paths
+    // outside the protected profile/data locations must stay available for
+    // byte-level diagnostics on the affected host.
+    let prefixes = vec![(
+        r"C:\Users\hallong\AppData\Local".to_string(),
+        "<localappdata>",
+    )];
+    for case in [
+        // Same cross-drive shape, but a different profile identity.
+        r"\\?\D:\Users\serviceacct\RealInstall\dcc-mcp\dcc-mcp-cli.exe",
+        // The identity only as a substring of a different component.
+        r"\\?\D:\Users\hallong-backup\RealInstall\dcc-mcp-cli.exe",
+        // A genuinely unrelated install tree that shares only the file name.
+        r"D:\tools\dcc-mcp\dcc-mcp-cli.exe",
+    ] {
+        let redacted = redact_path_with_prefixes(Path::new(case), &prefixes);
+        assert_eq!(
+            redacted, case,
+            "similar but unrelated path was wrongly redacted: {redacted}"
+        );
+    }
+}
+
+#[test]
 fn sibling_target_failure_is_not_labeled_as_current_exe() {
     // A staged update set may target a sibling component rather than the
     // current executable. A failing rename on such a journal entry must not

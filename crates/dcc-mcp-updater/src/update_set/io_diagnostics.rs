@@ -104,14 +104,38 @@ pub(super) fn redact_path_with_sources(
 /// would leave the profile directory in the opt-in diagnostic channel. The
 /// remainder of the path (including the diagnostically useful file name) is
 /// preserved verbatim.
+///
+/// A descendant junction/symlink below a protected prefix can resolve the
+/// failing path onto another drive while still carrying the profile identity.
+/// Neither the raw prefix nor the prefix's own canonical spelling matches such
+/// a path, so when no prefix matched at all the protected identity itself is
+/// redacted. This stays inside the opt-in `debug` channel only; paths that do
+/// not carry a protected identity remain fully visible for diagnostics.
 pub(super) fn redact_path_with_prefixes(
     path: &Path,
     prefixes: &[(String, &'static str)],
 ) -> String {
     let mut text = path.to_string_lossy().into_owned();
+    let mut matched = false;
     for (prefix, label) in prefixes {
         for variant in prefix_variants(prefix) {
-            text = replace_ignoring_ascii_case(&text, &variant, label);
+            let replaced = replace_ignoring_ascii_case(&text, &variant, label);
+            if replaced != text {
+                matched = true;
+                text = replaced;
+            }
+        }
+    }
+    if !matched {
+        for (prefix, label) in prefixes {
+            let identity = protected_identity(prefix);
+            if identity.is_empty() {
+                continue;
+            }
+            if let Some(redacted) = redact_identity_run(&text, &identity, label) {
+                text = redacted;
+                break;
+            }
         }
     }
     sanitize(&text, 256)
@@ -165,6 +189,137 @@ fn strip_device_prefix(value: &str) -> String {
         return unified[4..].to_string();
     }
     unified
+}
+
+/// Static, non-user-specific directory names. They never count as a profile
+/// identity, so a single generic directory (for example `AppData`) cannot
+/// trigger identity redaction of an unrelated path.
+const STRUCTURAL_COMPONENTS: &[&str] = &[
+    "users",
+    "user",
+    "home",
+    "documents and settings",
+    "appdata",
+    "local",
+    "locallow",
+    "roaming",
+    ".local",
+    ".config",
+    ".cache",
+    "cache",
+    "share",
+    "data",
+    "programdata",
+    "windows",
+    "system32",
+    "program files",
+    "program files (x86)",
+    "var",
+    "usr",
+    "mnt",
+    "opt",
+    "tmp",
+    "temp",
+];
+
+/// Container components whose following component is the user name.
+const PROFILE_CONTAINERS: &[&str] = &["users", "user", "home", "documents and settings"];
+
+fn is_structural(component: &str) -> bool {
+    STRUCTURAL_COMPONENTS
+        .iter()
+        .any(|known| component.eq_ignore_ascii_case(known))
+}
+
+fn is_root_component(component: &str) -> bool {
+    let bytes = component.as_bytes();
+    bytes.len() == 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':'
+}
+
+/// Byte spans of every whole path component, split on either separator. The
+/// separator bytes are not part of any span, so cutting through a span's end
+/// keeps the original separator spelling of the diagnostic tail.
+fn component_spans(text: &str) -> Vec<(usize, usize, &str)> {
+    let bytes = text.as_bytes();
+    let mut spans = Vec::new();
+    let mut start = 0;
+    for (index, byte) in bytes.iter().enumerate() {
+        if *byte == b'\\' || *byte == b'/' {
+            if start < index {
+                spans.push((start, index, &text[start..index]));
+            }
+            start = index + 1;
+        }
+    }
+    if start < bytes.len() {
+        spans.push((start, bytes.len(), &text[start..]));
+    }
+    spans
+}
+
+/// Whole components of a configured prefix, with device prefixes, drive
+/// letters and `.` / `..` removed. Both separator conventions are normalized
+/// so a resolved path on another drive stays comparable with the prefix.
+fn prefix_components(prefix: &str) -> Vec<String> {
+    let plain = strip_device_prefix(prefix);
+    component_spans(&plain)
+        .into_iter()
+        .map(|(_, _, component)| component.to_string())
+        .filter(|component| !is_root_component(component) && component != "." && component != "..")
+        .collect()
+}
+
+/// The identity a descendant junction can preserve somewhere in a resolved
+/// path. For a profile/data prefix this is the user name (one component); for
+/// a custom data root with no profile container it is the final two
+/// components, so one generic directory name cannot redact unrelated paths.
+fn protected_identity(prefix: &str) -> Vec<String> {
+    let components = prefix_components(prefix);
+    for (index, component) in components.iter().enumerate() {
+        let is_container = PROFILE_CONTAINERS
+            .iter()
+            .any(|known| component.eq_ignore_ascii_case(known));
+        if !is_container {
+            continue;
+        }
+        if let Some(name) = components.get(index + 1)
+            && !is_structural(name)
+            && name.chars().count() >= 3
+        {
+            return vec![name.clone()];
+        }
+    }
+    match components.as_slice() {
+        [.., parent, leaf] if !is_structural(leaf) && leaf.chars().count() >= 3 => {
+            vec![parent.clone(), leaf.clone()]
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// Replace the head of `text` through the last whole-component occurrence of
+/// `identity` with `label`, keeping the remaining diagnostic tail verbatim.
+/// Whole-component matching means a similar but unrelated directory (for
+/// example `hallong-backup`) is never redacted.
+fn redact_identity_run(text: &str, identity: &[String], label: &str) -> Option<String> {
+    if identity.is_empty() {
+        return None;
+    }
+    let spans = component_spans(text);
+    if spans.len() < identity.len() {
+        return None;
+    }
+    let mut last_end = None;
+    for window in spans.windows(identity.len()) {
+        let matches = window
+            .iter()
+            .zip(identity)
+            .all(|(span, expected)| span.2.eq_ignore_ascii_case(expected));
+        if matches {
+            last_end = window.last().map(|span| span.1);
+        }
+    }
+    last_end.map(|end| format!("{label}{}", &text[end..]))
 }
 
 /// Replace every occurrence of `needle` in `haystack` with `replacement`,
