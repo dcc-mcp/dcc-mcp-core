@@ -25,9 +25,10 @@ mod update_set;
 const MAX_UPDATE_BYTES: u64 = 256 * 1024 * 1024;
 
 pub use update_set::{
-    UpdateSetSource, UpdateTarget, apply_staged_binary_update, apply_staged_update_set,
-    clear_staged_binary_update, install_verified_sibling, stage_update_set,
-    stage_verified_binary_update,
+    CheckedPackage, PackageFile, PackageIdentity, PackagePreconditions, UpdateSetSource,
+    UpdateTarget, apply_staged_binary_update, apply_staged_update_set, clear_staged_binary_update,
+    install_verified_package, install_verified_package_checked, install_verified_sibling,
+    stage_update_set, stage_verified_binary_update, validate_package_paths,
 };
 
 #[doc(hidden)]
@@ -134,6 +135,24 @@ pub enum UpdateError {
 
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
+
+    /// A filesystem operation inside the staged-update transaction failed.
+    ///
+    /// The original [`std::io::Error`] is preserved as the error source, so
+    /// its `ErrorKind` and raw OS code stay available for callers and the
+    /// existing rollback semantics are unchanged. The static fields name the
+    /// failing operation with path *categories* rather than absolute paths,
+    /// which can contain user directories or credentials and must not reach
+    /// public logs.
+    #[error("staged update {stage}/{operation} failed [{source} -> {target}]: {error}")]
+    IoWithContext {
+        stage: &'static str,
+        operation: &'static str,
+        source: &'static str,
+        target: &'static str,
+        #[source]
+        error: std::io::Error,
+    },
 
     #[error("Checksum mismatch: expected {expected}, got {actual}")]
     ChecksumMismatch { expected: String, actual: String },
@@ -335,6 +354,17 @@ impl Updater {
         &self,
         info: &UpdateInfo,
     ) -> Result<VerifiedUpdateAsset, UpdateError> {
+        self.download_verified_update_in(info, &staging_dir(&self.binary_name)?)
+            .await
+    }
+
+    /// Download with the same integrity checks into a caller-owned transaction directory.
+    pub async fn download_verified_update_in(
+        &self,
+        info: &UpdateInfo,
+        staging_dir: &Path,
+    ) -> Result<VerifiedUpdateAsset, UpdateError> {
+        validate_binary_name(&self.binary_name)?;
         let expected_sha = Sha256Digest::require(&self.binary_name, info.sha256.as_deref())?;
         let download_url = info
             .download_url
@@ -344,8 +374,7 @@ impl Updater {
                 binary_name: self.binary_name.clone(),
             })?;
 
-        let staging_dir = staging_dir(&self.binary_name)?;
-        std::fs::create_dir_all(&staging_dir)?;
+        std::fs::create_dir_all(staging_dir)?;
 
         // All downloads produce a raw binary (not an archive).
         // The manifest URL determines what we download — clients trust
@@ -364,7 +393,7 @@ impl Updater {
         }
 
         use std::io::Write as _;
-        let mut temp = tempfile::NamedTempFile::new_in(&staging_dir)?;
+        let mut temp = tempfile::NamedTempFile::new_in(staging_dir)?;
         let mut hasher = Sha256::new();
         let mut total = 0_u64;
         while let Some(chunk) = response.chunk().await? {

@@ -672,7 +672,8 @@ def test_workflow_states_the_change_kind_in_the_pr_body() -> None:
     assert "BODY_MARKER_ONLY" in workflow
     assert "BODY_VERSIONS" in workflow
     assert "BODY_UNCHANGED" in workflow
-    assert "gh pr edit" in workflow
+    assert "gh pr edit" not in workflow
+    assert 'gh api -X PATCH "repos/$GITHUB_REPOSITORY/pulls/$existing"' in workflow
 
 
 def test_workflow_gives_unchanged_its_own_title_and_body() -> None:

@@ -185,7 +185,7 @@ def _workflow_validator_invocations():
     invocations = []
     for step in _workflow_steps():
         for command in _logical_commands(step):
-            if "trusted-lock-validator show" not in command:
+            if "trusted-lock-validator show" not in command or "core_version_contract.py" in command:
                 continue
             pipeline = shlex.split(command)
             assert pipeline.count("|") == 1
@@ -326,7 +326,8 @@ def test_workflow_resolves_live_head_immediately_before_generation() -> None:
     assert step["env"]["PR_NUMBER"] == "${{ github.event.pull_request.number }}"
     assert "PUSH_TOKEN" not in step.get("env", {})
     names = [step.get("name") for step in _workflow_steps()]
-    assert names.index(RESOLVE_STEP) == names.index("Sync generated lock metadata") - 1
+    assert names.index(RESOLVE_STEP) == names.index("Sync Core release projections") - 1
+    assert names.index("Sync Core release projections") == names.index("Sync generated lock metadata") - 1
 
 
 def test_workflow_identity_steps_use_resolved_head_sha() -> None:

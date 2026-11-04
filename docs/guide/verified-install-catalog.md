@@ -65,9 +65,19 @@ the approved version.
 
 A catalog policy can include an optional `reason` explaining why an approved
 version remains pinned or installation has been withdrawn. That explanation is
-returned with the adapter in the install plan. For example, Godot remains at
-`0.4.0` while the `0.8.0` release's timeout-cancellation regression awaits passing
-release-commit CI. OBS advances to its validated `1.4.0` artifact independently.
+returned with the adapter in the install plan. Holds are reviewed against the
+exact candidate release commit, rather than carried forward indefinitely.
+Godot `0.9.6` replaces the old `0.4.0` hold after the timeout-cancellation fix in
+[`dcc-mcp-godot#39`](https://github.com/dcc-mcp/dcc-mcp-godot/pull/39) and passing
+release-commit CI. OBS advances independently to `1.5.1`. Both entries pin the
+published wheel digest and the matching release commit's `install.md`.
+
+These releases still declare a broad `<1.0.0` Core dependency upper bound in
+their wheel metadata. The catalog records the actual Core floors (`0.20.41`
+for Godot and `0.20.14` for OBS); it does not rewrite package dependencies.
+Artifact validation does not currently enforce `Requires-Dist` compatibility
+ranges. Passing it does not resolve the separate `upper_bound_too_wide` debt
+identified by the [Adapter Core Version Contract](adapter-core-version-contract.md).
 
 The publisher runs this validation before creating an attestation:
 

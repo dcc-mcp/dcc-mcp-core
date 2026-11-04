@@ -129,6 +129,23 @@ fn available_entries_accept_the_running_core_version() {
 }
 
 #[test]
+fn available_entries_preserve_the_curated_hold_reason() {
+    let root = TempDir::new().unwrap();
+    let reason = "Held until a newer release passes release-commit CI.";
+    for dcc in ["blender", "photoshop"] {
+        let mut entry = catalog_entry(dcc);
+        entry["policy"] = json!({"installation": "available", "reason": reason});
+        let catalog = write_catalog(&root, vec![entry]);
+        let output = cli(&catalog, dcc, false);
+        assert!(output.status.success(), "{:?}", output);
+        let plan: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(plan["version"], "1.0.0");
+        assert_eq!(plan["adapter"]["policy"]["installation"], "available");
+        assert_eq!(plan["adapter"]["policy"]["reason"], reason);
+    }
+}
+
+#[test]
 fn discovery_does_not_advertise_revoked_or_incompatible_installations() {
     let root = TempDir::new().unwrap();
     let mut entries = Vec::new();

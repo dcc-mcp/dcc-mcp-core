@@ -45,6 +45,9 @@ pub(crate) enum Command {
         /// Result limit used for the REST dynamic-capability search check.
         #[arg(long, default_value = "5")]
         limit: usize,
+        /// Maximum MCP tools/list pages; reaching the limit before completion fails.
+        #[arg(long, default_value = "16", value_parser = clap::value_parser!(u16).range(1..=128))]
+        max_pages: u16,
         /// Per-request timeout for smoke checks.
         #[arg(long)]
         timeout_secs: Option<u64>,
@@ -191,7 +194,7 @@ pub(crate) enum Command {
             conflicts_with = "batch"
         )]
         wait_timeout_secs: u64,
-        /// Per-request timeout for the tool call. Increase for renders and other long-running sync tools.
+        /// Per-request timeout for the tool call; --wait-timeout-secs independently limits total job polling.
         #[arg(long, env = "DCC_MCP_CLI_CALL_TIMEOUT_SECS")]
         timeout_secs: Option<u64>,
     },
@@ -339,9 +342,13 @@ pub(crate) enum Command {
         action: crate::presentation::components_cmd::ComponentsAction,
     },
     /// Check for and apply gateway-controlled binary updates.
+    ///
+    /// With no subcommand this performs the full update (check, download,
+    /// stage) in one step. `update apply` and its `--yes` flag remain
+    /// accepted for backward compatibility.
     Update {
         #[command(subcommand)]
-        action: crate::presentation::update_cmd::UpdateAction,
+        action: Option<crate::presentation::update_cmd::UpdateAction>,
     },
     /// Gateway lifecycle management.
     Gateway {

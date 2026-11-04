@@ -1,0 +1,91 @@
+# Drop-in CI for a NEW project that adopted templates/vx-just-project/.
+# Copy to .github/workflows/ci.yml. Local developers and CI call the SAME
+# entry point: `vx just ci`. There is no separate CI-only command set.
+#
+# Security / reproducibility decisions (see README.md):
+#   * The action ref is pinned to the reviewed v0.9.34 release COMMIT (SHA),
+#     and `version` is set explicitly because the action's `version` input
+#     defaults to `latest` and is decoupled from the ref.
+#   * cache:false avoids restoring a stale cached vx binary that install.sh
+#     would otherwise skip, so a green "Setup vx" cannot mask a wrong binary.
+#   * The lock-guard job asserts vx.lock PRESENCE separately: `vx lock --check`
+#     exits 0 when the lock is MISSING (it only prints an error).
+#   * verify.py (run inside `vx just ci`) spawns REAL vx child processes with an
+#     isolated VX_HOME/HOME, so a broken pin or a bare-tool fallback fails.
+#   * Standard GitHub-hosted runners only; no paid/self-hosted runner, no new
+#     credentials. Native DCC GUI/license gates are intentionally NOT_RUN here.
+
+name: CI
+
+# No `paths` filter: this is the project's MAIN CI, so a PR that changes only
+# source, tests or pyproject.toml must still run `vx just ci`. A toolchain-only
+# path filter would silently skip those changes after adoption.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lock-guard:
+    name: vx.lock is committed and current
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Setup vx (pinned)
+        uses: loonghao/vx@debe4f035713d28366ec0c322e0b87de2a25d2f2 # v0.9.34
+        with:
+          version: "0.9.34"
+          cache: false
+      - name: Verify vx.lock presence + consistency
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f vx.lock ]; then
+            echo "::error::vx.lock is missing. Run 'vx lock' and commit it."
+            exit 1
+          fi
+          vx lock --check
+
+  verify:
+    name: verify (${{ matrix.os }})
+    needs: lock-guard
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    env:
+      VX_EXPECT_VERSION: "0.9.34"
+      VX_NO_UPDATE_NOTIFIER: "1"
+      VX_TELEMETRY: "0"
+      NO_COLOR: "1"
+      # Windows runners default Python stdio to cp1252; force UTF-8 so vx's
+      # Unicode install glyphs (re-printed by verify.py) cannot crash a job.
+      PYTHONIOENCODING: "utf-8"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Setup vx (pinned)
+        uses: loonghao/vx@debe4f035713d28366ec0c322e0b87de2a25d2f2 # v0.9.34
+        with:
+          version: "0.9.34"
+          cache: false
+      # The ONE shared local/CI entry point: lock-check -> doctor -> verify.
+      - name: Run pipeline (vx just ci)
+        shell: bash
+        run: vx just ci

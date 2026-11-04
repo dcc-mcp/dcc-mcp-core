@@ -46,6 +46,17 @@ tools:
             Explicitly resume native DCC UI Control after the user stopped a
             session with Esc. Agents must leave this false unless the user asks to
             resume control.
+        native_capture_popup_window_handles:
+          type: array
+          maxItems: 8
+          uniqueItems: true
+          items: {type: integer, minimum: 1}
+          description: >-
+            Explicit secondary popup HWNDs from this exact root's fresh native capture inventory.
+            Requires the independent operator native-capture-popup keyboard ceiling.
+            Returns separately labeled popup pixels while the root image stays redacted.
+            This observation permits one unheld keyboard action within five seconds;
+            input remains bound to the exact main root. Never infer ownership from PID alone.
         policy:
           type: object
           description: "Optional ui_control policy override for this call."
@@ -363,6 +374,9 @@ tools:
       to mock/CDP or the explicit owner-selected pixels MCP transport and is not
       a portable Windows action. Pixels MCP permits only the owner's physical
       action ceiling; tool policy and the operator raw-input ceiling can narrow it.
+      Owner-selected pixels keypress supports an optional 1..10000 ms hold
+      for one or two unique WASD/arrow keys, with no modifiers. It releases
+      within the same Native transaction; this is not cross-call key ownership.
       Windows keypress rejects ordinary printable, Shift-text, and AltGr-text
       input; use only navigation/control/function keys or genuine Ctrl/Alt
       shortcuts. Windows game_navigation is the separately governed game-canvas
@@ -376,10 +390,13 @@ tools:
       For a custom-drawn DCC canvas or face control that has no semantic node,
       use a path from the latest snapshot for one drag; Ctrl, Shift, and Alt in
       keys are held as pointer modifiers. Snapshot again immediately afterward.
-      get_window_state, restore_window, show_window, and activate_window are
-      recovery operations for the same host-bound PID/HWND and do not require
-      a prior snapshot. They cannot enumerate or target another process/window;
-      restore/show/activate invalidate any prior snapshot and are audited.
+      get_window_state, restore_window, and activate_window are recovery
+      operations for the same host-bound PID/HWND and do not require a prior
+      snapshot. They cannot enumerate or target another process/window.
+      restore/activate invalidate any prior snapshot and are audited. The
+      default dcc-cua Host and owner-selected pixels routes do not support
+      show_window; when a target is hidden but not minimized, ask the operator
+      to restore its visibility manually before activating it.
       In owner-selected pixels MCP mode, activate_window and restore_window
       require explicit owner window_operations; restore_window uses native
       restore_activate. minimize_window is available only in this mode with an
@@ -436,7 +453,6 @@ tools:
             - invoke_menu
             - get_window_state
             - restore_window
-            - show_window
             - activate_window
             - minimize_window
             - set_frame
@@ -552,7 +568,10 @@ tools:
             Optional drag duration, or visible system-cursor travel plus
             pointer-effect dwell for a non-drag pointer action, in
             milliseconds. For game_navigation it is an optional key hold and
-            must be between 0 and 500 ms.
+            must be between 0 and 500 ms. Owner-selected pixels keypress permits
+            1..10000 ms with one or two unique WASD/arrow keys and no modifiers;
+            omission preserves an immediate press/release. Other keyboard actions
+            do not support a hold duration.
         snapshot_id:
           type: string
           description: >-

@@ -81,8 +81,28 @@ client = BridgeFallbackClient(
 result = client.call("scene.info")
 ```
 
-`BridgeRetryPolicy` centralizes attempts and exponential backoff so DCC
-adapters do not each invent slightly different retry loops.
+`BridgeRetryPolicy` controls connection-establishment attempts and exponential
+backoff in this client. It is not an operation-replay policy.
+
+Bridge errors expose a request-level `outcome`: `unknown` (the default) or
+`not_dispatched`. `BridgeFallbackClient` replays a call on another transport
+only when its `BridgeConnectionError` explicitly reports `not_dispatched`.
+Existing unclassified connection errors, send failures after possible dispatch,
+and timeouts must be surfaced to the caller for state inspection, without
+replay. Do not infer safety from a method name or a fresh request ID. A strategy
+may report `not_dispatched` only with evidence that this request never reached
+its dispatch boundary; it says nothing about earlier workflow steps.
+
+`DccBridge` serializes before registering pending work, binds each send to its
+selected socket, and settles send failures promptly. Serialization/scheduling
+failures are pre-dispatch; a failing WebSocket send has unknown outcome. A
+queued request that already timed out is not sent later. Pending state is
+removed on every call exit. The experimental design bridge's `indeterminate`
+means `unknown` here; this change does not alter that bridge's envelope.
+
+Capacity negotiation, final UTF-8 byte budgets, Rust conformance vectors and
+adapter adoption remain separate follow-ups under #2821. No receive limit or
+adapter authorization policy changes in this outcome/fallback slice.
 
 ## Reverse Bridge Sessions
 

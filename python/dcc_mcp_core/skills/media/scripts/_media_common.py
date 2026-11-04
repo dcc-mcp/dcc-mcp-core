@@ -8,11 +8,11 @@ importing the compiled dcc_mcp_core extension.
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 import re
 import subprocess
 import sys
+import time
 from typing import Any
 from typing import Callable
 from typing import Dict
@@ -23,6 +23,8 @@ from typing import Sequence
 from typing import Set
 from typing import Tuple
 
+from _media_runtime import inspect_versions
+from _media_runtime import resolve_runtime
 import _vx_bootstrap
 
 VIDEO_CODECS = ("libx264", "libx265", "mpeg4", "prores_ks", "copy")
@@ -431,15 +433,14 @@ def resolve_sequence_source(
 
 
 def vx_command(tool: str, args: Sequence[str]) -> List[str]:
-    """Build a fixed vx-managed media command."""
+    """Build a legacy media argv marker; run_command resolves it without launching vx."""
     if tool not in {"ffmpeg", "ffprobe"}:
         raise MediaToolError(
             "Internal media tool attempted to use an unsupported vx provider.",
             "invalid_tool",
             context={"tool": tool},
         )
-    vx_bin = os.environ.get("DCC_MCP_MEDIA_VX_BIN", "vx")
-    return [vx_bin, tool, *list(args)]
+    return ["vx", tool, *list(args)]
 
 
 def _auto_install_vx_enabled() -> bool:
@@ -627,8 +628,30 @@ def build_thumbnail_command(
 
 
 def run_command(command: Sequence[str], timeout_secs: Any, *, allow_auto_install: bool = True) -> str:
+    # Legacy builder argv uses a vx-shaped marker, never an executable launcher.
+    # allow_auto_install is retained for call compatibility but cannot enable installs.
     timeout = number_value("timeout_secs", timeout_secs, 30, minimum=1, maximum=3600)
     command_list = list(command)
+    if len(command_list) >= 2 and command_list[1] in {"ffmpeg", "ffprobe"}:
+        binaries = resolve_runtime(MediaToolError)
+        deadline = time.monotonic() + timeout
+
+        def remaining():
+            seconds = deadline - time.monotonic()
+            if seconds <= 0:
+                raise MediaToolError("Media runtime checks exhausted the operation timeout.", "timeout")
+            return seconds
+
+        inspect_versions(binaries, lambda argv: _run_native_command(argv, remaining()), MediaToolError)
+        command_list = [binaries[command_list[1]]["path"], *command_list[2:]]
+        timeout = remaining()
+        if isinstance(command, list):
+            command[:] = command_list  # Existing tool receipts expose the actual argv.
+    return _run_native_command(command_list, timeout)
+
+
+def _run_native_command(command_list, timeout):
+    """Execute a resolved argv with the remaining, possibly fractional deadline."""
     try:
         result = subprocess.run(
             command_list,
@@ -637,61 +660,14 @@ def run_command(command: Sequence[str], timeout_secs: Any, *, allow_auto_install
             errors="replace",
             timeout=timeout,
         )
-    except FileNotFoundError as exc:
-        if _is_default_vx_command(command_list):
-            if not allow_auto_install:
-                raise MediaToolError(
-                    "vx is not available on PATH; this read-only media command will not install it automatically.",
-                    "vx_not_found",
-                    prompt=(
-                        "Install vx manually, set DCC_MCP_MEDIA_VX_BIN, or run a non-read-only media tool "
-                        "when installation is intended."
-                    ),
-                    possible_solutions=[
-                        "Install vx and ensure `vx --version` works.",
-                        "Set DCC_MCP_MEDIA_VX_BIN to the absolute path of the vx executable.",
-                        "Use a non-read-only media tool only when automatic vx installation is acceptable.",
-                    ],
-                    context={"detail": str(exc), "command": command_list, "allow_auto_install": False},
-                ) from exc
-            vx_bin = _bootstrap_vx_or_error(exc, command_list)
-            command_list[0] = vx_bin
-            try:
-                result = subprocess.run(
-                    command_list,
-                    capture_output=True,
-                    encoding="utf-8",
-                    errors="replace",
-                    timeout=timeout,
-                )
-            except FileNotFoundError as retry_exc:
-                raise MediaToolError(
-                    "vx bootstrap completed but the downloaded vx binary could not be executed.",
-                    "vx_bootstrap_failed",
-                    context={"detail": str(retry_exc), "command": command_list},
-                ) from retry_exc
-            except subprocess.TimeoutExpired as retry_exc:
-                raise MediaToolError(
-                    "Media command timed out.",
-                    "timeout",
-                    context={
-                        "timeout_secs": timeout,
-                        "command": command_list,
-                        "stdout": retry_exc.stdout,
-                        "stderr": retry_exc.stderr,
-                    },
-                ) from retry_exc
-        else:
-            raise MediaToolError(
-                "vx is not available on PATH, so the media tool cannot provision FFmpeg.",
-                "vx_not_found",
-                prompt="Install vx or set DCC_MCP_MEDIA_VX_BIN to the vx executable path, then retry.",
-                possible_solutions=[
-                    "Install vx and ensure `vx --version` works.",
-                    "Set DCC_MCP_MEDIA_VX_BIN to the absolute path of the vx executable.",
-                ],
-                context={"detail": str(exc), "command": command_list},
-            ) from exc
+    except OSError as exc:
+        raise MediaToolError(
+            "Cannot execute the selected media runtime.",
+            "command_unavailable",
+            prompt="Preinstall FFmpeg/FFprobe or configure DCC_MCP_MEDIA_FFMPEG_BIN and DCC_MCP_MEDIA_FFPROBE_BIN.",
+            context={"detail": str(exc), "command": command_list},
+        ) from exc
+
     except subprocess.TimeoutExpired as exc:
         raise MediaToolError(
             "Media command timed out.",

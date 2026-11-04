@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "sources": [
+    {
+      "name": "dcc-mcp-openusd",
+      "repository": "dcc-mcp/dcc-mcp-openusd",
+      "pypi_project": "dcc-mcp-openusd"
+    },
+    {
+      "name": "dcc-mcp-freecad",
+      "repository": "dcc-mcp/dcc-mcp-freecad",
+      "pypi_project": "dcc-mcp-freecad",
+      "compatibility_path": "dcc_mcp_freecad/compat_matrix.json"
+    }
+  ]
+}

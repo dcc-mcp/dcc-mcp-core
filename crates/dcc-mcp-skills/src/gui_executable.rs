@@ -135,17 +135,21 @@ pub fn correct_python_executable(path: &Path) -> PathBuf {
 }
 
 /// Locate the first existing sibling whose file-stem matches one of
-/// `stems`, preserving the original extension (`.exe` on Windows, none
-/// elsewhere). Returns `None` if no candidate file is found.
+/// `stems`, preserving only a Windows `.exe` suffix (case-insensitive).
+/// Other suffixes, such as Maya's `.bin`, belong to the GUI program, not its
+/// interpreter. Returns `None` if no candidate file is found.
 fn locate_sibling(gui_path: &Path, stems: &[&str]) -> Option<PathBuf> {
     if stems.is_empty() {
         return None;
     }
     let parent = gui_path.parent()?;
-    let extension = gui_path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    let extension = gui_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .filter(|e| e.eq_ignore_ascii_case("exe"));
     for stem in stems {
         let mut candidate = parent.join(stem);
-        if !extension.is_empty() {
+        if let Some(extension) = extension {
             candidate.set_extension(extension);
         }
         if candidate.exists() {
@@ -248,15 +252,37 @@ mod tests {
     }
 
     #[test]
-    fn locates_existing_mayapy_sibling() {
-        let dir = tempdir().unwrap();
-        let maya = dir.path().join("maya.exe");
-        let mayapy = dir.path().join("mayapy.exe");
-        fs::write(&maya, b"").unwrap();
-        fs::write(&mayapy, b"").unwrap();
+    fn locates_platform_specific_python_siblings() {
+        for (gui, embedded) in [
+            ("maya.exe", "mayapy.exe"),
+            ("MAYA.EXE", "Mayapy.EXE"),
+            ("maya", "mayapy"),
+            ("maya.bin", "mayapy"),
+            ("MAYA.BIN", "Mayapy"),
+            ("houdinifx.exe", "hython.exe"),
+            ("Houdini", "hython"),
+        ] {
+            let dir = tempdir().unwrap();
+            let gui = dir.path().join(gui);
+            let python = dir.path().join(embedded);
+            fs::write(&gui, b"").unwrap();
+            fs::write(&python, b"").unwrap();
 
-        let hint = is_gui_executable(&maya).unwrap();
-        assert_eq!(hint.recommended_replacement, Some(mayapy));
+            let hint = is_gui_executable(&gui).unwrap();
+            assert_eq!(hint.recommended_replacement, Some(python));
+        }
+    }
+
+    #[test]
+    fn does_not_copy_maya_bin_suffix_to_python() {
+        let dir = tempdir().unwrap();
+        let gui = dir.path().join("maya.bin");
+        fs::write(&gui, b"").unwrap();
+        fs::write(dir.path().join("mayapy.bin"), b"").unwrap();
+
+        let hint = is_gui_executable(&gui).unwrap();
+        assert_eq!(hint.recommended_replacement, None);
+        assert_eq!(correct_python_executable(&gui), gui);
     }
 
     /// Regression: on case-insensitive filesystems (macOS APFS, Windows NTFS)

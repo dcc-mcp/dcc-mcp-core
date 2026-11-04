@@ -14,6 +14,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tempfile::TempDir;
 
+mod legacy;
+pub mod verified_local;
+
 const OFFICIAL_RELEASES: &str = "https://github.com/dcc-mcp/dcc-cua/releases";
 const COMPONENT_NAME: &str = "dcc-cua";
 const MANIFEST_SCHEMA_VERSION: u64 = 1;
@@ -123,9 +126,18 @@ impl ComponentService {
             .context("official dcc-cua install manifest is invalid JSON")?;
         validate_install_manifest(&manifest, self.target, requested_version)?;
 
-        if let Ok(status) = self.status()
+        let install_dir = self
+            .current_exe
+            .parent()
+            .context("dcc-mcp-cli executable has no parent directory")?;
+        if verify_extracted_install_plan(install_dir, &manifest.install).is_ok()
+            && package_executables_ready(install_dir, &manifest.install)?
+            && let Ok(status) = self.status()
             && status["status"] == "ready"
             && status["version"] == manifest.version
+            && reconcile_existing_package(install_dir, &manifest.install, || {
+                self.install_package(install_dir, &manifest, None)
+            })?
         {
             return Ok(json!({
                 "schema_version": 1,
@@ -136,6 +148,10 @@ impl ComponentService {
                 "path": self.component_path()?,
             }));
         }
+
+        let legacy_digest =
+            legacy::verified_foreground_digest(&self.client, install_dir, self.target, &manifest)
+                .await?;
 
         let archive =
             download_bounded(&self.client, &manifest.asset.url, MAX_ARCHIVE_BYTES).await?;
@@ -154,18 +170,11 @@ impl ComponentService {
         std::fs::create_dir(&extracted)?;
         extract_archive(&archive_path, &extracted)?;
         verify_extracted_install_plan(&extracted, &manifest.install)?;
+        prepare_package_executables(&extracted, &manifest.install)?;
         let candidate = extracted.join(component_file_name());
         let candidate_version = validate_candidate(&candidate, Some(&manifest.version))?;
-        let candidate_sha = dcc_mcp_updater::sha256_file(&candidate)?;
-        dcc_mcp_updater::install_verified_sibling(
-            "dcc-mcp-cli",
-            &self.current_exe,
-            &candidate,
-            component_file_name(),
-            &candidate_sha,
-        )?;
+        self.install_package(&extracted, &manifest, legacy_digest.as_deref())?;
         let installed = self.component_path()?;
-        validate_candidate(&installed, Some(&manifest.version))?;
 
         Ok(json!({
             "schema_version": 1,
@@ -176,6 +185,40 @@ impl ComponentService {
             "path": installed,
             "archive_sha256": manifest.asset.sha256,
         }))
+    }
+
+    fn install_package(
+        &self,
+        source: &Path,
+        manifest: &InstallManifest,
+        legacy_digest: Option<&str>,
+    ) -> anyhow::Result<()> {
+        let mut files = package_files(&manifest.install);
+        // Publish the foreground entry point after its background runtime and assets.
+        files.sort_by_key(|file| file.path == component_file_name());
+        dcc_mcp_updater::install_verified_package(
+            "dcc-mcp-cli",
+            &self.current_exe,
+            dcc_mcp_updater::PackageIdentity {
+                name: COMPONENT_NAME,
+                version: &manifest.version,
+                verified_legacy_foreground: legacy_digest.map(|sha256| {
+                    dcc_mcp_updater::PackageFile {
+                        path: component_file_name(),
+                        sha256,
+                    }
+                }),
+            },
+            source,
+            &manifest.install.directories,
+            &files,
+            |root| {
+                validate_candidate(&root.join(component_file_name()), Some(&manifest.version))
+                    .map(|_| ())
+                    .map_err(|error| dcc_mcp_updater::UpdateError::Stage(error.to_string()))
+            },
+        )?;
+        Ok(())
     }
 
     fn component_path(&self) -> anyhow::Result<PathBuf> {
@@ -233,10 +276,24 @@ pub fn validate_install_manifest(
     }
     validate_sha256(&manifest.asset.sha256, "asset")?;
     validate_install_plan(&manifest.install)?;
+    let executable = if expected_target.ends_with("windows-msvc") {
+        "dcc-cua.exe"
+    } else {
+        "dcc-cua"
+    };
+    if !manifest
+        .install
+        .files
+        .iter()
+        .any(|file| file.path == executable)
+    {
+        bail!("official dcc-cua install manifest does not declare its executable");
+    }
     Ok(())
 }
 
 fn validate_install_plan(plan: &InstallPlan) -> anyhow::Result<()> {
+    dcc_mcp_updater::validate_package_paths(&plan.directories, &package_files(plan))?;
     if plan.files.is_empty() {
         bail!("official dcc-cua install manifest has an empty install plan");
     }
@@ -278,13 +335,13 @@ fn validate_sha256(value: &str, subject: &str) -> anyhow::Result<()> {
 
 fn verify_extracted_install_plan(root: &Path, plan: &InstallPlan) -> anyhow::Result<()> {
     for directory in &plan.directories {
-        if !root.join(directory).is_dir() {
+        if !is_real_package_path(root, directory, true)? {
             bail!("dcc-cua archive is missing a declared install directory");
         }
     }
     for file in &plan.files {
         let path = root.join(&file.path);
-        if !path.is_file() {
+        if !is_real_package_path(root, &file.path, false)? {
             bail!("dcc-cua archive is missing a declared install file");
         }
         if dcc_mcp_updater::sha256_file(&path)? != file.sha256 {
@@ -292,6 +349,96 @@ fn verify_extracted_install_plan(root: &Path, plan: &InstallPlan) -> anyhow::Res
         }
     }
     Ok(())
+}
+
+fn package_files(plan: &InstallPlan) -> Vec<dcc_mcp_updater::PackageFile<'_>> {
+    plan.files
+        .iter()
+        .map(|file| dcc_mcp_updater::PackageFile {
+            path: &file.path,
+            sha256: &file.sha256,
+        })
+        .collect()
+}
+
+fn is_real_package_path(root: &Path, relative: &str, directory: bool) -> anyhow::Result<bool> {
+    validate_install_path(relative)?;
+    let mut path = root.to_path_buf();
+    let mut components = Path::new(relative).components().peekable();
+    while let Some(component) = components.next() {
+        path.push(component);
+        let metadata = match std::fs::symlink_metadata(&path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(error) => return Err(error.into()),
+        };
+        if components.peek().is_some() || directory {
+            if !metadata.file_type().is_dir() {
+                return Ok(false);
+            }
+        } else if !metadata.file_type().is_file() {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+fn prepare_package_executables(root: &Path, plan: &InstallPlan) -> anyhow::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        // The install manifest has no mode field. Only the two known runtime
+        // entry points are executable; assets and configuration remain data.
+        for file in &plan.files {
+            if matches!(file.path.as_str(), "dcc-cua" | "dcc-cua-background") {
+                std::fs::set_permissions(
+                    root.join(&file.path),
+                    std::fs::Permissions::from_mode(0o755),
+                )?;
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = (root, plan);
+    Ok(())
+}
+
+fn reconcile_existing_package(
+    root: &Path,
+    plan: &InstallPlan,
+    reconcile: impl FnOnce() -> anyhow::Result<()>,
+) -> anyhow::Result<bool> {
+    // Enter the shared transaction even for a complete legacy installation.
+    // Recovery of an uncommitted upgrade can restore old files in this same
+    // directory, invalidating the fast path's source. Continue with a fresh
+    // verified archive in that case; a receipt/ownership error with an intact
+    // current plan must still fail closed rather than report `existing`.
+    match reconcile() {
+        Ok(()) => Ok(true),
+        Err(_) if verify_extracted_install_plan(root, plan).is_err() => Ok(false),
+        Err(error) => Err(error),
+    }
+}
+
+fn package_executables_ready(root: &Path, plan: &InstallPlan) -> anyhow::Result<bool> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        for file in &plan.files {
+            if matches!(file.path.as_str(), "dcc-cua" | "dcc-cua-background")
+                && std::fs::metadata(root.join(&file.path))?
+                    .permissions()
+                    .mode()
+                    & 0o111
+                    == 0
+            {
+                return Ok(false);
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = (root, plan);
+    Ok(true)
 }
 
 fn parse_stable_version(raw: &str) -> anyhow::Result<Version> {
@@ -499,13 +646,6 @@ fn validate_candidate(path: &Path, expected_version: Option<&str>) -> anyhow::Re
     if !path.is_file() {
         bail!("dcc-cua archive does not contain the expected executable");
     }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut permissions = std::fs::metadata(path)?.permissions();
-        permissions.set_mode(0o755);
-        std::fs::set_permissions(path, permissions)?;
-    }
     let stdout = tempfile::NamedTempFile::new()?;
     let stdout_writer = stdout.reopen()?;
     let mut child = Command::new(path)
@@ -575,7 +715,11 @@ mod tests {
             install: InstallPlan {
                 directories: vec!["assets".into()],
                 files: vec![InstallFile {
-                    path: "dcc-cua.exe".into(),
+                    path: if target.ends_with("windows-msvc") {
+                        "dcc-cua.exe".into()
+                    } else {
+                        "dcc-cua".into()
+                    },
                     sha256: "b".repeat(64),
                 }],
             },
@@ -745,5 +889,152 @@ mod tests {
         assert!(validate_relative_path(Path::new("assets/profile.json")).is_ok());
         assert!(validate_relative_path(Path::new("../dcc-cua")).is_err());
         assert!(validate_relative_path(Path::new("/dcc-cua")).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn only_manifest_declared_runtime_entry_points_receive_executable_mode() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = tempfile::tempdir().unwrap();
+        let mut plan = InstallPlan {
+            directories: vec!["assets".into()],
+            files: vec![],
+        };
+        std::fs::create_dir(root.path().join("assets")).unwrap();
+        for path in ["dcc-cua", "dcc-cua-background", "assets/data.json"] {
+            let file = root.path().join(path);
+            std::fs::write(&file, b"content").unwrap();
+            std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+            plan.files.push(InstallFile {
+                path: path.into(),
+                sha256: dcc_mcp_updater::sha256_file(&file).unwrap(),
+            });
+        }
+        assert!(!package_executables_ready(root.path(), &plan).unwrap());
+        prepare_package_executables(root.path(), &plan).unwrap();
+        assert!(package_executables_ready(root.path(), &plan).unwrap());
+        assert_eq!(
+            std::fs::metadata(root.path().join("assets/data.json"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o644
+        );
+        std::fs::remove_file(root.path().join("dcc-cua-background")).unwrap();
+        assert!(verify_extracted_install_plan(root.path(), &plan).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn installed_package_check_rejects_symlinked_assets_even_with_matching_hashes() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let file = outside.path().join("data.json");
+        std::fs::write(&file, b"same bytes").unwrap();
+        std::os::unix::fs::symlink(outside.path(), root.path().join("assets")).unwrap();
+        let plan = InstallPlan {
+            directories: vec!["assets".into()],
+            files: vec![InstallFile {
+                path: "assets/data.json".into(),
+                sha256: dcc_mcp_updater::sha256_file(&file).unwrap(),
+            }],
+        };
+        assert!(verify_extracted_install_plan(root.path(), &plan).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn package_install_repairs_a_legacy_foreground_only_installation() {
+        let root = tempfile::tempdir().unwrap();
+        let source = root.path().join("source");
+        let installed = root.path().join("installed");
+        std::fs::create_dir_all(source.join("assets")).unwrap();
+        std::fs::create_dir(&installed).unwrap();
+        let current = installed.join("dcc-mcp-cli");
+        std::fs::write(&current, b"core cli").unwrap();
+        let contract = json!({
+            "schema_version": 1, "name": COMPONENT_NAME, "version": "0.6.0",
+            "host": {"protocol_version": 1, "ensure_command": ["host-ensure"]},
+            "core_bridge": {"command": ["host-jsonl"]},
+            "runtime": {"separate_driver_required": false},
+        });
+        let script = format!("#!/bin/sh\nprintf '%s\\n' '{}'\n", contract);
+        let mut manifest = manifest("x86_64-unknown-linux-gnu");
+        manifest.install.files.clear();
+        for (path, bytes) in [
+            ("dcc-cua", script.as_bytes()),
+            ("dcc-cua-background", b"background".as_slice()),
+            ("assets/data.json", b"asset".as_slice()),
+        ] {
+            let file = source.join(path);
+            std::fs::write(&file, bytes).unwrap();
+            manifest.install.files.push(InstallFile {
+                path: path.into(),
+                sha256: dcc_mcp_updater::sha256_file(&file).unwrap(),
+            });
+        }
+        prepare_package_executables(&source, &manifest.install).unwrap();
+        std::fs::copy(source.join("dcc-cua"), installed.join("dcc-cua")).unwrap();
+        assert!(verify_extracted_install_plan(&installed, &manifest.install).is_err());
+        let service = ComponentService::new(current, "x86_64-unknown-linux-gnu").unwrap();
+        service.install_package(&source, &manifest, None).unwrap();
+        verify_extracted_install_plan(&installed, &manifest.install).unwrap();
+        assert!(package_executables_ready(&installed, &manifest.install).unwrap());
+        assert_eq!(service.status().unwrap()["status"], "ready");
+        assert!(installed.join(".dcc-cua-install-receipt.json").is_file());
+        service
+            .install_package(&installed, &manifest, None)
+            .unwrap();
+        verify_extracted_install_plan(&installed, &manifest.install).unwrap();
+    }
+
+    #[test]
+    fn existing_reconciliation_falls_back_after_recovery_but_preserves_intact_plan_errors() {
+        let root = tempfile::tempdir().unwrap();
+        let target = root.path().join("dcc-cua");
+        std::fs::write(&target, b"published new runtime").unwrap();
+        let plan = InstallPlan {
+            directories: vec![],
+            files: vec![InstallFile {
+                path: "dcc-cua".into(),
+                sha256: dcc_mcp_updater::sha256_file(&target).unwrap(),
+            }],
+        };
+        verify_extracted_install_plan(root.path(), &plan).unwrap();
+        let existing = reconcile_existing_package(root.path(), &plan, || {
+            std::fs::write(&target, b"recovered old runtime")?;
+            bail!("local fast-path source was rolled back");
+        })
+        .unwrap();
+        assert!(
+            !existing,
+            "the same ensure must continue with a fresh verified archive"
+        );
+        std::fs::write(&target, b"published new runtime").unwrap();
+        let error = reconcile_existing_package(root.path(), &plan, || {
+            bail!("invalid ownership receipt");
+        })
+        .unwrap_err();
+        assert!(error.to_string().contains("invalid ownership receipt"));
+        assert!(reconcile_existing_package(root.path(), &plan, || Ok(())).unwrap());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn status_does_not_change_permissions_of_a_non_executable_runtime() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = tempfile::tempdir().unwrap();
+        let current = root.path().join("dcc-mcp-cli");
+        std::fs::write(&current, b"core cli").unwrap();
+        let runtime = root.path().join("dcc-cua");
+        std::fs::write(&runtime, b"#!/bin/sh\nexit 0\n").unwrap();
+        std::fs::set_permissions(&runtime, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let service = ComponentService::new(current, "x86_64-unknown-linux-gnu").unwrap();
+        assert_eq!(service.status().unwrap()["status"], "incompatible");
+        assert_eq!(
+            std::fs::metadata(runtime).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
     }
 }

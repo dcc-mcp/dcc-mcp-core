@@ -29,23 +29,45 @@ pub(super) fn materialize_call_images(value: &mut Value, root: &Path) {
 fn materialize_call_images_with_name(value: &mut Value, root: &Path, canonical_name: Option<&str>) {
     match value {
         Value::Object(object) => {
+            let image_name = object
+                .get("display_name")
+                .and_then(Value::as_str)
+                .filter(|name| name.starts_with("ui-control-"))
+                .map(str::to_owned);
+            let image_name = image_name.as_deref().or(canonical_name);
             if object.get("kind").and_then(Value::as_str) == Some("image") {
-                materialize_image_payload(object, "mime", root, canonical_name);
+                materialize_image_payload(object, "mime", root, image_name);
             } else if object.get("type").and_then(Value::as_str) == Some("image") {
                 let mime_key = if object.contains_key("mimeType") {
                     "mimeType"
                 } else {
                     "mime_type"
                 };
-                materialize_image_payload(object, mime_key, root, canonical_name);
+                materialize_image_payload(object, mime_key, root, image_name);
             }
             for child in object.values_mut() {
                 materialize_call_images_with_name(child, root, canonical_name);
             }
         }
         Value::Array(items) => {
+            let multiple_images = items
+                .iter()
+                .filter(|item| {
+                    item.get("type").and_then(Value::as_str) == Some("image")
+                        || item.get("kind").and_then(Value::as_str) == Some("image")
+                })
+                .count()
+                > 1;
             for item in items {
-                materialize_call_images_with_name(item, root, canonical_name);
+                materialize_call_images_with_name(
+                    item,
+                    root,
+                    if multiple_images {
+                        None
+                    } else {
+                        canonical_name
+                    },
+                );
             }
         }
         _ => {}
@@ -173,21 +195,27 @@ fn write_image_artifact(
         .with_context(|| format!("creating image artifact directory {}", root.display()))?;
     if let Some(name) = canonical_name.filter(|name| valid_canonical_name(name, extension)) {
         let path = root.join(name);
-        if path.exists() {
+        if artifact_matches(&path, bytes) {
             return Ok(path);
         }
-        let mut file = tempfile::Builder::new()
-            .prefix(".ui-control-")
-            .tempfile_in(&root)
-            .context("creating canonical image artifact")?;
-        file.write_all(bytes)?;
-        file.as_file().sync_all()?;
-        match file.persist_noclobber(&path) {
-            Ok(_) => return Ok(path),
-            Err(error) if error.error.kind() == std::io::ErrorKind::AlreadyExists => {
-                return Ok(path);
+        if !path.exists() {
+            let mut file = tempfile::Builder::new()
+                .prefix(".ui-control-")
+                .tempfile_in(&root)
+                .context("creating canonical image artifact")?;
+            file.write_all(bytes)?;
+            file.as_file().sync_all()?;
+            match file.persist_noclobber(&path) {
+                Ok(_) => return Ok(path),
+                Err(error) if error.error.kind() == std::io::ErrorKind::AlreadyExists => {
+                    if artifact_matches(&path, bytes) {
+                        return Ok(path);
+                    }
+                }
+                Err(error) => {
+                    return Err(error.error).context("persisting canonical image artifact");
+                }
             }
-            Err(error) => return Err(error.error).context("persisting canonical image artifact"),
         }
     }
     let suffix = format!(".{extension}");
@@ -210,6 +238,12 @@ fn write_image_artifact(
         Some(&path),
     );
     Ok(path)
+}
+
+fn artifact_matches(path: &Path, bytes: &[u8]) -> bool {
+    path.metadata()
+        .is_ok_and(|metadata| metadata.is_file() && metadata.len() == bytes.len() as u64)
+        && std::fs::read(path).is_ok_and(|existing| existing == bytes)
 }
 
 fn valid_canonical_name(name: &str, extension: &str) -> bool {

@@ -37,6 +37,7 @@ pub struct FeedbackFileRequest {
 pub struct FeedbackFileAuthorization {
     pub canonical_finding_path: PathBuf,
     pub finding_sha256: String,
+    pub document_sha256: String,
     pub fingerprint: String,
     pub repo: String,
     pub catalog_identity: FeedbackCatalogIdentity,
@@ -154,12 +155,45 @@ pub struct FeedbackFileResult {
     pub fingerprint: String,
     pub recommendation: FeedbackFilingRecommendation,
     pub dedup: FeedbackFileDedup,
+    /// Exact content covered by the authorization hash; never posted by a plan.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preview: Option<FeedbackIssuePreview>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_step: Option<FeedbackFileNextStep>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub review_options: Vec<FeedbackFileNextStep>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub issue: Option<FeedbackIssueCandidate>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct FeedbackIssuePreview {
+    pub title: String,
+    pub body: String,
+    pub comment_body: String,
+    pub document_sha256: String,
+    pub requires_content_review: bool,
+    pub secret_free_guarantee: bool,
+}
+
+impl FeedbackIssuePreview {
+    fn from_document(document: &crate::domain::feedback_file::FeedbackIssueDocument) -> Self {
+        Self {
+            title: document.title.clone(),
+            body: document.body.clone(),
+            comment_body: document.comment_body.clone(),
+            document_sha256: document_digest(document),
+            requires_content_review: true,
+            secret_free_guarantee: false,
+        }
+    }
+}
+
+fn document_digest(document: &crate::domain::feedback_file::FeedbackIssueDocument) -> String {
+    // The ordered JSON string array binds exact title, issue body, and comment.
+    let bytes = serde_json::to_vec(&[&document.title, &document.body, &document.comment_body])
+        .expect("issue document strings serialize");
+    sha256_identity(&bytes)
 }
 
 #[derive(Debug, Error)]
@@ -235,6 +269,7 @@ impl<'a, T: FeedbackIssueTracker> FeedbackFileService<'a, T> {
                 schema_version: FEEDBACK_FILE_SCHEMA_VERSION,
                 authorized: false,
                 status: FeedbackFileStatus::Planned,
+                preview: Some(FeedbackIssuePreview::from_document(&inputs.document)),
                 repo: inputs.route.repo,
                 fingerprint: inputs.finding.fingerprint,
                 recommendation,
@@ -303,6 +338,7 @@ impl<'a, T: FeedbackIssueTracker> FeedbackFileService<'a, T> {
         Ok(FeedbackFileResult {
             schema_version: FEEDBACK_FILE_SCHEMA_VERSION,
             authorized: true,
+            preview: None,
             status,
             repo: inputs.route.repo,
             fingerprint: inputs.finding.fingerprint,
@@ -397,6 +433,7 @@ impl FeedbackFileInputs {
         let authorization = FeedbackFileAuthorization {
             canonical_finding_path: snapshot.canonical_finding_path,
             finding_sha256: sha256_identity(&snapshot.finding_bytes),
+            document_sha256: document_digest(&document),
             fingerprint: snapshot.finding.fingerprint.clone(),
             repo: snapshot.route.repo.clone(),
             catalog_identity,
@@ -526,6 +563,8 @@ fn next_step(
         finding_path.to_string(),
         "--expected-finding-sha256".to_string(),
         authorization.finding_sha256.clone(),
+        "--expected-document-sha256".to_string(),
+        authorization.document_sha256.clone(),
         "--expected-fingerprint".to_string(),
         authorization.fingerprint.clone(),
         "--expected-repo".to_string(),
@@ -560,6 +599,8 @@ mod tests {
         calls: Vec<String>,
         comments: Vec<u64>,
         creates: usize,
+        created_documents: Vec<(String, String, String)>,
+        comment_documents: Vec<(String, u64, String)>,
     }
 
     #[derive(Default)]
@@ -617,7 +658,7 @@ mod tests {
 
         fn comment_issue(
             &self,
-            _repo: &str,
+            repo: &str,
             number: u64,
             body: &str,
         ) -> Result<(), FeedbackIssueTrackerError> {
@@ -625,6 +666,9 @@ mod tests {
             let mut state = self.state.lock().unwrap();
             state.calls.push(format!("comment:{number}"));
             state.comments.push(number);
+            state
+                .comment_documents
+                .push((repo.to_string(), number, body.to_string()));
             Ok(())
         }
 
@@ -639,6 +683,9 @@ mod tests {
             let mut state = self.state.lock().unwrap();
             state.calls.push("create".to_string());
             state.creates += 1;
+            state
+                .created_documents
+                .push((repo.to_string(), title.to_string(), body.to_string()));
             Ok(candidate(repo, 77))
         }
     }
@@ -755,6 +802,7 @@ mod tests {
             authorization: Some(FeedbackFileAuthorization {
                 canonical_finding_path: PathBuf::from(argv_value(argv, "--expected-finding-path")),
                 finding_sha256: argv_value(argv, "--expected-finding-sha256").to_string(),
+                document_sha256: argv_value(argv, "--expected-document-sha256").to_string(),
                 fingerprint: argv_value(argv, "--expected-fingerprint").to_string(),
                 repo: argv_value(argv, "--expected-repo").to_string(),
                 catalog_identity: FeedbackCatalogIdentity::from_plan_value(argv_value(
@@ -1092,7 +1140,103 @@ mod tests {
         let result = FeedbackFileService::new(&tracker).file(replay).unwrap();
 
         assert_eq!(result.status, FeedbackFileStatus::Created);
-        assert_eq!(tracker.state.lock().unwrap().creates, 1);
+        let preview = plan.preview.unwrap();
+        let state = tracker.state.lock().unwrap();
+        assert_eq!(state.creates, 1);
+        assert_eq!(
+            state.created_documents,
+            vec![(plan.repo, preview.title, preview.body)]
+        );
+    }
+
+    #[test]
+    fn preview_digest_binds_title_body_and_comment_template() {
+        let finding = finding(FindingRedactionMode::PublicSafe);
+        let (_temp, request) = request(&finding);
+        let inputs = FeedbackFileInputs::capture(&request).unwrap();
+        let original = document_digest(&inputs.document);
+        for field in 0..3 {
+            let mut changed = inputs.document.clone();
+            match field {
+                0 => changed.title.push_str(" changed"),
+                1 => changed.body.push_str(" changed"),
+                _ => changed.comment_body.push_str(" changed"),
+            }
+            assert_ne!(original, document_digest(&changed));
+        }
+    }
+
+    #[test]
+    fn changed_document_authorization_rejects_before_tracker_io() {
+        let finding = finding(FindingRedactionMode::PublicSafe);
+        let plan_tracker = FakeTracker::with_searches(vec![vec![], vec![]]);
+        let (_temp, request) = request(&finding);
+        let plan = FeedbackFileService::new(&plan_tracker)
+            .file(request)
+            .unwrap();
+        let mut replay = replay_request(plan.next_step.as_ref().unwrap());
+        replay.authorization.as_mut().unwrap().document_sha256 = "different-template".to_string();
+        let tracker = FakeTracker::default();
+        let error = FeedbackFileService::new(&tracker).file(replay).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("authorization no longer matches")
+        );
+        assert!(tracker.state.lock().unwrap().calls.is_empty());
+    }
+
+    #[test]
+    fn duplicate_plan_previews_exact_comment_without_writing() {
+        let finding = finding(FindingRedactionMode::PublicSafe);
+        let repo = "dcc-mcp/dcc-mcp-godot";
+        let duplicate = record(repo, 42, &finding.fingerprint);
+        let plan_tracker = FakeTracker::with_searches(vec![vec![duplicate.clone()]]);
+        let (_temp, request) = request(&finding);
+        let plan = FeedbackFileService::new(&plan_tracker)
+            .file(request)
+            .unwrap();
+        let preview = plan.preview.as_ref().unwrap();
+        assert!(preview.requires_content_review);
+        assert!(!preview.secret_free_guarantee);
+        assert_eq!(plan_tracker.state.lock().unwrap().creates, 0);
+        assert!(plan_tracker.state.lock().unwrap().comments.is_empty());
+        let replay = replay_request(plan.next_step.as_ref().unwrap());
+        let tracker = FakeTracker::with_searches(vec![vec![duplicate.clone()]]);
+        tracker.add_view(duplicate);
+        FeedbackFileService::new(&tracker).file(replay).unwrap();
+        assert_eq!(
+            tracker.state.lock().unwrap().comment_documents,
+            vec![(repo.to_string(), 42, preview.comment_body.clone())]
+        );
+    }
+
+    #[test]
+    fn duplicate_queries_do_not_send_private_subjects() {
+        let mut finding = finding(FindingRedactionMode::PublicSafe);
+        finding.tool_slug = Some("studio_alice_private".to_string());
+        finding.evidence.error_kind = Some("HOST_123_private".to_string());
+        finding.fingerprint = finding_fingerprint(
+            "dcc-mcp/dcc-mcp-godot",
+            finding.phase,
+            finding.tool_slug.as_deref(),
+            finding.evidence.error_kind.as_deref(),
+            &finding.host_version,
+        )
+        .unwrap();
+        let (_temp, request) = request(&finding);
+        let tracker = FakeTracker::with_searches(vec![vec![], vec![]]);
+        FeedbackFileService::new(&tracker).file(request).unwrap();
+        let state = tracker.state.lock().unwrap();
+        assert!(
+            state
+                .calls
+                .iter()
+                .all(|call| !call.contains("studio_alice") && !call.contains("HOST_123"))
+        );
+        assert!(state.calls.iter().any(|call| call == "search:\"startup\""));
+        assert_eq!(state.creates, 0);
+        assert!(state.comments.is_empty());
     }
 
     #[test]

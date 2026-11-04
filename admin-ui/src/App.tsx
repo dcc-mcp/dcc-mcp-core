@@ -6,7 +6,7 @@ import {
 } from '@remixicon/react';
 import { LanguageSelector } from './components/LanguageSelector';
 import { ThemeSelector } from './components/ThemeSelector';
-import { BrandLogo } from './components/BrandLogo';
+import { DashboardShell } from './components/DashboardShell';
 import { LogsPanel } from './components/LogsPanel';
 import { PanelSearchBar } from './components/PanelSearchBar';
 import { Button } from './components/ui/button';
@@ -51,7 +51,7 @@ import { readLocaleOverride, storeLocaleOverride } from './locale';
 import { applyTheme, readThemeMode, resolveTheme, storeThemeMode, type ThemeMode } from './theme';
 import { filterLogs, isProblemLog, normalizeLogRow, summarizeLogSeverity, type LogSeverityFilter } from './logs';
 import { CRITICAL_LATENCY_MS, SLOW_LATENCY_MS, type ClientPlatform, type DebugSignal, type FailureSignal, type IdeTarget, type InstanceRow, type InstanceSummary, type InstanceUpdatePayload, type OpenApiSource, type Panel, type SetupUrlMode, type TokenBreakdownEntry, type TraceDetailPayload } from './admin-types';
-import { apiJson, backendAccessUrls, compactId, configPathFileUrl, configPathForTarget, detectClientPlatform, DocsIcon, downloadJsonText, flattenOpenApiOperations, gatewayMcpUrl, gatewayOpenApiSource, hrefForAdmin, IDE_TARGETS, ideConfigText, IdeIcon, instanceSetupLabel, isErrStatus, isOkStatus, isProblemActivity, isSlowLatency, issueReportFilename, issueReportJsonText, isWarnStatus, lanGatewayMcpUrl, matchesListFilter, NavIcon, NAVIGATION, openApiSpecFilename, PanelHeader, projectDocsHref, readOpenApiSourceFromUrl, readPanelFromUrl, readStatsRangeFromUrl, readTraceIdFromUrl, STATS_RANGE_IDS, statusClass, StatusLine, totalTraceTokens, traceLatency, haystack, trafficRequestId, trafficSessionId, trafficMethod, trafficRedactedPaths, agentLabel, formatDurationMs, formatTokenCount } from './admin-ui-core';
+import { apiJson, backendAccessUrls, compactId, configPathFileUrl, configPathForTarget, detectClientPlatform, downloadJsonText, flattenOpenApiOperations, gatewayMcpUrl, gatewayOpenApiSource, IDE_TARGETS, ideConfigText, IdeIcon, instanceSetupLabel, isErrStatus, isOkStatus, isProblemActivity, isSlowLatency, issueReportFilename, issueReportJsonText, isWarnStatus, lanGatewayMcpUrl, matchesListFilter, openApiSpecFilename, PanelHeader, readOpenApiSourceFromUrl, readPanelFromUrl, readStatsRangeFromUrl, readTraceIdFromUrl, STATS_RANGE_IDS, statusClass, StatusLine, totalTraceTokens, traceLatency, haystack, trafficRequestId, trafficSessionId, trafficMethod, trafficRedactedPaths, agentLabel, formatDurationMs, formatTokenCount } from './admin-ui-core';
 import {
   useActivityQuery,
   useCallsQuery,
@@ -252,11 +252,6 @@ function App() {
     if (integrationsError) errs.integrations = integrationsError;
     return errs;
   }, [healthQuery, workersQuery, activityQuery, toolsQuery, callsQuery, tracesQuery, trafficQuery, tasksQuery, workflowsQuery, statsQuery, governanceQuery, logsQuery, openApiQuery, skillPathsError, marketplaceError, integrationsError]);
-
-  const panels = useMemo(
-    () => NAVIGATION.map((panel) => ({ ...panel, label: t(panel.labelKey), group: t(panel.groupKey) })),
-    [t],
-  );
 
   const changeLocale = useCallback((locale: SupportedLocale) => {
     storeLocaleOverride(locale);
@@ -1352,80 +1347,21 @@ function App() {
     : '';
 
   return (
-    <div className="app-shell">
-      <nav className="side-rail" aria-label={t('common.aria.adminNavigation')}>
-        <div className="brand-lockup">
-          <BrandLogo />
-          <div className="brand-text">
-            <h1>{t('chrome.app.title')}</h1>
-            <p className="brand-tag">{t('chrome.app.subtitle')}</p>
-          </div>
-        </div>
-        <div className="sidebar-preferences" aria-label={`${t('common.language.label')} / ${t('common.theme.label')}`}>
-          <LanguageSelector
-            locale={localeDetection.locale}
-            source={localeDetection.source}
-            onChange={changeLocale}
-            t={t}
-          />
-          <ThemeSelector mode={themeMode} onChange={changeTheme} t={t} />
-        </div>
-        <div className="nav-links">
-          {panels.map((panel, index) => {
-            const showGroup = index === 0 || panels[index - 1].group !== panel.group;
-            const isActive =
-              panel.panel === activePanel
-              && (!panel.discoverTab || (activePanel === 'discover' && discoverTab === panel.discoverTab))
-              && (!panel.overviewTab || (activePanel === 'overview' && overviewTab === panel.overviewTab))
-              && (!panel.tracesTab || (activePanel === 'traces' && tracesTab === panel.tracesTab));
-            const href = hrefForAdmin(panel.panel, {
-              discoverTab: panel.discoverTab,
-              overviewTab: panel.overviewTab,
-              tracesTab: panel.tracesTab,
-              sessionsTab: panel.sessionsTab,
-              reliabilityTab: panel.reliabilityTab,
-              range: panel.panel === 'overview' ? statsRange : undefined,
-            });
-            return (
-              <div className="nav-entry" key={panel.id}>
-                {showGroup ? <div className="nav-section-title">{panel.group}</div> : null}
-                <a
-                  href={href}
-                  className={isActive ? 'nav-link active' : 'nav-link'}
-                  aria-current={isActive ? 'page' : undefined}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    goToPanel(panel.panel, {
-                      discoverTab: panel.discoverTab,
-                      overviewTab: panel.overviewTab,
-                      tracesTab: panel.tracesTab,
-                      sessionsTab: panel.sessionsTab,
-                      reliabilityTab: panel.reliabilityTab,
-                      range: panel.panel === 'overview' ? statsRange : undefined,
-                    });
-                  }}
-                >
-                  <NavIcon panel={panel.icon} />
-                  <span>{panel.label}</span>
-                </a>
-              </div>
-            );
-          })}
-          <div className="nav-entry">
-            <a
-              href={projectDocsHref()}
-              className="nav-link"
-              target="_blank"
-              rel="noopener noreferrer"
-              title={t('navigation.docs.title')}
-            >
-              <DocsIcon />
-              <span>{t('navigation.docs.label')}</span>
-            </a>
-          </div>
-        </div>
-      </nav>
-      <main className="main-stage">
+    <DashboardShell
+      activePanel={activePanel}
+      discoverTab={discoverTab}
+      overviewTab={overviewTab}
+      tracesTab={tracesTab}
+      sessionsTab={sessionsTab}
+      reliabilityTab={reliabilityTab}
+      statsRange={statsRange}
+      onNavigate={goToPanel}
+      t={t}
+      preferences={<>
+        <LanguageSelector locale={localeDetection.locale} source={localeDetection.source} onChange={changeLocale} t={t} />
+        <ThemeSelector mode={themeMode} onChange={changeTheme} t={t} />
+      </>}
+    >
         {!['setup', 'health', 'debug', 'sessions', 'experiments', 'reliability', 'analytics', 'discover'].includes(activePanel) && (
           <PanelSearchBar
             panel={activePanel}
@@ -1859,8 +1795,7 @@ function App() {
             t={t}
           />
         )}
-      </main>
-    </div>
+    </DashboardShell>
   );
 }
 

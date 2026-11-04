@@ -4,6 +4,48 @@ Core exposes small, DCC-agnostic contracts for runtime material that agents
 need while tools and jobs are running. Adapters keep host-specific collection
 and safety policy; core standardizes the shapes and resource hand-off paths.
 
+## Readiness publication and recovery
+
+For an embedded `McpHttpServer`, publish `AdapterReadinessBinder` **before
+`start()`**. The listener captures that probe at startup; changing its bits
+is live, but publishing a different probe after startup does not replace the
+running listener's probe. A successful setter is not a live-HTTP verification.
+
+- `publish()` and `published` describe acceptance of the latest publication
+  attempt. An explicit setter result of `False` means rejection; the native
+  setter returns `None` on success. Missing setters and exceptions also fail
+  publication. Failed attempts do not revoke a previously installed probe.
+- The pure-Python `SidecarBackedSkillServer` facade returns `False`: it cannot
+  transfer an in-process probe into the separate Rust server. Both the binder
+  and `DccServerBase.set_readiness_probe()` preserve that rejection. A green
+  local `binder.report_subset()` does not prove sidecar HTTP readiness.
+  An adapter process using the embedded extension remains the embedded case,
+  even when that adapter itself runs outside the native DCC process.
+- `dcc_ready_probe` is sampled during binding and by
+  `binder.refresh_dcc_ready()`, not automatically on each HTTP request or by
+  a background timer. The adapter owns refresh scheduling. Callback
+  exceptions set `dcc=False`; a later successful refresh can recover it.
+- `bind_queue_dispatcher(server, dispatcher, require_first_pump=True)` needs
+  the actual dispatcher. The binder posts a callback and waits for a pump; it
+  does not attach the dispatcher or pump the queue itself. Wire the execution
+  path before startup and avoid waiting on the only thread that can pump it.
+- Base admission requires `process`, `dcc`, `skill_catalog`, and `dispatcher`.
+  `host_execution_bridge` and `main_thread_executor` are separately reported
+  execution capabilities. A base-ready result alone does not verify usable
+  main-thread execution or a native DCC operation.
+
+The shared base probe gates REST `/v1/call` and registered MCP `tools/call`
+dispatch, including a recovery tool hosted behind that same gate. A red
+`dcc` bit returns HTTP 503 / MCP `-32002` before those handlers execute.
+Do not make the only way to restore readiness depend on such a tool. Keep
+recovery on an independent, explicitly authorized path; do not mark the host
+ready merely to bypass the gate. This contract does not add a per-tool bypass
+or permit automatic dialog clicks or destructive confirmations.
+
+Validate an isolated HTTP `ready → blocked → ready` transition as well as the
+actual execution path. Loopback Core tests, a responding sidecar process, and
+native DCC/GUI acceptance are different evidence and must be reported separately.
+
 ## Session events
 
 Use `SessionEventBuffer` for bounded stdout/stderr/log/progress/checkpoint

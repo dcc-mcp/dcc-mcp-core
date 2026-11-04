@@ -782,8 +782,10 @@ async fn test_newer_gateway_does_not_preempt_healthy_local_and_remote_listeners(
     let new_runner = GatewayRunner::new(GatewayConfig {
         host: "127.0.0.1".to_string(),
         gateway_port: gw_port,
+        // A new adapter's local-only policy must not reconfigure an existing
+        // healthy gateway's separately owned secondary listener (#2699).
         remote_host: Some("127.0.0.1".to_string()),
-        remote_gateway_port: remote_port,
+        remote_gateway_port: 0,
         server_version: "9.9.9".to_string(),
         heartbeat_secs: 0,
         challenger_poll_interval_secs: 1,

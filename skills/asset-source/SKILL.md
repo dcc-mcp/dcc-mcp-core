@@ -6,6 +6,7 @@ description: >-
   static catalog entries; production sources can add download or remote
   resolution without changing the contract.
 license: MIT-0
+compatibility: "dcc-mcp-core 0.18.39+, Python 3.7+"
 allowed-tools: ["Bash", "Read"]
 metadata:
   dcc-mcp:
@@ -13,7 +14,7 @@ metadata:
     layer: domain
     maintainer: dcc-mcp
     stage: source
-    version: "1.0.0"
+    version: "1.0.1"
     tags: [pipeline, asset-import, read-only]
     search-hint: >-
       search assets, find asset, resolve asset, asset descriptor, asset import source,

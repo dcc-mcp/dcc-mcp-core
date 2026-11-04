@@ -94,14 +94,7 @@ def _stub_version() -> str:
 def _release_please_files() -> list[Path]:
     """Files release-please rewrites on every release (the managed set)."""
     config = json.loads(RELEASE_PLEASE_CONFIG.read_text(encoding="utf-8"))
-    return sorted(
-        ROOT / entry["path"] for entry in config["packages"]["."]["extra-files"] if (ROOT / entry["path"]).is_file()
-    )
-
-
-def _extra_file_entry(path: str) -> dict:
-    config = json.loads(RELEASE_PLEASE_CONFIG.read_text(encoding="utf-8"))
-    return next(entry for entry in config["packages"]["."]["extra-files"] if entry["path"] == path)
+    return sorted({ROOT / entry["path"] for entry in config["packages"]["."]["extra-files"]})
 
 
 def test_pyproject_and_cargo_version_agree():
@@ -179,3 +172,10 @@ def test_startup_log_version_comes_from_the_single_source():
     source = Path(server_base.__file__).read_text(encoding="utf-8")
     assert "resolve_startup_version(" in source
     assert "version_check_enabled(" in source
+
+
+def test_all_core_release_projections_are_complete_and_current():
+    """Typed fields, registration, unlisted markers and derived seeds fail closed."""
+    from scripts.ci.core_version_contract import run
+
+    assert run(ROOT, "check") == []

@@ -23,9 +23,8 @@ from typing import Callable
 
 from dcc_mcp_core._install_lifecycle_runtime import default_registry_dir
 from dcc_mcp_core._lifecycle_events import LifecycleEventDispatcher
-from dcc_mcp_core._runtime.core_availability import is_core_extension_available
 from dcc_mcp_core._runtime.server_factory import create_adapter_server
-from dcc_mcp_core._runtime.skill_paths import get_app_skill_paths_from_env
+from dcc_mcp_core._runtime.server_factory import create_skill_server
 from dcc_mcp_core._server import ExecutionBridgeBinder
 from dcc_mcp_core._server import LifecycleController
 from dcc_mcp_core._server import ObservabilityFacade
@@ -65,27 +64,10 @@ _PKG_VERSION: str = getattr(_core, "__version__", "0.0.0-dev") if _core is not N
 logger = logging.getLogger(__name__)
 
 
-def create_skill_server(
-    app_name: str,
-    config: Any | None = None,
-    extra_paths: list[str] | None = None,
-    dcc_name: str | None = None,
-    accumulated: bool = True,
-) -> Any:
-    """Public one-call Skills-First server factory."""
-    if _core is not None and is_core_extension_available():
-        return _core.create_skill_server(
-            app_name,
-            config=config,
-            extra_paths=extra_paths,
-            dcc_name=dcc_name,
-            accumulated=accumulated,
-        )
-    server = create_adapter_server(dcc_name or app_name, config, None)
-    discovery_paths = list(extra_paths or [])
-    discovery_paths.extend(get_app_skill_paths_from_env(app_name))
-    server.discover(extra_paths=list(dict.fromkeys(discovery_paths)), accumulated=accumulated)
-    return server
+# ``create_skill_server`` lives in ``_runtime.server_factory`` next to the
+# adapter factory it delegates to; the public symbol is still resolved from
+# this module (``_exports._ALL_LAZY``), so it is re-exported here.
+__all__ = ["DccServerBase", "create_adapter_server", "create_skill_server"]
 
 
 _package_version = partial(package_version, fallback=_PKG_VERSION, load_core=True)
@@ -212,7 +194,9 @@ class DccServerBase:
         self._init_job_persistence(options.dcc_name)
 
         # Create the inner skill manager (embedded _core or sidecar binary).
-        self._server: Any = create_adapter_server(options.dcc_name, self._config, options)
+        self._server: Any = create_adapter_server(
+            options.dcc_name, self._config, options, gateway_managed_by_adapter=True
+        )
         self._host_error_capture = self._get_observability().init_host_error_capture(
             core_version=_package_version(),
             adapter_version=options.sidecar.adapter_version,
@@ -444,7 +428,7 @@ class DccServerBase:
     # --- readiness publication (#1206) -------------------------------------------
 
     def set_readiness_probe(self, probe: Any) -> bool:
-        """Publish a shared readiness probe to MCP and REST call surfaces."""
+        """Publish before startup; False means backend rejection (including sidecars)."""
         return self._get_observability().set_readiness_probe(probe)
 
     # --- skill search path helpers -----------------------------------------------

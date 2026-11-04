@@ -77,6 +77,7 @@ except ImportError:
         host_pid: int | None = None
         instance_metadata: dict[str, str] = field(default_factory=dict)
         standalone_main_thread_execution: bool = False
+        bare_tool_names: bool = True
         sandbox_policy: Any = None
         exclude_skill_stubs_from_tools_list: bool = False
         exclude_group_stubs_from_tools_list: bool = False
@@ -223,10 +224,10 @@ def build_mcp_http_config(
     # Explicit port (including 0 to disable) overrides the Rust default.
     if gateway.port is not None:
         config.gateway_port = gateway.port
-    if gateway.remote_host is not None:
-        config.gateway_remote_host = gateway.remote_host
-    if gateway.remote_port is not None:
-        config.gateway_remote_port = gateway.remote_port
+    # The adapter composition root is local-only unless explicitly opted in.
+    # Do not inherit the legacy raw McpHttpConfig wildcard listener defaults.
+    config.gateway_remote_host = gateway.remote_host if gateway.remote_host is not None else "127.0.0.1"
+    config.gateway_remote_port = gateway.remote_port if gateway.remote_port is not None else 0
     if gateway.registry_dir:
         config.registry_dir = gateway.registry_dir
 
@@ -237,6 +238,9 @@ def build_mcp_http_config(
         config.scene = gateway.scene
 
     config.dcc_type = options.dcc_name
+    # Adapter identity must be explicit, never inferred from MCP or Core versions.
+    config.adapter_version = options.sidecar.adapter_version
+    config.bare_tool_names = options.bare_tool_names
     if options.observability.job_retention_hours is not None:
         config.job_retention_hours = options.observability.job_retention_hours
     # Only an explicitly supplied DCC PID creates a second lifetime. When the
@@ -245,7 +249,11 @@ def build_mcp_http_config(
     config.host_pid = options.diagnostics.dcc_pid
     execution = resolve_execution_binding(options.execution.mode)
     instance_metadata = collect_context_metadata_from_env(options.dcc_name)
-    instance_metadata["dcc_mcp_server_version"] = str(config.server_version)
+    # `config.server_version` is the identity an adapter advertises over MCP
+    # (`serverInfo.version`) and may be overridden independently of the core
+    # runtime. Registry consumers compare `dcc_mcp_server_version` against core
+    # release metadata, so it always reports the resolved core runtime version.
+    instance_metadata["dcc_mcp_server_version"] = str(package_version)
     # Runtime lifetime and execution/threading are separate contracts. Keep the
     # legacy inference only when an adapter has not declared its runtime shape.
     legacy_instance_type = "standalone" if execution.standalone_main_thread else "gui"

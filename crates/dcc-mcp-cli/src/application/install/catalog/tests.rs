@@ -115,3 +115,146 @@ fn cache_replacement_is_atomic_and_invalid_cache_cannot_be_promoted() {
     assert_eq!(error.to_string(), expected);
     assert_eq!(std::fs::read(&path).unwrap(), b"new");
 }
+
+#[tokio::test]
+async fn discovery_offline_does_not_poll_http_or_create_cache_directories() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("missing/catalog.json");
+    let (catalog, refresh_error) = resolve_discovery(&path, true, async {
+        panic!("offline discovery must not poll the download future")
+    })
+    .await
+    .unwrap();
+    assert_eq!(catalog.provenance.source, CatalogSource::Bundled);
+    assert!(!catalog.provenance.latest_checked);
+    assert!(!catalog.entries.is_empty());
+    assert_eq!(refresh_error, None);
+    assert!(!path.parent().unwrap().exists());
+}
+
+#[tokio::test]
+async fn discovery_unavailable_channel_reports_partial_bundled_fallback_without_writes() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("missing/catalog.json");
+    let (catalog, refresh_error) =
+        resolve_discovery(&path, false, async { Err(RefreshError::Unavailable) })
+            .await
+            .unwrap();
+    assert_eq!(catalog.provenance.source, CatalogSource::Bundled);
+    assert!(!catalog.provenance.latest_checked);
+    assert_eq!(refresh_error, Some("official_install_catalog_unavailable"));
+    assert!(!path.parent().unwrap().exists());
+}
+
+#[tokio::test]
+async fn discovery_rejects_tampered_cache_without_network_or_cache_changes() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("catalog.json");
+    for bytes in [
+        b"truncated".as_slice(),
+        br#"{"catalog":"{}","attestation":{}}"#.as_slice(),
+    ] {
+        std::fs::write(&path, bytes).unwrap();
+        for offline in [true, false] {
+            let error = resolve_discovery(&path, offline, async {
+                panic!("a rejected cache must fail before network access")
+            })
+            .await
+            .unwrap_err();
+            assert_eq!(error, "catalog_rejected");
+            assert_eq!(std::fs::read(&path).unwrap(), bytes);
+            assert_eq!(std::fs::read_dir(temp.path()).unwrap().count(), 1);
+        }
+    }
+}
+
+#[tokio::test]
+async fn discovery_rejects_unsigned_remote_without_creating_cache() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("missing/catalog.json");
+    let error = resolve_discovery(&path, false, async {
+        Ok(br#"{"catalog":"{}","attestation":{}}"#.to_vec())
+    })
+    .await
+    .unwrap_err();
+    assert_eq!(error, "catalog_rejected");
+    assert!(!path.parent().unwrap().exists());
+}
+
+fn current_snapshot(issued_at: u64, expires_at: u64, digest: &str) -> ResolvedCatalog {
+    let mut catalog = snapshot(issued_at, digest);
+    catalog.provenance.expires_at = Some(expires_at);
+    catalog.provenance.latest_checked = true;
+    catalog
+}
+
+#[test]
+fn discovery_cached_fallback_preserves_provenance_and_reports_failed_refresh() {
+    let cached = current_snapshot(1000, 2000, "a");
+    for unavailable in [false, true] {
+        let remote = unavailable.then_some(Err(RefreshError::Unavailable));
+        let (catalog, refresh_error) =
+            discovery_snapshot(Some(cached.clone()), remote, 1500).unwrap();
+        assert_eq!(catalog.provenance.source, CatalogSource::Cache);
+        assert!(!catalog.provenance.latest_checked);
+        assert_eq!(catalog.provenance.sha256.as_deref(), Some("a"));
+        assert_eq!(catalog.provenance.issued_at, Some(1000));
+        assert_eq!(catalog.provenance.expires_at, Some(2000));
+        assert_eq!(
+            refresh_error,
+            unavailable.then_some("official_install_catalog_unavailable")
+        );
+    }
+}
+
+#[test]
+fn discovery_expired_cache_is_an_error_instead_of_bundled_fallback() {
+    let cached = current_snapshot(1000, 2000, "a");
+    for now in [2000, 2001] {
+        for unavailable in [false, true] {
+            let remote = unavailable.then_some(Err(RefreshError::Unavailable));
+            let error = discovery_snapshot(Some(cached.clone()), remote, now).unwrap_err();
+            assert_eq!(error, "catalog_expired");
+        }
+    }
+}
+
+#[test]
+fn discovery_remote_must_respect_expired_cache_rollback_history() {
+    let cached = current_snapshot(1000, 2000, "a");
+    for remote in [
+        current_snapshot(999, 2500, "a"),
+        current_snapshot(1000, 2500, "b"),
+    ] {
+        let error = discovery_snapshot(Some(cached.clone()), Some(Ok(remote)), 2001).unwrap_err();
+        assert_eq!(error, "catalog_rejected");
+    }
+    let (catalog, refresh_error) = discovery_snapshot(
+        Some(cached),
+        Some(Ok(current_snapshot(1500, 2500, "b"))),
+        2001,
+    )
+    .unwrap();
+    assert_eq!(catalog.provenance.source, CatalogSource::Remote);
+    assert!(catalog.provenance.latest_checked);
+    assert_eq!(catalog.provenance.sha256.as_deref(), Some("b"));
+    assert_eq!(refresh_error, None);
+}
+
+#[test]
+fn discovery_rejected_remote_does_not_fall_back_to_valid_cache() {
+    let error = discovery_snapshot(
+        Some(current_snapshot(1000, 2000, "a")),
+        Some(Err(invalid("signature verification failed"))),
+        1500,
+    )
+    .unwrap_err();
+    assert_eq!(error, "catalog_rejected");
+}
+
+#[test]
+fn discovery_remote_expiring_during_verification_is_not_accepted() {
+    let error =
+        discovery_snapshot(None, Some(Ok(current_snapshot(1000, 2000, "a"))), 2000).unwrap_err();
+    assert_eq!(error, "catalog_expired");
+}

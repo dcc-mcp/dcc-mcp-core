@@ -2,6 +2,37 @@
 
 核心为代理在工具和作业运行期间需要的运行时材料暴露了小型、与 DCC 无关的契约。适配器保留宿主特定的收集和安全策略；核心标准化形状和资源移交路径。
 
+## 就绪探针发布与恢复
+
+使用嵌入式 `McpHttpServer` 时，必须在 **`start()` 之前**发布
+`AdapterReadinessBinder`。监听器在启动时捕获该探针；之后修改同一个探针的位会实时
+生效，但启动后发布另一个探针不会替换运行中监听器的探针。setter 成功不等于 HTTP 验证成功。
+
+- `publish()` 和 `published` 表示最近一次发布尝试是否被接受。setter 显式返回
+  `False` 表示拒绝，原生 setter 成功时返回 `None`。缺少 setter 或抛出异常也表示
+  发布失败。失败的尝试不会撤销之前已安装的探针。
+- 纯 Python 的 `SidecarBackedSkillServer` facade 返回 `False`，因为它无法将进程内
+  探针传入独立 Rust server。binder 与 `DccServerBase.set_readiness_probe()` 都会
+  保留此拒绝结果。本地 `binder.report_subset()` 全绿不代表 sidecar HTTP 已就绪。
+  如果 adapter 进程使用的是嵌入式扩展，即使该进程本身在原生 DCC 之外运行，仍属于嵌入式情况。
+- `dcc_ready_probe` 只在绑定和 `binder.refresh_dcc_ready()` 时取样，不会在每个
+  HTTP 请求时自动调用，也没有后台轮询。adapter 负责安排刷新；回调异常使 `dcc=False`，
+  后续成功刷新可以恢复就绪状态。
+- `bind_queue_dispatcher(server, dispatcher, require_first_pump=True)` 必须传入
+  实际 dispatcher。binder 提交回调并等待 pump，不会自动 attach dispatcher 或驱动
+  队列。启动前接好执行路径，避免阻塞唯一能处理该队列的线程。
+- 基础调用门槛要求 `process`、`dcc`、`skill_catalog`、`dispatcher` 全绿。
+  `host_execution_bridge` 和 `main_thread_executor` 是另外报告的执行能力。
+  基础就绪不能单独证明主线程执行或原生 DCC 操作可用。
+
+共享基础探针同时限制 REST `/v1/call` 与已注册 MCP `tools/call`，包括同一 gate
+后面的恢复工具。`dcc` 为红时会在 handler 执行前返回 HTTP 503 / MCP `-32002`。
+恢复就绪的唯一路径不能依赖这些工具；应保留独立且得到明确授权的恢复路径，不能为了绕过
+gate 而谎报宿主已就绪。本契约不增加逐工具绕过机制，也不授权自动点击对话框或破坏性确认。
+
+验证时应覆盖隔离 HTTP 的 `ready → blocked → ready`，并另外验证实际执行路径。
+Core loopback 测试、sidecar 进程可响应、原生 DCC/GUI 验收属于不同证据，必须分别报告。
+
 ## 会话事件
 
 使用 `SessionEventBuffer` 处理有界的 stdout/stderr/log/progress/checkpoint 事件。将其注册为 MCP 资源：

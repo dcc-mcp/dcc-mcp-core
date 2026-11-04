@@ -5,6 +5,236 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.53](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.52...v0.20.53) (2026-11-01)
+
+
+### Features
+
+* **toolchain:** add VX + just new-project template and cross-platform CI pilot ([1c538cb](https://github.com/dcc-mcp/dcc-mcp-core/commit/1c538cbeb991c83be5d0cd8a733e653b25ad3e19))
+
+
+### Bug Fixes
+
+* **cli:** support read-only live registry inventory ([3fa9ee8](https://github.com/dcc-mcp/dcc-mcp-core/commit/3fa9ee8f4077859afbd133b246e73ae372a1e396))
+* **toolchain:** force UTF-8 stdio in verify harness for Windows runners ([8e86464](https://github.com/dcc-mcp/dcc-mcp-core/commit/8e86464921b69a6ad3b1895b5a02bb9ceb12894e))
+* **toolchain:** harden template CI snippets and fix harness drift check ([ab2eb93](https://github.com/dcc-mcp/dcc-mcp-core/commit/ab2eb9300a754edeae71caa76e81cac8528ac232))
+
+
+### Code Refactoring
+
+* **transport:** split read-only registry helper ([ded56ce](https://github.com/dcc-mcp/dcc-mcp-core/commit/ded56cefadbaca55e9ee7f6412c2a5d2190ec9de))
+
+## [0.20.52](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.51...v0.20.52) (2026-10-29)
+
+
+### Bug Fixes
+
+* **bridge:** catch Future timeouts on legacy Python ([3ec4800](https://github.com/dcc-mcp/dcc-mcp-core/commit/3ec4800590615f181233904599a9355149cfec78))
+* **bridge:** distinguish queued calls during disconnect ([4fbc091](https://github.com/dcc-mcp/dcc-mcp-core/commit/4fbc0915e6c1850fbf63145b1b5beed3a17195f5))
+* **bridge:** prevent fallback replay of unknown outcomes ([90fc71e](https://github.com/dcc-mcp/dcc-mcp-core/commit/90fc71e19a07a065a139c0ca115eb665c00efccd))
+* **dispatch:** preserve cancellation during annotation resolution ([6325d79](https://github.com/dcc-mcp/dcc-mcp-core/commit/6325d79fe0717a9f606665290bdcedc149c3a94f))
+* **dispatch:** reject mapping fallback for abstract sequences ([44c3ba3](https://github.com/dcc-mcp/dcc-mcp-core/commit/44c3ba34623a99a4d83a96842bc0f5711f37d48b))
+* **dispatch:** reject scalar literal mapping fallback ([a583796](https://github.com/dcc-mcp/dcc-mcp-core/commit/a583796479fc85657104d7847df063659ee3c16f))
+* **dispatch:** reject unknown typed script arguments before invocation ([7c4e234](https://github.com/dcc-mcp/dcc-mcp-core/commit/7c4e2345c90833a44cdce553b1547552a809039a))
+* **dispatch:** resolve only the selected parameter annotation ([80eedc1](https://github.com/dcc-mcp/dcc-mcp-core/commit/80eedc1842207dab5aef4140f7a64f16813491c0))
+
+
+### Code Refactoring
+
+* **dispatch:** isolate script invocation within file limits ([4c03dda](https://github.com/dcc-mcp/dcc-mcp-core/commit/4c03dda2b86b628d814a732d639141f5c3232b9d))
+
+## [0.20.51](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.50...v0.20.51) (2026-10-28)
+
+
+### Bug Fixes
+
+* align hidden-window recovery guidance ([#2868](https://github.com/dcc-mcp/dcc-mcp-core/issues/2868)) ([9ef3f67](https://github.com/dcc-mcp/dcc-mcp-core/commit/9ef3f677b4cb1908d11c45b6a60f1ef602caab16))
+
+## [0.20.50](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.49...v0.20.50) (2026-10-27)
+
+
+### Bug Fixes
+
+* **cli:** apply field selection on read-only entrypoints ([3fc63c9](https://github.com/dcc-mcp/dcc-mcp-core/commit/3fc63c9faf930a773c37f9f5100f29794a0adef9))
+* **cli:** emit structured results without duplicate JSON mirrors ([353cceb](https://github.com/dcc-mcp/dcc-mcp-core/commit/353cceb6c0dcb6478c87885563b0bc3c82f7ea73))
+* **cli:** preserve global selection and validate process output views ([e5cc0f3](https://github.com/dcc-mcp/dcc-mcp-core/commit/e5cc0f38de4bfcd67ba2dbf6e1861b45535e15ff))
+
+## [0.20.49](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.48...v0.20.49) (2026-10-26)
+
+
+### Bug Fixes
+
+* **catalog:** sync verified install SOP releases ([6271726](https://github.com/dcc-mcp/dcc-mcp-core/commit/6271726a33f855da876f85bf0cf7d4149bfce3a5))
+* **discovery:** preserve confirmed absence and optional cache fallback ([e289574](https://github.com/dcc-mcp/dcc-mcp-core/commit/e289574a0985a11fc070ac1c57cd2a7b4de3f886))
+* **doctor:** avoid gateway status registry recovery writes ([a9d7949](https://github.com/dcc-mcp/dcc-mcp-core/commit/a9d79492e2cb7402726b0d5e85f76e74dfc52ec6))
+* **doctor:** bypass automatic update maintenance ([e714170](https://github.com/dcc-mcp/dcc-mcp-core/commit/e7141707c7921448f8e28148c6128569e5339254))
+* **doctor:** inspect registry snapshots without mutation ([2b78ec3](https://github.com/dcc-mcp/dcc-mcp-core/commit/2b78ec35516f28dc596f857f7f212746a98b9a8f))
+* **registry:** forward explicit adapter version from server options ([957304e](https://github.com/dcc-mcp/dcc-mcp-core/commit/957304ed09f85b3aa8151df72d0d3d924ea40efb))
+
+
+### Documentation
+
+* **catalog:** align compatibility and coverage versions ([a4b21ae](https://github.com/dcc-mcp/dcc-mcp-core/commit/a4b21aeec9f23cd8679b8fe570180c0a1eaa94e9))
+* **catalog:** correct pinned host and smoke evidence ([f92e0d5](https://github.com/dcc-mcp/dcc-mcp-core/commit/f92e0d59d87f96e09e3064b51893e67076db400f))
+
+## [0.20.48](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.47...v0.20.48) (2026-10-25)
+
+
+### Features
+
+* **catalog:** discover experimental PhotoCraft adapter ([d4a0d18](https://github.com/dcc-mcp/dcc-mcp-core/commit/d4a0d18780ef5835ff842f08eb6d281b5c50d558))
+
+
+### Bug Fixes
+
+* **catalog:** synchronize PhotoCraft discovery coverage ([9d7d7f4](https://github.com/dcc-mcp/dcc-mcp-core/commit/9d7d7f4d37b54a4d1d17f44c7ae5bb0816b8da62))
+* **cli:** bound verified install command storage ([7350302](https://github.com/dcc-mcp/dcc-mcp-core/commit/735030226ea2b894fda36b151631bc2657aa855b))
+* **cli:** prepare pinned offline component installation ([a3cf2a2](https://github.com/dcc-mcp/dcc-mcp-core/commit/a3cf2a2ce463a17cb45f0976b1cc93567fbbebb6))
+* **cli:** reject missing selected embedded hosts before pip planning ([9329a68](https://github.com/dcc-mcp/dcc-mcp-core/commit/9329a6871e3657fa6048ed61b731adb674020390))
+* **examples:** report design provider tool errors in CLI status ([35adb64](https://github.com/dcc-mcp/dcc-mcp-core/commit/35adb64bfa6eed67264be54b38902da04326ece9))
+* **install:** reject unsuccessful archive HTTP responses ([29d7044](https://github.com/dcc-mcp/dcc-mcp-core/commit/29d7044681c9afd4f3307be7af42c42857981c63))
+* **install:** require an unambiguous local catalog collection ([9b9152d](https://github.com/dcc-mcp/dcc-mcp-core/commit/9b9152d6230459c8655287d65d59ed892d2749ff))
+* **install:** resolve extensionless Maya Python siblings ([b1c5f76](https://github.com/dcc-mcp/dcc-mcp-core/commit/b1c5f76cc2898fc58b7786eeb2ea7a73e6fb1216))
+* **install:** resolve selected host Python before planning pip ([64c32cf](https://github.com/dcc-mcp/dcc-mcp-core/commit/64c32cf19b61287ca442b8f4bfe5a61ba9f91496))
+* **install:** validate local catalog snapshots ([4c2011e](https://github.com/dcc-mcp/dcc-mcp-core/commit/4c2011ea723ceaa8cff30b50f5bbb8f917835315))
+* preserve unowned package recovery files ([faae192](https://github.com/dcc-mcp/dcc-mcp-core/commit/faae1924100ddee8868dd7bb5537f210168f6a5e))
+* **updater:** retain prepared ownership after failed file operations ([85c6b9e](https://github.com/dcc-mcp/dcc-mcp-core/commit/85c6b9eb5c8115b3f250b0a01f2085cf4b892e95))
+
+
+### Documentation
+
+* explain MCP Registry setup and verification ([a901a1f](https://github.com/dcc-mcp/dcc-mcp-core/commit/a901a1fe598ebc237659c7516b2dc208e4a7d32a))
+
+## [0.20.47](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.46...v0.20.47) (2026-10-23)
+
+
+### Features
+
+* **media:** add verified audio-only WAV and Vorbis transcoding ([03f5455](https://github.com/dcc-mcp/dcc-mcp-core/commit/03f5455a97fa8cef9303ff9aa9cc33cfc5124eb4))
+* **media:** select installed FFmpeg runtimes without provisioning ([81b04b9](https://github.com/dcc-mcp/dcc-mcp-core/commit/81b04b952b969a30b0a837caf616d6e5791f81d3))
+* support bounded popup observations ([#2832](https://github.com/dcc-mcp/dcc-mcp-core/issues/2832)) ([0460786](https://github.com/dcc-mcp/dcc-mcp-core/commit/0460786d36af0e2274f1705bf7c4bcbdcc60b11c))
+
+
+### Bug Fixes
+
+* **catalog:** pin Office wheels with required headless backends ([5302ece](https://github.com/dcc-mcp/dcc-mcp-core/commit/5302ece5b2a18777258ed6d8d61d609270baa056))
+* **catalog:** pin Word release instructions fallback ([ba62e6f](https://github.com/dcc-mcp/dcc-mcp-core/commit/ba62e6f7079a800b9064928302259a4bf5f56290))
+* **catalog:** promote the verified Maya 0.9.42 release ([72af293](https://github.com/dcc-mcp/dcc-mcp-core/commit/72af293eba80013d97a365e71b02df0e957f6f6c))
+* **ci:** initialize media evidence path inside runner step ([56c21f8](https://github.com/dcc-mcp/dcc-mcp-core/commit/56c21f88e6fb0f7b35077c3a2d3ea584bfb77ae3))
+* **ci:** pin released adapter-release-candidate-v1 schema digest ([872c0f2](https://github.com/dcc-mcp/dcc-mcp-core/commit/872c0f2dac5c9cd87d4656f9e1c63744178b7cd7))
+* **ci:** run the macOS py37 wheel test venv under Rosetta ([#2806](https://github.com/dcc-mcp/dcc-mcp-core/issues/2806)) ([790551b](https://github.com/dcc-mcp/dcc-mcp-core/commit/790551b530cb8f4afdeab5122ee830a26c325525))
+* **cua:** preserve bounded keypress duration and root-bounds failure evidence ([d936a42](https://github.com/dcc-mcp/dcc-mcp-core/commit/d936a42062da482a02e0c5499e7365ffdf2ee268))
+* **gateway-search:** detect off-PATH dcc-cua runtime in PathCuaProbe ([a782e19](https://github.com/dcc-mcp/dcc-mcp-core/commit/a782e1949c003a1bb3fde5f1566d6402498ee1d8))
+* **launcher:** spawn DCC children without a console window on Windows ([026cc4c](https://github.com/dcc-mcp/dcc-mcp-core/commit/026cc4c051861209dda8a05f325dd20f0fbc2362))
+* **media:** honor cancellation and atomically publish verified audio ([aa65c80](https://github.com/dcc-mcp/dcc-mcp-core/commit/aa65c80ee3b45be9173d218fc8c58663efe53e0d))
+* **media:** recheck terminal reader failures before success ([24856ee](https://github.com/dcc-mcp/dcc-mcp-core/commit/24856ee6b35ac0c37d03f9771338d82cb69de923))
+* **media:** reject oversized PCM payloads before staging ([09ec491](https://github.com/dcc-mcp/dcc-mcp-core/commit/09ec491ac932ef0fd02d1a23b15c797f931ac963))
+* **search:** rank callable tools ahead of skill candidates on the first page ([#2784](https://github.com/dcc-mcp/dcc-mcp-core/issues/2784)) ([fa1b8e7](https://github.com/dcc-mcp/dcc-mcp-core/commit/fa1b8e788b2c15821a42ba418e6d452dedb94e0f))
+* **skills:** refresh official seeds and remove recovery diagnostics ([213d483](https://github.com/dcc-mcp/dcc-mcp-core/commit/213d48351a4112e4fb0ae5f0710e4669243e05c9))
+* **ui-control:** bound native reason and author schema-accurate capture recovery ([38ff8a2](https://github.com/dcc-mcp/dcc-mcp-core/commit/38ff8a235a2e0ac04a3fdeef5e92e124640a6686)), closes [#2819](https://github.com/dcc-mcp/dcc-mcp-core/issues/2819)
+* **ui-control:** omit unusable snapshot step from pixels-only capture recovery ([641281a](https://github.com/dcc-mcp/dcc-mcp-core/commit/641281aed24734f700fc8caefdceb3e7c0e80fcb))
+
+
+### Documentation
+
+* **api:** expose memory-providers page in VitePress sidebar ([7cdbf25](https://github.com/dcc-mcp/dcc-mcp-core/commit/7cdbf25a918c2d536da1171310b28a7bb41e311a))
+* **workflows:** encourage quality free game templates and assets ([14955da](https://github.com/dcc-mcp/dcc-mcp-core/commit/14955da063341d8c7c24af72d85efc46d4ca9e3b))
+
+## [0.20.46](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.45...v0.20.46) (2026-10-19)
+
+
+### Features
+
+* **catalog:** add reviewed adapter release candidate pilot ([78da6d1](https://github.com/dcc-mcp/dcc-mcp-core/commit/78da6d1c3d5636ba172e8ae6f23e4eb1e04d1451))
+* redesign admin dashboard workspace ([4e4df4c](https://github.com/dcc-mcp/dcc-mcp-core/commit/4e4df4cec44abe784391d9d47c0205adceef2b73))
+* simplify admin run records and visual hierarchy ([1853e6e](https://github.com/dcc-mcp/dcc-mcp-core/commit/1853e6ef2175a65f90a4e57f2cafc45433468cbe))
+
+
+### Bug Fixes
+
+* **api:** normalize typed server factory configurations ([fad9403](https://github.com/dcc-mcp/dcc-mcp-core/commit/fad94032577e38e6ac740afe25d54171c2a84506))
+* **catalog:** promote Adobe adapters paired with adobepy 0.12.0 ([#2810](https://github.com/dcc-mcp/dcc-mcp-core/issues/2810)) ([5f40988](https://github.com/dcc-mcp/dcc-mcp-core/commit/5f409884915dd1907897c8d764c8a431ee4d9333))
+* **catalog:** refresh verified Godot and OBS releases ([706444e](https://github.com/dcc-mcp/dcc-mcp-core/commit/706444ec29e2b44e0a2729f82263770f6722b99c))
+* **ci:** discover released schema coverage independently of pins ([159a6b0](https://github.com/dcc-mcp/dcc-mcp-core/commit/159a6b01d3d25579b4c1b33610491c37c71e156a))
+* **ci:** keep the macOS cp37 target gate on macOS only ([28bc2c0](https://github.com/dcc-mcp/dcc-mcp-core/commit/28bc2c08a400fe741043812d55f1627d93f2827e))
+* **ci:** resolve native py37 wheel dependencies before pip check ([a8fb4f6](https://github.com/dcc-mcp/dcc-mcp-core/commit/a8fb4f638aaf165ea0ba54e379dfd398c5b5ca52))
+* **ci:** select native Python 3.7 for macOS wheel tests ([6adc4d9](https://github.com/dcc-mcp/dcc-mcp-core/commit/6adc4d9d430321c281e66fc327bf111c95cc15e4))
+* **ci:** upgrade pip in the py37 wheel test venv before installing ([163764e](https://github.com/dcc-mcp/dcc-mcp-core/commit/163764e43614e0c8e7eece87a54a7d90fd9dbb97))
+* **ci:** upgrade py37 venv pip through python -m pip ([7c451ce](https://github.com/dcc-mcp/dcc-mcp-core/commit/7c451cea2580caa0d5cfbccf5d24e948ffda38a0))
+* **ci:** verify immutable py37 backfills in clean workflow venvs ([e1b8491](https://github.com/dcc-mcp/dcc-mcp-core/commit/e1b84913b3cbbb866de4933f35b418f5c36f5c70))
+* **cli:** allow discovery without automatic update maintenance ([73b73c3](https://github.com/dcc-mcp/dcc-mcp-core/commit/73b73c36b9e4448c7a3f6d95018fb8ab8d056801))
+* **cli:** install complete verified CUA component packages ([567410f](https://github.com/dcc-mcp/dcc-mcp-core/commit/567410f640d7fc33a650e7217c3842a3a31971d4))
+* **cli:** preserve explicit boolean overrides across gateway restarts ([8baf504](https://github.com/dcc-mcp/dcc-mcp-core/commit/8baf5049ee2f23209af05ddece08be46627893f7))
+* **cli:** safely migrate verified legacy CUA executables ([98f4456](https://github.com/dcc-mcp/dcc-mcp-core/commit/98f44563e66edd13b9e183a1a442a249c45d385d))
+* **cli:** validate bounded MCP smoke pagination and tool naming ([2fb76e8](https://github.com/dcc-mcp/dcc-mcp-core/commit/2fb76e86112003549f4e4bc47fd671282c0bcb6d))
+* contain dashboard details at responsive boundaries ([f78cfd6](https://github.com/dcc-mcp/dcc-mcp-core/commit/f78cfd6a480990e4abe6f15ff9f54a0cbdab2fb4))
+* contain skill path table on narrow screens ([dd2d07c](https://github.com/dcc-mcp/dcc-mcp-core/commit/dd2d07ce6486266b8071be8ad3c3e51654de2f96))
+* **discovery:** publish complete registry cache snapshots ([187f716](https://github.com/dcc-mcp/dcc-mcp-core/commit/187f716b4f76c0d13f4c3ab6a84e651bfb0a31f0))
+* distinguish skill loading from recorded usage ([1ff1d13](https://github.com/dcc-mcp/dcc-mcp-core/commit/1ff1d134c4699a7b6353a0ec3511cdcb28f6d794))
+* **gateway:** preserve listener policy and recovery diagnostics ([e24c4f3](https://github.com/dcc-mcp/dcc-mcp-core/commit/e24c4f3eead1af9b8f65f9433518e103259a4c87))
+* keep loaded and unloaded skill searches distinct ([ab2282e](https://github.com/dcc-mcp/dcc-mcp-core/commit/ab2282eb63b1c9e8014c283915835899fcc61a12))
+* preserve dashboard state and verify browser workflows ([291c513](https://github.com/dcc-mcp/dcc-mcp-core/commit/291c513c3153952f33e84284bf5892ee16bfbb7d))
+* **registry:** preserve Core runtime version on adapter MCP override ([a0740df](https://github.com/dcc-mcp/dcc-mcp-core/commit/a0740dfb170b6f7f082f0c412969a205625eeb0e)), closes [#2795](https://github.com/dcc-mcp/dcc-mcp-core/issues/2795)
+* separate task intent summaries from recorded outcomes ([03fe858](https://github.com/dcc-mcp/dcc-mcp-core/commit/03fe858fd0bb85386d66ff972d903062d1c93e9f))
+* **server:** discover binaries installed with pip --user ([9e304b2](https://github.com/dcc-mcp/dcc-mcp-core/commit/9e304b236b8f0cf7c148c5f0fd26588fc38c1574))
+* **server:** require POSIX execute bit for sysconfig binary candidates ([8da8de5](https://github.com/dcc-mcp/dcc-mcp-core/commit/8da8de5b8e550cecbfabf409feef7684cb6a10fa))
+* **translate:** preserve literal stdio arguments with quoted paths ([d260399](https://github.com/dcc-mcp/dcc-mcp-core/commit/d260399821772ab8e0fcfbb0d55552b17e24c40a))
+* **updater:** restore package modes and reconcile interrupted upgrades ([e9a7169](https://github.com/dcc-mcp/dcc-mcp-core/commit/e9a71693a7a16a67702d5d118c0a028cb916d664))
+
+
+### Documentation
+
+* **adapter-launch-plan:** qualify harmless stale-row reuse ([ce5e9ba](https://github.com/dcc-mcp/dcc-mcp-core/commit/ce5e9ba6a7f681a601f68e5cc955638ff6a135ce))
+* **ci:** correct the py37 venv root-cause comment ([8300cc2](https://github.com/dcc-mcp/dcc-mcp-core/commit/8300cc2d26788e08130a90f0d32a204138c45b5e))
+* **server:** document user-install binary discovery ([db43aa4](https://github.com/dcc-mcp/dcc-mcp-core/commit/db43aa4a2962280e4617ca249243712f08f5c007))
+
+## [0.20.45](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.44...v0.20.45) (2026-10-12)
+
+
+### Features
+
+* **gateway:** require production reuse investigation before content creation ([44bd3f8](https://github.com/dcc-mcp/dcc-mcp-core/commit/44bd3f83692d05734b54891ba424cfe22eb871c6))
+
+
+### Bug Fixes
+
+* **docs:** link reuse gate outside the VitePress site via source URL ([18b0e97](https://github.com/dcc-mcp/dcc-mcp-core/commit/18b0e976fb08e855fe2db86a97d55465bfe51b37))
+* **gateway:** version the production reuse guide rollout contract ([774201d](https://github.com/dcc-mcp/dcc-mcp-core/commit/774201d77f096b8a5b8ec99126ceb870bba06a13))
+* **release:** anchor trusted validator ref to a main-reachable commit ([#2768](https://github.com/dcc-mcp/dcc-mcp-core/issues/2768)) ([0617336](https://github.com/dcc-mcp/dcc-mcp-core/commit/0617336af147e073b127e2ad637ce029ac7e5df6))
+* **release:** define a strict Core version projection contract ([0b281b4](https://github.com/dcc-mcp/dcc-mcp-core/commit/0b281b4df8bd394ad4085484f31ab9c58b81ce1f))
+* **release:** sync Core projections in trusted automation and enforce discovery ([a64cb38](https://github.com/dcc-mcp/dcc-mcp-core/commit/a64cb38e53fcde02818c11181dcfa51abfce6b65))
+
+
+### Documentation
+
+* **gateway:** clarify direct CLI reuse gate coverage ([874a7ab](https://github.com/dcc-mcp/dcc-mcp-core/commit/874a7aba4df3736323a97be93afeacad09461faf))
+
+## [0.20.44](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.43...v0.20.44) (2026-10-12)
+
+
+### Bug Fixes
+
+* **release:** align marketplace skill versions with the 0.20.43 bump ([#2760](https://github.com/dcc-mcp/dcc-mcp-core/issues/2760)) ([bb7b6ad](https://github.com/dcc-mcp/dcc-mcp-core/commit/bb7b6ad288dd86bd68493ee73c0d2d74369c3ec0))
+
+## [0.20.43](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.42...v0.20.43) (2026-10-08)
+
+
+### Features
+
+* **cli:** add dcc-mcp-core launcher so a resolved package can start a server ([a86d240](https://github.com/dcc-mcp/dcc-mcp-core/commit/a86d240a01e89154d9a1a6176108a5d9e61ff6d6))
+
+
+### Bug Fixes
+
+* **ci:** budget the MCP Registry PyPI wait in wall-clock time ([#2705](https://github.com/dcc-mcp/dcc-mcp-core/issues/2705)) ([69583db](https://github.com/dcc-mcp/dcc-mcp-core/commit/69583db4683cd75673d7f4c5d1d2d923f3550090))
+* **ci:** keep tests/test_imports.py third-party free and gate it in PR CI ([#2703](https://github.com/dcc-mcp/dcc-mcp-core/issues/2703)) ([2d0c1f9](https://github.com/dcc-mcp/dcc-mcp-core/commit/2d0c1f9b16ce7a79af3bdac4f1fea028530f912d))
+* run tests/test_imports.py without pytest in wheel verification venv ([0c0d8c4](https://github.com/dcc-mcp/dcc-mcp-core/commit/0c0d8c499cd05dcf87eb0cf2877c885850b63021))
+
+
+### Documentation
+
+* **readme:** add the MCP Registry badge ([1101668](https://github.com/dcc-mcp/dcc-mcp-core/commit/1101668ca80f9d8394f457b746f54ad63c712d30))
+
 ## [0.20.42](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.41...v0.20.42) (2026-10-06)
 
 

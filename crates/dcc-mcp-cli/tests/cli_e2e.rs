@@ -443,17 +443,23 @@ fn local_list_reads_file_registry_after_gateway_ensure() {
 }
 
 #[test]
-fn local_list_uses_core_default_registry_without_env_override() {
+fn local_list_uses_user_registry_with_redirected_temp() {
     let fixture = spawn_local_mcp_fixture();
     let temp = TempDir::new().unwrap();
-    let default_registry = temp.path().join("dcc-mcp-registry");
+    let user_home = temp.path().join("user");
+    let agent_temp = temp.path().join("agent-temp");
+    std::fs::create_dir_all(&agent_temp).unwrap();
+    let default_registry = user_home.join(".dcc-mcp").join("registry-live");
     let file_registry = FileRegistry::new(&default_registry).unwrap();
     let port = local_mcp_port(&fixture);
-    let mut entry = ServiceEntry::new("photoshop", "127.0.0.1", port);
-    entry.display_name = Some("Photoshop-Default-Registry".to_string());
-    file_registry.register(entry).unwrap();
+    for dcc in ["houdini", "photoshop"] {
+        file_registry
+            .register(ServiceEntry::new(dcc, "127.0.0.1", port))
+            .unwrap();
+    }
 
-    let temp_s = temp.path().to_string_lossy().to_string();
+    let temp_s = agent_temp.to_string_lossy().to_string();
+    let home_s = user_home.to_string_lossy().to_string();
     let default_registry_s = default_registry.to_string_lossy().to_string();
     let profiles = temp.path().join("gateway-profiles.json");
     let profiles_s = profiles.to_string_lossy().to_string();
@@ -461,7 +467,12 @@ fn local_list_uses_core_default_registry_without_env_override() {
         ("TMP", temp_s.as_str()),
         ("TEMP", temp_s.as_str()),
         ("TMPDIR", temp_s.as_str()),
+        (
+            if cfg!(windows) { "USERPROFILE" } else { "HOME" },
+            home_s.as_str(),
+        ),
         ("DCC_MCP_GATEWAY_PROFILES_FILE", profiles_s.as_str()),
+        ("DCC_MCP_PYTHON_EXECUTABLE", ""),
         ("DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS", "1"),
         ("DCC_MCP_CLI_NO_AUTO_GATEWAY", "true"),
     ];
@@ -472,17 +483,46 @@ fn local_list_uses_core_default_registry_without_env_override() {
             "DCC_MCP_REGISTRY_DIR",
             "DCC_MCP_GATEWAY_PROFILE",
             "DCC_MCP_BASE_URL",
+            "LOCALAPPDATA",
+            if cfg!(windows) { "HOME" } else { "USERPROFILE" },
         ],
     );
 
     assert_eq!(list["source"], "local_registry");
     assert_eq!(list["registry_dir"], default_registry_s);
-    assert_eq!(list["total"], 1);
-    assert_eq!(list["instances"][0]["dcc_type"], "photoshop");
-    assert_eq!(
-        list["instances"][0]["display_name"],
-        "Photoshop-Default-Registry"
+    assert_eq!(list["total"], 2);
+    let dccs: HashSet<_> = list["instances"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| entry["dcc_type"].as_str().unwrap())
+        .collect();
+    assert_eq!(dccs, HashSet::from(["houdini", "photoshop"]));
+    let before = std::fs::read(default_registry.join("services.json")).unwrap();
+    let doctor = run_json_with_env_removed(
+        &[
+            "--auto-gateway-bin",
+            env!("CARGO_BIN_EXE_dcc-mcp-cli"),
+            "doctor",
+            "--gateway-port",
+            &port.to_string(),
+        ],
+        &envs,
+        &[
+            "DCC_MCP_REGISTRY_DIR",
+            "DCC_MCP_GATEWAY_PROFILE",
+            "DCC_MCP_BASE_URL",
+            "LOCALAPPDATA",
+            if cfg!(windows) { "HOME" } else { "USERPROFILE" },
+        ],
     );
+    assert_eq!(doctor["local"]["registry_dir"], default_registry_s);
+    assert_eq!(doctor["local"]["inventory"]["total"], 2);
+    assert_eq!(
+        before,
+        std::fs::read(default_registry.join("services.json")).unwrap()
+    );
+    assert!(!agent_temp.join("dcc-mcp-registry").exists());
 }
 
 #[test]
@@ -1665,7 +1705,7 @@ fn update_check_auto_starts_builtin_local_gateway() {
 }
 
 #[test]
-fn legacy_unsigned_update_is_quarantined_before_version_short_circuit() {
+fn version_preserves_staging_and_normal_startup_quarantines_unsigned_updates() {
     let temp = TempDir::new().unwrap();
     let source = std::path::Path::new(env!("CARGO_BIN_EXE_dcc-mcp-cli"));
     let cli = temp.path().join(source.file_name().unwrap());
@@ -1700,10 +1740,37 @@ fn legacy_unsigned_update_is_quarantined_before_version_short_circuit() {
         "stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
+    assert_eq!(std::fs::read(&marker).unwrap(), b"pending");
+    assert_eq!(std::fs::read_dir(&staging).unwrap().count(), 2);
+    assert_eq!(
+        std::fs::read(staging.join("pending.bin")).unwrap(),
+        std::fs::read(source).unwrap(),
+        "--version must leave staged bytes unchanged"
+    );
+
+    // A valid normal command still reaches updater quarantine. The missing
+    // profile stops execution before health I/O, and background work is off.
+    let normal = std::process::Command::new(&cli)
+        .args([
+            "--gateway",
+            "read-only-test-missing-profile",
+            "--no-auto-gateway",
+            "health",
+        ])
+        .env("APPDATA", &appdata)
+        .env("XDG_DATA_HOME", &xdg_data)
+        .env("HOME", &home)
+        .env("DCC_MCP_UPDATE_BACKGROUND", "1")
+        .env_remove("DCC_MCP_UPDATE_JUST_APPLIED")
+        .output()
+        .unwrap();
+    assert!(
+        !normal.status.success(),
+        "the missing profile must reject the command"
+    );
     assert!(
         !marker.exists(),
-        "--version must quarantine a legacy staged update before clap exits; stderr: {}",
-        String::from_utf8_lossy(&output.stderr)
+        "normal startup must quarantine unsigned staged bytes"
     );
     assert_eq!(
         std::fs::read(&cli).unwrap(),

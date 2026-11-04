@@ -12,13 +12,13 @@ test.describe('Admin Page', () => {
     await expect(page.locator('html')).toHaveAttribute('lang', 'en');
     await expect(page.locator('html')).toHaveAttribute('data-admin-locale', 'en');
     await expect(page.getByRole('img', { name: 'DCC MCP' })).toBeVisible();
-    const preferenceBox = await page.locator('.sidebar-preferences').boundingBox();
+    const preferenceBox = await page.locator('.workspace-preferences').boundingBox();
     expect(preferenceBox?.height ?? 0).toBeLessThanOrEqual(48);
-    await expect(page.locator('.sidebar-preferences .preference-icon')).toHaveCount(2);
+    await expect(page.locator('.workspace-preferences .preference-icon')).toHaveCount(2);
     await expect(page.locator('#admin-locale-select .preference-select-visible-value')).toHaveText('EN');
     await expect(page.locator('#admin-locale-select')).toHaveAttribute('aria-label', 'Language: English');
     await expect(page.locator('#admin-locale-select')).toHaveText('EN');
-    await expect(page.locator('.sidebar-preferences')).not.toContainText('navigator');
+    await expect(page.locator('.workspace-preferences')).not.toContainText('navigator');
     await page.locator('#admin-locale-select').click();
     const localeMenu = page.locator('[data-slot="select-content"]').last();
     await expect(localeMenu).toBeVisible();
@@ -76,12 +76,12 @@ test.describe('Admin Page', () => {
     await expect(page.locator('.brand-logo-image-dark')).toBeVisible();
     await expect(page.locator('.command-agent-prompt [data-slot="button"]').first()).toBeVisible();
     await expect(page.locator('.brand-tag')).toContainText('DCC-MCP Gateway');
-    await expect(page.locator('h1')).toContainText('Admin Dashboard');
+    await expect(page.locator('.workspace-page')).toHaveText('Command Center');
     await expect(page.getByRole('navigation').getByRole('link', { name: 'Command Center' })).toHaveClass(/active/);
-    for (const label of ['Command Center', 'Debug', 'Activity', 'Health', 'Instances', 'Tools', 'Workflows', 'Agent Experiments', 'Tasks', 'Sessions', 'Calls', 'Traces', 'Overview', 'Analytics', 'Reliability', 'OpenAPI Inspector', 'Skills', 'Marketplace', 'Integrations', 'Logs', 'Docs']) {
+    for (const label of ['Command Center', 'Debug', 'Activity', 'Health', 'Instances', 'Tools', 'Workflows', 'Agent Experiments', 'Tasks', 'Sessions', 'Calls', 'Traces', 'Overview', 'Analytics', 'Reliability', 'OpenAPI Inspector', 'Skills', 'Marketplace', 'Integrations', 'Logs']) {
       await expect(page.getByRole('navigation').getByRole('link', { name: label })).toBeVisible();
     }
-    await expect(page.getByRole('navigation').getByRole('link', { name: 'Docs' })).toHaveAttribute('href', 'https://github.com/dcc-mcp/dcc-mcp-core/tree/main/docs');
+    await expect(page.getByRole('link', { name: 'Open project docs on GitHub' })).toHaveAttribute('href', 'https://github.com/dcc-mcp/dcc-mcp-core/tree/main/docs');
     await expect(page.locator('.setup-panel')).toContainText('Claude Desktop');
     await expect(page.locator('.setup-panel')).toContainText('DCC CLI Command Center');
     await expect(page.getByRole('tab', { name: /Agent Prompt/ })).toHaveAttribute('aria-selected', 'true');
@@ -110,9 +110,11 @@ test.describe('Admin Page', () => {
     await expect(page.locator('.setup-panel')).toContainText('dcc-mcp-cli marketplace install <package_name> --dcc maya');
     await expect(page.locator('.setup-panel')).toContainText('dcc-mcp-cli marketplace update <package_name> --dcc maya');
     await expect(page.locator('.setup-panel')).toContainText('dcc-mcp-cli update check --binary dcc-mcp-server --current-version <server_version>');
+    await expect(page.locator('.cli-command-section-maintain code').last()).toHaveText('dcc-mcp-cli update');
+    await expect(page.locator('.setup-panel')).not.toContainText('dcc-mcp-cli update apply');
     await expect(page.locator('.command-aside-action')).toHaveCount(2);
     await expect(page.locator('.command-aside-action').first()).toContainText('Manage loaded skills');
-    await expect(page.locator('.command-aside-action').last()).toContainText('Install and update skill packages');
+    await expect(page.locator('.command-aside-action').last()).toContainText('Install and update marketplace packages');
     await expect(page.locator('.command-center-aside')).toContainText('Session context');
     await expect(page.locator('.command-center-aside')).toContainText('Agent flow');
     await expect(page.locator('.command-center-aside')).toContainText('Search');
@@ -438,6 +440,14 @@ test.describe('Admin Page', () => {
     expect(rowLayout.valueOverflow).toBe('hidden');
     expect(rowLayout.valueTextOverflow).toBe('ellipsis');
     expect(rowLayout.valueWhiteSpace).toBe('nowrap');
+    const clippedLinks = await page.locator('.instance-link-groups > span').evaluateAll((groups) => groups.some((group) => {
+      const bounds = group.getBoundingClientRect();
+      return Array.from(group.querySelectorAll('a')).some((link) => {
+        const rect = link.getBoundingClientRect();
+        return rect.left < bounds.left - 1 || rect.right > bounds.right + 1;
+      });
+    }));
+    expect(clippedLinks).toBe(false);
     const mayaRow = page.locator('.instance-row').filter({ hasText: 'Maya Layout' });
     await expect(mayaRow).toContainText('Update');
     await expect(mayaRow).toContainText('Current version: 0.19.56');
@@ -601,19 +611,18 @@ test.describe('Admin Page', () => {
     await expect(page).toHaveURL(/trace=req-123/);
     await expect(page.locator('.trace-detail-panel')).toContainText('req-123');
     await expect(page.locator('.trace-detail-panel')).toContainText('dispatch');
-    await expect(page.locator('.trace-detail-panel')).toContainText('Agent timeline');
+    await expect(page.getByLabel('Search steps')).toBeVisible();
+    await page.locator('.trace-evidence-section > summary').click();
     await expect(page.locator('.trace-related-head')).toContainText('Related evidence');
     await expect(page.locator('.trace-links a', { hasText: 'Calls' })).toHaveAttribute('href', /tracesTab=calls/);
-    await expect(page.locator('.agent-swimlane')).toHaveCount(4);
-    await expect(page.locator('.agent-timeline-card')).toContainText('Agent Invocation');
-    await expect(page.locator('.agent-timeline-card')).toContainText('LLM Operations');
-    await expect(page.locator('.agent-timeline-card')).toContainText('Tool Calls');
-    await expect(page.locator('.agent-timeline-card')).toContainText('Failures');
-    await expect(page.locator('.agent-timeline-card')).toContainText('Create a sphere and report scene status.');
-    await expect(page.locator('.agent-timeline-card')).toContainText('Plan 2');
-    await expect(page.locator('.agent-timeline-card')).toContainText('Call create_sphere');
-    await expect(page.locator('.agent-timeline-card')).toContainText('Observation 1');
-    await expect(page.locator('.agent-timeline-card')).toContainText('Sphere created.');
+    await expect(page.locator('.agent-swimlane')).toHaveCount(0);
+    await expect(page.locator('.trace-detail-panel')).not.toContainText('LLM Operations');
+    await page.locator('.agent-context-card > summary').click();
+    await expect(page.locator('.agent-context-card')).toContainText('Create a sphere and report scene status.');
+    await expect(page.locator('.agent-context-card')).toContainText('Call create_sphere');
+    await expect(page.locator('.agent-context-card')).toContainText('Observations');
+    await expect(page.locator('.agent-context-card')).toContainText('Sphere created.');
+    await page.locator('.trace-record-section > summary').click();
     await expect(page.locator('.trace-detail-panel')).toContainText('Token accounting');
     await expect(page.locator('.trace-detail-panel')).toContainText('dcc-mcp-byte4-v1');
     await expect(page.locator('.trace-detail-panel')).toContainText(/Input tokens\s*3/);
@@ -624,6 +633,7 @@ test.describe('Admin Page', () => {
     await expect(page.locator('.trace-detail-panel')).toContainText('cursor / windows / workstation-7');
     await expect(page.locator('.trace-detail-panel')).toContainText('192.0.2.44');
     await expect(page.locator('.trace-detail-panel')).toContainText('trusted_proxy');
+    await page.locator('.agent-context-card .trace-raw-context > summary').click();
     await expect(page.locator('.caller-context-pre')).toContainText('"auth_subject": "user:artist-1"');
     await expect(page.locator('.caller-context-pre')).toContainText('"auth_subject": "auth"');
   });
@@ -649,6 +659,7 @@ test.describe('Admin Page', () => {
     await expect(page.locator('.list-search-meta')).toContainText('2 / 5');
     await expect(tracesPanel.locator('.trace-item.latency-critical', { hasText: 'req-slow' })).toContainText('TAIL');
     await expect(tracesPanel.locator('.trace-item.err.latency-slow', { hasText: 'req-failed-s' })).toContainText('SLOW');
+    await tracesPanel.locator('.trace-extra-metrics > summary').click();
     await expect(tracesPanel).toContainText('p99 latency');
     await expect(tracesPanel).toContainText('tail >= 5.00 s');
     await expect(tracesPanel).toContainText('slowest upload_texture 5.40 s');
@@ -689,10 +700,14 @@ test.describe('Admin Page', () => {
     await expect(page.locator('.tasks-panel')).toContainText('workflow session-1');
     await expect(page.locator('.tasks-panel')).toContainText('client Layout Artist');
     await expect(page.locator('.tasks-panel')).toContainText('Backend failed while opening [path-redacted].');
-    await expect(page.locator('.tasks-panel .metric-grid')).toContainText('Avg duration');
-    await expect(page.locator('.tasks-panel .metric-grid')).toContainText('Success rate');
+    await expect(page.locator('.tasks-panel .task-summary')).toContainText('Avg duration');
+    await expect(page.locator('.tasks-panel .task-summary')).toContainText('Success rate');
     await expect(page.locator('.task-card.ok', { hasText: 'Create a sphere' }).locator('.task-title-row .badge-ok')).toContainText('completed');
     await expect(page.locator('.task-card.err', { hasText: 'Render preview' }).locator('.task-title-row .badge-err')).toContainText('failed');
+    const sphereTask = page.locator('.task-card.ok', { hasText: 'Create a sphere' });
+    await expect(sphereTask.locator('.task-detail')).toBeHidden();
+    await sphereTask.locator('summary').click();
+    await expect(sphereTask.locator('.task-detail')).toBeVisible();
     await page.getByRole('button', { name: /trace req-123/ }).click();
     await expect(page).toHaveURL(/panel=traces/);
     await expect(page).toHaveURL(/trace=req-123/);
@@ -1052,11 +1067,32 @@ test.describe('Admin Page', () => {
 
     expect(layout.searchAlignedWithTabs).toBe(true);
     expect(layout.toolbarBeforeHeader).toBe(true);
-    expect(layout.firstRowHeight).toBeLessThanOrEqual(260);
+    expect(layout.firstRowHeight).toBeLessThanOrEqual(150);
     expect(layout.firstRowCoveredBySearch).toBe(false);
     expect(layout.noHorizontalOverflow).toBe(true);
     expect(layout.searchFits).toBe(true);
   });
+
+  for (const [panel, row] of [
+    ['skill-paths', '.skill-inventory-row'],
+    ['integrations', '.integration-card-body'],
+  ] as const) {
+    test(`keeps ${panel} actions inside the content area beside the desktop rail`, async ({ page }) => {
+      await page.setViewportSize({ width: 1121, height: 900 });
+      await page.goto(`/admin/?panel=${panel}`);
+      const rows = page.locator(row);
+      await expect(rows.first()).toBeVisible();
+      const clipped = await rows.evaluateAll((items) => items.some((item) => {
+        const bounds = item.getBoundingClientRect();
+        return item.scrollWidth > item.clientWidth + 2
+          || Array.from(item.querySelectorAll('button')).some((button) => {
+            const rect = button.getBoundingClientRect();
+            return rect.width > 0 && (rect.left < bounds.left - 2 || rect.right > bounds.right + 2);
+          });
+      }));
+      expect(clipped).toBe(false);
+    });
+  }
 
   test('keeps skill inventory rows compact on mobile', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
@@ -1082,10 +1118,37 @@ test.describe('Admin Page', () => {
     });
     expect(metrics.documentWidth).toBeLessThanOrEqual(metrics.viewportWidth + 2);
     expect(metrics.insightWidth).toBeLessThanOrEqual(metrics.insightClientWidth + 1);
-    expect(Math.max(...metrics.rowHeights)).toBeLessThanOrEqual(250);
+    expect(Math.max(...metrics.rowHeights)).toBeLessThanOrEqual(200);
     expect(metrics.firstRowText).toContain('maya-modeling');
     expect(metrics.firstRowText).toContain('create_sphere');
     await expect(panel.getByRole('button', { name: /Open maya-modeling detail|查看 maya-modeling 详情/ })).toBeVisible();
+  });
+
+  test('keeps the skill identity and metadata compact at the reviewed workspace width', async ({ page }) => {
+    await page.setViewportSize({ width: 1012, height: 764 });
+    await page.goto('/admin/?panel=discover&discoverTab=skills');
+    const row = page.locator('.skill-inventory-row[data-skill-name="maya-modeling"]');
+    await expect(row).toBeVisible();
+    await expect(row.locator('[data-slot="badge"]')).toHaveCount(1);
+    const layout = await row.evaluate((element) => {
+      const title = element.querySelector('.skill-inventory-title')!;
+      const action = element.querySelector('.skill-inventory-action')!;
+      return {
+        height: element.getBoundingClientRect().height,
+        overflow: element.scrollWidth - element.clientWidth,
+        titleFont: getComputedStyle(title).fontFamily,
+        buttonRadius: getComputedStyle(action).borderRadius,
+      };
+    });
+    expect(layout.height).toBeLessThanOrEqual(150);
+    expect(layout.overflow).toBeLessThanOrEqual(1);
+    expect(layout.titleFont).not.toMatch(/mono/i);
+    const sharedButtonRadius = await page.locator('.skill-paths-panel .panel-header button').evaluate((button) => getComputedStyle(button).borderRadius);
+    expect(layout.buttonRadius).toBe(sharedButtonRadius);
+    expect(parseFloat(layout.buttonRadius)).toBeLessThanOrEqual(8);
+    await expect(row.getByText('create_sphere', { exact: true })).toBeHidden();
+    await row.locator('summary').click();
+    await expect(row.getByText('create_sphere', { exact: true })).toBeVisible();
   });
 
   test('mounts only the selected Discover tab content', async ({ page }) => {
@@ -1213,8 +1276,8 @@ test.describe('Admin Page', () => {
     await expect(page.locator('.logs-panel')).toContainText('No log lines match your search.');
   });
 
-  test('collapses the sidebar into a horizontal nav on mobile widths', async ({ page }) => {
-    await page.setViewportSize({ width: 480, height: 900 });
+  test('provides a grouped page picker on mobile widths', async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 900 });
     await page.goto('/admin/');
     // Let the SPA finish its initial mount (it normalizes the URL via
     // history.replaceState) before reading computed styles.
@@ -1224,10 +1287,14 @@ test.describe('Admin Page', () => {
       .poll(() => page.locator('.app-shell').evaluate((node) => getComputedStyle(node).flexDirection))
       .toBe('column');
 
-    const navDirection = await page
-      .locator('.nav-links')
-      .evaluate((node) => getComputedStyle(node).flexDirection);
-    expect(navDirection).toBe('row');
+    await expect(page.locator('.side-rail')).toBeHidden();
+    const pagePicker = page.getByRole('combobox', { name: 'Go to page' });
+    await expect(pagePicker).toBeVisible();
+    await pagePicker.click();
+    await page.getByRole('option', { name: 'Skills', exact: true }).click();
+    await expect(page).toHaveURL(/panel=discover/);
+    await expect(page).toHaveURL(/discoverTab=skills/);
+    await expect(pagePicker).toContainText('Skills');
 
     const noPageOverflow = await page.evaluate(
       () => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 2,
@@ -1557,19 +1624,19 @@ test.describe('Admin Page', () => {
 });
 
 test.describe('Sessions and Reliability panels', () => {
-  test('sessions panel renders KPIs, tree, and status badges', async ({ page }) => {
+  test('sessions panel renders a summary, session list, and status', async ({ page }) => {
     await page.goto('/admin/');
     await page.getByRole('navigation').getByRole('link', { name: 'Sessions' }).click();
 
     const panel = page.locator('section.sessions-panel');
     await expect(panel).toBeVisible();
 
-    const kpiTiles = panel.locator('.sessions-kpi-row .metric-tile');
+    const kpiTiles = panel.locator('.sessions-summary > div');
     await expect(kpiTiles).toHaveCount(4);
-    await expect(kpiTiles.nth(0).locator('.metric-value')).toHaveText('3');
-    await expect(kpiTiles.nth(1).locator('.metric-value')).toHaveText('1');
-    await expect(kpiTiles.nth(2).locator('.metric-value')).toHaveText('1');
-    await expect(kpiTiles.nth(3).locator('.metric-value')).toHaveText('2');
+    await expect(kpiTiles.nth(0).locator('dd')).toHaveText('3');
+    await expect(kpiTiles.nth(1).locator('dd')).toHaveText('1');
+    await expect(kpiTiles.nth(2).locator('dd')).toHaveText('1');
+    await expect(kpiTiles.nth(3).locator('dd')).toHaveText('2');
 
     const rows = panel.locator('table.sessions-table tbody tr.sessions-row');
     await expect(rows).toHaveCount(3);

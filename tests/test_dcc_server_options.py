@@ -257,6 +257,110 @@ class TestResolvedServerConfig:
         assert config.standalone_main_thread_execution is standalone_main_thread
         assert config.instance_metadata["dcc_mcp_instance_type"] == instance_type
 
+    def test_build_mcp_http_config_keeps_core_version_when_adapter_overrides_mcp(self, tmp_path):
+        """An adapter MCP override must not leak into the core runtime version.
+
+        Core 0.20.45, adapter/MCP 0.5.0 and host DCC 6.5.0 are deliberately
+        unequal so each identity stays distinguishable downstream (issue #2795).
+        """
+        opts = DccServerOptions.from_env(
+            "houdini",
+            tmp_path,
+            port=0,
+            server_version="0.5.0",
+            dcc_version="6.5.0",
+        )
+
+        config = build_mcp_http_config(
+            opts,
+            package_version="0.20.45",
+            version_provider=lambda: "6.5.0",
+        )
+
+        assert config.server_version == "0.5.0"
+        assert config.dcc_version == "6.5.0"
+        assert config.instance_metadata["dcc_mcp_server_version"] == "0.20.45"
+
+    def test_build_mcp_http_config_matches_core_and_metadata_without_override(self, tmp_path):
+        opts = DccServerOptions.from_env("houdini", tmp_path, port=0, dcc_version="6.5.0")
+
+        config = build_mcp_http_config(
+            opts,
+            package_version="0.20.45",
+            version_provider=lambda: "6.5.0",
+        )
+
+        assert config.server_version == "0.20.45"
+        assert config.instance_metadata["dcc_mcp_server_version"] == "0.20.45"
+
+    @pytest.mark.parametrize("implementation", ["native", "pure"])
+    @pytest.mark.parametrize("adapter_version", ["0.8.1", None])
+    @pytest.mark.parametrize("dcc_name", ["substance3d_designer", "photoshop"])
+    def test_declared_adapter_identity_survives_config_and_registry_projection(
+        self, tmp_path, monkeypatch, implementation, adapter_version, dcc_name
+    ):
+        from dcc_mcp_core._install_lifecycle_runtime import _normalise_entry
+        from dcc_mcp_core._runtime.mcp_http_config import McpHttpConfig as PureMcpHttpConfig
+        from dcc_mcp_core._server import config as server_config
+
+        if implementation == "native":
+            core = pytest.importorskip("dcc_mcp_core._core")
+            config_class = core.McpHttpConfig
+        else:
+            config_class = PureMcpHttpConfig
+        monkeypatch.setattr(server_config, "resolve_mcp_http_config_class", lambda: config_class)
+        opts = DccServerOptions.from_env(
+            dcc_name,
+            tmp_path,
+            port=0,
+            server_version="0.8.1",
+            adapter_version=adapter_version,
+            dcc_version="15.1.0",
+        )
+
+        config = build_mcp_http_config(opts, package_version="0.20.47", version_provider=lambda: "unused")
+
+        assert config.adapter_version == adapter_version
+        assert config.server_version == "0.8.1"
+        assert config.dcc_version == "15.1.0"
+        assert config.instance_metadata["dcc_mcp_server_version"] == "0.20.47"
+        entry = _normalise_entry(
+            {
+                "dcc_type": config.dcc_type,
+                "instance_id": "test-instance",
+                "pid": os.getpid(),
+                "version": config.dcc_version,
+                "adapter_version": config.adapter_version,
+                "metadata": config.instance_metadata,
+            }
+        )
+        assert entry["dcc_type"] == dcc_name
+        assert entry["version"] == "15.1.0"
+        assert entry["adapter_version"] == adapter_version
+        assert entry["versions"]["adapter"] == adapter_version
+        assert entry["versions"]["server"] == "0.20.47"
+
+    def test_core_version_override_survives_admin_version_resolution(self, tmp_path):
+        from dcc_mcp_core._install_lifecycle_runtime import _metadata_value
+
+        opts = DccServerOptions.from_env(
+            "maya",
+            tmp_path,
+            port=0,
+            server_version="0.5.0",
+            dcc_version="6.5.0",
+        )
+
+        config = build_mcp_http_config(
+            opts,
+            package_version="0.20.45",
+            version_provider=lambda: "6.5.0",
+        )
+
+        metadata = config.instance_metadata
+        assert _metadata_value(metadata, "server") == "0.20.45"
+        assert len({_metadata_value(metadata, "server"), config.server_version, config.dcc_version}) == 3
+
     def test_build_mcp_http_config_propagates_explicit_host_pid(self, tmp_path):
         opts = DccServerOptions.from_env(
             "unreal",

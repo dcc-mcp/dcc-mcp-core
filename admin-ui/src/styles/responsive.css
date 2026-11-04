@@ -2,21 +2,18 @@
  * Split out of styles.css (file-size cap) and imported LAST from main.tsx
  * so these media queries win over every base feature stylesheet. */
 
-/* ------------------------------------------------------------------ *
- * Responsive layout
- * The dashboard is a fixed sidebar + scrolling stage on desktop. On
- * smaller viewports the sidebar narrows, then collapses into a sticky
- * horizontal nav above the stage so the content gets the full width.
- * ------------------------------------------------------------------ */
-
-/* Small laptop / tablet — narrow the rail and tighten the stage. */
+/* The desktop rail becomes a grouped page picker on narrow workspaces. */
 @media (max-width: 1024px) {
   :root {
-    --nav-width: 188px;
+    --nav-width: 192px;
   }
 
   .main-stage {
-    padding: 1.5rem clamp(0.85rem, 2.5vw, 1.75rem);
+    padding: 20px;
+  }
+
+  .workspace-bar {
+    padding-inline: 20px;
   }
 
   .instance-row {
@@ -27,89 +24,102 @@
     border-left: 0;
     border-top: 1px solid var(--border);
     padding-left: 0;
-    padding-top: 0.75rem;
+    padding-top: 12px;
   }
 }
 
-/* Mobile — stack the rail above the stage as a scrollable nav strip. */
 @media (max-width: 760px) {
   body {
     height: auto;
+    overflow: auto;
   }
 
   .app-shell {
     flex-direction: column;
     height: auto;
-    min-height: 100vh;
+    min-height: 100dvh;
   }
 
-  .side-rail {
-    width: 100%;
-    flex-shrink: 0;
-    border-right: 0;
-    border-bottom: 1px solid var(--sidebar-border);
-    padding: 0.85rem 0 0.4rem;
-    position: sticky;
-    top: 0;
-    z-index: 20;
-    background: var(--sidebar);
-  }
-
-  .brand-lockup {
-    margin: 0 1rem 0.6rem;
-    padding-bottom: 0.6rem;
-  }
-
-  .sidebar-preferences {
-    border-bottom: 0;
-    display: inline-grid;
-    margin: 0 1rem 0.5rem;
-    max-width: none;
-    padding-bottom: 0;
-    width: calc(100% - 2rem);
-  }
-
-  .sidebar-preferences .language-selector > span,
-  .sidebar-preferences .theme-selector > span {
-    clip: rect(0 0 0 0);
-    clip-path: inset(50%);
-    height: 1px;
-    overflow: hidden;
-    position: absolute;
-    white-space: nowrap;
-    width: 1px;
-  }
-
-  .nav-links {
-    flex: 0 0 auto;
-    flex-direction: row;
-    flex-wrap: nowrap;
-    gap: 0.25rem;
-    overflow-x: auto;
-    overflow-y: hidden;
-    padding: 0.25rem 0.75rem 0.4rem;
-    -webkit-overflow-scrolling: touch;
-  }
-
-  .nav-entry {
-    display: inline-flex;
-    flex: 0 0 auto;
-  }
-
-  .nav-section-title {
+  .side-rail,
+  .workspace-location {
     display: none;
   }
 
-  .nav-link {
-    white-space: nowrap;
+  .workspace {
+    min-height: 100dvh;
+  }
+
+  .workspace-bar {
+    background: var(--background);
+    display: grid;
+    gap: 12px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding: 8px 16px;
+    position: sticky;
+    top: 0;
+    z-index: 20;
+  }
+
+  .workspace-preferences {
+    gap: 4px;
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .mobile-brand {
+    color: var(--foreground);
+    display: block;
+    font-size: 13px;
+    font-weight: 650;
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .preference-icon {
+    display: none;
+  }
+
+  .preference-select-trigger,
+  .workspace-preferences .docs-link {
+    height: 44px;
+  }
+
+  .workspace-preferences .docs-link {
+    width: 44px;
+  }
+
+  .mobile-navigation {
+    display: flex;
+    grid-column: 1 / -1;
+    grid-row: 2;
+    min-width: 0;
+  }
+
+  .mobile-navigation-trigger {
+    height: 44px;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .mobile-navigation-trigger [data-slot='select-value'] {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .mobile-navigation-content {
+    max-width: calc(100vw - 32px);
+  }
+
+  .mobile-navigation-content [data-slot='select-item'] {
+    min-height: 44px;
   }
 
   .main-stage {
     flex: 1 1 auto;
     overflow-y: visible;
-    padding: 1.25rem 1rem 2rem;
+    padding: 20px 16px 32px;
   }
-
   .list-search-wrap {
     align-items: stretch;
     grid-template-columns: minmax(0, 1fr);

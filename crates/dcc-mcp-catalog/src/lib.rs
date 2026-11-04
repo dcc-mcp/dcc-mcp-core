@@ -1327,8 +1327,18 @@ entries:
                 "compatibility matrix row for {} has stale version: {row}",
                 entry.name
             );
+            // Photoshop's released wheel now bounds the supported Core minor.
+            let upper_core = if entry.name == "dcc-mcp-photoshop" {
+                "0.21.0"
+            } else {
+                "1.0.0"
+            };
+            let core_pin = entry
+                .core_requirement
+                .clone()
+                .unwrap_or_else(|| format!(">={min_core},<{upper_core}"));
             assert!(
-                row.contains(&format!("| >={min_core},<1.0.0 |")),
+                row.contains(&format!("| {core_pin} |")),
                 "compatibility matrix row for {} has stale core pin: {row}",
                 entry.name
             );
@@ -1389,6 +1399,16 @@ entries:
             ("dcc-mcp-krita", "krita", "dcc_mcp_krita.server:main"),
             ("dcc-mcp-gimp", "gimp", "dcc_mcp_gimp.server:main"),
             ("dcc-mcp-kdenlive", "kdenlive", "dcc_mcp_kdenlive.cli:main"),
+            (
+                "dcc-mcp-excel",
+                "excel",
+                "dcc_mcp_excel._standalone_entry:main",
+            ),
+            (
+                "dcc-mcp-word",
+                "word",
+                "dcc_mcp_word._standalone_entry:main",
+            ),
         ] {
             let entry = entries
                 .iter()
@@ -1455,15 +1475,15 @@ entries:
             "the bundled catalog must keep entries that omit sop_version"
         );
 
-        for name in ["dcc-mcp-excel", "dcc-mcp-material-maker", "dcc-mcp-word"] {
-            let entry = entries
-                .iter()
-                .find(|entry| entry.name == name)
-                .unwrap_or_else(|| panic!("bundled catalog is missing {name}"));
-            assert!(
-                entry.install.is_none(),
-                "{name} must not advertise automatic installation before an artifact is published"
-            );
-        }
+        // Material Maker still has no published wheel, so the catalog must keep
+        // it discoverable without advertising automatic installation.
+        let material_maker = entries
+            .iter()
+            .find(|entry| entry.name == "dcc-mcp-material-maker")
+            .expect("bundled catalog is missing dcc-mcp-material-maker");
+        assert!(
+            material_maker.install.is_none(),
+            "dcc-mcp-material-maker must not advertise automatic installation before an artifact is published"
+        );
     }
 }

@@ -173,8 +173,23 @@ fn prune_stopped_gateway_registry(args: &GatewayCtrlArgs) -> anyhow::Result<usiz
 
 /// Query the gateway status: health check + PID liveness.
 pub async fn gateway_status(args: &GatewayCtrlArgs) -> GatewayStatus {
+    gateway_status_with(args, resolve_gateway_pid).await
+}
+
+/// Doctor must not enter registry pruning while recovering a missing gateway pidfile.
+pub(crate) async fn gateway_status_readonly(args: &GatewayCtrlArgs) -> GatewayStatus {
+    gateway_status_with(args, |args, _| {
+        gateway_ensure::read_pid_from_pidfile(Some(&args.pidfile))
+    })
+    .await
+}
+
+async fn gateway_status_with(
+    args: &GatewayCtrlArgs,
+    resolve_pid: impl FnOnce(&GatewayCtrlArgs, bool) -> Option<u32>,
+) -> GatewayStatus {
     let healthy = gateway_ensure::gateway_health_ok(&args.host, args.port).await;
-    let pid = resolve_gateway_pid(args, healthy);
+    let pid = resolve_pid(args, healthy);
     let alive = pid.is_some_and(gateway_ensure::is_process_alive);
     GatewayStatus {
         host: args.host.clone(),
@@ -228,14 +243,14 @@ fn live_gateway_sentinel_pid(
 pub async fn run_gateway_daemon(request: GatewayDaemonRequest) -> anyhow::Result<Value> {
     match request {
         GatewayDaemonRequest::Start(start) => {
-            let args = start.into_ctrl_args();
+            let args = start.into_ctrl_args()?;
             Ok(serde_json::to_value(gateway_start(&args).await?)?)
         }
         GatewayDaemonRequest::Restart {
             start,
             stop_timeout_secs,
         } => {
-            let args = start.into_ctrl_args();
+            let args = start.into_ctrl_args()?;
             let stopped = gateway_stop(&args, stop_timeout_secs).await?;
             let started = gateway_start(&args).await?;
             Ok(serde_json::json!({
@@ -245,13 +260,13 @@ pub async fn run_gateway_daemon(request: GatewayDaemonRequest) -> anyhow::Result
             }))
         }
         GatewayDaemonRequest::Stop(stop) => {
-            let args = gateway_ctrl_args(stop.host, stop.port, stop.registry_dir, None);
+            let args = gateway_ctrl_args(stop.host, stop.port, stop.registry_dir, None)?;
             Ok(serde_json::to_value(
                 gateway_stop(&args, stop.wait_timeout_secs).await?,
             )?)
         }
         GatewayDaemonRequest::Status(status) => {
-            let args = gateway_ctrl_args(status.host, status.port, status.registry_dir, None);
+            let args = gateway_ctrl_args(status.host, status.port, status.registry_dir, None)?;
             Ok(serde_json::to_value(gateway_status(&args).await)?)
         }
     }
@@ -266,7 +281,7 @@ pub async fn ensure_local_gateway_for_endpoint(
         return Ok(None);
     };
 
-    let registry_dir = gateway_ensure::default_registry_dir();
+    let registry_dir = gateway_ensure::default_registry_dir()?;
     let pidfile = default_pidfile(&registry_dir);
     let args = gateway_ensure::EnsureGatewayArgs {
         host,
@@ -315,16 +330,18 @@ pub fn gateway_ctrl_args(
     port: u16,
     registry_dir: Option<PathBuf>,
     start_opts: Option<GatewayStartOpts>,
-) -> GatewayCtrlArgs {
-    let registry_dir = registry_dir.unwrap_or_else(gateway_ensure::default_registry_dir);
+) -> anyhow::Result<GatewayCtrlArgs> {
+    let registry_dir = registry_dir
+        .map(Ok)
+        .unwrap_or_else(gateway_ensure::default_registry_dir)?;
     let pidfile = default_pidfile(&registry_dir);
-    GatewayCtrlArgs {
+    Ok(GatewayCtrlArgs {
         host,
         port,
         registry_dir,
         pidfile,
         start_opts,
-    }
+    })
 }
 
 fn verify_gateway_pid_ownership(args: &GatewayCtrlArgs, pid: u32) -> anyhow::Result<()> {
@@ -426,7 +443,7 @@ fn gateway_sentinel_summary(entry: &ServiceEntry) -> String {
 }
 
 impl GatewayDaemonStartRequest {
-    fn into_ctrl_args(self) -> GatewayCtrlArgs {
+    fn into_ctrl_args(self) -> anyhow::Result<GatewayCtrlArgs> {
         let start_opts = GatewayStartOpts {
             name: self.name,
             remote_host: self.remote_host,
@@ -508,7 +525,8 @@ mod tests {
             19765,
             Some(dir.path().to_path_buf()),
             None,
-        );
+        )
+        .unwrap();
         let pid = 42_424;
         let mut sentinel = ServiceEntry::new(GATEWAY_SENTINEL_DCC_TYPE, "127.0.0.1", 19765);
         sentinel.metadata.insert(
@@ -532,7 +550,8 @@ mod tests {
             19765,
             Some(dir.path().to_path_buf()),
             None,
-        );
+        )
+        .unwrap();
         let mut sentinel = ServiceEntry::new(GATEWAY_SENTINEL_DCC_TYPE, "127.0.0.1", 19765);
         sentinel.pid = Some(u32::MAX);
         sentinel
@@ -559,7 +578,8 @@ mod tests {
             19765,
             Some(dir.path().to_path_buf()),
             None,
-        );
+        )
+        .unwrap();
         let mut sentinel = ServiceEntry::new(GATEWAY_SENTINEL_DCC_TYPE, "127.0.0.1", 19765);
         sentinel.metadata.insert(
             "gateway_health_url".to_string(),
@@ -586,7 +606,8 @@ mod tests {
             19765,
             Some(dir.path().to_path_buf()),
             None,
-        );
+        )
+        .unwrap();
         let pid = 42;
         let mut sentinel = ServiceEntry::new(GATEWAY_SENTINEL_DCC_TYPE, "127.0.0.1", 19766);
         sentinel.metadata.insert(
@@ -611,7 +632,8 @@ mod tests {
             19765,
             Some(dir.path().to_path_buf()),
             None,
-        );
+        )
+        .unwrap();
         let stale_pid = 42;
         std::fs::write(&args.pidfile, stale_pid.to_string()).unwrap();
         let pid = std::process::id();
@@ -640,7 +662,8 @@ mod tests {
             19765,
             Some(dir.path().to_path_buf()),
             None,
-        );
+        )
+        .unwrap();
         let stale_pid = 42;
         std::fs::write(&args.pidfile, stale_pid.to_string()).unwrap();
         let mut sentinel = ServiceEntry::new(GATEWAY_SENTINEL_DCC_TYPE, "127.0.0.1", 19766);

@@ -4,7 +4,6 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-from dcc_mcp_core._runtime.config_bridge import resolve_mcp_http_config_class
 from dcc_mcp_core._server.config import build_mcp_http_config
 from dcc_mcp_core.constants import ENV_GATEWAY_REMOTE_HOST
 from dcc_mcp_core.constants import ENV_GATEWAY_REMOTE_PORT
@@ -22,12 +21,27 @@ def build(options):
     return build_mcp_http_config(options, package_version="test", version_provider=lambda: "test")
 
 
-def test_omitted_options_preserve_native_constructor_defaults(tmp_path):
-    expected = resolve_mcp_http_config_class()(port=0)
-    actual = build(DccServerOptions.from_env("blender", tmp_path))
-    assert actual.gateway_remote_host == expected.gateway_remote_host
-    assert actual.gateway_remote_port == expected.gateway_remote_port
+@pytest.mark.parametrize("dcc_name", ["blender", "photoshop"])
+def test_omitted_adapter_options_disable_secondary_listener(tmp_path, dcc_name):
+    actual = build(DccServerOptions.from_env(dcc_name, tmp_path, gateway_port=19765))
+    assert actual.gateway_remote_host == "127.0.0.1"
+    assert actual.gateway_remote_port == 0
+    assert actual.gateway_port == 19765
     assert GatewayOptions().remote_port is None
+
+
+def test_port_only_opt_in_defaults_to_loopback(tmp_path):
+    actual = build(DccServerOptions.from_env("blender", tmp_path, gateway_remote_port=19766))
+    assert actual.gateway_remote_host == "127.0.0.1"
+    assert actual.gateway_remote_port == 19766
+
+
+def test_lan_opt_in_is_explicit_and_configuration_only(tmp_path):
+    actual = build(
+        DccServerOptions.from_env("photoshop", tmp_path, gateway_remote_host="0.0.0.0", gateway_remote_port=19766)
+    )
+    assert actual.gateway_remote_host == "0.0.0.0"
+    assert actual.gateway_remote_port == 19766
 
 
 @pytest.mark.parametrize("remote_port", [0, 59765, 65535])

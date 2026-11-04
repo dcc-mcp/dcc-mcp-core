@@ -13,6 +13,8 @@ use crate::domain::install::{
 const BUNDLED_CATALOG: &str = include_str!("../../../../dcc-mcp-catalog.yml");
 
 mod adobe;
+#[cfg(test)]
+mod archive_http_tests;
 mod catalog;
 #[cfg(test)]
 mod catalog_contract_tests;
@@ -602,6 +604,13 @@ fn execute_zip_extract(
         message: format!("failed to download {url}: {e}"),
     })?;
 
+    if !response.status().is_success() {
+        return Err(InstallError::StepFailed {
+            step: "zip-download".into(),
+            message: format!("archive download returned HTTP {}", response.status()),
+        });
+    }
+
     let bytes = response.bytes().map_err(|e| InstallError::StepFailed {
         step: "zip-download".into(),
         message: format!("failed to read response from {url}: {e}"),
@@ -1055,7 +1064,7 @@ mod tests {
     }
 
     #[test]
-    fn git_and_zip_integrity_fail_before_network_or_filesystem_io() {
+    fn git_commit_integrity_fails_before_network_or_filesystem_io() {
         let root = tempfile::tempdir().unwrap();
         let git_dest = root.path().join("git-install");
         let git_error = execute_git_clone(
@@ -1066,21 +1075,6 @@ mod tests {
         .unwrap_err();
         assert!(git_error.to_string().contains("40-character commit"));
         assert!(!git_dest.exists());
-
-        let zip_dest = root.path().join("zip-install");
-        let zip_error = execute_zip_extract(
-            "https://__nonexistent__.invalid/archive.zip",
-            None,
-            &zip_dest,
-        )
-        .unwrap_err();
-        assert!(zip_error.to_string().contains("64 hexadecimal"));
-        assert!(!zip_dest.exists());
-
-        assert_eq!(
-            required_archive_sha256(Some(&format!("sha256:{}", "A".repeat(64)))).unwrap(),
-            "a".repeat(64)
-        );
     }
 
     #[test]

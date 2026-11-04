@@ -181,8 +181,9 @@ class ObservabilityFacade:
             logger.debug("[%s] set_readiness_probe unavailable on inner server", owner._dcc_name)
             return False
         try:
-            setter(probe)
-            return True
+            # Native setters return None; sidecar/optional backends can
+            # explicitly decline an in-process probe with False.
+            return setter(probe) is not False
         except Exception as exc:
             logger.debug("[%s] set_readiness_probe failed: %s", owner._dcc_name, exc)
             return False

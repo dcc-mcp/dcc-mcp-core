@@ -83,6 +83,38 @@ cost. The default remains JSON for backward-compatible scripts; use
 `--output json` only when a downstream program requires JSON, `--output ndjson`
 for streams, and `--output human` for interactive display.
 
+### Result views and field queries
+
+`call` (including batches) prints each structured result once: the CLI omits
+unannotated `content` text blocks whose complete JSON value equals
+`structuredContent`. Both fields remain present; distinct text, annotated
+blocks, media, errors, metrics and artifact references remain intact. MCP/REST
+wire responses, SDK results and existing evidence files are unchanged.
+Legacy CLI consumers that read the JSON text mirror must use `--raw-result`.
+The same view feeds human, JSON, NDJSON and TOON output.
+
+Use repeatable RFC 6901 pointers to query that view without parsing embedded
+JSON text, for example:
+
+```bash
+dcc-mcp-cli call <tool-slug> --output json \
+  --select /result/structuredContent/context/output_summary/artifacts \
+  --select /result/structuredContent/context/result
+```
+
+The response contains a `selected` map keyed by the exact pointers, plus the
+original `success`, `request_id` and `tool_slug` when present. Missing fields
+are `null`. Selection never changes failure detection, exit codes or the
+original error envelope on stderr. Do not select away acceptance metrics
+when saving an acceptance record. Artifact references remain references;
+the CLI does not copy stdout to another file or delete run/checkpoint data.
+
+`call`, `list`, `search` and `describe` omit maintenance metadata by default.
+Pass `--show-maintenance` to include it. `--quiet` aliases the existing
+`--no-update-maintenance` (also skips automatic staged-update application).
+Explicit `update` commands retain their behavior. Progress, update hints and
+errors use stderr; stdout contains only the requested result representation.
+
 Register and select remote profiles with:
 
 ```bash
@@ -123,9 +155,12 @@ update, and cross-instance control-plane routes. When the current profile is
 remote, or when `--gateway pcA` / `--base-url ...` is supplied, the same
 commands use the gateway `/v1/*` surfaces.
 
-`list` is an inventory and diagnostics command: it keeps live `booting` rows
-and sidecar rows with `dispatch_status=unavailable` visible so operators can
-see startup failures. Local `search`, `describe`, `load-skill`, `call`, and
+`list` is a live inventory and diagnostics command: it keeps live `booting`
+rows and sidecar rows with `dispatch_status=unavailable` visible so operators
+can see startup failures. Local list reads use a shared, read-only registry
+lock and verify owner/host liveness without pruning or rewriting the registry;
+`evicted` counts dead rows omitted from that response and
+`eviction_applied: false` makes the non-mutating behavior explicit. Local `search`, `describe`, `load-skill`, `call`, and
 `reload-skills` only route to direct MCP instances ready for local CLI control
 (`status=available` or `busy`, with `dispatch_status=ready` when that metadata
 is reported). A per-DCC sidecar row is locally routable once it reports
@@ -154,7 +189,70 @@ auto-start the gateway.
 Use `dcc-mcp-cli doctor` when startup state is ambiguous: it reports the
 current profile config, selected mode, registry directory and inventory, local
 direct-control readiness counts, gateway daemon status, and server binary
-path/source/version without launching or downloading anything.
+path/source/version without starting services or downloading binaries. Existing
+binary version probes and explicitly configured adapter interpreter probes may
+run subprocesses.
+Doctor also skips staged-update application/quarantine, marketplace update
+checks, and background CLI update-cache refresh without requiring an opt-out.
+
+The default registry is `~/.dcc-mcp/registry-live` on all platforms, using
+`USERPROFILE` on Windows and `HOME` on Unix, with native home lookup when the
+variable is absent or empty. `TEMP`/`TMP` redirection does not affect inventory.
+Explicit registry options and `DCC_MCP_REGISTRY_DIR` retain priority; use the
+environment override to share a registry with older running services or select
+a temporary test directory. `list.registry_dir` and `doctor.local.registry_dir`
+report the directory read. Old registries are never scanned, migrated, or merged
+automatically.
+
+The local inventory is a `read_only_snapshot`: doctor never creates the registry
+directory, opens `services.lock`, prunes rows, or quarantines malformed JSON.
+`evicted` is zero and `liveness: not_checked` means readiness counts describe
+persisted metadata, not freshly verified live hosts. Use the normal runtime
+inventory/readiness route for liveness after its required access is authorized.
+Doctor's gateway status reads only the pidfile: when it is absent, `pid` remains
+null even if the health probe succeeds, rather than recovering it via a registry
+write transaction. Normal gateway lifecycle commands retain their PID recovery.
+Unreadable snapshots report `ok: false`, `liveness: unknown`, the read operation
+and file path, a bounded error chain with the home directory redacted, and
+`error_kind`/`os_error` when an I/O cause exists. An unknown errno is null; parser
+errors include category and location without echoing registry values. These are
+local operator diagnostics; the existing `registry_dir` field retains its path
+for compatibility and reports still need review before sharing publicly.
+Server-binary metadata errors report `status: unknown` and do not suggest a
+download; only confirmed absence is `missing`.
+
+When normal gateway startup needs a server download, bootstrap selects the
+CLI's exact release version through `dcc-mcp-update-manifest-<platform>.json`.
+It uses the gateway's shared manifest loader (including Sigstore attestation
+verification for official Core release URLs), follows the manifest's server
+asset URL, and uses the updater's bounded SHA-256-verified download before
+committing a cache file. It does not construct binary names from Rust target
+triples. `DCC_MCP_GATEWAY_DOWNLOAD_BASE` mirrors must supply this manifest and
+its asset metadata; custom hosts keep the existing operator-supplied update
+trust policy. Download failure emits a bounded warning with the error chain
+and current-CLI sub-command fallback path. A fallback is not proof that the
+gateway started or became healthy. Existing explicit, sibling and cached
+binaries retain their discovery policy; this does not requalify their origin.
+
+### MCP inventory smoke checks
+
+```bash
+dcc-mcp-cli --no-auto-gateway --output json smoke --url http://127.0.0.1:19293/mcp --timeout-secs 30 --max-pages 16
+```
+
+`smoke` initializes one MCP session and follows `tools/list` cursors until a
+terminal page. `--max-pages` defaults to 16 and accepts 1–128; reaching the
+limit with another cursor, a repeated cursor, an invalid descriptor, or a
+failed request makes the check fail. Each request uses the negotiated supported
+legacy protocol version. An invalid initialize response prevents tool listing.
+
+The `mcp_tools_list` check keeps the first parsed response in `response` and
+every request and parsed response in `pages`. Each received page also records
+its HTTP status, response-body SHA-256, and strict UTF-8 body (or bytes when
+UTF-8 is invalid). These are HTTP bodies after transport decoding, not network
+frames. `tool_count` is computed from validated pages; it is derived metadata,
+not a server response. Treat inventory as complete only when the check is successful
+and `complete` is true. Retain exact advertised tool names and schemas.
 
 ### Adapter import probes (`doctor`)
 
@@ -231,7 +329,7 @@ dcc-mcp-cli marketplace pack path/to/skill --out dist/
 dcc-mcp-cli marketplace publish path/to/skill --catalog marketplace.json --install-url https://example.com/skill.zip --sha256 sha256:<digest>
 dcc-mcp-cli update check
 dcc-mcp-cli update check --binary dcc-mcp-server --current-version 0.18.16
-dcc-mcp-cli update apply --yes  # only after user confirmation
+dcc-mcp-cli update          # check, download, and stage in one step
 dcc-mcp-cli components status dcc-cua
 dcc-mcp-cli components ensure dcc-cua --yes
 dcc-mcp-cli components ensure dcc-cua --version 0.6.0 --yes
@@ -276,7 +374,7 @@ launching operation.
 | `feedback bundle <finding.json> [--install-report <report.json>] [--dcc-pid <pid>] [--log-dir <path>] [--host-error-lines <1-200>] [--json]` | local Finding/doctor/host errors/Install SOP v1 report + optional `GET /v1/debug/issue-reports/{request_id}` | Assemble `dcc-mcp.feedback-bundle.v1` without auto-starting a Gateway. The Finding must already be marked public-safe. `--install-report` accepts one terminal, regular, non-symlink Install SOP v1 execution report up to 256 KiB, binds its DCC/core/adapter identity to the Finding, and projects only public-safe fields. Invalid or mismatched reports fail closed. Missing components remain explicit; `complete=true` only when every component is resolved. |
 | `feedback file <finding.json> [--catalog <path>] [--existing <number>\|--create] [--yes] [--json]` | local public-safe Finding + GitHub CLI | Route and deduplicate a Finding against open issues. The default is read-only and returns an executable `next_step`; execute that argv exactly after review and user authorization. A write binds the canonical Finding path, canonical catalog path or exact bundled sentinel, content SHA, fingerprint, and repository. Drift, bodies above 65,536 Unicode scalar values, exact conflicts, ambiguity, closed issues, tracker failures, or the bounded full-process-tree `gh` timeout stop the operation before mutation. |
 | `doctor [--registry-dir <path>] [--gateway-port <port>] [--adapter-python <dcc>=<python>] [--adapter-catalog <path>]` | local filesystem + gateway probe + adapter import probes | Report profile config/current selection, effective control route and whether it is recorded by gateway stats, local registry readiness, daemon status, server binary diagnostics, and per-DCC adapter import grades without auto-starting services. Repeated `--adapter-python` covers several DCC types; a probe that cannot run is `unavailable`, never a failure. |
-| `list [--gateway <profile>]` | local FileRegistry or `GET /v1/instances` | List live DCC instances. Defaults to local FileRegistry after ensuring the loopback gateway; remote profiles use the selected gateway. |
+| `list [--gateway <profile>]` | local FileRegistry or `GET /v1/instances` | List live DCC instances. Local mode uses a shared read-only registry lock and liveness probes without pruning; remote profiles use the selected gateway. |
 | `search [-q\|--query <q>] [--instance-id <id>]` | local MCP `search_tools` or remote `POST /v1/search` | Search callable capabilities with the release-compatible query flag; current builds also accept positional natural-language words as an alternative. Optionally scope to a full UUID or unique prefix. |
 | `describe <tool-slug>` | local MCP `tools/list` or remote `POST /v1/describe` | Inspect a capability before calling it. |
 | `load-skill <skill-name> [--dcc-type <dcc>] [--instance-id <id>]` | local MCP `tools/call load_skill` or remote `POST /v1/load_skill` | Activate a progressive skill and print its registered tools. |
@@ -301,7 +399,7 @@ launching operation.
 | `marketplace pack <path> [--out <path>]` | local filesystem + zip | Build a release zip for a marketplace package and print its SHA-256 digest. |
 | `marketplace publish <path> --catalog <file> --install-url <url>` | local marketplace catalog file | Build or update a `marketplace.json` entry from `SKILL.md` metadata and CLI overrides. |
 | `update check [--binary <name>] [--current-version <version>]` | `GET /v1/update/check` | Check the gateway update manifest. Defaults to the CLI binary/version; pass `--binary dcc-mcp-server` plus a server version when checking an instance shown in Admin. |
-| `update apply --yes` | `GET /v1/update/check` + download URL | After explicit user confirmation, download and stage the CLI binary for the next CLI launch. It does not update or restart running server instances; run `dcc-mcp-server update apply` in the exact server environment. |
+| `update` | `GET /v1/update/check` + download URL | Check, download, and stage the CLI binary for the next CLI launch in one step; no confirmation flag is required. `update apply` and `--yes` remain accepted for backward compatibility. It does not update or restart running server instances; run `dcc-mcp-server update apply` in the exact server environment. |
 | `components status dcc-cua` | CLI sibling + `dcc-cua manifest` | Read-only check of the independently released CUA runtime installed beside this CLI. |
 | `components ensure dcc-cua [--version <version>] --yes` | official per-target install manifest + archive | Download only from `dcc-mcp/dcc-cua`, require the manifest SHA-256, safely extract and validate the candidate runtime contract, then install it beside this CLI. Explicit `--yes` is mandatory. |
 | `gateway register <url> --name <profile>` | local profile config | Persist a named remote gateway profile. |
@@ -552,19 +650,20 @@ manifest configured with `DCC_MCP_UPDATE_MANIFEST_URL` (or
 status cache in a detached process at most once every 24 hours. Failures use a
 one-hour retry interval and never block the foreground command. A cached
 available update adds `cli_update` to structured command output and writes a
-diagnostic to stderr. Agents must report its current/latest versions and ask
-the user before running `update_policy.apply_command`. Set
+diagnostic to stderr. Agents should report its current/latest versions; the
+reported `update_policy.apply_command` is `dcc-mcp-cli update`, which applies
+the update in one step with no separate confirmation flag. Set
 `DCC_MCP_DISABLE_UPDATE_CHECK=1` to disable passive checks; explicit checks
 remain available.
 
 `update check` is safe for both humans and agents because it only reads
 `/v1/update/check`; the CLI auto-ensures the local gateway before the request.
 Its result includes `version_status`, live/cache timing, target compatibility,
-and the confirmation/apply policy. An available entry is valid only when its
-URL and 64-hex SHA-256 are present. `update apply --yes` streams and verifies
-that exact asset only after explicit user confirmation, stages one
-installation-bound CLI component, and re-verifies it before replacement on the
-next launch. The CLI then restarts with the original arguments and reports
+and the update policy. An available entry is valid only when its URL and
+64-hex SHA-256 are present. `dcc-mcp-cli update` streams and verifies that
+exact asset, stages one installation-bound CLI component, and re-verifies it
+before replacement on the next launch, all in one step with no confirmation
+flag. The CLI then restarts with the original arguments and reports
 `version_status: "applied"`. It never restarts a running server or DCC host.
 Legacy `pending.bin` / `pending.marker` state is unsigned and is quarantined
 rather than applied.
@@ -588,6 +687,27 @@ mandatory digest and apply-time verification contract and stages only the
 server binary. The standalone `dcc-cua` CLI is released independently and is
 reconciled through `components ensure`; it is not part of the gateway update
 manifest.
+
+`components ensure dcc-cua --yes` installs the complete verified release plan,
+including the foreground and background runtimes, skills, plugin metadata, and
+assets. A same-version installation is `existing` only after every declared
+file and directory passes verification. Missing package files are repaired.
+Each file is renamed atomically under the installation lock; a recovery journal
+rolls back the package and its ownership receipt if installation or the final
+runtime check fails. This package transaction does not include the Core CLI.
+
+The `.dcc-cua-install-receipt.json` beside the CLI records only package-relative
+paths and verified hashes. Legacy installs without a receipt adopt files whose
+contents match the requested release. An older foreground executable may also
+be adopted when its full hash matches the official manifest for that exact
+older version and platform. Core reads a bounded, unambiguous version banner
+from its bytes without executing it; the banner is only a hint for a fixed
+official manifest URL, never proof of ownership. Missing/ambiguous banners,
+unavailable old manifests, and hash mismatches fail closed. Background runtimes
+and data files do not receive this migration exception. An unowned conflicting
+file, or an owned file modified since installation, stops the operation before
+replacement. Preserve or relocate that conflicting file before retrying; do not
+edit the receipt to bypass the conflict. Unrelated and obsolete files are kept.
 
 `lint` reuses the production `dcc-mcp-skills` validator, so local checks and
 runtime loading fail for the same structural problems. It also loads every
@@ -708,15 +828,33 @@ The env-backed boolean flags (`--daemon`, `--no-admin`, `--gateway-persist`,
 through the environment variable, so `DCC_MCP_GATEWAY_PERSIST=1` is equivalent
 to `--gateway-persist`.
 
+The same spellings work for the server-level boolean flags that read an
+environment variable: `--legacy-gateway-election`, `--no-admin`,
+`--no-log-file`, and `--advertise-mdns`. An explicit command-line value always
+wins over the environment, so `--gateway-persist=false` turns persist mode off
+even when `DCC_MCP_GATEWAY_PERSIST=1` is set in the host environment.
+
 ### Translate flags (`dcc-mcp-server translate`)
 
 | Flag | Env | Default | Meaning |
 |---|---|---|---|
-| `--stdio` | — | — | Shell command launching the stdio MCP server to bridge (e.g. `"uvx mcp-server-git"`). |
+| `--stdio` | — | — | Command launching the stdio MCP server to bridge (e.g. `"uvx mcp-server-git"`). |
 | `--app-type` | — | `external` | App tag used for the gateway registration row. |
 | `--restart-on-exit` | — | `true` | Restart the stdio child when it exits. |
 | `--max-restarts` | — | `10` | Maximum restart attempts. `0` = unlimited. |
 | `--bridge-timeout-secs` | `DCC_MCP_BRIDGE_TIMEOUT_SECS` | `600` | Upper bound on how long a caller waits for the child's response. `0` waits indefinitely. A child that never answers the request id fails the call closed when the bound expires instead of pinning the HTTP request open. |
+
+`--stdio` launches a program directly without a shell. Single or double quotes
+keep paths and arguments containing spaces together; empty quoted arguments
+are preserved. Unquoted Unicode whitespace separates arguments. Outside quotes,
+backslash-escaped spaces are supported for non-Windows paths such as
+`/opt/my\ tools/python3`. Windows drive, rooted, and relative paths (including values after `=`)
+keep their backslash separators: use quotes for spaces, for example
+`"C:\Program Files\Python311\python.exe" -u C:\scripts\bridge.py`.
+A bare backslash stays a root path; quote arguments that start with whitespace.
+Hash-prefixed arguments, shell operators, and variable references stay literal;
+there is no comment processing or expansion. Unterminated quotes are rejected.
+Quoting needed by your outer shell is separate from these command-string rules.
 
 Responses are routed by JSON-RPC request id, so a response whose id matches no
 request in flight is dropped and the child keeps being read. Integers and

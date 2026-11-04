@@ -15,6 +15,7 @@ pub mod add_repo;
 pub(crate) mod bundle;
 pub mod error;
 pub(crate) mod handler;
+pub mod official_catalog;
 pub mod package;
 pub mod path;
 pub(crate) mod plugin;
@@ -43,6 +44,9 @@ pub use add_repo::{
     install_from_repo, install_from_repo_at_commit, list_repo_skills, parse_repo_ref,
 };
 pub use error::MarketplaceError;
+pub use official_catalog::{
+    OfficialCatalogError, VerifiedOfficialCatalog, fetch_official_catalog, verify_official_catalog,
+};
 pub use package::{
     MarketplacePackOptions, MarketplacePackResult, MarketplacePublishOptions,
     MarketplacePublishResult, pack_marketplace_package, publish_marketplace_package,

@@ -89,6 +89,12 @@ dcc-mcp-server tag stream.
 
 ## Usage from a DCC plugin
 
+`binary_path()` also finds binaries installed with `pip install --user`,
+including a custom `PYTHONUSERBASE`, when the user scripts directory is not on
+the DCC host's `PATH`. An explicit `DCC_MCP_SERVER_BIN` override, the packaged
+location, and the current interpreter/virtual environment take precedence over
+the user installation. Discovery does not install files or change `PATH`.
+
 ```python
 # In a Maya plugin / Blender addon, after `pip install dcc-mcp-server`:
 import os, subprocess

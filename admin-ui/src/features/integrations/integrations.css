@@ -1,10 +1,11 @@
 .integrations-panel {
+  container: integrations / inline-size;
   padding: var(--panel-padding);
 }
 
 .integrations-list {
   display: grid;
-  gap: 0.625rem;
+  gap: 0.85rem;
   margin-top: 1rem;
 }
 
@@ -19,7 +20,6 @@
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  box-shadow: var(--shadow-sm);
   color: var(--card-foreground);
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
@@ -47,9 +47,9 @@
   align-items: center;
   display: grid;
   gap: 0.85rem;
-  grid-template-columns: minmax(13rem, 0.62fr) minmax(15rem, 1fr) minmax(18rem, 0.9fr) auto;
+  grid-template-columns: minmax(0, 0.62fr) minmax(0, 1fr) minmax(0, 0.9fr) auto;
   min-width: 0;
-  padding: 0.75rem 0.85rem;
+  padding: 1rem;
 }
 
 .integration-card-head {
@@ -368,10 +368,10 @@
   margin-top: 1rem;
 }
 
-@media (max-width: 1120px) {
+@container integrations (max-width: 60rem) {
   .integration-card-body {
     align-items: start;
-    grid-template-columns: minmax(12rem, 0.8fr) minmax(16rem, 1fr);
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1fr);
   }
 
   .integration-card-actions {
@@ -379,7 +379,7 @@
   }
 }
 
-@media (max-width: 720px) {
+@container integrations (max-width: 36rem) {
   .integration-card-body {
     gap: 0.65rem;
     grid-template-columns: 1fr;
@@ -428,5 +428,9 @@
   .integration-card-actions,
   .integration-action-button {
     width: 100%;
+  }
+
+  .integration-action-button {
+    min-height: 2.5rem;
   }
 }

@@ -152,10 +152,13 @@ def validate_contract(contract: dict[str, Any]) -> None:
     expected_platforms = {
         "linux-x86_64": {"runner": "ubuntu-22.04", "target": "x86_64"},
         "windows-x86_64": {"runner": "windows-2022", "target": "x64"},
+        # macOS has no ARM64 CPython 3.7, so the ARM64 runner cross-compiles
+        # the x86_64-apple-darwin target that Maya 2022 on macOS consumes.
+        "macos-x86_64": {"runner": "macos-latest", "target": "x86_64-apple-darwin"},
     }
     platforms = {row.get("platform") for row in pr_matrix}
     if len(pr_matrix) != len(expected_platforms) or platforms != set(expected_platforms):
-        raise ContractError("native_py37 PR coverage must include Linux and Windows x86_64")
+        raise ContractError("native_py37 PR coverage must include Linux, Windows, and macOS x86_64")
     for row in pr_matrix:
         platform = row["platform"]
         expected = expected_platforms[platform]
@@ -225,13 +228,19 @@ def _validate_wheel_profiles(wheel_profiles: Any) -> None:
     expected_native_platforms = {
         "linux-x86_64": {"manylinux_2_17_x86_64", "manylinux2014_x86_64"},
         "windows-x86_64": {"win_amd64"},
+        "macos-x86_64": set(),
     }
     if set(native["platforms"]) != set(expected_native_platforms):
-        raise ContractError("native_py37 must cover Linux and Windows x86_64 wheel tags")
+        raise ContractError("native_py37 must cover Linux, Windows, and macOS x86_64 wheel tags")
     for platform, expected in expected_native_platforms.items():
         actual = set(native["platforms"][platform].get("allowed_platform_tags", []))
         if actual != expected:
             raise ContractError(f"native_py37 {platform} must retain the legacy DCC platform baseline")
+    macos_native = native["platforms"]["macos-x86_64"]
+    if set(macos_native.get("allowed_platform_tag_patterns", [])) != {"macosx_*_x86_64"}:
+        raise ContractError("native_py37 macos-x86_64 must allow only x86_64 macOS wheel tags")
+    if set(macos_native.get("required_platform_tag_patterns", [])) != {"macosx_*_x86_64"}:
+        raise ContractError("native_py37 macos-x86_64 must require an x86_64 macOS wheel tag")
 
     lite = wheel_profiles["lite_py37"]
     if lite.get("distribution") != "dcc-mcp-core" or lite.get("root_is_purelib") is not True:

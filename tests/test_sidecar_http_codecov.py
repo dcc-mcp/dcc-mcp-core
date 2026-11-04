@@ -42,10 +42,7 @@ def _force_core_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
         "dcc_mcp_core._runtime.server_factory.is_core_extension_available",
         lambda: False,
     )
-    monkeypatch.setattr(
-        "dcc_mcp_core.server_base.is_core_extension_available",
-        lambda: False,
-    )
+    monkeypatch.setattr("dcc_mcp_core._runtime.server_factory._core", None)
 
 
 class TestSkillPathsPy37Lite:

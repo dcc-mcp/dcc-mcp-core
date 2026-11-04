@@ -190,7 +190,9 @@ Core 用三条彼此独立的路径把在线实例匹配到拥有方 operation �
 PID 路径即可匹配；但这**并不会关闭** PID 匹配 —— 任何 `pid` 或 `host_pid` 等于
 拥有方 operation PID 的陈旧行依然会进入匹配集，表现为 `ambiguous_reuse`；若在
 目标行尚未 direct-control routable、而陈旧行 routable 的窄窗口内，则会收敛到
-陈旧行。
+陈旧行。若匹配集中至少有一行是 direct-control routable，则本身不是
+direct-control routable 的陈旧行会在这一步比较之前被复用候选池过滤掉，
+因此不影响结果。
 
 ### 原生窗口句柄
 

@@ -104,6 +104,10 @@ class UiControlRuntimeOptions:
         transport: Only the explicit owned public-MCP pixels transport is supported.
         observation_mode: Only pixels_only is supported by this adapter.
         recording: Optional independent owner video ceiling; disabled by default.
+        capture_preparation: Optional owner-bound capture preparation journal.
+        allow_native_capture_popup_keyboard: Independent owner ceiling for explicit
+            secondary popup pixels and one unheld keyboard action to the main root.
+            Disabled by default; native authorization and physical-input grants still apply.
 
     """
 
@@ -118,8 +122,11 @@ class UiControlRuntimeOptions:
     window_operations: tuple[str, ...] = ()
     recording: UiControlRecordingOptions | None = None
     capture_preparation: UiControlCapturePreparationOptions | None = None
+    allow_native_capture_popup_keyboard: bool = False
 
     def __post_init__(self) -> None:
+        if type(self.allow_native_capture_popup_keyboard) is not bool:
+            raise TypeError("allow_native_capture_popup_keyboard must be a boolean")
         if self.recording is not None and not isinstance(self.recording, UiControlRecordingOptions):
             raise TypeError("recording must be UiControlRecordingOptions or None")
         if self.capture_preparation is not None:

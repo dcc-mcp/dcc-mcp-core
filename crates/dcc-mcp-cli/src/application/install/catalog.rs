@@ -27,7 +27,7 @@ pub(super) struct ResolvedCatalog {
 impl ResolvedCatalog {
     fn bundled() -> Result<Self, dcc_mcp_catalog::CatalogError> {
         Ok(Self {
-            entries: dcc_mcp_catalog::load_from_str(super::BUNDLED_CATALOG)?,
+            entries: load_local_entries(super::BUNDLED_CATALOG)?,
             provenance: CatalogProvenance {
                 sha256: Some(
                     Sha256::digest(super::BUNDLED_CATALOG.as_bytes())
@@ -39,6 +39,75 @@ impl ResolvedCatalog {
             },
         })
     }
+}
+
+fn load_local_entries(text: &str) -> Result<Vec<CatalogEntry>, dcc_mcp_catalog::CatalogError> {
+    // Keep JSON/YAML and metadata aliases compatible with the generic parser,
+    // but never interpret a misspelled collection as an empty local catalog.
+    let collections: Vec<bool> = match serde_json::from_str::<serde_json::Value>(text) {
+        Ok(document) => document
+            .as_object()
+            .into_iter()
+            .flat_map(|object| object.iter())
+            .filter(|(key, _)| matches!(key.as_str(), "entries" | "items" | "skills"))
+            .map(|(_, value)| value.is_array())
+            .collect(),
+        Err(_) => {
+            let document: serde_yaml_ng::Value = serde_yaml_ng::from_str(text)
+                .map_err(|error| dcc_mcp_catalog::CatalogError::Parse(error.to_string()))?;
+            untag_yaml(&document)
+                .as_mapping()
+                .into_iter()
+                .flat_map(|mapping| mapping.iter())
+                .filter(|(key, _)| {
+                    matches!(
+                        untag_yaml(key).as_str(),
+                        Some("entries" | "items" | "skills")
+                    )
+                })
+                .map(|(_, value)| untag_yaml(value).is_sequence())
+                .collect()
+        }
+    };
+    if collections.len() != 1 || !collections[0] {
+        return Err(dcc_mcp_catalog::CatalogError::Parse(
+            "local catalog must declare one entries, items, or skills array".into(),
+        ));
+    }
+    validate_local_entries(dcc_mcp_catalog::load_from_str(text)?)
+}
+
+fn untag_yaml(mut value: &serde_yaml_ng::Value) -> &serde_yaml_ng::Value {
+    while let serde_yaml_ng::Value::Tagged(tagged) = value {
+        value = &tagged.value;
+    }
+    value
+}
+
+fn load_local_file(path: &Path) -> Result<Vec<CatalogEntry>, dcc_mcp_catalog::CatalogError> {
+    if !path.exists() {
+        return Ok(vec![]);
+    }
+    let text = std::fs::read_to_string(path)
+        .map_err(|error| dcc_mcp_catalog::CatalogError::Io(path.display().to_string(), error))?;
+    load_local_entries(&text)
+}
+
+fn validate_local_entries(
+    entries: Vec<CatalogEntry>,
+) -> Result<Vec<CatalogEntry>, dcc_mcp_catalog::CatalogError> {
+    let mut names = HashSet::new();
+    if entries
+        .iter()
+        .any(|entry| !names.insert(entry.name.to_lowercase()))
+    {
+        return Err(dcc_mcp_catalog::CatalogError::Parse(
+            "duplicate package names".into(),
+        ));
+    }
+    dcc_mcp_catalog::validate_catalog_entries(&entries)
+        .map_err(|error| dcc_mcp_catalog::CatalogError::Parse(error.to_string()))?;
+    Ok(entries)
 }
 
 #[derive(Serialize, Deserialize)]
@@ -73,6 +142,17 @@ fn invalid(message: impl ToString) -> RefreshError {
 }
 
 impl super::InstallService {
+    pub(crate) const DISCOVERY_SOURCE_URL: &'static str = FEED_URL;
+
+    /// Read the official catalog without creating, locking, or updating a cache.
+    pub(crate) async fn discovery_catalog(
+        offline: bool,
+    ) -> Result<(Vec<CatalogEntry>, CatalogProvenance, Option<&'static str>), &'static str> {
+        let cache = cache_path().map_err(|_| "catalog_rejected")?;
+        let (snapshot, refresh_error) = resolve_discovery(&cache, offline, download()).await?;
+        Ok((snapshot.entries, snapshot.provenance, refresh_error))
+    }
+
     /// Resolve once; discovery, planning, and execution share these exact bytes.
     pub async fn refreshed(offline: bool) -> Self {
         let mut service = Self::bundled();
@@ -104,7 +184,7 @@ impl super::InstallService {
     ) -> Result<ResolvedCatalog, super::InstallError> {
         if let Some(path) = requested_path {
             return Ok(ResolvedCatalog {
-                entries: dcc_mcp_catalog::load_from_file(path)?,
+                entries: load_local_file(path)?,
                 provenance: CatalogProvenance::local(CatalogSource::Explicit),
             });
         }
@@ -115,7 +195,7 @@ impl super::InstallService {
             return Ok(snapshot.clone());
         }
         if let Some(path) = &self.default_catalog_path {
-            let entries = dcc_mcp_catalog::load_from_file(path)?;
+            let entries = load_local_file(path)?;
             if !entries.is_empty() {
                 return Ok(ResolvedCatalog {
                     entries,
@@ -128,12 +208,7 @@ impl super::InstallService {
 }
 
 pub(super) async fn resolve(offline: bool) -> Result<ResolvedCatalog, RefreshError> {
-    let cache = match std::env::var_os("DCC_MCP_INSTALL_CACHE") {
-        Some(path) => std::path::PathBuf::from(path),
-        None => dirs::cache_dir()
-            .ok_or_else(|| invalid("cache directory is unavailable"))?
-            .join("dcc-mcp/install-catalog-v1.json"),
-    };
+    let cache = cache_path()?;
     let now = now_seconds()?;
     let cached_bytes = read_cache(&cache)?;
     // Authentication and rollback history remain mandatory even if the cached
@@ -170,6 +245,86 @@ pub(super) async fn resolve(offline: bool) -> Result<ResolvedCatalog, RefreshErr
         return Ok(snapshot);
     }
     ResolvedCatalog::bundled().map_err(invalid)
+}
+
+fn cache_path() -> Result<std::path::PathBuf, RefreshError> {
+    Ok(match std::env::var_os("DCC_MCP_INSTALL_CACHE") {
+        Some(path) => std::path::PathBuf::from(path),
+        None => dirs::cache_dir()
+            .ok_or_else(|| invalid("cache directory is unavailable"))?
+            .join("dcc-mcp/install-catalog-v1.json"),
+    })
+}
+
+async fn resolve_discovery(
+    cache: &Path,
+    offline: bool,
+    fetch: impl std::future::Future<Output = Result<Vec<u8>, RefreshError>>,
+) -> Result<(ResolvedCatalog, Option<&'static str>), &'static str> {
+    let now = now_seconds().map_err(|_| "catalog_rejected")?;
+    let cached_bytes = read_cache(cache).map_err(|_| "catalog_rejected")?;
+    let cached = cached_bytes
+        .as_deref()
+        .map(|bytes| verify(bytes, now, false))
+        .transpose()
+        .map_err(|_| "catalog_rejected")?;
+    // An async download remains unpolled in offline mode.
+    let remote = if offline { None } else { Some(fetch.await) };
+    let now = now_seconds().map_err(|_| "catalog_rejected")?;
+    // Check authenticated expiry at acceptance so it has a distinct error code.
+    let remote = remote.map(|result| result.and_then(|bytes| verify(&bytes, now, false)));
+    if let Some(Ok(remote)) = &remote {
+        // An installer may have accepted a newer signed snapshot during fetch.
+        // Reverify that read, without taking a lock or changing the cache.
+        if let Some(bytes) = read_cache(cache).map_err(|_| "catalog_rejected")? {
+            let current = verify(&bytes, now, false).map_err(|_| "catalog_rejected")?;
+            reject_rollback(&current, remote).map_err(|_| "catalog_rejected")?;
+        }
+    }
+    discovery_snapshot(
+        cached,
+        remote,
+        now_seconds().map_err(|_| "catalog_rejected")?,
+    )
+}
+
+fn discovery_snapshot(
+    cached: Option<ResolvedCatalog>,
+    remote: Option<Result<ResolvedCatalog, RefreshError>>,
+    now: u64,
+) -> Result<(ResolvedCatalog, Option<&'static str>), &'static str> {
+    let refresh_error = match remote {
+        Some(Ok(snapshot)) => {
+            if snapshot
+                .provenance
+                .expires_at
+                .is_none_or(|expires| expires <= now)
+            {
+                return Err("catalog_expired");
+            }
+            if let Some(previous) = &cached {
+                reject_rollback(previous, &snapshot).map_err(|_| "catalog_rejected")?;
+            }
+            return Ok((snapshot, None));
+        }
+        Some(Err(RefreshError::Unavailable)) => Some("official_install_catalog_unavailable"),
+        Some(Err(_)) => return Err("catalog_rejected"),
+        None => None,
+    };
+    if let Some(mut snapshot) = cached {
+        if snapshot
+            .provenance
+            .expires_at
+            .is_none_or(|expires| expires <= now)
+        {
+            return Err("catalog_expired");
+        }
+        snapshot.provenance.source = CatalogSource::Cache;
+        snapshot.provenance.latest_checked = false;
+        return Ok((snapshot, refresh_error));
+    }
+    let snapshot = ResolvedCatalog::bundled().map_err(|_| "catalog_rejected")?;
+    Ok((snapshot, refresh_error))
 }
 
 pub(super) fn now_seconds() -> Result<u64, RefreshError> {

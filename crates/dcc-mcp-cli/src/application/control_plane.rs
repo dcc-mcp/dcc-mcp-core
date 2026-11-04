@@ -35,18 +35,19 @@ const RELOAD_SKILLS_TOOL: &str = "dcc_admin__reload_skills";
 pub struct DccControlPlane {
     target: GatewayTarget,
     endpoint: Endpoint,
-    registry_dir: PathBuf,
+    registry_dir: Option<PathBuf>,
     require_gateway: bool,
     auto_gateway_enabled: bool,
     transport: TransportMode,
 }
 
 impl DccControlPlane {
+    /// Use an explicit registry, or resolve the default only when local state is needed.
     #[must_use]
     pub fn new(
         target: GatewayTarget,
         endpoint: Endpoint,
-        registry_dir: PathBuf,
+        registry_dir: Option<PathBuf>,
         require_gateway: bool,
     ) -> Self {
         Self {
@@ -71,13 +72,20 @@ impl DccControlPlane {
         self
     }
 
+    fn registry_dir(&self) -> anyhow::Result<PathBuf> {
+        self.registry_dir
+            .clone()
+            .map(Ok)
+            .unwrap_or_else(crate::application::gateway_ensure::default_registry_dir)
+    }
+
     fn uses_direct_local(&self) -> bool {
         self.target.is_local() && !self.require_gateway && self.transport != TransportMode::Rest
     }
 
     pub async fn list_instances(&self) -> anyhow::Result<Value> {
         if self.uses_direct_local() {
-            local_registry::list_local_instances(self.registry_dir.clone())
+            local_registry::list_local_instances(self.registry_dir()?)
         } else {
             self.gateway_client()
                 .list_instances()
@@ -120,7 +128,7 @@ impl DccControlPlane {
 
     pub async fn search(&self, request: SearchRequest) -> anyhow::Result<Value> {
         if self.uses_direct_local() {
-            return local_control::search_local(self.registry_dir.clone(), request).await;
+            return local_control::search_local(self.registry_dir()?, request).await;
         }
         if request.gateway_only.is_some() {
             // `--gateway-only` compares the local `tools/list` inventory
@@ -142,7 +150,7 @@ impl DccControlPlane {
 
     pub async fn describe(&self, tool_slug: String) -> anyhow::Result<Value> {
         if self.uses_direct_local() {
-            local_control::describe_local(self.registry_dir.clone(), tool_slug).await
+            local_control::describe_local(self.registry_dir()?, tool_slug).await
         } else {
             self.gateway_client()
                 .describe(DescribeRequest { tool_slug })
@@ -157,12 +165,12 @@ impl DccControlPlane {
             match self.gateway_client().load_skill(request).await {
                 Ok(value) => Ok(value),
                 Err(ClientError::Http(HttpError::Request(error))) if error.is_connect() => {
-                    local_control::load_skill_local(self.registry_dir.clone(), fallback_body).await
+                    local_control::load_skill_local(self.registry_dir()?, fallback_body).await
                 }
                 Err(error) => Err(error.into()),
             }
         } else if self.uses_direct_local() {
-            local_control::load_skill_local(self.registry_dir.clone(), request.body).await
+            local_control::load_skill_local(self.registry_dir()?, request.body).await
         } else {
             self.gateway_client()
                 .load_skill(request)
@@ -191,7 +199,7 @@ impl DccControlPlane {
         }
         let value = if direct_local {
             local_control::call_local(
-                self.registry_dir.clone(),
+                self.registry_dir()?,
                 tool_slug,
                 dcc_type,
                 instance_id,
@@ -550,7 +558,7 @@ impl DccControlPlane {
 
     pub async fn wait_ready(&self, request: WaitReadyRequest) -> anyhow::Result<Value> {
         if self.uses_direct_local() {
-            local_control::wait_ready_local(self.registry_dir.clone(), request).await
+            local_control::wait_ready_local(self.registry_dir()?, request).await
         } else {
             self.gateway_client()
                 .wait_ready(request)
@@ -561,7 +569,7 @@ impl DccControlPlane {
 
     pub async fn reload_skills(&self, request: ReloadSkillsRequest) -> anyhow::Result<Value> {
         if self.uses_direct_local() {
-            local_control::reload_skills_local(self.registry_dir.clone(), request).await
+            local_control::reload_skills_local(self.registry_dir()?, request).await
         } else {
             self.reload_skills_remote(request).await
         }
@@ -569,7 +577,7 @@ impl DccControlPlane {
 
     pub async fn stop_instance(&self, request: StopInstanceRequest) -> anyhow::Result<Value> {
         if self.uses_direct_local() {
-            local_control::stop_instance_local(self.registry_dir.clone(), request).await
+            local_control::stop_instance_local(self.registry_dir()?, request).await
         } else {
             self.gateway_client()
                 .stop_instance(request)

@@ -12,7 +12,7 @@ use serde_json::Value;
 
 use support::{cli_command, run_json};
 
-/// Write a stub host binary that probing accepts on every platform.
+/// Write a stub host file with executable permissions where they are required.
 ///
 /// `std::fs::write` alone creates a 0644 file, which unix probing rejects for
 /// lacking the executable bit, so the bit is set explicitly where it exists.
@@ -26,6 +26,20 @@ fn write_executable_stub(path: &Path, contents: &[u8]) {
     }
 }
 
+/// A versioned host stub that can actually launch on the current platform.
+fn available_stub(dir: &Path) -> PathBuf {
+    #[cfg(unix)]
+    let (name, contents) = (
+        "fakeblender.sh",
+        b"#!/bin/sh\necho 'Blender 5.1.1'\n".as_slice(),
+    );
+    #[cfg(not(unix))]
+    let (name, contents) = ("fakeblender.cmd", b"@echo Blender 5.1.1\r\n".as_slice());
+    let path = dir.join(name);
+    write_executable_stub(&path, contents);
+    path
+}
+
 /// A host id that cannot exist on any machine, so `missing` is deterministic.
 const IMPOSSIBLE_HOST: &str = "dcc-mcp-nonexistent-host";
 
@@ -34,6 +48,9 @@ const IMPOSSIBLE_HOST: &str = "dcc-mcp-nonexistent-host";
 fn host_command(lock: &PathBuf) -> std::process::Command {
     let mut command = cli_command();
     command.env("DCC_MCP_HOSTS_LOCK", lock);
+    // A baseline must not inherit the developer's explicit Blender override.
+    // Individual tests may still set their own override on the returned command.
+    command.env_remove("DCC_MCP_BLENDER_EXECUTABLE");
     command.arg("host");
     command
 }
@@ -48,6 +65,45 @@ fn host_json(args: &[&str], lock: &PathBuf) -> Value {
     // `host doctor` writes its report to stdout and, when a host is unusable,
     // also writes a UNAVAILABLE envelope to stderr. Parse stdout only.
     serde_json::from_slice(&output.stdout).expect("host command should print JSON")
+}
+
+/// Probe `blender` with no override set, so a test can tell whether this
+/// machine already has a Blender the probe would rather report.
+///
+/// Probing takes the first candidate that clears the version gate, so an
+/// installed Blender outranks an override that cannot be run or whose version
+/// cannot be read. That fall-through is deliberate — a broken shim must not
+/// hide a working binary — but it makes an override-only assertion depend on
+/// what else is installed. Tests that set an override therefore read this
+/// baseline first and pick the branch that is actually observable here.
+fn blender_baseline(lock: &PathBuf) -> Value {
+    let value = host_json(&["doctor", "blender"], lock);
+    value["hosts"][0].clone()
+}
+
+/// Whether `baseline` shows a Blender this machine can already run.
+fn blender_already_available(baseline: &Value) -> bool {
+    baseline["status"] == "available"
+}
+
+/// Assert that an override was genuinely probed and reported as such, even
+/// when an installed Blender won the fall-through and owns `executable_source`.
+///
+/// The probe names every candidate it passed over in `warning`, including its
+/// source label, so this keeps the `env_override` contract covered on machines
+/// that have Blender installed instead of letting the test assert nothing.
+fn assert_override_was_probed(host: &Value, override_path: &Path) {
+    let warning = host["warning"]
+        .as_str()
+        .unwrap_or_else(|| panic!("expected a warning naming the skipped override, got {host}"));
+    assert!(
+        warning.contains("(env_override)"),
+        "the skipped candidate must be attributed to env_override, got {warning}"
+    );
+    assert!(
+        warning.contains(&override_path.display().to_string()),
+        "the warning must name the override target, got {warning}"
+    );
 }
 
 #[test]
@@ -128,8 +184,7 @@ fn doctor_reports_a_hosted_host_as_available_with_its_path() {
     // proposition runner hands to the launcher.
     let lock = std::env::temp_dir().join(format!("hosts-{}.lock", uuid::Uuid::new_v4()));
     let dir = tempfile::tempdir().unwrap();
-    let binary = dir.path().join("fakeblender.exe");
-    write_executable_stub(&binary, b"#!/bin/sh\necho 'Blender 5.1.1'\n");
+    let binary = available_stub(dir.path());
 
     let output = host_command(&lock)
         .args(["doctor", "blender", "--output", "json"])
@@ -139,20 +194,75 @@ fn doctor_reports_a_hosted_host_as_available_with_its_path() {
     let overridden: Value = serde_json::from_slice(&output.stdout).expect("JSON report");
     let host = &overridden["hosts"][0];
     assert_eq!(host["id"], "blender");
-    assert_eq!(host["executable_source"], "env_override");
     assert_eq!(host["gate"], ">=5.1");
-    // The stub is a shell script, so unix probing runs it and reads 5.1.1 from
-    // it; Windows cannot launch a text file, so it falls back to
-    // `version_unknown`. Both outcomes satisfy the contract below.
-    assert!(
-        matches!(
-            host["status"].as_str(),
-            Some("available" | "version_unknown")
-        ),
-        "expected available or version_unknown, got {}",
-        host["status"]
-    );
     assert_eq!(overridden["read_only"], true);
+
+    // A runnable override satisfying the version gate always wins, even when
+    // another Blender is already available on PATH or in a search root.
+    assert_eq!(host["executable_source"], "env_override");
+    assert_eq!(host["status"], "available");
+    assert_eq!(host["version"], "5.1.1");
+    assert_eq!(host["executable"], binary.to_string_lossy().as_ref());
+    assert!(host["warning"].is_null());
+    assert!(output.status.success());
+}
+
+#[test]
+#[cfg(unix)]
+fn doctor_available_override_wins_with_blender_on_path() {
+    let dir = tempfile::tempdir().unwrap();
+    let blender = dir.path().join("blender");
+    write_executable_stub(&blender, b"#!/bin/sh\necho 'Blender 5.2.0'\n");
+
+    // Run the actual hosted-host test with a deterministic, usable baseline.
+    // Keeping this in a child avoids changing PATH for parallel tests.
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "doctor_reports_a_hosted_host_as_available_with_its_path",
+            "--nocapture",
+        ])
+        .env("PATH", dir.path())
+        .output()
+        .expect("hosted-host regression should run");
+    assert!(
+        output.status.success() && String::from_utf8_lossy(&output.stdout).contains("1 passed;"),
+        "hosted-host test must preserve override precedence with Blender installed:\n{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn blender_baseline_ignores_inherited_override() {
+    const CHILD_FLAG: &str = "DCC_MCP_TEST_BLENDER_BASELINE_CHILD";
+    if std::env::var_os(CHILD_FLAG).is_some() {
+        let lock = std::env::temp_dir().join(format!("hosts-{}.lock", uuid::Uuid::new_v4()));
+        let baseline = blender_baseline(&lock);
+        assert_ne!(baseline["executable_source"], "env_override");
+        return;
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let binary = available_stub(dir.path());
+    // Only the child inherits this setting; no process-global environment
+    // mutation can race another test.
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "blender_baseline_ignores_inherited_override",
+            "--nocapture",
+        ])
+        .env(CHILD_FLAG, "1")
+        .env("DCC_MCP_BLENDER_EXECUTABLE", binary)
+        .output()
+        .expect("baseline regression should run");
+    assert!(
+        output.status.success() && String::from_utf8_lossy(&output.stdout).contains("1 passed;"),
+        "baseline must ignore an inherited override:\n{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 #[test]
@@ -166,8 +276,7 @@ fn doctor_reports_an_override_it_cannot_run() {
 
     // The rejection path only runs when nothing else finds the host, so a
     // runner that already has Blender installed proves nothing about it.
-    let baseline = host_json(&["doctor", "blender"], &lock);
-    if baseline["hosts"][0]["status"] == "available" {
+    if blender_already_available(&blender_baseline(&lock)) {
         return;
     }
 
@@ -221,6 +330,10 @@ fn doctor_does_not_report_available_when_the_version_is_unreadable() {
     let dir = tempfile::tempdir().unwrap();
     let binary = unparsable_stub(dir.path());
 
+    // Read first, before the override exists: an installed Blender outranks an
+    // override whose version cannot be read, which changes what may be asserted.
+    let baseline = blender_baseline(&lock);
+
     let output = host_command(&lock)
         .args(["doctor", "blender", "--output", "json"])
         .env("DCC_MCP_BLENDER_EXECUTABLE", &binary)
@@ -228,6 +341,27 @@ fn doctor_does_not_report_available_when_the_version_is_unreadable() {
         .expect("doctor should run");
     let value: Value = serde_json::from_slice(&output.stdout).expect("JSON report");
     let host = &value["hosts"][0];
+
+    if blender_already_available(&baseline) {
+        // Fall-through won: the real install is reported as available, which is
+        // correct precisely because the override could not be verified. The
+        // override must still appear as the skipped `env_override` candidate,
+        // so the version-gate contract stays covered on such machines.
+        assert_override_was_probed(host, &binary);
+        assert_eq!(host["status"], "available");
+        assert_eq!(host["executable"], baseline["executable"]);
+        assert_eq!(host["executable_source"], baseline["executable_source"]);
+        assert!(output.status.success());
+        assert!(
+            host["warning"]
+                .as_str()
+                .is_some_and(|w| w.contains("unreadable version")),
+            "the skipped override must be reported as unreadable, got {}",
+            host["warning"]
+        );
+        return;
+    }
+
     assert_eq!(host["status"], "version_unknown");
     assert_eq!(host["reason"], "version_unparsable");
     assert_eq!(host["executable_source"], "env_override");
@@ -320,6 +454,64 @@ fn install_refuses_without_consent_when_unattended() {
         assert_eq!(value["reason"], "policy_never");
         assert_eq!(value["installed"], false);
     }
+}
+
+/// The consent gate is consulted at the *call site*, not only inside the
+/// predicate.
+///
+/// The unit tests cover `consent_allows_install` as a function; they cannot
+/// cover whether `host install` actually asks it before announcing. Deleting
+/// the consent term from the announce gate leaves every unit test green while
+/// the CLI starts claiming it is about to install a host that `provision` is
+/// about to refuse. This test drives the real binary so the conjunction itself
+/// is what is under test.
+///
+/// `DCC_MCP_HOST_INSTALL=never` is the one input that makes the conjunction
+/// observable without installing anything: consent resolves to `Refused`, so
+/// `will_install` is true (blender is allowlisted and, on a host-free machine,
+/// missing) while `consent_allows_install` is false. Only the consent term can
+/// make the announcement disappear, so asserting its absence here is a
+/// discriminating test of the call site rather than of the predicate.
+#[test]
+fn install_never_announces_nothing_at_the_call_site() {
+    let lock = std::env::temp_dir().join(format!("hosts-{}.lock", uuid::Uuid::new_v4()));
+
+    // An already-usable host short-circuits to `already_satisfied` before
+    // consent is ever consulted, so on a machine that has Blender this command
+    // says nothing about the call site. Report the skip explicitly; the
+    // dedicated CI evidence step requires the missing-host branch instead.
+    let baseline = host_json(&["doctor", "blender"], &lock);
+    let baseline_status = baseline["hosts"][0]["status"]
+        .as_str()
+        .expect("doctor should report a host status");
+    if blender_already_available(&baseline["hosts"][0]) {
+        eprintln!("host-install-consent-gate skipped baseline={baseline_status}");
+        return;
+    }
+
+    let output = host_command(&lock)
+        .args(["install", "blender", "--output", "json"])
+        .env("DCC_MCP_HOST_INSTALL", "never")
+        .output()
+        .expect("host install should run");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("installing host"),
+        "a host the operator refused to install must not be announced as being installed, got {stderr}"
+    );
+
+    let value: Value = serde_json::from_slice(&output.stdout).expect("JSON report");
+    assert_eq!(value["status"], "consent_required");
+    assert_eq!(value["reason"], "policy_never");
+    assert_eq!(value["installed"], false);
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "a consent refusal must exit 3 so a runner can gate on it; status was {:?}, stderr {stderr}",
+        output.status.code()
+    );
+    eprintln!("host-install-consent-gate exercised baseline={baseline_status}");
 }
 
 /// P1-A: `host pin` may not write a version below the manifest minimum.

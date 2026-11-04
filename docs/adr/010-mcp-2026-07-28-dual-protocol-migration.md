@@ -7,6 +7,8 @@
 - **Target release:** dcc-mcp-core 0.19.0 (2026-07-15)
 - **Sunset deadline:** 2026-12-31
 
+> **Reconciliation (2026-10-20):** MCP `2026-07-28` publishes Tasks as the optional `io.modelcontextprotocol/tasks` extension (SEP-2663). The shipped dcc-mcp-core stateless route does not implement or advertise that extension. This is a Core implementation gap, not the absence of a published Tasks protocol. See [Reconciliation 2026-10-20](#reconciliation-2026-10-20).
+
 ## Context
 
 MCP `2026-07-28` RC 已于 2026-05-21 锁定，正式 spec 2026-07-28 发布。这是自 MCP 发布以来最大的一次协议修订，核心变更围绕三个方向：
@@ -20,14 +22,14 @@ MCP `2026-07-28` RC 已于 2026-05-21 锁定，正式 spec 2026-07-28 发布。�
 | `_meta` 对象携带版本/客户端信息 (每个请求自包含) | SEP-2575 | Breaking |
 | 新增 `server/discover` 方法替代 initialize 协商 | SEP-2575 | New |
 | SSE streaming 替换为 `InputRequiredResult` 多轮往返 | SEP-2260, SEP-2322 | Breaking |
-| Tasks 扩展从实验性变为一等公民 | SEP-2663 | New |
+| Tasks moves from experimental core to the optional `io.modelcontextprotocol/tasks` extension | SEP-2663 | Published extension; not implemented by Core |
 | `MCP-Protocol-Version` / `Mcp-Method` / `Mcp-Name` headers 规范化 | SEP-2243 | New |
 | 缓存 (`ttlMs` / `cacheScope`) | SEP-2549 | New |
 | W3C Trace Context 追踪 | SEP-414 | New |
 | MCP Apps 服务端 UI 渲染 | SEP-1865 | New |
 | 授权加固 (OAuth 2.1 / OIDC) | 6 SEPs | Breaking |
 | `roots` / `sampling` / `logging` 弃用 (12个月窗口) | SEP-2596 | Deprecated |
-| `tasks/list` 移除 | SEP-2663 | Breaking |
+| `tasks/list` 移除 | SEP-2663 | Breaking in the published Tasks extension; Core task methods remain unavailable |
 
 ### Current State of dcc-mcp-core
 
@@ -115,7 +117,7 @@ artifact smoke tests pass.
 - Gateway 负载均衡不再依赖 session affinity
 - SSE subscriber 模块标记 `#[deprecated]`，计划 Phase 3 移除
 - Session 相关代码路径标记 `#[deprecated]`
-- `ServerCapabilities` 广告中移除 `experimental.tasks` → Tasks 声明为正式 capabilities
+- Historical Tasks integration proposal: replace the experimental core capability with `capabilities.extensions["io.modelcontextprotocol/tasks"]` only after the optional extension is implemented. This is not shipped Core behavior.
 
 **交付物:**
 - 默认协议版本切换
@@ -168,6 +170,8 @@ artifact smoke tests pass.
 
 ### 与 Tasks 扩展的接口约定
 
+> **Reconciliation (2026-10-20):** The following integration sketch is historical, not a shipped Core contract. The published Tasks extension creates a task through a task-augmented `tools/call` response and defines `tasks/get`, `tasks/update`, and `tasks/cancel`; it does not define `tasks/create`. Core does not implement or advertise that extension. Host-registered `workflows_*` tools provide optional Core-specific orchestration, not Tasks protocol interoperability. See [Reconciliation 2026-10-20](#reconciliation-2026-10-20).
+
 ```
 ┌─────────────────────────────────────────────────┐
 │ Client                                          │
@@ -181,7 +185,9 @@ artifact smoke tests pass.
 
 - Task 创建由服务端决定: 工具的 `@chunked_job` 装饰器 (`dcc-mcp-http/src/executor.rs`) 自动触发 task 化
 - `taskId` 映射到现有 `dcc-mcp-job` crate 的 job ID
-- `tasks/get` 轮询不需要落回同一实例 — stateless 天然支持
+- 已发布 Tasks 扩展要求：通过 Streamable HTTP 调用 `tasks/get`、`tasks/update` 或 `tasks/cancel` 时，
+  客户端必须将 `Mcp-Name` 设为 `params.taskId`，供中间层进行任务路由；stateless 本身不保证任意实例均可处理。
+  Core 当前未实现该扩展。参见[路由头要求](https://tasks.extensions.modelcontextprotocol.io/specification/2026-07-28/tasks#streamable-http-routing-headers)。
 - Task 结果存储复用 `dcc-mcp-job` 的 SQLite 持久化
 - 不实现 `tasks/list` (spec 已移除)
 
@@ -221,23 +227,37 @@ Server → Client:  200 OK
 
 ### `server/discover` 响应 (替代 `initialize`)
 
+This example assumes resource and prompt providers are registered and enabled,
+and the optional Skills extension is disabled. Unavailable capability objects are
+omitted. The server name and version are illustrative configured values, not a
+claim about the current release.
+
 ```json
 {
   "jsonrpc": "2.0",
   "id": 1,
   "result": {
-    "protocolVersion": "2026-07-28",
-    "serverInfo": { "name": "dcc-mcp-core", "version": "0.19.0" },
-    "capabilities": {
-      "tools": { "listChanged": true },
-      "tasks": {},
-      "resources": { "subscribe": true, "listChanged": true },
-      "prompts": { "listChanged": true }
+    "supportedVersions": ["2026-07-28"],
+    "resultType": "complete",
+    "ttlMs": 0,
+    "cacheScope": "private",
+    "_meta": {
+      "io.modelcontextprotocol/serverInfo": {
+        "name": "dcc-mcp-core",
+        "version": "0.19.0"
+      }
     },
-    "instructions": "Direct DCC workflow: search_tools(query) → load_skill → tools/call"
+    "capabilities": {
+      "tools": { "listChanged": false },
+      "resources": { "subscribe": false, "listChanged": false },
+      "prompts": { "listChanged": false }
+    },
+    "instructions": "Direct DCC workflow: search_tools(query) → load_skill → tools/call. tools/list is paginated; follow nextCursor if you list it."
   }
 }
 ```
+
+> **Reconciliation (2026-10-20):** This Core discovery example omits Tasks because the service does not implement the extension. A conforming implementation would declare `capabilities.extensions["io.modelcontextprotocol/tasks"]`, not a top-level `capabilities.tasks` field. See [Reconciliation 2026-10-20](#reconciliation-2026-10-20) and the [Workflow API](../api/workflow.md).
 
 ## Sunset Date
 
@@ -254,7 +274,7 @@ Server → Client:  200 OK
 - 负载均衡不再需要 sticky sessions / Redis session store
 - 水平扩展更简单，任何实例可处理任何请求
 - 移除 ~3K lines session/SSE 维护代码 (Phase 3)
-- Tasks 扩展支持长任务 (Maya batch render 等)，天然适配 stateless 模型
+- The optional Tasks extension supports long-running work, but that protocol benefit is not delivered by the current Core stateless route; the historical integration proposal remains unimplemented.
 - `server/discover` 比 `initialize` 更轻量: 无状态，可 CDN 缓存
 
 ### Negative
@@ -300,6 +320,65 @@ Server → Client:  200 OK
 | 0.19.0 | Phase 1 release | — | 2026-07-15 |
 | 0.21.0 | Phase 2 release (default new protocol) | — | 2026-09-30 |
 | 0.23.0 | Phase 3 release (remove old protocol) | — | 2026-12-15 |
+
+## Reconciliation (2026-10-20)
+
+This section distinguishes the published optional Tasks extension from Core's
+current implementation. The three-phase migration plan, timeline, Sunset dates,
+and `Proposed` ADR status are unchanged.
+
+**Published protocol.** MCP `2026-07-28` moves Tasks out of the experimental core
+into the optional `io.modelcontextprotocol/tasks` extension (SEP-2663), as stated
+in the [final release announcement](https://blog.modelcontextprotocol.io/posts/2026-07-28/)
+and the [versioned Tasks specification](https://tasks.extensions.modelcontextprotocol.io/specification/2026-07-28/tasks).
+Support is declared under `capabilities.extensions`, not a top-level `tasks`
+capability. A server may answer an opted-in `tools/call` with a task handle;
+clients use `tasks/get`, `tasks/update`, and `tasks/cancel`. There is no
+`tasks/create` method, so the absence of such a handler is not evidence that an
+implementation lacks Tasks support. `tasks/list` is absent from the published
+extension, not merely an abandoned release-candidate proposal.
+
+**Shipped Core behavior.** `build_stateless_capabilities()` does not advertise
+`io.modelcontextprotocol/tasks`, and the stateless service does not implement its
+task methods. Existing service tests verify that `tasks/get` and `tasks/cancel`
+return `METHOD_NOT_FOUND`. This is an implementation gap; it does not mean the
+final MCP revision has no published Tasks protocol. The historical integration
+sketch above is not a delivered API or a commitment about future implementation.
+
+**Optional Core orchestration.** The `dcc-mcp-workflow` subsystem
+([core #348](https://github.com/dcc-mcp/dcc-mcp-core/issues/348)) provides ordinary
+MCP tools for application-level orchestration. These are Core-specific tools,
+not an implementation of the standard Tasks extension:
+
+| Capability | MCP tool | Availability |
+|------|----------|------|
+| Start a run | `workflows_run` | Returns `workflow_id`, `root_job_id`, and an initial `pending` status. |
+| Read status | `workflows_get_status` | Reads workflow status; progress uses the separate `$/dcc.workflowUpdated` notification. |
+| Cancel | `workflows_cancel` | Cancels the workflow and cascades to its steps. |
+| Resume | `workflows_resume` | Requires `WorkflowStorage` and `job-persist-sqlite`. |
+
+The host must explicitly register metadata with
+`dcc_mcp_workflow::register_builtin_workflow_tools` and bind handlers to a
+`WorkflowHost` with `dcc_mcp_workflow::tools::register_workflow_handlers` on its
+shared `ToolRegistry` / `ToolDispatcher`. `McpHttpConfig` exposes `enable_workflows`,
+but the current HTTP startup path, including the Python wrapper, does not consume
+that flag or register these tools automatically. Setting it alone does not make
+the tools available. See the [Workflow API](../api/workflow.md).
+
+**Historical text and current limits.**
+
+- The Breaking Changes table now distinguishes the published optional extension
+  from what Core currently implements.
+- The Phase 2 Tasks integration bullet and the interface sketch are historical
+  proposals, not evidence that Core advertises or serves the extension.
+- The `server/discover` example omits unsupported Tasks declarations; extension
+  support must not be inferred from the standard or from Rust test fixtures.
+- The Tasks-related positive consequence is conditional on an implementation,
+  rather than a shipped benefit of Core's current stateless route.
+
+For current behavior, follow
+[Tasks are unavailable on the modern route](../guide/mcp-2026-07-28-migration.md#tasks-are-unavailable-on-the-modern-route)
+and the [Workflow API](../api/workflow.md).
 
 ## References
 

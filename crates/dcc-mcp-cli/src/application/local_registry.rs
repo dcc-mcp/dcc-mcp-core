@@ -13,6 +13,36 @@ use crate::application::local_instance;
 
 pub fn list_local_instances(registry_dir: PathBuf) -> anyhow::Result<Value> {
     let (entries, evicted) = local_instance::live_dcc_entries(&registry_dir)?;
+    inventory_to_value(registry_dir, entries, evicted, "verified", false)
+}
+
+/// Inspect persisted rows without invoking runtime liveness pruning or file repair.
+pub(crate) fn snapshot_local_instances(registry_dir: PathBuf) -> anyhow::Result<Value> {
+    use anyhow::Context;
+    use dcc_mcp_transport::discovery::{
+        file_registry::FileRegistry, types::GATEWAY_SENTINEL_DCC_TYPE,
+    };
+
+    let entries = FileRegistry::read_snapshot(&registry_dir)
+        .with_context(|| {
+            format!(
+                "reading local DCC snapshot at {}",
+                registry_dir.join("services.json").display()
+            )
+        })?
+        .into_iter()
+        .filter(|entry| entry.dcc_type != GATEWAY_SENTINEL_DCC_TYPE)
+        .collect();
+    inventory_to_value(registry_dir, entries, 0, "not_checked", false)
+}
+
+fn inventory_to_value(
+    registry_dir: PathBuf,
+    entries: Vec<dcc_mcp_transport::discovery::types::ServiceEntry>,
+    evicted: usize,
+    liveness: &str,
+    eviction_applied: bool,
+) -> anyhow::Result<Value> {
     let mut instances: Vec<_> = entries
         .into_iter()
         .map(local_instance::instance_to_value)
@@ -29,6 +59,8 @@ pub fn list_local_instances(registry_dir: PathBuf) -> anyhow::Result<Value> {
         "source": "local_registry",
         "registry_dir": registry_dir,
         "evicted": evicted,
+        "liveness": liveness,
+        "eviction_applied": eviction_applied,
         "gateway": {
             "current": {
                 "name": "local",
@@ -78,6 +110,8 @@ mod tests {
         let payload = list_local_instances(dir.path().to_path_buf()).unwrap();
 
         assert_eq!(payload["source"], "local_registry");
+        assert_eq!(payload["liveness"], "verified");
+        assert_eq!(payload["eviction_applied"], false);
         assert_eq!(payload["total"], 1);
         assert_eq!(payload["instances"][0]["dcc_type"], "maya");
         assert_eq!(

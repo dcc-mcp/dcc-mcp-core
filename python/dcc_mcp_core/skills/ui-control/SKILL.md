@@ -69,6 +69,17 @@ default shared JSONL path for other servers. The owner must bind both PID and
 HWND; tool arguments cannot select a binary, transport, or action grant. See
 [owned pixels MCP](references/OWNED_PIXELS_MCP.md) before using that mode.
 
+Owned pixels mode can separately permit explicit secondary popup observations
+through the owner-only `allow_native_capture_popup_keyboard` ceiling. Select
+one through eight exact HWNDs from the root's fresh native capture inventory
+with `snapshot(native_capture_popup_window_handles=[...])`. The main image keeps
+its honest redactions; each popup has a separate labeled PNG and full native
+provenance. This permits one unheld keyboard action to the original main root
+within five seconds, subject to native coverage, identity and foreground checks.
+It grants no pointer input or popup rebinding. Every attempt consumes that root
+observation; re-observe instead of retrying. See the reference for the complete
+boundary and cleanup requirements.
+
 ## Exact application scope
 
 `DccServerBase` injects its trusted `DccServerOptions` process/window context

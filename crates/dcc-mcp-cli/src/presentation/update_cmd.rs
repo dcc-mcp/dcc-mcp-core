@@ -9,6 +9,10 @@ use crate::application::update::{
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum UpdateAction {
+    /// Discover components in official catalogs without installing or probing hosts.
+    Discover(DiscoverArgs),
+    /// Inspect official releases without installing, starting services, or writing caches.
+    Inspect(InspectArgs),
     /// Check whether a newer version is available.
     Check {
         #[arg(long)]
@@ -17,11 +21,106 @@ pub(crate) enum UpdateAction {
         current_version: Option<String>,
     },
     /// Download the latest CLI version and stage it for the next launch.
+    ///
+    /// Retained for backward compatibility: a bare `dcc-mcp-cli update`
+    /// performs the same check, download, and staging in one step.
     Apply {
-        /// Confirm that the user approved downloading and staging the update.
+        /// Accepted for backward compatibility; updates no longer require a
+        /// confirmation flag.
         #[arg(long)]
         yes: bool,
     },
+}
+
+#[derive(Debug, Clone, clap::Args)]
+pub(crate) struct DiscoverArgs {
+    /// Read existing verified installation metadata and bundled entries only.
+    #[arg(long)]
+    pub offline: bool,
+    /// Search names, descriptions, requirements, and package metadata.
+    #[arg(long, default_value = "")]
+    pub query: String,
+    /// Exact generic target, for example application:editor or dcc:blender.
+    #[arg(long, value_parser = parse_discovery_target)]
+    pub target: Option<dcc_mcp_catalog::CatalogTarget>,
+    /// Restrict discovery to one official provider.
+    #[arg(long, value_parser = crate::domain::ecosystem_discovery::PROVIDER_IDS)]
+    pub provider: Option<String>,
+    /// Maximum returned components across providers (1-200).
+    #[arg(long, default_value_t = 50, value_parser = clap::value_parser!(u16).range(1..=200))]
+    pub limit: u16,
+}
+
+fn parse_discovery_target(value: &str) -> Result<dcc_mcp_catalog::CatalogTarget, String> {
+    dcc_mcp_marketplace::parse_target(value)
+        .map_err(|_| "expected dcc|application|game|web:ID with a non-empty ID".to_owned())
+}
+
+pub(crate) async fn run_discovery(args: DiscoverArgs) -> anyhow::Result<UpdateCommandResult> {
+    let report = crate::application::ecosystem_discovery::discover(
+        crate::domain::ecosystem_discovery::DiscoveryRequest {
+            offline: args.offline,
+            query: args.query,
+            target: args.target,
+            provider: args.provider,
+            limit: usize::from(args.limit),
+        },
+    )
+    .await;
+    let exit_code = if report.status == "complete" {
+        ExitCode::Success
+    } else {
+        ExitCode::Unavailable
+    };
+    Ok(UpdateCommandResult {
+        value: serde_json::to_value(report)?,
+        failed: exit_code != ExitCode::Success,
+        exit_code,
+    })
+}
+
+#[derive(Debug, Clone, clap::Args)]
+pub(crate) struct InspectArgs {
+    /// Use existing observations only; never contact a release service.
+    #[arg(long)]
+    pub offline: bool,
+    /// Release channel. This provider currently supports stable only.
+    #[arg(long, default_value = "stable")]
+    pub channel: String,
+    /// Canonical official Core issue URL to check for exact release-note fix evidence.
+    #[arg(long, value_parser = parse_official_issue)]
+    pub issue: Option<String>,
+}
+
+fn parse_official_issue(value: &str) -> Result<String, String> {
+    crate::domain::update_inspection::official_issue_number(value)
+        .map(|_| value.to_owned())
+        .ok_or_else(|| {
+            "expected https://github.com/dcc-mcp/dcc-mcp-core/issues/<positive-number>".to_owned()
+        })
+}
+
+pub(crate) async fn run_inspection(args: InspectArgs) -> anyhow::Result<UpdateCommandResult> {
+    let report = crate::application::update_inspection::inspect_current_cli(
+        crate::application::update_inspection::InspectRequest {
+            offline: args.offline,
+            channel: args.channel,
+            issue_url: args.issue,
+        },
+    )
+    .await;
+    let exit_code = if report.version_reason == "unsupported_channel" {
+        ExitCode::InvalidInput
+    } else if report.source.refresh_error.is_some() {
+        ExitCode::Unavailable
+    } else {
+        ExitCode::Success
+    };
+    Ok(UpdateCommandResult {
+        value: serde_json::to_value(report)?,
+        failed: exit_code != ExitCode::Success,
+        exit_code,
+    })
 }
 
 pub(crate) struct UpdateCommandResult {
@@ -32,13 +131,17 @@ pub(crate) struct UpdateCommandResult {
 
 pub(crate) async fn run(
     base_url: &str,
-    action: UpdateAction,
+    action: Option<UpdateAction>,
 ) -> anyhow::Result<UpdateCommandResult> {
     let (value, exit_code) = match action {
-        UpdateAction::Check {
+        // The executable dispatches this before cli::run(), which can apply
+        // staged updates. Keep this handler free of cache writes as well.
+        Some(UpdateAction::Inspect(args)) => return run_inspection(args).await,
+        Some(UpdateAction::Discover(args)) => return run_discovery(args).await,
+        Some(UpdateAction::Check {
             binary,
             current_version,
-        } => {
+        }) => {
             let binary_name = binary.unwrap_or_else(|| CLI_BINARY_NAME.to_string());
             let current_version = current_version.unwrap_or_else(|| CLI_VERSION.to_string());
             let cache_default_cli =
@@ -55,15 +158,15 @@ pub(crate) async fn run(
             };
             (value, exit_code)
         }
-        UpdateAction::Apply { yes } => {
-            let service = UpdateService::new(base_url, CLI_BINARY_NAME, CLI_VERSION);
-            let value = service.apply_update(yes).await?;
-            let exit_code = match value["error"].as_str() {
-                None => ExitCode::Success,
-                Some("confirmation_required") => ExitCode::InvalidInput,
-                Some(_) => ExitCode::Unavailable,
-            };
-            (value, exit_code)
+        // A bare `dcc-mcp-cli update` runs the whole update (check, download,
+        // stage) in one step. `update apply` stays as a backward-compatible
+        // alias; its `--yes` flag is still accepted but no longer gates the
+        // download. Both paths share `run_apply` and therefore the same
+        // version determination as `update check`.
+        None => run_apply(base_url).await?,
+        Some(UpdateAction::Apply { yes }) => {
+            let _ = yes;
+            run_apply(base_url).await?
         }
     };
     Ok(UpdateCommandResult {
@@ -71,6 +174,21 @@ pub(crate) async fn run(
         value,
         exit_code,
     })
+}
+
+/// Check for and stage the latest CLI update. This is the single update path
+/// used by both the default `dcc-mcp-cli update` and `update apply`, so the
+/// version decision always comes from the gateway check performed by
+/// `UpdateService::apply_update`.
+async fn run_apply(base_url: &str) -> anyhow::Result<(Value, ExitCode)> {
+    let service = UpdateService::new(base_url, CLI_BINARY_NAME, CLI_VERSION);
+    let value = service.apply_update().await?;
+    let exit_code = if value["error"].as_str().is_some() {
+        ExitCode::Unavailable
+    } else {
+        ExitCode::Success
+    };
+    Ok((value, exit_code))
 }
 
 pub(crate) fn surface_cached_cli_update(
@@ -91,7 +209,7 @@ pub(crate) fn surface_cached_cli_update(
         }
         match status["version_status"].as_str() {
             Some("update_available") => writer.diagnostic(&format!(
-                "info: dcc-mcp-cli {} -> {} is available. Ask the user before updating; after confirmation run `dcc-mcp-cli update apply --yes`. The update activates on the next CLI launch and does not restart running servers.",
+                "info: dcc-mcp-cli {} -> {} is available. Run `dcc-mcp-cli update` to download and stage it; the new version activates on the next CLI launch and does not restart running servers.",
                 status["current_version"].as_str().unwrap_or("unknown"),
                 status["latest_version"].as_str().unwrap_or("unknown"),
             ))?,

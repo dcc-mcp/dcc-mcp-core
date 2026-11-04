@@ -2,6 +2,7 @@
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
+  container: marketplace-installed / inline-size;
   overflow: hidden;
 }
 
@@ -17,17 +18,15 @@
   background: var(--muted);
   border-bottom: 1px solid var(--border);
   color: var(--muted-foreground);
-  font-size: 0.68rem;
-  font-weight: 800;
-  letter-spacing: 0.05em;
-  padding: 0.55rem 0.85rem;
-  text-transform: uppercase;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.7rem 1rem;
 }
 
 .marketplace-installed-row {
   border-bottom: 1px solid var(--border);
   min-height: 4.5rem;
-  padding: 0.72rem 0.85rem;
+  padding: 0.85rem 1rem;
 }
 
 .marketplace-installed-row:last-child {
@@ -51,9 +50,9 @@
   border: 0;
   color: var(--foreground);
   cursor: pointer;
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-size: 0.9rem;
-  font-weight: 800;
+  font-weight: 650;
   justify-self: start;
   max-width: 100%;
   min-width: 0;
@@ -67,6 +66,11 @@
 .marketplace-installed-title:hover {
   color: var(--link);
   text-decoration: underline;
+}
+
+.marketplace-installed-title:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
 }
 
 .marketplace-installed-subline {
@@ -154,17 +158,36 @@
   min-width: 4.75rem;
 }
 
-@media (max-width: 980px) {
+@container marketplace-installed (max-width: 64rem) {
   .marketplace-installed-list-header {
     display: none;
   }
 
   .marketplace-installed-row {
     align-items: stretch;
-    grid-template-columns: 1fr;
+    gap: 0.75rem 1.25rem;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .marketplace-installed-package-cell,
+  .marketplace-installed-actions {
+    grid-column: 1 / -1;
   }
 
   .marketplace-installed-actions {
+    border-top: 1px solid var(--border);
     justify-content: flex-start;
+    padding-top: 0.75rem;
+  }
+}
+
+@container marketplace-installed (max-width: 30rem) {
+  .marketplace-installed-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .marketplace-installed-action {
+    flex: 1 1 auto;
+    min-height: 2.5rem;
   }
 }

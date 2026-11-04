@@ -20,3 +20,9 @@ fs4 = "1.1.0"
 sha2.workspace = true
 tempfile.workspace = true
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }

@@ -50,5 +50,6 @@
   "filter.dccType": "DCCタイプ",
   "filter.status": "ステータス",
   "filter.search": "セッションを検索",
-  "filter.all": "すべて"
+  "filter.all": "すべて",
+  "action.toggleChildren": "{id} の子セッションを表示・非表示"
 }

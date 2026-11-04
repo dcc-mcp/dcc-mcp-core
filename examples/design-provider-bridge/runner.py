@@ -82,7 +82,7 @@ async def upstream_session(args):
 
 
 async def run(args):
-    """Discover first, optionally call one explicitly selected live tool."""
+    """Discover or call once, returning nonzero for an explicit tool error."""
     bridge = DesignSessionBridge(args.provider)
     async with upstream_session(args) as session:
         await bridge.connect(session)
@@ -91,7 +91,7 @@ async def run(args):
                 from facade import serve_bridge
 
                 await serve_bridge(bridge, port=args.port, registry_dir=args.registry_dir)
-                return
+                return 0
             if args.call:
                 arguments = {}
                 if args.arguments_file:
@@ -106,6 +106,7 @@ async def run(args):
                 output = bridge.capabilities()
             # Upstream payloads are project-private: stdout is never PR evidence.
             print(json.dumps(output, ensure_ascii=False, indent=2))
+            return 1 if args.call and result.tool_error is True else 0
         finally:
             bridge.disconnect()
 
@@ -136,7 +137,7 @@ def main():
     if args.arguments_file and not args.call:
         raise SystemExit("--arguments-file requires --call.")
     try:
-        asyncio.run(run(args))
+        raise SystemExit(asyncio.run(run(args)))
     except DesignBridgeError as exc:
         print(json.dumps(exc.to_dict()), file=sys.stderr)
         raise SystemExit(1) from None

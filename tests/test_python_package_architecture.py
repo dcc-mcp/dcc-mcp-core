@@ -221,8 +221,11 @@ def test_ambiguous_lazy_exports_keep_their_owning_module() -> None:
     Unlike a duplicate key, pointing an existing key at a different module keeps
     the map valid and keeps every runtime test green whenever the two modules
     happen to agree on the value. ``_LAZY_EXPORT_OWNERSHIP`` pins the owning
-    module for exactly those symbols that another namespace also exposes, so the
-    next re-source has to be a deliberate edit to this table.
+    module for a curated subset of the lazy exports that another namespace also
+    exposes, so the next re-source has to be a deliberate edit to this table.
+    The table is a growing sample rather than an exhaustive inventory: entries
+    are added as they are curated, and an unlisted symbol is not proof that it
+    has a single owner.
     """
     all_lazy = _read_all_lazy_map()
     mismatched = {

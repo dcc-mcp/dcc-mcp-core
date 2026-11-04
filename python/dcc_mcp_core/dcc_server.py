@@ -480,6 +480,7 @@ def _handle_gateway_failover_status(
         "gateway_recovery_driver": gateway_recovery_driver,
         "registration_refresh_mode": registration_refresh_mode,
         "gateway_daemon_status": raw.get("gateway_daemon_status", {}),
+        "remote_listener": raw.get("remote_listener"),
         "reason": reason,
         "timestamp_ms": int(time.time() * 1000),
     }

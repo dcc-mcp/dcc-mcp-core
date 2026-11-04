@@ -57,8 +57,15 @@ class AdapterReadinessBinder:
     """Bind a shared ``ReadinessProbe`` to an adapter server.
 
     The binder owns no server lifecycle; it only publishes one probe and flips
-    bits according to adapter-observable facts. The same probe is then consumed
-    by MCP ``tools/call`` gating and REST ``/v1/readyz`` / ``/v1/call``.
+    bits according to adapter-observable facts. Publish before the embedded
+    server starts so MCP ``tools/call`` gating and REST ``/v1/readyz`` /
+    ``/v1/call`` consume the same probe. ``published`` records acceptance of
+    the latest publication attempt, not HTTP or host readiness. The sidecar
+    facade does not support publishing an in-process probe.
+
+    ``dcc_ready_probe`` is sampled during binding and explicit refreshes; it
+    is not polled in the background. A red base bit also blocks registered
+    recovery tools on the same server, so recovery needs an independent path.
     """
 
     def __init__(
@@ -133,7 +140,13 @@ class AdapterReadinessBinder:
         return binder
 
     def publish(self) -> bool:
-        """Install the probe on ``server`` if it exposes ``set_readiness_probe``."""
+        """Ask ``server`` to accept the probe before startup.
+
+        An explicit ``False`` rejects publication. ``None`` remains a success
+        for the native setter's void-returning API. This does not verify that
+        an already-running listener has adopted a replacement probe.
+        """
+        self.published = False
         setter = getattr(self.server, "set_readiness_probe", None)
         if not callable(setter):
             inner = getattr(self.server, "_server", None)
@@ -142,7 +155,9 @@ class AdapterReadinessBinder:
             logger.debug("readiness probe cannot be published: server has no set_readiness_probe")
             return False
         try:
-            setter(self.probe)
+            if setter(self.probe) is False:
+                logger.debug("readiness probe publication rejected by server")
+                return False
         except Exception as exc:
             logger.debug("readiness probe publication failed: %s", exc)
             return False

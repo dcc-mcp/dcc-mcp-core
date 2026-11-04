@@ -67,23 +67,81 @@ Keep an official installation current with:
 
 ```bash
 dcc-mcp-cli update check
-dcc-mcp-cli update apply --yes  # only after user confirmation
+dcc-mcp-cli update          # check, download, and stage in one step
 ```
 
 Official release builds refresh their cached update status in a detached
 background process at most once per 24 hours. Failed checks retry after one hour
 and never block the foreground command. When `cli_update.version_status` is
-`update_available`, agents should show the current/latest versions and ask the
-user before running its `update_policy.apply_command`. `update apply --yes`
-requires the release-manifest SHA-256, verifies the downloaded CLI, and stages
-it for the next launch. Replacement re-verifies the staged bytes and restarts
-the CLI with the same arguments. It does not replace or restart a running
-`dcc-mcp-server`; update that server in its own environment. Set
-`DCC_MCP_DISABLE_UPDATE_CHECK=1` to disable passive checks.
+`update_available`, agents should show the current/latest versions; the reported
+`update_policy.apply_command` is `dcc-mcp-cli update`, which checks, downloads,
+and stages the update in one step with no separate confirmation flag.
+`dcc-mcp-cli update` requires the release-manifest SHA-256, verifies the
+downloaded CLI, and stages it for the next launch. Replacement re-verifies the
+staged bytes and restarts the CLI with the same arguments. It does not replace
+or restart a running `dcc-mcp-server`; update that server in its own
+environment. Set `DCC_MCP_DISABLE_UPDATE_CHECK=1` to disable passive checks.
 
 The CLI is also available as a standalone ZIP archive
 (`dcc-mcp-cli-<version>-<platform>.zip`) from each
 [GitHub Release](https://github.com/dcc-mcp/dcc-mcp-core/releases).
+
+### MCP Registry
+
+The [official MCP Registry](https://github.com/modelcontextprotocol/registry)
+provides versioned server metadata for discovery. It is not a hosted DCC gateway
+or a universal one-click installer. Our entry is
+`io.github.dcc-mcp/dcc-mcp-core`; its
+[0.20.47 metadata](https://registry.modelcontextprotocol.io/v0.1/servers/io.github.dcc-mcp%2Fdcc-mcp-core/versions/0.20.47)
+points to the **`dcc-mcp-server`** package, not the Python SDK `dcc-mcp-core`.
+
+For agent-driven DCC work, start with the recommended
+[public `dcc-mcp` Skill](#public-agent-skills) and its CLI setup above. For a
+standard MCP client, use this local Streamable HTTP path instead:
+
+1. Review the selected release and obtain consent before downloading/installing.
+   With [uv installed](https://docs.astral.sh/uv/getting-started/installation/),
+   run the pinned server in an isolated tool environment on the DCC workstation:
+
+   ```bash
+   uvx --from "dcc-mcp-server==0.20.47" dcc-mcp-server gateway --host 127.0.0.1 --port 9765 --remote-port 0 --gateway-persist
+   ```
+
+   Keep this foreground process running. `gateway` selects the gateway mode;
+   `--remote-port 0` disables the secondary listener, and `--gateway-persist`
+   prevents idle exit while no DCC is registered. This package does **not**
+   install `dcc-mcp-cli` or a DCC adapter. The pinned release needs a matching
+   platform wheel; do not silently substitute an unreviewed version. If port
+   9765 is occupied, inspect the existing gateway before reusing it, or select
+   an unused `--port` and update the client URL accordingly.
+
+2. In a client that supports **Streamable HTTP**, configure the MCP URL as
+   **`http://127.0.0.1:9765/mcp`**. Follow that client's HTTP configuration format,
+   not a stdio command template. Neither the Registry website nor its JSON API
+   is an MCP endpoint. The client connection must run on, or have an approved
+   route to, the gateway's workstation; a cloud service's `127.0.0.1` is not
+   your computer. Keep the gateway on loopback. Do not expose it directly to the
+   public internet or assume registration-token support protects every route.
+   Keep any credentials in supported local secret storage, never chat or Git.
+
+3. Verify each layer separately:
+   - `GET http://127.0.0.1:9765/health` checks gateway liveness only.
+   - Through the MCP client, complete `initialize` → `notifications/initialized`
+     → `tools/list`, following `nextCursor` when present. Version 0.20.47 exposes
+     `search`, `describe`, `load_skill`, and `call`; backend tools are not all
+     flattened into this list.
+   - Read `gateway://instances` with `resources/read`, or inspect
+     `GET http://127.0.0.1:9765/v1/instances`, to confirm the intended DCC instance
+     is registered. An empty inventory is not a Registry installation failure.
+   - Inspect `GET http://127.0.0.1:9765/v1/readyz`, including
+     `ready_instance_count` and the target instance's readiness/dispatch state.
+     HTTP 200 or gateway `ok: true` alone does not prove a DCC is ready.
+
+Install and enable the appropriate adapter in the target DCC using the
+[adapter installation lifecycle](./adapter-install-lifecycle.md), then verify
+that instance and perform one narrow capability search, following its returned
+`next_step`. Discovering the Registry entry or listing gateway tools does not
+install, launch, or validate Maya, Blender, or another host.
 
 ### From PyPI
 
@@ -110,6 +168,109 @@ The build is handled by [maturin](https://www.maturin.rs/) which compiles the Ru
 - **Rust**: >= 1.95 (for building from source)
 - **License**: MIT
 - **Python Dependencies**: Zero — everything is in the compiled Rust extension
+
+### Optional media runtime: FFmpeg and FFprobe
+
+The `media` skill requires external **FFmpeg and FFprobe executables** for
+probing, audio/video transcoding, thumbnails, and frame extraction. Core does
+not bundle these binaries or add them to its Python runtime dependencies. The
+Core package remains MIT-licensed; FFmpeg's license depends on the selected
+build and enabled components (LGPL or GPL). Review the distributor's license
+and build configuration before redistribution.
+
+Media tools select already-installed FFmpeg in this order:
+
+1. `DCC_MCP_MEDIA_FFMPEG_BIN`: an explicit absolute executable path.
+2. An existing FFmpeg installation in the local vx store, rooted at `VX_HOME`
+   or `~/.vx` by default.
+3. `ffmpeg` on the server process's system `PATH` when no vx installation is
+   available.
+
+The vx lookup supports the vx 0.9.37 provider layouts under
+`<vx-root>/store/ffmpeg/<version>`, selects the highest numeric stable version,
+and is bounded to 128 entries. An unreadable or larger store is treated as
+unavailable and discovery continues to PATH. It does not read `vx.toml` or `vx.lock`, select
+preview/custom versions, or require a vx launcher to be installed. Use the
+explicit executable overrides to pin a version or use another layout.
+
+Discovery inspects local files; it does not run a vx launcher, install a
+runtime, or download anything. Only native ELF, PE, or Mach-O executables are
+accepted; scripts and known vx shim directories are rejected. Native wrappers
+cannot be identified reliably from their file headers. An invalid explicit override
+fails rather than silently using another installation. FFprobe defaults to
+the sibling of the resolved FFmpeg executable. Set
+`DCC_MCP_MEDIA_FFPROBE_BIN` to an absolute executable path when the matching
+probe is elsewhere. The pair must come from the same release/build; an
+unrelated `ffprobe` on `PATH` is not a fallback.
+
+Set overrides in the environment of the process that runs the media tools,
+before starting the DCC-MCP server. They name executables, not shell commands
+or extra arguments. Paths containing spaces are supported:
+
+```bash
+export DCC_MCP_MEDIA_FFMPEG_BIN="/opt/media tools/ffmpeg/bin/ffmpeg"
+export DCC_MCP_MEDIA_FFPROBE_BIN="/opt/media tools/ffmpeg/bin/ffprobe"
+```
+
+```powershell
+$env:DCC_MCP_MEDIA_FFMPEG_BIN = 'C:\Media Tools\ffmpeg\bin\ffmpeg.exe'
+$env:DCC_MCP_MEDIA_FFPROBE_BIN = 'C:\Media Tools\ffmpeg\bin\ffprobe.exe'
+```
+
+Replace these example paths with the installed binaries. The legacy
+`DCC_MCP_MEDIA_VX_BIN` and `DCC_MCP_MEDIA_AUTO_INSTALL_VX` settings no longer
+control media execution. Migrate a pinned launcher configuration to the
+executable overrides above; setting an auto-install flag does not enable
+downloads.
+
+#### Prepare once, preflight before expensive work
+
+Ask the user before installing or downloading dependencies. In an approved
+online preparation step, use an already-installed vx to install a pinned
+FFmpeg release, or use the operating system's package manager:
+
+```bash
+# Only after the user approves dependency installation:
+vx install ffmpeg@8.1
+```
+
+Obtain FFmpeg and FFprobe together from the approved distribution. If vx itself
+must be installed, review its official installer as a local file before
+execution; never pipe a remote installer into a shell. For offline render
+workers, preinstall the approved binaries and their required shared libraries
+before disconnecting, then configure the server's environment. Runtime tools
+never bootstrap missing dependencies, even for operations that write media.
+
+Agents should perform this preflight before rendering or scheduling a large
+batch:
+
+1. Discover the media runtime-check capability through the normal Skill/tool
+   search flow. Follow the returned `next_step` to load the Skill or describe
+   the tool as required, and use the returned tool slug rather than inventing
+   CLI syntax.
+2. Call the typed, read-only `media__check_runtime`. Its optional
+   `required_encoders` array defaults to `pcm_s16le`, `libvorbis`, and
+   `pcm_f32le`; select the encoders needed by the intended workflow. Its
+   `timeout_secs` is bounded to 60 seconds. The check inspects installed
+   binaries and capabilities without creating a media output or installing
+   anything.
+3. Review the selected source, absolute executable paths, versions, SHA-256
+   hashes, and required encoder availability in the result. Preserve that
+   evidence with the job; paths and hashes identify the bytes used, not an
+   independent supply-chain attestation. Missing dependencies, mismatched
+   builds, or unavailable encoders must be resolved before production work,
+   not bypassed by silently changing codecs or downloading a replacement.
+
+The resolver itself starts no package manager or network request. Preflight
+does execute the selected local binaries to inspect their versions and
+capabilities; they remain operator-trusted code, not a sandboxed guarantee
+against arbitrary binary behavior.
+
+For verified audio-only output, use `media__transcode_audio`: WAV requires
+`pcm_s16le`, OGG requires `libvorbis`, and full-decode verification also needs
+`pcm_f32le`. Availability alone is not a native codec-quality or playback
+qualification. See the media Skill for its preservation, validation, staging,
+and cancellation guarantees.
 
 ## Quick Start
 

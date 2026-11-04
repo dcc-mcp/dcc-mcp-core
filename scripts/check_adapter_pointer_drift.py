@@ -53,6 +53,7 @@ import tempfile
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
+from scripts import _adapter_pointer_budget as budget  # noqa: E402
 from scripts import generate_adapter_pointer as generator  # noqa: E402
 
 DEFAULT_TIMEOUT_SECS = 300
@@ -73,7 +74,7 @@ def _git(args: list[str], *, timeout: int) -> subprocess.CompletedProcess:
         ["git", *args],
         capture_output=True,
         text=True,
-        timeout=timeout,
+        timeout=budget.command_timeout(timeout),
         check=False,
     )
 
@@ -144,9 +145,8 @@ def check_repository(
         return row
 
     repo_dir = workdir / _safe_dirname(name, entry_index)
-    row["branch"] = _default_branch_name(url, timeout=timeout)
-
     try:
+        row["branch"] = _default_branch_name(url, timeout=timeout)
         branch = _clone_default_branch(url, repo_dir, timeout=timeout)
         if branch:
             row["branch"] = branch
@@ -189,7 +189,11 @@ def check_repository(
         row["detail"] = f"{type(exc).__name__}: {exc}".strip()
         return row
     finally:
-        _remove_clone(repo_dir)
+        try:
+            _remove_clone(repo_dir)
+        except Exception as exc:
+            row["status"] = ERROR
+            row["detail"] += f"; clone cleanup failed: {type(exc).__name__}: {exc}"
 
 
 def _on_rmtree_error(func, path: str, exc_info) -> None:
@@ -236,6 +240,19 @@ def scan(
         name = str(entry.get("name") or "").strip()
         if only is not None and name.lower() not in only:
             continue
+        try:
+            budget.command_timeout(timeout)
+        except budget.BatchDeadlineExceeded:
+            results.append(
+                {
+                    "name": name or f"<entry {index}>",
+                    "url": str(entry.get("url") or "").strip(),
+                    "status": ERROR,
+                    "branch": "",
+                    "detail": "not scanned: batch deadline exhausted before this repository started",
+                }
+            )
+            continue
         results.append(
             check_repository(
                 entry,
@@ -279,8 +296,9 @@ def render_summary(results: list[dict], *, host_count: int) -> str:
             " Run `generate_adapter_pointer.py apply` in each one, or the batch job"
             " that does it for you."
         )
-    else:
+    elif not missing and not errored:
         lines.append(f"All {len(results)} scanned repositories match the catalog output.")
+    lines.append(f"Default branches already current: **{sum(r['status'] == CURRENT for r in results)}**.")
     if missing:
         lines.append("")
         lines.append(
@@ -291,8 +309,8 @@ def render_summary(results: list[dict], *, host_count: int) -> str:
     if errored:
         lines.append("")
         lines.append(
-            f"{len(errored)} repositories could not be read (clone, decode or I/O"
-            " failure). These need infrastructure attention, not a regeneration."
+            f"{len(errored)} repositories could not be read or were not scanned."
+            " See the per-repository errors; none of these were verified current."
         )
     lines.append("")
     return "\n".join(lines)
@@ -320,6 +338,11 @@ def _build_parser() -> argparse.ArgumentParser:
         type=int,
         default=DEFAULT_TIMEOUT_SECS,
         help=f"Per-git-operation timeout in seconds (default: {DEFAULT_TIMEOUT_SECS}).",
+    )
+    parser.add_argument(
+        "--batch-timeout",
+        type=budget.positive_seconds,
+        help="Total repository-work budget in seconds; omitted means only per-command timeouts apply.",
     )
     parser.add_argument(
         "--summary",
@@ -364,13 +387,24 @@ def main(argv: list[str] | None = None) -> int:
 
     host_count = len(entries)
     managed = tempfile.TemporaryDirectory(prefix="adapter-pointer-drift-")
+    cleanup_failed = False
     try:
         workdir = args.workdir or Path(managed.name)
         workdir.mkdir(parents=True, exist_ok=True)
-        results = scan(entries, workdir=workdir, only=only, timeout=args.timeout)
+        with budget.batch_timeout(args.batch_timeout):
+            results = scan(entries, workdir=workdir, only=only, timeout=args.timeout)
+        code = _report(results, args, host_count=host_count)
     finally:
-        managed.cleanup()
+        try:
+            managed.cleanup()
+        except Exception as exc:
+            cleanup_failed = True
+            print(f"error: temporary directory cleanup failed: {exc}", file=sys.stderr)
+    return 1 if cleanup_failed else code
 
+
+def _report(results: list[dict], args, *, host_count: int) -> int:
+    """Persist the verdict before attempting outer temporary-directory cleanup."""
     for row in results:
         marker = "ok  " if row["status"] == CURRENT else "FAIL"
         print(f"{marker} {row['name']:<32} {row['status']:<8} {row['detail']}")
@@ -407,8 +441,8 @@ def main(argv: list[str] | None = None) -> int:
 
     print()
     print(
-        f"{len(results)} repositories scanned against a catalog of {host_count} adapters:"
-        f" {len(drifted)} drifted, {len(missing)} missing, {len(errored)} unreadable."
+        f"{len(results)} repository results against a catalog of {host_count} adapters:"
+        f" {len(drifted)} drifted, {len(missing)} missing, {len(errored)} unreadable or not scanned."
     )
     if drifted or errored or (missing and not args.allow_missing):
         print(

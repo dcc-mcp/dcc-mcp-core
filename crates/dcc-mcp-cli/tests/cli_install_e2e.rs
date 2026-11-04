@@ -5,6 +5,43 @@ use tempfile::{NamedTempFile, TempDir};
 
 use support::*;
 
+#[test]
+fn bundled_install_sop_plans_keep_verified_release_bindings() {
+    let releases: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../tests/fixtures/install-sop-catalog.json"
+    ))
+    .unwrap();
+    for release in releases.as_array().unwrap() {
+        let dcc_type = release["dcc_type"].as_str().unwrap();
+        let plan = run_json_with_env_removed(
+            &["install", "--dcc-type", dcc_type],
+            &[],
+            &["DCC_MCP_CATALOG_PATH", "DCC_MCP_INSTALL_PYTHON"],
+        );
+        assert_eq!(plan["adapter"]["name"], release["name"], "{dcc_type}");
+        assert_eq!(plan["adapter"]["version"], release["version"], "{dcc_type}");
+        let action = &plan["steps"][0]["action"];
+        assert_eq!(action["version"], release["version"], "{dcc_type}");
+        assert_eq!(
+            action["artifact_url"], release["artifact_url"],
+            "{dcc_type}"
+        );
+        assert_eq!(action["sha256"], release["sha256"], "{dcc_type}");
+        assert_eq!(
+            plan["next_steps"][0]["url"], release["instructions_url"],
+            "{dcc_type}"
+        );
+        let output = cli_command()
+            .args(["install", "--dcc-type", dcc_type, "--version", "0.0.0"])
+            .env_remove("DCC_MCP_CATALOG_PATH")
+            .env_remove("DCC_MCP_INSTALL_PYTHON")
+            .output()
+            .unwrap();
+        assert!(!output.status.success(), "{dcc_type}");
+        assert!(String::from_utf8_lossy(&output.stderr).contains("differs from catalog version"));
+    }
+}
+
 fn fake_pip(temp: &TempDir, version: &str) -> std::path::PathBuf {
     let package = temp.path().join("pip");
     std::fs::create_dir(&package).unwrap();
@@ -191,7 +228,7 @@ fn install_uses_bundled_adapter_metadata_and_python_override() {
             "--dcc-type",
             "maya",
             "--version",
-            "0.9.22",
+            "0.9.42",
             "--python",
             "C:/Autodesk/Maya2026/bin/mayapy.exe",
         ],
@@ -201,20 +238,20 @@ fn install_uses_bundled_adapter_metadata_and_python_override() {
 
     assert_eq!(plan["dcc_type"], "maya");
     assert_eq!(plan["adapter"]["name"], "dcc-mcp-maya");
-    assert_eq!(plan["adapter"]["min_core_version"], "0.19.45");
+    assert_eq!(plan["adapter"]["min_core_version"], "0.20.0");
     assert_eq!(plan["steps"][0]["name"], "install-pip");
     assert_eq!(plan["steps"][0]["action"]["type"], "PipInstall");
     assert_eq!(plan["steps"][0]["action"]["package"], "dcc-mcp-maya");
-    assert_eq!(plan["steps"][0]["action"]["version"], "0.9.22");
+    assert_eq!(plan["steps"][0]["action"]["version"], "0.9.42");
     assert_eq!(
         plan["steps"][0]["action"]["sha256"],
-        "b288c2bf95014f827d3833ef5af4f7c36b2ff8a465ac647f9feb2163bc44397b"
+        "9df720c154bfeacedd4241ee80925bc13ddb700f71dc6a0e74c6e1dd1c225965"
     );
     assert!(
         plan["steps"][0]["action"]["artifact_url"]
             .as_str()
             .unwrap()
-            .ends_with("dcc_mcp_maya-0.9.22-py3-none-any.whl")
+            .ends_with("dcc_mcp_maya-0.9.42-py3-none-any.whl")
     );
     assert_eq!(
         plan["steps"][0]["action"]["python"],
@@ -224,7 +261,7 @@ fn install_uses_bundled_adapter_metadata_and_python_override() {
     assert_eq!(plan["next_steps"][0]["name"], "read-install-instructions");
     assert_eq!(
         plan["next_steps"][0]["url"],
-        "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-maya/main/install.md"
+        "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-maya/e582e5881f01e1a7e6e77eca54f5b3ec7ec08350/install.md"
     );
     assert!(plan["next_steps"][0]["command"].is_null());
     assert_eq!(
@@ -354,38 +391,124 @@ fn install_rejects_pip_version_without_a_catalog_pinned_artifact() {
 
     assert!(!output.status.success());
     assert!(
-        String::from_utf8_lossy(&output.stderr).contains("differs from catalog version '0.9.22'")
+        String::from_utf8_lossy(&output.stderr).contains("differs from catalog version '0.9.42'")
     );
 }
 
 #[test]
 fn unpublished_adapters_do_not_advertise_automatic_install_steps() {
-    for dcc_type in ["excel", "material-maker", "word"] {
+    // Material Maker still has no published wheel, so the catalog keeps it
+    // discoverable without advertising an automatic pip install action.
+    // Excel and Word publish immutable wheels and now resolve to a pinned
+    // PipInstall step; see install_bundled_catalog_pins_office_adapter_wheels.
+    let plan = run_json_with_env_removed(
+        &["install", "--dcc-type", "material-maker"],
+        &[],
+        &["DCC_MCP_CATALOG_PATH", "DCC_MCP_INSTALL_PYTHON"],
+    );
+    assert_eq!(plan["dcc_type"], "material-maker");
+    assert!(
+        plan["adapter"]["install"].is_null(),
+        "material-maker must not advertise install metadata before a wheel is published"
+    );
+    assert!(
+        plan["steps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|step| step["action"].is_null()),
+        "material-maker must not advertise an automatic install action"
+    );
+}
+
+#[test]
+fn install_bundled_catalog_pins_office_adapter_wheels() {
+    for (dcc_type, package, version, wheel, sha256, entry_point) in [
+        (
+            "excel",
+            "dcc-mcp-excel",
+            "0.1.3",
+            "dcc_mcp_excel-0.1.3-py3-none-any.whl",
+            "3a6d12bb6bd63891e7b63c5b8436620fe351fe371a37dfdaa5302f0b080da84b",
+            "dcc_mcp_excel._standalone_entry:main",
+        ),
+        (
+            "word",
+            "dcc-mcp-word",
+            "0.1.2",
+            "dcc_mcp_word-0.1.2-py3-none-any.whl",
+            "f4ac79722b4ad653b0acd9844fa1a992994e8a8935f2a65bb7d473376c833a5c",
+            "dcc_mcp_word._standalone_entry:main",
+        ),
+    ] {
         let plan = run_json_with_env_removed(
             &["install", "--dcc-type", dcc_type],
             &[],
             &["DCC_MCP_CATALOG_PATH", "DCC_MCP_INSTALL_PYTHON"],
         );
-        assert!(plan["adapter"]["install"].is_null(), "{dcc_type}");
+
+        assert_eq!(plan["dcc_type"], dcc_type);
+        assert_eq!(plan["adapter"]["name"], package);
+        assert_eq!(plan["adapter"]["version"], version);
+        assert!(!plan["adapter"]["install"].is_null(), "{dcc_type}");
+
+        let install_step = &plan["steps"][0];
+        assert_eq!(install_step["name"], "install-pip", "{dcc_type}");
+        assert_eq!(install_step["action"]["type"], "PipInstall", "{dcc_type}");
+        assert_eq!(install_step["action"]["package"], package, "{dcc_type}");
+        assert_eq!(install_step["action"]["version"], version, "{dcc_type}");
+        assert_eq!(
+            install_step["action"]["extras"],
+            serde_json::json!(["headless"]),
+            "{dcc_type} must install its headless document backend"
+        );
+        assert_eq!(install_step["action"]["sha256"], sha256, "{dcc_type}");
         assert!(
-            plan["steps"]
-                .as_array()
+            install_step["action"]["artifact_url"]
+                .as_str()
                 .unwrap()
-                .iter()
-                .all(|step| step["action"].is_null()),
+                .starts_with("https://files.pythonhosted.org/packages/"),
+            "{dcc_type} must pin an immutable PyPI wheel URL"
+        );
+        assert!(
+            install_step["action"]["artifact_url"]
+                .as_str()
+                .unwrap()
+                .ends_with(wheel),
+            "{dcc_type} must resolve to the pinned published wheel"
+        );
+
+        let register_step = &plan["steps"][1];
+        assert_eq!(register_step["action"]["type"], "RegisterDcc", "{dcc_type}");
+        assert_eq!(register_step["action"]["dcc_type"], dcc_type, "{dcc_type}");
+        assert_eq!(
+            register_step["action"]["entry_point"], entry_point,
             "{dcc_type}"
         );
+        if dcc_type == "word" {
+            assert_eq!(plan["next_steps"][0]["name"], "read-install-instructions");
+            assert_eq!(
+                plan["next_steps"][0]["url"],
+                concat!(
+                    "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-word/",
+                    "8e59aa34b34ac23ffc9c419979c5644046561d22/README.md"
+                )
+            );
+        }
     }
 }
 
 #[test]
 fn bundled_catalog_reports_current_core_adapter_versions() {
     for (dcc_type, expected_version) in [
-        ("maya", "0.9.22"),
+        ("maya", "0.9.42"),
         ("houdini", "0.31.5"),
         ("blender", "0.1.43"),
         ("3dsmax", "0.1.40"),
-        ("photoshop", "0.1.37"),
+        ("photoshop", "0.1.44"),
+        ("aftereffects", "0.7.3"),
+        ("premiere", "0.6.3"),
+        ("illustrator", "0.3.3"),
     ] {
         let plan = run_json_with_env_removed(
             &["install", "--dcc-type", dcc_type],

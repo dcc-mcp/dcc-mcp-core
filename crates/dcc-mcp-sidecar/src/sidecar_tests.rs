@@ -19,7 +19,6 @@ use std::time::Instant;
 use tempfile::TempDir;
 use uuid::Uuid;
 
-#[cfg(feature = "gateway-daemon")]
 fn guardian_test_args() -> SidecarArgs {
     SidecarArgs {
         dcc: "maya".to_string(),
@@ -46,16 +45,21 @@ fn guardian_test_args() -> SidecarArgs {
 
 #[test]
 fn default_registry_dir_matches_gateway_runner_fallback() {
-    let _guard = EnvVarGuard::set("DCC_MCP_REGISTRY_DIR", None);
+    let home = TempDir::new().unwrap();
+    let _guard = dcc_mcp_test_utils::EnvVarsGuard::set(&[
+        ("DCC_MCP_REGISTRY_DIR", None),
+        (
+            if cfg!(windows) { "USERPROFILE" } else { "HOME" },
+            home.path().to_str(),
+        ),
+    ]);
 
-    let got = default_registry_dir();
-    let expected = std::env::temp_dir().join("dcc-mcp-registry");
+    let got = default_registry_dir().unwrap();
+    let expected = home.path().join(".dcc-mcp").join("registry-live");
 
     assert_eq!(
         got, expected,
-        "sidecar default_registry_dir must match GatewayRunner::new \
-             fallback (<tempdir>/dcc-mcp-registry). Mismatch split-brains \
-             the FileRegistry and produces a dark gateway port."
+        "sidecar and GatewayRunner must share the user registry"
     );
 }
 
@@ -64,7 +68,7 @@ fn default_registry_dir_honours_env_var_override() {
     let custom = std::env::temp_dir().join("dcc-mcp-custom-registry-test");
     let _guard = EnvVarGuard::set("DCC_MCP_REGISTRY_DIR", Some(custom.to_str().unwrap_or("")));
 
-    let got = default_registry_dir();
+    let got = default_registry_dir().unwrap();
 
     assert_eq!(
         got, custom,
@@ -166,7 +170,6 @@ fn gateway_daemon_guardian_runs_only_in_daemon_backed_mode() {
     );
 }
 
-#[cfg(feature = "gateway-daemon")]
 #[test]
 fn sidecar_service_entry_reports_gateway_guardian_metadata() {
     fn assert_mode(args: SidecarArgs, mode: &str, enabled: bool, recovery_driver: &str) {
@@ -265,11 +268,20 @@ fn sidecar_service_entry_reports_gateway_guardian_metadata() {
         );
     }
 
+    let daemon_available = cfg!(feature = "gateway-daemon");
     assert_mode(
         guardian_test_args(),
-        "daemon-backed",
-        true,
-        GATEWAY_RECOVERY_DRIVER_DAEMON_GUARDIAN,
+        if daemon_available {
+            "daemon-backed"
+        } else {
+            "daemon-unavailable"
+        },
+        daemon_available,
+        if daemon_available {
+            GATEWAY_RECOVERY_DRIVER_DAEMON_GUARDIAN
+        } else {
+            GATEWAY_RECOVERY_DRIVER_NONE
+        },
     );
 
     let mut disabled = guardian_test_args();
@@ -297,6 +309,27 @@ fn sidecar_service_entry_reports_gateway_guardian_metadata() {
         "embedded-fallback",
         false,
         GATEWAY_RECOVERY_DRIVER_EMBEDDED_ELECTION,
+    );
+
+    let mut adapter_managed = guardian_test_args();
+    adapter_managed.no_ensure_gateway = true;
+    adapter_managed.legacy_gateway_election = true;
+    assert_mode(
+        adapter_managed,
+        "embedded-fallback",
+        false,
+        GATEWAY_RECOVERY_DRIVER_EMBEDDED_ELECTION,
+    );
+
+    let mut adapter_managed_disabled = guardian_test_args();
+    adapter_managed_disabled.gateway_port = 0;
+    adapter_managed_disabled.no_ensure_gateway = true;
+    adapter_managed_disabled.legacy_gateway_election = true;
+    assert_mode(
+        adapter_managed_disabled,
+        "not_configured",
+        false,
+        GATEWAY_RECOVERY_DRIVER_NONE,
     );
 }
 

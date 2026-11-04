@@ -60,11 +60,15 @@ class GatewayDaemonGuardian:
         reensure_jitter_max_secs: float | None = None,
         failure_threshold: int | None = None,
         status_callback: Callable[[dict[str, Any]], None] | None = None,
+        gateway_remote_host: str | None = None,
+        gateway_remote_port: int | None = None,
     ) -> None:
         self.gateway_host = gateway_host
         self.gateway_port = gateway_port
         self.registry_dir = registry_dir
         self.dcc_type = dcc_type
+        self.gateway_remote_host = gateway_remote_host
+        self.gateway_remote_port = gateway_remote_port
         self.probe_interval_secs = probe_interval_secs or env_float(
             ENV_GATEWAY_GUARDIAN_INTERVAL,
             5.0,
@@ -176,6 +180,8 @@ class GatewayDaemonGuardian:
                 gateway_persist=None,
                 gateway_idle_timeout_secs=None,
                 server_bin=None,
+                gateway_remote_host=self.gateway_remote_host,
+                gateway_remote_port=self.gateway_remote_port,
             )
             if takeover_result is not None:
                 self._restart_attempts += 1
@@ -213,6 +219,8 @@ class GatewayDaemonGuardian:
             registry_dir=self.registry_dir,
             dcc_type=self.dcc_type,
             timeout_secs=self.restart_timeout_secs,
+            gateway_remote_host=self.gateway_remote_host,
+            gateway_remote_port=self.gateway_remote_port,
         )
         if result.get("ok"):
             self._consecutive_failures = 0

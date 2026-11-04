@@ -11,6 +11,147 @@ use tempfile::{NamedTempFile, TempDir};
 
 use support::*;
 
+#[test]
+fn explicit_registry_commands_do_not_require_user_home() {
+    let fixture = spawn_gateway_fixture();
+    let port = fixture.base_url.rsplit(':').next().unwrap();
+    let registry = TempDir::new().unwrap();
+    let profiles = NamedTempFile::new().unwrap();
+    let registry_s = registry.path().to_str().unwrap();
+    let profiles_s = profiles.path().to_str().unwrap();
+    for args in [
+        vec!["doctor", "--gateway-port", port],
+        vec!["gateway", "status", "--port", port],
+        vec!["gateway", "daemon", "status", "--port", port],
+    ] {
+        let mut command = vec![
+            "--no-update-maintenance",
+            "--auto-gateway-bin",
+            env!("CARGO_BIN_EXE_dcc-mcp-cli"),
+        ];
+        command.extend(args);
+        command.extend(["--registry-dir", registry_s]);
+        let result = run_json_with_env_removed(
+            &command,
+            &[
+                (
+                    if cfg!(windows) { "USERPROFILE" } else { "HOME" },
+                    "relative-home",
+                ),
+                ("DCC_MCP_GATEWAY_PROFILES_FILE", profiles_s),
+                ("DCC_MCP_PYTHON_EXECUTABLE", ""),
+            ],
+            &[
+                "DCC_MCP_REGISTRY_DIR",
+                "DCC_MCP_GATEWAY_PROFILE",
+                "DCC_MCP_BASE_URL",
+            ],
+        );
+        if let Some(local) = result.get("local") {
+            assert_eq!(local["registry_dir"], registry_s);
+        } else {
+            assert_eq!(result["healthy"], true);
+            assert_eq!(result["registry_dir"], registry_s);
+        }
+    }
+}
+
+#[tokio::test]
+async fn doctor_healthy_gateway_does_not_repair_registry_to_recover_missing_pidfile() {
+    let registry = TempDir::new().unwrap();
+    let path = registry.path().join("services.json");
+    std::fs::write(&path, "private-invalid-json").unwrap();
+    std::fs::create_dir(registry.path().join("services.lock")).unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let app = axum::Router::new().route("/health", axum::routing::get(|| async { "ok" }));
+    let task = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    let profiles = NamedTempFile::new().unwrap();
+    let registry_s = registry.path().to_string_lossy().to_string();
+    let profiles_s = profiles.path().to_string_lossy().to_string();
+    let doctor = tokio::task::spawn_blocking(move || {
+        run_json_with_env(
+            &[
+                "--auto-gateway-bin",
+                env!("CARGO_BIN_EXE_dcc-mcp-cli"),
+                "doctor",
+                "--gateway-port",
+                &port.to_string(),
+            ],
+            &[
+                ("DCC_MCP_REGISTRY_DIR", &registry_s),
+                ("DCC_MCP_GATEWAY_PROFILES_FILE", &profiles_s),
+                ("DCC_MCP_PYTHON_EXECUTABLE", ""),
+            ],
+        )
+    })
+    .await
+    .unwrap();
+    task.abort();
+    assert_eq!(doctor["gateway"]["status"]["healthy"], true);
+    assert_eq!(doctor["gateway"]["status"]["pid"], serde_json::Value::Null);
+    assert_eq!(doctor["local"]["inventory"]["ok"], false);
+    assert_eq!(
+        std::fs::read_to_string(path).unwrap(),
+        "private-invalid-json"
+    );
+    assert_eq!(std::fs::read_dir(registry.path()).unwrap().count(), 2);
+}
+
+#[test]
+fn doctor_registry_snapshot_does_not_create_prune_or_quarantine() {
+    for content in [None, Some("invalid-private-registry"), Some("\0\0")] {
+        let root = TempDir::new().unwrap();
+        let registry = root.path().join("registry");
+        if let Some(content) = content {
+            std::fs::create_dir(&registry).unwrap();
+            std::fs::write(registry.join("services.json"), content).unwrap();
+        }
+        let profiles = NamedTempFile::new().unwrap();
+        let registry_s = registry.to_string_lossy().to_string();
+        let profiles_s = profiles.path().to_string_lossy().to_string();
+        let port = unused_loopback_port().to_string();
+        let doctor = run_json_with_env(
+            &[
+                "--auto-gateway-bin",
+                env!("CARGO_BIN_EXE_dcc-mcp-cli"),
+                "doctor",
+                "--gateway-port",
+                &port,
+            ],
+            &[
+                ("DCC_MCP_REGISTRY_DIR", &registry_s),
+                ("DCC_MCP_GATEWAY_PROFILES_FILE", &profiles_s),
+                ("DCC_MCP_PYTHON_EXECUTABLE", ""),
+            ],
+        );
+        let inventory = &doctor["local"]["inventory"];
+        assert_eq!(inventory["mode"], "read_only_snapshot");
+        if let Some(content) = content {
+            assert_eq!(inventory["ok"], false);
+            assert_eq!(inventory["operation"], "read_registry_snapshot");
+            assert_eq!(inventory["os_error"], serde_json::Value::Null);
+            assert!(
+                !inventory["error"]
+                    .as_str()
+                    .unwrap()
+                    .contains("invalid-private")
+            );
+            assert_eq!(
+                std::fs::read_to_string(registry.join("services.json")).unwrap(),
+                content
+            );
+            assert_eq!(std::fs::read_dir(&registry).unwrap().count(), 1);
+        } else {
+            assert_eq!(inventory["ok"], true);
+            assert_eq!(inventory["total"], 0);
+            assert!(!registry.exists());
+        }
+    }
+}
+
 /// A registered adapter with no configured interpreter must not be reported as
 /// broken: an unrun probe is not evidence of a failing adapter.
 #[test]

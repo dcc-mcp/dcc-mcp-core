@@ -19,7 +19,7 @@ metadata:
       domain: marketplace
       workflow_stage: publishing
       task_category: export
-    version: "0.20.42"  # x-release-please-version
+    version: "0.20.53"  # x-release-please-version
     layer: infrastructure
     maintainer: dcc-mcp
     search-hint: >-
@@ -38,8 +38,8 @@ metadata:
 
 For marketplace and live-DCC operations, use the `dcc-mcp` skill and
 `dcc-mcp-cli` whenever shell access is available. Its consent-gated install and
-`update check` → `update apply` contract is the single source of truth; do not
-invent a package-local CLI bootstrap path.
+`dcc-mcp-cli update` contract (check, download, and stage in one step) is the
+single source of truth; do not invent a package-local CLI bootstrap path.
 
 Publish (register or update) a DCC-MCP Skill, bundle, or Agent Plugin package
 to a marketplace catalog (`marketplace.json`).

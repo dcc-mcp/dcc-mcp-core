@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 pub(crate) mod policy;
+mod python;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InstallRequest {
@@ -185,6 +186,8 @@ pub enum InstallPlanError {
         required: String,
         current: String,
     },
+    #[error("'{path}' is not a usable pip interpreter; specify --python with a Python executable")]
+    InvalidPythonExecutable { path: String },
     #[error("git install requires a full 40-character commit object ID")]
     UnpinnedGitReference,
     #[error("zip install requires exactly 64 hexadecimal SHA-256 digits")]
@@ -329,13 +332,26 @@ impl InstallPlanner {
             validate_install_integrity(&adapter, install, request.version.as_deref())?;
         }
 
+        let python = match &adapter.install {
+            Some(install) if install.install_type == "pip" => python::resolve_python(
+                request.python.clone(),
+                install.python_path.clone(),
+                dcc_path.as_deref(),
+                &dcc_key,
+            )
+            .map_err(|hint| InstallPlanError::InvalidPythonExecutable {
+                path: hint.gui_path.display().to_string(),
+            })?,
+            _ => request.python.clone(),
+        };
+
         let steps = match &adapter.install {
             Some(install) => Self::build_executable_steps(
                 &adapter,
                 install,
                 &dcc_type,
                 version.clone(),
-                request.python.clone(),
+                python,
                 dcc_path.clone(),
                 InstallOperatorPaths {
                     plugin_source: request.plugin_source.clone(),

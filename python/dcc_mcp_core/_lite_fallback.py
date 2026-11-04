@@ -608,7 +608,7 @@ else:
         parent = gui_path.parent
         if not parent.is_dir():
             return None
-        extension = gui_path.suffix
+        extension = gui_path.suffix if gui_path.suffix.lower() == ".exe" else ""
         for stem in stems:
             candidate = parent / stem
             if extension:

@@ -97,3 +97,15 @@ entries:
     );
     assert!(validate_catalog_entries(&entries).is_ok());
 }
+
+#[test]
+fn bundled_maya_core_requirement_matches_the_published_release() {
+    let entries = load_from_str(include_str!("../../../dcc-mcp-catalog.yml")).unwrap();
+    let maya = entries
+        .iter()
+        .find(|entry| entry.name == "dcc-mcp-maya")
+        .expect("the bundled catalog must include Maya");
+    assert_eq!(maya.min_core_version.as_deref(), Some("0.20.0"));
+    assert_eq!(maya.core_requirement.as_deref(), Some(">=0.20.0,<0.21.0"));
+    validate_entry(maya).expect("the published Maya core range must pass catalog policy");
+}

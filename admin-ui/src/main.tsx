@@ -12,6 +12,7 @@ import { applyTheme, readThemeMode, resolveTheme } from './theme';
 import './styles.css';
 import './styles/stats.css';
 import './styles/traces.css';
+import './styles/logs.css';
 import './styles/skill-detail.css';
 import './setup.css';
 import './styles/skills.css';

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from fnmatch import fnmatch
+
 from conftest import REPO_ROOT
 from dcc_mcp_core import yaml_loads
 
@@ -12,7 +14,24 @@ BUILD_JOB_IDS = {
     "py37-lite",
     "linux-py37",
     "windows-py37",
+    "macos-py37",
     "macos",
+}
+# The macOS cp37 wheel stays a build-verification spike rather than a release
+# artefact, so it trails both `publish-release.needs` and the published artifact
+# list. It is withheld by scope, not because it is broken: the lane builds it,
+# passes the native_py37 contract, and pip-installs it into python.org 3.7.9 on
+# macOS 10.12+ (pip compares the wheel tag against the running OS version, not
+# the interpreter's MACOSX_DEPLOYMENT_TARGET). Promoting it to a release
+# artefact is a product decision, not a bug fix.
+PUBLISH_JOB_IDS = BUILD_JOB_IDS - {"macos-py37"}
+PUBLISH_ARTIFACT_NAMES = {
+    "wheels-linux-x86_64",
+    "wheels-windows-x64",
+    "wheels-py37-lite",
+    "wheels-linux-x86_64-py37",
+    "wheels-windows-x64-py37",
+    "wheels-macos-universal2",
 }
 
 
@@ -89,17 +108,26 @@ def test_release_wheels_are_uploaded_once_after_every_build() -> None:
         assert all(step.get("uses") != "softprops/action-gh-release@v3" for step in steps)
 
     publish = jobs["publish-release"]
-    assert set(publish["needs"]) == BUILD_JOB_IDS
+    assert set(publish["needs"]) == PUBLISH_JOB_IDS
     assert publish["if"] == "inputs.release-tag-name != ''"
     assert publish["permissions"] == {"actions": "read", "contents": "write"}
 
-    download = publish["steps"][0]
-    assert download["uses"] == "actions/download-artifact@v8"
-    assert download["with"] == {
-        "pattern": "wheels-*",
-        "path": "dist",
-        "merge-multiple": True,
-    }
+    # The macOS cp37 wheel is a build-verification spike, not a release
+    # artefact, so `publish-release` downloads each published wheel by name
+    # instead of globbing `wheels-*`. The spike is uploaded as
+    # `spike-wheels-macos-x86_64-py37`, deliberately outside the `wheels-*`
+    # namespace, so publication globs cannot sweep it into the distribution
+    # set even if this allowlist is ever relaxed.
+    downloads = [step for step in publish["steps"] if step.get("uses") == "actions/download-artifact@v8"]
+    assert downloads
+    downloaded_names = set()
+    for step in downloads:
+        with_ = step["with"]
+        assert "pattern" not in with_
+        assert with_["path"] == "dist"
+        assert with_["merge-multiple"] is True
+        downloaded_names.add(with_["name"])
+    assert downloaded_names == PUBLISH_ARTIFACT_NAMES
 
     validate_index = next(
         index
@@ -130,6 +158,22 @@ def test_release_wheels_are_uploaded_once_after_every_build() -> None:
     }
 
 
+def test_verification_spike_producer_stays_outside_publication_globs() -> None:
+    jobs = _jobs()
+    build = next(step for step in jobs["macos-py37"]["steps"] if step.get("uses") == "./.github/actions/build-wheel")
+    artifact_name = build["with"]["artifact-name"]
+    assert artifact_name not in PUBLISH_ARTIFACT_NAMES
+
+    release = yaml_loads((REPO_ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8"))
+    for job_id in ("publish-core-pypi", "publish-github-release-assets"):
+        download = next(
+            step
+            for step in release["jobs"][job_id]["steps"]
+            if step.get("name") == "Download dcc-mcp-core wheel artefacts"
+        )
+        assert not fnmatch(artifact_name, download["with"]["pattern"]), job_id
+
+
 def test_callable_workflow_declares_the_release_token_secret() -> None:
     """Reusable workflows do not inherit secrets, so it must be declared."""
     workflow = yaml_loads(BUILD_WHEELS_WORKFLOW.read_text(encoding="utf-8"))
@@ -157,6 +201,7 @@ def test_python37_runtime_smokes_share_version_and_ref_bound_dependency_preparat
         "py37-lite": "Test py37-lite wheel",
         "linux-py37": "Test native Python 3.7 wheel with workflow smoke",
         "windows-py37": "Test native Python 3.7 wheel with workflow smoke",
+        "macos-py37": "Test native Python 3.7 wheel with workflow smoke",
     }
 
     for job_id, smoke_step_name in smoke_steps.items():
@@ -169,6 +214,81 @@ def test_python37_runtime_smokes_share_version_and_ref_bound_dependency_preparat
         assert "--profile " + ("lite_py37" if job_id == "py37-lite" else "native_py37") in smoke["run"]
         assert "if [[ -f" not in smoke["run"]
         assert all("test_issue_2388_zero_typing_extensions.py" not in step.get("run", "") for step in steps)
+
+
+def test_py37_contract_check_keeps_macos_target_gate_off_linux_and_windows() -> None:
+    """The macOS cp37 target gate must stay scoped to macOS.
+
+    Linux and Windows pass their own `target` values (`x86_64`, `x64`), so
+    reusing the Apple triple check for them rejects every non-macOS cp37 lane
+    before the wheel contract ever runs.
+    """
+    action = yaml_loads((REPO_ROOT / ".github" / "actions" / "build-wheel" / "action.yml").read_text(encoding="utf-8"))
+    contract = next(
+        step for step in action["runs"]["steps"] if step.get("name") == "Check Python compatibility wheel contract"
+    )
+    run = contract["run"]
+
+    # The Apple-triple guard is the only thing that may reference the triple.
+    assert "x86_64-apple-darwin" in run
+    # Linux and Windows fall through without touching `inputs.target`.
+    linux_windows_branch = "Linux|Windows) ;;"
+    assert linux_windows_branch in run
+    # The macOS target check must sit inside the macOS arm of the *py37* case,
+    # never in an unguarded or Windows-reachable position. Scope the search to
+    # the py37 block: the abi3 block above also has a macOS arm.
+    py37_block = run.split('profile="native_py37"')[1]
+    macos_arm = py37_block.split("macOS)")[1].split(";;")[0]
+    assert "x86_64-apple-darwin" in macos_arm
+    # The py37 case must not assign a platform on Linux/Windows at all.
+    assert 'platform="linux-x86_64"' not in py37_block
+    assert 'platform="windows-x86_64"' not in py37_block
+
+
+def test_py37_wheel_test_selects_the_native_interpreter() -> None:
+    """The macOS lane must not create a cp37 venv with the runner's default Python.
+
+    Windows needs the original python.exe name instead: its python3.7 alias
+    is a renamed copy, which breaks CPython 3.7's venv executable lookup.
+    """
+    action = yaml_loads((REPO_ROOT / ".github" / "actions" / "build-wheel" / "action.yml").read_text(encoding="utf-8"))
+    test_wheel = next(step for step in action["runs"]["steps"] if step.get("name") == "Test wheel")
+    run = test_wheel["run"]
+    macos_guard = 'if [[ "${{ inputs.python-version }}" == "3.7" && "${{ runner.os }}" == "macOS" ]]; then'
+    guard = 'if [[ "${{ inputs.python-version }}" == "3.7" && "${{ runner.os }}" != "Windows" ]]; then'
+    assert macos_guard in run
+    macos_branch, _ = run.split(macos_guard, 1)[1].split("fi", 1)[0].split("elif", 1)
+    assert macos_branch.strip() == "arch -x86_64 python3.7 -m venv test-env"
+    native_branch, default_branch = run.split(guard, 1)[1].split("fi", 1)[0].split("else", 1)
+    assert native_branch.strip() == "python3.7 -m venv test-env"
+    assert default_branch.strip() == "python -m venv test-env"
+    assert run.index(macos_guard) < run.index(guard) < run.index("source test-env/")
+
+
+def test_macos_py37_wheel_test_runs_the_venv_under_rosetta() -> None:
+    """The macOS cp37 venv must be created and exercised in the x86_64 slice.
+
+    The runner is arm64 and the contracted cp37 wheel is the x86_64 one, so a
+    venv created without `arch -x86_64` binds to arm64 and pip rejects the
+    wheel as "not a supported wheel on this platform". Rosetta 2 only
+    translates processes that request it, so every command in the step that
+    reads a platform tag needs the same prefix.
+    """
+    action = yaml_loads((REPO_ROOT / ".github" / "actions" / "build-wheel" / "action.yml").read_text(encoding="utf-8"))
+    test_wheel = next(step for step in action["runs"]["steps"] if step.get("name") == "Test wheel")
+    run = test_wheel["run"]
+    guard = 'if [[ "${{ inputs.python-version }}" == "3.7" && "${{ runner.os }}" == "macOS" ]]; then'
+    assert "arch -x86_64 python3.7 -m venv test-env" in run
+    # Verify the guard exists and that a re-exec assertion follows activation.
+    assert guard in run
+    # Every remaining x86_64-sensitive command in the step needs the prefix.
+    for command in (
+        "arch -x86_64 python -m pip install --upgrade",
+        "arch -x86_64 pip install --force-reinstall dist/*.whl",
+        "arch -x86_64 pip check",
+        "arch -x86_64 python scripts/ci/smoke_python37_runtime.py",
+    ):
+        assert command in run, command
 
 
 def test_abi3_backfill_uses_workflow_smoke_without_changing_tag_source() -> None:
@@ -194,3 +314,130 @@ def test_abi3_backfill_uses_workflow_smoke_without_changing_tag_source() -> None
         assert "python .workflow-tools/tests/test_imports.py" in smoke
         assert "test-env/Scripts/activate" in smoke
         assert "test-env/bin/activate" in smoke
+
+
+def test_native_py37_backfill_uses_workflow_owned_clean_venv() -> None:
+    """An old tag must not supply the venv implementation for its own backfill."""
+    for job_id, interpreter in (
+        ("linux-py37", "test-env/bin/python"),
+        ("windows-py37", "test-env/Scripts/python.exe"),
+    ):
+        steps = _jobs()[job_id]["steps"]
+        assert steps[0]["with"]["ref"] == "${{ inputs.checkout-ref || github.ref }}"
+        build_index = next(i for i, step in enumerate(steps) if step.get("uses") == "./.github/actions/build-wheel")
+        assert steps[build_index]["with"]["test-wheel"] == "false"
+        tooling_index = next(
+            i for i, step in enumerate(steps) if step.get("name") == "Checkout workflow compatibility tooling"
+        )
+        tooling = steps[tooling_index]["with"]
+        assert tooling["ref"] == "${{ github.workflow_sha }}"
+        assert tooling["path"] == ".workflow-tools"
+        assert tooling["persist-credentials"] is False
+        assert "compatibility" in tooling["sparse-checkout"]
+        assert "scripts/ci" in tooling["sparse-checkout"]
+        smoke_index = next(
+            i for i, step in enumerate(steps) if step.get("name") == "Test native Python 3.7 wheel with workflow smoke"
+        )
+        assert build_index < tooling_index < smoke_index
+        smoke = steps[smoke_index]
+        assert "if" not in smoke
+        run = smoke["run"]
+        assert "python -m venv test-env" in run
+        assert "--system-site-packages" not in run
+        assert "python3.7 -m venv" not in run
+        assert "source " not in run
+        assert "sys.version_info[:2] == (3, 7)" in run
+        assert "sys.prefix != sys.base_prefix" in run
+        assert interpreter + " -m pip --version" in run
+        assert interpreter + " .workflow-tools/scripts/ci/python37_wheel_smoke.py" in run
+        assert interpreter + " -m pip check" in run
+        assert run.index("python -m venv") < run.index("python37_wheel_smoke.py") < run.index(" -m pip check")
+
+
+def test_native_py37_ci_exercises_the_real_action_venv() -> None:
+    """Keep Windows and macOS venv/ensurepip regressions on the native CI path."""
+    ci = yaml_loads((REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8"))
+    job = ci["jobs"]["python37-native"]
+    build = next(step for step in job["steps"] if step.get("uses") == "./.github/actions/build-wheel")
+    assert build["with"]["python-version"] == "3.7"
+    assert build["with"]["test-wheel"] == (
+        "${{ (matrix.platform == 'windows-x86_64' || matrix.platform == 'macos-x86_64') && 'true' || 'false' }}"
+    )
+    action = yaml_loads((REPO_ROOT / ".github" / "actions" / "build-wheel" / "action.yml").read_text(encoding="utf-8"))
+    test_wheel = next(step for step in action["runs"]["steps"] if step.get("name") == "Test wheel")
+    assert test_wheel["if"] == "inputs.test-wheel == 'true'"
+    assert "python -m venv test-env" in test_wheel["run"]
+    assert "pip install --force-reinstall dist/*.whl" in test_wheel["run"]
+    install = next(step for step in job["steps"] if step.get("name") == "Install native wheel")
+    for os_name, interpreter in (
+        ("Windows", "test-env/Scripts/python.exe"),
+        ("macOS", "test-env/bin/python"),
+    ):
+        verify = next(
+            step for step in job["steps"] if step.get("name") == "Verify " + os_name + " Python 3.7 clean venv"
+        )
+        assert job["steps"].index(build) < job["steps"].index(verify) < job["steps"].index(install)
+        assert verify["if"] == "runner.os == '" + os_name + "'"
+        assert verify["shell"] == "bash"
+        assert "continue-on-error" not in verify
+        run = verify["run"]
+        assert interpreter + " -c" in run
+        assert "sys.prefix != sys.base_prefix" in run
+        assert "sys.version_info[:2] == (3, 7)" in run
+        assert interpreter + " -m pip check" in run
+        assert interpreter + " -I scripts/ci/smoke_python37_runtime.py --profile native_py37" in run
+
+
+def test_native_py37_backfill_resolves_declared_dependencies_after_isolated_smoke() -> None:
+    """A no-deps runtime smoke cannot satisfy a declared-dependency check."""
+    for job_id, interpreter in (
+        ("linux-py37", "test-env/bin/python"),
+        ("windows-py37", "test-env/Scripts/python.exe"),
+    ):
+        smoke = next(
+            step
+            for step in _jobs()[job_id]["steps"]
+            if step.get("name") == "Test native Python 3.7 wheel with workflow smoke"
+        )
+        run = smoke["run"]
+        install = interpreter + " -m pip install --force-reinstall dist/*.whl"
+        check = interpreter + " -m pip check"
+        assert install in run.splitlines()
+        assert check in run.splitlines()
+        assert run.index("python37_wheel_smoke.py") < run.index(install) < run.index(check)
+        assert "--no-deps" not in run
+        assert "--ignore-requires-python" not in run
+
+
+def test_shared_build_wheel_venv_upgrades_pip_before_installing() -> None:
+    """Fresh py37 venvs need their own Python 3.7-compatible pip upgrade.
+
+    The venv does not inherit the setup interpreter's upgraded pip; CPython
+    3.7.9 seeds pip 20.1.1 through ensurepip.
+    """
+    action = yaml_loads((REPO_ROOT / ".github" / "actions" / "build-wheel" / "action.yml").read_text(encoding="utf-8"))
+    test_wheel = next(step for step in action["runs"]["steps"] if step.get("name") == "Test wheel")
+    run = test_wheel["run"]
+    # The ceiling keeps Python 3.7 installable: pip 24.1+ drops py37.
+    assert 'python -m pip install --upgrade "pip<24.1" wheel' in run
+    # `pip install --upgrade pip` replaces the running pip.exe and dies with
+    # WinError 5 on Windows; upgrading through `python -m pip` avoids that.
+    assert "pip install --upgrade pip" not in run
+    install = "pip install --force-reinstall dist/*.whl"
+    assert run.index("--upgrade") < run.index(install)
+
+
+def test_macos_py37_smoke_upgrades_pip_before_installing() -> None:
+    """The macOS smoke must use the native interpreter, not runner Python."""
+    smoke = next(
+        step
+        for step in _jobs()["macos-py37"]["steps"]
+        if step.get("name") == "Test native Python 3.7 wheel with workflow smoke"
+    )
+    run = smoke["run"]
+    assert 'python3.7 -m pip install --upgrade "pip<24.1" wheel' in run
+    assert run.index("--upgrade") < run.index("python37_wheel_smoke.py")
+    assert "python3.7 -m pip --version" in run
+    assert "python3.7 .workflow-tools/scripts/ci/python37_wheel_smoke.py" in run
+    assert "python -m pip" not in run
+    assert "python .workflow-tools/" not in run

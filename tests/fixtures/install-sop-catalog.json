@@ -1,0 +1,110 @@
+[
+  {
+    "name": "dcc-mcp-comfyui",
+    "dcc_type": "comfyui",
+    "version": "0.1.4",
+    "min_core_version": "0.20.8",
+    "artifact_url": "https://files.pythonhosted.org/packages/4e/f4/ce16423ffb5792723d1325a86a95a949397306a726977b84b1c0a234c1c9/dcc_mcp_comfyui-0.1.4-py3-none-any.whl",
+    "sha256": "4fb5a1ba0310c0c5c544d11ee4403fdad892755c6c95ef0d76d45ea60ba07679",
+    "instructions_url": "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-comfyui/9c43fa6b0fa43b8f6279b09e0726a8a556ae8e3c/install.md",
+    "source_ref": "9c43fa6b0fa43b8f6279b09e0726a8a556ae8e3c",
+    "release_url": "https://github.com/dcc-mcp/dcc-mcp-comfyui/releases/tag/v0.1.4",
+    "implementation_pr": "https://github.com/dcc-mcp/dcc-mcp-comfyui/pull/10"
+  },
+  {
+    "name": "dcc-mcp-fpt",
+    "dcc_type": "shotgrid",
+    "version": "0.1.9",
+    "min_core_version": "0.19.45",
+    "artifact_url": "https://files.pythonhosted.org/packages/1b/b8/a8a7fb253ef6735447eaaf83dba406771bcc63dfd87f59b0d7df5bc94abe/dcc_mcp_fpt-0.1.9-py3-none-any.whl",
+    "sha256": "179a3f15f8b5706046d6e9801f6365a5b0d27098070f0c36ff92c4278e2b0bc4",
+    "instructions_url": "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-fpt/39174590c788234cba21bd982a71d11f42955444/install.md",
+    "source_ref": "39174590c788234cba21bd982a71d11f42955444",
+    "release_url": "https://github.com/dcc-mcp/dcc-mcp-fpt/releases/tag/v0.1.9",
+    "implementation_pr": "https://github.com/dcc-mcp/dcc-mcp-fpt/pull/32"
+  },
+  {
+    "name": "dcc-mcp-gimp",
+    "dcc_type": "gimp",
+    "version": "0.4.1",
+    "min_core_version": "0.19.91",
+    "artifact_url": "https://files.pythonhosted.org/packages/94/08/2e79c3a888f161bbd43263da3b5ca0d5702cf5c8fd0ce37d6cb492c1cb0f/dcc_mcp_gimp-0.4.1-py3-none-any.whl",
+    "sha256": "5cbc37af4a927f4d29f9b036e4961caa08b9b0c477d737534e206f01d4333614",
+    "instructions_url": "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-gimp/05bbd132993b937ea33cbca798e21f7b4193fc52/install.md",
+    "source_ref": "05bbd132993b937ea33cbca798e21f7b4193fc52",
+    "release_url": "https://github.com/dcc-mcp/dcc-mcp-gimp/releases/tag/v0.4.1",
+    "implementation_pr": "https://github.com/dcc-mcp/dcc-mcp-gimp/pull/5"
+  },
+  {
+    "name": "dcc-mcp-katana",
+    "dcc_type": "katana",
+    "version": "0.5.0",
+    "min_core_version": "0.19.45",
+    "artifact_url": "https://files.pythonhosted.org/packages/00/4a/97501745ee4ee1e4b3bc3fdc195ab8a850bbad59754cdd98803b5999be15/dcc_mcp_katana-0.5.0-py3-none-any.whl",
+    "sha256": "5f3b3f5d9dbe215b52610a8d9b717cec75d149d16f56dbb51e2fe92bd8022fd2",
+    "instructions_url": "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-katana/393596937d562c4fd1c623c70893f9a682b4ce99/install.md",
+    "source_ref": "393596937d562c4fd1c623c70893f9a682b4ce99",
+    "release_url": "https://github.com/dcc-mcp/dcc-mcp-katana/releases/tag/v0.5.0",
+    "implementation_pr": "https://github.com/dcc-mcp/dcc-mcp-katana/pull/8"
+  },
+  {
+    "name": "dcc-mcp-krita",
+    "dcc_type": "krita",
+    "version": "0.4.0",
+    "min_core_version": "0.19.38",
+    "artifact_url": "https://files.pythonhosted.org/packages/fd/df/661059ce16a97350fa8fd9837707f2061a1712c36fa3acdf1e083899aa51/dcc_mcp_krita-0.4.0-py3-none-any.whl",
+    "sha256": "288b307aea00d98242ce3c20c377cdd825eab785a6ffc33ba6af08e893e5314a",
+    "instructions_url": "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-krita/5f4bd69b1ad886f97f2f4b72187a0388a3e40b51/install.md",
+    "source_ref": "5f4bd69b1ad886f97f2f4b72187a0388a3e40b51",
+    "release_url": "https://github.com/dcc-mcp/dcc-mcp-krita/releases/tag/v0.4.0",
+    "implementation_pr": "https://github.com/dcc-mcp/dcc-mcp-krita/pull/7"
+  },
+  {
+    "name": "dcc-mcp-mobu",
+    "dcc_type": "mobu",
+    "version": "0.4.0",
+    "min_core_version": "0.19.45",
+    "artifact_url": "https://files.pythonhosted.org/packages/12/54/0f3298bd9e11d9ae4678fe1ecde5e1e19bd99cf8812a286b8bb43c1388e2/dcc_mcp_mobu-0.4.0-py3-none-any.whl",
+    "sha256": "cc7971fc7975a1db99c0b5e0ee93a342d842e6fdf34a286b6f086c3746363b13",
+    "instructions_url": "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-mobu/275bdc62a724b347c6b7312dd08eb65ffca9994f/install.md",
+    "source_ref": "275bdc62a724b347c6b7312dd08eb65ffca9994f",
+    "release_url": "https://github.com/dcc-mcp/dcc-mcp-mobu/releases/tag/v0.4.0",
+    "implementation_pr": "https://github.com/dcc-mcp/dcc-mcp-mobu/pull/7"
+  },
+  {
+    "name": "dcc-mcp-openusd",
+    "dcc_type": "openusd",
+    "version": "0.8.2",
+    "min_core_version": "0.19.45",
+    "artifact_url": "https://files.pythonhosted.org/packages/09/e6/6c5ae7427b36e517139343b2f858c118187c4689826ee7c2f25603bc9478/dcc_mcp_openusd-0.8.2-py3-none-any.whl",
+    "sha256": "8e03a04dbc37c0fa8d19e74d963d8a41bc3a120d29888cadc9077c9b8d7081c4",
+    "instructions_url": "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-openusd/fd62299342ea1ac59aca20780c5335126e963af1/install.md",
+    "source_ref": "fd62299342ea1ac59aca20780c5335126e963af1",
+    "release_url": "https://github.com/dcc-mcp/dcc-mcp-openusd/releases/tag/v0.8.2",
+    "implementation_pr": "https://github.com/dcc-mcp/dcc-mcp-openusd/pull/50"
+  },
+  {
+    "name": "dcc-mcp-substance3d-painter",
+    "dcc_type": "substance3d_painter",
+    "version": "0.4.1",
+    "min_core_version": "0.20.15",
+    "artifact_url": "https://files.pythonhosted.org/packages/a2/37/2f63943bda1c723269c33c179e6c064410f11447ea985b4ba9dca11f0575/dcc_mcp_substance3d_painter-0.4.1-py3-none-any.whl",
+    "sha256": "247f8a9bb46121057ae50b40c0cd0dd92e7095305211af5ac163ce280116e388",
+    "instructions_url": "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-substance3d-painter/1c75a5ca2a3a2f4f33bc977341bb233b83d60de1/install.md",
+    "source_ref": "1c75a5ca2a3a2f4f33bc977341bb233b83d60de1",
+    "release_url": "https://github.com/dcc-mcp/dcc-mcp-substance3d-painter/releases/tag/v0.4.1",
+    "implementation_pr": "https://github.com/dcc-mcp/dcc-mcp-substance3d-painter/pull/26"
+  },
+  {
+    "name": "dcc-mcp-zbrush",
+    "dcc_type": "zbrush",
+    "version": "0.2.26",
+    "min_core_version": "0.20.14",
+    "artifact_url": "https://files.pythonhosted.org/packages/57/6a/8d0a1d6b5f28dbe9a41cd4ba5661e96a1903545d3eb041701e76c5c58573/dcc_mcp_zbrush-0.2.26-py3-none-any.whl",
+    "sha256": "d4b5bd94edf1b243b9a46d78502cb166c328b4f2036b88ff255d676291d41a0a",
+    "instructions_url": "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-zbrush/1c61bd65cf97ea654f184e13fb75c7ff9f4fc855/install.md",
+    "source_ref": "1c61bd65cf97ea654f184e13fb75c7ff9f4fc855",
+    "release_url": "https://github.com/dcc-mcp/dcc-mcp-zbrush/releases/tag/v0.2.26",
+    "implementation_pr": "https://github.com/dcc-mcp/dcc-mcp-zbrush/pull/71"
+  }
+]

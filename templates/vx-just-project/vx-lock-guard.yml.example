@@ -1,0 +1,62 @@
+# Optional standalone lock guard for a project that wants the lock check on a
+# separate trigger/path filter from the main CI. Copy to
+# .github/workflows/vx-lock-guard.yml. If you already have the `lock-guard` job
+# in ci.yml.example, you do NOT need this file — avoid two writers for one gate.
+#
+# WHY the separate `test -f vx.lock` assertion matters: `vx lock --check` exits
+# 0 when the file is MISSING (it only prints an error). A green lock check is
+# therefore NOT proof that a lock is committed. The guard fails closed.
+#
+# WHY cache:false: the action restores its vx binary/tool cache under a shared
+# prefix, so a cache entry written by an older vx can satisfy the restore even
+# with `version` pinned. install.sh skips the download when a vx binary is
+# present, so the stale binary is what runs — and older vx can reject the v2
+# lock format written by current vx. This job needs no tool cache.
+
+name: Vx Lock Guard
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "vx.toml"
+      - "vx.lock"
+      - ".github/workflows/vx-lock-guard.yml"
+  pull_request:
+    paths:
+      - "vx.toml"
+      - "vx.lock"
+      - ".github/workflows/vx-lock-guard.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vx-lock-guard-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  vx-lock:
+    name: vx.lock is committed and current
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Setup vx (pinned)
+        uses: loonghao/vx@debe4f035713d28366ec0c322e0b87de2a25d2f2 # v0.9.34
+        with:
+          version: "0.9.34"
+          cache: false
+      - name: Verify vx.lock presence + consistency
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f vx.lock ]; then
+            echo "::error::vx.lock is missing. Run 'vx lock' and commit the result."
+            exit 1
+          fi
+          vx lock --check

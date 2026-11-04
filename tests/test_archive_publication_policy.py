@@ -28,6 +28,12 @@ from test_python_wheel_contract import _write_wheel
 _ROOT = Path(__file__).resolve().parents[1]
 _VERSION = "0.20.22"
 _SDIST_ROOT = f"dcc_mcp_core-{_VERSION}"
+# Mirrors `_EXPECTED_WHEEL_CONTRACTS` in
+# scripts/ci/check_release_distribution_set.py: the macOS cp37 wheel is built
+# and contract-checked by the `macos-py37` lane but is not a release artefact.
+# It is withheld by scope, not because it is broken: pip-installing it into
+# python.org 3.7.9 works on macOS 10.12+ (pip compares the wheel tag against the
+# running OS version, not the interpreter's MACOSX_DEPLOYMENT_TARGET).
 _WHEEL_TAGS = (
     "cp37-cp37m-manylinux_2_17_x86_64.manylinux2014_x86_64",
     "cp37-cp37m-win_amd64",
@@ -113,7 +119,7 @@ def _publication_cli(directory: Path):
 def _assert_consumers_reject(tmp_path: Path, target: str, entries, reason: str) -> None:
     directory = tmp_path / "dist"
     artifact = _write_distribution_set(directory, target, entries)
-    # Run the exact CLI used before publishing, with all six wheel contracts
+    # Run the exact CLI used before publishing, with all seven wheel contracts
     # and the sdist present. No validator or contract loader is patched.
     result = _publication_cli(directory)
     assert result.returncode == 1, (result.stdout, result.stderr)

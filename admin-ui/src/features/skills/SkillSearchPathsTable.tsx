@@ -64,71 +64,73 @@ export function SkillSearchPathsTable({
           {t('skillPaths.action.addPath')}
         </Button>
       </div>
-      <table>
-        <thead>
-          <tr>
-            <th>{t('skillPaths.table.source')}</th>
-            <th>{t('skillPaths.table.pathAlias')}</th>
-            <th>{t('skillPaths.table.status')}</th>
-            <th />
-          </tr>
-        </thead>
-        <tbody>
-          {paths.length === 0 ? (
-            <EmptyRow columns={4}>{t('skillPaths.empty.paths')}</EmptyRow>
-          ) : filtered.length === 0 ? (
-            <EmptyRow columns={4}>{t('skillPaths.empty.pathsSearch')}</EmptyRow>
-          ) : (
-            filtered.map((row) => (
-              <tr key={`${row.source}-${row.path_hash ?? row.path}-${row.id ?? 'x'}`}>
-                <td>
-                  <Badge variant="outline" className="source-pill" data-source={row.source} title={row.source}>
-                    {row.source_label ?? row.source}
-                  </Badge>
-                </td>
-                <td>
-                  <span className="mono-path">{row.display_path ?? row.path}</span>
-                  {row.path_alias ? <div className="muted">{row.path_alias}</div> : null}
-                </td>
-                <td>
-                  <Badge
-                    variant={
-                      row.status === 'present'
-                        ? 'default'
-                        : row.status === 'missing'
-                          ? 'outline'
-                          : 'secondary'
-                    }
-                    className={row.status === 'missing' ? 'skill-adoption-badge warn' : undefined}
-                  >
-                    {row.status === 'present'
-                      ? t('skillPaths.state.present')
-                      : row.status === 'missing'
-                        ? t('skillPaths.state.missing')
-                        : row.status ?? t('common.status.unknown')}
-                  </Badge>
-                </td>
-                <td>
-                  {row.id != null ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="xs"
-                      disabled={busy}
-                      onClick={() => onDelete(row.id!)}
+      <div className="skill-path-table-wrap" role="region" aria-label={t('skillPaths.section.searchPaths')} tabIndex={0}>
+        <table>
+          <thead>
+            <tr>
+              <th>{t('skillPaths.table.source')}</th>
+              <th>{t('skillPaths.table.pathAlias')}</th>
+              <th>{t('skillPaths.table.status')}</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {paths.length === 0 ? (
+              <EmptyRow columns={4}>{t('skillPaths.empty.paths')}</EmptyRow>
+            ) : filtered.length === 0 ? (
+              <EmptyRow columns={4}>{t('skillPaths.empty.pathsSearch')}</EmptyRow>
+            ) : (
+              filtered.map((row) => (
+                <tr key={`${row.source}-${row.path_hash ?? row.path}-${row.id ?? 'x'}`}>
+                  <td>
+                    <Badge variant="outline" className="source-pill" data-source={row.source} title={row.source}>
+                      {row.source_label ?? row.source}
+                    </Badge>
+                  </td>
+                  <td>
+                    <span className="mono-path">{row.display_path ?? row.path}</span>
+                    {row.path_alias ? <div className="muted">{row.path_alias}</div> : null}
+                  </td>
+                  <td>
+                    <Badge
+                      variant={
+                        row.status === 'present'
+                          ? 'default'
+                          : row.status === 'missing'
+                            ? 'outline'
+                            : 'secondary'
+                      }
+                      className={row.status === 'missing' ? 'skill-adoption-badge warn' : undefined}
                     >
-                      <RiDeleteBinLine data-icon="inline-start" aria-hidden="true" />
-                      {t('action.remove')}
-                    </Button>
-                  ) : (
-                    '—'
-                  )}
-                </td>
-              </tr>
-            ))
-          )}
-        </tbody>
-      </table>
+                      {row.status === 'present'
+                        ? t('skillPaths.state.present')
+                        : row.status === 'missing'
+                          ? t('skillPaths.state.missing')
+                          : row.status ?? t('common.status.unknown')}
+                    </Badge>
+                  </td>
+                  <td>
+                    {row.id != null ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="xs"
+                        disabled={busy}
+                        onClick={() => onDelete(row.id!)}
+                      >
+                        <RiDeleteBinLine data-icon="inline-start" aria-hidden="true" />
+                        {t('action.remove')}
+                      </Button>
+                    ) : (
+                      '—'
+                    )}
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

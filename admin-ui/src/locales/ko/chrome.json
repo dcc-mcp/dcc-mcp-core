@@ -1,4 +1,7 @@
 {
   "app.title": "관리 대시보드",
-  "app.subtitle": "DCC-MCP 게이트웨이"
+  "app.subtitle": "DCC-MCP 게이트웨이",
+  "navigate": "페이지 이동",
+  "skipToContent": "콘텐츠로 이동",
+  "currentPage": "현재 페이지"
 }

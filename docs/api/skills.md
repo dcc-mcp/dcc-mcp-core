@@ -511,6 +511,22 @@ Creates a fully wired `McpHttpServer` for a specific DCC application in one call
 | `extra_paths` | `list[str] \| None` | Extra skill dirs in addition to env vars |
 | `dcc_name` | `str \| None` | Override DCC filter for scanning (defaults to `app_name`) |
 
+**Config contract:** `config` is typed `McpHttpConfig | None`. A plain `dict`, string, integer, or
+object missing the config attributes raises `TypeError` at the call site with a snippet that builds
+a valid config; these values are never silently coerced. `None` is
+a supported value meaning "backend defaults" (OS-assigned port, shared gateway port, no job
+persistence), not a skipped check. A config object built from either spelling is accepted: the PyO3
+type the installed wheel resolves, or the pure-Python dataclass used on the py37-lite profile. They
+are distinct classes exposing the same attributes. Config-like objects exposing `port`,
+`server_name`, and `endpoint_path` are also supported.
+
+Both `create_skill_server` and `create_adapter_server` convert Python config objects to the native
+`McpHttpConfig` before calling the embedded backend. Supported public data attributes are preserved;
+omitted attributes keep the native defaults. Unsupported settings or non-default values for native
+read-only properties (such as `endpoint_path`) raise a factory-specific `TypeError` rather than being
+silently dropped. Native configs and `None` pass through unchanged. The sidecar continues to consume
+the original object by attributes and does not require a native config.
+
 **Returns:** `McpHttpServer` — call `.start()` to begin serving.
 
 **Example:**

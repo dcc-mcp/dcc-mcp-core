@@ -1,0 +1,135 @@
+.logs-panel {
+  container: logs / inline-size;
+}
+
+.log-panel-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.log-panel-description,
+.log-panel-meta {
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.log-panel-description { margin-top: 8px; }
+.log-panel-meta { display: flex; flex-wrap: wrap; gap: 4px 20px; margin-top: 12px; }
+.log-panel-error { color: var(--err); margin-top: 12px; overflow-wrap: anywhere; }
+
+.log-filter-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  margin: 20px 0 24px;
+  padding-bottom: 12px;
+}
+
+.logs-panel .log-severity-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 6px 10px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  box-shadow: none;
+  transition: background-color 120ms ease;
+}
+
+.logs-panel .log-severity-card span,
+.logs-panel .log-severity-card strong {
+  font: 500 12px/1.5 var(--font-sans);
+  color: var(--muted-foreground);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.logs-panel .log-severity-card strong { font-variant-numeric: tabular-nums; }
+.logs-panel .log-severity-card:hover { background: var(--muted); }
+.logs-panel .log-severity-card.active { background: var(--muted); border-color: var(--border); }
+.logs-panel .log-severity-card.active span { color: var(--foreground); }
+.log-visible-count { color: var(--muted-foreground); font-size: 12px; margin-left: auto; padding: 6px 0 6px 12px; }
+
+.log-stream { display: grid; gap: 32px; }
+.log-stream-section { min-width: 0; }
+.log-section-title { font-size: 13px; font-weight: 600; margin: 0 0 12px; }
+.log-section-title > span { color: var(--muted-foreground); font-size: 12px; font-weight: 400; padding-left: 8px; }
+.log-request-list,
+.log-gateway-entries { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--card); }
+.log-request + .log-request,
+.log-entry + .log-entry { border-top: 1px solid var(--border); }
+
+.log-request-summary,
+.log-entry-summary {
+  display: grid;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  list-style: none;
+  min-height: 44px;
+  min-width: 0;
+}
+
+.log-request-summary::-webkit-details-marker,
+.log-entry-summary::-webkit-details-marker { display: none; }
+.log-request-summary:hover,
+.log-entry-summary:hover { background: color-mix(in srgb, var(--muted) 50%, transparent); }
+.log-request-summary { grid-template-columns: 16px minmax(0, 1fr) auto auto auto; padding: 16px; }
+.log-disclosure-icon { width: 16px; height: 16px; color: var(--muted-foreground); }
+.log-request[open] > summary > .log-disclosure-icon,
+.log-entry[open] > summary > .log-disclosure-icon { transform: rotate(90deg); }
+.log-request-identity { display: grid; gap: 4px; min-width: 0; }
+.log-request-title { color: var(--foreground); font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.log-request-title code { font: inherit; }
+.log-request-context { color: var(--muted-foreground); font: 12px/1.5 var(--font-sans); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.log-time,
+.log-step-count { color: var(--muted-foreground); font: 12px/1.5 var(--font-sans); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.log-request-steps { border-top: 1px solid var(--border); padding-inline: 16px; }
+.log-entry-summary { grid-template-columns: 16px auto auto minmax(0, 0.8fr) minmax(0, 1fr); padding: 10px 12px; }
+.log-entry-title { color: var(--foreground); font: 500 13px/1.6 var(--font-sans); overflow-wrap: anywhere; }
+.log-entry-excerpt { color: var(--muted-foreground); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.log-step-status { display: inline-flex; }
+.log-step-status > span:first-child { width: 6px; height: 6px; background: var(--log-accent); border-radius: 50%; }
+.log-entry-details { padding: 4px 16px 20px 40px; }
+.log-entry-message { font: 12px/1.7 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; margin: 8px 0; }
+.log-entry-reason { color: var(--err); font-size: 12px; overflow-wrap: anywhere; margin: 8px 0; }
+.log-entry-metadata { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 24px; border-top: 1px solid var(--border); margin-top: 16px; padding-top: 12px; }
+.log-entry-metadata > div { min-width: 0; }
+.log-entry-metadata dt { color: var(--muted-foreground); font-size: 11px; margin-bottom: 4px; }
+.log-entry-metadata dd { color: var(--foreground); font: 12px/1.5 var(--font-mono); overflow-wrap: anywhere; }
+.log-gateway-group + .log-gateway-group { margin-top: 20px; }
+.log-gateway-group h4 { color: var(--muted-foreground); font: 500 12px/1.5 var(--font-mono); overflow-wrap: anywhere; margin: 0 0 8px; }
+.logs-panel .severity-badge { font-size: 11px; font-weight: 500; border: 0; }
+
+.logs-panel .log-severity-card:focus-visible,
+.log-request-summary:focus-visible,
+.log-entry-summary:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; border-radius: var(--radius-sm); }
+
+@container logs (max-width: 720px) {
+  .log-request-summary { grid-template-columns: 16px minmax(0, 1fr) auto; gap: 8px 12px; }
+  .log-request-summary > .log-time { grid-column: 2; grid-row: 2; }
+  .log-request-summary > .severity-badge { grid-column: 3; grid-row: 1; }
+  .log-request-summary > .log-step-count { grid-column: 3; grid-row: 2; }
+  .log-entry-summary { grid-template-columns: 16px auto auto minmax(0, 1fr); gap: 8px; }
+  .log-entry-excerpt { grid-column: 2 / -1; }
+}
+
+@container logs (max-width: 440px) {
+  .log-panel-heading { gap: 12px; flex-wrap: wrap; }
+  .log-panel-heading > button { min-height: 40px; }
+  .logs-panel .log-severity-card { min-height: 40px; }
+  .log-visible-count { margin-left: 0; padding-left: 8px; }
+  .log-request-summary { padding: 12px; }
+  .log-request-steps { padding-inline: 4px; }
+  .log-entry-summary { grid-template-columns: 16px minmax(0, 1fr) auto; }
+  .log-entry-summary > .log-entry-title { grid-column: 2 / -1; }
+  .log-entry-details { padding: 4px 12px 16px; }
+  .log-entry-metadata { grid-template-columns: minmax(0, 1fr); }
+}

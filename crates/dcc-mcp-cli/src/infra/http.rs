@@ -116,6 +116,22 @@ impl HttpGateway {
         Self::json_response(response).await
     }
 
+    /// Capture an HTTP response body before protocol parsing for replayable probes.
+    pub async fn post_bytes_with_headers(
+        &self,
+        url: &str,
+        body: &Value,
+        headers: &[(&str, &str)],
+    ) -> Result<(u16, Vec<u8>), HttpError> {
+        let mut request = self.client.post(url).json(body);
+        for (name, value) in headers {
+            request = request.header(*name, *value);
+        }
+        let response = request.send().await?;
+        let status = response.status().as_u16();
+        Ok((status, response.bytes().await?.to_vec()))
+    }
+
     async fn json_response(response: reqwest::Response) -> Result<Value, HttpError> {
         let status = response.status();
         if status.is_success() {

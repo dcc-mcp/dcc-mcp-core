@@ -53,7 +53,7 @@ export default defineConfig({
           { text: 'API', link: '/api/models' },
           { text: 'RFCs', link: '/rfcs/' },
           {
-            text: 'v0.20.42', // x-release-please-version
+            text: 'v0.20.53', // x-release-please-version
             items: [
               { text: 'Changelog', link: 'https://github.com/dcc-mcp/dcc-mcp-core/blob/main/CHANGELOG.md' },
               { text: 'PyPI', link: 'https://pypi.org/project/dcc-mcp-core/' },
@@ -175,6 +175,7 @@ export default defineConfig({
                 { text: 'Capture', link: '/api/capture' },
                 { text: 'USD', link: '/api/usd' },
                 { text: 'Utilities', link: '/api/utilities' },
+                { text: 'Memory Providers', link: '/api/memory-providers' },
                 { text: 'Observability', link: '/api/observability' },
                 { text: 'Resources', link: '/api/resources' },
                 { text: 'Workflow', link: '/api/workflow' },
@@ -243,7 +244,7 @@ export default defineConfig({
           { text: '指南', link: '/zh/guide/what-is-dcc-mcp-core' },
           { text: 'API', link: '/zh/api/models' },
           {
-            text: 'v0.20.42', // x-release-please-version
+            text: 'v0.20.53', // x-release-please-version
             items: [
               { text: '更新日志', link: 'https://github.com/dcc-mcp/dcc-mcp-core/blob/main/CHANGELOG.md' },
               { text: 'PyPI', link: 'https://pypi.org/project/dcc-mcp-core/' },

@@ -109,6 +109,60 @@ def test_default_registry_dir_has_one_runtime_owner() -> None:
     assert sidecar_lifecycle.default_registry_dir is runtime_lifecycle.default_registry_dir
 
 
+def test_registry_inventory_ignores_redirected_temp(monkeypatch, tmp_path: Path) -> None:
+    user_home = tmp_path / "user"
+    registry = user_home / ".dcc-mcp" / "registry-live"
+    registry.mkdir(parents=True)
+    (registry / "services.json").write_text(
+        json.dumps([{"dcc_type": dcc, "pid": os.getpid()} for dcc in ("houdini", "photoshop")]),
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("DCC_MCP_REGISTRY_DIR", raising=False)
+    monkeypatch.delenv("LOCALAPPDATA", raising=False)
+    if os.name == "nt":
+        monkeypatch.delenv("HOME", raising=False)
+        monkeypatch.setenv("USERPROFILE", str(user_home))
+    else:
+        monkeypatch.setenv("HOME", str(user_home))
+    for name in ("TEMP", "TMP", "TMPDIR"):
+        monkeypatch.setenv(name, str(tmp_path / "agent-temp"))
+
+    assert lifecycle.default_registry_dir() == str(registry)
+    result = lifecycle.query_runtime_state()
+    assert {entry["dcc_type"] for entry in result["entries"]} == {"houdini", "photoshop"}
+    assert not (tmp_path / "agent-temp" / "dcc-mcp-registry").exists()
+
+
+def test_registry_override_does_not_require_user_home(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("DCC_MCP_REGISTRY_DIR", str(tmp_path))
+
+    def unavailable_home() -> Path:
+        raise RuntimeError("Cannot determine home directory")
+
+    monkeypatch.setattr(Path, "home", unavailable_home)
+    assert lifecycle.default_registry_dir() == str(tmp_path)
+
+
+def test_registry_does_not_fall_back_to_temp_without_user_home(monkeypatch) -> None:
+    monkeypatch.delenv("DCC_MCP_REGISTRY_DIR", raising=False)
+    monkeypatch.delenv("USERPROFILE", raising=False)
+    monkeypatch.delenv("HOME", raising=False)
+
+    def unavailable_home() -> Path:
+        raise RuntimeError("Cannot determine home directory")
+
+    monkeypatch.setattr(Path, "home", unavailable_home)
+    with pytest.raises(RuntimeError, match="Cannot determine home directory"):
+        lifecycle.default_registry_dir()
+
+
+def test_registry_rejects_relative_user_home(monkeypatch) -> None:
+    monkeypatch.delenv("DCC_MCP_REGISTRY_DIR", raising=False)
+    monkeypatch.setenv("USERPROFILE" if os.name == "nt" else "HOME", "relative-home")
+    with pytest.raises(RuntimeError, match="set DCC_MCP_REGISTRY_DIR explicitly"):
+        lifecycle.default_registry_dir()
+
+
 def test_top_level_lifecycle_export_does_not_load_core_in_fresh_process() -> None:
     script = """
 import json

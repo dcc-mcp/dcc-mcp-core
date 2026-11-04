@@ -16,6 +16,7 @@ import pytest
 
 from conftest import REPO_ROOT
 from dcc_mcp_core import yaml_loads
+from test_trusted_validator_history import assert_landed_validator_pin
 
 SCRIPT_PATH = REPO_ROOT / "scripts" / "ci" / "check_uv_lock.py"
 LOCK_SYNC_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "release-please-lock-sync.yml"
@@ -23,7 +24,7 @@ CI_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 VERSION_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "version-consistency.yml"
 EXPECTED_ROOT_PACKAGE = "dcc-mcp-core"
 TRUSTED_VALIDATOR_PATH = "scripts/ci/generated_lock_sync.py"
-TRUSTED_VALIDATOR_COMMIT = "b8e294e8a64abba426871b1e86eb106e75aab075"
+TRUSTED_VALIDATOR_COMMIT = "0b281b4df8bd394ad4085484f31ab9c58b81ce1f"
 # Probe children create their PID file and only afterwards write the payload.
 # On Windows that pair is not atomic for a reader, so a parent that observes
 # the path immediately after ``run_bounded`` fails closed can read an empty or
@@ -380,14 +381,9 @@ def test_release_workflows_regenerate_and_validate_uv_lock() -> None:
         step_name="Check uv lock consistency",
     )
     assert check_commands == ["python scripts/ci/check_uv_lock.py", "vx uv lock --check"]
-    assert {
-        "release-please-config.json",
-        ".release-please-manifest.json",
-        "pyproject.toml",
-        "uv.lock",
-        "scripts/ci/check_uv_lock.py",
-        ".github/workflows/version-consistency.yml",
-    }.issubset(_workflow_pull_request_paths(version_workflow))
+    # All PRs must run the contract, including a new unregistered projection.
+    trigger = yaml_loads(version_workflow)["on"]["pull_request"]
+    assert "paths" not in trigger and "paths-ignore" not in trigger
 
 
 def test_generated_lock_workflow_is_read_only_until_fixed_push() -> None:
@@ -648,7 +644,6 @@ def test_generation_uses_ephemeral_credential_roots(tmp_path: Path, monkeypatch:
 
 def test_trusted_validator_ref_attests_self_contained_job_object() -> None:
     source = _trusted_validator_source()
-
     assert "class WindowsJob:" in source
     assert "WINDOWS_CREATE_SUSPENDED" in source
     assert "ResumeThread" in source
@@ -666,6 +661,42 @@ def test_trusted_validator_ref_attests_self_contained_job_object() -> None:
         timeout=30,
     )
     assert result.returncode == 0, result.stdout
+
+
+def test_trusted_validator_ref_attests_self_contained_job_object_ancestry() -> None:
+    """Keep ancestry skips separate from source and executable attestation."""
+    # Preserve the shared name prefix selected by the native Windows Python 3.7 lane.
+    assert_landed_validator_pin(REPO_ROOT, _trusted_validator_ref())
+
+
+@pytest.mark.parametrize("valid_source", [True, False], ids=["valid-source", "invalid-source"])
+def test_trusted_validator_ref_attests_self_contained_job_object_in_shallow_checkout(
+    monkeypatch: pytest.MonkeyPatch, valid_source: bool
+) -> None:
+    """Available source must still be attested when ancestry cannot be proven."""
+    source = "class WindowsJob:\n    pass\n# WINDOWS_CREATE_SUSPENDED ResumeThread\n" if valid_source else "# invalid\n"
+    executed = []
+
+    def run(command, **kwargs):
+        if command[:2] == ["git", "show"]:
+            return subprocess.CompletedProcess(command, 0, source, "")
+        if command[-2:] == ["rev-parse", "--is-shallow-repository"]:
+            return subprocess.CompletedProcess(command, 0, "true\n", "")
+        assert command == [sys.executable, "-I", "-", "--help"]
+        assert kwargs["input"] == source
+        executed.append(command)
+        return subprocess.CompletedProcess(command, 0, "usage: validator\n", "")
+
+    monkeypatch.setattr(subprocess, "run", run)
+    try:
+        if valid_source:
+            test_trusted_validator_ref_attests_self_contained_job_object()
+        else:
+            with pytest.raises(AssertionError):
+                test_trusted_validator_ref_attests_self_contained_job_object()
+    except pytest.skip.Exception:
+        pytest.fail("shallow ancestry must not skip available source attestation")
+    assert len(executed) == int(valid_source)
 
 
 def test_native_python37_windows_executes_pinned_validator_contract() -> None:
@@ -1094,6 +1125,14 @@ def test_windows_job_settle_forgives_the_leaders_own_reaping_delay(monkeypatch: 
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    # Drive only this imported module's clock: scheduler delays must not consume
+    # the stub's settle window, and the process-wide time module stays untouched.
+    clock = SimpleNamespace(now=0.0)
+
+    def advance_clock(seconds: float) -> None:
+        clock.now += seconds
+
+    monkeypatch.setattr(module, "time", SimpleNamespace(monotonic=lambda: clock.now, sleep=advance_clock))
     # Every listed PID claims to be live: the leader must still be filtered
     # out by identity rather than by a liveness probe.
     monkeypatch.setattr(module, "process_exists", lambda pid: True)
@@ -1101,6 +1140,7 @@ def test_windows_job_settle_forgives_the_leaders_own_reaping_delay(monkeypatch: 
     settled = job.wait_settled(0.2, leader_pid=111)
     assert settled.active == 0
     assert settled.survivors == ()
+    assert clock.now == pytest.approx(2 * module.WINDOWS_JOB_SETTLE_POLL_SECONDS)
 
 
 def test_windows_job_settle_reports_descendant_that_ends_inside_window(monkeypatch: pytest.MonkeyPatch) -> None:

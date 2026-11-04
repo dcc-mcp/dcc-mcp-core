@@ -35,43 +35,45 @@ drops both bounds.
 | DCC | Repository | Adapter Version | Core Pin | DCC Min Version | Dispatcher Pattern | Last Verified |
 |-----|-----------|----------------|----------|-----------------|-------------------|---------------|
 | Kdenlive | [dcc-mcp-kdenlive](https://github.com/dcc-mcp/dcc-mcp-kdenlive) | 0.1.2 | >=0.20.28,<1.0.0 | 26.08.1 verified | Copy-on-write MLT project tools, core async render jobs, shared DCC-CUA UI Control | 2026-09 |
-| Maya | [dcc-mcp-maya](https://github.com/dcc-mcp/dcc-mcp-maya) | 0.9.22 | >=0.19.45,<1.0.0 | 2024+ | Qt sidecar + HostUiDispatcherBase | 2026-08 |
+| Maya | [dcc-mcp-maya](https://github.com/dcc-mcp/dcc-mcp-maya) | 0.9.42 | >=0.20.0,<0.21.0 | 2020-2027 with Python 3.7+ (declared) | Qt sidecar + HostUiDispatcherBase | 2026-10-22 |
 | Marmoset Toolbag | [dcc-mcp-marmoset](https://github.com/dcc-mcp/dcc-mcp-marmoset) | 0.1.1 | >=0.19.86,<1.0.0 | 4.03+ | External sidecar + Toolbag periodic callback | 2026-07 |
 | OpenSCAD | [dcc-mcp-openscad](https://github.com/dcc-mcp/dcc-mcp-openscad) | 0.2.1 | >=0.20.36,<1.0.0 | 2021.01+ | External OpenSCAD CLI subprocess | 2026-08 |
 | FreeCAD | [dcc-mcp-freecad](https://github.com/dcc-mcp/dcc-mcp-freecad) | 0.3.0 | >=0.20.36,<1.0.0 | 1.0+ | External FreeCADCmd subprocess | 2026-08 |
 | Cinema 4D | [dcc-mcp-cinema4d](https://github.com/dcc-mcp/dcc-mcp-cinema4d) | 0.2.0 | >=0.20.36,<1.0.0 | R21+ | External headless c4dpy subprocess | 2026-08 |
-| ComfyUI | [dcc-mcp-comfyui](https://github.com/dcc-mcp/dcc-mcp-comfyui) | 0.1.1 | >=0.19.91,<1.0.0 | 0.31+ | 17 typed workflow, catalog, queue, and artifact tools over the local REST bridge | 2026-08 |
+| ComfyUI | [dcc-mcp-comfyui](https://github.com/dcc-mcp/dcc-mcp-comfyui) | 0.1.4 | >=0.20.8,<1.0.0 | 0.32.0+ | 17 typed workflow, catalog, queue, and artifact tools over the local REST bridge | 2026-08 |
 | Shogun | [dcc-mcp-shogun](https://github.com/dcc-mcp/dcc-mcp-shogun) | 0.10.0 | >=0.19.86,<1.0.0 | Vicon Shogun Post 1.19+ | 67 typed Scene, channel, camera, file, Timeline, editing, production-context, pipeline-context, and Offline tools; SDK-dependent surfaces remain capability-gated | 2026-08 |
 | Mari | [dcc-mcp-mari](https://github.com/dcc-mcp/dcc-mcp-mari) | 0.2.1 | >=0.19.91,<1.0.0 | 5.0+ | Authenticated loopback sidecar + Qt UI timer | 2026-08 |
 | 3ds Max | [dcc-mcp-3dsmax](https://github.com/dcc-mcp/dcc-mcp-3dsmax) | 0.1.40 | >=0.19.45,<1.0.0 | 2025+ | Sidecar + HostPumpController | 2026-08 |
 | Blender | [dcc-mcp-blender](https://github.com/dcc-mcp/dcc-mcp-blender) | 0.1.43 | >=0.19.45,<1.0.0 | 3.6+ | In-process MCP + optional diagnostics sidecar | 2026-08 |
 | Houdini | [dcc-mcp-houdini](https://github.com/dcc-mcp/dcc-mcp-houdini) | 0.31.5 | >=0.19.45,<1.0.0 | 20.5+ | Event-loop callback | 2026-08 |
-| FPT / ShotGrid | [dcc-mcp-fpt](https://github.com/dcc-mcp/dcc-mcp-fpt) | 0.1.8 | >=0.19.45,<1.0.0 | — | REST bridge | 2026-06 |
+| FPT / ShotGrid | [dcc-mcp-fpt](https://github.com/dcc-mcp/dcc-mcp-fpt) | 0.1.9 | >=0.19.45,<1.0.0 | — | REST bridge | — |
 | Nuke | [dcc-mcp-nuke](https://github.com/dcc-mcp/dcc-mcp-nuke) | 0.13.1 | >=0.19.45,<1.0.0 | — | Host main-thread dispatcher | — |
 | Unreal | [dcc-mcp-unreal](https://github.com/dcc-mcp/dcc-mcp-unreal) | 0.3.0 | >=0.19.45,<1.0.0 | — | Unreal Python bridge | — |
 | LiquiGen | [dcc-mcp-liquigen](https://github.com/dcc-mcp/dcc-mcp-liquigen) | 0.1.0 | >=0.20.22,<1.0.0 | 1.0.5+ | Standalone native host bridge with typed node-graph, simulation, VAT export, and Unreal handoff tools | 2026-09 |
-| ZBrush | [dcc-mcp-zbrush](https://github.com/dcc-mcp/dcc-mcp-zbrush) | 0.2.18 | >=0.19.45,<1.0.0 | — | Socket bridge + sidecar | — |
-| Photoshop | [dcc-mcp-photoshop](https://github.com/dcc-mcp/dcc-mcp-photoshop) | 0.1.37 | >=0.19.45,<1.0.0 | Photoshop UXP | WebSocket bridge | 2026-06 |
-| Premiere Pro | [dcc-mcp-premiere](https://github.com/dcc-mcp/dcc-mcp-premiere) | 0.5.0 | >=0.19.45,<1.0.0 | 25.6+ | UXP WebSocket bridge | — |
-| After Effects | [dcc-mcp-aftereffects](https://github.com/dcc-mcp/dcc-mcp-aftereffects) | 0.6.0 | >=0.19.91,<1.0.0 | — | Authenticated CEP bridge + broker | 2026-08 |
-| Illustrator | [dcc-mcp-illustrator](https://github.com/dcc-mcp/dcc-mcp-illustrator) | 0.2.0 | >=0.19.91,<1.0.0 | — | Authenticated CEP bridge + broker | 2026-08 |
+| ZBrush | [dcc-mcp-zbrush](https://github.com/dcc-mcp/dcc-mcp-zbrush) | 0.2.26 | >=0.20.14,<1.0.0 | — | Socket bridge + sidecar | — |
+| Photoshop | [dcc-mcp-photoshop](https://github.com/dcc-mcp/dcc-mcp-photoshop) | 0.1.44 | >=0.20.14,<0.21.0 | Photoshop UXP | WebSocket bridge | 2026-10 (package) |
+| Premiere Pro | [dcc-mcp-premiere](https://github.com/dcc-mcp/dcc-mcp-premiere) | 0.6.3 | >=0.20.34,<1.0.0 | 25.6+ | UXP WebSocket bridge | 2026-10 (package) |
+| After Effects | [dcc-mcp-aftereffects](https://github.com/dcc-mcp/dcc-mcp-aftereffects) | 0.7.3 | >=0.20.14,<1.0.0 | — | Authenticated CEP bridge + broker | 2026-10 (package) |
+| Illustrator | [dcc-mcp-illustrator](https://github.com/dcc-mcp/dcc-mcp-illustrator) | 0.3.3 | >=0.20.14,<1.0.0 | — | Authenticated CEP bridge + broker | 2026-10 (package) |
 | GIMP | [dcc-mcp-gimp](https://github.com/dcc-mcp/dcc-mcp-gimp) | 0.4.1 | >=0.19.91,<1.0.0 | 3.0+ | Authenticated JSON-lines bridge + GLib main-thread dispatcher | — |
-| Krita | [dcc-mcp-krita](https://github.com/dcc-mcp/dcc-mcp-krita) | 0.3.0 | >=0.19.38,<1.0.0 | — | Authenticated JSON-lines bridge + UI main-thread queue | — |
+| Krita | [dcc-mcp-krita](https://github.com/dcc-mcp/dcc-mcp-krita) | 0.4.0 | >=0.19.38,<1.0.0 | — | Authenticated JSON-lines bridge + UI main-thread queue | — |
 | SketchUp | [dcc-mcp-sketchup](https://github.com/dcc-mcp/dcc-mcp-sketchup) | 0.2.0 | >=0.20.36,<1.0.0 | 2021+ | Authenticated Ruby main-thread bridge + sidecar | 2026-08 |
 | TouchDesigner | [dcc-mcp-touchdesigner](https://github.com/dcc-mcp/dcc-mcp-touchdesigner) | 0.1.1 | >=0.19.91,<1.0.0 | 2025 official build | 19 typed operator graph, parameter, DAT, timeline, capture, and project tools through the in-process HTTP runtime + `td.run()` main-thread dispatcher | 2026-08 |
 | Tiled | [dcc-mcp-tiled](https://github.com/dcc-mcp/dcc-mcp-tiled) | 0.5.1 | >=0.20.14,<1.0.0 | 1.10+ | Standalone service + fixed JavaScript driver through `tiled --evaluate` | 2026-08 |
 | Material Maker | [dcc-mcp-material-maker](https://github.com/dcc-mcp/dcc-mcp-material-maker) | 0.3.1 | >=0.19.38,<1.0.0 | 1.7 | Standalone `.ptex` parser + native CLI exporter | 2026-08 |
 | Wwise | [dcc-mcp-wwise](https://github.com/dcc-mcp/dcc-mcp-wwise) | 0.1.6 | >=0.20.14,<1.0.0 | 2024.1+ | External WAAPI client + host PID binding | 2026-08 |
-| Katana | [dcc-mcp-katana](https://github.com/dcc-mcp/dcc-mcp-katana) | 0.4.0 | >=0.19.45,<1.0.0 | — | Host main-thread dispatcher | — |
-| MotionBuilder | [dcc-mcp-mobu](https://github.com/dcc-mcp/dcc-mcp-mobu) | 0.3.0 | >=0.19.45,<1.0.0 | — | Host main-thread dispatcher | — |
+| Katana | [dcc-mcp-katana](https://github.com/dcc-mcp/dcc-mcp-katana) | 0.5.0 | >=0.19.45,<1.0.0 | — | Host main-thread dispatcher | — |
+| MotionBuilder | [dcc-mcp-mobu](https://github.com/dcc-mcp/dcc-mcp-mobu) | 0.4.0 | >=0.19.45,<1.0.0 | — | Host main-thread dispatcher | — |
 | RenderDoc | [dcc-mcp-renderdoc](https://github.com/dcc-mcp/dcc-mcp-renderdoc) | 0.3.0 | >=0.19.45,<1.0.0 | — | Headless CLI adapter | 2026-07 |
-| OBS Studio | [dcc-mcp-obs](https://github.com/dcc-mcp/dcc-mcp-obs) | 1.4.0 | >=0.20.14,<1.0.0 | 28+ | In-process native plugin + authenticated loopback WebSocket sidecar | 2026-09 |
+| OBS Studio | [dcc-mcp-obs](https://github.com/dcc-mcp/dcc-mcp-obs) | 1.5.1 | >=0.20.14,<1.0.0 | 28+ | In-process native plugin + authenticated loopback WebSocket sidecar | 2026-10 |
 | Substance 3D Designer | [dcc-mcp-substance3d-designer](https://github.com/dcc-mcp/dcc-mcp-substance3d-designer) | 0.3.0 | >=0.19.45,<1.0.0 | — | Host bridge | — |
-| Substance 3D Painter | [dcc-mcp-substance3d-painter](https://github.com/dcc-mcp/dcc-mcp-substance3d-painter) | 0.1.3 | >=0.19.3,<1.0.0 | — | Host bridge | — |
-| Godot | [dcc-mcp-godot](https://github.com/dcc-mcp/dcc-mcp-godot) | 0.4.0 | >=0.19.45,<1.0.0 | 4.x | EditorPlugin + runtime bridge | 2026-07 |
+| Substance 3D Painter | [dcc-mcp-substance3d-painter](https://github.com/dcc-mcp/dcc-mcp-substance3d-painter) | 0.4.1 | >=0.20.15,<1.0.0 | — | Host bridge | — |
+| Godot | [dcc-mcp-godot](https://github.com/dcc-mcp/dcc-mcp-godot) | 0.9.6 | >=0.20.41,<1.0.0 | 4.x | EditorPlugin + runtime bridge | 2026-10 |
 | Unity | [dcc-mcp-unity](https://github.com/dcc-mcp/dcc-mcp-unity) | 0.11.2 | >=0.19.45,<1.0.0 | 2018.4.36f1+ | EditorApplication.update + WebSocket bridge | — |
-| OpenUSD | [dcc-mcp-openusd](https://github.com/dcc-mcp/dcc-mcp-openusd) | 0.8.1 | >=0.19.45,<1.0.0 | — | Headless USD stage adapter | 2026-07 |
+| OpenUSD | [dcc-mcp-openusd](https://github.com/dcc-mcp/dcc-mcp-openusd) | 0.8.2 | >=0.19.45,<1.0.0 | — | Headless USD stage adapter | — |
 | PowerPoint | [dcc-mcp-PowerPoint](https://github.com/dcc-mcp/dcc-mcp-PowerPoint) | 0.2.3 | >=0.18.2,<1.0.0 | — | Deck IR → Open XML compile → COM render | — |
+| Excel | [dcc-mcp-excel](https://github.com/dcc-mcp/dcc-mcp-excel) | 0.1.3 | >=0.18.2,<1.0.0 | — | Headless Workbook IR → XLSX compile (Open XML) with read-back verification | 2026-10 |
+| Word | [dcc-mcp-word](https://github.com/dcc-mcp/dcc-mcp-word) | 0.1.2 | >=0.18.2,<1.0.0 | — | Headless Word IR → DOCX compile (Open XML) with read-back verification | 2026-10 |
 | AutoCAD | [dcc-mcp-autocad](https://github.com/dcc-mcp/dcc-mcp-autocad) | 0.1.2 | >=0.20.36,<1.0.0 | — | Interactive COM or headless `accoreconsole` | — |
 | CapCut | [dcc-mcp-capcut](https://github.com/dcc-mcp/dcc-mcp-capcut) | 0.5.0 | >=0.19.90,<1.0.0 | — | Typed local bridge for edit plans, timelines and exports | — |
 | Epic Games Launcher | [dcc-mcp-epic](https://github.com/dcc-mcp/dcc-mcp-epic) | 0.2.1 | >=0.20.14,<1.0.0 | — | Engine, project and local asset library inspection; engine install is plan-only | — |
@@ -81,11 +83,43 @@ drops both bounds.
 | Tracy | [dcc-mcp-tracy](https://github.com/dcc-mcp/dcc-mcp-tracy) | 0.2.5 | >=0.19.38,<1.0.0 | — | Instrumented capture, trace CSV export and zone timing analysis | — |
 | Custom Studio Tool | _(your repo here)_ | _your version_ | _your pin_ | _your min_ | _your pattern_ | _date_ |
 
-Material Maker, Excel, and Word remain discoverable source projects, but the
-bundled catalog omits automatic install metadata until each project publishes a
-wheel that can be pinned by URL and SHA-256. LiquiGen is pinned to its immutable
-PyPI wheel published through the repository's GitHub Actions trusted publisher;
-the adapter identity remains stable across future wheel updates.
+Maya 0.9.42's declared Core range and Python-constrained host support come from its
+[release-pinned requirements](https://github.com/dcc-mcp/dcc-mcp-maya/blob/e582e5881f01e1a7e6e77eca54f5b3ec7ec08350/pyproject.toml)
+and [install runbook](https://github.com/dcc-mcp/dcc-mcp-maya/blob/e582e5881f01e1a7e6e77eca54f5b3ec7ec08350/install.md#supported-versions).
+The [released-runtime GUI acceptance](https://github.com/dcc-mcp/dcc-mcp-maya/pull/590#issuecomment-6346643693)
+covers Maya 2023.3.4 and 2027.2. This does not constitute a runtime test of the
+declared Core 0.20.0 lower bound or every Maya release.
+
+Material Maker remains a discoverable source project, but the bundled catalog
+omits automatic install metadata until it publishes a wheel that can be pinned
+by URL and SHA-256. Excel, Word, and LiquiGen are pinned to immutable PyPI
+wheels published through each repository's GitHub Actions trusted publisher, so
+the adapter identity stays stable across future wheel updates.
+
+The Adobe rows marked `2026-10 (package)` were verified against the published
+wheel metadata, CLI entry points, and release-pinned installation guides. These
+checks do not establish native Adobe GUI readiness or identity-bootstrap acceptance.
+
+## Experimental Discovery-Only Adapters
+
+These existing adapter projects are discoverable but have no automatic install
+metadata in the catalog. They are outside the release-qualified matrix above;
+catalog presence does not establish a usable host, desktop acceptance, or a
+completed Install SOP lifecycle.
+
+| DCC | Repository | Adapter Version | Declared Core Requirement | Qualified Host Scope | Automatic Installation |
+|-----|------------|-----------------|---------------------------|----------------------|------------------------|
+| PhotoCraft | [dcc-mcp-photocraft](https://github.com/dcc-mcp/dcc-mcp-photocraft) | 0.2.0 | >=0.20.44,<1.0.0 (declared) | Adapter-recorded Linux x86_64 PhotoCraft v0.8.2 headless image workflow; desktop and Web unqualified | Unavailable |
+
+PhotoCraft's [release-pinned package metadata](https://github.com/dcc-mcp/dcc-mcp-photocraft/blob/e39955dabf025ac7a290cd1da0f3ef4c2481097e/pyproject.toml)
+declares Python 3.9+ and the legacy broad Core upper bound recorded here. The
+catalog records only its `0.20.44` Core floor rather than inventing a bounded
+requirement. Promotion requires a bounded adapter dependency, exact artifact
+validation, and the installation lifecycle gates. The adapter's
+[native qualification record](https://github.com/dcc-mcp/dcc-mcp-photocraft/blob/e39955dabf025ac7a290cd1da0f3ef4c2481097e/docs/native-image-workflow.md)
+is evidence for that specific Linux headless workflow, not every upstream
+version or platform. Its secure image batch publication is unavailable on
+Windows. PhotoCraft's official desktop/CLI capabilities remain upstream-owned.
 
 ## Column Reference
 

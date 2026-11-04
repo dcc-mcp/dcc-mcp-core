@@ -7,6 +7,7 @@ use clap::Parser;
 use serde_json::Value;
 
 use super::output::{ExitCode, OutputFormat, OutputWriter, failure_envelope, to_json};
+use super::update_maintenance::UpdateMaintenance;
 
 use crate::application::adapter_import;
 use crate::application::call_attribution::{
@@ -36,6 +37,7 @@ mod job_progress;
 mod lint;
 mod marketplace_output;
 mod record_replay;
+pub(crate) mod result_output;
 mod transport_args;
 mod ui_control;
 mod ui_control_output;
@@ -78,6 +80,13 @@ pub struct Args {
     /// Disable the default local gateway auto-start before agent control commands.
     #[arg(long, env = "DCC_MCP_CLI_NO_AUTO_GATEWAY", default_value = "false")]
     no_auto_gateway: bool,
+    /// Skip automatic staged updates, marketplace checks and CLI update-cache refresh.
+    /// Explicit update commands still perform the operation requested by the caller.
+    #[arg(long, global = true, visible_alias = "quiet")]
+    no_update_maintenance: bool,
+    /// Include maintenance metadata on call/list/search/describe (quiet by default).
+    #[arg(long, global = true, conflicts_with = "no_update_maintenance")]
+    show_maintenance: bool,
     /// Require local agent-control calls to pass through the gateway for audit and stats.
     #[arg(
         long,
@@ -107,10 +116,17 @@ pub struct Args {
         value_parser = parse_output_format
     )]
     output: Option<OutputFormat>,
+    /// Keep redundant MCP JSON text mirrors in CLI output for legacy consumers.
+    #[arg(long, global = true)]
+    raw_result: bool,
+    /// Select a JSON pointer from the output; repeat for multiple fields. Missing = null.
+    #[arg(long, global = true, value_parser = result_output::parse_pointer)]
+    select: Vec<String>,
     /// Non-interactive mode: zero prompts, missing input fails immediately (exit code 2).
     #[arg(long, global = true, env = "DCC_MCP_NON_INTERACTIVE")]
     non_interactive: bool,
-    /// Global timeout in seconds for all operations.
+    /// Timeout override: per request for call; total budget for wait-ready/start-instance.
+    /// call --wait-timeout-secs independently limits total job polling.
     #[arg(long, global = true, env = "DCC_MCP_TIMEOUT_SECS")]
     timeout_secs: Option<u64>,
     #[command(flatten)]
@@ -119,11 +135,54 @@ pub struct Args {
     command: Command,
 }
 
+impl Args {
+    /// Keep clap's value sources so explicit gateway booleans override env values.
+    fn try_parse_annotated_from<I, T>(argv: I) -> Result<Self, clap::Error>
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<std::ffi::OsString> + Clone,
+    {
+        use clap::{CommandFactory, FromArgMatches};
+
+        let matches = Self::command().try_get_matches_from(argv)?;
+        let mut args = Self::from_arg_matches(&matches)?;
+        if matches!(
+            &args.command,
+            Command::Components {
+                action: super::components_cmd::ComponentsAction::InstallVerified(_)
+            }
+        ) {
+            // A fixed-byte offline installation cannot apply an unrelated staged
+            // update, launch a gateway, or refresh an update cache on entry.
+            args.no_update_maintenance = true;
+            args.no_auto_gateway = true;
+        }
+        if matches!(&args.command, Command::Doctor { .. }) {
+            // Diagnostics must not mutate the inspected installation or update caches.
+            // Keep the existing bounded version and adapter-import probes unchanged.
+            args.no_update_maintenance = true;
+        }
+        if let Command::Gateway { ref mut daemon, .. } = args.command
+            && let Some(gateway_matches) = matches.subcommand_matches("gateway")
+        {
+            daemon.note_value_sources(gateway_matches);
+        }
+        Ok(args)
+    }
+}
+
 pub async fn run() -> anyhow::Result<()> {
-    if apply_staged_update() {
+    // Parse before any update side effect, even when this library entrypoint is
+    // called directly instead of through the executable's read-only gate.
+    let args =
+        Args::try_parse_annotated_from(std::env::args_os()).unwrap_or_else(|error| error.exit());
+    if UpdateMaintenance::from_skip_flag(args.no_update_maintenance)
+        .run(apply_staged_update)
+        .unwrap_or(false)
+    {
         return restart_after_update();
     }
-    run_with_args(Args::parse()).await
+    run_with_args(args).await
 }
 
 fn apply_staged_update() -> bool {
@@ -189,16 +248,32 @@ fn restart_after_update() -> anyhow::Result<()> {
     Ok(())
 }
 
+fn command_shows_maintenance(command: &Command, requested: bool) -> bool {
+    requested
+        || !matches!(
+            command,
+            Command::Call { .. }
+                | Command::CallBatch { .. }
+                | Command::List
+                | Command::Search { .. }
+                | Command::Describe { .. }
+        )
+}
+
 async fn run_with_args(args: Args) -> anyhow::Result<()> {
     let Args {
         base_url,
         gateway,
         no_auto_gateway,
+        no_update_maintenance,
+        show_maintenance,
         require_gateway,
         agent_session_id,
         auto_gateway_bin,
         auto_gateway_timeout_secs,
         output,
+        raw_result,
+        select,
         non_interactive,
         timeout_secs: global_timeout_secs,
         transport: transport_args,
@@ -212,9 +287,27 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
         _ => Ok(output.unwrap_or_else(OutputFormat::auto_detect)),
     };
     let writer = OutputWriter::new(output.map_err(anyhow::Error::msg)?);
+    if let Command::Components {
+        action: action @ super::components_cmd::ComponentsAction::InstallVerified(_),
+    } = command
+    {
+        // Dispatch before constructing gateway/profile/doctor infrastructure.
+        let value = super::components_cmd::run(action).await?;
+        return writer.write_data(&result_output::select_fields(value, &select));
+    }
     let explicit_update_command = matches!(&command, Command::Update { .. });
-    let marketplace_update_check = (!crate::application::update::is_background_refresh())
-        .then(|| tokio::spawn(check_marketplace_updates()));
+    let project_result =
+        !raw_result && matches!(&command, Command::Call { .. } | Command::CallBatch { .. });
+    let quiet_control = !command_shows_maintenance(&command, show_maintenance);
+    // Staged application already ran in run(), controlled only by the explicit skip flag.
+    let output_maintenance =
+        UpdateMaintenance::from_skip_flag(no_update_maintenance || quiet_control);
+    let marketplace_update_check = output_maintenance
+        .run(|| {
+            (!crate::application::update::is_background_refresh())
+                .then(|| tokio::spawn(check_marketplace_updates()))
+        })
+        .flatten();
 
     if global_timeout_secs.is_some()
         && (command_has_distinct_per_timeout(&command, global_timeout_secs)
@@ -233,7 +326,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
     let control = DccControlPlane::new(
         gateway_target.clone(),
         endpoint.clone(),
-        gateway_ensure::default_registry_dir(),
+        None,
         require_gateway,
     )
     .with_auto_gateway_enabled(!no_auto_gateway)
@@ -266,6 +359,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             url,
             query,
             limit,
+            max_pages,
             timeout_secs,
         } => {
             let effective_timeout = global_timeout_secs
@@ -280,7 +374,9 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 endpoint,
                 HttpGateway::with_timeout(Duration::from_secs(effective_timeout.max(1))),
             );
-            let result = client.smoke(mcp_url, query, limit).await;
+            let result = client
+                .smoke(mcp_url, query, limit, usize::from(max_pages))
+                .await;
             failed = !result.get("ok").and_then(Value::as_bool).unwrap_or(false);
             if failed {
                 exit_code = ExitCode::Unavailable;
@@ -578,12 +674,18 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             // operation record rather than straight from the caller, so
             // supplying both --dcc-type and --instance-id can no longer
             // short-circuit the ownership check.
-            let owned_operation = crate::application::instance_launch::resolve_owned_operation(
-                &gateway_ensure::default_registry_dir(),
-                dcc_type.as_deref(),
-                instance_id.as_deref(),
-                operation_id.as_deref(),
-            )?;
+            let owned_operation = if let Some(operation_id) =
+                operation_id.as_deref().filter(|id| !id.trim().is_empty())
+            {
+                crate::application::instance_launch::resolve_owned_operation(
+                    &gateway_ensure::default_registry_dir()?,
+                    dcc_type.as_deref(),
+                    instance_id.as_deref(),
+                    Some(operation_id),
+                )?
+            } else {
+                None
+            };
             let (resolved_dcc_type, resolved_instance_id) = match owned_operation {
                 Some(operation) => {
                     let instance_id = operation.instance_id.clone().ok_or_else(|| {
@@ -638,7 +740,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 required: require,
                 authorized: yes,
                 dry_run,
-                registry_dir: gateway_ensure::default_registry_dir(),
+                registry_dir: gateway_ensure::default_registry_dir()?,
                 instance_id,
             };
             let result = crate::application::instance_launch::start_instance(request).await?;
@@ -915,21 +1017,29 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
         );
     }
 
-    super::update_cmd::surface_cached_cli_update(
-        &mut value,
-        &writer,
-        &base_url,
-        !explicit_update_command,
-    )?;
+    output_maintenance
+        .run(|| {
+            super::update_cmd::surface_cached_cli_update(
+                &mut value,
+                &writer,
+                &base_url,
+                !explicit_update_command,
+            )
+        })
+        .transpose()?;
 
+    let failure = failed.then(|| failure_envelope(&value, exit_code));
+    if project_result {
+        result_output::canonical_result(&mut value);
+    }
+    let value = result_output::select_fields(value, &select);
     writer.write_data(&value)?;
     if let Some(code) = explicit_exit_code
         && code != 0
     {
         std::process::exit(code);
     }
-    if failed {
-        let envelope = failure_envelope(&value, exit_code);
+    if let Some(envelope) = failure {
         writer.write_error(&envelope)?;
         std::process::exit(exit_code.as_i32());
     }
@@ -943,3 +1053,11 @@ mod tests;
 #[cfg(test)]
 #[path = "cli/confirmation_timeout_tests.rs"]
 mod confirmation_timeout_tests;
+
+#[cfg(test)]
+#[path = "cli/gateway_precedence_tests.rs"]
+mod gateway_precedence_tests;
+
+#[cfg(test)]
+#[path = "cli/verified_component_tests.rs"]
+mod verified_component_tests;

@@ -13,6 +13,37 @@ use crate::application::gateway_profile::GatewayTarget;
 use crate::presentation::feedback_cmd::FeedbackAction;
 
 #[test]
+fn result_view_flags_are_global_and_invalid_pointers_fail_before_dispatch() {
+    let args = Args::try_parse_from([
+        "dcc-mcp-cli",
+        "call",
+        "houdini.abc.inspect",
+        "--raw-result",
+        "--select",
+        "/result/structuredContent",
+        "--show-maintenance",
+    ])
+    .unwrap();
+    assert!(args.raw_result);
+    assert!(args.show_maintenance);
+    assert!(!command_shows_maintenance(&args.command, false));
+    assert!(command_shows_maintenance(&args.command, true));
+    assert_eq!(args.select, ["/result/structuredContent"]);
+    let quiet = Args::try_parse_from(["dcc-mcp-cli", "list", "--quiet"]).unwrap();
+    assert!(quiet.no_update_maintenance);
+    assert!(!command_shows_maintenance(&quiet.command, false));
+    let doctor = Args::try_parse_from(["dcc-mcp-cli", "doctor"]).unwrap();
+    assert!(command_shows_maintenance(&doctor.command, false));
+    assert!(
+        Args::try_parse_from(["dcc-mcp-cli", "call", "tool", "--select", "not-a-pointer",])
+            .is_err()
+    );
+    assert!(
+        Args::try_parse_from(["dcc-mcp-cli", "list", "--quiet", "--show-maintenance",]).is_err()
+    );
+}
+
+#[test]
 fn require_gateway_is_a_global_fail_closed_control_flag() {
     let args = Args::try_parse_from([
         "dcc-mcp-cli",
@@ -26,6 +57,34 @@ fn require_gateway_is_a_global_fail_closed_control_flag() {
 
     assert!(args.require_gateway);
     assert_eq!(args.agent_session_id.as_deref(), Some("task-42"));
+}
+
+#[test]
+fn bare_update_command_defaults_to_the_one_step_apply_action() {
+    let args = Args::try_parse_from(["dcc-mcp-cli", "update"])
+        .expect("a bare `dcc-mcp-cli update` must parse without a subcommand");
+
+    let Command::Update { action } = args.command else {
+        panic!("expected update command");
+    };
+    assert!(
+        action.is_none(),
+        "bare update should default to the one-step apply flow"
+    );
+}
+
+#[test]
+fn update_apply_and_yes_flag_remain_accepted() {
+    let args = Args::try_parse_from(["dcc-mcp-cli", "update", "apply", "--yes"])
+        .expect("`update apply --yes` must stay backward compatible");
+
+    let Command::Update {
+        action: Some(UpdateAction::Apply { yes }),
+    } = args.command
+    else {
+        panic!("expected update apply action");
+    };
+    assert!(yes);
 }
 
 #[test]
@@ -598,6 +657,99 @@ fn native_mcp_image_reuses_ui_control_canonical_name() {
 }
 
 #[test]
+fn secondary_popup_images_keep_their_own_pixels_and_names() {
+    let root = tempfile::tempdir().unwrap();
+    let main = b"main application pixels";
+    let popup = b"transient popup pixels";
+    let mut value = serde_json::json!({"output":{"context":{
+        "__rich__":{"kind":"image","mime":"image/png","data":BASE64_STANDARD.encode(main),"display_name":"ui-control-main-nuke.png"},
+        "overlays":[{"__rich__":{"kind":"image","mime":"image/png","data":BASE64_STANDARD.encode(popup),"display_name":"ui-control-popup-nuke.png"}}]
+    }}});
+    materialize_call_images(&mut value, root.path());
+    let main_path = value["output"]["context"]["__rich__"]["artifact_path"]
+        .as_str()
+        .unwrap();
+    let popup_path = value["output"]["context"]["overlays"][0]["__rich__"]["artifact_path"]
+        .as_str()
+        .unwrap();
+    assert_ne!(main_path, popup_path);
+    assert_eq!(std::fs::read(main_path).unwrap(), main);
+    assert_eq!(std::fs::read(popup_path).unwrap(), popup);
+}
+
+#[test]
+fn multiple_native_images_do_not_alias_the_main_frame() {
+    let root = tempfile::tempdir().unwrap();
+    let mut value = serde_json::json!({"result":{
+        "content":[
+            {"type":"image","mimeType":"image/png","data":BASE64_STANDARD.encode(b"maya root")},
+            {"type":"image","mimeType":"image/png","data":BASE64_STANDARD.encode(b"maya popup")}
+        ],
+        "structuredContent":{"context":{"__rich__":{"display_name":"ui-control-main-maya.png"}}}
+    }});
+    materialize_call_images(&mut value, root.path());
+    let frames = value["result"]["content"].as_array().unwrap();
+    assert_ne!(frames[0]["artifact_path"], frames[1]["artifact_path"]);
+    assert_eq!(
+        std::fs::read(frames[0]["artifact_path"].as_str().unwrap()).unwrap(),
+        b"maya root"
+    );
+    assert_eq!(
+        std::fs::read(frames[1]["artifact_path"].as_str().unwrap()).unwrap(),
+        b"maya popup"
+    );
+}
+
+#[test]
+fn reused_display_name_never_returns_another_images_pixels() {
+    let root = tempfile::tempdir().unwrap();
+    let frame = |bytes: &[u8]| {
+        serde_json::json!({"kind":"image","mime":"image/png",
+        "data":BASE64_STANDARD.encode(bytes),"display_name":"ui-control-same-name.png"})
+    };
+    let mut value = serde_json::json!([
+        frame(b"first pixels"),
+        frame(b"other pixels"),
+        frame(b"first pixels")
+    ]);
+    materialize_call_images(&mut value, root.path());
+    let frames = value.as_array().unwrap();
+    assert_ne!(frames[0]["artifact_path"], frames[1]["artifact_path"]);
+    assert_eq!(frames[0]["artifact_path"], frames[2]["artifact_path"]);
+    for (index, bytes) in [b"first pixels", b"other pixels", b"first pixels"]
+        .iter()
+        .enumerate()
+    {
+        assert_eq!(
+            std::fs::read(frames[index]["artifact_path"].as_str().unwrap()).unwrap(),
+            *bytes
+        );
+    }
+}
+
+#[test]
+fn multiple_rich_images_without_names_do_not_inherit_the_main_name() {
+    let root = tempfile::tempdir().unwrap();
+    let mut value = serde_json::json!({"output":{"context":{
+    "__rich__":{"display_name":"ui-control-main.png"},
+    "frames":[
+        {"kind":"image","mime":"image/png","data":BASE64_STANDARD.encode(b"root")},
+        {"kind":"image","mime":"image/png","data":BASE64_STANDARD.encode(b"popup")}
+    ]}}});
+    materialize_call_images(&mut value, root.path());
+    let frames = value["output"]["context"]["frames"].as_array().unwrap();
+    assert_ne!(frames[0]["artifact_path"], frames[1]["artifact_path"]);
+    assert_eq!(
+        std::fs::read(frames[0]["artifact_path"].as_str().unwrap()).unwrap(),
+        b"root"
+    );
+    assert_eq!(
+        std::fs::read(frames[1]["artifact_path"].as_str().unwrap()).unwrap(),
+        b"popup"
+    );
+}
+
+#[test]
 fn call_materializes_native_mcp_image_and_reports_invalid_data_safely() {
     let root = tempfile::tempdir().expect("create artifact directory");
     let bytes = b"native image";
@@ -751,6 +903,7 @@ fn gateway_endpoint_for_command_ensures_gateway_for_agent_control_commands() {
                 query: "sphere".to_string(),
                 limit: 5,
                 timeout_secs: Some(5),
+                max_pages: 16,
             },
             &local,
         )
@@ -764,6 +917,7 @@ fn gateway_endpoint_for_command_ensures_gateway_for_agent_control_commands() {
                 query: "sphere".to_string(),
                 limit: 5,
                 timeout_secs: Some(5),
+                max_pages: 16,
             },
             &local,
         )
@@ -901,10 +1055,10 @@ fn gateway_endpoint_for_command_ensures_gateway_for_agent_control_commands() {
         gateway_endpoint_for_command(
             DEFAULT_BASE_URL,
             &Command::Update {
-                action: UpdateAction::Check {
+                action: Some(UpdateAction::Check {
                     binary: Some("dcc-mcp-server".to_string()),
                     current_version: Some("0.0.0".to_string()),
-                },
+                }),
             },
             &local,
         )
@@ -1395,5 +1549,14 @@ fn default_gateway_daemon_args() -> dcc_mcp_sidecar::gateway_daemon::GatewayArgs
         daemon: false,
         pidfile: None,
         restart: false,
+        ..Default::default()
     }
+}
+
+#[test]
+fn doctor_disables_automatic_update_maintenance_without_an_opt_out() {
+    let doctor = Args::try_parse_annotated_from(["dcc-mcp-cli", "doctor"]).unwrap();
+    assert!(doctor.no_update_maintenance);
+    let health = Args::try_parse_annotated_from(["dcc-mcp-cli", "health"]).unwrap();
+    assert!(!health.no_update_maintenance);
 }

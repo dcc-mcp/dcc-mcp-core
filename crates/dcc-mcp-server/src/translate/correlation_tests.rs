@@ -63,6 +63,7 @@ mod id_key {
 }
 
 mod bridge {
+    use super::command::quote_argument;
     use super::*;
 
     /// A stdio child that answers the first request correctly and every later
@@ -90,6 +91,44 @@ for raw in sys.stdin:
     echoed = req_id if previous_id is None else previous_id
     previous_id = req_id
     send({"jsonrpc": "2.0", "id": echoed, "result": {"echoed": echoed}})
+"#;
+
+    /// Faithful, host-free replay of the sequential-call recipe from issue
+    /// #2417: each `tools/call` carries a distinct MaxScript marker and the
+    /// child answers under its own id with that marker. A stray, id-less
+    /// progress notification is emitted before every response, so a bridge
+    /// that read the *next* stdout line as "the" response (positional pairing)
+    /// would be desynchronized and hand call N the payload from call N-1.
+    /// Id-keyed routing drops the stray lines and keeps every call paired
+    /// with its own result.
+    const MARKER_CHILD_PY: &str = r#"
+import sys, json
+
+MARKERS = {'"ALPHA"': 'ALPHA', '"BRAVO"': 'BRAVO', '"CHARLIE"': 'CHARLIE'}
+
+def send(obj):
+    sys.stdout.write(json.dumps(obj) + "\n")
+    sys.stdout.flush()
+
+for raw in sys.stdin:
+    raw = raw.strip()
+    if not raw:
+        continue
+    try:
+        msg = json.loads(raw)
+    except Exception:
+        continue
+    req_id = msg.get("id")
+    if req_id is None:
+        continue
+    script = ((msg.get("params") or {}).get("arguments") or {}).get("script", "")
+    marker = MARKERS.get(script, "UNKNOWN")
+    # A stray notification that would desync a positional response reader.
+    send({"jsonrpc": "2.0", "method": "notifications/progress",
+          "params": {"progressToken": req_id, "progress": 0}})
+    send({"jsonrpc": "2.0", "id": req_id,
+          "result": {"content": [{"type": "text", "text": marker}],
+                     "structuredContent": {"marker": marker, "script": script}}})
 "#;
 
     /// A stdio child that answers correctly but renders the integer id the way
@@ -254,11 +293,10 @@ while time.time() < deadline and os.path.exists(marker):
     /// Like [`child_command`], but with the `__MARKER__` placeholder replaced
     /// by `marker`, and with the child launched through `program`.
     ///
-    /// The path is baked into the script instead of passed as an argument
-    /// because [`parse_command`] splits the command on whitespace, so a path
-    /// containing spaces would reach the child mangled. It lands in a raw
-    /// Python string, so backslashes are rewritten to forward slashes (which
-    /// Windows accepts) and nothing else needs escaping.
+    /// The path is baked into the script instead of passed as an argument so
+    /// the marker survives regardless of where the temp dir lands. It sits in a
+    /// raw Python string, so backslashes are rewritten to forward slashes
+    /// (which Windows accepts) and nothing else needs escaping.
     fn child_command_with(
         source: &str,
         marker: &std::path::Path,
@@ -276,6 +314,11 @@ while time.time() < deadline and os.path.exists(marker):
     /// Write a stdio child script to a temp file and return a command line
     /// that runs it with `program`.
     ///
+    /// `program` is quoted: [`parse_command`] understands quotes, and a
+    /// resolved interpreter under `C:\Program Files\...` has to reach
+    /// [`spawn_child`] as one token. The script path is quoted for the same
+    /// reason -- a temp dir can contain spaces too.
+    ///
     /// The handle is returned as well: dropping it deletes the script while the
     /// child may still be starting up.
     fn write_child_script_with(source: &str, program: &str) -> (String, tempfile::NamedTempFile) {
@@ -286,7 +329,12 @@ while time.time() < deadline and os.path.exists(marker):
             .expect("tempfile");
         script.write_all(source.as_bytes()).expect("write script");
         script.flush().expect("flush");
-        (format!("{program} {}", script.path().display()), script)
+        let script_path = script.path().to_string_lossy().into_owned();
+        let quoted_path = quote_argument(&script_path);
+        (
+            format!("{} {}", quote_argument(program), quoted_path),
+            script,
+        )
     }
 
     /// Block until the child has closed its stdin: until the marker it writes
@@ -343,9 +391,12 @@ while time.time() < deadline and os.path.exists(marker):
     /// open, so the child closing its own fd 0 never breaks the pipe.
     ///
     /// `None` when the interpreter cannot be resolved, or when it is not
-    /// something this test can launch on its own -- notably when the path
-    /// contains whitespace, which [`parse_command`] would split. Callers fall
-    /// back to [`child_program`] in that case.
+    /// something this test can launch on its own. Callers fall back to
+    /// [`child_program`] in that case.
+    ///
+    /// A resolved path containing whitespace is fine: [`parse_command`] is
+    /// quote-aware, and [`child_command_with`] quotes the program before it
+    /// builds the command line.
     fn resolved_interpreter() -> Option<String> {
         let probe = std::process::Command::new(child_program())
             .arg("-c")
@@ -358,7 +409,7 @@ while time.time() < deadline and os.path.exists(marker):
             return None;
         }
         let path = String::from_utf8_lossy(&probe.stdout).trim().to_string();
-        if path.is_empty() || path.contains(char::is_whitespace) || !interpreter_runs(&path) {
+        if path.is_empty() || !interpreter_runs(&path) {
             return None;
         }
         Some(path)
@@ -401,6 +452,72 @@ while time.time() < deadline and os.path.exists(marker):
             "skipping: no usable python interpreter on PATH; the stdio bridge tests need one"
         );
         true
+    }
+
+    /// Exercise the actual spawn boundary: a quoted script path, Windows
+    /// arguments and hash-prefixed tokens must reach the child unchanged.
+    #[tokio::test]
+    async fn spawn_child_preserves_quoted_paths_and_literal_arguments() {
+        if skip_without_python() {
+            return;
+        }
+        let temp = tempfile::Builder::new()
+            .prefix("stdio argv ")
+            .tempdir()
+            .expect("tempdir with spaces");
+        let script = temp.path().join("echo args.py");
+        std::fs::write(
+            &script,
+            "import json, sys\nprint(json.dumps(sys.argv[1:]))\n",
+        )
+        .expect("write argv child");
+        let interpreter = resolved_interpreter().expect("resolve Python interpreter");
+        // A symlink proves that the program itself may contain spaces, even
+        // when CI installed Python under a whitespace-free prefix. Windows
+        // uses the resolved interpreter because symlinks require privileges.
+        #[cfg(unix)]
+        let interpreter = {
+            let alias = temp.path().join("python with spaces");
+            std::os::unix::fs::symlink(interpreter, &alias).expect("symlink interpreter");
+            alias.to_string_lossy().into_owned()
+        };
+        let cmd = format!(
+            "{} {} {}\u{2003}{}",
+            quote_argument(&interpreter),
+            quote_argument(&script.to_string_lossy()),
+            r#"C:\scripts\bridge.py "C:\scene files\bridge.py" \\server\share\bridge.py C:\cache\ --output=C:\cache\ --output=\\server\share\ \ #tag "two words" one\ two ''"#,
+            "last"
+        );
+        let mut child = spawn_child(&cmd).expect("spawn argv child");
+        let stdout = child.stdout.take().expect("child stdout");
+        let mut lines = BufReader::new(stdout).lines();
+        let line = tokio::time::timeout(Duration::from_secs(10), lines.next_line()).await;
+        // Always reap the child before asserting so a failed regression leaves
+        // no process running (including on platforms without kill-on-drop).
+        child.kill().await.ok();
+        child.wait().await.expect("reap argv child");
+        let line = line
+            .expect("argv child response timeout")
+            .expect("read argv")
+            .expect("argv line");
+        let args: Vec<String> = serde_json::from_str(&line).expect("JSON argv");
+        assert_eq!(
+            args,
+            [
+                r"C:\scripts\bridge.py",
+                r"C:\scene files\bridge.py",
+                r"\\server\share\bridge.py",
+                r"C:\cache\",
+                r"--output=C:\cache\",
+                r"--output=\\server\share\",
+                r"\",
+                "#tag",
+                "two words",
+                "one two",
+                "",
+                "last"
+            ]
+        );
     }
 
     fn request(id: i64) -> JsonRpcRequest {
@@ -743,5 +860,104 @@ while time.time() < deadline and os.path.exists(marker):
         // Removing the marker lets the child exit instead of sleeping out its
         // full deadline; dropping the handle would do the same.
         let _ = marker.close();
+    }
+
+    /// End-to-end replay of the issue #2417 recipe: three sequential
+    /// `tools/call` requests, each with a distinct marker, on one bridge.
+    /// Every call must receive its OWN payload -- never the previous call's.
+    /// The child interleaves a stray notification before each response, so a
+    /// regression to positional ("take the next line") pairing is caught here
+    /// instead of on a licensed DCC host.
+    #[tokio::test]
+    async fn sequential_tool_calls_never_return_the_previous_calls_payload() {
+        if skip_without_python() {
+            return;
+        }
+        let (cmd, _script) = child_command(MARKER_CHILD_PY);
+        let bridge = start_bridge(cmd);
+
+        for (id, script, expected) in [
+            (1i64, "\"ALPHA\"", "ALPHA"),
+            (2i64, "\"BRAVO\"", "BRAVO"),
+            (3i64, "\"CHARLIE\"", "CHARLIE"),
+        ] {
+            let mut req = request(id);
+            req.params = Some(serde_json::json!({
+                "name": "execute_maxscript",
+                "arguments": {"script": script, "confirm_execution": true},
+            }));
+            let response = bridge
+                .call(req)
+                .await
+                .unwrap_or_else(|e| panic!("call {id} must be correlated, got: {e}"));
+            assert_eq!(
+                request_id_key(response.id.as_ref()),
+                Some(id.to_string()),
+                "call {id} must receive its own response id"
+            );
+            assert!(
+                response.error.is_none(),
+                "call {id} must not fail: {:?}",
+                response.error
+            );
+            let result = response.result.as_ref().expect("call must return a result");
+            assert_eq!(
+                result.pointer("/structuredContent/marker"),
+                Some(&serde_json::json!(expected)),
+                "call {id} ({script}) received another call's payload: one-call skew"
+            );
+        }
+    }
+
+    /// A caller that gives up before the actor files its request must not
+    /// leave a pending entry behind. Without the guard, that stale entry
+    /// rejects a fresh call reusing the id as a duplicate and can hand that
+    /// fresh call the abandoned call's late response -- the mis-correlation
+    /// #2417 is about. Dropping the receiver before filing pins the race
+    /// deterministically, without reproducing pipe backpressure.
+    #[tokio::test]
+    async fn abandoned_call_does_not_block_or_misdeliver_a_reused_id() {
+        if skip_without_python() {
+            return;
+        }
+        let (cmd, _script) = child_command(SLOW_ECHO_CHILD_PY);
+        let bridge = start_bridge(cmd);
+
+        // A request whose caller already timed out: its receiver is gone
+        // before the actor ever files it.
+        let (tx, rx) = oneshot::channel();
+        drop(rx);
+        bridge
+            .inner
+            .tx
+            .send(BridgeRequest {
+                message: JsonRpcMessage::Request(request(7)),
+                response_tx: Some(tx),
+                owner: u64::MAX,
+            })
+            .await
+            .expect("bridge actor is alive");
+
+        // A fresh call reusing the same id must be served, not rejected as a
+        // duplicate and not handed the abandoned call's response.
+        let response = bridge
+            .call(request(7))
+            .await
+            .expect("a fresh call must be served after an abandoned one");
+        assert!(
+            response.error.is_none(),
+            "the fresh call must not be rejected as a duplicate: {:?}",
+            response.error
+        );
+        assert_eq!(
+            request_id_key(response.id.as_ref()),
+            Some("7".to_string()),
+            "the fresh call must receive its own response id"
+        );
+        assert_eq!(
+            response.result.as_ref().and_then(|r| r.get("ok")),
+            Some(&serde_json::json!(7)),
+            "the fresh call must receive its own payload"
+        );
     }
 }

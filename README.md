@@ -30,10 +30,13 @@ registry is the source of truth, and the count is reproducible from a checkout:
 rg -c '^    tags: \[.*"adapter".*\]' dcc-mcp-catalog.yml
 ~~~
 
-That reports **38 adapter entries** in [`dcc-mcp-catalog.yml`](dcc-mcp-catalog.yml),
-covering these hosts:
+That reports **48 adapter entries** in [`dcc-mcp-catalog.yml`](dcc-mcp-catalog.yml).
+See the [complete generated host list](docs/adapter-coverage.md) for every current
+entry and its install metadata. The count includes experimental discovery-only
+PhotoCraft; it does not establish release-qualified support or automatic
+installation for every entry. Selected examples include:
 
-| Area | Hosts |
+| Area | Selected hosts |
 |---|---|
 | Desktop DCC | Maya, Blender, Houdini, 3ds Max, Cinema 4D, Nuke, Katana, MotionBuilder, ZBrush, Mari, Substance 3D Designer, Substance 3D Painter, Marmoset |
 | Engines and real-time | Unreal, Unity, Godot, Tiled, TouchDesigner |
@@ -46,7 +49,7 @@ The full list, with install metadata, is published in the
 
 **Three shared contracts keep it one matrix.** Host coverage is only useful if
 the adapters stay interchangeable. Three contracts published by core are what
-stop 38 adapters from becoming 38 unrelated servers:
+stop host adapters from becoming unrelated servers:
 
 | Contract | What it guarantees | Where to verify |
 |---|---|---|
@@ -244,9 +247,11 @@ pipx install dcc-mcp-cli
 pip install dcc-mcp-cli
 ~~~
 
-Package-manager installs are managed by the package manager: upgrade with
-`uv tool upgrade dcc-mcp-cli` (or `pip install --upgrade dcc-mcp-cli`) rather
-than `dcc-mcp-cli update apply`, which is disabled for those builds.
+Package-manager installs also support `dcc-mcp-cli update`, which checks,
+downloads, and stages the latest CLI in one step. The package manager's own
+record then lags behind the binary on disk and the CLI reports that mismatch as
+an advisory; prefer `uv tool upgrade dcc-mcp-cli` (or
+`pip install --upgrade dcc-mcp-cli`) when you want its metadata to stay in sync.
 
 Otherwise, obtain the user's consent, install the public `dcc-mcp`
 Skill below, and run its bundled verified helper from the Skill directory:
@@ -325,15 +330,16 @@ Keep an official build current through the release manifest:
 
 ~~~bash
 dcc-mcp-cli update check
-dcc-mcp-cli update apply --yes  # after user confirmation
+dcc-mcp-cli update          # check, download, and stage in one step
 ~~~
 
 Official release builds refresh a cached update status in the background every
 24 hours without blocking the foreground command. Available updates appear as
-structured `cli_update` data; agents must ask the user before running the
-reported apply command. `update apply --yes` downloads and stages the latest
-CLI for the next launch. It does not update or restart a running
-`dcc-mcp-server`; update that server in its own environment.
+structured `cli_update` data. `dcc-mcp-cli update` checks, downloads, and stages
+the latest CLI for the next launch in one step, with no separate confirmation
+flag; `update apply` and `--yes` remain accepted for backward compatibility. It
+does not update or restart a running `dcc-mcp-server`; update that server in its
+own environment.
 
 Then discover a live capability before calling it:
 
@@ -594,6 +600,8 @@ repository does not duplicate version or package counts in this README.
 
 - [Getting started](docs/guide/getting-started.md) — install the package and
   start a first server.
+- [MCP Registry setup](docs/guide/getting-started.md#mcp-registry) — discover a
+  version, start a local gateway, and verify a standard MCP client.
 - [CLI reference](docs/guide/cli-reference.md) — complete operator commands and
   flags.
 - [Gateway guide](docs/guide/gateway.md) — daemon, registry, routing, relay, and

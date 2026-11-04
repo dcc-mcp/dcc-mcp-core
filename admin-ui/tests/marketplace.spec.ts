@@ -208,8 +208,10 @@ test.describe('Marketplace Panel', () => {
     await gotoMarketplace(page);
 
     await expect(page.locator('.marketplace-panel h2')).toContainText('Marketplace');
-    await expect(page.locator('.discover-panel > .discover-tabs')).toHaveCSS('display', 'flex');
-    await expect(page.locator('.discover-panel > .discover-tabs')).toHaveCSS('gap', /[1-9]/);
+    const discoverTabs = page.locator('.discover-toolbar').getByRole('tablist');
+    await expect(discoverTabs).toBeVisible();
+    await expect(discoverTabs.getByRole('tab')).toHaveText(['Skills', 'Marketplace', 'Integrations']);
+    await expect(discoverTabs.getByRole('tab', { name: 'Marketplace', exact: true })).toHaveAttribute('aria-selected', 'true');
 
     // Browse tab should be active and show empty state
     const browseTab = page.locator('.marketplace-tab').first();
@@ -326,7 +328,7 @@ test.describe('Marketplace Panel', () => {
     const card = page.locator('.marketplace-card[data-name="texture-pipeline"]');
     await card.getByRole('button', { name: 'Install maya' }).click();
 
-    const modal = page.locator('.marketplace-detail-backdrop');
+    const modal = page.getByRole('dialog');
     await expect(modal).toContainText('Requirements');
     await expect(modal).toContainText('OPENAI_API_KEY · env');
     await expect(modal).toContainText('reported only');
@@ -469,7 +471,7 @@ test.describe('Marketplace Panel', () => {
     await expect(modal.locator('.marketplace-detail-warning')).not.toBeVisible();
 
     // Close via backdrop click
-    await page.locator('.marketplace-detail-backdrop').click({ position: { x: 10, y: 10 } });
+    await page.locator('.detail-dialog-overlay').click({ position: { x: 10, y: 10 } });
     await expect(modal).not.toBeVisible();
   });
 

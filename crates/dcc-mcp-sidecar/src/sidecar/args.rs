@@ -103,7 +103,20 @@ pub struct SidecarArgs {
     pub no_ensure_gateway: bool,
 
     /// Legacy mode: let this per-DCC sidecar compete for the gateway role.
-    #[arg(long, env = "DCC_MCP_LEGACY_GATEWAY_ELECTION", default_value = "false")]
+    ///
+    /// Boolish on purpose: this flag mirrors `--gateway-persist` on the
+    /// gateway daemon, and `DCC_MCP_LEGACY_GATEWAY_ELECTION=1` is the shape
+    /// operators already write for the sibling variables. clap's default
+    /// `bool` parser accepts only the literals `true`/`false` and aborted
+    /// startup with `invalid value '1'` (issue dcc-mcp-core#2642).
+    #[arg(
+        long,
+        env = "DCC_MCP_LEGACY_GATEWAY_ELECTION",
+        default_value = "false",
+        num_args = 0..=1,
+        default_missing_value = "true",
+        value_parser = clap::builder::BoolishValueParser::new()
+    )]
     pub legacy_gateway_election: bool,
 
     /// Legacy host/interface for the gateway listener (default ``127.0.0.1``).

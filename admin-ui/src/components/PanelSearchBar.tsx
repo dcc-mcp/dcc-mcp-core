@@ -1,4 +1,5 @@
 import type { Panel } from '../admin-types';
+import { RiSearchLine } from '@remixicon/react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 
@@ -43,14 +44,17 @@ export function PanelSearchBar({
       data-has-filter={canToggleLatency ? 'true' : undefined}
       data-has-meta={meta ? 'true' : undefined}
     >
-      <Input
-        type="search"
-        className="list-search-input"
-        placeholder={placeholder}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        aria-label={ariaLabel}
-      />
+      <div className="list-search-field">
+        <RiSearchLine className="list-search-icon" aria-hidden="true" />
+        <Input
+          type="search"
+          className="list-search-input"
+          placeholder={placeholder}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          aria-label={ariaLabel}
+        />
+      </div>
       {canToggleLatency ? (
         <Button
           className="filter-chip"

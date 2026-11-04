@@ -467,10 +467,25 @@ def test_abi3_accepts_native_macos_runner_tags(tmp_path: Path, platform_tag: str
 
 
 def test_wheel_profile_rejects_an_undeclared_platform(tmp_path: Path) -> None:
-    wheel = tmp_path / "dcc_mcp_core-1.0.0-cp37-cp37m-macosx_10_9_x86_64.whl"
+    wheel = tmp_path / "dcc_mcp_core-1.0.0-cp37-cp37m-macosx_11_0_arm64.whl"
+    _write_wheel(wheel, pure=False, with_core=True)
+    errors = validate_wheel(wheel, "native_py37", "macos-arm64", load_contract(_REPO_ROOT))
+    assert errors == ["profile 'native_py37' does not support platform 'macos-arm64'"]
+
+
+@pytest.mark.parametrize("platform_tag", ["macosx_10_9_x86_64", "macosx_11_0_x86_64"])
+def test_native_py37_accepts_macos_x86_64_wheel(tmp_path: Path, platform_tag: str) -> None:
+    wheel = tmp_path / f"dcc_mcp_core-1.0.0-cp37-cp37m-{platform_tag}.whl"
+    _write_wheel(wheel, pure=False, with_core=True)
+    assert validate_wheel(wheel, "native_py37", "macos-x86_64", load_contract(_REPO_ROOT)) == []
+
+
+def test_native_py37_rejects_non_x86_64_macos_wheel(tmp_path: Path) -> None:
+    """A cross-compile that resolved the host architecture must fail the gate."""
+    wheel = tmp_path / "dcc_mcp_core-1.0.0-cp37-cp37m-macosx_11_0_arm64.whl"
     _write_wheel(wheel, pure=False, with_core=True)
     errors = validate_wheel(wheel, "native_py37", "macos-x86_64", load_contract(_REPO_ROOT))
-    assert errors == ["profile 'native_py37' does not support platform 'macos-x86_64'"]
+    assert any("are not allowed for native_py37/macos-x86_64" in error for error in errors)
 
 
 def test_cli_accepts_explicit_lite_and_abi3_platforms(tmp_path: Path) -> None:

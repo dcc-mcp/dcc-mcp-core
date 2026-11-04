@@ -159,17 +159,13 @@ pub(crate) enum ResidentGatewayHealth {
 impl GatewayRunner {
     /// Create a new runner, initializing (or loading) the `FileRegistry` from
     /// `config.registry_dir`, the `DCC_MCP_REGISTRY_DIR` environment variable,
-    /// or a system temp dir (in that order of precedence).
+    /// or `~/.dcc-mcp/registry-live` (in that order of precedence).
     pub fn new(config: GatewayConfig) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let dir = config
             .registry_dir
             .clone()
-            .or_else(|| {
-                std::env::var("DCC_MCP_REGISTRY_DIR")
-                    .ok()
-                    .map(std::path::PathBuf::from)
-            })
-            .unwrap_or_else(|| std::env::temp_dir().join("dcc-mcp-registry"));
+            .map(Ok)
+            .unwrap_or_else(dcc_mcp_gateway_ensure::default_registry_dir)?;
         let registry = FileRegistry::new(&dir)?;
         Ok(Self {
             config,

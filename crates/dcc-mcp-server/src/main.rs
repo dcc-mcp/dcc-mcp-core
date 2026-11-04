@@ -72,6 +72,10 @@ use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::time::Duration;
 
+// `main_tests` parses argv through `use super::*`, so the trait has to be in
+// scope for the test target even though the binary itself no longer calls
+// `Args::parse` directly.
+#[cfg_attr(not(test), allow(unused_imports))]
 use clap::Parser;
 use cli::{Args, CatalogAction, ServerArgs, SubCmd};
 use dcc_mcp_actions::{ToolDispatcher, ToolRegistry};
@@ -316,15 +320,11 @@ pub(crate) fn spawn_pid_cleanup_watcher(path: &std::path::Path, pid: u32) {
 }
 
 #[cfg(all(feature = "gateway-auto", feature = "gateway-daemon"))]
-fn resolve_registry_dir(configured: Option<&PathBuf>) -> PathBuf {
+fn resolve_registry_dir(configured: Option<&PathBuf>) -> anyhow::Result<PathBuf> {
     configured
         .cloned()
-        .or_else(|| {
-            std::env::var("DCC_MCP_REGISTRY_DIR")
-                .ok()
-                .map(PathBuf::from)
-        })
-        .unwrap_or_else(|| std::env::temp_dir().join("dcc-mcp-registry"))
+        .map(Ok)
+        .unwrap_or_else(dcc_mcp_sidecar::default_registry_dir)
 }
 
 #[cfg(all(feature = "gateway-auto", feature = "gateway-daemon"))]
@@ -411,19 +411,19 @@ fn stamp_server_gateway_runtime_metadata(entry: &mut ServiceEntry, args: &Server
 fn build_server_gateway_daemon_options(
     args: &ServerArgs,
     registry_dir_path: Option<&PathBuf>,
-) -> gateway_daemon::EnsureGatewayOptions {
+) -> anyhow::Result<gateway_daemon::EnsureGatewayOptions> {
     let gateway_host = args
         .gateway_host
         .clone()
         .unwrap_or_else(|| args.host.clone());
-    gateway_daemon::EnsureGatewayOptions {
+    Ok(gateway_daemon::EnsureGatewayOptions {
         host: gateway_host,
         port: args.gateway_port,
         name: args
             .gateway_name
             .clone()
             .or_else(|| Some(format!("gateway-for-{}", args.server_name))),
-        registry_dir: resolve_registry_dir(registry_dir_path),
+        registry_dir: resolve_registry_dir(registry_dir_path)?,
         remote_host: args.gateway_remote_host.clone(),
         remote_port: args.gateway_remote_port,
         crate_version: Some(env!("CARGO_PKG_VERSION").to_string()),
@@ -433,7 +433,7 @@ fn build_server_gateway_daemon_options(
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(dcc_mcp_sidecar::gateway_daemon::AUTO_ENSURE_GATEWAY_IDLE_TIMEOUT_SECS),
-    }
+    })
 }
 
 fn run_pid_cleanup_watcher(path: PathBuf, pid: u32) {
@@ -723,7 +723,7 @@ async fn async_main() -> anyhow::Result<()> {
     #[cfg(feature = "sentry")]
     let _sentry_guard = sentry_init::init_sentry();
 
-    let args = Args::parse();
+    let args = Args::parse_annotated();
 
     // ── Dispatch to subcommands ───────────────────────────────────────────
     // Extract values needed by the Update subcommand before the match
@@ -849,7 +849,7 @@ async fn run_server(args: ServerArgs) -> anyhow::Result<()> {
         Some(build_server_gateway_daemon_options(
             &args,
             registry_dir_path.as_ref(),
-        ))
+        )?)
     } else {
         None
     };

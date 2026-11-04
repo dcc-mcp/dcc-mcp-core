@@ -314,23 +314,20 @@ fn feedback_bundle_assembles_public_safe_bounded_evidence() {
     );
     let body: Value = serde_json::from_slice(&output.stdout).unwrap();
     let encoded = serde_json::to_string(&body).unwrap();
-    assert_eq!(body["schema_version"], "dcc-mcp.feedback-bundle.v1");
-    assert_eq!(body["privacy_mode"], "public-safe");
-    assert_eq!(body["complete"], true);
-    assert_eq!(
-        body["finding"]["observed"],
-        "The bridge did not start; public support code 4321"
-    );
-    assert_eq!(body["components"]["issue_report"]["status"], "included");
-    assert_eq!(body["components"]["doctor"]["status"], "included");
+    assert_eq!(body["schema_version"], "dcc-mcp.feedback-bundle.v2");
+    assert_eq!(body["privacy_mode"], "minimal-diagnostic");
+    assert_eq!(body["complete"], false);
+    assert!(body["finding"].get("observed").is_none());
+    assert_eq!(body["components"]["issue_report"]["status"], "unavailable");
+    assert_eq!(body["components"]["doctor"]["status"], "not_applicable");
     assert_eq!(body["components"]["host_errors"]["status"], "included");
     assert_eq!(
         body["components"]["doctor"]["data"]["gateway"]["status"]["host"],
-        "[endpoint-redacted]"
+        Value::Null
     );
     assert_eq!(
         body["components"]["doctor"]["data"]["gateway"]["status"]["port"],
-        "[endpoint-redacted]"
+        Value::Null
     );
     assert!(body["finding"]["evidence"].get("dcc_pid").is_none());
     assert!(
@@ -348,7 +345,7 @@ fn feedback_bundle_assembles_public_safe_bounded_evidence() {
     );
     assert_eq!(
         body["components"]["install_execution_report"]["data"]["receipt_path"],
-        "[path-redacted]"
+        Value::Null
     );
     for private in [
         "secret.godot",
@@ -453,11 +450,11 @@ fn feedback_bundle_accepts_schema_additive_install_report_shapes() {
     let report = &body["components"]["install_execution_report"]["data"];
     assert_eq!(
         report["rollback"]["future_shape"]["private_uri"],
-        "[url-redacted]"
+        Value::Null
     );
     assert_eq!(
         report["rollback"]["future_shape"]["private_path"],
-        "[path-redacted]"
+        Value::Null
     );
     let encoded = serde_json::to_string(&body).unwrap();
     assert!(!encoded.contains("ROLLBACK_FUTURE_URI_28f1"));
@@ -565,7 +562,7 @@ fn feedback_bundle_rejects_invalid_install_report_before_control_plane_io() {
         assert!(!output.status.success());
         assert!(output.stdout.is_empty());
         let stderr = String::from_utf8_lossy(&output.stderr);
-        assert!(stderr.contains("install execution report is invalid"));
+        assert!(stderr.contains("DIAGNOSTIC_PREVIEW_FAILED"));
         assert!(!stderr.contains(&report_arg));
         assert_eq!(listener.accept().unwrap_err().kind(), ErrorKind::WouldBlock);
     }

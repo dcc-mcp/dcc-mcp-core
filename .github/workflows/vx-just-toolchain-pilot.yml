@@ -1,0 +1,86 @@
+# Pilot verification for the VX + just new-project toolchain template.
+#
+# This is intentionally ADDITIVE and path-filtered: it does not touch Core's
+# existing ci.yml / vx.toml / vx.lock / justfile (the already-merged VX
+# migration). It only runs when the pilot template files or this workflow
+# change, on standard GitHub-hosted runners, within ordinary budgets.
+#
+# The verification harness (verify.py) spawns REAL vx child processes against
+# an isolated VX_HOME/HOME: cold/warm cache, pinned-binary version, shim/version
+# isolation, whitespace + Unicode paths, fail-closed lock drift (non-zero exit
+# + stderr), the missing-lock trap, per-subprocess timeouts and cleanup. Native
+# DCC GUI/license jobs are NOT_RUN here.
+
+name: VX + just toolchain pilot
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "templates/vx-just-project/**"
+      - ".github/workflows/vx-just-toolchain-pilot.yml"
+  pull_request:
+    paths:
+      - "templates/vx-just-project/**"
+      - ".github/workflows/vx-just-toolchain-pilot.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vx-just-pilot-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: verify (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    env:
+      VX_EXPECT_VERSION: "0.9.34"
+      VX_NO_UPDATE_NOTIFIER: "1"
+      VX_TELEMETRY: "0"
+      NO_COLOR: "1"
+      # Windows runners default Python stdio to cp1252; force UTF-8 so vx's
+      # Unicode install glyphs (re-printed by verify.py) cannot crash a job.
+      PYTHONIOENCODING: "utf-8"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      # Ref pinned to the reviewed v0.9.34 release commit; `version` is explicit
+      # because the action's version input defaults to `latest` and ignores the
+      # ref. cache:false prevents a stale cached binary from skipping install,
+      # so the harness below proves the pinned binary actually executes.
+      - name: Setup vx (pinned)
+        uses: loonghao/vx@debe4f035713d28366ec0c322e0b87de2a25d2f2 # v0.9.34
+        with:
+          version: "0.9.34"
+          cache: false
+
+      - name: Assert vx.lock presence (fail closed)
+        shell: bash
+        working-directory: templates/vx-just-project
+        run: |
+          set -euo pipefail
+          if [ ! -f vx.lock ]; then
+            echo "::error::vx.lock is missing; 'vx lock --check' would still exit 0."
+            exit 1
+          fi
+
+      # Exercise the SINGLE shared local/CI entry point (lock-check -> doctor ->
+      # verify) in real CI, so a broken `ci` recipe cannot merge with a green
+      # pipeline. `doctor` proves the pinned tools resolve + execute (no bare-tool
+      # fallback); `verify` runs the isolated harness and reads VX_EXPECT_VERSION
+      # from the job env to assert the pinned vx binary. One run, no duplication.
+      - name: Run shared entry point (vx just ci)
+        shell: bash
+        working-directory: templates/vx-just-project
+        run: vx just ci

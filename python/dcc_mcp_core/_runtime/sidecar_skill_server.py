@@ -11,6 +11,7 @@ from typing import Callable
 
 from dcc_mcp_core._install_lifecycle_sidecar import build_sidecar_command
 from dcc_mcp_core._install_lifecycle_sidecar import launch_sidecar
+from dcc_mcp_core._runtime.mcp_http_config import McpHttpConfig
 from dcc_mcp_core._runtime.pure_skill_catalog import PurePythonSkillCatalog
 from dcc_mcp_core._runtime.skill_paths import get_app_skill_paths_from_env
 from dcc_mcp_core._runtime.skill_paths import get_local_skills_dir
@@ -19,6 +20,8 @@ from dcc_mcp_core._runtime.skill_paths import skill_env_slug
 from dcc_mcp_core._runtime.tool_registry_py import PurePythonToolRegistry
 from dcc_mcp_core.constants import ENV_DISABLE_ACCUMULATED_SKILLS
 from dcc_mcp_core.constants import ENV_DISABLE_DEFAULT_SKILL_PATHS
+from dcc_mcp_core.constants import ENV_GATEWAY_REMOTE_HOST
+from dcc_mcp_core.constants import ENV_GATEWAY_REMOTE_PORT
 from dcc_mcp_core.constants import ENV_JOB_RETENTION_HOURS
 from dcc_mcp_core.constants import ENV_JOB_STORAGE_PATH
 from dcc_mcp_core.constants import ENV_SKILL_PATHS
@@ -63,7 +66,7 @@ class SidecarBackedSkillServer:
     def __init__(
         self,
         dcc_name: str,
-        config: Any,
+        config: McpHttpConfig | None,
         *,
         host_rpc: str,
         watch_pid: int | None = None,
@@ -72,6 +75,7 @@ class SidecarBackedSkillServer:
         wait_ready_timeout_secs: float = 15.0,
         server_bin: str | None = None,
         extra_args: tuple | None = None,
+        gateway_managed_by_adapter: bool = False,
     ) -> None:
         self._dcc_name = str(dcc_name or "dcc")
         self._config = config
@@ -82,6 +86,7 @@ class SidecarBackedSkillServer:
         self._wait_ready_timeout_secs = float(wait_ready_timeout_secs)
         self._server_bin = str(server_bin).strip() if server_bin else None
         self._extra_args = tuple(str(arg) for arg in (extra_args or ()))
+        self._gateway_managed_by_adapter = gateway_managed_by_adapter
         self._accumulated = True
         self._registry = PurePythonToolRegistry()
         self._catalog = PurePythonSkillCatalog(self._dcc_name)
@@ -123,6 +128,14 @@ class SidecarBackedSkillServer:
     def _launch_environment(self) -> dict[str, str]:
         """Build sidecar-only overrides without mutating the DCC process."""
         overrides: dict[str, str] = {}
+        # Preserve the resolved adapter policy across the Python/Rust process
+        # boundary. Never fall back to a conflicting inherited LAN setting.
+        remote_host = getattr(self._config, "gateway_remote_host", None)
+        remote_port = getattr(self._config, "gateway_remote_port", None)
+        if remote_host is not None:
+            overrides[ENV_GATEWAY_REMOTE_HOST] = str(remote_host)
+        if remote_port is not None:
+            overrides[ENV_GATEWAY_REMOTE_PORT] = str(remote_port)
         paths = list(self._pending_skill_paths)
         existing = os.environ.get(ENV_SKILL_PATHS, "")
         if existing:
@@ -148,7 +161,8 @@ class SidecarBackedSkillServer:
                 "set DccServerOptions.sidecar.host_rpc or DCC_MCP_HOST_RPC"
             )
 
-        gateway_port = int(getattr(self._config, "gateway_port", 0) or 0)
+        configured_gateway_port = getattr(self._config, "gateway_port", None)
+        gateway_port = int(configured_gateway_port) if configured_gateway_port is not None else None
         registry_dir = getattr(self._config, "registry_dir", None)
         launch_env = self._launch_environment()
         command = build_sidecar_command(
@@ -158,7 +172,13 @@ class SidecarBackedSkillServer:
             registry_dir=registry_dir,
             display_name=self._display_name,
             adapter_version=self._adapter_version,
-            gateway_port=gateway_port if gateway_port > 0 else None,
+            gateway_port=gateway_port,
+            gateway_remote_host=getattr(self._config, "gateway_remote_host", None),
+            gateway_remote_port=getattr(self._config, "gateway_remote_port", None),
+            # DccServerBase owns daemon ensure/guardian. The sidecar keeps
+            # its embedded election so a failed daemon can still recover.
+            no_ensure_gateway=self._gateway_managed_by_adapter,
+            legacy_gateway_election=self._gateway_managed_by_adapter,
             require_dispatch_capable=True,
             env=launch_env or None,
         )
@@ -172,7 +192,13 @@ class SidecarBackedSkillServer:
             registry_dir=registry_dir,
             display_name=self._display_name,
             adapter_version=self._adapter_version,
-            gateway_port=gateway_port if gateway_port > 0 else None,
+            gateway_port=gateway_port,
+            gateway_remote_host=getattr(self._config, "gateway_remote_host", None),
+            gateway_remote_port=getattr(self._config, "gateway_remote_port", None),
+            # DccServerBase owns daemon ensure/guardian. The sidecar keeps
+            # its embedded election so a failed daemon can still recover.
+            no_ensure_gateway=self._gateway_managed_by_adapter,
+            legacy_gateway_election=self._gateway_managed_by_adapter,
             wait_ready_timeout_secs=self._wait_ready_timeout_secs,
             require_dispatch_capable=True,
             server_bin=self._server_bin,

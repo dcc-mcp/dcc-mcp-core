@@ -1,0 +1,21 @@
+# Declarative toolchain for a new DCC-MCP project (VX + just pilot).
+#
+# Why these are FIXED versions (not "latest"):
+#   - vx resolves tool versions from vx.lock ahead of vx.toml. A floating
+#     constraint lets a stale cached binary or a silent upgrade change what
+#     every developer and CI job runs without a reviewable diff.
+#   - Keep the exact, reviewed resolved versions in the committed vx.lock and
+#     refresh with `vx lock` (see vx-lock-guard.yml). Never hand-edit vx.lock.
+#
+# [scripts] is intentionally empty: every task lives in the justfile so that
+# local (`vx just <recipe>`) and CI (`vx just <recipe>`) share ONE entry point.
+#
+# Supported-runtime note: the pinned Python below is the day-to-day dev
+# interpreter. A project that must support a floor/latest matrix (for example
+# Python 3.9 .. 3.12) expresses it in CI via `vx python@3.9`, `vx python@3.12`
+# command-line overrides; do not add a second, drifting tool list here.
+[tools]
+just = "1.58"
+ruff = "0.16"
+python = "3.12"
+uv = "0.12"

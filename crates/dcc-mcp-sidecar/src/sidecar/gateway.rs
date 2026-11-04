@@ -64,10 +64,10 @@ pub(crate) fn should_use_gateway_daemon(args: &SidecarArgs) -> bool {
 pub(crate) fn sidecar_gateway_runtime_mode(args: &SidecarArgs) -> &'static str {
     if args.gateway_port == 0 {
         "not_configured"
-    } else if args.no_ensure_gateway {
-        "failover_disabled_by_adapter"
     } else if args.legacy_gateway_election {
         "embedded-fallback"
+    } else if args.no_ensure_gateway {
+        "failover_disabled_by_adapter"
     } else {
         "daemon-backed"
     }
@@ -77,10 +77,10 @@ pub(crate) fn sidecar_gateway_runtime_mode(args: &SidecarArgs) -> &'static str {
 pub(crate) fn sidecar_gateway_runtime_mode(args: &SidecarArgs) -> &'static str {
     if args.gateway_port == 0 {
         "not_configured"
-    } else if args.no_ensure_gateway {
-        "failover_disabled_by_adapter"
     } else if args.legacy_gateway_election {
         "embedded-fallback"
+    } else if args.no_ensure_gateway {
+        "failover_disabled_by_adapter"
     } else {
         "daemon-unavailable"
     }

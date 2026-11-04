@@ -396,3 +396,28 @@ wait
         finally:
             sibling.terminate()
             sibling.wait(timeout=5)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="the registry workflow runs on Ubuntu")
+@pytest.mark.parametrize(
+    "input_version,release_tag,expected",
+    [("", "", "0.20.44"), ("", "v0.20.43", "0.20.43"), ("0.20.40", "v0.20.43", "0.20.40")],
+)
+def test_registry_version_uses_manifest_without_dispatch_input(tmp_path, input_version, release_tag, expected):
+    """A stale server projection cannot silently select an older manual release."""
+    workflow = yaml_loads(WORKFLOW.read_text(encoding="utf-8"))
+    step = next(s for s in workflow["jobs"]["publish"]["steps"] if s.get("id") == "version")
+    (tmp_path / ".release-please-manifest.json").write_text('{".": "0.20.44"}', encoding="utf-8")
+    (tmp_path / "server.json").write_text('{"version": "0.19.0"}', encoding="utf-8")
+    output = tmp_path / "github-output"
+    env = {
+        "PATH": os.pathsep.join([str(Path(sys.executable).parent), os.defpath]),
+        "INPUT_VERSION": input_version,
+        "RELEASE_TAG": release_tag,
+        "GITHUB_OUTPUT": str(output),
+    }
+    result = subprocess.run(
+        ["bash", "-c", step["run"]], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=10
+    )
+    assert result.returncode == 0, result.stderr
+    assert output.read_text(encoding="utf-8").strip() == "version=" + expected

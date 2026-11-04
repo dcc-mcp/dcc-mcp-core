@@ -50,5 +50,6 @@
   "filter.dccType": "DCC 类型",
   "filter.status": "状态",
   "filter.search": "搜索会话",
-  "filter.all": "全部"
+  "filter.all": "全部",
+  "action.toggleChildren": "展开或收起 {id} 的子会话"
 }

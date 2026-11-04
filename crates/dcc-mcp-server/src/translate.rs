@@ -46,6 +46,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
+mod command;
+use command::parse_command;
+
 use anyhow::Context as _;
 use axum::Router;
 use axum::body::Body;
@@ -151,12 +154,12 @@ fn build_translate_gateway_daemon_options(
     server_name: &str,
     registry_dir_path: Option<&PathBuf>,
     gateway_host: &str,
-) -> dcc_mcp_sidecar::gateway_daemon::EnsureGatewayOptions {
-    dcc_mcp_sidecar::gateway_daemon::EnsureGatewayOptions {
+) -> anyhow::Result<dcc_mcp_sidecar::gateway_daemon::EnsureGatewayOptions> {
+    Ok(dcc_mcp_sidecar::gateway_daemon::EnsureGatewayOptions {
         host: gateway_host.to_string(),
         port: args.gateway_port,
         name: Some(format!("gateway-for-{server_name}")),
-        registry_dir: crate::resolve_registry_dir(registry_dir_path),
+        registry_dir: crate::resolve_registry_dir(registry_dir_path)?,
         remote_host: args.gateway_remote_host.clone(),
         remote_port: args.gateway_remote_port,
         crate_version: Some(env!("CARGO_PKG_VERSION").to_string()),
@@ -166,7 +169,7 @@ fn build_translate_gateway_daemon_options(
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(dcc_mcp_sidecar::gateway_daemon::AUTO_ENSURE_GATEWAY_IDLE_TIMEOUT_SECS),
-    }
+    })
 }
 
 // ── CLI Args ──────────────────────────────────────────────────────────────────
@@ -174,7 +177,7 @@ fn build_translate_gateway_daemon_options(
 /// Bridge any stdio MCP server to HTTP/SSE/Streamable-HTTP.
 #[derive(Debug, Args)]
 pub struct TranslateArgs {
-    /// Shell command to launch the stdio MCP server (e.g. "uvx mcp-server-git").
+    /// Command to launch the stdio MCP server; quote paths containing spaces.
     #[arg(long, value_name = "CMD")]
     pub stdio: String,
 
@@ -490,17 +493,9 @@ impl StdioBridge {
     }
 }
 
-/// Parse a shell command string into program + args (very basic: splits on whitespace).
-fn parse_command(cmd: &str) -> (String, Vec<String>) {
-    let mut parts = cmd.split_whitespace();
-    let program = parts.next().unwrap_or_default().to_string();
-    let args = parts.map(String::from).collect();
-    (program, args)
-}
-
 /// Spawn the child stdio MCP server and return it.
 fn spawn_child(cmd: &str) -> anyhow::Result<Child> {
-    let (program, args) = parse_command(cmd);
+    let (program, args) = parse_command(cmd)?;
     let child = Command::new(&program)
         .args(&args)
         .stdin(std::process::Stdio::piped())
@@ -625,16 +620,25 @@ async fn run_bridge_actor(
                                 continue;
                             };
                             if let Some(resp_tx) = bridge_req.response_tx {
-                                // Known race: if the actor is backpressured in
-                                // `stdin.write_all`, a caller's wait bound can
-                                // expire before its request is filed here, so
-                                // its `release()` was a no-op and the entry is
-                                // filed afterwards. That id then stays blocked
-                                // until the child answers it or exits. It is
-                                // self-healing and only reachable with a small
-                                // `--bridge-timeout-secs` and a stuck child,
-                                // so the insert is left unconditional rather
-                                // than re-checking a bound nobody owns here.
+                                // A caller whose wait bound expired while the
+                                // actor was backpressured in `stdin.write_all`
+                                // has already dropped its receiver: `release()`
+                                // was a no-op because this request had not been
+                                // filed yet. Filing it now would leave an entry
+                                // nobody is waiting on -- blocking the id
+                                // against a fresh call and, if that call reuses
+                                // the id, letting this abandoned call's late
+                                // response be delivered to the wrong caller.
+                                // Drop the request instead, and do not forward
+                                // it so the child never produces an orphan
+                                // response for an abandoned call.
+                                if resp_tx.is_closed() {
+                                    warn!(
+                                        request_id = %id_key,
+                                        "caller gave up before the request was filed; dropping it"
+                                    );
+                                    continue;
+                                }
                                 let mut map = pending.lock().await;
                                 if map.contains_key(&id_key) {
                                     // Two live calls want the same id. Filing
@@ -960,7 +964,7 @@ pub async fn run(args: TranslateArgs) -> anyhow::Result<()> {
             &server_name,
             registry_dir_path.as_ref(),
             &gateway_host,
-        ))
+        )?)
     } else {
         None
     };
@@ -1186,7 +1190,8 @@ mod tests {
             "translate-filesystem",
             registry_dir_path.as_ref(),
             "127.0.0.1",
-        );
+        )
+        .unwrap();
 
         assert_eq!(opts.host, "127.0.0.1");
         assert_eq!(opts.port, 9765);

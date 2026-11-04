@@ -60,7 +60,7 @@ pub(super) enum FeedbackAction {
     Export(FeedbackQueryArgs),
     /// Resolve a Finding v1 JSON file to its owning issue tracker without a gateway.
     Route(FeedbackRouteArgs),
-    /// Assemble a bounded public-safe diagnostic bundle from a Finding v1 file.
+    /// Preview a minimal diagnostic bundle from explicitly selected files.
     Bundle(FeedbackBundleArgs),
     /// Deduplicate and explicitly file a public-safe Finding v1 report on GitHub.
     File(FeedbackFileArgs),
@@ -87,7 +87,7 @@ pub(crate) struct FeedbackBundleArgs {
     /// Terminal Install SOP v1 execution report to include as public-safe evidence.
     #[arg(long, value_name = "INSTALL_REPORT_JSON")]
     pub(super) install_report: Option<PathBuf>,
-    /// Host-error log directory; defaults to DCC_MCP_LOG_DIR or the platform log directory.
+    /// Explicitly include bounded host-error metadata from this log directory.
     #[arg(long)]
     pub(super) log_dir: Option<PathBuf>,
     /// DCC process id; defaults to evidence.dcc_pid in the finding.
@@ -132,6 +132,9 @@ pub(crate) struct FeedbackFileArgs {
     /// Finding file content digest bound by the reviewed plan.
     #[arg(long)]
     pub(super) expected_finding_sha256: Option<String>,
+    /// Exact title/body/comment digest bound by the reviewed plan.
+    #[arg(long)]
+    pub(super) expected_document_sha256: Option<String>,
     /// Finding fingerprint bound by the reviewed plan.
     #[arg(long)]
     pub(super) expected_fingerprint: Option<String>,
@@ -156,7 +159,7 @@ impl FeedbackFileArgs {
             .or(self.create.then_some(FeedbackFileDecision::Create))
     }
 
-    fn validate(&self) -> Result<(), String> {
+    pub(super) fn validate(&self) -> Result<(), String> {
         if self.existing.is_some() && self.create {
             return Err("--existing and --create are mutually exclusive".to_string());
         }
@@ -169,6 +172,7 @@ impl FeedbackFileArgs {
         let bindings = [
             self.expected_finding_path.is_some(),
             self.expected_finding_sha256.is_some(),
+            self.expected_document_sha256.is_some(),
             self.expected_fingerprint.is_some(),
             self.expected_repo.is_some(),
             self.expected_catalog_path.is_some(),
@@ -186,7 +190,7 @@ impl FeedbackFileArgs {
         Ok(())
     }
 
-    fn into_request(self) -> FeedbackFileRequest {
+    pub(super) fn into_request(self) -> FeedbackFileRequest {
         let decision = self.decision();
         let authorization =
             self.expected_finding_path
@@ -194,6 +198,9 @@ impl FeedbackFileArgs {
                     canonical_finding_path,
                     finding_sha256: self
                         .expected_finding_sha256
+                        .expect("validated authorization binding"),
+                    document_sha256: self
+                        .expected_document_sha256
                         .expect("validated authorization binding"),
                     fingerprint: self
                         .expected_fingerprint
@@ -341,7 +348,7 @@ impl FeedbackArgs {
     pub(crate) async fn run(
         self,
         control: &DccControlPlane,
-        doctor: &DoctorContext,
+        _doctor: &DoctorContext,
     ) -> anyhow::Result<Value> {
         match self.into_command().map_err(anyhow::Error::msg)? {
             FeedbackCommand::Report(report) => control.feedback(report).await,
@@ -355,17 +362,13 @@ impl FeedbackArgs {
             }
             FeedbackCommand::Bundle(bundle) => {
                 let result = FeedbackBundleService
-                    .bundle(
-                        FeedbackBundleRequest {
-                            finding_path: bundle.finding,
-                            install_report_path: bundle.install_report,
-                            doctor_request: doctor.request(None, None, None),
-                            log_dir: bundle.log_dir,
-                            dcc_pid: bundle.dcc_pid,
-                            host_error_lines: usize::from(bundle.host_error_lines),
-                        },
-                        control,
-                    )
+                    .bundle(FeedbackBundleRequest {
+                        finding_path: bundle.finding,
+                        install_report_path: bundle.install_report,
+                        log_dir: bundle.log_dir,
+                        dcc_pid: bundle.dcc_pid,
+                        host_error_lines: usize::from(bundle.host_error_lines),
+                    })
                     .await?;
                 serde_json::to_value(result).map_err(Into::into)
             }
@@ -391,6 +394,7 @@ mod tests {
             yes,
             expected_finding_path: yes.then(|| PathBuf::from("finding.json")),
             expected_finding_sha256: yes.then(|| format!("sha256:{}", "a".repeat(64))),
+            expected_document_sha256: yes.then(|| format!("sha256:{}", "d".repeat(64))),
             expected_fingerprint: yes.then(|| format!("sha256:{}", "b".repeat(64))),
             expected_repo: yes.then(|| "dcc-mcp/dcc-mcp-godot".to_string()),
             expected_catalog_path: yes.then(|| "@bundled:dcc-mcp-catalog:v1".to_string()),

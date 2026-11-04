@@ -230,13 +230,15 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_search_tools(
         }
     }
 
+    // Callable tools are ranked ahead of `skill_candidate` rows, and both
+    // groups share one page budget: a caller that does not paginate must still
+    // see at least one directly-callable tool whenever the query matches any.
     tool_hits.sort_by(|left, right| {
         left.get("name")
             .and_then(Value::as_str)
             .cmp(&right.get("name").and_then(Value::as_str))
     });
     let total_tool_matches = tool_hits.len();
-    tool_hits.truncate(limit);
 
     let mut skill_candidates: Vec<Value> = Vec::new();
     if include_unloaded_skills {
@@ -302,7 +304,14 @@ pub(in crate::rmcp_tool_call_dispatch) fn handle_search_tools(
             .cmp(&right.get("skill_name").and_then(Value::as_str))
     });
     let total_skill_matches = skill_candidates.len();
-    skill_candidates.truncate(limit);
+
+    // One shared page budget. Callable `tools` claim it first; unloaded
+    // `skill_candidate` rows only fill whatever room is left. A tool that
+    // overflows the budget is dropped rather than demoted into the candidate
+    // list, so the two groups keep their wire identity.
+    let tool_kept = tool_hits.len().min(limit);
+    tool_hits.truncate(tool_kept);
+    skill_candidates.truncate(limit.saturating_sub(tool_kept));
 
     let returned = tool_hits.len() + skill_candidates.len();
     let total_matches = total_tool_matches + total_skill_matches;

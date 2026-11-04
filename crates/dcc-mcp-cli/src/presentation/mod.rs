@@ -4,4 +4,6 @@ pub(crate) mod feedback_cmd;
 pub(crate) mod host_cmd;
 pub(crate) mod marketplace_cmd;
 pub mod output;
+pub mod read_only;
 pub(crate) mod update_cmd;
+pub(crate) mod update_maintenance;

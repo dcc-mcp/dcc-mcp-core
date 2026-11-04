@@ -57,6 +57,37 @@ pub(crate) struct Args {
     pub(crate) server: ServerArgs,
 }
 
+impl Args {
+    /// Parse argv and annotate the `gateway` subcommand's env-backed boolean
+    /// flags with their CLI-vs-env value sources.
+    ///
+    /// Plain `Args::parse()` loses the `ArgMatches`, and with it the only
+    /// signal that distinguishes `--gateway-persist=false` from "not
+    /// supplied". Without that signal an explicit `false` was overridden by a
+    /// `true` inherited from `DCC_MCP_GATEWAY_PERSIST` (issue
+    /// dcc-mcp-core#2642 follow-up).
+    pub(crate) fn parse_annotated() -> Self {
+        use clap::{CommandFactory, FromArgMatches};
+
+        let matches = <Self as CommandFactory>::command().get_matches();
+        let mut args =
+            <Self as FromArgMatches>::from_arg_matches(&matches).unwrap_or_else(|err| err.exit());
+
+        #[cfg(feature = "gateway-daemon")]
+        if let Some(SubCmd::Gateway(ref mut gateway_args)) = args.command {
+            // The gateway flags live in the subcommand's own `ArgMatches`, not
+            // in the top-level one: a subcommand is a nested parser, so
+            // `value_source("gateway_persist")` at this level finds nothing.
+            // The lookup key is the kebab-case subcommand *name*, not the
+            // `SubCmd` variant name.
+            let sub = matches.subcommand_matches("gateway");
+            gateway_args.note_value_sources(sub.unwrap_or(&matches));
+        }
+
+        args
+    }
+}
+
 /// Shared per-DCC server flags for the implicit root mode and `auto` / `serve`.
 #[derive(Debug, Clone, ClapArgs)]
 pub(crate) struct ServerArgs {
@@ -114,7 +145,18 @@ pub(crate) struct ServerArgs {
     /// Legacy mode: let this per-DCC server compete for the gateway port
     /// instead of using the standalone gateway daemon as the local control
     /// plane.
-    #[arg(long, env = "DCC_MCP_LEGACY_GATEWAY_ELECTION", default_value = "false")]
+    ///
+    /// Boolish on purpose: the sibling env-backed flags accept `1`/`0` and
+    /// `yes`/`no`, and clap's default `bool` parser aborted startup with
+    /// `invalid value '1'` (issue dcc-mcp-core#2642).
+    #[arg(
+        long,
+        env = "DCC_MCP_LEGACY_GATEWAY_ELECTION",
+        default_value = "false",
+        num_args = 0..=1,
+        default_missing_value = "true",
+        value_parser = clap::builder::BoolishValueParser::new()
+    )]
     pub(crate) legacy_gateway_election: bool,
 
     /// Gateway host/interface to bind. Defaults to the MCP `--host`.
@@ -135,7 +177,14 @@ pub(crate) struct ServerArgs {
     pub(crate) gateway_remote_port: u16,
 
     /// Disable the Admin UI on the elected gateway.
-    #[arg(long, env = "DCC_MCP_NO_ADMIN", default_value = "false")]
+    #[arg(
+        long,
+        env = "DCC_MCP_NO_ADMIN",
+        default_value = "false",
+        num_args = 0..=1,
+        default_missing_value = "true",
+        value_parser = clap::builder::BoolishValueParser::new()
+    )]
     pub(crate) no_admin: bool,
 
     /// URL prefix for the Admin UI.
@@ -176,7 +225,14 @@ pub(crate) struct ServerArgs {
 
     /// Disable logging to rotating files. By default file logging is enabled
     /// unless this flag is passed.
-    #[arg(long, env = "DCC_MCP_NO_LOG_FILE", default_value = "false")]
+    #[arg(
+        long,
+        env = "DCC_MCP_NO_LOG_FILE",
+        default_value = "false",
+        num_args = 0..=1,
+        default_missing_value = "true",
+        value_parser = clap::builder::BoolishValueParser::new()
+    )]
     pub(crate) no_log_file: bool,
 
     /// Directory for rotated log files. Defaults to the platform log dir
@@ -210,7 +266,14 @@ pub(crate) struct ServerArgs {
 
     /// Advertise this per-DCC MCP endpoint on the LAN via mDNS/DNS-SD.
     #[cfg(feature = "mdns")]
-    #[arg(long, env = "DCC_MCP_ADVERTISE_MDNS", default_value = "false")]
+    #[arg(
+        long,
+        env = "DCC_MCP_ADVERTISE_MDNS",
+        default_value = "false",
+        num_args = 0..=1,
+        default_missing_value = "true",
+        value_parser = clap::builder::BoolishValueParser::new()
+    )]
     pub(crate) advertise_mdns: bool,
 }
 

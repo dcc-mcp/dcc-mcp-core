@@ -35,6 +35,31 @@ except ImportError:  # pragma: no cover - Windows-only stdlib module
 
 
 LOCK_OUTPUTS = frozenset(("Cargo.lock", "uv.lock", "crates/workspace-hack/Cargo.toml"))
+# Fixed projection paths are independently checked by core_version_contract.py.
+# Never derive this privileged write allowlist from PR-controlled configuration.
+RELEASE_OUTPUTS = frozenset(
+    (
+        ".agents/skills/dcc-mcp-core/SKILL.md",
+        "Cargo.toml",
+        "admin-ui/package-lock.json",
+        "admin-ui/package.json",
+        "benchmarks/skills/seeds.json",
+        "docs/.vitepress/config.mts",
+        "docs/guide/what-is-dcc-mcp-core.md",
+        "docs/zh/guide/what-is-dcc-mcp-core.md",
+        "llms.txt",
+        "pkg/dcc-mcp-cli-bin/pyproject.toml",
+        "pkg/dcc-mcp-cli-bin/python/dcc_mcp_cli/__init__.py",
+        "pkg/dcc-mcp-core-semantic/pyproject.toml",
+        "pkg/dcc-mcp-server-bin/pyproject.toml",
+        "pkg/dcc-mcp-server-bin/python/dcc_mcp_server/__init__.py",
+        "pyproject.toml",
+        "python/dcc_mcp_core/_core.pyi",
+        "server.json",
+        "skills/marketplace-create-extension/SKILL.md",
+        "skills/marketplace-publish-extension/SKILL.md",
+    )
+)
 BRANCH_PREFIXES = ("release-please--branches--main", "renovate/")
 GIT_COMMAND_TIMEOUT_SECONDS = 30
 WINDOWS_JOB_WAIT_SECONDS = 5.0
@@ -532,7 +557,7 @@ def validate_identity(expected: PullRequestIdentity, observed: PullRequestIdenti
 
 def validate_changed_files(paths: Iterable[str]) -> list[str]:
     """Return a stable error when generation touched anything beyond lock outputs."""
-    unexpected = sorted(set(paths) - LOCK_OUTPUTS)
+    unexpected = sorted(set(paths) - (LOCK_OUTPUTS | RELEASE_OUTPUTS))
     if unexpected:
         return [f"unexpected generated-lock diff paths: {', '.join(unexpected)}"]
     return []

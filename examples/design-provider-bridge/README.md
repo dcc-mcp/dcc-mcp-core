@@ -51,6 +51,12 @@ operation is invoked once without retry. Outputs can contain private project
 data; keep them local and review before sharing. A successful response still
 requires independent structural/persistence/export verification.
 
+An explicit upstream `isError: true` makes the runner exit with status 1;
+the complete result envelope remains on stdout. Status 0 means discovery or
+response receipt completed without an explicit tool error. Text-only or
+otherwise unverified results still need native readback before acceptance.
+The runner never retries a failed operation.
+
 ## Core discovery facade
 
 Add `--serve` to keep the same authorized session bound to a loopback Core
@@ -90,7 +96,7 @@ until an authorized native host is exercised. Host-free tests explicitly use
 contract fixtures and never count as vendor acceptance.
 
 ```shell
-python -m pytest tests/test_design_bridge.py tests/test_design_provider_facade.py tests/test_design_provider_example_contracts.py
+python -m pytest tests/test_design_bridge.py tests/test_design_provider_facade.py tests/test_design_provider_example_contracts.py tests/test_design_provider_runner.py
 ```
 
 Run that test command from the Core repository root. The HTTP test uses the

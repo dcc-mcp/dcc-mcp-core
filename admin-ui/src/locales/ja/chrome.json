@@ -1,4 +1,7 @@
 {
   "app.title": "管理ダッシュボード",
-  "app.subtitle": "DCC-MCP ゲートウェイ"
+  "app.subtitle": "DCC-MCP ゲートウェイ",
+  "navigate": "ページを切り替え",
+  "skipToContent": "コンテンツへ移動",
+  "currentPage": "現在のページ"
 }

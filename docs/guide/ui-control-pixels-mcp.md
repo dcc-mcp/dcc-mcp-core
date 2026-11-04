@@ -22,6 +22,8 @@ options = DccServerOptions(
         ttl_minutes=15,
         # Optional manual video recording; the ordinary directory must exist.
         recording=UiControlRecordingOptions(output_root=operator_recording_root),
+        # Optional independent popup observation/keyboard ceiling; off by default.
+        allow_native_capture_popup_keyboard=False,
     ),
 )
 ```
@@ -47,6 +49,27 @@ runtime version, and the owner-bound target PID/HWND. Then use the ordinary
 `ui_control__snapshot` → one `ui_control__act` → `ui_control__snapshot` loop and
 finish with `ui_control__stop_computer_use`. Tool calls cannot select this
 transport or replace its executable/action ceiling.
+
+For a native popup that must remain captured independently, the owner can opt
+into `allow_native_capture_popup_keyboard=True`. Then call
+`ui_control__snapshot(native_capture_popup_window_handles=[...])` with one through
+eight unique exact HWNDs from the main root's fresh native capture inventory.
+Omission or `[]` retains ordinary capture. Core refuses this request before
+opening a child when the owner ceiling is absent, and requires the pinned
+runtime's matching task capability and acknowledgement when it is enabled.
+
+The root image, observation and redactions stay unchanged. Selected popup PNGs
+and full native provenance appear separately in `native_capture_popup_overlays`,
+in request order; each receives its own labeled CLI artifact. The reported
+`native_capture_popup_observation` binds them to one latest root observation
+with `purpose=main_root_keyboard`, `one_use=true`, `max_age_ms=5000`. It permits
+one unheld keyboard/text action to the original main root, subject to the
+existing physical-input grants and native coverage, lifetime, identity and
+foreground checks. No popup input target or pointer authority is created.
+Every attempted action consumes that root observation, including a refused
+pointer/held key. Re-observe and verify the application after each attempt.
+Core validates separate PNG bytes/descriptors and identities; only the native
+runtime can create or authorize its private composite input context.
 
 In this mode `snapshot_id` is the native `observation_id` and
 `accessibility_state_id` remains JSON null. The logical UI `session_id`, public

@@ -16,7 +16,12 @@ on:
       - "crates/dcc-mcp-skills/src/catalog/**"
       - "crates/dcc-mcp-skills-bench/**"
       - "benchmarks/skills/**"
+      - "scripts/ci/core_version_contract.py"
+      - "tests/test_core_version_contract.py"
       - "skills/**"
+      - "examples/skills/**"
+      - "python/dcc_mcp_core/skills/**"
+      - "tests/fixtures/skills/**"
       # SkillMetadata field changes alter what the index actually contains.
       - "crates/dcc-mcp-models/**"
       # Root manifests: a dependency bump (notably `rand`) can change the seeded
@@ -138,6 +143,7 @@ jobs:
           name: skills-bench-report
           path: skills-bench.json
           if-no-files-found: ignore
+
 
   latency-trend:
     name: Query efficiency trend (not a gate)

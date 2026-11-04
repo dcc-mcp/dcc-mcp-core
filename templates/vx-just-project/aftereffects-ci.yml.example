@@ -1,0 +1,150 @@
+# After Effects adapter pilot — WORKED EXAMPLE, NOT applied to the AE repo.
+#
+# This is a design sketch for migrating the AE adapter's EXISTING non-native
+# contract/test job (`test`) to VX + just, one adapter only, after this Core
+# pilot passes. It is intentionally a template, not a push to the separate
+# dcc-mcp-aftereffects repository (no duplicate writer, no rollout before the
+# pilot passes, no interruption of existing AE work).
+#
+# PRESERVED GATES (do not weaken when applying):
+#   * `dependency-compatibility` (floor/latest) — the pip floor/latest installs
+#     are kept verbatim. It validates the minimum supported core pin
+#     (`dcc-mcp-core==0.20.14`) and the latest compatible resolution; that job's
+#     purpose IS the two dependency extremes, so it is NOT migrated here. Its
+#     checkout only adds credential hardening (no token persisted for pip builds).
+#   * build + `twine check dist/*` — the release/security gates, kept as
+#     `vx python -m build` / `vx python -m twine check`, still run in the test
+#     job on every matrix leg.
+#   * the Python 3.9/3.11/3.12 matrix and the Windows/macOS 3.9 excludes.
+#   * ruff check / ruff format / lint_skills — kept, routed through vx.
+#
+# NO GUI/LICENSE CLAIM: AE is a native host; nothing here launches the AE
+# application or asserts a licensed GUI run. Native GUI/license coverage stays
+# NOT_RUN, exactly as in the current AE CI.
+#
+# To apply, the AE repo adds its own `vx.toml` + committed `vx.lock` (fixed
+# tool versions; a dev `python` pin) and a `justfile` whose `ci` recipe runs
+# install -> contract smoke -> full pytest -> ruff -> lint_skills. The Python
+# matrix is a `just` VARIABLE, not a shell env var: the justfile declares
+# `py := "3.12"` and recipes call `vx python@{{py}}`; CI overrides it with
+# `vx just py=<version> ci`. `just` parses the override itself, so it works
+# identically in bash and Windows PowerShell (a `$VAR`/`${VAR}` in a recipe
+# would NOT). The pinned action ref + explicit `version` + `cache:false`
+# mirror the Core pilot so a green setup cannot mask a stale vx binary.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ae-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---- PRESERVED: floor/latest dependency-compatibility gate (verbatim) ----
+  dependency-compatibility:
+    name: Dependencies / ${{ matrix.lane }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: [floor, latest]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install floor dependencies
+        if: ${{ matrix.lane == 'floor' }}
+        run: python -m pip install -e ".[dev]" "dcc-mcp-core==0.20.14"
+      - name: Install latest compatible dependencies
+        if: ${{ matrix.lane == 'latest' }}
+        run: python -m pip install --upgrade --upgrade-strategy eager -e ".[dev]"
+      - name: Validate dependency lane
+        run: |
+          python -m pip check
+          pytest tests/test_package.py tests/test_install_hardening.py tests/test_install_contract.py -q
+
+  # ---- NEW: pilot lock guard (fail closed on missing/drifted vx.lock) ----
+  lock-guard:
+    name: vx.lock is committed and current
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Setup vx (pinned)
+        uses: loonghao/vx@debe4f035713d28366ec0c322e0b87de2a25d2f2 # v0.9.34
+        with:
+          version: "0.9.34"
+          cache: false
+      - name: Verify vx.lock presence + consistency
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f vx.lock ]; then
+            echo "::error::vx.lock is missing. Run 'vx lock' and commit it."
+            exit 1
+          fi
+          vx lock --check
+
+  # ---- PILOT: non-native contract/test job migrated to vx + just ----
+  test:
+    name: ${{ matrix.os }} / Python ${{ matrix.python-version }}
+    needs: lock-guard
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.9", "3.11", "3.12"]
+        exclude:
+          - os: windows-latest
+            python-version: "3.9"
+          - os: macos-latest
+            python-version: "3.9"
+    env:
+      VX_NO_UPDATE_NOTIFIER: "1"
+      VX_TELEMETRY: "0"
+      NO_COLOR: "1"
+      # Windows runners default Python stdio to cp1252; force UTF-8 so any
+      # non-ASCII tool output cannot crash the vx-run Python steps.
+      PYTHONIOENCODING: "utf-8"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Setup vx (pinned)
+        uses: loonghao/vx@debe4f035713d28366ec0c322e0b87de2a25d2f2 # v0.9.34
+        with:
+          version: "0.9.34"
+          cache: false
+      # Shared local/CI entry point. `vx just ci` runs install -> Install SOP
+      # contract smoke -> full pytest -> ruff check -> ruff format --check ->
+      # lint_skills, each tool resolved through vx with fixed versions. The
+      # `py=<version>` just-variable override selects the matrix interpreter
+      # inside every recipe (shell-independent, parsed by just itself).
+      - name: Contract + test pipeline (vx just ci)
+        shell: bash
+        run: vx just py=${{ matrix.python-version }} ci
+      # ---- PRESERVED: release/security gates (build + twine check) ----
+      # GitHub substitutes the expression before the shell runs, and vx resolves
+      # the matrix interpreter — so this is identical in bash and PowerShell.
+      - name: Build sdist + wheel
+        shell: bash
+        run: vx python@${{ matrix.python-version }} -m build
+      - name: Validate distribution metadata
+        shell: bash
+        run: vx python@${{ matrix.python-version }} -m twine check dist/*

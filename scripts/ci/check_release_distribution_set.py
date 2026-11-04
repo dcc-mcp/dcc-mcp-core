@@ -30,6 +30,17 @@ class DistributionSetError(ValueError):
     """Raised when archived Release distributions are incomplete or invalid."""
 
 
+# The macOS cp37 wheel is built and contract-checked by the `macos-py37` CI
+# lane, but it is deliberately NOT part of this release contract, so it must not
+# reach the distribution set. It is withheld as a scope decision, not because it
+# is broken: the wheel builds, passes its contract, and pip-installs into
+# python.org 3.7.9 on any macOS 10.12+ host (pip compares the wheel tag against
+# the running OS version, not the interpreter's MACOSX_DEPLOYMENT_TARGET).
+# Promoting it to a release artefact is a product decision, not a bug fix.
+#
+# Because the lane's artefact is a build-verification spike rather than a
+# release candidate, it is uploaded outside the `wheels-*` namespace so that the
+# publication globs in release.yml cannot sweep it in here.
 _EXPECTED_WHEEL_CONTRACTS = {
     "native_py37/linux-x86_64",
     "native_py37/windows-x86_64",
@@ -48,23 +59,64 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _wheel_tag_sets(tags: str, filename: str) -> tuple[frozenset[str], frozenset[str], frozenset[str]]:
+    """Split a wheel's ``{python}-{abi}-{platform}`` tags into compressed tag sets.
+
+    PEP 427 lets each tag component be a dot-compressed SET of compatible tags,
+    and the order inside that set is not significant. Parse the components into
+    sets so classification never depends on which compatible tag a builder wrote
+    first (e.g. ``manylinux2014_x86_64.manylinux_2_17_x86_64`` versus the
+    reverse). Malformed components are rejected here, before any routing.
+    """
+    parts = tags.split("-")
+    if len(parts) != 3 or any(not part for part in parts):
+        raise DistributionSetError(f"unexpected Core wheel tags in {filename!r}")
+    python_tags, abi_tags, platform_tags = (frozenset(part.split(".")) for part in parts)
+    if any(not tag for group in (python_tags, abi_tags, platform_tags) for tag in group):
+        raise DistributionSetError(f"unexpected Core wheel tags in {filename!r}")
+    return python_tags, abi_tags, platform_tags
+
+
 def _classify_wheel(filename: str, version: str) -> tuple[str, str]:
     prefix = f"dcc_mcp_core-{version}-"
     if not filename.startswith(prefix) or not filename.endswith(".whl"):
         raise DistributionSetError(f"unexpected Core wheel filename {filename!r}")
     tags = filename[len(prefix) : -4]
-    if tags == "py3-none-any":
+    python_tags, abi_tags, platform_tags = _wheel_tag_sets(tags, filename)
+
+    # Classify by tag SET membership, not by a positional prefix/suffix. The
+    # exact allowed platform tags for each contract are still enforced later by
+    # validate_wheel against compatibility/python.json; this function only maps
+    # a wheel to its release contract, so it must not depend on tag order.
+    is_lite = python_tags == {"py3"} and abi_tags == {"none"}
+    is_native = python_tags == {"cp37"} and abi_tags == {"cp37m"}
+    is_abi3 = python_tags == {"cp38"} and abi_tags == {"abi3"}
+
+    if is_lite and platform_tags == {"any"}:
         return "lite_py37", "any"
-    if tags.startswith("cp37-cp37m-manylinux_"):
-        return "native_py37", "linux-x86_64"
-    if tags == "cp37-cp37m-win_amd64":
-        return "native_py37", "windows-x86_64"
-    if tags.startswith("cp38-abi3-manylinux_"):
-        return "abi3", "linux-x86_64"
-    if tags == "cp38-abi3-win_amd64":
-        return "abi3", "windows-x86_64"
-    if tags.startswith("cp38-abi3-macosx_") and "universal2" in tags:
-        return "abi3", "macos-universal2"
+
+    # A manylinux wheel advertises a set of compatible platform tags; every tag
+    # in the set belongs to the manylinux family regardless of their order.
+    is_manylinux = all(tag.startswith("manylinux") for tag in platform_tags)
+    is_windows = platform_tags == {"win_amd64"}
+    is_macos = all(tag.startswith("macosx_") for tag in platform_tags)
+    is_macos_x86_64 = is_macos and all(tag.endswith("_x86_64") for tag in platform_tags)
+    is_macos_universal2 = is_macos and any("universal2" in tag for tag in platform_tags)
+
+    if is_native:
+        if is_manylinux:
+            return "native_py37", "linux-x86_64"
+        if is_windows:
+            return "native_py37", "windows-x86_64"
+        if is_macos_x86_64:
+            return "native_py37", "macos-x86_64"
+    if is_abi3:
+        if is_manylinux:
+            return "abi3", "linux-x86_64"
+        if is_windows:
+            return "abi3", "windows-x86_64"
+        if is_macos_universal2:
+            return "abi3", "macos-universal2"
     raise DistributionSetError(f"unexpected Core wheel tags in {filename!r}")
 
 
@@ -191,7 +243,7 @@ def classify_distribution_assets(payload: dict, version: str) -> str:
 
 
 def validate_distribution_directory(dist_dir: Path, version: str) -> dict[str, int]:
-    """Validate a freshly built seven-file Core distribution set before publication."""
+    """Validate a freshly built Core distribution set before publication."""
     if not re.fullmatch(r"\d+\.\d+\.\d+(?:[A-Za-z0-9.+-]*)", version):
         raise DistributionSetError(f"invalid release version {version!r}")
     if not dist_dir.is_dir():
@@ -206,7 +258,9 @@ def validate_distribution_directory(dist_dir: Path, version: str) -> dict[str, i
     sdist_name = f"dcc_mcp_core-{version}.tar.gz"
     wheel_names = {name for name in downloaded if name.endswith(".whl")}
     if set(downloaded) != {*wheel_names, sdist_name}:
-        raise DistributionSetError("Core distribution set must contain six wheels and one exact-version sdist")
+        raise DistributionSetError(
+            f"Core distribution set must contain {len(_EXPECTED_WHEEL_CONTRACTS)} wheels and one exact-version sdist"
+        )
     _validate_wheels(dist_dir, version, wheel_names)
     _validate_sdist(dist_dir / sdist_name, version, load_contract())
     return {
@@ -216,7 +270,7 @@ def validate_distribution_directory(dist_dir: Path, version: str) -> dict[str, i
 
 
 def verify_distribution_set(payload: dict, dist_dir: Path, version: str) -> dict[str, int]:
-    """Verify the exact seven-file Core distribution set and return evidence."""
+    """Verify the exact Core distribution set and return evidence."""
     if not re.fullmatch(r"\d+\.\d+\.\d+(?:[A-Za-z0-9.+-]*)", version):
         raise DistributionSetError(f"invalid release version {version!r}")
     if not dist_dir.is_dir():

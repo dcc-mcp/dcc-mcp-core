@@ -444,6 +444,18 @@ create_skill_server(
 | `extra_paths` | `list[str] \| None` | 除环境变量外的额外 Skill 目录 |
 | `dcc_name` | `str \| None` | 覆盖扫描的 DCC 过滤条件（默认与 `app_name` 相同）|
 
+**配置契约：** `config` 的标注是 `McpHttpConfig | None`。传入普通 `dict`、字符串、整数或缺少配置属性的
+对象会在调用处直接抛 `TypeError`，错误信息里给出构造合法配置的示例，不会静默转换。`None` 是受支持的
+取值，表示「使用后端默认配置」（操作系统分配端口、共享 gateway 端口、不持久化任务），而不是跳过校验。
+两种写法的配置对象都被接受：已安装 wheel 解析出的 PyO3 类型，或 py37-lite profile 使用的纯 Python
+dataclass。两者是暴露相同属性的不同类；同时支持具有 `port`、`server_name` 和 `endpoint_path` 属性的
+类配置对象。
+
+`create_skill_server` 和 `create_adapter_server` 都会在调用嵌入式后端前，将 Python 配置对象转换为
+原生 `McpHttpConfig`。受支持的公开数据属性会保留，未提供的属性采用原生默认值。不受支持的配置项，或
+原生只读属性（例如 `endpoint_path`）的非默认值，会抛出带有工厂函数名称的 `TypeError`，不会被静默丢弃。
+原生配置和 `None` 会直接传递。Sidecar 仍按属性读取原始对象，不要求原生配置类型。
+
 **返回值：** `McpHttpServer` — 调用 `.start()` 开始服务。
 
 **示例：**

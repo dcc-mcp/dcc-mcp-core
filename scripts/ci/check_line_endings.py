@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reject CR bytes in the committed blobs of version-controlled Python files.
+"""Reject CR bytes in the committed blobs of version-controlled text sources.
 
 Why this gate exists
 --------------------
@@ -31,11 +31,27 @@ import sys
 from typing import NamedTuple
 from typing import Sequence
 
-DEFAULT_PATTERNS: tuple[str, ...] = ("*.py",)
+# Every extension here is pinned to `text eol=lf` in .gitattributes and measured
+# at zero CR bytes, so extending the tuple costs no renormalization. `*.json` is
+# deliberately absent: the attestation fixture carries CR as payload and is
+# exempted with `-text` at the bottom of .gitattributes. `*.rs` is absent too:
+# two files embed CR inside string literals, so normalizing them would rewrite
+# 1001 lines for no defect.
+DEFAULT_PATTERNS: tuple[str, ...] = (
+    "*.py",
+    "*.pyi",
+    "*.md",
+    "*.toml",
+    "*.yaml",
+    "*.yml",
+    "*.jsonl",
+    "*.sh",
+    "*.ps1",
+)
 MAX_REPORTED = 25
 
 REMEDIATION = """\
-Fix by re-normalizing the committed blob (it honors .gitattributes, which pins *.py to LF):
+Fix by re-normalizing the committed blob (it honors .gitattributes, which pins these to LF):
 
     git add --renormalize <path>
 
@@ -147,14 +163,14 @@ def format_report(violations: Sequence[CrFile], patterns: Sequence[str], max_rep
 
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the line-ending gate and return the process exit code."""
-    parser = argparse.ArgumentParser(description="Fail when tracked Python blobs contain CR bytes.")
+    parser = argparse.ArgumentParser(description="Fail when tracked source blobs contain CR bytes.")
     parser.add_argument("--root", type=Path, default=Path.cwd(), help="repository root (default: cwd)")
     parser.add_argument(
         "--pattern",
         action="append",
         default=[],
         dest="patterns",
-        help="pathspec to check (repeatable; default: *.py)",
+        help="pathspec to check (repeatable; default: the tracked source extensions)",
     )
     parser.add_argument(
         "--max-reported",

@@ -91,6 +91,38 @@ Run `components ensure` only when installation or repair is authorized. It
 consumes the official versionless manifest, verifies the declared SHA-256, and
 reconciles the independently released companion executable.
 
+The two binaries come from different releases: `dcc-mcp-cli` ships with
+`dcc-mcp-core` (`https://github.com/dcc-mcp/dcc-mcp-core/releases`), while the
+`dcc-cua` runtime is an independent companion released from
+`https://github.com/dcc-mcp/dcc-cua/releases`. `components ensure dcc-cua`
+fetches the runtime from that dcc-cua release, never from a Core release.
+
+For an exact, already qualified offline package, use
+`dcc-mcp-cli components install-verified dcc-cua --help`. Supply the canonical
+`--target-core-cli` and its `--expected-core-cli-sha256`, `--source-root`, exact
+`--version`, new and `--previous-manifest` paths and their pinned SHA-256 values,
+plus `--expected-current-sha256`, `--expected-new-sha256`, and `--yes`.
+Obtain manifest digests from independently verified official publications.
+The command disables automatic update maintenance and gateway startup, copies
+only declared files into a private verified staging tree, and checks the Core
+anchor and old foreground under the installation lock. It preserves historical
+backup files and rejects a pending package journal with `recovery required`;
+recovery is a separate operation. An error after commit can require cleanup;
+read back installed hashes and the journal before reporting an unchanged
+installation or retrying. Installing files does not reconnect loaded callers.
+
+Retryable rename/delete failures retain prepared ownership only when a live
+OS file identity still matches. Windows requires the OS and filesystem to
+support [`FileIdInfo` / 128-bit file IDs](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_id_info);
+availability of the older basic handle-information API alone is insufficient.
+An unsupported or unreadable initial identity check preserves the ownership
+ticket without attempting consumption. If identity cannot be rechecked after
+a failed operation, the ticket remains relinquished and inspection is required.
+Do not assume compatibility with every older Windows version or filesystem,
+or delete an ambiguous sidecar to force recovery.
+These checks complement the installation lock, not a filesystem sandbox
+against unrelated writers that ignore that lock.
+
 For semantic application profiles:
 
 ```bash

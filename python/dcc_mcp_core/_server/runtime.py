@@ -75,6 +75,8 @@ class ServerRuntimeController:
             gateway_port=gateway_port,
             registry_dir=registry_dir,
             dcc_type=dcc_name,
+            gateway_remote_host=getattr(owner._config, "gateway_remote_host", "127.0.0.1"),
+            gateway_remote_port=getattr(owner._config, "gateway_remote_port", 0),
         )
         owner._gateway_daemon_status = dict(result)
         if result.get("ok"):
@@ -99,6 +101,8 @@ class ServerRuntimeController:
                 gateway_port=gateway_port,
                 registry_dir=registry_dir,
                 dcc_type=dcc_name,
+                gateway_remote_host=getattr(owner._config, "gateway_remote_host", "127.0.0.1"),
+                gateway_remote_port=getattr(owner._config, "gateway_remote_port", 0),
             )
             owner._gateway_daemon_status = dict(retry_result)
             if retry_result.get("ok"):
@@ -167,6 +171,8 @@ class ServerRuntimeController:
             gateway_port=gateway_port,
             registry_dir=getattr(owner._config, "registry_dir", None),
             dcc_type=str(getattr(owner, "_dcc_name", "dcc")),
+            gateway_remote_host=getattr(owner._config, "gateway_remote_host", "127.0.0.1"),
+            gateway_remote_port=getattr(owner._config, "gateway_remote_port", 0),
             status_callback=_record_status,
         )
         if guardian.start():

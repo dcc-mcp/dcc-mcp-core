@@ -3,7 +3,9 @@ use serde::Serialize;
 use serde_json::{Map, Value};
 use thiserror::Error;
 
-pub const FEEDBACK_BUNDLE_SCHEMA_VERSION: &str = "dcc-mcp.feedback-bundle.v1";
+use crate::domain::feedback_projection::{DiagnosticProjection, ProjectionReview};
+
+pub const FEEDBACK_BUNDLE_SCHEMA_VERSION: &str = "dcc-mcp.feedback-bundle.v2";
 pub const DEFAULT_HOST_ERROR_LINES: usize = 50;
 pub const MAX_HOST_ERROR_LINES: usize = 200;
 pub const MAX_HOST_ERROR_BYTES: usize = 256 * 1024;
@@ -22,10 +24,11 @@ pub struct FeedbackBundle {
     pub schema_version: &'static str,
     pub privacy_mode: &'static str,
     pub complete: bool,
-    pub finding: FindingV1,
+    /// A minimal summary, deliberately not a reusable or publishable Finding v1.
+    pub finding: Value,
     pub version_matrix: VersionMatrix,
     pub components: FeedbackBundleComponents,
-    pub redaction_status: BundleRedactionStatus,
+    pub redaction_status: ProjectionReview,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -159,10 +162,14 @@ impl HostErrorTail {
                 skipped_invalid: self.skipped_invalid,
             })
         } else {
-            BundleComponent::unavailable(
-                self.reason
-                    .unwrap_or_else(|| "host_error_tail_not_available".to_string()),
-            )
+            let reason = match self.reason.as_deref() {
+                Some("dcc_pid_not_available") => "dcc_pid_not_available",
+                Some("host_errors_not_collected_by_default") => {
+                    "host_errors_not_collected_by_default"
+                }
+                _ => "host_error_tail_not_available",
+            };
+            BundleComponent::unavailable(reason)
         }
     }
 }
@@ -174,19 +181,6 @@ pub struct HostErrorTailData {
     pub max_lines: usize,
     pub max_bytes: usize,
     pub skipped_invalid: usize,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct BundleRedactionStatus {
-    pub mode: &'static str,
-    pub raw_payloads_excluded: bool,
-    pub prompts_excluded: bool,
-    pub scripts_excluded: bool,
-    pub auth_material_excluded: bool,
-    pub local_urls_excluded: bool,
-    pub absolute_paths_excluded: bool,
-    pub private_identifiers_excluded: bool,
-    pub host_error_payload_fields_excluded: bool,
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -204,51 +198,85 @@ pub enum FeedbackBundleError {
 pub fn assemble_public_bundle(
     input: FeedbackBundleInput,
 ) -> Result<FeedbackBundle, FeedbackBundleError> {
-    let mut finding = input.finding;
+    let finding = input.finding;
     validate_public_finding(&finding)?;
-
-    let issue_report = issue_report_component(&finding, input.issue_report)?;
-    let host_errors = input.host_errors.into_component();
+    let mut projection = diagnostic_projection();
+    let issue_report = issue_report_component(&finding, input.issue_report, &mut projection)?;
+    let mut host_errors = input.host_errors.into_component();
+    if let Some(data) = host_errors.data.as_mut() {
+        let limit = data.max_lines.min(MAX_HOST_ERROR_LINES);
+        data.truncated |= data.records.len() > limit;
+        data.records = data
+            .records
+            .iter()
+            .take(limit)
+            .map(|record| projection.project(record))
+            .collect();
+    }
     let install_execution_report = input
         .install_execution_report
-        .map(|report| BundleComponent::included(project_public_install_execution_report(&report)))
+        .map(|report| BundleComponent::included(projection.project(&report)))
         .unwrap_or_else(|| BundleComponent::unavailable("install_execution_report_not_provided"));
     let complete = issue_report.is_resolved()
         && host_errors.is_resolved()
         && install_execution_report.is_resolved();
-    let version_matrix = VersionMatrix {
-        dcc_type: finding.dcc_type.clone(),
-        adapter: finding.adapter.clone(),
-        adapter_version: finding.adapter_version.clone(),
-        core: finding.core_version.clone(),
-        host: finding.host_version.clone(),
-        os: finding.os.clone(),
+    let finding = projection.project(&serde_json::to_value(finding).expect("Finding serializes"));
+    let text = |key: &str| {
+        finding
+            .get(key)
+            .and_then(Value::as_str)
+            .unwrap_or("unknown")
+            .to_owned()
     };
-    finding.evidence.extra.remove("dcc_pid");
+    let version_matrix = VersionMatrix {
+        dcc_type: text("dcc_type"),
+        adapter: text("adapter"),
+        adapter_version: text("adapter_version"),
+        core: text("core_version"),
+        host: text("host_version"),
+        os: text("os"),
+    };
+    let doctor = if input.doctor.is_null() {
+        BundleComponent::not_applicable("not_collected_by_default")
+    } else {
+        BundleComponent::included(projection.project(&input.doctor))
+    };
     Ok(FeedbackBundle {
         schema_version: FEEDBACK_BUNDLE_SCHEMA_VERSION,
-        privacy_mode: "public-safe",
+        privacy_mode: "minimal-diagnostic",
         complete,
         finding,
         version_matrix,
         components: FeedbackBundleComponents {
             issue_report,
-            doctor: BundleComponent::included(project_public_doctor(&input.doctor)),
+            doctor,
             host_errors,
             install_execution_report,
         },
-        redaction_status: BundleRedactionStatus {
-            mode: "public-safe",
-            raw_payloads_excluded: true,
-            prompts_excluded: true,
-            scripts_excluded: true,
-            auth_material_excluded: true,
-            local_urls_excluded: true,
-            absolute_paths_excluded: true,
-            private_identifiers_excluded: true,
-            host_error_payload_fields_excluded: true,
-        },
+        redaction_status: projection.finish(),
     })
+}
+
+fn diagnostic_projection() -> DiagnosticProjection {
+    let entries = dcc_mcp_catalog::load_from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../dcc-mcp-catalog.yml"
+    )))
+    .unwrap_or_default();
+    let mut identifiers = vec![
+        "dcc-mcp-cli".to_owned(),
+        "dcc-mcp-core".to_owned(),
+        "dcc-mcp-server".to_owned(),
+    ];
+    for entry in entries {
+        identifiers.push(entry.name);
+        identifiers.extend(entry.dcc);
+    }
+    DiagnosticProjection::new(identifiers)
+}
+
+fn minimal_projection(value: &Value) -> Value {
+    diagnostic_projection().project(value)
 }
 
 #[must_use]
@@ -281,7 +309,7 @@ pub fn project_public_install_execution_report(value: &Value) -> Value {
             projected.insert(key.to_string(), value);
         }
     }
-    Value::Object(projected)
+    minimal_projection(&Value::Object(projected))
 }
 
 fn project_public_install_next_steps(value: &Value) -> Value {
@@ -408,6 +436,7 @@ fn finding_is_public_safe(finding: &FindingV1) -> bool {
 fn issue_report_component(
     finding: &FindingV1,
     report: Option<Value>,
+    projection: &mut DiagnosticProjection,
 ) -> Result<BundleComponent<Value>, FeedbackBundleError> {
     let Some(request_id) = finding.evidence.request_id.as_deref() else {
         return Ok(BundleComponent::not_applicable("finding_has_no_request_id"));
@@ -425,12 +454,12 @@ fn issue_report_component(
     if report.get("request_id").and_then(Value::as_str) != Some(request_id) {
         return Err(FeedbackBundleError::IssueReportRequestMismatch);
     }
-    Ok(BundleComponent::included(report))
+    Ok(BundleComponent::included(projection.project(&report)))
 }
 
 #[must_use]
 pub fn project_public_doctor(value: &Value) -> Value {
-    sanitize_json(value, None)
+    minimal_projection(value)
 }
 
 #[must_use]
@@ -458,7 +487,7 @@ pub fn project_public_host_event(value: &Value) -> Option<Value> {
         }
     }
     projected.insert("payload_fields_excluded".to_string(), Value::Bool(true));
-    Some(Value::Object(projected))
+    Some(minimal_projection(&Value::Object(projected)))
 }
 
 fn sanitize_json(value: &Value, key: Option<&str>) -> Value {
@@ -590,7 +619,7 @@ mod tests {
         FINDING_V1_SCHEMA_VERSION, FindingEvidenceV1, FindingPhase, FindingRedactionMode,
         FindingRedactionStatusV1, FindingReproV1, FindingSeverity, FindingV1,
     };
-    use serde_json::json;
+    use serde_json::{Value, json};
 
     use super::{
         FeedbackBundleInput, HostErrorTail, assemble_public_bundle, project_public_doctor,
@@ -675,18 +704,12 @@ mod tests {
         let encoded = serde_json::to_string(&projected).unwrap();
 
         assert_eq!(projected["local"]["inventory"]["total"], 1);
-        assert_eq!(projected["local"]["registry_dir"], "[path-redacted]");
-        assert_eq!(projected["local"]["instance_id"], "[id-redacted]");
-        assert_eq!(projected["gateway"]["default_base_url"], "[url-redacted]");
-        assert_eq!(
-            projected["gateway"]["status"]["host"],
-            "[endpoint-redacted]"
-        );
-        assert_eq!(
-            projected["gateway"]["status"]["port"],
-            "[endpoint-redacted]"
-        );
-        assert_eq!(projected["gateway"]["status"]["pid"], "[id-redacted]");
+        assert!(projected["local"].get("registry_dir").is_none());
+        assert!(projected["local"].get("instance_id").is_none());
+        assert!(projected["gateway"].get("default_base_url").is_none());
+        assert_eq!(projected["gateway"]["status"]["host"], Value::Null);
+        assert_eq!(projected["gateway"]["status"]["port"], Value::Null);
+        assert!(projected["gateway"]["status"].get("pid").is_none());
         assert!(!encoded.contains("127.0.0.1"));
         assert!(!encoded.contains("43210"));
         assert!(!encoded.contains("artist"));
@@ -739,8 +762,8 @@ mod tests {
         .unwrap();
         let value = serde_json::to_value(bundle).unwrap();
 
-        assert_eq!(value["schema_version"], "dcc-mcp.feedback-bundle.v1");
-        assert_eq!(value["privacy_mode"], "public-safe");
+        assert_eq!(value["schema_version"], "dcc-mcp.feedback-bundle.v2");
+        assert_eq!(value["privacy_mode"], "minimal-diagnostic");
         assert_eq!(value["complete"], false);
         assert_eq!(value["components"]["doctor"]["status"], "included");
         assert_eq!(
@@ -803,11 +826,11 @@ mod tests {
         );
         assert_eq!(
             value["components"]["install_execution_report"]["data"]["receipt_path"],
-            "[path-redacted]"
+            Value::Null
         );
         assert_eq!(
             value["components"]["install_execution_report"]["data"]["next_steps"][0]["command"][2],
-            "[path-redacted]"
+            Value::Null
         );
         assert!(!encoded.contains("artist"));
         assert!(!encoded.contains("private.json"));
@@ -869,24 +892,13 @@ mod tests {
         let report = &value["components"]["install_execution_report"]["data"];
         let encoded = serde_json::to_string(report).unwrap();
 
-        assert_eq!(report["next_steps"][0]["command"][0], "dcc-mcp-cli");
-        assert_eq!(report["next_steps"][0]["command"][1], "doctor");
-        assert_eq!(report["next_steps"][0]["command"][2], "[auth-redacted]");
-        assert_eq!(report["next_steps"][0]["command"][3], "[auth-redacted]");
-        assert_eq!(report["next_steps"][0]["command"][4], "[path-redacted]");
-        assert_eq!(report["next_steps"][0]["command"][5], "[url-redacted]");
-        assert_eq!(report["next_steps"][0]["command"][6], "[url-redacted]");
-        assert_eq!(report["next_steps"][0]["command"][7], "[auth-redacted]");
-        assert_eq!(report["next_steps"][0]["command"][8], "[url-redacted]");
-        assert_eq!(
-            report["next_steps"][1]["file_edit"]["path"],
-            "[path-redacted]"
-        );
-        assert_eq!(report["next_steps"][1]["file_edit"]["action"], "update");
+        assert!(report.get("next_steps").is_none());
+        assert!(report.get("receipt_path").is_none());
         assert!(
-            report["next_steps"][1]["file_edit"]
-                .get("content")
-                .is_none()
+            value["redaction_status"]["omitted_fields"]["commands_and_free_text"]
+                .as_u64()
+                .unwrap()
+                > 0
         );
         for private in [
             "--token",
@@ -901,6 +913,52 @@ mod tests {
         ] {
             assert!(!encoded.contains(private), "bundle leaked {private}");
         }
+    }
+
+    #[test]
+    fn bundle_projects_all_components_even_when_privacy_flags_claim_public_safe() {
+        let sentinel = "studioProjectName_alice_HOST123";
+        let mut finding = finding(FindingRedactionMode::PublicSafe);
+        finding.adapter_version = format!("0.3.0+{sentinel}");
+        finding.host_version = format!("4.4.1-{sentinel}");
+        finding.os = sentinel.to_string();
+        finding.intent = sentinel.to_string();
+        finding.observed = sentinel.to_string();
+        finding.expected = sentinel.to_string();
+        finding.tool_slug = Some(sentinel.to_string());
+        finding.evidence.request_id = Some(sentinel.to_string());
+        finding.evidence.error_kind = Some(sentinel.to_string());
+        finding
+            .evidence
+            .extra
+            .insert(sentinel.to_string(), json!({"version": sentinel}));
+        let bundle = assemble_public_bundle(FeedbackBundleInput {
+            finding,
+            doctor: json!({"local": {"version": {"value": sentinel}, "studioProjectName": sentinel}}),
+            issue_report: Some(json!({
+                "schema_version": "dcc-mcp.admin.issue-report.v1",
+                "report_type": "github_issue_public_safe", "privacy_mode": "public-safe",
+                "request_id": sentinel, "unexpected_payload": {"studioProjectName": sentinel},
+                "error": {"message": sentinel, "error_type": sentinel}
+            })),
+            host_errors: HostErrorTail::included(vec![json!({"message": sentinel, "dcc_type": sentinel})], false),
+            install_execution_report: Some(json!({
+                "status": "failed", "verify": {"stderr": sentinel, "studioProjectName": sentinel},
+                "steps": [{"error": {"message": sentinel}, "command": [sentinel]}]
+            })),
+        }).unwrap();
+        let value = serde_json::to_value(bundle).unwrap();
+        let serialized = serde_json::to_string(&value).unwrap();
+        assert!(!serialized.contains(sentinel));
+        assert!(!serialized.contains("studioProjectName"));
+        assert_eq!(value["version_matrix"]["adapter_version"], "0.3.0");
+        assert_eq!(value["version_matrix"]["host"], "unknown");
+        assert_eq!(value["redaction_status"]["review_required"], true);
+        assert_eq!(value["redaction_status"]["secret_free_guarantee"], false);
+        assert_eq!(
+            value["redaction_status"]["omitted_fields"]["version_build_metadata"],
+            1
+        );
     }
 
     #[test]

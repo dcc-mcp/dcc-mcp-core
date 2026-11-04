@@ -1,4 +1,4 @@
-﻿name: 'Build Wheel'
+name: 'Build Wheel'
 description: 'Build dcc-mcp-core wheel with maturin'
 
 inputs:
@@ -44,7 +44,13 @@ runs:
   using: 'composite'
   steps:
     - name: Setup Python
-      if: runner.os != 'Windows' || inputs.python-version != '3.7'
+      # Linux py37 still comes from setup-python. Windows and macOS py37 are
+      # handled by their own setup actions below: setup-python no longer
+      # carries 3.7 for Windows, and CPython 3.7 predates Apple Silicon so no
+      # arm64 build exists upstream at all.
+      if: >-
+        !(runner.os == 'Windows' && inputs.python-version == '3.7') &&
+        !(runner.os == 'macOS' && inputs.python-version == '3.7')
       uses: actions/setup-python@v6
       with:
         python-version: ${{ inputs.python-version }}
@@ -52,6 +58,10 @@ runs:
     - name: Setup Windows Python 3.7
       if: runner.os == 'Windows' && inputs.python-version == '3.7'
       uses: ./.github/actions/setup-windows-python37
+
+    - name: Setup macOS Python 3.7
+      if: runner.os == 'macOS' && inputs.python-version == '3.7'
+      uses: ./.github/actions/setup-macos-python37
 
     - name: Remove pre-installed cargo-clippy (conflict workaround)
       # GitHub-hosted runners (macOS aarch64 AND ubuntu-latest) pre-install Rust
@@ -71,6 +81,10 @@ runs:
       with:
         toolchain: ${{ inputs.rust-version }}
         components: clippy rustfmt
+        # Cross-compiling to x86_64-apple-darwin is how the ARM64 macOS runner
+        # produces the Python 3.7 wheel, so the target belongs to the action
+        # rather than to any single caller. An empty target means host-only.
+        targets: ${{ inputs.target == 'x86_64-apple-darwin' && 'x86_64-apple-darwin' || '' }}
 
     - name: Install vx
       uses: loonghao/vx@v0.9.34
@@ -223,13 +237,28 @@ runs:
           profile="native_py37"
           case "${{ runner.os }}" in
             Linux|Windows) ;;
+            macOS)
+              # CPython 3.7 has no ARM64 macOS build, so the only contracted
+              # macOS cp37 wheel is the x86_64 one cross-compiled on the ARM64
+              # runner. An ARM64 or universal2 tag means maturin resolved the
+              # host architecture instead of --target and must fail here.
+              # This target check is macOS-specific: Linux and Windows lanes
+              # pass their own target values (x64, x86_64-*) and must not be
+              # validated against the Apple triple.
+              if [[ "${{ inputs.target }}" == "x86_64-apple-darwin" ]]; then
+                platform="macos-x86_64"
+              else
+                echo "::error::macOS Python 3.7 wheels must target x86_64-apple-darwin, got '${{ inputs.target }}'"
+                exit 1
+              fi
+              ;;
             *)
               echo "::error::Native Python 3.7 wheels are not contracted for ${{ runner.os }}"
               exit 1
               ;;
           esac
         fi
-        python scripts/ci/check_python_wheel.py \
+        ${{ inputs.python-version == '3.7' && 'python3.7' || 'python' }} scripts/ci/check_python_wheel.py \
           --profile "$profile" \
           --platform "$platform" \
           dist/*.whl
@@ -239,26 +268,74 @@ runs:
       shell: bash
       run: |
         if [[ -f tests/test_issue_2388_zero_typing_extensions.py ]]; then
-          python scripts/ci/smoke_zero_typing_extensions.py --wheel 'dist/*.whl'
+          ${{ inputs.python-version == '3.7' && 'python3.7' || 'python' }} scripts/ci/smoke_zero_typing_extensions.py --wheel 'dist/*.whl'
         fi
 
     - name: Test wheel
       if: inputs.test-wheel == 'true'
       shell: bash
       run: |
-        # Use python -m venv for Python 3.7 (uv does not support 3.7)
-        python -m venv test-env
+        # macOS can still resolve bare `python` to the runner's interpreter,
+        # so select the installed native 3.7 explicitly on non-Windows lanes.
+        # Windows must use the original python.exe name: its python3.7 copy
+        # breaks CPython 3.7 venv's sys._base_executable lookup (WinError 2).
+        #
+        # On macOS the runner is arm64 while the cp37 wheel is the x86_64
+        # cross-compiled one (CPython 3.7 predates Apple Silicon, so no arm64
+        # interpreter exists upstream and no arm64 wheel is contracted). A venv
+        # created without `arch -x86_64` is bound to the arm64 slice, so pip
+        # inside it rejects the wheel with "not a supported wheel on this
+        # platform": pip derives the platform tag from the RUNNING interpreter's
+        # architecture. Rosetta 2 does not help on its own -- it only translates
+        # processes that explicitly request translation.
+        if [[ "${{ inputs.python-version }}" == "3.7" && "${{ runner.os }}" == "macOS" ]]; then
+          arch -x86_64 python3.7 -m venv test-env
+        elif [[ "${{ inputs.python-version }}" == "3.7" && "${{ runner.os }}" != "Windows" ]]; then
+          python3.7 -m venv test-env
+        else
+          python -m venv test-env
+        fi
         if [ "${{ runner.os }}" = "Windows" ]; then
           source test-env/Scripts/activate
         else
           source test-env/bin/activate
         fi
+        # A venv created under Rosetta still runs arm64 when the shell that
+        # spawned it is arm64: `source` only rewrites PATH, it does not change
+        # the architecture the subsequent processes are translated to. Every
+        # command in this step whose platform tag or imported extension depends
+        # on the architecture therefore needs the explicit x86_64 prefix too.
+        rosetta="false"
+        if [[ "${{ inputs.python-version }}" == "3.7" && "${{ runner.os }}" == "macOS" ]]; then
+          rosetta="true"
+        fi
 
-        pip install --force-reinstall dist/*.whl
-        pip check
+        # A brand-new py37 venv does not inherit the setup action's upgraded
+        # pip: CPython 3.7.9 seeds pip 20.1.1 through ensurepip. Upgrade before
+        # installing the wheel, while retaining the Python 3.7-compatible
+        # ceiling used by the setup actions (pip 24.1+ drops Python 3.7).
+        #
+        # Upgrade through `python -m pip`, not the `pip` shim: the console
+        # script is a copy of pip.exe inside the venv, so replacing it while
+        # that process is running fails with WinError 5 (access denied).
+        if [[ "$rosetta" == "true" ]]; then
+          arch -x86_64 python -m pip install --upgrade "pip<24.1" wheel
+          arch -x86_64 python -m pip --version
+          arch -x86_64 pip install --force-reinstall dist/*.whl
+          arch -x86_64 pip check
+        else
+          python -m pip install --upgrade "pip<24.1" wheel
+          python -m pip --version
+          pip install --force-reinstall dist/*.whl
+          pip check
+        fi
 
         if [[ "${{ inputs.python-version }}" == "3.7" ]]; then
-          python scripts/ci/smoke_python37_runtime.py --profile native_py37
+          if [[ "$rosetta" == "true" ]]; then
+            arch -x86_64 python scripts/ci/smoke_python37_runtime.py --profile native_py37
+          else
+            python scripts/ci/smoke_python37_runtime.py --profile native_py37
+          fi
         else
           python tests/test_imports.py
         fi
