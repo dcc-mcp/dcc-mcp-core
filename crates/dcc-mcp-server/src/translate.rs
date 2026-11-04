@@ -154,12 +154,12 @@ fn build_translate_gateway_daemon_options(
     server_name: &str,
     registry_dir_path: Option<&PathBuf>,
     gateway_host: &str,
-) -> dcc_mcp_sidecar::gateway_daemon::EnsureGatewayOptions {
-    dcc_mcp_sidecar::gateway_daemon::EnsureGatewayOptions {
+) -> anyhow::Result<dcc_mcp_sidecar::gateway_daemon::EnsureGatewayOptions> {
+    Ok(dcc_mcp_sidecar::gateway_daemon::EnsureGatewayOptions {
         host: gateway_host.to_string(),
         port: args.gateway_port,
         name: Some(format!("gateway-for-{server_name}")),
-        registry_dir: crate::resolve_registry_dir(registry_dir_path),
+        registry_dir: crate::resolve_registry_dir(registry_dir_path)?,
         remote_host: args.gateway_remote_host.clone(),
         remote_port: args.gateway_remote_port,
         crate_version: Some(env!("CARGO_PKG_VERSION").to_string()),
@@ -169,7 +169,7 @@ fn build_translate_gateway_daemon_options(
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(dcc_mcp_sidecar::gateway_daemon::AUTO_ENSURE_GATEWAY_IDLE_TIMEOUT_SECS),
-    }
+    })
 }
 
 // ── CLI Args ──────────────────────────────────────────────────────────────────
@@ -955,7 +955,7 @@ pub async fn run(args: TranslateArgs) -> anyhow::Result<()> {
             &server_name,
             registry_dir_path.as_ref(),
             &gateway_host,
-        ))
+        )?)
     } else {
         None
     };
@@ -1181,7 +1181,8 @@ mod tests {
             "translate-filesystem",
             registry_dir_path.as_ref(),
             "127.0.0.1",
-        );
+        )
+        .unwrap();
 
         assert_eq!(opts.host, "127.0.0.1");
         assert_eq!(opts.port, 9765);

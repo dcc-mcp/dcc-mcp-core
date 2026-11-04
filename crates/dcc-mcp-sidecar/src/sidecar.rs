@@ -118,7 +118,8 @@ pub async fn run(args: SidecarArgs) -> anyhow::Result<()> {
     let registry_dir = args
         .registry_dir
         .clone()
-        .unwrap_or_else(default_registry_dir);
+        .map(Ok)
+        .unwrap_or_else(default_registry_dir)?;
     std::fs::create_dir_all(&registry_dir)
         .with_context(|| format!("creating registry dir {}", registry_dir.display()))?;
 

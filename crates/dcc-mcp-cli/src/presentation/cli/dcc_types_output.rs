@@ -19,7 +19,9 @@ pub(super) async fn run(
         InstallService::refreshed(offline).await
     };
     let mut output = if let Some(dcc_type) = dcc_type {
-        let inventory = list_local_instances(gateway_ensure::default_registry_dir()).ok();
+        let inventory = gateway_ensure::default_registry_dir()
+            .and_then(list_local_instances)
+            .ok();
         to_json(service.discovery_decision(catalog, dcc_type, inventory.as_ref(), project))?
     } else {
         to_json(service.dcc_types(catalog)?)?

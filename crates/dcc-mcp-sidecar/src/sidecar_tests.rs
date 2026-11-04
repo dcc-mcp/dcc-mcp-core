@@ -45,16 +45,21 @@ fn guardian_test_args() -> SidecarArgs {
 
 #[test]
 fn default_registry_dir_matches_gateway_runner_fallback() {
-    let _guard = EnvVarGuard::set("DCC_MCP_REGISTRY_DIR", None);
+    let home = TempDir::new().unwrap();
+    let _guard = dcc_mcp_test_utils::EnvVarsGuard::set(&[
+        ("DCC_MCP_REGISTRY_DIR", None),
+        (
+            if cfg!(windows) { "USERPROFILE" } else { "HOME" },
+            home.path().to_str(),
+        ),
+    ]);
 
-    let got = default_registry_dir();
-    let expected = std::env::temp_dir().join("dcc-mcp-registry");
+    let got = default_registry_dir().unwrap();
+    let expected = home.path().join(".dcc-mcp").join("registry-live");
 
     assert_eq!(
         got, expected,
-        "sidecar default_registry_dir must match GatewayRunner::new \
-             fallback (<tempdir>/dcc-mcp-registry). Mismatch split-brains \
-             the FileRegistry and produces a dark gateway port."
+        "sidecar and GatewayRunner must share the user registry"
     );
 }
 
@@ -63,7 +68,7 @@ fn default_registry_dir_honours_env_var_override() {
     let custom = std::env::temp_dir().join("dcc-mcp-custom-registry-test");
     let _guard = EnvVarGuard::set("DCC_MCP_REGISTRY_DIR", Some(custom.to_str().unwrap_or("")));
 
-    let got = default_registry_dir();
+    let got = default_registry_dir().unwrap();
 
     assert_eq!(
         got, custom,

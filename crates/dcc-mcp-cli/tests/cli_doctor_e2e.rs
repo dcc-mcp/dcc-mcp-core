@@ -11,6 +11,51 @@ use tempfile::{NamedTempFile, TempDir};
 
 use support::*;
 
+#[test]
+fn explicit_registry_commands_do_not_require_user_home() {
+    let fixture = spawn_gateway_fixture();
+    let port = fixture.base_url.rsplit(':').next().unwrap();
+    let registry = TempDir::new().unwrap();
+    let profiles = NamedTempFile::new().unwrap();
+    let registry_s = registry.path().to_str().unwrap();
+    let profiles_s = profiles.path().to_str().unwrap();
+    for args in [
+        vec!["doctor", "--gateway-port", port],
+        vec!["gateway", "status", "--port", port],
+        vec!["gateway", "daemon", "status", "--port", port],
+    ] {
+        let mut command = vec![
+            "--no-update-maintenance",
+            "--auto-gateway-bin",
+            env!("CARGO_BIN_EXE_dcc-mcp-cli"),
+        ];
+        command.extend(args);
+        command.extend(["--registry-dir", registry_s]);
+        let result = run_json_with_env_removed(
+            &command,
+            &[
+                (
+                    if cfg!(windows) { "USERPROFILE" } else { "HOME" },
+                    "relative-home",
+                ),
+                ("DCC_MCP_GATEWAY_PROFILES_FILE", profiles_s),
+                ("DCC_MCP_PYTHON_EXECUTABLE", ""),
+            ],
+            &[
+                "DCC_MCP_REGISTRY_DIR",
+                "DCC_MCP_GATEWAY_PROFILE",
+                "DCC_MCP_BASE_URL",
+            ],
+        );
+        if let Some(local) = result.get("local") {
+            assert_eq!(local["registry_dir"], registry_s);
+        } else {
+            assert_eq!(result["healthy"], true);
+            assert_eq!(result["registry_dir"], registry_s);
+        }
+    }
+}
+
 #[tokio::test]
 async fn doctor_healthy_gateway_does_not_repair_registry_to_recover_missing_pidfile() {
     let registry = TempDir::new().unwrap();

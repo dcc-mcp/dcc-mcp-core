@@ -273,11 +273,13 @@ impl InstallService {
         } else if live_instances > 0 {
             wait_ready_action(&canonical_dcc)
         } else if let Some(project) = project.filter(|project| {
-            crate::application::instance_launch::plan::resolvable(
-                &canonical_dcc,
-                project,
-                &crate::application::gateway_ensure::default_registry_dir(),
-            )
+            crate::application::gateway_ensure::default_registry_dir().is_ok_and(|registry| {
+                crate::application::instance_launch::plan::resolvable(
+                    &canonical_dcc,
+                    project,
+                    &registry,
+                )
+            })
         }) {
             // Zero instances with a validated launch plan is exactly the gap
             // `start-instance` closes: launch the recorded host bound to this

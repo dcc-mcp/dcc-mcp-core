@@ -516,7 +516,8 @@ async fn restart_spawn_new(args: &GatewayArgs) -> anyhow::Result<()> {
     let log_dir = args
         .registry_dir
         .clone()
-        .unwrap_or_else(dcc_mcp_gateway_ensure::default_registry_dir);
+        .map(Ok)
+        .unwrap_or_else(dcc_mcp_gateway_ensure::default_registry_dir)?;
 
     eprintln!("Gateway daemon started (pid {new_pid}, version {version})");
     eprintln!("Logs: {}", log_dir.display());

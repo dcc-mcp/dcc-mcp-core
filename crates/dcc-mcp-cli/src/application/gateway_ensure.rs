@@ -232,7 +232,7 @@ mod tests {
 
     #[test]
     fn test_default_registry_dir_is_not_empty() {
-        let dir = default_registry_dir();
+        let dir = default_registry_dir().unwrap();
         assert!(!dir.as_os_str().is_empty());
         assert!(dir.is_absolute());
     }

@@ -39,7 +39,7 @@ async fn local_load_skill_routes_through_gateway_to_keep_index_coherent() {
     let control = DccControlPlane::new(
         GatewayTarget::Local,
         Endpoint::new(format!("http://{addr}")),
-        registry.path().to_path_buf(),
+        Some(registry.path().to_path_buf()),
         false,
     );
 
@@ -81,7 +81,7 @@ async fn required_gateway_routes_a_local_call_and_reports_stats_coverage() {
     let control = DccControlPlane::new(
         GatewayTarget::Local,
         Endpoint::new(format!("http://{addr}")),
-        registry.path().to_path_buf(),
+        Some(registry.path().to_path_buf()),
         true,
     );
 
@@ -180,7 +180,7 @@ async fn wait_for_async_call_returns_terminal_result_without_requeueing_polls() 
     let control = DccControlPlane::new(
         GatewayTarget::Local,
         Endpoint::new(format!("http://{addr}")),
-        registry.path().to_path_buf(),
+        Some(registry.path().to_path_buf()),
         true,
     );
 
@@ -320,7 +320,7 @@ async fn wait_for_direct_adapter_job_polls_declared_tool_to_terminal() {
     let control = DccControlPlane::new(
         GatewayTarget::Local,
         Endpoint::new(format!("http://{addr}")),
-        registry.path().to_path_buf(),
+        Some(registry.path().to_path_buf()),
         true,
     );
 
@@ -422,7 +422,7 @@ async fn wait_rejects_adapter_poll_that_returns_a_different_job() {
     let control = DccControlPlane::new(
         GatewayTarget::Local,
         Endpoint::new(format!("http://{addr}")),
-        registry.path().to_path_buf(),
+        Some(registry.path().to_path_buf()),
         true,
     );
 
@@ -498,7 +498,7 @@ async fn wait_falls_back_to_bare_job_status_for_direct_adapter_base_url() {
             endpoint: endpoint.clone(),
         },
         endpoint,
-        registry.path().to_path_buf(),
+        Some(registry.path().to_path_buf()),
         false,
     );
 
@@ -580,7 +580,7 @@ async fn wait_for_async_call_resumes_after_gateway_unavailable() {
     let control = DccControlPlane::new(
         GatewayTarget::Local,
         Endpoint::new(format!("http://{addr}")),
-        registry.path().to_path_buf(),
+        Some(registry.path().to_path_buf()),
         true,
     );
 
@@ -651,7 +651,7 @@ async fn wait_for_async_call_reports_exited_owner_without_resubmitting() {
     let control = DccControlPlane::new(
         GatewayTarget::Local,
         Endpoint::new(format!("http://{addr}")),
-        registry.path().to_path_buf(),
+        Some(registry.path().to_path_buf()),
         true,
     );
 
@@ -698,7 +698,7 @@ async fn wait_without_job_identity_says_it_did_not_wait() {
     let control = DccControlPlane::new(
         GatewayTarget::Local,
         Endpoint::new(format!("http://{addr}")),
-        registry.path().to_path_buf(),
+        Some(registry.path().to_path_buf()),
         true,
     );
 
@@ -827,14 +827,14 @@ async fn gateway_only_is_rejected_outside_the_direct_local_path() {
         DccControlPlane::new(
             GatewayTarget::Local,
             unreachable.clone(),
-            registry.path().to_path_buf(),
+            Some(registry.path().to_path_buf()),
             true,
         ),
         // --transport rest
         DccControlPlane::new(
             GatewayTarget::Local,
             unreachable.clone(),
-            registry.path().to_path_buf(),
+            Some(registry.path().to_path_buf()),
             false,
         )
         .with_transport(TransportMode::Rest),
@@ -845,7 +845,7 @@ async fn gateway_only_is_rejected_outside_the_direct_local_path() {
                 endpoint: unreachable.clone(),
             },
             unreachable.clone(),
-            registry.path().to_path_buf(),
+            Some(registry.path().to_path_buf()),
             false,
         ),
     ] {
