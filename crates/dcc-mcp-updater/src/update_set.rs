@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{UpdateError, sha256_bytes, sha256_file, staging_dir};
 
+mod committed_cleanup;
 mod io_diagnostics;
 mod package;
 pub use package::{
@@ -18,6 +19,7 @@ pub use package::{
     install_verified_package_checked, validate_package_paths,
 };
 
+use committed_cleanup::{backup_path_for_transaction, cleanup_committed_entries};
 use io_diagnostics::{IoOp, record_io_failure};
 
 const PENDING_SET_DIR: &str = "pending-set";
@@ -552,7 +554,7 @@ fn apply_staged_update_set_for_build_with_policy(
             .and_then(|value| value.to_str())
             .ok_or_else(|| UpdateError::Stage("update target has no filename".into()))?;
         let prepared = target.with_file_name(format!("{file_name}.dcc-mcp-new"));
-        let backup = target.with_file_name(format!("{file_name}.dcc-mcp-backup"));
+        let backup = backup_path_for_transaction(&target, file_name)?;
         let had_original = ensure_reserved_file_path(&target, "update target")?;
         let original_sha256 = had_original.then(|| sha256_file(&target)).transpose()?;
         prepare_verified_copy(
@@ -937,29 +939,9 @@ fn remove_known_file(
     expected_sha256: &str,
     alternate_sha256: Option<&str>,
 ) -> Result<(), UpdateError> {
-    if !ensure_reserved_file_path(path, label)? {
-        return Ok(());
-    }
-    let digest = sha256_file(path)?;
-    if !digest.eq_ignore_ascii_case(expected_sha256)
-        && !alternate_sha256.is_some_and(|value| digest.eq_ignore_ascii_case(value))
-    {
-        return Err(UpdateError::Stage(format!(
-            "refusing to remove an unrecognized {label}: {}",
-            path.display()
-        )));
-    }
-    record_io_failure(
-        IoOp {
-            stage: "cleanup",
-            operation: "remove_committed_reserved_file",
-            source: "committed-reserved-file",
-            target: "removed-reserved-file",
-        },
-        path,
-        path,
-        std::fs::remove_file(path),
-    )?;
+    // Package recovery has no activation decision hanging on this removal,
+    // so keep the strict, non-deferrable behavior.
+    committed_cleanup::remove_reserved_file(path, label, expected_sha256, alternate_sha256, false)?;
     Ok(())
 }
 
@@ -996,38 +978,23 @@ fn finish_committed(pending: &Path, journal: &UpdateJournal) -> Result<(), Updat
         &detached,
         std::fs::rename(pending, &detached),
     )?;
-    cleanup_committed_entries(journal)?;
-    record_io_failure(
-        IoOp {
-            stage: "commit",
-            operation: "remove_detached_set",
-            source: "detached-set",
-            target: "removed-detached-set",
-        },
-        &detached,
-        &detached,
-        std::fs::remove_dir_all(&detached),
-    )?;
-    Ok(())
-}
-
-fn cleanup_committed_entries(journal: &UpdateJournal) -> Result<(), UpdateError> {
-    for entry in &journal.entries {
-        remove_known_file(
-            &entry.prepared,
-            "transaction prepared file",
-            &entry.expected_sha256,
-            entry.original_sha256.as_deref(),
+    if cleanup_committed_entries(journal)? {
+        record_io_failure(
+            IoOp {
+                stage: "commit",
+                operation: "remove_detached_set",
+                source: "detached-set",
+                target: "removed-detached-set",
+            },
+            &detached,
+            &detached,
+            std::fs::remove_dir_all(&detached),
         )?;
-        if ensure_reserved_file_path(&entry.backup, "transaction backup")? {
-            let original_sha256 = entry.original_sha256.as_deref().ok_or_else(|| {
-                UpdateError::Stage(format!(
-                    "unexpected backup for a newly created update target: {}",
-                    entry.backup.display()
-                ))
-            })?;
-            remove_known_file(&entry.backup, "transaction backup", original_sha256, None)?;
-        }
+    } else {
+        // The swap already landed. Keep the committed set as a retry marker
+        // instead of turning a still-mapped Windows image into a fatal error
+        // that aborts activation and recurs on every later launch.
+        tracing::info!("committed update set retained for deferred backup cleanup");
     }
     Ok(())
 }
@@ -1050,8 +1017,9 @@ fn cleanup_committed_sets(root: &Path) -> Result<(), UpdateError> {
                 path.display()
             )));
         }
-        cleanup_committed_entries(&journal)?;
-        std::fs::remove_dir_all(path)?;
+        if cleanup_committed_entries(&journal)? {
+            std::fs::remove_dir_all(path)?;
+        }
     }
     Ok(())
 }

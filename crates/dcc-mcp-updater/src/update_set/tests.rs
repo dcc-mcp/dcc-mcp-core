@@ -1,3 +1,6 @@
+use super::committed_cleanup::backup_path_for_transaction;
+#[cfg(windows)]
+use super::committed_cleanup::is_deferred_image_lock;
 use super::io_diagnostics::{
     IoOp, record_io_failure, redact_path, redact_path_with_lookup, redact_path_with_prefixes,
     redact_path_with_sources, sanitize,
@@ -1452,4 +1455,242 @@ fn windows_access_denied_error_5_is_preserved_by_the_diagnostic_layer() {
         !message.contains(&*temp.path().to_string_lossy()),
         "absolute path leaked: {message}"
     );
+}
+
+/// Count the committed sets retained as deferred-cleanup retry markers.
+#[cfg(windows)]
+fn retained_committed_sets(root: &Path) -> usize {
+    std::fs::read_dir(root)
+        .unwrap()
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| {
+            entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with(COMMITTED_SET_PREFIX)
+        })
+        .count()
+}
+
+#[test]
+fn deferred_canonical_backup_routes_next_transaction_to_a_unique_backup() {
+    let temp = tempfile::tempdir().unwrap();
+    let target = write_fixture(temp.path(), "dcc-mcp-cli.exe", b"old-cli");
+    let canonical = target.with_file_name("dcc-mcp-cli.exe.dcc-mcp-backup");
+    assert_eq!(
+        backup_path_for_transaction(&target, "dcc-mcp-cli.exe").unwrap(),
+        canonical
+    );
+
+    // A regular file at the canonical path is a deferred committed backup.
+    std::fs::write(&canonical, b"old-cli").unwrap();
+    let unique = backup_path_for_transaction(&target, "dcc-mcp-cli.exe").unwrap();
+    assert_ne!(unique, canonical);
+    assert!(unique.to_string_lossy().contains(".dcc-mcp-backup-"));
+    assert!(!unique.exists());
+
+    // Other path shapes stay on the canonical path so the transaction's
+    // reserved-path validation still rejects them where it always did.
+    std::fs::remove_file(&canonical).unwrap();
+    std::fs::create_dir(&canonical).unwrap();
+    assert_eq!(
+        backup_path_for_transaction(&target, "dcc-mcp-cli.exe").unwrap(),
+        canonical
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn deferred_cleanup_recognizes_windows_in_use_errors_only() {
+    let with_context = |code| UpdateError::IoWithContext {
+        stage: "cleanup",
+        operation: "remove_committed_reserved_file",
+        source: "committed-reserved-file",
+        target: "removed-reserved-file",
+        error: std::io::Error::from_raw_os_error(code),
+    };
+    // ERROR_ACCESS_DENIED (mapped image) and ERROR_SHARING_VIOLATION (open
+    // handle without FILE_SHARE_DELETE) clear once the holder exits.
+    assert!(is_deferred_image_lock(&with_context(5)));
+    assert!(is_deferred_image_lock(&with_context(32)));
+    assert!(is_deferred_image_lock(&UpdateError::Io(
+        std::io::Error::from_raw_os_error(5)
+    )));
+    // Unrelated failures must stay fatal, not silently defer cleanup.
+    assert!(!is_deferred_image_lock(&with_context(2)));
+    assert!(!is_deferred_image_lock(&with_context(13)));
+    assert!(!is_deferred_image_lock(&UpdateError::Stage(
+        "unrelated".into()
+    )));
+}
+
+/// Reproduces the #2864 activation failure: the swap landed, but deleting the
+/// renamed old executable image is still blocked by a live Windows process.
+/// The cleanup used to propagate that error, so `apply_staged_update` returned
+/// `Err` before the reexec decision and every later launch retried the same
+/// failure forever. The fix must let activation proceed and defer cleanup.
+#[cfg(windows)]
+#[test]
+fn windows_locked_committed_backup_still_activates_and_defers_cleanup() {
+    let temp = tempfile::tempdir().unwrap();
+    let current = write_fixture(temp.path(), "dcc-mcp-server.exe", b"old-server");
+    let downloaded = write_fixture(temp.path(), "server.download", b"new-server");
+    let original_sha256 = sha256_file(&current).unwrap();
+    let expected_sha256 = sha256_file(&downloaded).unwrap();
+    let target = UpdateTarget::CurrentExecutable;
+    let binary_name = unique_name("win-deferred-cleanup");
+    let _staging_guard = StagingRootGuard::new(&binary_name);
+    stage_update_set_for_build_with_timeout(
+        &binary_name,
+        &current,
+        "1.0.0",
+        &[UpdateSetSource {
+            downloaded: &downloaded,
+            target: &target,
+            expected_sha256: &expected_sha256,
+        }],
+        UPDATE_LOCK_TIMEOUT,
+    )
+    .unwrap();
+
+    // Reconstruct the exact state left by a landed-but-uncleaned commit:
+    // new bytes at the target, old bytes at the backup, a Committed journal.
+    let backup = current.with_file_name("dcc-mcp-server.exe.dcc-mcp-backup");
+    std::fs::copy(&current, &backup).unwrap();
+    std::fs::copy(&downloaded, &current).unwrap();
+    let journal = UpdateJournal {
+        state: JournalState::Committed,
+        entries: vec![JournalEntry {
+            target: current.clone(),
+            prepared: current.with_file_name("dcc-mcp-server.exe.dcc-mcp-new"),
+            backup: backup.clone(),
+            had_original: true,
+            original_sha256: Some(original_sha256),
+            expected_sha256,
+        }],
+    };
+    let root = installation_root(&binary_name, &current);
+    write_json_atomic(&root.join(PENDING_SET_DIR).join(JOURNAL_FILE), &journal).unwrap();
+
+    // A real Windows in-use error, produced without touching ACLs, services,
+    // privileges, or any production binary.
+    let locked = deny_delete(&backup);
+
+    assert!(
+        apply_staged_update_set_for_build_with_timeout(
+            &binary_name,
+            &current,
+            "1.0.0",
+            UPDATE_LOCK_TIMEOUT,
+        )
+        .unwrap(),
+        "a deferred backup cleanup must not abort activation"
+    );
+    assert_eq!(std::fs::read(&current).unwrap(), b"new-server");
+    assert!(backup.exists(), "deferred backup must be left in place");
+    assert_eq!(
+        retained_committed_sets(&root),
+        1,
+        "one committed set must be kept as a retry marker"
+    );
+
+    // Releasing the image lets a later launch finish cleanup: no permanent
+    // error loop and no repeated reexec.
+    drop(locked);
+    assert!(
+        !apply_staged_update_set_for_build_with_timeout(
+            &binary_name,
+            &current,
+            "2.0.0",
+            UPDATE_LOCK_TIMEOUT,
+        )
+        .unwrap()
+    );
+    assert!(!backup.exists());
+    assert_eq!(retained_committed_sets(&root), 0);
+}
+
+/// A deferred canonical backup from an earlier generation must not collide
+/// with the next transaction: Windows rename refuses an existing destination,
+/// and the stale-backup digest check would reject a different generation.
+#[cfg(windows)]
+#[test]
+fn windows_deferred_canonical_backup_does_not_block_the_next_staged_update() {
+    let temp = tempfile::tempdir().unwrap();
+    let current = write_fixture(temp.path(), "dcc-mcp-server.exe", b"gen-1-server");
+    let gen2 = write_fixture(temp.path(), "gen2.download", b"gen-2-server");
+    let binary_name = unique_name("win-deferred-next-update");
+    let _staging_guard = StagingRootGuard::new(&binary_name);
+    let root = installation_root(&binary_name, &current);
+    std::fs::create_dir_all(&root).unwrap();
+
+    let canonical_backup = current.with_file_name("dcc-mcp-server.exe.dcc-mcp-backup");
+    std::fs::write(&canonical_backup, b"gen-0-server").unwrap();
+    let old_journal = UpdateJournal {
+        state: JournalState::Committed,
+        entries: vec![JournalEntry {
+            target: current.clone(),
+            prepared: current.with_file_name("dcc-mcp-server.exe.dcc-mcp-new"),
+            backup: canonical_backup.clone(),
+            had_original: true,
+            original_sha256: Some(sha256_file(&canonical_backup).unwrap()),
+            expected_sha256: sha256_file(&current).unwrap(),
+        }],
+    };
+    let committed_set = root.join(format!("{COMMITTED_SET_PREFIX}previous-generation"));
+    std::fs::create_dir(&committed_set).unwrap();
+    write_json_atomic(&committed_set.join(JOURNAL_FILE), &old_journal).unwrap();
+    let locked = deny_delete(&canonical_backup);
+
+    let gen2_sha = sha256_file(&gen2).unwrap();
+    let target = UpdateTarget::CurrentExecutable;
+    stage_update_set_for_build_with_timeout(
+        &binary_name,
+        &current,
+        "2.0.0",
+        &[UpdateSetSource {
+            downloaded: &gen2,
+            target: &target,
+            expected_sha256: &gen2_sha,
+        }],
+        UPDATE_LOCK_TIMEOUT,
+    )
+    .unwrap();
+    assert!(
+        apply_staged_update_set_for_build_with_timeout(
+            &binary_name,
+            &current,
+            "2.0.0",
+            UPDATE_LOCK_TIMEOUT,
+        )
+        .unwrap(),
+        "the deferred canonical backup must not block the next activation"
+    );
+    assert_eq!(std::fs::read(&current).unwrap(), b"gen-2-server");
+    assert!(canonical_backup.exists());
+    assert!(committed_set.exists());
+    // The new transaction's own unique backup was cleaned up.
+    assert!(
+        std::fs::read_dir(temp.path())
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .all(|entry| !entry
+                .file_name()
+                .to_string_lossy()
+                .contains("dcc-mcp-backup-")),
+        "the unique transactional backup must be cleaned up"
+    );
+
+    drop(locked);
+    assert!(
+        !apply_staged_update_set_for_build_with_timeout(
+            &binary_name,
+            &current,
+            "3.0.0",
+            UPDATE_LOCK_TIMEOUT,
+        )
+        .unwrap()
+    );
+    assert!(!canonical_backup.exists());
+    assert!(!committed_set.exists());
 }
