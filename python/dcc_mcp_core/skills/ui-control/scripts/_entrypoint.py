@@ -21,6 +21,26 @@ from dcc_mcp_core.skill import skill_error
 
 _AUDIT_LOCK = threading.Lock()
 _CAPTURE_TTL_SECS = 24 * 60 * 60
+_AUDIT_FAILURE_STAGES = frozenset(
+    {
+        "binding",
+        "authorization",
+        "activation",
+        "foreground_readback",
+        "capture",
+        "cancellation",
+    }
+)
+_AUDIT_CAPTURE_MODES = frozenset({"semantic", "pixels_only"})
+_AUDIT_TOKEN_RE = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
+# A durable diagnostic REASON is held to a stricter allowlist than an id/code:
+# ``native_reason`` / ``diagnostic_reason`` are untrusted free text that can
+# embed typed input, private values, or arbitrary structured data. No blacklist
+# of sensitive keys or paths can prove such a string clean, so ONLY bounded,
+# code-like tokens (letters/digits with single ._- separators, no whitespace,
+# quotes, braces, colons, '=' or slashes) are persisted. Everything else is
+# dropped rather than regex-redacted.
+_AUDIT_SAFE_REASON_RE = re.compile(r"^[A-Za-z][A-Za-z0-9]*(?:[._-][A-Za-z0-9]+)*$")
 
 
 def emit(result: Dict[str, Any]) -> None:
@@ -88,6 +108,66 @@ def _operation_error(result: Dict[str, Any]) -> Optional[str]:
 def _result_context(result: Dict[str, Any]) -> Dict[str, Any]:
     context = result.get("context")
     return context if isinstance(context, dict) else {}
+
+
+def _audit_token(value: Any) -> Optional[str]:
+    text = str(value or "").strip()
+    return text if _AUDIT_TOKEN_RE.fullmatch(text) else None
+
+
+def _audit_reason(value: Any) -> Optional[str]:
+    """Accept only bounded, producer-authored diagnostic tokens.
+
+    Native/provider free text is untrusted and is never redacted in place: a
+    blacklist cannot prove it free of secrets. Only strings fully matching the
+    safe-token grammar are persisted; JSON, key/value prose, paths and free-form
+    sentences are all rejected rather than regex-redacted.
+    """
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if len(text) > 128 or not _AUDIT_SAFE_REASON_RE.fullmatch(text):
+        return None
+    return text
+
+
+def _failure_diagnostics(context: Dict[str, Any]) -> Dict[str, Any]:
+    """Project only structured, bounded failure diagnostics into durable audit."""
+    recovery = context.get("recovery")
+    preparation = context.get("foreground_preparation")
+    source = recovery if isinstance(recovery, dict) else preparation if isinstance(preparation, dict) else {}
+    result: Dict[str, Any] = {}
+    stage = source.get("stage") or context.get("failure_stage")
+    if isinstance(stage, str) and stage in _AUDIT_FAILURE_STAGES:
+        result["failure_stage"] = stage
+    reason = source.get("native_reason") or context.get("diagnostic_reason")
+    safe_reason = _audit_reason(reason)
+    if safe_reason:
+        result["diagnostic_reason"] = safe_reason
+    for key in (
+        "activation_succeeded",
+        "observation_failed",
+        "content_input_sent",
+        "fresh_observation_available",
+        "fresh_observation_ready",
+    ):
+        value = source.get(key)
+        if type(value) is bool:
+            result[key] = value
+    capture_mode = source.get("capture_mode")
+    if isinstance(capture_mode, str) and capture_mode in _AUDIT_CAPTURE_MODES:
+        result["capture_mode"] = capture_mode
+    for key in ("correlation_id", "request_id", "operation_id", "action_id", "snapshot_id"):
+        value = _audit_token(context.get(key) or source.get(key))
+        if value:
+            result["correlation_id"] = value
+            break
+    for key in ("native_error_code", "provider_error_code", "reason_code"):
+        value = _audit_token(context.get(key) or source.get(key))
+        if value:
+            result["diagnostic_code"] = value
+            break
+    return result
 
 
 def _canonical_backend(result: Dict[str, Any]) -> str:
@@ -340,6 +420,8 @@ def _record_operation(name: str, params: Dict[str, Any], result: Dict[str, Any])
             "message": f"DCC UI Control {operation} {'succeeded' if success else 'rejected'}",
             "detail": " ".join(detail),
         }
+        if not success:
+            event.update(_failure_diagnostics(context))
         if snapshot_id:
             event["snapshot_id"] = str(snapshot_id)
         if action_id:
