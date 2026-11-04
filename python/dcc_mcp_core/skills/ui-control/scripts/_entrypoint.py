@@ -33,14 +33,14 @@ _AUDIT_FAILURE_STAGES = frozenset(
 )
 _AUDIT_CAPTURE_MODES = frozenset({"semantic", "pixels_only"})
 _AUDIT_TOKEN_RE = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
-_AUDIT_SENSITIVE_RE = re.compile(
-    r"(?i)\b(?P<key>password|token|secret|credential|authorization|bearer|input|title|path|file|filename)\b"
-    r"\s*[:=]\s*(?:'[^']*'|\"[^\"]*\"|[^\s,;]+)"
-)
-_AUDIT_STRUCTURED_SENSITIVE_RE = re.compile(
-    r"(?i)[\"'](?:password|token|secret|credential|authorization|bearer|input|title|path|file|filename)[\"']\s*:"
-)
-_AUDIT_PATH_RE = re.compile(r"(?i)(?:[A-Za-z]:[\\/]|\\\\|/)[^\s,;]+")
+# A durable diagnostic REASON is held to a stricter allowlist than an id/code:
+# ``native_reason`` / ``diagnostic_reason`` are untrusted free text that can
+# embed typed input, private values, or arbitrary structured data. No blacklist
+# of sensitive keys or paths can prove such a string clean, so ONLY bounded,
+# code-like tokens (letters/digits with single ._- separators, no whitespace,
+# quotes, braces, colons, '=' or slashes) are persisted. Everything else is
+# dropped rather than regex-redacted.
+_AUDIT_SAFE_REASON_RE = re.compile(r"^[A-Za-z][A-Za-z0-9]*(?:[._-][A-Za-z0-9]+)*$")
 
 
 def emit(result: Dict[str, Any]) -> None:
@@ -116,16 +116,19 @@ def _audit_token(value: Any) -> Optional[str]:
 
 
 def _audit_reason(value: Any) -> Optional[str]:
+    """Accept only bounded, producer-authored diagnostic tokens.
+
+    Native/provider free text is untrusted and is never redacted in place: a
+    blacklist cannot prove it free of secrets. Only strings fully matching the
+    safe-token grammar are persisted; JSON, key/value prose, paths and free-form
+    sentences are all rejected rather than regex-redacted.
+    """
     if not isinstance(value, str):
         return None
-    text = str(value or "").strip()
-    if not text:
+    text = value.strip()
+    if len(text) > 128 or not _AUDIT_SAFE_REASON_RE.fullmatch(text):
         return None
-    if _AUDIT_STRUCTURED_SENSITIVE_RE.search(text):
-        return None
-    text = _AUDIT_SENSITIVE_RE.sub(lambda match: f"{match.group('key')}=<redacted>", text)
-    text = _AUDIT_PATH_RE.sub("<redacted-path>", text)
-    return text[:256]
+    return text
 
 
 def _failure_diagnostics(context: Dict[str, Any]) -> Dict[str, Any]:
