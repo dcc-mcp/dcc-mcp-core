@@ -136,6 +136,24 @@ pub enum UpdateError {
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 
+    /// A filesystem operation inside the staged-update transaction failed.
+    ///
+    /// The original [`std::io::Error`] is preserved as the error source, so
+    /// its `ErrorKind` and raw OS code stay available for callers and the
+    /// existing rollback semantics are unchanged. The static fields name the
+    /// failing operation with path *categories* rather than absolute paths,
+    /// which can contain user directories or credentials and must not reach
+    /// public logs.
+    #[error("staged update {stage}/{operation} failed [{source} -> {target}]: {error}")]
+    IoWithContext {
+        stage: &'static str,
+        operation: &'static str,
+        source: &'static str,
+        target: &'static str,
+        #[source]
+        error: std::io::Error,
+    },
+
     #[error("Checksum mismatch: expected {expected}, got {actual}")]
     ChecksumMismatch { expected: String, actual: String },
 
