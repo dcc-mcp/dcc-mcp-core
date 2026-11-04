@@ -11,6 +11,9 @@ use std::path::PathBuf;
 use anyhow::Context;
 use serde::Serialize;
 
+#[cfg(test)]
+mod bootstrap_tests;
+
 /// Gateway binary filename, platform-aware.
 const GATEWAY_BINARY_NAME: &str = "dcc-mcp-server";
 
@@ -56,13 +59,18 @@ pub async fn resolve_gateway_bin(gateway_bin: Option<&PathBuf>) -> anyhow::Resul
 
     // Layer 3: GitHub Releases download
     let version = env!("CARGO_PKG_VERSION");
-    if let Ok(downloaded) = download_from_github_releases(version).await {
-        return Ok(downloaded);
-    }
+    let bootstrap_error = match download_from_github_releases(version).await {
+        Ok(downloaded) => return Ok(downloaded),
+        Err(error) => error,
+    };
 
     // Layer 4: Sub-command fallback (current executable)
     let current =
         std::env::current_exe().context("resolving current executable for sub-command fallback")?;
+    eprintln!(
+        "warning: {}",
+        bootstrap_fallback_message(&bootstrap_error, &current)
+    );
     Ok(current)
 }
 
@@ -269,102 +277,76 @@ fn find_cached_binary_in(cache_dir: Option<PathBuf>) -> anyhow::Result<Option<Pa
 /// Writes to a temporary file first, then atomically renames to the final
 /// cache location to avoid leaving a partial binary behind on crash/kill.
 async fn download_from_github_releases(version: &str) -> anyhow::Result<PathBuf> {
-    let target = build_release_target();
-    let filename = if cfg!(windows) {
-        format!("dcc-mcp-server-{target}.exe")
-    } else {
-        format!("dcc-mcp-server-{target}")
-    };
-
     let base = std::env::var(ENV_GITHUB_RELEASE_BASE)
         .ok()
-        .filter(|v| !v.trim().is_empty())
-        .unwrap_or_else(|| DEFAULT_GITHUB_RELEASE_BASE.to_string());
-    let url = format!("{base}/v{version}/{filename}");
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| DEFAULT_GITHUB_RELEASE_BASE.to_owned());
+    let cache_dir = gateway_cache_dir().context("cannot determine gateway cache directory")?;
+    download_release_binary(version, &base, &cache_dir).await
+}
 
-    let cache_dir =
-        gateway_cache_dir().context("cannot determine cache directory for gateway binary")?;
+fn release_manifest_url(version: &str, base: &str) -> anyhow::Result<String> {
+    semver::Version::parse(version).context("invalid gateway release version")?;
+    let platform = dcc_mcp_gateway::release_platform()
+        .context("no official gateway release for this platform")?;
+    Ok(format!(
+        "{}/v{version}/dcc-mcp-update-manifest-{platform}.json",
+        base.trim_end_matches('/')
+    ))
+}
+
+async fn download_release_binary(
+    version: &str,
+    base: &str,
+    cache_dir: &std::path::Path,
+) -> anyhow::Result<PathBuf> {
+    let manifest_url = release_manifest_url(version, base)?;
+    let info = dcc_mcp_gateway::resolve_release_update(&manifest_url, GATEWAY_BINARY_NAME, version)
+        .await
+        .context("resolving gateway bootstrap from release manifest")?;
     let version_dir = cache_dir.join(version);
-    std::fs::create_dir_all(&version_dir)
-        .with_context(|| format!("creating cache directory {}", version_dir.display()))?;
-
-    let dest = version_dir.join(GATEWAY_BINARY_NAME_WITH_EXT);
-
-    // Download
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(120))
-        .build()
-        .context("building HTTP client for gateway download")?;
-
-    let response = client
-        .get(&url)
-        .send()
+    std::fs::create_dir_all(&version_dir).context("creating gateway cache version directory")?;
+    let transaction =
+        tempfile::tempdir_in(&version_dir).context("creating gateway bootstrap transaction")?;
+    // The gateway is not running yet; only use the updater's verified download phase.
+    let updater = dcc_mcp_updater::Updater::new("", GATEWAY_BINARY_NAME, version);
+    let asset = updater
+        .download_verified_update_in(&info, transaction.path())
         .await
-        .with_context(|| format!("downloading gateway binary from {url}"))?;
-
-    let status = response.status();
-    if !status.is_success() {
-        anyhow::bail!("GitHub Releases returned HTTP {status} for {url}");
-    }
-
-    let bytes = response
-        .bytes()
-        .await
-        .with_context(|| format!("reading response body from {url}"))?;
-
-    if bytes.is_empty() {
-        anyhow::bail!("downloaded gateway binary from {url} is empty");
-    }
-
-    // Write to a temp file first, then rename atomically.
-    let tmp = version_dir.join(format!(".{GATEWAY_BINARY_NAME}.tmp"));
-    std::fs::write(&tmp, &bytes)
-        .with_context(|| format!("writing downloaded binary to {}", tmp.display()))?;
-
-    // Set executable permissions on Unix.
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut perms = std::fs::metadata(&tmp)
-            .with_context(|| format!("reading metadata of {}", tmp.display()))?
-            .permissions();
-        perms.set_mode(0o755);
-        std::fs::set_permissions(&tmp, perms)
-            .with_context(|| format!("setting permissions on {}", tmp.display()))?;
-    }
-
-    std::fs::rename(&tmp, &dest)
-        .with_context(|| format!("renaming {} to {}", tmp.display(), dest.display()))?;
-
-    Ok(dest)
+        .context("downloading and verifying gateway bootstrap asset")?;
+    let destination = version_dir.join(GATEWAY_BINARY_NAME_WITH_EXT);
+    std::fs::rename(asset.path(), &destination).with_context(|| {
+        format!(
+            "committing verified gateway binary to {}",
+            destination.display()
+        )
+    })?;
+    Ok(destination)
 }
 
-/// Build the Rust target triple for GitHub release asset naming.
-///
-/// Matches the naming convention used by the project's release workflow.
-fn build_release_target() -> String {
-    let arch = if cfg!(target_arch = "x86_64") {
-        "x86_64"
-    } else if cfg!(target_arch = "aarch64") {
-        "aarch64"
-    } else {
-        std::env::consts::ARCH
-    };
-
-    let os = if cfg!(target_os = "windows") {
-        "pc-windows-msvc"
-    } else if cfg!(target_os = "macos") {
-        "apple-darwin"
-    } else if cfg!(target_os = "linux") {
-        "unknown-linux-gnu"
-    } else {
-        // Best-effort: use the compile-time OS string directly.
-        std::env::consts::OS
-    };
-
-    format!("{arch}-{os}")
+fn bootstrap_fallback_message(error: &anyhow::Error, fallback: &std::path::Path) -> String {
+    let chain = error
+        .chain()
+        .take(8)
+        .map(|cause| {
+            cause
+                .to_string()
+                .chars()
+                .filter(|c| !c.is_control())
+                .take(160)
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join(": ");
+    let fallback = fallback
+        .display()
+        .to_string()
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(512)
+        .collect::<String>();
+    format!("gateway bootstrap failed: {chain}; using current CLI sub-command fallback {fallback}")
 }
-
 // ── Cache directory ─────────────────────────────────────────────────────
 
 /// Return the cache directory for downloaded gateway binaries.
@@ -398,13 +380,12 @@ mod tests {
     }
 
     #[test]
-    fn test_build_release_target_is_non_empty() {
-        let target = build_release_target();
-        assert!(!target.is_empty());
-        assert!(
-            target.contains('-'),
-            "target should contain a dash: {target}"
-        );
+    fn release_manifest_uses_published_platform_names() {
+        let url = release_manifest_url("0.20.46", DEFAULT_GITHUB_RELEASE_BASE).unwrap();
+        assert!(url.contains("/v0.20.46/dcc-mcp-update-manifest-"));
+        assert!(!url.contains("pc-windows-msvc"));
+        assert!(!url.contains("unknown-linux-gnu"));
+        assert!(release_manifest_url("../escape", DEFAULT_GITHUB_RELEASE_BASE).is_err());
     }
 
     #[test]

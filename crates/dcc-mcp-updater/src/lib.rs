@@ -336,6 +336,17 @@ impl Updater {
         &self,
         info: &UpdateInfo,
     ) -> Result<VerifiedUpdateAsset, UpdateError> {
+        self.download_verified_update_in(info, &staging_dir(&self.binary_name)?)
+            .await
+    }
+
+    /// Download with the same integrity checks into a caller-owned transaction directory.
+    pub async fn download_verified_update_in(
+        &self,
+        info: &UpdateInfo,
+        staging_dir: &Path,
+    ) -> Result<VerifiedUpdateAsset, UpdateError> {
+        validate_binary_name(&self.binary_name)?;
         let expected_sha = Sha256Digest::require(&self.binary_name, info.sha256.as_deref())?;
         let download_url = info
             .download_url
@@ -345,8 +356,7 @@ impl Updater {
                 binary_name: self.binary_name.clone(),
             })?;
 
-        let staging_dir = staging_dir(&self.binary_name)?;
-        std::fs::create_dir_all(&staging_dir)?;
+        std::fs::create_dir_all(staging_dir)?;
 
         // All downloads produce a raw binary (not an archive).
         // The manifest URL determines what we download — clients trust
@@ -365,7 +375,7 @@ impl Updater {
         }
 
         use std::io::Write as _;
-        let mut temp = tempfile::NamedTempFile::new_in(&staging_dir)?;
+        let mut temp = tempfile::NamedTempFile::new_in(staging_dir)?;
         let mut hasher = Sha256::new();
         let mut total = 0_u64;
         while let Some(chunk) = response.chunk().await? {
