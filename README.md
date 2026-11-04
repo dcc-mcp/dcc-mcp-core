@@ -14,6 +14,14 @@
 
 [Website](https://dcc-mcp.github.io/) · [Marketplace](https://dcc-mcp.github.io/marketplace) · [Showcase](https://dcc-mcp.github.io/showcase) · [For Agents](https://dcc-mcp.github.io/agents) · [Ecosystem](https://dcc-mcp.github.io/ecosystem)
 
+**One MCP control plane for every DCC: an AI agent turns one prompt into a finished Blender material in 60 seconds.**
+
+~~~bash
+pip install dcc-mcp-core
+~~~
+
+**Try this →** [Blender material 60s Showcase](https://dcc-mcp.github.io/showcase/): the shortest path from one prompt to a rendered material in a live Blender session, powered by [`dcc-mcp-blender`](https://github.com/dcc-mcp/dcc-mcp-blender). See [Quick start: operate a DCC](#quick-start-operate-a-dcc) for the full CLI path.
+
 **Skill-first, Rust-powered control plane for a growing creative-tool ecosystem.**
 
 dcc-mcp-core connects agents to desktop DCCs, game engines, 2D tools,
