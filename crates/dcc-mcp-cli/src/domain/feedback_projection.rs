@@ -248,6 +248,7 @@ fn known_category(value: &str) -> bool {
             | "missing"
             | "unimportable"
             | "version_mismatch"
+            | "incompatible_core"
             | "blocked"
             | "not_available"
             | "not_attempted"
