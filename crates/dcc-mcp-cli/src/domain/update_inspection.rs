@@ -195,7 +195,7 @@ pub fn inspect(
         plan: UpdatePlan {
             status: plan_status,
             requires_user_confirmation: true,
-            upgrade_guidance: "Review the exact release, compatibility, and existing pins. After explicit approval, use the installation's supported update procedure; the existing `dcc-mcp-cli update apply --yes` stages the latest CLI, does not honor an exact version pin, and does not restart a host or server.",
+            upgrade_guidance: "Review the exact release, compatibility, and existing pins. After explicit approval, use the installation's supported update procedure; `dcc-mcp-cli update` checks, downloads, and stages the latest CLI in one step, does not honor an exact version pin, and does not restart a host or server.",
             rollback_guidance: "No automatic rollback is provided. Preserve the current version and use the original installation method to reinstall that exact official release after explicit approval; verify the runtime again. Do not remove or override pins.",
             automatic_actions: Vec::new(),
         },

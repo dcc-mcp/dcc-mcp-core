@@ -342,9 +342,13 @@ pub(crate) enum Command {
         action: crate::presentation::components_cmd::ComponentsAction,
     },
     /// Check for and apply gateway-controlled binary updates.
+    ///
+    /// With no subcommand this performs the full update (check, download,
+    /// stage) in one step. `update apply` and its `--yes` flag remain
+    /// accepted for backward compatibility.
     Update {
         #[command(subcommand)]
-        action: crate::presentation::update_cmd::UpdateAction,
+        action: Option<crate::presentation::update_cmd::UpdateAction>,
     },
     /// Gateway lifecycle management.
     Gateway {

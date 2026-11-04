@@ -21,8 +21,12 @@ pub(crate) enum UpdateAction {
         current_version: Option<String>,
     },
     /// Download the latest CLI version and stage it for the next launch.
+    ///
+    /// Retained for backward compatibility: a bare `dcc-mcp-cli update`
+    /// performs the same check, download, and staging in one step.
     Apply {
-        /// Confirm that the user approved downloading and staging the update.
+        /// Accepted for backward compatibility; updates no longer require a
+        /// confirmation flag.
         #[arg(long)]
         yes: bool,
     },
@@ -127,17 +131,17 @@ pub(crate) struct UpdateCommandResult {
 
 pub(crate) async fn run(
     base_url: &str,
-    action: UpdateAction,
+    action: Option<UpdateAction>,
 ) -> anyhow::Result<UpdateCommandResult> {
     let (value, exit_code) = match action {
         // The executable dispatches this before cli::run(), which can apply
         // staged updates. Keep this handler free of cache writes as well.
-        UpdateAction::Inspect(args) => return run_inspection(args).await,
-        UpdateAction::Discover(args) => return run_discovery(args).await,
-        UpdateAction::Check {
+        Some(UpdateAction::Inspect(args)) => return run_inspection(args).await,
+        Some(UpdateAction::Discover(args)) => return run_discovery(args).await,
+        Some(UpdateAction::Check {
             binary,
             current_version,
-        } => {
+        }) => {
             let binary_name = binary.unwrap_or_else(|| CLI_BINARY_NAME.to_string());
             let current_version = current_version.unwrap_or_else(|| CLI_VERSION.to_string());
             let cache_default_cli =
@@ -154,15 +158,15 @@ pub(crate) async fn run(
             };
             (value, exit_code)
         }
-        UpdateAction::Apply { yes } => {
-            let service = UpdateService::new(base_url, CLI_BINARY_NAME, CLI_VERSION);
-            let value = service.apply_update(yes).await?;
-            let exit_code = match value["error"].as_str() {
-                None => ExitCode::Success,
-                Some("confirmation_required") => ExitCode::InvalidInput,
-                Some(_) => ExitCode::Unavailable,
-            };
-            (value, exit_code)
+        // A bare `dcc-mcp-cli update` runs the whole update (check, download,
+        // stage) in one step. `update apply` stays as a backward-compatible
+        // alias; its `--yes` flag is still accepted but no longer gates the
+        // download. Both paths share `run_apply` and therefore the same
+        // version determination as `update check`.
+        None => run_apply(base_url).await?,
+        Some(UpdateAction::Apply { yes }) => {
+            let _ = yes;
+            run_apply(base_url).await?
         }
     };
     Ok(UpdateCommandResult {
@@ -170,6 +174,21 @@ pub(crate) async fn run(
         value,
         exit_code,
     })
+}
+
+/// Check for and stage the latest CLI update. This is the single update path
+/// used by both the default `dcc-mcp-cli update` and `update apply`, so the
+/// version decision always comes from the gateway check performed by
+/// `UpdateService::apply_update`.
+async fn run_apply(base_url: &str) -> anyhow::Result<(Value, ExitCode)> {
+    let service = UpdateService::new(base_url, CLI_BINARY_NAME, CLI_VERSION);
+    let value = service.apply_update().await?;
+    let exit_code = if value["error"].as_str().is_some() {
+        ExitCode::Unavailable
+    } else {
+        ExitCode::Success
+    };
+    Ok((value, exit_code))
 }
 
 pub(crate) fn surface_cached_cli_update(
@@ -190,7 +209,7 @@ pub(crate) fn surface_cached_cli_update(
         }
         match status["version_status"].as_str() {
             Some("update_available") => writer.diagnostic(&format!(
-                "info: dcc-mcp-cli {} -> {} is available. Ask the user before updating; after confirmation run `dcc-mcp-cli update apply --yes`. The update activates on the next CLI launch and does not restart running servers.",
+                "info: dcc-mcp-cli {} -> {} is available. Run `dcc-mcp-cli update` to download and stage it; the new version activates on the next CLI launch and does not restart running servers.",
                 status["current_version"].as_str().unwrap_or("unknown"),
                 status["latest_version"].as_str().unwrap_or("unknown"),
             ))?,

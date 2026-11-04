@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::{
-    CLI_BINARY_NAME, CLI_VERSION, FAILURE_RETRY_INTERVAL_SECS, SUCCESS_CHECK_INTERVAL_SECS,
-    mark_cached,
+    CLI_BINARY_NAME, CLI_UPDATE_COMMAND, CLI_VERSION, FAILURE_RETRY_INTERVAL_SECS,
+    SUCCESS_CHECK_INTERVAL_SECS, mark_cached,
 };
 
 const CACHE_SCHEMA_VERSION: u8 = 1;
@@ -103,9 +103,9 @@ pub fn just_applied_status() -> Option<Value> {
             "update_available": false,
             "applied_on_this_launch": true,
             "update_policy": {
-                "requires_user_confirmation": true,
+                "requires_user_confirmation": false,
                 "apply_supported_by_this_command": true,
-                "apply_command": "dcc-mcp-cli update apply --yes",
+                "apply_command": CLI_UPDATE_COMMAND,
                 "staged_for_next_launch": true,
                 "running_server_restarted": false,
             }

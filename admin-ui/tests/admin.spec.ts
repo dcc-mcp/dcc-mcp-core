@@ -110,6 +110,8 @@ test.describe('Admin Page', () => {
     await expect(page.locator('.setup-panel')).toContainText('dcc-mcp-cli marketplace install <package_name> --dcc maya');
     await expect(page.locator('.setup-panel')).toContainText('dcc-mcp-cli marketplace update <package_name> --dcc maya');
     await expect(page.locator('.setup-panel')).toContainText('dcc-mcp-cli update check --binary dcc-mcp-server --current-version <server_version>');
+    await expect(page.locator('.cli-command-section-maintain code').last()).toHaveText('dcc-mcp-cli update');
+    await expect(page.locator('.setup-panel')).not.toContainText('dcc-mcp-cli update apply');
     await expect(page.locator('.command-aside-action')).toHaveCount(2);
     await expect(page.locator('.command-aside-action').first()).toContainText('Manage loaded skills');
     await expect(page.locator('.command-aside-action').last()).toContainText('Install and update marketplace packages');
