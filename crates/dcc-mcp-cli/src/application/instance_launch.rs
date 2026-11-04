@@ -210,8 +210,13 @@ pub async fn start_instance(request: StartInstanceRequest) -> anyhow::Result<Val
             entry,
             owning_operation,
         } => {
+            // A row can enter `find_reusable` through its project binding alone,
+            // so only report convergence to an owner actually tied to the
+            // selected entry. Otherwise callers would be pointed at an
+            // unrelated `stop-instance --operation-id` target.
             let converged = owning_operation
                 .as_ref()
+                .filter(|owner| entry_matches_operation(&entry, owner))
                 .map(|owner| owner.operation_id.clone())
                 .filter(|id| id != &operation_id);
             operation.launched = false;

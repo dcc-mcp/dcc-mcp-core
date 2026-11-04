@@ -501,13 +501,62 @@ async fn unrelated_project_binding_does_not_claim_pending_owner() {
     assert_eq!(value["reused"], true);
     assert_eq!(value["owned"], false);
     assert_eq!(value["instance_id"], entry.instance_id.to_string());
-    assert_eq!(value["converged_on_operation_id"], "pending-op");
+    assert_eq!(
+        value["converged_on_operation_id"],
+        serde_json::Value::Null,
+        "an unrelated project-bound row must not report an owner it does not belong to"
+    );
     assert_eq!(
         store.load("pending-op").unwrap().unwrap().instance_id,
         None,
         "an unrelated project-bound row must not become stop-owned"
     );
     assert!(resolve_owned_operation(&registry, Some("unity"), None, Some("pending-op")).is_err());
+}
+
+#[tokio::test]
+async fn matching_project_binding_still_converges_on_pending_owner() {
+    let dir = tempfile::tempdir().unwrap();
+    let (executable, flag) = noop_executable();
+    let project = project_with_plan(dir.path(), "ProjectA", &argv_for(&executable, flag));
+    let registry = dir.path().join("registry");
+    let store = LifecycleStore::new(&registry);
+    let mut pending = LifecycleOperation::new("pending-op", "unity", &project, &executable, None);
+    pending.launched = true;
+    pending.owned = true;
+    pending.pid = Some(std::process::id());
+    pending.blocking_state = Some(BlockingState::Timeout.as_str().to_string());
+    store.save(&pending).unwrap();
+
+    // A project-only binding that matches the pending owner by PID must still
+    // converge on that owner; this is the counterpart to the unrelated-row case.
+    let entry = register_with_process(
+        &registry,
+        "unity",
+        18080,
+        &[("dcc_mcp_project", &project.display().to_string())],
+        Some(std::process::id()),
+        None,
+    );
+    let value = start_instance(request(&project, &registry, 300))
+        .await
+        .unwrap();
+    let entry_id = entry.instance_id.to_string();
+
+    assert_eq!(value["ok"], true, "{value}");
+    assert_eq!(value["reused"], true);
+    assert_eq!(value["instance_id"], entry_id);
+    assert_eq!(value["converged_on_operation_id"], "pending-op");
+    assert_eq!(
+        store
+            .load("pending-op")
+            .unwrap()
+            .unwrap()
+            .instance_id
+            .as_deref(),
+        Some(entry_id.as_str()),
+        "a matching row must still be claimed for the guarded stop path"
+    );
 }
 
 #[tokio::test]
