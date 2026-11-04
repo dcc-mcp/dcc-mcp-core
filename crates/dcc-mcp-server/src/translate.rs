@@ -620,16 +620,25 @@ async fn run_bridge_actor(
                                 continue;
                             };
                             if let Some(resp_tx) = bridge_req.response_tx {
-                                // Known race: if the actor is backpressured in
-                                // `stdin.write_all`, a caller's wait bound can
-                                // expire before its request is filed here, so
-                                // its `release()` was a no-op and the entry is
-                                // filed afterwards. That id then stays blocked
-                                // until the child answers it or exits. It is
-                                // self-healing and only reachable with a small
-                                // `--bridge-timeout-secs` and a stuck child,
-                                // so the insert is left unconditional rather
-                                // than re-checking a bound nobody owns here.
+                                // A caller whose wait bound expired while the
+                                // actor was backpressured in `stdin.write_all`
+                                // has already dropped its receiver: `release()`
+                                // was a no-op because this request had not been
+                                // filed yet. Filing it now would leave an entry
+                                // nobody is waiting on -- blocking the id
+                                // against a fresh call and, if that call reuses
+                                // the id, letting this abandoned call's late
+                                // response be delivered to the wrong caller.
+                                // Drop the request instead, and do not forward
+                                // it so the child never produces an orphan
+                                // response for an abandoned call.
+                                if resp_tx.is_closed() {
+                                    warn!(
+                                        request_id = %id_key,
+                                        "caller gave up before the request was filed; dropping it"
+                                    );
+                                    continue;
+                                }
                                 let mut map = pending.lock().await;
                                 if map.contains_key(&id_key) {
                                     // Two live calls want the same id. Filing
