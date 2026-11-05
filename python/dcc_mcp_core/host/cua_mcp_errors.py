@@ -217,3 +217,5 @@ class OwnedCuaMcpError(CuaCliError):
         super().__init__(code[:128], message[:2048])
         self.native_evidence = safe_failure_evidence(payload)
         self.fresh_observation_required = False
+        task_created = payload.get("task_created")
+        self.task_created = task_created if type(task_created) is bool else None

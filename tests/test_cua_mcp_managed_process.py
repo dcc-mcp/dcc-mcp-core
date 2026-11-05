@@ -45,7 +45,13 @@ def owner(tmp_path, monkeypatch):
 def test_client_initializes_starts_stops_and_closes_transferred_child(owner, monkeypatch):
     config, process = owner
     identity = managed.OriginalProcessIdentity(process.pid, 12345, config.binary, config.sha256)
-    proof = Mock(return_value=identity)
+
+    def prove(candidate, command, sha256, binary_source):
+        assert candidate is process and command == process.args and sha256 == config.sha256
+        assert not binary_source.closed
+        return identity
+
+    proof = Mock(side_effect=prove)
     monkeypatch.setattr(managed, "original_independent_identity", proof)
     monkeypatch.setenv("DCC_CUA_RECORDING_OUTPUT_ROOT", "must-not-inherit")
     monkeypatch.setenv("DCC_CUA_CAPTURE_PREPARATION_JOURNAL_ROOT", "must-not-inherit")
