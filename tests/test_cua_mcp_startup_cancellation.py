@@ -234,6 +234,13 @@ def interrupted_client(process, patch, phase, primary, *, managed_launch=True):
     return calls, identity
 
 
+def runtime_options_for_python() -> UiControlRuntimeOptions:
+    executable = Path(sys.executable)
+    return UiControlRuntimeOptions(
+        binary=str(executable), sha256=hashlib.sha256(executable.read_bytes()).hexdigest(), runtime_version=VERSION
+    )
+
+
 @pytest.mark.parametrize("error_type", INTERRUPTIONS)
 @pytest.mark.parametrize("managed_launch", [True, False])
 @pytest.mark.parametrize(
@@ -273,12 +280,132 @@ def test_unknown_startup_cleanup_retains_transport_or_task_owner(
         assert owned_transport._process is process
         if phase == "target_validation":
             assert owner.task_id == "public-task"
-        with pytest.raises(CuaCliError, match="unverified"):
+        with pytest.raises(CuaCliError, match=r"interrupted|unverified"):
             owned_transport.close()
     process.stdin.close()
     process.wait(timeout=5)
     owned_transport._reader.join(timeout=2)
     assert not owned_transport._reader.is_alive()
+
+
+def test_interrupted_stdin_close_records_failed_repeated_close(real_children, monkeypatch):
+    process = real_children()
+    config = runtime_options_for_python()
+    identity = managed.OriginalProcessIdentity(process.pid, 1, str(Path(sys.executable)), config.sha256)
+    real_close = process.stdin.close
+    primary = KeyboardInterrupt("close interrupted")
+    calls = []
+    with monkeypatch.context() as patch:
+        patch.setattr(managed, "original_independent_identity", Mock(return_value=identity))
+        patch.setattr(OwnedCuaMcpTransport, "rpc", bootstrap_rpc(calls, "never", RuntimeError("unused")))
+        owned_transport = OwnedCuaMcpTransport(config, managed_launcher=lambda *_: process)
+        patch.setattr(process.stdin, "close", Mock(side_effect=primary))
+        with pytest.raises(KeyboardInterrupt) as caught:
+            owned_transport.close()
+        assert caught.value is primary
+        with pytest.raises(CuaCliError, match="interrupted"):
+            owned_transport.close()
+    real_close()
+    process.wait(timeout=5)
+    owned_transport._reader.join(timeout=2)
+    assert not owned_transport._reader.is_alive()
+
+
+def test_startup_before_start_task_uses_transport_close_without_cleanup_unknown(real_children, monkeypatch):
+    process = real_children()
+    primary = CuaCliError("protocol_mismatch", "initialize failed before task creation")
+    with monkeypatch.context() as patch:
+        calls, _ = interrupted_client(process, patch, "initialize", primary)
+    assert caught_methods(calls) == []
+    assert not hasattr(primary, "managed_launch_refusal")
+    assert process.poll() == 0 and process.stdin.closed and process.stdout.closed
+
+
+def test_start_task_explicit_taskless_rejection_uses_transport_close(real_children, monkeypatch):
+    process = real_children()
+    config = runtime_options_for_python()
+    identity = managed.OriginalProcessIdentity(process.pid, 1, str(Path(sys.executable)), config.sha256)
+    calls = []
+
+    def rpc(self, method, params, **kwargs):
+        calls.append((method, params))
+        if method in {"initialize", "tools/list"}:
+            return bootstrap_rpc([], "never", RuntimeError("unused"))(self, method, params, **kwargs)
+        assert method == "tools/call" and params["name"] == "start_task"
+        return {
+            "isError": True,
+            "structuredContent": {
+                "type": "error",
+                "ok": False,
+                "code": "target_refused",
+                "message": "No task was created.",
+                "task_created": False,
+            },
+        }
+
+    with monkeypatch.context() as patch:
+        patch.setattr(managed, "original_independent_identity", Mock(return_value=identity))
+        patch.setattr(OwnedCuaMcpTransport, "rpc", rpc)
+        with pytest.raises(transport.OwnedCuaMcpError) as caught:
+            PixelsMcpHostClient(
+                session_id="taskless",
+                dcc_type="unreal",
+                process_id=42,
+                window_handle=500,
+                allow_raw_input=False,
+                options=config,
+                managed_launcher=lambda *_: process,
+            )
+    assert caught.value.code == "target_refused"
+    assert not hasattr(caught.value, "managed_launch_refusal")
+    assert [params["name"] for method, params in calls if method == "tools/call"] == ["start_task"]
+    assert process.poll() == 0 and process.stdin.closed and process.stdout.closed
+
+
+def test_missing_start_task_id_preserves_task_cleanup_path(real_children, monkeypatch):
+    process = real_children()
+    config = runtime_options_for_python()
+    identity = managed.OriginalProcessIdentity(process.pid, 1, str(Path(sys.executable)), config.sha256)
+    calls = []
+
+    def rpc(self, method, params, **kwargs):
+        calls.append((method, params))
+        if method in {"initialize", "tools/list"}:
+            return bootstrap_rpc([], "never", RuntimeError("unused"))(self, method, params, **kwargs)
+        assert method == "tools/call"
+        assert params["name"] == "start_task"
+        return {
+            "structuredContent": {
+                "ok": True,
+                "provider": "dcc-cua",
+                "runtime_version": VERSION,
+                "status": "started",
+                "target": dict(TARGET),
+            }
+        }
+
+    with monkeypatch.context() as patch:
+        patch.setattr(managed, "original_independent_identity", Mock(return_value=identity))
+        patch.setattr(OwnedCuaMcpTransport, "rpc", rpc)
+        with pytest.raises(managed.ManagedLaunchRefusal) as caught:
+            PixelsMcpHostClient(
+                session_id="missing-task-id",
+                dcc_type="unreal",
+                process_id=42,
+                window_handle=500,
+                allow_raw_input=False,
+                options=config,
+                managed_launcher=lambda *_: process,
+            )
+    error = caught.value
+    assert isinstance(error.cleanup_error, transport.OwnedCuaMcpError)
+    assert error.cleanup_error.code == "cleanup_unknown"
+    assert [params["name"] for method, params in calls if method == "tools/call"] == ["start_task"]
+    assert process.poll() == 0 and process.stdin.closed and process.stdout.closed
+
+
+def caught_methods(calls):
+    return [params["name"] for method, params in calls if method == "tools/call"]
 
 
 def test_concurrent_cancellations_only_settle_their_transferred_children(real_children, monkeypatch):

@@ -25,6 +25,18 @@ from dcc_mcp_core.host.cua_mcp_transport import OwnedCuaMcpTransport
 from dcc_mcp_core.host.ui_control_options import UiControlRuntimeOptions
 
 
+def _startup_may_have_task(
+    start_task_attempted: bool, opened: Any, task_id: str | None, primary: BaseException
+) -> bool:
+    if task_id:
+        return True
+    if not start_task_attempted:
+        return False
+    if isinstance(opened, dict):
+        return opened.get("ok") is True or opened.get("status") == "started"
+    return not (isinstance(primary, OwnedCuaMcpError) and primary.task_created is False)
+
+
 class PixelsMcpHostClient:
     """One logical UI session, one owned process, and one runtime-issued task.
 
@@ -100,12 +112,15 @@ class PixelsMcpHostClient:
                 }
             )
         self._transport = None
+        start_task_attempted = False
+        opened = None
         try:
             self._transport = (
                 OwnedCuaMcpTransport(options)
                 if managed_launcher is None
                 else OwnedCuaMcpTransport(options, managed_launcher=managed_launcher)
             )
+            start_task_attempted = True
             opened = self._transport.tool(
                 "start_task",
                 {
@@ -151,7 +166,11 @@ class PixelsMcpHostClient:
                 # Transport construction retains its own failed launch.
                 raise
             try:
-                self.stop()
+                if _startup_may_have_task(start_task_attempted, opened, self.task_id, primary):
+                    self.stop()
+                else:
+                    self._closed = True
+                    self._transport.close()
             except BaseException as cleanup_error:
                 self._transport.retain_failed_startup(primary, cleanup_error, owner=self)
             raise

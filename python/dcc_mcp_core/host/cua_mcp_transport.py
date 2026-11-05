@@ -17,6 +17,7 @@ from dcc_mcp_core.cua_cli import CuaCliError
 from dcc_mcp_core.host.cua_mcp_errors import OwnedCuaMcpError
 from dcc_mcp_core.host.cua_mcp_managed_process import ManagedLauncher
 from dcc_mcp_core.host.cua_mcp_managed_process import ManagedLaunchRefusal
+from dcc_mcp_core.host.cua_mcp_managed_process import _file_identity
 from dcc_mcp_core.host.cua_mcp_managed_process import accept_managed_process
 from dcc_mcp_core.host.ui_control_options import UiControlRuntimeOptions
 
@@ -45,39 +46,42 @@ class OwnedCuaMcpTransport:
         self._process = None
         path = Path(options.binary)
         try:
-            digest = hashlib.sha256()
             with path.open("rb") as source:
+                digest = hashlib.sha256()
                 binary_identity = os.fstat(source.fileno())
                 for block in iter(lambda: source.read(1024 * 1024), b""):
                     digest.update(block)
-        except OSError:
-            raise CuaCliError("backend_unavailable", "Cannot read the selected UI Control executable.") from None
-        if digest.hexdigest() != options.sha256:
-            raise CuaCliError("integrity_mismatch", "The selected UI Control executable failed SHA-256 verification.")
-        try:
-            child_env = os.environ.copy()
-            child_env.pop("DCC_CUA_RECORDING_OUTPUT_ROOT", None)
-            child_env.pop("DCC_CUA_CAPTURE_PREPARATION_JOURNAL_ROOT", None)
-            if options.capture_preparation is not None:
-                child_env["DCC_CUA_CAPTURE_PREPARATION_JOURNAL_ROOT"] = options.capture_preparation.journal_root
-            if options.recording is not None:
-                child_env["DCC_CUA_RECORDING_OUTPUT_ROOT"] = options.recording.output_root
-            if managed_launcher is not None:
-                command = [str(path), "mcp-server"]
-                self._process = managed_launcher(command.copy(), child_env)
-                self.managed_process_identity = accept_managed_process(
-                    self._process, command, options.sha256, binary_identity
-                )
-            else:
-                self._process = subprocess.Popen(
-                    [str(path), "mcp-server"],
-                    stdin=subprocess.PIPE,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.DEVNULL,
-                    close_fds=True,
-                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-                    env=child_env,
-                )
+                if digest.hexdigest() != options.sha256:
+                    raise CuaCliError(
+                        "integrity_mismatch", "The selected UI Control executable failed SHA-256 verification."
+                    )
+                child_env = os.environ.copy()
+                child_env.pop("DCC_CUA_RECORDING_OUTPUT_ROOT", None)
+                child_env.pop("DCC_CUA_CAPTURE_PREPARATION_JOURNAL_ROOT", None)
+                if options.capture_preparation is not None:
+                    child_env["DCC_CUA_CAPTURE_PREPARATION_JOURNAL_ROOT"] = options.capture_preparation.journal_root
+                if options.recording is not None:
+                    child_env["DCC_CUA_RECORDING_OUTPUT_ROOT"] = options.recording.output_root
+                if managed_launcher is not None:
+                    command = [str(path), "mcp-server"]
+                    self._process = managed_launcher(command.copy(), child_env)
+                    self.managed_process_identity = accept_managed_process(
+                        self._process, command, options.sha256, source
+                    )
+                else:
+                    self._process = subprocess.Popen(
+                        [str(path), "mcp-server"],
+                        stdin=subprocess.PIPE,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.DEVNULL,
+                        close_fds=True,
+                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                        env=child_env,
+                    )
+                if _file_identity(os.fstat(source.fileno())) != _file_identity(binary_identity):
+                    raise CuaCliError(
+                        "integrity_mismatch", "The selected UI Control executable changed during launch."
+                    )
             self._reader = threading.Thread(target=self._read, name="dcc-cua-owned-mcp-reader", daemon=True)
             self._reader.start()
             initialized = self.rpc(
@@ -245,6 +249,9 @@ class OwnedCuaMcpTransport:
                 self._process.stdin.close()
             except Exception:
                 self._cleanup_error = "The owned UI Control runtime input did not close cleanly."
+            except BaseException:
+                self._cleanup_error = "The owned UI Control runtime input close was interrupted."
+                raise
             try:
                 recording = self.options.recording
                 grace = recording.cleanup_timeout_seconds if recording is not None else 5

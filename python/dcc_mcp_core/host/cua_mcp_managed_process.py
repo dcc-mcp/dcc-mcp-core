@@ -14,6 +14,7 @@ import hashlib
 import os
 from pathlib import Path
 import subprocess
+from typing import BinaryIO
 from typing import Callable
 from typing import Dict
 from typing import List
@@ -71,8 +72,28 @@ def _file_identity(info: os.stat_result) -> tuple[int, int, int, int]:
     return info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns
 
 
+def _binary_identity(source: BinaryIO | os.stat_result) -> os.stat_result:
+    return os.fstat(source.fileno()) if hasattr(source, "fileno") else source
+
+
+def _hash_binary_source(source: BinaryIO | os.stat_result, path: Path) -> tuple[os.stat_result, str, os.stat_result]:
+    if hasattr(source, "fileno"):
+        source.seek(0)
+        before = os.fstat(source.fileno())
+        digest = hashlib.sha256()
+        for block in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(block)
+        return before, digest.hexdigest(), os.fstat(source.fileno())
+    with path.open("rb") as reopened:
+        before = os.fstat(reopened.fileno())
+        digest = hashlib.sha256()
+        for block in iter(lambda: reopened.read(1024 * 1024), b""):
+            digest.update(block)
+        return before, digest.hexdigest(), os.fstat(reopened.fileno())
+
+
 def original_independent_identity(
-    process: subprocess.Popen, command: list[str], sha256: str, binary_identity: os.stat_result
+    process: subprocess.Popen, command: list[str], sha256: str, binary_source: BinaryIO | os.stat_result
 ) -> OriginalProcessIdentity:
     """Bind image, birth and Job state through the original handle only."""
     if os.name != "nt":
@@ -121,24 +142,21 @@ def original_independent_identity(
     image_path = Path(image.value)
     if image_path.resolve() != Path(command[0]).resolve():
         raise ValueError("Managed worker image differs from the pinned executable.")
-    with image_path.open("rb") as source:
-        before = os.fstat(source.fileno())
-        if _file_identity(before) != _file_identity(binary_identity):
-            raise ValueError("Managed worker executable identity changed during launch.")
-        digest = hashlib.sha256()
-        for block in iter(lambda: source.read(1024 * 1024), b""):
-            digest.update(block)
-        if digest.hexdigest() != sha256 or _file_identity(os.fstat(source.fileno())) != _file_identity(before):
-            raise ValueError("Managed worker executable failed pinned SHA-256 verification.")
-        if _file_identity(image_path.stat()) != _file_identity(before):
-            raise ValueError("Managed worker executable path was replaced during verification.")
+    binary_identity = _binary_identity(binary_source)
+    before, digest, after = _hash_binary_source(binary_source, image_path)
+    if _file_identity(before) != _file_identity(binary_identity):
+        raise ValueError("Managed worker executable identity changed during launch.")
+    if digest != sha256 or _file_identity(after) != _file_identity(before):
+        raise ValueError("Managed worker executable failed pinned SHA-256 verification.")
+    if _file_identity(image_path.stat()) != _file_identity(before):
+        raise ValueError("Managed worker executable path was replaced during verification.")
     if live_birth() != birth:
         raise OSError("Managed worker birth changed during verification.")
     return OriginalProcessIdentity(process.pid, birth, str(image_path), sha256)
 
 
 def accept_managed_process(
-    process: subprocess.Popen, command: list[str], sha256: str, binary_identity: os.stat_result
+    process: subprocess.Popen, command: list[str], sha256: str, binary_source: BinaryIO | os.stat_result
 ) -> OriginalProcessIdentity:
     """Accept an exclusively transferred original child, never a shared owner."""
     if not isinstance(process, subprocess.Popen):
@@ -146,7 +164,7 @@ def accept_managed_process(
     try:
         if process.args != command or process.stdin is None or process.stdout is None:
             raise ValueError("Managed launcher changed the pinned command or exclusive stdio.")
-        return original_independent_identity(process, command, sha256, binary_identity)
+        return original_independent_identity(process, command, sha256, binary_source)
     except BaseException as primary:
         cleanup_error, exit_code = None, None
         try:
