@@ -79,9 +79,7 @@ class OwnedCuaMcpTransport:
                         env=child_env,
                     )
                 if _file_identity(os.fstat(source.fileno())) != _file_identity(binary_identity):
-                    raise CuaCliError(
-                        "integrity_mismatch", "The selected UI Control executable changed during launch."
-                    )
+                    raise CuaCliError("integrity_mismatch", "The selected UI Control executable changed during launch.")
             self._reader = threading.Thread(target=self._read, name="dcc-cua-owned-mcp-reader", daemon=True)
             self._reader.start()
             initialized = self.rpc(
