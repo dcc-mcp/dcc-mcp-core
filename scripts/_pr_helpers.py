@@ -473,10 +473,15 @@ def create_pr(repo: str, *, base: str, head: str, title: str, body: str, timeout
     return result.stdout.strip().splitlines()[-1].strip()
 
 
-def pr_number_from_url(url: str) -> int:
+def pr_number(url: str) -> int:
     """Return the PR number embedded in a pull request URL, or 0."""
     tail = str(url or "").strip().rstrip("/").split("/")[-1]
     return int(tail) if tail.isdigit() else 0
+
+
+def pr_number_from_url(url: str) -> int:
+    """Return the PR number embedded in a pull request URL, or 0."""
+    return pr_number(url)
 
 
 def update_pr(repo: str, url: str, *, title: str, body: str, timeout: int = DEFAULT_TIMEOUT_SECS) -> None:
@@ -492,7 +497,7 @@ def update_pr(repo: str, url: str, *, title: str, body: str, timeout: int = DEFA
     Raising on failure is deliberate: the caller must not fall back to creating
     a pull request, which is what would turn an edit failure into a duplicate.
     """
-    number = pr_number_from_url(url)
+    number = pr_number(url)
     if number <= 0:
         raise PrError(f"could not read a pull request number out of {url!r}")
 
@@ -500,7 +505,7 @@ def update_pr(repo: str, url: str, *, title: str, body: str, timeout: int = DEFA
         [
             "gh",
             "api",
-            "--method",
+            "-X",
             "PATCH",
             f"repos/{repo}/pulls/{number}",
             "-f",

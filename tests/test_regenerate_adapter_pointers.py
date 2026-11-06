@@ -787,7 +787,7 @@ def test_update_pr_uses_the_rest_patch_not_gh_pr_edit(monkeypatch):
 
     args = seen["args"]
     assert "edit" not in args  # not `gh pr edit`
-    assert args[:4] == ["gh", "api", "--method", "PATCH"]
+    assert args[:4] == ["gh", "api", "-X", "PATCH"]
     assert "repos/dcc-mcp/x/pulls/50" in args
     assert "-f" in args and "title=t" in args and "body=b" in args
 

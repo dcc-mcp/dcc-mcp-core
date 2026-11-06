@@ -14,6 +14,7 @@ from dcc_mcp_core.host.cua_mcp_cleanup import OwnedPixelsTaskCleanup
 from dcc_mcp_core.host.cua_mcp_errors import OwnedCuaMcpError
 from dcc_mcp_core.host.cua_mcp_geometry import validate_geometry
 from dcc_mcp_core.host.cua_mcp_keyboard import keypress_payload
+from dcc_mcp_core.host.cua_mcp_managed_process import ManagedLauncher
 from dcc_mcp_core.host.cua_mcp_pointer import pointer_payload
 from dcc_mcp_core.host.cua_mcp_popup import decode_popup_observation
 from dcc_mcp_core.host.cua_mcp_popup import requested_popup_handles
@@ -22,6 +23,18 @@ from dcc_mcp_core.host.cua_mcp_recording import RECORDING_METHODS
 from dcc_mcp_core.host.cua_mcp_recording import PixelsMcpRecording
 from dcc_mcp_core.host.cua_mcp_transport import OwnedCuaMcpTransport
 from dcc_mcp_core.host.ui_control_options import UiControlRuntimeOptions
+
+
+def _startup_may_have_task(
+    start_task_attempted: bool, opened: Any, task_id: str | None, primary: BaseException
+) -> bool:
+    if task_id:
+        return True
+    if not start_task_attempted:
+        return False
+    if isinstance(opened, dict):
+        return opened.get("ok") is True or opened.get("status") == "started"
+    return not (isinstance(primary, OwnedCuaMcpError) and primary.task_created is False)
 
 
 class PixelsMcpHostClient:
@@ -44,6 +57,7 @@ class PixelsMcpHostClient:
         allow_raw_input: bool,
         options: UiControlRuntimeOptions,
         window_title: str | None = None,
+        managed_launcher: ManagedLauncher | None = None,
     ) -> None:
         if type(process_id) is not int or process_id <= 0 or type(window_handle) is not int or window_handle <= 0:
             raise CuaCliError("invalid_target", "Owned pixels MCP requires an exact positive PID and HWND.")
@@ -97,8 +111,16 @@ class PixelsMcpHostClient:
                     "authorization_category": "window_state",
                 }
             )
-        self._transport = OwnedCuaMcpTransport(options)
+        self._transport = None
+        start_task_attempted = False
+        opened = None
         try:
+            self._transport = (
+                OwnedCuaMcpTransport(options)
+                if managed_launcher is None
+                else OwnedCuaMcpTransport(options, managed_launcher=managed_launcher)
+            )
+            start_task_attempted = True
             opened = self._transport.tool(
                 "start_task",
                 {
@@ -139,9 +161,18 @@ class PixelsMcpHostClient:
             self._target = deepcopy(opened["target"])
             self._recording.bind(opened)
             self._cleanup.output_dir = self._recording.output_dir
-        except Exception:
-            with suppress(Exception):
-                self.stop()
+        except BaseException as primary:
+            if self._transport is None:
+                # Transport construction retains its own failed launch.
+                raise
+            try:
+                if _startup_may_have_task(start_task_attempted, opened, self.task_id, primary):
+                    self.stop()
+                else:
+                    self._closed = True
+                    self._transport.close()
+            except BaseException as cleanup_error:
+                self._transport.retain_failed_startup(primary, cleanup_error, owner=self)
             raise
 
     @property
