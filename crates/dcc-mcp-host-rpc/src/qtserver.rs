@@ -103,6 +103,19 @@ pub const URI_SCHEME: &str = "qtserver";
 /// shape of `params` and the `dispatch_payload` contract.
 pub const DISPATCH_METHOD: &str = "dispatch";
 
+/// Upper bound on late responses skipped within one call. Each stale
+/// line belongs to one abandoned request, so a healthy connection
+/// never comes close; the bound only keeps a misbehaving peer from
+/// stalling a call indefinitely.
+const MAX_STALE_RESPONSES: usize = 64;
+
+/// A response is stale when it carries a string id other than the one
+/// the current call is waiting for. Envelopes without an id (for
+/// example a dispatcher `parse-error`) are never treated as stale.
+fn is_stale_response(envelope: &Value, request_id: &str) -> bool {
+    matches!(envelope.get("id"), Some(Value::String(id)) if id != request_id)
+}
+
 /// Universal in-DCC dispatcher Python source.
 ///
 /// Embedded directly from the canonical source at
@@ -233,35 +246,61 @@ impl HostRpcClient for QtServerClient {
             ));
         }
 
-        let mut buf = String::new();
-        match conn.reader.read_line(&mut buf).await {
-            Ok(0) => {
-                // Peer closed mid-call — same host-died handling as
-                // commandport.
-                *guard = None;
-                Err(HostRpcError::host_died(action, Some(args)))
-            }
-            Ok(_) => {
-                let line = buf.trim_end_matches(['\r', '\n']);
-                if line.is_empty() {
-                    return Err(HostRpcError::transport(
-                        "qtserver returned an empty line — protocol violation",
+        // A previous call on this connection may have been abandoned
+        // after its request was written (the caller's future was dropped
+        // on an HTTP disconnect or gateway timeout). The dispatcher still
+        // answers it, so that late response line arrives ahead of ours.
+        // Skip responses that belong to other request ids instead of
+        // failing: reading exactly one line would shift every following
+        // call by one response for the rest of the connection's life.
+        let mut skipped = 0usize;
+        loop {
+            let mut buf = String::new();
+            match conn.reader.read_line(&mut buf).await {
+                Ok(0) => {
+                    // Peer closed mid-call — same host-died handling as
+                    // commandport.
+                    *guard = None;
+                    return Err(HostRpcError::host_died(action, Some(args)));
+                }
+                Ok(_) => {
+                    let line = buf.trim_end_matches(['\r', '\n']);
+                    if line.is_empty() {
+                        return Err(HostRpcError::transport(
+                            "qtserver returned an empty line — protocol violation",
+                        ));
+                    }
+                    let envelope: Value = serde_json::from_str(line).map_err(|e| {
+                        HostRpcError::transport(format!(
+                            "qtserver returned non-JSON line ({e}); raw: {line:?}",
+                        ))
+                    })?;
+                    if is_stale_response(&envelope, request_id) && skipped < MAX_STALE_RESPONSES {
+                        skipped += 1;
+                        let stale_id = envelope
+                            .get("id")
+                            .map(ToString::to_string)
+                            .unwrap_or_default();
+                        tracing::warn!(
+                            action,
+                            request_id,
+                            stale_id = %stale_id,
+                            "qtserver: skipped a late response to an abandoned request",
+                        );
+                        continue;
+                    }
+                    return interpret_envelope(envelope, action, request_id);
+                }
+                Err(e) => {
+                    return Err(io_error_to_host_rpc(
+                        e,
+                        "qtserver read",
+                        action,
+                        args,
+                        guard,
                     ));
                 }
-                let envelope: Value = serde_json::from_str(line).map_err(|e| {
-                    HostRpcError::transport(format!(
-                        "qtserver returned non-JSON line ({e}); raw: {line:?}",
-                    ))
-                })?;
-                interpret_envelope(envelope, action, request_id)
             }
-            Err(e) => Err(io_error_to_host_rpc(
-                e,
-                "qtserver read",
-                action,
-                args,
-                guard,
-            )),
         }
     }
 
@@ -770,6 +809,84 @@ mod tests {
                 assert!(message.contains("maya_anything"), "{message}");
             }
             other => panic!("expected TransportError, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn call_skips_late_response_of_an_abandoned_call() {
+        // The dispatcher answers strictly in order on the host's main
+        // thread. A caller that gives up on a slow call leaves that
+        // call's response in flight; the next call must still receive
+        // its own response, not the late one (and not fail forever).
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let port = listener.local_addr().expect("local_addr").port();
+        tokio::spawn(async move {
+            let Ok((mut stream, _)) = listener.accept().await else {
+                return;
+            };
+            let (read_half, mut write_half) = stream.split();
+            let mut reader = BufReader::new(read_half);
+            let mut line = String::new();
+            loop {
+                line.clear();
+                match reader.read_line(&mut line).await {
+                    Ok(0) | Err(_) => return,
+                    Ok(_) => {}
+                }
+                let request: Value = serde_json::from_str(line.trim_end()).expect("request json");
+                let delay = request
+                    .pointer("/params/args/delay_ms")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0);
+                tokio::time::sleep(Duration::from_millis(delay)).await;
+                let action = request
+                    .pointer("/params/action")
+                    .cloned()
+                    .unwrap_or(Value::Null);
+                let mut reply = serde_json::to_vec(&json!({
+                    "id": request.get("id").cloned().unwrap_or(Value::Null),
+                    "result": {"action": action},
+                }))
+                .expect("encode");
+                reply.push(b'\n');
+                if write_half.write_all(&reply).await.is_err() {
+                    return;
+                }
+            }
+        });
+
+        let mut client = QtServerClient::new();
+        client
+            .connect(
+                &format!("qtserver://127.0.0.1:{port}"),
+                Duration::from_secs(5),
+            )
+            .await
+            .expect("connect");
+
+        let abandoned = tokio::time::timeout(
+            Duration::from_millis(50),
+            client.call(
+                "photoshop_slow_export",
+                json!({"delay_ms": 300}),
+                "req-slow",
+            ),
+        )
+        .await;
+        assert!(
+            abandoned.is_err(),
+            "slow call must time out on the caller side"
+        );
+
+        for (action, id) in [
+            ("maya_scene__info", "req-next"),
+            ("zbrush_tool__list", "req-after"),
+        ] {
+            let result = client
+                .call(action, json!({}), id)
+                .await
+                .unwrap_or_else(|e| panic!("{id} must get its own response, got {e:?}"));
+            assert_eq!(result, json!({"action": action}));
         }
     }
 
