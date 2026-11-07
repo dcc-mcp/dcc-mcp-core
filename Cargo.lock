@@ -1426,6 +1426,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tokio-tungstenite",
+ "tracing",
  "workspace-hack",
 ]
 
