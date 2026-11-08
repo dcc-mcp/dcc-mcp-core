@@ -109,6 +109,20 @@ pub const DISPATCH_METHOD: &str = "dispatch";
 /// stalling a call indefinitely.
 const MAX_STALE_RESPONSES: usize = 64;
 
+/// Total wall-clock bound for the response-read phase of a single
+/// `call`. The qtserver wire has no request timeout of its own: a DCC
+/// action may legitimately run a long time before its response line
+/// arrives, and cancellation is cooperative (the gateway drops the
+/// `call` future). That path cannot help when the dispatcher wedges
+/// *after* emitting a late response — the read loop would then hold the
+/// connection lock forever and wedge `close()` and every later call.
+/// This deadline is a last-resort bound over the whole read phase
+/// (including every skipped stale line and any half-line that never
+/// completes); on expiry the connection is invalidated. It is
+/// deliberately generous so legitimate long-running actions are never
+/// cut short; the `read_deadline` field can be tuned per client.
+const DEFAULT_READ_DEADLINE: Duration = Duration::from_secs(600);
+
 /// A response is stale when it carries a string id other than the one
 /// the current call is waiting for. Envelopes without an id (for
 /// example a dispatcher `parse-error`) are never treated as stale.
@@ -147,6 +161,7 @@ pub const BOOTSTRAP_PY: &str = include_str!("../python/dcc_qt_dispatcher_bootstr
 #[derive(Debug)]
 pub struct QtServerClient {
     state: Arc<Mutex<Option<Connection>>>,
+    read_deadline: Duration,
 }
 
 #[derive(Debug)]
@@ -162,6 +177,7 @@ impl QtServerClient {
     pub fn new() -> Self {
         Self {
             state: Arc::new(Mutex::new(None)),
+            read_deadline: DEFAULT_READ_DEADLINE,
         }
     }
 }
@@ -253,20 +269,36 @@ impl HostRpcClient for QtServerClient {
         // Skip responses that belong to other request ids instead of
         // failing: reading exactly one line would shift every following
         // call by one response for the rest of the connection's life.
+        //
+        // Bound the *entire* read phase with one deadline. `timeout_at`
+        // (rather than a fresh `timeout` per iteration) is deliberate: a
+        // peer that keeps emitting stale lines, or that sends a half-line
+        // and then goes silent, must not reset the clock on each read.
+        // Without this bound a silent peer would hold `guard` forever and
+        // wedge `close()` and every later call. The default is generous
+        // so legitimate long-running DCC actions are never cut short.
+        let deadline = tokio::time::Instant::now() + self.read_deadline;
         let mut skipped = 0usize;
         loop {
             let mut buf = String::new();
-            match conn.reader.read_line(&mut buf).await {
-                Ok(0) => {
+            match tokio::time::timeout_at(deadline, conn.reader.read_line(&mut buf)).await {
+                Err(_elapsed) => {
+                    // A partial line may be buffered; the stream is no
+                    // longer trustworthy. Drop the connection so the next
+                    // call reconnects, then release the lock by returning.
+                    *guard = None;
+                    break Err(HostRpcError::Timeout {});
+                }
+                Ok(Ok(0)) => {
                     // Peer closed mid-call — same host-died handling as
                     // commandport.
                     *guard = None;
-                    return Err(HostRpcError::host_died(action, Some(args)));
+                    break Err(HostRpcError::host_died(action, Some(args)));
                 }
-                Ok(_) => {
+                Ok(Ok(_)) => {
                     let line = buf.trim_end_matches(['\r', '\n']);
                     if line.is_empty() {
-                        return Err(HostRpcError::transport(
+                        break Err(HostRpcError::transport(
                             "qtserver returned an empty line — protocol violation",
                         ));
                     }
@@ -289,10 +321,10 @@ impl HostRpcClient for QtServerClient {
                         );
                         continue;
                     }
-                    return interpret_envelope(envelope, action, request_id);
+                    break interpret_envelope(envelope, action, request_id);
                 }
-                Err(e) => {
-                    return Err(io_error_to_host_rpc(
+                Ok(Err(e)) => {
+                    break Err(io_error_to_host_rpc(
                         e,
                         "qtserver read",
                         action,
@@ -888,6 +920,83 @@ mod tests {
                 .unwrap_or_else(|e| panic!("{id} must get its own response, got {e:?}"));
             assert_eq!(result, json!({"action": action}));
         }
+    }
+
+    #[tokio::test]
+    async fn call_times_out_and_releases_lock_when_peer_goes_silent_after_a_stale_response() {
+        // Regression: a peer that emits one late response and then goes
+        // silent must not hold the connection lock indefinitely. The read
+        // phase has a single total deadline; on expiry the connection is
+        // invalidated so `close()` and later calls are never wedged.
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let port = listener.local_addr().expect("local_addr").port();
+        tokio::spawn(async move {
+            let Ok((mut stream, _)) = listener.accept().await else {
+                return;
+            };
+            let (read_half, mut write_half) = stream.split();
+            let mut reader = BufReader::new(read_half);
+            let mut line = String::new();
+            // First (abandoned) call, then the second call's request.
+            if reader.read_line(&mut line).await.is_err() {
+                return;
+            }
+            line.clear();
+            if reader.read_line(&mut line).await.is_err() {
+                return;
+            }
+            // Send only a stale line, then stay silent while keeping the
+            // socket open (no FIN) — the pathological case.
+            let _ = write_half
+                .write_all(
+                    br#"{"jsonrpc":"2.0","id":"req-slow","result":{"marker":"ALPHA"}}
+"#,
+                )
+                .await;
+            let _ = write_half.flush().await;
+            tokio::time::sleep(Duration::from_secs(3)).await;
+        });
+
+        let mut client = QtServerClient::new();
+        client.read_deadline = Duration::from_millis(250);
+        client
+            .connect(
+                &format!("qtserver://127.0.0.1:{port}"),
+                Duration::from_secs(5),
+            )
+            .await
+            .expect("connect");
+
+        // Abandon a slow call so its response stays in flight.
+        let abandoned = tokio::time::timeout(
+            Duration::from_millis(40),
+            client.call("photoshop_slow_export", json!({}), "req-slow"),
+        )
+        .await;
+        assert!(
+            abandoned.is_err(),
+            "slow call must time out on the caller side"
+        );
+
+        // The next call reads a stale line and then silence. It must return
+        // a timeout on its own — not hang until an outer watchdog fires —
+        // and must invalidate the connection.
+        let result = tokio::time::timeout(
+            Duration::from_secs(2),
+            client.call("maya_scene__info", json!({}), "req-fast"),
+        )
+        .await
+        .expect("call must finish within the read deadline, not hang");
+        assert!(
+            matches!(result, Err(HostRpcError::Timeout { .. })),
+            "expected a timeout after stale-then-silence, got {result:?}"
+        );
+
+        // The lock must be free and the dropped connection must not wedge
+        // close().
+        tokio::time::timeout(Duration::from_secs(1), client.close())
+            .await
+            .expect("close() must acquire the lock promptly");
     }
 
     #[tokio::test]
