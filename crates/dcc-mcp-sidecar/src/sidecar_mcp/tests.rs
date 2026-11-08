@@ -50,7 +50,7 @@ async fn post_mcp(url: &str, body: Value) -> reqwest::Response {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn qtserver_sidecar_fails_closed_when_a_fast_call_receives_the_slow_call_response() {
+async fn qtserver_sidecar_skips_late_responses_and_returns_the_fast_call_result() {
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
     let qt_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -93,6 +93,10 @@ async fn qtserver_sidecar_fails_closed_when_a_fast_call_receives_the_slow_call_r
             .expect("read fast call");
         let fast_request: Value = serde_json::from_str(&fast_line).expect("fast call JSON");
         assert_eq!(fast_request["id"], "sidecar-fast");
+        // Emit another late response to the abandoned slow call, then keep
+        // the connection open and answer the fast call with its own result.
+        // Skipping stale lines must end in a successful round-trip, not a
+        // transport error or a dead host.
         write_half
             .write_all(
                 br#"{"jsonrpc":"2.0","id":"sidecar-slow","result":{"marker":"ALPHA"}}
@@ -100,7 +104,16 @@ async fn qtserver_sidecar_fails_closed_when_a_fast_call_receives_the_slow_call_r
             )
             .await
             .expect("write stale response");
-        write_half.flush().await.expect("flush stale response");
+        write_half
+            .write_all(
+                br#"{"jsonrpc":"2.0","id":"sidecar-fast","result":{"marker":"BRAVO"}}
+"#,
+            )
+            .await
+            .expect("write matching fast response");
+        write_half.flush().await.expect("flush responses");
+        // Hold the socket open until the sidecar has consumed both lines.
+        tokio::time::sleep(Duration::from_millis(200)).await;
     });
 
     let mut qt_client = QtServerClient::new();
@@ -169,13 +182,11 @@ async fn qtserver_sidecar_fails_closed_when_a_fast_call_receives_the_slow_call_r
         .expect("fast sidecar response JSON");
 
     assert_eq!(fast["id"], "sidecar-fast");
-    assert_eq!(fast["error"]["message"], "transport-error");
-    let transport_message = fast["error"]["data"]["message"]
-        .as_str()
-        .expect("transport desync details");
-    assert!(transport_message.contains("transport desync"), "{fast}");
-    assert!(transport_message.contains("sidecar-fast"), "{fast}");
-    assert!(transport_message.contains("sidecar-slow"), "{fast}");
+    assert!(
+        fast.get("error").is_none(),
+        "fast call must receive its own result, got error: {fast}"
+    );
+    assert_eq!(fast["result"]["marker"], "BRAVO", "{fast}");
 
     fake_host.await.expect("fake Qt host task");
     sidecar.shutdown().await;
