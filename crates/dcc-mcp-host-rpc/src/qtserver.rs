@@ -408,11 +408,15 @@ impl HostRpcClient for QtServerClient {
     }
 
     async fn close(&self) {
+        // Keep `state` locked until the reconnect target is cleared. `call`
+        // takes `state` before `reconnect_target`, so clearing both under the
+        // same guard leaves no window where a concurrent call can read the
+        // old target and re-open the channel after `close()` returns.
         let mut guard = self.state.lock().await;
         if let Some(conn) = guard.take() {
             drop(conn);
         }
-        drop(guard);
+        // Same `state` -> `reconnect_target` order as `call`; no inversion.
         // Clearing the target makes `close()` final: subsequent calls must
         // fail instead of silently re-opening the channel.
         *self.reconnect_target.lock().await = None;
@@ -1197,6 +1201,78 @@ mod tests {
             matches!(err, HostRpcError::HostDied { .. }),
             "expected HostDied, got {err:?}",
         );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn close_clears_reconnect_target_while_state_is_locked() {
+        // Deterministic close()/call() interleaving. `call()` locks `state`
+        // before `reconnect_target`, so `close()` must keep holding `state`
+        // until the target is cleared. Releasing `state` first leaves a
+        // window where a concurrent call can read the stale target and
+        // install a fresh connection after `close()` has returned.
+        //
+        // We hold the `reconnect_target` mutex ourselves and let `close()`
+        // park on it. A oneshot handshake plus the single-threaded runtime
+        // makes that park point deterministic: the spawned task runs until
+        // its first pending await, then the receiver wakes us. No sleeps.
+        let mut handlers = std::collections::HashMap::<&'static str, Handler>::new();
+        handlers.insert("dispatch", Box::new(|_| json!({"ok": true})));
+        let port = spawn_fake_qt_server(handlers).await;
+
+        let mut client = QtServerClient::new();
+        client
+            .connect(
+                &format!("qtserver://127.0.0.1:{port}"),
+                Duration::from_secs(5),
+            )
+            .await
+            .expect("connect");
+
+        // The race precondition: the stream was invalidated, so the next
+        // `call()` would take the reconnect path. (`close()` must win.)
+        *client.state.lock().await = None;
+
+        let client = Arc::new(client);
+        let target_guard = client.reconnect_target.lock().await;
+
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel::<()>();
+        let closing = Arc::clone(&client);
+        let close_task = tokio::spawn(async move {
+            let _ = started_tx.send(());
+            closing.close().await;
+        });
+        started_rx.await.expect("close task must start");
+
+        // With the bug this succeeds: `close()` dropped the state guard
+        // before waiting for `reconnect_target`. With the fix it fails,
+        // because `close()` still owns the state lock.
+        let state_probe = client.state.try_lock();
+        assert!(
+            state_probe.is_err(),
+            "close() released state before clearing reconnect_target; \
+             a concurrent call could re-open the channel after close() returned"
+        );
+        drop(state_probe);
+
+        // A genuinely concurrent call must not resurrect the channel.
+        let calling = Arc::clone(&client);
+        let call_task = tokio::spawn(async move {
+            calling
+                .call("maya_scene__info", json!({}), "req-close-race")
+                .await
+        });
+
+        drop(target_guard);
+        close_task.await.expect("close task must finish");
+        let call_result = call_task.await.expect("call task must finish");
+        assert!(
+            matches!(call_result, Err(HostRpcError::TransportError { .. })),
+            "call racing with close must fail, got {call_result:?}"
+        );
+
+        assert!(client.state.lock().await.is_none());
+        assert!(client.reconnect_target.lock().await.is_none());
+        assert!(!client.is_alive());
     }
 
     #[tokio::test]
