@@ -707,7 +707,10 @@ jobs:
       matrix:
         include:
           # Ubuntu — cover every supported Python version (cheapest runner).
-          - { os: ubuntu-latest,  python-version: "3.8",  wheel_os: ubuntu-latest }
+          # actions/setup-python has no Python 3.8 build for Ubuntu 26.04
+          # (ubuntu-latest); keep this lane on 24.04 but still reuse the
+          # shared wheel-ubuntu-latest artifact via wheel_os.
+          - { os: ubuntu-24.04,   python-version: "3.8",  wheel_os: ubuntu-latest }
           - { os: ubuntu-latest,  python-version: "3.10", wheel_os: ubuntu-latest }
           - { os: ubuntu-latest,  python-version: "3.13", wheel_os: ubuntu-latest }
           - { os: ubuntu-latest,  python-version: "3.14", wheel_os: ubuntu-latest }
