@@ -161,6 +161,13 @@ pub const BOOTSTRAP_PY: &str = include_str!("../python/dcc_qt_dispatcher_bootstr
 #[derive(Debug)]
 pub struct QtServerClient {
     state: Arc<Mutex<Option<Connection>>>,
+    /// Dial target captured from the last successful `connect`. A call that
+    /// invalidates the stream (read deadline, EOF, terminal I/O error) leaves
+    /// `state` empty; the next `call` re-dials from here. The sidecar connects
+    /// only once at startup and its reconnect worker is scoped to a *failed*
+    /// startup, so this is the only recovery path for a sidecar that was
+    /// healthy when it booted.
+    reconnect_target: Arc<Mutex<Option<ReconnectTarget>>>,
     read_deadline: Duration,
 }
 
@@ -170,6 +177,34 @@ struct Connection {
     reader: BufReader<OwnedReadHalf>,
 }
 
+/// Everything needed to re-open the channel after a call invalidated it.
+/// Cleared by [`HostRpcClient::close`] so an explicit shutdown stays final.
+#[derive(Clone, Debug)]
+struct ReconnectTarget {
+    endpoint: String,
+    connect_timeout: Duration,
+}
+
+/// Open a fresh connection to the Qt dispatcher. Shared by the initial
+/// `connect` and by `call`'s recovery path so both produce the same
+/// `Connection` shape and the same error envelopes.
+async fn open_connection(endpoint: &str, timeout: Duration) -> Result<Connection, HostRpcError> {
+    let (host, port) = parse_endpoint(endpoint)?;
+    let stream = tokio::time::timeout(timeout, TcpStream::connect((host.as_str(), port)))
+        .await
+        .map_err(|_| HostRpcError::Timeout {})?
+        .map_err(|e| HostRpcError::transport(format!("qtserver connect {endpoint}: {e}")))?;
+    // Same Nagle-off rationale as `CommandPortClient`: each JSON
+    // request/response is a single line; we never benefit from
+    // kernel-level coalescing here.
+    let _ = stream.set_nodelay(true);
+    let (read_half, write_half) = stream.into_split();
+    Ok(Connection {
+        writer: write_half,
+        reader: BufReader::new(read_half),
+    })
+}
+
 impl QtServerClient {
     /// Construct a disconnected client. Call [`HostRpcClient::connect`]
     /// before the first [`HostRpcClient::call`].
@@ -177,6 +212,7 @@ impl QtServerClient {
     pub fn new() -> Self {
         Self {
             state: Arc::new(Mutex::new(None)),
+            reconnect_target: Arc::new(Mutex::new(None)),
             read_deadline: DEFAULT_READ_DEADLINE,
         }
     }
@@ -202,19 +238,13 @@ impl HostRpcClient for QtServerClient {
     }
 
     async fn connect(&mut self, endpoint: &str, timeout: Duration) -> Result<(), HostRpcError> {
-        let (host, port) = parse_endpoint(endpoint)?;
-        let stream = tokio::time::timeout(timeout, TcpStream::connect((host.as_str(), port)))
-            .await
-            .map_err(|_| HostRpcError::Timeout {})?
-            .map_err(|e| HostRpcError::transport(format!("qtserver connect {endpoint}: {e}")))?;
-        // Same Nagle-off rationale as `CommandPortClient`: each JSON
-        // request/response is a single line; we never benefit from
-        // kernel-level coalescing here.
-        let _ = stream.set_nodelay(true);
-        let (read_half, write_half) = stream.into_split();
-        *self.state.lock().await = Some(Connection {
-            writer: write_half,
-            reader: BufReader::new(read_half),
+        let conn = open_connection(endpoint, timeout).await?;
+        *self.state.lock().await = Some(conn);
+        // Remember the target so `call` can recover a stream invalidated by
+        // a later read deadline or EOF without a process restart.
+        *self.reconnect_target.lock().await = Some(ReconnectTarget {
+            endpoint: endpoint.to_string(),
+            connect_timeout: timeout,
         });
         Ok(())
     }
@@ -239,6 +269,24 @@ impl HostRpcClient for QtServerClient {
         wire_line.push(b'\n');
 
         let mut guard = self.state.lock().await;
+        if guard.is_none() {
+            // A previous call invalidated the stream (read deadline, peer
+            // close, or terminal I/O error). Re-dial the endpoint captured
+            // by `connect`: the sidecar connects only once at startup, and
+            // its reconnect worker only exists when that startup connect
+            // failed. Without this recovery path every later call would
+            // fail with "call before connect" until the process restarts.
+            let target = self.reconnect_target.lock().await.clone();
+            let Some(target) = target else {
+                return Err(HostRpcError::transport(
+                    "QtServerClient::call before connect",
+                ));
+            };
+            match open_connection(&target.endpoint, target.connect_timeout).await {
+                Ok(conn) => *guard = Some(conn),
+                Err(err) => return Err(err),
+            }
+        }
         let conn = guard
             .as_mut()
             .ok_or_else(|| HostRpcError::transport("QtServerClient::call before connect"))?;
@@ -341,7 +389,20 @@ impl HostRpcClient for QtServerClient {
         // means a call is in flight, which means the socket was alive
         // up to the read syscall.
         match self.state.try_lock() {
-            Ok(guard) => guard.is_some(),
+            Ok(guard) => {
+                if guard.is_some() {
+                    return true;
+                }
+                // An invalidated stream is still recoverable: the next
+                // `call` re-dials from the remembered target. Report alive
+                // so /readyz keeps routing the calls that perform that
+                // recovery. `close()` clears the target, making shutdown
+                // final.
+                match self.reconnect_target.try_lock() {
+                    Ok(target) => target.is_some(),
+                    Err(_) => true,
+                }
+            }
             Err(_) => true,
         }
     }
@@ -351,6 +412,10 @@ impl HostRpcClient for QtServerClient {
         if let Some(conn) = guard.take() {
             drop(conn);
         }
+        drop(guard);
+        // Clearing the target makes `close()` final: subsequent calls must
+        // fail instead of silently re-opening the channel.
+        *self.reconnect_target.lock().await = None;
     }
 }
 
@@ -997,6 +1062,105 @@ mod tests {
         tokio::time::timeout(Duration::from_secs(1), client.close())
             .await
             .expect("close() must acquire the lock promptly");
+    }
+
+    #[tokio::test]
+    async fn call_reconnects_after_read_timeout_and_the_next_call_succeeds() {
+        // Regression: a sidecar connected at startup has no reconnect
+        // worker (that worker only exists when the *initial* connect
+        // failed). A read deadline invalidates the stream by setting the
+        // connection to None; without a recovery path every later call
+        // fails with "call before connect" and /readyz reports the
+        // dispatcher unavailable until the process is restarted.
+        //
+        // The fake dispatcher stays silent on the first connection (forcing
+        // the deadline to expire) and answers normally on the second one,
+        // which only arrives if `call` re-dials the remembered endpoint.
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let port = listener.local_addr().expect("local_addr").port();
+        tokio::spawn(async move {
+            let mut connection_index = 0u32;
+            loop {
+                let Ok((mut stream, _)) = listener.accept().await else {
+                    return;
+                };
+                connection_index += 1;
+                let index = connection_index;
+                tokio::spawn(async move {
+                    let (read_half, mut write_half) = stream.split();
+                    let mut reader = BufReader::new(read_half);
+                    let mut line = String::new();
+                    loop {
+                        line.clear();
+                        match reader.read_line(&mut line).await {
+                            Ok(0) | Err(_) => return,
+                            Ok(_) => {}
+                        }
+                        if index == 1 {
+                            // Never answer and keep the socket open (no FIN),
+                            // so the client's single read deadline expires.
+                            tokio::time::sleep(Duration::from_secs(5)).await;
+                            return;
+                        }
+                        let request: Value =
+                            serde_json::from_str(line.trim_end()).expect("request json");
+                        let id = request.get("id").cloned().unwrap_or(Value::Null);
+                        let action = request
+                            .pointer("/params/action")
+                            .cloned()
+                            .unwrap_or(Value::Null);
+                        let mut reply = serde_json::to_vec(&json!({
+                            "id": id,
+                            "result": {"action": action},
+                        }))
+                        .expect("encode");
+                        reply.push(b'\n');
+                        if write_half.write_all(&reply).await.is_err() {
+                            return;
+                        }
+                        let _ = write_half.flush().await;
+                    }
+                });
+            }
+        });
+
+        let mut client = QtServerClient::new();
+        client.read_deadline = Duration::from_millis(250);
+        client
+            .connect(
+                &format!("qtserver://127.0.0.1:{port}"),
+                Duration::from_secs(5),
+            )
+            .await
+            .expect("connect");
+
+        // Startup-connected sidecar: this call times out and invalidates
+        // the stream. The failure itself must still be a Timeout.
+        let first = client
+            .call("maya_scene__slow", json!({}), "req-timeout")
+            .await;
+        assert!(
+            matches!(first, Err(HostRpcError::Timeout { .. })),
+            "first call must surface the read deadline, got {first:?}"
+        );
+
+        // The invalidated connection is recoverable, so readiness probes
+        // must keep routing calls that perform the recovery.
+        assert!(
+            client.is_alive(),
+            "invalidated-but-recoverable connection must not look permanently dead"
+        );
+
+        // Before the fix this fails with "QtServerClient::call before
+        // connect". After the fix `call` re-dials and completes normally.
+        let result = tokio::time::timeout(
+            Duration::from_secs(2),
+            client.call("maya_scene__info", json!({}), "req-after-timeout"),
+        )
+        .await
+        .expect("second call must finish, not hang")
+        .expect("second call must succeed after the reconnect");
+        assert_eq!(result, json!({"action": "maya_scene__info"}));
     }
 
     #[tokio::test]
