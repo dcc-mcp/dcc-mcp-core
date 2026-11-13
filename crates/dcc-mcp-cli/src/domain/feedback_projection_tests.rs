@@ -8,6 +8,17 @@ fn projector() -> DiagnosticProjection {
 }
 
 #[test]
+fn incompatible_core_status_survives_diagnostic_projection() {
+    let output = projector().project(&json!({"adapter_imports": {"probes": [
+        {"status": "incompatible_core"}
+    ]}}));
+    assert_eq!(
+        output["adapter_imports"]["probes"][0]["status"],
+        "incompatible_core"
+    );
+}
+
+#[test]
 fn unexpected_and_nested_sensitive_fields_never_echo_keys_or_values() {
     let mut projection = projector();
     let output = projection.project(&json!({
