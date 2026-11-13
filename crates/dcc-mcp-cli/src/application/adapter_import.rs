@@ -297,14 +297,7 @@ fn adapter_names(
             .and_then(|install| install.pip_package.clone())
             .filter(|package| !package.trim().is_empty())
             .unwrap_or_else(|| entry.name.clone());
-        let module = entry
-            .install
-            .as_ref()
-            .and_then(|install| install.entry_point.clone())
-            .and_then(|entry_point| entry_point.split(':').next().map(str::to_string))
-            .map(|module| module.trim().to_string())
-            .filter(|module| !module.is_empty() && !module.contains(' '))
-            .unwrap_or_else(|| module_name(&source));
+        let module = import_module(entry, &source);
         let python = entry
             .install
             .as_ref()
@@ -318,7 +311,20 @@ fn adapter_names(
     (fallback_distribution, module, None)
 }
 
-/// Convert a distribution name to its importable module name.
+/// Resolve the declared import module without invoking its entry-point factory.
+pub(crate) fn import_module(entry: &CatalogEntry, distribution: &str) -> String {
+    entry
+        .install
+        .as_ref()
+        .and_then(|install| install.entry_point.as_deref())
+        .and_then(|entry_point| entry_point.split(':').next())
+        .map(str::trim)
+        .filter(|module| !module.is_empty() && !module.contains(' '))
+        .map(str::to_string)
+        .unwrap_or_else(|| module_name(distribution))
+}
+
+/// Convert a distribution name to its conventional importable module name.
 fn module_name(distribution: &str) -> String {
     let mut module = String::with_capacity(distribution.len());
     for ch in distribution.trim().chars() {
@@ -340,7 +346,7 @@ fn python_path_of(overrides: &BTreeMap<String, PathBuf>, key: &str) -> Option<Pa
 }
 
 /// Run one interpreter probe and grade the result.
-fn probe_target(target: &AdapterImportTarget) -> Value {
+pub(crate) fn probe_target(target: &AdapterImportTarget) -> Value {
     let mut probe = json!({
         "dcc_type": target.dcc_type,
         "module": target.module,
@@ -437,6 +443,7 @@ fn run_probe(
     distribution: &str,
 ) -> Result<Map<String, Value>, String> {
     let mut child = Command::new(python)
+        .env("PYTHONDONTWRITEBYTECODE", "1")
         .arg("-c")
         .arg(PROBE_SCRIPT)
         .arg(module)
