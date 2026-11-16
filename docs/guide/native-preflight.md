@@ -21,14 +21,31 @@ own checks. `native_extension_missing` distinguishes a lite/missing wheel from
 incompatible runtime). Repeating the probe retries the import after repair.
 Diagnostics contain local interpreter/search paths; redact them before sharing.
 
-On Windows, Core retains DLL-directory handles for existing absolute
+On Windows with Python 3.8+, Core retains DLL-directory handles for existing absolute
 `sys.prefix`, `sys.base_prefix`, and interpreter directories. A deployment can
 also set `DCC_MCP_PYTHON3_DLL_DIR` to an existing absolute directory containing
 a trusted Python runtime compatible with the host's Python version and
-architecture. Set it before native server access, then run the probe again.
+architecture. DLL search preparation runs when `dcc_mcp_core` is imported,
+before lazy native access while `_core` is not loaded, and on every
+explicit `verify_native_core()` call. Setting the variable after the package
+import therefore takes effect when the probe is called again.
 Relative or inaccessible candidates are skipped so other interpreter directories
 can still be registered; PATH and the working directory are never searched.
 Python 3.8+ extension dependency loading does not use PATH alone.
+
+Registered directory handles are retained until process exit. Changing or
+unsetting the variable and repeating the probe adds any new candidate but does
+not remove an earlier registered directory or unload a native module or runtime
+DLL. Restart the host with the intended environment to replace or isolate a
+previously registered runtime directory.
+
+Windows Python 3.7 has no `os.add_dll_directory`, so this helper cannot register
+DLL search directories there. Setting the override and repeating the probe does
+not repair a missing dependency on that interpreter. Use the matching
+[`native_py37` wheel](py37-lite-architecture.md#native_py37) and provision the
+host-compatible Python/runtime DLLs through the deployment's existing setup
+before launching the host; the probe then verifies native loading. The
+Python 3.8+ directory-registration behavior is not a Python 3.7 fallback.
 
 For example, MotionBuilder 2024 may ship `python310.dll` without the
 `python3.dll` required by an ABI3 wheel. Adding a directory cannot create that
