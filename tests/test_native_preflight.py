@@ -137,6 +137,7 @@ def deny_candidate(path, *args, **kwargs):
 setattr(Path, operation, deny_candidate)
 os.environ['DCC_MCP_PYTHON3_DLL_DIR'] = str(inaccessible)
 os.add_dll_directory = lambda path: object()
+original_platform = sys.platform
 sys.platform = 'win32'
 class BrokenNative(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, *args):
@@ -145,6 +146,7 @@ class BrokenNative(importlib.abc.MetaPathFinder):
 sys.meta_path.insert(0, BrokenNative())
 import dcc_mcp_core
 assert 'dcc_mcp_core._core' not in sys.modules
+sys.platform = original_platform
 report = dcc_mcp_core.verify_native_core()
 assert report['error'] == 'native runtime still unavailable'
 print(json.dumps(report))
