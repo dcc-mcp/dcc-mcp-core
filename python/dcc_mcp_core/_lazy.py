@@ -98,7 +98,7 @@ def resolve_lazy_symbol(
         raise AttributeError(f"module {module_name!r} has no attribute {name!r}")
 
     if module_path == "dcc_mcp_core._core":
-        from dcc_mcp_core._native import _load_native_core
+        from dcc_mcp_core.deployment.native_core import _load_native_core
 
         mod = _load_native_core()
     else:

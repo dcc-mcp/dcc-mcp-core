@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from dcc_mcp_core import _native
+from dcc_mcp_core.deployment import native_core as _native
 
 
 @pytest.mark.parametrize("host", ["MotionBuilder2024", "Houdini20.5", "StudioHost"])
@@ -99,7 +99,7 @@ class BrokenNative(importlib.abc.MetaPathFinder):
 sys.meta_path.insert(0, BrokenNative())
 import dcc_mcp_core
 assert 'dcc_mcp_core._core' not in sys.modules
-assert 'dcc_mcp_core._native' not in sys.modules
+assert 'dcc_mcp_core.deployment.native_core' not in sys.modules
 assert 'verify_native_core' in dir(dcc_mcp_core)
 report = dcc_mcp_core.verify_native_core()
 assert not report['success']

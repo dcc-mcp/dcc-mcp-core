@@ -61,7 +61,7 @@ def __getattr__(name: str) -> object:
     loaded when a Rust-backed symbol or the ``_core`` submodule is requested.
     """
     if name == "_core":
-        from dcc_mcp_core._native import _load_native_core
+        from dcc_mcp_core.deployment.native_core import _load_native_core
 
         mod = _load_native_core()
         globals()[name] = mod

@@ -1,4 +1,4 @@
-"""Explicit native preflight and actionable extension loader failures."""
+"""Embedded deployment preflight and actionable native loader failures."""
 
 from __future__ import annotations
 

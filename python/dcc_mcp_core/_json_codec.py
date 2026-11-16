@@ -13,7 +13,7 @@ from __future__ import annotations
 import json as _stdlib_json
 from typing import Any
 
-from dcc_mcp_core._native import _load_native_core
+from dcc_mcp_core.deployment.native_core import _load_native_core
 
 
 def _optional_core_symbol(name: str) -> Any:
