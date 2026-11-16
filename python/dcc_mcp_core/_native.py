@@ -40,7 +40,8 @@ def _failure_report(exc: ImportError | OSError) -> dict[str, Any]:
 
 def _load_native_core() -> ModuleType:
     """Load native APIs, preserving lite absence and the original failure cause."""
-    prepare_embedded_python_dll_search()
+    if sys.modules.get(_MODULE) is None:
+        prepare_embedded_python_dll_search()
     try:
         return importlib.import_module(_MODULE)
     except (ImportError, OSError) as exc:

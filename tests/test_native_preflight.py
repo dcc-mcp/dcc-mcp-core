@@ -76,6 +76,17 @@ def test_preflight_retries_after_runtime_repair(monkeypatch):
     assert _native.verify_native_core()["native_version"] == "test-native"
 
 
+def test_cached_native_calls_do_not_repeat_dll_directory_filesystem_probes(monkeypatch):
+    core = SimpleNamespace(__version__="cached-native")
+    monkeypatch.setitem(sys.modules, "dcc_mcp_core._core", core)
+
+    def unexpected_probe():
+        raise AssertionError("cached JSON/native calls must not probe the filesystem")
+
+    monkeypatch.setattr(_native, "prepare_embedded_python_dll_search", unexpected_probe)
+    assert _native._load_native_core() is core
+
+
 def test_plain_import_is_light_but_native_server_access_has_actionable_failure():
     code = """
 import importlib.abc
