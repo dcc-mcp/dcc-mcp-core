@@ -116,3 +116,42 @@ print(json.dumps(report))
     result = subprocess.run([sys.executable, "-B", "-c", code], env=env, text=True, capture_output=True, timeout=20)
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout)["reason"] == "native_load_failed"
+
+
+@pytest.mark.parametrize("operation", ["resolve", "is_dir"])
+def test_inaccessible_override_preserves_light_import_and_native_failure_report(operation):
+    code = """
+import importlib.abc
+import json
+import os
+from pathlib import Path
+import sys
+
+inaccessible = Path.cwd() / 'inaccessible-native-runtime'
+operation = sys.argv[1]
+original = getattr(Path, operation)
+def deny_candidate(path, *args, **kwargs):
+    if path == inaccessible:
+        raise PermissionError('runtime directory is inaccessible')
+    return original(path, *args, **kwargs)
+setattr(Path, operation, deny_candidate)
+os.environ['DCC_MCP_PYTHON3_DLL_DIR'] = str(inaccessible)
+os.add_dll_directory = lambda path: object()
+sys.platform = 'win32'
+class BrokenNative(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, *args):
+        if fullname == 'dcc_mcp_core._core':
+            raise ImportError('native runtime still unavailable')
+sys.meta_path.insert(0, BrokenNative())
+import dcc_mcp_core
+assert 'dcc_mcp_core._core' not in sys.modules
+report = dcc_mcp_core.verify_native_core()
+assert report['error'] == 'native runtime still unavailable'
+print(json.dumps(report))
+"""
+    env = dict(os.environ, PYTHONPATH=str(Path(__file__).resolve().parents[1] / "python"))
+    result = subprocess.run(
+        [sys.executable, "-B", "-c", code, operation], env=env, text=True, capture_output=True, timeout=20
+    )
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout)["reason"] == "native_load_failed"

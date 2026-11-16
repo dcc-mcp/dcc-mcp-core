@@ -26,8 +26,9 @@ On Windows, Core retains DLL-directory handles for existing absolute
 also set `DCC_MCP_PYTHON3_DLL_DIR` to an existing absolute directory containing
 a trusted Python runtime compatible with the host's Python version and
 architecture. Set it before native server access, then run the probe again.
-Relative overrides are ignored; PATH and the working directory are never
-searched. Python 3.8+ extension dependency loading does not use PATH alone.
+Relative or inaccessible candidates are skipped so other interpreter directories
+can still be registered; PATH and the working directory are never searched.
+Python 3.8+ extension dependency loading does not use PATH alone.
 
 For example, MotionBuilder 2024 may ship `python310.dll` without the
 `python3.dll` required by an ABI3 wheel. Adding a directory cannot create that

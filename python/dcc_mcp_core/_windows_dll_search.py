@@ -24,7 +24,10 @@ def embedded_python_dll_directories() -> tuple[str, ...]:
         path = Path(candidate)
         if not path.is_absolute():
             continue
-        resolved = str(path.resolve())
+        try:
+            resolved = str(path.resolve())
+        except OSError:
+            continue
         directories.setdefault(os.path.normcase(resolved), resolved)
     return tuple(directories.values())
 
@@ -35,13 +38,13 @@ def prepare_embedded_python_dll_search() -> tuple[str, ...]:
         return ()
     registered = []
     for directory in embedded_python_dll_directories():
-        if not Path(directory).is_dir():
-            continue
-        key = os.path.normcase(directory)
-        if key not in _DLL_DIRECTORY_HANDLES:
-            try:
-                _DLL_DIRECTORY_HANDLES[key] = os.add_dll_directory(directory)
-            except OSError:
+        try:
+            if not Path(directory).is_dir():
                 continue
+            key = os.path.normcase(directory)
+            if key not in _DLL_DIRECTORY_HANDLES:
+                _DLL_DIRECTORY_HANDLES[key] = os.add_dll_directory(directory)
+        except OSError:
+            continue
         registered.append(directory)
     return tuple(registered)

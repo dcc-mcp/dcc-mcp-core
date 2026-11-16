@@ -70,6 +70,27 @@ def test_rejected_directory_does_not_hide_remaining_interpreter_paths(windows, m
     assert dll_search.prepare_embedded_python_dll_search() == (str(base.resolve()),)
 
 
+@pytest.mark.parametrize("operation", ["resolve", "is_dir"])
+def test_inaccessible_candidate_does_not_hide_remaining_interpreter_paths(windows, monkeypatch, operation):
+    inaccessible = windows / "inaccessible-runtime"
+    monkeypatch.setenv("DCC_MCP_PYTHON3_DLL_DIR", str(inaccessible))
+    original = getattr(dll_search.Path, operation)
+
+    def deny_candidate(path, *args, **kwargs):
+        if path == inaccessible:
+            raise PermissionError("runtime directory is inaccessible")
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(dll_search.Path, operation, deny_candidate)
+    added = []
+    handle = object()
+    monkeypatch.setattr(dll_search.os, "add_dll_directory", lambda path: added.append(path) or handle, raising=False)
+    expected = str(windows.resolve())
+    assert dll_search.prepare_embedded_python_dll_search() == (expected,)
+    assert added == [expected]
+    assert {os.path.normcase(expected): handle} == dll_search._DLL_DIRECTORY_HANDLES
+
+
 def test_skips_dll_search_setup_outside_windows(monkeypatch):
     monkeypatch.setattr(dll_search.sys, "platform", "linux")
     assert dll_search.prepare_embedded_python_dll_search() == ()
