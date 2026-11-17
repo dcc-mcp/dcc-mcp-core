@@ -133,6 +133,87 @@ tools carry a `_meta` hint so AI clients can skip them:
 The error code `-32001` is dcc-mcp-core's `CAPABILITY_MISSING`. AI clients should
 treat this as *permanently* failing for the current session rather than retrying.
 
+### Probed host capabilities (issue #2867)
+
+A declaration says what an adapter **claims**; it is not evidence that the host
+actually does it. `dcc-mcp/host-capabilities@1` records the probe that proves
+each capability, so an agent can plan a long, expensive job without discovering
+an unavailable feature afterwards.
+
+The contract is published at
+`python/dcc_mcp_core/schemas/host-capabilities-v1.schema.json` and is validated
+in pure Python, so an embedded DCC interpreter can check a manifest without the
+native extension:
+
+```python
+from dcc_mcp_core.capabilities import (
+    PROBE_NOT_RUN,
+    PROBE_PASS,
+    PROBE_UNSUPPORTED,
+    build_host_capabilities,
+    make_host_capability,
+    summarize_host_capabilities,
+)
+
+manifest = build_host_capabilities(
+    host_version="0.32.0",
+    adapter_version="0.1.6",
+    dcc_type="comfyui",
+    capabilities=[
+        make_host_capability(
+            "workflow.api_format", True, PROBE_PASS, evidence_ref="artifact://probe-1"
+        ),
+        make_host_capability(
+            "queue.cancel_running",
+            False,
+            PROBE_UNSUPPORTED,
+            reason="legacy interrupt is global, not per-prompt",
+        ),
+        make_host_capability(
+            "load3d.sync_node",
+            True,
+            PROBE_NOT_RUN,
+            reason="custom node ships but the probe is not implemented yet",
+            declaration_only=True,
+        ),
+    ],
+)
+
+summary = summarize_host_capabilities(manifest)
+# {"available": [...], "declared": [...], "unavailable": [...], "not_run": [...], ...}
+```
+
+The contract fails closed:
+
+- `supported: true` needs a `PASS` probe, or `declaration_only: true` **and** a
+  reason. A declaration is reported as `declared`, never as `available`.
+- `supported: false` needs a concrete blocker in `reason`, not a generic
+  "unsupported".
+- A `PASS` probe cannot coexist with `supported: false`, and `FAIL` /
+  `UNSUPPORTED` cannot coexist with `supported: true`.
+- `NOT_RUN` never counts as available; unknown keys, duplicate keys, malformed
+  versions, and unknown fields are rejected.
+
+Adapters expose the manifest through one read-only tool, registered the same way
+as the other built-ins:
+
+```python
+from dcc_mcp_core.capabilities import HostCapabilityCache, register_host_capability_tool
+
+register_host_capability_tool(
+    server,
+    dcc_name="comfyui",
+    provider=probe_host,  # adapter-owned: returns the validated manifest
+    cache=HostCapabilityCache(ttl_secs=300),
+)
+```
+
+The tool is `dcc_host_capabilities` and returns the summary above, so one call
+answers "which strategies are available on this instance, and why not the
+others". Cache entries are keyed by DCC type plus host and adapter version,
+because a probe result is only valid for the build that produced it; pass
+`force_refresh: true` to re-read probes.
+
 ---
 
 ## 2. Typed Workspace Path Handshake

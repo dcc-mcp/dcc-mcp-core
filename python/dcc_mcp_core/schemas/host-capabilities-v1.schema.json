@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dcc-mcp.github.io/dcc-mcp-core/schemas/host-capabilities-v1.schema.json",
+  "title": "DCC-MCP Host Capabilities v1",
+  "description": "Probed host feature capabilities for one connected adapter instance. Declares what the host can actually do, with the probe result that proves it, so an agent can plan before committing to an expensive job (issue #2867).",
+  "type": "object",
+  "required": ["schema_name", "schema_version", "host_version", "adapter_version", "capabilities"],
+  "properties": {
+    "schema_name": {"const": "dcc-mcp/host-capabilities"},
+    "schema_version": {"const": 1},
+    "dcc_type": {"type": "string", "maxLength": 64},
+    "instance_id": {"type": "string", "maxLength": 128},
+    "host_version": {"type": "string", "minLength": 1, "maxLength": 128},
+    "adapter_version": {"type": "string", "minLength": 1, "maxLength": 128},
+    "probed_at": {"type": "string", "format": "date-time", "maxLength": 64},
+    "capabilities": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {"$ref": "#/$defs/capability"}
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "capability": {
+      "type": "object",
+      "required": ["key", "supported", "probe_result", "probed_at"],
+      "properties": {
+        "key": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+          "maxLength": 96,
+          "description": "Namespaced capability key, for example render.extra_image_planes. The first segment is the domain."
+        },
+        "supported": {
+          "description": "true, false, or a bounded version/enum string when the capability exists only above a host version.",
+          "oneOf": [
+            {"type": "boolean"},
+            {"type": "string", "minLength": 1, "maxLength": 64}
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 512,
+          "description": "Concrete blocker or explanation. Required when supported is false or when a probe did not pass."
+        },
+        "probe_result": {"enum": ["PASS", "FAIL", "UNSUPPORTED", "NOT_RUN"]},
+        "probed_at": {"type": "string", "format": "date-time", "maxLength": 64},
+        "evidence_ref": {
+          "type": "string",
+          "maxLength": 512,
+          "description": "Opaque reference to the probe evidence (artifact id, output resource, trace id). Never the payload itself."
+        },
+        "declaration_only": {
+          "type": "boolean",
+          "description": "True when the adapter declares the capability without a passing probe. A declared capability is not proof."
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

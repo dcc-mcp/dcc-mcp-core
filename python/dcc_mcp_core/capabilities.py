@@ -22,8 +22,11 @@ from __future__ import annotations
 from dataclasses import asdict
 from dataclasses import dataclass
 from dataclasses import field
+import datetime
 import logging
 import re
+from threading import RLock
+import time
 from typing import Any
 from typing import Callable
 
@@ -32,10 +35,20 @@ from dcc_mcp_core import json_dumps
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "HOST_CAPABILITIES_SCHEMA_ID",
+    "HOST_CAPABILITIES_SCHEMA_VERSION",
+    "PROBE_RESULTS",
     "CapabilityManifestBuilder",
     "CapabilityRecord",
+    "HostCapabilityCache",
+    "HostCapabilityValidationError",
+    "build_host_capabilities",
     "build_manifest_payload",
+    "make_host_capability",
     "register_capability_mcp_tool",
+    "register_host_capability_tool",
+    "summarize_host_capabilities",
+    "validate_host_capabilities",
 ]
 
 _SKILL_STUB_PREFIX = "__skill__"
@@ -492,3 +505,576 @@ def _extract_instance_id(server: Any) -> str | None:
         except AttributeError:
             continue
     return None
+
+
+# ---------------------------------------------------------------------------
+# Probed host capabilities (issue #2867)
+# ---------------------------------------------------------------------------
+#
+# ``CapabilityRecord`` above answers "which actions exist". The records below
+# answer a different question: "which host features actually work on this
+# instance, and what proves it". They are deliberately separate from
+# ``McpHttpConfig.declared_capabilities``: a declaration says what the adapter
+# *claims*, a probe result says what the host actually *did*.
+#
+# The contract is published as
+# ``python/dcc_mcp_core/schemas/host-capabilities-v1.schema.json`` and is
+# validated here in pure Python so embedded DCC interpreters can check a
+# manifest without the native extension.
+
+HOST_CAPABILITIES_SCHEMA_ID = (
+    "https://dcc-mcp.github.io/dcc-mcp-core/schemas/host-capabilities-v1.schema.json"
+)
+HOST_CAPABILITIES_SCHEMA_VERSION = 1
+
+_SCHEMA_HOST_CAPABILITIES = "dcc-mcp/host-capabilities"
+
+PROBE_PASS = "PASS"
+PROBE_FAIL = "FAIL"
+PROBE_UNSUPPORTED = "UNSUPPORTED"
+PROBE_NOT_RUN = "NOT_RUN"
+
+PROBE_RESULTS = (PROBE_PASS, PROBE_FAIL, PROBE_UNSUPPORTED, PROBE_NOT_RUN)
+
+_CAPABILITY_KEY_RE = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$")
+
+_MAX_CAPABILITY_KEY_CHARS = 96
+_MAX_MANIFEST_VERSION_CHARS = 128
+_MAX_REASON_CHARS = 512
+_MAX_EVIDENCE_CHARS = 512
+_MAX_PROBED_AT_CHARS = 64
+_MAX_SUPPORTED_CHARS = 64
+_MAX_CAPABILITIES = 256
+
+_MANIFEST_FIELDS = frozenset(
+    {
+        "schema_name",
+        "schema_version",
+        "dcc_type",
+        "instance_id",
+        "host_version",
+        "adapter_version",
+        "probed_at",
+        "capabilities",
+    }
+)
+
+_CAPABILITY_FIELDS = frozenset(
+    {
+        "key",
+        "supported",
+        "reason",
+        "probe_result",
+        "probed_at",
+        "evidence_ref",
+        "declaration_only",
+    }
+)
+
+
+class HostCapabilityValidationError(ValueError):
+    """Raised when a host capability manifest violates the v1 contract."""
+
+
+def _hc_text(
+    value: Any,
+    field_name: str,
+    *,
+    max_chars: int,
+    optional: bool = False,
+) -> str | None:
+    if value is None:
+        if optional:
+            return None
+        raise HostCapabilityValidationError(f"{field_name} is required")
+    if not isinstance(value, str):
+        raise HostCapabilityValidationError(f"{field_name} must be a string")
+    text = value.strip()
+    if not text:
+        if optional:
+            return None
+        raise HostCapabilityValidationError(f"{field_name} must not be empty")
+    if len(text) > max_chars:
+        raise HostCapabilityValidationError(
+            f"{field_name} exceeds {max_chars} characters"
+        )
+    return text
+
+
+def _hc_supported(value: Any, field_name: str) -> Any:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            raise HostCapabilityValidationError(f"{field_name} must not be empty")
+        if len(text) > _MAX_SUPPORTED_CHARS:
+            raise HostCapabilityValidationError(
+                f"{field_name} exceeds {_MAX_SUPPORTED_CHARS} characters"
+            )
+        return text
+    raise HostCapabilityValidationError(
+        f"{field_name} must be a boolean or a bounded version string"
+    )
+
+
+def _hc_is_supported(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    return bool(value)
+
+
+def _now_utc_iso() -> str:
+    moment = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0)
+    return moment.isoformat().replace("+00:00", "Z")
+
+
+def _validate_host_capability(record: Any, index: int) -> dict[str, Any]:
+    path = f"capabilities[{index}]"
+    if not isinstance(record, dict):
+        raise HostCapabilityValidationError(f"{path} must be an object")
+
+    unknown = sorted(set(record) - _CAPABILITY_FIELDS)
+    if unknown:
+        raise HostCapabilityValidationError(
+            f"{path} has unknown field(s): {', '.join(unknown)}"
+        )
+
+    key = _hc_text(
+        record.get("key"),
+        f"{path}.key",
+        max_chars=_MAX_CAPABILITY_KEY_CHARS,
+    )
+    assert key is not None  # required above
+    if not _CAPABILITY_KEY_RE.match(key):
+        raise HostCapabilityValidationError(
+            f"{path}.key must be a namespaced lower-case key such as render.lpe"
+        )
+
+    supported = _hc_supported(record.get("supported"), f"{path}.supported")
+    probe_result = record.get("probe_result")
+    if probe_result not in PROBE_RESULTS:
+        raise HostCapabilityValidationError(
+            f"{path}.probe_result must be one of {', '.join(PROBE_RESULTS)}"
+        )
+
+    probed_at = _hc_text(
+        record.get("probed_at"),
+        f"{path}.probed_at",
+        max_chars=_MAX_PROBED_AT_CHARS,
+    )
+    reason = _hc_text(
+        record.get("reason"),
+        f"{path}.reason",
+        max_chars=_MAX_REASON_CHARS,
+        optional=True,
+    )
+    evidence_ref = _hc_text(
+        record.get("evidence_ref"),
+        f"{path}.evidence_ref",
+        max_chars=_MAX_EVIDENCE_CHARS,
+        optional=True,
+    )
+
+    declaration_only = record.get("declaration_only", False)
+    if not isinstance(declaration_only, bool):
+        raise HostCapabilityValidationError(
+            f"{path}.declaration_only must be a boolean"
+        )
+
+    claimed = _hc_is_supported(supported)
+
+    if declaration_only and not claimed:
+        raise HostCapabilityValidationError(
+            f"{path} is declaration_only while declaring no support"
+        )
+    if probe_result in (PROBE_FAIL, PROBE_UNSUPPORTED) and claimed:
+        raise HostCapabilityValidationError(
+            f"{path} claims support while probe_result is {probe_result}"
+        )
+    if not claimed and probe_result == PROBE_PASS:
+        raise HostCapabilityValidationError(
+            f"{path} reports a passing probe while declaring no support"
+        )
+    if claimed and probe_result != PROBE_PASS and not declaration_only:
+        raise HostCapabilityValidationError(
+            f"{path} claims support without a PASS probe; "
+            "set declaration_only and explain the reason, or run the probe"
+        )
+    if not claimed and not reason:
+        raise HostCapabilityValidationError(
+            f"{path} declares no support without a reason"
+        )
+    if declaration_only and not reason:
+        raise HostCapabilityValidationError(
+            f"{path} is declaration_only without a reason"
+        )
+
+    validated: dict[str, Any] = {
+        "key": key,
+        "supported": supported,
+        "probe_result": probe_result,
+        "probed_at": probed_at,
+        "declaration_only": declaration_only,
+    }
+    if reason:
+        validated["reason"] = reason
+    if evidence_ref:
+        validated["evidence_ref"] = evidence_ref
+    return validated
+
+
+def validate_host_capabilities(payload: Any) -> dict[str, Any]:
+    """Validate a ``dcc-mcp/host-capabilities@1`` manifest and normalize it.
+
+    Fails closed: unknown fields, duplicate keys, a claimed capability without a
+    passing probe (or an explicit declaration), and an unsupported capability
+    without a reason are all rejected. Returns a new dict; the input is not
+    mutated.
+    """
+    if not isinstance(payload, dict):
+        raise HostCapabilityValidationError(
+            "host capabilities manifest must be an object"
+        )
+
+    unknown = sorted(set(payload) - _MANIFEST_FIELDS)
+    if unknown:
+        raise HostCapabilityValidationError(
+            f"manifest has unknown field(s): {', '.join(unknown)}"
+        )
+
+    if payload.get("schema_name") != _SCHEMA_HOST_CAPABILITIES:
+        raise HostCapabilityValidationError(
+            f"schema_name must be {_SCHEMA_HOST_CAPABILITIES!r}"
+        )
+    version = payload.get("schema_version")
+    if isinstance(version, bool) or version != HOST_CAPABILITIES_SCHEMA_VERSION:
+        raise HostCapabilityValidationError(
+            f"schema_version must be {HOST_CAPABILITIES_SCHEMA_VERSION}"
+        )
+
+    host_version = _hc_text(
+        payload.get("host_version"),
+        "host_version",
+        max_chars=_MAX_MANIFEST_VERSION_CHARS,
+    )
+    adapter_version = _hc_text(
+        payload.get("adapter_version"),
+        "adapter_version",
+        max_chars=_MAX_MANIFEST_VERSION_CHARS,
+    )
+
+    records = payload.get("capabilities")
+    if not isinstance(records, list):
+        raise HostCapabilityValidationError("capabilities must be an array")
+    if len(records) > _MAX_CAPABILITIES:
+        raise HostCapabilityValidationError(
+            f"capabilities exceeds {_MAX_CAPABILITIES} entries"
+        )
+
+    capabilities: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for index, record in enumerate(records):
+        validated = _validate_host_capability(record, index)
+        if validated["key"] in seen:
+            raise HostCapabilityValidationError(
+                f"duplicate capability key: {validated['key']}"
+            )
+        seen.add(validated["key"])
+        capabilities.append(validated)
+
+    manifest: dict[str, Any] = {
+        "schema_name": _SCHEMA_HOST_CAPABILITIES,
+        "schema_version": HOST_CAPABILITIES_SCHEMA_VERSION,
+        "host_version": host_version,
+        "adapter_version": adapter_version,
+        "capabilities": capabilities,
+    }
+    for field_name, max_chars in (
+        ("dcc_type", 64),
+        ("instance_id", 128),
+        ("probed_at", _MAX_PROBED_AT_CHARS),
+    ):
+        text = _hc_text(
+            payload.get(field_name),
+            field_name,
+            max_chars=max_chars,
+            optional=True,
+        )
+        if text:
+            manifest[field_name] = text
+    return manifest
+
+
+def make_host_capability(
+    key: str,
+    supported: Any,
+    probe_result: str,
+    *,
+    reason: str | None = None,
+    evidence_ref: str | None = None,
+    probed_at: str | None = None,
+    declaration_only: bool = False,
+) -> dict[str, Any]:
+    """Build and validate one capability record."""
+    record: dict[str, Any] = {
+        "key": key,
+        "supported": supported,
+        "probe_result": probe_result,
+        "probed_at": probed_at or _now_utc_iso(),
+        "declaration_only": declaration_only,
+    }
+    if reason is not None:
+        record["reason"] = reason
+    if evidence_ref is not None:
+        record["evidence_ref"] = evidence_ref
+    return _validate_host_capability(record, 0)
+
+
+def build_host_capabilities(
+    *,
+    host_version: str,
+    adapter_version: str,
+    capabilities: list[dict[str, Any]],
+    dcc_type: str | None = None,
+    instance_id: str | None = None,
+    probed_at: str | None = None,
+) -> dict[str, Any]:
+    """Assemble and validate a complete manifest."""
+    manifest: dict[str, Any] = {
+        "schema_name": _SCHEMA_HOST_CAPABILITIES,
+        "schema_version": HOST_CAPABILITIES_SCHEMA_VERSION,
+        "host_version": host_version,
+        "adapter_version": adapter_version,
+        "capabilities": list(capabilities),
+    }
+    if dcc_type:
+        manifest["dcc_type"] = dcc_type
+    if instance_id:
+        manifest["instance_id"] = instance_id
+    manifest["probed_at"] = probed_at or _now_utc_iso()
+    return validate_host_capabilities(manifest)
+
+
+def summarize_host_capabilities(
+    payload: Any,
+    *,
+    keys: list[str] | None = None,
+) -> dict[str, Any]:
+    """Partition a manifest into the planning answer an agent needs.
+
+    Groups are ``available`` (proved by a passing probe), ``declared`` (claimed
+    without proof), ``unavailable`` (probed and rejected), and ``not_run``
+    (unknown). An agent planning a long job should treat ``declared`` and
+    ``not_run`` as unverified rather than as support.
+    """
+    manifest = validate_host_capabilities(payload)
+    wanted = set(keys) if keys else None
+
+    available: list[dict[str, Any]] = []
+    declared: list[dict[str, Any]] = []
+    unavailable: list[dict[str, Any]] = []
+    not_run: list[dict[str, Any]] = []
+
+    for record in manifest["capabilities"]:
+        if wanted is not None and record["key"] not in wanted:
+            continue
+        entry: dict[str, Any] = {
+            "key": record["key"],
+            "supported": record["supported"],
+            "probe_result": record["probe_result"],
+            "probed_at": record["probed_at"],
+        }
+        if "reason" in record:
+            entry["reason"] = record["reason"]
+        if record["declaration_only"]:
+            entry["declaration_only"] = True
+
+        if record["probe_result"] == PROBE_PASS and _hc_is_supported(
+            record["supported"]
+        ):
+            available.append(entry)
+        elif record["declaration_only"]:
+            declared.append(entry)
+        elif record["probe_result"] == PROBE_NOT_RUN:
+            not_run.append(entry)
+        else:
+            unavailable.append(entry)
+
+    return {
+        "host_version": manifest["host_version"],
+        "adapter_version": manifest["adapter_version"],
+        "probed_at": manifest.get("probed_at"),
+        "available": available,
+        "declared": declared,
+        "unavailable": unavailable,
+        "not_run": not_run,
+        "totals": {
+            "available": len(available),
+            "declared": len(declared),
+            "unavailable": len(unavailable),
+            "not_run": len(not_run),
+        },
+    }
+
+
+class HostCapabilityCache:
+    """TTL cache keyed by DCC type plus host and adapter version.
+
+    A probe result is only valid for the exact host and adapter build that
+    produced it, so both versions are part of the key. ``ttl_secs=0`` keeps
+    entries until they are invalidated explicitly.
+    """
+
+    def __init__(
+        self,
+        ttl_secs: int = 300,
+        *,
+        clock: Callable[[], float] | None = None,
+    ) -> None:
+        if isinstance(ttl_secs, bool) or not isinstance(ttl_secs, int):
+            raise HostCapabilityValidationError("ttl_secs must be an integer")
+        if ttl_secs < 0:
+            raise HostCapabilityValidationError("ttl_secs must not be negative")
+        self._ttl = ttl_secs
+        self._clock = clock or time.monotonic
+        self._entries: dict[str, tuple[float, dict[str, Any]]] = {}
+        self._lock = RLock()
+
+    @property
+    def ttl_secs(self) -> int:
+        return self._ttl
+
+    @staticmethod
+    def cache_key(
+        dcc_type: str | None,
+        host_version: str,
+        adapter_version: str,
+    ) -> str:
+        return "|".join(
+            [str(dcc_type or ""), str(host_version), str(adapter_version)]
+        )
+
+    def get(self, key: str) -> dict[str, Any] | None:
+        with self._lock:
+            entry = self._entries.get(key)
+            if entry is None:
+                return None
+            stored_at, payload = entry
+            if self._ttl and (self._clock() - stored_at) > self._ttl:
+                del self._entries[key]
+                return None
+            return payload
+
+    def put(self, key: str, payload: dict[str, Any]) -> None:
+        with self._lock:
+            self._entries[key] = (self._clock(), payload)
+
+    def is_stale(self, key: str) -> bool:
+        return self.get(key) is None
+
+    def invalidate(self, key: str | None = None) -> None:
+        with self._lock:
+            if key is None:
+                self._entries.clear()
+            else:
+                self._entries.pop(key, None)
+
+    def __len__(self) -> int:
+        with self._lock:
+            return len(self._entries)
+
+
+def register_host_capability_tool(
+    server: Any,
+    *,
+    dcc_name: str,
+    provider: Callable[[], dict[str, Any]],
+    cache: HostCapabilityCache | None = None,
+) -> bool:
+    """Register ``dcc_host_capabilities`` as an MCP tool.
+
+    ``provider`` is adapter-owned and returns a validated manifest. No probe is
+    executed here: the adapter decides what it can prove, and this tool only
+    exposes the result with optional version-keyed caching.
+    """
+    inner = getattr(server, "_server", None)
+    if inner is None:
+        logger.debug("host capabilities: server has no inner _server; skipping")
+        return False
+
+    tool_name = "dcc_host_capabilities"
+    description = (
+        f"Report probed {dcc_name} host feature capabilities with the probe result "
+        "that proves each one. Call this before committing to an expensive job so "
+        "unavailable features are found in planning rather than after a render."
+    )
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "force_refresh": {
+                "type": "boolean",
+                "description": "Ignore the version-keyed cache and re-read probes.",
+                "default": False,
+            },
+            "keys": {
+                "type": "array",
+                "items": {"type": "string"},
+                "maxItems": 64,
+                "description": "Optional capability keys to keep in the summary.",
+            },
+        },
+        "additionalProperties": False,
+    }
+
+    def handler(params: dict[str, Any]) -> dict[str, Any]:
+        params = params or {}
+        manifest = validate_host_capabilities(provider())
+        key = HostCapabilityCache.cache_key(
+            manifest.get("dcc_type") or dcc_name,
+            manifest["host_version"],
+            manifest["adapter_version"],
+        )
+
+        if cache is not None:
+            if params.get("force_refresh"):
+                cache.put(key, manifest)
+            else:
+                cached = cache.get(key)
+                if cached is not None:
+                    manifest = cached
+                else:
+                    cache.put(key, manifest)
+
+        summary = summarize_host_capabilities(
+            manifest, keys=params.get("keys") or None
+        )
+        return {
+            "success": True,
+            "message": f"{dcc_name} host capabilities",
+            "context": summary,
+        }
+
+    registry = getattr(inner, "registry", None)
+    if registry is None or not hasattr(registry, "register"):
+        return False
+
+    try:
+        registry.register(
+            tool_name,
+            description=description,
+            category="dcc",
+            tags=["capability", "capabilities", "probe", "planning", dcc_name.lower()],
+            dcc=dcc_name,
+            input_schema=json_dumps(input_schema),
+            skill_name="dcc-adapter",
+            group="capability",
+            execution="sync",
+            thread_affinity="any",
+            enabled=True,
+        )
+        inner.register_handler(tool_name, handler)
+        return True
+    except Exception as exc:
+        logger.debug("host capabilities: registration failed: %s", exc)
+        return False
