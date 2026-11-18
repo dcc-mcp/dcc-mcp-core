@@ -18,6 +18,7 @@ from __future__ import annotations
 # ---------------------------------------------------------------------------
 
 _ALL_LAZY: dict[str, str] = {
+    "verify_native_core": "dcc_mcp_core.deployment.native_core",
     # Naming validators / constants (from _core)
     "ACTION_ID_RE": "dcc_mcp_core._core",
     "APP_AUTHOR": "dcc_mcp_core._core",

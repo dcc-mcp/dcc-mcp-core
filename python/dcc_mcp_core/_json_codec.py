@@ -10,15 +10,16 @@ This module is intentionally private.  Skill authors should continue to use
 
 from __future__ import annotations
 
-import importlib
 import json as _stdlib_json
 from typing import Any
+
+from dcc_mcp_core.deployment.native_core import _load_native_core
 
 
 def _optional_core_symbol(name: str) -> Any:
     """Return a native JSON symbol, or ``None`` for a lite installation."""
     try:
-        core = importlib.import_module("dcc_mcp_core._core")
+        core = _load_native_core()
     except ModuleNotFoundError as exc:
         if exc.name == "dcc_mcp_core._core":
             return None

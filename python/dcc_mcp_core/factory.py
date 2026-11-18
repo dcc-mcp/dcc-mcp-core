@@ -57,7 +57,32 @@ import threading
 from typing import Any
 from typing import Callable
 
+from dcc_mcp_core.deployment.native_core import _error_message
+from dcc_mcp_core.deployment.native_core import _failure_report
+from dcc_mcp_core.deployment.native_core import _load_native_core
+
 logger = logging.getLogger(__name__)
+
+
+def _require_usable_native_core() -> None:
+    """Fail closed before server work when a native wheel is unusable.
+
+    An absent ``_core`` module remains valid for the supported lite/sidecar
+    profile. A present but unloadable extension is a host installation fault
+    and must be reported before dispatcher, server or schema construction.
+    """
+    try:
+        _load_native_core()
+    except ModuleNotFoundError as exc:
+        if exc.name == "dcc_mcp_core._core":
+            return
+        raise
+    except (ImportError, OSError) as exc:
+        report = _failure_report(exc)
+        message = f"Native Core startup preflight failed ({report['reason']}): {_error_message(report)}"
+        raise ImportError(message) from exc
+    else:
+        return
 
 
 def create_dcc_server(
@@ -125,6 +150,8 @@ def create_dcc_server(
             )
 
     """
+    _require_usable_native_core()
+
     with lock:
         instance: Any | None = instance_holder[0]
         if instance is None or not instance.is_running:

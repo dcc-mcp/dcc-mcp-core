@@ -35,6 +35,9 @@ Documentation contract:
 
 ## Getting Started
 
+For embedded-host DLL failures and explicit install/startup verification, see
+[Native extension preflight](native-preflight.md).
+
 | Document | Purpose |
 |----------|---------|
 | [getting-started.md](getting-started.md) | Install the right Agent Skill/CLI, operate a DCC, or expose a first server |
