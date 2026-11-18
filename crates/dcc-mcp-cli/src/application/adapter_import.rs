@@ -638,37 +638,36 @@ struct ProbeChildTree {
 }
 
 impl ProbeChildTree {
+    #[cfg(unix)]
+    fn adopt(child: Child, _deadline: Instant) -> Result<Self, String> {
+        let process_group = child.id() as i32;
+        Ok(Self {
+            child,
+            process_group,
+        })
+    }
+
+    #[cfg(windows)]
     fn adopt(child: Child, deadline: Instant) -> Result<Self, String> {
-        #[cfg(unix)]
-        {
-            let process_group = child.id() as i32;
-            return Ok(Self {
-                child,
-                process_group,
-            });
-        }
-        #[cfg(windows)]
-        {
-            let mut child = child;
-            let job = match assign_probe_job(&child) {
-                Ok(job) => job,
-                Err(err) => {
-                    let _ = terminate_and_reap_suspended(&mut child, deadline);
-                    return Err(err);
-                }
-            };
-            if let Err(err) = resume_probe_process(&child) {
-                let mut owned = Self { child, job };
-                let _ = owned.terminate_and_reap(deadline);
+        let mut child = child;
+        let job = match assign_probe_job(&child) {
+            Ok(job) => job,
+            Err(err) => {
+                let _ = terminate_and_reap_suspended(&mut child, deadline);
                 return Err(err);
             }
-            return Ok(Self { child, job });
+        };
+        if let Err(err) = resume_probe_process(&child) {
+            let mut owned = Self { child, job };
+            let _ = owned.terminate_and_reap(deadline);
+            return Err(err);
         }
-        #[cfg(not(any(unix, windows)))]
-        {
-            let _ = deadline;
-            Ok(Self { child })
-        }
+        Ok(Self { child, job })
+    }
+
+    #[cfg(not(any(unix, windows)))]
+    fn adopt(child: Child, _deadline: Instant) -> Result<Self, String> {
+        Ok(Self { child })
     }
 
     fn terminate_and_reap(&mut self, deadline: Instant) -> ProbeCleanupReceipt {
