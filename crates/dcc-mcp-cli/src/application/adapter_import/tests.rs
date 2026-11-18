@@ -572,7 +572,7 @@ fn write_probe_fixture(dir: &Path, mode: &str) {
     let leaf = format!(
         r#"import os, json, subprocess, sys, time
 if os.environ[{MODE_ENV:?}] == "exit":
-child_code = "import json,sys,time; time.sleep(0.4); report = {'module': 'dcc_mcp_inherited_fixture.leaf', 'imported': True, 'module_version': 'writer-final'}; print(json.dumps(report))"
+child_code = "import json,sys,time; time.sleep(0.4); report = dict(module='dcc_mcp_inherited_fixture.leaf', imported=True, module_version='writer-final'); print(json.dumps(report))"
 else:
 child_code = "import sys,time; print('writer-out', flush=True); print('writer-err', file=sys.stderr, flush=True); time.sleep(30)"
 writer = subprocess.Popen(
