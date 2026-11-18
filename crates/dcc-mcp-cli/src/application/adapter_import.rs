@@ -370,6 +370,15 @@ fn python_path_of(overrides: &BTreeMap<String, PathBuf>, key: &str) -> Option<Pa
 
 /// Run one interpreter probe and grade the result.
 pub(crate) fn probe_target(target: &AdapterImportTarget) -> Value {
+    probe_target_with_env(target, Vec::new())
+}
+
+/// Shared implementation with command-local environment overrides used by
+/// fixture tests. The production probe path keeps its fixed argument contract.
+fn probe_target_with_env(
+    target: &AdapterImportTarget,
+    env_overrides: Vec<(String, PathBuf)>,
+) -> Value {
     let mut probe = json!({
         "dcc_type": target.dcc_type,
         "module": target.module,
@@ -397,7 +406,13 @@ pub(crate) fn probe_target(target: &AdapterImportTarget) -> Value {
         return probe;
     };
 
-    match run_probe(python, &target.module, &target.distribution, PROBE_TIMEOUT) {
+    match run_probe_with_env(
+        python,
+        &target.module,
+        &target.distribution,
+        PROBE_TIMEOUT,
+        env_overrides,
+    ) {
         Ok(report) => {
             let core = core_compatibility(&report);
             let status = grade(&report, core.as_ref());
@@ -514,8 +529,8 @@ fn run_probe(
     run_probe_with_env(python, module, distribution, timeout, Vec::new())
 }
 
-/// Test seam for command-local environment values.
-#[cfg(test)]
+/// Shared implementation allowing command-local environment values. Production
+/// passes no overrides; tests inject only command-scoped fixture values.
 fn run_probe_with_env(
     python: &Path,
     module: &str,
@@ -701,7 +716,7 @@ impl ProbeChildTree {
             use windows_sys::Win32::Foundation::HANDLE;
             use windows_sys::Win32::System::JobObjects::TerminateJobObject;
             // SAFETY: `job` is an owned Job Object handle that outlives the call.
-            unsafe { TerminateJobObject(self.job.as_raw_handle() as HANDLE, 1) == 1 }
+            unsafe { TerminateJobObject(self.job.as_raw_handle() as HANDLE, 1) != 0 }
         }
         #[cfg(not(any(unix, windows)))]
         {
@@ -820,7 +835,7 @@ fn assign_probe_job(child: &Child) -> Result<OwnedHandle, String> {
     }
     let process = child.as_raw_handle();
     // SAFETY: the standard-library child handle remains live for assignment.
-    let assigned = unsafe { AssignProcessToJobObject(job, process as HANDLE) } == 1;
+    let assigned = unsafe { AssignProcessToJobObject(job, process as HANDLE) } != 0;
     if !assigned {
         let error = std::io::Error::last_os_error();
         // SAFETY: `job` is live and not yet owned.
@@ -857,7 +872,7 @@ fn resume_probe_process(child: &Child) -> Result<(), String> {
         ..THREADENTRY32::default()
     };
     // SAFETY: the entry is writable and `dwSize` describes its allocated size.
-    let mut found = unsafe { Thread32First(snapshot.as_raw_handle() as _, &mut entry) } == 1;
+    let mut found = unsafe { Thread32First(snapshot.as_raw_handle() as _, &mut entry) } != 0;
     let mut thread_id = None;
     while found {
         if entry.th32OwnerProcessID == child_id {
@@ -869,7 +884,7 @@ fn resume_probe_process(child: &Child) -> Result<(), String> {
             thread_id = Some(entry.th32ThreadID);
         }
         // SAFETY: `entry` remains valid for the next snapshot record.
-        found = unsafe { Thread32Next(snapshot.as_raw_handle() as _, &mut entry) } == 1;
+        found = unsafe { Thread32Next(snapshot.as_raw_handle() as _, &mut entry) } != 0;
     }
     let Some(thread_id) = thread_id else {
         return Err("interpreter_not_launchable: probe thread not found".to_string());
@@ -1092,6 +1107,7 @@ mod tests {
     const PROBE_TEST_WRITER_PID_ENV: &str = "DCC_MCP_TEST_PROBE_WRITER_PID";
     const PROBE_TEST_WRITER_READY_ENV: &str = "DCC_MCP_TEST_PROBE_WRITER_READY";
     const PROBE_TEST_WRITER_MODE_ENV: &str = "DCC_MCP_TEST_PROBE_WRITER_MODE";
+    const PROBE_TEST_SEARCH_PATH_ENV: &str = "PYTHONPATH";
 
     /// Write a stand-in interpreter path. Probe output drives the assertions,
     /// so the file only has to exist and be spawnable as a script.
@@ -1564,7 +1580,11 @@ mod tests {
             python: Some(python),
             python_source: Some("test_fixture".to_string()),
         };
-        let probe = probe_target(&target);
+        let env_overrides = vec![(
+            PROBE_TEST_SEARCH_PATH_ENV.to_string(),
+            dir.path().to_path_buf(),
+        )];
+        let probe = probe_target_with_env(&target, env_overrides);
 
         assert_eq!(probe["status"], "ok");
         assert_eq!(probe["module"], "dcc_mcp_prod_leaf_fixture.leaf");
