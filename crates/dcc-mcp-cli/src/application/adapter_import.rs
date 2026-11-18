@@ -33,10 +33,12 @@ use std::time::{Duration, Instant};
 
 #[cfg(windows)]
 use std::mem::size_of;
+#[cfg(windows)]
+use std::os::windows::io::AsRawHandle;
 #[cfg(unix)]
 use std::os::unix::process::CommandExt as _;
 #[cfg(windows)]
-use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
+use std::os::windows::io::{FromRawHandle, OwnedHandle};
 #[cfg(windows)]
 use std::os::windows::process::CommandExt as _;
 
@@ -501,8 +503,8 @@ fn probe_status(probe: &Value) -> AdapterImportStatus {
 
 /// Spawn the configured interpreter with the probe script and parse its JSON report.
 ///
-/// Both pipes are drained from the moment the child starts, and the interpreter
-/// owns a separate process group or job. The shared deadline covers the
+/// Output is spooled in a private temporary directory and the interpreter owns
+/// a separate process group or job. One wall-clock budget covers the
 /// interpreter, inherited writers, and cleanup. Normal completion collects
 /// complete output; timeout and unconfirmed cleanup are `unavailable` probes.
 fn run_probe(
@@ -510,6 +512,18 @@ fn run_probe(
     module: &str,
     distribution: &str,
     timeout: Duration,
+) -> Result<Map<String, Value>, String> {
+    run_probe_with_env(python, module, distribution, timeout, Vec::new())
+}
+
+/// Test seam for command-local environment values.
+#[cfg(test)]
+fn run_probe_with_env(
+    python: &Path,
+    module: &str,
+    distribution: &str,
+    timeout: Duration,
+    env_overrides: Vec<(String, PathBuf)>,
 ) -> Result<Map<String, Value>, String> {
     let cleanup_window = timeout / PROBE_CLEANUP_RESERVE_DIVISOR;
     let started = Instant::now();
@@ -523,6 +537,9 @@ fn run_probe(
     let stderr_child = File::create(&stderr_path)
         .map_err(|err| format!("probe_failed: stderr spool unavailable: {err}"))?;
     let mut command = Command::new(python);
+    for (key, value) in env_overrides {
+        command.env(key, value);
+    }
     #[cfg(unix)]
     command.process_group(0);
     #[cfg(windows)]
@@ -543,7 +560,8 @@ fn run_probe(
         .map_err(|err| format!("interpreter_not_launchable: {err}"))?;
 
     // Every failure after spawn terminates and reaps the child tree before it
-    // returns. Adoption happens before the child is resumed on Windows.
+    // returns. On Windows the child stays suspended until job adoption and
+    // exactly one owned thread handle has been resumed.
     let mut tree = ProbeChildTree::adopt(child, Instant::now() + cleanup_window)?;
     let status = loop {
         if tree
@@ -680,7 +698,8 @@ impl ProbeChildTree {
         {
             use windows_sys::Win32::Foundation::HANDLE;
             use windows_sys::Win32::System::JobObjects::TerminateJobObject;
-            unsafe { TerminateJobObject(self.job.as_raw_handle() as HANDLE, 1) != 0 }
+            // SAFETY: `job` is an owned Job Object handle that outlives the call.
+            unsafe { TerminateJobObject(self.job.as_raw_handle() as HANDLE, 1) == 1 }
         }
         #[cfg(not(any(unix, windows)))]
         {
@@ -709,23 +728,24 @@ impl ProbeChildTree {
     fn descendants_present(&self) -> std::io::Result<bool> {
         use windows_sys::Win32::Foundation::HANDLE;
         use windows_sys::Win32::System::JobObjects::{
-            JobObjectBasicProcessIdList, QueryInformationJobObject,
+            JOBOBJECT_BASIC_ACCOUNTING_INFORMATION, JobObjectBasicAccountingInformation,
+            QueryInformationJobObject,
         };
-        let mut count: u32 = 0;
-        // SAFETY: a zero-size query reports the required list size.
-        let queried = unsafe {
+        let mut accounting = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION::default();
+        // SAFETY: the buffer matches the requested accounting information class.
+        let result = unsafe {
             QueryInformationJobObject(
                 self.job.as_raw_handle() as HANDLE,
-                JobObjectBasicProcessIdList,
+                JobObjectBasicAccountingInformation,
+                &mut accounting as *mut _ as *mut _,
+                size_of::<JOBOBJECT_BASIC_ACCOUNTING_INFORMATION>() as u32,
                 std::ptr::null_mut(),
-                0,
-                &mut count,
             )
         };
-        if !queried {
+        if result == 0 {
             return Err(std::io::Error::last_os_error());
         }
-        Ok(count > 0)
+        Ok(accounting.ActiveProcesses > 0)
     }
 
     #[cfg(not(any(unix, windows)))]
@@ -788,12 +808,17 @@ fn assign_probe_job(child: &Child) -> Result<OwnedHandle, String> {
             size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
         )
     };
-    let process = child.as_raw_handle().ok_or_else(|| {
-        "interpreter_not_launchable: child exited before job assignment".to_string()
-    })?;
+    if configured == 0 {
+        let error = std::io::Error::last_os_error();
+        // SAFETY: `job` is live and not yet owned.
+        unsafe { CloseHandle(job) };
+        return Err(format!(
+            "interpreter_not_launchable: job configuration failed: {error}"
+        ));
+    }
+    let process = child.as_raw_handle();
     // SAFETY: the standard-library child handle remains live for assignment.
-    let assigned =
-        configured != 0 && unsafe { AssignProcessToJobObject(job, process as HANDLE) } != 0;
+    let assigned = unsafe { AssignProcessToJobObject(job, process as HANDLE) } == 1;
     if !assigned {
         let error = std::io::Error::last_os_error();
         // SAFETY: `job` is live and not yet owned.
@@ -808,20 +833,68 @@ fn assign_probe_job(child: &Child) -> Result<OwnedHandle, String> {
 
 #[cfg(windows)]
 fn resume_probe_process(child: &Child) -> Result<(), String> {
-    use windows_sys::Win32::Foundation::HANDLE;
-    use windows_sys::Win32::System::Threading::ResumeThread;
-    let handle = child
-        .as_raw_handle()
-        .ok_or_else(|| "interpreter_not_launchable: child exited before resume".to_string())?;
-    // SAFETY: the child is live and suspended until this call.
-    let result = unsafe { ResumeThread(handle as HANDLE) };
-    if result == u32::MAX {
+    use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Thread32First, Thread32Next, TH32CS_SNAPTHREAD, THREADENTRY32,
+    };
+    use windows_sys::Win32::System::Threading::{OpenThread, ResumeThread, THREAD_SUSPEND_RESUME};
+
+    let child_id = child.id();
+    // SAFETY: this system-wide thread snapshot is a fresh, independent handle.
+    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) };
+    if snapshot == INVALID_HANDLE_VALUE {
         return Err(format!(
-            "interpreter_not_launchable: resume failed: {}",
+            "interpreter_not_launchable: thread snapshot failed: {}",
             std::io::Error::last_os_error()
         ));
     }
-    Ok(())
+    // SAFETY: ownership of the unique snapshot handle transfers to `OwnedHandle`.
+    let snapshot = unsafe { OwnedHandle::from_raw_handle(snapshot as _) };
+    let mut entry = THREADENTRY32 {
+        dwSize: size_of::<THREADENTRY32>() as u32,
+        ..THREADENTRY32::default()
+    };
+    // SAFETY: the entry is writable and `dwSize` describes its allocated size.
+    let mut found = unsafe { Thread32First(snapshot.as_raw_handle() as _, &mut entry) } == 1;
+    let mut thread_id = None;
+    while found {
+        if entry.th32OwnerProcessID == child_id {
+            if thread_id.is_some() {
+                return Err(
+                    "interpreter_not_launchable: multiple suspended probe threads".to_string(),
+                );
+            }
+            thread_id = Some(entry.th32ThreadID);
+        }
+        // SAFETY: `entry` remains valid for the next snapshot record.
+        found = unsafe { Thread32Next(snapshot.as_raw_handle() as _, &mut entry) } == 1;
+    }
+    let Some(thread_id) = thread_id else {
+        return Err("interpreter_not_launchable: probe thread not found".to_string());
+    };
+    // SAFETY: the thread ID came from the live snapshot of the owned child.
+    let thread = unsafe { OpenThread(THREAD_SUSPEND_RESUME, 0, thread_id) };
+    if thread.is_null() {
+        return Err(format!(
+            "interpreter_not_launchable: probe thread open failed: {}",
+            std::io::Error::last_os_error()
+        ));
+    }
+    // SAFETY: `thread` is a unique handle opened with suspend/resume rights.
+    let previous_count = unsafe { ResumeThread(thread) };
+    let result = if previous_count == u32::MAX {
+        Err(format!(
+            "interpreter_not_launchable: resume failed: {}",
+            std::io::Error::last_os_error()
+        ))
+    } else if previous_count == 0 {
+        Err("interpreter_not_launchable: probe thread was not suspended".to_string())
+    } else {
+        Ok(())
+    };
+    // SAFETY: the borrowed thread handle is closed exactly once here.
+    unsafe { CloseHandle(thread) };
+    result
 }
 
 fn first_line(text: &str) -> Option<&str> {
@@ -1632,7 +1705,6 @@ while True:
 
     struct ProbeFixtureGuard {
         pid_path: PathBuf,
-        env_keys: [&'static str; 3],
     }
 
     impl Drop for ProbeFixtureGuard {
@@ -1643,9 +1715,6 @@ while True:
                 }
             }
             let _ = std::fs::remove_file(&self.pid_path);
-            for key in self.env_keys {
-                std::env::remove_var(key);
-            }
         }
     }
 
@@ -1665,11 +1734,6 @@ while True:
         let ready_path = dir.path().join("writer.ready");
         let fixture_guard = ProbeFixtureGuard {
             pid_path: pid_path.clone(),
-            env_keys: [
-                PROBE_TEST_WRITER_PID_ENV,
-                PROBE_TEST_WRITER_READY_ENV,
-                PROBE_TEST_WRITER_MODE_ENV,
-            ],
         };
         Some(WriterFixture {
             _dir: dir,
@@ -1693,14 +1757,17 @@ while True:
             ready_path,
             ..
         } = fixture;
-        std::env::set_var(PROBE_TEST_WRITER_PID_ENV, &pid_path);
-        std::env::set_var(PROBE_TEST_WRITER_READY_ENV, &ready_path);
-        std::env::set_var(PROBE_TEST_WRITER_MODE_ENV, "exit");
-        let report = run_probe(
+        let env_overrides = vec![
+            (PROBE_TEST_WRITER_PID_ENV.to_string(), pid_path.clone()),
+            (PROBE_TEST_WRITER_READY_ENV.to_string(), ready_path.clone()),
+            (PROBE_TEST_WRITER_MODE_ENV.to_string(), PathBuf::from("exit")),
+        ];
+        let report = run_probe_with_env(
             &python,
             "dcc_mcp_inherited_fixture.leaf",
             "dcc-mcp-inherited-fixture",
             Duration::from_secs(2),
+            env_overrides,
         )
         .expect("production probe must finish after its parent exits");
         let elapsed = started.elapsed();
@@ -1736,15 +1803,18 @@ while True:
             ready_path,
             ..
         } = fixture;
-        std::env::set_var(PROBE_TEST_WRITER_PID_ENV, &pid_path);
-        std::env::set_var(PROBE_TEST_WRITER_READY_ENV, &ready_path);
-        std::env::set_var(PROBE_TEST_WRITER_MODE_ENV, "timeout");
         let started = Instant::now();
-        let error = run_probe(
+        let env_overrides = vec![
+            (PROBE_TEST_WRITER_PID_ENV.to_string(), pid_path.clone()),
+            (PROBE_TEST_WRITER_READY_ENV.to_string(), ready_path.clone()),
+            (PROBE_TEST_WRITER_MODE_ENV.to_string(), PathBuf::from("timeout")),
+        ];
+        let error = run_probe_with_env(
             &python,
             "dcc_mcp_inherited_fixture.leaf",
             "dcc-mcp-inherited-fixture",
             Duration::from_secs(2),
+            env_overrides,
         )
         .unwrap_err();
         let elapsed = started.elapsed();
