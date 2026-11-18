@@ -25,7 +25,7 @@
 
 use std::collections::BTreeMap;
 use std::fs::File;
-use std::io::{self, Read, Write};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::thread;
@@ -33,12 +33,10 @@ use std::time::{Duration, Instant};
 
 #[cfg(windows)]
 use std::mem::size_of;
-#[cfg(windows)]
-use std::os::windows::io::AsRawHandle;
 #[cfg(unix)]
 use std::os::unix::process::CommandExt as _;
 #[cfg(windows)]
-use std::os::windows::io::{FromRawHandle, OwnedHandle};
+use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
 #[cfg(windows)]
 use std::os::windows::process::CommandExt as _;
 
@@ -577,7 +575,7 @@ fn run_probe_with_env(
         }
         if Instant::now() >= operation_deadline {
             let reaped = tree.terminate_and_reap(Instant::now() + cleanup_window);
-            if !reaped.confirmed {
+            if !reaped.confirmed() {
                 return Err("probe_cleanup_unconfirmed".to_string());
             }
             return Err(format!("probe_timed_out_after_{}s", timeout.as_secs()));
@@ -597,7 +595,7 @@ fn run_probe_with_env(
     } else {
         tree.terminate_and_reap(cleanup_deadline)
     };
-    if !reaped.confirmed {
+    if !reaped.confirmed() {
         return Err("probe_cleanup_unconfirmed".to_string());
     }
     let stdout_text = read_spool(&stdout_path)?;
@@ -632,7 +630,7 @@ struct ProbeChildTree {
 }
 
 impl ProbeChildTree {
-    fn adopt(mut child: Child, deadline: Instant) -> Result<Self, String> {
+    fn adopt(child: Child, deadline: Instant) -> Result<Self, String> {
         #[cfg(unix)]
         {
             let process_group = child.id() as i32;
@@ -643,6 +641,7 @@ impl ProbeChildTree {
         }
         #[cfg(windows)]
         {
+            let mut child = child;
             let job = match assign_probe_job(&child) {
                 Ok(job) => job,
                 Err(err) => {
@@ -651,14 +650,17 @@ impl ProbeChildTree {
                 }
             };
             if let Err(err) = resume_probe_process(&child) {
-                let owned = Self { child, job };
+                let mut owned = Self { child, job };
                 let _ = owned.terminate_and_reap(deadline);
                 return Err(err);
             }
             return Ok(Self { child, job });
         }
         #[cfg(not(any(unix, windows)))]
-        Ok(Self { child })
+        {
+            let _ = deadline;
+            Ok(Self { child })
+        }
     }
 
     fn terminate_and_reap(&mut self, deadline: Instant) -> ProbeCleanupReceipt {
@@ -835,7 +837,7 @@ fn assign_probe_job(child: &Child) -> Result<OwnedHandle, String> {
 fn resume_probe_process(child: &Child) -> Result<(), String> {
     use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
     use windows_sys::Win32::System::Diagnostics::ToolHelp::{
-        CreateToolhelp32Snapshot, Thread32First, Thread32Next, TH32CS_SNAPTHREAD, THREADENTRY32,
+        CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, THREADENTRY32, Thread32First, Thread32Next,
     };
     use windows_sys::Win32::System::Threading::{OpenThread, ResumeThread, THREAD_SUSPEND_RESUME};
 
@@ -925,11 +927,12 @@ fn read_spool(path: &Path) -> Result<String, String> {
 /// scan of `*.dist-info` directories so a Python 3.7 host still reports the
 /// "installed but not importable" case that motivated this check.
 const PROBE_SCRIPT_BODY: &str = r#"
+import sys
+sys.path.insert(0, sys.argv.pop(1))
 from email.parser import Parser
 import json
 import os
 import re
-import sys
 
 module_name = sys.argv[1] if len(sys.argv) > 1 else ""
 dist_name = sys.argv[2] if len(sys.argv) > 2 else module_name
@@ -1080,16 +1083,16 @@ report["core_version_source"] = "imported_module" if observed is not None else s
 print(json.dumps(report))
 "#;
 
-const PROBE_SCRIPT: &str = concat!(
-    "import sys\n",
-    "sys.path.insert(0, sys.argv.pop(1))\n",
-    PROBE_SCRIPT_BODY
-);
+const PROBE_SCRIPT: &str = PROBE_SCRIPT_BODY;
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::io::Write;
+
+    const PROBE_TEST_WRITER_PID_ENV: &str = "DCC_MCP_TEST_PROBE_WRITER_PID";
+    const PROBE_TEST_WRITER_READY_ENV: &str = "DCC_MCP_TEST_PROBE_WRITER_READY";
+    const PROBE_TEST_WRITER_MODE_ENV: &str = "DCC_MCP_TEST_PROBE_WRITER_MODE";
 
     /// Write a stand-in interpreter path. Probe output drives the assertions,
     /// so the file only has to exist and be spawnable as a script.
@@ -1406,7 +1409,7 @@ mod tests {
         )
         .unwrap();
         let fallback = format!(
-            "import sys\nsys.modules['importlib.metadata'] = None\nsys.modules['pkg_resources'] = None\n{PROBE_SCRIPT_BODY}"
+            "sys.modules['importlib.metadata'] = None\nsys.modules['pkg_resources'] = None\n{PROBE_SCRIPT_BODY}"
         );
         for script in [PROBE_SCRIPT, fallback.as_str()] {
             std::fs::write(
@@ -1607,7 +1610,7 @@ mod tests {
         let leaf = format!(
             r#"import os, json, subprocess, sys, time
 if os.environ[{MODE_ENV:?}] == "exit":
-    child_code = "import json,sys,time; time.sleep(0.4); print(json.dumps({'module': 'dcc_mcp_inherited_fixture.leaf', 'imported': True, 'module_version': 'writer-final'}))"
+    child_code = "import json,sys,time; time.sleep(0.4); report = {'module': 'dcc_mcp_inherited_fixture.leaf', 'imported': True, 'module_version': 'writer-final'}; print(json.dumps(report))"
 else:
     child_code = "import sys,time; print('writer-out', flush=True); print('writer-err', file=sys.stderr, flush=True); time.sleep(30)"
 writer = subprocess.Popen(
@@ -1760,7 +1763,10 @@ while True:
         let env_overrides = vec![
             (PROBE_TEST_WRITER_PID_ENV.to_string(), pid_path.clone()),
             (PROBE_TEST_WRITER_READY_ENV.to_string(), ready_path.clone()),
-            (PROBE_TEST_WRITER_MODE_ENV.to_string(), PathBuf::from("exit")),
+            (
+                PROBE_TEST_WRITER_MODE_ENV.to_string(),
+                PathBuf::from("exit"),
+            ),
         ];
         let report = run_probe_with_env(
             &python,
@@ -1807,7 +1813,10 @@ while True:
         let env_overrides = vec![
             (PROBE_TEST_WRITER_PID_ENV.to_string(), pid_path.clone()),
             (PROBE_TEST_WRITER_READY_ENV.to_string(), ready_path.clone()),
-            (PROBE_TEST_WRITER_MODE_ENV.to_string(), PathBuf::from("timeout")),
+            (
+                PROBE_TEST_WRITER_MODE_ENV.to_string(),
+                PathBuf::from("timeout"),
+            ),
         ];
         let error = run_probe_with_env(
             &python,
