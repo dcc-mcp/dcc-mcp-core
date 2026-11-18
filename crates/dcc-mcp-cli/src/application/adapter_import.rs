@@ -396,7 +396,7 @@ pub(crate) fn probe_target(target: &AdapterImportTarget) -> Value {
         return probe;
     };
 
-    match run_probe(python, &target.module, &target.distribution) {
+    match run_probe(python, &target.module, &target.distribution, PROBE_TIMEOUT) {
         Ok(report) => {
             let core = core_compatibility(&report);
             let status = grade(&report, core.as_ref());
@@ -508,8 +508,8 @@ fn run_probe(
     python: &Path,
     module: &str,
     distribution: &str,
+    timeout: Duration,
 ) -> Result<Map<String, Value>, String> {
-    let timeout = probe_timeout();
     let started = Instant::now();
     let operation_deadline = started + timeout.saturating_sub(PROBE_CLEANUP_WINDOW);
     let spool_dir = tempfile::tempdir()
@@ -840,41 +840,6 @@ fn read_spool(path: &Path) -> Result<String, String> {
         return Err("probe_output_unreadable: output limit exceeded".to_string());
     }
     Ok(String::from_utf8_lossy(&bytes).into_owned())
-}
-
-#[cfg(test)]
-const PROBE_TEST_TIMEOUT_ENV: &str = "DCC_MCP_TEST_PROBE_TIMEOUT_MS";
-
-#[cfg(test)]
-struct ProbeTimeoutGuard;
-
-#[cfg(test)]
-impl ProbeTimeoutGuard {
-    fn set(timeout: Duration) -> Self {
-        std::env::set_var(PROBE_TEST_TIMEOUT_ENV, timeout.as_millis().to_string());
-        Self
-    }
-}
-
-#[cfg(test)]
-impl Drop for ProbeTimeoutGuard {
-    fn drop(&mut self) {
-        std::env::remove_var(PROBE_TEST_TIMEOUT_ENV);
-    }
-}
-
-#[cfg(test)]
-fn probe_timeout() -> Duration {
-    std::env::var(PROBE_TEST_TIMEOUT_ENV)
-        .ok()
-        .and_then(|value| value.parse::<u64>().ok())
-        .filter(|value| *value > 0)
-        .map_or(PROBE_TIMEOUT, Duration::from_millis)
-}
-
-#[cfg(not(test))]
-const fn probe_timeout() -> Duration {
-    PROBE_TIMEOUT
 }
 
 /// Python 3.7-compatible import probe.
@@ -1442,7 +1407,7 @@ mod tests {
             eprintln!("skipping: no python interpreter available");
             return;
         };
-        let report = run_probe(&python, "json", "json")
+        let report = run_probe(&python, "json", "json", PROBE_TIMEOUT)
             .expect("a real interpreter must produce a readable probe report");
         assert_eq!(report["imported"], true);
         assert!(report["python_version"].as_str().unwrap().starts_with("3."));
@@ -1511,8 +1476,13 @@ mod tests {
         )
         .unwrap();
 
-        let report = run_probe(&python, "dcc_mcp_noisy_fixture", "dcc-mcp-noisy-fixture")
-            .expect("noisy adapter output must not deadlock the production probe");
+        let report = run_probe(
+            &python,
+            "dcc_mcp_noisy_fixture",
+            "dcc-mcp-noisy-fixture",
+            PROBE_TIMEOUT,
+        )
+        .expect("noisy adapter output must not deadlock the production probe");
         assert_eq!(report["imported"], true);
         assert_eq!(report["module_version"], "7.0.0");
     }
@@ -1679,7 +1649,6 @@ while True:
 
     struct WriterFixture {
         _dir: tempfile::TempDir,
-        _timeout: ProbeTimeoutGuard,
         _cleanup: ProbeFixtureGuard,
         python: PathBuf,
         pid_path: PathBuf,
@@ -1690,7 +1659,6 @@ while True:
         let python = real_python()?;
         let dir = tempfile::tempdir().unwrap();
         write_probe_fixture(dir.path(), mode);
-        let timeout_guard = ProbeTimeoutGuard::set(Duration::from_secs(2));
         let pid_path = dir.path().join("writer.pid");
         let ready_path = dir.path().join("writer.ready");
         let fixture_guard = ProbeFixtureGuard {
@@ -1703,7 +1671,6 @@ while True:
         };
         Some(WriterFixture {
             _dir: dir,
-            _timeout: timeout_guard,
             _cleanup: fixture_guard,
             python,
             pid_path,
@@ -1731,6 +1698,7 @@ while True:
             &python,
             "dcc_mcp_inherited_fixture.leaf",
             "dcc-mcp-inherited-fixture",
+            Duration::from_secs(2),
         )
         .expect("production probe must finish after its parent exits");
         let elapsed = started.elapsed();
@@ -1774,6 +1742,7 @@ while True:
             &python,
             "dcc_mcp_inherited_fixture.leaf",
             "dcc-mcp-inherited-fixture",
+            Duration::from_secs(2),
         )
         .unwrap_err();
         let elapsed = started.elapsed();
