@@ -57,8 +57,9 @@ pub const PYTHON_EXECUTABLE_ENV: &str = "DCC_MCP_PYTHON_EXECUTABLE";
 
 /// Total wall-clock ceiling for one probe, including process-tree cleanup.
 const PROBE_TIMEOUT: Duration = Duration::from_secs(60);
-/// Portion of the total budget reserved for writers, termination, and reaping.
-const PROBE_CLEANUP_WINDOW: Duration = Duration::from_secs(2);
+/// One quarter of the total budget is reserved for writers, termination, and
+/// reaping (two seconds at the production default).
+const PROBE_CLEANUP_RESERVE_DIVISOR: u32 = 4;
 /// Maximum bytes collected from each output spool.
 const PROBE_OUTPUT_LIMIT: u64 = 4 * 1024 * 1024;
 /// Poll interval for parent exit and bounded cleanup loops.
@@ -510,8 +511,9 @@ fn run_probe(
     distribution: &str,
     timeout: Duration,
 ) -> Result<Map<String, Value>, String> {
+    let cleanup_window = timeout / PROBE_CLEANUP_RESERVE_DIVISOR;
     let started = Instant::now();
-    let operation_deadline = started + timeout.saturating_sub(PROBE_CLEANUP_WINDOW);
+    let operation_deadline = started + timeout.saturating_sub(cleanup_window);
     let spool_dir = tempfile::tempdir()
         .map_err(|err| format!("probe_failed: output spool unavailable: {err}"))?;
     let stdout_path = spool_dir.path().join("stdout");
@@ -542,7 +544,7 @@ fn run_probe(
 
     // Every failure after spawn terminates and reaps the child tree before it
     // returns. Adoption happens before the child is resumed on Windows.
-    let mut tree = ProbeChildTree::adopt(child, Instant::now() + PROBE_CLEANUP_WINDOW)?;
+    let mut tree = ProbeChildTree::adopt(child, Instant::now() + cleanup_window)?;
     let status = loop {
         if tree
             .child
@@ -556,7 +558,7 @@ fn run_probe(
                 .map_err(|err| format!("probe_failed: {err}"))?;
         }
         if Instant::now() >= operation_deadline {
-            let reaped = tree.terminate_and_reap(Instant::now() + PROBE_CLEANUP_WINDOW);
+            let reaped = tree.terminate_and_reap(Instant::now() + cleanup_window);
             if !reaped.confirmed {
                 return Err("probe_cleanup_unconfirmed".to_string());
             }
