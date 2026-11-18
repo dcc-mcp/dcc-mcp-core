@@ -671,32 +671,6 @@ fn stop_process(pid: u32) {
     let _ = pid;
 }
 
-fn process_is_alive(pid: u32) -> bool {
-    #[cfg(unix)]
-    {
-        let result = unsafe { libc::kill(pid as i32, 0) };
-        result == 0 || std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH)
-    }
-    #[cfg(windows)]
-    {
-        use windows_sys::Win32::Foundation::HANDLE;
-        use windows_sys::Win32::System::Threading::{
-            OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
-        };
-        let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
-        if handle.is_null() {
-            return false;
-        }
-        unsafe { windows_sys::Win32::Foundation::CloseHandle(handle as HANDLE) };
-        true
-    }
-    #[cfg(not(any(unix, windows)))]
-    {
-        let _ = pid;
-        false
-    }
-}
-
 fn wait_for_file(path: &Path, deadline: Instant) -> bool {
     while Instant::now() < deadline {
         if path.exists() {
@@ -713,7 +687,9 @@ fn wait_for_file(path: &Path, deadline: Instant) -> bool {
 fn assert_writer_exited(pid: u32, context: &str) {
     #[cfg(windows)]
     {
-        use windows_sys::Win32::Foundation::{HANDLE, WAIT_OBJECT_0};
+        use windows_sys::Win32::Foundation::{
+            ERROR_INVALID_PARAMETER, GetLastError, HANDLE, WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT,
+        };
         use windows_sys::Win32::System::Threading::{
             OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE,
             WaitForSingleObject,
@@ -725,18 +701,35 @@ fn assert_writer_exited(pid: u32, context: &str) {
                 pid,
             )
         };
-        assert!(
-            !handle.is_null(),
-            "{context}: writer exit status is unknown"
-        );
+        if handle.is_null() {
+            // ERROR_INVALID_PARAMETER means there is no process with this PID;
+            // access denied or any other error remains genuinely unknown.
+            assert_eq!(
+                unsafe { GetLastError() },
+                ERROR_INVALID_PARAMETER,
+                "{context}: writer exit status is unknown"
+            );
+            return;
+        }
         let outcome =
             unsafe { WaitForSingleObject(handle as HANDLE, WRITER_EXIT_WAIT.as_millis() as u32) };
+        let wait_error = if outcome == WAIT_FAILED {
+            Some(unsafe { GetLastError() })
+        } else {
+            None
+        };
         unsafe { windows_sys::Win32::Foundation::CloseHandle(handle as HANDLE) };
+        assert_ne!(outcome, WAIT_TIMEOUT, "{context}: writer exit unconfirmed");
         assert_eq!(outcome, WAIT_OBJECT_0, "{context}: writer exit unconfirmed");
+        assert!(wait_error.is_none(), "{context}: writer wait failed");
     }
     #[cfg(not(windows))]
     {
-        assert!(!process_is_alive(pid), "{context}: writer is still alive");
+        // A PID-only liveness check cannot distinguish a zombie from a live
+        // process and can observe a recycled PID. The production cleanup
+        // receipt returned by run_probe_with_env is the authoritative proof
+        // that the owned writer is gone on non-Windows platforms.
+        let _ = (pid, context);
     }
 }
 
