@@ -1056,13 +1056,29 @@ mod tests {
                 grade(&report, Some(&core)),
                 AdapterImportStatus::IncompatibleCore
             );
-            for contents in [
+            std::fs::write(
+                legacy.join("requires.txt"),
                 "[feature]\ndcc-mcp-core>=0.20.24,<0.21.0\n",
-                "dcc-mcp-core>=0.20.24,<0.21.0\n[:python_version >= '3.7']\ndcc-mcp-core>=0.20.40,<0.21.0\n",
-            ] {
-                std::fs::write(legacy.join("requires.txt"), contents).unwrap();
-                assert!(core_compatibility(&probe(script)).is_none());
-            }
+            )
+            .unwrap();
+            assert!(core_compatibility(&probe(script)).is_none());
+            std::fs::write(
+                legacy.join("requires.txt"),
+                concat!(
+                    "dcc-mcp-core>=0.20.24,<0.21.0\n",
+                    "[:python_version >= '3.7']\n",
+                    "dcc-mcp-core>=0.20.40,<0.21.0\n",
+                ),
+            )
+            .unwrap();
+            let report = probe(script);
+            assert_eq!(report["core_requirement"], "dcc-mcp-core>=0.20.24,<0.21.0");
+            let core = core_compatibility(&report).unwrap();
+            assert_eq!(core.verdict, RuntimeVerdict::CoreNewerThanDeclared);
+            assert_eq!(
+                grade(&report, Some(&core)),
+                AdapterImportStatus::IncompatibleCore
+            );
         }
     }
 
