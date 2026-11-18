@@ -25,7 +25,7 @@ from dcc_mcp_core.capabilities import make_host_capability
 from dcc_mcp_core.capabilities import register_host_capability_tool
 from dcc_mcp_core.capabilities import summarize_host_capabilities
 from dcc_mcp_core.capabilities import validate_host_capabilities
-import dcc_mcp_core.host_capabilities as capabilities
+import dcc_mcp_core.host.capabilities as capabilities
 
 SCHEMA_PATH = (
     Path(__file__).resolve().parent.parent / "python" / "dcc_mcp_core" / "schemas" / "host-capabilities-v1.schema.json"
