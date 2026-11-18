@@ -2,6 +2,7 @@
   "title": "統計",
   "meta": "ゲートウェイの呼び出し量、成功率、レイテンシ、ホットパスです。",
   "label.range": "範囲",
+  "range.all": "全期間",
   "hero.totalTokens": "合計トークン",
   "hero.inputTokens": "入力トークン",
   "hero.outputTokens": "出力トークン",

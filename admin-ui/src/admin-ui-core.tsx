@@ -10,7 +10,7 @@ import { SkillMarkdownPreview } from './components/SkillMarkdownPreview';
 import { Badge } from './components/ui/badge';
 import { Button } from './components/ui/button';
 import { type MessageKey } from './i18n';
-import { formatTime, timestampTitle } from './time';
+import { displayLocale, formatTime, timestampTitle } from './time';
 import { CRITICAL_LATENCY_MS, recordOrNull, SLOW_LATENCY_MS, type ActivityEvent, type AdminLinks, type AgentContext, type AttributionFacet, type AttributionTrust, type CallRow, type GovernanceMiddlewareControl, type HealthPayload, type IdeTarget, type InstanceRow, type LatencySeverity, type OpenApiOperationRow, type OpenApiSource, type OpenApiSpec, type Panel, type SkillDetailInstance, type SkillDetailPayload, type SkillRow, type StatsPayload, type TaskRow, type TokenAccounting, type TokenBreakdownEntry, type TokenCarrier, type ToolRow, type TopEntry, type TraceDetailPayload, type TracePayload, type TraceRow, type TraceSpan, type TrafficCaptureStatus, type TrafficFrameEnvelope, type Translator, type WorkflowAgent, type WorkflowGraphNode, type WorkflowGraphStage, type WorkflowRow, type WorkflowSearchSignal, type WorkflowStep } from './admin-types';
 
 // ══ platform ──────────────────────────────────────────────────────────────
@@ -837,7 +837,7 @@ export function formatTokenCount(value: number | string | null | undefined): str
   if (n == null) {
     return '-';
   }
-  return Math.round(n).toLocaleString();
+  return Math.round(n).toLocaleString(displayLocale());
 }
 
 export function formatSavingsPct(value: number | string | null | undefined): string {

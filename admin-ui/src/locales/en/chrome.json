@@ -1,6 +1,7 @@
 {
   "app.title": "Admin Dashboard",
   "app.subtitle": "DCC-MCP Gateway",
+  "app.mode": "Control plane",
   "navigate": "Go to page",
   "skipToContent": "Skip to content",
   "currentPage": "Current page"

@@ -59,6 +59,19 @@ export function MarketplaceCard({
     <article
       className={`marketplace-card${isOutdated ? ' marketplace-card-outdated' : ''}`}
       data-name={entry.name}
+      role="button"
+      tabIndex={0}
+      aria-label={`${t('marketplace.card.detail')}: ${entry.name}`}
+      onClick={(event) => {
+        if ((event.target as HTMLElement).closest('button')) return;
+        onOpenDetail(entry);
+      }}
+      onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return;
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        onOpenDetail(entry);
+      }}
     >
       <button
         type="button"

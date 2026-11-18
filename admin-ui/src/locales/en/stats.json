@@ -2,6 +2,7 @@
   "title": "Stats",
   "meta": "Gateway call volume, success rate, latency, and hot paths.",
   "label.range": "Range",
+  "range.all": "All time",
   "hero.totalTokens": "Total tokens",
   "hero.inputTokens": "Input tokens",
   "hero.outputTokens": "Output tokens",
