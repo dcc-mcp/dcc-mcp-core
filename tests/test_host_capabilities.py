@@ -12,7 +12,6 @@ from pathlib import Path
 import jsonschema
 import pytest
 
-import dcc_mcp_core.capabilities as capabilities
 from dcc_mcp_core.capabilities import HOST_CAPABILITIES_SCHEMA_ID
 from dcc_mcp_core.capabilities import HOST_CAPABILITIES_SCHEMA_VERSION
 from dcc_mcp_core.capabilities import PROBE_FAIL
@@ -26,13 +25,10 @@ from dcc_mcp_core.capabilities import make_host_capability
 from dcc_mcp_core.capabilities import register_host_capability_tool
 from dcc_mcp_core.capabilities import summarize_host_capabilities
 from dcc_mcp_core.capabilities import validate_host_capabilities
+import dcc_mcp_core.host_capabilities as capabilities
 
 SCHEMA_PATH = (
-    Path(__file__).resolve().parent.parent
-    / "python"
-    / "dcc_mcp_core"
-    / "schemas"
-    / "host-capabilities-v1.schema.json"
+    Path(__file__).resolve().parent.parent / "python" / "dcc_mcp_core" / "schemas" / "host-capabilities-v1.schema.json"
 )
 
 
@@ -110,9 +106,7 @@ def _python_is_valid(payload):
 def test_schema_document_is_packaged_and_pinned_to_this_contract():
     document = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
     assert document["$id"] == HOST_CAPABILITIES_SCHEMA_ID
-    assert document["properties"]["schema_version"]["const"] == (
-        HOST_CAPABILITIES_SCHEMA_VERSION
-    )
+    assert document["properties"]["schema_version"]["const"] == (HOST_CAPABILITIES_SCHEMA_VERSION)
     assert document["properties"]["schema_name"]["const"] == "dcc-mcp/host-capabilities"
     for required in ("host_version", "adapter_version", "capabilities"):
         assert required in document["required"]
@@ -196,9 +190,7 @@ def test_schema_and_python_reject_the_same_conformance_vectors(record):
 def test_passing_probe_is_available():
     manifest = _manifest([_capability()])
     summary = summarize_host_capabilities(manifest)
-    assert [entry["key"] for entry in summary["available"]] == [
-        "workflow.api_format"
-    ]
+    assert [entry["key"] for entry in summary["available"]] == ["workflow.api_format"]
     assert summary["totals"] == {
         "available": 1,
         "declared": 0,
@@ -256,9 +248,7 @@ def test_declaration_only_cannot_claim_a_passing_probe():
 @pytest.mark.parametrize("timestamp", ["yesterday", "2026-11-18T00:00:00"])
 def test_invalid_probe_timestamp_is_rejected(timestamp):
     with pytest.raises(HostCapabilityValidationError, match="RFC 3339"):
-        make_host_capability(
-            "render.lpe", True, PROBE_PASS, probed_at=timestamp
-        )
+        make_host_capability("render.lpe", True, PROBE_PASS, probed_at=timestamp)
 
     payload = _manifest([])
     payload["probed_at"] = timestamp
@@ -280,9 +270,7 @@ def test_impossible_calendar_timestamps_are_rejected_at_both_levels():
     )
     for timestamp in timestamps:
         with pytest.raises(HostCapabilityValidationError, match="RFC 3339"):
-            make_host_capability(
-                "render.lpe", True, PROBE_PASS, probed_at=timestamp
-            )
+            make_host_capability("render.lpe", True, PROBE_PASS, probed_at=timestamp)
         payload = _manifest([])
         payload["probed_at"] = timestamp
         with pytest.raises(HostCapabilityValidationError, match="RFC 3339"):
@@ -291,9 +279,7 @@ def test_impossible_calendar_timestamps_are_rejected_at_both_levels():
 
 @pytest.mark.parametrize("timestamp", ["2026-11-18T00:00:00Z", "2026-11-18T08:00:00+08:00"])
 def test_valid_probe_timestamps_are_preserved(timestamp):
-    record = make_host_capability(
-        "render.lpe", True, PROBE_PASS, probed_at=timestamp
-    )
+    record = make_host_capability("render.lpe", True, PROBE_PASS, probed_at=timestamp)
     assert record["probed_at"] == timestamp
 
 
@@ -365,9 +351,7 @@ def test_version_string_support_is_preserved():
 @pytest.mark.parametrize("supported", ["false", "False", "0", "no", "off"])
 def test_false_like_support_strings_are_rejected(supported):
     with pytest.raises(HostCapabilityValidationError):
-        make_host_capability(
-            "render.lpe", supported, PROBE_PASS, probed_at="2026-11-18T00:00:00Z"
-        )
+        make_host_capability("render.lpe", supported, PROBE_PASS, probed_at="2026-11-18T00:00:00Z")
 
 
 def test_duplicate_keys_are_rejected():
@@ -504,9 +488,7 @@ def test_tool_registration_serves_the_summary_from_a_provider():
         calls["count"] += 1
         return _manifest([_capability()])
 
-    assert register_host_capability_tool(
-        server, dcc_name="comfyui", provider=provider
-    ) is True
+    assert register_host_capability_tool(server, dcc_name="comfyui", provider=provider) is True
     name = server._server.registry.registered[0][0]
     assert name == "dcc_host_capabilities"
 
@@ -560,9 +542,7 @@ def test_tool_returns_structured_error_when_provider_fails():
     def provider():
         raise RuntimeError("host bridge unavailable")
 
-    assert register_host_capability_tool(
-        server, dcc_name="comfyui", provider=provider
-    )
+    assert register_host_capability_tool(server, dcc_name="comfyui", provider=provider)
     handler = server._server.registry.handlers["dcc_host_capabilities"]
     result = handler({})
     assert result["success"] is False
@@ -574,6 +554,4 @@ def test_tool_registration_is_skipped_without_a_server_registry():
     class _Bare:
         pass
 
-    assert register_host_capability_tool(
-        _Bare(), dcc_name="comfyui", provider=lambda: _manifest([])
-    ) is False
+    assert register_host_capability_tool(_Bare(), dcc_name="comfyui", provider=lambda: _manifest([])) is False
