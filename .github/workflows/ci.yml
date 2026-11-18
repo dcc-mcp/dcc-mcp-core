@@ -389,6 +389,9 @@ jobs:
       - name: Windows process-tree runtime regression
         if: matrix.os == 'windows-latest'
         run: vx cargo test -p dcc-mcp-cli --lib infra::github_issues::tests::bounded_child_timeout_terminates_descendants_that_inherit_pipes -- --exact
+      - name: Windows adapter probe inherited-writer regression
+        if: matrix.os == 'windows-latest'
+        run: vx cargo test -p dcc-mcp-cli --lib application::adapter_import::tests::probe_timeout_terminates_inherited_writer -- --exact
       - name: Tracy feature compile smoke
         run: vx cargo check -p dcc-mcp-server --no-default-features --features gateway-daemon,tracy
       # Verify the composition binary still builds in its slim variants

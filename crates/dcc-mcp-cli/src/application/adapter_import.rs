@@ -24,11 +24,21 @@
 //! `missing`, which is exactly the noise this check must not add.
 
 use std::collections::BTreeMap;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
+use std::sync::mpsc::{self, Receiver};
 use std::thread;
 use std::time::{Duration, Instant};
+
+#[cfg(windows)]
+use std::mem::size_of;
+#[cfg(unix)]
+use std::os::unix::process::CommandExt as _;
+#[cfg(windows)]
+use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
+#[cfg(windows)]
+use std::os::windows::process::CommandExt as _;
 
 use dcc_mcp_catalog::{
     CatalogEntry, CoreBoundPolicy, CoreRuntimeReport, RuntimeVerdict, check_runtime,
@@ -47,6 +57,8 @@ pub const PYTHON_EXECUTABLE_ENV: &str = "DCC_MCP_PYTHON_EXECUTABLE";
 
 /// Hard ceiling for one interpreter probe.
 const PROBE_TIMEOUT: Duration = Duration::from_secs(60);
+/// Bounded cleanup after the interpreter tree is terminated.
+const PROBE_CLEANUP_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Result of one adapter import probe.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -484,17 +496,24 @@ fn probe_status(probe: &Value) -> AdapterImportStatus {
 
 /// Spawn `<python> -c <script> <module> <distribution>` and parse its JSON report.
 ///
-/// Both pipes are drained on background threads from the moment the child is
-/// spawned. Waiting for exit before reading is a deadlock: once the child fills
-/// the OS pipe buffer it blocks in `write` and never exits, so a chatty host
-/// interpreter (banner, licensing text, warnings) would hang until the timeout
-/// and then be reported as `unavailable` — silently hiding a broken adapter.
+/// Both pipes are drained from the moment the child starts, and the interpreter
+/// owns a separate process group or job. The shared deadline covers the
+/// interpreter, inherited writers, and pipe-reader cleanup. Normal completion
+/// still collects complete output; timeout remains an `unavailable` probe.
 fn run_probe(
     python: &Path,
     module: &str,
     distribution: &str,
 ) -> Result<Map<String, Value>, String> {
-    let mut child = Command::new(python)
+    let mut command = Command::new(python);
+    #[cfg(unix)]
+    command.process_group(0);
+    #[cfg(windows)]
+    {
+        const CREATE_SUSPENDED: u32 = 0x0000_0004;
+        command.creation_flags(CREATE_SUSPENDED);
+    }
+    let child = command
         .env("PYTHONDONTWRITEBYTECODE", "1")
         .arg("-c")
         .arg(PROBE_SCRIPT)
@@ -506,22 +525,26 @@ fn run_probe(
         .spawn()
         .map_err(|err| format!("interpreter_not_launchable: {err}"))?;
 
-    // Drain both pipes from the moment the child starts. Reading them only
-    // after exit deadlocks as soon as the child fills the OS pipe buffer.
-    let stdout_thread = child
+    // Drain both pipes from the moment the child starts and keep all cleanup
+    // inside the same deadline as the interpreter process tree.
+    let mut tree = ProbeChildTree::adopt(child)?;
+    let stdout = tree
+        .child
         .stdout
         .take()
-        .map(|pipe| thread::spawn(|| read_pipe(pipe)));
-    let stderr_thread = child
+        .ok_or_else(|| "probe_failed: stdout was unavailable".to_string())?;
+    let stderr = tree
+        .child
         .stderr
         .take()
-        .map(|pipe| thread::spawn(|| read_pipe(pipe)));
+        .ok_or_else(|| "probe_failed: stderr was unavailable".to_string())?;
+    let readers = ProbeReaders::spawn(stdout, stderr);
 
-    // Bound the probe: importing an adapter inside a live host can block, and
-    // `doctor` must never hang on one unresponsive interpreter.
+    // One deadline covers the interpreter, inherited writers, and pipe readers.
     let deadline = Instant::now() + PROBE_TIMEOUT;
     loop {
-        if child
+        if tree
+            .child
             .try_wait()
             .map_err(|err| format!("probe_failed: {err}"))?
             .is_some()
@@ -529,12 +552,9 @@ fn run_probe(
             break;
         }
         if Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
-            // Join before returning so the reader threads never outlive the
-            // scope that owns their pipes.
-            drop(stdout_thread.and_then(|handle| handle.join().ok()));
-            drop(stderr_thread.and_then(|handle| handle.join().ok()));
+            let cleanup = Instant::now() + PROBE_CLEANUP_TIMEOUT;
+            let reaped = tree.terminate_and_reap(cleanup);
+            let drained = readers.collect_until(cleanup).is_ok();
             return Err(format!(
                 "probe_timed_out_after_{}s",
                 PROBE_TIMEOUT.as_secs()
@@ -543,16 +563,16 @@ fn run_probe(
         thread::sleep(Duration::from_millis(25));
     }
 
-    let status = child.wait().map_err(|err| format!("probe_failed: {err}"))?;
-    let stdout = stdout_thread
-        .and_then(|handle| handle.join().ok())
-        .unwrap_or_default();
-    let stderr = stderr_thread
-        .and_then(|handle| handle.join().ok())
-        .unwrap_or_default();
+    let status = tree
+        .child
+        .wait()
+        .map_err(|err| format!("probe_failed: {err}"))?;
+    let pipes = readers
+        .collect_until(Instant::now() + PROBE_CLEANUP_TIMEOUT)
+        .map_err(|err| format!("probe_failed: {err}"))?;
 
-    let stdout_text = String::from_utf8_lossy(&stdout);
-    let stderr_text = String::from_utf8_lossy(&stderr);
+    let stdout_text = String::from_utf8_lossy(&pipes.stdout);
+    let stderr_text = String::from_utf8_lossy(&pipes.stderr);
     let Some(line) = stdout_text
         .lines()
         .rev()
@@ -573,11 +593,184 @@ fn run_probe(
         })
 }
 
-/// Read a child's stdout or stderr pipe to EOF on a background thread.
-fn read_pipe<R: Read>(mut pipe: R) -> Vec<u8> {
-    let mut buffer = Vec::new();
-    let _ = pipe.read_to_end(&mut buffer);
-    buffer
+/// A probe interpreter and every helper it starts are cleaned up as one tree.
+struct ProbeChildTree {
+    child: Child,
+    #[cfg(unix)]
+    process_group: i32,
+    #[cfg(windows)]
+    job: OwnedHandle,
+}
+
+impl ProbeChildTree {
+    fn adopt(child: Child) -> Result<Self, String> {
+        #[cfg(unix)]
+        {
+            let process_group = child.id() as i32;
+            return Ok(Self {
+                child,
+                process_group,
+            });
+        }
+        #[cfg(windows)]
+        {
+            let job = assign_probe_job(&child)?;
+            resume_probe_process(&child)?;
+            return Ok(Self { child, job });
+        }
+        #[cfg(not(any(unix, windows)))]
+        Ok(Self { child })
+    }
+
+    fn terminate_and_reap(&mut self, deadline: Instant) -> bool {
+        let terminated = self.terminate_descendants();
+        let _ = self.child.kill();
+        let reaped = loop {
+            match self.child.try_wait() {
+                Ok(Some(_)) => break true,
+                Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(10)),
+                Ok(None) | Err(_) => break false,
+            }
+        };
+        terminated && reaped
+    }
+
+    fn terminate_descendants(&self) -> bool {
+        #[cfg(unix)]
+        {
+            let result = unsafe { libc::kill(-self.process_group, libc::SIGKILL) };
+            result == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
+        }
+        #[cfg(windows)]
+        {
+            use windows_sys::Win32::Foundation::HANDLE;
+            use windows_sys::Win32::System::JobObjects::TerminateJobObject;
+            unsafe { TerminateJobObject(self.job.as_raw_handle() as HANDLE, 1) != 0 }
+        }
+        #[cfg(not(any(unix, windows)))]
+        {
+            let _ = self;
+            true
+        }
+    }
+}
+
+#[cfg(windows)]
+fn assign_probe_job(child: &Child) -> Result<OwnedHandle, String> {
+    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
+    use windows_sys::Win32::System::JobObjects::{
+        AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
+        SetInformationJobObject,
+    };
+
+    // SAFETY: null name and security attributes request an unnamed private job.
+    let job = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
+    if job.is_null() {
+        return Err(format!(
+            "interpreter_not_launchable: job creation failed: {}",
+            std::io::Error::last_os_error()
+        ));
+    }
+    let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+    limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+    // SAFETY: pointer and size match the requested job information class.
+    let configured = unsafe {
+        SetInformationJobObject(
+            job,
+            JobObjectExtendedLimitInformation,
+            &limits as *const _ as *const _,
+            size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+        )
+    };
+    let process = child.as_raw_handle().ok_or_else(|| {
+        "interpreter_not_launchable: child exited before job assignment".to_string()
+    })?;
+    // SAFETY: the standard-library child handle remains live for assignment.
+    let assigned =
+        configured != 0 && unsafe { AssignProcessToJobObject(job, process as HANDLE) } != 0;
+    if !assigned {
+        let error = std::io::Error::last_os_error();
+        // SAFETY: `job` is live and not yet owned.
+        unsafe { CloseHandle(job) };
+        return Err(format!(
+            "interpreter_not_launchable: job assignment failed: {error}"
+        ));
+    }
+    // SAFETY: CreateJobObjectW returned a valid Win32 handle.
+    Ok(unsafe { OwnedHandle::from_raw_handle(job) })
+}
+
+#[cfg(windows)]
+fn resume_probe_process(child: &Child) -> Result<(), String> {
+    use windows_sys::Win32::Foundation::HANDLE;
+    use windows_sys::Win32::System::Threading::ResumeThread;
+    // SAFETY: the child is live and suspended until this call.
+    let result = unsafe { ResumeThread(child.as_raw_handle().unwrap() as HANDLE) };
+    if result == u32::MAX {
+        return Err(format!(
+            "interpreter_not_launchable: resume failed: {}",
+            std::io::Error::last_os_error()
+        ));
+    }
+    Ok(())
+}
+
+struct ProbeReaders {
+    receiver: mpsc::Receiver<ProbeIoEvent>,
+    handles: Vec<thread::JoinHandle<()>>,
+}
+
+impl ProbeReaders {
+    fn spawn(stdout: impl Read + Send + 'static, stderr: impl Read + Send + 'static) -> Self {
+        let (sender, receiver) = mpsc::channel();
+        let stdout_sender = sender.clone();
+        let stdout_handle = thread::spawn(move || {
+            let mut stdout = stdout;
+            let mut bytes = Vec::new();
+            let _ = stdout.read_to_end(&mut bytes);
+            let _ = stdout_sender.send((true, bytes));
+        });
+        let stderr_handle = thread::spawn(move || {
+            let mut stderr = stderr;
+            let mut bytes = Vec::new();
+            let _ = stderr.read_to_end(&mut bytes);
+            let _ = sender.send((false, bytes));
+        });
+        Self {
+            receiver,
+            handles: vec![stdout_handle, stderr_handle],
+        }
+    }
+
+    fn collect_until(self, deadline: Instant) -> Result<std::process::Output, &'static str> {
+        let mut stdout = None;
+        let mut stderr = None;
+        for _ in 0..2 {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Err("pipe_reader_timeout");
+            }
+            match self.receiver.recv_timeout(remaining) {
+                Ok((true, bytes)) => stdout = Some(bytes),
+                Ok((false, bytes)) => stderr = Some(bytes),
+                Err(_) => return Err("pipe_reader_timeout"),
+            }
+        }
+        for handle in self.handles {
+            while !handle.is_finished() && Instant::now() < deadline {
+                thread::sleep(Duration::from_millis(1));
+            }
+            if !handle.is_finished() || handle.join().is_err() {
+                return Err("pipe_reader_cleanup_failed");
+            }
+        }
+        Ok(std::process::Output {
+            status: std::process::ExitStatus::default(),
+            stdout: stdout.ok_or("pipe_reader_failed")?,
+            stderr: stderr.ok_or("pipe_reader_failed")?,
+        })
+    }
 }
 
 fn first_line(text: &str) -> Option<&str> {
@@ -730,7 +923,7 @@ if dist_name:
 
 if module_name:
     try:
-        module = __import__(module_name)
+        module = __import__(module_name, fromlist=["__name__"])
         report["imported"] = True
         origin = getattr(module, "__file__", None)
         report["module_origin"] = str(origin) if origin else None
@@ -769,6 +962,27 @@ mod tests {
         assert_eq!(module_name("dcc-mcp-maya"), "dcc_mcp_maya");
         assert_eq!(module_name("dcc_mcp_3dsmax"), "dcc_mcp_3dsmax");
         assert_eq!(module_name("dcc-mcp-PowerPoint"), "dcc_mcp_powerpoint");
+    }
+
+    #[test]
+    fn import_module_keeps_a_dotted_catalog_entry_point() {
+        let entry: CatalogEntry = serde_json::from_value(json!({
+            "name": "dcc-mcp-fixture",
+            "description": "Fixture",
+            "dcc": ["fixture"],
+            "tags": ["adapter"],
+            "version": "1.0.0",
+            "install": {
+                "type": "pip",
+                "pip_package": "dcc-mcp-fixture",
+                "entry_point": "dcc_mcp_fixture.cli:create_server",
+            },
+        }))
+        .unwrap();
+        assert_eq!(
+            import_module(&entry, "dcc-mcp-fixture"),
+            "dcc_mcp_fixture.cli"
+        );
     }
 
     #[test]
@@ -1131,9 +1345,54 @@ mod tests {
         assert!(report["python_version"].as_str().unwrap().starts_with("3."));
     }
 
-    /// Regression guard for the pipe deadlock: a child that writes more than
-    /// the OS pipe buffer holds must still be read to completion. Before the
-    /// fix this hung until the timeout and returned `probe_timed_out`.
+    /// The probe must read the declared leaf of a dotted entry point, not the
+    /// parent package that bare `__import__` returns.
+    #[test]
+    fn probe_reads_dotted_leaf_version_and_origin() {
+        let Some(python) = real_python() else {
+            eprintln!("skipping: no python interpreter available");
+            return;
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let package = dir.path().join("dcc_mcp_fixture");
+        std::fs::create_dir(&package).unwrap();
+        std::fs::write(package.join("__init__.py"), "__version__ = '0.1.0'\n").unwrap();
+        std::fs::write(package.join("leaf.py"), "__version__ = '1.0.0'\n").unwrap();
+        let metadata = dir.path().join("dcc_mcp_fixture-1.0.0.dist-info");
+        std::fs::create_dir(&metadata).unwrap();
+        std::fs::write(
+            metadata.join("METADATA"),
+            "Name: dcc-mcp-fixture\nVersion: 1.0.0\n\n",
+        )
+        .unwrap();
+
+        let mut command = Command::new(&python);
+        command
+            .args([
+                "-S",
+                "-c",
+                "import sys;sys.path.insert(0,sys.argv.pop(1));exec(sys.argv.pop(1))",
+            ])
+            .arg(dir.path())
+            .args([PROBE_SCRIPT, "dcc_mcp_fixture.leaf", "dcc-mcp-fixture"]);
+        let output = command.output().expect("probe helper should run");
+        assert!(output.status.success());
+        let report: Map<String, Value> = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(report["imported"], true);
+        assert_eq!(report["dist_version"], "1.0.0");
+        assert_eq!(report["module_version"], "1.0.0");
+        assert!(
+            report["module_origin"]
+                .as_str()
+                .unwrap()
+                .replace('\\', "/")
+                .ends_with("dcc_mcp_fixture/leaf.py")
+        );
+        assert_eq!(grade(&report, None), AdapterImportStatus::Ok);
+    }
+
+    /// Regression guard for a chatty normal child: output larger than the OS
+    /// pipe buffer must still be collected in full.
     #[test]
     fn probe_reads_a_child_that_floods_stderr() {
         let Some(python) = real_python() else {
@@ -1157,28 +1416,24 @@ mod tests {
             .stderr(Stdio::piped())
             .spawn()
             .expect("interpreter should launch");
-        let stdout_thread = child
-            .stdout
-            .take()
-            .map(|pipe| thread::spawn(move || read_pipe(pipe)));
-        let stderr_thread = child
-            .stderr
-            .take()
-            .map(|pipe| thread::spawn(move || read_pipe(pipe)));
+        let stdout = child.stdout.take().expect("stdout is piped");
+        let stderr = child.stderr.take().expect("stderr is piped");
+        let readers = ProbeReaders::spawn(stdout, stderr);
 
         // No timeout dance here: draining concurrently means this returns as
         // soon as the child exits. A deadlock would hang the test suite.
         let status = child.wait().expect("child should be reaped");
-        let stdout = stdout_thread
-            .and_then(|handle| handle.join().ok())
-            .unwrap_or_default();
-        let stderr = stderr_thread
-            .and_then(|handle| handle.join().ok())
-            .unwrap_or_default();
+        let pipes = readers
+            .collect_until(Instant::now() + PROBE_CLEANUP_TIMEOUT)
+            .expect("noisy child output must drain within the cleanup deadline");
 
         assert!(status.success(), "child exited with {status}");
-        assert_eq!(stderr.len(), 256 * 1024, "stderr should be fully drained");
-        let text = String::from_utf8_lossy(&stdout);
+        assert_eq!(
+            pipes.stderr.len(),
+            256 * 1024,
+            "stderr should be fully drained"
+        );
+        let text = String::from_utf8_lossy(&pipes.stdout);
         assert!(text.contains("\"imported\": true"), "stdout was: {text}");
     }
 
@@ -1215,6 +1470,84 @@ mod tests {
         assert_eq!(targets.len(), 1);
         // Falls back to the naming convention so the probe still runs.
         assert_eq!(targets[0].module, "dcc_mcp_maya");
+    }
+
+    fn writer_wrapper_python(dir: &Path, name: &str, mode: &str) -> PathBuf {
+        let path = dir.join(name);
+        let script = format!(
+            r#"import os, subprocess, sys, time
+mode = {mode:?}
+helper = subprocess.Popen([sys.executable, "-c", "import sys,time; print('helper-out', flush=True); print('helper-err', file=sys.stderr, flush=True); time.sleep(30)"], stdin=subprocess.DEVNULL, stdout=None, stderr=None)
+open(os.environ["DCC_MCP_TEST_PROBE_WRITER_READY"], "w").write("ready")
+if mode == "parent-exit":
+    sys.exit(0)
+if mode == "timeout":
+    time.sleep(30)
+helper.terminate()
+helper.wait(timeout=5)
+"#
+        );
+        std::fs::write(&path, script).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+            permissions.set_mode(0o700);
+            std::fs::set_permissions(&path, permissions).unwrap();
+        }
+        path
+    }
+
+    fn wait_for_writer_ready(path: &Path, deadline: Instant) -> bool {
+        while Instant::now() < deadline {
+            if path.exists() {
+                return true;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        false
+    }
+
+    #[test]
+    fn probe_normal_parent_exit_drains_inherited_writer() {
+        let Some(python) = real_python() else {
+            eprintln!("skipping: no python interpreter available");
+            return;
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let ready = dir.path().join("writer.ready");
+        let wrapper = writer_wrapper_python(dir.path(), "wrapper-parent-exit", "parent-exit");
+        let started = Instant::now();
+        let report = run_probe(&wrapper, "json", "json")
+            .expect("normal parent exit with an inherited writer must finish");
+        assert_eq!(report["imported"], false);
+        assert!(started.elapsed() < Duration::from_secs(10));
+        assert!(wait_for_writer_ready(
+            &ready,
+            Instant::now() + Duration::from_secs(1)
+        ));
+    }
+
+    #[test]
+    fn probe_timeout_terminates_inherited_writer() {
+        let Some(python) = real_python() else {
+            eprintln!("skipping: no python interpreter available");
+            return;
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let ready = dir.path().join("writer-timeout.ready");
+        let wrapper = writer_wrapper_python(dir.path(), "wrapper-timeout", "timeout");
+        let started = Instant::now();
+        let error = run_probe(&wrapper, "json", "json").unwrap_err();
+        assert!(
+            error.starts_with("probe_timed_out_after_"),
+            "error: {error}"
+        );
+        assert!(started.elapsed() < Duration::from_secs(10));
+        assert!(wait_for_writer_ready(
+            &ready,
+            Instant::now() + Duration::from_secs(1)
+        ));
     }
 
     #[test]
