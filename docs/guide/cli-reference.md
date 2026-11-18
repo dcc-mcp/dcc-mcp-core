@@ -641,7 +641,13 @@ startup, and never executes install, uninstall or rollback actions. It reads
 the bundled catalog by default and does not refresh the online catalog.
 It emits the existing Install SOP v1 report with only a verification step.
 Malformed arguments exit 2, plan/preflight failures exit 10, and failed or
-unavailable imports/version mismatches exit 40. A successful local check exits
+unavailable imports/version mismatches or incompatible target Core exit 40.
+The error codes are ADAPTER_VERSION_MISMATCH, ADAPTER_CORE_INCOMPATIBLE,
+ADAPTER_IMPORT_UNAVAILABLE, and ADAPTER_IMPORT_FAILED. A failed probe also
+retains safe diagnostic evidence in the optional expected_adapter_version,
+observed_adapter_version, observed_distribution_source, and
+observed_core_compatibility verify fields.
+A successful local check exits
 0 with `status=partial`, `directly_usable=false` and
 `LIVE_DCC_VERIFICATION_REQUIRED`; it cannot establish host readiness.
 Non-pip verification is currently unsupported and exits 40.

@@ -56,6 +56,14 @@ pub struct InstallVerifyReport {
     pub directly_usable: bool,
     pub failure_stage: Option<String>,
     pub failure_reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_adapter_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observed_adapter_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observed_distribution_source: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observed_core_compatibility: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -112,6 +120,10 @@ pub(super) fn execution_report_for_plan(plan: &InstallPlan) -> InstallExecutionR
             directly_usable: false,
             failure_stage: None,
             failure_reason: None,
+            expected_adapter_version: None,
+            observed_adapter_version: None,
+            observed_distribution_source: None,
+            observed_core_compatibility: None,
         },
         error: None,
     }
@@ -139,6 +151,10 @@ pub(super) fn empty_execution_report(dcc_type: String) -> InstallExecutionReport
             directly_usable: false,
             failure_stage: None,
             failure_reason: None,
+            expected_adapter_version: None,
+            observed_adapter_version: None,
+            observed_distribution_source: None,
+            observed_core_compatibility: None,
         },
         error: None,
     }

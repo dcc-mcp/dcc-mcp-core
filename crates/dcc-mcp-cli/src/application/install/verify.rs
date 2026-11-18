@@ -2,13 +2,22 @@
 
 use std::path::PathBuf;
 
+use serde_json::Value;
+
 use super::InstallService;
 use super::report::{
     InstallExecutionReport, execution_report_for_plan, failed_report, plan_failure_report,
-    safe_report_identifier, success_next_steps,
+    safe_report_identifier, safe_report_identifier as safe_version_identifier, success_next_steps,
 };
 use crate::application::adapter_import::{AdapterImportTarget, import_module, probe_target};
 use crate::domain::install::{InstallRequest, InstallStepAction};
+
+fn observed_version(value: &Value) -> Option<String> {
+    value
+        .as_str()
+        .map(safe_version_identifier)
+        .filter(|value| value !== "unknown")
+}
 
 impl InstallService {
     /// Verify pinned package metadata and imports in the explicitly selected interpreter.
@@ -53,15 +62,30 @@ impl InstallService {
             python_source: Some("install_plan".into()),
         };
         let probe = probe_target(&target);
+        report.verify.observed_adapter_version = observed_version(&probe["dist_version"])
+            .or_else(|| observed_version(&probe["module_version"]));
+        report.verify.expected_adapter_version = version
+            .as_deref()
+            .map(safe_version_identifier)
+            .filter(|value| value != "unknown");
+        report.verify.observed_distribution_source = observed_version(&probe["dist_source"]);
+        if probe
+            .get("core_compatibility")
+            .is_some_and(|value| !value.is_null())
+        {
+            report.verify.observed_core_compatibility =
+                Some(probe["core_compatibility"].clone());
+        }
+        let pinned_version = version.as_deref();
         let code = if probe["status"] == "version_mismatch" {
             Some("ADAPTER_VERSION_MISMATCH")
+        } else if probe["status"] == "incompatible_core" {
+            Some("ADAPTER_CORE_INCOMPATIBLE")
         } else if probe["status"] == "unavailable" {
             Some("ADAPTER_IMPORT_UNAVAILABLE")
         } else if probe["status"] != "ok" {
             Some("ADAPTER_IMPORT_FAILED")
-        } else if version
-            .as_deref()
-            .is_none_or(|expected| probe["dist_version"] != expected)
+        } else if pinned_version.is_none_or(|expected| probe["dist_version"] != expected)
         {
             Some("ADAPTER_VERSION_MISMATCH")
         } else {
