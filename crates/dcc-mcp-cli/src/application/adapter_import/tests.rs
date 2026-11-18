@@ -715,10 +715,16 @@ fn assert_writer_exited(pid: u32, context: &str) {
     {
         use windows_sys::Win32::Foundation::{HANDLE, WAIT_OBJECT_0};
         use windows_sys::Win32::System::Threading::{
-            OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, SYNCHRONIZE, WaitForSingleObject,
+            OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE,
+            WaitForSingleObject,
         };
-        let handle =
-            unsafe { OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+        let handle = unsafe {
+            OpenProcess(
+                PROCESS_SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION,
+                0,
+                pid,
+            )
+        };
         assert!(
             !handle.is_null(),
             "{context}: writer exit status is unknown"
@@ -792,6 +798,7 @@ fn probe_normal_parent_exit_drains_inherited_writer() {
         python,
         pid_path,
         ready_path,
+        dir_path,
         ..
     } = fixture;
     let env_overrides = vec![
@@ -842,6 +849,7 @@ fn probe_timeout_terminates_inherited_writer() {
         python,
         pid_path,
         ready_path,
+        dir_path,
         ..
     } = fixture;
     let started = Instant::now();

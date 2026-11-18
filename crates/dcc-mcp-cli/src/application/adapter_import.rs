@@ -621,9 +621,7 @@ fn run_probe_with_env(
     // final report. Give the owned group or job the remaining budget to finish
     // before terminating it; an unconfirmed state is never treated as clean.
     let reaped = loop {
-        if let Err(err) = spool_overflow(&mut tree) {
-            return Err(err);
-        }
+        spool_overflow(&mut tree)?;
         match tree.descendants_present() {
             Ok(false) => {
                 break ProbeCleanupReceipt {
@@ -729,20 +727,6 @@ impl ProbeChildTree {
             }
         };
         ProbeCleanupReceipt { terminated, reaped }
-    }
-
-    /// Poll the owned process group or job until all descendants exit. A
-    /// failed platform query is a cleanup failure, never a clean receipt.
-    fn wait_for_descendants(&self, deadline: Instant) -> bool {
-        loop {
-            match self.descendants_present() {
-                Ok(false) => return true,
-                Ok(true) if Instant::now() < deadline => {
-                    thread::sleep(PROBE_POLL_INTERVAL);
-                }
-                Ok(true) | Err(_) => return false,
-            }
-        }
     }
 
     fn terminate_descendants(&self) -> bool {
