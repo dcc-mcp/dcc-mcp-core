@@ -1565,7 +1565,7 @@ mod tests {
         std::fs::create_dir(&package).unwrap();
         std::fs::write(package.join("__init__.py"), "__version__ = 'parent'\n").unwrap();
         std::fs::write(package.join("leaf.py"), "__version__ = '4.2.0'\n").unwrap();
-        let metadata = dir.join("dcc_mcp_prod_leaf_fixture-4.2.0.dist-info");
+        let metadata = dir.path().join("dcc_mcp_prod_leaf_fixture-4.2.0.dist-info");
         std::fs::create_dir(&metadata).unwrap();
         std::fs::write(
             metadata.join("METADATA"),
