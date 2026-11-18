@@ -428,10 +428,10 @@ fn grade(report: &Map<String, Value>, core: Option<&CoreRuntimeReport>) -> Adapt
     }
     let dist_version = report.get("dist_version").and_then(Value::as_str);
     let module_version = report.get("module_version").and_then(Value::as_str);
-    if let (Some(dist), Some(module)) = (dist_version, module_version) {
-        if dist != module {
-            return AdapterImportStatus::VersionMismatch;
-        }
+    if let (Some(dist), Some(module)) = (dist_version, module_version)
+        && dist != module
+    {
+        return AdapterImportStatus::VersionMismatch;
     }
     let conclusive_core_mismatch = core.is_some_and(|core| {
         matches!(
