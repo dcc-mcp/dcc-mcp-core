@@ -28,14 +28,42 @@ from typing import Any
 from typing import Callable
 
 from dcc_mcp_core import json_dumps
+from dcc_mcp_core.host.capabilities import HOST_CAPABILITIES_SCHEMA_ID
+from dcc_mcp_core.host.capabilities import HOST_CAPABILITIES_SCHEMA_VERSION
+from dcc_mcp_core.host.capabilities import PROBE_FAIL
+from dcc_mcp_core.host.capabilities import PROBE_NOT_RUN
+from dcc_mcp_core.host.capabilities import PROBE_PASS
+from dcc_mcp_core.host.capabilities import PROBE_RESULTS
+from dcc_mcp_core.host.capabilities import PROBE_UNSUPPORTED
+from dcc_mcp_core.host.capabilities import HostCapabilityCache
+from dcc_mcp_core.host.capabilities import HostCapabilityValidationError
+from dcc_mcp_core.host.capabilities import build_host_capabilities
+from dcc_mcp_core.host.capabilities import make_host_capability
+from dcc_mcp_core.host.capabilities import register_host_capability_tool
+from dcc_mcp_core.host.capabilities import summarize_host_capabilities
+from dcc_mcp_core.host.capabilities import validate_host_capabilities
 
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "HOST_CAPABILITIES_SCHEMA_ID",
+    "HOST_CAPABILITIES_SCHEMA_VERSION",
+    "PROBE_FAIL",
+    "PROBE_NOT_RUN",
+    "PROBE_PASS",
+    "PROBE_RESULTS",
+    "PROBE_UNSUPPORTED",
     "CapabilityManifestBuilder",
     "CapabilityRecord",
+    "HostCapabilityCache",
+    "HostCapabilityValidationError",
+    "build_host_capabilities",
     "build_manifest_payload",
+    "make_host_capability",
     "register_capability_mcp_tool",
+    "register_host_capability_tool",
+    "summarize_host_capabilities",
+    "validate_host_capabilities",
 ]
 
 _SKILL_STUB_PREFIX = "__skill__"
