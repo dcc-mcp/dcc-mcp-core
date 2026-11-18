@@ -7,7 +7,7 @@ use serde_json::Value;
 use super::InstallService;
 use super::report::{
     InstallExecutionReport, execution_report_for_plan, failed_report, plan_failure_report,
-    safe_report_identifier, safe_report_identifier as safe_version_identifier, success_next_steps,
+    safe_report_identifier, success_next_steps,
 };
 use crate::application::adapter_import::{AdapterImportTarget, import_module, probe_target};
 use crate::domain::install::{InstallRequest, InstallStepAction};
@@ -15,7 +15,7 @@ use crate::domain::install::{InstallRequest, InstallStepAction};
 fn observed_version(value: &Value) -> Option<String> {
     value
         .as_str()
-        .map(safe_version_identifier)
+        .map(|value| safe_report_identifier(value, "unknown"))
         .filter(|value| value != "unknown")
 }
 
@@ -66,7 +66,7 @@ impl InstallService {
             .or_else(|| observed_version(&probe["module_version"]));
         report.verify.expected_adapter_version = version
             .as_deref()
-            .map(safe_version_identifier)
+            .map(|value| safe_report_identifier(value, "unknown"))
             .filter(|value| value != "unknown");
         report.verify.observed_distribution_source = observed_version(&probe["dist_source"]);
         if probe
