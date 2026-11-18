@@ -631,7 +631,12 @@ fn run_probe_with_env(
             }
             Ok(true) => {
                 if Instant::now() >= cleanup_deadline {
-                    break tree.terminate_and_reap(cleanup_deadline);
+                    let reaped = tree.terminate_and_reap(cleanup_deadline);
+                    return if reaped.confirmed() {
+                        Err(format!("probe_timed_out_after_{}s", timeout.as_secs()))
+                    } else {
+                        Err("probe_cleanup_unconfirmed".to_string())
+                    };
                 }
                 thread::sleep(PROBE_POLL_INTERVAL);
             }
