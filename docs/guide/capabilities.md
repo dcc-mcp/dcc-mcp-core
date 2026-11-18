@@ -187,12 +187,16 @@ The contract fails closed:
 
 - `supported: true` needs a `PASS` probe, or `declaration_only: true` **and** a
   reason. A declaration is reported as `declared`, never as `available`.
+- A declaration must not claim `PASS`; `PASS` is reserved for a recorded probe.
 - `supported: false` needs a concrete blocker in `reason`, not a generic
   "unsupported".
 - A `PASS` probe cannot coexist with `supported: false`, and `FAIL` /
   `UNSUPPORTED` cannot coexist with `supported: true`.
 - `NOT_RUN` never counts as available; unknown keys, duplicate keys, malformed
-  versions, and unknown fields are rejected.
+  versions, and unknown fields are rejected. Version strings use a numeric
+  grammar, and false-like strings such as `"false"` and `"0"` are rejected.
+- `probed_at` must be an RFC 3339 date-time with a timezone at both manifest and
+  record level; schema and Python validation share these conformance rules.
 
 Adapters expose the manifest through one read-only tool, registered the same way
 as the other built-ins:
@@ -212,7 +216,16 @@ The tool is `dcc_host_capabilities` and returns the summary above, so one call
 answers "which strategies are available on this instance, and why not the
 others". Cache entries are keyed by DCC type plus host and adapter version,
 because a probe result is only valid for the build that produced it; pass
-`force_refresh: true` to re-read probes.
+`force_refresh: true` to re-read probes. Adapters whose host version can change
+between calls should also pass `provider_cache_key`, a cheap callback returning
+`(dcc_type, host_version, adapter_version)`. The tool checks that identity
+before reading the cache, so a version change cannot return the previous
+build's evidence. Provider and validation failures return
+`host_capability_provider_failed` in a structured result instead of raising an
+unhandled exception.
+
+This contract does not execute probes or wire gateway, REST, and CLI discovery;
+those remain owned by issue #2867 and adapter integrations.
 
 ---
 

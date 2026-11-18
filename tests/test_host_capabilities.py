@@ -9,8 +9,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import jsonschema
 import pytest
 
+import dcc_mcp_core.capabilities as capabilities
 from dcc_mcp_core.capabilities import HOST_CAPABILITIES_SCHEMA_ID
 from dcc_mcp_core.capabilities import HOST_CAPABILITIES_SCHEMA_VERSION
 from dcc_mcp_core.capabilities import PROBE_FAIL
@@ -64,6 +66,45 @@ def _capability(**overrides):
     )
 
 
+def _raw_capability(**overrides):
+    record = {
+        "key": "render.lpe",
+        "supported": True,
+        "probe_result": PROBE_PASS,
+        "probed_at": "2026-11-18T00:00:00Z",
+    }
+    record.update(overrides)
+    return record
+
+
+def _raw_manifest(records):
+    return {
+        "schema_name": "dcc-mcp/host-capabilities",
+        "schema_version": 1,
+        "host_version": "0.32.0",
+        "adapter_version": "0.1.6",
+        "dcc_type": "comfyui",
+        "capabilities": records,
+    }
+
+
+def _schema_validator():
+    document = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    return jsonschema.Draft202012Validator(document, format_checker=jsonschema.FormatChecker())
+
+
+def _schema_is_valid(payload):
+    return _schema_validator().is_valid(payload)
+
+
+def _python_is_valid(payload):
+    try:
+        validate_host_capabilities(payload)
+    except HostCapabilityValidationError:
+        return False
+    return True
+
+
 def test_schema_document_is_packaged_and_pinned_to_this_contract():
     document = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
     assert document["$id"] == HOST_CAPABILITIES_SCHEMA_ID
@@ -83,6 +124,59 @@ def test_schema_document_is_packaged_and_pinned_to_this_contract():
     # The schema must stay closed so an adapter cannot smuggle free-form state.
     assert document["additionalProperties"] is False
     assert capability["additionalProperties"] is False
+    assert capability["properties"]["supported"] == capabilities._hc_supported_schema()
+    assert capability["properties"]["probed_at"] == capabilities._hc_timestamp_schema()
+    assert capability["allOf"] == capabilities._hc_consistency_rules()
+
+
+@pytest.mark.parametrize(
+    "record",
+    [
+        _raw_capability(),
+        _raw_capability(
+            supported=False,
+            probe_result=PROBE_UNSUPPORTED,
+            reason="host has no editable VOP network",
+        ),
+        _raw_capability(
+            supported=True,
+            probe_result=PROBE_NOT_RUN,
+            declaration_only=True,
+            reason="adapter declares support; no probe implemented",
+        ),
+        _raw_capability(supported="6.8+"),
+        _raw_capability(probed_at="2026-11-18T08:00:00+08:00"),
+        _raw_capability(declaration_only=False),
+    ],
+)
+def test_schema_and_python_accept_the_same_conformance_vectors(record):
+    payload = _raw_manifest([record])
+    assert _schema_is_valid(payload) is True
+    assert _python_is_valid(payload) is True
+
+
+@pytest.mark.parametrize(
+    "record",
+    [
+        _raw_capability(probe_result=PROBE_FAIL),
+        _raw_capability(supported=False, probe_result=PROBE_UNSUPPORTED),
+        _raw_capability(
+            supported=True,
+            probe_result=PROBE_PASS,
+            declaration_only=True,
+            reason="unproven declaration",
+        ),
+        _raw_capability(supported=True, probe_result=PROBE_NOT_RUN),
+        _raw_capability(supported="false"),
+        _raw_capability(supported="0"),
+        _raw_capability(probed_at="yesterday"),
+        _raw_capability(probed_at="2026-11-18T00:00:00"),
+    ],
+)
+def test_schema_and_python_reject_the_same_conformance_vectors(record):
+    payload = _raw_manifest([record])
+    assert _schema_is_valid(payload) is False
+    assert _python_is_valid(payload) is False
 
 
 def test_passing_probe_is_available():
@@ -131,6 +225,39 @@ def test_claim_without_probe_requires_declaration_and_reason():
     summary = summarize_host_capabilities(_manifest([declared]))
     assert [entry["key"] for entry in summary["declared"]] == ["render.lpe"]
     assert summary["declared"][0]["declaration_only"] is True
+
+
+def test_declaration_only_cannot_claim_a_passing_probe():
+    with pytest.raises(HostCapabilityValidationError, match="PASS probe"):
+        make_host_capability(
+            "render.lpe",
+            True,
+            PROBE_PASS,
+            reason="unproven declaration",
+            probed_at="2026-11-18T00:00:00Z",
+            declaration_only=True,
+        )
+
+
+@pytest.mark.parametrize("timestamp", ["yesterday", "2026-11-18T00:00:00"])
+def test_invalid_probe_timestamp_is_rejected(timestamp):
+    with pytest.raises(HostCapabilityValidationError, match="RFC 3339"):
+        make_host_capability(
+            "render.lpe", True, PROBE_PASS, probed_at=timestamp
+        )
+
+    payload = _manifest([])
+    payload["probed_at"] = timestamp
+    with pytest.raises(HostCapabilityValidationError, match="RFC 3339"):
+        validate_host_capabilities(payload)
+
+
+@pytest.mark.parametrize("timestamp", ["2026-11-18T00:00:00Z", "2026-11-18T08:00:00+08:00"])
+def test_valid_probe_timestamps_are_preserved(timestamp):
+    record = make_host_capability(
+        "render.lpe", True, PROBE_PASS, probed_at=timestamp
+    )
+    assert record["probed_at"] == timestamp
 
 
 def test_unsupported_capability_requires_a_concrete_reason():
@@ -196,6 +323,14 @@ def test_version_string_support_is_preserved():
     )
     summary = summarize_host_capabilities(_manifest([record]))
     assert summary["available"][0]["supported"] == "6.8+"
+
+
+@pytest.mark.parametrize("supported", ["false", "False", "0", "no", "off"])
+def test_false_like_support_strings_are_rejected(supported):
+    with pytest.raises(HostCapabilityValidationError):
+        make_host_capability(
+            "render.lpe", supported, PROBE_PASS, probed_at="2026-11-18T00:00:00Z"
+        )
 
 
 def test_duplicate_keys_are_rejected():
@@ -288,6 +423,12 @@ def test_cache_key_includes_host_and_adapter_version():
     )
 
 
+def test_cache_key_cannot_collide_on_delimiter_strings():
+    assert HostCapabilityCache.cache_key("comfyui", "1|2", "3") != (
+        HostCapabilityCache.cache_key("comfyui", "1", "2|3")
+    )
+
+
 def test_cache_rejects_invalid_ttl():
     with pytest.raises(HostCapabilityValidationError):
         HostCapabilityCache(ttl_secs=-1)
@@ -337,6 +478,59 @@ def test_tool_registration_serves_the_summary_from_a_provider():
     assert result["success"] is True
     assert result["context"]["totals"]["available"] == 1
     assert calls["count"] == 1
+
+
+def test_tool_cache_uses_current_identity_and_does_not_stale_on_version_change():
+    server = _Server()
+    versions = iter(["20.5", "21.0", "21.0"])
+    calls = []
+
+    def current_identity():
+        return ("comfyui", "20.5" if len(calls) == 0 else "21.0", "0.1.6")
+
+    def provider():
+        version = next(versions)
+        calls.append(version)
+        manifest = _manifest([_capability()])
+        manifest["host_version"] = version
+        manifest["adapter_version"] = "0.1.6"
+        return manifest
+
+    cache = HostCapabilityCache(ttl_secs=300)
+    assert register_host_capability_tool(
+        server,
+        dcc_name="comfyui",
+        provider=provider,
+        cache=cache,
+        provider_cache_key=current_identity,
+    )
+    handler = server._server.registry.handlers["dcc_host_capabilities"]
+
+    first = handler({})
+    second = handler({})
+    third = handler({})
+    assert [item["context"]["host_version"] for item in (first, second, third)] == [
+        "20.5",
+        "21.0",
+        "21.0",
+    ]
+    assert calls == ["20.5", "21.0"]
+
+
+def test_tool_returns_structured_error_when_provider_fails():
+    server = _Server()
+
+    def provider():
+        raise RuntimeError("host bridge unavailable")
+
+    assert register_host_capability_tool(
+        server, dcc_name="comfyui", provider=provider
+    )
+    handler = server._server.registry.handlers["dcc_host_capabilities"]
+    result = handler({})
+    assert result["success"] is False
+    assert result["error"] == "host_capability_provider_failed"
+    assert result["context"]["exception_type"] == "RuntimeError"
 
 
 def test_tool_registration_is_skipped_without_a_server_registry():

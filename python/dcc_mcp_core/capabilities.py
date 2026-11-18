@@ -29,6 +29,7 @@ from threading import RLock
 import time
 from typing import Any
 from typing import Callable
+from urllib.parse import quote
 
 from dcc_mcp_core import json_dumps
 
@@ -545,6 +546,109 @@ _MAX_EVIDENCE_CHARS = 512
 _MAX_PROBED_AT_CHARS = 64
 _MAX_SUPPORTED_CHARS = 64
 _MAX_CAPABILITIES = 256
+_SUPPORTED_VERSION_RE = re.compile(
+    r"^[0-9]+(?:\.[0-9]+)*(?:[+._-][0-9A-Za-z][0-9A-Za-z.+_-]*)?$"
+)
+_FALSE_LIKE_SUPPORT_VALUES = frozenset(
+    {"false", "no", "off", "none", "null", "n/a", "na", "0", "-"}
+)
+
+
+def _hc_supported_schema() -> dict[str, Any]:
+    """Return the exact ``supported`` schema used by the published contract."""
+    false_like = sorted(_FALSE_LIKE_SUPPORT_VALUES)
+    return {
+        "description": (
+            "true, false, or a bounded numeric version/enum string; "
+            "false-like strings are not support claims."
+        ),
+        "oneOf": [
+            {"type": "boolean"},
+            {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": _MAX_SUPPORTED_CHARS,
+                "pattern": _SUPPORTED_VERSION_RE.pattern,
+                "not": {"enum": false_like},
+            },
+        ],
+    }
+
+
+def _hc_timestamp_schema() -> dict[str, Any]:
+    """Return the exact ``probed_at`` schema used by the published contract."""
+    return {
+        "type": "string",
+        "format": "date-time",
+        "maxLength": _MAX_PROBED_AT_CHARS,
+        "pattern": (
+            r"^[0-9]{4}-[0-9]{2}-[0-9]{2}[Tt]"
+            r"[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)?"
+            r"(?:[Zz]|[+-][0-9]{2}:[0-9]{2})$"
+        ),
+    }
+
+
+_HC_TIMESTAMP_RE = re.compile(_hc_timestamp_schema()["pattern"])
+
+
+def _hc_consistency_rules() -> list[dict[str, Any]]:
+    """Return the conditional rules shared with the JSON Schema document."""
+    claimed = {"properties": {"supported": {"not": {"enum": [False]}}}}
+    unclaimed = {"properties": {"supported": {"enum": [False]}}}
+    declared = {
+        "required": ["declaration_only"],
+        "properties": {"declaration_only": {"const": True}},
+    }
+    not_declared = {"not": declared}
+    return [
+        {
+            "if": declared,
+            "then": {
+                "properties": {"probe_result": {"not": {"enum": [PROBE_PASS]}}}
+            },
+        },
+        {
+            "if": {
+                "allOf": [
+                    claimed,
+                    not_declared,
+                    {
+                        "properties": {
+                            "probe_result": {"enum": [PROBE_FAIL, PROBE_UNSUPPORTED]}
+                        }
+                    },
+                ]
+            },
+            "then": {"not": {}},
+        },
+        {
+            "if": {
+                "allOf": [
+                    unclaimed,
+                    not_declared,
+                    {"properties": {"probe_result": {"enum": [PROBE_PASS]}}},
+                ]
+            },
+            "then": {"not": {}},
+        },
+        {
+            "if": {
+                "allOf": [
+                    claimed,
+                    not_declared,
+                    {"properties": {"probe_result": {"const": PROBE_NOT_RUN}}},
+                ]
+            },
+            "then": {"required": ["reason"]},
+        },
+        {
+            "if": {"allOf": [unclaimed, not_declared]},
+            "then": {"required": ["reason"]},
+        },
+        {"if": declared, "then": {"required": ["reason"]}},
+    ]
+
 
 _MANIFEST_FIELDS = frozenset(
     {
@@ -612,6 +716,15 @@ def _hc_supported(value: Any, field_name: str) -> Any:
             raise HostCapabilityValidationError(
                 f"{field_name} exceeds {_MAX_SUPPORTED_CHARS} characters"
             )
+        lowered = text.lower()
+        if lowered in _FALSE_LIKE_SUPPORT_VALUES:
+            raise HostCapabilityValidationError(
+                f"{field_name} must not use a false-like version string"
+            )
+        if not _SUPPORTED_VERSION_RE.match(text):
+            raise HostCapabilityValidationError(
+                f"{field_name} must be a boolean or a version string"
+            )
         return text
     raise HostCapabilityValidationError(
         f"{field_name} must be a boolean or a bounded version string"
@@ -622,6 +735,33 @@ def _hc_is_supported(value: Any) -> bool:
     if isinstance(value, bool):
         return value
     return bool(value)
+
+
+def _hc_timestamp(value: Any, field_name: str, *, optional: bool = False) -> str | None:
+    text = _hc_text(
+        value,
+        field_name,
+        max_chars=_MAX_PROBED_AT_CHARS,
+        optional=optional,
+    )
+    if text is None:
+        return None
+    if not _HC_TIMESTAMP_RE.match(text):
+        raise HostCapabilityValidationError(
+            f"{field_name} must be an RFC 3339 date-time with a timezone"
+        )
+    normalized = text[:-1] + "+00:00" if text[-1:] in ("Z", "z") else text
+    try:
+        parsed = datetime.datetime.fromisoformat(normalized)
+    except ValueError as exc:
+        raise HostCapabilityValidationError(
+            f"{field_name} must be an RFC 3339 date-time with a timezone"
+        ) from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise HostCapabilityValidationError(
+            f"{field_name} must be an RFC 3339 date-time with a timezone"
+        )
+    return text
 
 
 def _now_utc_iso() -> str:
@@ -658,10 +798,9 @@ def _validate_host_capability(record: Any, index: int) -> dict[str, Any]:
             f"{path}.probe_result must be one of {', '.join(PROBE_RESULTS)}"
         )
 
-    probed_at = _hc_text(
+    probed_at = _hc_timestamp(
         record.get("probed_at"),
         f"{path}.probed_at",
-        max_chars=_MAX_PROBED_AT_CHARS,
     )
     reason = _hc_text(
         record.get("reason"),
@@ -687,6 +826,10 @@ def _validate_host_capability(record: Any, index: int) -> dict[str, Any]:
     if declaration_only and not claimed:
         raise HostCapabilityValidationError(
             f"{path} is declaration_only while declaring no support"
+        )
+    if declaration_only and probe_result == PROBE_PASS:
+        raise HostCapabilityValidationError(
+            f"{path} is declaration_only while reporting a PASS probe"
         )
     if probe_result in (PROBE_FAIL, PROBE_UNSUPPORTED) and claimed:
         raise HostCapabilityValidationError(
@@ -790,17 +933,16 @@ def validate_host_capabilities(payload: Any) -> dict[str, Any]:
         "adapter_version": adapter_version,
         "capabilities": capabilities,
     }
-    for field_name, max_chars in (
-        ("dcc_type", 64),
-        ("instance_id", 128),
-        ("probed_at", _MAX_PROBED_AT_CHARS),
+    dcc_type = _hc_text(payload.get("dcc_type"), "dcc_type", max_chars=64, optional=True)
+    instance_id = _hc_text(
+        payload.get("instance_id"), "instance_id", max_chars=128, optional=True
+    )
+    probed_at = _hc_timestamp(payload.get("probed_at"), "probed_at", optional=True)
+    for field_name, text in (
+        ("dcc_type", dcc_type),
+        ("instance_id", instance_id),
+        ("probed_at", probed_at),
     ):
-        text = _hc_text(
-            payload.get(field_name),
-            field_name,
-            max_chars=max_chars,
-            optional=True,
-        )
         if text:
             manifest[field_name] = text
     return manifest
@@ -951,9 +1093,12 @@ class HostCapabilityCache:
         host_version: str,
         adapter_version: str,
     ) -> str:
-        return "|".join(
-            [str(dcc_type or ""), str(host_version), str(adapter_version)]
+        parts = (
+            str(dcc_type or ""),
+            str(host_version),
+            str(adapter_version),
         )
+        return "|".join(f"{len(part)}:{quote(part, safe='')}" for part in parts)
 
     def get(self, key: str) -> dict[str, Any] | None:
         with self._lock:
@@ -991,6 +1136,7 @@ def register_host_capability_tool(
     dcc_name: str,
     provider: Callable[[], dict[str, Any]],
     cache: HostCapabilityCache | None = None,
+    provider_cache_key: Callable[[], tuple[str | None, str, str]] | None = None,
 ) -> bool:
     """Register ``dcc_host_capabilities`` as an MCP tool.
 
@@ -1029,31 +1175,48 @@ def register_host_capability_tool(
 
     def handler(params: dict[str, Any]) -> dict[str, Any]:
         params = params or {}
-        manifest = validate_host_capabilities(provider())
-        key = HostCapabilityCache.cache_key(
-            manifest.get("dcc_type") or dcc_name,
-            manifest["host_version"],
-            manifest["adapter_version"],
-        )
-
-        if cache is not None:
-            if params.get("force_refresh"):
-                cache.put(key, manifest)
-            else:
+        try:
+            identity = provider_cache_key() if provider_cache_key is not None else None
+            key: str | None = None
+            cached = None
+            if cache is not None and identity is not None and not params.get(
+                "force_refresh"
+            ):
+                key = HostCapabilityCache.cache_key(*identity)
                 cached = cache.get(key)
-                if cached is not None:
-                    manifest = cached
-                else:
+            if cached is not None:
+                manifest = cached
+            else:
+                manifest = validate_host_capabilities(provider())
+                if cache is not None:
+                    if key is None:
+                        key = HostCapabilityCache.cache_key(
+                            manifest.get("dcc_type") or dcc_name,
+                            manifest["host_version"],
+                            manifest["adapter_version"],
+                        )
                     cache.put(key, manifest)
 
-        summary = summarize_host_capabilities(
-            manifest, keys=params.get("keys") or None
-        )
-        return {
-            "success": True,
-            "message": f"{dcc_name} host capabilities",
-            "context": summary,
-        }
+            summary = summarize_host_capabilities(
+                manifest, keys=params.get("keys") or None
+            )
+            return {
+                "success": True,
+                "message": f"{dcc_name} host capabilities",
+                "context": summary,
+            }
+        except Exception as exc:
+            logger.warning("host capabilities: provider failed: %s", exc)
+            return {
+                "success": False,
+                "error": "host_capability_provider_failed",
+                "message": "Host capabilities could not be read",
+                "context": {
+                    "dcc_name": dcc_name,
+                    "exception_type": type(exc).__name__,
+                    "detail": str(exc)[:512],
+                },
+            }
 
     registry = getattr(inner, "registry", None)
     if registry is None or not hasattr(registry, "register"):
