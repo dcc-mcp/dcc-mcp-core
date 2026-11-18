@@ -2,6 +2,7 @@
   "title": "통계",
   "meta": "게이트웨이 호출량, 성공률, 지연 시간, 주요 경로입니다.",
   "label.range": "범위",
+  "range.all": "전체 기간",
   "hero.totalTokens": "총 토큰",
   "hero.inputTokens": "입력 토큰",
   "hero.outputTokens": "출력 토큰",

@@ -60,6 +60,27 @@ export type TracesPanelProps = {
   t: Translator;
 };
 
+function TraceRoute({ trace, t }: { trace: TraceRow; t: Translator }) {
+  const agent = agentLabel(trace);
+  const nodes = [
+    agent === '-' ? null : agent,
+    trace.tool || t('traces.chain.tool'),
+    trace.dcc_type || t('traces.chain.gateway'),
+    compactInstanceId(trace.instance_id) === '-' ? null : compactInstanceId(trace.instance_id),
+  ].filter((node): node is string => Boolean(node));
+
+  return (
+    <span className="trace-item-route" aria-label={t('traces.chain.label')}>
+      {nodes.map((node, index) => (
+        <span key={`${node}-${index}`}>
+          {index > 0 ? <i aria-hidden="true">→</i> : null}
+          <span>{node}</span>
+        </span>
+      ))}
+    </span>
+  );
+}
+
 export function TracesPanel({
   updatedAt,
   error,
@@ -254,9 +275,15 @@ export function TracesPanel({
                         >
                           <span className="trace-item-main">
                             <strong>{trace.tool}</strong>
+                            <TraceRoute trace={trace} t={t} />
                             <span>
                               {compactId(trace.request_id)} - {compactInstanceId(trace.instance_id)} -{' '}
                               <TimeValue value={trace.timestamp} /> - {trace.transport ?? '?'}
+                            </span>
+                            <span className="trace-item-signal">
+                              {t('traces.chain.spans', { count: trace.span_count ?? 0 })}
+                              {' · '}
+                              {t('traces.chain.tokens', { count: formatTokenCount(totalTraceTokens(trace)) })}
                             </span>
                             {agentLabel(trace) !== '-' ? <span>{agentLabel(trace)}</span> : null}
                           </span>

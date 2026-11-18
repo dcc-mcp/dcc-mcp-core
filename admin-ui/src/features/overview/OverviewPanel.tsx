@@ -537,7 +537,7 @@ export function OverviewPanel({
                         <SelectItem value="1h">1h</SelectItem>
                         <SelectItem value="24h">24h</SelectItem>
                         <SelectItem value="7d">7d</SelectItem>
-                        <SelectItem value="all">All</SelectItem>
+                        <SelectItem value="all">{t('stats.range.all')}</SelectItem>
                       </SelectGroup>
                     </SelectContent>
                   </Select>

@@ -54,6 +54,10 @@ export function DashboardShell({
         <div className="brand-lockup">
           <BrandLogo />
           <p className="brand-tag">{t('chrome.app.subtitle')}</p>
+          <div className="brand-context">
+            <span className="brand-status-dot" aria-hidden="true" />
+            <span>{t('chrome.app.mode')}</span>
+          </div>
         </div>
         <nav className="nav-links" aria-label={t('common.aria.adminNavigation')}>
           {groups.map((group) => (
@@ -90,7 +94,7 @@ export function DashboardShell({
               {subpage && <><RiArrowRightSLine aria-hidden="true" /><span>{subpage}</span></>}
             </>}
           </div>
-          <span className="mobile-brand">DCC-MCP</span>
+          <span className="mobile-brand">{t('chrome.app.subtitle')}</span>
           <div className="workspace-preferences">
             <Button asChild variant="ghost" size="icon" className="docs-link">
               <a href={projectDocsHref()} target="_blank" rel="noopener noreferrer" aria-label={t('navigation.docs.title')} title={t('navigation.docs.title')}>
