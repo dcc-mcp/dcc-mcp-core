@@ -974,10 +974,7 @@ mod tests {
         std::fs::write(dir.path().join("dcc_mcp_fixture-1.0.0.dist-info/METADATA"),
             "Name: dcc-mcp-fixture\nVersion: 1.0.0\nRequires-Dist: dcc-mcp-core>=0.20.24,<0.21.0\nRequires-Dist: dcc-mcp-core>=0.20.40,<0.21.0; python_version >= '3.7'\n\n").unwrap();
         let report = probe(PROBE_SCRIPT);
-        assert_eq!(
-            report["core_requirement"],
-            "dcc-mcp-core>=0.20.24,<0.21.0"
-        );
+        assert_eq!(report["core_requirement"], "dcc-mcp-core>=0.20.24,<0.21.0");
         let core = core_compatibility(&report).unwrap();
         assert_eq!(core.verdict, RuntimeVerdict::CoreNewerThanDeclared);
         assert_eq!(
