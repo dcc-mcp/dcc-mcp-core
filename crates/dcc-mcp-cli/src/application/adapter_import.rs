@@ -928,7 +928,6 @@ fn read_spool(path: &Path) -> Result<String, String> {
 /// "installed but not importable" case that motivated this check.
 const PROBE_SCRIPT_BODY: &str = r#"
 import sys
-sys.path.insert(0, sys.argv.pop(1))
 from email.parser import Parser
 import json
 import os
@@ -1409,7 +1408,7 @@ mod tests {
         )
         .unwrap();
         let fallback = format!(
-            "sys.modules['importlib.metadata'] = None\nsys.modules['pkg_resources'] = None\n{PROBE_SCRIPT_BODY}"
+            "import sys\nsys.modules['importlib.metadata'] = None\nsys.modules['pkg_resources'] = None\n{PROBE_SCRIPT_BODY}"
         );
         for script in [PROBE_SCRIPT, fallback.as_str()] {
             std::fs::write(
@@ -1515,7 +1514,9 @@ mod tests {
         let mut command = Command::new(&python);
         command
             .arg("-c")
-            .arg(PROBE_SCRIPT)
+            .arg(format!(
+                "import sys\nsys.path.insert(0, sys.argv.pop(1))\n{PROBE_SCRIPT_BODY}"
+            ))
             .arg(dir.path())
             .args(["dcc_mcp_fixture.leaf", "dcc-mcp-fixture"]);
         let output = command.output().expect("probe helper should run");
@@ -1532,6 +1533,51 @@ mod tests {
                 .ends_with("dcc_mcp_fixture/leaf.py")
         );
         assert_eq!(grade(&report, None), AdapterImportStatus::Ok);
+    }
+
+    /// The production probe must accept the same fixed (module, distribution)
+    /// argument contract used by probe_target. This guards the argument-level
+    /// defect where a path-pop statement consumed the module name.
+    #[test]
+    fn probe_target_reads_dotted_leaf_from_a_real_interpreter() {
+        let Some(python) = real_python() else {
+            eprintln!("skipping: no python interpreter available");
+            return;
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let package = dir.path().join("dcc_mcp_prod_leaf_fixture");
+        std::fs::create_dir(&package).unwrap();
+        std::fs::write(package.join("__init__.py"), "__version__ = 'parent'\n").unwrap();
+        std::fs::write(package.join("leaf.py"), "__version__ = '4.2.0'\n").unwrap();
+        let metadata = dir.join("dcc_mcp_prod_leaf_fixture-4.2.0.dist-info");
+        std::fs::create_dir(&metadata).unwrap();
+        std::fs::write(
+            metadata.join("METADATA"),
+            "Name: dcc-mcp-prod-leaf-fixture\nVersion: 4.2.0\n\n",
+        )
+        .unwrap();
+
+        let target = AdapterImportTarget {
+            dcc_type: "fixture".to_string(),
+            module: "dcc_mcp_prod_leaf_fixture.leaf".to_string(),
+            distribution: "dcc-mcp-prod-leaf-fixture".to_string(),
+            python: Some(python),
+            python_source: Some("test_fixture".to_string()),
+        };
+        let probe = probe_target(&target);
+
+        assert_eq!(probe["status"], "ok");
+        assert_eq!(probe["module"], "dcc_mcp_prod_leaf_fixture.leaf");
+        assert_eq!(probe["distribution"], "dcc-mcp-prod-leaf-fixture");
+        assert_eq!(probe["module_version"], "4.2.0");
+        assert_eq!(probe["dist_version"], "4.2.0");
+        assert!(
+            probe["module_origin"]
+                .as_str()
+                .unwrap()
+                .replace('\\', "/")
+                .ends_with("dcc_mcp_prod_leaf_fixture/leaf.py")
+        );
     }
 
     /// Regression guard for a chatty adapter: output larger than the OS pipe
