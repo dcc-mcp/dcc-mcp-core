@@ -121,8 +121,37 @@ def test_server_startup_fails_closed_before_construction_on_loader_failure(monke
     message = str(error.value)
     assert "native_load_failed" in message
     assert "DLL load failed while importing _core" in message
-    assert "DCC_MCP_PYTHON3_DLL_DIR" in message
+    assert "Install the native dcc-mcp-core wheel matching this host interpreter and architecture" in message
+    if sys.platform == "win32":
+        assert "DCC_MCP_PYTHON3_DLL_DIR" in message
     assert events == [("preflight", "dcc_mcp_core._core")]
+
+
+def test_server_startup_failure_guidance_matches_host_platform(monkeypatch):
+    original_platform = _native.sys.platform
+
+    class NoConstructionServer:
+        def __init__(self, *args, **kwargs):
+            raise AssertionError("server construction must not start after preflight failure")
+
+    try:
+        for platform in ("win32", "linux", "darwin"):
+            _native.sys.platform = platform
+            monkeypatch.setattr(
+                _native.importlib,
+                "import_module",
+                lambda name: (_ for _ in ()).throw(ImportError("broken native loader")),
+            )
+            with pytest.raises(ImportError) as error:
+                _factory.create_dcc_server(
+                    instance_holder=[None], lock=threading.Lock(), server_class=NoConstructionServer
+                )
+            message = str(error.value)
+            assert "native_load_failed" in message
+            assert "broken native loader" in message
+            assert ("DCC_MCP_PYTHON3_DLL_DIR" in message) is (platform == "win32")
+    finally:
+        _native.sys.platform = original_platform
 
 
 def test_server_startup_allows_extensionless_lite_profile(monkeypatch):
