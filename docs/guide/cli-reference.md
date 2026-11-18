@@ -633,8 +633,10 @@ Standalone `verify --dcc-type <dcc> --python <target-python> [--catalog <path>]
 and imports its declared module in that exact interpreter. `--python` (or
 `DCC_MCP_INSTALL_PYTHON`) is required; it never falls back to an ambient
 interpreter. It reuses the bounded doctor import probe without calling the
-adapter factory. Imports execute module initialization, so use the intended
-target environment. Bytecode writes are disabled for the probe.
+adapter factory. The probe bounds the interpreter process, inherited output
+writers, and pipe draining under one deadline. Imports execute module
+initialization, so use the intended target environment. Bytecode writes are
+disabled for the probe.
 
 The command bypasses automatic updates, registry/profile reads and gateway
 startup, and never executes install, uninstall or rollback actions. It reads
