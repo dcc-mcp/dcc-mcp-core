@@ -90,7 +90,9 @@ def _raw_manifest(records):
 
 def _schema_validator():
     document = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
-    return jsonschema.Draft202012Validator(document, format_checker=jsonschema.FormatChecker())
+    checker = jsonschema.FormatChecker()
+    assert "date-time" not in checker.checkers
+    return jsonschema.Draft202012Validator(document, format_checker=checker)
 
 
 def _schema_is_valid(payload):
@@ -147,6 +149,9 @@ def test_schema_document_is_packaged_and_pinned_to_this_contract():
         _raw_capability(supported="6.8+"),
         _raw_capability(probed_at="2026-11-18T08:00:00+08:00"),
         _raw_capability(declaration_only=False),
+        _raw_capability(probed_at="2024-02-29T00:00:00Z"),
+        _raw_capability(probed_at="2000-02-29T00:00:00Z"),
+        _raw_capability(probed_at="2026-12-31T00:00:00+23:59"),
     ],
 )
 def test_schema_and_python_accept_the_same_conformance_vectors(record):
@@ -171,6 +176,15 @@ def test_schema_and_python_accept_the_same_conformance_vectors(record):
         _raw_capability(supported="0"),
         _raw_capability(probed_at="yesterday"),
         _raw_capability(probed_at="2026-11-18T00:00:00"),
+        _raw_capability(probed_at="2026-02-30T00:00:00Z"),
+        _raw_capability(probed_at="2026-02-29T00:00:00Z"),
+        _raw_capability(probed_at="1900-02-29T00:00:00Z"),
+        _raw_capability(probed_at="2026-04-31T00:00:00Z"),
+        _raw_capability(probed_at="2026-12-31T24:00:00Z"),
+        _raw_capability(probed_at="2026-12-31T00:60:00Z"),
+        _raw_capability(probed_at="2026-12-31T23:59:60Z"),
+        _raw_capability(probed_at="2026-12-31T00:00:00+24:00"),
+        _raw_capability(probed_at="0000-02-29T00:00:00Z"),
     ],
 )
 def test_schema_and_python_reject_the_same_conformance_vectors(record):
@@ -250,6 +264,29 @@ def test_invalid_probe_timestamp_is_rejected(timestamp):
     payload["probed_at"] = timestamp
     with pytest.raises(HostCapabilityValidationError, match="RFC 3339"):
         validate_host_capabilities(payload)
+
+
+def test_impossible_calendar_timestamps_are_rejected_at_both_levels():
+    timestamps = (
+        "2026-02-30T00:00:00Z",
+        "2026-02-29T00:00:00Z",
+        "1900-02-29T00:00:00Z",
+        "2026-04-31T00:00:00Z",
+        "2026-12-31T24:00:00Z",
+        "2026-12-31T00:60:00Z",
+        "2026-12-31T23:59:60Z",
+        "2026-12-31T00:00:00+24:00",
+        "0000-02-29T00:00:00Z",
+    )
+    for timestamp in timestamps:
+        with pytest.raises(HostCapabilityValidationError, match="RFC 3339"):
+            make_host_capability(
+                "render.lpe", True, PROBE_PASS, probed_at=timestamp
+            )
+        payload = _manifest([])
+        payload["probed_at"] = timestamp
+        with pytest.raises(HostCapabilityValidationError, match="RFC 3339"):
+            validate_host_capabilities(payload)
 
 
 @pytest.mark.parametrize("timestamp", ["2026-11-18T00:00:00Z", "2026-11-18T08:00:00+08:00"])

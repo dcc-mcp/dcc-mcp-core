@@ -196,7 +196,11 @@ The contract fails closed:
   versions, and unknown fields are rejected. Version strings use a numeric
   grammar, and false-like strings such as `"false"` and `"0"` are rejected.
 - `probed_at` must be an RFC 3339 date-time with a timezone at both manifest and
-  record level; schema and Python validation share these conformance rules.
+  record level. The published JSON Schema and Python validator share a strict
+  self-contained profile: common `jsonschema` installations treat `format:
+  date-time` as an annotation, so the schema's `pattern` also enforces calendar
+  validity (including leap years), 00-23 hours, 00-59 minutes and seconds, and
+  offsets below 24 hours. Leap seconds are rejected.
 
 Adapters expose the manifest through one read-only tool, registered the same way
 as the other built-ins:
@@ -208,9 +212,15 @@ register_host_capability_tool(
     server,
     dcc_name="comfyui",
     provider=probe_host,  # adapter-owned: returns the validated manifest
+    provider_cache_key=current_host_identity,  # optional; see below
     cache=HostCapabilityCache(ttl_secs=300),
 )
 ```
+
+`provider_cache_key` is optional for an existing adapter that already builds
+one manifest from the currently connected host. It is required when the same
+cache can survive a host or adapter version change and the provider can report
+that identity independently.
 
 The tool is `dcc_host_capabilities` and returns the summary above, so one call
 answers "which strategies are available on this instance, and why not the

@@ -577,15 +577,32 @@ def _hc_supported_schema() -> dict[str, Any]:
 
 def _hc_timestamp_schema() -> dict[str, Any]:
     """Return the exact ``probed_at`` schema used by the published contract."""
+    year = r"(?!0000)[0-9]{4}"
+    leap_year = (
+        r"(?!0000)(?:[0-9]{2}(?:0[48]|[2468][048]|[13579][26])|"
+        r"(?:0[48]|[2468][048]|[13579][26])00)"
+    )
+    time_and_zone = (
+        r"[Tt](?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]"
+        r"(?:\.[0-9]+)?(?:[Zz]|[+-](?:0[0-9]|1[0-9]|2[0-3]):[0-5][0-9])"
+        r"(?![\s\S])"
+    )
+    # Four mutually exclusive branches cover 29 February in leap years,
+    # shorter February days, 31-day months, and 30-day months. This keeps the
+    # JSON Schema self-contained because common jsonschema installations do
+    # not register a semantic date-time checker.
+    branches = (
+        f"^{leap_year}-02-(?:0[1-9]|1[0-9]|2[0-9]){time_and_zone}",
+        f"^(?!{leap_year}){year}-02-(?:0[1-9]|1[0-9]|2[0-8]){time_and_zone}",
+        f"^{year}-(?:0[13578]|1[02])-(?:0[1-9]|[12][0-9]|3[01]){time_and_zone}",
+        f"^{year}-(?:0[469]|11)-(?:0[1-9]|[12][0-9]|30){time_and_zone}",
+    )
+    pattern = "(?:" + "|".join(branches) + ")"
     return {
         "type": "string",
         "format": "date-time",
         "maxLength": _MAX_PROBED_AT_CHARS,
-        "pattern": (
-            r"^[0-9]{4}-[0-9]{2}-[0-9]{2}[Tt]"
-            r"[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)?"
-            r"(?:[Zz]|[+-][0-9]{2}:[0-9]{2})$"
-        ),
+        "pattern": pattern,
     }
 
 
