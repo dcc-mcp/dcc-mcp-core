@@ -24,10 +24,10 @@
 //! `missing`, which is exactly the noise this check must not add.
 
 use std::collections::BTreeMap;
-use std::io::{Read, Write};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::mpsc::{self, Receiver};
+use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -55,10 +55,10 @@ use crate::domain::install::normalized_dcc_key;
 /// `build_sidecar_command`. Duplicated here so the CLI stays import-free.
 pub const PYTHON_EXECUTABLE_ENV: &str = "DCC_MCP_PYTHON_EXECUTABLE";
 
-/// Hard ceiling for one interpreter probe.
+/// Total wall-clock ceiling for one probe, including process-tree and pipe cleanup.
 const PROBE_TIMEOUT: Duration = Duration::from_secs(60);
-/// Bounded cleanup after the interpreter tree is terminated.
-const PROBE_CLEANUP_TIMEOUT: Duration = Duration::from_secs(2);
+/// Poll interval for parent exit and bounded cleanup loops.
+const PROBE_POLL_INTERVAL: Duration = Duration::from_millis(25);
 
 /// Result of one adapter import probe.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -494,17 +494,20 @@ fn probe_status(probe: &Value) -> AdapterImportStatus {
         .unwrap_or(AdapterImportStatus::Unavailable)
 }
 
-/// Spawn `<python> -c <script> <module> <distribution>` and parse its JSON report.
+/// Spawn the configured interpreter with the probe script and parse its JSON report.
 ///
 /// Both pipes are drained from the moment the child starts, and the interpreter
 /// owns a separate process group or job. The shared deadline covers the
-/// interpreter, inherited writers, and pipe-reader cleanup. Normal completion
-/// still collects complete output; timeout remains an `unavailable` probe.
+/// interpreter, inherited writers, and cleanup. Normal completion collects
+/// complete output; timeout and unconfirmed cleanup are `unavailable` probes.
 fn run_probe(
     python: &Path,
     module: &str,
     distribution: &str,
 ) -> Result<Map<String, Value>, String> {
+    let timeout = probe_timeout();
+    let started = Instant::now();
+    let operation_deadline = started + timeout;
     let mut command = Command::new(python);
     #[cfg(unix)]
     command.process_group(0);
@@ -525,9 +528,10 @@ fn run_probe(
         .spawn()
         .map_err(|err| format!("interpreter_not_launchable: {err}"))?;
 
-    // Drain both pipes from the moment the child starts and keep all cleanup
-    // inside the same deadline as the interpreter process tree.
-    let mut tree = ProbeChildTree::adopt(child)?;
+    // Every failure after spawn terminates and reaps the child tree before it
+    // returns. Readers are created after adoption so their pipes cannot be
+    // stranded by a suspended-child adoption failure.
+    let mut tree = ProbeChildTree::adopt(child, operation_deadline)?;
     let stdout = tree
         .child
         .stdout
@@ -539,9 +543,6 @@ fn run_probe(
         .take()
         .ok_or_else(|| "probe_failed: stderr was unavailable".to_string())?;
     let readers = ProbeReaders::spawn(stdout, stderr);
-
-    // One deadline covers the interpreter, inherited writers, and pipe readers.
-    let deadline = Instant::now() + PROBE_TIMEOUT;
     loop {
         if tree
             .child
@@ -551,25 +552,29 @@ fn run_probe(
         {
             break;
         }
-        if Instant::now() >= deadline {
-            let cleanup = Instant::now() + PROBE_CLEANUP_TIMEOUT;
-            let reaped = tree.terminate_and_reap(cleanup);
-            let drained = readers.collect_until(cleanup).is_ok();
-            return Err(format!(
-                "probe_timed_out_after_{}s",
-                PROBE_TIMEOUT.as_secs()
-            ));
+        if Instant::now() >= operation_deadline {
+            let reaped = tree.terminate_and_reap(operation_deadline);
+            let cleanup = readers.finish(operation_deadline);
+            if !reaped.confirmed || !cleanup.confirmed() {
+                return Err("probe_cleanup_unconfirmed".to_string());
+            }
+            return Err(format!("probe_timed_out_after_{}s", timeout.as_secs()));
         }
-        thread::sleep(Duration::from_millis(25));
+        thread::sleep(PROBE_POLL_INTERVAL);
     }
 
+    let reaped = tree.terminate_and_reap(operation_deadline);
+    let cleanup = readers.finish(operation_deadline);
+    if !reaped.confirmed || !cleanup.confirmed() {
+        return Err("probe_cleanup_unconfirmed".to_string());
+    }
     let status = tree
         .child
         .wait()
         .map_err(|err| format!("probe_failed: {err}"))?;
-    let pipes = readers
-        .collect_until(Instant::now() + PROBE_CLEANUP_TIMEOUT)
-        .map_err(|err| format!("probe_failed: {err}"))?;
+    let pipes = cleanup
+        .into_output()
+        .ok_or_else(|| "probe_failed: pipe_reader_failed".to_string())?;
 
     let stdout_text = String::from_utf8_lossy(&pipes.stdout);
     let stderr_text = String::from_utf8_lossy(&pipes.stderr);
@@ -603,7 +608,7 @@ struct ProbeChildTree {
 }
 
 impl ProbeChildTree {
-    fn adopt(child: Child) -> Result<Self, String> {
+    fn adopt(mut child: Child, deadline: Instant) -> Result<Self, String> {
         #[cfg(unix)]
         {
             let process_group = child.id() as i32;
@@ -614,25 +619,35 @@ impl ProbeChildTree {
         }
         #[cfg(windows)]
         {
-            let job = assign_probe_job(&child)?;
-            resume_probe_process(&child)?;
+            let job = match assign_probe_job(&child) {
+                Ok(job) => job,
+                Err(err) => {
+                    let _ = terminate_and_reap_suspended(&mut child, deadline);
+                    return Err(err);
+                }
+            };
+            if let Err(err) = resume_probe_process(&child) {
+                let owned = Self { child, job };
+                let _ = owned.terminate_and_reap(deadline);
+                return Err(err);
+            }
             return Ok(Self { child, job });
         }
         #[cfg(not(any(unix, windows)))]
         Ok(Self { child })
     }
 
-    fn terminate_and_reap(&mut self, deadline: Instant) -> bool {
+    fn terminate_and_reap(&mut self, deadline: Instant) -> ProbeCleanupReceipt {
         let terminated = self.terminate_descendants();
         let _ = self.child.kill();
         let reaped = loop {
             match self.child.try_wait() {
                 Ok(Some(_)) => break true,
-                Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(10)),
+                Ok(None) if Instant::now() < deadline => thread::sleep(PROBE_POLL_INTERVAL),
                 Ok(None) | Err(_) => break false,
             }
         };
-        terminated && reaped
+        ProbeCleanupReceipt { terminated, reaped }
     }
 
     fn terminate_descendants(&self) -> bool {
@@ -653,6 +668,31 @@ impl ProbeChildTree {
             true
         }
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ProbeCleanupReceipt {
+    terminated: bool,
+    reaped: bool,
+}
+
+impl ProbeCleanupReceipt {
+    fn confirmed(self) -> bool {
+        self.terminated && self.reaped
+    }
+}
+
+#[cfg(windows)]
+fn terminate_and_reap_suspended(child: &mut Child, deadline: Instant) -> bool {
+    let _ = child.kill();
+    let reaped = loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break true,
+            Ok(None) if Instant::now() < deadline => thread::sleep(PROBE_POLL_INTERVAL),
+            Ok(None) | Err(_) => break false,
+        }
+    };
+    reaped
 }
 
 #[cfg(windows)]
@@ -705,8 +745,11 @@ fn assign_probe_job(child: &Child) -> Result<OwnedHandle, String> {
 fn resume_probe_process(child: &Child) -> Result<(), String> {
     use windows_sys::Win32::Foundation::HANDLE;
     use windows_sys::Win32::System::Threading::ResumeThread;
+    let handle = child
+        .as_raw_handle()
+        .ok_or_else(|| "interpreter_not_launchable: child exited before resume".to_string())?;
     // SAFETY: the child is live and suspended until this call.
-    let result = unsafe { ResumeThread(child.as_raw_handle().unwrap() as HANDLE) };
+    let result = unsafe { ResumeThread(handle as HANDLE) };
     if result == u32::MAX {
         return Err(format!(
             "interpreter_not_launchable: resume failed: {}",
@@ -743,32 +786,80 @@ impl ProbeReaders {
         }
     }
 
-    fn collect_until(self, deadline: Instant) -> Result<std::process::Output, &'static str> {
+    fn finish(self, deadline: Instant) -> ProbeIoCleanup {
         let mut stdout = None;
         let mut stderr = None;
+        let mut timed_out = false;
         for _ in 0..2 {
             let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
-                return Err("pipe_reader_timeout");
+                timed_out = true;
+                break;
             }
             match self.receiver.recv_timeout(remaining) {
                 Ok((true, bytes)) => stdout = Some(bytes),
                 Ok((false, bytes)) => stderr = Some(bytes),
-                Err(_) => return Err("pipe_reader_timeout"),
+                Err(_) => {
+                    timed_out = true;
+                    break;
+                }
             }
         }
+        let mut joined = true;
         for handle in self.handles {
-            while !handle.is_finished() && Instant::now() < deadline {
-                thread::sleep(Duration::from_millis(1));
-            }
-            if !handle.is_finished() || handle.join().is_err() {
-                return Err("pipe_reader_cleanup_failed");
+            if !join_within(handle, deadline) {
+                joined = false;
             }
         }
-        Ok(std::process::Output {
+        let reason = (!joined).then_some("pipe_reader_cleanup_failed");
+        if timed_out && reason.is_none() {
+            reason = Some("pipe_reader_timeout");
+        }
+        if reason.is_some() || stdout.is_none() || stderr.is_none() {
+            ProbeIoCleanup::failed(reason.unwrap_or("pipe_reader_failed"))
+        } else {
+            ProbeIoCleanup::complete(stdout.unwrap(), stderr.unwrap())
+        }
+    }
+}
+
+#[derive(Debug)]
+struct ProbeIoCleanup {
+    stdout: Option<Vec<u8>>,
+    stderr: Option<Vec<u8>>,
+    reason: Option<&'static str>,
+}
+
+impl ProbeIoCleanup {
+    fn complete(stdout: Vec<u8>, stderr: Vec<u8>) -> Self {
+        Self {
+            stdout: Some(stdout),
+            stderr: Some(stderr),
+            reason: None,
+        }
+    }
+
+    fn failed(reason: &'static str) -> Self {
+        Self {
+            stdout: None,
+            stderr: None,
+            reason: Some(reason),
+        }
+    }
+
+    fn confirmed(&self) -> bool {
+        self.reason.is_none()
+    }
+
+    fn reason(&self) -> &'static str {
+        self.reason.unwrap_or("pipe_reader_failed")
+    }
+
+    fn into_output(self) -> Option<std::process::Output> {
+        Some(std::process::Output {
             status: std::process::ExitStatus::default(),
-            stdout: stdout.ok_or("pipe_reader_failed")?,
-            stderr: stderr.ok_or("pipe_reader_failed")?,
+            stdout: self.stdout?,
+            stderr: self.stderr?,
         })
     }
 }
@@ -780,6 +871,54 @@ fn first_line(text: &str) -> Option<&str> {
         .filter(|line| !line.is_empty())
 }
 
+/// Join a reader within the shared deadline without detaching its handle.
+fn join_within(handle: thread::JoinHandle<()>, deadline: Instant) -> bool {
+    while !handle.is_finished() {
+        if Instant::now() >= deadline {
+            // The child tree has already been killed on every path that uses
+            // this helper, so a reader still pending means cleanup failed.
+            return false;
+        }
+        thread::sleep(PROBE_POLL_INTERVAL);
+    }
+    handle.join().is_ok()
+}
+
+#[cfg(test)]
+const PROBE_TEST_TIMEOUT_ENV: &str = "DCC_MCP_TEST_PROBE_TIMEOUT_MS";
+
+#[cfg(test)]
+struct ProbeTimeoutGuard;
+
+#[cfg(test)]
+impl ProbeTimeoutGuard {
+    fn set(timeout: Duration) -> Self {
+        std::env::set_var(PROBE_TEST_TIMEOUT_ENV, timeout.as_millis().to_string());
+        Self
+    }
+}
+
+#[cfg(test)]
+impl Drop for ProbeTimeoutGuard {
+    fn drop(&mut self) {
+        std::env::remove_var(PROBE_TEST_TIMEOUT_ENV);
+    }
+}
+
+#[cfg(test)]
+fn probe_timeout() -> Duration {
+    std::env::var(PROBE_TEST_TIMEOUT_ENV)
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|value| *value > 0)
+        .map_or(PROBE_TIMEOUT, Duration::from_millis)
+}
+
+#[cfg(not(test))]
+const fn probe_timeout() -> Duration {
+    PROBE_TIMEOUT
+}
+
 /// Python 3.7-compatible import probe.
 ///
 /// Constraints: no walrus operator, no `importlib.metadata` assumption (3.8+),
@@ -787,7 +926,7 @@ fn first_line(text: &str) -> Option<&str> {
 /// read through `importlib.metadata`, then `pkg_resources`, then a `sys.path`
 /// scan of `*.dist-info` directories so a Python 3.7 host still reports the
 /// "installed but not importable" case that motivated this check.
-const PROBE_SCRIPT: &str = r#"
+const PROBE_SCRIPT_BODY: &str = r#"
 from email.parser import Parser
 import json
 import os
@@ -942,6 +1081,12 @@ report["core_version_source"] = "imported_module" if observed is not None else s
 
 print(json.dumps(report))
 "#;
+
+const PROBE_SCRIPT: &str = concat!(
+    "import sys\n",
+    "sys.path.insert(0, sys.argv.pop(1))\n",
+    PROBE_SCRIPT_BODY
+);
 
 #[cfg(test)]
 mod tests {
@@ -1263,7 +1408,7 @@ mod tests {
         )
         .unwrap();
         let fallback = format!(
-            "import sys\nsys.modules['importlib.metadata'] = None\nsys.modules['pkg_resources'] = None\n{PROBE_SCRIPT}"
+            "import sys\nsys.modules['importlib.metadata'] = None\nsys.modules['pkg_resources'] = None\n{PROBE_SCRIPT_BODY}"
         );
         for script in [PROBE_SCRIPT, fallback.as_str()] {
             std::fs::write(
@@ -1368,13 +1513,10 @@ mod tests {
 
         let mut command = Command::new(&python);
         command
-            .args([
-                "-S",
-                "-c",
-                "import sys;sys.path.insert(0,sys.argv.pop(1));exec(sys.argv.pop(1))",
-            ])
+            .arg("-c")
+            .arg(PROBE_SCRIPT)
             .arg(dir.path())
-            .args([PROBE_SCRIPT, "dcc_mcp_fixture.leaf", "dcc-mcp-fixture"]);
+            .args(["dcc_mcp_fixture.leaf", "dcc-mcp-fixture"]);
         let output = command.output().expect("probe helper should run");
         assert!(output.status.success());
         let report: Map<String, Value> = serde_json::from_slice(&output.stdout).unwrap();
@@ -1424,7 +1566,7 @@ mod tests {
         // soon as the child exits. A deadlock would hang the test suite.
         let status = child.wait().expect("child should be reaped");
         let pipes = readers
-            .collect_until(Instant::now() + PROBE_CLEANUP_TIMEOUT)
+            .finish(Instant::now() + Duration::from_secs(5))
             .expect("noisy child output must drain within the cleanup deadline");
 
         assert!(status.success(), "child exited with {status}");
@@ -1472,33 +1614,97 @@ mod tests {
         assert_eq!(targets[0].module, "dcc_mcp_maya");
     }
 
-    fn writer_wrapper_python(dir: &Path, name: &str, mode: &str) -> PathBuf {
-        let path = dir.join(name);
-        let script = format!(
+    fn write_probe_fixture(dir: &Path, mode: &str) {
+        let package = dir.join("dcc_mcp_inherited_fixture");
+        std::fs::create_dir_all(&package).unwrap();
+        let leaf = format!(
             r#"import os, subprocess, sys, time
-mode = {mode:?}
-helper = subprocess.Popen([sys.executable, "-c", "import sys,time; print('helper-out', flush=True); print('helper-err', file=sys.stderr, flush=True); time.sleep(30)"], stdin=subprocess.DEVNULL, stdout=None, stderr=None)
-open(os.environ["DCC_MCP_TEST_PROBE_WRITER_READY"], "w").write("ready")
-if mode == "parent-exit":
+writer = subprocess.Popen(
+    [sys.executable, "-c", "import sys,time; print('writer-out', flush=True); print('writer-err', file=sys.stderr, flush=True); time.sleep(30)"],
+    stdin=subprocess.DEVNULL,
+    stdout=None,
+    stderr=None,
+)
+with open(os.environ[{PID_ENV:?}], "w") as handle:
+    handle.write(str(writer.pid))
+with open(os.environ[{READY_ENV:?}], "w") as handle:
+    handle.write("ready")
+if os.environ[{MODE_ENV:?}] == "exit":
+    writer.terminate()
+    writer.wait(timeout=5)
     sys.exit(0)
-if mode == "timeout":
-    time.sleep(30)
-helper.terminate()
-helper.wait(timeout=5)
-"#
+while True:
+    time.sleep(0.2)
+"#,
+            PID_ENV = PROBE_TEST_WRITER_PID_ENV,
+            READY_ENV = PROBE_TEST_WRITER_READY_ENV,
+            MODE_ENV = PROBE_TEST_WRITER_MODE_ENV,
         );
-        std::fs::write(&path, script).unwrap();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mut permissions = std::fs::metadata(&path).unwrap().permissions();
-            permissions.set_mode(0o700);
-            std::fs::set_permissions(&path, permissions).unwrap();
-        }
-        path
+        std::fs::write(package.join("__init__.py"), "__version__ = 'parent'\n").unwrap();
+        std::fs::write(package.join("leaf.py"), leaf).unwrap();
+        let metadata = dir.join("dcc_mcp_inherited_fixture-1.0.0.dist-info");
+        std::fs::create_dir_all(&metadata).unwrap();
+        std::fs::write(
+            metadata.join("METADATA"),
+            "Name: dcc-mcp-inherited-fixture\nVersion: 1.0.0\n\n",
+        )
+        .unwrap();
     }
 
-    fn wait_for_writer_ready(path: &Path, deadline: Instant) -> bool {
+    fn stop_process(pid: u32) {
+        #[cfg(unix)]
+        {
+            let result = unsafe { libc::kill(pid as i32, libc::SIGKILL) };
+            if result != 0 && std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH) {
+                panic!(
+                    "owned fixture cleanup failed: {}",
+                    std::io::Error::last_os_error()
+                );
+            }
+        }
+        #[cfg(windows)]
+        {
+            use windows_sys::Win32::Foundation::HANDLE;
+            use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_TERMINATE};
+            let handle = unsafe { OpenProcess(PROCESS_TERMINATE, 0, pid) };
+            if !handle.is_null() {
+                unsafe {
+                    windows_sys::Win32::System::Threading::TerminateProcess(handle as HANDLE, 1);
+                    windows_sys::Win32::Foundation::CloseHandle(handle);
+                }
+            }
+        }
+        #[cfg(not(any(unix, windows)))]
+        let _ = pid;
+    }
+
+    fn process_is_alive(pid: u32) -> bool {
+        #[cfg(unix)]
+        {
+            let result = unsafe { libc::kill(pid as i32, 0) };
+            result == 0 || std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH)
+        }
+        #[cfg(windows)]
+        {
+            use windows_sys::Win32::Foundation::HANDLE;
+            use windows_sys::Win32::System::Threading::{
+                OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+            };
+            let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+            if handle.is_null() {
+                return false;
+            }
+            unsafe { windows_sys::Win32::Foundation::CloseHandle(handle as HANDLE) };
+            true
+        }
+        #[cfg(not(any(unix, windows)))]
+        {
+            let _ = pid;
+            false
+        }
+    }
+
+    fn wait_for_file(path: &Path, deadline: Instant) -> bool {
         while Instant::now() < deadline {
             if path.exists() {
                 return true;
@@ -1508,46 +1714,138 @@ helper.wait(timeout=5)
         false
     }
 
+    struct ProbeFixtureGuard {
+        pid_path: PathBuf,
+        env_keys: [&'static str; 3],
+    }
+
+    impl Drop for ProbeFixtureGuard {
+        fn drop(&mut self) {
+            if let Ok(pid) = std::fs::read_to_string(&self.pid_path) {
+                if let Ok(pid) = pid.trim().parse::<u32>() {
+                    stop_process(pid);
+                }
+            }
+            let _ = std::fs::remove_file(&self.pid_path);
+            for key in self.env_keys {
+                std::env::remove_var(key);
+            }
+        }
+    }
+
+    struct WriterFixture {
+        _dir: tempfile::TempDir,
+        _timeout: ProbeTimeoutGuard,
+        _cleanup: ProbeFixtureGuard,
+        python: PathBuf,
+        pid_path: PathBuf,
+        ready_path: PathBuf,
+    }
+
+    fn writer_test_setup(mode: &str) -> Option<WriterFixture> {
+        let python = real_python()?;
+        let dir = tempfile::tempdir().unwrap();
+        write_probe_fixture(dir.path(), mode);
+        let timeout_guard = ProbeTimeoutGuard::set(Duration::from_secs(2));
+        let pid_path = dir.path().join("writer.pid");
+        let ready_path = dir.path().join("writer.ready");
+        let fixture_guard = ProbeFixtureGuard {
+            pid_path: pid_path.clone(),
+            env_keys: [
+                PROBE_TEST_WRITER_PID_ENV,
+                PROBE_TEST_WRITER_READY_ENV,
+                PROBE_TEST_WRITER_MODE_ENV,
+            ],
+        };
+        Some(WriterFixture {
+            _dir: dir,
+            _timeout: timeout_guard,
+            _cleanup: fixture_guard,
+            python,
+            pid_path,
+            ready_path,
+        })
+    }
+
     #[test]
     fn probe_normal_parent_exit_drains_inherited_writer() {
-        let Some(python) = real_python() else {
+        let Some(fixture) = writer_test_setup("exit") else {
             eprintln!("skipping: no python interpreter available");
             return;
         };
-        let dir = tempfile::tempdir().unwrap();
-        let ready = dir.path().join("writer.ready");
-        let wrapper = writer_wrapper_python(dir.path(), "wrapper-parent-exit", "parent-exit");
         let started = Instant::now();
-        let report = run_probe(&wrapper, "json", "json")
-            .expect("normal parent exit with an inherited writer must finish");
-        assert_eq!(report["imported"], false);
-        assert!(started.elapsed() < Duration::from_secs(10));
-        assert!(wait_for_writer_ready(
-            &ready,
+        let WriterFixture {
+            python,
+            pid_path,
+            ready_path,
+            ..
+        } = fixture;
+        std::env::set_var(PROBE_TEST_WRITER_PID_ENV, &pid_path);
+        std::env::set_var(PROBE_TEST_WRITER_READY_ENV, &ready_path);
+        std::env::set_var(PROBE_TEST_WRITER_MODE_ENV, "exit");
+        let report = run_probe(
+            &python,
+            "dcc_mcp_inherited_fixture.leaf",
+            "dcc-mcp-inherited-fixture",
+        )
+        .expect("production probe must finish after its parent exits");
+        let elapsed = started.elapsed();
+
+        assert_eq!(report["module"], "dcc_mcp_inherited_fixture.leaf");
+        assert_eq!(report["imported"], true);
+        assert_eq!(report["module_version"], "1.0.0");
+        assert!(wait_for_file(
+            &ready_path,
             Instant::now() + Duration::from_secs(1)
         ));
+        let pid = std::fs::read_to_string(&pid_path)
+            .unwrap()
+            .trim()
+            .parse::<u32>()
+            .unwrap();
+        assert!(
+            process_is_alive(pid),
+            "writer must outlive probe parent exit"
+        );
+        assert!(elapsed < Duration::from_secs(4), "elapsed: {elapsed:?}");
     }
 
     #[test]
     fn probe_timeout_terminates_inherited_writer() {
-        let Some(python) = real_python() else {
+        let Some(fixture) = writer_test_setup("timeout") else {
             eprintln!("skipping: no python interpreter available");
             return;
         };
-        let dir = tempfile::tempdir().unwrap();
-        let ready = dir.path().join("writer-timeout.ready");
-        let wrapper = writer_wrapper_python(dir.path(), "wrapper-timeout", "timeout");
+        let WriterFixture {
+            python,
+            pid_path,
+            ready_path,
+            ..
+        } = fixture;
+        std::env::set_var(PROBE_TEST_WRITER_PID_ENV, &pid_path);
+        std::env::set_var(PROBE_TEST_WRITER_READY_ENV, &ready_path);
+        std::env::set_var(PROBE_TEST_WRITER_MODE_ENV, "timeout");
         let started = Instant::now();
-        let error = run_probe(&wrapper, "json", "json").unwrap_err();
-        assert!(
-            error.starts_with("probe_timed_out_after_"),
-            "error: {error}"
-        );
-        assert!(started.elapsed() < Duration::from_secs(10));
-        assert!(wait_for_writer_ready(
-            &ready,
+        let error = run_probe(
+            &python,
+            "dcc_mcp_inherited_fixture.leaf",
+            "dcc-mcp-inherited-fixture",
+        )
+        .unwrap_err();
+        let elapsed = started.elapsed();
+
+        assert_eq!(error, "probe_timed_out_after_2s", "error: {error}");
+        assert!(wait_for_file(
+            &ready_path,
             Instant::now() + Duration::from_secs(1)
         ));
+        let pid = std::fs::read_to_string(&pid_path)
+            .unwrap()
+            .trim()
+            .parse::<u32>()
+            .unwrap();
+        assert!(!process_is_alive(pid), "writer must be gone after cleanup");
+        assert!(elapsed < Duration::from_secs(4), "elapsed: {elapsed:?}");
     }
 
     #[test]
