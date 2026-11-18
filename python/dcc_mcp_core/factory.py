@@ -79,9 +79,7 @@ def _require_usable_native_core() -> None:
         raise
     except (ImportError, OSError) as exc:
         report = _failure_report(exc)
-        message = (
-            f"Native Core startup preflight failed ({report['reason']}): {_error_message(report)}"
-        )
+        message = f"Native Core startup preflight failed ({report['reason']}): {_error_message(report)}"
         raise ImportError(message) from exc
     else:
         return

@@ -94,11 +94,13 @@ def test_server_startup_fails_closed_before_construction_on_loader_failure(monke
     monkeypatch.setattr(_native.importlib, "import_module", fail)
 
     if start_path == "create_dcc_server":
+
         def start():
             return _factory.create_dcc_server(
                 instance_holder=[None], lock=threading.Lock(), server_class=NoConstructionServer
             )
     elif start_path == "start_embedded_dcc_server":
+
         def start():
             return _factory.start_embedded_dcc_server(
                 dcc_name="MotionBuilder2024",
@@ -141,18 +143,17 @@ def test_server_startup_allows_extensionless_lite_profile(monkeypatch):
             return "handle"
 
     monkeypatch.setattr(_native.importlib, "import_module", fail)
-    handle = _factory.create_dcc_server(
-        instance_holder=[None], lock=threading.Lock(), server_class=LiteServer
-    )
+    handle = _factory.create_dcc_server(instance_holder=[None], lock=threading.Lock(), server_class=LiteServer)
     assert handle == "handle"
     assert started == ["start"]
 
 
 def test_server_startup_succeeds_with_cached_native_extension(monkeypatch):
-    monkeypatch.setitem(sys.modules, "dcc_mcp_core._core", SimpleNamespace(__version__="cached-native"))
+    core = SimpleNamespace(__version__="cached-native")
 
-    def unexpected_import(name):
-        raise AssertionError(f"cached native startup must not import {name} again")
+    def load(name):
+        assert name == "dcc_mcp_core._core"
+        return core
 
     started = []
 
@@ -167,10 +168,8 @@ def test_server_startup_succeeds_with_cached_native_extension(monkeypatch):
             started.append("start")
             return "handle"
 
-    monkeypatch.setattr(_native.importlib, "import_module", unexpected_import)
-    handle = _factory.create_dcc_server(
-        instance_holder=[None], lock=threading.Lock(), server_class=CachedNativeServer
-    )
+    monkeypatch.setattr(_native.importlib, "import_module", load)
+    handle = _factory.create_dcc_server(instance_holder=[None], lock=threading.Lock(), server_class=CachedNativeServer)
     assert handle == "handle"
     assert started == ["start"]
 
@@ -179,9 +178,14 @@ def test_cached_native_calls_do_not_repeat_dll_directory_filesystem_probes(monke
     core = SimpleNamespace(__version__="cached-native")
     monkeypatch.setitem(sys.modules, "dcc_mcp_core._core", core)
 
+    def load(name):
+        assert name == "dcc_mcp_core._core"
+        return core
+
     def unexpected_probe():
         raise AssertionError("cached JSON/native calls must not probe the filesystem")
 
+    monkeypatch.setattr(_native.importlib, "import_module", load)
     monkeypatch.setattr(_native, "prepare_embedded_python_dll_search", unexpected_probe)
     assert _native._load_native_core() is core
 

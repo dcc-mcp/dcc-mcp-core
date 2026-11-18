@@ -40,10 +40,8 @@ def _failure_report(exc: ImportError | OSError) -> dict[str, Any]:
 
 def _load_native_core() -> ModuleType:
     """Load native APIs, preserving lite absence and the original failure cause."""
-    cached = sys.modules.get(_MODULE)
-    if cached is not None:
-        return cached
-    prepare_embedded_python_dll_search()
+    if sys.modules.get(_MODULE) is None:
+        prepare_embedded_python_dll_search()
     try:
         return importlib.import_module(_MODULE)
     except (ImportError, OSError) as exc:
@@ -57,8 +55,7 @@ def _error_message(report: dict[str, Any]) -> str:
     directories = ", ".join(report["dll_search_directories"]) or "(none)"
     message = (
         f"Cannot load {_MODULE} in {sys.executable} (Python {report['python_version']}, {sys.platform}): "
-        f"{report['error']}. "
-        + " ".join(report["next_steps"])
+        f"{report['error']}. " + " ".join(report["next_steps"])
     )
     if sys.platform == "win32":
         message += f" DLL directory candidates: {directories}."
