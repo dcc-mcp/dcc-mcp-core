@@ -618,15 +618,15 @@ fn write_probe_fixture(dir: &Path, mode: &str) {
         r#"import os, json, subprocess, sys, time
 child_code = {WRITER_CODE:?}
 writer = subprocess.Popen(
-[sys.executable, "-c", child_code],
-stdin=subprocess.DEVNULL,
-stdout=None,
-stderr=None,
+    [sys.executable, "-c", child_code],
+    stdin=subprocess.DEVNULL,
+    stdout=None,
+    stderr=None,
 )
 with open(os.environ[{PID_ENV:?}], "w") as handle:
-handle.write(str(writer.pid))
+    handle.write(str(writer.pid))
 with open(os.environ[{READY_ENV:?}], "w") as handle:
-handle.write("ready")
+    handle.write("ready")
 sys.exit(0)
 "#,
         PID_ENV = PROBE_TEST_WRITER_PID_ENV,
