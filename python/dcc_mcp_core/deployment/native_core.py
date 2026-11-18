@@ -40,22 +40,29 @@ def _failure_report(exc: ImportError | OSError) -> dict[str, Any]:
 
 def _load_native_core() -> ModuleType:
     """Load native APIs, preserving lite absence and the original failure cause."""
-    if sys.modules.get(_MODULE) is None:
-        prepare_embedded_python_dll_search()
+    cached = sys.modules.get(_MODULE)
+    if cached is not None:
+        return cached
+    prepare_embedded_python_dll_search()
     try:
         return importlib.import_module(_MODULE)
     except (ImportError, OSError) as exc:
         if isinstance(exc, ModuleNotFoundError) and exc.name == _MODULE:
             raise
-        report = _failure_report(exc)
-        directories = ", ".join(report["dll_search_directories"]) or "(none)"
-        message = (
-            f"Cannot load {_MODULE} in {sys.executable} (Python {report['python_version']}, {sys.platform}): {exc}. "
-            + " ".join(report["next_steps"])
-        )
-        if sys.platform == "win32":
-            message += f" DLL directory candidates: {directories}."
-        raise ImportError(message) from exc
+        raise ImportError(_error_message(_failure_report(exc))) from exc
+
+
+def _error_message(report: dict[str, Any]) -> str:
+    """Format a stable loader error from a shared failure report."""
+    directories = ", ".join(report["dll_search_directories"]) or "(none)"
+    message = (
+        f"Cannot load {_MODULE} in {sys.executable} (Python {report['python_version']}, {sys.platform}): "
+        f"{report['error']}. "
+        + " ".join(report["next_steps"])
+    )
+    if sys.platform == "win32":
+        message += f" DLL directory candidates: {directories}."
+    return message
 
 
 def verify_native_core() -> dict[str, Any]:

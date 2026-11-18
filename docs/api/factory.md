@@ -20,6 +20,12 @@ create_dcc_server(
 
 Create-or-return a singleton DCC MCP server and start it. Thread-safe.
 
+Before any dispatcher, server or schema work, these helpers run the
+`verify_native_core()` preflight. A present but unloadable `_core` fails
+closed with an actionable loader diagnostic. A genuinely absent `_core`
+remains valid for lite/sidecar deployments. See
+[Native extension preflight](../guide/native-preflight.md).
+
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `instance_holder` | `list` | (required) | Single-element list used as mutable reference |

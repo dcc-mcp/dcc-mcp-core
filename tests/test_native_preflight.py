@@ -7,10 +7,12 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import threading
 from types import SimpleNamespace
 
 import pytest
 
+from dcc_mcp_core import factory as _factory
 from dcc_mcp_core.deployment import native_core as _native
 
 
@@ -74,6 +76,103 @@ def test_preflight_retries_after_runtime_repair(monkeypatch):
     assert _native.verify_native_core()["success"] is False
     state["repaired"] = True
     assert _native.verify_native_core()["native_version"] == "test-native"
+
+
+@pytest.mark.parametrize("start_path", ["create_dcc_server", "start_embedded_dcc_server", "make_start_stop"])
+def test_server_startup_fails_closed_before_construction_on_loader_failure(monkeypatch, start_path):
+    events = []
+
+    def fail(name):
+        events.append(("preflight", name))
+        raise ImportError("DLL load failed while importing _core")
+
+    class NoConstructionServer:
+        def __init__(self, *args, **kwargs):
+            events.append(("construct", args, kwargs))
+            raise AssertionError("server construction must not start after preflight failure")
+
+    monkeypatch.setattr(_native.importlib, "import_module", fail)
+
+    if start_path == "create_dcc_server":
+        def start():
+            return _factory.create_dcc_server(
+                instance_holder=[None], lock=threading.Lock(), server_class=NoConstructionServer
+            )
+    elif start_path == "start_embedded_dcc_server":
+        def start():
+            return _factory.start_embedded_dcc_server(
+                dcc_name="MotionBuilder2024",
+                instance_holder=[None],
+                lock=threading.Lock(),
+                server_class=NoConstructionServer,
+                dispatcher_factory=lambda: events.append(("dispatcher",)),
+            )
+    else:
+        start_server, _ = _factory.make_start_stop(
+            NoConstructionServer, dispatcher_factory=lambda: events.append(("dispatcher",))
+        )
+        start = start_server
+
+    with pytest.raises(ImportError) as error:
+        start()
+
+    message = str(error.value)
+    assert "native_load_failed" in message
+    assert "DLL load failed while importing _core" in message
+    assert "DCC_MCP_PYTHON3_DLL_DIR" in message
+    assert events == [("preflight", "dcc_mcp_core._core")]
+
+
+def test_server_startup_allows_extensionless_lite_profile(monkeypatch):
+    started = []
+
+    def fail(name):
+        raise ModuleNotFoundError("No native wheel", name=name)
+
+    class LiteServer:
+        def __init__(self, port=None, **kwargs):
+            self.is_running = False
+
+        def register_builtin_actions(self, **kwargs):
+            pass
+
+        def start(self):
+            started.append("start")
+            return "handle"
+
+    monkeypatch.setattr(_native.importlib, "import_module", fail)
+    handle = _factory.create_dcc_server(
+        instance_holder=[None], lock=threading.Lock(), server_class=LiteServer
+    )
+    assert handle == "handle"
+    assert started == ["start"]
+
+
+def test_server_startup_succeeds_with_cached_native_extension(monkeypatch):
+    monkeypatch.setitem(sys.modules, "dcc_mcp_core._core", SimpleNamespace(__version__="cached-native"))
+
+    def unexpected_import(name):
+        raise AssertionError(f"cached native startup must not import {name} again")
+
+    started = []
+
+    class CachedNativeServer:
+        def __init__(self, port=None, **kwargs):
+            self.is_running = False
+
+        def register_builtin_actions(self, **kwargs):
+            pass
+
+        def start(self):
+            started.append("start")
+            return "handle"
+
+    monkeypatch.setattr(_native.importlib, "import_module", unexpected_import)
+    handle = _factory.create_dcc_server(
+        instance_holder=[None], lock=threading.Lock(), server_class=CachedNativeServer
+    )
+    assert handle == "handle"
+    assert started == ["start"]
 
 
 def test_cached_native_calls_do_not_repeat_dll_directory_filesystem_probes(monkeypatch):

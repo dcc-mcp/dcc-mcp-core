@@ -63,3 +63,10 @@ Adapter maintainers should add this probe to installation verification and
 startup before loading server modules. Public agent Skill packages now live in
 `dcc-mcp-agent-plugins`; document this API there as pending until the Core
 version containing it is released. Do not advertise it for older wheels.
+
+Core's `create_dcc_server()`, `start_embedded_dcc_server()`, and the
+`start_server()` returned by `make_start_stop()` run the probe before creating
+a dispatcher, constructing a server, or building schemas. A present but
+unloadable extension raises an actionable `ImportError` at that boundary.
+An actually absent `_core` remains valid for the lite/sidecar deployment, so
+those helpers keep their existing extensionless startup behavior.
