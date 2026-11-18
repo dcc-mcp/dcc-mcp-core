@@ -86,7 +86,7 @@ def _raw_manifest(records):
 
 def _schema_validator():
     document = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
-    checker = jsonschema.FormatChecker()
+    checker = jsonschema.FormatChecker(formats=[])
     assert "date-time" not in checker.checkers
     return jsonschema.Draft202012Validator(document, format_checker=checker)
 
@@ -281,6 +281,29 @@ def test_impossible_calendar_timestamps_are_rejected_at_both_levels():
 def test_valid_probe_timestamps_are_preserved(timestamp):
     record = make_host_capability("render.lpe", True, PROBE_PASS, probed_at=timestamp)
     assert record["probed_at"] == timestamp
+
+
+@pytest.mark.parametrize(
+    "timestamp",
+    [
+        "2026-11-18T00:00:00.1Z",
+        "2026-11-18T00:00:00.12Z",
+        "2026-11-18T00:00:00.1234Z",
+        "2026-11-18T00:00:00.1234567Z",
+        "2026-11-18T08:00:00.1+08:00",
+    ],
+)
+def test_variable_fraction_timestamps_are_valid_at_both_levels(timestamp):
+    assert (
+        validate_host_capabilities(_raw_manifest([_raw_capability(probed_at=timestamp)]))["capabilities"][0][
+            "probed_at"
+        ]
+        == timestamp
+    )
+    payload = _raw_manifest([_raw_capability()])
+    payload["probed_at"] = timestamp
+    assert validate_host_capabilities(payload)["probed_at"] == timestamp
+    assert _schema_is_valid(_raw_manifest([_raw_capability(probed_at=timestamp)]))
 
 
 def test_unsupported_capability_requires_a_concrete_reason():
@@ -548,6 +571,37 @@ def test_tool_returns_structured_error_when_provider_fails():
     assert result["success"] is False
     assert result["error"] == "host_capability_provider_failed"
     assert result["context"]["exception_type"] == "RuntimeError"
+
+
+def test_forced_refresh_uses_callback_identity_for_cache_insertion():
+    server = _Server()
+    calls = []
+
+    def provider():
+        calls.append(1)
+        manifest = _manifest([])
+        manifest["host_version"] = "1"
+        manifest["adapter_version"] = "1"
+        manifest["probed_at"] = f"2026-11-18T00:00:{len(calls):02d}Z"
+        return manifest
+
+    cache = HostCapabilityCache(ttl_secs=300)
+    assert register_host_capability_tool(
+        server,
+        dcc_name="comfyui",
+        provider=provider,
+        cache=cache,
+        provider_cache_key=lambda: (None, "1", "1"),
+    )
+    handler = server._server.registry.handlers["dcc_host_capabilities"]
+
+    first = handler({})
+    refreshed = handler({"force_refresh": True})
+    second = handler({})
+    expected_key = HostCapabilityCache.cache_key(None, "1", "1")
+    assert set(cache._entries) == {expected_key}
+    assert first["context"]["probed_at"] != refreshed["context"]["probed_at"]
+    assert refreshed["context"]["probed_at"] == second["context"]["probed_at"]
 
 
 def test_tool_registration_is_skipped_without_a_server_registry():

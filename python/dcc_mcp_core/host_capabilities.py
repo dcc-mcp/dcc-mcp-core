@@ -255,13 +255,29 @@ def _hc_timestamp(value: Any, field_name: str, *, optional: bool = False) -> str
         return None
     if not _HC_TIMESTAMP_RE.match(text):
         raise HostCapabilityValidationError(f"{field_name} must be an RFC 3339 date-time with a timezone")
-    normalized = text[:-1] + "+00:00" if text[-1:] in ("Z", "z") else text
     try:
-        parsed = datetime.datetime.fromisoformat(normalized)
+        if text[-1:] in ("Z", "z"):
+            offset = datetime.timedelta(0)
+        else:
+            zone_pos = text.index("+", 19) if "+" in text[19:] else text.index("-", 19)
+            sign = 1 if text[zone_pos] == "+" else -1
+            offset = sign * datetime.timedelta(
+                hours=int(text[zone_pos + 1 : zone_pos + 3]),
+                minutes=int(text[zone_pos + 4 : zone_pos + 6]),
+            )
+        datetime.datetime(
+            int(text[:4]),
+            int(text[5:7]),
+            int(text[8:10]),
+            int(text[11:13]),
+            int(text[14:16]),
+            int(text[17:19]),
+            tzinfo=datetime.timezone(offset),
+        )
     except ValueError as exc:
         raise HostCapabilityValidationError(f"{field_name} must be an RFC 3339 date-time with a timezone") from exc
-    if parsed.tzinfo is None or parsed.utcoffset() is None:
-        raise HostCapabilityValidationError(f"{field_name} must be an RFC 3339 date-time with a timezone")
+    except (IndexError, TypeError) as exc:
+        raise HostCapabilityValidationError(f"{field_name} must be an RFC 3339 date-time with a timezone") from exc
     return text
 
 
@@ -641,10 +657,11 @@ def register_host_capability_tool(
         params = params or {}
         try:
             identity = provider_cache_key() if provider_cache_key is not None else None
-            key: str | None = None
+            key: str | None = (
+                HostCapabilityCache.cache_key(*identity) if cache is not None and identity is not None else None
+            )
             cached = None
-            if cache is not None and identity is not None and not params.get("force_refresh"):
-                key = HostCapabilityCache.cache_key(*identity)
+            if cache is not None and key is not None and not params.get("force_refresh"):
                 cached = cache.get(key)
             if cached is not None:
                 manifest = cached
