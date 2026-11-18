@@ -13,6 +13,8 @@
 //! * `missing` — no distribution metadata and no importable module.
 //! * `unimportable` — distribution metadata present but the import failed.
 //! * `version_mismatch` — importable, but module and distribution disagree.
+//! * `incompatible_core` — importable, but the target Core is outside the
+//!   adapter's declared dependency range.
 //! * `unavailable` — the probe itself could not run (no interpreter configured,
 //!   interpreter not launchable, or probe output unreadable). This is never
 //!   treated as an adapter failure; it only says the check could not be made.
@@ -426,18 +428,21 @@ fn grade(report: &Map<String, Value>, core: Option<&CoreRuntimeReport>) -> Adapt
     }
     let dist_version = report.get("dist_version").and_then(Value::as_str);
     let module_version = report.get("module_version").and_then(Value::as_str);
-    match (dist_version, module_version) {
-        (Some(dist), Some(module)) if dist != module => AdapterImportStatus::VersionMismatch,
-        _ if core.is_some_and(|core| {
-            matches!(
-                core.verdict,
-                RuntimeVerdict::CoreOlderThanDeclared | RuntimeVerdict::CoreNewerThanDeclared
-            )
-        }) =>
-        {
-            AdapterImportStatus::IncompatibleCore
+    if let (Some(dist), Some(module)) = (dist_version, module_version) {
+        if dist != module {
+            return AdapterImportStatus::VersionMismatch;
         }
-        _ => AdapterImportStatus::Ok,
+    }
+    let conclusive_core_mismatch = core.is_some_and(|core| {
+        matches!(
+            core.verdict,
+            RuntimeVerdict::CoreOlderThanDeclared | RuntimeVerdict::CoreNewerThanDeclared
+        )
+    });
+    if conclusive_core_mismatch {
+        AdapterImportStatus::IncompatibleCore
+    } else {
+        AdapterImportStatus::Ok
     }
 }
 
@@ -592,6 +597,19 @@ import sys
 module_name = sys.argv[1] if len(sys.argv) > 1 else ""
 dist_name = sys.argv[2] if len(sys.argv) > 2 else module_name
 
+
+def _unconditional_requirement(values):
+    """Keep one distinct unconditional requirement; never evaluate markers."""
+    unconditional = []
+    for value in values:
+        if ";" in value:
+            continue
+        specifier = value.strip()
+        if specifier and specifier not in unconditional:
+            unconditional.append(specifier)
+    return unconditional[0] if len(unconditional) == 1 else None
+
+
 report = {
     "module": module_name,
     "distribution": dist_name,
@@ -701,8 +719,7 @@ if dist_name:
     report["dist_source"] = source
     core_requirements = [value for value in requirements
                          if re.match(r"^dcc[-_.]+mcp[-_.]+core(?=\s|[<=>!~(\[]|$)", value, re.I)]
-    if len(core_requirements) == 1 and ";" not in core_requirements[0]:
-        report["core_requirement"] = core_requirements[0]
+    report["core_requirement"] = _unconditional_requirement(core_requirements)
 
 if module_name:
     try:
@@ -885,6 +902,19 @@ mod tests {
         assert!(
             core_compatibility(json!({"core_version": "0.21.0"}).as_object().unwrap()).is_none()
         );
+
+        let prerelease = json!({
+            "imported": true, "dist_version": "1.0.0", "module_version": "1.0.0",
+            "core_requirement": "dcc-mcp-core>=0.20.24,<0.21.0", "core_version": "0.20.24rc1",
+        });
+        let prerelease = prerelease.as_object().unwrap();
+        let core = core_compatibility(prerelease).unwrap();
+        assert_eq!(core.verdict, RuntimeVerdict::UnknownCoreVersion);
+        assert_eq!(grade(prerelease, Some(&core)), AdapterImportStatus::Ok);
+        assert_ne!(
+            grade(prerelease, Some(&core)),
+            AdapterImportStatus::VersionMismatch
+        );
     }
 
     #[test]
@@ -943,6 +973,27 @@ mod tests {
         );
         std::fs::write(dir.path().join("dcc_mcp_fixture-1.0.0.dist-info/METADATA"),
             "Name: dcc-mcp-fixture\nVersion: 1.0.0\nRequires-Dist: dcc-mcp-core>=0.20.24,<0.21.0\nRequires-Dist: dcc-mcp-core>=0.20.40,<0.21.0; python_version >= '3.7'\n\n").unwrap();
+        let report = probe(PROBE_SCRIPT);
+        assert_eq!(
+            report["core_requirement"],
+            "dcc-mcp-core>=0.20.24,<0.21.0"
+        );
+        let core = core_compatibility(&report).unwrap();
+        assert_eq!(core.verdict, RuntimeVerdict::CoreNewerThanDeclared);
+        assert_eq!(
+            grade(&report, Some(&core)),
+            AdapterImportStatus::IncompatibleCore
+        );
+
+        std::fs::write(
+            dir.path().join("dcc_mcp_fixture-1.0.0.dist-info/METADATA"),
+            concat!(
+                "Name: dcc-mcp-fixture\nVersion: 1.0.0\n",
+                "Requires-Dist: dcc-mcp-core>=0.20.24,<0.21.0\n",
+                "Requires-Dist: dcc-mcp-core>=0.20.40,<0.21.0\n\n",
+            ),
+        )
+        .unwrap();
         let report = probe(PROBE_SCRIPT);
         assert!(report["core_requirement"].is_null());
         assert!(core_compatibility(&report).is_none());
