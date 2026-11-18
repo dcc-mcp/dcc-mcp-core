@@ -24,10 +24,10 @@
 //! `missing`, which is exactly the noise this check must not add.
 
 use std::collections::BTreeMap;
+use std::fs::File;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -55,8 +55,12 @@ use crate::domain::install::normalized_dcc_key;
 /// `build_sidecar_command`. Duplicated here so the CLI stays import-free.
 pub const PYTHON_EXECUTABLE_ENV: &str = "DCC_MCP_PYTHON_EXECUTABLE";
 
-/// Total wall-clock ceiling for one probe, including process-tree and pipe cleanup.
+/// Total wall-clock ceiling for one probe, including process-tree cleanup.
 const PROBE_TIMEOUT: Duration = Duration::from_secs(60);
+/// Portion of the total budget reserved for writers, termination, and reaping.
+const PROBE_CLEANUP_WINDOW: Duration = Duration::from_secs(2);
+/// Maximum bytes collected from each output spool.
+const PROBE_OUTPUT_LIMIT: u64 = 4 * 1024 * 1024;
 /// Poll interval for parent exit and bounded cleanup loops.
 const PROBE_POLL_INTERVAL: Duration = Duration::from_millis(25);
 
@@ -507,7 +511,15 @@ fn run_probe(
 ) -> Result<Map<String, Value>, String> {
     let timeout = probe_timeout();
     let started = Instant::now();
-    let operation_deadline = started + timeout;
+    let operation_deadline = started + timeout.saturating_sub(PROBE_CLEANUP_WINDOW);
+    let spool_dir = tempfile::tempdir()
+        .map_err(|err| format!("probe_failed: output spool unavailable: {err}"))?;
+    let stdout_path = spool_dir.path().join("stdout");
+    let stderr_path = spool_dir.path().join("stderr");
+    let stdout_child = File::create(&stdout_path)
+        .map_err(|err| format!("probe_failed: stdout spool unavailable: {err}"))?;
+    let stderr_child = File::create(&stderr_path)
+        .map_err(|err| format!("probe_failed: stderr spool unavailable: {err}"))?;
     let mut command = Command::new(python);
     #[cfg(unix)]
     command.process_group(0);
@@ -523,61 +535,53 @@ fn run_probe(
         .arg(module)
         .arg(distribution)
         .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stdout(Stdio::from(stdout_child))
+        .stderr(Stdio::from(stderr_child))
         .spawn()
         .map_err(|err| format!("interpreter_not_launchable: {err}"))?;
 
     // Every failure after spawn terminates and reaps the child tree before it
-    // returns. Readers are created after adoption so their pipes cannot be
-    // stranded by a suspended-child adoption failure.
-    let mut tree = ProbeChildTree::adopt(child, operation_deadline)?;
-    let stdout = tree
-        .child
-        .stdout
-        .take()
-        .ok_or_else(|| "probe_failed: stdout was unavailable".to_string())?;
-    let stderr = tree
-        .child
-        .stderr
-        .take()
-        .ok_or_else(|| "probe_failed: stderr was unavailable".to_string())?;
-    let readers = ProbeReaders::spawn(stdout, stderr);
-    loop {
+    // returns. Adoption happens before the child is resumed on Windows.
+    let mut tree = ProbeChildTree::adopt(child, Instant::now() + PROBE_CLEANUP_WINDOW)?;
+    let status = loop {
         if tree
             .child
             .try_wait()
             .map_err(|err| format!("probe_failed: {err}"))?
             .is_some()
         {
-            break;
+            break tree
+                .child
+                .wait()
+                .map_err(|err| format!("probe_failed: {err}"))?;
         }
         if Instant::now() >= operation_deadline {
-            let reaped = tree.terminate_and_reap(operation_deadline);
-            let cleanup = readers.finish(operation_deadline);
-            if !reaped.confirmed || !cleanup.confirmed() {
+            let reaped = tree.terminate_and_reap(Instant::now() + PROBE_CLEANUP_WINDOW);
+            if !reaped.confirmed {
                 return Err("probe_cleanup_unconfirmed".to_string());
             }
             return Err(format!("probe_timed_out_after_{}s", timeout.as_secs()));
         }
         thread::sleep(PROBE_POLL_INTERVAL);
-    }
+    };
 
-    let reaped = tree.terminate_and_reap(operation_deadline);
-    let cleanup = readers.finish(operation_deadline);
-    if !reaped.confirmed || !cleanup.confirmed() {
+    // A finite writer may legitimately outlive the interpreter and append the
+    // final report. Give the owned tree the reserved window to finish before
+    // terminating it; an unconfirmed tree state is never treated as clean.
+    let cleanup_deadline = started + timeout;
+    let reaped = if tree.wait_for_descendants(cleanup_deadline) {
+        ProbeCleanupReceipt {
+            terminated: true,
+            reaped: true,
+        }
+    } else {
+        tree.terminate_and_reap(cleanup_deadline)
+    };
+    if !reaped.confirmed {
         return Err("probe_cleanup_unconfirmed".to_string());
     }
-    let status = tree
-        .child
-        .wait()
-        .map_err(|err| format!("probe_failed: {err}"))?;
-    let pipes = cleanup
-        .into_output()
-        .ok_or_else(|| "probe_failed: pipe_reader_failed".to_string())?;
-
-    let stdout_text = String::from_utf8_lossy(&pipes.stdout);
-    let stderr_text = String::from_utf8_lossy(&pipes.stderr);
+    let stdout_text = read_spool(&stdout_path)?;
+    let stderr_text = read_spool(&stderr_path)?;
     let Some(line) = stdout_text
         .lines()
         .rev()
@@ -650,6 +654,20 @@ impl ProbeChildTree {
         ProbeCleanupReceipt { terminated, reaped }
     }
 
+    /// Poll the owned process group or job until all descendants exit. A
+    /// failed platform query is a cleanup failure, never a clean receipt.
+    fn wait_for_descendants(&self, deadline: Instant) -> bool {
+        loop {
+            match self.descendants_present() {
+                Ok(false) => return true,
+                Ok(true) if Instant::now() < deadline => {
+                    thread::sleep(PROBE_POLL_INTERVAL);
+                }
+                Ok(true) | Err(_) => return false,
+            }
+        }
+    }
+
     fn terminate_descendants(&self) -> bool {
         #[cfg(unix)]
         {
@@ -667,6 +685,51 @@ impl ProbeChildTree {
             let _ = self;
             true
         }
+    }
+
+    #[cfg(unix)]
+    fn descendants_present(&self) -> std::io::Result<bool> {
+        // SAFETY: signal 0 probes the dedicated process group without sending
+        // a signal; the group was created for this child before exec.
+        let result = unsafe { libc::kill(-self.process_group, 0) };
+        if result == 0 {
+            return Ok(true);
+        }
+        let error = std::io::Error::last_os_error();
+        if error.raw_os_error() == Some(libc::ESRCH) {
+            Ok(false)
+        } else {
+            Err(error)
+        }
+    }
+
+    #[cfg(windows)]
+    fn descendants_present(&self) -> std::io::Result<bool> {
+        use windows_sys::Win32::Foundation::HANDLE;
+        use windows_sys::Win32::System::JobObjects::{
+            JobObjectBasicProcessIdList, QueryInformationJobObject,
+        };
+        let mut count: u32 = 0;
+        // SAFETY: a zero-size query reports the required list size.
+        let queried = unsafe {
+            QueryInformationJobObject(
+                self.job.as_raw_handle() as HANDLE,
+                JobObjectBasicProcessIdList,
+                std::ptr::null_mut(),
+                0,
+                &mut count,
+            )
+        };
+        if !queried {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(count > 0)
+    }
+
+    #[cfg(not(any(unix, windows)))]
+    fn descendants_present(&self) -> std::io::Result<bool> {
+        let _ = self;
+        Ok(false)
     }
 }
 
@@ -759,111 +822,6 @@ fn resume_probe_process(child: &Child) -> Result<(), String> {
     Ok(())
 }
 
-struct ProbeReaders {
-    receiver: mpsc::Receiver<ProbeIoEvent>,
-    handles: Vec<thread::JoinHandle<()>>,
-}
-
-impl ProbeReaders {
-    fn spawn(stdout: impl Read + Send + 'static, stderr: impl Read + Send + 'static) -> Self {
-        let (sender, receiver) = mpsc::channel();
-        let stdout_sender = sender.clone();
-        let stdout_handle = thread::spawn(move || {
-            let mut stdout = stdout;
-            let mut bytes = Vec::new();
-            let _ = stdout.read_to_end(&mut bytes);
-            let _ = stdout_sender.send((true, bytes));
-        });
-        let stderr_handle = thread::spawn(move || {
-            let mut stderr = stderr;
-            let mut bytes = Vec::new();
-            let _ = stderr.read_to_end(&mut bytes);
-            let _ = sender.send((false, bytes));
-        });
-        Self {
-            receiver,
-            handles: vec![stdout_handle, stderr_handle],
-        }
-    }
-
-    fn finish(self, deadline: Instant) -> ProbeIoCleanup {
-        let mut stdout = None;
-        let mut stderr = None;
-        let mut timed_out = false;
-        for _ in 0..2 {
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                timed_out = true;
-                break;
-            }
-            match self.receiver.recv_timeout(remaining) {
-                Ok((true, bytes)) => stdout = Some(bytes),
-                Ok((false, bytes)) => stderr = Some(bytes),
-                Err(_) => {
-                    timed_out = true;
-                    break;
-                }
-            }
-        }
-        let mut joined = true;
-        for handle in self.handles {
-            if !join_within(handle, deadline) {
-                joined = false;
-            }
-        }
-        let reason = (!joined).then_some("pipe_reader_cleanup_failed");
-        if timed_out && reason.is_none() {
-            reason = Some("pipe_reader_timeout");
-        }
-        if reason.is_some() || stdout.is_none() || stderr.is_none() {
-            ProbeIoCleanup::failed(reason.unwrap_or("pipe_reader_failed"))
-        } else {
-            ProbeIoCleanup::complete(stdout.unwrap(), stderr.unwrap())
-        }
-    }
-}
-
-#[derive(Debug)]
-struct ProbeIoCleanup {
-    stdout: Option<Vec<u8>>,
-    stderr: Option<Vec<u8>>,
-    reason: Option<&'static str>,
-}
-
-impl ProbeIoCleanup {
-    fn complete(stdout: Vec<u8>, stderr: Vec<u8>) -> Self {
-        Self {
-            stdout: Some(stdout),
-            stderr: Some(stderr),
-            reason: None,
-        }
-    }
-
-    fn failed(reason: &'static str) -> Self {
-        Self {
-            stdout: None,
-            stderr: None,
-            reason: Some(reason),
-        }
-    }
-
-    fn confirmed(&self) -> bool {
-        self.reason.is_none()
-    }
-
-    fn reason(&self) -> &'static str {
-        self.reason.unwrap_or("pipe_reader_failed")
-    }
-
-    fn into_output(self) -> Option<std::process::Output> {
-        Some(std::process::Output {
-            status: std::process::ExitStatus::default(),
-            stdout: self.stdout?,
-            stderr: self.stderr?,
-        })
-    }
-}
-
 fn first_line(text: &str) -> Option<&str> {
     text.lines()
         .next()
@@ -871,17 +829,17 @@ fn first_line(text: &str) -> Option<&str> {
         .filter(|line| !line.is_empty())
 }
 
-/// Join a reader within the shared deadline without detaching its handle.
-fn join_within(handle: thread::JoinHandle<()>, deadline: Instant) -> bool {
-    while !handle.is_finished() {
-        if Instant::now() >= deadline {
-            // The child tree has already been killed on every path that uses
-            // this helper, so a reader still pending means cleanup failed.
-            return false;
-        }
-        thread::sleep(PROBE_POLL_INTERVAL);
+/// Read a private output spool after the owning process tree is gone.
+fn read_spool(path: &Path) -> Result<String, String> {
+    let file = File::open(path).map_err(|err| format!("probe_output_unreadable: {err}"))?;
+    let mut bytes = Vec::new();
+    file.take(PROBE_OUTPUT_LIMIT + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|err| format!("probe_output_unreadable: {err}"))?;
+    if bytes.len() as u64 > PROBE_OUTPUT_LIMIT {
+        return Err("probe_output_unreadable: output limit exceeded".to_string());
     }
-    handle.join().is_ok()
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
 #[cfg(test)]
@@ -1533,50 +1491,30 @@ mod tests {
         assert_eq!(grade(&report, None), AdapterImportStatus::Ok);
     }
 
-    /// Regression guard for a chatty normal child: output larger than the OS
-    /// pipe buffer must still be collected in full.
+    /// Regression guard for a chatty adapter: output larger than the OS pipe
+    /// buffer must still be collected in full by the production probe.
     #[test]
     fn probe_reads_a_child_that_floods_stderr() {
         let Some(python) = real_python() else {
             eprintln!("skipping: no python interpreter available");
             return;
         };
-        // 256 KiB of stderr is far past any pipe buffer; a stdout JSON line
-        // must still come back.
-        let script = concat!(
-            "import sys\n",
-            "sys.stderr.write('x' * (256 * 1024))\n",
-            "sys.stderr.flush()\n",
-            "sys.stdout.write('{\"imported\": true}')\n",
-        );
+        let dir = tempfile::tempdir().unwrap();
+        let package = dir.path().join("dcc_mcp_noisy_fixture");
+        std::fs::create_dir(&package).unwrap();
+        std::fs::write(
+            package.join("__init__.py"),
+            format!(
+                "import sys\nsys.stderr.write('x' * ({}))\nsys.stderr.flush()\n__version__ = '7.0.0'\n",
+                1024 * 1024
+            ),
+        )
+        .unwrap();
 
-        let mut child = Command::new(&python)
-            .arg("-c")
-            .arg(script)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .expect("interpreter should launch");
-        let stdout = child.stdout.take().expect("stdout is piped");
-        let stderr = child.stderr.take().expect("stderr is piped");
-        let readers = ProbeReaders::spawn(stdout, stderr);
-
-        // No timeout dance here: draining concurrently means this returns as
-        // soon as the child exits. A deadlock would hang the test suite.
-        let status = child.wait().expect("child should be reaped");
-        let pipes = readers
-            .finish(Instant::now() + Duration::from_secs(5))
-            .expect("noisy child output must drain within the cleanup deadline");
-
-        assert!(status.success(), "child exited with {status}");
-        assert_eq!(
-            pipes.stderr.len(),
-            256 * 1024,
-            "stderr should be fully drained"
-        );
-        let text = String::from_utf8_lossy(&pipes.stdout);
-        assert!(text.contains("\"imported\": true"), "stdout was: {text}");
+        let report = run_probe(&python, "dcc_mcp_noisy_fixture", "dcc-mcp-noisy-fixture")
+            .expect("noisy adapter output must not deadlock the production probe");
+        assert_eq!(report["imported"], true);
+        assert_eq!(report["module_version"], "7.0.0");
     }
 
     #[test]
@@ -1614,13 +1552,21 @@ mod tests {
         assert_eq!(targets[0].module, "dcc_mcp_maya");
     }
 
+    /// The normal fixture's writer emits the final JSON line after the probe
+    /// interpreter exits. That proves the implementation waits for a finite
+    /// inherited writer before reading the spool; killing the parent's tree on
+    /// direct-child exit would lose this line and fail the test.
     fn write_probe_fixture(dir: &Path, mode: &str) {
         let package = dir.join("dcc_mcp_inherited_fixture");
         std::fs::create_dir_all(&package).unwrap();
         let leaf = format!(
-            r#"import os, subprocess, sys, time
+            r#"import os, json, subprocess, sys, time
+if os.environ[{MODE_ENV:?}] == "exit":
+    child_code = "import json,sys,time; time.sleep(0.4); print(json.dumps({'module': 'dcc_mcp_inherited_fixture.leaf', 'imported': True, 'module_version': 'writer-final'}))"
+else:
+    child_code = "import sys,time; print('writer-out', flush=True); print('writer-err', file=sys.stderr, flush=True); time.sleep(30)"
 writer = subprocess.Popen(
-    [sys.executable, "-c", "import sys,time; print('writer-out', flush=True); print('writer-err', file=sys.stderr, flush=True); time.sleep(30)"],
+    [sys.executable, "-c", child_code],
     stdin=subprocess.DEVNULL,
     stdout=None,
     stderr=None,
@@ -1630,8 +1576,6 @@ with open(os.environ[{PID_ENV:?}], "w") as handle:
 with open(os.environ[{READY_ENV:?}], "w") as handle:
     handle.write("ready")
 if os.environ[{MODE_ENV:?}] == "exit":
-    writer.terminate()
-    writer.wait(timeout=5)
     sys.exit(0)
 while True:
     time.sleep(0.2)
@@ -1793,7 +1737,7 @@ while True:
 
         assert_eq!(report["module"], "dcc_mcp_inherited_fixture.leaf");
         assert_eq!(report["imported"], true);
-        assert_eq!(report["module_version"], "1.0.0");
+        assert_eq!(report["module_version"], "writer-final");
         assert!(wait_for_file(
             &ready_path,
             Instant::now() + Duration::from_secs(1)
@@ -1804,8 +1748,8 @@ while True:
             .parse::<u32>()
             .unwrap();
         assert!(
-            process_is_alive(pid),
-            "writer must outlive probe parent exit"
+            !process_is_alive(pid),
+            "finite writer must be fully drained"
         );
         assert!(elapsed < Duration::from_secs(4), "elapsed: {elapsed:?}");
     }
