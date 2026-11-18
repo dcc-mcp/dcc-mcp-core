@@ -274,6 +274,14 @@ type and grades it under `adapter_imports`:
 `status` becomes `degraded` and the command exits non-zero when any probe is
 `missing`, `unimportable`, `version_mismatch`, or `incompatible_core`.
 
+The probe writes interpreter output to private spool files and samples their
+sizes every 25 ms. A spool crossing 4 MiB stops the probe before its output is
+read, so a runaway writer cannot keep growing unobserved until cleanup; the
+sampling interval allows a brief overshoot and is not a hard filesystem quota.
+On Unix, cleanup covers the dedicated process group. A helper that calls
+`setsid` or otherwise leaves that group is outside the probe's ownership and
+cleanup receipt; the probe does not implement a process sandbox.
+
 The probe records the adapter's unconditional `Requires-Dist` declaration for
 `dcc-mcp-core` and the Core version in that same interpreter. An already imported
 Core module takes precedence over distribution metadata; `core_version_source`

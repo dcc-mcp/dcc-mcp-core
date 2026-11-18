@@ -520,11 +520,48 @@ fn probe_reads_a_child_that_floods_stderr() {
         "dcc_mcp_noisy_fixture",
         "dcc-mcp-noisy-fixture",
         PROBE_TIMEOUT,
-        Vec::new(),
+        vec![(
+            PROBE_TEST_SEARCH_PATH_ENV.to_string(),
+            dir.path().to_path_buf(),
+        )],
     )
     .expect("noisy adapter output must not deadlock the production probe");
     assert_eq!(report["imported"], true);
     assert_eq!(report["module_version"], "7.0.0");
+}
+
+/// A stream that crosses the sampled capture threshold is stopped through the
+/// production probe's owned cleanup path before its spool is read.
+#[test]
+fn probe_rejects_output_above_the_capture_threshold() {
+    let Some(python) = real_python() else {
+        eprintln!("skipping: no python interpreter available");
+        return;
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let package = dir.path().join("dcc_mcp_flood_fixture");
+    std::fs::create_dir(&package).unwrap();
+    std::fs::write(
+        package.join("__init__.py"),
+        format!(
+            "import sys\nsys.stderr.write('x' * ({}))\nsys.stderr.flush()\n__version__ = '7.0.0'\n",
+            PROBE_OUTPUT_LIMIT as usize + 1024 * 1024
+        ),
+    )
+    .unwrap();
+
+    let error = run_probe_with_env(
+        &python,
+        "dcc_mcp_flood_fixture",
+        "dcc-mcp-flood-fixture",
+        PROBE_TIMEOUT,
+        vec![(
+            PROBE_TEST_SEARCH_PATH_ENV.to_string(),
+            dir.path().to_path_buf(),
+        )],
+    )
+    .unwrap_err();
+    assert_eq!(error, "probe_output_limit_exceeded");
 }
 
 #[test]
@@ -569,12 +606,17 @@ fn explicit_catalog_load_failure_is_reported() {
 fn write_probe_fixture(dir: &Path, mode: &str) {
     let package = dir.join("dcc_mcp_inherited_fixture");
     std::fs::create_dir_all(&package).unwrap();
+    let writer_code = match mode {
+        "exit" => {
+            "import json,sys,time; time.sleep(0.4); report = dict(module='dcc_mcp_inherited_fixture.leaf', imported=True, module_version='writer-final'); print(json.dumps(report))"
+        }
+        _ => {
+            "import sys,time; print('writer-out', flush=True); print('writer-err', file=sys.stderr, flush=True); time.sleep(30)"
+        }
+    };
     let leaf = format!(
         r#"import os, json, subprocess, sys, time
-if os.environ[{MODE_ENV:?}] == "exit":
-child_code = "import json,sys,time; time.sleep(0.4); report = dict(module='dcc_mcp_inherited_fixture.leaf', imported=True, module_version='writer-final'); print(json.dumps(report))"
-else:
-child_code = "import sys,time; print('writer-out', flush=True); print('writer-err', file=sys.stderr, flush=True); time.sleep(30)"
+child_code = {WRITER_CODE:?}
 writer = subprocess.Popen(
 [sys.executable, "-c", child_code],
 stdin=subprocess.DEVNULL,
@@ -585,14 +627,11 @@ with open(os.environ[{PID_ENV:?}], "w") as handle:
 handle.write(str(writer.pid))
 with open(os.environ[{READY_ENV:?}], "w") as handle:
 handle.write("ready")
-if os.environ[{MODE_ENV:?}] == "exit":
 sys.exit(0)
-while True:
-time.sleep(0.2)
 "#,
         PID_ENV = PROBE_TEST_WRITER_PID_ENV,
         READY_ENV = PROBE_TEST_WRITER_READY_ENV,
-        MODE_ENV = PROBE_TEST_WRITER_MODE_ENV,
+        WRITER_CODE = writer_code,
     );
     std::fs::write(package.join("__init__.py"), "__version__ = 'parent'\n").unwrap();
     std::fs::write(package.join("leaf.py"), leaf).unwrap();
@@ -668,6 +707,35 @@ fn wait_for_file(path: &Path, deadline: Instant) -> bool {
     false
 }
 
+/// A writer PID alone cannot prove that Windows reaped the child. A caller
+/// that only has a PID, or whose handle query fails, must treat exit as
+/// unknown and fail the assertion instead of silently passing.
+fn assert_writer_exited(pid: u32, context: &str) {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::Foundation::{HANDLE, WAIT_OBJECT_0};
+        use windows_sys::Win32::System::Threading::{
+            OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, SYNCHRONIZE, WaitForSingleObject,
+        };
+        let handle =
+            unsafe { OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+        assert!(
+            !handle.is_null(),
+            "{context}: writer exit status is unknown"
+        );
+        let outcome =
+            unsafe { WaitForSingleObject(handle as HANDLE, WRITER_EXIT_WAIT.as_millis() as u32) };
+        unsafe { windows_sys::Win32::Foundation::CloseHandle(handle as HANDLE) };
+        assert_eq!(outcome, WAIT_OBJECT_0, "{context}: writer exit unconfirmed");
+    }
+    #[cfg(not(windows))]
+    {
+        assert!(!process_is_alive(pid), "{context}: writer is still alive");
+    }
+}
+
+const WRITER_EXIT_WAIT: Duration = Duration::from_secs(2);
+
 struct ProbeFixtureGuard {
     pid_path: PathBuf,
 }
@@ -684,28 +752,32 @@ impl Drop for ProbeFixtureGuard {
 }
 
 struct WriterFixture {
-    _dir: tempfile::TempDir,
+    // Fields drop in declaration order, so the guard must run before TempDir.
     _cleanup: ProbeFixtureGuard,
+    _dir: tempfile::TempDir,
     python: PathBuf,
     pid_path: PathBuf,
     ready_path: PathBuf,
+    dir_path: PathBuf,
 }
 
 fn writer_test_setup(mode: &str) -> Option<WriterFixture> {
     let python = real_python()?;
     let dir = tempfile::tempdir().unwrap();
     write_probe_fixture(dir.path(), mode);
+    let dir_path = dir.path().to_path_buf();
     let pid_path = dir.path().join("writer.pid");
     let ready_path = dir.path().join("writer.ready");
     let fixture_guard = ProbeFixtureGuard {
         pid_path: pid_path.clone(),
     };
     Some(WriterFixture {
-        _dir: dir,
         _cleanup: fixture_guard,
+        _dir: dir,
         python,
         pid_path,
         ready_path,
+        dir_path,
     })
 }
 
@@ -728,6 +800,10 @@ fn probe_normal_parent_exit_drains_inherited_writer() {
         (
             PROBE_TEST_WRITER_MODE_ENV.to_string(),
             PathBuf::from("exit"),
+        ),
+        (
+            PROBE_TEST_SEARCH_PATH_ENV.to_string(),
+            dir_path.to_path_buf(),
         ),
     ];
     let report = run_probe_with_env(
@@ -752,10 +828,7 @@ fn probe_normal_parent_exit_drains_inherited_writer() {
         .trim()
         .parse::<u32>()
         .unwrap();
-    assert!(
-        !process_is_alive(pid),
-        "finite writer must be fully drained"
-    );
+    assert_writer_exited(pid, "finite writer");
     assert!(elapsed < Duration::from_secs(4), "elapsed: {elapsed:?}");
 }
 
@@ -779,6 +852,10 @@ fn probe_timeout_terminates_inherited_writer() {
             PROBE_TEST_WRITER_MODE_ENV.to_string(),
             PathBuf::from("timeout"),
         ),
+        (
+            PROBE_TEST_SEARCH_PATH_ENV.to_string(),
+            dir_path.to_path_buf(),
+        ),
     ];
     let error = run_probe_with_env(
         &python,
@@ -800,7 +877,7 @@ fn probe_timeout_terminates_inherited_writer() {
         .trim()
         .parse::<u32>()
         .unwrap();
-    assert!(!process_is_alive(pid), "writer must be gone after cleanup");
+    assert_writer_exited(pid, "timed-out writer");
     assert!(elapsed < Duration::from_secs(4), "elapsed: {elapsed:?}");
 }
 

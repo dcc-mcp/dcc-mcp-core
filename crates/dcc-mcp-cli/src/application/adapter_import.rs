@@ -60,7 +60,10 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(60);
 /// One quarter of the total budget is reserved for writers, termination, and
 /// reaping (two seconds at the production default).
 const PROBE_CLEANUP_RESERVE_DIVISOR: u32 = 4;
-/// Maximum bytes collected from each output spool.
+/// Maximum bytes collected from each output spool after cleanup. Capture
+/// stops early when a sampled spool exceeds this threshold; sampling happens
+/// every `PROBE_POLL_INTERVAL`, so a fast writer may briefly write farther.
+/// This is an early-stop threshold, not a kernel-enforced disk quota.
 const PROBE_OUTPUT_LIMIT: u64 = 4 * 1024 * 1024;
 /// Poll interval for parent exit and bounded cleanup loops.
 const PROBE_POLL_INTERVAL: Duration = Duration::from_millis(25);
@@ -569,39 +572,75 @@ fn run_probe_with_env(
     // returns. On Windows the child stays suspended until job adoption and
     // exactly one owned thread handle has been resumed.
     let mut tree = ProbeChildTree::adopt(child, Instant::now() + cleanup_window)?;
+    // The absolute total budget also bounds every failure cleanup path.
+    let cleanup_deadline = started + timeout;
+    let spool_paths = [stdout_path.as_path(), stderr_path.as_path()];
+    let spool_overflow = |tree: &mut ProbeChildTree| -> Result<(), String> {
+        for path in spool_paths {
+            let exceeded = match std::fs::metadata(path) {
+                Ok(metadata) => metadata.len() > PROBE_OUTPUT_LIMIT,
+                Err(err) => return Err(format!("probe_failed: output spool query failed: {err}")),
+            };
+            if exceeded {
+                let reaped = tree.terminate_and_reap(cleanup_deadline);
+                return if reaped.confirmed() {
+                    Err("probe_output_limit_exceeded".to_string())
+                } else {
+                    Err("probe_cleanup_unconfirmed".to_string())
+                };
+            }
+        }
+        Ok(())
+    };
+
     let status = loop {
-        if tree
-            .child
-            .try_wait()
-            .map_err(|err| format!("probe_failed: {err}"))?
-            .is_some()
-        {
-            break tree
-                .child
-                .wait()
-                .map_err(|err| format!("probe_failed: {err}"))?;
+        match tree.child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {}
+            Err(err) => {
+                let reaped = tree.terminate_and_reap(cleanup_deadline);
+                return if reaped.confirmed() {
+                    Err(format!("probe_failed: {err}"))
+                } else {
+                    Err("probe_cleanup_unconfirmed".to_string())
+                };
+            }
         }
         if Instant::now() >= operation_deadline {
-            let reaped = tree.terminate_and_reap(Instant::now() + cleanup_window);
+            let reaped = tree.terminate_and_reap(cleanup_deadline);
             if !reaped.confirmed() {
                 return Err("probe_cleanup_unconfirmed".to_string());
             }
             return Err(format!("probe_timed_out_after_{}s", timeout.as_secs()));
         }
+        spool_overflow(&mut tree)?;
         thread::sleep(PROBE_POLL_INTERVAL);
     };
 
     // A finite writer may legitimately outlive the interpreter and append the
-    // final report. Give the owned tree the reserved window to finish before
-    // terminating it; an unconfirmed tree state is never treated as clean.
-    let cleanup_deadline = started + timeout;
-    let reaped = if tree.wait_for_descendants(cleanup_deadline) {
-        ProbeCleanupReceipt {
-            terminated: true,
-            reaped: true,
+    // final report. Give the owned group or job the remaining budget to finish
+    // before terminating it; an unconfirmed state is never treated as clean.
+    let reaped = loop {
+        if let Err(err) = spool_overflow(&mut tree) {
+            return Err(err);
         }
-    } else {
-        tree.terminate_and_reap(cleanup_deadline)
+        match tree.descendants_present() {
+            Ok(false) => {
+                break ProbeCleanupReceipt {
+                    terminated: true,
+                    reaped: true,
+                };
+            }
+            Ok(true) => {
+                if Instant::now() >= cleanup_deadline {
+                    break tree.terminate_and_reap(cleanup_deadline);
+                }
+                thread::sleep(PROBE_POLL_INTERVAL);
+            }
+            Err(_) => {
+                break tree.terminate_and_reap(cleanup_deadline);
+            }
+        }
     };
     if !reaped.confirmed() {
         return Err("probe_cleanup_unconfirmed".to_string());
@@ -628,7 +667,9 @@ fn run_probe_with_env(
         })
 }
 
-/// A probe interpreter and every helper it starts are cleaned up as one tree.
+/// A probe interpreter and the helpers it starts in its dedicated process
+/// group or Windows job. A helper that deliberately leaves that group is not
+/// tracked; this is a group/job ownership guarantee, not a full-tree claim.
 struct ProbeChildTree {
     child: Child,
     #[cfg(unix)]
@@ -653,14 +694,21 @@ impl ProbeChildTree {
         let job = match assign_probe_job(&child) {
             Ok(job) => job,
             Err(err) => {
-                let _ = terminate_and_reap_suspended(&mut child, deadline);
-                return Err(err);
+                return if terminate_and_reap_suspended(&mut child, deadline) {
+                    Err(err)
+                } else {
+                    Err("probe_cleanup_unconfirmed".to_string())
+                };
             }
         };
         if let Err(err) = resume_probe_process(&child) {
             let mut owned = Self { child, job };
-            let _ = owned.terminate_and_reap(deadline);
-            return Err(err);
+            let reaped = owned.terminate_and_reap(deadline);
+            return if reaped.confirmed() {
+                Err(err)
+            } else {
+                Err("probe_cleanup_unconfirmed".to_string())
+            };
         }
         Ok(Self { child, job })
     }
