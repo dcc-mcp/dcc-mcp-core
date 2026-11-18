@@ -207,7 +207,10 @@ fn verify_reports_incompatible_target_core_after_combined_slice() {
     assert_eq!(output.status.code(), Some(40));
     let report: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(report["error"]["code"], "ADAPTER_CORE_INCOMPATIBLE");
-    assert_eq!(report["verify"]["failure_reason"], "ADAPTER_CORE_INCOMPATIBLE");
+    assert_eq!(
+        report["verify"]["failure_reason"],
+        "ADAPTER_CORE_INCOMPATIBLE"
+    );
     assert_eq!(
         report["verify"]["observed_core_compatibility"]["status"],
         "core_newer_than_declared"

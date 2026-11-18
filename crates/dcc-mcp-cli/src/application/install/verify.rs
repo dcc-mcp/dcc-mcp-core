@@ -16,7 +16,7 @@ fn observed_version(value: &Value) -> Option<String> {
     value
         .as_str()
         .map(safe_version_identifier)
-        .filter(|value| value !== "unknown")
+        .filter(|value| value != "unknown")
 }
 
 impl InstallService {
@@ -73,8 +73,7 @@ impl InstallService {
             .get("core_compatibility")
             .is_some_and(|value| !value.is_null())
         {
-            report.verify.observed_core_compatibility =
-                Some(probe["core_compatibility"].clone());
+            report.verify.observed_core_compatibility = Some(probe["core_compatibility"].clone());
         }
         let pinned_version = version.as_deref();
         let code = if probe["status"] == "version_mismatch" {
@@ -85,8 +84,7 @@ impl InstallService {
             Some("ADAPTER_IMPORT_UNAVAILABLE")
         } else if probe["status"] != "ok" {
             Some("ADAPTER_IMPORT_FAILED")
-        } else if pinned_version.is_none_or(|expected| probe["dist_version"] != expected)
-        {
+        } else if pinned_version.is_none_or(|expected| probe["dist_version"] != expected) {
             Some("ADAPTER_VERSION_MISMATCH")
         } else {
             None
