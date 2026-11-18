@@ -344,6 +344,15 @@ jobs:
             --no-tests fail --success-output immediate --no-output-indent --color never \
             2>&1 | tee "$evidence"
           grep -Fx 'host-install-consent-gate exercised baseline=missing' "$evidence"
+      # Requires the corrected 2852 probe semantics: 2862 is rebased onto
+      # 2852 before this exact CLI-process contract is run in CI.
+      - name: Install verify core compatibility evidence
+        if: matrix.rust-validation == 'full'
+        shell: bash
+        run: |
+          set -euo pipefail
+          vx cargo test -p dcc-mcp-cli --test cli_verify_e2e -- \
+            --ignored verify_reports_incompatible_target_core_after_combined_slice --exact
       - name: Upload Rust test diagnostics
         if: always() && matrix.rust-validation == 'full'
         uses: actions/upload-artifact@v4
