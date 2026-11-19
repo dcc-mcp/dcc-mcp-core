@@ -22,6 +22,26 @@ fn successful_result_keeps_evidence_and_routing_metadata() {
 }
 
 #[test]
+fn gateway_envelope_reads_context_through_output() {
+    let result = json!({
+        "slug": "dcc_host_capabilities",
+        "output": {
+            "success": true,
+            "context": {
+                "host_version": "20.5",
+                "available": [{"key": "render.lpe", "probe_result": "PASS"}]
+            }
+        }
+    });
+
+    assert_eq!(backend_summary(&result).unwrap()["host_version"], "20.5");
+    assert_eq!(
+        backend_summary(&result).unwrap()["available"][0]["key"],
+        "render.lpe"
+    );
+}
+
+#[test]
 fn missing_summary_is_not_projected_into_fake_evidence() {
     let result = json!({"success": true, "context": "not-an-object"});
 

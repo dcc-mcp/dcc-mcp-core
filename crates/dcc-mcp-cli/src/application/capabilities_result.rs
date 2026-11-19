@@ -14,7 +14,8 @@ pub fn backend_summary(result: &Value) -> Option<&Value> {
         "/result/structuredContent/context",
         "/structuredContent/context",
         "/context",
-        "/output",
+        "/output/context",
+        "/result/output/context",
     ] {
         if let Some(summary) = result.pointer(pointer) {
             return Some(summary);

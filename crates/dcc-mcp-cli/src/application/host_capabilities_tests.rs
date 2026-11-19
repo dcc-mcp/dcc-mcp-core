@@ -7,30 +7,40 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use super::*;
+use crate::application::capabilities_result::backend_summary;
 use crate::application::client::TransportMode;
 use crate::application::gateway_profile::GatewayTarget;
+use crate::application::local_control::call_result_succeeded;
 use crate::domain::rest::Endpoint;
+use crate::presentation::cli::capabilities_output::render_human;
 
 fn summary() -> Value {
     json!({
-        "success": true,
-        "message": "houdini host capabilities",
-        "context": {
-            "host_version": "20.5",
-            "adapter_version": "0.3.1",
-            "probed_at": "2026-11-20T00:00:00Z",
-            "available": [],
-            "declared": [],
-            "unavailable": [],
-            "not_run": [],
-            "totals": {
-                "available": 0,
-                "declared": 0,
-                "unavailable": 0,
-                "not_run": 0
+        "slug": "dcc_host_capabilities",
+        "output": {
+            "success": true,
+            "message": "houdini host capabilities",
+            "context": {
+                "host_version": "20.5",
+                "adapter_version": "0.3.1",
+                "probed_at": "2026-11-20T00:00:00Z",
+                "available": [{
+                    "key": "render.lpe",
+                    "supported": true,
+                    "probe_result": "PASS",
+                    "probed_at": "2026-11-20T00:00:00Z"
+                }],
+                "declared": [],
+                "unavailable": [],
+                "not_run": [],
+                "totals": {
+                    "available": 1,
+                    "declared": 0,
+                    "unavailable": 0,
+                    "not_run": 0
+                }
             }
-        },
-        "control_route": "gateway"
+        }
     })
 }
 
@@ -129,6 +139,16 @@ async fn repeated_keys_and_force_refresh_reach_the_direct_gateway_call() {
     assert_eq!(result["dcc_type"], "houdini");
     assert_eq!(result["instance_short"], "abc12345");
     assert_eq!(result["control_route"], "gateway");
+
+    let backend_ok = call_result_succeeded(&result);
+    let has_summary = backend_summary(&result).is_some_and(Value::is_object);
+    assert!(backend_ok);
+    assert!(has_summary);
+
+    let rendered = render_human(&result);
+    assert!(rendered.contains("host=20.5 adapter=0.3.1"));
+    assert!(rendered.contains("AVAILABLE (1)"));
+    assert!(rendered.contains("render.lpe [PASS]"));
     server.abort();
 }
 

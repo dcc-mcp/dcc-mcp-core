@@ -32,7 +32,7 @@ use crate::domain::rest::{
 use crate::domain::start_instance::StartInstanceRequest;
 use crate::infra::http::HttpGateway;
 
-mod capabilities_output;
+pub(crate) mod capabilities_output;
 mod cli_args;
 mod dcc_types_output;
 mod gateway_cmd;
