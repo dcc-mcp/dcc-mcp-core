@@ -826,7 +826,7 @@ fn assert_writer_exited(pid: u32, start_time: u64, context: &str) {
 #[cfg(unix)]
 fn unix_process_start_time(pid: u32) -> Result<Option<u64>, String> {
     if let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) {
-        let fields = stat
+        let mut fields = stat
             .rsplit(')')
             .nth(1)
             .ok_or_else(|| "cannot parse process stat".to_string())?
@@ -873,7 +873,8 @@ fn parse_ps_lstart(text: &str) -> Option<u64> {
     let time: Vec<u64> = fields[2]
         .split(':')
         .map(str::parse)
-        .collect::<Result<_, _>>()?;
+        .collect::<Result<_, _>>()
+        .ok()?;
     if time.len() != 3 {
         return None;
     }
