@@ -150,6 +150,13 @@ Compact errors must carry only `code`, `message`, `data`, `outcome`, and
 error and reject it when it exceeds the shared `error_budget_bytes` value.
 Correlation IDs and request bodies are never echoed into the error, so a long
 association ID cannot inflate the serialized error beyond its own budget.
+The shared `error_budget_bytes` domain is a positive integer (`>= 1`); both
+implementations compare it with the complete final serialized UTF-8 length.
+Receive capacities and error-data sizes are unsigned 64-bit integers (`1` to
+`2**64 - 1` inclusive). Values above that range are invalid in both languages.
+The canonical Python module is `dcc_mcp_core.wire.capacity`; the original
+`dcc_mcp_core.bridge_capacity` path and root `BridgeCapacityContract` export
+remain compatibility aliases.
 
 This slice is contract-only: it does not wire runtime WebSocket receive/send
 limits, modify the hello/ack structs, change adapter behavior, or alter HTTP

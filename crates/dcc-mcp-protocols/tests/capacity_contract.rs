@@ -164,13 +164,9 @@ fn directional_declaration_legacy_and_policy_clamping() {
 fn capacity_policy_rejects_zero_and_inverted_bounds() {
     assert!(contract::CapacityPolicy::new(0, 256).is_err());
     assert!(contract::CapacityPolicy::new(512, 256).is_err());
-    assert_eq!(
-        contract::CapacityPolicy::new(256, 512).unwrap(),
-        contract::CapacityPolicy {
-            min_bytes: 256,
-            max_bytes: 512,
-        }
-    );
+    let policy = contract::CapacityPolicy::new(256, 512).unwrap();
+    assert_eq!(policy.min_bytes(), 256);
+    assert_eq!(policy.max_bytes(), 512);
 }
 
 #[test]
@@ -189,6 +185,30 @@ fn invalid_declarations_are_rejected_deterministically() {
             .expect_err("declaration must be rejected");
         assert_eq!(error.code, item["expected_error"].as_str().unwrap());
     }
+}
+
+#[test]
+fn u64_boundary_declarations_use_shared_vectors() {
+    let domain = &vectors()["numeric_domain"];
+    let at_max = vector("u64_max_declaration_is_clamped");
+    let overflow = vector("u64_overflow_declaration_is_invalid");
+
+    assert_eq!(domain["receive_capacity"], "u64");
+    assert_eq!(domain["max"].as_u64().unwrap(), contract::MAX_U64);
+    assert!(
+        at_max["capabilities"]["dcc-mcp.capacity.v1"]["receive"]["incoming"]
+            .as_u64()
+            .is_some()
+    );
+
+    let state = contract::parse_capacity_declaration(Some(&capabilities(&at_max)), policy(&at_max))
+        .unwrap();
+    assert_eq!(state.receive.to_json(), at_max["expected_receive"]);
+
+    let error =
+        contract::parse_capacity_declaration(Some(&capabilities(&overflow)), policy(&overflow))
+            .expect_err("value above u64::MAX must be rejected");
+    assert_eq!(error.code, overflow["expected_error"].as_str().unwrap());
 }
 
 #[test]
@@ -214,6 +234,31 @@ fn invalid_error_data_vectors_are_rejected() {
         let error = contract::parse_capacity_error_data(&data).expect_err("invalid error data");
         assert_eq!(error.code, item["expected_error"].as_str().unwrap());
     }
+}
+
+#[test]
+fn u64_boundary_error_data_uses_shared_vectors() {
+    let at_max = vector("error_data_u64_max_values");
+    let overflow = vector("error_data_u64_overflow_is_invalid");
+
+    let data = contract::capacity_error_data(
+        at_max["direction"].as_str().unwrap(),
+        at_max["max_bytes"].as_u64().unwrap(),
+        at_max["outcome"].as_str().unwrap(),
+        at_max["actual_bytes"].as_u64(),
+    )
+    .unwrap();
+    let wire = serde_json::to_vec(&data).unwrap();
+    let parsed =
+        contract::parse_capacity_error_data(&serde_json::from_slice(&wire).unwrap()).unwrap();
+    assert_eq!(parsed, data);
+    assert_eq!(parsed["max_bytes"].as_u64().unwrap(), contract::MAX_U64);
+    assert_eq!(parsed["actual_bytes"].as_u64().unwrap(), contract::MAX_U64);
+
+    let mut invalid = overflow.clone();
+    invalid.as_object_mut().unwrap().remove("expected_error");
+    let error = contract::parse_capacity_error_data(&invalid).expect_err("value above u64::MAX");
+    assert_eq!(error.code, overflow["expected_error"].as_str().unwrap());
 }
 
 #[test]
@@ -246,6 +291,36 @@ fn structured_error_data_round_trips_without_payload_echo() {
         assert_eq!(parsed.get("actual_bytes"), item.get("actual_bytes"));
         assert!(parsed.get("content").is_none());
     }
+}
+
+#[test]
+fn error_budget_domain_requires_positive_integer_and_final_byte_comparison() {
+    let domain = &vectors()["error_budget_domain"];
+    let budget = vectors()["error_budget_bytes"].as_u64().unwrap();
+    let item = vector("error_data_unknown_without_size");
+
+    assert_eq!(domain["type"], "positive_integer");
+    assert_eq!(domain["min"].as_u64().unwrap(), 1);
+    assert_eq!(
+        domain["comparison"],
+        "final_serialized_utf8_byte_length <= error_budget_bytes"
+    );
+    assert!(budget >= domain["min"].as_u64().unwrap());
+
+    let payload = contract::make_compact_capacity_error(
+        item["direction"].as_str().unwrap(),
+        item["max_bytes"].as_u64().unwrap(),
+        budget,
+        "correlation-id",
+        item["outcome"].as_str().unwrap(),
+        None,
+        None,
+    )
+    .unwrap();
+    assert!(serde_json::to_vec(&payload).unwrap().len() as u64 <= budget);
+
+    let wire = serde_json::to_vec(&json!({"id": 1})).unwrap();
+    assert!(contract::validate_final_bytes(&wire, 0).is_err());
 }
 
 #[test]

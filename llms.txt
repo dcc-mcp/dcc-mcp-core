@@ -590,6 +590,7 @@ tools:
 - `BridgeContext` — bridge context with name, description, metadata
 - `register_bridge(name, ctx)` — register a named bridge
 - `get_bridge_context(name) -> Optional[BridgeContext]` — retrieve bridge by name
+- `BridgeCapacityContract` — v1 root alias for the shared capacity contract; canonical implementation is `dcc_mcp_core.wire.capacity` and the original `dcc_mcp_core.bridge_capacity` import remains a thin shim (issue #2821)
 
 ### Artefacts (`dcc_mcp_core`)
 

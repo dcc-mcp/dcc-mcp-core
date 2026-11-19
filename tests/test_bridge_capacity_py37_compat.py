@@ -5,12 +5,17 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-SOURCE = Path(__file__).resolve().parents[1] / "python" / "dcc_mcp_core" / "wire" / "capacity.py"
+PYTHON_ROOT = Path(__file__).resolve().parents[1] / "python"
+SOURCES = (
+    PYTHON_ROOT / "dcc_mcp_core" / "wire" / "capacity.py",
+    PYTHON_ROOT / "dcc_mcp_core" / "bridge_capacity.py",
+)
 
 
-def test_capacity_module_parses_as_python37():
-    source = SOURCE.read_text(encoding="utf-8")
+def test_capacity_modules_parse_as_python37():
+    for source_path in SOURCES:
+        source = source_path.read_text(encoding="utf-8")
 
-    tree = ast.parse(source, filename=str(SOURCE), feature_version=(3, 7))
+        tree = ast.parse(source, filename=str(source_path), feature_version=(3, 7))
 
-    assert isinstance(tree, ast.Module)
+        assert isinstance(tree, ast.Module)

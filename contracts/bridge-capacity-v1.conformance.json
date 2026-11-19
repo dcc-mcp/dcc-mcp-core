@@ -5,6 +5,17 @@
   "outcomes": ["not_dispatched", "unknown"],
   "min_receive_bytes": 256,
   "error_budget_bytes": 512,
+  "numeric_domain": {
+    "receive_capacity": "u64",
+    "error_data": "u64",
+    "min": 1,
+    "max": 18446744073709551615
+  },
+  "error_budget_domain": {
+    "type": "positive_integer",
+    "min": 1,
+    "comparison": "final_serialized_utf8_byte_length <= error_budget_bytes"
+  },
   "compact_error_rule": {
     "fields": ["code", "message", "data", "outcome", "actual_bytes"],
     "max_bytes_key": "error_budget_bytes",
@@ -129,6 +140,30 @@
       "expected_receive": {"incoming": 1048576, "outgoing": 1048576}
     },
     {
+      "id": "u64_max_declaration_is_clamped",
+      "kind": "capability",
+      "capabilities": {
+        "dcc-mcp.capacity.v1": {
+          "version": 1,
+          "receive": {"incoming": 18446744073709551615, "outgoing": 18446744073709551615}
+        }
+      },
+      "policy": {"min_bytes": 256, "max_bytes": 1048576},
+      "expected_negotiation": "declared",
+      "expected_receive": {"incoming": 1048576, "outgoing": 1048576}
+    },
+    {
+      "id": "u64_overflow_declaration_is_invalid",
+      "kind": "invalid_capability",
+      "capabilities": {
+        "dcc-mcp.capacity.v1": {
+          "version": 1,
+          "receive_max_bytes": 18446744073709551616
+        }
+      },
+      "expected_error": "invalid_capacity_value"
+    },
+    {
       "id": "small_declaration_is_clamped_up",
       "kind": "capability",
       "capabilities": {"dcc-mcp.capacity.v1": {"receive": {"incoming": 4, "outgoing": 4}}},
@@ -177,6 +212,23 @@
       "outcome": "unknown"
     },
     {
+      "id": "error_data_u64_max_values",
+      "kind": "error_data",
+      "direction": "request",
+      "actual_bytes": 18446744073709551615,
+      "max_bytes": 18446744073709551615,
+      "outcome": "unknown"
+    },
+    {
+      "id": "error_data_u64_overflow_is_invalid",
+      "kind": "invalid_error_data",
+      "direction": "response",
+      "actual_bytes": 18446744073709551616,
+      "max_bytes": 18446744073709551615,
+      "outcome": "unknown",
+      "expected_error": "invalid_capacity_value"
+    },
+    {
       "id": "error_data_not_dispatched_requires_actual_bytes",
       "kind": "invalid_error_data",
       "direction": "request",
@@ -189,6 +241,15 @@
       "kind": "invalid_error_data",
       "direction": "request",
       "actual_bytes": 65535,
+      "max_bytes": 65535,
+      "outcome": "not_dispatched",
+      "expected_error": "invalid_capacity_value"
+    },
+    {
+      "id": "error_data_response_not_dispatched_oversized",
+      "kind": "invalid_error_data",
+      "direction": "response",
+      "actual_bytes": 70000,
       "max_bytes": 65535,
       "outcome": "not_dispatched",
       "expected_error": "invalid_capacity_value"

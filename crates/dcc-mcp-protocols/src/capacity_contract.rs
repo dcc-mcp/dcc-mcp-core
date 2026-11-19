@@ -9,6 +9,7 @@ pub const CAPACITY_SCHEMA_VERSION: u64 = 1;
 pub const LEGACY_RECEIVE_BYTES: u64 = 65535;
 pub const MIN_RECEIVE_BYTES: u64 = 256;
 pub const MAX_RECEIVE_BYTES: u64 = 1048576;
+pub const MAX_U64: u64 = u64::MAX;
 pub const OUTCOME_NOT_DISPATCHED: &str = "not_dispatched";
 pub const OUTCOME_UNKNOWN: &str = "unknown";
 pub const DIRECTION_REQUEST: &str = "request";
@@ -41,8 +42,8 @@ impl DirectionalReceive {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CapacityPolicy {
-    pub min_bytes: u64,
-    pub max_bytes: u64,
+    min_bytes: u64,
+    max_bytes: u64,
 }
 
 impl Default for CapacityPolicy {
@@ -67,7 +68,20 @@ impl CapacityPolicy {
         })
     }
 
+    pub fn min_bytes(self) -> u64 {
+        self.min_bytes
+    }
+
+    pub fn max_bytes(self) -> u64 {
+        self.max_bytes
+    }
+
     pub fn clamp(self, value: u64) -> Result<u64, CapacityError> {
+        if self.min_bytes == 0 || self.max_bytes < self.min_bytes {
+            return Err(CapacityError::invalid(
+                "policy requires 1 <= min_bytes <= max_bytes",
+            ));
+        }
         validate_capacity(value)?;
         Ok(value.clamp(self.min_bytes, self.max_bytes))
     }

@@ -189,6 +189,7 @@ known-first-party = ["dcc_mcp_core"]
 [tool.ruff.lint.per-file-ignores]
 # Python 3.7 (Maya 2022) compat: use typing.Optional/Dict/List instead of PEP 604 syntax.
 "python/dcc_mcp_core/wire/capacity.py" = ["UP006", "UP007", "UP045"]
+"python/dcc_mcp_core/bridge_capacity.py" = ["RUF100"]
 "python/dcc_mcp_core/_server/host_ui_dispatcher.py" = ["UP006", "UP045"]
 "python/dcc_mcp_core/host_errors.py" = ["UP006", "UP045"]
 "python/dcc_mcp_core/_server/tools_list_policy.py" = ["UP006", "UP045"]

@@ -85,6 +85,7 @@ and external issue creation require human review and user authorization.
 | Query agent memory | `store.query(MemoryQuery(layer=MemoryLayer.WORKING, key_prefix="tool_call:"))` → sorted `tuple[MemoryEntry, ...]` (#1334) |
 | Register all built-in MCP tools | `register_all_builtin_skills(server, dcc_name=..., skills=...)` — idempotent one-call registration (#1332) |
 | Normalize MCP/REST call payloads | Rust: `dcc-mcp-wire::{normalize_arguments, normalize_meta, decode_call_tool, decode_rest_call}`; Python: `dcc_mcp_core.wire.normalize_tool_arguments()` / `normalize_tool_meta()` (`host` aliases are compatibility-only) |
+| Define a shared bridge capacity contract | Python: `dcc_mcp_core.wire.capacity` (canonical) with `dcc_mcp_core.bridge_capacity` and root `BridgeCapacityContract` compatibility aliases; Rust: `dcc_mcp_protocols::capacity_contract` (issue #2821; contract-only, no runtime handshake) |
 
 ---
 

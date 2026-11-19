@@ -20,6 +20,7 @@ CAPACITY_SCHEMA_VERSION = 1
 LEGACY_RECEIVE_BYTES = 65535
 MIN_RECEIVE_BYTES = 256
 MAX_RECEIVE_BYTES = 1048576
+MAX_U64 = 18446744073709551615
 
 OUTCOME_NOT_DISPATCHED = "not_dispatched"
 OUTCOME_UNKNOWN = "unknown"
@@ -45,6 +46,7 @@ class BridgeCapacityContract:
     VERSION = CAPACITY_SCHEMA_VERSION
     CAPABILITY_KEY = CAPACITY_CAPABILITY_KEY
     LEGACY_RECEIVE_BYTES = LEGACY_RECEIVE_BYTES
+    MAX_U64 = MAX_U64
 
 
 class CapacityContractError(ValueError):
@@ -126,6 +128,11 @@ def _validate_capacity(value: Any) -> int:
         raise CapacityContractError(
             ERROR_INVALID_CAPACITY_VALUE,
             "capacity values must be greater than zero",
+        )
+    if value > MAX_U64:
+        raise CapacityContractError(
+            ERROR_INVALID_CAPACITY_VALUE,
+            "capacity values must be no greater than 2**64 - 1",
         )
     return value
 
