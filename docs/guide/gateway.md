@@ -792,6 +792,12 @@ readiness. An instance can be callable while its loaded skill set is empty, and
 the capability counts reflect the most recent index snapshot rather than a
 live query to the backend.
 
+\`dcc-mcp-cli doctor\` reads this projection from \`GET /v1/instances\` when a
+gateway is reachable, and reports \`gateway.capability_inventory_source =
+"gateway_v1_instances"\`. Local registry rows may carry the same projection in
+their \`capabilities\` extras for direct local inspection. Rows without either
+source are counted under \`unknown_instances\`.
+
 For sidecar-driven adapters, use the dispatch counters in `GET /v1/readyz`
 (`dispatch_reported_instance_count`, `dispatch_ready_instance_count`,
 `dispatch_not_ready_instance_count`) to distinguish "listed in registry" from

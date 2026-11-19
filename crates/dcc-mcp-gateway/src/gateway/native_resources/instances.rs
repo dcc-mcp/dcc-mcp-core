@@ -367,7 +367,7 @@ pub fn compact_instance_json(e: &ServiceEntry, stale_timeout: std::time::Duratio
     // ADR 018: unified instance_status block (canonical status representation).
     let instance_status = instance_status_from_entry(e, stale);
 
-    json!({
+    let mut row = json!({
         "instance_id":    e.instance_id.to_string(),
         "instance_short": dcc_mcp_gateway_core::capability_naming::instance_short(&e.instance_id),
         "display_id":     e.display_id(),
@@ -393,9 +393,10 @@ pub fn compact_instance_json(e: &ServiceEntry, stale_timeout: std::time::Duratio
             "ready":    dispatch_ready_value,
             "status":   dispatch_status.as_deref().unwrap_or("not_reported"),
         },
-        "transport": super::super::capability_projection::transport_ready_json(e, stale),
-        "dispatch_ready": super::super::capability_projection::dispatch_ready_json(e, stale),
-    })
+    });
+    row["transport"] = super::super::capability_projection::transport_ready_json(&row);
+    row["dispatch_ready"] = super::super::capability_projection::dispatch_ready_json(&row);
+    row
 }
 
 /// Check whether an instance matches a substring query across
@@ -440,6 +441,76 @@ pub fn compute_index_health(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
+    use std::sync::Arc;
+    use tokio::sync::{RwLock, broadcast, watch};
+
+    fn test_gateway_state(
+        reg: Arc<dcc_mcp_transport::discovery::file_registry::FileRegistry>,
+    ) -> GatewayState {
+        let (yield_tx, _) = watch::channel(false);
+        let (events_tx, _) = broadcast::channel::<String>(8);
+        GatewayState {
+            instance_resolver: Arc::new(crate::gateway::instance_resolver::InstanceResolver::new()),
+            ingress: Arc::new(crate::gateway::http_limits::GatewayIngressState::from_env()),
+            resilience: Arc::new(Default::default()),
+            registry: reg,
+            http_instance_registry: Arc::new(parking_lot::RwLock::new(
+                crate::gateway::http_registration::HttpInstanceRegistry::default(),
+            )),
+            mdns_instance_registry: Arc::new(parking_lot::RwLock::new(
+                crate::gateway::mdns_registration::MdnsInstanceRegistry::default(),
+            )),
+            relay_instance_registry: Arc::new(parking_lot::RwLock::new(
+                crate::gateway::relay_registration::RelayInstanceRegistry::default(),
+            )),
+            stale_timeout: std::time::Duration::from_secs(30),
+            backend_timeout: std::time::Duration::from_secs(10),
+            async_dispatch_timeout: std::time::Duration::from_secs(60),
+            wait_terminal_timeout: std::time::Duration::from_secs(600),
+            server_name: "test".into(),
+            server_version: env!("CARGO_PKG_VERSION").into(),
+            own_host: "127.0.0.1".into(),
+            own_port: 9765,
+            http_client: reqwest::Client::new(),
+            yield_tx: Arc::new(yield_tx),
+            events_tx: Arc::new(events_tx),
+            protocol_version: Arc::new(RwLock::new(None)),
+            resource_subscriptions: Arc::new(RwLock::new(HashMap::new())),
+            client_attribution: Arc::new(
+                crate::gateway::caller_attribution::ClientAttributionStore::default(),
+            ),
+            pending_calls: Arc::new(RwLock::new(HashMap::new())),
+            subscriber: crate::gateway::sse_subscriber::SubscriberManager::default(),
+            allow_unknown_tools: false,
+            policy: Arc::new(crate::gateway::GatewayPolicy::default()),
+            adapter_version: None,
+            adapter_dcc: None,
+            capability_index: Arc::new(crate::gateway::capability::CapabilityIndex::new()),
+            search_cache: Arc::new(crate::gateway::capability::search_cache::SearchCache::new(
+                Default::default(),
+            )),
+            event_log: Arc::new(crate::gateway::event_log::EventLog::new()),
+            #[cfg(feature = "prometheus")]
+            gateway_metrics: Arc::new(crate::gateway::event_log::GatewayMetrics::new()),
+            middleware_chain: Arc::new(crate::gateway::middleware::MiddlewareChain::new()),
+            instance_diagnostics: Arc::new(
+                crate::gateway::instance_diagnostics::InstanceDiagnosticsStore::new(),
+            ),
+            traffic_capture: Arc::new(crate::gateway::traffic::TrafficCapture::disabled()),
+            search_telemetry: Arc::new(
+                crate::gateway::search_telemetry::SearchTelemetryStore::new(),
+            ),
+            debug_routes_enabled: false,
+            auth: Arc::new(crate::gateway::security::GatewayAuth::disabled()),
+            update_manifest_url: None,
+            gateway_persist: false,
+            gateway_idle_timeout_secs: 30,
+            semantic_search_enabled: false,
+            #[cfg(feature = "admin-persist-sqlite")]
+            admin_sqlite_lane: None,
+        }
+    }
 
     // ── Parse tests ──────────────────────────────────────────────────────
 
@@ -775,6 +846,66 @@ mod tests {
         // ADR 018: instance_status for dispatch-ready entry
         assert_eq!(json["instance_status"]["dispatch_status"], "ready");
         assert_eq!(json["instance_status"]["retryable"], true);
+    }
+
+    #[tokio::test]
+    async fn compact_list_projects_capabilities_for_multiple_instances() {
+        let dir = tempfile::tempdir().unwrap();
+        let registry = std::sync::Arc::new(
+            dcc_mcp_transport::discovery::file_registry::FileRegistry::new(dir.path()).unwrap(),
+        );
+        let maya = ServiceEntry::new("maya", "127.0.0.1", 18812);
+        let photoshop = ServiceEntry::new("photoshop", "127.0.0.1", 18813);
+        registry.register(maya.clone()).unwrap();
+        registry.register(photoshop.clone()).unwrap();
+
+        let gs = test_gateway_state(registry);
+        let record = |entry: &ServiceEntry, tool: &str| {
+            crate::gateway::capability::CapabilityRecord::new(
+                crate::gateway::capability::tool_slug(&entry.dcc_type, &entry.instance_id, tool),
+                tool.into(),
+                tool.into(),
+                Some("shared-skill".into()),
+                tool,
+                Vec::new(),
+                entry.dcc_type.clone(),
+                entry.instance_id,
+                true,
+                true,
+                None,
+            )
+        };
+        gs.capability_index.upsert_instance(
+            maya.instance_id,
+            vec![record(&maya, "create_sphere"), record(&maya, "move")],
+            crate::gateway::capability::InstanceFingerprint(1),
+        );
+        gs.capability_index.upsert_instance(
+            photoshop.instance_id,
+            vec![record(&photoshop, "batch_render")],
+            crate::gateway::capability::InstanceFingerprint(2),
+        );
+
+        let payload = build_payload(&gs, &Query::default_list()).await.unwrap();
+        let rows = payload["instances"].as_array().unwrap();
+        assert_eq!(rows.len(), 2);
+        let maya_row = rows
+            .iter()
+            .find(|row| row["instance_id"] == maya.instance_id.to_string())
+            .unwrap();
+        let photoshop_row = rows
+            .iter()
+            .find(|row| row["instance_id"] == photoshop.instance_id.to_string())
+            .unwrap();
+        assert_eq!(
+            maya_row["capabilities"]["loaded_skills"],
+            json!(["shared-skill"])
+        );
+        assert_eq!(maya_row["capabilities"]["loaded_skill_count"], 1);
+        assert_eq!(maya_row["capabilities"]["tool_count"], 2);
+        assert_eq!(photoshop_row["capabilities"]["tool_count"], 1);
+        assert_eq!(maya_row["transport"]["ready"], true);
+        assert_eq!(maya_row["dispatch_ready"], maya_row["dispatch"]["ready"]);
     }
 
     // ── Query matching tests ─────────────────────────────────────────────

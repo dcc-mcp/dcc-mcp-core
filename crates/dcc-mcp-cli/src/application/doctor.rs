@@ -14,6 +14,7 @@ use crate::application::gateway_profile::{GatewayProfileStore, GatewayTarget};
 use crate::application::{gateway_ctrl, gateway_discovery, gateway_ensure, local_registry};
 use crate::domain::rest::Endpoint;
 use dcc_mcp_transport::discovery::file_registry::registry_write_diagnostics;
+use crate::infra::http::HttpGateway;
 
 #[derive(Debug, Clone)]
 pub struct DoctorContext {
@@ -76,6 +77,7 @@ impl DoctorContext {
             gateway_port: gateway_port.unwrap_or(self.default_gateway_port),
             adapter_python: BTreeMap::new(),
             adapter_catalog: None,
+            gateway_instances: None,
         }
     }
 
@@ -111,12 +113,16 @@ pub struct DoctorRequest {
     pub adapter_python: BTreeMap<String, PathBuf>,
     /// Explicit adapter catalog path; `None` uses the bundled release catalog.
     pub adapter_catalog: Option<PathBuf>,
+    /// Optional instance inventory from a live gateway. The diagnostic path
+    /// keeps its no-launch contract, so callers pass a best-effort snapshot.
+    pub gateway_instances: Option<Value>,
 }
 
 pub async fn run_doctor(request: DoctorRequest) -> anyhow::Result<Value> {
     let direct_local = request.gateway_target.is_local() && !request.require_gateway;
     let registry_dir = request
         .registry_dir
+        .clone()
         .map(Ok)
         .unwrap_or_else(gateway_ensure::default_registry_dir)?;
     let pidfile = gateway_ctrl::default_pidfile(&registry_dir);
@@ -129,6 +135,10 @@ pub async fn run_doctor(request: DoctorRequest) -> anyhow::Result<Value> {
     })
     .await;
     let inventory = local_registry::snapshot_local_instances(registry_dir.clone());
+    let gateway_instances = match &request.gateway_instances {
+        Some(value) => Some(value.clone()),
+        None => fetch_gateway_instances(&request.gateway_base_url()).await,
+    };
     let registry_write_diagnostics = registry_write_diagnostics(&registry_dir);
     let adapter_imports = probe_adapters(&AdapterImportRequest {
         inventory: inventory.as_ref().ok().cloned(),
@@ -138,6 +148,13 @@ pub async fn run_doctor(request: DoctorRequest) -> anyhow::Result<Value> {
     let local_inventory = match &inventory {
         Ok(value) => {
             let direct_control = direct_control_summary(value);
+            let capabilities = gateway_instances
+                .as_ref()
+                .and_then(|payload| payload.get("instances").and_then(Value::as_array))
+                .map(|instances| capability_summary(instances))
+                .unwrap_or_else(|| {
+                    capability_summary(value["instances"].as_array().map_or(&[], |v| v))
+                });
             json!({
                 "ok": true,
                 "mode": "read_only_snapshot",
@@ -147,6 +164,7 @@ pub async fn run_doctor(request: DoctorRequest) -> anyhow::Result<Value> {
                 "evicted": value.get("evicted").cloned().unwrap_or(Value::Null),
                 "registry_dir": value.get("registry_dir").cloned().unwrap_or_else(|| json!(registry_dir.clone())),
                 "direct_control": direct_control,
+                "capabilities": capabilities,
             })
         }
         Err(err) => inventory_error(err, &registry_dir),
@@ -188,10 +206,28 @@ pub async fn run_doctor(request: DoctorRequest) -> anyhow::Result<Value> {
                 request.gateway_host,
                 request.gateway_port,
             ),
+            "capability_inventory_source": gateway_instances
+                .as_ref()
+                .map(|_| "gateway_v1_instances")
+                .unwrap_or("unavailable"),
             "status": gateway_status,
         },
         "server_binary": gateway_discovery::diagnose_gateway_bin(request.server_bin.as_ref()),
     }))
+}
+
+impl DoctorRequest {
+    fn gateway_base_url(&self) -> String {
+        format!("http://{}:{}", self.gateway_host, self.gateway_port)
+    }
+}
+
+async fn fetch_gateway_instances(base_url: &str) -> Option<Value> {
+    let endpoint = Endpoint::new(base_url);
+    HttpGateway::with_timeout(std::time::Duration::from_secs(2))
+        .get_json(&endpoint.path("/v1/instances"))
+        .await
+        .ok()
 }
 
 fn inventory_error(error: &anyhow::Error, registry_dir: &std::path::Path) -> Value {
@@ -306,6 +342,53 @@ mod diagnostic_tests {
         let summary = direct_control_summary(&json!({"instances": []}));
         assert_eq!(summary["capabilities"]["reported"], 0);
         assert_eq!(summary["capabilities"]["unknown_instances"], json!([]));
+    }
+
+    #[tokio::test]
+    async fn run_doctor_uses_gateway_instance_inventory_for_capabilities() {
+        let dir = tempfile::tempdir().unwrap();
+        let profiles = dir.path().join("profiles.json");
+        let gateway_instances = json!({
+            "instances": [
+                {
+                    "instance_id": "maya-1",
+                    "capabilities": {
+                        "source": "capability_index",
+                        "loaded_skills": ["maya-modeling"],
+                        "loaded_skill_count": 1,
+                        "tool_count": 7
+                    }
+                }
+            ]
+        });
+        let mut request = DoctorContext::new(
+            profiles.clone(),
+            GatewayProfileStore::load(&profiles).unwrap(),
+            GatewayTarget::Local,
+            None,
+            false,
+            false,
+            &Endpoint::new("http://127.0.0.1:9765"),
+        )
+        .unwrap()
+        .request(Some(dir.path().to_path_buf()), None, None);
+        request.gateway_instances = Some(gateway_instances);
+
+        let report = run_doctor(request).await.unwrap();
+
+        assert_eq!(report["local"]["inventory"]["capabilities"]["reported"], 1);
+        assert_eq!(
+            report["local"]["inventory"]["capabilities"]["total_loaded_skills"],
+            1
+        );
+        assert_eq!(
+            report["local"]["inventory"]["capabilities"]["total_tool_count"],
+            7
+        );
+        assert_eq!(
+            report["gateway"]["capability_inventory_source"],
+            "gateway_v1_instances"
+        );
     }
 }
 fn direct_control_summary(inventory: &Value) -> Value {

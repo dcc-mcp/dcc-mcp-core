@@ -160,8 +160,24 @@ pub(crate) fn instance_to_value(entry: ServiceEntry) -> anyhow::Result<Value> {
     if !obj.contains_key("mcp_url") {
         obj.insert("mcp_url".to_string(), Value::String(mcp_url(&entry)));
     }
+    if let Some(projection) = capability_projection(&entry) {
+        obj.insert("capabilities".to_string(), projection);
+    }
     obj.insert("direct_control".to_string(), direct_control_report(&entry));
     Ok(value)
+}
+
+fn capability_projection(entry: &ServiceEntry) -> Option<Value> {
+    let projection = entry
+        .extras
+        .get("capabilities")
+        .filter(|value| value.is_object())?
+        .clone();
+    let is_capability_index = projection
+        .get("source")
+        .and_then(Value::as_str)
+        .is_some_and(|source| source == "capability_index");
+    is_capability_index.then_some(projection)
 }
 
 pub(crate) fn instance_summary(entry: &ServiceEntry) -> Value {
@@ -479,5 +495,27 @@ mod tests {
         assert_eq!(value["direct_control"]["ready"], true);
         assert_eq!(value["direct_control"]["reason"], Value::Null);
         assert_eq!(value["direct_control"]["route"], "local_mcp");
+    }
+
+    #[test]
+    fn instance_value_uses_published_capability_projection() {
+        let mut entry = ServiceEntry::new("photoshop", "127.0.0.1", 18812);
+        entry.extras.insert(
+            "capabilities".into(),
+            json!({
+                "source": "capability_index",
+                "loaded_skills": ["ps-actions"],
+                "loaded_skill_count": 1,
+                "tool_count": 4
+            }),
+        );
+
+        let value = instance_to_value(entry).unwrap();
+
+        assert_eq!(
+            value["capabilities"]["loaded_skills"],
+            json!(["ps-actions"])
+        );
+        assert_eq!(value["capabilities"]["tool_count"], 4);
     }
 }

@@ -184,6 +184,75 @@ async fn register_heartbeat_and_deregister_remote_instance() {
 }
 
 #[tokio::test]
+async fn instances_rest_rows_project_indexed_capabilities_per_instance() {
+    let state = test_gateway_state();
+    let maya = ServiceEntry::new("maya", "127.0.0.1", 18812);
+    let photoshop = ServiceEntry::new("photoshop", "127.0.0.1", 18813);
+    state.registry.register(maya.clone()).unwrap();
+    state.registry.register(photoshop.clone()).unwrap();
+
+    let record = |entry: &ServiceEntry, skill: &str, tool: &str| {
+        crate::gateway::capability::CapabilityRecord::new(
+            crate::gateway::capability::tool_slug(&entry.dcc_type, &entry.instance_id, tool),
+            tool.into(),
+            tool.into(),
+            Some(skill.into()),
+            tool,
+            Vec::new(),
+            entry.dcc_type.clone(),
+            entry.instance_id,
+            true,
+            true,
+            None,
+        )
+    };
+    state.capability_index.upsert_instance(
+        maya.instance_id,
+        vec![
+            record(&maya, "maya-modeling", "create_sphere"),
+            record(&maya, "maya-modeling", "move"),
+        ],
+        crate::gateway::capability::InstanceFingerprint(1),
+    );
+    state.capability_index.upsert_instance(
+        photoshop.instance_id,
+        vec![record(&photoshop, "ps_actions", "batch_render")],
+        crate::gateway::capability::InstanceFingerprint(2),
+    );
+
+    let app = crate::gateway::build_gateway_router(state);
+    let (status, body) = request_json(app, "GET", "/v1/instances", json!({})).await;
+
+    assert_eq!(status, StatusCode::OK);
+    let rows = body["instances"].as_array().unwrap();
+    assert_eq!(rows.len(), 2);
+    let maya_row = rows
+        .iter()
+        .find(|row| row["instance_id"] == maya.instance_id.to_string())
+        .unwrap();
+    let photoshop_row = rows
+        .iter()
+        .find(|row| row["instance_id"] == photoshop.instance_id.to_string())
+        .unwrap();
+    assert_eq!(
+        maya_row["capabilities"]["loaded_skills"],
+        json!(["maya-modeling"])
+    );
+    assert_eq!(maya_row["capabilities"]["loaded_skill_count"], 1);
+    assert_eq!(maya_row["capabilities"]["tool_count"], 2);
+    assert_eq!(
+        photoshop_row["capabilities"]["loaded_skills"],
+        json!(["ps_actions"])
+    );
+    assert_eq!(photoshop_row["capabilities"]["tool_count"], 1);
+    assert_eq!(maya_row["dispatch_ready"], maya_row["dispatch"]["ready"]);
+    assert_eq!(
+        photoshop_row["dispatch_ready"],
+        photoshop_row["dispatch"]["ready"]
+    );
+}
+
+#[tokio::test]
 async fn http_registration_wins_over_file_row_for_same_instance_id() {
     let state = test_gateway_state();
     let instance_id = Uuid::parse_str("22222222-2222-4222-8222-222222222222").unwrap();
