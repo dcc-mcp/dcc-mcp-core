@@ -5,7 +5,8 @@ description: >-
   tools in order, passing results between steps. Use when chaining two or more
   tools into a repeatable pipeline (select → rename → validate → export). Not
   for single-tool operations or DCC-specific business logic — use a domain skill
-  for those.
+  for those. Repeated multi-step procedures should graduate to persisted
+  `workflows_run` / `workflows_resume` runs with stable idempotency keys.
 license: MIT
 metadata:
   dcc-mcp:
@@ -79,3 +80,19 @@ Use `{key}` placeholders in `params` to inject values from the running context:
 
 The context starts from the `context` input, then accumulates each step's
 `context` output.
+
+## When to graduate to persisted workflows
+
+`workflow__run_chain` is a lightweight in-process sequence without a persisted
+run identity. After the same procedure succeeds twice, use the core MCP tools
+`workflows_run`, `workflows_get_status`, and `workflows_resume` instead. Give
+mutating steps stable `idempotency_key` values, poll the returned `workflow_id`,
+and recover an interrupted run with `workflows_resume` using `workflow_id` plus
+optional `force_steps`, `expected_spec_hash`, and `strict`. The resume handler
+requires `WorkflowStorage` and the `job-persist-sqlite` feature. Do not replay
+completed work or re-send unchanged script source to resume a run.
+
+For single script iterations, materialize once with
+`materialize_script(content=..., reuse=True, reuse_key=...)`, execute by the
+returned `file_path`, and change values through `params` only. See
+`docs/guide/agents-reference.md#iteration-playbook`.

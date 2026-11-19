@@ -100,8 +100,10 @@ tools:
     description: >-
       Execute a Python script string inside the live DCC interpreter.
       When to use: when no domain skill covers the operation and you have
-      a working maya.cmds / bpy / hou snippet. How to use: pass the full
-      script as 'code'; check references/RECIPES.md first.
+      a working maya.cmds / bpy / hou snippet. How to use: pass a host-local
+      'file_path' (or 'script_path' alias); on adapters that still require
+      inline source, materialize it first and never resend unchanged code.
+      Check references/RECIPES.md first.
     annotations:
       read_only_hint: false
       destructive_hint: true
@@ -123,7 +125,8 @@ def execute_python(code: str, timeout_secs: int = 30) -> dict:
     """Execute a Python script string in the live DCC interpreter.
 
     Args:
-        code: Python source to execute.
+        code: Python source prepared by the harness after reading file_path
+            (or script_path) from the request; prefer a file-backed contract.
         timeout_secs: Execution timeout. Default 30 s.
 
     Returns:
@@ -173,7 +176,36 @@ cmds.xform("myCube", translation=(1, 2, 3), worldSpace=True)
 ```
 
 Recipe anchor names are searchable via `recipes__get(skill=..., anchor=...)`.
+---
 
+## Materialize once, iterate by params
+
+When the same snippet is executed more than once, stop resubmitting the
+source. Materialize it once with `materialize_script(content=...,
+reuse=True, reuse_key="STABLE_KEY")`, record `file_path`, `sha256`, and
+`reused`, then pass the host-local `file_path` (or `script_path`) to the
+execution tool. A byte-identical repeat with the same key returns the same
+path with `reused=true`; never re-send unchanged code. Reject stale or
+unexpected hashes instead of executing them.
+
+Write generated scripts as typed `def main(**params)` functions and keep
+varying values in the `params` object. The runner reconstructs the body from
+the file and passes `params` to `main(**params)` only when `params_provided`
+is set. There is no CLI flag and no params file for this channel.
+
+```python
+def main(radius: float = 1.0, name: str = "sphere") -> dict:
+    return {"created": name, "radius": radius}
+```
+
+Author recipes as parameterized templates. A hardcoded literal recipe forces
+the agent to copy and re-send source for every value; a parameterized recipe
+changes only `params`.
+
+After the same multi-step sequence succeeds twice, promote it with
+`workflows_run` using stable `idempotency_key` values; recover an interrupted
+run with `workflows_resume`. See
+[`agents-reference.md`](agents-reference.md#iteration-playbook).
 ---
 
 ## references/INTROSPECTION.md Contract

@@ -177,8 +177,12 @@ Repeating work in a DCC host has one normative entry point:
    and pass the returned `file_path` back. A byte-identical repeat returns the same stable
    path with `reused=True`; never re-send the source.
 2. **Change a value → change `params` only.** Re-send the same `file_path` with a new
-   `params` object. There is no CLI flag and no params file for this.
-3. **Recover a dead multi-step run → `workflows_resume`.** Pass `workflow_id`, plus optional
+   `params` object. `params` is delivered to `main(**params)`; do not rewrite or
+   re-materialize unchanged code. There is no CLI flag and no params file for this.
+3. **Repeat a multi-step procedure → `workflows_run`.** After the same sequence succeeds
+   twice, promote it to a workflow spec with stable `idempotency_key` values and poll with
+   `workflows_get_status`.
+4. **Recover a dead multi-step run → `workflows_resume`.** Pass `workflow_id`, plus optional
    `force_steps` / `expected_spec_hash` / `strict`. Requires the executor to be built with
    `WorkflowStorage` and the `job-persist-sqlite` feature.
 

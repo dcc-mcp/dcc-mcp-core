@@ -423,7 +423,11 @@ repeat in a session, and all three are already shipped:
    schema derived by `derive_script_parameters_schema` (parsed, never executed). There is no
    CLI flag and no params file — do not invent one, and do not re-materialize to change an
    argument.
-3. **Recover a dead multi-step run → `workflows_resume`.** Send `workflow_id` plus optional
+3. **Repeat a sequence → `workflows_run`.** Once the same multi-step procedure succeeds twice,
+   promote it to a workflow spec with stable `idempotency_key` values, then poll with
+   `workflows_get_status`. A CLI `--json-file` containing unchanged source is not a reuse
+   strategy; it still re-sends the same code.
+4. **Recover a dead multi-step run → `workflows_resume`.** Send `workflow_id` plus optional
    `force_steps`, `expected_spec_hash`, and `strict`. It re-drives the persisted run from the
    first non-completed step and needs `WorkflowStorage` + the `job-persist-sqlite` feature.
 
