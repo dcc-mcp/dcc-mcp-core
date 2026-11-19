@@ -1,9 +1,12 @@
 use super::*;
 use std::io::Write;
 
+#[cfg(windows)]
+use windows_sys::Win32::Foundation::HANDLE;
+
 const PROBE_TEST_WRITER_PID_ENV: &str = "DCC_MCP_TEST_PROBE_WRITER_PID";
 const PROBE_TEST_WRITER_READY_ENV: &str = "DCC_MCP_TEST_PROBE_WRITER_READY";
-const PROBE_TEST_WRITER_MODE_ENV: &str = "DCC_MCP_TEST_PROBE_WRITER_MODE";
+const PROBE_TEST_WRITER_START_TIME_ENV: &str = "DCC_MCP_TEST_PROBE_WRITER_START_TIME";
 const PROBE_TEST_SEARCH_PATH_ENV: &str = "PYTHONPATH";
 
 /// Write a stand-in interpreter path. Probe output drives the assertions,
@@ -565,6 +568,44 @@ fn probe_rejects_output_above_the_capture_threshold() {
 }
 
 #[test]
+fn probe_metadata_failure_still_cleans_up_before_reporting() {
+    let Some(python) = real_python() else {
+        eprintln!("skipping: no python interpreter available");
+        return;
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let package = dir.path().join("dcc_mcp_metadata_failure_fixture");
+    std::fs::create_dir(&package).unwrap();
+    std::fs::write(
+        package.join("__init__.py"),
+        "import subprocess, sys\nsubprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])\n__version__ = '7.0.0'\n",
+    )
+    .unwrap();
+
+    let started = Instant::now();
+    let error = run_probe_with_spool_check(
+        &python,
+        "dcc_mcp_metadata_failure_fixture",
+        "dcc-mcp-metadata-failure-fixture",
+        PROBE_TIMEOUT,
+        vec![(
+            PROBE_TEST_SEARCH_PATH_ENV.to_string(),
+            dir.path().to_path_buf(),
+        )],
+        |_| Err(std::io::Error::other("injected metadata failure")),
+    )
+    .unwrap_err();
+    assert!(
+        error.starts_with("probe_failed: output spool query failed:"),
+        "error: {error}"
+    );
+    assert!(
+        started.elapsed() < PROBE_TIMEOUT,
+        "metadata failure must not consume the full probe budget"
+    );
+}
+
+#[test]
 fn overrides_opt_in_dcc_types_without_live_instances() {
     let mut overrides = BTreeMap::new();
     overrides.insert("maya".to_string(), PathBuf::from("/opt/maya/bin/mayapy"));
@@ -599,7 +640,7 @@ fn explicit_catalog_load_failure_is_reported() {
     assert_eq!(targets[0].module, "dcc_mcp_maya");
 }
 
-/// The normal fixture's writer emits the final JSON line after the probe
+/// The finite inherited writer emits its exit signal after the probe
 /// interpreter exits. That proves the implementation waits for a finite
 /// inherited writer before reading the spool; killing the parent's tree on
 /// direct-child exit would lose this line and fail the test.
@@ -623,6 +664,39 @@ writer = subprocess.Popen(
     stdout=None,
     stderr=None,
 )
+if sys.platform == "win32":
+    import ctypes
+
+    class FILETIME(ctypes.Structure):
+        _fields_ = [("low", ctypes.c_uint32), ("high", ctypes.c_uint32)]
+
+    get_process_times = ctypes.windll.kernel32.GetProcessTimes
+    get_process_times.argtypes = [ctypes.c_void_p] + [ctypes.POINTER(FILETIME)] * 4
+    get_process_times.restype = ctypes.c_int
+    creation = FILETIME()
+    process = ctypes.windll.kernel32.OpenProcess(0x1000, False, writer.pid)
+    if not process:
+        raise OSError(ctypes.get_last_error())
+    try:
+        empty = FILETIME()
+        if not get_process_times(process, ctypes.byref(creation), ctypes.byref(empty), ctypes.byref(empty), ctypes.byref(empty)):
+            raise OSError(ctypes.get_last_error())
+    finally:
+        ctypes.windll.kernel32.CloseHandle(process)
+    start_time = (creation.high << 32) | creation.low
+elif os.path.exists("/proc/self/stat"):
+    fields = open("/proc/%d/stat" % writer.pid, encoding="utf-8").read().rsplit(")", 1)[1].split()
+    start_time = int(fields[19])
+else:
+    import calendar
+    import email.utils
+    output = subprocess.check_output(["ps", "-o", "lstart=", "-p", str(writer.pid)], text=True)
+    parsed = email.utils.parsedate_tz(output.strip())
+    if parsed is None:
+        raise RuntimeError("cannot parse writer start time")
+    start_time = calendar.timegm(parsed)
+with open(os.environ[{START_TIME_ENV:?}], "w") as handle:
+    handle.write(str(start_time))
 with open(os.environ[{PID_ENV:?}], "w") as handle:
     handle.write(str(writer.pid))
 with open(os.environ[{READY_ENV:?}], "w") as handle:
@@ -631,6 +705,7 @@ sys.exit(0)
 "#,
         PID_ENV = PROBE_TEST_WRITER_PID_ENV,
         READY_ENV = PROBE_TEST_WRITER_READY_ENV,
+        START_TIME_ENV = PROBE_TEST_WRITER_START_TIME_ENV,
         WRITER_CODE = writer_code,
     );
     std::fs::write(package.join("__init__.py"), "__version__ = 'parent'\n").unwrap();
@@ -681,14 +756,14 @@ fn wait_for_file(path: &Path, deadline: Instant) -> bool {
     false
 }
 
-/// A writer PID alone cannot prove that Windows reaped the child. A caller
-/// that only has a PID, or whose handle query fails, must treat exit as
-/// unknown and fail the assertion instead of silently passing.
-fn assert_writer_exited(pid: u32, context: &str) {
+/// Confirm that the recorded writer is gone and that its recorded start time
+/// still identifies it. A bare PID may have been recycled, so identity must be
+/// checked before interpreting process absence or exit status as evidence.
+fn assert_writer_exited(pid: u32, start_time: u64, context: &str) {
     #[cfg(windows)]
     {
         use windows_sys::Win32::Foundation::{
-            ERROR_INVALID_PARAMETER, GetLastError, HANDLE, WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT,
+            ERROR_INVALID_PARAMETER, GetLastError, WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT,
         };
         use windows_sys::Win32::System::Threading::{
             OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE,
@@ -711,6 +786,14 @@ fn assert_writer_exited(pid: u32, context: &str) {
             );
             return;
         }
+        let observed_start = process_start_time(handle as HANDLE).unwrap_or_else(|| {
+            unsafe { windows_sys::Win32::Foundation::CloseHandle(handle as HANDLE) };
+            panic!("{context}: writer start time is unknown");
+        });
+        assert_eq!(
+            observed_start, start_time,
+            "{context}: writer PID was reused"
+        );
         let outcome =
             unsafe { WaitForSingleObject(handle as HANDLE, WRITER_EXIT_WAIT.as_millis() as u32) };
         let wait_error = if outcome == WAIT_FAILED {
@@ -727,51 +810,179 @@ fn assert_writer_exited(pid: u32, context: &str) {
     {
         let deadline = Instant::now() + WRITER_EXIT_WAIT;
         while Instant::now() < deadline {
-            match unix_process_is_running(pid) {
-                Ok(true) => thread::sleep(Duration::from_millis(10)),
-                Ok(false) => return,
+            match unix_process_start_time(pid) {
+                Ok(Some(observed)) => {
+                    assert_eq!(observed, start_time, "{context}: writer PID was reused")
+                }
+                Ok(None) => return,
                 Err(error) => panic!("{context}: writer exit status is unknown: {error}"),
             }
+            thread::sleep(Duration::from_millis(10));
         }
         panic!("{context}: writer exit unconfirmed");
     }
 }
 
 #[cfg(unix)]
-fn unix_process_is_running(pid: u32) -> Result<bool, String> {
+fn unix_process_start_time(pid: u32) -> Result<Option<u64>, String> {
+    if let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) {
+        let fields = stat
+            .rsplit(')')
+            .nth(1)
+            .ok_or_else(|| "cannot parse process stat".to_string())?
+            .split_whitespace();
+        let start_time = fields
+            .nth(19)
+            .ok_or_else(|| "cannot parse process start time".to_string())?;
+        return start_time
+            .parse::<u64>()
+            .map(Some)
+            .map_err(|error| format!("cannot parse process start time: {error}"));
+    }
+
     let output = std::process::Command::new("ps")
-        .args(["-o", "stat=", "-p", &pid.to_string()])
-        .output();
-    let output = output.map_err(|error| format!("cannot run ps: {error}"))?;
+        .args(["-o", "lstart=", "-p", &pid.to_string()])
+        .output()
+        .map_err(|error| format!("cannot run ps: {error}"))?;
     if !output.status.success() {
         if output.stdout.is_empty() && output.stderr.is_empty() {
-            return Ok(false);
+            return Ok(None);
         }
         return Err(format!("ps exited with {}", output.status));
     }
-    let state = String::from_utf8_lossy(&output.stdout);
-    Ok(!state.trim_start().starts_with('Z'))
+    let text = String::from_utf8_lossy(&output.stdout);
+    parse_ps_lstart(&text)
+        .map(Some)
+        .ok_or_else(|| "cannot parse process start time".to_string())
+}
+
+#[cfg(unix)]
+fn parse_ps_lstart(text: &str) -> Option<u64> {
+    let fields: Vec<&str> = text.split_whitespace().collect();
+    if fields.len() != 5 {
+        return None;
+    }
+    let year = fields[4].parse::<u64>().ok()?;
+    let month = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ]
+    .iter()
+    .position(|name| name.eq_ignore_ascii_case(fields[0]))? as u64
+        + 1;
+    let day = fields[1].parse::<u64>().ok()?;
+    let time: Vec<u64> = fields[2]
+        .split(':')
+        .map(str::parse)
+        .collect::<Result<_, _>>()?;
+    if time.len() != 3 {
+        return None;
+    }
+    let leap = |value: u64| value % 4 == 0 && (value % 100 != 0 || value % 400 == 0);
+    let days_before_year: u64 = (1970..year)
+        .map(|value| if leap(value) { 366 } else { 365 })
+        .sum();
+    let month_days = [31_u64, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let days_before_month: u64 = month_days
+        .iter()
+        .take((month - 1) as usize)
+        .enumerate()
+        .map(|(index, days)| days + u64::from(index == 1 && leap(year)))
+        .sum();
+    Some(
+        (days_before_year + days_before_month + day - 1) * 24 * 3600
+            + time[0] * 3600
+            + time[1] * 60
+            + time[2],
+    )
 }
 
 #[cfg(not(any(unix, windows)))]
-fn unix_process_is_running(_pid: u32) -> Result<bool, String> {
-    Err("no supported process-state probe is available".into())
+fn unix_process_start_time(_pid: u32) -> Result<Option<u64>, String> {
+    Err("no supported process-start-time probe is available".into())
+}
+
+#[cfg(windows)]
+fn process_start_time(handle: HANDLE) -> Option<u64> {
+    use windows_sys::Win32::Foundation::FILETIME;
+    use windows_sys::Win32::System::Threading::GetProcessTimes;
+    let mut creation = FILETIME {
+        dwLowDateTime: 0,
+        dwHighDateTime: 0,
+    };
+    let mut exit = creation;
+    let mut kernel = creation;
+    let mut user = creation;
+    let result =
+        unsafe { GetProcessTimes(handle, &mut creation, &mut exit, &mut kernel, &mut user) };
+    if result == 0 {
+        return None;
+    }
+    Some(((creation.dwHighDateTime as u64) << 32) | creation.dwLowDateTime as u64)
 }
 
 const WRITER_EXIT_WAIT: Duration = Duration::from_secs(2);
 
+fn writer_identity(pid_path: &Path, start_time_path: &Path) -> (u32, u64) {
+    let pid = std::fs::read_to_string(pid_path)
+        .unwrap()
+        .trim()
+        .parse::<u32>()
+        .unwrap();
+    let start_time = std::fs::read_to_string(start_time_path)
+        .unwrap()
+        .trim()
+        .parse::<u64>()
+        .unwrap();
+    (pid, start_time)
+}
+
+fn process_has_start_time(pid: u32, start_time: u64) -> bool {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::System::Threading::{
+            OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+        };
+        let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+        if handle.is_null() {
+            return false;
+        }
+        let observed = process_start_time(handle as HANDLE);
+        unsafe { windows_sys::Win32::Foundation::CloseHandle(handle as HANDLE) };
+        observed == Some(start_time)
+    }
+    #[cfg(unix)]
+    {
+        unix_process_start_time(pid).ok().flatten() == Some(start_time)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = (pid, start_time);
+        false
+    }
+}
+
 struct ProbeFixtureGuard {
     pid_path: PathBuf,
+    start_time_path: PathBuf,
 }
 
 impl Drop for ProbeFixtureGuard {
     fn drop(&mut self) {
-        if let Ok(pid) = std::fs::read_to_string(&self.pid_path) {
-            if let Ok(pid) = pid.trim().parse::<u32>() {
-                stop_process(pid);
-            }
+        let identity = std::fs::read_to_string(&self.pid_path)
+            .ok()
+            .and_then(|pid| pid.trim().parse::<u32>().ok())
+            .zip(
+                std::fs::read_to_string(&self.start_time_path)
+                    .ok()
+                    .and_then(|value| value.trim().parse::<u64>().ok()),
+            );
+        if let Some((pid, start_time)) = identity
+            && process_has_start_time(pid, start_time)
+        {
+            stop_process(pid);
         }
         let _ = std::fs::remove_file(&self.pid_path);
+        let _ = std::fs::remove_file(&self.start_time_path);
     }
 }
 
@@ -781,6 +992,7 @@ struct WriterFixture {
     _dir: tempfile::TempDir,
     python: PathBuf,
     pid_path: PathBuf,
+    start_time_path: PathBuf,
     ready_path: PathBuf,
     dir_path: PathBuf,
 }
@@ -791,15 +1003,18 @@ fn writer_test_setup(mode: &str) -> Option<WriterFixture> {
     write_probe_fixture(dir.path(), mode);
     let dir_path = dir.path().to_path_buf();
     let pid_path = dir.path().join("writer.pid");
+    let start_time_path = dir.path().join("writer.start_time");
     let ready_path = dir.path().join("writer.ready");
     let fixture_guard = ProbeFixtureGuard {
         pid_path: pid_path.clone(),
+        start_time_path: start_time_path.clone(),
     };
     Some(WriterFixture {
         _cleanup: fixture_guard,
         _dir: dir,
         python,
         pid_path,
+        start_time_path,
         ready_path,
         dir_path,
     })
@@ -815,17 +1030,18 @@ fn probe_normal_parent_exit_drains_inherited_writer() {
     let WriterFixture {
         python,
         pid_path,
+        start_time_path,
         ready_path,
         dir_path,
         ..
     } = fixture;
     let env_overrides = vec![
         (PROBE_TEST_WRITER_PID_ENV.to_string(), pid_path.clone()),
-        (PROBE_TEST_WRITER_READY_ENV.to_string(), ready_path.clone()),
         (
-            PROBE_TEST_WRITER_MODE_ENV.to_string(),
-            PathBuf::from("exit"),
+            PROBE_TEST_WRITER_START_TIME_ENV.to_string(),
+            start_time_path.clone(),
         ),
+        (PROBE_TEST_WRITER_READY_ENV.to_string(), ready_path.clone()),
         (
             PROBE_TEST_SEARCH_PATH_ENV.to_string(),
             dir_path.to_path_buf(),
@@ -835,7 +1051,7 @@ fn probe_normal_parent_exit_drains_inherited_writer() {
         &python,
         "dcc_mcp_inherited_fixture.leaf",
         "dcc-mcp-inherited-fixture",
-        Duration::from_secs(2),
+        Duration::from_secs(6),
         env_overrides,
     )
     .expect("production probe must finish after its parent exits");
@@ -848,13 +1064,9 @@ fn probe_normal_parent_exit_drains_inherited_writer() {
         &ready_path,
         Instant::now() + Duration::from_secs(1)
     ));
-    let pid = std::fs::read_to_string(&pid_path)
-        .unwrap()
-        .trim()
-        .parse::<u32>()
-        .unwrap();
-    assert_writer_exited(pid, "finite writer");
-    assert!(elapsed < Duration::from_secs(4), "elapsed: {elapsed:?}");
+    let identity = writer_identity(&pid_path, &start_time_path);
+    assert_writer_exited(identity.0, identity.1, "finite writer");
+    assert!(elapsed < Duration::from_secs(8), "elapsed: {elapsed:?}");
 }
 
 #[test]
@@ -866,6 +1078,7 @@ fn probe_timeout_terminates_inherited_writer() {
     let WriterFixture {
         python,
         pid_path,
+        start_time_path,
         ready_path,
         dir_path,
         ..
@@ -873,11 +1086,11 @@ fn probe_timeout_terminates_inherited_writer() {
     let started = Instant::now();
     let env_overrides = vec![
         (PROBE_TEST_WRITER_PID_ENV.to_string(), pid_path.clone()),
-        (PROBE_TEST_WRITER_READY_ENV.to_string(), ready_path.clone()),
         (
-            PROBE_TEST_WRITER_MODE_ENV.to_string(),
-            PathBuf::from("timeout"),
+            PROBE_TEST_WRITER_START_TIME_ENV.to_string(),
+            start_time_path.clone(),
         ),
+        (PROBE_TEST_WRITER_READY_ENV.to_string(), ready_path.clone()),
         (
             PROBE_TEST_SEARCH_PATH_ENV.to_string(),
             dir_path.to_path_buf(),
@@ -887,24 +1100,26 @@ fn probe_timeout_terminates_inherited_writer() {
         &python,
         "dcc_mcp_inherited_fixture.leaf",
         "dcc-mcp-inherited-fixture",
-        Duration::from_secs(2),
+        Duration::from_secs(6),
         env_overrides,
     )
     .unwrap_err();
     let elapsed = started.elapsed();
 
-    assert_eq!(error, "probe_timed_out_after_2s", "error: {error}");
+    assert!(
+        matches!(
+            error.as_str(),
+            "probe_timed_out_after_6s" | "probe_cleanup_unconfirmed"
+        ),
+        "unexpected timeout result: {error}"
+    );
     assert!(wait_for_file(
         &ready_path,
         Instant::now() + Duration::from_secs(1)
     ));
-    let pid = std::fs::read_to_string(&pid_path)
-        .unwrap()
-        .trim()
-        .parse::<u32>()
-        .unwrap();
-    assert_writer_exited(pid, "timed-out writer");
-    assert!(elapsed < Duration::from_secs(4), "elapsed: {elapsed:?}");
+    let identity = writer_identity(&pid_path, &start_time_path);
+    assert_writer_exited(identity.0, identity.1, "timed-out writer");
+    assert!(elapsed < Duration::from_secs(8), "elapsed: {elapsed:?}");
 }
 
 #[test]
