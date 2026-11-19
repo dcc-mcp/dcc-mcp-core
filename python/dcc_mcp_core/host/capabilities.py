@@ -700,21 +700,24 @@ def register_host_capability_tool(
         return False
 
     try:
-        registry.register(
-            tool_name,
-            description=description,
-            category="dcc",
-            tags=["capability", "capabilities", "probe", "planning", dcc_name.lower()],
-            dcc=dcc_name,
-            input_schema=json_dumps(input_schema),
-            skill_name="dcc-adapter",
-            group="capability",
-            execution="sync",
-            thread_affinity="any",
-            enabled=True,
-        )
+        get_action = getattr(registry, "get_action", None)
+        already_registered = callable(get_action) and get_action(tool_name) is not None
+        if not already_registered:
+            registry.register(
+                tool_name,
+                description=description,
+                category="dcc",
+                tags=["capability", "capabilities", "probe", "planning", dcc_name.lower()],
+                dcc=dcc_name,
+                input_schema=json_dumps(input_schema),
+                skill_name="dcc-adapter",
+                group="capability",
+                execution="sync",
+                thread_affinity="any",
+                enabled=True,
+            )
         inner.register_handler(tool_name, handler)
-        return True
+        return not already_registered
     except Exception as exc:
         logger.debug("host capabilities: registration failed: %s", exc)
         return False

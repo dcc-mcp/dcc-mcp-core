@@ -485,21 +485,14 @@ class DccServerBase:
         self._host_capability_provider = provider
         self._host_capability_cache = cache
         self._host_capability_provider_cache_key = provider_cache_key
+        self.register_host_capability_tool()
 
     def register_host_capability_tool(self) -> bool:
         """Register the standard ``dcc_host_capabilities`` backend tool once.
 
-        A manually registered tool is preserved so adapters can keep an explicit
-        registration call without creating a duplicate registry entry.
+        A manually registered tool keeps its registry metadata while its handler
+        is rebound to the current provider configuration.
         """
-        registry = getattr(self._server, "registry", None)
-        if (
-            registry is not None
-            and hasattr(registry, "get_action")
-            and registry.get_action("dcc_host_capabilities") is not None
-        ):
-            return False
-
         from dcc_mcp_core.capabilities import build_unconfigured_host_capabilities
         from dcc_mcp_core.capabilities import register_host_capability_tool
 
@@ -514,10 +507,6 @@ class DccServerBase:
                         getattr(getattr(self._options, "sidecar", None), "adapter_version", None) or _PKG_VERSION
                     ),
                 )
-
-            self._host_capability_provider = provider
-            self._host_capability_cache = None
-            self._host_capability_provider_cache_key = None
 
         self._host_capability_registration = register_host_capability_tool(
             self,

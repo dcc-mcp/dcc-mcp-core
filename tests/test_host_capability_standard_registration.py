@@ -92,11 +92,24 @@ def test_missing_provider_returns_honest_not_run_with_reason():
 
 def test_explicit_registration_is_not_duplicated():
     server = _make_server("maya")
-    server.set_host_capability_provider(_passed_manifest)
 
     assert server.register_host_capability_tool() is True
+    server.set_host_capability_provider(_passed_manifest)
     assert server.register_host_capability_tool() is False
     assert list(server._server.registry.actions) == ["dcc_host_capabilities"]
 
     result = server._server.registry.handlers["dcc_host_capabilities"]({})
+    assert result["context"]["totals"]["available"] == 1
+
+
+def test_provider_injected_after_fallback_registration_rebinds_handler():
+    server = _make_server("maya")
+
+    assert server.register_host_capability_tool() is True
+    fallback = server._server.registry.handlers["dcc_host_capabilities"]({})
+    assert fallback["context"]["totals"]["not_run"] == 1
+
+    server.set_host_capability_provider(_passed_manifest)
+    result = server._server.registry.handlers["dcc_host_capabilities"]({})
+
     assert result["context"]["totals"]["available"] == 1
