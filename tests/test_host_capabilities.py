@@ -448,9 +448,7 @@ def test_summary_preserves_evidence_ref_and_backward_compatible_fields():
     assert available["probed_at"] == "2026-11-18T00:00:00Z"
     assert "declaration_only" not in available
 
-    without_evidence = summarize_host_capabilities(
-        _manifest([_capability(evidence_ref=None)])
-    )["available"][0]
+    without_evidence = summarize_host_capabilities(_manifest([_capability(evidence_ref=None)]))["available"][0]
     assert "evidence_ref" not in without_evidence
 
 
