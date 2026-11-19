@@ -107,7 +107,7 @@
         "nuke"
       ],
       "url": "https://github.com/dcc-mcp/dcc-mcp-nuke",
-      "version": "0.13.1",
+      "version": "0.14.1",
       "pip_package": "dcc-mcp-nuke",
       "pointer": true,
       "registry": "pending",

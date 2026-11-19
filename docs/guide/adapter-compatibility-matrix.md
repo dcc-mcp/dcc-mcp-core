@@ -47,7 +47,7 @@ drops both bounds.
 | Blender | [dcc-mcp-blender](https://github.com/dcc-mcp/dcc-mcp-blender) | 0.1.43 | >=0.19.45,<1.0.0 | 3.6+ | In-process MCP + optional diagnostics sidecar | 2026-08 |
 | Houdini | [dcc-mcp-houdini](https://github.com/dcc-mcp/dcc-mcp-houdini) | 0.31.5 | >=0.19.45,<1.0.0 | 20.5+ | Event-loop callback | 2026-08 |
 | FPT / ShotGrid | [dcc-mcp-fpt](https://github.com/dcc-mcp/dcc-mcp-fpt) | 0.1.9 | >=0.19.45,<1.0.0 | — | REST bridge | — |
-| Nuke | [dcc-mcp-nuke](https://github.com/dcc-mcp/dcc-mcp-nuke) | 0.13.1 | >=0.19.45,<1.0.0 | — | Host main-thread dispatcher | — |
+| Nuke | [dcc-mcp-nuke](https://github.com/dcc-mcp/dcc-mcp-nuke) | 0.14.1 | >=0.20.14,<1.0.0 | — | Host main-thread dispatcher | — |
 | Unreal | [dcc-mcp-unreal](https://github.com/dcc-mcp/dcc-mcp-unreal) | 0.3.0 | >=0.19.45,<1.0.0 | — | Unreal Python bridge | — |
 | LiquiGen | [dcc-mcp-liquigen](https://github.com/dcc-mcp/dcc-mcp-liquigen) | 0.1.0 | >=0.20.22,<1.0.0 | 1.0.5+ | Standalone native host bridge with typed node-graph, simulation, VAT export, and Unreal handoff tools | 2026-09 |
 | ZBrush | [dcc-mcp-zbrush](https://github.com/dcc-mcp/dcc-mcp-zbrush) | 0.2.26 | >=0.20.14,<1.0.0 | — | Socket bridge + sidecar | — |

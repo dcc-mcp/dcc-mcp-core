@@ -176,15 +176,15 @@ entries:
     url: "https://github.com/dcc-mcp/dcc-mcp-nuke"
     issues_url: "https://github.com/dcc-mcp/dcc-mcp-nuke/issues"
     tags: ["adapter", "nuke", "official", "pip", "compositing"]
-    version: "0.13.1"
-    min_core_version: "0.19.45"
+    version: "0.14.1"
+    min_core_version: "0.20.14"
     maintainer: "dcc-mcp"
     install:
       type: pip
       pip_package: "dcc-mcp-nuke"
-      url: "https://files.pythonhosted.org/packages/2f/33/84bbba6cff8bd69d6e33eb2a62fbef678c3d2e18b37e134a809e7cf305df/dcc_mcp_nuke-0.13.1-py3-none-any.whl"
-      sha256: "c00aef395d6b6c50724acb093ece25063cc2c50d64348059b334e562fc9a67bf"
-      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-nuke/main/README.md"
+      url: "https://files.pythonhosted.org/packages/a6/58/000f2c682104327c2bcfebf79e7efdf126719af1c8a43535467ef0393224/dcc_mcp_nuke-0.14.1-py3-none-any.whl"
+      sha256: "7c17eac4b86c05b152a6a67c0af1647a3cd481799156c011cb6ee1fdc945bf91"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-nuke/0e1c8f6640595d4a43bc0adf08cbe6c46cb20f29/install.md"
 
   - name: "dcc-mcp-unreal"
     description: "Unreal Engine plugin and adapter for DCC-MCP"

@@ -499,6 +499,53 @@ fn install_bundled_catalog_pins_office_adapter_wheels() {
 }
 
 #[test]
+fn bundled_nuke_plan_uses_approved_release_bytes_and_pinned_runbook() {
+    let plan = run_json_with_env_removed(
+        &["install", "--dcc-type", "nuke"],
+        &[],
+        &["DCC_MCP_CATALOG_PATH", "DCC_MCP_INSTALL_PYTHON"],
+    );
+
+    assert_eq!(plan["dcc_type"], "nuke");
+    assert_eq!(plan["adapter"]["name"], "dcc-mcp-nuke");
+    assert_eq!(plan["adapter"]["version"], "0.14.1");
+    assert_eq!(plan["adapter"]["min_core_version"], "0.20.14");
+
+    let install = &plan["adapter"]["install"];
+    assert_eq!(
+        install["url"],
+        concat!(
+            "https://files.pythonhosted.org/packages/a6/58/000f2c682104327c2bcfebf79e7",
+            "efdf126719af1c8a43535467ef0393224/dcc_mcp_nuke-0.14.1-py3-none-any.whl"
+        )
+    );
+    assert_eq!(
+        install["sha256"],
+        "7c17eac4b86c05b152a6a67c0af1647a3cd481799156c011cb6ee1fdc945bf91"
+    );
+    assert_eq!(
+        install["instructions_url"],
+        concat!(
+            "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-nuke/",
+            "0e1c8f6640595d4a43bc0adf08cbe6c46cb20f29/install.md"
+        )
+    );
+
+    let pip = plan["steps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|step| step["action"]["type"] == "PipInstall")
+        .expect("nuke plan must include a pinned pip step");
+    assert_eq!(pip["action"]["package"], "dcc-mcp-nuke");
+    assert_eq!(pip["action"]["version"], "0.14.1");
+    assert_eq!(pip["action"]["artifact_url"], install["url"]);
+    assert_eq!(pip["action"]["sha256"], install["sha256"]);
+    assert_eq!(plan["next_steps"][0]["name"], "read-install-instructions");
+    assert_eq!(plan["next_steps"][0]["url"], install["instructions_url"]);
+}
+
+#[test]
 fn bundled_catalog_reports_current_core_adapter_versions() {
     for (dcc_type, expected_version) in [
         ("maya", "0.9.42"),

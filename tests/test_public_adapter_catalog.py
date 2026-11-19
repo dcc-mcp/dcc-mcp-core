@@ -258,3 +258,24 @@ def test_install_sop_releases_without_smoke_receipts_do_not_inherit_dates(app, v
     columns = [column.strip() for column in row.split("|")]
     assert columns[3] == version
     assert columns[7] == "—"
+
+
+def test_nuke_install_sop_release_is_catalog_and_planner_ready() -> None:
+    entry = next(entry for entry in _entries() if entry["name"] == "dcc-mcp-nuke")
+    matrix = (REPO_ROOT / "docs/guide/adapter-compatibility-matrix.md").read_text(encoding="utf-8")
+    row = next(line for line in matrix.splitlines() if "[dcc-mcp-nuke](" in line)
+    columns = [column.strip() for column in row.split("|")]
+
+    assert entry["version"] == "0.14.1"
+    assert entry["min_core_version"] == "0.20.14"
+    assert entry["install"]["url"] == (
+        "https://files.pythonhosted.org/packages/a6/58/000f2c682104327c2bcfebf79e7"
+        "efdf126719af1c8a43535467ef0393224/dcc_mcp_nuke-0.14.1-py3-none-any.whl"
+    )
+    assert entry["install"]["sha256"] == ("7c17eac4b86c05b152a6a67c0af1647a3cd481799156c011cb6ee1fdc945bf91")
+    assert entry["install"]["instructions_url"] == (
+        "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-nuke/0e1c8f6640595d4a43bc0adf08cbe6c46cb20f29/install.md"
+    )
+    assert columns[3] == "0.14.1"
+    assert columns[4] == ">=0.20.14,<1.0.0"
+    assert columns[7] == "—"

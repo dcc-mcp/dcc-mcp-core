@@ -72,6 +72,18 @@
     "implementation_pr": "https://github.com/dcc-mcp/dcc-mcp-mobu/pull/7"
   },
   {
+    "name": "dcc-mcp-nuke",
+    "dcc_type": "nuke",
+    "version": "0.14.1",
+    "min_core_version": "0.20.14",
+    "artifact_url": "https://files.pythonhosted.org/packages/a6/58/000f2c682104327c2bcfebf79e7efdf126719af1c8a43535467ef0393224/dcc_mcp_nuke-0.14.1-py3-none-any.whl",
+    "sha256": "7c17eac4b86c05b152a6a67c0af1647a3cd481799156c011cb6ee1fdc945bf91",
+    "instructions_url": "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-nuke/0e1c8f6640595d4a43bc0adf08cbe6c46cb20f29/install.md",
+    "source_ref": "0e1c8f6640595d4a43bc0adf08cbe6c46cb20f29",
+    "release_url": "https://github.com/dcc-mcp/dcc-mcp-nuke/releases/tag/v0.14.1",
+    "implementation_pr": "https://github.com/dcc-mcp/dcc-mcp-nuke/pull/52"
+  },
+  {
     "name": "dcc-mcp-openusd",
     "dcc_type": "openusd",
     "version": "0.8.2",

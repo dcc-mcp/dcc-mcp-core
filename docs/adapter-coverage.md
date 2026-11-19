@@ -25,7 +25,7 @@ rg -c '^    tags: \[.*"adapter".*\]' dcc-mcp-catalog.yml
 | `dcc-mcp-houdini` | houdini | 0.31.5 | `dcc-mcp-houdini` | generated | pending | registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first |
 | `dcc-mcp-3dsmax` | 3dsmax, 3ds max, 3ds-max, max | 0.1.40 | `dcc-mcp-3dsmax` | generated | pending | registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first |
 | `dcc-mcp-photoshop` | photoshop | 0.1.44 | `dcc-mcp-photoshop` | generated | pending | registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first |
-| `dcc-mcp-nuke` | nuke | 0.13.1 | `dcc-mcp-nuke` | generated | pending | registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first |
+| `dcc-mcp-nuke` | nuke | 0.14.1 | `dcc-mcp-nuke` | generated | pending | registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first |
 | `dcc-mcp-unreal` | unreal | 0.3.0 | `dcc-mcp-unreal` | generated | pending | registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first |
 | `dcc-mcp-liquigen` | liquigen | 0.1.0 | `dcc-mcp-liquigen` | generated | pending | registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first |
 | `dcc-mcp-zbrush` | zbrush | 0.2.26 | `dcc-mcp-zbrush` | generated | pending | registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first |
