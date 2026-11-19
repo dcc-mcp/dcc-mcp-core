@@ -351,7 +351,7 @@ pub fn compact_instance_json(e: &ServiceEntry, stale_timeout: std::time::Duratio
         .get("dispatch_status")
         .map(|s| s.trim().to_ascii_lowercase());
     let dispatch_ready = dispatch_status.as_deref() == Some("ready")
-        && e.metadata.contains_key("mcp_url")
+        && super::super::http_registration::entry_has_mcp_endpoint(e)
         && matches!(
             e.status,
             dcc_mcp_transport::discovery::types::ServiceStatus::Available
@@ -846,6 +846,25 @@ mod tests {
         // ADR 018: instance_status for dispatch-ready entry
         assert_eq!(json["instance_status"]["dispatch_status"], "ready");
         assert_eq!(json["instance_status"]["retryable"], true);
+    }
+
+    #[test]
+    fn compact_json_busy_derives_endpoint_and_transport_readiness() {
+        let mut entry = ServiceEntry::new("photoshop", "127.0.0.1", 9878);
+        entry.status = dcc_mcp_transport::discovery::types::ServiceStatus::Busy;
+        entry.metadata.insert("mcp_url".into(), "   ".into());
+        entry
+            .metadata
+            .insert("dispatch_status".into(), "ready".into());
+
+        let json = compact_instance_json(&entry, std::time::Duration::from_secs(30));
+
+        assert_eq!(json["mcp_url"], "http://127.0.0.1:9878/mcp");
+        assert_eq!(json["status"], "busy");
+        assert_eq!(json["transport"]["ready"], true);
+        assert_eq!(json["transport"]["has_endpoint"], true);
+        assert_eq!(json["dispatch"]["ready"], true);
+        assert_eq!(json["dispatch_ready"], json["dispatch"]["ready"]);
     }
 
     #[tokio::test]

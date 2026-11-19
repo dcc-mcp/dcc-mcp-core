@@ -794,7 +794,9 @@ live query to the backend.
 
 \`dcc-mcp-cli doctor\` reads this projection from \`GET /v1/instances\` when a
 gateway is reachable, and reports \`gateway.capability_inventory_source =
-"gateway_v1_instances"\`. Local registry rows may carry the same projection in
+"gateway_v1_instances"` only when the response contains a valid instances array.
+Otherwise it reports `"local_registry_unknown"` and uses local inventory.
+Local registry rows may carry the same projection in
 their \`capabilities\` extras for direct local inspection. Rows without either
 source are counted under \`unknown_instances\`.
 

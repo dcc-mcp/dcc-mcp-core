@@ -51,8 +51,12 @@ pub fn transport_ready_json(row: &Value) -> Value {
         .get("mcp_url")
         .and_then(Value::as_str)
         .filter(|value| !value.trim().is_empty());
+    let transport_ready = matches!(
+        row.get("status").and_then(Value::as_str),
+        Some("available" | "busy")
+    );
     let ready = endpoint.is_some()
-        && row.get("status").and_then(Value::as_str) == Some("available")
+        && transport_ready
         && row.get("stale").and_then(Value::as_bool) == Some(false);
 
     json!({
@@ -170,5 +174,23 @@ mod tests {
             crate::gateway::state::entry_to_json(&entry, std::time::Duration::from_secs(30), None);
         assert_eq!(row["mcp_url"], "http://127.0.0.1:18812/mcp");
         assert_eq!(transport_ready_json(&row)["has_endpoint"], true);
+    }
+
+    #[test]
+    fn transport_ready_accepts_busy_and_rejects_missing_endpoint() {
+        let busy = json!({
+            "mcp_url": "http://127.0.0.1:18812/mcp",
+            "status": "busy",
+            "stale": false,
+        });
+        assert_eq!(transport_ready_json(&busy)["ready"], true);
+
+        let empty_endpoint = json!({
+            "mcp_url": "   ",
+            "status": "available",
+            "stale": false,
+        });
+        assert_eq!(transport_ready_json(&empty_endpoint)["ready"], false);
+        assert_eq!(transport_ready_json(&empty_endpoint)["has_endpoint"], false);
     }
 }
