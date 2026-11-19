@@ -171,10 +171,11 @@ pre-existing/shared daemon has no LAN listener.
 `get_gateway_election_status()` and the supported
 `dcc_diagnostics__gateway_failover` tool expose `remote_listener` with
 `configured_host`, `configured_port`, `configured_enabled`,
-`scope="adapter_started_gateways"`, and `effective_state="unverified"`.
-These fields describe resolved configuration, **not observed bound sockets**.
-Inspect the running gateway's listeners separately before asserting effective
-LAN exposure or absence of exposure.
+`scope="adapter_started_gateways"`, and `effective_state`. A zero port is
+reported as `disabled`. When the adapter owns the gateway, or when it manages
+a standalone daemon, Core performs a short TCP probe and reports `listening`
+or `unavailable`. A non-winning embedded adapter keeps `unverified` because it
+does not own the shared gateway listener.
 
 ### Compatibility and migration
 
