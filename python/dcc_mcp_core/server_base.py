@@ -228,6 +228,11 @@ class DccServerBase:
         self._gateway_runtime_mode: str = "unknown"
         self._gateway_daemon_status: dict[str, Any] = {}
         self._snapshot_provider: Any | None = diag.snapshot_provider
+        self._host_capability_provider: Callable[[], dict[str, Any]] | None = None
+        self._host_capability_cache: Any | None = None
+        self._host_capability_provider_cache_key: Callable[[], tuple[str | None, str, str]] | None = None
+        self._host_capability_registration: Any | None = None
+        self.register_host_capability_tool()
 
     # --- seam controller accessors (lazy init for test compatibility, PIP-688) ---
 
@@ -462,6 +467,66 @@ class DccServerBase:
             include_bundled=include_bundled,
             minimal_mode=minimal_mode,
         )
+
+    # --- host capability discovery ----------------------------------------------
+
+    def set_host_capability_provider(
+        self,
+        provider: Callable[[], dict[str, Any]] | None,
+        *,
+        cache: Any | None = None,
+        provider_cache_key: Callable[[], tuple[str | None, str, str]] | None = None,
+    ) -> None:
+        """Set the adapter-owned host capability manifest provider.
+
+        ``provider`` must return a manifest validated against the host capability
+        contract. Passing ``None`` restores the honest NOT_RUN fallback.
+        """
+        self._host_capability_provider = provider
+        self._host_capability_cache = cache
+        self._host_capability_provider_cache_key = provider_cache_key
+
+    def register_host_capability_tool(self) -> bool:
+        """Register the standard ``dcc_host_capabilities`` backend tool once.
+
+        A manually registered tool is preserved so adapters can keep an explicit
+        registration call without creating a duplicate registry entry.
+        """
+        registry = getattr(self._server, "registry", None)
+        if (
+            registry is not None
+            and hasattr(registry, "get_action")
+            and registry.get_action("dcc_host_capabilities") is not None
+        ):
+            return False
+
+        from dcc_mcp_core.capabilities import build_unconfigured_host_capabilities
+        from dcc_mcp_core.capabilities import register_host_capability_tool
+
+        provider = self._host_capability_provider
+        if provider is None:
+
+            def provider() -> dict[str, Any]:
+                return build_unconfigured_host_capabilities(
+                    dcc_name=self._dcc_name,
+                    host_version=self._version_string(),
+                    adapter_version=str(
+                        getattr(getattr(self._options, "sidecar", None), "adapter_version", None) or _PKG_VERSION
+                    ),
+                )
+
+            self._host_capability_provider = provider
+            self._host_capability_cache = None
+            self._host_capability_provider_cache_key = None
+
+        self._host_capability_registration = register_host_capability_tool(
+            self,
+            dcc_name=self._dcc_name,
+            provider=provider,
+            cache=self._host_capability_cache,
+            provider_cache_key=self._host_capability_provider_cache_key,
+        )
+        return self._host_capability_registration
 
     def run_registration(
         self,

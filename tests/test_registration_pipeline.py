@@ -46,6 +46,7 @@ def test_get_standard_phases_is_ordered() -> None:
         "feedback_tool",
         "qt_ui_inspector",
         "capability_manifest",
+        "host_capabilities",
         "project_tools",
         "resources",
         "skill_catalog_ready",
@@ -137,6 +138,9 @@ def test_host_hook_override_is_dispatched() -> None:
         def _register_capability_manifest_tool(self, context):
             self.calls.append("manifest")
 
+        def register_host_capability_tool(self):
+            self.calls.append("host_capabilities")
+
         def _attach_project_tools(self, context):
             self.calls.append("project")
 
@@ -162,6 +166,7 @@ def test_host_hook_override_is_dispatched() -> None:
         "introspect",
         "qt",
         "manifest",
+        "host_capabilities",
         "project",
         "resources",
         "ready",
@@ -223,6 +228,7 @@ def test_standard_phases_accept_real_dcc_server_base(monkeypatch: pytest.MonkeyP
     server = MinimalServer.__new__(MinimalServer)
     server._dcc_name = "maya"
     server._server = object()
+    server.register_host_capability_tool = lambda: True
 
     monkeypatch.setattr(DccServerBase, "register_builtin_actions", lambda self, **kwargs: None)
     monkeypatch.setattr(DccServerBase, "collect_skill_search_paths", lambda self, **kwargs: [])

@@ -202,16 +202,24 @@ The contract fails closed:
   validity (including leap years), 00-23 hours, 00-59 minutes and seconds, and
   offsets below 24 hours. Leap seconds are rejected.
 
-Adapters expose the manifest through one read-only tool, registered the same way
-as the other built-ins:
+`DccServerBase` registers `dcc_host_capabilities` automatically during standard
+builtin registration, so the tool remains an ordinary backend tool available to
+the existing search, describe, call, and REST paths. Adapters provide evidence
+by injecting a manifest provider:
 
 ```python
-from dcc_mcp_core.capabilities import HostCapabilityCache, register_host_capability_tool
+from dcc_mcp_core.capabilities import build_host_capabilities
+from dcc_mcp_core.capabilities import HostCapabilityCache
 
-register_host_capability_tool(
-    server,
-    dcc_name="comfyui",
-    provider=probe_host,  # adapter-owned: returns the validated manifest
+def probe_host():
+    return build_host_capabilities(
+        host_version=current_host_version(),
+        adapter_version=current_adapter_version(),
+        capabilities=records,
+    )
+
+server.set_host_capability_provider(
+    probe_host,
     provider_cache_key=current_host_identity,  # optional; see below
     cache=HostCapabilityCache(ttl_secs=300),
 )
@@ -221,6 +229,11 @@ register_host_capability_tool(
 one manifest from the currently connected host. It is required when the same
 cache can survive a host or adapter version change and the provider can report
 that identity independently.
+
+When no provider is configured, the tool returns an honest `NOT_RUN` record with
+a reason explaining that capabilities were not probed. Core never runs a real
+host probe. An explicit `register_host_capability_tool(server, ...)` call remains
+supported and is skipped by the standard phase when the tool is already present.
 
 The tool is `dcc_host_capabilities` and returns the summary above, so one call
 answers "which strategies are available on this instance, and why not the
@@ -234,8 +247,9 @@ build's evidence. Provider and validation failures return
 `host_capability_provider_failed` in a structured result instead of raising an
 unhandled exception.
 
-This contract does not execute probes or wire gateway, REST, and CLI discovery;
-those remain owned by issue #2867 and adapter integrations.
+This contract does not execute probes or implement host-specific discovery.
+Backend routing is provided by the standard `dcc_host_capabilities` registration;
+host probes remain owned by adapter integrations.
 
 ---
 

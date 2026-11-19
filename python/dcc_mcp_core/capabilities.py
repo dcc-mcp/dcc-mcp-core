@@ -59,6 +59,7 @@ __all__ = [
     "HostCapabilityValidationError",
     "build_host_capabilities",
     "build_manifest_payload",
+    "build_unconfigured_host_capabilities",
     "make_host_capability",
     "register_capability_mcp_tool",
     "register_host_capability_tool",
@@ -420,6 +421,29 @@ def register_capability_mcp_tool(
     except Exception as exc:
         logger.debug("capability manifest: registration failed: %s", exc)
         return False
+
+
+def build_unconfigured_host_capabilities(
+    *,
+    dcc_name: str,
+    host_version: str,
+    adapter_version: str,
+    reason: str | None = None,
+) -> dict[str, Any]:
+    """Build an honest NOT_RUN manifest when an adapter has no provider."""
+    message = reason or (f"No host capability provider is configured for {dcc_name}; capabilities were not probed")
+    capability = make_host_capability(
+        "host.capabilities",
+        False,
+        PROBE_NOT_RUN,
+        reason=message,
+    )
+    return build_host_capabilities(
+        host_version=host_version,
+        adapter_version=adapter_version,
+        capabilities=[capability],
+        dcc_type=dcc_name,
+    )
 
 
 _SLUG_CLEAN_RE = re.compile(r"[^A-Za-z0-9_]")

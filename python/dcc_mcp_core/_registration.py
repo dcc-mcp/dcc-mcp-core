@@ -238,6 +238,18 @@ class CapabilityManifestPhase(RegistrationPhase):
         _run_adapter_extension(context, "_register_capability_manifest_tool")
 
 
+class HostCapabilitiesPhase(RegistrationPhase):
+    """Register the standard ``dcc_host_capabilities`` backend tool."""
+
+    name = "host_capabilities"
+
+    def run(self, context: RegistrationContext) -> None:
+        register = getattr(context.server, "register_host_capability_tool", None)
+        if register is None:
+            return
+        register()
+
+
 class ProjectToolsPhase(RegistrationPhase):
     """Register the four ``project_*`` MCP tools."""
 
@@ -278,6 +290,7 @@ def get_standard_phases() -> list[RegistrationPhase]:
         FeedbackToolPhase(),
         QtUiInspectorPhase(),
         CapabilityManifestPhase(),
+        HostCapabilitiesPhase(),
         ProjectToolsPhase(),
         ResourcesPhase(),
         SkillCatalogReadyPhase(),
