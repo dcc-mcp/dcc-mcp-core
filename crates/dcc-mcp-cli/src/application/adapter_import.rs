@@ -880,14 +880,13 @@ impl ProbeCleanupReceipt {
 #[cfg(windows)]
 fn terminate_and_reap_suspended(child: &mut Child, deadline: Instant) -> bool {
     let _ = child.kill();
-    let reaped = loop {
+    loop {
         match child.try_wait() {
             Ok(Some(_)) => break true,
             Ok(None) if Instant::now() < deadline => thread::sleep(PROBE_POLL_INTERVAL),
             Ok(None) | Err(_) => break false,
         }
-    };
-    reaped
+    }
 }
 
 #[cfg(windows)]
