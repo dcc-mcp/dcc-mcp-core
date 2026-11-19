@@ -83,6 +83,13 @@ def test_cua_prepare_audit_retains_bounded_diagnostic_tokens(tmp_path: Path, mon
     monkeypatch.setattr(backend, "_ensure_idle_reaper", lambda: None)
     monkeypatch.setattr(entrypoint, "_load_backend", lambda: backend)
     monkeypatch.delenv("DCC_MCP_UI_CONTROL_BACKEND", raising=False)
+    for variable in (
+        "DCC_MCP_UI_CONTROL_PROCESS_ID",
+        "DCC_MCP_UI_CONTROL_PROCESS_NAME",
+        "DCC_MCP_UI_CONTROL_WINDOW_HANDLE",
+        "DCC_MCP_UI_CONTROL_WINDOW_TITLE",
+    ):
+        monkeypatch.delenv(variable, raising=False)
     monkeypatch.delenv("DCC_MCP_DISABLE_FILE_LOGGING", raising=False)
     monkeypatch.setenv("DCC_MCP_LOG_DIR", str(tmp_path))
     _stub_core_log_dir(monkeypatch, tmp_path)
