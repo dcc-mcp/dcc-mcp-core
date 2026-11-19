@@ -642,7 +642,7 @@ and imports its declared module in that exact interpreter. `--python` (or
 `DCC_MCP_INSTALL_PYTHON`) is required; it never falls back to an ambient
 interpreter. It reuses the bounded doctor import probe without calling the
 adapter factory. One 60-second wall-clock ceiling covers the interpreter
-process, inherited output writers, cleanup, and pipe draining. A failure to
+process, inherited output writers, cleanup, and final spool reads. A failure to
 confirm cleanup is reported as unavailable. Imports execute module
 initialization, so use the intended target environment. Bytecode writes are
 disabled for the probe.
