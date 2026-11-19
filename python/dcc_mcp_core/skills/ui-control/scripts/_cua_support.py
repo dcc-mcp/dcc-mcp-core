@@ -140,19 +140,19 @@ _AUDIT_STAGE_CODES_RE = re.compile(
 )
 
 
-def _diagnostic_code(error: Any) -> str | None:
+def _diagnostic_code(error: Any) -> Optional[str]:
     """Return an allowlisted stable code for one structured backend error."""
     code = str(error or "").strip().lower()
     return code if code in _AUDIT_DIAGNOSTIC_CODES else None
 
 
-def _diagnostic_stage(stage: Any) -> str | None:
+def _diagnostic_stage(stage: Any) -> Optional[str]:
     """Return a bounded lowercase stage token without copying provider prose."""
     token = str(stage or "").strip().lower()
     return token if token and _AUDIT_STAGE_CODES_RE.fullmatch(token) else None
 
 
-def _diagnostic_reason(stage: Any, error: Any, message: Any) -> str | None:
+def _diagnostic_reason(stage: Any, error: Any, message: Any) -> Optional[str]:
     """Compose a bounded safe token from known stage/code/timeout values.
 
     Provider prose is used only to recognize a numeric timeout. No raw text,

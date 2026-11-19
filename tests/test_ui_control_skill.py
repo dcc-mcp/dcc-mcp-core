@@ -53,7 +53,7 @@ def test_cua_prepare_audit_retains_bounded_diagnostic_tokens(tmp_path: Path, mon
 
     backend = _load_cua_module()
     entrypoint = _load_entrypoint_module()
-    calls: list[str] = []
+    calls = []
 
     class SemanticClient:
         def __init__(self, **kwargs: Any) -> None:
