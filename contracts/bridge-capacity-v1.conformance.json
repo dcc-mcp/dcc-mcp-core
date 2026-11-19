@@ -1,0 +1,267 @@
+{
+  "schema_version": 1,
+  "contract": "bridge-capacity-v1",
+  "capability_key": "dcc-mcp.capacity.v1",
+  "outcomes": ["not_dispatched", "unknown"],
+  "min_receive_bytes": 256,
+  "error_budget_bytes": 512,
+  "numeric_domain": {
+    "receive_capacity": "u64",
+    "error_data": "u64",
+    "min": 1,
+    "max": 18446744073709551615
+  },
+  "error_budget_domain": {
+    "type": "positive_integer",
+    "min": 1,
+    "comparison": "final_serialized_utf8_byte_length <= error_budget_bytes"
+  },
+  "compact_error_rule": {
+    "fields": {
+      "required": ["code", "message", "data", "outcome"],
+      "optional": ["actual_bytes"]
+    },
+    "max_bytes_key": "error_budget_bytes",
+    "contains_no_correlation_id": true,
+    "correlation_id_match": "decoded_string_values",
+    "not_dispatched_requires_oversized_request": true
+  },
+  "correlation_id_echo_vectors": [
+    {"id": "plain", "correlation_id": "leak-me"},
+    {"id": "quoted", "correlation_id": "quote-\"id\""},
+    {"id": "backslashed", "correlation_id": "back\\slash"}
+  ],
+  "vectors": [
+    {
+      "id": "exact_limit_ascii",
+      "kind": "byte_budget",
+      "limit_bytes": 60,
+      "payload": "012345678901234567890123456789012345678901234567890123456789",
+      "expected_bytes": 60,
+      "fits": true
+    },
+    {
+      "id": "limit_plus_one_ascii",
+      "kind": "byte_budget",
+      "limit_bytes": 60,
+      "payload": "0123456789012345678901234567890123456789012345678901234567890",
+      "expected_bytes": 61,
+      "fits": false
+    },
+    {
+      "id": "cjk_and_emoji",
+      "kind": "byte_budget",
+      "limit_bytes": 20,
+      "payload": "模型🙂",
+      "expected_bytes": 10,
+      "fits": true
+    },
+    {
+      "id": "json_escapes",
+      "kind": "byte_budget",
+      "limit_bytes": 16,
+      "payload": "a\\\"b",
+      "expected_bytes": 4,
+      "fits": true
+    },
+    {
+      "id": "long_request_id_envelope_overhead",
+      "kind": "serialized_message",
+      "limit_bytes": 300,
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "req-0123456789-abcdefghijklmnopqrstuvwxyz-0123456789-abcdefghijklmnopqrstuvwxyz",
+        "method": "scene.inspect",
+        "params": {"quote": "a\"b", "label": "模型🙂", "lines": [1, 2, 3]}
+      },
+      "min_bytes": 160,
+      "fits": true,
+      "requires_id": true
+    },
+    {
+      "id": "legacy_flat_declaration",
+      "kind": "capability",
+      "capabilities": {"dcc-mcp.capacity.v1": {"receive_max_bytes": 65535}},
+      "expected_negotiation": "declared",
+      "expected_receive": {"incoming": 65535, "outgoing": 65535}
+    },
+    {
+      "id": "asymmetric_directional_declaration",
+      "kind": "capabilities",
+      "capabilities": {
+        "dcc-mcp.capacity.v1": {
+          "version": 1,
+          "receive": {"incoming": 131072, "outgoing": 16384}
+        }
+      },
+      "expected_negotiation": "declared",
+      "expected_receive": {"incoming": 131072, "outgoing": 16384}
+    },
+    {
+      "id": "missing_declaration",
+      "kind": "capability",
+      "capabilities": {},
+      "expected_negotiation": "legacy_assumed",
+      "expected_receive": {"incoming": 65535, "outgoing": 65535}
+    },
+    {
+      "id": "legacy_alternate_key",
+      "kind": "capability",
+      "capabilities": {"transport": {"max_message_bytes": 65535}},
+      "expected_negotiation": "legacy_assumed",
+      "expected_receive": {"incoming": 65535, "outgoing": 65535}
+    },
+    {
+      "id": "bool_is_not_an_integer",
+      "kind": "invalid_capability",
+      "capabilities": {"dcc-mcp.capacity.v1": {"receive": {"incoming": true, "outgoing": 4096}}},
+      "expected_error": "invalid_capacity_value"
+    },
+    {
+      "id": "string_is_not_an_integer",
+      "kind": "invalid_capability",
+      "capabilities": {"dcc-mcp.capacity.v1": {"receive": {"incoming": "65535", "outgoing": 4096}}},
+      "expected_error": "invalid_capacity_value"
+    },
+    {
+      "id": "negative_declaration",
+      "kind": "invalid_capability",
+      "capabilities": {"dcc-mcp.capacity.v1": {"receive": {"incoming": -1, "outgoing": 4096}}},
+      "expected_error": "invalid_capacity_value"
+    },
+    {
+      "id": "zero_declaration",
+      "kind": "invalid_capability",
+      "capabilities": {"dcc-mcp.capacity.v1": {"receive": {"incoming": 0, "outgoing": 4096}}},
+      "expected_error": "invalid_capacity_value"
+    },
+    {
+      "id": "huge_declaration_is_clamped",
+      "kind": "capability",
+      "capabilities": {
+        "dcc-mcp.capacity.v1": {
+          "version": 1,
+          "receive": {"incoming": 1099511627776, "outgoing": 1099511627776}
+        }
+      },
+      "policy": {"min_bytes": 256, "max_bytes": 1048576},
+      "expected_negotiation": "declared",
+      "expected_receive": {"incoming": 1048576, "outgoing": 1048576}
+    },
+    {
+      "id": "u64_max_declaration_is_clamped",
+      "kind": "capability",
+      "capabilities": {
+        "dcc-mcp.capacity.v1": {
+          "version": 1,
+          "receive": {"incoming": 18446744073709551615, "outgoing": 18446744073709551615}
+        }
+      },
+      "policy": {"min_bytes": 256, "max_bytes": 1048576},
+      "expected_negotiation": "declared",
+      "expected_receive": {"incoming": 1048576, "outgoing": 1048576}
+    },
+    {
+      "id": "u64_overflow_declaration_is_invalid",
+      "kind": "invalid_capability",
+      "capabilities": {
+        "dcc-mcp.capacity.v1": {
+          "version": 1,
+          "receive_max_bytes": 18446744073709551616
+        }
+      },
+      "expected_error": "invalid_capacity_value"
+    },
+    {
+      "id": "small_declaration_is_clamped_up",
+      "kind": "capability",
+      "capabilities": {"dcc-mcp.capacity.v1": {"receive": {"incoming": 4, "outgoing": 4}}},
+      "expected_negotiation": "declared",
+      "expected_receive": {"incoming": 256, "outgoing": 256}
+    },
+    {
+      "id": "only_one_direction_declared",
+      "kind": "capability",
+      "capabilities": {"dcc-mcp.capacity.v1": {"receive": {"incoming": 8192}}},
+      "expected_negotiation": "declared",
+      "expected_receive": {"incoming": 8192, "outgoing": 65535}
+    },
+    {
+      "id": "conflicting_shape_rejected",
+      "kind": "invalid_capability",
+      "capabilities": {
+        "dcc-mcp.capacity.v1": {
+          "receive_max_bytes": 65535,
+          "receive": {"incoming": 8192, "outgoing": 8192}
+        }
+      },
+      "expected_error": "conflicting_capacity_declaration"
+    },
+    {
+      "id": "unsupported_version",
+      "kind": "invalid_capability",
+      "capabilities": {"dcc-mcp.capacity.v1": {"version": 2, "receive_max_bytes": 65535}},
+      "expected_error": "unsupported_capacity_version"
+    },
+    {
+      "id": "error_data_not_dispatched",
+      "kind": "error_data",
+      "message": "Request exceeded the final serialized byte budget.",
+      "direction": "request",
+      "actual_bytes": 70000,
+      "max_bytes": 65535,
+      "outcome": "not_dispatched"
+    },
+    {
+      "id": "error_data_unknown_without_size",
+      "kind": "error_data",
+      "message": "Connection closed after the request may have been dispatched.",
+      "direction": "response",
+      "max_bytes": 65535,
+      "outcome": "unknown"
+    },
+    {
+      "id": "error_data_u64_max_values",
+      "kind": "error_data",
+      "direction": "request",
+      "actual_bytes": 18446744073709551615,
+      "max_bytes": 18446744073709551615,
+      "outcome": "unknown"
+    },
+    {
+      "id": "error_data_u64_overflow_is_invalid",
+      "kind": "invalid_error_data",
+      "direction": "response",
+      "actual_bytes": 18446744073709551616,
+      "max_bytes": 18446744073709551615,
+      "outcome": "unknown",
+      "expected_error": "invalid_capacity_value"
+    },
+    {
+      "id": "error_data_not_dispatched_requires_actual_bytes",
+      "kind": "invalid_error_data",
+      "direction": "request",
+      "max_bytes": 65535,
+      "outcome": "not_dispatched",
+      "expected_error": "invalid_capacity_value"
+    },
+    {
+      "id": "error_data_not_dispatched_requires_oversized_request",
+      "kind": "invalid_error_data",
+      "direction": "request",
+      "actual_bytes": 65535,
+      "max_bytes": 65535,
+      "outcome": "not_dispatched",
+      "expected_error": "invalid_capacity_value"
+    },
+    {
+      "id": "error_data_response_not_dispatched_oversized",
+      "kind": "invalid_error_data",
+      "direction": "response",
+      "actual_bytes": 70000,
+      "max_bytes": 65535,
+      "outcome": "not_dispatched",
+      "expected_error": "invalid_capacity_value"
+    }
+  ]
+}

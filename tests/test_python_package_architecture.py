@@ -91,6 +91,8 @@ _LEGACY_TOP_LEVEL_MODULES = {
     "auth",
     "batch",
     "bridge",
+    # Original v1 import path, now a thin shim over ``dcc_mcp_core.wire.capacity``.
+    "bridge_capacity",
     "cancellation",
     "capabilities",
     "capability_graph",
