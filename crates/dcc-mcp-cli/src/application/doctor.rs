@@ -222,12 +222,99 @@ fn inventory_error(error: &anyhow::Error, registry_dir: &std::path::Path) -> Val
     })
 }
 
+#[cfg(test)]
+mod diagnostic_tests {
+    use super::*;
+
+    #[test]
+    fn inventory_error_retains_os_cause_and_bounds_redacts_context() {
+        let code = if cfg!(windows) { 5 } else { 13 };
+        let path = dirs::home_dir().unwrap().join("registry");
+        let error = anyhow::Error::new(std::io::Error::from_raw_os_error(code)).context(format!(
+            "reading {}\n{}",
+            path.display(),
+            "x".repeat(4096)
+        ));
+        let report = inventory_error(&error, &path);
+        assert_eq!(report["os_error"], code);
+        assert_eq!(report["error_kind"], "PermissionDenied");
+        assert_eq!(report["operation"], "read_registry_snapshot");
+        assert!(report["path"].as_str().unwrap().starts_with("<home>"));
+        assert!(report["error"].as_str().unwrap().chars().count() <= 2048);
+        assert!(!report["error"].as_str().unwrap().contains('\n'));
+        let short = inventory_error(
+            &anyhow::Error::new(std::io::Error::from_raw_os_error(code))
+                .context("reading snapshot"),
+            &path,
+        );
+        assert!(
+            short["error"]
+                .as_str()
+                .unwrap()
+                .contains(&format!("os error {code}"))
+        );
+    }
+
+    #[test]
+    fn inventory_error_does_not_invent_an_errno() {
+        let report = inventory_error(
+            &anyhow::anyhow!("invalid registry"),
+            std::path::Path::new("fixture"),
+        );
+        assert_eq!(report["error_kind"], "unknown");
+        assert_eq!(report["os_error"], Value::Null);
+        assert_eq!(report["liveness"], "unknown");
+    }
+
+    #[test]
+    fn capability_summary_counts_only_indexed_registry_rows() {
+        let inventory = json!({
+            "instances": [
+                {
+                    "instance_id": "known-1",
+                    "capabilities": {
+                        "source": "capability_index",
+                        "loaded_skill_count": 2,
+                        "tool_count": 5
+                    }
+                },
+                {
+                    "instance_id": "known-2",
+                    "capabilities": {
+                        "source": "capability_index",
+                        "loaded_skill_count": 0,
+                        "tool_count": 0
+                    }
+                },
+                {"instance_id": "legacy-1"}
+            ]
+        });
+        let instances = inventory["instances"].as_array().unwrap();
+
+        let summary = capability_summary(instances);
+
+        assert_eq!(summary["reported"], 2);
+        assert_eq!(summary["with_loaded_skills"], 1);
+        assert_eq!(summary["with_tools"], 1);
+        assert_eq!(summary["total_loaded_skills"], 2);
+        assert_eq!(summary["total_tool_count"], 5);
+        assert_eq!(summary["unknown_instances"], json!(["legacy-1"]));
+    }
+
+    #[test]
+    fn direct_control_summary_includes_capability_projection() {
+        let summary = direct_control_summary(&json!({"instances": []}));
+        assert_eq!(summary["capabilities"]["reported"], 0);
+        assert_eq!(summary["capabilities"]["unknown_instances"], json!([]));
+    }
+}
 fn direct_control_summary(inventory: &Value) -> Value {
     let Some(instances) = inventory.get("instances").and_then(Value::as_array) else {
         return json!({
             "ready": 0,
             "not_ready": 0,
             "reasons": {},
+            "capabilities": capability_summary(&[]),
         });
     };
 
@@ -260,6 +347,66 @@ fn direct_control_summary(inventory: &Value) -> Value {
         "not_ready": not_ready,
         "reasons": reasons,
         "not_ready_instances": not_ready_instances,
+        "capabilities": capability_summary(instances),
+    })
+}
+
+fn capability_summary(instances: &[Value]) -> Value {
+    let mut reported = 0_usize;
+    let mut with_loaded_skills = 0_usize;
+    let mut with_tools = 0_usize;
+    let mut total_loaded_skills = 0_usize;
+    let mut total_tool_count = 0_usize;
+    let mut unknown = Vec::new();
+
+    for instance in instances {
+        let Some(capabilities) = instance
+            .get("capabilities")
+            .filter(|value| value.is_object())
+        else {
+            if let Some(instance_id) = instance.get("instance_id").and_then(Value::as_str) {
+                unknown.push(instance_id.to_owned());
+            }
+            continue;
+        };
+        if capabilities
+            .get("source")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown")
+            != "capability_index"
+        {
+            if let Some(instance_id) = instance.get("instance_id").and_then(Value::as_str) {
+                unknown.push(instance_id.to_owned());
+            }
+            continue;
+        }
+
+        reported += 1;
+        let loaded_skill_count = capabilities
+            .get("loaded_skill_count")
+            .and_then(Value::as_u64)
+            .unwrap_or(0) as usize;
+        let tool_count = capabilities
+            .get("tool_count")
+            .and_then(Value::as_u64)
+            .unwrap_or(0) as usize;
+        total_loaded_skills += loaded_skill_count;
+        total_tool_count += tool_count;
+        if loaded_skill_count > 0 {
+            with_loaded_skills += 1;
+        }
+        if tool_count > 0 {
+            with_tools += 1;
+        }
+    }
+
+    json!({
+        "reported": reported,
+        "with_loaded_skills": with_loaded_skills,
+        "with_tools": with_tools,
+        "total_loaded_skills": total_loaded_skills,
+        "total_tool_count": total_tool_count,
+        "unknown_instances": unknown,
     })
 }
 
