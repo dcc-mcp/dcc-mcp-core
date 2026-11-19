@@ -13,8 +13,8 @@ use crate::application::adapter_import::{self, AdapterImportRequest, probe_adapt
 use crate::application::gateway_profile::{GatewayProfileStore, GatewayTarget};
 use crate::application::{gateway_ctrl, gateway_discovery, gateway_ensure, local_registry};
 use crate::domain::rest::Endpoint;
-use dcc_mcp_transport::discovery::file_registry::registry_write_diagnostics;
 use crate::infra::http::HttpGateway;
+use dcc_mcp_transport::discovery::file_registry::registry_write_diagnostics;
 
 #[derive(Debug, Clone)]
 pub struct DoctorContext {
