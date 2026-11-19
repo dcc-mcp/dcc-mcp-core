@@ -46,6 +46,91 @@ def test_ui_control_skill_triggers_on_cua_ui_control_and_dcc_cua() -> None:
         assert "ui-control" in names
 
 
+def test_cua_prepare_audit_retains_bounded_diagnostic_tokens(tmp_path: Path, monkeypatch: Any) -> None:
+    """A real CUA preparation failure keeps actionable, safe audit diagnostics."""
+    from test_cua_mcp_pixels import TARGET
+    from test_cua_mcp_pixels import window_response
+
+    backend = _load_cua_module()
+    entrypoint = _load_entrypoint_module()
+    calls: list[str] = []
+
+    class SemanticClient:
+        def __init__(self, **kwargs: Any) -> None:
+            self.target = dict(TARGET)
+
+        def change_window_state(self, operation: str) -> dict[str, Any]:
+            calls.append(operation)
+            return window_response(operation)
+
+        def window_state(self) -> dict[str, Any]:
+            calls.append("readback")
+            return {"state": window_response()["state"]}
+
+        def snapshot(self, **kwargs: Any) -> dict[str, Any]:
+            calls.append("snapshot")
+            raise backend.UiControlHostError(
+                "input_failed",
+                "get_window_state timed out after 4s (UIA provider unresponsive on hwnd 0x1234, "
+                "class 'UnrealWindow'). Fallback options: max_elements / max_depth; "
+                "secret-input never-log-this",
+            )
+
+        def stop(self) -> dict[str, Any]:
+            return {"active": False}
+
+    monkeypatch.setattr(backend, "_HostClient", SemanticClient)
+    monkeypatch.setattr(backend, "_ensure_idle_reaper", lambda: None)
+    monkeypatch.setattr(entrypoint, "_load_backend", lambda: backend)
+    monkeypatch.delenv("DCC_MCP_UI_CONTROL_BACKEND", raising=False)
+    monkeypatch.delenv("DCC_MCP_DISABLE_FILE_LOGGING", raising=False)
+    monkeypatch.setenv("DCC_MCP_LOG_DIR", str(tmp_path))
+    _stub_core_log_dir(monkeypatch, tmp_path)
+
+    params = {
+        "session_id": "audit-cua-timeout",
+        **TARGET,
+        "operation": "restore_activate",
+        "trusted_adapter_scope": TARGET,
+    }
+    try:
+        result = entrypoint.prepare_foreground_tool(params)
+        backend.cleanup()
+    finally:
+        backend.cleanup()
+
+    assert result["success"] is False and result["error"] == "input_failed"
+    assert calls == ["restore_activate", "readback", "snapshot"]
+    context = result["context"]
+    assert context["foreground_preparation"]["stage"] == "capture"
+    assert context["diagnostic_code"] == "input_failed"
+    assert context["diagnostic_reason"] == "capture_failed_timeout_4s"
+    assert context["recovery"]["stage"] == "capture"
+    assert context["recovery"]["activation_succeeded"] is True
+    assert context["recovery"]["observation_failed"] is True
+
+    row = json.loads(
+        next(tmp_path.glob("dcc-mcp-ui-control.*.log")).read_text(encoding="utf-8").splitlines()[-1].split(": ", 1)[1]
+    )
+    assert row["failure_stage"] == "capture"
+    assert row["diagnostic_code"] == "input_failed"
+    assert row["diagnostic_reason"] == "capture_failed_timeout_4s"
+    assert row["activation_succeeded"] is True
+    assert row["observation_failed"] is True
+    serialized = json.dumps(row)
+    for token in (
+        "UnrealWindow",
+        "hwnd",
+        "UIA provider",
+        "Fallback options",
+        "max_elements",
+        "max_depth",
+        "secret-input",
+        "never-log-this",
+    ):
+        assert token not in serialized
+
+
 def _load_cdp_runtime_module() -> Any:
     spec = importlib.util.spec_from_file_location("_test_ui_control_cdp_runtime", _SCRIPTS / "_cdp_runtime.py")
     assert spec is not None

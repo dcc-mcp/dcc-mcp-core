@@ -140,7 +140,11 @@ def _failure_diagnostics(context: Dict[str, Any]) -> Dict[str, Any]:
     stage = source.get("stage") or context.get("failure_stage")
     if isinstance(stage, str) and stage in _AUDIT_FAILURE_STAGES:
         result["failure_stage"] = stage
-    reason = source.get("native_reason") or context.get("diagnostic_reason")
+    reason = (
+        source.get("diagnostic_reason")
+        or context.get("diagnostic_reason")
+        or source.get("native_reason")
+    )
     safe_reason = _audit_reason(reason)
     if safe_reason:
         result["diagnostic_reason"] = safe_reason
@@ -162,7 +166,7 @@ def _failure_diagnostics(context: Dict[str, Any]) -> Dict[str, Any]:
         if value:
             result["correlation_id"] = value
             break
-    for key in ("native_error_code", "provider_error_code", "reason_code"):
+    for key in ("diagnostic_code", "native_error_code", "provider_error_code", "reason_code"):
         value = _audit_token(context.get(key) or source.get(key))
         if value:
             result["diagnostic_code"] = value

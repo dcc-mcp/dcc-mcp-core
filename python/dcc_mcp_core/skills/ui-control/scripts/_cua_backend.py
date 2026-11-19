@@ -302,6 +302,9 @@ def _host_error(
             _FRAME.recovery_actions(params or {}, _policy_from_params(params or {}))
         )
     recovery.update(_PIXELS.error_context(exc, fresh_observation=fresh_observation))
+    diagnostic_code = _SUPPORT._diagnostic_code(mapped_code)
+    if diagnostic_code:
+        recovery.setdefault("diagnostic_code", diagnostic_code)
     # Keep only the native diagnostic reason: dcc-cua recovery prose targets its
     # own CLI surface (``max_elements``/``max_depth``, pixel ``click``,
     # ``press_key``, ``escalate_session``) and may reference a screenshot this

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import importlib.util
+from pathlib import Path
 from typing import Any
 from typing import Callable
 from typing import Dict
@@ -14,6 +16,20 @@ from dcc_mcp_core.cua_cli import CuaCliError
 from dcc_mcp_core.host.cua_mcp_client import PixelsMcpHostClient
 from dcc_mcp_core.host.ui_control_options import UiControlRuntimeOptions
 from dcc_mcp_core.skill import skill_error
+
+
+def _load_support() -> Any:
+    """Load the sibling support module in package and standalone script execution."""
+    path = Path(__file__).with_name("_cua_support.py")
+    spec = importlib.util.spec_from_file_location("_cua_preparation_support", path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"cannot load {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_SUPPORT = _load_support()
 
 # Capture-stage error codes that mean "activation and readback succeeded, but no
 # usable observation was captured". Only for these does Core author its own
@@ -39,6 +55,8 @@ def _capture_recovery_context(
     target: Optional[Dict[str, Any]],
     capture_mode: str,
     native_reason: str,
+    diagnostic_code: Optional[str] = None,
+    diagnostic_reason: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Compose Core-owned recovery that only references schema-real next steps.
 
@@ -140,30 +158,34 @@ def _capture_recovery_context(
             ),
         ]
         recovery_actions = ["stop_computer_use", "snapshot"]
-    return {
-        "prompt": prompt,
-        "context": {
-            "possible_solutions": possible_solutions,
-            "recovery_actions": recovery_actions,
+    recovery_context: Dict[str, Any] = {
+        "possible_solutions": possible_solutions,
+        "recovery_actions": recovery_actions,
+        "recovery_scope": "same_exact_pid_hwnd",
+        "recovery": {
+            "stage": "capture",
+            "activation_succeeded": True,
+            "observation_failed": True,
+            "capture_mode": capture_mode,
+            "native_reason": reason,
+            "fresh_observation_available": False,
+            "image_available": False,
+            "pixels_only_route_available": False,
+            "content_input_allowed": False,
+            "content_input_sent": False,
+            "blind_retry": False,
             "recovery_scope": "same_exact_pid_hwnd",
-            "recovery": {
-                "stage": "capture",
-                "activation_succeeded": True,
-                "observation_failed": True,
-                "capture_mode": capture_mode,
-                "native_reason": reason,
-                "fresh_observation_available": False,
-                "image_available": False,
-                "pixels_only_route_available": False,
-                "content_input_allowed": False,
-                "content_input_sent": False,
-                "blind_retry": False,
-                "recovery_scope": "same_exact_pid_hwnd",
-                "session_id": session_id,
-                "next_steps": next_steps,
-            },
+            "session_id": session_id,
+            "next_steps": next_steps,
         },
     }
+    if diagnostic_code:
+        recovery_context["diagnostic_code"] = diagnostic_code
+        recovery_context["recovery"]["diagnostic_code"] = diagnostic_code
+    if diagnostic_reason:
+        recovery_context["diagnostic_reason"] = diagnostic_reason
+        recovery_context["recovery"]["diagnostic_reason"] = diagnostic_reason
+    return {"prompt": prompt, "context": recovery_context}
 
 
 def _exact_target(value: Any, expected: dict[str, int]) -> None:
@@ -201,6 +223,15 @@ def run(
         if isinstance(client, PixelsMcpHostClient):
             client.invalidate_action_evidence()
         context = result.setdefault("context", {})
+        error_code = result.get("error")
+        result_context = result.get("context")
+        error_context = result_context if isinstance(result_context, dict) else {}
+        safe_reason = _SUPPORT._diagnostic_reason(stage, error_code, result.get("message"))
+        safe_code = _SUPPORT._diagnostic_code(error_context.get("diagnostic_code") or error_code)
+        if safe_code:
+            context["diagnostic_code"] = safe_code
+        if safe_reason:
+            context["diagnostic_reason"] = safe_reason
         context.update(
             foreground_preparation={**receipts, "stage": stage, "fresh_observation_ready": False},
             fresh_observation_required=True,
@@ -225,6 +256,8 @@ def run(
                 target,
                 capture_mode,
                 str(result.get("message") or ""),
+                safe_code,
+                safe_reason,
             )
             context.update(recovery["context"])
             result["prompt"] = recovery["prompt"]
