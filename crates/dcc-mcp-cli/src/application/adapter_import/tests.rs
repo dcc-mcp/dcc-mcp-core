@@ -725,12 +725,37 @@ fn assert_writer_exited(pid: u32, context: &str) {
     }
     #[cfg(not(windows))]
     {
-        // A PID-only liveness check cannot distinguish a zombie from a live
-        // process and can observe a recycled PID. The production cleanup
-        // receipt returned by run_probe_with_env is the authoritative proof
-        // that the owned writer is gone on non-Windows platforms.
-        let _ = (pid, context);
+        let deadline = Instant::now() + WRITER_EXIT_WAIT;
+        while Instant::now() < deadline {
+            match unix_process_is_running(pid) {
+                Ok(true) => thread::sleep(Duration::from_millis(10)),
+                Ok(false) => return,
+                Err(error) => panic!("{context}: writer exit status is unknown: {error}"),
+            }
+        }
+        panic!("{context}: writer exit unconfirmed");
     }
+}
+
+#[cfg(unix)]
+fn unix_process_is_running(pid: u32) -> Result<bool, String> {
+    let output = std::process::Command::new("ps")
+        .args(["-o", "stat=", "-p", &pid.to_string()])
+        .output();
+    let output = output.map_err(|error| format!("cannot run ps: {error}"))?;
+    if !output.status.success() {
+        if output.stdout.is_empty() && output.stderr.is_empty() {
+            return Ok(false);
+        }
+        return Err(format!("ps exited with {}", output.status));
+    }
+    let state = String::from_utf8_lossy(&output.stdout);
+    Ok(!state.trim_start().starts_with('Z'))
+}
+
+#[cfg(not(any(unix, windows)))]
+fn unix_process_is_running(_pid: u32) -> Result<bool, String> {
+    Err("no supported process-state probe is available".into())
 }
 
 const WRITER_EXIT_WAIT: Duration = Duration::from_secs(2);
