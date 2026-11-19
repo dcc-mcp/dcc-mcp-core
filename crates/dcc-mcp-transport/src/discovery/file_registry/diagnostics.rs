@@ -5,11 +5,13 @@
 //! process can read a consistent snapshot without taking the registry lock.
 
 use std::{
+    collections::HashMap,
     fs,
     io::{self, ErrorKind, Write},
     path::{Path, PathBuf},
+    sync::Arc,
     sync::{
-        Mutex,
+        LazyLock, Mutex,
         atomic::{AtomicU64, Ordering},
     },
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -20,6 +22,9 @@ use sysinfo::{Pid, ProcessesToUpdate, System};
 
 pub const DIAGNOSTICS_SCHEMA_VERSION: u32 = 1;
 const DIAGNOSTICS_DIR: &str = "registry-write-diagnostics";
+#[cfg(test)]
+pub(crate) const MAX_STALE_AGE: Duration = Duration::from_secs(24 * 60 * 60);
+#[cfg(not(test))]
 const MAX_STALE_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 pub(crate) const MAX_STALE_REMOVALS_PER_SNAPSHOT: usize = 16;
 pub(crate) const SLOW_WAIT_MS: u64 = 250;
@@ -66,8 +71,12 @@ pub enum WarningDecision {
 
 pub struct WriterDiagnostics {
     path: PathBuf,
-    record: WriterRecord,
+    session: Arc<Mutex<WriterRecord>>,
 }
+
+/// One mutable record is shared by every handle for the same writer path.
+static WRITER_SESSIONS: LazyLock<Mutex<HashMap<PathBuf, Arc<Mutex<WriterRecord>>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 #[cfg(test)]
 pub fn process_start_ms(registry_dir: &Path) -> Option<u64> {
@@ -78,50 +87,71 @@ pub fn process_start_ms(registry_dir: &Path) -> Option<u64> {
     read_record(&path).and_then(|record| record.process_start_ms)
 }
 
+#[cfg(test)]
+pub fn process_identity_for_current_process() -> Option<u64> {
+    process_identity(std::process::id())
+}
+
+#[cfg(test)]
+pub fn write_test_record(
+    registry_dir: &Path,
+    started_at_unix_ms: u64,
+    updated_at_unix_ms: u64,
+    process_start_ms: Option<u64>,
+) {
+    let path = registry_dir.join(DIAGNOSTICS_DIR).join(format!(
+        "v{DIAGNOSTICS_SCHEMA_VERSION}-writer-{}.json",
+        std::process::id()
+    ));
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let record = WriterRecord {
+        schema_version: DIAGNOSTICS_SCHEMA_VERSION,
+        pid: std::process::id(),
+        process_start_ms,
+        started_at_unix_ms,
+        updated_at_unix_ms,
+        warning_episode_open: false,
+        counters: WriteDiagnosticsSnapshot {
+            heartbeat_lock_timeouts: 7,
+            ..WriteDiagnosticsSnapshot::default()
+        },
+    };
+    fs::write(&path, serde_json::to_vec(&record).unwrap()).unwrap();
+}
+
 impl WriterDiagnostics {
     pub fn new(registry_dir: &Path) -> Self {
-        let pid = std::process::id();
-        let path = registry_dir
-            .join(DIAGNOSTICS_DIR)
-            .join(format!("v{DIAGNOSTICS_SCHEMA_VERSION}-writer-{pid}.json"));
-        let process_start_ms = process_identity(pid);
-        let now = now_ms();
-        let existing = read_record(&path);
-        let reusable = existing.as_ref().is_some_and(|record| {
-            record.schema_version == DIAGNOSTICS_SCHEMA_VERSION
-                && record.pid == pid
-                && record.process_start_ms == process_start_ms
-        });
-        let record = if reusable {
-            existing.unwrap_or_default()
-        } else {
-            WriterRecord {
-                schema_version: DIAGNOSTICS_SCHEMA_VERSION,
-                pid,
-                process_start_ms,
-                started_at_unix_ms: now,
-                updated_at_unix_ms: now,
-                warning_episode_open: false,
-                counters: WriteDiagnosticsSnapshot::default(),
-            }
-        };
-        let diagnostics = Self { path, record };
-        diagnostics.publish().ok();
-        diagnostics
+        let path = registry_dir.join(DIAGNOSTICS_DIR).join(format!(
+            "v{DIAGNOSTICS_SCHEMA_VERSION}-writer-{}.json",
+            std::process::id()
+        ));
+        let session = WRITER_SESSIONS
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .entry(path.clone())
+            .or_insert_with(|| Arc::new(Mutex::new(load_or_create_record(&path))))
+            .clone();
+        Self { path, session }
     }
 
     pub fn record(&mut self, update: WriterUpdate) -> WarningDecision {
         let _guard = WRITER_UPDATE_LOCK
             .lock()
             .unwrap_or_else(|error| error.into_inner());
+        let mut record = self
+            .session
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         if let Some(current) = read_record(&self.path)
-            && current.pid == self.record.pid
-            && current.process_start_ms == self.record.process_start_ms
+            && current.pid == record.pid
+            && current.process_start_ms == record.process_start_ms
+            && current.updated_at_unix_ms > record.updated_at_unix_ms
         {
-            self.record = current;
+            *record = current;
         }
+
         let now = now_ms();
-        let counters = &mut self.record.counters;
+        let counters = &mut record.counters;
         if update.lock_timeout && update.is_registry_lock {
             if update.is_heartbeat {
                 counters.heartbeat_lock_timeouts += 1;
@@ -137,14 +167,14 @@ impl WriterDiagnostics {
         }
 
         let noisy = update.lock_timeout || update.lock_wait_ms.is_some_and(|ms| ms >= SLOW_WAIT_MS);
-        let should_emit = noisy && !self.record.warning_episode_open;
+        let should_emit = noisy && !record.warning_episode_open;
         if noisy {
-            self.record.warning_episode_open = true;
+            record.warning_episode_open = true;
         } else if update.lock_wait_ms.is_some() {
-            self.record.warning_episode_open = false;
+            record.warning_episode_open = false;
         }
-        self.record.updated_at_unix_ms = now;
-        let _ = self.publish();
+        record.updated_at_unix_ms = now;
+        self.publish(&record).ok();
 
         if should_emit {
             WarningDecision::Emit
@@ -153,17 +183,17 @@ impl WriterDiagnostics {
         }
     }
 
-    fn publish(&self) -> std::io::Result<()> {
+    fn publish(&self, record: &WriterRecord) -> io::Result<()> {
         let parent = self.path.parent().ok_or_else(|| {
-            std::io::Error::new(ErrorKind::InvalidInput, "diagnostics path has no parent")
+            io::Error::new(ErrorKind::InvalidInput, "diagnostics path has no parent")
         })?;
         fs::create_dir_all(parent)?;
         let sequence = PUBLISH_SEQUENCE.fetch_add(1, Ordering::Relaxed);
         let temp = self
             .path
             .with_extension(format!("tmp-{}-{sequence}", std::process::id()));
-        let content = serde_json::to_vec(&self.record)
-            .map_err(|error| std::io::Error::new(ErrorKind::InvalidData, error))?;
+        let content = serde_json::to_vec(record)
+            .map_err(|error| io::Error::new(ErrorKind::InvalidData, error))?;
         let mut file = fs::OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -179,6 +209,33 @@ impl WriterDiagnostics {
     }
 }
 
+fn load_or_create_record(path: &Path) -> WriterRecord {
+    let _guard = WRITER_UPDATE_LOCK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let pid = std::process::id();
+    let process_start_ms = process_identity(pid);
+    let now = now_ms();
+    let existing = read_record(path);
+    let reusable = existing.as_ref().is_some_and(|record| {
+        record.schema_version == DIAGNOSTICS_SCHEMA_VERSION
+            && record.pid == pid
+            && record.process_start_ms == process_start_ms
+    });
+    if reusable {
+        existing.unwrap_or_default()
+    } else {
+        WriterRecord {
+            schema_version: DIAGNOSTICS_SCHEMA_VERSION,
+            pid,
+            process_start_ms,
+            started_at_unix_ms: now,
+            updated_at_unix_ms: now,
+            warning_episode_open: false,
+            counters: WriteDiagnosticsSnapshot::default(),
+        }
+    }
+}
 pub fn snapshot(registry_dir: &Path) -> WriteDiagnosticsSnapshot {
     let dir = registry_dir.join(DIAGNOSTICS_DIR);
     let Ok(entries) = fs::read_dir(&dir) else {
@@ -247,8 +304,8 @@ fn is_stale(record: &WriterRecord, now: u64) -> bool {
     {
         return true;
     }
-    record.started_at_unix_ms > 0
-        && now.saturating_sub(record.started_at_unix_ms) > MAX_STALE_AGE.as_millis() as u64
+    record.updated_at_unix_ms > 0
+        && now.saturating_sub(record.updated_at_unix_ms) > MAX_STALE_AGE.as_millis() as u64
 }
 
 fn is_stale_temp(path: &Path, now: u64) -> bool {
@@ -330,5 +387,9 @@ pub fn reset_counts(registry_dir: &Path) {
         "v{DIAGNOSTICS_SCHEMA_VERSION}-writer-{}.json",
         std::process::id()
     ));
-    let _ = fs::remove_file(path);
+    let _ = fs::remove_file(&path);
+    WRITER_SESSIONS
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .remove(&path);
 }
