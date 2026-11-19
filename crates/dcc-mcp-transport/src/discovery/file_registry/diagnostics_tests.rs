@@ -2,6 +2,7 @@ use super::*;
 use fs4::FileExt;
 use std::sync::Arc;
 use std::thread;
+use std::time::UNIX_EPOCH;
 
 fn writer_update(
     is_heartbeat: bool,
@@ -94,7 +95,6 @@ fn lock_timeout_is_recorded_only_for_heartbeat_writers() {
 #[test]
 fn timeout_warning_episode_is_stable_across_handles() {
     let dir = tempfile::tempdir().unwrap();
-    diagnostics::reset_counts(dir.path());
     let diagnostics_dir = dir.path().join("registry-write-diagnostics");
     let record_path = diagnostics_dir.join(format!(
         "v{}-writer-{}.json",
@@ -102,13 +102,7 @@ fn timeout_warning_episode_is_stable_across_handles() {
         std::process::id()
     ));
     fs::create_dir_all(&diagnostics_dir).unwrap();
-    FileRegistry::new_with_lock_policy(
-        dir.path(),
-        Duration::from_millis(10),
-        Duration::from_millis(1),
-    )
-    .unwrap();
-    let process_start_ms = diagnostics::process_start_ms(dir.path());
+    let process_start_ms = diagnostics::process_identity_for_current_process();
     fs::write(
         &record_path,
         serde_json::json!({
@@ -215,4 +209,86 @@ fn in_process_mutex_waits_do_not_inflate_file_lock_timeouts() {
     let snapshot = diagnostics::snapshot(dir.path());
     assert_eq!(snapshot.heartbeat_lock_timeouts, 0);
     assert_eq!(snapshot.other_write_lock_timeouts, 0);
+}
+
+#[test]
+fn active_writer_is_not_cleaned_up_after_old_start_time() {
+    let dir = tempfile::tempdir().unwrap();
+    diagnostics::reset_counts(dir.path());
+    FileRegistry::new(dir.path()).unwrap();
+    let process_start_ms = diagnostics::process_start_ms(dir.path());
+    let stale_age = diagnostics::MAX_STALE_AGE.as_millis() as u64 + 1;
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
+
+    diagnostics::write_test_record(
+        dir.path(),
+        now.saturating_sub(stale_age),
+        now,
+        process_start_ms,
+    );
+    let snapshot = diagnostics::snapshot(dir.path());
+    assert_eq!(snapshot.heartbeat_lock_timeouts, 7);
+
+    diagnostics::write_test_record(
+        dir.path(),
+        now.saturating_sub(stale_age),
+        now.saturating_sub(stale_age),
+        process_start_ms,
+    );
+    let snapshot = diagnostics::snapshot(dir.path());
+    assert_eq!(snapshot.heartbeat_lock_timeouts, 0);
+}
+
+#[test]
+fn stale_writer_start_token_still_bypasses_age_check() {
+    let dir = tempfile::tempdir().unwrap();
+    diagnostics::reset_counts(dir.path());
+    FileRegistry::new(dir.path()).unwrap();
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
+
+    diagnostics::write_test_record(dir.path(), now, now, Some(u64::MAX));
+    assert_eq!(diagnostics::snapshot(dir.path()).heartbeat_lock_timeouts, 0);
+}
+
+#[test]
+fn concurrent_handle_creation_preserves_counters_and_episode() {
+    let dir = tempfile::tempdir().unwrap();
+    diagnostics::reset_counts(dir.path());
+    let first = FileRegistry::new(dir.path()).unwrap();
+    first
+        .write_diagnostics
+        .lock()
+        .unwrap()
+        .record(writer_update(true, true, true, Some(10)));
+
+    let handles = Arc::new(Mutex::new(Vec::new()));
+    let mut workers = Vec::new();
+    for _ in 0..8 {
+        let dir = Arc::new(dir.path().to_path_buf());
+        let handles = Arc::clone(&handles);
+        workers.push(thread::spawn(move || {
+            let handle = FileRegistry::new(dir.as_path()).unwrap();
+            handles.lock().unwrap().push(handle);
+        }));
+    }
+    for worker in workers {
+        worker.join().unwrap();
+    }
+
+    for handle in handles.lock().unwrap().iter() {
+        handle
+            .write_diagnostics
+            .lock()
+            .unwrap()
+            .record(writer_update(true, true, true, Some(10)));
+    }
+
+    let snapshot = diagnostics::snapshot(dir.path());
+    assert_eq!(snapshot.heartbeat_lock_timeouts, 9);
 }
