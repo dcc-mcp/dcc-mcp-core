@@ -610,6 +610,9 @@ fn gateway_schemas() -> Vec<(&'static str, Value)> {
                     "source_meta": {"type": "object", "additionalProperties": true},
                     "lifecycle": {"type": "object", "additionalProperties": true},
                     "dispatch": {"type": "object", "additionalProperties": true},
+                    "transport": {"type": "object", "additionalProperties": true},
+                    "dispatch_ready": {"type": ["boolean", "null"]},
+                    "capabilities": {"type": "object", "additionalProperties": true},
                     "gateway": {"type": "object", "additionalProperties": true},
                     "diagnostics": {"type": "object", "additionalProperties": true}
                 },

@@ -714,11 +714,26 @@ backend is callable (`ready`), the current `status` (`ready`, `unavailable`, or
 `not_reported`), and any host-RPC failure metadata. This keeps "registered" and
 "callable" separate without requiring clients to parse raw metadata.
 
+Instance rows also carry a `capabilities` projection derived from the gateway
+capability index. It reports deduplicated `loaded_skills`, `loaded_skill_count`,
+and a `tool_count` scoped to that `instance_id`. `source: "capability_index"`
+means the values came from the indexed backend snapshot; `source: "unknown"` is
+returned only for rows that have no capability projection. Skill and tool
+counts exclude policy-denied, unloaded, and discovery-only records.
+
+The additive `transport` and `dispatch_ready` fields make the two readiness
+signals explicit. `transport.ready` checks the registered endpoint, service
+status, and freshness; `dispatch_ready` mirrors `dispatch.ready` and remains
+`null` when dispatch status was never reported. Neither signal means a skill
+or tool is loaded: check the `capabilities` projection for capability readiness.
+
 ### Instance Row Metadata Fields
 
 Every instance row in `gateway://instances` and `GET /v1/instances` carries
-three structured sub-objects: `gateway`, `dispatch`, and `lifecycle`. These
-replace ad-hoc raw metadata parsing with typed, stable fields.
+the structured sub-objects `gateway`, `dispatch`, `capabilities`, and
+`lifecycle`. These replace ad-hoc raw metadata parsing with typed, stable
+fields. The additive `transport` object and `dispatch_ready` field provide a
+second, explicit projection of the existing readiness signals.
 
 #### `gateway` object
 
@@ -752,6 +767,30 @@ actually callable."
 | `host_rpc_scheme` | `string \| null` | Scheme portion of the host-RPC URI |
 | `failure_stage` | `string \| null` | If not ready, which stage failed (`launch`, `probe`, `rpc_connect`) |
 | `failure_reason` | `string \| null` | Human-readable reason for the failure |
+
+#### `transport` object and `dispatch_ready`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `transport.ready` | `bool` | `true` when an MCP endpoint is advertised, service status is `available` or `busy`, and the row is fresh |
+| `transport.has_endpoint` | `bool` | Whether the row advertises a non-empty MCP endpoint |
+| `transport.status` | `string` | Raw service status (`available`, `busy`, `unreachable`, `booting`, `stale`) |
+| `transport.stale` | `bool` | Whether the row exceeded the gateway staleness window |
+| `dispatch_ready` | `bool \| null` | Additive mirror of `dispatch.ready`; `null` when dispatch status is not reported |
+
+#### `capabilities` object
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `source` | `string` | `"capability_index"` for an indexed projection, `"unknown"` when absent |
+| `loaded_skills` | `string[]` | Sorted, deduplicated skill names with loaded, policy-visible capabilities on this instance |
+| `loaded_skill_count` | `int` | Length of `loaded_skills` |
+| `tool_count` | `int` | Number of loaded, policy-visible capability records for this instance; discovery-only records are excluded |
+
+Transport readiness and dispatch readiness are independent of capability
+readiness. An instance can be callable while its loaded skill set is empty, and
+the capability counts reflect the most recent index snapshot rather than a
+live query to the backend.
 
 For sidecar-driven adapters, use the dispatch counters in `GET /v1/readyz`
 (`dispatch_reported_instance_count`, `dispatch_ready_instance_count`,

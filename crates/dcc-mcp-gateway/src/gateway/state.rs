@@ -395,6 +395,11 @@ impl GatewayState {
     pub fn instance_json(&self, e: &ServiceEntry) -> Value {
         let diag = self.instance_diagnostics.get(&e.instance_id);
         let mut row = entry_to_json(e, self.stale_timeout, diag.as_ref());
+        row["capabilities"] = super::capability_projection::capabilities_json(
+            e,
+            &self.capability_index.snapshot(),
+            self.policy.as_ref(),
+        );
         let ui_control = ui_control_diagnostics(e, &self.capability_index.snapshot());
         if !row.get("diagnostics").is_some_and(Value::is_object) {
             row["diagnostics"] = json!({});
@@ -1032,6 +1037,8 @@ pub fn entry_to_json(
         "gateway":         gateway_json(e),
         "instance_status": instance_status_json(e, stale),
         "dispatch":        dispatch_json(e, stale),
+        "transport":       super::capability_projection::transport_ready_json(e, stale),
+        "dispatch_ready":  super::capability_projection::dispatch_ready_json(e, stale),
         "metadata":        e.metadata,
         "pool": {
             "capacity": e.capacity,

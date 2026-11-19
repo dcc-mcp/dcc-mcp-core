@@ -277,11 +277,21 @@ pub async fn build_payload(gs: &GatewayState, query: &Query) -> Result<Value, St
                 .collect();
 
             // ── Project to JSON ────────────────────────────────────────
+            let capability_snapshot = gs.capability_index.snapshot();
             let instances: Vec<Value> = if *verbose {
                 page.iter().map(|e| gs.instance_json(e)).collect()
             } else {
                 page.iter()
-                    .map(|e| compact_instance_json(e, stale_timeout))
+                    .map(|e| {
+                        let mut row = compact_instance_json(e, stale_timeout);
+                        row["capabilities"] =
+                            super::super::capability_projection::capabilities_json(
+                                e,
+                                &capability_snapshot,
+                                gs.policy.as_ref(),
+                            );
+                        row
+                    })
                     .collect()
             };
 
@@ -383,6 +393,8 @@ pub fn compact_instance_json(e: &ServiceEntry, stale_timeout: std::time::Duratio
             "ready":    dispatch_ready_value,
             "status":   dispatch_status.as_deref().unwrap_or("not_reported"),
         },
+        "transport": super::super::capability_projection::transport_ready_json(e, stale),
+        "dispatch_ready": super::super::capability_projection::dispatch_ready_json(e, stale),
     })
 }
 
@@ -715,12 +727,15 @@ mod tests {
         assert!(json.get("diagnostics").is_none());
         assert!(json.get("pool").is_none());
         assert!(json.get("host_execution").is_none());
+        assert!(json["transport"]["ready"].is_boolean());
+        assert!(json["dispatch_ready"].is_null() || json["dispatch_ready"].is_boolean());
 
-        // Size check: compact hit should be well under 600B (instance_status adds ~150B)
+        // Size check: compact hit stays bounded after the additive transport,
+        // dispatch_ready, and capabilities fields.
         let compact_str = serde_json::to_string(&json).unwrap();
         assert!(
-            compact_str.len() < 600,
-            "compact hit size {}B exceeds 600B target",
+            compact_str.len() < 750,
+            "compact hit size {}B exceeds 750B target",
             compact_str.len()
         );
     }

@@ -1531,6 +1531,10 @@ fn doctor_reports_local_defaults_without_starting_gateway() {
         doctor["local"]["inventory"]["direct_control"]["not_ready"],
         0
     );
+    assert_eq!(
+        doctor["local"]["inventory"]["direct_control"]["capabilities"]["reported"],
+        0
+    );
     assert_eq!(doctor["gateway"]["auto_start_enabled"], true);
     assert_eq!(
         doctor["gateway"]["default_base_url"],
