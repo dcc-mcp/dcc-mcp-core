@@ -335,13 +335,31 @@ pub fn make_compact_capacity_error(
     if !correlation_id.is_empty() {
         let text = std::str::from_utf8(&wire)
             .map_err(|_| CapacityError::invalid("compact capacity error is not UTF-8"))?;
-        if text.contains(correlation_id) {
+        let semantic_payload = serde_json::from_slice::<Value>(&wire).map_err(|error| {
+            CapacityError::invalid(format!("compact capacity error decoding failed: {}", error))
+        })?;
+        if text.contains(correlation_id)
+            || value_contains_correlation_id(&semantic_payload, correlation_id)
+        {
             return Err(CapacityError::invalid(
                 "compact capacity error must not contain correlation_id",
             ));
         }
     }
     Ok(Value::Object(payload))
+}
+
+fn value_contains_correlation_id(value: &Value, correlation_id: &str) -> bool {
+    match value {
+        Value::String(text) => text.contains(correlation_id),
+        Value::Array(items) => items
+            .iter()
+            .any(|item| value_contains_correlation_id(item, correlation_id)),
+        Value::Object(fields) => fields.iter().any(|(key, item)| {
+            key.contains(correlation_id) || value_contains_correlation_id(item, correlation_id)
+        }),
+        _ => false,
+    }
 }
 
 pub fn parse_capacity_error_data(data: &Value) -> Result<Value, CapacityError> {

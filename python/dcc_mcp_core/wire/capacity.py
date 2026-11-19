@@ -162,6 +162,19 @@ def serialized_json_bytes(message: Any) -> bytes:
     return json.dumps(message, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
 
 
+def _iter_error_strings(value: Any):
+    """Yield every decoded string carried by a compact error payload."""
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, Mapping):
+        for key, nested in value.items():
+            yield from _iter_error_strings(key)
+            yield from _iter_error_strings(nested)
+    elif isinstance(value, (list, tuple)):
+        for nested in value:
+            yield from _iter_error_strings(nested)
+
+
 def make_capacity_error_data(
     direction: str,
     max_bytes: int,
@@ -225,7 +238,9 @@ def make_compact_capacity_error(
             ERROR_INVALID_CAPACITY_VALUE,
             "compact capacity error exceeds error_budget_bytes",
         )
-    if correlation_id and correlation_id in serialized:
+    if correlation_id and (
+        correlation_id in serialized or any(correlation_id in text for text in _iter_error_strings(payload))
+    ):
         raise CapacityContractError(
             ERROR_INVALID_CAPACITY_VALUE,
             "compact capacity error must not contain correlation_id",

@@ -325,34 +325,68 @@ fn error_budget_domain_requires_positive_integer_and_final_byte_comparison() {
 
 #[test]
 fn compact_error_stays_within_its_own_budget_with_long_correlation_id() {
-    let item = vector("error_data_not_dispatched");
     let budget = vectors()["error_budget_bytes"].as_u64().unwrap();
     let correlation_id = format!("req-关联-{}", "a".repeat(512));
-    let payload = contract::make_compact_capacity_error(
-        item["direction"].as_str().unwrap(),
-        item["max_bytes"].as_u64().unwrap(),
-        budget,
-        &correlation_id,
-        item["outcome"].as_str().unwrap(),
-        item["actual_bytes"].as_u64(),
-        item["message"].as_str(),
-    )
-    .unwrap();
-    let wire = serde_json::to_vec(&payload).unwrap();
-    let object = payload.as_object().unwrap();
 
-    for field in vectors()["compact_error_rule"]["fields"]
-        .as_array()
-        .unwrap()
-    {
-        assert!(object.contains_key(field.as_str().unwrap()));
+    let rule = &vectors()["compact_error_rule"];
+    let required = rule["fields"]["required"].as_array().unwrap();
+    let optional = rule["fields"]["optional"].as_array().unwrap();
+    assert_eq!(optional.len(), 1);
+    assert_eq!(optional[0], "actual_bytes");
+    assert_eq!(rule["correlation_id_match"], "decoded_string_values");
+
+    for id in [
+        "error_data_not_dispatched",
+        "error_data_unknown_without_size",
+    ] {
+        let item = vector(id);
+        let payload = contract::make_compact_capacity_error(
+            item["direction"].as_str().unwrap(),
+            item["max_bytes"].as_u64().unwrap(),
+            budget,
+            &correlation_id,
+            item["outcome"].as_str().unwrap(),
+            item["actual_bytes"].as_u64(),
+            item["message"].as_str(),
+        )
+        .unwrap();
+        let wire = serde_json::to_vec(&payload).unwrap();
+        let object = payload.as_object().unwrap();
+
+        for field in required {
+            assert!(object.contains_key(field.as_str().unwrap()));
+        }
+        assert_eq!(
+            object.contains_key("actual_bytes"),
+            item.get("actual_bytes").is_some()
+        );
+        assert!(contract::validate_final_bytes(&wire, budget).unwrap().fits);
+        assert!(!String::from_utf8(wire).unwrap().contains(&correlation_id));
+        assert_eq!(
+            contract::parse_capacity_error_data(&object["data"]).unwrap(),
+            object["data"]
+        );
     }
-    assert!(contract::validate_final_bytes(&wire, budget).unwrap().fits);
-    assert!(!String::from_utf8(wire).unwrap().contains(&correlation_id));
-    assert_eq!(
-        contract::parse_capacity_error_data(&object["data"]).unwrap(),
-        object["data"]
-    );
+}
+
+#[test]
+fn compact_error_rejects_escaped_correlation_id_echo() {
+    let rule = &vectors()["compact_error_rule"];
+    assert_eq!(rule["correlation_id_match"], "decoded_string_values");
+
+    for correlation_id in ["leak-me", "quote-\"id\"", "back\\slash"] {
+        let error = contract::make_compact_capacity_error(
+            contract::DIRECTION_RESPONSE,
+            65535,
+            vectors()["error_budget_bytes"].as_u64().unwrap(),
+            correlation_id,
+            contract::OUTCOME_UNKNOWN,
+            Some(70000),
+            Some(correlation_id),
+        )
+        .expect_err("correlation IDs must not be echoed");
+        assert_eq!(error.code, contract::ERROR_INVALID_CAPACITY_VALUE);
+    }
 }
 
 #[test]

@@ -239,23 +239,30 @@ def test_invalid_error_data_vectors_are_rejected():
 
 
 def test_compact_error_stays_within_its_own_budget_with_long_correlation_id():
-    vector = find_vector("error_data_not_dispatched")
+    rule = VECTORS["compact_error_rule"]
     correlation_id = "req-" + "关联-" + "a" * 512
-    payload = contract.make_compact_capacity_error(
-        vector["direction"],
-        vector["max_bytes"],
-        VECTORS["error_budget_bytes"],
-        correlation_id,
-        vector["outcome"],
-        vector["actual_bytes"],
-        vector["message"],
-    )
-    wire = contract.serialized_json_bytes(payload)
 
-    assert tuple(payload) == tuple(VECTORS["compact_error_rule"]["fields"])
-    assert contract.validate_final_bytes(wire, VECTORS["error_budget_bytes"]).fits is True
-    assert correlation_id not in wire.decode("utf-8")
-    assert contract.parse_capacity_error_data(payload["data"]) == payload["data"]
+    for vector_id in ("error_data_not_dispatched", "error_data_unknown_without_size"):
+        vector = find_vector(vector_id)
+        payload = contract.make_compact_capacity_error(
+            vector["direction"],
+            vector["max_bytes"],
+            VECTORS["error_budget_bytes"],
+            correlation_id,
+            vector["outcome"],
+            vector.get("actual_bytes"),
+            vector["message"],
+        )
+        wire = contract.serialized_json_bytes(payload)
+        expected_fields = list(rule["fields"]["required"])
+        if "actual_bytes" in vector:
+            expected_fields.append("actual_bytes")
+
+        assert tuple(payload) == tuple(expected_fields)
+        assert contract.validate_final_bytes(wire, VECTORS["error_budget_bytes"]).fits is True
+        assert correlation_id not in wire.decode("utf-8")
+        assert all(correlation_id not in text for text in contract._iter_error_strings(payload))
+        assert contract.parse_capacity_error_data(payload["data"]) == payload["data"]
 
 
 def test_error_budget_domain_requires_positive_integer_and_final_byte_comparison():
@@ -298,14 +305,18 @@ def test_compact_error_rejects_oversized_serialization_without_recursion():
 
 
 def test_compact_error_rejects_echoed_correlation_id():
-    with pytest.raises(contract.CapacityContractError) as raised:
-        contract.make_compact_capacity_error(
-            contract.DIRECTION_RESPONSE,
-            65535,
-            VECTORS["error_budget_bytes"],
-            "leak-me",
-            contract.OUTCOME_UNKNOWN,
-            70000,
-            "leak-me",
-        )
-    assert raised.value.code == contract.ERROR_INVALID_CAPACITY_VALUE
+    rule = VECTORS["compact_error_rule"]
+    assert rule["correlation_id_match"] == "decoded_string_values"
+
+    for correlation_id in ("leak-me", 'quote-"id"', "back\\slash"):
+        with pytest.raises(contract.CapacityContractError) as raised:
+            contract.make_compact_capacity_error(
+                contract.DIRECTION_RESPONSE,
+                65535,
+                VECTORS["error_budget_bytes"],
+                correlation_id,
+                contract.OUTCOME_UNKNOWN,
+                70000,
+                correlation_id,
+            )
+        assert raised.value.code == contract.ERROR_INVALID_CAPACITY_VALUE

@@ -17,9 +17,13 @@
     "comparison": "final_serialized_utf8_byte_length <= error_budget_bytes"
   },
   "compact_error_rule": {
-    "fields": ["code", "message", "data", "outcome", "actual_bytes"],
+    "fields": {
+      "required": ["code", "message", "data", "outcome"],
+      "optional": ["actual_bytes"]
+    },
     "max_bytes_key": "error_budget_bytes",
     "contains_no_correlation_id": true,
+    "correlation_id_match": "decoded_string_values",
     "not_dispatched_requires_oversized_request": true
   },
   "vectors": [
