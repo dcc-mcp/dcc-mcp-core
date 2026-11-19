@@ -172,8 +172,7 @@ cmds.xform("myCube", translation=(1, 2, 3), worldSpace=True)
 \`\`\`
 ```
 
-Recipe anchor names become searchable via `recipes__get(skill=..., anchor=...)` once
-issue #428 lands.
+Recipe anchor names are searchable via `recipes__get(skill=..., anchor=...)`.
 
 ---
 

@@ -384,7 +384,7 @@ batch = call(
 
 Use `search(kind="skill", ...)` to find unloaded skills, then pass the search hit's `next_step.arguments` unchanged when activation is requested. This preserves target instance, tool group, and correlation metadata. Gateway `tools/list` advertises exactly `search`, `describe`, `load_skill`, and `call`. Hidden MCP compatibility routes still accept older `search_tools` / `describe_tool` / `call_tool` / `call_tools` names, but new agent workflows should use the four canonical tools.
 
-Wrapper payloads accept only `tool_slug`, `arguments`, and optional `meta`. Put backend-specific inputs such as `code`, `script`, `file_path`, or `radius` inside `arguments`, never at the wrapper top level. `dcc-mcp-wire` normalizes missing / `null` / empty-string arguments to `{}` and rejects non-object roots; Python host wrappers can call `dcc_mcp_core.host.normalize_tool_arguments()` / `normalize_tool_meta()`.
+Wrapper payloads accept only `tool_slug`, `arguments`, and optional `meta`. Put backend-specific inputs such as `code`, `script`, `file_path`, or `radius` inside `arguments`, never at the wrapper top level. `dcc-mcp-wire` normalizes missing / `null` / empty-string arguments to `{}` and rejects non-object roots; Python host wrappers can call `dcc_mcp_core.wire.normalize_tool_arguments()` / `normalize_tool_meta()`.
 
 For ad-hoc script execution, prefer typed tools first, then materialize source
 on the DCC host and execute by path. Use
