@@ -41,6 +41,24 @@ _AUDIT_TOKEN_RE = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 # quotes, braces, colons, '=' or slashes) are persisted. Everything else is
 # dropped rather than regex-redacted.
 _AUDIT_SAFE_REASON_RE = re.compile(r"^[A-Za-z][A-Za-z0-9]*(?:[._-][A-Za-z0-9]+)*$")
+# Keep this set aligned with ``_cua_support._AUDIT_DIAGNOSTIC_CODES``. The
+# producer maps known backend failures to these tokens, so the durable audit
+# must reject any other provider-controlled code even when it is a safe token.
+_AUDIT_DIAGNOSTIC_CODES = frozenset(
+    {
+        "input_failed",
+        "capture_failed",
+        "stale_observation",
+        "backend_unavailable",
+        "timeout",
+        "invalid_target",
+        "permission_denied",
+        "policy_disabled",
+        "desktop_unavailable",
+        "user_interrupted",
+        "cancelled",
+    }
+)
 
 
 def emit(result: Dict[str, Any]) -> None:
@@ -131,6 +149,15 @@ def _audit_reason(value: Any) -> Optional[str]:
     return text
 
 
+def _audit_diagnostic_code(value: Any) -> Optional[str]:
+    """Accept only Core-owned diagnostic codes for the durable audit."""
+    token = _audit_token(value)
+    if token is None:
+        return None
+    code = token.lower()
+    return code if code in _AUDIT_DIAGNOSTIC_CODES else None
+
+
 def _failure_diagnostics(context: Dict[str, Any]) -> Dict[str, Any]:
     """Project only structured, bounded failure diagnostics into durable audit."""
     recovery = context.get("recovery")
@@ -167,7 +194,7 @@ def _failure_diagnostics(context: Dict[str, Any]) -> Dict[str, Any]:
             result["correlation_id"] = value
             break
     for key in ("diagnostic_code", "native_error_code", "provider_error_code", "reason_code"):
-        value = _audit_token(context.get(key) or source.get(key))
+        value = _audit_diagnostic_code(context.get(key) or source.get(key))
         if value:
             result["diagnostic_code"] = value
             break

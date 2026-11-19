@@ -726,6 +726,64 @@ def test_ui_control_admin_audit_retains_bounded_failure_diagnostics(tmp_path: Pa
     assert "next_steps" not in row
 
 
+def test_ui_control_audit_diagnostic_code_uses_core_allowlist(tmp_path: Path, monkeypatch: Any) -> None:
+    entrypoint = _load_entrypoint_module()
+    support = _load_cua_module()._SUPPORT
+    assert entrypoint._AUDIT_DIAGNOSTIC_CODES == support._AUDIT_DIAGNOSTIC_CODES
+
+    for unknown in ("provider_chosen_code", "UiErrorCode.TIMEOUT", "secret-input"):
+        assert entrypoint._audit_diagnostic_code(unknown) is None
+        assert (
+            entrypoint._failure_diagnostics(
+                {"context": {"provider_error_code": unknown}, "recovery": {"stage": "capture"}}
+            ).get("diagnostic_code")
+            is None
+        )
+    assert entrypoint._audit_diagnostic_code("INPUT_FAILED") == "input_failed"
+    assert entrypoint._audit_diagnostic_code("input_failed") == "input_failed"
+
+    monkeypatch.setenv("DCC_MCP_LOG_DIR", str(tmp_path))
+    _stub_core_log_dir(monkeypatch, tmp_path)
+    monkeypatch.delenv("DCC_MCP_DISABLE_FILE_LOGGING", raising=False)
+    entrypoint._record_operation(
+        "prepare_foreground_tool",
+        {"session_id": "audit-code-allowlist"},
+        {
+            "success": False,
+            "error": "capture_failed",
+            "context": {
+                "session_id": "audit-code-allowlist",
+                "recovery": {"stage": "capture", "provider_error_code": "provider_chosen_code"},
+            },
+        },
+    )
+    unknown_row = json.loads(
+        next(tmp_path.glob("dcc-mcp-ui-control.*.log")).read_text(encoding="utf-8").splitlines()[-1].split(": ", 1)[1]
+    )
+    assert "diagnostic_code" not in unknown_row
+    assert "provider_chosen_code" not in json.dumps(unknown_row)
+    assert unknown_row["error"] == "capture_failed"
+
+    for path in tmp_path.glob("dcc-mcp-ui-control.*.log"):
+        path.unlink()
+    entrypoint._record_operation(
+        "prepare_foreground_tool",
+        {"session_id": "audit-code-allowlist"},
+        {
+            "success": False,
+            "error": "input_failed",
+            "context": {
+                "session_id": "audit-code-allowlist",
+                "recovery": {"stage": "capture", "diagnostic_code": "input_failed"},
+            },
+        },
+    )
+    known_row = json.loads(
+        next(tmp_path.glob("dcc-mcp-ui-control.*.log")).read_text(encoding="utf-8").splitlines()[-1].split(": ", 1)[1]
+    )
+    assert known_row["diagnostic_code"] == "input_failed"
+
+
 def test_ui_control_audit_write_failure_does_not_change_tool_result(monkeypatch: Any) -> None:
     entrypoint = _load_entrypoint_module()
     assert entrypoint._failure_diagnostics({"recovery": {"stage": [], "capture_mode": {}}}) == {}
