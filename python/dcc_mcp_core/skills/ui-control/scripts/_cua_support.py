@@ -135,9 +135,7 @@ _AUDIT_STAGE_CODES = {
     "foreground_readback": "foreground_readback_failed",
     "capture": "capture_failed",
 }
-_AUDIT_STAGE_CODES_RE = re.compile(
-    r"^[a-z][a-z0-9]*(?:_[a-z0-9]+){0,7}$"
-)
+_AUDIT_STAGE_CODES_RE = re.compile(r"^[a-z][a-z0-9]*(?:_[a-z0-9]+){0,7}$")
 
 
 def _diagnostic_code(error: Any) -> Optional[str]:

@@ -167,11 +167,7 @@ def _failure_diagnostics(context: Dict[str, Any]) -> Dict[str, Any]:
     stage = source.get("stage") or context.get("failure_stage")
     if isinstance(stage, str) and stage in _AUDIT_FAILURE_STAGES:
         result["failure_stage"] = stage
-    reason = (
-        source.get("diagnostic_reason")
-        or context.get("diagnostic_reason")
-        or source.get("native_reason")
-    )
+    reason = source.get("diagnostic_reason") or context.get("diagnostic_reason") or source.get("native_reason")
     safe_reason = _audit_reason(reason)
     if safe_reason:
         result["diagnostic_reason"] = safe_reason
