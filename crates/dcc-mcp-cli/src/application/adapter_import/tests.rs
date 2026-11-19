@@ -826,18 +826,14 @@ fn assert_writer_exited(pid: u32, start_time: u64, context: &str) {
 #[cfg(unix)]
 fn unix_process_start_time(pid: u32) -> Result<Option<u64>, String> {
     if let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) {
-        let mut fields = stat
-            .rsplit(')')
-            .nth(1)
-            .ok_or_else(|| "cannot parse process stat".to_string())?
-            .split_whitespace();
-        let start_time = fields
-            .nth(19)
-            .ok_or_else(|| "cannot parse process start time".to_string())?;
-        return start_time
-            .parse::<u64>()
-            .map(Some)
-            .map_err(|error| format!("cannot parse process start time: {error}"));
+        if let Some(after_command) = stat.rsplit(')').nth(1) {
+            let mut fields = after_command.split_whitespace();
+            if let Some(start_time) = fields.nth(19) {
+                if let Ok(start_time) = start_time.parse::<u64>() {
+                    return Ok(Some(start_time));
+                }
+            }
+        }
     }
 
     let output = std::process::Command::new("ps")
@@ -848,15 +844,37 @@ fn unix_process_start_time(pid: u32) -> Result<Option<u64>, String> {
         if output.stdout.is_empty() && output.stderr.is_empty() {
             return Ok(None);
         }
+        if !unix_process_is_present(pid)? {
+            return Ok(None);
+        }
         return Err(format!("ps exited with {}", output.status));
     }
     let text = String::from_utf8_lossy(&output.stdout);
     if text.trim().is_empty() {
         return Ok(None);
     }
-    parse_ps_lstart(&text)
-        .map(Some)
-        .ok_or_else(|| "cannot parse process start time".to_string())
+    if let Some(start_time) = parse_ps_lstart(&text) {
+        return Ok(Some(start_time));
+    }
+    if !unix_process_is_present(pid)? {
+        return Ok(None);
+    }
+    Err("cannot parse process start time".to_string())
+}
+
+#[cfg(unix)]
+fn unix_process_is_present(pid: u32) -> Result<bool, String> {
+    let output = std::process::Command::new("ps")
+        .args(["-o", "pid=", "-p", &pid.to_string()])
+        .output()
+        .map_err(|error| format!("cannot run ps: {error}"))?;
+    if !output.status.success() {
+        if output.stdout.is_empty() && output.stderr.is_empty() {
+            return Ok(false);
+        }
+        return Err(format!("ps exited with {}", output.status));
+    }
+    Ok(!String::from_utf8_lossy(&output.stdout).trim().is_empty())
 }
 
 #[cfg(unix)]

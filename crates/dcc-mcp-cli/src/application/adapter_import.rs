@@ -1047,13 +1047,15 @@ fn read_spool(path: &Path) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
-/// Python 3.7-compatible import probe.
+/// Python 3.7-compatible import probe. Python 3.8+ uses the optional
+/// `importlib.metadata` fast path when available, while Python 3.7 uses the
+/// legacy and directory-scan fallbacks.
 ///
-/// Constraints: no walrus operator, no `importlib.metadata` assumption (3.8+),
-/// and no dependency outside the standard library. Distribution metadata is
-/// read through `importlib.metadata`, then `pkg_resources`, then a `sys.path`
-/// scan of `*.dist-info` directories so a Python 3.7 host still reports the
-/// "installed but not importable" case that motivated this check.
+/// Constraints: no walrus operator and no dependency outside the standard
+/// library. Distribution metadata is read through the optional
+/// `importlib.metadata` path, then `pkg_resources`, then a `sys.path` scan of
+/// `*.dist-info` directories so a Python 3.7 host still reports the "installed
+/// but not importable" case that motivated this check.
 const PROBE_SCRIPT_BODY: &str = r#"
 import sys
 from email.parser import Parser
