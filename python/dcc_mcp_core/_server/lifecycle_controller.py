@@ -27,6 +27,14 @@ logger = logging.getLogger(__name__)
 
 _PKG_VERSION: str = "0.0.0-dev"
 _REMOTE_LISTENER_PROBE_TIMEOUT_SECS = 0.25
+_OWNED_DAEMON_START_REASONS = frozenset(
+    {
+        "spawned",
+        "launch_in_progress",
+        "version_takeover_spawned",
+        "takeover_spawned_by_peer",
+    }
+)
 
 
 class LifecycleController:
@@ -341,10 +349,15 @@ class LifecycleController:
             return status
 
         # A non-winning adapter cannot prove the state of a shared gateway.
-        # A daemon-backed gateway can be checked through its configured port,
-        # while an embedded gateway is observable only after it has won.
+        # For daemon-backed mode, only a daemon this startup spawned or took
+        # over was configured with this adapter's policy; reusing a healthy
+        # shared daemon proves no such ownership.
         runtime_mode = str(getattr(owner, "_gateway_runtime_mode", "") or "")
-        if not bool(getattr(owner, "is_gateway", False)) and runtime_mode != "daemon-backed":
+        owns_gateway = bool(getattr(owner, "is_gateway", False))
+        if runtime_mode == "daemon-backed":
+            daemon_status = getattr(owner, "_gateway_daemon_status", {}) or {}
+            owns_gateway = str(daemon_status.get("reason", "") or "") in _OWNED_DAEMON_START_REASONS
+        if not owns_gateway:
             return status
 
         probe_host = host or "127.0.0.1"
