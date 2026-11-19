@@ -113,3 +113,80 @@ def test_provider_injected_after_fallback_registration_rebinds_handler():
     result = server._server.registry.handlers["dcc_host_capabilities"]({})
 
     assert result["context"]["totals"]["available"] == 1
+
+
+def test_provider_lifecycle_restores_not_run_without_duplicate_registration():
+    server = _make_server("nuke")
+
+    assert server.register_host_capability_tool() is True
+    server.set_host_capability_provider(_passed_manifest)
+    server.set_host_capability_provider(None)
+
+    result = server._server.registry.handlers["dcc_host_capabilities"]({})
+    assert result["context"]["totals"]["not_run"] == 1
+    assert "No host capability provider" in str(result["context"])
+    assert list(server._server.registry.actions) == ["dcc_host_capabilities"]
+
+
+def test_registration_delegates_provider_state_and_cache_configuration(monkeypatch):
+    registrations = []
+    monkeypatch.setattr(
+        "dcc_mcp_core._server.host_capability_registration.register_host_capability_tool",
+        lambda *args, **kwargs: registrations.append(kwargs) or True,
+    )
+
+    server = _make_server("maya")
+    controller = server._register_host_capabilities()
+    cache = object()
+
+    def identity():
+        return ("maya", "2026.2", "0.1.6")
+
+    assert controller is server._register_host_capabilities()
+    controller.set_provider(_passed_manifest, cache=cache, provider_cache_key=identity)
+
+    assert server._host_capability_provider is _passed_manifest
+    assert server._host_capability_cache is cache
+    assert server._host_capability_provider_cache_key is identity
+    assert server._host_capability_registration is True
+    assert registrations == [
+        {
+            "dcc_name": "maya",
+            "provider": _passed_manifest,
+            "cache": cache,
+            "provider_cache_key": identity,
+        }
+    ]
+
+
+def test_standard_capabilities_phase_uses_delegating_registration():
+    from dcc_mcp_core._registration import HostCapabilitiesPhase
+    from dcc_mcp_core._registration import RegistrationContext
+
+    server = _make_server("houdini")
+    calls = []
+
+    def register():
+        calls.append(True)
+        return True
+
+    server.register_host_capability_tool = register
+
+    HostCapabilitiesPhase().run(RegistrationContext(server=server))
+
+    assert calls == [True]
+
+
+def test_initial_registration_preserves_overridable_entry_point():
+    server = _make_server("maya")
+    calls = []
+
+    def register():
+        calls.append(True)
+        return True
+
+    server.register_host_capability_tool = register
+
+    server._initialize_host_capability_registration("0.1.6")
+
+    assert calls == [True]
