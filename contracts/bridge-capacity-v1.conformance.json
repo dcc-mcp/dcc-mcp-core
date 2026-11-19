@@ -26,6 +26,11 @@
     "correlation_id_match": "decoded_string_values",
     "not_dispatched_requires_oversized_request": true
   },
+  "correlation_id_echo_vectors": [
+    {"id": "plain", "correlation_id": "leak-me"},
+    {"id": "quoted", "correlation_id": "quote-\"id\""},
+    {"id": "backslashed", "correlation_id": "back\\slash"}
+  ],
   "vectors": [
     {
       "id": "exact_limit_ascii",

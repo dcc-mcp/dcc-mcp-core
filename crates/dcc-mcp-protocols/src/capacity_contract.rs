@@ -18,7 +18,8 @@ pub const ERROR_INVALID_CAPACITY_VALUE: &str = "invalid_capacity_value";
 pub const ERROR_CONFLICTING_CAPACITY_DECLARATION: &str = "conflicting_capacity_declaration";
 pub const ERROR_UNSUPPORTED_CAPACITY_VERSION: &str = "unsupported_capacity_version";
 pub const ERROR_CODE_CAPACITY: &str = "capacity_error";
-pub const COMPACT_ERROR_FIELDS: [&str; 5] = ["code", "message", "data", "outcome", "actual_bytes"];
+pub const COMPACT_ERROR_REQUIRED_FIELDS: [&str; 4] = ["code", "message", "data", "outcome"];
+pub const COMPACT_ERROR_OPTIONAL_FIELDS: [&str; 1] = ["actual_bytes"];
 pub const LEGACY_ASSUMED: &str = "legacy_assumed";
 pub const DECLARED: &str = "declared";
 

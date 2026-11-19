@@ -374,7 +374,8 @@ fn compact_error_rejects_escaped_correlation_id_echo() {
     let rule = &vectors()["compact_error_rule"];
     assert_eq!(rule["correlation_id_match"], "decoded_string_values");
 
-    for correlation_id in ["leak-me", "quote-\"id\"", "back\\slash"] {
+    for item in vectors()["correlation_id_echo_vectors"].as_array().unwrap() {
+        let correlation_id = item["correlation_id"].as_str().unwrap();
         let error = contract::make_compact_capacity_error(
             contract::DIRECTION_RESPONSE,
             65535,

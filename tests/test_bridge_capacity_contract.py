@@ -308,7 +308,8 @@ def test_compact_error_rejects_echoed_correlation_id():
     rule = VECTORS["compact_error_rule"]
     assert rule["correlation_id_match"] == "decoded_string_values"
 
-    for correlation_id in ("leak-me", 'quote-"id"', "back\\slash"):
+    for item in VECTORS["correlation_id_echo_vectors"]:
+        correlation_id = item["correlation_id"]
         with pytest.raises(contract.CapacityContractError) as raised:
             contract.make_compact_capacity_error(
                 contract.DIRECTION_RESPONSE,

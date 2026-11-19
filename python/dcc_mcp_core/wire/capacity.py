@@ -26,7 +26,8 @@ OUTCOME_NOT_DISPATCHED = "not_dispatched"
 OUTCOME_UNKNOWN = "unknown"
 VALID_OUTCOMES = (OUTCOME_NOT_DISPATCHED, OUTCOME_UNKNOWN)
 ERROR_CODE_CAPACITY = "capacity_error"
-COMPACT_ERROR_FIELDS = ("code", "message", "data", "outcome", "actual_bytes")
+COMPACT_ERROR_REQUIRED_FIELDS = ("code", "message", "data", "outcome")
+COMPACT_ERROR_OPTIONAL_FIELDS = ("actual_bytes",)
 
 DIRECTION_REQUEST = "request"
 DIRECTION_RESPONSE = "response"

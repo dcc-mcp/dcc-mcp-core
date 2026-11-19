@@ -8,7 +8,8 @@ path and root-level ``BridgeCapacityContract`` export.
 from dcc_mcp_core.wire.capacity import *  # noqa: F403
 from dcc_mcp_core.wire.capacity import CAPACITY_CAPABILITY_KEY  # noqa: F401
 from dcc_mcp_core.wire.capacity import CAPACITY_SCHEMA_VERSION  # noqa: F401
-from dcc_mcp_core.wire.capacity import COMPACT_ERROR_FIELDS  # noqa: F401
+from dcc_mcp_core.wire.capacity import COMPACT_ERROR_OPTIONAL_FIELDS  # noqa: F401
+from dcc_mcp_core.wire.capacity import COMPACT_ERROR_REQUIRED_FIELDS  # noqa: F401
 from dcc_mcp_core.wire.capacity import LEGACY_RECEIVE_BYTES  # noqa: F401
 from dcc_mcp_core.wire.capacity import MAX_RECEIVE_BYTES  # noqa: F401
 from dcc_mcp_core.wire.capacity import MIN_RECEIVE_BYTES  # noqa: F401
