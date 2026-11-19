@@ -851,6 +851,9 @@ fn unix_process_start_time(pid: u32) -> Result<Option<u64>, String> {
         return Err(format!("ps exited with {}", output.status));
     }
     let text = String::from_utf8_lossy(&output.stdout);
+    if text.trim().is_empty() {
+        return Ok(None);
+    }
     parse_ps_lstart(&text)
         .map(Some)
         .ok_or_else(|| "cannot parse process start time".to_string())
