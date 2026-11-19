@@ -5,7 +5,7 @@
 
 mod support;
 
-use dcc_mcp_transport::discovery::file_registry::FileRegistry;
+use dcc_mcp_transport::discovery::file_registry::{FileRegistry, registry_write_diagnostics};
 use dcc_mcp_transport::discovery::types::ServiceEntry;
 use tempfile::{NamedTempFile, TempDir};
 
@@ -152,8 +152,52 @@ fn doctor_registry_snapshot_does_not_create_prune_or_quarantine() {
     }
 }
 
-/// A registered adapter with no configured interpreter must not be reported as
-/// broken: an unrun probe is not evidence of a failing adapter.
+/// Registry write diagnostics are exposed through doctor as process-local counters.
+#[test]
+fn doctor_exposes_registry_write_diagnostics() {
+    let port = unused_loopback_port();
+    let port_s = port.to_string();
+    let registry = TempDir::new().unwrap();
+    let registry_s = registry.path().to_string_lossy().to_string();
+    let profiles = NamedTempFile::new().unwrap();
+    let profiles_s = profiles.path().to_string_lossy().to_string();
+
+    // Produce a heartbeat write from the same process that emits the doctor snapshot.
+    let registry_handle = FileRegistry::new(registry.path()).unwrap();
+    let maya = ServiceEntry::new("maya", "127.0.0.1", 19120);
+    registry_handle.register(maya.clone()).unwrap();
+    registry_handle.heartbeat(&maya.key()).unwrap();
+    let expected = registry_write_diagnostics(registry.path());
+
+    let doctor = run_json_with_env(
+        &[
+            "--auto-gateway-bin",
+            env!("CARGO_BIN_EXE_dcc-mcp-cli"),
+            "doctor",
+            "--gateway-port",
+            &port_s,
+        ],
+        &[
+            ("DCC_MCP_REGISTRY_DIR", registry_s.as_str()),
+            ("DCC_MCP_GATEWAY_PROFILES_FILE", profiles_s.as_str()),
+            ("DCC_MCP_PYTHON_EXECUTABLE", ""),
+        ],
+    );
+
+    let diagnostics = &doctor["local"]["registry_write_diagnostics"];
+    assert_eq!(
+        diagnostics["heartbeat_lock_timeouts"],
+        expected.heartbeat_lock_timeouts
+    );
+    assert_eq!(
+        diagnostics["registry_lock_wait_ms"],
+        expected
+            .registry_lock_wait_ms
+            .map_or(serde_json::Value::Null, serde_json::Value::from)
+    );
+    assert!(diagnostics["last_heartbeat_write_ms"].is_number());
+}
+
 #[test]
 fn doctor_adapter_imports_skip_without_an_interpreter() {
     let port = unused_loopback_port();

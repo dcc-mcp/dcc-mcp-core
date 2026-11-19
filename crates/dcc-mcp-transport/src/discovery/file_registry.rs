@@ -7,7 +7,10 @@ use std::collections::{HashMap, HashSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{
+    Arc, Mutex, MutexGuard,
+    atomic::{AtomicBool, Ordering},
+};
 use std::time::{Duration, Instant, SystemTime};
 
 use dashmap::DashMap;
@@ -23,6 +26,7 @@ use super::types::{
 };
 use crate::error::{TransportError, TransportResult};
 
+mod diagnostics;
 mod membership;
 mod snapshot;
 use membership::membership_delta;
@@ -71,6 +75,13 @@ enum LockWaitLevel {
 /// * `elapsed >= slow_warn` → [`LockWaitLevel::Slow`]
 /// * `elapsed >= 2 * backoff` (more than one backoff tick) → [`LockWaitLevel::Retry`]
 /// * otherwise → [`LockWaitLevel::Quiet`]
+///
+/// The snapshot is process-local and opens no registry file or lock.
+#[must_use]
+pub fn registry_write_diagnostics(registry_dir: &Path) -> diagnostics::WriteDiagnosticsSnapshot {
+    diagnostics::snapshot(registry_dir)
+}
+
 fn classify_lock_wait(elapsed: Duration, backoff: Duration, slow_warn: Duration) -> LockWaitLevel {
     if elapsed >= slow_warn {
         LockWaitLevel::Slow
@@ -209,6 +220,10 @@ pub struct FileRegistry {
     write_lock_timeout: Duration,
     /// Sleep interval between bounded try-lock attempts.
     write_lock_backoff: Duration,
+    /// Process-local counters shared by handles for the same registry directory.
+    write_diagnostics: Arc<diagnostics::RegistryWriteDiagnostics>,
+    /// Tracks whether consecutive lock waits belong to one contention episode.
+    lock_wait_episode_open: AtomicBool,
 }
 
 #[path = "file_registry_read_only.rs"]
@@ -249,6 +264,11 @@ impl FileRegistry {
     pub fn registry_dir(&self) -> &Path {
         &self.registry_dir
     }
+    /// Return a process-local snapshot of write-transaction diagnostics.
+    #[must_use]
+    pub fn write_diagnostics(&self) -> diagnostics::WriteDiagnosticsSnapshot {
+        self.write_diagnostics.snapshot()
+    }
     pub fn owns_sentinel(&self, key: &ServiceKey) -> bool {
         self.sentinel_handles.contains_key(key)
     }
@@ -260,6 +280,7 @@ impl FileRegistry {
         let registry_dir = registry_dir.into();
         ensure_registry_dir(&registry_dir)?;
 
+        let write_diagnostics = diagnostics::handle(&registry_dir);
         let registry = Self {
             services: RwLock::new(EntryMap::new()),
             registry_dir,
@@ -270,6 +291,8 @@ impl FileRegistry {
             committed_write_transactions: std::sync::atomic::AtomicUsize::new(0),
             write_lock_timeout,
             write_lock_backoff: write_lock_backoff.max(Duration::from_millis(1)),
+            write_diagnostics,
+            lock_wait_episode_open: AtomicBool::new(false),
         };
 
         // Load existing entries
@@ -383,6 +406,7 @@ impl FileRegistry {
     ) -> TransportResult<T> {
         let started = Instant::now();
         let _guard = self.acquire_process_write_lock(started)?;
+        let lock_wait = started.elapsed();
         ensure_registry_dir(&self.registry_dir)?;
         let path = self.registry_lock_path();
         let file = OpenOptions::new()
@@ -399,7 +423,7 @@ impl FileRegistry {
                 ))
             })?;
         self.acquire_registry_file_lock(&file, &path, started)?;
-        self.log_lock_wait(started.elapsed(), &path);
+        self.log_lock_wait(lock_wait, "registry lock file");
 
         let result = (|| {
             let baseline = self.force_reload_from_file()?;
@@ -477,6 +501,8 @@ impl FileRegistry {
     fn sleep_or_timeout(&self, started: Instant, target: &str) -> TransportResult<()> {
         let elapsed = started.elapsed();
         if elapsed >= self.write_lock_timeout {
+            self.write_diagnostics.record_lock_timeout();
+            self.lock_wait_episode_open.store(false, Ordering::Relaxed);
             tracing::warn!(
                 waited_ms = elapsed.as_millis() as u64,
                 timeout_ms = self.write_lock_timeout.as_millis() as u64,
@@ -494,25 +520,28 @@ impl FileRegistry {
         Ok(())
     }
 
-    fn log_lock_wait(&self, elapsed: Duration, path: &Path) {
-        match classify_lock_wait(
+    fn log_lock_wait(&self, elapsed: Duration, target: &str) {
+        self.write_diagnostics.record_lock_wait(elapsed);
+        let level = classify_lock_wait(
             elapsed,
             self.write_lock_backoff,
             Duration::from_millis(REGISTRY_LOCK_SLOW_WARN_MS),
-        ) {
-            LockWaitLevel::Slow => tracing::warn!(
-                waited_ms = elapsed.as_millis() as u64,
-                timeout_ms = self.write_lock_timeout.as_millis() as u64,
-                lock = %path.display(),
-                "FileRegistry write transaction acquired registry lock after slow wait"
-            ),
-            LockWaitLevel::Retry => tracing::debug!(
-                waited_ms = elapsed.as_millis() as u64,
-                timeout_ms = self.write_lock_timeout.as_millis() as u64,
-                lock = %path.display(),
-                "FileRegistry write transaction acquired registry lock after retry"
-            ),
-            LockWaitLevel::Quiet => {}
+        );
+        match level {
+            LockWaitLevel::Quiet => self.lock_wait_episode_open.store(false, Ordering::Relaxed),
+            LockWaitLevel::Retry => {
+                self.lock_wait_episode_open.store(true, Ordering::Relaxed);
+            }
+            LockWaitLevel::Slow => {
+                if !self.lock_wait_episode_open.swap(true, Ordering::Relaxed) {
+                    tracing::warn!(
+                        waited_ms = elapsed.as_millis() as u64,
+                        timeout_ms = self.write_lock_timeout.as_millis() as u64,
+                        target,
+                        "FileRegistry write transaction acquired lock after slow wait"
+                    );
+                }
+            }
         }
     }
 
@@ -697,7 +726,8 @@ impl FileRegistry {
 
     /// Update heartbeat for a service.
     pub fn heartbeat(&self, key: &ServiceKey) -> TransportResult<bool> {
-        self.with_write_transaction(|| {
+        let started = Instant::now();
+        let result = self.with_write_transaction(|| {
             let found = if let Some(entry) = self.services.write().get_mut(key) {
                 entry.touch();
                 true
@@ -705,7 +735,10 @@ impl FileRegistry {
                 false
             };
             Ok((found, found))
-        })
+        });
+        self.write_diagnostics
+            .record_heartbeat_write(started.elapsed());
+        result
     }
 
     /// Update status for a service.
@@ -1428,6 +1461,10 @@ impl FileRegistry {
 #[cfg(test)]
 #[path = "file_registry_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "file_registry/diagnostics_tests.rs"]
+mod diagnostics_tests;
 
 #[cfg(test)]
 mod logging_tests;
