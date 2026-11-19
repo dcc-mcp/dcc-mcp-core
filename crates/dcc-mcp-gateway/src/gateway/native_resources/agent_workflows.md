@@ -440,12 +440,16 @@ has. Three moves cover it:
    run — fall back to `workflows_run` and report the interruption.
 
 Normative text: `docs/guide/agents-reference.md#iteration-playbook`.
+
+### Repeatable multi-step procedures
+
 Graduate to the workflow engine once the same multi-step procedure succeeds
 twice: start a run with `workflows_run` using a spec whose mutating steps
 carry stable `idempotency_key` values, poll with `workflows_get_status`, and
 resume an interrupted run with `workflows_resume`. Do not replay a completed
 run from step one. A CLI `--json-file` containing unchanged source is not a
 reuse contract; it still re-sends the same code.
+
 ---
 
 ## Execution hints: affinity, async, timeouts

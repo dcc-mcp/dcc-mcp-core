@@ -121,29 +121,48 @@ from dcc_mcp_core import skill_entry, skill_success, skill_error_with_trace
 
 
 @skill_entry
-def execute_python(code: str, timeout_secs: int = 30) -> dict:
-    """Execute a Python script string in the live DCC interpreter.
+def execute_python(
+    file_path: str,
+    script_path: str | None = None,
+    params: dict | None = None,
+    timeout_secs: int = 30,
+) -> dict:
+    """Run a host-local Python script in the live DCC interpreter.
 
     Args:
-        code: Python source prepared by the harness after reading file_path
-            (or script_path) from the request; prefer a file-backed contract.
+        file_path: Host-local path of the materialized script.
+        script_path: Backward-compatible alias for file_path.
+        params: Values passed to the script's ``main(**params)`` entrypoint.
         timeout_secs: Execution timeout. Default 30 s.
 
     Returns:
         skill_success with 'output' key on success, skill_error on failure.
     """
+    import ast
     import traceback
 
+    source_path = script_path or file_path
+    source = open(source_path, encoding="utf-8").read()
+    tree = ast.parse(source, filename=source_path)
+    has_main = any(
+        isinstance(node, ast.FunctionDef) and node.name == "main"
+        for node in tree.body
+    )
+    params = params or {}
     local_ns: dict = {}
     try:
-        exec(compile(code, "<execute_python>", "exec"), {}, local_ns)  # noqa: S102
-        output = local_ns.get("result", None)
+        exec(compile(source, source_path, "exec"), {}, local_ns)  # noqa: S102
+        if has_main:
+            main = local_ns["main"]
+            output = main(**params)
+        else:
+            output = local_ns.get("result", None)
         return skill_success("Script executed", output=output)
     except Exception as exc:  # noqa: BLE001
         return skill_error_with_trace(
             f"Script raised {type(exc).__name__}: {exc}",
             "script_execution_failed",
-            underlying_call=code[:200],
+            underlying_call=source[:200],
             tb=traceback.format_exc(),
         )
 ```
@@ -160,25 +179,31 @@ A flat Markdown file with anchored `##` sections. Each section:
 ```markdown
 ## create_polygon_cube
 
-Create a named polygon cube at the origin.
+Create a named polygon cube at the origin with explicit dimensions.
 
 \`\`\`python
-cube = cmds.polyCube(name="myCube", w=1, h=1, d=1)[0]
+def main(name: str, width: float, height: float, depth: float) -> dict:
+    return {"cube": cmds.polyCube(name=name, w=width, h=height, d=depth)[0]}
 \`\`\`
 
 ## set_world_translation
 
-Set absolute world-space translation (not relative).
+Set absolute world-space translation (not relative) using params.
 
 \`\`\`python
-cmds.xform("myCube", translation=(1, 2, 3), worldSpace=True)
+def main(object_name: str, x: float, y: float, z: float) -> dict:
+    cmds.xform(object_name, translation=(x, y, z), worldSpace=True)
+    return {"object": object_name, "translation": (x, y, z)}
 \`\`\`
 ```
 
-Recipe anchor names are searchable via `recipes__get(skill=..., anchor=...)`.
+Recipe anchor names are searchable via `recipes__get(skill=..., anchor=...)`. Each
+recipe is a parameterized `main(...)` template: agents pass object names,
+dimensions, and translation values through `params` instead of copying source.
+
 ---
 
-## Materialize once, iterate by params
+### Materialize once, iterate by params
 
 When the same snippet is executed more than once, stop resubmitting the
 source. Materialize it once with `materialize_script(content=...,
@@ -189,13 +214,14 @@ path with `reused=true`; never re-send unchanged code. Reject stale or
 unexpected hashes instead of executing them.
 
 Write generated scripts as typed `def main(**params)` functions and keep
-varying values in the `params` object. The runner reconstructs the body from
-the file and passes `params` to `main(**params)` only when `params_provided`
-is set. There is no CLI flag and no params file for this channel.
+varying values in the `params` object. The runner reads the host-local file
+and passes `params` to `main(**params)`. There is no CLI flag and no params
+file for this channel.
 
-```python
-def main(radius: float = 1.0, name: str = "sphere") -> dict:
-    return {"created": name, "radius": radius}
+For the cube recipe above, the second run changes only `params`:
+
+```json
+{"file_path": "<host-local-recipe.py>", "params": {"name": "heroCube", "width": 2.0, "height": 2.0, "depth": 2.0}}
 ```
 
 Author recipes as parameterized templates. A hardcoded literal recipe forces
@@ -206,6 +232,7 @@ After the same multi-step sequence succeeds twice, promote it with
 `workflows_run` using stable `idempotency_key` values; recover an interrupted
 run with `workflows_resume`. See
 [`agents-reference.md`](agents-reference.md#iteration-playbook).
+
 ---
 
 ## references/INTROSPECTION.md Contract
