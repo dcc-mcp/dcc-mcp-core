@@ -13,6 +13,7 @@ use crate::application::adapter_import::{self, AdapterImportRequest, probe_adapt
 use crate::application::gateway_profile::{GatewayProfileStore, GatewayTarget};
 use crate::application::{gateway_ctrl, gateway_discovery, gateway_ensure, local_registry};
 use crate::domain::rest::Endpoint;
+use dcc_mcp_transport::discovery::file_registry::registry_write_diagnostics;
 
 #[derive(Debug, Clone)]
 pub struct DoctorContext {
@@ -128,6 +129,7 @@ pub async fn run_doctor(request: DoctorRequest) -> anyhow::Result<Value> {
     })
     .await;
     let inventory = local_registry::snapshot_local_instances(registry_dir.clone());
+    let registry_write_diagnostics = registry_write_diagnostics(&registry_dir);
     let adapter_imports = probe_adapters(&AdapterImportRequest {
         inventory: inventory.as_ref().ok().cloned(),
         python_overrides: request.adapter_python.clone(),
@@ -176,6 +178,7 @@ pub async fn run_doctor(request: DoctorRequest) -> anyhow::Result<Value> {
         "local": {
             "registry_dir": registry_dir,
             "inventory": local_inventory,
+            "registry_write_diagnostics": registry_write_diagnostics,
         },
         "adapter_imports": adapter_imports,
         "gateway": {
