@@ -7,10 +7,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{
-    Arc, Mutex, MutexGuard,
-    atomic::{AtomicBool, Ordering},
-};
+use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant, SystemTime};
 
 use dashmap::DashMap;
@@ -39,7 +36,6 @@ const REGISTRY_LOCK_TIMEOUT_ENV: &str = "DCC_MCP_REGISTRY_LOCK_TIMEOUT_MS";
 const REGISTRY_LOCK_BACKOFF_ENV: &str = "DCC_MCP_REGISTRY_LOCK_BACKOFF_MS";
 const DEFAULT_REGISTRY_LOCK_TIMEOUT_MS: u64 = 2_000;
 const DEFAULT_REGISTRY_LOCK_BACKOFF_MS: u64 = 10;
-const REGISTRY_LOCK_SLOW_WARN_MS: u64 = 250;
 
 type EntryMap = HashMap<ServiceKey, ServiceEntry>;
 
@@ -52,44 +48,16 @@ fn env_duration_ms(name: &str, default_ms: u64) -> Duration {
     Duration::from_millis(ms)
 }
 
-/// Severity of a registry-lock acquisition wait.
-///
-/// Derived purely from the elapsed wait time so the decision can be
-/// unit-tested without standing up a tracing subscriber. A wait that needed
-/// at most a single backoff tick is `Quiet` (no log emitted): brief
-/// contention between concurrent heartbeat writers is expected and not
-/// actionable, so logging it — even at debug — only adds noise to the admin
-/// log feed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum LockWaitLevel {
-    /// Acquired quickly enough that no log line is warranted.
-    Quiet,
-    /// Acquired after non-trivial retrying — useful at debug for diagnosis.
-    Retry,
-    /// Acquired only after a slow wait — surfaced at warn.
-    Slow,
+fn elapsed_ms(elapsed: Duration) -> u64 {
+    elapsed.as_millis().min(u64::MAX as u128) as u64
 }
 
-/// Classify how noteworthy a lock-acquisition wait was.
+/// Read aggregate write-transaction diagnostics from durable writer records.
 ///
-/// * `elapsed >= slow_warn` → [`LockWaitLevel::Slow`]
-/// * `elapsed >= 2 * backoff` (more than one backoff tick) → [`LockWaitLevel::Retry`]
-/// * otherwise → [`LockWaitLevel::Quiet`]
-///
-/// The snapshot is process-local and opens no registry file or lock.
+/// The reader only removes stale diagnostic records within a bounded budget.
 #[must_use]
 pub fn registry_write_diagnostics(registry_dir: &Path) -> diagnostics::WriteDiagnosticsSnapshot {
     diagnostics::snapshot(registry_dir)
-}
-
-fn classify_lock_wait(elapsed: Duration, backoff: Duration, slow_warn: Duration) -> LockWaitLevel {
-    if elapsed >= slow_warn {
-        LockWaitLevel::Slow
-    } else if elapsed >= backoff.saturating_mul(2) {
-        LockWaitLevel::Retry
-    } else {
-        LockWaitLevel::Quiet
-    }
 }
 
 fn entries_to_map(entries: impl IntoIterator<Item = ServiceEntry>) -> EntryMap {
@@ -220,10 +188,8 @@ pub struct FileRegistry {
     write_lock_timeout: Duration,
     /// Sleep interval between bounded try-lock attempts.
     write_lock_backoff: Duration,
-    /// Process-local counters shared by handles for the same registry directory.
-    write_diagnostics: Arc<diagnostics::RegistryWriteDiagnostics>,
-    /// Tracks whether consecutive lock waits belong to one contention episode.
-    lock_wait_episode_open: AtomicBool,
+    /// Durable writer-scoped diagnostics shared across registry handles.
+    write_diagnostics: Mutex<diagnostics::WriterDiagnostics>,
 }
 
 #[path = "file_registry_read_only.rs"]
@@ -264,10 +230,10 @@ impl FileRegistry {
     pub fn registry_dir(&self) -> &Path {
         &self.registry_dir
     }
-    /// Return a process-local snapshot of write-transaction diagnostics.
+    /// Return a snapshot of write-transaction diagnostics.
     #[must_use]
     pub fn write_diagnostics(&self) -> diagnostics::WriteDiagnosticsSnapshot {
-        self.write_diagnostics.snapshot()
+        diagnostics::snapshot(&self.registry_dir)
     }
     pub fn owns_sentinel(&self, key: &ServiceKey) -> bool {
         self.sentinel_handles.contains_key(key)
@@ -280,7 +246,7 @@ impl FileRegistry {
         let registry_dir = registry_dir.into();
         ensure_registry_dir(&registry_dir)?;
 
-        let write_diagnostics = diagnostics::handle(&registry_dir);
+        let write_diagnostics = diagnostics::WriterDiagnostics::new(&registry_dir);
         let registry = Self {
             services: RwLock::new(EntryMap::new()),
             registry_dir,
@@ -291,8 +257,7 @@ impl FileRegistry {
             committed_write_transactions: std::sync::atomic::AtomicUsize::new(0),
             write_lock_timeout,
             write_lock_backoff: write_lock_backoff.max(Duration::from_millis(1)),
-            write_diagnostics,
-            lock_wait_episode_open: AtomicBool::new(false),
+            write_diagnostics: Mutex::new(write_diagnostics),
         };
 
         // Load existing entries
@@ -402,11 +367,11 @@ impl FileRegistry {
 
     fn with_write_transaction<T>(
         &self,
+        is_heartbeat: bool,
         op: impl FnOnce() -> TransportResult<(T, bool)>,
     ) -> TransportResult<T> {
         let started = Instant::now();
-        let _guard = self.acquire_process_write_lock(started)?;
-        let lock_wait = started.elapsed();
+        let _guard = self.acquire_process_write_lock(started, is_heartbeat)?;
         ensure_registry_dir(&self.registry_dir)?;
         let path = self.registry_lock_path();
         let file = OpenOptions::new()
@@ -422,8 +387,21 @@ impl FileRegistry {
                     e
                 ))
             })?;
-        self.acquire_registry_file_lock(&file, &path, started)?;
-        self.log_lock_wait(lock_wait, "registry lock file");
+        let registry_lock_started = Instant::now();
+        self.acquire_registry_file_lock(
+            &file,
+            &path,
+            started,
+            registry_lock_started,
+            is_heartbeat,
+        )?;
+        self.record_write_event(diagnostics::WriterUpdate {
+            is_heartbeat,
+            is_registry_lock: true,
+            lock_timeout: false,
+            lock_wait_ms: Some(elapsed_ms(registry_lock_started.elapsed())),
+            heartbeat_write_ms: None,
+        });
 
         let result = (|| {
             let baseline = self.force_reload_from_file()?;
@@ -463,13 +441,23 @@ impl FileRegistry {
         }
     }
 
-    fn acquire_process_write_lock(&self, started: Instant) -> TransportResult<MutexGuard<'_, ()>> {
+    fn acquire_process_write_lock(
+        &self,
+        started: Instant,
+        is_heartbeat: bool,
+    ) -> TransportResult<MutexGuard<'_, ()>> {
         loop {
             match self.write_lock.try_lock() {
                 Ok(guard) => return Ok(guard),
                 Err(std::sync::TryLockError::Poisoned(err)) => return Ok(err.into_inner()),
                 Err(std::sync::TryLockError::WouldBlock) => {
-                    self.sleep_or_timeout(started, "in-process registry mutex")?;
+                    self.sleep_or_timeout(
+                        started,
+                        started,
+                        "in-process registry mutex",
+                        is_heartbeat,
+                        false,
+                    )?;
                 }
             }
         }
@@ -480,12 +468,20 @@ impl FileRegistry {
         file: &File,
         path: &Path,
         started: Instant,
+        lock_wait_started: Instant,
+        is_heartbeat: bool,
     ) -> TransportResult<()> {
         loop {
             match FileExt::try_lock(file) {
                 Ok(()) => return Ok(()),
                 Err(TryLockError::WouldBlock) => {
-                    self.sleep_or_timeout(started, "registry lock file")?;
+                    self.sleep_or_timeout(
+                        started,
+                        lock_wait_started,
+                        "registry lock file",
+                        is_heartbeat,
+                        true,
+                    )?;
                 }
                 Err(TryLockError::Error(err)) => {
                     return Err(TransportError::RegistryFile(format!(
@@ -498,17 +494,31 @@ impl FileRegistry {
         }
     }
 
-    fn sleep_or_timeout(&self, started: Instant, target: &str) -> TransportResult<()> {
+    fn sleep_or_timeout(
+        &self,
+        started: Instant,
+        lock_wait_started: Instant,
+        target: &str,
+        is_heartbeat: bool,
+        is_registry_lock: bool,
+    ) -> TransportResult<()> {
         let elapsed = started.elapsed();
         if elapsed >= self.write_lock_timeout {
-            self.write_diagnostics.record_lock_timeout();
-            self.lock_wait_episode_open.store(false, Ordering::Relaxed);
-            tracing::warn!(
-                waited_ms = elapsed.as_millis() as u64,
-                timeout_ms = self.write_lock_timeout.as_millis() as u64,
-                target,
-                "FileRegistry write transaction timed out waiting for lock"
-            );
+            let decision = self.record_write_event(diagnostics::WriterUpdate {
+                is_heartbeat,
+                is_registry_lock,
+                lock_timeout: true,
+                lock_wait_ms: Some(elapsed_ms(lock_wait_started.elapsed())),
+                heartbeat_write_ms: None,
+            });
+            if decision == diagnostics::WarningDecision::Emit {
+                tracing::warn!(
+                    waited_ms = elapsed_ms(lock_wait_started.elapsed()),
+                    timeout_ms = self.write_lock_timeout.as_millis() as u64,
+                    target,
+                    "FileRegistry write transaction timed out waiting for lock"
+                );
+            }
             return Err(TransportError::RegistryFile(format!(
                 "timed out waiting for {target} after {}ms",
                 self.write_lock_timeout.as_millis()
@@ -520,29 +530,30 @@ impl FileRegistry {
         Ok(())
     }
 
-    fn log_lock_wait(&self, elapsed: Duration, target: &str) {
-        self.write_diagnostics.record_lock_wait(elapsed);
-        let level = classify_lock_wait(
-            elapsed,
-            self.write_lock_backoff,
-            Duration::from_millis(REGISTRY_LOCK_SLOW_WARN_MS),
-        );
-        match level {
-            LockWaitLevel::Quiet => self.lock_wait_episode_open.store(false, Ordering::Relaxed),
-            LockWaitLevel::Retry => {
-                self.lock_wait_episode_open.store(true, Ordering::Relaxed);
-            }
-            LockWaitLevel::Slow => {
-                if !self.lock_wait_episode_open.swap(true, Ordering::Relaxed) {
-                    tracing::warn!(
-                        waited_ms = elapsed.as_millis() as u64,
-                        timeout_ms = self.write_lock_timeout.as_millis() as u64,
-                        target,
-                        "FileRegistry write transaction acquired lock after slow wait"
-                    );
-                }
-            }
+    fn record_write_event(
+        &self,
+        update: diagnostics::WriterUpdate,
+    ) -> diagnostics::WarningDecision {
+        let decision = {
+            let mut diagnostics = self
+                .write_diagnostics
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            diagnostics.record(update)
+        };
+        if update.is_registry_lock
+            && update
+                .lock_wait_ms
+                .is_some_and(|ms| ms >= diagnostics::SLOW_WAIT_MS)
+            && decision == diagnostics::WarningDecision::Emit
+        {
+            tracing::warn!(
+                waited_ms = update.lock_wait_ms.unwrap_or(0),
+                timeout_ms = self.write_lock_timeout.as_millis() as u64,
+                "FileRegistry write transaction acquired registry lock after slow wait"
+            );
         }
+        decision
     }
 
     pub fn sentinel_path_for(&self, key: &ServiceKey) -> PathBuf {
@@ -618,7 +629,7 @@ impl FileRegistry {
     /// Register a service.
     pub fn register(&self, mut entry: ServiceEntry) -> TransportResult<()> {
         entry.validate_schema_version()?;
-        self.with_write_transaction(|| {
+        self.with_write_transaction(false, || {
             let key = entry.key();
             tracing::info!(
                 dcc_type = %entry.dcc_type,
@@ -654,7 +665,7 @@ impl FileRegistry {
 
     /// Deregister a service by key.
     pub fn deregister(&self, key: &ServiceKey) -> TransportResult<Option<ServiceEntry>> {
-        self.with_write_transaction(|| {
+        self.with_write_transaction(false, || {
             let removed = self.remove_entry(key);
             let changed = removed.is_some();
             Ok((removed, changed))
@@ -667,7 +678,7 @@ impl FileRegistry {
         observed: &ServiceEntry,
     ) -> TransportResult<Option<ServiceEntry>> {
         let key = observed.key();
-        self.with_write_transaction(|| {
+        self.with_write_transaction(false, || {
             let unchanged = self.services.read().get(&key).is_some_and(|current| {
                 current.registered_at == observed.registered_at
                     && current.last_heartbeat == observed.last_heartbeat
@@ -727,7 +738,7 @@ impl FileRegistry {
     /// Update heartbeat for a service.
     pub fn heartbeat(&self, key: &ServiceKey) -> TransportResult<bool> {
         let started = Instant::now();
-        let result = self.with_write_transaction(|| {
+        let result = self.with_write_transaction(true, || {
             let found = if let Some(entry) = self.services.write().get_mut(key) {
                 entry.touch();
                 true
@@ -736,14 +747,19 @@ impl FileRegistry {
             };
             Ok((found, found))
         });
-        self.write_diagnostics
-            .record_heartbeat_write(started.elapsed());
+        self.record_write_event(diagnostics::WriterUpdate {
+            is_heartbeat: true,
+            is_registry_lock: false,
+            lock_timeout: false,
+            lock_wait_ms: None,
+            heartbeat_write_ms: Some(elapsed_ms(started.elapsed())),
+        });
         result
     }
 
     /// Update status for a service.
     pub fn update_status(&self, key: &ServiceKey, status: ServiceStatus) -> TransportResult<bool> {
-        self.with_write_transaction(|| {
+        self.with_write_transaction(false, || {
             let found = if let Some(entry) = self.services.write().get_mut(key) {
                 entry.status = status;
                 true
@@ -761,7 +777,7 @@ impl FileRegistry {
         status: ServiceStatus,
     ) -> TransportResult<bool> {
         let key = observed.key();
-        self.with_write_transaction(|| {
+        self.with_write_transaction(false, || {
             let mut services = self.services.write();
             let unchanged = services
                 .get(&key)
@@ -786,7 +802,7 @@ impl FileRegistry {
         ttl: Option<Duration>,
     ) -> TransportResult<Option<ServiceEntry>> {
         let owner = owner.into();
-        self.with_write_transaction(|| {
+        self.with_write_transaction(false, || {
             let now = SystemTime::now();
             let expires_at = ttl.map(|duration| now + duration);
             let mut selected: Option<ServiceEntry> = None;
@@ -824,7 +840,7 @@ impl FileRegistry {
         key: &ServiceKey,
         owner: Option<&str>,
     ) -> TransportResult<Option<ServiceEntry>> {
-        self.with_write_transaction(|| {
+        self.with_write_transaction(false, || {
             let released = if let Some(entry) = self.services.write().get_mut(key) {
                 let owner_matches =
                     owner.is_some_and(|expected| entry.lease_owner.as_deref() == Some(expected));
@@ -851,7 +867,7 @@ impl FileRegistry {
         key: &ServiceKey,
         snapshot: ServiceSnapshot<'_>,
     ) -> TransportResult<bool> {
-        self.with_write_transaction(|| {
+        self.with_write_transaction(false, || {
             let mut services = self.services.write();
             let Some(entry) = services.get_mut(key) else {
                 return Ok((false, false));
@@ -868,7 +884,7 @@ impl FileRegistry {
     /// owner PID was not known at startup. External DCC hosts use `host_pid`
     /// on the entry instead.
     pub fn set_pid(&self, key: &ServiceKey, pid: u32) -> TransportResult<bool> {
-        self.with_write_transaction(|| {
+        self.with_write_transaction(false, || {
             let found = if let Some(entry) = self.services.write().get_mut(key) {
                 entry.pid = Some(pid);
                 entry.touch();
@@ -887,7 +903,7 @@ impl FileRegistry {
     /// gateway process itself is dead, which [`Self::prune_dead_pids`] handles
     /// via PID liveness probe. See issue #230.
     pub fn cleanup_stale(&self, timeout: Duration) -> TransportResult<usize> {
-        self.with_write_transaction(|| {
+        self.with_write_transaction(false, || {
             let stale_keys: Vec<ServiceKey> = self
                 .services
                 .read()
@@ -931,7 +947,7 @@ impl FileRegistry {
     /// that crashed after registering itself in a different
     /// `FileRegistry` instance.
     pub fn prune_dead_entries(&self) -> TransportResult<usize> {
-        self.with_write_transaction(|| {
+        self.with_write_transaction(false, || {
             // Do not hold the cache lock across filesystem or process probes.
             let dead_keys: Vec<ServiceKey> = self
                 .list_all_in_memory()

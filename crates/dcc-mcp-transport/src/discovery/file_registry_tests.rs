@@ -1630,60 +1630,6 @@ fn test_write_atomic_sync_failure_does_not_replace_registry_and_cleans_temp() {
     );
 }
 
-#[test]
-fn classify_lock_wait_stays_quiet_for_brief_contention() {
-    let backoff = Duration::from_millis(10);
-    let slow = Duration::from_millis(250);
-
-    // A wait equal to a single backoff tick (the common "acquired after one
-    // retry" case, e.g. waited_ms=10) must not produce any log line — this is
-    // the noisy-warning regression we are guarding against.
-    assert_eq!(
-        classify_lock_wait(Duration::from_millis(10), backoff, slow),
-        LockWaitLevel::Quiet
-    );
-    assert_eq!(
-        classify_lock_wait(Duration::ZERO, backoff, slow),
-        LockWaitLevel::Quiet
-    );
-    // Just under two backoff ticks is still quiet.
-    assert_eq!(
-        classify_lock_wait(Duration::from_millis(19), backoff, slow),
-        LockWaitLevel::Quiet
-    );
-}
-
-#[test]
-fn classify_lock_wait_debugs_only_after_multiple_backoffs() {
-    let backoff = Duration::from_millis(10);
-    let slow = Duration::from_millis(250);
-
-    // Two or more backoff ticks but below the slow threshold → debug-level retry.
-    assert_eq!(
-        classify_lock_wait(Duration::from_millis(20), backoff, slow),
-        LockWaitLevel::Retry
-    );
-    assert_eq!(
-        classify_lock_wait(Duration::from_millis(120), backoff, slow),
-        LockWaitLevel::Retry
-    );
-}
-
-#[test]
-fn classify_lock_wait_warns_only_when_genuinely_slow() {
-    let backoff = Duration::from_millis(10);
-    let slow = Duration::from_millis(250);
-
-    assert_eq!(
-        classify_lock_wait(Duration::from_millis(250), backoff, slow),
-        LockWaitLevel::Slow
-    );
-    assert_eq!(
-        classify_lock_wait(Duration::from_millis(1_999), backoff, slow),
-        LockWaitLevel::Slow
-    );
-}
-
 /// Corrupted registry file is quarantined and the registry starts empty
 /// instead of returning an error that crashes the gateway at startup.
 #[test]
@@ -1915,6 +1861,7 @@ fn read_only_handle_can_probe_shared_registry_lock() {
     let path = dir.path().join("services.lock");
     let owner = OpenOptions::new()
         .create(true)
+        .truncate(false)
         .read(true)
         .write(true)
         .open(&path)

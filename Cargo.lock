@@ -1210,6 +1210,7 @@ dependencies = [
  "dcc-mcp-updater",
  "dirs",
  "flate2",
+ "fs4",
  "hex",
  "jsonschema",
  "libc",
@@ -2012,6 +2013,7 @@ dependencies = [
  "tracing",
  "turmoil",
  "uuid",
+ "windows-sys 0.61.2",
  "workspace-hack",
 ]
 

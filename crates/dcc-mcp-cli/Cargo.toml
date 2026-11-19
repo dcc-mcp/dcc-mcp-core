@@ -51,6 +51,7 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 axum = { workspace = true, features = ["http1", "tokio"] }
 dcc-mcp-actions.workspace = true
 dcc-mcp-http.workspace = true
+fs4 = "1.1.0"
 hex = "0.4"
 
 [target.'cfg(unix)'.dependencies]

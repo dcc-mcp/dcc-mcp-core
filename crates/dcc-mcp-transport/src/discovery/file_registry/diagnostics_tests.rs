@@ -1,6 +1,23 @@
 use super::*;
 use fs4::FileExt;
+use std::sync::Arc;
 use std::thread;
+
+fn writer_update(
+    is_heartbeat: bool,
+    is_registry_lock: bool,
+    lock_timeout: bool,
+    lock_wait_ms: Option<u64>,
+) -> diagnostics::WriterUpdate {
+    diagnostics::WriterUpdate {
+        is_heartbeat,
+        is_registry_lock,
+        lock_timeout,
+        lock_wait_ms,
+        heartbeat_write_ms: None,
+    }
+}
+
 #[test]
 fn write_diagnostics_track_concurrent_heartbeat_writes() {
     let dir = tempfile::tempdir().unwrap();
@@ -31,12 +48,11 @@ fn write_diagnostics_track_concurrent_heartbeat_writes() {
     let snapshot = diagnostics::snapshot(dir.path());
     assert_eq!(snapshot.heartbeat_lock_timeouts, 0);
     assert!(snapshot.last_heartbeat_write_ms.is_some());
-    // Zero-wait acquisitions are encoded as null; writes are still counted.
     assert_eq!(registry.write_diagnostics(), snapshot);
 }
 
 #[test]
-fn lock_timeout_is_recorded_for_heartbeat_writers() {
+fn lock_timeout_is_recorded_only_for_heartbeat_writers() {
     let dir = tempfile::tempdir().unwrap();
     diagnostics::reset_counts(dir.path());
     let registry = FileRegistry::new_with_lock_policy(
@@ -58,31 +74,145 @@ fn lock_timeout_is_recorded_for_heartbeat_writers() {
     assert!(timeout_error.contains("registry lock file"));
     let snapshot = diagnostics::snapshot(dir.path());
     assert_eq!(snapshot.heartbeat_lock_timeouts, 1);
+    assert_eq!(snapshot.other_write_lock_timeouts, 0);
+    assert!(snapshot.registry_lock_wait_ms.is_some());
+
+    let maya_key = maya.key();
+    let _ = registry.update_status(&maya_key, ServiceStatus::Busy);
+    let after_other = diagnostics::snapshot(dir.path());
+    assert_eq!(after_other.heartbeat_lock_timeouts, 1);
+    assert_eq!(after_other.other_write_lock_timeouts, 1);
 
     drop(holder);
     registry.heartbeat(&maya.key()).unwrap();
     let recovered = diagnostics::snapshot(dir.path());
     assert_eq!(recovered.heartbeat_lock_timeouts, 1);
+    assert_eq!(recovered.other_write_lock_timeouts, 1);
     assert!(recovered.last_heartbeat_write_ms.is_some());
 }
 
 #[test]
-fn slow_lock_warn_is_suppressed_until_quiet_transaction() {
+fn timeout_warning_episode_is_stable_across_handles() {
     let dir = tempfile::tempdir().unwrap();
-    let registry = FileRegistry::new_with_lock_policy(
+    diagnostics::reset_counts(dir.path());
+    let diagnostics_dir = dir.path().join("registry-write-diagnostics");
+    let record_path = diagnostics_dir.join(format!(
+        "v{}-writer-{}.json",
+        diagnostics::DIAGNOSTICS_SCHEMA_VERSION,
+        std::process::id()
+    ));
+    fs::create_dir_all(&diagnostics_dir).unwrap();
+    FileRegistry::new_with_lock_policy(
         dir.path(),
-        Duration::from_secs(2),
+        Duration::from_millis(10),
+        Duration::from_millis(1),
+    )
+    .unwrap();
+    let process_start_ms = diagnostics::process_start_ms(dir.path());
+    fs::write(
+        &record_path,
+        serde_json::json!({
+            "schema_version": diagnostics::DIAGNOSTICS_SCHEMA_VERSION,
+            "pid": std::process::id(),
+            "process_start_ms": process_start_ms,
+            "started_at_unix_ms": 0,
+            "updated_at_unix_ms": 0,
+            "counters": {
+                "heartbeat_lock_timeouts": 0,
+                "last_heartbeat_write_ms": 0,
+                "registry_lock_wait_ms": 0,
+                "other_write_lock_timeouts": 0,
+            },
+            "warning_episode_open": true
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let first = FileRegistry::new_with_lock_policy(
+        dir.path(),
+        Duration::from_millis(10),
+        Duration::from_millis(1),
+    )
+    .unwrap();
+    let second = FileRegistry::new_with_lock_policy(
+        dir.path(),
+        Duration::from_millis(10),
         Duration::from_millis(1),
     )
     .unwrap();
 
-    registry.log_lock_wait(Duration::from_millis(20), "registry lock file");
-    registry.log_lock_wait(Duration::from_millis(300), "registry lock file");
-    registry.log_lock_wait(Duration::from_millis(400), "registry lock file");
-    assert!(registry.lock_wait_episode_open.load(Ordering::Relaxed));
+    let first_decision = first
+        .write_diagnostics
+        .lock()
+        .unwrap()
+        .record(writer_update(true, true, true, Some(10)));
+    assert_eq!(first_decision, diagnostics::WarningDecision::Suppress);
 
-    registry.log_lock_wait(Duration::ZERO, "registry lock file");
-    assert!(!registry.lock_wait_episode_open.load(Ordering::Relaxed));
-    registry.log_lock_wait(Duration::from_millis(300), "registry lock file");
-    assert!(registry.lock_wait_episode_open.load(Ordering::Relaxed));
+    let second_decision = second
+        .write_diagnostics
+        .lock()
+        .unwrap()
+        .record(writer_update(true, true, true, Some(10)));
+    assert_eq!(second_decision, diagnostics::WarningDecision::Suppress);
+
+    let snapshot = diagnostics::snapshot(dir.path());
+    assert_eq!(snapshot.heartbeat_lock_timeouts, 2);
+}
+
+#[test]
+fn quiet_wait_closes_warning_episode_for_next_handle() {
+    let dir = tempfile::tempdir().unwrap();
+    diagnostics::reset_counts(dir.path());
+    let first = FileRegistry::new(dir.path()).unwrap();
+    let second = FileRegistry::new(dir.path()).unwrap();
+
+    let noisy = first
+        .write_diagnostics
+        .lock()
+        .unwrap()
+        .record(writer_update(true, true, true, Some(300)));
+    assert_eq!(noisy, diagnostics::WarningDecision::Emit);
+    let suppressed = second
+        .write_diagnostics
+        .lock()
+        .unwrap()
+        .record(writer_update(true, true, true, Some(300)));
+    assert_eq!(suppressed, diagnostics::WarningDecision::Suppress);
+
+    first
+        .write_diagnostics
+        .lock()
+        .unwrap()
+        .record(writer_update(true, true, false, Some(5)));
+    let emitted_again = second
+        .write_diagnostics
+        .lock()
+        .unwrap()
+        .record(writer_update(true, true, true, Some(300)));
+    assert_eq!(emitted_again, diagnostics::WarningDecision::Emit);
+}
+
+#[test]
+fn in_process_mutex_waits_do_not_inflate_file_lock_timeouts() {
+    let dir = tempfile::tempdir().unwrap();
+    diagnostics::reset_counts(dir.path());
+    let registry = Arc::new(
+        FileRegistry::new_with_lock_policy(
+            dir.path(),
+            Duration::from_millis(10),
+            Duration::from_millis(1),
+        )
+        .unwrap(),
+    );
+    let maya = ServiceEntry::new("maya", "127.0.0.1", 19130);
+    registry.register(maya.clone()).unwrap();
+    let _guard = registry.write_lock.lock().unwrap();
+    let error = registry.heartbeat(&maya.key()).unwrap_err();
+    assert!(error.to_string().contains("in-process registry mutex"));
+    drop(_guard);
+
+    let snapshot = diagnostics::snapshot(dir.path());
+    assert_eq!(snapshot.heartbeat_lock_timeouts, 0);
+    assert_eq!(snapshot.other_write_lock_timeouts, 0);
 }
