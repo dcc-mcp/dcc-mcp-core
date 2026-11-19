@@ -55,7 +55,8 @@ use dcc_mcp_gateway_core::policy::GatewayPolicy;
 use super::event_log::EventLog;
 use super::http_limits::GatewayIngressState;
 use super::http_registration::{
-    HttpInstanceRegistry, entry_discovery_mcp_url, entry_mcp_url, entry_registry_source,
+    HttpInstanceRegistry, entry_discovery_mcp_url, entry_has_mcp_endpoint, entry_mcp_url,
+    entry_registry_source,
 };
 use super::instance_diagnostics::{InstanceDiagnostics, InstanceDiagnosticsStore};
 use super::mdns_registration::MdnsInstanceRegistry;
@@ -881,8 +882,7 @@ fn dispatch_json(e: &ServiceEntry, stale: bool) -> Value {
     let dispatch_status = first_metadata_value(&e.metadata, &["dispatch_status"])
         .map(|value| value.trim().to_ascii_lowercase());
     let ready = dispatch_status.as_deref() == Some("ready")
-        && first_metadata_value(&e.metadata, &["mcp_url"])
-            .is_some_and(|value| !value.trim().is_empty())
+        && entry_has_mcp_endpoint(e)
         && matches!(e.status, ServiceStatus::Available | ServiceStatus::Busy)
         && !stale;
     let ready_value = if dispatch_status.is_some() {

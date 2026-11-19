@@ -140,6 +140,15 @@ pub async fn run_doctor(request: DoctorRequest) -> anyhow::Result<Value> {
         None => fetch_gateway_instances(&request.gateway_base_url()).await,
     };
     let registry_write_diagnostics = registry_write_diagnostics(&registry_dir);
+    let gateway_instance_rows = gateway_instances
+        .as_ref()
+        .and_then(|payload| payload.get("instances"))
+        .and_then(Value::as_array);
+    let capability_inventory_source = if gateway_instance_rows.is_some() {
+        "gateway_v1_instances"
+    } else {
+        "local_registry_unknown"
+    };
     let adapter_imports = probe_adapters(&AdapterImportRequest {
         inventory: inventory.as_ref().ok().cloned(),
         python_overrides: request.adapter_python.clone(),
@@ -148,13 +157,10 @@ pub async fn run_doctor(request: DoctorRequest) -> anyhow::Result<Value> {
     let local_inventory = match &inventory {
         Ok(value) => {
             let direct_control = direct_control_summary(value);
-            let capabilities = gateway_instances
-                .as_ref()
-                .and_then(|payload| payload.get("instances").and_then(Value::as_array))
-                .map(|instances| capability_summary(instances))
-                .unwrap_or_else(|| {
-                    capability_summary(value["instances"].as_array().map_or(&[], |v| v))
-                });
+            let capabilities = gateway_instance_rows.map_or_else(
+                || capability_summary(value["instances"].as_array().map_or(&[], |v| v)),
+                capability_summary,
+            );
             json!({
                 "ok": true,
                 "mode": "read_only_snapshot",
@@ -206,10 +212,7 @@ pub async fn run_doctor(request: DoctorRequest) -> anyhow::Result<Value> {
                 request.gateway_host,
                 request.gateway_port,
             ),
-            "capability_inventory_source": gateway_instances
-                .as_ref()
-                .map(|_| "gateway_v1_instances")
-                .unwrap_or("unavailable"),
+            "capability_inventory_source": capability_inventory_source,
             "status": gateway_status,
         },
         "server_binary": gateway_discovery::diagnose_gateway_bin(request.server_bin.as_ref()),
@@ -389,6 +392,32 @@ mod diagnostic_tests {
             report["gateway"]["capability_inventory_source"],
             "gateway_v1_instances"
         );
+    }
+
+    #[tokio::test]
+    async fn run_doctor_marks_malformed_gateway_inventory_as_unknown() {
+        let dir = tempfile::tempdir().unwrap();
+        let profiles = dir.path().join("profiles.json");
+        let mut request = DoctorContext::new(
+            profiles.clone(),
+            GatewayProfileStore::load(&profiles).unwrap(),
+            GatewayTarget::Local,
+            None,
+            false,
+            false,
+            &Endpoint::new("http://127.0.0.1:9765"),
+        )
+        .unwrap()
+        .request(Some(dir.path().to_path_buf()), None, None);
+        request.gateway_instances = Some(json!({"instances": {"unexpected": "object"}}));
+
+        let report = run_doctor(request).await.unwrap();
+
+        assert_eq!(
+            report["gateway"]["capability_inventory_source"],
+            "local_registry_unknown"
+        );
+        assert_eq!(report["local"]["inventory"]["capabilities"]["reported"], 0);
     }
 }
 fn direct_control_summary(inventory: &Value) -> Value {

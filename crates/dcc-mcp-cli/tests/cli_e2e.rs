@@ -1534,7 +1534,7 @@ fn doctor_reports_local_defaults_without_starting_gateway() {
     assert_eq!(doctor["local"]["inventory"]["capabilities"]["reported"], 0);
     assert_eq!(
         doctor["gateway"]["capability_inventory_source"],
-        "unavailable"
+        "local_registry_unknown"
     );
     assert_eq!(doctor["gateway"]["auto_start_enabled"], true);
     assert_eq!(

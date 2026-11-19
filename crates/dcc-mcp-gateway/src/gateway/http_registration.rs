@@ -543,6 +543,10 @@ pub(crate) fn entry_mcp_url(entry: &ServiceEntry) -> String {
         .unwrap_or_else(|| format!("http://{}:{}/mcp", entry.host, entry.port))
 }
 
+pub(crate) fn entry_has_mcp_endpoint(entry: &ServiceEntry) -> bool {
+    !entry_mcp_url(entry).trim().is_empty()
+}
+
 pub(crate) fn entry_discovery_mcp_url(entry: &ServiceEntry) -> String {
     entry
         .metadata
