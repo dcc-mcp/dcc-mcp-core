@@ -24,7 +24,7 @@
 //! `missing`, which is exactly the noise this check must not add.
 
 use std::collections::BTreeMap;
-use std::fs::File;
+use std::fs::{File, Metadata};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -57,9 +57,9 @@ pub const PYTHON_EXECUTABLE_ENV: &str = "DCC_MCP_PYTHON_EXECUTABLE";
 
 /// Total wall-clock ceiling for one probe, including process-tree cleanup.
 const PROBE_TIMEOUT: Duration = Duration::from_secs(60);
-/// One quarter of the total budget is reserved for writers, termination, and
-/// reaping (two seconds at the production default).
-const PROBE_CLEANUP_RESERVE_DIVISOR: u32 = 4;
+/// Half of the total budget is reserved for writers, termination, and
+/// reaping (thirty seconds at the production default).
+const PROBE_CLEANUP_RESERVE_DIVISOR: u32 = 2;
 /// Maximum bytes collected from each output spool after cleanup. Capture
 /// stops early when a sampled spool exceeds this threshold; sampling happens
 /// every `PROBE_POLL_INTERVAL`, so a fast writer may briefly write farther.
@@ -534,6 +534,27 @@ fn run_probe_with_env(
     timeout: Duration,
     env_overrides: Vec<(String, PathBuf)>,
 ) -> Result<Map<String, Value>, String> {
+    run_probe_with_spool_check(
+        python,
+        module,
+        distribution,
+        timeout,
+        env_overrides,
+        |path| std::fs::metadata(path),
+    )
+}
+
+/// Production implementation. The metadata reader is a parameter so the
+/// regression test can inject an I/O failure without racing file deletion;
+/// production always passes the standard filesystem metadata function.
+fn run_probe_with_spool_check(
+    python: &Path,
+    module: &str,
+    distribution: &str,
+    timeout: Duration,
+    env_overrides: Vec<(String, PathBuf)>,
+    spool_metadata: impl Fn(&Path) -> std::io::Result<Metadata>,
+) -> Result<Map<String, Value>, String> {
     let cleanup_window = timeout / PROBE_CLEANUP_RESERVE_DIVISOR;
     let started = Instant::now();
     let operation_deadline = started + timeout.saturating_sub(cleanup_window);
@@ -571,29 +592,47 @@ fn run_probe_with_env(
     // Every failure after spawn terminates and reaps the child tree before it
     // returns. On Windows the child stays suspended until job adoption and
     // exactly one owned thread handle has been resumed.
-    let mut tree = ProbeChildTree::adopt(child, Instant::now() + cleanup_window)?;
-    // The absolute total budget also bounds every failure cleanup path.
+    // Adoption and every post-spawn cleanup path share the same absolute
+    // deadline. Recomputing it from `Instant::now()` would extend the total
+    // probe budget by another cleanup window.
     let cleanup_deadline = started + timeout;
+    let mut tree = ProbeChildTree::adopt(child, cleanup_deadline)?;
     let spool_paths = [stdout_path.as_path(), stderr_path.as_path()];
     let spool_overflow = |tree: &mut ProbeChildTree| -> Result<(), String> {
         for path in spool_paths {
-            let exceeded = match std::fs::metadata(path) {
-                Ok(metadata) => metadata.len() > PROBE_OUTPUT_LIMIT,
-                Err(err) => return Err(format!("probe_failed: output spool query failed: {err}")),
-            };
-            if exceeded {
-                let reaped = tree.terminate_and_reap(cleanup_deadline);
-                return if reaped.confirmed() {
+            let check = spool_metadata(path).map(|metadata| metadata.len() > PROBE_OUTPUT_LIMIT);
+            if check.as_ref().is_ok_and(|exceeded| *exceeded) {
+                let receipt = tree.terminate_and_reap(cleanup_deadline);
+                return if receipt.confirmed() {
                     Err("probe_output_limit_exceeded".to_string())
                 } else {
                     Err("probe_cleanup_unconfirmed".to_string())
                 };
+            }
+            match check {
+                Ok(false) => {}
+                Ok(true) => unreachable!("handled by the overflow branch"),
+                Err(err) => {
+                    let receipt = tree.terminate_and_reap(cleanup_deadline);
+                    return if receipt.confirmed() {
+                        Err(format!("probe_failed: output spool query failed: {err}"))
+                    } else {
+                        Err("probe_cleanup_unconfirmed".to_string())
+                    };
+                }
             }
         }
         Ok(())
     };
 
     let status = loop {
+        if Instant::now() >= operation_deadline {
+            let reaped = tree.terminate_and_reap(cleanup_deadline);
+            if !reaped.confirmed() {
+                return Err("probe_cleanup_unconfirmed".to_string());
+            }
+            return Err(format!("probe_timed_out_after_{}s", timeout.as_secs()));
+        }
         match tree.child.try_wait() {
             Ok(Some(status)) => break status,
             Ok(None) => {}
@@ -607,11 +646,7 @@ fn run_probe_with_env(
             }
         }
         if Instant::now() >= operation_deadline {
-            let reaped = tree.terminate_and_reap(cleanup_deadline);
-            if !reaped.confirmed() {
-                return Err("probe_cleanup_unconfirmed".to_string());
-            }
-            return Err(format!("probe_timed_out_after_{}s", timeout.as_secs()));
+            continue;
         }
         spool_overflow(&mut tree)?;
         thread::sleep(PROBE_POLL_INTERVAL);
@@ -622,27 +657,26 @@ fn run_probe_with_env(
     // before terminating it; an unconfirmed state is never treated as clean.
     let reaped = loop {
         spool_overflow(&mut tree)?;
+        // An empty job/group is only evidence while it is observed inside the
+        // same absolute cleanup budget. A late observation cannot turn an
+        // expired probe into a clean result.
+        if Instant::now() >= cleanup_deadline {
+            let reaped = tree.terminate_and_reap(cleanup_deadline);
+            return if reaped.confirmed() {
+                Err(format!("probe_timed_out_after_{}s", timeout.as_secs()))
+            } else {
+                Err("probe_cleanup_unconfirmed".to_string())
+            };
+        }
         match tree.descendants_present() {
             Ok(false) => {
                 break ProbeCleanupReceipt {
-                    terminated: true,
                     reaped: true,
+                    exited: true,
                 };
             }
-            Ok(true) => {
-                if Instant::now() >= cleanup_deadline {
-                    let reaped = tree.terminate_and_reap(cleanup_deadline);
-                    return if reaped.confirmed() {
-                        Err(format!("probe_timed_out_after_{}s", timeout.as_secs()))
-                    } else {
-                        Err("probe_cleanup_unconfirmed".to_string())
-                    };
-                }
-                thread::sleep(PROBE_POLL_INTERVAL);
-            }
-            Err(_) => {
-                break tree.terminate_and_reap(cleanup_deadline);
-            }
+            Ok(true) => thread::sleep(PROBE_POLL_INTERVAL),
+            Err(_) => break tree.terminate_and_reap(cleanup_deadline),
         }
     };
     if !reaped.confirmed() {
@@ -722,16 +756,46 @@ impl ProbeChildTree {
     }
 
     fn terminate_and_reap(&mut self, deadline: Instant) -> ProbeCleanupReceipt {
-        let terminated = self.terminate_descendants();
+        // Ask the owned group or job to terminate before waiting. Windows
+        // returns failure when the job is already empty, so the API result is
+        // not the receipt; the bounded probes below are the evidence.
+        let _ = self.terminate_descendants();
         let _ = self.child.kill();
-        let reaped = loop {
-            match self.child.try_wait() {
-                Ok(Some(_)) => break true,
-                Ok(None) if Instant::now() < deadline => thread::sleep(PROBE_POLL_INTERVAL),
-                Ok(None) | Err(_) => break false,
+
+        let mut reaped = false;
+        let mut exited = false;
+        loop {
+            if reaped && exited {
+                break;
             }
-        };
-        ProbeCleanupReceipt { terminated, reaped }
+            // Always take one observation after termination. The absolute
+            // deadline then decides whether the observed state is evidence.
+            let expired = Instant::now() >= deadline;
+            if !reaped {
+                match self.child.try_wait() {
+                    Ok(Some(_)) => reaped = true,
+                    Ok(None) => {}
+                    Err(_) => {
+                        break;
+                    }
+                }
+            }
+            if !exited {
+                match self.descendants_present() {
+                    Ok(false) => exited = true,
+                    Ok(true) => {}
+                    Err(_) => break,
+                }
+            }
+            if expired || (reaped && exited) {
+                break;
+            }
+            thread::sleep(PROBE_POLL_INTERVAL);
+        }
+        if Instant::now() >= deadline {
+            exited = false;
+        }
+        ProbeCleanupReceipt { reaped, exited }
     }
 
     fn terminate_descendants(&self) -> bool {
@@ -803,13 +867,13 @@ impl ProbeChildTree {
 
 #[derive(Debug, Clone, Copy)]
 struct ProbeCleanupReceipt {
-    terminated: bool,
     reaped: bool,
+    exited: bool,
 }
 
 impl ProbeCleanupReceipt {
     fn confirmed(self) -> bool {
-        self.terminated && self.reaped
+        self.reaped && self.exited
     }
 }
 
@@ -830,9 +894,9 @@ fn terminate_and_reap_suspended(child: &mut Child, deadline: Instant) -> bool {
 fn assign_probe_job(child: &Child) -> Result<OwnedHandle, String> {
     use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
     use windows_sys::Win32::System::JobObjects::{
-        AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
-        JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
-        SetInformationJobObject,
+        AssignProcessToJobObject, CreateJobObjectW, IsProcessInJob,
+        JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+        JobObjectExtendedLimitInformation, SetInformationJobObject,
     };
 
     // SAFETY: null name and security attributes request an unnamed private job.
@@ -872,6 +936,26 @@ fn assign_probe_job(child: &Child) -> Result<OwnedHandle, String> {
         return Err(format!(
             "interpreter_not_launchable: job assignment failed: {error}"
         ));
+    }
+    // SAFETY: the standard-library child handle remains live for the query.
+    let mut in_job = 0;
+    // SAFETY: both raw handles are live and `in_job` is a writable BOOL.
+    let queried = unsafe { IsProcessInJob(process as HANDLE, job, &mut in_job) };
+    if queried == 0 {
+        let error = std::io::Error::last_os_error();
+        // SAFETY: `job` is live and not yet owned.
+        unsafe { CloseHandle(job) };
+        return Err(format!(
+            "interpreter_not_launchable: job assignment verification failed: {error}"
+        ));
+    }
+    if in_job == 0 {
+        // SAFETY: `job` is live and not yet owned.
+        unsafe { CloseHandle(job) };
+        return Err(
+            "interpreter_not_launchable: job assignment verification failed: child not in job"
+                .to_string(),
+        );
     }
     // SAFETY: CreateJobObjectW returned a valid Win32 handle.
     Ok(unsafe { OwnedHandle::from_raw_handle(job) })
