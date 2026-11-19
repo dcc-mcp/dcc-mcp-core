@@ -410,3 +410,110 @@ fn doctor_adapter_imports_report_unlaunchable_interpreters() {
     assert_eq!(doctor["adapter_imports"]["failures"], 0);
     assert_eq!(doctor["status"], "ok");
 }
+
+#[test]
+fn doctor_reports_local_defaults_without_starting_gateway() {
+    let port = unused_loopback_port();
+    let port_s = port.to_string();
+    let registry = TempDir::new().unwrap();
+    let registry_s = registry.path().to_string_lossy().to_string();
+    let profiles = NamedTempFile::new().unwrap();
+    let profiles_s = profiles.path().to_string_lossy().to_string();
+    let cli_bin = env!("CARGO_BIN_EXE_dcc-mcp-cli");
+    let envs = [
+        ("DCC_MCP_REGISTRY_DIR", registry_s.as_str()),
+        ("DCC_MCP_GATEWAY_PROFILES_FILE", profiles_s.as_str()),
+    ];
+
+    let doctor = run_json_with_env(
+        &[
+            "--auto-gateway-bin",
+            cli_bin,
+            "doctor",
+            "--gateway-port",
+            &port_s,
+        ],
+        &envs,
+    );
+
+    assert_eq!(doctor["status"], "ok");
+    assert_eq!(doctor["cli"]["name"], "dcc-mcp-cli");
+    assert!(doctor["cli"]["version"].as_str().unwrap().starts_with("0."));
+    assert_eq!(doctor["profile"]["stored_current"], "local");
+    assert_eq!(doctor["profile"]["selected"]["name"], "local");
+    assert_eq!(doctor["profile"]["selected"]["mode"], "local");
+    assert_eq!(doctor["control"]["route"], "local_mcp_direct");
+    assert_eq!(doctor["control"]["gateway_stats_recorded"], false);
+    assert_eq!(doctor["local"]["registry_dir"], registry_s);
+    assert_eq!(doctor["local"]["inventory"]["ok"], true);
+    assert_eq!(doctor["local"]["inventory"]["total"], 0);
+    assert_eq!(doctor["local"]["inventory"]["direct_control"]["ready"], 0);
+    assert_eq!(
+        doctor["local"]["inventory"]["direct_control"]["not_ready"],
+        0
+    );
+    assert_eq!(doctor["local"]["inventory"]["capabilities"]["reported"], 0);
+    assert_eq!(
+        doctor["gateway"]["capability_inventory_source"],
+        "local_registry_unknown"
+    );
+    assert_eq!(doctor["gateway"]["auto_start_enabled"], true);
+    assert_eq!(
+        doctor["gateway"]["default_base_url"],
+        format!("http://127.0.0.1:{port}")
+    );
+    assert_eq!(doctor["gateway"]["status"]["healthy"], false);
+    assert_eq!(doctor["server_binary"]["status"], "ok");
+    assert_eq!(doctor["server_binary"]["source"], "explicit");
+    assert_eq!(doctor["server_binary"]["path"], cli_bin);
+    assert_eq!(doctor["server_binary"]["would_download_if_started"], false);
+    assert!(
+        doctor["server_binary"]["version"]
+            .as_str()
+            .unwrap()
+            .contains("dcc-mcp-cli")
+    );
+}
+
+#[test]
+fn doctor_reports_capabilities_from_live_gateway_inventory() {
+    let fixture = spawn_gateway_fixture();
+    let port = fixture
+        .base_url
+        .rsplit(':')
+        .next()
+        .unwrap()
+        .parse::<u16>()
+        .unwrap();
+    let registry = TempDir::new().unwrap();
+    let registry_s = registry.path().to_string_lossy().to_string();
+    let profiles = NamedTempFile::new().unwrap();
+    let profiles_s = profiles.path().to_string_lossy().to_string();
+
+    let doctor = run_json_with_env(
+        &[
+            "--no-auto-gateway",
+            "doctor",
+            "--gateway-host",
+            "127.0.0.1",
+            "--gateway-port",
+            &port.to_string(),
+        ],
+        &[
+            ("DCC_MCP_REGISTRY_DIR", registry_s.as_str()),
+            ("DCC_MCP_GATEWAY_PROFILES_FILE", profiles_s.as_str()),
+        ],
+    );
+
+    assert_eq!(
+        doctor["gateway"]["capability_inventory_source"],
+        "gateway_v1_instances"
+    );
+    let capabilities = &doctor["local"]["inventory"]["capabilities"];
+    assert_eq!(capabilities["reported"], 1);
+    assert_eq!(capabilities["with_loaded_skills"], 1);
+    assert_eq!(capabilities["with_tools"], 1);
+    assert_eq!(capabilities["total_loaded_skills"], 1);
+    assert_eq!(capabilities["total_tool_count"], 7);
+    assert_eq!(capabilities["unknown_instances"], serde_json::json!([]));
+}
