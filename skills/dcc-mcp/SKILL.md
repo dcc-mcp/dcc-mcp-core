@@ -64,4 +64,3 @@ Normative contract:
 | Params are the iteration channel | Change `params`, not the script body. |
 | Persist repeated sequences | Use `workflows_run` / `workflows_resume` for multi-step work. |
 | Preserve evidence | Record `file_path`, `sha256`, `reused`, `request_id`, `workflow_id`. |
-
