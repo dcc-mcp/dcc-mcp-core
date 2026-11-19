@@ -1531,9 +1531,10 @@ fn doctor_reports_local_defaults_without_starting_gateway() {
         doctor["local"]["inventory"]["direct_control"]["not_ready"],
         0
     );
+    assert_eq!(doctor["local"]["inventory"]["capabilities"]["reported"], 0);
     assert_eq!(
-        doctor["local"]["inventory"]["direct_control"]["capabilities"]["reported"],
-        0
+        doctor["gateway"]["capability_inventory_source"],
+        "unavailable"
     );
     assert_eq!(doctor["gateway"]["auto_start_enabled"], true);
     assert_eq!(
@@ -1551,6 +1552,49 @@ fn doctor_reports_local_defaults_without_starting_gateway() {
             .unwrap()
             .contains("dcc-mcp-cli")
     );
+}
+
+#[test]
+fn doctor_reports_capabilities_from_live_gateway_inventory() {
+    let fixture = spawn_gateway_fixture();
+    let port = fixture
+        .base_url
+        .rsplit(':')
+        .next()
+        .unwrap()
+        .parse::<u16>()
+        .unwrap();
+    let registry = TempDir::new().unwrap();
+    let registry_s = registry.path().to_string_lossy().to_string();
+    let profiles = NamedTempFile::new().unwrap();
+    let profiles_s = profiles.path().to_string_lossy().to_string();
+
+    let doctor = run_json_with_env(
+        &[
+            "--no-auto-gateway",
+            "doctor",
+            "--gateway-host",
+            "127.0.0.1",
+            "--gateway-port",
+            &port.to_string(),
+        ],
+        &[
+            ("DCC_MCP_REGISTRY_DIR", registry_s.as_str()),
+            ("DCC_MCP_GATEWAY_PROFILES_FILE", profiles_s.as_str()),
+        ],
+    );
+
+    assert_eq!(
+        doctor["gateway"]["capability_inventory_source"],
+        "gateway_v1_instances"
+    );
+    let capabilities = &doctor["local"]["inventory"]["capabilities"];
+    assert_eq!(capabilities["reported"], 1);
+    assert_eq!(capabilities["with_loaded_skills"], 1);
+    assert_eq!(capabilities["with_tools"], 1);
+    assert_eq!(capabilities["total_loaded_skills"], 1);
+    assert_eq!(capabilities["total_tool_count"], 7);
+    assert_eq!(capabilities["unknown_instances"], serde_json::json!([]));
 }
 
 #[test]

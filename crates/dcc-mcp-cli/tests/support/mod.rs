@@ -320,6 +320,12 @@ pub(crate) fn spawn_gateway_fixture() -> GatewayFixture {
                         "instance_short": "abc12345",
                         "dcc_type": "maya",
                         "mcp_url": "http://127.0.0.1:18080/mcp",
+                        "capabilities": {
+                            "source": "capability_index",
+                            "loaded_skills": ["maya-modeling"],
+                            "loaded_skill_count": 1,
+                            "tool_count": 7
+                        },
                         "metadata": {
                             "owner": "release-smoke-test",
                             "session": "test"

@@ -4,31 +4,10 @@ use std::collections::BTreeSet;
 
 use dcc_mcp_gateway_core::capability::IndexSnapshot;
 use dcc_mcp_gateway_core::policy::{GatewayPolicy, GatewayPolicyOperation};
-use dcc_mcp_transport::discovery::types::{ServiceEntry, ServiceStatus};
+use dcc_mcp_transport::discovery::types::ServiceEntry;
 use serde_json::{Value, json};
 
 const CAPABILITY_INDEX_SOURCE: &str = "capability_index";
-
-fn dispatch_status(entry: &ServiceEntry) -> Option<String> {
-    entry
-        .metadata
-        .get("dispatch_status")
-        .map(String::as_str)
-        .or_else(|| entry.extras.get("dispatch_status").and_then(Value::as_str))
-        .map(|value| value.trim().to_ascii_lowercase())
-}
-
-fn has_mcp_url(entry: &ServiceEntry) -> bool {
-    entry
-        .metadata
-        .get("mcp_url")
-        .is_some_and(|value| !value.trim().is_empty())
-        || entry
-            .extras
-            .get("mcp_url")
-            .and_then(Value::as_str)
-            .is_some_and(|value| !value.trim().is_empty())
-}
 
 #[must_use]
 pub fn capabilities_json(
@@ -67,30 +46,29 @@ pub fn capabilities_json(
 }
 
 #[must_use]
-pub fn transport_ready_json(entry: &ServiceEntry, stale: bool) -> Value {
-    let has_endpoint = has_mcp_url(entry);
-    let ready = has_endpoint
-        && matches!(entry.status, ServiceStatus::Available | ServiceStatus::Busy)
-        && !stale;
+pub fn transport_ready_json(row: &Value) -> Value {
+    let endpoint = row
+        .get("mcp_url")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty());
+    let ready = endpoint.is_some()
+        && row.get("status").and_then(Value::as_str) == Some("available")
+        && row.get("stale").and_then(Value::as_bool) == Some(false);
 
     json!({
         "ready": ready,
-        "has_endpoint": has_endpoint,
-        "status": entry.status.to_string(),
-        "stale": stale,
+        "has_endpoint": endpoint.is_some(),
+        "status": row.get("status").cloned().unwrap_or(Value::Null),
+        "stale": row.get("stale").cloned().unwrap_or(Value::Null),
     })
 }
 
 #[must_use]
-pub fn dispatch_ready_json(entry: &ServiceEntry, stale: bool) -> Value {
-    let status = dispatch_status(entry);
-    let reported = status.is_some();
-    let ready = status.as_deref() == Some("ready")
-        && has_mcp_url(entry)
-        && matches!(entry.status, ServiceStatus::Available | ServiceStatus::Busy)
-        && !stale;
-
-    if reported { json!(ready) } else { Value::Null }
+pub fn dispatch_ready_json(row: &Value) -> Value {
+    row.get("dispatch")
+        .and_then(|dispatch| dispatch.get("ready"))
+        .cloned()
+        .unwrap_or(Value::Null)
 }
 
 #[cfg(test)]
@@ -169,21 +147,28 @@ mod tests {
     }
 
     #[test]
-    fn transport_and_dispatch_readiness_stay_independent() {
+    fn transport_and_dispatch_readiness_mirror_effective_row() {
         let mut entry = ServiceEntry::new("maya", "127.0.0.1", 18812);
-        entry
-            .metadata
-            .insert("mcp_url".into(), "http://127.0.0.1:18812/mcp".into());
-
-        let transport = transport_ready_json(&entry, false);
-        let dispatch = dispatch_ready_json(&entry, false);
+        let row =
+            crate::gateway::state::entry_to_json(&entry, std::time::Duration::from_secs(30), None);
+        let transport = transport_ready_json(&row);
         assert_eq!(transport["ready"], true);
-        assert_eq!(dispatch, Value::Null);
+        assert_eq!(transport["has_endpoint"], true);
+        assert_eq!(dispatch_ready_json(&row), Value::Null);
 
         entry
             .metadata
             .insert("dispatch_status".into(), "ready".into());
-        assert_eq!(dispatch_ready_json(&entry, false), true);
-        assert_eq!(dispatch_ready_json(&entry, true), false);
+        let row =
+            crate::gateway::state::entry_to_json(&entry, std::time::Duration::from_secs(30), None);
+        assert_eq!(dispatch_ready_json(&row), row["dispatch"]["ready"]);
+
+        entry
+            .extras
+            .insert("mcp_url".into(), json!("http://127.0.0.1:19999/mcp"));
+        let row =
+            crate::gateway::state::entry_to_json(&entry, std::time::Duration::from_secs(30), None);
+        assert_eq!(row["mcp_url"], "http://127.0.0.1:18812/mcp");
+        assert_eq!(transport_ready_json(&row)["has_endpoint"], true);
     }
 }

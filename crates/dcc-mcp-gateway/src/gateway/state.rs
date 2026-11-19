@@ -400,6 +400,8 @@ impl GatewayState {
             &self.capability_index.snapshot(),
             self.policy.as_ref(),
         );
+        row["transport"] = super::capability_projection::transport_ready_json(&row);
+        row["dispatch_ready"] = super::capability_projection::dispatch_ready_json(&row);
         let ui_control = ui_control_diagnostics(e, &self.capability_index.snapshot());
         if !row.get("diagnostics").is_some_and(Value::is_object) {
             row["diagnostics"] = json!({});
@@ -879,7 +881,8 @@ fn dispatch_json(e: &ServiceEntry, stale: bool) -> Value {
     let dispatch_status = first_metadata_value(&e.metadata, &["dispatch_status"])
         .map(|value| value.trim().to_ascii_lowercase());
     let ready = dispatch_status.as_deref() == Some("ready")
-        && first_metadata_value(&e.metadata, &["mcp_url"]).is_some()
+        && first_metadata_value(&e.metadata, &["mcp_url"])
+            .is_some_and(|value| !value.trim().is_empty())
         && matches!(e.status, ServiceStatus::Available | ServiceStatus::Busy)
         && !stale;
     let ready_value = if dispatch_status.is_some() {
@@ -1037,8 +1040,6 @@ pub fn entry_to_json(
         "gateway":         gateway_json(e),
         "instance_status": instance_status_json(e, stale),
         "dispatch":        dispatch_json(e, stale),
-        "transport":       super::capability_projection::transport_ready_json(e, stale),
-        "dispatch_ready":  super::capability_projection::dispatch_ready_json(e, stale),
         "metadata":        e.metadata,
         "pool": {
             "capacity": e.capacity,
