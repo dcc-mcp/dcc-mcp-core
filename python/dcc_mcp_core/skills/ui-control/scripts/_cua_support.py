@@ -106,6 +106,72 @@ _NATIVE_ADVISORY_MARKERS = (
 # length can differ (e.g. ``U+0130``), which would leak advisory into the reason.
 _NATIVE_ADVISORY_RES = tuple(re.compile(re.escape(marker), re.IGNORECASE) for marker in _NATIVE_ADVISORY_MARKERS)
 
+# Stable tokens for the known failure codes and timeouts Core can recognize
+# without interpreting untrusted provider prose. These are the only values
+# persisted as diagnostic reason/code in the durable UI-control audit.
+_AUDIT_DIAGNOSTIC_CODES = frozenset(
+    {
+        "input_failed",
+        "capture_failed",
+        "stale_observation",
+        "backend_unavailable",
+        "timeout",
+        "invalid_target",
+        "permission_denied",
+        "policy_disabled",
+        "desktop_unavailable",
+        "user_interrupted",
+        "cancelled",
+    }
+)
+_AUDIT_TIMEOUT_RE = re.compile(
+    r"\b(?:after|in)\s+([0-9]+(?:\.[0-9]+)?)\s*(ms|s|sec|secs|second|seconds)\b",
+    re.IGNORECASE,
+)
+_AUDIT_STAGE_CODES = {
+    "binding": "binding_failed",
+    "authorization": "authorization_failed",
+    "activation": "activation_failed",
+    "foreground_readback": "foreground_readback_failed",
+    "capture": "capture_failed",
+}
+_AUDIT_STAGE_CODES_RE = re.compile(r"^[a-z][a-z0-9]*(?:_[a-z0-9]+){0,7}$")
+
+
+def _diagnostic_code(error: Any) -> Optional[str]:
+    """Return an allowlisted stable code for one structured backend error."""
+    code = str(error or "").strip().lower()
+    return code if code in _AUDIT_DIAGNOSTIC_CODES else None
+
+
+def _diagnostic_stage(stage: Any) -> Optional[str]:
+    """Return a bounded lowercase stage token without copying provider prose."""
+    token = str(stage or "").strip().lower()
+    return token if token and _AUDIT_STAGE_CODES_RE.fullmatch(token) else None
+
+
+def _diagnostic_reason(stage: Any, error: Any, message: Any) -> Optional[str]:
+    """Compose a bounded safe token from known stage/code/timeout values.
+
+    Provider prose is used only to recognize a numeric timeout. No raw text,
+    title, path, credential, handle, or class name is copied into the result.
+    """
+    code = _diagnostic_code(error)
+    if code is None:
+        return None
+    safe_stage = _diagnostic_stage(stage)
+    parts = [_AUDIT_STAGE_CODES.get(safe_stage, code) if safe_stage else code]
+    timeout = _AUDIT_TIMEOUT_RE.search(str(message or ""))
+    if timeout:
+        duration = timeout.group(1)
+        if "." in duration:
+            duration = duration.rstrip("0").rstrip(".")
+        unit = "ms" if timeout.group(2).lower() == "ms" else "s"
+        parts.append("timeout_{}{}".format(duration or "0", unit))
+    if len(parts) == 1:
+        parts.append(code)
+    return "_".join(parts)
+
 
 def _native_reason(message: Any) -> str:
     """Bound a native backend message to its diagnostic failure reason.
