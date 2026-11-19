@@ -30,6 +30,11 @@ sysinfo.workspace = true
 ipckit.workspace = true
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 fs4 = "1.1.0"
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Threading",
+] }
 
 [dev-dependencies]
 criterion = { workspace = true }

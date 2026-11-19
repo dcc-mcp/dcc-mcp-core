@@ -7,6 +7,7 @@ mod support;
 
 use dcc_mcp_transport::discovery::file_registry::{FileRegistry, registry_write_diagnostics};
 use dcc_mcp_transport::discovery::types::ServiceEntry;
+use dcc_mcp_transport::discovery::types::ServiceStatus;
 use tempfile::{NamedTempFile, TempDir};
 
 use support::*;
@@ -152,9 +153,9 @@ fn doctor_registry_snapshot_does_not_create_prune_or_quarantine() {
     }
 }
 
-/// Registry write diagnostics are exposed through doctor as process-local counters.
+/// Registry diagnostics are durable, so a child doctor process observes writer counters.
 #[test]
-fn doctor_exposes_registry_write_diagnostics() {
+fn doctor_reads_registry_diagnostics_written_by_parent() {
     let port = unused_loopback_port();
     let port_s = port.to_string();
     let registry = TempDir::new().unwrap();
@@ -162,12 +163,26 @@ fn doctor_exposes_registry_write_diagnostics() {
     let profiles = NamedTempFile::new().unwrap();
     let profiles_s = profiles.path().to_string_lossy().to_string();
 
-    // Produce a heartbeat write from the same process that emits the doctor snapshot.
     let registry_handle = FileRegistry::new(registry.path()).unwrap();
     let maya = ServiceEntry::new("maya", "127.0.0.1", 19120);
     registry_handle.register(maya.clone()).unwrap();
+    let holder = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(registry.path().join("services.lock"))
+        .unwrap();
+    fs4::FileExt::try_lock(&holder).unwrap();
+    let error = registry_handle.heartbeat(&maya.key()).unwrap_err();
+    assert!(error.to_string().contains("registry lock file"));
+    let _ = registry_handle
+        .update_status(&maya.key(), ServiceStatus::Busy)
+        .unwrap_err();
+    drop(holder);
     registry_handle.heartbeat(&maya.key()).unwrap();
     let expected = registry_write_diagnostics(registry.path());
+    assert!(expected.heartbeat_lock_timeouts >= 1);
+    assert!(expected.other_write_lock_timeouts >= 1);
+    assert!(expected.last_heartbeat_write_ms.is_some());
 
     let doctor = run_json_with_env(
         &[
@@ -185,15 +200,15 @@ fn doctor_exposes_registry_write_diagnostics() {
     );
 
     let diagnostics = &doctor["local"]["registry_write_diagnostics"];
-    assert_eq!(
-        diagnostics["heartbeat_lock_timeouts"],
-        expected.heartbeat_lock_timeouts
+    assert!(
+        diagnostics["heartbeat_lock_timeouts"]
+            .as_u64()
+            .is_some_and(|count| count >= 1)
     );
-    assert_eq!(
-        diagnostics["registry_lock_wait_ms"],
-        expected
-            .registry_lock_wait_ms
-            .map_or(serde_json::Value::Null, serde_json::Value::from)
+    assert!(
+        diagnostics["other_write_lock_timeouts"]
+            .as_u64()
+            .is_some_and(|count| count >= 1)
     );
     assert!(diagnostics["last_heartbeat_write_ms"].is_number());
 }

@@ -222,51 +222,6 @@ fn inventory_error(error: &anyhow::Error, registry_dir: &std::path::Path) -> Val
     })
 }
 
-#[cfg(test)]
-mod diagnostic_tests {
-    use super::*;
-
-    #[test]
-    fn inventory_error_retains_os_cause_and_bounds_redacts_context() {
-        let code = if cfg!(windows) { 5 } else { 13 };
-        let path = dirs::home_dir().unwrap().join("registry");
-        let error = anyhow::Error::new(std::io::Error::from_raw_os_error(code)).context(format!(
-            "reading {}\n{}",
-            path.display(),
-            "x".repeat(4096)
-        ));
-        let report = inventory_error(&error, &path);
-        assert_eq!(report["os_error"], code);
-        assert_eq!(report["error_kind"], "PermissionDenied");
-        assert_eq!(report["operation"], "read_registry_snapshot");
-        assert!(report["path"].as_str().unwrap().starts_with("<home>"));
-        assert!(report["error"].as_str().unwrap().chars().count() <= 2048);
-        assert!(!report["error"].as_str().unwrap().contains('\n'));
-        let short = inventory_error(
-            &anyhow::Error::new(std::io::Error::from_raw_os_error(code))
-                .context("reading snapshot"),
-            &path,
-        );
-        assert!(
-            short["error"]
-                .as_str()
-                .unwrap()
-                .contains(&format!("os error {code}"))
-        );
-    }
-
-    #[test]
-    fn inventory_error_does_not_invent_an_errno() {
-        let report = inventory_error(
-            &anyhow::anyhow!("invalid registry"),
-            std::path::Path::new("fixture"),
-        );
-        assert_eq!(report["error_kind"], "unknown");
-        assert_eq!(report["os_error"], Value::Null);
-        assert_eq!(report["liveness"], "unknown");
-    }
-}
-
 fn direct_control_summary(inventory: &Value) -> Value {
     let Some(instances) = inventory.get("instances").and_then(Value::as_array) else {
         return json!({
@@ -325,4 +280,49 @@ fn not_ready_instance_summary(instance: &Value, direct: &Value) -> Value {
             .cloned()
             .unwrap_or(Value::Null),
     })
+}
+
+#[cfg(test)]
+mod diagnostic_tests {
+    use super::*;
+
+    #[test]
+    fn inventory_error_retains_os_cause_and_bounds_redacts_context() {
+        let code = if cfg!(windows) { 5 } else { 13 };
+        let path = dirs::home_dir().unwrap().join("registry");
+        let error = anyhow::Error::new(std::io::Error::from_raw_os_error(code)).context(format!(
+            "reading {}\n{}",
+            path.display(),
+            "x".repeat(4096)
+        ));
+        let report = inventory_error(&error, &path);
+        assert_eq!(report["os_error"], code);
+        assert_eq!(report["error_kind"], "PermissionDenied");
+        assert_eq!(report["operation"], "read_registry_snapshot");
+        assert!(report["path"].as_str().unwrap().starts_with("<home>"));
+        assert!(report["error"].as_str().unwrap().chars().count() <= 2048);
+        assert!(!report["error"].as_str().unwrap().contains('\n'));
+        let short = inventory_error(
+            &anyhow::Error::new(std::io::Error::from_raw_os_error(code))
+                .context("reading snapshot"),
+            &path,
+        );
+        assert!(
+            short["error"]
+                .as_str()
+                .unwrap()
+                .contains(&format!("os error {code}"))
+        );
+    }
+
+    #[test]
+    fn inventory_error_does_not_invent_an_errno() {
+        let report = inventory_error(
+            &anyhow::anyhow!("invalid registry"),
+            std::path::Path::new("fixture"),
+        );
+        assert_eq!(report["error_kind"], "unknown");
+        assert_eq!(report["os_error"], Value::Null);
+        assert_eq!(report["liveness"], "unknown");
+    }
 }
