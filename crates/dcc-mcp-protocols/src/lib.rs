@@ -2,6 +2,7 @@
 
 pub mod adapters;
 pub mod bridge;
+pub mod capacity_contract;
 pub mod error_envelope;
 pub mod python;
 

@@ -104,6 +104,50 @@ Capacity negotiation, final UTF-8 byte budgets, Rust conformance vectors and
 adapter adoption remain separate follow-ups under #2821. No receive limit or
 adapter authorization policy changes in this outcome/fallback slice.
 
+## Shared Capacity Contract (v1)
+
+Issue #2821 defines an additive, runtime-unused contract shared by Python and
+Rust. An endpoint declares its bounded receive capacity in the existing
+`hello.capabilities` map under `dcc-mcp.capacity.v1`. Each direction is
+independent:
+
+```json
+{
+  "dcc-mcp.capacity.v1": {
+    "version": 1,
+    "receive": {"incoming": 131072, "outgoing": 16384}
+  }
+}
+```
+
+The legacy flat form `{"receive_max_bytes": 65535}` remains readable. An
+absent declaration resolves to the documented 65,535-byte legacy profile; an
+alternate key such as `transport.max_message_bytes` does not participate in
+this contract. Declared values are clamped to the local policy, so a peer
+cannot raise a local hard limit. The contract rejects booleans, strings,
+non-positive values, conflicting receive shapes, and unsupported versions.
+
+The byte budget covers the complete final serialized UTF-8 JSON message,
+including escaping, request IDs, result/error envelopes, and added metadata.
+Callers serialize once and check the exact bytes they intend to send. The
+Python module `dcc_mcp_core.bridge_capacity` and the Rust module
+`dcc_mcp_protocols::capacity_contract` provide declaration parsing, policy
+clamping, byte-budget helpers, and structured error data. Shared vectors live
+in `contracts/bridge-capacity-v1.conformance.json`; Python and Rust
+serializers may produce different valid byte lengths.
+
+Structured capacity error data uses `direction` (`request` or `response`),
+`max_bytes`, optional `actual_bytes`, and execution `outcome`.
+`not_dispatched` applies only to the described request and phase. An
+oversized result or a failure after possible dispatch uses `unknown` so
+callers inspect state before retrying. This slice does not introduce a new
+envelope or error code.
+
+This first slice does not wire runtime WebSocket receive/send limits, modify
+the hello/ack structs, change adapter behavior, or alter HTTP and DCC-Link
+paths. Runtime enforcement, negotiated connection state, and adapter adoption
+remain separate follow-ups.
+
 ## Reverse Bridge Sessions
 
 Some plugin runtimes cannot host a listener or keep inbound sockets open. For
