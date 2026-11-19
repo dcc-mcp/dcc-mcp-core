@@ -1,0 +1,52 @@
+use serde_json::json;
+
+use super::*;
+
+#[test]
+fn successful_result_keeps_evidence_and_routing_metadata() {
+    let result = json!({
+        "success": true,
+        "context": {
+            "host_version": "20.5",
+            "available": [{"key": "render.lpe", "evidence_ref": "artifact://probe-1"}]
+        },
+        "control_route": "gateway",
+        "gateway_stats_recorded": true
+    });
+
+    assert_eq!(project_result(result.clone(), true), result);
+    assert_eq!(
+        backend_summary(&result).unwrap()["available"][0]["evidence_ref"],
+        "artifact://probe-1"
+    );
+}
+
+#[test]
+fn missing_summary_is_not_projected_into_fake_evidence() {
+    let result = json!({"success": true, "context": "not-an-object"});
+
+    assert!(backend_summary(&result).unwrap().is_string());
+    assert_eq!(project_result(result.clone(), true), result);
+}
+
+#[test]
+fn backend_failure_keeps_the_original_payload_and_identity() {
+    let result = json!({
+        "success": false,
+        "error": "host_capability_provider_failed",
+        "dcc_type": "comfyui",
+        "instance_id": "abc12345-0000-0000-0000-000000000000",
+        "instance_short": "abc12345"
+    });
+
+    let projected = project_result(result, false);
+
+    assert_eq!(projected["ok"], false);
+    assert_eq!(
+        projected["error"]["error"],
+        "host_capability_provider_failed"
+    );
+    assert_eq!(projected["dcc_type"], "comfyui");
+    assert_eq!(projected["instance_short"], "abc12345");
+    assert_eq!(projected["backend_tool"], "dcc_host_capabilities");
+}

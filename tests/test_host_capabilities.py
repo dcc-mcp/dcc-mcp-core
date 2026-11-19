@@ -437,6 +437,23 @@ def test_summary_can_be_narrowed_to_requested_keys():
     assert summary["unavailable"][0]["key"] == "queue.cancel_running"
 
 
+def test_summary_preserves_evidence_ref_and_backward_compatible_fields():
+    summary = summarize_host_capabilities(_manifest([_capability()]))
+    available = summary["available"][0]
+
+    assert available["evidence_ref"] == "artifact://probe-1"
+    assert available["key"] == "workflow.api_format"
+    assert available["supported"] is True
+    assert available["probe_result"] == PROBE_PASS
+    assert available["probed_at"] == "2026-11-18T00:00:00Z"
+    assert "declaration_only" not in available
+
+    without_evidence = summarize_host_capabilities(
+        _manifest([_capability(evidence_ref=None)])
+    )["available"][0]
+    assert "evidence_ref" not in without_evidence
+
+
 def test_cache_expires_by_ttl_and_can_be_invalidated():
     now = [100.0]
     cache = HostCapabilityCache(ttl_secs=10, clock=lambda: now[0])

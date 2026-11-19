@@ -1,5 +1,6 @@
 pub mod adapter_import;
 pub mod call_attribution;
+pub mod capabilities_result;
 pub mod client;
 pub mod components;
 pub mod control_plane;
@@ -14,6 +15,7 @@ pub mod gateway_discovery;
 pub mod gateway_ensure;
 pub mod gateway_profile;
 pub mod host;
+pub mod host_capabilities;
 pub mod install;
 pub mod instance_launch;
 pub mod instance_selection;

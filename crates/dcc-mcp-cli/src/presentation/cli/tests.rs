@@ -161,6 +161,60 @@ fn record_replay_replay_keeps_current_approval_separate() {
 }
 
 #[test]
+fn capabilities_contract_accepts_repeated_keys_and_global_output() {
+    let args = Args::try_parse_from([
+        "dcc-mcp-cli",
+        "--output",
+        "json",
+        "capabilities",
+        "--dcc-type",
+        "houdini",
+        "--instance-id",
+        "abc12345",
+        "--keys",
+        "render.lpe",
+        "--keys",
+        "render.cryptomatte,script.in_process_python",
+        "--force-refresh",
+    ])
+    .expect("parse capabilities command");
+
+    assert_eq!(args.output, Some(OutputFormat::Json));
+    let Command::Capabilities {
+        dcc_type,
+        instance_id,
+        keys,
+        force_refresh,
+    } = args.command
+    else {
+        panic!("expected capabilities command");
+    };
+    assert_eq!(dcc_type.as_deref(), Some("houdini"));
+    assert_eq!(instance_id.as_deref(), Some("abc12345"));
+    assert_eq!(
+        keys,
+        vec![
+            "render.lpe".to_string(),
+            "render.cryptomatte,script.in_process_python".to_string()
+        ]
+    );
+    assert!(force_refresh);
+}
+
+#[test]
+fn capabilities_uses_the_same_maintenance_policy_as_inventory_commands() {
+    assert!(!command_shows_maintenance(
+        &Command::Capabilities {
+            dcc_type: Some("zbrush".to_string()),
+            instance_id: None,
+            keys: Vec::new(),
+            force_refresh: false,
+        },
+        false
+    ));
+}
+
+#[test]
 fn dcc_types_contract_accepts_a_custom_catalog() {
     let args = Args::try_parse_from([
         "dcc-mcp-cli",

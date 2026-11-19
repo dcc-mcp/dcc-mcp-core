@@ -511,6 +511,8 @@ def summarize_host_capabilities(
         }
         if "reason" in record:
             entry["reason"] = record["reason"]
+        if "evidence_ref" in record:
+            entry["evidence_ref"] = record["evidence_ref"]
         if record["declaration_only"]:
             entry["declaration_only"] = True
 

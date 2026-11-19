@@ -1,3 +1,4 @@
+pub mod capabilities;
 pub mod ecosystem_discovery;
 pub mod feedback;
 pub mod feedback_bundle;
