@@ -159,7 +159,7 @@ pub async fn run_doctor(request: DoctorRequest) -> anyhow::Result<Value> {
             let direct_control = direct_control_summary(value);
             let capabilities = gateway_instance_rows.map_or_else(
                 || capability_summary(value["instances"].as_array().map_or(&[], |v| v)),
-                capability_summary,
+                |instances| capability_summary(instances),
             );
             json!({
                 "ok": true,
