@@ -16,6 +16,8 @@ pub const DIRECTION_RESPONSE: &str = "response";
 pub const ERROR_INVALID_CAPACITY_VALUE: &str = "invalid_capacity_value";
 pub const ERROR_CONFLICTING_CAPACITY_DECLARATION: &str = "conflicting_capacity_declaration";
 pub const ERROR_UNSUPPORTED_CAPACITY_VERSION: &str = "unsupported_capacity_version";
+pub const ERROR_CODE_CAPACITY: &str = "capacity_error";
+pub const COMPACT_ERROR_FIELDS: [&str; 5] = ["code", "message", "data", "outcome", "actual_bytes"];
 pub const LEGACY_ASSUMED: &str = "legacy_assumed";
 pub const DECLARED: &str = "declared";
 
@@ -254,15 +256,78 @@ pub fn capacity_error_data(
         ));
     }
     validate_capacity(max_bytes)?;
+    let validated_actual = match actual_bytes {
+        Some(actual) => {
+            validate_capacity(actual)?;
+            Some(actual)
+        }
+        None => None,
+    };
+    if outcome == OUTCOME_NOT_DISPATCHED
+        && (direction != DIRECTION_REQUEST
+            || validated_actual.is_none()
+            || validated_actual.unwrap_or(0) <= max_bytes)
+    {
+        return Err(CapacityError::invalid(
+            "not_dispatched requires a request whose actual_bytes exceeds max_bytes",
+        ));
+    }
     let mut data = Map::new();
     data.insert("direction".to_string(), json!(direction));
     data.insert("max_bytes".to_string(), json!(max_bytes));
     data.insert("outcome".to_string(), json!(outcome));
-    if let Some(actual) = actual_bytes {
-        validate_capacity(actual)?;
+    if let Some(actual) = validated_actual {
         data.insert("actual_bytes".to_string(), json!(actual));
     }
     Ok(Value::Object(data))
+}
+
+pub fn make_compact_capacity_error(
+    direction: &str,
+    max_bytes: u64,
+    error_budget_bytes: u64,
+    correlation_id: &str,
+    outcome: &str,
+    actual_bytes: Option<u64>,
+    message: Option<&str>,
+) -> Result<Value, CapacityError> {
+    let data = capacity_error_data(direction, max_bytes, outcome, actual_bytes)?;
+    let text = message.unwrap_or_else(|| {
+        if outcome == OUTCOME_NOT_DISPATCHED {
+            "Request exceeded the byte budget."
+        } else {
+            "Result outcome is unknown; inspect state before retrying."
+        }
+    });
+    let mut payload = Map::new();
+    payload.insert("code".to_string(), json!(ERROR_CODE_CAPACITY));
+    payload.insert("message".to_string(), json!(text));
+    payload.insert("data".to_string(), data.clone());
+    payload.insert("outcome".to_string(), json!(outcome));
+    if let Some(actual) = data.get("actual_bytes") {
+        payload.insert("actual_bytes".to_string(), actual.clone());
+    }
+    let wire = serde_json::to_vec(&Value::Object(payload.clone())).map_err(|error| {
+        CapacityError::invalid(format!(
+            "compact capacity error serialization failed: {}",
+            error
+        ))
+    })?;
+    if !validate_final_bytes(&wire, error_budget_bytes)?.fits {
+        return Err(CapacityError::invalid(
+            "compact capacity error exceeds error_budget_bytes",
+        ));
+    }
+    if !correlation_id.is_empty() {
+        let text = std::str::from_utf8(&wire)
+            .map_err(|_| CapacityError::invalid("compact capacity error is not UTF-8"))?;
+        if text.contains(correlation_id) {
+            return Err(CapacityError::invalid(
+                "compact capacity error must not contain correlation_id",
+            ));
+        }
+    }
+    Ok(Value::Object(payload))
 }
 
 pub fn parse_capacity_error_data(data: &Value) -> Result<Value, CapacityError> {

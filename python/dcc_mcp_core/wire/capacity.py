@@ -24,6 +24,8 @@ MAX_RECEIVE_BYTES = 1048576
 OUTCOME_NOT_DISPATCHED = "not_dispatched"
 OUTCOME_UNKNOWN = "unknown"
 VALID_OUTCOMES = (OUTCOME_NOT_DISPATCHED, OUTCOME_UNKNOWN)
+ERROR_CODE_CAPACITY = "capacity_error"
+COMPACT_ERROR_FIELDS = ("code", "message", "data", "outcome", "actual_bytes")
 
 DIRECTION_REQUEST = "request"
 DIRECTION_RESPONSE = "response"
@@ -76,8 +78,13 @@ class CapacityPolicy:
     max_bytes: int = MAX_RECEIVE_BYTES
 
     def __post_init__(self) -> None:
-        if self.min_bytes < 1 or self.max_bytes < self.min_bytes:
-            raise ValueError("capacity policy requires 1 <= min_bytes <= max_bytes")
+        _validate_policy_bound(self.min_bytes, "min_bytes")
+        _validate_policy_bound(self.max_bytes, "max_bytes")
+        if self.max_bytes < self.min_bytes:
+            raise CapacityContractError(
+                ERROR_INVALID_CAPACITY_VALUE,
+                "capacity policy requires 1 <= min_bytes <= max_bytes",
+            )
 
     def clamp(self, value: int) -> int:
         return min(max(_validate_capacity(value), self.min_bytes), self.max_bytes)
@@ -123,6 +130,16 @@ def _validate_capacity(value: Any) -> int:
     return value
 
 
+def _validate_policy_bound(value: Any, name: str) -> int:
+    validated = _validate_capacity(value)
+    if validated == value:
+        return validated
+    raise CapacityContractError(
+        ERROR_INVALID_CAPACITY_VALUE,
+        f"capacity policy {name} must be a genuine integer",
+    )
+
+
 def validate_final_bytes(serialized: Union[str, bytes], max_bytes: int) -> ByteBudget:
     """Check the exact serialized content that the caller will send."""
     payload = serialized.encode("utf-8") if isinstance(serialized, str) else serialized
@@ -150,14 +167,63 @@ def make_capacity_error_data(
     if outcome not in VALID_OUTCOMES:
         raise CapacityContractError(ERROR_INVALID_CAPACITY_VALUE, "outcome must be not_dispatched or unknown")
     limit = _validate_capacity(max_bytes)
+    validated_actual: Optional[int] = None
+    if actual_bytes is not None:
+        validated_actual = _validate_capacity(actual_bytes)
+    if outcome == OUTCOME_NOT_DISPATCHED and (
+        direction != DIRECTION_REQUEST or validated_actual is None or validated_actual <= limit
+    ):
+        raise CapacityContractError(
+            ERROR_INVALID_CAPACITY_VALUE,
+            "not_dispatched requires a request whose actual_bytes exceeds max_bytes",
+        )
     data: Dict[str, Any] = {
         "direction": direction,
         "max_bytes": limit,
         "outcome": outcome,
     }
-    if actual_bytes is not None:
-        data["actual_bytes"] = _validate_capacity(actual_bytes)
+    if validated_actual is not None:
+        data["actual_bytes"] = validated_actual
     return data
+
+
+def make_compact_capacity_error(
+    direction: str,
+    max_bytes: int,
+    error_budget_bytes: int,
+    correlation_id: str,
+    outcome: str = OUTCOME_UNKNOWN,
+    actual_bytes: Optional[int] = None,
+    message: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Build a self-bounded structured error that never echoes correlation IDs."""
+    error_data = make_capacity_error_data(direction, max_bytes, outcome, actual_bytes)
+    text = message or (
+        "Request exceeded the byte budget."
+        if outcome == OUTCOME_NOT_DISPATCHED
+        else "Result outcome is unknown; inspect state before retrying."
+    )
+    payload: Dict[str, Any] = {
+        "code": ERROR_CODE_CAPACITY,
+        "message": text,
+        "data": error_data,
+        "outcome": outcome,
+    }
+    if "actual_bytes" in error_data:
+        payload["actual_bytes"] = error_data["actual_bytes"]
+    serialized = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    budget = validate_final_bytes(serialized, error_budget_bytes)
+    if not budget.fits:
+        raise CapacityContractError(
+            ERROR_INVALID_CAPACITY_VALUE,
+            "compact capacity error exceeds error_budget_bytes",
+        )
+    if correlation_id and correlation_id in serialized:
+        raise CapacityContractError(
+            ERROR_INVALID_CAPACITY_VALUE,
+            "compact capacity error must not contain correlation_id",
+        )
+    return payload
 
 
 def parse_capacity_error_data(data: Any) -> Dict[str, Any]:

@@ -8,7 +8,7 @@ import sys
 
 import pytest
 
-from dcc_mcp_core import bridge_capacity as contract
+from dcc_mcp_core.wire import capacity as contract
 
 VECTORS_PATH = Path(__file__).resolve().parents[1] / "contracts" / "bridge-capacity-v1.conformance.json"
 
@@ -69,6 +69,25 @@ def test_already_serialized_bytes_are_not_re_encoded():
 
     assert budget.actual_bytes == len(raw)
     assert budget.fits is True
+
+
+def test_capacity_policy_rejects_booleans_and_invalid_bounds():
+    for bad in (True, False):
+        with pytest.raises(contract.CapacityContractError) as raised:
+            contract.CapacityPolicy(bad, VECTORS["min_receive_bytes"])
+        assert raised.value.code == contract.ERROR_INVALID_CAPACITY_VALUE
+
+        with pytest.raises(contract.CapacityContractError) as raised:
+            contract.CapacityPolicy(VECTORS["min_receive_bytes"], bad)
+        assert raised.value.code == contract.ERROR_INVALID_CAPACITY_VALUE
+
+    with pytest.raises(contract.CapacityContractError) as raised:
+        contract.CapacityPolicy(0, VECTORS["min_receive_bytes"])
+    assert raised.value.code == contract.ERROR_INVALID_CAPACITY_VALUE
+
+    with pytest.raises(contract.CapacityContractError) as raised:
+        contract.CapacityPolicy(VECTORS["min_receive_bytes"] + 1, VECTORS["min_receive_bytes"])
+    assert raised.value.code == contract.ERROR_INVALID_CAPACITY_VALUE
 
 
 def test_directional_declaration_legacy_and_policy_clamping():
@@ -145,3 +164,67 @@ def test_structured_error_data_rejects_invalid_fields_consistently():
         with pytest.raises(contract.CapacityContractError) as raised:
             contract.parse_capacity_error_data(data)
         assert raised.value.code == contract.ERROR_INVALID_CAPACITY_VALUE
+
+
+def test_invalid_error_data_vectors_are_rejected():
+    vectors = [item for item in VECTORS["vectors"] if item["kind"] == "invalid_error_data"]
+    assert len(vectors) >= 2
+
+    for vector in vectors:
+        data = {
+            "direction": vector["direction"],
+            "max_bytes": vector["max_bytes"],
+            "outcome": vector["outcome"],
+        }
+        if "actual_bytes" in vector:
+            data["actual_bytes"] = vector["actual_bytes"]
+        with pytest.raises(contract.CapacityContractError) as raised:
+            contract.parse_capacity_error_data(data)
+        assert raised.value.code == vector["expected_error"]
+
+
+def test_compact_error_stays_within_its_own_budget_with_long_correlation_id():
+    vector = find_vector("error_data_not_dispatched")
+    correlation_id = "req-" + "关联-" + "a" * 512
+    payload = contract.make_compact_capacity_error(
+        vector["direction"],
+        vector["max_bytes"],
+        VECTORS["error_budget_bytes"],
+        correlation_id,
+        vector["outcome"],
+        vector["actual_bytes"],
+        vector["message"],
+    )
+    wire = contract.serialized_json_bytes(payload)
+
+    assert tuple(payload) == tuple(VECTORS["compact_error_rule"]["fields"])
+    assert contract.validate_final_bytes(wire, VECTORS["error_budget_bytes"]).fits is True
+    assert correlation_id not in wire.decode("utf-8")
+    assert contract.parse_capacity_error_data(payload["data"]) == payload["data"]
+
+
+def test_compact_error_rejects_oversized_serialization_without_recursion():
+    vector = find_vector("error_data_unknown_without_size")
+    with pytest.raises(contract.CapacityContractError) as raised:
+        contract.make_compact_capacity_error(
+            vector["direction"],
+            vector["max_bytes"],
+            1,
+            "correlation-id",
+            vector["outcome"],
+        )
+    assert raised.value.code == contract.ERROR_INVALID_CAPACITY_VALUE
+
+
+def test_compact_error_rejects_echoed_correlation_id():
+    with pytest.raises(contract.CapacityContractError) as raised:
+        contract.make_compact_capacity_error(
+            contract.DIRECTION_RESPONSE,
+            65535,
+            VECTORS["error_budget_bytes"],
+            "leak-me",
+            contract.OUTCOME_UNKNOWN,
+            70000,
+            "leak-me",
+        )
+    assert raised.value.code == contract.ERROR_INVALID_CAPACITY_VALUE

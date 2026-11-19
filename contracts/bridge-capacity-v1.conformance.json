@@ -5,6 +5,12 @@
   "outcomes": ["not_dispatched", "unknown"],
   "min_receive_bytes": 256,
   "error_budget_bytes": 512,
+  "compact_error_rule": {
+    "fields": ["code", "message", "data", "outcome", "actual_bytes"],
+    "max_bytes_key": "error_budget_bytes",
+    "contains_no_correlation_id": true,
+    "not_dispatched_requires_oversized_request": true
+  },
   "vectors": [
     {
       "id": "exact_limit_ascii",
@@ -169,6 +175,23 @@
       "direction": "response",
       "max_bytes": 65535,
       "outcome": "unknown"
+    },
+    {
+      "id": "error_data_not_dispatched_requires_actual_bytes",
+      "kind": "invalid_error_data",
+      "direction": "request",
+      "max_bytes": 65535,
+      "outcome": "not_dispatched",
+      "expected_error": "invalid_capacity_value"
+    },
+    {
+      "id": "error_data_not_dispatched_requires_oversized_request",
+      "kind": "invalid_error_data",
+      "direction": "request",
+      "actual_bytes": 65535,
+      "max_bytes": 65535,
+      "outcome": "not_dispatched",
+      "expected_error": "invalid_capacity_value"
     }
   ]
 }

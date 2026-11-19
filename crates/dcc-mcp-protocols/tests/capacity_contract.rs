@@ -161,6 +161,19 @@ fn directional_declaration_legacy_and_policy_clamping() {
 }
 
 #[test]
+fn capacity_policy_rejects_zero_and_inverted_bounds() {
+    assert!(contract::CapacityPolicy::new(0, 256).is_err());
+    assert!(contract::CapacityPolicy::new(512, 256).is_err());
+    assert_eq!(
+        contract::CapacityPolicy::new(256, 512).unwrap(),
+        contract::CapacityPolicy {
+            min_bytes: 256,
+            max_bytes: 512,
+        }
+    );
+}
+
+#[test]
 fn invalid_declarations_are_rejected_deterministically() {
     let invalid: Vec<Value> = vectors()["vectors"]
         .as_array()
@@ -174,6 +187,31 @@ fn invalid_declarations_are_rejected_deterministically() {
     for item in invalid {
         let error = contract::parse_capacity_declaration(Some(&capabilities(&item)), policy(&item))
             .expect_err("declaration must be rejected");
+        assert_eq!(error.code, item["expected_error"].as_str().unwrap());
+    }
+}
+
+#[test]
+fn invalid_error_data_vectors_are_rejected() {
+    let invalid: Vec<Value> = vectors()["vectors"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|item| item["kind"] == "invalid_error_data")
+        .cloned()
+        .collect();
+    assert!(invalid.len() >= 2);
+
+    for item in invalid {
+        let mut data = json!({
+            "direction": item["direction"],
+            "max_bytes": item["max_bytes"],
+            "outcome": item["outcome"],
+        });
+        if let Some(actual) = item.get("actual_bytes") {
+            data["actual_bytes"] = actual.clone();
+        }
+        let error = contract::parse_capacity_error_data(&data).expect_err("invalid error data");
         assert_eq!(error.code, item["expected_error"].as_str().unwrap());
     }
 }
@@ -208,6 +246,54 @@ fn structured_error_data_round_trips_without_payload_echo() {
         assert_eq!(parsed.get("actual_bytes"), item.get("actual_bytes"));
         assert!(parsed.get("content").is_none());
     }
+}
+
+#[test]
+fn compact_error_stays_within_its_own_budget_with_long_correlation_id() {
+    let item = vector("error_data_not_dispatched");
+    let budget = vectors()["error_budget_bytes"].as_u64().unwrap();
+    let correlation_id = format!("req-关联-{}", "a".repeat(512));
+    let payload = contract::make_compact_capacity_error(
+        item["direction"].as_str().unwrap(),
+        item["max_bytes"].as_u64().unwrap(),
+        budget,
+        &correlation_id,
+        item["outcome"].as_str().unwrap(),
+        item["actual_bytes"].as_u64(),
+        item["message"].as_str(),
+    )
+    .unwrap();
+    let wire = serde_json::to_vec(&payload).unwrap();
+    let object = payload.as_object().unwrap();
+
+    for field in vectors()["compact_error_rule"]["fields"]
+        .as_array()
+        .unwrap()
+    {
+        assert!(object.contains_key(field.as_str().unwrap()));
+    }
+    assert!(contract::validate_final_bytes(&wire, budget).unwrap().fits);
+    assert!(!String::from_utf8(wire).unwrap().contains(&correlation_id));
+    assert_eq!(
+        contract::parse_capacity_error_data(&object["data"]).unwrap(),
+        object["data"]
+    );
+}
+
+#[test]
+fn compact_error_rejects_oversized_serialization_without_recursion() {
+    let item = vector("error_data_unknown_without_size");
+    let error = contract::make_compact_capacity_error(
+        item["direction"].as_str().unwrap(),
+        item["max_bytes"].as_u64().unwrap(),
+        1,
+        "correlation-id",
+        item["outcome"].as_str().unwrap(),
+        None,
+        None,
+    )
+    .expect_err("one byte cannot hold a structured error");
+    assert_eq!(error.code, contract::ERROR_INVALID_CAPACITY_VALUE);
 }
 
 #[test]
