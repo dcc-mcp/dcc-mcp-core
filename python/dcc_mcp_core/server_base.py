@@ -36,6 +36,7 @@ from dcc_mcp_core._server import resolve_diagnostics_state
 from dcc_mcp_core._server import resolve_execution_binding
 from dcc_mcp_core._server import resolve_observability_flags
 from dcc_mcp_core._server.diagnostic_state import DiagnosticRuntimeState
+from dcc_mcp_core._server.host_capability_registration import HostCapabilityRegistrationMixin
 from dcc_mcp_core._server.inprocess_executor import BaseDccCallableDispatcher
 from dcc_mcp_core._server.inprocess_executor import HostExecutionBridge
 from dcc_mcp_core._server.minimal_mode import MinimalModeConfig
@@ -73,7 +74,7 @@ __all__ = ["DccServerBase", "create_adapter_server", "create_skill_server"]
 _package_version = partial(package_version, fallback=_PKG_VERSION, load_core=True)
 
 
-class DccServerBase:
+class DccServerBase(HostCapabilityRegistrationMixin):
     """Base MCP server for any DCC application.
 
     The class-level methods are a compatibility facade. New adapter code should
@@ -228,6 +229,11 @@ class DccServerBase:
         self._gateway_runtime_mode: str = "unknown"
         self._gateway_daemon_status: dict[str, Any] = {}
         self._snapshot_provider: Any | None = diag.snapshot_provider
+        self._host_capability_provider: Callable[[], dict[str, Any]] | None = None
+        self._host_capability_cache: Any | None = None
+        self._host_capability_provider_cache_key: Callable[[], tuple[str | None, str, str]] | None = None
+        self._host_capability_registration: Any | None = None
+        self._initialize_host_capability_registration(_PKG_VERSION)
 
     # --- seam controller accessors (lazy init for test compatibility, PIP-688) ---
 
