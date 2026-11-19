@@ -144,3 +144,28 @@ fn human_output_marks_a_failed_backend_result() {
     assert!(rendered.starts_with("status=FAILED "));
     assert!(rendered.contains("NOT_RUN (0)"));
 }
+
+#[test]
+fn human_output_reads_a_standard_mcp_text_summary() {
+    let summary = json!({
+        "host_version": "16.0",
+        "probed_at": "2026-11-20T00:00:00Z",
+        "available": [],
+        "declared": [],
+        "unavailable": [],
+        "not_run": [{"key": "host.capabilities", "probe_result": "NOT_RUN"}],
+    });
+    let value = json!({
+        "result": {
+            "content": [{
+                "type": "text",
+                "text": serde_json::to_string(&json!({"context": summary})).unwrap(),
+            }],
+        },
+    });
+
+    let rendered = render_human(&value);
+
+    assert!(rendered.starts_with("status=OK host=16.0"));
+    assert!(rendered.contains("NOT_RUN (1)"));
+}

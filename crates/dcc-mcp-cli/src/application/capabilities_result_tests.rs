@@ -14,7 +14,8 @@ fn successful_result_keeps_evidence_and_routing_metadata() {
         "gateway_stats_recorded": true
     });
 
-    assert_eq!(project_result(result.clone(), true), result);
+    assert_eq!(project_result(result.clone()), result);
+    assert_eq!(project_result(result.clone()), result);
     assert_eq!(
         backend_summary(&result).unwrap()["available"][0]["evidence_ref"],
         "artifact://probe-1"
@@ -46,7 +47,11 @@ fn missing_summary_is_not_projected_into_fake_evidence() {
     let result = json!({"success": true, "context": "not-an-object"});
 
     assert!(backend_summary(&result).unwrap().is_string());
-    assert_eq!(project_result(result.clone(), true), result);
+    assert!(backend_summary_ref(&result).unwrap().is_string());
+    let projected = project_result(result);
+    assert_eq!(projected["ok"], false);
+    assert_eq!(projected["error"]["code"], "invalid_capabilities_response");
+    assert!(!command_succeeded(&projected["error"]["response"]));
 }
 
 #[test]
@@ -59,7 +64,7 @@ fn backend_failure_keeps_the_original_payload_and_identity() {
         "instance_short": "abc12345"
     });
 
-    let projected = project_result(result, false);
+    let projected = project_result(result);
 
     assert_eq!(projected["ok"], false);
     assert_eq!(
@@ -69,4 +74,43 @@ fn backend_failure_keeps_the_original_payload_and_identity() {
     assert_eq!(projected["dcc_type"], "comfyui");
     assert_eq!(projected["instance_short"], "abc12345");
     assert_eq!(projected["backend_tool"], "dcc_host_capabilities");
+}
+
+#[test]
+fn standard_mcp_text_summary_is_recognized() {
+    let summary = json!({"host_version": "20.5", "available": []});
+    let result = json!({
+        "result": {
+            "content": [{
+                "type": "text",
+                "text": serde_json::to_string(&json!({"context": summary})).unwrap(),
+            }],
+        },
+    });
+
+    assert_eq!(backend_summary(&result).unwrap()["host_version"], "20.5");
+    assert_eq!(project_result(result.clone()), result);
+    assert!(command_succeeded(&result));
+}
+
+#[test]
+fn malformed_text_summary_fails_without_changing_the_original_payload() {
+    let result = json!({
+        "success": true,
+        "result": {
+            "content": [{"type": "text", "text": "not-json"}],
+        },
+        "dcc_type": "unreal",
+        "instance_short": "abc12345",
+    });
+
+    let projected = project_result(result.clone());
+
+    assert!(backend_summary(&result).is_none());
+    assert!(backend_summary_ref(&result).is_none());
+    assert!(!command_succeeded(&result));
+    assert_eq!(projected["ok"], false);
+    assert_eq!(projected["error"]["code"], "invalid_capabilities_response");
+    assert_eq!(projected["dcc_type"], "unreal");
+    assert_eq!(projected["instance_short"], "abc12345");
 }

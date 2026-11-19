@@ -95,6 +95,11 @@ async fn repeated_keys_and_force_refresh_reach_the_direct_gateway_call() {
                         "instance_id": path[4],
                         "body": body
                     }));
+                    seen.push(json!({
+                        "dcc_type": path[2],
+                        "instance_id": path[4],
+                        "body": body
+                    }));
                     correlated_json(&headers, summary())
                 },
             ),
@@ -117,13 +122,14 @@ async fn repeated_keys_and_force_refresh_reach_the_direct_gateway_call() {
             "render.lpe".to_string(),
         ],
         true,
+        Some(json!({"agent_context": {"session_id": "capabilities-session"}})),
     )
     .run(&control, Duration::from_secs(2))
     .await
     .unwrap();
 
     let seen = calls.lock().unwrap();
-    assert_eq!(seen.len(), 1);
+    assert_eq!(seen.len(), 2);
     assert_eq!(seen[0]["dcc_type"], "houdini");
     assert_eq!(
         seen[0]["instance_id"],
@@ -136,12 +142,16 @@ async fn repeated_keys_and_force_refresh_reach_the_direct_gateway_call() {
         "render.cryptomatte"
     );
     assert_eq!(seen[0]["body"]["arguments"]["keys"][1], "render.lpe");
+    assert_eq!(
+        seen[0]["body"]["meta"]["agent_context"]["session_id"],
+        "capabilities-session"
+    );
     assert_eq!(result["dcc_type"], "houdini");
     assert_eq!(result["instance_short"], "abc12345");
     assert_eq!(result["control_route"], "gateway");
 
     let backend_ok = call_result_succeeded(&result);
-    let has_summary = backend_summary(&result).is_some_and(Value::is_object);
+    let has_summary = backend_summary(&result).is_some_and(|summary| summary.is_object());
     assert!(backend_ok);
     assert!(has_summary);
 
@@ -187,10 +197,11 @@ async fn unique_instance_id_is_resolved_without_caller_supplying_one() {
         true,
     );
 
-    let result = CapabilitiesCommand::new(Some("photoshop".to_string()), None, Vec::new(), false)
-        .run(&control, Duration::from_secs(2))
-        .await
-        .unwrap();
+    let result =
+        CapabilitiesCommand::new(Some("photoshop".to_string()), None, Vec::new(), false, None)
+            .run(&control, Duration::from_secs(2))
+            .await
+            .unwrap();
 
     assert_eq!(result["dcc_type"], "photoshop");
     assert_eq!(

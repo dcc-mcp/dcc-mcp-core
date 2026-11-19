@@ -16,7 +16,8 @@ const GROUPS: [(&str, &str); 4] = [
 
 #[must_use]
 pub(crate) fn render_human(value: &Value) -> String {
-    let summary = backend_summary(value).unwrap_or(value);
+    let owned_summary = backend_summary(value);
+    let summary = owned_summary.as_ref().unwrap_or(value);
     let status = if value.get("ok").and_then(Value::as_bool) == Some(false)
         || value.get("success").and_then(Value::as_bool) == Some(false)
     {

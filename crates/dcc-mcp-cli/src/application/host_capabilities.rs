@@ -17,6 +17,7 @@ pub struct CapabilitiesCommand {
     pub instance_id: Option<String>,
     pub keys: Vec<String>,
     pub force_refresh: bool,
+    pub meta: Option<Value>,
 }
 
 impl CapabilitiesCommand {
@@ -26,12 +27,14 @@ impl CapabilitiesCommand {
         instance_id: Option<String>,
         keys: Vec<String>,
         force_refresh: bool,
+        meta: Option<Value>,
     ) -> Self {
         Self {
             dcc_type,
             instance_id,
             keys: normalize_keys(keys),
             force_refresh,
+            meta,
         }
     }
 
@@ -56,7 +59,7 @@ impl CapabilitiesCommand {
                 Some(request.dcc_type.clone()),
                 Some(request.instance_id.clone()),
                 request.arguments(),
-                None,
+                self.meta.clone(),
                 timeout,
             )
             .await?;

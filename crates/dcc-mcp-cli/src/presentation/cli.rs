@@ -14,7 +14,6 @@ use crate::application::call_attribution::{
     attach_agent_session_id, attach_batch_agent_session_id,
 };
 use crate::application::capabilities_result;
-use crate::application::capabilities_result::backend_summary;
 use crate::application::client::DccMcpClient;
 use crate::application::control_plane::DccControlPlane;
 use crate::application::doctor::{DoctorContext, run_doctor};
@@ -474,16 +473,15 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             let effective_timeout = global_timeout_secs
                 .unwrap_or(DEFAULT_CALL_TIMEOUT_SECS)
                 .max(1);
-            let result = CapabilitiesCommand::new(dcc_type, instance_id, keys, force_refresh)
+            let meta = attach_agent_session_id(None, agent_session_id.as_deref())?;
+            let result = CapabilitiesCommand::new(dcc_type, instance_id, keys, force_refresh, meta)
                 .run(&control, Duration::from_secs(effective_timeout))
                 .await?;
-            let backend_ok = crate::application::local_control::call_result_succeeded(&result);
-            let has_summary = backend_summary(&result).is_some_and(|value| value.is_object());
-            failed = !backend_ok || !has_summary;
+            failed = !capabilities_result::command_succeeded(&result);
             if failed {
                 exit_code = ExitCode::Unavailable;
             }
-            let result = capabilities_result::project_result(result, backend_ok);
+            let result = capabilities_result::project_result(result);
             if writer.format() == OutputFormat::Human {
                 human_capabilities_view = Some(capabilities_output::render_human(&result));
             }
@@ -1088,7 +1086,11 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
 
     let failure = failed.then(|| failure_envelope(&value, exit_code));
     if let Some(rendered) = human_capabilities_view {
-        writer.diagnostic(&rendered)?;
+        if let Some(envelope) = failure {
+            writer.write_error(&envelope)?;
+            std::process::exit(exit_code.as_i32());
+        }
+        return writer.write_human(&rendered);
     }
     if canonicalize_result {
         result_output::canonical_result(&mut value);
