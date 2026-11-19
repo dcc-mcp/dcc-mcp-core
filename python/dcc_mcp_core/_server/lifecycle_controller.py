@@ -15,6 +15,7 @@ from __future__ import annotations
 import atexit
 import contextlib
 import logging
+import socket
 from typing import Any
 import weakref
 
@@ -25,6 +26,15 @@ from dcc_mcp_core.plugin_manifest import build_plugin_manifest
 logger = logging.getLogger(__name__)
 
 _PKG_VERSION: str = "0.0.0-dev"
+_REMOTE_LISTENER_PROBE_TIMEOUT_SECS = 0.25
+_OWNED_DAEMON_START_REASONS = frozenset(
+    {
+        "spawned",
+        "launch_in_progress",
+        "version_takeover_spawned",
+        "takeover_spawned_by_peer",
+    }
+)
 
 
 class LifecycleController:
@@ -320,16 +330,50 @@ class LifecycleController:
         return status
 
     def _remote_listener_policy_status(self) -> dict[str, Any]:
-        """Report configured intent without claiming an observed socket state."""
-        config = self._owner._config
+        """Report resolved policy and a best-effort observed listener state."""
+        owner = self._owner
+        config = owner._config
+        host = getattr(config, "gateway_remote_host", None)
         port = getattr(config, "gateway_remote_port", None)
-        return {
-            "configured_host": getattr(config, "gateway_remote_host", None),
+        status = {
+            "configured_host": host,
             "configured_port": port,
             "configured_enabled": port > 0 if port is not None else None,
             "scope": "adapter_started_gateways",
             "effective_state": "unverified",
         }
+        if port is None:
+            return status
+        if port <= 0:
+            status["effective_state"] = "disabled"
+            return status
+
+        # A non-winning adapter cannot prove the state of a shared gateway.
+        # For daemon-backed mode, only a daemon this startup spawned or took
+        # over was configured with this adapter's policy; reusing a healthy
+        # shared daemon proves no such ownership.
+        runtime_mode = str(getattr(owner, "_gateway_runtime_mode", "") or "")
+        owns_gateway = bool(getattr(owner, "is_gateway", False))
+        if runtime_mode == "daemon-backed":
+            daemon_status = getattr(owner, "_gateway_daemon_status", {}) or {}
+            owns_gateway = str(daemon_status.get("reason", "") or "") in _OWNED_DAEMON_START_REASONS
+        if not owns_gateway:
+            return status
+
+        probe_host = host or "127.0.0.1"
+        if probe_host in {"0.0.0.0", "::", ""}:
+            probe_host = "127.0.0.1"
+        try:
+            with socket.create_connection(
+                (probe_host, int(port)),
+                timeout=_REMOTE_LISTENER_PROBE_TIMEOUT_SECS,
+            ):
+                pass
+        except (OSError, ValueError):
+            status["effective_state"] = "unavailable"
+        else:
+            status["effective_state"] = "listening"
+        return status
 
     # -- plugin manifest ------------------------------------------------------
 

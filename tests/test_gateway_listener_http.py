@@ -108,10 +108,12 @@ def test_public_adapter_keeps_gateway_routes_with_secondary_policy(tmp_path, mon
         mcp_output = json.loads(mcp["result"]["content"][0]["text"])["output"]
         for result in [rest["output"], mcp_output]:
             assert result["remote_listener"]["configured_port"] == remote_port
-            assert result["remote_listener"]["effective_state"] == "unverified"
+            expected_state = "listening" if remote_port else "disabled"
+            assert result["remote_listener"]["effective_state"] == expected_state
         status = server.get_gateway_election_status()
         assert status["remote_listener"]["configured_port"] == remote_port
-        assert status["remote_listener"]["effective_state"] == "unverified"
+        expected_state = "listening" if remote_port else "disabled"
+        assert status["remote_listener"]["effective_state"] == expected_state
         assert status["gateway_runtime_mode"] == "embedded-fallback"
     finally:
         server.stop()

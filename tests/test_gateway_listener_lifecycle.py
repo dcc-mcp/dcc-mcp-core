@@ -142,8 +142,88 @@ def test_diagnostics_distinguish_configuration_from_observed_state(tmp_path, ele
         "configured_port": 0,
         "configured_enabled": False,
         "scope": "adapter_started_gateways",
-        "effective_state": "unverified",
+        "effective_state": "disabled",
     }
+
+
+@pytest.mark.parametrize(
+    "reason",
+    ["spawned", "launch_in_progress", "version_takeover_spawned", "takeover_spawned_by_peer"],
+)
+def test_diagnostics_reports_unavailable_remote_listener_for_owned_daemon(tmp_path, monkeypatch, reason):
+    owner = _owner(tmp_path, gateway_remote_port=19766)
+    owner._gateway_runtime_mode = "daemon-backed"
+    owner._gateway_daemon_status = {"ok": True, "reason": reason}
+
+    def refuse_connection(*_args, **_kwargs):
+        raise ConnectionRefusedError()
+
+    monkeypatch.setattr(
+        "dcc_mcp_core._server.lifecycle_controller.socket.create_connection",
+        refuse_connection,
+    )
+
+    status = LifecycleController(owner).get_gateway_election_status()
+
+    assert status["remote_listener"]["effective_state"] == "unavailable"
+
+
+@pytest.mark.parametrize(
+    "runtime_mode,reason,is_gateway",
+    [
+        ("daemon-backed", "already_healthy", False),
+        ("daemon-backed", "already_healthy", True),
+        ("daemon-backed", "test_unknown_reason", False),
+        ("daemon-backed", "", False),
+        ("daemon-backed", None, False),
+        ("embedded-fallback", "spawned", False),
+    ],
+)
+def test_diagnostics_keep_shared_daemon_listener_unverified(tmp_path, monkeypatch, runtime_mode, reason, is_gateway):
+    owner = _owner(tmp_path, gateway_remote_port=19766)
+    owner._gateway_runtime_mode = runtime_mode
+    owner._gateway_daemon_status = {"ok": True, "reason": reason}
+    owner.is_gateway = is_gateway
+
+    def unexpected_probe(*_args, **_kwargs):
+        pytest.fail("shared daemon listener must not be probed")
+
+    monkeypatch.setattr(
+        "dcc_mcp_core._server.lifecycle_controller.socket.create_connection",
+        unexpected_probe,
+    )
+
+    status = LifecycleController(owner).get_gateway_election_status()
+
+    assert status["remote_listener"]["effective_state"] == "unverified"
+
+
+def test_embedded_winner_still_probes_remote_listener(tmp_path, monkeypatch):
+    owner = _owner(tmp_path, gateway_remote_port=19766)
+    owner._gateway_runtime_mode = "embedded-fallback"
+    owner.is_gateway = True
+
+    def refuse_connection(*_args, **_kwargs):
+        raise ConnectionRefusedError()
+
+    monkeypatch.setattr(
+        "dcc_mcp_core._server.lifecycle_controller.socket.create_connection",
+        refuse_connection,
+    )
+
+    status = LifecycleController(owner).get_gateway_election_status()
+
+    assert status["remote_listener"]["effective_state"] == "unavailable"
+
+
+def test_non_winning_embedded_adapter_keeps_remote_listener_unverified(tmp_path):
+    owner = _owner(tmp_path, gateway_remote_port=19766)
+    owner._gateway_runtime_mode = "embedded-fallback"
+    owner.is_gateway = False
+
+    status = LifecycleController(owner).get_gateway_election_status()
+
+    assert status["remote_listener"]["effective_state"] == "unverified"
 
 
 def test_sidecar_environment_preserves_explicit_zero(tmp_path, monkeypatch):
