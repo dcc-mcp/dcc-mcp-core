@@ -279,6 +279,12 @@ def batch_dispatch(
             later invocations so a failed batch resumes at its first
             incomplete call.
         idempotency_namespace: Stable caller-owned namespace for cache keys.
+            Use the same value for retries of one workflow. Use distinct
+            values for different tenants, sessions, or workflows that must
+            not share results. Keys also include the step index and canonical
+            arguments, so reordering calls changes identity. TTL and retention
+            are owned by the supplied store; this function never sets or
+            checks expiry. Failures are never cached.
 
     Returns:
         A dict with keys:

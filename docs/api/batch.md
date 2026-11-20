@@ -76,6 +76,12 @@ print(summary["total"], summary["succeeded"])
 print(summary["merged"])   # combined output dict
 ```
 
+**Idempotent resume (#2298)**
+
+Pass `idempotency_store` to resume a failed batch from its first incomplete step. Only successful results are cached; failures and exceptions are always retried. The store must expose `get(key) -> result` and `put(key, result)`.
+
+The key is `batch:v1:sha256(namespace, index, tool_name, canonical_arguments)`. `idempotency_namespace` (default `"batch"`) must stay stable across retries of the same workflow and be unique per tenant, workflow, or session whose results must not be shared. Reordering calls changes index-based keys. Because `batch_dispatch` has no TTL parameter, retention is entirely owned by the supplied store: a durable, TTL-aware store is required when results must expire or survive process restarts. Cached entries carry fresh `_batch` attribution on every return and never reuse the original request IDs.
+
 ## `EvalContext(dispatcher, *, sandbox=True, timeout_secs=30)`
 
 Sandboxed script-execution context with access to `dispatch(name, args)`.

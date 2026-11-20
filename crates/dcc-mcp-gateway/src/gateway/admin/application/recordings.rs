@@ -17,7 +17,7 @@ use dcc_mcp_workflow::{
     compile_recording, schema_fingerprint,
 };
 
-use super::super::infra::activity::collect_traces;
+use super::super::infra::activity::collect_session_traces;
 use crate::gateway::admin::trace::AgentContext;
 use crate::gateway::record_replay::{RecordingStoreError, StartRecording};
 
@@ -367,13 +367,11 @@ pub async fn handle_session_compile(
             "Session history can only be compiled by its originating caller session.",
         );
     }
-    let mut traces = collect_traces(&state, 2_000)
+    let traces = collect_session_traces(&state, body.session_id.as_str(), 2_000)
         .await
         .into_iter()
-        .filter(|trace| trace.session_id.as_deref() == Some(body.session_id.as_str()))
         .filter(|trace| trace.ok && trace.tool_slug.is_some())
         .collect::<Vec<_>>();
-    traces.sort_by_key(|trace| trace.started_at);
     if traces.is_empty() {
         return error_response(
             StatusCode::NOT_FOUND,
@@ -384,20 +382,36 @@ pub async fn handle_session_compile(
     let snapshot = state.gateway.capability_index.snapshot();
     let mut events = Vec::with_capacity(traces.len());
     let mut ui_queries: HashMap<String, Value> = HashMap::new();
-    let mut target_dcc = None;
-    let mut target_instance = None;
-    for (index, trace) in traces.into_iter().enumerate() {
+    let mut target_dcc: Option<String> = None;
+    let mut target_instance: Option<String> = None;
+    let mut parsed_targets = Vec::with_capacity(traces.len());
+    for trace in traces.iter() {
         let tool_slug = trace.tool_slug.as_deref().unwrap_or_default();
         let Some((captured_dcc, _, _)) = crate::gateway::capability::parse_slug(tool_slug) else {
             return compile_error("invalid_recorded_slug", tool_slug);
         };
+        if let Some(previous) = target_dcc.as_deref()
+            && !previous.eq_ignore_ascii_case(captured_dcc)
+        {
+            return compile_error("mixed_dcc_session", captured_dcc);
+        }
         if target_dcc.is_none() {
             target_dcc = Some(captured_dcc.to_owned());
         }
-        if target_instance.is_none() {
-            target_instance = trace.instance_id.clone();
+        let instance_id = trace.instance_id.as_deref().unwrap_or("");
+        if let Some(previous) = target_instance.as_deref()
+            && previous != instance_id
+        {
+            return compile_error("mixed_target_instance", instance_id);
         }
-        let Some(input) = trace.input else {
+        if target_instance.is_none() && !instance_id.is_empty() {
+            target_instance = Some(instance_id.to_owned());
+        }
+        parsed_targets.push(trace);
+    }
+    for (index, trace) in parsed_targets.into_iter().enumerate() {
+        let tool_slug = trace.tool_slug.as_deref().unwrap_or_default();
+        let Some(ref input) = trace.input else {
             return compile_error("session_input_missing", &trace.request_id);
         };
         if input.truncated {

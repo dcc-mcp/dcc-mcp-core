@@ -60,6 +60,7 @@ impl WorkflowExecutor {
         let state = RunState {
             workflow_id,
             root_job_id,
+            target_dcc: self.target_dcc.clone(),
             context: WorkflowContext::new(inputs.clone()),
             notifier: Arc::clone(&self.notifier),
             artefacts: self.artefacts.clone(),

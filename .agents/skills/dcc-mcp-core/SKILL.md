@@ -454,8 +454,9 @@ Repeating work in a DCC host has seven shipped moves. Full details live in the
    unavailable, report the interruption and wait for a storage-capable resume instead of
    restarting with `workflows_run`.
 5. **Reuse unchanged workflow calls** — unannotated tool steps derive a stable global key from their
-   tool identity and rendered arguments; successful results are reused across runs. Set
-   `reuse_result: false` on stateful steps that must execute every time.
+   target DCC, tool identity, and rendered arguments; successful results are reused across runs.
+   The embedding executor must configure its target DCC; automatic reuse is disabled without it.
+   Set `reuse_result: false` on stateful steps that must execute every time.
 6. **Resume a partial batch** — pass `idempotency_store` to `batch_dispatch`. It must expose
    `get(key)` / `put(key, result)`; only successful positions are reused, with per-invocation
    `_batch` metadata rebuilt on each return.

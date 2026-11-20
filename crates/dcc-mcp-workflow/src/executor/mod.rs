@@ -85,6 +85,9 @@ pub use policy_wrapper::*;
 pub struct RunState {
     workflow_id: Uuid,
     root_job_id: Uuid,
+    /// DCC that owns local `tool` steps in this run.
+    /// `None` disables automatic reuse for local steps.
+    target_dcc: Option<String>,
     context: WorkflowContext,
     notifier: SharedNotifier,
     artefacts: Option<SharedArtefactStore>,
@@ -128,6 +131,10 @@ impl RunState {
         *self.completed.lock() += 1;
     }
 
+    fn target_dcc(&self) -> Option<&str> {
+        self.target_dcc.as_deref()
+    }
+
     fn record_output_snapshot(&self, step_id: &str, output: &Value) {
         self.outputs_snapshot
             .write()
@@ -154,6 +161,9 @@ impl RunState {
 pub struct WorkflowExecutor {
     tool_caller: SharedToolCaller,
     remote_caller: SharedRemoteCaller,
+    /// DCC that owns local `tool` steps in this run.
+    /// `None` disables automatic reuse for local steps.
+    target_dcc: Option<String>,
     notifier: SharedNotifier,
     artefacts: Option<SharedArtefactStore>,
     idempotency: SharedIdempotencyStore,

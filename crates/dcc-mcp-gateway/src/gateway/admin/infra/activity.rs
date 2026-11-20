@@ -90,6 +90,29 @@ pub async fn collect_audits(state: &AdminState, limit: usize) -> Vec<AdminAuditR
     rows
 }
 
+pub async fn collect_session_traces(
+    state: &AdminState,
+    session_id: &str,
+    limit: usize,
+) -> Vec<DispatchTrace> {
+    let mut by_id: HashMap<String, DispatchTrace> = HashMap::new();
+    if let Some(lane) = &state.admin_sqlite_lane {
+        for trace in lane.reader().list_session_traces(session_id, limit) {
+            by_id.insert(trace.request_id.clone(), trace);
+        }
+    }
+    if let Some(log) = &state.trace_log {
+        for trace in log.recent(limit).into_iter().rev() {
+            if trace.session_id.as_deref() == Some(session_id) {
+                by_id.insert(trace.request_id.clone(), trace);
+            }
+        }
+    }
+    let mut rows: Vec<_> = by_id.into_values().collect();
+    rows.sort_by_key(|trace| trace.started_at);
+    rows.truncate(limit);
+    rows
+}
 pub async fn collect_traces(state: &AdminState, limit: usize) -> Vec<DispatchTrace> {
     let mut by_id: HashMap<String, DispatchTrace> = HashMap::new();
     if let Some(lane) = &state.admin_sqlite_lane {

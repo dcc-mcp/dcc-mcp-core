@@ -172,6 +172,9 @@ steps:
 | `idempotency_scope` | enum | `workflow` | `workflow` or `global`. |
 | `idempotency_ttl_secs` | `u64` | none | Per-entry TTL. `0` is normalised to `None`. Honoured by both `IdempotencyCache` (in-memory) and `SqliteIdempotencyStore` (persistent, gated on `job-persist-sqlite`). See [`crate::sqlite::SqliteIdempotencyStore`] for the persistent backend. |
 
+Automatic result reuse changes the behavior of older workflow specs: tool steps
+without an explicit key now skip unchanged successful calls. Set
+`reuse_result: false` on a step to force every execution.
 Backoff formula: `min(base(attempt), max_delay) * (1 + rand(-jitter, +jitter))`
 where `base` is `initial_delay` (fixed), `initial_delay * (n-1)` (linear),
 or `initial_delay * 2^(n-2)` (exponential).

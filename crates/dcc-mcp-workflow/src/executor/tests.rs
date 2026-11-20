@@ -254,7 +254,10 @@ async fn unannotated_steps_reuse_only_unchanged_rendered_calls() {
         photoshop_counter.fetch_add(1, Ordering::SeqCst);
         Ok(json!({"seen": args}))
     });
-    let exe = WorkflowExecutor::builder().tool_caller(mock).build();
+    let exe = WorkflowExecutor::builder()
+        .tool_caller(mock)
+        .target_dcc("maya")
+        .build();
 
     let first = spec_with_steps(vec![
         tool_step(
@@ -314,28 +317,103 @@ async fn automatic_result_reuse_can_be_disabled_per_step() {
 }
 
 #[test]
-fn automatic_result_key_is_stable_across_host_families() {
+fn automatic_result_key_binds_target_dcc_and_remote_identity() {
     use crate::idempotency::automatic_result_key;
 
-    let local = tool_step(
-        "s1",
-        "maya_primitives__create_sphere",
-        json!({"radius": 2.0}),
-    );
-    let remote = remote_step("s2", "photoshop", "psd__export", json!({"radius": 2.0}));
-    let first = automatic_result_key(&local, &json!({"radius": 2.0})).unwrap();
+    let local = tool_step("s1", "create_sphere", json!({"radius": 2.0}));
+    let maya = automatic_result_key(&local, "maya", &json!({"radius": 2.0})).unwrap();
+    let houdini = automatic_result_key(&local, "houdini", &json!({"radius": 2.0})).unwrap();
+
     assert_eq!(
-        first,
-        automatic_result_key(&local, &json!({"radius": 2.0})).unwrap()
+        maya,
+        automatic_result_key(&local, "maya", &json!({"radius": 2.0})).unwrap()
+    );
+    assert_ne!(maya, houdini);
+    assert_ne!(
+        maya,
+        automatic_result_key(&local, "maya", &json!({"radius": 3.0})).unwrap()
+    );
+
+    let canary = tool_step("s2", "create_sphere", json!({"radius": 2.0}));
+    assert_eq!(
+        maya,
+        automatic_result_key(&canary, "maya", &json!({"radius": 2.0})).unwrap()
+    );
+
+    let remote_maya = remote_step("s3", "maya", "create_sphere", json!({"radius": 2.0}));
+    let remote_houdini = remote_step("s4", "houdini", "create_sphere", json!({"radius": 2.0}));
+    assert_eq!(
+        automatic_result_key(&remote_maya, "maya", &json!({"radius": 2.0})).unwrap(),
+        automatic_result_key(&remote_maya, "maya", &json!({"radius": 2.0})).unwrap()
     );
     assert_ne!(
-        first,
-        automatic_result_key(&remote, &json!({"radius": 2.0})).unwrap()
+        automatic_result_key(&remote_maya, "maya", &json!({"radius": 2.0})).unwrap(),
+        automatic_result_key(&remote_houdini, "houdini", &json!({"radius": 2.0})).unwrap()
     );
     assert_ne!(
-        first,
-        automatic_result_key(&local, &json!({"radius": 3.0})).unwrap()
+        maya,
+        automatic_result_key(&remote_maya, "maya", &json!({"radius": 2.0})).unwrap()
     );
+    assert!(automatic_result_key(&local, "", &json!({"radius": 2.0})).is_none());
+}
+
+#[tokio::test]
+async fn automatic_result_reuse_is_scoped_to_executor_target_dcc() {
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    let local = tool_step("s1", "create_sphere", json!({"radius": 2.0}));
+    let calls = Arc::new(AtomicU32::new(0));
+    for dcc in ["maya", "houdini"] {
+        let counter = Arc::clone(&calls);
+        let caller = Arc::new(MockToolCaller::new());
+        caller.add("create_sphere", move |_| {
+            counter.fetch_add(1, Ordering::SeqCst);
+            Ok(json!({"dcc": dcc}))
+        });
+        let exe = WorkflowExecutor::builder()
+            .tool_caller(caller)
+            .target_dcc(dcc)
+            .build();
+        for _ in 0..2 {
+            assert_eq!(
+                exe.run(spec_with_steps(vec![local.clone()]), Value::Null, None)
+                    .unwrap()
+                    .wait()
+                    .await,
+                WorkflowStatus::Completed
+            );
+        }
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test]
+async fn automatic_result_reuse_without_target_dcc_is_disabled() {
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    let calls = Arc::new(AtomicU32::new(0));
+    let counter = Arc::clone(&calls);
+    let caller = Arc::new(MockToolCaller::new());
+    caller.add("create_sphere", move |_| {
+        counter.fetch_add(1, Ordering::SeqCst);
+        Ok(json!({"ok": true}))
+    });
+    let exe = WorkflowExecutor::builder().tool_caller(caller).build();
+    let spec = spec_with_steps(vec![tool_step(
+        "s1",
+        "create_sphere",
+        json!({"radius": 2.0}),
+    )]);
+    for _ in 0..2 {
+        assert_eq!(
+            exe.run(spec.clone(), Value::Null, None)
+                .unwrap()
+                .wait()
+                .await,
+            WorkflowStatus::Completed
+        );
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
 }
 
 #[tokio::test]
@@ -732,6 +810,7 @@ async fn automatic_result_key_persists_across_executor_rebuild() {
         });
         let executor = WorkflowExecutor::builder()
             .tool_caller(caller)
+            .target_dcc("nuke")
             .idempotency_store(SqliteIdempotencyStore::new(Arc::clone(&storage)))
             .storage(storage)
             .build();

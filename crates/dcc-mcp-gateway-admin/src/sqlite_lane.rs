@@ -56,6 +56,16 @@ impl AdminSqliteReader {
             .collect()
     }
 
+    /// Read all persisted traces for one session, oldest first.
+    #[must_use]
+    pub fn list_session_traces(&self, session_id: &str, limit: usize) -> Vec<DispatchTrace> {
+        self.inner
+            .list_session_traces_json(session_id, limit)
+            .into_iter()
+            .filter_map(|s| serde_json::from_str(&s).ok())
+            .collect()
+    }
+
     #[must_use]
     pub fn get_trace(&self, request_id: &str) -> Option<DispatchTrace> {
         let s = self.inner.get_trace_json(request_id)?;
@@ -518,6 +528,11 @@ impl AdminSqliteReader {
     ) -> Vec<DispatchTrace> {
         vec![]
     }
+    /// No persisted traces when SQLite support is disabled.
+    #[must_use]
+    pub fn list_session_traces(&self, _session_id: &str, _limit: usize) -> Vec<DispatchTrace> {
+        vec![]
+    }
 
     #[must_use]
     pub fn get_trace(&self, _request_id: &str) -> Option<DispatchTrace> {
@@ -759,6 +774,47 @@ mod tests {
     }
 
     #[test]
+    fn roundtrip_session_traces() {
+        let dir = tempdir().unwrap();
+        let db = dir.path().join("session.sqlite");
+        let lane = AdminSqliteLane::spawn(db.clone(), 30).expect("spawn");
+        let mut t = DispatchTrace {
+            request_id: "session-r1".into(),
+            trace_id: "trace-session".into(),
+            span_id: None,
+            parent_span_id: None,
+            parent_request_id: None,
+            trace_flags: None,
+            trace_state: None,
+            method: "tools/call".into(),
+            tool_slug: Some("maya.abcd.scene__build".into()),
+            instance_id: None,
+            session_id: Some("maya-session".into()),
+            dcc_type: Some("maya".into()),
+            transport: None,
+            agent_context: None,
+            started_at: SystemTime::now(),
+            total_ms: 12,
+            ok: true,
+            spans: vec![],
+            input: None,
+            output: None,
+            script_execution: None,
+            token_accounting: None,
+            llm_usage: None,
+        };
+        lane.try_persist_trace(&t);
+        t.request_id = "other-r1".into();
+        t.session_id = Some("houdini-session".into());
+        lane.try_persist_trace(&t);
+        drop(lane);
+
+        let reader = AdminSqliteReader::new(db);
+        let rows = reader.list_session_traces("maya-session", 10);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].request_id, "session-r1");
+    }
+    #[test]
     fn roundtrip_recording_projection_uses_existing_session_events() {
         let dir = tempdir().unwrap();
         let db = dir.path().join("recording.sqlite");
@@ -832,5 +888,16 @@ mod tests {
         let maya_only = reader.list_feedback_reports(None, Some("maya"), None, 10);
         assert_eq!(maya_only.len(), 1);
         assert_eq!(maya_only[0]["id"], "fb-1");
+    }
+}
+#[cfg(all(test, not(feature = "persist-sqlite")))]
+mod no_sqlite_tests {
+    use super::AdminSqliteReader;
+    use std::path::PathBuf;
+
+    #[test]
+    fn session_trace_reader_is_noop_without_sqlite() {
+        let reader = AdminSqliteReader::new(PathBuf::from("unused.sqlite"));
+        assert!(reader.list_session_traces("maya-session", 10).is_empty());
     }
 }

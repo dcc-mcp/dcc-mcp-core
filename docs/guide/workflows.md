@@ -111,6 +111,21 @@ namespace; explicitly authored keys retain the existing `idempotency_scope`
 semantics below. Set `reuse_result: false` on stateful calls that must execute
 every time.
 
+The automatic key also includes the target DCC identity. For a local `tool`
+step this comes from `WorkflowExecutor::builder().target_dcc(...)`; embedders
+must set it for cross-DCC routing. When unset, automatic reuse is disabled.
+This behavior changes earlier workflow specs: an unannotated tool step that
+previously ran on every invocation now reuses its successful result from the
+configured store. Add `reuse_result: false` to preserve the old behavior for
+stateful steps.
+
+Automatic keys are global-scoped and use `idempotency_ttl_secs`; with no TTL
+they remain until the configured store is purged. The key includes the target
+DCC identity but not a DCC instance UUID, so identical calls on different
+instances of the same DCC share results by design. If several tool instances
+of the same DCC can produce different results for identical arguments, use an
+explicit `idempotency_key` that includes the instance identity.
+
 Mustache-style template rendered against the step context **just before**
 execution. The executor consults the JobManager for an existing
 completed job with matching (`step.tool`, `rendered_key`, `scope`); if

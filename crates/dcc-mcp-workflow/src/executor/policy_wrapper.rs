@@ -28,10 +28,19 @@ where
             };
             (Some(rendered), step.policy.idempotency_scope)
         }
-        None if step.policy.reuse_result => (
-            crate::idempotency::automatic_result_key(step, &rendered_args),
-            IdempotencyScope::Global,
-        ),
+        None if step.policy.reuse_result => {
+            let dcc = match &step.kind {
+                StepKind::ToolRemote { dcc, .. } => Some(dcc.as_str()),
+                StepKind::Tool { .. } => state.target_dcc(),
+                _ => None,
+            };
+            (
+                dcc.and_then(|dcc| {
+                    crate::idempotency::automatic_result_key(step, dcc, &rendered_args)
+                }),
+                IdempotencyScope::Global,
+            )
+        }
         None => (None, step.policy.idempotency_scope),
     };
     if let Some(ref rendered_key) = idem_key

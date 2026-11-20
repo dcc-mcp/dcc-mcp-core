@@ -37,10 +37,25 @@ pub type SharedIdempotencyStore = Arc<dyn IdempotencyStore>;
 
 /// Derive a stable cross-run cache key for an unannotated tool step.
 ///
+/// The caller supplies the target DCC identity for this invocation. Local tool
+/// steps pass the executor's configured DCC type; remote steps pass their
+/// explicit target. Including this dimension prevents same-name, same-argument
+/// tools on different hosts from sharing a cached result. Tool instances are
+/// intentionally outside the identity scope: an instance swap is a host-side
+/// change and should be reflected by a new workflow input or an explicit
+/// `idempotency_key`.
+///
 /// Object keys are sorted recursively before hashing, so semantically equal
 /// argument objects reuse the same result regardless of source key order.
 #[must_use]
-pub fn automatic_result_key(step: &Step, rendered_args: &Value) -> Option<String> {
+pub fn automatic_result_key(
+    step: &Step,
+    target_dcc: &str,
+    rendered_args: &Value,
+) -> Option<String> {
+    if target_dcc.trim().is_empty() {
+        return None;
+    }
     let identity = match &step.kind {
         StepKind::Tool { tool, .. } => serde_json::json!({"kind": "tool", "tool": tool}),
         StepKind::ToolRemote { dcc, tool, .. } => {
@@ -49,6 +64,7 @@ pub fn automatic_result_key(step: &Step, rendered_args: &Value) -> Option<String
         _ => return None,
     };
     let payload = canonical_json(&serde_json::json!({
+        "target_dcc": target_dcc,
         "identity": identity,
         "arguments": rendered_args,
     }));
@@ -63,7 +79,7 @@ pub fn automatic_result_key(step: &Step, rendered_args: &Value) -> Option<String
             ]
         })
         .collect();
-    Some(format!("auto:v1:{digest}"))
+    Some(format!("auto:v2:{digest}"))
 }
 
 fn canonical_json(value: &Value) -> Value {
