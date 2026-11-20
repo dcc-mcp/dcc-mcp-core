@@ -8,6 +8,16 @@ use dcc_mcp_cli::domain::install::python::{INSTALL_PYTHON_ENV, InstallEnv};
 use dcc_mcp_cli::domain::install::{InstallPlanError, InstallPlanner, InstallRequest};
 use serde_json::json;
 
+fn write_executable(path: impl AsRef<std::path::Path>) {
+    let path = path.as_ref();
+    std::fs::write(path, b"").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+}
+
 fn plan(
     dcc: &str,
     dcc_path: Option<PathBuf>,
@@ -77,8 +87,8 @@ fn records_existing_embedded_python_in_the_executable_plan() {
         let dir = tempfile::tempdir().unwrap();
         let host = dir.path().join(gui);
         let python = dir.path().join(embedded);
-        std::fs::write(&host, b"").unwrap();
-        std::fs::write(&python, b"").unwrap();
+        write_executable(&host);
+        write_executable(&python);
         let result = plan(dcc, Some(host), None, None).unwrap();
         assert_eq!(
             result["steps"][0]["action"]["python"],
@@ -92,8 +102,8 @@ fn records_existing_embedded_python_in_the_executable_plan() {
 fn operator_then_catalog_precede_automatic_discovery() {
     let dir = tempfile::tempdir().unwrap();
     let host = dir.path().join("maya.exe");
-    std::fs::write(&host, b"").unwrap();
-    std::fs::write(dir.path().join("mayapy.exe"), b"").unwrap();
+    write_executable(&host);
+    write_executable(dir.path().join("mayapy.exe"));
     let explicit = plan(
         "maya",
         Some(host.clone()),
@@ -110,8 +120,8 @@ fn operator_then_catalog_precede_automatic_discovery() {
 fn normalized_dcc_aliases_still_discover_host_python() {
     let dir = tempfile::tempdir().unwrap();
     let host = dir.path().join("MAYA.EXE");
-    std::fs::write(&host, b"").unwrap();
-    std::fs::write(dir.path().join("Mayapy.EXE"), b"").unwrap();
+    write_executable(&host);
+    write_executable(dir.path().join("Mayapy.EXE"));
 
     let result = plan("Maya", Some(host), None, None).unwrap();
 
@@ -133,7 +143,7 @@ fn gui_interpreters_and_missing_embedded_siblings_fail_preflight() {
     }
     let dir = tempfile::tempdir().unwrap();
     let host = dir.path().join("maya.exe");
-    std::fs::write(&host, b"").unwrap();
+    write_executable(&host);
     assert!(matches!(
         plan("maya", Some(host.clone()), None, None),
         Err(InstallPlanError::InvalidPythonExecutable { .. })
@@ -146,7 +156,7 @@ fn gui_interpreters_and_missing_embedded_siblings_fail_preflight() {
 }
 
 #[test]
-fn unsupported_hosts_require_an_explicit_interpreter() {
+fn unsupported_hosts_keep_plan_only_behavior() {
     for (dcc, gui, sibling) in [
         ("unreal", "UnrealEditor.exe", "UnrealEditor-Cmd.exe"),
         ("blender", "blender.exe", "python.exe"),
@@ -154,15 +164,10 @@ fn unsupported_hosts_require_an_explicit_interpreter() {
     ] {
         let dir = tempfile::tempdir().unwrap();
         let host = dir.path().join(gui);
-        std::fs::write(&host, b"").unwrap();
-        std::fs::write(dir.path().join(sibling), b"").unwrap();
-        let result = plan(dcc, Some(host.clone()), None, None).unwrap_err();
-        assert!(matches!(
-            result,
-            InstallPlanError::MissingHostInterpreter(_)
-        ));
-        let explicit = plan(dcc, Some(host), Some("operator-python"), None).unwrap();
-        assert_eq!(explicit["steps"][0]["action"]["python"], "operator-python");
+        write_executable(&host);
+        write_executable(dir.path().join(sibling));
+        let result = plan(dcc, Some(host.clone()), None, None).unwrap();
+        assert!(result["steps"][0]["action"].get("python").is_none());
     }
 }
 
@@ -176,7 +181,7 @@ fn missing_or_directory_selected_embedded_hosts_fail_preflight() {
     ] {
         let dir = tempfile::tempdir().unwrap();
         let host = dir.path().join(gui);
-        std::fs::write(dir.path().join(embedded), b"").unwrap();
+        write_executable(dir.path().join(embedded));
         for directory in [false, true] {
             if directory {
                 std::fs::create_dir(&host).unwrap();
@@ -189,14 +194,8 @@ fn missing_or_directory_selected_embedded_hosts_fail_preflight() {
             assert_eq!(explicit["steps"][0]["action"]["python"], "operator-python");
             let catalog = plan(dcc, Some(host.clone()), None, Some("catalog-python")).unwrap();
             assert_eq!(catalog["steps"][0]["action"]["python"], "catalog-python");
-            let unrelated = plan(
-                "custom-editor",
-                Some(host.clone()),
-                Some("operator-python"),
-                None,
-            )
-            .unwrap();
-            assert_eq!(unrelated["steps"][0]["action"]["python"], "operator-python");
+            let unrelated = plan("custom-editor", Some(host.clone()), None, None).unwrap();
+            assert!(unrelated["steps"][0]["action"].get("python").is_none());
         }
     }
 }

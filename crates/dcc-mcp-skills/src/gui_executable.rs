@@ -143,6 +143,21 @@ fn locate_sibling(gui_path: &Path, stems: &[&str]) -> Option<PathBuf> {
     if stems.is_empty() {
         return None;
     }
+    let mut paths = vec![gui_path.to_path_buf()];
+    if let Ok(resolved) = gui_path.canonicalize()
+        && resolved != gui_path
+    {
+        paths.push(resolved);
+    }
+    for path in paths {
+        if let Some(sibling) = locate_sibling_at_path(&path, stems) {
+            return Some(sibling);
+        }
+    }
+    None
+}
+
+fn locate_sibling_at_path(gui_path: &Path, stems: &[&str]) -> Option<PathBuf> {
     let parent = gui_path.parent()?;
     let extension = gui_path
         .extension()
@@ -327,6 +342,28 @@ mod tests {
         let hint = is_gui_executable(&gui).expect("maya.cmd must be detected");
 
         assert_eq!(hint.recommended_replacement, Some(python));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn locates_sibling_next_to_symlink_target() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempdir().unwrap();
+        let target_dir = root.path().join("target");
+        let link_dir = root.path().join("link");
+        fs::create_dir_all(&target_dir).unwrap();
+        fs::create_dir_all(&link_dir).unwrap();
+        let target_gui = target_dir.join("maya");
+        let target_python = target_dir.join("mayapy");
+        fs::write(&target_gui, b"").unwrap();
+        fs::write(&target_python, b"").unwrap();
+        let link_gui = link_dir.join("maya");
+        symlink(&target_gui, &link_gui).unwrap();
+
+        let hint = is_gui_executable(&link_gui).expect("symlinked maya must be detected");
+
+        assert_eq!(hint.recommended_replacement, Some(target_python));
     }
 
     #[test]

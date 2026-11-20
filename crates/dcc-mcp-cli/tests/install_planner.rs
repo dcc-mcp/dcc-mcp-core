@@ -7,7 +7,8 @@ use std::path::PathBuf;
 
 use dcc_mcp_catalog::{CatalogEntry, CatalogInstall};
 use dcc_mcp_cli::domain::install::{
-    InstallPlanError, InstallPlanner, InstallRequest, InstallStepAction, python::PythonSource,
+    InstallPlanError, InstallPlanner, InstallRequest, InstallStepAction, python::InstallEnv,
+    python::PythonSource,
 };
 
 fn catalog_entry(name: &str, dcc: &[&str], install: Option<CatalogInstall>) -> CatalogEntry {
@@ -607,7 +608,7 @@ fn planner_keeps_generic_pip_adapters_planable_without_a_host_interpreter() {
         sop_version: None,
         sop_schema_digest: None,
     };
-    let plan = InstallPlanner::plan(
+    let plan = InstallPlanner::plan_with_env(
         &[catalog_entry("dcc-mcp-obs", &["obs"], Some(install))],
         InstallRequest {
             dcc_type: "obs".into(),
@@ -618,6 +619,7 @@ fn planner_keeps_generic_pip_adapters_planable_without_a_host_interpreter() {
             plugin_source: None,
             adobe_debug_root: None,
         },
+        &InstallEnv::default(),
     )
     .unwrap();
 

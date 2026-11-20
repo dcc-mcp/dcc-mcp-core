@@ -148,9 +148,7 @@ pub(crate) fn resolve_python(
         let Some(python) = hint
             .recommended_replacement
             .as_ref()
-            .filter(|path| path.is_file())
-            .and_then(|path| path.to_str())
-            .map(str::to_owned)
+            .and_then(|path| discovered_interpreter_path(path))
         else {
             if candidate.explicit {
                 return Err(PythonResolutionError::GuiExecutable(hint));
@@ -200,10 +198,42 @@ fn is_supported_host_family(dcc_type: &str) -> bool {
 ///
 /// Maya and Houdini adapters use an embedded host interpreter when no explicit
 /// interpreter is configured. Generic pip adapters keep the existing plan-only
-/// behavior until an operator supplies a host path or interpreter. An explicit
-/// DCC path also opts the generic adapter into the fail-closed preflight.
-pub(crate) fn requires_interpreter(dcc_type: &str, explicit_dcc_path: bool) -> bool {
-    is_supported_host_family(&normalized_host_family(dcc_type)) || explicit_dcc_path
+/// behavior until an operator supplies a host path or interpreter.
+pub(crate) fn requires_interpreter(dcc_type: &str) -> bool {
+    is_supported_host_family(&normalized_host_family(dcc_type))
+}
+
+fn discovered_interpreter_path(path: &Path) -> Option<String> {
+    if !is_usable_interpreter(path) {
+        return None;
+    }
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        path.canonicalize().unwrap_or_else(|_| {
+            std::env::current_dir()
+                .map(|directory| directory.join(path))
+                .unwrap_or_else(|_| path.to_path_buf())
+        })
+    };
+    absolute.to_str().map(str::to_owned)
+}
+
+fn is_usable_interpreter(path: &Path) -> bool {
+    if !path.is_file() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        return std::fs::metadata(path)
+            .map(|metadata| metadata.permissions().mode() & 0o111 != 0)
+            .unwrap_or(false);
+    }
+    #[cfg(not(unix))]
+    {
+        true
+    }
 }
 
 fn same_interpreter_path(first: &Path, second: &Path) -> bool {
@@ -217,6 +247,15 @@ fn same_interpreter_path(first: &Path, second: &Path) -> bool {
 mod tests {
     use super::*;
 
+    fn write_executable(path: &Path) {
+        std::fs::write(path, b"stub").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+    }
+
     #[test]
     fn multiple_discovered_host_interpreters_are_rejected_as_ambiguous() {
         let first_dir = tempfile::tempdir().unwrap();
@@ -226,7 +265,7 @@ mod tests {
         let second_host = second_dir.path().join("maya.exe");
         let second_python = second_dir.path().join("mayapy.exe");
         for path in [&first_host, &first_python, &second_host, &second_python] {
-            std::fs::write(path, b"stub").unwrap();
+            write_executable(path);
         }
 
         let error = resolve_python(
@@ -261,9 +300,8 @@ mod tests {
         let alias_host = dir.path().join("nested").join("..").join("maya");
         let python = dir.path().join("mayapy");
         std::fs::create_dir(dir.path().join("nested")).unwrap();
-        for path in [&host, &python] {
-            std::fs::write(path, b"stub").unwrap();
-        }
+        write_executable(&host);
+        write_executable(&python);
 
         let resolved = resolve_python(
             None,
@@ -287,6 +325,33 @@ mod tests {
         assert!(same_interpreter_path(Path::new(&resolved.path), &python));
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn non_executable_discovered_interpreter_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let host = dir.path().join("maya");
+        let python = dir.path().join("mayapy");
+        write_executable(&host);
+        std::fs::write(&python, b"stub").unwrap();
+
+        let error = resolve_python(
+            None,
+            None,
+            &InstallEnv::default(),
+            &[HostCandidate {
+                path: host,
+                explicit: false,
+            }],
+            "maya",
+        )
+        .unwrap_err();
+
+        assert!(matches!(
+            error,
+            PythonResolutionError::MissingHostedInterpreter
+        ));
+    }
+
     #[test]
     fn explicit_host_override_does_not_fall_back_to_other_discovered_hosts() {
         let override_dir = tempfile::tempdir().unwrap();
@@ -294,9 +359,9 @@ mod tests {
         let override_host = override_dir.path().join("maya");
         let fallback_host = fallback_dir.path().join("maya");
         let fallback_python = fallback_dir.path().join("mayapy");
-        std::fs::write(&override_host, b"stub").unwrap();
+        write_executable(&override_host);
         for path in [&fallback_host, &fallback_python] {
-            std::fs::write(path, b"stub").unwrap();
+            write_executable(path);
         }
 
         let error = resolve_python(

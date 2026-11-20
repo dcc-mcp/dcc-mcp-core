@@ -380,13 +380,20 @@ impl InstallPlanner {
             validate_install_integrity(&adapter, install, request.version.as_deref())?;
         }
 
+        let pinned_host_candidates = request.dcc_path.as_ref().map(|path| {
+            vec![python::HostCandidate {
+                path: path.clone(),
+                explicit: true,
+            }]
+        });
+        let selected_host_candidates = pinned_host_candidates.as_deref().unwrap_or(host_candidates);
         let (python, python_source) = match &adapter.install {
             Some(install) if install.install_type == "pip" => {
                 match python::resolve_python(
                     request.python.clone(),
                     install.python_path.clone(),
                     install_env,
-                    host_candidates,
+                    selected_host_candidates,
                     &dcc_key,
                 ) {
                     Ok(resolved) => (Some(resolved.path), resolved.source),
@@ -396,7 +403,7 @@ impl InstallPlanner {
                         });
                     }
                     Err(python::PythonResolutionError::MissingHostedInterpreter)
-                        if python::requires_interpreter(&dcc_key, request.dcc_path.is_some()) =>
+                        if python::requires_interpreter(&dcc_key) =>
                     {
                         return Err(InstallPlanError::MissingHostInterpreter(dcc_type.clone()));
                     }
