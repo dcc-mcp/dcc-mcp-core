@@ -177,10 +177,24 @@ Repeating work in a DCC host has one normative entry point:
    and pass the returned `file_path` back. A byte-identical repeat returns the same stable
    path with `reused=True`; never re-send the source.
 2. **Change a value → change `params` only.** Re-send the same `file_path` with a new
-   `params` object. There is no CLI flag and no params file for this.
-3. **Recover a dead multi-step run → `workflows_resume`.** Pass `workflow_id`, plus optional
+   `params` object with values matching the schema derived from the script's typed
+   `def main(...)` signature. Do not rewrite or re-materialize unchanged code. There
+   is no dedicated CLI flag or params-file option for params-only reuse; the general
+   `dcc-mcp-cli call --json-file` command can pass a large argument object but does
+   not create a reusable script identity.
+3. **Repeat a multi-step procedure → `workflows_run`.** After the same sequence succeeds
+   twice, promote it to a workflow spec with stable `idempotency_key` values and poll with
+   `workflows_get_status`. Start a persisted run only when the executor has
+   `WorkflowStorage` and the `job-persist-sqlite` feature; without them the run has
+   no durable checkpoints and cannot resume.
+4. **Resume at the navigation link → `workflows_resume`.** Follow the persisted-run
+   navigation from `docs/guide/agents-reference.md#start-a-repeatable-sequence-with-workflows_run`.
+   Pass `workflow_id`, plus optional
    `force_steps` / `expected_spec_hash` / `strict`. Requires the executor to be built with
    `WorkflowStorage` and the `job-persist-sqlite` feature.
+   If resume is unavailable, report the interruption and wait for a storage-capable
+   resume. Do not start a new `workflows_run` to recover the run, because that can
+   replay mutations.
 
 ---
 
@@ -388,7 +402,7 @@ Python modules or source stable exports from private packages.
 | Checkpoint/resume | `save_checkpoint(job_id, state)` / `get_checkpoint(job_id)` |
 | Job recovery policy on restart | `McpHttpConfig.with_job_recovery(JobRecoveryPolicy::Drop\|Requeue)` / Python `cfg.job_recovery = "drop"\|"requeue"` — `Requeue` is reserved (degrades to `Drop` + `WARN` until tool-arg persistence lands) (#567) |
 | Persistent workflow idempotency cache | `WorkflowExecutor::builder().idempotency_store(SqliteIdempotencyStore::new(workflow_storage)).build()` — survives restarts; honours per-step `idempotency_ttl_secs`; cascade-deletes workflow-scoped rows when their parent workflow row is removed (#566, gated on `dcc-mcp-workflow/job-persist-sqlite`) |
-| Resume a persisted workflow run | `executor.resume(workflow_id, ResumeOptions { force_steps, expected_spec_hash, strict })` / MCP tool `workflows.resume`. Skips steps already recorded `completed`; re-runs `force_steps`; refuses on hash drift when `strict=true` (#565, gated on `dcc-mcp-workflow/job-persist-sqlite`) |
+| Resume a persisted workflow run | `executor.resume(workflow_id, ResumeOptions { force_steps, expected_spec_hash, strict })` / MCP tool `workflows_resume`. Skips steps already recorded `completed`; re-runs `force_steps`; refuses on hash drift when `strict=true` (#565, gated on `dcc-mcp-workflow/job-persist-sqlite`) |
 | Agent-facing docs resources | `register_docs_server(server)` → `docs://` MCP resources |
 | Headless USD project resources | `register_usd_project_resources(server, project_root=..., stage=..., layers=...)` → canonical `openusd://stage`, `openusd://layers`, `openusd://assets`, `openusd://materials`, `openusd://validation`, `openusd://snapshots`, and `openusd://packages` resources with stable MIME metadata (#1209) |
 | Agent feedback | `register_feedback_tool(server)` → `dcc_feedback__report` tool |

@@ -3620,7 +3620,7 @@ See `docs/guide/remote-server.md` for the Docker / systemd / k8s / reverse-proxy
 
 ## Iteration Playbook
 
-Three moves cover almost every repeat in an agent session. Normative text:
+Four moves cover almost every repeat in an agent session. Normative text:
 `docs/guide/agents-reference.md#iteration-playbook`.
 
 1. **Reuse a materialized script.** `materialize_script(content, dcc_type=..., instance_id=..., session_id=..., reuse=True, reuse_key="...")`
@@ -3630,12 +3630,18 @@ Three moves cover almost every repeat in an agent session. Normative text:
    overrides it). `resolve_materialized_script` re-verifies hash + expiry and fails closed.
 2. **Iterate on `params` only.** Re-send the same `file_path` with a new `params` object. The
    contract is `FileBackedScriptExecutionParams` (`file_path`, `params`, `params_provided`,
-   `parameters_schema`); the schema is derived by `derive_script_parameters_schema`, which parses
-   `main(**params)` with `ast` and never executes the script. No CLI flag, no params file.
-3. **Resume an interrupted workflow.** `workflows_resume` takes `workflow_id` plus optional
+   `parameters_schema`); the schema is derived by `derive_script_parameters_schema` from the typed
+   `def main(...)` signature with `ast` and never executes the script. There is no dedicated CLI
+   flag or params-file option; `dcc-mcp-cli call --json-file` only supplies a large argument
+   object.
+3. **Start a repeatable sequence.** After the same sequence succeeds twice, call `workflows_run`
+   with stable `idempotency_key` values on mutating steps and poll with `workflows_get_status`.
+4. **Resume an interrupted workflow.** `workflows_resume` takes `workflow_id` plus optional
    `force_steps`, `expected_spec_hash`, and `strict`, re-drives the persisted run from the first
    non-completed step, and returns `{ workflow_id, root_job_id, status: "pending", resumed: true, force_steps }`.
    Requires `WorkflowStorage` + the `job-persist-sqlite` feature; the handler is not registered without it.
+   If resume is unavailable, report the interruption and wait for a storage-capable resume instead
+   of restarting with `workflows_run`, which can replay mutations.
 
 ## AI Agent Tool Priority Guide
 

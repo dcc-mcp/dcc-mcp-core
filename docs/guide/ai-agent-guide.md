@@ -384,7 +384,7 @@ batch = call(
 
 Use `search(kind="skill", ...)` to find unloaded skills, then pass the search hit's `next_step.arguments` unchanged when activation is requested. This preserves target instance, tool group, and correlation metadata. Gateway `tools/list` advertises exactly `search`, `describe`, `load_skill`, and `call`. Hidden MCP compatibility routes still accept older `search_tools` / `describe_tool` / `call_tool` / `call_tools` names, but new agent workflows should use the four canonical tools.
 
-Wrapper payloads accept only `tool_slug`, `arguments`, and optional `meta`. Put backend-specific inputs such as `code`, `script`, `file_path`, or `radius` inside `arguments`, never at the wrapper top level. `dcc-mcp-wire` normalizes missing / `null` / empty-string arguments to `{}` and rejects non-object roots; Python host wrappers can call `dcc_mcp_core.host.normalize_tool_arguments()` / `normalize_tool_meta()`.
+Wrapper payloads accept only `tool_slug`, `arguments`, and optional `meta`. Put backend-specific inputs such as `code`, `script`, `file_path`, or `radius` inside `arguments`, never at the wrapper top level. `dcc-mcp-wire` normalizes missing / `null` / empty-string arguments to `{}` and rejects non-object roots; Python host wrappers can call `dcc_mcp_core.wire.normalize_tool_arguments()` / `normalize_tool_meta()`.
 
 For ad-hoc script execution, prefer typed tools first, then materialize source
 on the DCC host and execute by path. Use
@@ -405,25 +405,37 @@ Execution results should return `context.materialized_script` with `path`,
 context keys are migration aliases, not the preferred contract.
 
 Agents can also call the `materialize_script` MCP/REST tool exposed by
-`DccServerBase` adapters. Discover it with `search_tools("materialize script")`,
-call it with `content` (or legacy `code`), then pass the returned `file_path`
-to the execution tool. The tool returns FileRef/path/hash/TTL/session metadata
-and never echoes raw source. Gateway traces and admin audit rows redact
-script-source input fields by default and keep the descriptor metadata instead.
+`DccServerBase` adapters. Through the gateway, run `POST /v1/search` with
+`{"query": "materialize script"}` (or MCP `search(kind="tool",`
+`query="materialize script")`), follow the selected hit's `next_step` to
+`describe` when requested, then `call` it with `content` (or legacy `code`).
+Pass the returned `file_path` to the execution tool. The tool returns
+FileRef/path/hash/TTL/session metadata and never echoes raw source. Gateway
+traces and admin audit rows redact script-source input fields by default and
+keep the descriptor metadata instead.
 
-**Iteration Playbook (re-run, re-parameterize, resume).** Three moves cover almost every
-repeat in a session, and all three are already shipped:
+**Iteration Playbook (re-run, re-parameterize, resume).** Four moves cover almost every
+repeat in a session, and all four are already shipped:
 
 1. **Re-run the same script → reuse it.** Pass `reuse=True` with a stable `reuse_key` so the
    path is derived (`{reuse_key}_{sha256[:12]}`) and a byte-identical repeat returns the same
    `file_path` with `reused=True`. Consumers re-verify with `resolve_materialized_script`,
    which fails closed on a hash or expiry mismatch instead of trusting a stale path.
 2. **Change one value → send new `params` with the same `file_path`.** The contract is
-   `FileBackedScriptExecutionParams`; `params` is delivered to `main(**params)` using the
-   schema derived by `derive_script_parameters_schema` (parsed, never executed). There is no
-   CLI flag and no params file — do not invent one, and do not re-materialize to change an
-   argument.
-3. **Recover a dead multi-step run → `workflows_resume`.** Send `workflow_id` plus optional
+   `FileBackedScriptExecutionParams`; `params` matches the schema derived from the typed
+   `def main(...)` signature by `derive_script_parameters_schema` (parsed, never executed).
+   There is no dedicated CLI flag or params-file option — do not invent one, and do not
+   re-materialize to change an argument. The general `dcc-mcp-cli call --json-file` command
+   can supply a large argument object, but it does not create a reusable script identity.
+3. **Repeat a sequence → `workflows_run`.** Once the same multi-step procedure succeeds twice,
+   promote it to a workflow spec with stable `idempotency_key` values, then poll with
+   `workflows_get_status`. Persisted runs require `WorkflowStorage` plus the
+   `job-persist-sqlite` feature; without them a run has no durable checkpoints and
+   cannot resume. Save the returned `workflow_id` for the resume navigation at
+   `agents-reference.md#start-a-repeatable-sequence-with-workflows_run`. A CLI `--json-file`
+   containing unchanged source is not a reuse
+   strategy; it still re-sends the same code.
+4. **Recover a dead multi-step run → `workflows_resume`.** Send `workflow_id` plus optional
    `force_steps`, `expected_spec_hash`, and `strict`. It re-drives the persisted run from the
    first non-completed step and needs `WorkflowStorage` + the `job-persist-sqlite` feature.
 

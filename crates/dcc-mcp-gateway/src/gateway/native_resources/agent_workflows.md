@@ -419,7 +419,7 @@ links without exposing hidden reasoning or raw prompts.
 ## Iteration Playbook (re-run, re-parameterize, resume)
 
 Most wasted tokens in a long session come from re-sending work the host already
-has. Three moves cover it:
+has. Four moves cover it:
 
 1. **Re-run a script — reuse the materialized path.** Call the backend
    `materialize_script` tool with `reuse=true` and a stable `reuse_key`. The
@@ -429,15 +429,23 @@ has. Three moves cover it:
    Pass **only** `file_path` to the execution tool afterwards — never the
    source. A changed byte yields a new script id on purpose.
 2. **Change a value — send new `params` with the same `file_path`.** The
-   execution contract is `params` delivered to `main(**params)`; there is no
-   CLI flag and no params file. Do not re-materialize just to change an
-   argument, and do not inline `code` again.
-3. **Recover a dead multi-step run — `workflows_resume`.** Send `workflow_id`
+   execution contract is `params` matching the schema derived from the typed
+   `main(...)` signature. There is no dedicated CLI flag or params-file option
+   for this channel; the general `dcc-mcp-cli call --json-file` command can
+   supply a large argument object but does not create a reusable script identity.
+   Do not re-materialize just to change an argument, and do not inline `code` again.
+3. **Repeat a sequence — `workflows_run`.** After the same multi-step procedure
+   succeeds twice, start a persisted run with stable `idempotency_key` values on
+   mutating steps and poll with `workflows_get_status`. A CLI `--json-file`
+   containing unchanged source is not a reuse contract.
+4. **Recover a dead multi-step run — `workflows_resume`.** Send `workflow_id`
    plus optional `force_steps`, `expected_spec_hash`, and `strict`. It
    re-drives the persisted run from the first non-completed step. The handler
    exists only when the executor was built with `WorkflowStorage` and the
    `job-persist-sqlite` feature, so a `tools/list` entry is not proof it will
-   run — fall back to `workflows_run` and report the interruption.
+   run. If resume is unavailable, report the interruption and wait for a
+   storage-capable resume. Do not fall back to `workflows_run`: a fresh run can
+   replay mutations.
 
 Normative text: `docs/guide/agents-reference.md#iteration-playbook`.
 
@@ -470,7 +478,7 @@ When a gateway accepts a cooperative `/gateway/yield`, connected SSE clients rec
 ### Long `execute_python` / MEL without giant JSON strings
 
 - **Long `execute_python` payloads** — Prefer a typed skill first. If no typed tool fits, materialize the script on the **DCC host filesystem** and call the backend tool with `file_path`. Core exposes `dcc_mcp_core.materialize_script(...)` / `dcc_mcp_core.script_materialization.materialize_script(...)`, returning `{file_ref, file_path, sha256, bytes, ttl, dcc_type, instance_id, session_id, tool_call_id, correlation_id}`. The default root is `~/.dcc-mcp/<dcc_type>/temp/<instance_id>/<session_id>/...` and can be overridden with `DCC_MCP_SCRIPT_MATERIALIZATION_ROOT`.
-- **Agent API** — Most `DccServerBase` adapters expose a `materialize_script` tool. Discover it with `search_tools(query="materialize script")`, call it with `content`/`code`, then call the execution tool with the returned `file_path`. The response is descriptor metadata only; raw source is not echoed, and gateway trace input capture redacts script-source fields by default.
+- **Agent API** — Most `DccServerBase` adapters expose a `materialize_script` tool. Discover it with `search(kind="tool", query="materialize script")`, call it with `content`/`code`, then call the execution tool with the returned `file_path`. The response is descriptor metadata only; raw source is not echoed, and gateway trace input capture redacts script-source fields by default.
 - **Policy boundary** — Core helpers use `script_materialization_policy = off | auto | require`. `auto` materializes inline `code` before execution, `require` rejects raw inline code unless a trusted `file_path` / `script_path` is supplied, and `off` is a compatibility escape hatch. Successful script execution should return `context.materialized_script` with path, FileRef, hash, byte length, and reuse metadata.
 - **Compatibility wrapper** — `write_temp_file` (skill) and `write_temp_script(...)` still work, but they are compatibility helpers over the materialization store. Prefer the structured descriptor when you need audit, reuse, TTL cleanup, or FileRef metadata.
 - **Remote agents** — A path written only on the agent laptop is not executable by a remote studio Maya/Photoshop/Blender process. Use an in-host writer/API or a synced workspace before passing `file_path`.
