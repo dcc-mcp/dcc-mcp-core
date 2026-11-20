@@ -52,6 +52,14 @@ pub enum InstallError {
     ConsentDenied,
     #[error("step '{step}' failed: {message}")]
     StepFailed { step: String, message: String },
+    #[error("target Core version '{running}' does not satisfy '{requirement}': {reason}")]
+    CoreRequirementFailed {
+        requirement: String,
+        running: String,
+        verdict: String,
+        declaration_valid: bool,
+        reason: String,
+    },
     #[error("rollback of step '{step}' failed: {message}")]
     RollbackFailed { step: String, message: String },
     #[error("io error: {0}")]
@@ -308,11 +316,27 @@ impl InstallService {
                     report.steps[*step_index].rollback.status = "not_available".into();
                     has_deferred_steps = true;
                 }
-                Err(_) => {
+                Err(error) => {
                     eprintln!("FAILED");
                     report.steps[*step_index].status = "failed".into();
                     report.steps[*step_index].rollback.status = "not_available".into();
-                    let (failure_stage, failure_exit, failure_code) = action_failure(action);
+                    if let InstallError::CoreRequirementFailed {
+                        requirement,
+                        running,
+                        verdict,
+                        declaration_valid,
+                        ..
+                    } = &error
+                    {
+                        report.verify.observed_core_compatibility = Some(serde_json::json!({
+                            "requirement": requirement,
+                            "running": running,
+                            "status": verdict,
+                            "declaration_valid": declaration_valid,
+                        }));
+                    }
+                    let (failure_stage, failure_exit, failure_code) =
+                        action_failure(action, &error);
 
                     let mut rollback_attempted = false;
                     let mut rollback_failures = 0;
@@ -842,13 +866,12 @@ fn verify_target_core_requirement(
         .expect("adapter import probe is a JSON object");
     let core = core_compatibility_for_requirement(report, requirement);
     if !core.is_ok() {
-        return Err(InstallError::StepFailed {
-            step: "verify".into(),
-            message: format!(
-                "target Core version '{}' does not satisfy '{requirement}': {}",
-                core.running.as_deref().unwrap_or("unknown"),
-                core.bound.message()
-            ),
+        return Err(InstallError::CoreRequirementFailed {
+            requirement: requirement.into(),
+            running: core.running.as_deref().unwrap_or("unknown").into(),
+            verdict: core.verdict.as_str().into(),
+            declaration_valid: core.bound.is_ok(),
+            reason: core.bound.message(),
         });
     }
     Ok(())
