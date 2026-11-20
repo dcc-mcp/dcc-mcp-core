@@ -627,7 +627,13 @@ repo URL provides one, then command arrays for `doctor`, `list`, `wait-ready`,
 `search`, marketplace skill `search`/`inspect`/`install`, and `reload-skills`,
 plus the manual host-plugin start step. Pass `--python` (or
 `DCC_MCP_INSTALL_PYTHON`) when a pip-based adapter must be installed into a DCC
-interpreter such as `mayapy`, `hython`, or Blender's bundled Python. Pass
+interpreter such as `mayapy`, `hython`, or Blender's bundled Python. When both
+overrides are omitted, automatic selection requires an unambiguous selected
+host.
+Maya and Houdini plans can discover an existing adjacent `mayapy` or `hython`.
+Multiple discovered installations require `--dcc-path` or `--python`, and a
+missing hosted interpreter fails preflight. The JSON plan records the selected
+source in `python_source`. Pass
 `--execute` to prompt for consent and run executable package-install steps.
 Execution rolls back completed steps when a later step fails. Pip installs use
 an HTTPS wheel bound to the catalog package/version and SHA-256, pass pip a

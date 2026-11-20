@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 pub(crate) mod policy;
-mod python;
+pub mod python;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InstallRequest {
@@ -41,6 +41,8 @@ pub struct InstallPlan {
     pub next_steps: Vec<InstallNextStep>,
     #[serde(default = "InstallPolicy::enabled")]
     pub install_policy: InstallPolicy,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub python_source: Option<python::PythonSource>,
 }
 
 /// A single install step with a human-readable description and the action to execute.
@@ -188,6 +190,17 @@ pub enum InstallPlanError {
     },
     #[error("'{path}' is not a usable pip interpreter; specify --python with a Python executable")]
     InvalidPythonExecutable { path: String },
+    #[error(
+        "no safe Python interpreter found for hosted {0}; pass --python or DCC_MCP_INSTALL_PYTHON, or install the host"
+    )]
+    MissingHostInterpreter(String),
+    #[error(
+        "multiple usable Python interpreters found for hosted {dcc}: {paths:?}; pass --dcc-path or --python"
+    )]
+    AmbiguousHostInterpreters {
+        dcc: String,
+        paths: Vec<std::path::PathBuf>,
+    },
     #[error("git install requires a full 40-character commit object ID")]
     UnpinnedGitReference,
     #[error("zip install requires exactly 64 hexadecimal SHA-256 digits")]
@@ -308,6 +321,16 @@ fn validate_install_integrity(
 }
 
 impl InstallPlanner {
+    fn explicit_host_candidates(dcc_path: Option<&std::path::Path>) -> Vec<python::HostCandidate> {
+        dcc_path
+            .map(|path| {
+                vec![python::HostCandidate {
+                    path: path.to_path_buf(),
+                    explicit: true,
+                }]
+            })
+            .unwrap_or_default()
+    }
     /// Generate an install plan from catalog entries and user request.
     ///
     /// If the matching catalog entry has an `install` field, the generated steps
@@ -316,6 +339,31 @@ impl InstallPlanner {
     pub fn plan(
         entries: &[CatalogEntry],
         request: InstallRequest,
+    ) -> Result<InstallPlan, InstallPlanError> {
+        let install_env = python::InstallEnv::from_process();
+        let host_candidates = Self::explicit_host_candidates(request.dcc_path.as_deref());
+        Self::plan_with_candidates(entries, request, &install_env, &host_candidates)
+    }
+
+    /// Generate an install plan with an explicit process environment.
+    ///
+    /// This keeps interpreter resolution deterministic for callers that need
+    /// to supply environment values without changing the public request shape.
+    pub fn plan_with_env(
+        entries: &[CatalogEntry],
+        request: InstallRequest,
+        env: &python::InstallEnv,
+    ) -> Result<InstallPlan, InstallPlanError> {
+        let host_candidates = Self::explicit_host_candidates(request.dcc_path.as_deref());
+        Self::plan_with_candidates(entries, request, env, &host_candidates)
+    }
+
+    /// Generate an install plan with explicit interpreter and host candidates.
+    pub fn plan_with_candidates(
+        entries: &[CatalogEntry],
+        request: InstallRequest,
+        install_env: &python::InstallEnv,
+        host_candidates: &[python::HostCandidate],
     ) -> Result<InstallPlan, InstallPlanError> {
         let dcc_key = normalized_dcc_key(&request.dcc_type);
         let adapter = select_adapter(entries, &dcc_key)
@@ -332,19 +380,34 @@ impl InstallPlanner {
             validate_install_integrity(&adapter, install, request.version.as_deref())?;
         }
 
-        let python = match &adapter.install {
-            Some(install) if install.install_type == "pip" => python::resolve_python(
-                request.python.clone(),
-                install.python_path.clone(),
-                dcc_path.as_deref(),
-                &dcc_key,
-            )
-            .map_err(|hint| InstallPlanError::InvalidPythonExecutable {
-                path: hint.gui_path.display().to_string(),
-            })?,
-            _ => request.python.clone(),
+        let (python, python_source) = match &adapter.install {
+            Some(install) if install.install_type == "pip" => {
+                match python::resolve_python(
+                    request.python.clone(),
+                    install.python_path.clone(),
+                    install_env,
+                    host_candidates,
+                    &dcc_key,
+                ) {
+                    Ok(resolved) => (Some(resolved.path), resolved.source),
+                    Err(python::PythonResolutionError::GuiExecutable(hint)) => {
+                        return Err(InstallPlanError::InvalidPythonExecutable {
+                            path: hint.gui_path.display().to_string(),
+                        });
+                    }
+                    Err(python::PythonResolutionError::MissingHostedInterpreter) => {
+                        return Err(InstallPlanError::MissingHostInterpreter(dcc_type.clone()));
+                    }
+                    Err(python::PythonResolutionError::AmbiguousHostedInterpreters { paths }) => {
+                        return Err(InstallPlanError::AmbiguousHostInterpreters {
+                            dcc: dcc_type.clone(),
+                            paths,
+                        });
+                    }
+                }
+            }
+            _ => (request.python.clone(), python::PythonSource::NotRequired),
         };
-
         let steps = match &adapter.install {
             Some(install) => Self::build_executable_steps(
                 &adapter,
@@ -372,6 +435,7 @@ impl InstallPlanner {
             catalog: None,
             steps,
             install_policy: InstallPolicy::enabled(),
+            python_source: Some(python_source),
         })
     }
 

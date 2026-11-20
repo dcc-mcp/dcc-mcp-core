@@ -323,7 +323,7 @@ pub(crate) enum Command {
         #[arg(long, env = "DCC_MCP_CATALOG_PATH")]
         catalog: Option<PathBuf>,
         /// Python interpreter used for pip-based adapter package installs.
-        #[arg(long, env = "DCC_MCP_INSTALL_PYTHON")]
+        #[arg(long)]
         python: Option<String>,
         /// Absolute DCC executable or application path for non-standard installs.
         #[arg(long, env = "DCC_MCP_DCC_PATH")]

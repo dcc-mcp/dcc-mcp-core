@@ -7,7 +7,8 @@ use dcc_mcp_catalog::CatalogEntry;
 use thiserror::Error;
 
 use crate::domain::install::{
-    InstallPlan, InstallPlanError, InstallPlanner, InstallPolicy, InstallRequest, InstallStepAction,
+    InstallPlan, InstallPlanError, InstallPlanner, InstallPolicy, InstallRequest,
+    InstallStepAction, normalized_dcc_key,
 };
 
 const BUNDLED_CATALOG: &str = include_str!("../../../../dcc-mcp-catalog.yml");
@@ -130,9 +131,46 @@ impl InstallService {
     /// Generate an install plan (display-only, no execution).
     pub fn plan(&self, request: InstallRequest) -> Result<InstallPlan, InstallError> {
         let catalog = self.load_catalog(request.catalog_path.as_deref())?;
-        let mut plan = InstallPlanner::plan(&catalog.entries, request)?;
+        let install_env = crate::domain::install::python::InstallEnv::from_process();
+        let host_candidates = Self::host_candidates(&request);
+        let mut plan = InstallPlanner::plan_with_candidates(
+            &catalog.entries,
+            request,
+            &install_env,
+            &host_candidates,
+        )?;
         plan.catalog = Some(catalog.provenance);
         Ok(self.apply_auto_install_policy(plan))
+    }
+
+    fn host_candidates(
+        request: &InstallRequest,
+    ) -> Vec<crate::domain::install::python::HostCandidate> {
+        let mut candidates = Vec::new();
+        if let Some(path) = request.dcc_path.as_deref() {
+            candidates.push(crate::domain::install::python::HostCandidate {
+                path: path.to_path_buf(),
+                explicit: true,
+            });
+        }
+
+        let dcc_key = normalized_dcc_key(&request.dcc_type);
+        if let Some(def) = crate::application::host::manifest::bundled().find(&dcc_key) {
+            let env = crate::application::host::detect::HostEnv::from_process();
+            for candidate in crate::application::host::detect::install_candidates(
+                def,
+                &env,
+                request.dcc_path.as_deref(),
+            ) {
+                if !candidates
+                    .iter()
+                    .any(|existing| existing.path == candidate.path)
+                {
+                    candidates.push(candidate);
+                }
+            }
+        }
+        candidates
     }
 
     /// Generate and execute an install plan with user consent.
@@ -393,7 +431,14 @@ fn execute_pip_install(
     artifact_url: Option<&str>,
     sha256: Option<&str>,
 ) -> Result<Option<StepRollback>, InstallError> {
-    let python_cmd = python.unwrap_or("python");
+    let Some(python_cmd) = python.filter(|value| !value.trim().is_empty()) else {
+        return Err(InstallError::StepFailed {
+            step: format!("pip-install-{package}"),
+            message:
+                "no safe Python interpreter was selected; pass --python or DCC_MCP_INSTALL_PYTHON"
+                    .into(),
+        });
+    };
     let package_spec = verified_pip_artifact_spec(package, version, extras, artifact_url, sha256)?;
     let mut cmd = Command::new(python_cmd);
     cmd.args(pip_install_args(&package_spec))
@@ -757,7 +802,14 @@ fn verify_pip_package(
     expected_version: Option<&str>,
     python: Option<&str>,
 ) -> Result<(), InstallError> {
-    let python_cmd = python.unwrap_or("python");
+    let Some(python_cmd) = python.filter(|value| !value.trim().is_empty()) else {
+        return Err(InstallError::StepFailed {
+            step: "verify".into(),
+            message:
+                "no safe Python interpreter was selected; pass --python or DCC_MCP_INSTALL_PYTHON"
+                    .into(),
+        });
+    };
     let output = Command::new(python_cmd)
         .args(pip_show_args(package))
         .output()
@@ -865,7 +917,7 @@ mod tests {
                 dcc_type: "maya".into(),
                 version: None,
                 catalog_path: None,
-                python: None,
+                python: Some("test-python".into()),
                 dcc_path: None,
                 plugin_source: None,
                 adobe_debug_root: None,
@@ -887,7 +939,7 @@ mod tests {
                 dcc_type: "unreal".into(),
                 version: None,
                 catalog_path: None,
-                python: None,
+                python: Some("test-python".into()),
                 dcc_path: None,
                 plugin_source: None,
                 adobe_debug_root: None,
@@ -988,7 +1040,7 @@ mod tests {
                 dcc_type: "maya".into(),
                 version: None,
                 catalog_path: None,
-                python: None,
+                python: Some("test-python".into()),
                 dcc_path: None,
                 plugin_source: None,
                 adobe_debug_root: None,
@@ -1194,6 +1246,7 @@ mod tests {
             ],
             next_steps: vec![],
             install_policy: InstallPolicy::enabled(),
+            python_source: None,
         }
     }
 

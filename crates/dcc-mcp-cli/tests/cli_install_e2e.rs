@@ -14,7 +14,7 @@ fn bundled_install_sop_plans_keep_verified_release_bindings() {
     for release in releases.as_array().unwrap() {
         let dcc_type = release["dcc_type"].as_str().unwrap();
         let plan = run_json_with_env_removed(
-            &["install", "--dcc-type", dcc_type],
+            &["install", "--dcc-type", dcc_type, "--python", "test-python"],
             &[],
             &["DCC_MCP_CATALOG_PATH", "DCC_MCP_INSTALL_PYTHON"],
         );
@@ -40,6 +40,18 @@ fn bundled_install_sop_plans_keep_verified_release_bindings() {
         assert!(!output.status.success(), "{dcc_type}");
         assert!(String::from_utf8_lossy(&output.stderr).contains("differs from catalog version"));
     }
+}
+
+#[test]
+fn install_cli_records_environment_python_source() {
+    let plan = run_json_with_env_removed(
+        &["install", "--dcc-type", "maya", "--json"],
+        &[("DCC_MCP_INSTALL_PYTHON", "environment-python")],
+        &["DCC_MCP_CATALOG_PATH"],
+    );
+
+    assert_eq!(plan["steps"][0]["action"]["python"], "environment-python");
+    assert_eq!(plan["python_source"], "environment");
 }
 
 fn fake_pip(temp: &TempDir, version: &str) -> std::path::PathBuf {
@@ -159,7 +171,14 @@ fn install_execute_json_failure_emits_one_safe_execution_report() {
 #[test]
 fn install_json_alias_preserves_the_plan_only_response() {
     let output = cli_command()
-        .args(["install", "--dcc-type", "maya", "--json"])
+        .args([
+            "install",
+            "--dcc-type",
+            "maya",
+            "--python",
+            "test-python",
+            "--json",
+        ])
         .env_remove("DCC_MCP_INSTALL_DISABLED")
         .output()
         .unwrap();
@@ -345,7 +364,13 @@ fn install_policy_env_disables_execute_with_a_stable_preflight_report() {
 #[test]
 fn install_bundled_catalog_covers_non_maya_first_party_adapters() {
     let plan = run_json_with_env_removed(
-        &["install", "--dcc-type", "blender"],
+        &[
+            "install",
+            "--dcc-type",
+            "blender",
+            "--python",
+            "test-python",
+        ],
         &[],
         &["DCC_MCP_CATALOG_PATH", "DCC_MCP_INSTALL_PYTHON"],
     );
@@ -364,7 +389,7 @@ fn install_bundled_catalog_covers_non_maya_first_party_adapters() {
 #[test]
 fn bundled_catalog_reports_current_unity_adapter_version() {
     let plan = run_json_with_env_removed(
-        &["install", "--dcc-type", "unity"],
+        &["install", "--dcc-type", "unity", "--python", "test-python"],
         &[],
         &["DCC_MCP_CATALOG_PATH", "DCC_MCP_INSTALL_PYTHON"],
     );
@@ -442,7 +467,7 @@ fn install_bundled_catalog_pins_office_adapter_wheels() {
         ),
     ] {
         let plan = run_json_with_env_removed(
-            &["install", "--dcc-type", dcc_type],
+            &["install", "--dcc-type", dcc_type, "--python", "test-python"],
             &[],
             &["DCC_MCP_CATALOG_PATH", "DCC_MCP_INSTALL_PYTHON"],
         );
@@ -511,7 +536,7 @@ fn bundled_catalog_reports_current_core_adapter_versions() {
         ("illustrator", "0.3.3"),
     ] {
         let plan = run_json_with_env_removed(
-            &["install", "--dcc-type", dcc_type],
+            &["install", "--dcc-type", dcc_type, "--python", "test-python"],
             &[],
             &["DCC_MCP_CATALOG_PATH", "DCC_MCP_INSTALL_PYTHON"],
         );
@@ -523,7 +548,13 @@ fn bundled_catalog_reports_current_core_adapter_versions() {
 #[test]
 fn bundled_catalog_reports_marmoset_adapter() {
     let plan = run_json_with_env_removed(
-        &["install", "--dcc-type", "marmoset"],
+        &[
+            "install",
+            "--dcc-type",
+            "marmoset",
+            "--python",
+            "test-python",
+        ],
         &[],
         &["DCC_MCP_CATALOG_PATH", "DCC_MCP_INSTALL_PYTHON"],
     );
@@ -536,7 +567,13 @@ fn bundled_catalog_reports_marmoset_adapter() {
 #[test]
 fn install_prefers_adapter_over_same_dcc_skill_pack() {
     let plan = run_json_with_env_removed(
-        &["install", "--dcc-type", "photoshop"],
+        &[
+            "install",
+            "--dcc-type",
+            "photoshop",
+            "--python",
+            "test-python",
+        ],
         &[],
         &["DCC_MCP_CATALOG_PATH", "DCC_MCP_INSTALL_PYTHON"],
     );
@@ -550,7 +587,13 @@ fn install_prefers_adapter_over_same_dcc_skill_pack() {
 #[test]
 fn install_accepts_human_dcc_name_aliases() {
     let plan = run_json_with_env_removed(
-        &["install", "--dcc-type", "3ds Max"],
+        &[
+            "install",
+            "--dcc-type",
+            "3ds Max",
+            "--python",
+            "test-python",
+        ],
         &[],
         &["DCC_MCP_CATALOG_PATH", "DCC_MCP_INSTALL_PYTHON"],
     );
