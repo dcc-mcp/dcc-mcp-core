@@ -85,7 +85,6 @@ class TestBatchDispatch:
         assert result["total"] == 2
         assert len(result["errors"]) >= 1
 
-
     def test_failed_batch_reinvocation_resumes_at_first_incomplete_call(self):
         batch_dispatch = _batch.batch_dispatch
 

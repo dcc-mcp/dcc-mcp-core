@@ -56,9 +56,9 @@ return result
 from __future__ import annotations
 import __future__
 
+import ast
 from copy import deepcopy
 import hashlib
-import ast
 import json
 import logging
 from typing import Any
@@ -327,13 +327,10 @@ def batch_dispatch(
         cached = None
         if idempotency_store is not None:
             try:
-                cache_key = _batch_idempotency_key(
-                    idempotency_namespace, idx, tool_name, arguments
-                )
+                cache_key = _batch_idempotency_key(idempotency_namespace, idx, tool_name, arguments)
             except Exception:
                 logger.warning(
-                    "batch_dispatch: failed to build idempotency key "
-                    "for index %d (tool=%s)",
+                    "batch_dispatch: failed to build idempotency key for index %d (tool=%s)",
                     idx,
                     tool_name,
                     exc_info=True,
@@ -343,8 +340,7 @@ def batch_dispatch(
                     cached = idempotency_store.get(cache_key)
                 except Exception:
                     logger.warning(
-                        "batch_dispatch: failed to read idempotency result "
-                        "for index %d (tool=%s)",
+                        "batch_dispatch: failed to read idempotency result for index %d (tool=%s)",
                         idx,
                         tool_name,
                         exc_info=True,
@@ -411,8 +407,7 @@ def batch_dispatch(
                         idempotency_store.put(cache_key, stored)
                     except Exception:
                         logger.warning(
-                            "batch_dispatch: failed to persist idempotency result "
-                            "for index %d (tool=%s)",
+                            "batch_dispatch: failed to persist idempotency result for index %d (tool=%s)",
                             idx,
                             tool_name,
                             exc_info=True,
