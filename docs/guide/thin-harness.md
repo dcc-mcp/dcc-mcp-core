@@ -129,7 +129,7 @@ from dcc_mcp_core import (
 
 @skill_entry
 def execute_python(
-    file_path: str,
+    file_path: str | None = None,
     script_path: str | None = None,
     params: dict | None = None,
     sha256: str | None = None,
@@ -139,12 +139,12 @@ def execute_python(
 
     Args:
         file_path: Host-local path when the execution tool uses this field.
-        script_path: Host-local path when the execution tool uses this alias.
-            Declare both parameters in the tool schema; business arguments
-            belong in ``params``.
+        script_path: Backward-compatible alias for ``file_path`` and the
+            canonical runner field. Both names are accepted; ``params``
+            carries business arguments.
         params: Values passed to the script's ``main(**params)`` entrypoint.
-        sha256: Materialization descriptor digest. It is optional only for
-            scripts under the canonical materialization root.
+        sha256: Optional assertion for any trusted file. Supplied digests are
+            verified against the file before execution.
         timeout_secs: Execution timeout. Default 30 s.
 
     Returns:
@@ -152,14 +152,14 @@ def execute_python(
     """
     import traceback
 
+    request = {
+        "timeout_secs": timeout_secs,
+    }
     try:
-        request = {
-            "timeout_secs": timeout_secs,
-        }
-        if script_path is not None:
-            request["script_path"] = script_path
+        if script_path or file_path:
+            request["script_path"] = script_path or file_path
         else:
-            request["file_path"] = file_path
+            raise ValueError("either file_path or script_path is required")
         if params is not None:
             request["params"] = params
         if sha256 is not None:
@@ -213,6 +213,7 @@ Create a named polygon cube at the origin with explicit dimensions.
 
 \`\`\`python
 def main(name: str, width: float, height: float, depth: float) -> dict:
+    from maya import cmds
     return {"cube": cmds.polyCube(name=name, w=width, h=height, d=depth)[0]}
 \`\`\`
 
@@ -222,6 +223,7 @@ Set absolute world-space translation (not relative) using params.
 
 \`\`\`python
 def main(object_name: str, x: float, y: float, z: float) -> dict:
+    from maya import cmds
     cmds.xform(object_name, translation=(x, y, z), worldSpace=True)
     return {"object": object_name, "translation": (x, y, z)}
 \`\`\`
@@ -246,8 +248,9 @@ unexpected hashes instead of executing them.
 Write generated scripts with explicit, fully typed `def main(...)` parameters
 and keep varying values in the `params` object. `derive_script_parameters_schema`
 derives a closed schema with `additionalProperties=false`, so a `main(**params)`
-template rejects declared parameters. The runner reads the host-local file,
-verifies the optional `sha256` assertion, and passes `params` to `main(**params)`.
+template rejects undeclared or extra parameters. The runner reads the host-local
+file, verifies any supplied `sha256` assertion, and passes `params` to
+`main(**params)`.
 There is no dedicated reuse flag or params-file option: pass `file_path` and an
 inline `params` object to the execution tool. The general `dcc-mcp-cli call
 --json-file` command can supply a large argument object, but it does not create

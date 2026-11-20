@@ -405,11 +405,14 @@ Execution results should return `context.materialized_script` with `path`,
 context keys are migration aliases, not the preferred contract.
 
 Agents can also call the `materialize_script` MCP/REST tool exposed by
-`DccServerBase` adapters. Discover it with `search_tools("materialize script")`,
-call it with `content` (or legacy `code`), then pass the returned `file_path`
-to the execution tool. The tool returns FileRef/path/hash/TTL/session metadata
-and never echoes raw source. Gateway traces and admin audit rows redact
-script-source input fields by default and keep the descriptor metadata instead.
+`DccServerBase` adapters. Through the gateway, run `POST /v1/search` with
+`{"query": "materialize script"}` (or MCP `search(kind="tool",`
+`query="materialize script")`), follow the selected hit's `next_step` to
+`describe` when requested, then `call` it with `content` (or legacy `code`).
+Pass the returned `file_path` to the execution tool. The tool returns
+FileRef/path/hash/TTL/session metadata and never echoes raw source. Gateway
+traces and admin audit rows redact script-source input fields by default and
+keep the descriptor metadata instead.
 
 **Iteration Playbook (re-run, re-parameterize, resume).** Four moves cover almost every
 repeat in a session, and all four are already shipped:
@@ -426,7 +429,11 @@ repeat in a session, and all four are already shipped:
    can supply a large argument object, but it does not create a reusable script identity.
 3. **Repeat a sequence → `workflows_run`.** Once the same multi-step procedure succeeds twice,
    promote it to a workflow spec with stable `idempotency_key` values, then poll with
-   `workflows_get_status`. A CLI `--json-file` containing unchanged source is not a reuse
+   `workflows_get_status`. Persisted runs require `WorkflowStorage` plus the
+   `job-persist-sqlite` feature; without them a run has no durable checkpoints and
+   cannot resume. Save the returned `workflow_id` for the resume navigation at
+   `agents-reference.md#start-a-repeatable-sequence-with-workflows_run`. A CLI `--json-file`
+   containing unchanged source is not a reuse
    strategy; it still re-sends the same code.
 4. **Recover a dead multi-step run → `workflows_resume`.** Send `workflow_id` plus optional
    `force_steps`, `expected_spec_hash`, and `strict`. It re-drives the persisted run from the

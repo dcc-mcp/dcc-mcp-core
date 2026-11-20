@@ -184,10 +184,17 @@ Repeating work in a DCC host has one normative entry point:
    not create a reusable script identity.
 3. **Repeat a multi-step procedure → `workflows_run`.** After the same sequence succeeds
    twice, promote it to a workflow spec with stable `idempotency_key` values and poll with
-   `workflows_get_status`.
-4. **Recover a dead multi-step run → `workflows_resume`.** Pass `workflow_id`, plus optional
+   `workflows_get_status`. Start a persisted run only when the executor has
+   `WorkflowStorage` and the `job-persist-sqlite` feature; without them the run has
+   no durable checkpoints and cannot resume.
+4. **Resume at the navigation link → `workflows_resume`.** Follow the persisted-run
+   navigation from `docs/guide/agents-reference.md#start-a-repeatable-sequence-with-workflows_run`.
+   Pass `workflow_id`, plus optional
    `force_steps` / `expected_spec_hash` / `strict`. Requires the executor to be built with
    `WorkflowStorage` and the `job-persist-sqlite` feature.
+   If resume is unavailable, report the interruption and wait for a storage-capable
+   resume. Do not start a new `workflows_run` to recover the run, because that can
+   replay mutations.
 
 ---
 

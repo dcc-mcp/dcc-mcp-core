@@ -1979,8 +1979,11 @@ reuse path.
 
 ### 3. Start a repeatable sequence with `workflows_run`
 After the same multi-step sequence succeeds twice, start a persisted run with
-`workflows_run` and give mutating steps stable `idempotency_key` values. Poll the
-returned `workflow_id` with `workflows_get_status`.
+`workflows_run` only when the executor has `WorkflowStorage` and the
+`job-persist-sqlite` feature. Without them the run is not durably checkpointed
+and cannot resume. Give mutating steps stable `idempotency_key` values. Poll the
+returned `workflow_id` with `workflows_get_status`. Save that ID and follow the
+resume navigation in section 4 instead of starting a fresh run.
 Do not use a CLI `--json-file` containing unchanged source as a reuse contract;
 it still re-sends the code. `workflows_run` is a Rust-side MCP tool with no Python
 wrapper or CLI subcommand: call it through MCP `tools/call` or REST `/v1/call`.
