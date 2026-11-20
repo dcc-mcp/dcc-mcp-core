@@ -9,6 +9,8 @@ it.
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeoutError
 import datetime
 import logging
 import re
@@ -16,6 +18,7 @@ from threading import RLock
 import time
 from typing import Any
 from typing import Callable
+from typing import Sequence
 from urllib.parse import quote
 
 from dcc_mcp_core import json_dumps
@@ -23,13 +26,19 @@ from dcc_mcp_core import json_dumps
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "CAPABILITY_PROBE_TOOL",
+    "DESCRIBE_CAPABILITIES_TOOL",
     "HOST_CAPABILITIES_SCHEMA_ID",
     "HOST_CAPABILITIES_SCHEMA_VERSION",
+    "INITIAL_CAPABILITY_KEYS",
+    "LEGACY_HOST_CAPABILITIES_TOOL",
     "PROBE_RESULTS",
+    "CapabilityProbeRunner",
     "HostCapabilityCache",
     "HostCapabilityValidationError",
     "build_host_capabilities",
     "make_host_capability",
+    "register_capability_tools",
     "register_host_capability_tool",
     "summarize_host_capabilities",
     "validate_host_capabilities",
@@ -38,6 +47,22 @@ __all__ = [
 
 HOST_CAPABILITIES_SCHEMA_ID = "https://dcc-mcp.github.io/dcc-mcp-core/schemas/host-capabilities-v1.schema.json"
 HOST_CAPABILITIES_SCHEMA_VERSION = 1
+
+DESCRIBE_CAPABILITIES_TOOL = "describe_capabilities"
+LEGACY_HOST_CAPABILITIES_TOOL = "dcc_host_capabilities"
+CAPABILITY_PROBE_TOOL = "capability_probe"
+
+INITIAL_CAPABILITY_KEYS: tuple[str, ...] = (
+    "render.extra_image_planes",
+    "render.material_exports",
+    "render.lpe",
+    "render.cryptomatte",
+    "render.object_id_integer",
+    "sim.rbd_field_writes",
+    "capture.in_process_qt",
+    "script.terminal_mode",
+    "script.in_process_python",
+)
 
 _SCHEMA_HOST_CAPABILITIES = "dcc-mcp/host-capabilities"
 
@@ -612,63 +637,335 @@ class HostCapabilityCache:
             return len(self._entries)
 
 
-def register_host_capability_tool(
+class CapabilityProbeRunner:
+    """Run adapter-provided probes with a bounded wait and fail-closed results.
+
+    Core waits at most ``timeout_secs`` for each probe. It does not terminate
+    adapter threads: cancellation of the underlying host operation remains the
+    adapter's responsibility. A timeout, malformed record, or unsupported
+    outcome becomes a ``FAIL`` record with a concrete reason.
+    The callback signature is ``probe(key)`` when ``context`` is omitted and
+    ``probe(key, context)`` when an adapter context is supplied. The context
+    is passed through untouched so an adapter can supply its own host session,
+    dispatcher, or cancellation token.
+    """
+
+    def __init__(
+        self,
+        probe: Callable[[str], Any],
+        *,
+        timeout_secs: float = 5.0,
+        keys: Sequence[str] = INITIAL_CAPABILITY_KEYS,
+        context: Any = None,
+        cancel: Callable[[str], Any] | None = None,
+    ) -> None:
+        if not callable(probe):
+            raise HostCapabilityValidationError("probe must be callable")
+        if isinstance(timeout_secs, bool) or not isinstance(timeout_secs, (int, float)):
+            raise HostCapabilityValidationError("timeout_secs must be a number")
+        if timeout_secs <= 0:
+            raise HostCapabilityValidationError("timeout_secs must be greater than zero")
+        if isinstance(keys, str):
+            raise HostCapabilityValidationError("keys must be a sequence of capability names")
+        seen: set[str] = set()
+        for key in keys:
+            if not isinstance(key, str) or not _CAPABILITY_KEY_RE.fullmatch(key):
+                raise HostCapabilityValidationError(f"invalid capability probe key: {key!r}")
+            if key in seen:
+                raise HostCapabilityValidationError(f"duplicate probe key: {key}")
+            seen.add(key)
+        self._probe = probe
+        self._timeout = float(timeout_secs)
+        self._keys = tuple(keys)
+        self._context = context
+        self._cancel = cancel
+
+    @property
+    def keys(self) -> tuple[str, ...]:
+        return self._keys
+
+    def run_one(self, key: str) -> dict[str, Any]:
+        """Run one probe and return a validated capability record."""
+        if key not in self._keys:
+            return make_host_capability(
+                key,
+                False,
+                PROBE_FAIL,
+                reason=f"Capability key {key!r} has no registered probe",
+                probed_at=_now_utc_iso(),
+            )
+        return self._run_unchecked(key)
+
+    def run_all(self) -> list[dict[str, Any]]:
+        """Run every registered probe and return validated capability records."""
+        return [self._run_unchecked(key) for key in self._keys]
+
+    def _run_unchecked(self, key: str) -> dict[str, Any]:
+        # A context manager would wait for a timed-out worker on exit, which
+        # turns the advertised timeout into an unbounded handler call.
+        executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="dcc-capability-probe")
+        try:
+            future = executor.submit(self._call_probe, key)
+            try:
+                raw = future.result(timeout=self._timeout)
+            except FutureTimeoutError:
+                future.cancel()
+                self._request_cancel(key)
+                return self._failed(
+                    key,
+                    f"Probe exceeded the {self._timeout:g}s Core wait; adapter must cancel the host operation",
+                )
+            except Exception as exc:
+                return self._failed(
+                    key,
+                    f"Probe raised {type(exc).__name__}: {str(exc)[:256]}",
+                )
+        finally:
+            self._shutdown_executor(executor)
+
+        if isinstance(raw, dict) and raw.get("probe_result") == PROBE_UNSUPPORTED:
+            reason = raw.get("reason")
+            text = str(reason).strip() if reason is not None else ""
+            if text:
+                return make_host_capability(
+                    key,
+                    False,
+                    PROBE_UNSUPPORTED,
+                    reason=text,
+                    evidence_ref=raw.get("evidence_ref"),
+                    probed_at=_now_utc_iso(),
+                )
+        try:
+            record = dict(raw) if isinstance(raw, dict) else None
+            if record is None:
+                raise HostCapabilityValidationError("probe result must be an object")
+            record.setdefault("key", key)
+            if record["key"] != key:
+                raise HostCapabilityValidationError("probe result key does not match the requested key")
+            if record.get("probe_result") == PROBE_PASS and not (
+                str(record.get("reason") or "").strip() or str(record.get("evidence_ref") or "").strip()
+            ):
+                raise HostCapabilityValidationError("a passing probe must include reason or evidence_ref")
+            return _validate_host_capability(record, 0)
+        except (HostCapabilityValidationError, TypeError, ValueError) as exc:
+            return self._failed(key, f"Probe returned a malformed record: {str(exc)[:256]}")
+
+    def _failed(self, key: str, reason: str) -> dict[str, Any]:
+        return make_host_capability(key, False, PROBE_FAIL, reason=reason, probed_at=_now_utc_iso())
+
+    def _call_probe(self, key: str) -> Any:
+        if self._context is None:
+            return self._probe(key)
+        return self._probe(key, self._context)
+
+    def _request_cancel(self, key: str) -> None:
+        if self._cancel is None:
+            return
+        try:
+            self._cancel(key)
+        except Exception as exc:
+            logger.debug("host capability probe cancellation failed for %s: %s", key, exc)
+
+    @staticmethod
+    def _shutdown_executor(executor: ThreadPoolExecutor) -> None:
+        # ``cancel_futures`` arrived after the Python 3.7 floor. The running
+        # probe cannot be cancelled, but pending work must never keep the
+        # caller waiting after a bounded timeout.
+        try:
+            executor.shutdown(wait=False, cancel_futures=True)
+        except TypeError:
+            executor.shutdown(wait=False)
+
+
+def _register_tool(
+    registry: Any,
+    inner: Any,
+    tool_name: str,
+    *,
+    dcc_name: str,
+    description: str,
+    input_schema: dict[str, Any],
+    handler: Callable[[dict[str, Any]], dict[str, Any]],
+    tags: list[str],
+) -> bool:
+    get_action = getattr(registry, "get_action", None)
+    already_registered = callable(get_action) and get_action(tool_name) is not None
+    if not already_registered:
+        registry.register(
+            tool_name,
+            description=description,
+            category="dcc",
+            tags=tags,
+            dcc=dcc_name,
+            input_schema=json_dumps(input_schema),
+            skill_name="dcc-adapter",
+            group="capability",
+            execution="sync",
+            thread_affinity="any",
+            enabled=True,
+        )
+    inner.register_handler(tool_name, handler)
+    return not already_registered
+
+
+def _capability_input_schema(*, include_probe: bool) -> dict[str, Any]:
+    properties: dict[str, Any] = {
+        "force_refresh": {
+            "type": "boolean",
+            "description": "Ignore the version-keyed cache and re-read probes.",
+            "default": False,
+        },
+        "keys": {
+            "type": "array",
+            "items": {"type": "string"},
+            "maxItems": 64,
+            "description": "Optional capability keys to keep in the summary.",
+        },
+    }
+    if include_probe:
+        properties["invalidate"] = {
+            "type": "boolean",
+            "description": "Clear this host/adapter cache entry before reading capabilities.",
+            "default": False,
+        }
+    return {"type": "object", "properties": properties, "additionalProperties": False}
+
+
+def _probe_input_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "key": {
+                "type": "string",
+                "description": "One namespaced capability key to probe.",
+            },
+            "keys": {
+                "type": "array",
+                "items": {"type": "string"},
+                "minItems": 1,
+                "maxItems": 64,
+                "description": "Capability keys to probe. Omit when key is supplied.",
+            },
+            "invalidate": {
+                "type": "boolean",
+                "description": "Clear this host/adapter cache entry before running probes.",
+                "default": False,
+            },
+            "force_refresh": {
+                "type": "boolean",
+                "description": "Ignore cached probe records and run the requested probes again.",
+                "default": False,
+            },
+        },
+        "additionalProperties": False,
+    }
+
+
+def _requested_keys(
+    params: dict[str, Any],
+    *,
+    runner: CapabilityProbeRunner,
+) -> list[str]:
+    raw = params.get("keys")
+    if isinstance(raw, str):
+        raw = [raw]
+    if raw:
+        if not isinstance(raw, list) or any(not isinstance(item, str) or not item for item in raw):
+            raise HostCapabilityValidationError("keys must be an array of non-empty strings")
+        return list(dict.fromkeys(raw))
+    key = params.get("key")
+    if key:
+        if not isinstance(key, str):
+            raise HostCapabilityValidationError("key must be a string")
+        return [key]
+    return list(runner.keys)
+
+
+def _manifest_with_records(
+    manifest: dict[str, Any],
+    records: list[dict[str, Any]],
+) -> dict[str, Any]:
+    merged: dict[str, dict[str, Any]] = {
+        record["key"]: dict(record) for record in manifest.get("capabilities", [])
+    }
+    for record in records:
+        merged[record["key"]] = dict(record)
+    updated = dict(manifest)
+    updated["capabilities"] = [merged[key] for key in sorted(merged)]
+    return validate_host_capabilities(updated)
+
+
+def _complete_initial_capabilities(manifest: dict[str, Any]) -> dict[str, Any]:
+    present = {record["key"] for record in manifest.get("capabilities", [])}
+    missing = [
+        make_host_capability(
+            key,
+            False,
+            PROBE_NOT_RUN,
+            reason=f"No adapter probe or declaration is registered for {key}",
+        )
+        for key in INITIAL_CAPABILITY_KEYS
+        if key not in present
+    ]
+    return _manifest_with_records(manifest, missing) if missing else manifest
+
+
+def _invalidate_cache(
+    cache: HostCapabilityCache | None,
+    identity: Callable[[], tuple[str | None, str, str]] | None,
+    dcc_name: str,
+) -> None:
+    if cache is None:
+        return
+    resolved = identity() if identity is not None else None
+    if resolved is None:
+        cache.invalidate()
+        return
+    cache.invalidate(HostCapabilityCache.cache_key(*resolved))
+
+
+def register_capability_tools(
     server: Any,
     *,
     dcc_name: str,
     provider: Callable[[], dict[str, Any]],
     cache: HostCapabilityCache | None = None,
     provider_cache_key: Callable[[], tuple[str | None, str, str]] | None = None,
+    probe_runner: CapabilityProbeRunner | None = None,
 ) -> bool:
-    """Register ``dcc_host_capabilities`` as an MCP tool.
+    """Register the canonical describe tool, its alias, and ``capability_probe``.
 
-    ``provider`` is adapter-owned and returns a validated manifest. No probe is
-    executed here: the adapter decides what it can prove, and this tool only
-    exposes the result with optional version-keyed caching.
+    The provider remains the adapter-owned source of truth. The optional probe
+    runner lets an adapter replace cached records with freshly probed ones.
+    A probe that fails or times out is fail-closed and never cached as support.
     """
     inner = getattr(server, "_server", None)
-    if inner is None:
-        logger.debug("host capabilities: server has no inner _server; skipping")
+    registry = getattr(inner, "registry", None)
+    if registry is None or not hasattr(registry, "register"):
+        logger.debug("host capabilities: server has no registry; skipping")
         return False
 
-    tool_name = "dcc_host_capabilities"
-    description = (
-        f"Report probed {dcc_name} host feature capabilities with the probe result "
-        "that proves each one. Call this before committing to an expensive job so "
-        "unavailable features are found in planning rather than after a render."
-    )
-    input_schema = {
-        "type": "object",
-        "properties": {
-            "force_refresh": {
-                "type": "boolean",
-                "description": "Ignore the version-keyed cache and re-read probes.",
-                "default": False,
-            },
-            "keys": {
-                "type": "array",
-                "items": {"type": "string"},
-                "maxItems": 64,
-                "description": "Optional capability keys to keep in the summary.",
-            },
-        },
-        "additionalProperties": False,
-    }
+    def identity_key() -> str | None:
+        if cache is None:
+            return None
+        identity = provider_cache_key() if provider_cache_key is not None else None
+        if identity is None:
+            return None
+        return HostCapabilityCache.cache_key(*identity)
 
-    def handler(params: dict[str, Any]) -> dict[str, Any]:
+    def describe_handler(params: dict[str, Any]) -> dict[str, Any]:
         params = params or {}
         try:
-            identity = provider_cache_key() if provider_cache_key is not None else None
-            key: str | None = (
-                HostCapabilityCache.cache_key(*identity) if cache is not None and identity is not None else None
-            )
+            key = identity_key()
+            if params.get("invalidate"):
+                _invalidate_cache(cache, provider_cache_key, dcc_name)
             cached = None
             if cache is not None and key is not None and not params.get("force_refresh"):
                 cached = cache.get(key)
             if cached is not None:
-                manifest = cached
+                manifest = _complete_initial_capabilities(cached)
             else:
-                manifest = validate_host_capabilities(provider())
+                manifest = _complete_initial_capabilities(validate_host_capabilities(provider()))
                 if cache is not None:
                     if key is None:
                         key = HostCapabilityCache.cache_key(
@@ -677,7 +974,8 @@ def register_host_capability_tool(
                             manifest["adapter_version"],
                         )
                     cache.put(key, manifest)
-
+            if cached is not None and manifest is not cached and cache is not None and key is not None:
+                cache.put(key, manifest)
             summary = summarize_host_capabilities(manifest, keys=params.get("keys") or None)
             return {
                 "success": True,
@@ -697,29 +995,131 @@ def register_host_capability_tool(
                 },
             }
 
-    registry = getattr(inner, "registry", None)
-    if registry is None or not hasattr(registry, "register"):
-        return False
+    def probe_handler(params: dict[str, Any]) -> dict[str, Any]:
+        params = params or {}
+        if probe_runner is None:
+            return {
+                "success": False,
+                "error": "capability_probe_not_configured",
+                "message": "No adapter capability probe is configured",
+                "context": {"dcc_name": dcc_name},
+            }
+        try:
+            requested = _requested_keys(params, runner=probe_runner)
+            cache_key = identity_key()
+            if params.get("invalidate"):
+                _invalidate_cache(cache, provider_cache_key, dcc_name)
+                cached = None
+            else:
+                cached = cache.get(cache_key) if cache is not None and cache_key is not None else None
+
+            if cached is not None and not params.get("force_refresh"):
+                cached_records = {record["key"]: record for record in cached["capabilities"]}
+                missing = [
+                    key
+                    for key in requested
+                    if key not in cached_records or cached_records[key]["probe_result"] == PROBE_NOT_RUN
+                ]
+                if not missing:
+                    summary = summarize_host_capabilities(cached, keys=requested)
+                    return {
+                        "success": True,
+                        "message": f"{dcc_name} capability probe",
+                        "context": summary,
+                    }
+                base_manifest = _complete_initial_capabilities(cached)
+            else:
+                base_manifest = _complete_initial_capabilities(validate_host_capabilities(provider()))
+                missing = requested
+
+            records = [probe_runner.run_one(key) for key in missing]
+            merged = _manifest_with_records(base_manifest, records)
+            summary = summarize_host_capabilities(merged, keys=requested)
+            if cache is not None:
+                if cache_key is None:
+                    cache_key = HostCapabilityCache.cache_key(
+                        merged.get("dcc_type") or dcc_name,
+                        merged["host_version"],
+                        merged["adapter_version"],
+                    )
+                cache.put(cache_key, merged)
+            return {
+                "success": True,
+                "message": f"{dcc_name} capability probe",
+                "context": summary,
+            }
+        except Exception as exc:
+            logger.warning("host capabilities: probe failed: %s", exc)
+            return {
+                "success": False,
+                "error": "capability_probe_failed",
+                "message": "Host capability probe could not be read",
+                "context": {
+                    "dcc_name": dcc_name,
+                    "exception_type": type(exc).__name__,
+                    "detail": str(exc)[:512],
+                },
+            }
 
     try:
-        get_action = getattr(registry, "get_action", None)
-        already_registered = callable(get_action) and get_action(tool_name) is not None
-        if not already_registered:
-            registry.register(
-                tool_name,
-                description=description,
-                category="dcc",
+        registered = [
+            _register_tool(
+                registry,
+                inner,
+                DESCRIBE_CAPABILITIES_TOOL,
+                dcc_name=dcc_name,
+                description=(
+                    f"Describe probed {dcc_name} host feature capabilities before committing to an expensive job."
+                ),
+                input_schema=_capability_input_schema(include_probe=True),
+                handler=describe_handler,
+                tags=["capability", "capabilities", "describe", "probe", "planning", dcc_name.lower()],
+            ),
+            _register_tool(
+                registry,
+                inner,
+                LEGACY_HOST_CAPABILITIES_TOOL,
+                dcc_name=dcc_name,
+                description=f"Compatibility alias for {DESCRIBE_CAPABILITIES_TOOL}.",
+                input_schema=_capability_input_schema(include_probe=True),
+                handler=describe_handler,
                 tags=["capability", "capabilities", "probe", "planning", dcc_name.lower()],
-                dcc=dcc_name,
-                input_schema=json_dumps(input_schema),
-                skill_name="dcc-adapter",
-                group="capability",
-                execution="sync",
-                thread_affinity="any",
-                enabled=True,
+            ),
+        ]
+        if probe_runner is not None:
+            registered.append(
+                _register_tool(
+                    registry,
+                    inner,
+                    CAPABILITY_PROBE_TOOL,
+                    dcc_name=dcc_name,
+                    description=f"Run bounded {dcc_name} adapter capability probes with fail-closed results.",
+                    input_schema=_probe_input_schema(),
+                    handler=probe_handler,
+                    tags=["capability", "capabilities", "probe", dcc_name.lower()],
+                )
             )
-        inner.register_handler(tool_name, handler)
-        return not already_registered
+        return any(registered)
     except Exception as exc:
         logger.debug("host capabilities: registration failed: %s", exc)
         return False
+
+
+def register_host_capability_tool(
+    server: Any,
+    *,
+    dcc_name: str,
+    provider: Callable[[], dict[str, Any]],
+    cache: HostCapabilityCache | None = None,
+    provider_cache_key: Callable[[], tuple[str | None, str, str]] | None = None,
+    probe_runner: CapabilityProbeRunner | None = None,
+) -> bool:
+    """Register the canonical host capability tools and compatibility aliases."""
+    return register_capability_tools(
+        server,
+        dcc_name=dcc_name,
+        provider=provider,
+        cache=cache,
+        provider_cache_key=provider_cache_key,
+        probe_runner=probe_runner,
+    )

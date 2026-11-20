@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 
 use crate::application::control_plane::DccControlPlane;
 use crate::application::instance_selection::{instance_field, select_instances};
-use crate::domain::capabilities::{CapabilitiesRequest, HOST_CAPABILITIES_TOOL};
+use crate::domain::capabilities::CapabilitiesRequest;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CapabilitiesCommand {
@@ -17,6 +17,7 @@ pub struct CapabilitiesCommand {
     pub instance_id: Option<String>,
     pub keys: Vec<String>,
     pub force_refresh: bool,
+    pub invalidate: bool,
     pub meta: Option<Value>,
 }
 
@@ -27,6 +28,7 @@ impl CapabilitiesCommand {
         instance_id: Option<String>,
         keys: Vec<String>,
         force_refresh: bool,
+        invalidate: bool,
         meta: Option<Value>,
     ) -> Self {
         Self {
@@ -34,6 +36,7 @@ impl CapabilitiesCommand {
             instance_id,
             keys: normalize_keys(keys),
             force_refresh,
+            invalidate,
             meta,
         }
     }
@@ -52,10 +55,11 @@ impl CapabilitiesCommand {
             instance_id: instance_id.to_string(),
             keys: self.keys,
             force_refresh: self.force_refresh,
+            invalidate: self.invalidate,
         };
         let result = control
             .call(
-                HOST_CAPABILITIES_TOOL.to_string(),
+                request.backend_tool().to_string(),
                 Some(request.dcc_type.clone()),
                 Some(request.instance_id.clone()),
                 request.arguments(),
@@ -63,7 +67,7 @@ impl CapabilitiesCommand {
                 timeout,
             )
             .await?;
-        Ok(attach_target(&result, &target))
+        Ok(attach_target(&result, &target, request.backend_tool()))
     }
 }
 
@@ -132,7 +136,7 @@ fn require_field<'a>(target: &'a Value, key: &str) -> anyhow::Result<&'a str> {
         .ok_or_else(|| anyhow::anyhow!("matched instance row is missing {key}"))
 }
 
-fn attach_target(result: &Value, target: &Value) -> Value {
+fn attach_target(result: &Value, target: &Value, backend_tool: &str) -> Value {
     let Some(mut object) = result.as_object().cloned() else {
         return json!({
             "success": false,
@@ -141,7 +145,7 @@ fn attach_target(result: &Value, target: &Value) -> Value {
             "dcc_type": target_field(target, "dcc_type", Some("dcc")),
             "instance_id": target_field(target, "instance_id", None),
             "instance_short": target_field(target, "instance_short", None),
-            "backend_tool": HOST_CAPABILITIES_TOOL,
+            "backend_tool": backend_tool,
         });
     };
     object.insert(
@@ -156,7 +160,7 @@ fn attach_target(result: &Value, target: &Value) -> Value {
         "instance_short".to_string(),
         target_field(target, "instance_short", None),
     );
-    object.insert("backend_tool".to_string(), json!(HOST_CAPABILITIES_TOOL));
+    object.insert("backend_tool".to_string(), json!(backend_tool));
     Value::Object(object)
 }
 

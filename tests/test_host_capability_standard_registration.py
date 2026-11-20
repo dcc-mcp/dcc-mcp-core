@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from dcc_mcp_core.capabilities import INITIAL_CAPABILITY_KEYS
 from dcc_mcp_core.capabilities import PROBE_NOT_RUN
 from dcc_mcp_core.capabilities import build_host_capabilities
 from dcc_mcp_core.capabilities import build_unconfigured_host_capabilities
@@ -45,6 +46,7 @@ def _make_server(dcc_name="maya"):
     server._host_capability_provider = None
     server._host_capability_cache = None
     server._host_capability_provider_cache_key = None
+    server._host_capability_probe_runner = None
     return server
 
 
@@ -70,12 +72,15 @@ def test_standard_registration_needs_no_manual_provider_call(monkeypatch):
     monkeypatch.setattr(DccServerBase, "_version_string", lambda self: "16.0")
 
     assert server.register_host_capability_tool() is True
-    assert "dcc_host_capabilities" in server._server.registry.actions
+    assert list(server._server.registry.actions) == [
+        "describe_capabilities",
+        "dcc_host_capabilities",
+    ]
 
     result = server._server.registry.handlers["dcc_host_capabilities"]({})
     assert result["success"] is True
     assert result["context"]["host_version"] == "16.0"
-    assert result["context"]["totals"]["not_run"] == 1
+    assert result["context"]["totals"]["not_run"] == len(INITIAL_CAPABILITY_KEYS)
 
 
 def test_missing_provider_returns_honest_not_run_with_reason():
@@ -96,10 +101,14 @@ def test_explicit_registration_is_not_duplicated():
     assert server.register_host_capability_tool() is True
     server.set_host_capability_provider(_passed_manifest)
     assert server.register_host_capability_tool() is False
-    assert list(server._server.registry.actions) == ["dcc_host_capabilities"]
+    assert list(server._server.registry.actions) == [
+        "describe_capabilities",
+        "dcc_host_capabilities",
+    ]
 
     result = server._server.registry.handlers["dcc_host_capabilities"]({})
     assert result["context"]["totals"]["available"] == 1
+    assert result["context"]["totals"]["not_run"] == len(INITIAL_CAPABILITY_KEYS)
 
 
 def test_provider_injected_after_fallback_registration_rebinds_handler():
@@ -107,7 +116,7 @@ def test_provider_injected_after_fallback_registration_rebinds_handler():
 
     assert server.register_host_capability_tool() is True
     fallback = server._server.registry.handlers["dcc_host_capabilities"]({})
-    assert fallback["context"]["totals"]["not_run"] == 1
+    assert fallback["context"]["totals"]["not_run"] == len(INITIAL_CAPABILITY_KEYS)
 
     server.set_host_capability_provider(_passed_manifest)
     result = server._server.registry.handlers["dcc_host_capabilities"]({})
@@ -123,15 +132,18 @@ def test_provider_lifecycle_restores_not_run_without_duplicate_registration():
     server.set_host_capability_provider(None)
 
     result = server._server.registry.handlers["dcc_host_capabilities"]({})
-    assert result["context"]["totals"]["not_run"] == 1
+    assert result["context"]["totals"]["not_run"] == len(INITIAL_CAPABILITY_KEYS)
     assert "No host capability provider" in str(result["context"])
-    assert list(server._server.registry.actions) == ["dcc_host_capabilities"]
+    assert list(server._server.registry.actions) == [
+        "describe_capabilities",
+        "dcc_host_capabilities",
+    ]
 
 
 def test_registration_delegates_provider_state_and_cache_configuration(monkeypatch):
     registrations = []
     monkeypatch.setattr(
-        "dcc_mcp_core._server.host_capability_registration.register_host_capability_tool",
+        "dcc_mcp_core._server.host_capability_registration.register_capability_tools",
         lambda *args, **kwargs: registrations.append(kwargs) or True,
     )
 
@@ -155,6 +167,7 @@ def test_registration_delegates_provider_state_and_cache_configuration(monkeypat
             "provider": _passed_manifest,
             "cache": cache,
             "provider_cache_key": identity,
+            "probe_runner": None,
         }
     ]
 

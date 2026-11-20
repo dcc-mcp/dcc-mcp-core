@@ -5,7 +5,7 @@ use serde_json::json;
 #[test]
 fn human_output_preserves_not_run_without_support_claim() {
     let value = json!({
-        "backend_tool": "dcc_host_capabilities",
+        "backend_tool": "describe_capabilities",
         "dcc_type": "comfyui",
         "instance_short": "abc12345",
         "result": {
@@ -49,7 +49,7 @@ fn human_output_preserves_not_run_without_support_claim() {
 #[test]
 fn human_output_keeps_four_groups_and_does_not_promote_not_run() {
     let value = json!({
-        "backend_tool": "dcc_host_capabilities",
+        "backend_tool": "describe_capabilities",
         "dcc_type": "houdini",
         "instance_short": "abc12345",
         "result": {
@@ -96,7 +96,7 @@ fn human_output_keeps_four_groups_and_does_not_promote_not_run() {
         lines[0],
         "status=OK host=20.5 adapter=0.3.1 probed_at=2026-11-20T00:00:00Z"
     );
-    assert_eq!(lines[1], "tool=dcc_host_capabilities host=houdini/abc12345");
+    assert_eq!(lines[1], "tool=describe_capabilities host=houdini/abc12345");
     assert_eq!(lines[2], "AVAILABLE (1)");
     assert_eq!(lines[3], "  render.lpe [PASS]");
     assert_eq!(lines[4], "DECLARED (1)");
@@ -121,7 +121,7 @@ fn human_output_marks_a_failed_backend_result() {
     let value = json!({
         "ok": false,
         "error": {"error": "host_capability_provider_failed"},
-        "backend_tool": "dcc_host_capabilities",
+        "backend_tool": "describe_capabilities",
         "dcc_type": "photoshop",
         "instance_short": "def67890",
         "result": {

@@ -202,53 +202,68 @@ The contract fails closed:
   validity (including leap years), 00-23 hours, 00-59 minutes and seconds, and
   offsets below 24 hours. Leap seconds are rejected.
 
-`DccServerBase` registers `dcc_host_capabilities` automatically during standard
-builtin registration, so the tool remains an ordinary backend tool available to
-the existing search, describe, call, and REST paths. Adapters provide evidence
-by injecting a manifest provider:
+`DccServerBase` registers `describe_capabilities` automatically during standard
+builtin registration. `dcc_host_capabilities` remains a compatibility alias. Both
+names use the same provider, cache, and summary contract. The tools are ordinary
+backend tools, so the existing search, describe, call, and REST paths expose them
+without loading every skill.
+
+Adapters provide the manifest provider and may inject a bounded probe runner:
 
 ```python
-from dcc_mcp_core.capabilities import build_host_capabilities
+from dcc_mcp_core.capabilities import CapabilityProbeRunner
 from dcc_mcp_core.capabilities import HostCapabilityCache
+from dcc_mcp_core.capabilities import build_host_capabilities
 
-def probe_host():
+
+def probe_capability(key, context):
+    # The adapter owns the host operation and its concrete evidence.
+    return adapter_probe(key, context)
+
+
+def describe_host():
     return build_host_capabilities(
         host_version=current_host_version(),
         adapter_version=current_adapter_version(),
-        capabilities=records,
+        capabilities=adapter_declarations(),
     )
 
+
+runner = CapabilityProbeRunner(
+    probe_capability,
+    timeout_secs=5,
+    context=current_probe_context(),
+    cancel=cancel_adapter_probe,
+)
 server.set_host_capability_provider(
-    probe_host,
-    provider_cache_key=current_host_identity,  # optional; see below
+    describe_host,
+    provider_cache_key=current_host_identity,
     cache=HostCapabilityCache(ttl_secs=300),
+    probe_runner=runner,
 )
 ```
 
-`provider_cache_key` is optional for an existing adapter that already builds
-one manifest from the currently connected host. It is required when the same
-cache can survive a host or adapter version change and the provider can report
-that identity independently.
+`describe_capabilities` accepts `keys`, `force_refresh`, and `invalidate`. The
+`capability_probe` tool accepts `key` or `keys`, runs only the requested adapter
+probes, and stores their typed result in the same host/adapter-version cache.
+A subsequent probe call reuses a cached result until `invalidate: true` or
+`force_refresh: true` is supplied. `provider_cache_key` returns
+`(dcc_type, host_version, adapter_version)` so a host or adapter update cannot
+reuse evidence from the previous build. The standard server supplies a default
+identity callback when an adapter does not provide one.
 
-When no provider is configured, the tool returns an honest `NOT_RUN` record with
-a reason explaining that capabilities were not probed. Core never runs a real
-host probe. An explicit `register_host_capability_tool(server, ...)` call remains
-supported and is skipped by the standard phase when the tool is already present.
+Core bounds how long it waits for each adapter probe. It cannot safely terminate
+an arbitrary host callable. Adapters should implement the optional `cancel`
+callback and stop their underlying host operation when Core reports a timeout.
+Timed-out, malformed, or conflicting probe records become fail-closed `FAIL`
+records and cannot claim support. Adapter-specific blocker text and evidence
+references remain adapter-owned.
 
-The tool is `dcc_host_capabilities` and returns the summary above, so one call
-answers "which strategies are available on this instance, and why not the
-others". Cache entries are keyed by DCC type plus host and adapter version,
-because a probe result is only valid for the build that produced it; pass
-`force_refresh: true` to re-read probes. Adapters whose host version can change
-between calls should also pass `provider_cache_key`, a cheap callback returning
-`(dcc_type, host_version, adapter_version)`. The tool checks that identity
-before reading the cache, so a version change cannot return the previous
-build's evidence. Provider and validation failures return
-`host_capability_provider_failed` in a structured result instead of raising an
-unhandled exception.
-
-This contract does not execute probes or implement host-specific discovery.
-Backend routing is provided by the standard `dcc_host_capabilities` registration;
+The CLI exposes the canonical `describe-capabilities` command and keeps
+`capabilities` as a compatibility command. Both accept `--keys`,
+`--force-refresh`, and `--invalidate`. JSON output retains the canonical
+`backend_tool` name and the evidence fields needed by planning clients.
+Backend routing is provided by the standard `describe_capabilities` registration;
 host probes remain owned by adapter integrations.
 
 ---

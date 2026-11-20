@@ -99,6 +99,19 @@ pub(crate) enum Command {
     },
     /// List live DCC instances from the local registry or selected gateway profile.
     List,
+    /// Canonical alias for `capabilities`.
+    DescribeCapabilities {
+        #[arg(long)]
+        dcc_type: Option<String>,
+        #[arg(long)]
+        instance_id: Option<String>,
+        #[arg(long)]
+        keys: Vec<String>,
+        #[arg(long)]
+        force_refresh: bool,
+        #[arg(long)]
+        invalidate: bool,
+    },
     /// Summarize probed host capabilities for one DCC instance without running probes.
     Capabilities {
         /// DCC type, for example maya, blender, houdini, or a custom host.
@@ -114,6 +127,9 @@ pub(crate) enum Command {
         /// Ask the adapter to re-read its capability probes.
         #[arg(long)]
         force_refresh: bool,
+        /// Clear cached capability records before reading them.
+        #[arg(long)]
+        invalidate: bool,
     },
     /// List adapter-backed DCC types from the release catalog.
     DccTypes {

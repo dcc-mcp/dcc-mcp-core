@@ -11,6 +11,7 @@ use crate::application::capabilities_result::backend_summary;
 use crate::application::client::TransportMode;
 use crate::application::gateway_profile::GatewayTarget;
 use crate::application::local_control::call_result_succeeded;
+use crate::domain::capabilities::DESCRIBE_CAPABILITIES_TOOL;
 use crate::domain::rest::Endpoint;
 use crate::presentation::cli::capabilities_output::render_human;
 
@@ -122,6 +123,7 @@ async fn repeated_keys_and_force_refresh_reach_the_direct_gateway_call() {
             "render.lpe".to_string(),
         ],
         true,
+        false,
         Some(json!({"agent_context": {"session_id": "capabilities-session"}})),
     )
     .run(&control, Duration::from_secs(2))
@@ -135,7 +137,7 @@ async fn repeated_keys_and_force_refresh_reach_the_direct_gateway_call() {
         seen[0]["instance_id"],
         "abc12345-0000-0000-0000-000000000000"
     );
-    assert_eq!(seen[0]["body"]["backend_tool"], "dcc_host_capabilities");
+    assert_eq!(seen[0]["body"]["backend_tool"], "describe_capabilities");
     assert_eq!(seen[0]["body"]["arguments"]["force_refresh"], true);
     assert_eq!(
         seen[0]["body"]["arguments"]["keys"][0],
@@ -197,11 +199,17 @@ async fn unique_instance_id_is_resolved_without_caller_supplying_one() {
         true,
     );
 
-    let result =
-        CapabilitiesCommand::new(Some("photoshop".to_string()), None, Vec::new(), false, None)
-            .run(&control, Duration::from_secs(2))
-            .await
-            .unwrap();
+    let result = CapabilitiesCommand::new(
+        Some("photoshop".to_string()),
+        None,
+        Vec::new(),
+        false,
+        false,
+        None,
+    )
+    .run(&control, Duration::from_secs(2))
+    .await
+    .unwrap();
 
     assert_eq!(result["dcc_type"], "photoshop");
     assert_eq!(
@@ -278,7 +286,7 @@ fn mcp_transport_keeps_the_existing_direct_call_guard() {
     let error = runtime.block_on(async {
         control
             .call(
-                HOST_CAPABILITIES_TOOL.to_string(),
+                DESCRIBE_CAPABILITIES_TOOL.to_string(),
                 Some("nuke".to_string()),
                 Some("abc12345-0000-0000-0000-000000000000".to_string()),
                 json!({}),

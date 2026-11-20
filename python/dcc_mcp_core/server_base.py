@@ -232,6 +232,7 @@ class DccServerBase(HostCapabilityRegistrationMixin):
         self._host_capability_provider: Callable[[], dict[str, Any]] | None = None
         self._host_capability_cache: Any | None = None
         self._host_capability_provider_cache_key: Callable[[], tuple[str | None, str, str]] | None = None
+        self._host_capability_probe_runner: Any | None = None
         self._host_capability_registration: Any | None = None
         self._initialize_host_capability_registration(_PKG_VERSION)
 

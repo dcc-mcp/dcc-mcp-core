@@ -8,6 +8,7 @@
 use serde_json::{Value, json};
 
 use super::local_control::call_result_succeeded;
+use crate::domain::capabilities::DESCRIBE_CAPABILITIES_TOOL;
 
 #[must_use]
 pub fn backend_summary(result: &Value) -> Option<Value> {
@@ -56,10 +57,14 @@ pub fn project_result(result: Value) -> Value {
     }
     let mut original = result.clone();
     original["ok"] = json!(call_result_succeeded(&result));
+    let backend_tool = result
+        .get("backend_tool")
+        .and_then(Value::as_str)
+        .unwrap_or(DESCRIBE_CAPABILITIES_TOOL);
     let mut projected = json!({
         "ok": false,
         "error": error_body(&result, &original),
-        "backend_tool": "dcc_host_capabilities",
+        "backend_tool": backend_tool,
     });
     for (field, key) in [
         ("dcc_type", "dcc_type"),
