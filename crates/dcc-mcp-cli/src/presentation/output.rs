@@ -256,6 +256,14 @@ impl OutputWriter {
         Ok(())
     }
 
+    /// Write a human-only view to stdout instead of the machine payload.
+    pub(crate) fn write_human(&self, text: &str) -> anyhow::Result<()> {
+        let mut stdout = std::io::stdout().lock();
+        writeln!(stdout, "{text}")?;
+        stdout.flush()?;
+        Ok(())
+    }
+
     /// Write an error envelope to stderr (always, per ADR 018 stdout/stderr
     /// separation: stdout=data, stderr=diagnostics including errors).
     ///

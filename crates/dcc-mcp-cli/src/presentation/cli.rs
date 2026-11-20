@@ -13,11 +13,13 @@ use crate::application::adapter_import;
 use crate::application::call_attribution::{
     attach_agent_session_id, attach_batch_agent_session_id,
 };
+use crate::application::capabilities_result;
 use crate::application::client::DccMcpClient;
 use crate::application::control_plane::DccControlPlane;
 use crate::application::doctor::{DoctorContext, run_doctor};
 use crate::application::gateway_ensure;
 use crate::application::gateway_profile;
+use crate::application::host_capabilities::CapabilitiesCommand;
 use crate::application::install::InstallService;
 use crate::application::marketplace::check_marketplace_updates;
 use crate::application::marketplace::new_service;
@@ -29,6 +31,7 @@ use crate::domain::rest::{
 use crate::domain::start_instance::StartInstanceRequest;
 use crate::infra::http::HttpGateway;
 
+pub(crate) mod capabilities_output;
 mod cli_args;
 mod dcc_types_output;
 mod gateway_cmd;
@@ -258,6 +261,7 @@ fn command_shows_maintenance(command: &Command, requested: bool) -> bool {
                 | Command::List
                 | Command::Search { .. }
                 | Command::Describe { .. }
+                | Command::Capabilities { .. }
         )
 }
 
@@ -323,7 +327,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
         return writer.write_data(&result_output::select_fields(value, &select));
     }
     let explicit_update_command = matches!(&command, Command::Update { .. });
-    let project_result =
+    let canonicalize_result =
         !raw_result && matches!(&command, Command::Call { .. } | Command::CallBatch { .. });
     let quiet_control = !command_shows_maintenance(&command, show_maintenance);
     // Staged application already ran in run(), controlled only by the explicit skip flag.
@@ -381,6 +385,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
     let mut failed = false;
     let mut exit_code = ExitCode::GeneralError;
     let mut explicit_exit_code = None;
+    let mut human_capabilities_view = None;
     let mut value = match command {
         Command::Smoke {
             url,
@@ -459,6 +464,29 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             value
         }
         Command::List => control.list_instances().await?,
+        Command::Capabilities {
+            dcc_type,
+            instance_id,
+            keys,
+            force_refresh,
+        } => {
+            let effective_timeout = global_timeout_secs
+                .unwrap_or(DEFAULT_CALL_TIMEOUT_SECS)
+                .max(1);
+            let meta = attach_agent_session_id(None, agent_session_id.as_deref())?;
+            let result = CapabilitiesCommand::new(dcc_type, instance_id, keys, force_refresh, meta)
+                .run(&control, Duration::from_secs(effective_timeout))
+                .await?;
+            failed = !capabilities_result::command_succeeded(&result);
+            if failed {
+                exit_code = ExitCode::Unavailable;
+            }
+            let result = capabilities_result::project_result(result);
+            if writer.format() == OutputFormat::Human {
+                human_capabilities_view = Some(capabilities_output::render_human(&result));
+            }
+            result
+        }
         Command::DccTypes {
             catalog,
             dcc_type,
@@ -1057,7 +1085,14 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
         .transpose()?;
 
     let failure = failed.then(|| failure_envelope(&value, exit_code));
-    if project_result {
+    if let Some(rendered) = human_capabilities_view {
+        if let Some(envelope) = failure {
+            writer.write_error(&envelope)?;
+            std::process::exit(exit_code.as_i32());
+        }
+        return writer.write_human(&rendered);
+    }
+    if canonicalize_result {
         result_output::canonical_result(&mut value);
     }
     let value = result_output::select_fields(value, &select);
