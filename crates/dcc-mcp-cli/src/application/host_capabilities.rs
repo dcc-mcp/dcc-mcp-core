@@ -112,7 +112,14 @@ impl CapabilitiesCommand {
 }
 
 fn missing_capability_tool_response(result: &Value) -> bool {
-    if result.get("success").and_then(Value::as_bool) != Some(false) {
+    let is_error = result.get("success").and_then(Value::as_bool) == Some(false)
+        || result.get("isError").and_then(Value::as_bool) == Some(true)
+        || result
+            .get("result")
+            .and_then(|nested| nested.get("isError"))
+            .and_then(Value::as_bool)
+            == Some(true);
+    if !is_error {
         return false;
     }
     let text = result.to_string().to_ascii_lowercase();
