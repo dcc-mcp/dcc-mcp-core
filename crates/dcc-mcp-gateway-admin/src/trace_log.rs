@@ -43,6 +43,19 @@ impl TraceLog {
         buf.iter().rev().take(limit).cloned().collect()
     }
 
+    /// Return traces for one session, newest first, without allowing
+    /// unrelated recent traffic to hide older entries from that session.
+    pub fn by_session_id(&self, session_id: &str, limit: usize) -> Vec<DispatchTrace> {
+        self.buf
+            .lock()
+            .iter()
+            .rev()
+            .filter(|trace| trace.session_id.as_deref() == Some(session_id))
+            .take(limit)
+            .cloned()
+            .collect()
+    }
+
     /// Fetch a single trace by `request_id`.
     pub fn get(&self, request_id: &str) -> Option<DispatchTrace> {
         self.buf

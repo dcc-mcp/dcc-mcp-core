@@ -102,6 +102,7 @@ impl WorkflowExecutor {
         let state = RunState {
             workflow_id,
             root_job_id,
+            target_dcc: self.target_dcc.clone(),
             context,
             notifier: Arc::clone(&self.notifier),
             artefacts: self.artefacts.clone(),
@@ -117,6 +118,7 @@ impl WorkflowExecutor {
                 snap.completed_steps.iter().cloned().collect(),
             )),
             preloaded_steps: Arc::new(preloaded),
+            forced_steps: Arc::new(force),
         };
 
         state.emit(

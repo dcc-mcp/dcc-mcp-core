@@ -60,6 +60,7 @@ impl WorkflowExecutor {
         let state = RunState {
             workflow_id,
             root_job_id,
+            target_dcc: self.target_dcc.clone(),
             context: WorkflowContext::new(inputs.clone()),
             notifier: Arc::clone(&self.notifier),
             artefacts: self.artefacts.clone(),
@@ -74,6 +75,7 @@ impl WorkflowExecutor {
             completed: Arc::new(parking_lot::Mutex::new(0)),
             outputs_snapshot: Arc::new(parking_lot::RwLock::new(HashMap::new())),
             preloaded_steps: Arc::new(std::collections::HashSet::new()),
+            forced_steps: Arc::new(std::collections::HashSet::new()),
         };
 
         // Persist initial row.

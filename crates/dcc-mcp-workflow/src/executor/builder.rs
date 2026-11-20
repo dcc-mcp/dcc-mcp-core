@@ -6,6 +6,7 @@ use crate::idempotency::IdempotencyStore;
 pub struct WorkflowExecutorBuilder {
     tool_caller: Option<SharedToolCaller>,
     remote_caller: Option<SharedRemoteCaller>,
+    target_dcc: Option<String>,
     notifier: Option<SharedNotifier>,
     artefacts: Option<SharedArtefactStore>,
     idempotency: Option<SharedIdempotencyStore>,
@@ -19,6 +20,16 @@ impl WorkflowExecutorBuilder {
     /// Set the local tool caller.
     pub fn tool_caller(mut self, caller: SharedToolCaller) -> Self {
         self.tool_caller = Some(caller);
+        self
+    }
+
+    /// Set the DCC identity used for local tool-result identity.
+    ///
+    /// Local `tool` steps do not carry a DCC field, so cross-host reuse needs
+    /// the executor's configured target. Leaving it unset disables automatic
+    /// reuse for local steps so an unknown host never shares a global key.
+    pub fn target_dcc(mut self, dcc: impl Into<String>) -> Self {
+        self.target_dcc = Some(dcc.into());
         self
     }
 
@@ -97,6 +108,7 @@ impl WorkflowExecutorBuilder {
             tool_caller: self
                 .tool_caller
                 .expect("WorkflowExecutor requires a tool_caller"),
+            target_dcc: self.target_dcc,
             remote_caller: self
                 .remote_caller
                 .unwrap_or_else(|| Arc::new(NullRemoteCaller)),

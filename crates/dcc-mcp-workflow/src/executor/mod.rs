@@ -85,6 +85,9 @@ pub use policy_wrapper::*;
 pub struct RunState {
     workflow_id: Uuid,
     root_job_id: Uuid,
+    /// DCC that owns local `tool` steps in this run.
+    /// `None` disables automatic reuse for local steps.
+    target_dcc: Option<String>,
     context: WorkflowContext,
     notifier: SharedNotifier,
     artefacts: Option<SharedArtefactStore>,
@@ -103,6 +106,10 @@ pub struct RunState {
     /// Step ids whose cached output is already in `context` and which
     /// the executor must skip (issue #565). Empty for fresh runs.
     preloaded_steps: Arc<std::collections::HashSet<String>>,
+    /// Step ids explicitly requested for re-execution during resume. These
+    /// steps bypass the automatic result cache while still refreshing it
+    /// after a successful call.
+    forced_steps: Arc<std::collections::HashSet<String>>,
 }
 
 impl RunState {
@@ -126,6 +133,10 @@ impl RunState {
 
     fn inc_completed(&self) {
         *self.completed.lock() += 1;
+    }
+
+    fn target_dcc(&self) -> Option<&str> {
+        self.target_dcc.as_deref()
     }
 
     fn record_output_snapshot(&self, step_id: &str, output: &Value) {
@@ -154,6 +165,9 @@ impl RunState {
 pub struct WorkflowExecutor {
     tool_caller: SharedToolCaller,
     remote_caller: SharedRemoteCaller,
+    /// DCC that owns local `tool` steps in this run.
+    /// `None` disables automatic reuse for local steps.
+    target_dcc: Option<String>,
     notifier: SharedNotifier,
     artefacts: Option<SharedArtefactStore>,
     idempotency: SharedIdempotencyStore,

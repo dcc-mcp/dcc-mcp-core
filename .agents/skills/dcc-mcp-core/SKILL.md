@@ -426,7 +426,7 @@ The library currently implements **MCP 2025-03-26** (Streamable HTTP). The ecosy
 
 ## Iteration Playbook
 
-Repeating work in a DCC host has four shipped moves. Full details live in the
+Repeating work in a DCC host has seven shipped moves. Full details live in the
 `Iteration Playbook` section of [`docs/guide/agents-reference.md`](../../../docs/guide/agents-reference.md#iteration-playbook).
 
 1. **Reuse a materialized script** — `materialize_script(..., reuse=True, reuse_key="...")`
@@ -453,6 +453,16 @@ Repeating work in a DCC host has four shipped moves. Full details live in the
    `/v1/call`) and needs `WorkflowStorage` + the `job-persist-sqlite` feature. If resume is
    unavailable, report the interruption and wait for a storage-capable resume instead of
    restarting with `workflows_run`.
+5. **Reuse unchanged workflow calls** — unannotated tool steps derive a stable global key from their
+   target DCC, tool identity, and rendered arguments; successful results are reused across runs.
+   The embedding executor must configure its target DCC; automatic reuse is disabled without it.
+   Set `reuse_result: false` on stateful steps that must execute every time.
+6. **Resume a partial batch** — pass `idempotency_store` to `batch_dispatch`. It must expose
+   `get(key)` / `put(key, result)`; only successful positions are reused, with per-invocation
+   `_batch` metadata rebuilt on each return.
+7. **Compile reviewed session history** — `dcc-mcp-cli --agent-session-id <id> record-replay
+   compile-session --name <name> --reviewed` drafts a Skill from retained redacted calls without a
+   prior recording start. The admin route is `POST /v1/recordings/compile-session`.
 
 ## Common Pitfalls
 

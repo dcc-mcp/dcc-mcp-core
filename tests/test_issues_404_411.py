@@ -85,6 +85,165 @@ class TestBatchDispatch:
         assert result["total"] == 2
         assert len(result["errors"]) >= 1
 
+    def test_failed_batch_reinvocation_resumes_at_first_incomplete_call(self):
+        batch_dispatch = _batch.batch_dispatch
+
+        class Store:
+            def __init__(self):
+                self.values = {}
+
+            def get(self, key):
+                return self.values.get(key)
+
+            def put(self, key, value):
+                self.values[key] = value
+
+        class FlakyDispatcher(FakeDispatcher):
+            def __init__(self):
+                self.calls = []
+                self.fail_once = True
+
+            def dispatch(self, name, json_str):
+                self.calls.append(name)
+                if name == "tool_b" and self.fail_once:
+                    self.fail_once = False
+                    return {"action": name, "output": {"success": False, "message": "retry"}}
+                return super().dispatch(name, json_str)
+
+        store = Store()
+        dispatcher = FlakyDispatcher()
+        calls = [("tool_a", {"x": 1}), ("tool_b", {"x": 2}), ("tool_c", {"x": 3})]
+
+        first = batch_dispatch(dispatcher, calls, stop_on_error=True, idempotency_store=store)
+        assert [row["tool"] for row in first["errors"]] == ["tool_b"]
+
+        second = batch_dispatch(dispatcher, calls, stop_on_error=True, idempotency_store=store)
+        assert dispatcher.calls == ["tool_a", "tool_b", "tool_b", "tool_c"]
+        assert second["results"][0]["_batch"]["reused"] is True
+        assert second["succeeded"] == 3
+
+    def test_idempotency_keeps_duplicate_batch_positions_distinct(self):
+        batch_dispatch = _batch.batch_dispatch
+
+        class Store:
+            def __init__(self):
+                self.values = {}
+
+            def get(self, key):
+                return self.values.get(key)
+
+            def put(self, key, value):
+                self.values[key] = value
+
+        class CountingDispatcher(FakeDispatcher):
+            def __init__(self):
+                self.calls = 0
+
+            def dispatch(self, name, json_str):
+                self.calls += 1
+                return super().dispatch(name, json_str)
+
+        store = Store()
+        dispatcher = CountingDispatcher()
+        calls = [("maya_scene__open", {"path": "shot.ma"}), ("maya_scene__open", {"path": "shot.ma"})]
+
+        first = batch_dispatch(dispatcher, calls, idempotency_store=store)
+        second = batch_dispatch(dispatcher, calls, idempotency_store=store)
+
+        assert dispatcher.calls == 2
+        assert len(store.values) == 2
+        assert all(result["_batch"]["reused"] for result in second["results"])
+        assert all("reused" not in result["_batch"] for result in first["results"])
+
+    def test_idempotency_store_is_used_even_when_falsy(self):
+        batch_dispatch = _batch.batch_dispatch
+
+        class FalsyStore:
+            def __init__(self):
+                self.values = {}
+
+            def __bool__(self):
+                return False
+
+            def get(self, key):
+                return self.values.get(key)
+
+            def put(self, key, value):
+                self.values[key] = value
+
+        store = FalsyStore()
+        dispatcher = FakeDispatcher()
+        calls = [("tool_a", {"x": 1})]
+
+        batch_dispatch(dispatcher, calls, idempotency_store=store)
+        second = batch_dispatch(dispatcher, calls, idempotency_store=store)
+
+        assert second["results"][0]["_batch"]["reused"] is True
+
+    def test_idempotency_store_write_failure_does_not_fail_tool_result(self):
+        batch_dispatch = _batch.batch_dispatch
+
+        class FailingStore:
+            def get(self, key):
+                return None
+
+            def put(self, key, value):
+                raise RuntimeError("cache unavailable")
+
+        result = batch_dispatch(
+            FakeDispatcher(),
+            [("tool_a", {"x": 1})],
+            idempotency_store=FailingStore(),
+        )
+
+        assert result["succeeded"] == 1
+        assert result["errors"] == []
+        assert result["results"][0]["output"]["success"] is True
+
+    def test_idempotency_store_read_failure_does_not_fail_tool_result(self):
+        batch_dispatch = _batch.batch_dispatch
+
+        class FailingStore:
+            def get(self, key):
+                raise RuntimeError("cache unavailable")
+
+            def put(self, key, value):
+                pass
+
+        result = batch_dispatch(
+            FakeDispatcher(),
+            [("tool_a", {"x": 1})],
+            idempotency_store=FailingStore(),
+        )
+
+        assert result["succeeded"] == 1
+        assert result["errors"] == []
+        assert result["results"][0]["output"]["success"] is True
+
+    def test_idempotency_key_failure_is_treated_as_cache_miss(self, monkeypatch):
+        batch_dispatch = _batch.batch_dispatch
+
+        class Store:
+            def get(self, key):
+                raise AssertionError("key lookup should be skipped")
+
+            def put(self, key, value):
+                raise AssertionError("key write should be skipped")
+
+        def fail_key(*args, **kwargs):
+            raise ValueError("cannot canonicalize arguments")
+
+        monkeypatch.setattr(_batch, "_batch_idempotency_key", fail_key)
+        result = batch_dispatch(
+            FakeDispatcher(),
+            [("tool_a", {"x": 1})],
+            idempotency_store=Store(),
+        )
+
+        assert result["succeeded"] == 1
+        assert result["errors"] == []
+        assert result["results"][0]["output"]["success"] is True
+
 
 class TestEvalContext:
     def test_simple_return(self):

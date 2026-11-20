@@ -238,6 +238,222 @@ async fn idempotency_key_short_circuits_second_call() {
 }
 
 #[tokio::test]
+async fn unannotated_steps_reuse_only_unchanged_rendered_calls() {
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    let maya_calls = Arc::new(AtomicU32::new(0));
+    let photoshop_calls = Arc::new(AtomicU32::new(0));
+    let mock = Arc::new(MockToolCaller::new());
+    let maya_counter = maya_calls.clone();
+    mock.add("maya_primitives__create_sphere", move |args| {
+        maya_counter.fetch_add(1, Ordering::SeqCst);
+        Ok(json!({"seen": args}))
+    });
+    let photoshop_counter = photoshop_calls.clone();
+    mock.add("psd__export", move |args| {
+        photoshop_counter.fetch_add(1, Ordering::SeqCst);
+        Ok(json!({"seen": args}))
+    });
+    let exe = WorkflowExecutor::builder()
+        .tool_caller(mock)
+        .target_dcc("maya")
+        .build();
+
+    let first = spec_with_steps(vec![
+        tool_step(
+            "sphere",
+            "maya_primitives__create_sphere",
+            json!({"radius": 2.0}),
+        ),
+        tool_step("export", "psd__export", json!({"quality": 60})),
+    ]);
+    assert_eq!(
+        exe.run(first, Value::Null, None).unwrap().wait().await,
+        WorkflowStatus::Completed
+    );
+
+    let changed = spec_with_steps(vec![
+        tool_step(
+            "sphere",
+            "maya_primitives__create_sphere",
+            json!({"radius": 2.0}),
+        ),
+        tool_step("export", "psd__export", json!({"quality": 90})),
+    ]);
+    assert_eq!(
+        exe.run(changed, Value::Null, None).unwrap().wait().await,
+        WorkflowStatus::Completed
+    );
+
+    assert_eq!(maya_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(photoshop_calls.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test]
+async fn automatic_result_reuse_can_be_disabled_per_step() {
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    let calls = Arc::new(AtomicU32::new(0));
+    let counter = calls.clone();
+    let mock = Arc::new(MockToolCaller::new());
+    mock.add("maya_scene__save", move |_| {
+        counter.fetch_add(1, Ordering::SeqCst);
+        Ok(json!({"ok": true}))
+    });
+    let exe = WorkflowExecutor::builder().tool_caller(mock).build();
+    let mut step = tool_step("save", "maya_scene__save", json!({"path": "shot.ma"}));
+    step.policy.reuse_result = false;
+
+    for _ in 0..2 {
+        assert_eq!(
+            exe.run(spec_with_steps(vec![step.clone()]), Value::Null, None)
+                .unwrap()
+                .wait()
+                .await,
+            WorkflowStatus::Completed
+        );
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+}
+
+#[test]
+fn automatic_result_key_binds_target_dcc_and_remote_identity() {
+    use crate::idempotency::automatic_result_key;
+
+    let local = tool_step("s1", "create_sphere", json!({"radius": 2.0}));
+    let maya = automatic_result_key(&local, "maya", &json!({"radius": 2.0})).unwrap();
+    let houdini = automatic_result_key(&local, "houdini", &json!({"radius": 2.0})).unwrap();
+
+    assert_eq!(
+        maya,
+        automatic_result_key(&local, "maya", &json!({"radius": 2.0})).unwrap()
+    );
+    assert_ne!(maya, houdini);
+    assert_ne!(
+        maya,
+        automatic_result_key(&local, "maya", &json!({"radius": 3.0})).unwrap()
+    );
+
+    let canary = tool_step("s2", "create_sphere", json!({"radius": 2.0}));
+    assert_eq!(
+        maya,
+        automatic_result_key(&canary, "maya", &json!({"radius": 2.0})).unwrap()
+    );
+
+    let remote_maya = remote_step("s3", "maya", "create_sphere", json!({"radius": 2.0}));
+    let remote_houdini = remote_step("s4", "houdini", "create_sphere", json!({"radius": 2.0}));
+    assert_eq!(
+        automatic_result_key(&remote_maya, "maya", &json!({"radius": 2.0})).unwrap(),
+        automatic_result_key(&remote_maya, "maya", &json!({"radius": 2.0})).unwrap()
+    );
+    assert_ne!(
+        automatic_result_key(&remote_maya, "maya", &json!({"radius": 2.0})).unwrap(),
+        automatic_result_key(&remote_houdini, "houdini", &json!({"radius": 2.0})).unwrap()
+    );
+    assert_ne!(
+        maya,
+        automatic_result_key(&remote_maya, "maya", &json!({"radius": 2.0})).unwrap()
+    );
+    assert!(automatic_result_key(&local, "", &json!({"radius": 2.0})).is_none());
+}
+
+#[tokio::test]
+async fn automatic_result_reuse_is_scoped_to_executor_target_dcc() {
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    let local = tool_step("s1", "create_sphere", json!({"radius": 2.0}));
+    let calls = Arc::new(AtomicU32::new(0));
+    let cache = crate::idempotency::IdempotencyCache::new();
+    for dcc in ["maya", "houdini"] {
+        let counter = Arc::clone(&calls);
+        let caller = Arc::new(MockToolCaller::new());
+        caller.add("create_sphere", move |_| {
+            counter.fetch_add(1, Ordering::SeqCst);
+            Ok(json!({"dcc": dcc}))
+        });
+        let exe = WorkflowExecutor::builder()
+            .tool_caller(caller)
+            .target_dcc(dcc)
+            .idempotency(cache.clone())
+            .build();
+        for _ in 0..2 {
+            assert_eq!(
+                exe.run(spec_with_steps(vec![local.clone()]), Value::Null, None)
+                    .unwrap()
+                    .wait()
+                    .await,
+                WorkflowStatus::Completed
+            );
+        }
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test]
+async fn automatic_result_reuse_without_target_dcc_is_disabled() {
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    let calls = Arc::new(AtomicU32::new(0));
+    let counter = Arc::clone(&calls);
+    let caller = Arc::new(MockToolCaller::new());
+    caller.add("create_sphere", move |_| {
+        counter.fetch_add(1, Ordering::SeqCst);
+        Ok(json!({"ok": true}))
+    });
+    let exe = WorkflowExecutor::builder().tool_caller(caller).build();
+    let spec = spec_with_steps(vec![tool_step(
+        "s1",
+        "create_sphere",
+        json!({"radius": 2.0}),
+    )]);
+    for _ in 0..2 {
+        assert_eq!(
+            exe.run(spec.clone(), Value::Null, None)
+                .unwrap()
+                .wait()
+                .await,
+            WorkflowStatus::Completed
+        );
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test]
+async fn failed_steps_are_not_cached_for_reuse() {
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    let calls = Arc::new(AtomicU32::new(0));
+    let counter = calls.clone();
+    let mock = Arc::new(MockToolCaller::new());
+    mock.add("maya_scene__export", move |args| {
+        if counter.fetch_add(1, Ordering::SeqCst) == 0 {
+            Err("export failed".to_owned())
+        } else {
+            Ok(args)
+        }
+    });
+    let exe = WorkflowExecutor::builder().tool_caller(mock).build();
+    let spec = spec_with_steps(vec![tool_step(
+        "export",
+        "maya_scene__export",
+        json!({"path": "shot.ma"}),
+    )]);
+
+    assert_eq!(
+        exe.run(spec.clone(), Value::Null, None)
+            .unwrap()
+            .wait()
+            .await,
+        WorkflowStatus::Failed
+    );
+    assert_eq!(
+        exe.run(spec, Value::Null, None).unwrap().wait().await,
+        WorkflowStatus::Completed
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test]
 async fn cancellation_aborts_workflow() {
     struct BlockingCaller;
     impl ToolCaller for BlockingCaller {
@@ -578,6 +794,42 @@ async fn idempotency_persists_across_executor_rebuild_via_sqlite() {
 }
 
 #[cfg(feature = "job-persist-sqlite")]
+#[tokio::test]
+async fn automatic_result_key_persists_across_executor_rebuild() {
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    use crate::sqlite::{SqliteIdempotencyStore, WorkflowStorage};
+
+    let db = tempfile::NamedTempFile::new().unwrap();
+    let calls = Arc::new(AtomicU32::new(0));
+    for _ in 0..2 {
+        let storage = Arc::new(WorkflowStorage::open(db.path()).unwrap());
+        let counter = calls.clone();
+        let caller = Arc::new(MockToolCaller::new());
+        caller.add("nuke_geometry__create_box", move |_| {
+            counter.fetch_add(1, Ordering::SeqCst);
+            Ok(json!({"artifact": "box" }))
+        });
+        let executor = WorkflowExecutor::builder()
+            .tool_caller(caller)
+            .target_dcc("nuke")
+            .idempotency_store(SqliteIdempotencyStore::new(Arc::clone(&storage)))
+            .storage(storage)
+            .build();
+        let spec = spec_with_steps(vec![tool_step(
+            "box",
+            "nuke_geometry__create_box",
+            json!({"size": 2}),
+        )]);
+        assert_eq!(
+            executor.run(spec, Value::Null, None).unwrap().wait().await,
+            WorkflowStatus::Completed
+        );
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
+
+#[cfg(feature = "job-persist-sqlite")]
 mod resume_tests {
     use super::*;
     use std::sync::atomic::{AtomicU32, Ordering};
@@ -704,6 +956,52 @@ mod resume_tests {
             calls2.load(Ordering::SeqCst),
             1,
             "force_steps=['a'] must re-run step 'a' but skip 'b' (completed and not forced)"
+        );
+    }
+
+    #[tokio::test]
+    async fn resume_force_steps_bypass_shared_automatic_result_cache() {
+        let calls = Arc::new(AtomicU32::new(0));
+        let storage = Arc::new(WorkflowStorage::open_in_memory().unwrap());
+        let cache = crate::idempotency::IdempotencyCache::new();
+        let exe1 = WorkflowExecutor::builder()
+            .tool_caller(instrumented_caller(calls.clone()))
+            .target_dcc("maya")
+            .idempotency(cache.clone())
+            .storage(Arc::clone(&storage))
+            .build();
+        let wid = exe1
+            .run(two_step_spec(), Value::Null, None)
+            .unwrap()
+            .workflow_id;
+
+        for _ in 0..50 {
+            if matches!(
+                storage.load_resume_snapshot(wid).unwrap().map(|s| s.status),
+                Some(WorkflowStatus::Completed)
+            ) {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+
+        let calls2 = Arc::new(AtomicU32::new(0));
+        let exe2 = WorkflowExecutor::builder()
+            .tool_caller(instrumented_caller(calls2.clone()))
+            .target_dcc("maya")
+            .idempotency(cache)
+            .storage(Arc::clone(&storage))
+            .build();
+        let opts = ResumeOptions {
+            force_steps: vec!["a".to_string()],
+            ..Default::default()
+        };
+        let h = exe2.resume(wid, opts).unwrap();
+        assert_eq!(h.wait().await, WorkflowStatus::Completed);
+        assert_eq!(
+            calls2.load(Ordering::SeqCst),
+            1,
+            "a forced step must call the tool even when its automatic result is cached"
         );
     }
 

@@ -40,6 +40,7 @@ use super::memory::{handle_admin_memory, handle_admin_memory_forget};
 use super::recordings::{
     handle_recording_compile, handle_recording_replay_validate, handle_recording_review,
     handle_recording_review_body, handle_recording_start, handle_recording_stop,
+    handle_session_compile,
 };
 use super::sessions::{handle_admin_session_detail, handle_admin_sessions};
 use super::skill_paths::{
@@ -213,6 +214,10 @@ pub fn build_v1_debug_router(state: AdminState) -> Router {
         .route(
             "/v1/recordings/review",
             routing::post(handle_recording_review_body),
+        )
+        .route(
+            "/v1/recordings/compile-session",
+            routing::post(handle_session_compile),
         )
         .route(
             "/v1/recordings/compile",

@@ -81,6 +81,26 @@ impl GatewayAdminSqliteReader {
         rows.filter_map(|r| r.ok()).collect()
     }
 
+    /// Raw `trace_json` rows for one session, oldest first, bounded by `limit`.
+    pub fn list_session_traces_json(&self, session_id: &str, limit: usize) -> Vec<String> {
+        let Some(conn) = self.open_ro() else {
+            return Vec::new();
+        };
+        let mut stmt = match conn.prepare_cached(
+            "SELECT trace_json FROM traces WHERE json_extract(trace_json, '$.session_id') = ?1 ORDER BY started_ms ASC LIMIT ?2",
+        ) {
+            Ok(s) => s,
+            Err(_) => return Vec::new(),
+        };
+        let rows = stmt.query_map(params![session_id, limit as i64], |row| {
+            let s: String = row.get(0)?;
+            Ok(s)
+        });
+        let Ok(rows) = rows else {
+            return Vec::new();
+        };
+        rows.filter_map(|r| r.ok()).collect()
+    }
     pub fn get_trace_json(&self, request_id: &str) -> Option<String> {
         let conn = self.open_ro()?;
         conn.query_row(
@@ -1178,6 +1198,41 @@ mod tests {
         assert_eq!(paths[0], PathBuf::from("/opt/skills/blender"));
     }
 
+    #[test]
+    fn list_traces_for_session_includes_early_rows() {
+        let dir = tempdir().unwrap();
+        let db = dir.path().join("session-traces.sqlite");
+        let lane = GatewayAdminSqliteLane::spawn(db.clone(), 30).expect("spawn");
+        for (index, session_id) in ["maya-session", "houdini-session", "maya-session"]
+            .iter()
+            .enumerate()
+        {
+            let request_id = format!("req-{index}");
+            let trace = json!({
+                "request_id": request_id,
+                "trace_id": "trace",
+                "method": "tools/call",
+                "session_id": session_id,
+                "started_at": index + 1,
+                "total_ms": 0,
+                "ok": true,
+                "spans": []
+            });
+            lane.try_persist_trace_json(&trace.to_string());
+        }
+        drop(lane);
+
+        let reader = GatewayAdminSqliteReader::new(db);
+        let traces = reader.list_session_traces_json("maya-session", 10);
+        assert_eq!(traces.len(), 2);
+        assert!(traces[0].contains("req-0"));
+        assert!(traces[1].contains("req-2"));
+        assert!(
+            reader
+                .list_session_traces_json("photoshop-session", 10)
+                .is_empty()
+        );
+    }
     #[test]
     fn prune_old_rows_removes_expired() {
         let dir = tempdir().unwrap();
