@@ -323,10 +323,32 @@ def batch_dispatch(
 
     for idx, (tool_name, arguments) in enumerate(calls):
         sub_request_id = f"{_batch_id}-{idx}"
-        cache_key = _batch_idempotency_key(
-            idempotency_namespace, idx, tool_name, arguments
-        )
-        cached = idempotency_store.get(cache_key) if idempotency_store else None
+        cache_key: str | None = None
+        cached = None
+        if idempotency_store is not None:
+            try:
+                cache_key = _batch_idempotency_key(
+                    idempotency_namespace, idx, tool_name, arguments
+                )
+            except Exception:
+                logger.warning(
+                    "batch_dispatch: failed to build idempotency key "
+                    "for index %d (tool=%s)",
+                    idx,
+                    tool_name,
+                    exc_info=True,
+                )
+            if cache_key is not None:
+                try:
+                    cached = idempotency_store.get(cache_key)
+                except Exception:
+                    logger.warning(
+                        "batch_dispatch: failed to read idempotency result "
+                        "for index %d (tool=%s)",
+                        idx,
+                        tool_name,
+                        exc_info=True,
+                    )
         if isinstance(cached, dict) and _batch_result_succeeded(cached):
             result = deepcopy(cached)
             result["_batch"] = {
@@ -382,10 +404,19 @@ def batch_dispatch(
                     break
             else:
                 succeeded += 1
-                if idempotency_store is not None:
-                    stored = deepcopy(result)
-                    stored.pop("_batch", None)
-                    idempotency_store.put(cache_key, stored)
+                if cache_key is not None:
+                    try:
+                        stored = deepcopy(result)
+                        stored.pop("_batch", None)
+                        idempotency_store.put(cache_key, stored)
+                    except Exception:
+                        logger.warning(
+                            "batch_dispatch: failed to persist idempotency result "
+                            "for index %d (tool=%s)",
+                            idx,
+                            tool_name,
+                            exc_info=True,
+                        )
         except Exception as exc:
             err_info = {"index": idx, "tool": tool_name, "error": str(exc)}
             errors.append(err_info)

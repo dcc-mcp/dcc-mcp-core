@@ -56,6 +56,7 @@ pub struct SessionCompileBody {
     description: String,
     #[serde(default)]
     inputs: Value,
+    #[serde(default)]
     reviewed: bool,
 }
 
@@ -212,7 +213,7 @@ pub async fn handle_recording_compile(
                     .unwrap_or(&captured.tool_slug),
             );
         }
-        let Some((captured_dcc, _, captured_tool)) =
+        let Some((captured_dcc, captured_instance, captured_tool)) =
             crate::gateway::capability::parse_slug(&captured.tool_slug)
         else {
             return compile_error("invalid_recorded_slug", &captured.tool_slug);
@@ -224,6 +225,7 @@ pub async fn handle_recording_compile(
                 record.loaded
                     && record.dcc_type.eq_ignore_ascii_case(captured_dcc)
                     && record.callable_id == captured_tool
+                    && instance_matches_slug(record.instance_id, captured_instance)
             })
             .collect::<Vec<_>>();
         let [current] = matches.as_slice() else {
@@ -367,8 +369,15 @@ pub async fn handle_session_compile(
             "Session history can only be compiled by its originating caller session.",
         );
     }
-    let traces = collect_session_traces(&state, body.session_id.as_str(), 2_000)
-        .await
+    let (traces, truncated) = collect_session_traces(&state, body.session_id.as_str(), 2_000).await;
+    if truncated {
+        return error_response(
+            StatusCode::CONFLICT,
+            "session_history_too_large",
+            "Session history exceeds the compilation limit and must be narrowed before compilation.",
+        );
+    }
+    let traces = traces
         .into_iter()
         .filter(|trace| trace.ok && trace.tool_slug.is_some())
         .collect::<Vec<_>>();
@@ -383,11 +392,14 @@ pub async fn handle_session_compile(
     let mut events = Vec::with_capacity(traces.len());
     let mut ui_queries: HashMap<String, Value> = HashMap::new();
     let mut target_dcc: Option<String> = None;
+    let mut target_instance_hint: Option<String> = None;
     let mut target_instance: Option<String> = None;
     let mut parsed_targets = Vec::with_capacity(traces.len());
     for trace in traces.iter() {
         let tool_slug = trace.tool_slug.as_deref().unwrap_or_default();
-        let Some((captured_dcc, _, _)) = crate::gateway::capability::parse_slug(tool_slug) else {
+        let Some((captured_dcc, captured_instance, _)) =
+            crate::gateway::capability::parse_slug(tool_slug)
+        else {
             return compile_error("invalid_recorded_slug", tool_slug);
         };
         if let Some(previous) = target_dcc.as_deref()
@@ -398,14 +410,26 @@ pub async fn handle_session_compile(
         if target_dcc.is_none() {
             target_dcc = Some(captured_dcc.to_owned());
         }
-        let instance_id = trace.instance_id.as_deref().unwrap_or("");
-        if let Some(previous) = target_instance.as_deref()
-            && previous != instance_id
+        if let Some(previous) = target_instance_hint.as_deref()
+            && !instance_hints_match(previous, captured_instance)
         {
-            return compile_error("mixed_target_instance", instance_id);
+            return compile_error("mixed_target_instance", captured_instance);
         }
-        if target_instance.is_none() && !instance_id.is_empty() {
-            target_instance = Some(instance_id.to_owned());
+        if target_instance_hint.is_none() {
+            target_instance_hint = Some(captured_instance.to_owned());
+        }
+        if let Some(instance_id) = trace.instance_id.as_deref()
+            && !instance_id_matches_slug(instance_id, captured_instance)
+        {
+            return compile_error("recorded_instance_mismatch", tool_slug);
+        }
+        if target_instance.is_none() {
+            target_instance = Some(
+                trace
+                    .instance_id
+                    .clone()
+                    .unwrap_or_else(|| captured_instance.to_owned()),
+            );
         }
         parsed_targets.push(trace);
     }
@@ -481,7 +505,8 @@ async fn compile_trace_event(
     ui_queries: &mut HashMap<String, Value>,
     events: &mut Vec<RecordedEvent>,
 ) -> Result<(), axum::response::Response> {
-    let Some((captured_dcc, _, captured_tool)) = crate::gateway::capability::parse_slug(tool_slug)
+    let Some((captured_dcc, captured_instance, captured_tool)) =
+        crate::gateway::capability::parse_slug(tool_slug)
     else {
         return Err(compile_error("invalid_recorded_slug", tool_slug));
     };
@@ -492,6 +517,7 @@ async fn compile_trace_event(
             record.loaded
                 && record.dcc_type.eq_ignore_ascii_case(captured_dcc)
                 && record.callable_id == captured_tool
+                && instance_matches_slug(record.instance_id, captured_instance)
         })
         .collect::<Vec<_>>();
     let [current] = matches.as_slice() else {
@@ -565,6 +591,24 @@ async fn compile_trace_event(
         success: true,
     });
     Ok(())
+}
+
+fn instance_matches_slug(instance_id: uuid::Uuid, slug_instance: &str) -> bool {
+    let actual = instance_id.simple().to_string();
+    let expected = slug_instance.replace('-', "").to_ascii_lowercase();
+    actual.starts_with(&expected)
+}
+
+fn instance_id_matches_slug(instance_id: &str, slug_instance: &str) -> bool {
+    let actual = instance_id.replace('-', "").to_ascii_lowercase();
+    let expected = slug_instance.replace('-', "").to_ascii_lowercase();
+    actual.starts_with(&expected) || expected.starts_with(&actual)
+}
+
+fn instance_hints_match(left: &str, right: &str) -> bool {
+    let left = left.replace('-', "").to_ascii_lowercase();
+    let right = right.replace('-', "").to_ascii_lowercase();
+    left.starts_with(&right) || right.starts_with(&left)
 }
 
 /// `POST /v1/recordings/replay/validate` — fail closed on missing, ambiguous, or drifted tools.

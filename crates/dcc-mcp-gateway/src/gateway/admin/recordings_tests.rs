@@ -147,7 +147,9 @@ async fn session_compile_uses_persisted_trace_outside_recent_window() {
     let tool_slug = register_tool(&state, instance_id, "maya_primitives__create_sphere");
     let mut target = tool_trace("early-session", tool_slug.clone(), json!({"radius": 2.0}));
     target.request_id = "early-request".into();
-    target.instance_id = Some(instance_id.to_string());
+    // The slug still identifies the exact backend when the trace was
+    // captured before instance_id enrichment was added.
+    target.instance_id = None;
     target.started_at = SystemTime::UNIX_EPOCH;
     let lane = state.admin_sqlite_lane.as_ref().unwrap();
     lane.try_persist_trace(&target);
@@ -226,8 +228,7 @@ async fn retroactive_session_compile_keeps_explicit_review_gate() {
         "completed-session",
         json!({
             "session_id": "completed-session",
-            "name": "reviewed-session-workflow",
-            "reviewed": false
+            "name": "reviewed-session-workflow"
         }),
     )
     .await;
@@ -295,6 +296,114 @@ async fn completed_session_history_compiles_without_prior_recording_start() {
         body["compiled"]["workflow"]["steps"][0]["tool"],
         "maya_primitives__create_sphere"
     );
+}
+
+#[tokio::test]
+async fn session_compile_binds_same_named_tools_to_the_slug_instance() {
+    let backend = Router::new().route(
+        "/v1/describe",
+        axum::routing::post(|| async {
+            axum::Json(json!({
+                "entry": {"action": "maya_primitives__create_sphere", "skill": "maya-primitives"},
+                "description": "Create a sphere",
+                "input_schema": {"type": "object", "properties": {"radius": {"type": "number"}}}
+            }))
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (stop_tx, stop_rx) = oneshot::channel::<()>();
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, backend)
+            .with_graceful_shutdown(async {
+                let _ = stop_rx.await;
+            })
+            .await;
+    });
+
+    let state = make_admin_state();
+    let selected_instance = register_backend(&state, port);
+    let other_instance = register_backend(&state, 0);
+    let selected_slug = register_tool(&state, selected_instance, "maya_primitives__create_sphere");
+    register_tool(&state, other_instance, "maya_primitives__create_sphere");
+
+    let traces = Arc::new(TraceLog::new(10));
+    let mut first_trace = tool_trace("same-tool-session", selected_slug, json!({"radius": 1.0}));
+    first_trace.request_id = "same-tool-first".into();
+    first_trace.started_at = SystemTime::UNIX_EPOCH;
+    traces.push(first_trace);
+    let mut second_trace = tool_trace(
+        "same-tool-session",
+        crate::gateway::capability::tool_slug(
+            "maya",
+            &selected_instance,
+            "maya_primitives__create_sphere",
+        ),
+        json!({"radius": 2.0}),
+    );
+    second_trace.request_id = "same-tool-second".into();
+    second_trace.started_at = SystemTime::UNIX_EPOCH;
+    traces.push(second_trace);
+    let router = build_v1_debug_router(state.with_trace_log(traces, None));
+
+    let (status, body) = post_compile_session(router, "same-tool-session").await;
+    let _ = stop_tx.send(());
+
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let steps = body["compiled"]["workflow"]["steps"].as_array().unwrap();
+    assert_eq!(steps.len(), 2);
+    assert_eq!(steps[0]["tool"], "maya_primitives__create_sphere");
+    assert_eq!(steps[0]["args"]["radius"], 1.0);
+    assert_eq!(steps[1]["args"]["radius"], 2.0);
+}
+
+#[tokio::test]
+async fn session_compile_rejects_mixed_slug_instances_without_trace_instance_ids() {
+    let state = make_admin_state();
+    let first_instance = register_backend(&state, 0);
+    let second_instance = register_backend(&state, 0);
+    let first_slug = register_tool(&state, first_instance, "maya_primitives__create_sphere");
+    let second_slug = register_tool(&state, second_instance, "maya_primitives__create_sphere");
+    let traces = Arc::new(TraceLog::new(10));
+    let mut first_trace = tool_trace("mixed-instance-session", first_slug, json!({"radius": 1.0}));
+    first_trace.request_id = "mixed-instance-first".into();
+    traces.push(first_trace);
+    let mut second_trace = tool_trace(
+        "mixed-instance-session",
+        second_slug,
+        json!({"radius": 2.0}),
+    );
+    second_trace.request_id = "mixed-instance-second".into();
+    traces.push(second_trace);
+    let router = build_v1_debug_router(state.with_trace_log(traces, None));
+
+    let (status, body) = post_compile_session(router, "mixed-instance-session").await;
+
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert_eq!(body["error"], "mixed_target_instance");
+}
+
+#[tokio::test]
+async fn session_compile_rejects_history_over_the_bounded_limit() {
+    let state = make_admin_state();
+    let instance_id = register_backend(&state, 0);
+    let tool_slug = register_tool(&state, instance_id, "maya_primitives__create_sphere");
+    let traces = Arc::new(TraceLog::new(2_100));
+    for index in 0..2_001 {
+        let mut trace = tool_trace(
+            "oversized-session",
+            tool_slug.clone(),
+            json!({"radius": index}),
+        );
+        trace.request_id = format!("oversized-request-{index}");
+        traces.push(trace);
+    }
+    let router = build_v1_debug_router(state.with_trace_log(traces, None));
+
+    let (status, body) = post_compile_session(router, "oversized-session").await;
+
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert_eq!(body["error"], "session_history_too_large");
 }
 
 #[tokio::test]

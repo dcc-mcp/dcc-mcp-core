@@ -363,6 +363,7 @@ async fn automatic_result_reuse_is_scoped_to_executor_target_dcc() {
 
     let local = tool_step("s1", "create_sphere", json!({"radius": 2.0}));
     let calls = Arc::new(AtomicU32::new(0));
+    let cache = crate::idempotency::IdempotencyCache::new();
     for dcc in ["maya", "houdini"] {
         let counter = Arc::clone(&calls);
         let caller = Arc::new(MockToolCaller::new());
@@ -373,6 +374,7 @@ async fn automatic_result_reuse_is_scoped_to_executor_target_dcc() {
         let exe = WorkflowExecutor::builder()
             .tool_caller(caller)
             .target_dcc(dcc)
+            .idempotency(cache.clone())
             .build();
         for _ in 0..2 {
             assert_eq!(
@@ -954,6 +956,52 @@ mod resume_tests {
             calls2.load(Ordering::SeqCst),
             1,
             "force_steps=['a'] must re-run step 'a' but skip 'b' (completed and not forced)"
+        );
+    }
+
+    #[tokio::test]
+    async fn resume_force_steps_bypass_shared_automatic_result_cache() {
+        let calls = Arc::new(AtomicU32::new(0));
+        let storage = Arc::new(WorkflowStorage::open_in_memory().unwrap());
+        let cache = crate::idempotency::IdempotencyCache::new();
+        let exe1 = WorkflowExecutor::builder()
+            .tool_caller(instrumented_caller(calls.clone()))
+            .target_dcc("maya")
+            .idempotency(cache.clone())
+            .storage(Arc::clone(&storage))
+            .build();
+        let wid = exe1
+            .run(two_step_spec(), Value::Null, None)
+            .unwrap()
+            .workflow_id;
+
+        for _ in 0..50 {
+            if matches!(
+                storage.load_resume_snapshot(wid).unwrap().map(|s| s.status),
+                Some(WorkflowStatus::Completed)
+            ) {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+
+        let calls2 = Arc::new(AtomicU32::new(0));
+        let exe2 = WorkflowExecutor::builder()
+            .tool_caller(instrumented_caller(calls2.clone()))
+            .target_dcc("maya")
+            .idempotency(cache)
+            .storage(Arc::clone(&storage))
+            .build();
+        let opts = ResumeOptions {
+            force_steps: vec!["a".to_string()],
+            ..Default::default()
+        };
+        let h = exe2.resume(wid, opts).unwrap();
+        assert_eq!(h.wait().await, WorkflowStatus::Completed);
+        assert_eq!(
+            calls2.load(Ordering::SeqCst),
+            1,
+            "a forced step must call the tool even when its automatic result is cached"
         );
     }
 

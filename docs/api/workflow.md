@@ -174,7 +174,8 @@ steps:
 
 Automatic result reuse changes the behavior of older workflow specs: tool steps
 without an explicit key now skip unchanged successful calls. Set
-`reuse_result: false` on a step to force every execution.
+`reuse_result: false` on a step to disable automatic reuse. An explicit
+`idempotency_key` still uses its own cache policy.
 Backoff formula: `min(base(attempt), max_delay) * (1 + rand(-jitter, +jitter))`
 where `base` is `initial_delay` (fixed), `initial_delay * (n-1)` (linear),
 or `initial_delay * 2^(n-2)` (exponential).

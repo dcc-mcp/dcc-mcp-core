@@ -106,6 +106,10 @@ pub struct RunState {
     /// Step ids whose cached output is already in `context` and which
     /// the executor must skip (issue #565). Empty for fresh runs.
     preloaded_steps: Arc<std::collections::HashSet<String>>,
+    /// Step ids explicitly requested for re-execution during resume. These
+    /// steps bypass the automatic result cache while still refreshing it
+    /// after a successful call.
+    forced_steps: Arc<std::collections::HashSet<String>>,
 }
 
 impl RunState {

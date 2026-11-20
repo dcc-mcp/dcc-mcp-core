@@ -118,6 +118,7 @@ impl WorkflowExecutor {
                 snap.completed_steps.iter().cloned().collect(),
             )),
             preloaded_steps: Arc::new(preloaded),
+            forced_steps: Arc::new(force),
         };
 
         state.emit(

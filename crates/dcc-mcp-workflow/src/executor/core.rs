@@ -75,6 +75,7 @@ impl WorkflowExecutor {
             completed: Arc::new(parking_lot::Mutex::new(0)),
             outputs_snapshot: Arc::new(parking_lot::RwLock::new(HashMap::new())),
             preloaded_steps: Arc::new(std::collections::HashSet::new()),
+            forced_steps: Arc::new(std::collections::HashSet::new()),
         };
 
         // Persist initial row.

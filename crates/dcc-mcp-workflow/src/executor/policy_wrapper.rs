@@ -43,7 +43,9 @@ where
         }
         None => (None, step.policy.idempotency_scope),
     };
-    if let Some(ref rendered_key) = idem_key
+    let force_rerun = state.forced_steps.contains(step.id.as_str());
+    if !force_rerun
+        && let Some(ref rendered_key) = idem_key
         && let Some(cached) = state
             .idempotency
             .get(idem_scope, state.workflow_id, rendered_key)

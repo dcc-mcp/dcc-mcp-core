@@ -94,24 +94,33 @@ pub async fn collect_session_traces(
     state: &AdminState,
     session_id: &str,
     limit: usize,
-) -> Vec<DispatchTrace> {
-    let mut by_id: HashMap<String, DispatchTrace> = HashMap::new();
+) -> (Vec<DispatchTrace>, bool) {
+    let fetch_limit = limit.saturating_add(1);
+    let mut ordered = Vec::new();
     if let Some(lane) = &state.admin_sqlite_lane {
-        for trace in lane.reader().list_session_traces(session_id, limit) {
-            by_id.insert(trace.request_id.clone(), trace);
-        }
+        ordered.extend(lane.reader().list_session_traces(session_id, fetch_limit));
     }
     if let Some(log) = &state.trace_log {
-        for trace in log.recent(limit).into_iter().rev() {
-            if trace.session_id.as_deref() == Some(session_id) {
-                by_id.insert(trace.request_id.clone(), trace);
-            }
-        }
+        ordered.extend(log.by_session_id(session_id, fetch_limit).into_iter().rev());
     }
+    let mut by_id: HashMap<String, (usize, DispatchTrace)> = HashMap::new();
+    for (sequence, trace) in ordered.into_iter().enumerate() {
+        by_id
+            .entry(trace.request_id.clone())
+            .or_insert((sequence, trace));
+    }
+    let truncated = by_id.len() > limit;
     let mut rows: Vec<_> = by_id.into_values().collect();
-    rows.sort_by_key(|trace| trace.started_at);
+    rows.sort_by(|(left_sequence, left), (right_sequence, right)| {
+        left.started_at
+            .cmp(&right.started_at)
+            .then_with(|| left_sequence.cmp(right_sequence))
+    });
     rows.truncate(limit);
-    rows
+    (
+        rows.into_iter().map(|(_, trace)| trace).collect(),
+        truncated,
+    )
 }
 pub async fn collect_traces(state: &AdminState, limit: usize) -> Vec<DispatchTrace> {
     let mut by_id: HashMap<String, DispatchTrace> = HashMap::new();
