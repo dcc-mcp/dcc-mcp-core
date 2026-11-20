@@ -7,7 +7,7 @@ fn request() -> InstallRequest {
         dcc_type: "godot".into(),
         version: None,
         catalog_path: None,
-        python: None,
+        python: Some("test-python".into()),
         dcc_path: None,
         plugin_source: None,
         adobe_debug_root: None,

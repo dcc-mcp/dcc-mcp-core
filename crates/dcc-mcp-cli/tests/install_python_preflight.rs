@@ -1,10 +1,22 @@
 //! Host-free coverage for install interpreter selection and fail-closed GUI paths.
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use dcc_mcp_catalog::CatalogEntry;
+use dcc_mcp_cli::domain::install::python::{INSTALL_PYTHON_ENV, InstallEnv};
 use dcc_mcp_cli::domain::install::{InstallPlanError, InstallPlanner, InstallRequest};
 use serde_json::json;
+
+fn write_executable(path: impl AsRef<std::path::Path>) {
+    let path = path.as_ref();
+    std::fs::write(path, b"").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+}
 
 fn plan(
     dcc: &str,
@@ -12,6 +24,21 @@ fn plan(
     python: Option<&str>,
     catalog_python: Option<&str>,
 ) -> Result<serde_json::Value, InstallPlanError> {
+    plan_with_env(dcc, dcc_path, python, catalog_python, None)
+}
+
+fn plan_with_env(
+    dcc: &str,
+    dcc_path: Option<PathBuf>,
+    python: Option<&str>,
+    catalog_python: Option<&str>,
+    env_python: Option<&str>,
+) -> Result<serde_json::Value, InstallPlanError> {
+    let env = env_python.map(|value| {
+        let mut vars = BTreeMap::new();
+        vars.insert(INSTALL_PYTHON_ENV.to_string(), value.to_string());
+        InstallEnv::from_vars(vars)
+    });
     let package = format!("dcc-mcp-{dcc}");
     let wheel = package.replace('-', "_");
     let entry: CatalogEntry = serde_json::from_value(json!({
@@ -29,7 +56,8 @@ fn plan(
         },
     }))
     .unwrap();
-    let plan = InstallPlanner::plan(
+    let environment = env.unwrap_or_default();
+    let plan = InstallPlanner::plan_with_env(
         &[entry],
         InstallRequest {
             dcc_type: dcc.into(),
@@ -40,6 +68,7 @@ fn plan(
             plugin_source: None,
             adobe_debug_root: None,
         },
+        &environment,
     )?;
     Ok(serde_json::to_value(plan).unwrap())
 }
@@ -58,13 +87,14 @@ fn records_existing_embedded_python_in_the_executable_plan() {
         let dir = tempfile::tempdir().unwrap();
         let host = dir.path().join(gui);
         let python = dir.path().join(embedded);
-        std::fs::write(&host, b"").unwrap();
-        std::fs::write(&python, b"").unwrap();
+        write_executable(&host);
+        write_executable(&python);
         let result = plan(dcc, Some(host), None, None).unwrap();
         assert_eq!(
             result["steps"][0]["action"]["python"],
             python.to_str().unwrap()
         );
+        assert_eq!(result["python_source"], "discovered_host");
     }
 }
 
@@ -72,8 +102,8 @@ fn records_existing_embedded_python_in_the_executable_plan() {
 fn operator_then_catalog_precede_automatic_discovery() {
     let dir = tempfile::tempdir().unwrap();
     let host = dir.path().join("maya.exe");
-    std::fs::write(&host, b"").unwrap();
-    std::fs::write(dir.path().join("mayapy.exe"), b"").unwrap();
+    write_executable(&host);
+    write_executable(dir.path().join("mayapy.exe"));
     let explicit = plan(
         "maya",
         Some(host.clone()),
@@ -87,6 +117,23 @@ fn operator_then_catalog_precede_automatic_discovery() {
 }
 
 #[test]
+fn normalized_dcc_aliases_still_discover_host_python() {
+    let dir = tempfile::tempdir().unwrap();
+    let host = dir.path().join("MAYA.EXE");
+    write_executable(&host);
+    write_executable(dir.path().join("Mayapy.EXE"));
+
+    let result = plan("Maya", Some(host), None, None).unwrap();
+
+    assert_eq!(result["python_source"], "discovered_host");
+    assert!(
+        result["steps"][0]["action"]["python"]
+            .as_str()
+            .is_some_and(|path| path.ends_with("Mayapy.EXE"))
+    );
+}
+
+#[test]
 fn gui_interpreters_and_missing_embedded_siblings_fail_preflight() {
     for (python, catalog) in [(Some("maya.exe"), None), (None, Some("houdini.exe"))] {
         assert!(matches!(
@@ -96,7 +143,7 @@ fn gui_interpreters_and_missing_embedded_siblings_fail_preflight() {
     }
     let dir = tempfile::tempdir().unwrap();
     let host = dir.path().join("maya.exe");
-    std::fs::write(&host, b"").unwrap();
+    write_executable(&host);
     assert!(matches!(
         plan("maya", Some(host.clone()), None, None),
         Err(InstallPlanError::InvalidPythonExecutable { .. })
@@ -109,7 +156,7 @@ fn gui_interpreters_and_missing_embedded_siblings_fail_preflight() {
 }
 
 #[test]
-fn non_python_replacements_and_custom_hosts_keep_existing_policy() {
+fn unsupported_hosts_keep_plan_only_behavior() {
     for (dcc, gui, sibling) in [
         ("unreal", "UnrealEditor.exe", "UnrealEditor-Cmd.exe"),
         ("blender", "blender.exe", "python.exe"),
@@ -117,9 +164,9 @@ fn non_python_replacements_and_custom_hosts_keep_existing_policy() {
     ] {
         let dir = tempfile::tempdir().unwrap();
         let host = dir.path().join(gui);
-        std::fs::write(&host, b"").unwrap();
-        std::fs::write(dir.path().join(sibling), b"").unwrap();
-        let result = plan(dcc, Some(host), None, None).unwrap();
+        write_executable(&host);
+        write_executable(dir.path().join(sibling));
+        let result = plan(dcc, Some(host.clone()), None, None).unwrap();
         assert!(result["steps"][0]["action"].get("python").is_none());
     }
 }
@@ -134,7 +181,7 @@ fn missing_or_directory_selected_embedded_hosts_fail_preflight() {
     ] {
         let dir = tempfile::tempdir().unwrap();
         let host = dir.path().join(gui);
-        std::fs::write(dir.path().join(embedded), b"").unwrap();
+        write_executable(dir.path().join(embedded));
         for directory in [false, true] {
             if directory {
                 std::fs::create_dir(&host).unwrap();
@@ -151,4 +198,39 @@ fn missing_or_directory_selected_embedded_hosts_fail_preflight() {
             assert!(unrelated["steps"][0]["action"].get("python").is_none());
         }
     }
+}
+
+#[test]
+fn environment_python_precedes_catalog_and_records_source() {
+    let plan = plan_with_env(
+        "maya",
+        None,
+        None,
+        Some("catalog-python"),
+        Some("environment-python"),
+    )
+    .unwrap();
+    assert_eq!(plan["steps"][0]["action"]["python"], "environment-python");
+    assert_eq!(
+        plan["python_source"], "environment",
+        "the selected interpreter source must be recorded in the plan"
+    );
+}
+
+#[test]
+fn missing_maya_and_houdini_hosts_fail_preflight_without_path_fallback() {
+    for dcc in ["maya", "houdini"] {
+        let error = plan(dcc, None, None, None).unwrap_err();
+        assert!(
+            matches!(error, InstallPlanError::MissingHostInterpreter(_)),
+            "{dcc}: {error:?}"
+        );
+    }
+}
+
+#[test]
+fn custom_dcc_without_native_host_keeps_existing_policy() {
+    let plan = plan("custom-editor", None, Some("operator-python"), None).unwrap();
+    assert_eq!(plan["steps"][0]["action"]["python"], "operator-python");
+    assert_eq!(plan["python_source"], "requested");
 }

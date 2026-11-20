@@ -261,6 +261,127 @@ fn inventory_error(error: &anyhow::Error, registry_dir: &std::path::Path) -> Val
     })
 }
 
+fn direct_control_summary(inventory: &Value) -> Value {
+    let Some(instances) = inventory.get("instances").and_then(Value::as_array) else {
+        return json!({
+            "ready": 0,
+            "not_ready": 0,
+            "reasons": {},
+            "capabilities": capability_summary(&[]),
+        });
+    };
+
+    let mut ready = 0_usize;
+    let mut not_ready = 0_usize;
+    let mut reasons = Map::new();
+    let mut not_ready_instances = Vec::new();
+    for instance in instances {
+        let direct = instance.get("direct_control").unwrap_or(&Value::Null);
+        if direct
+            .get("ready")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            ready += 1;
+            continue;
+        }
+        not_ready += 1;
+        let reason = direct
+            .get("reason")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown");
+        let current = reasons.get(reason).and_then(Value::as_u64).unwrap_or(0);
+        reasons.insert(reason.to_string(), json!(current + 1));
+        not_ready_instances.push(not_ready_instance_summary(instance, direct));
+    }
+
+    json!({
+        "ready": ready,
+        "not_ready": not_ready,
+        "reasons": reasons,
+        "not_ready_instances": not_ready_instances,
+        "capabilities": capability_summary(instances),
+    })
+}
+
+fn capability_summary(instances: &[Value]) -> Value {
+    let mut reported = 0_usize;
+    let mut with_loaded_skills = 0_usize;
+    let mut with_tools = 0_usize;
+    let mut total_loaded_skills = 0_usize;
+    let mut total_tool_count = 0_usize;
+    let mut unknown = Vec::new();
+
+    for instance in instances {
+        let Some(capabilities) = instance
+            .get("capabilities")
+            .filter(|value| value.is_object())
+        else {
+            if let Some(instance_id) = instance.get("instance_id").and_then(Value::as_str) {
+                unknown.push(instance_id.to_owned());
+            }
+            continue;
+        };
+        if capabilities
+            .get("source")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown")
+            != "capability_index"
+        {
+            if let Some(instance_id) = instance.get("instance_id").and_then(Value::as_str) {
+                unknown.push(instance_id.to_owned());
+            }
+            continue;
+        }
+
+        reported += 1;
+        let loaded_skill_count = capabilities
+            .get("loaded_skill_count")
+            .and_then(Value::as_u64)
+            .unwrap_or(0) as usize;
+        let tool_count = capabilities
+            .get("tool_count")
+            .and_then(Value::as_u64)
+            .unwrap_or(0) as usize;
+        total_loaded_skills += loaded_skill_count;
+        total_tool_count += tool_count;
+        if loaded_skill_count > 0 {
+            with_loaded_skills += 1;
+        }
+        if tool_count > 0 {
+            with_tools += 1;
+        }
+    }
+
+    json!({
+        "reported": reported,
+        "with_loaded_skills": with_loaded_skills,
+        "with_tools": with_tools,
+        "total_loaded_skills": total_loaded_skills,
+        "total_tool_count": total_tool_count,
+        "unknown_instances": unknown,
+    })
+}
+
+fn not_ready_instance_summary(instance: &Value, direct: &Value) -> Value {
+    json!({
+        "dcc_type": instance.get("dcc_type").cloned().unwrap_or(Value::Null),
+        "instance_id": instance.get("instance_id").cloned().unwrap_or(Value::Null),
+        "instance_short": instance.get("instance_short").cloned().unwrap_or(Value::Null),
+        "display_name": instance.get("display_name").cloned().unwrap_or(Value::Null),
+        "mcp_url": instance.get("mcp_url").cloned().unwrap_or(Value::Null),
+        "reason": direct.get("reason").cloned().unwrap_or(Value::Null),
+        "service_status": direct.get("service_status").cloned().unwrap_or(Value::Null),
+        "dispatch_status": direct.get("dispatch_status").cloned().unwrap_or(Value::Null),
+        "role": direct.get("role").cloned().unwrap_or(Value::Null),
+        "diagnostics": direct.get("diagnostics").cloned().unwrap_or(Value::Null),
+        "recommended_next_action": direct
+            .get("recommended_next_action")
+            .cloned()
+            .unwrap_or(Value::Null),
+    })
+}
+
 #[cfg(test)]
 mod diagnostic_tests {
     use super::*;
@@ -419,124 +540,4 @@ mod diagnostic_tests {
         );
         assert_eq!(report["local"]["inventory"]["capabilities"]["reported"], 0);
     }
-}
-fn direct_control_summary(inventory: &Value) -> Value {
-    let Some(instances) = inventory.get("instances").and_then(Value::as_array) else {
-        return json!({
-            "ready": 0,
-            "not_ready": 0,
-            "reasons": {},
-            "capabilities": capability_summary(&[]),
-        });
-    };
-
-    let mut ready = 0_usize;
-    let mut not_ready = 0_usize;
-    let mut reasons = Map::new();
-    let mut not_ready_instances = Vec::new();
-    for instance in instances {
-        let direct = instance.get("direct_control").unwrap_or(&Value::Null);
-        if direct
-            .get("ready")
-            .and_then(Value::as_bool)
-            .unwrap_or(false)
-        {
-            ready += 1;
-            continue;
-        }
-        not_ready += 1;
-        let reason = direct
-            .get("reason")
-            .and_then(Value::as_str)
-            .unwrap_or("unknown");
-        let current = reasons.get(reason).and_then(Value::as_u64).unwrap_or(0);
-        reasons.insert(reason.to_string(), json!(current + 1));
-        not_ready_instances.push(not_ready_instance_summary(instance, direct));
-    }
-
-    json!({
-        "ready": ready,
-        "not_ready": not_ready,
-        "reasons": reasons,
-        "not_ready_instances": not_ready_instances,
-        "capabilities": capability_summary(instances),
-    })
-}
-
-fn capability_summary(instances: &[Value]) -> Value {
-    let mut reported = 0_usize;
-    let mut with_loaded_skills = 0_usize;
-    let mut with_tools = 0_usize;
-    let mut total_loaded_skills = 0_usize;
-    let mut total_tool_count = 0_usize;
-    let mut unknown = Vec::new();
-
-    for instance in instances {
-        let Some(capabilities) = instance
-            .get("capabilities")
-            .filter(|value| value.is_object())
-        else {
-            if let Some(instance_id) = instance.get("instance_id").and_then(Value::as_str) {
-                unknown.push(instance_id.to_owned());
-            }
-            continue;
-        };
-        if capabilities
-            .get("source")
-            .and_then(Value::as_str)
-            .unwrap_or("unknown")
-            != "capability_index"
-        {
-            if let Some(instance_id) = instance.get("instance_id").and_then(Value::as_str) {
-                unknown.push(instance_id.to_owned());
-            }
-            continue;
-        }
-
-        reported += 1;
-        let loaded_skill_count = capabilities
-            .get("loaded_skill_count")
-            .and_then(Value::as_u64)
-            .unwrap_or(0) as usize;
-        let tool_count = capabilities
-            .get("tool_count")
-            .and_then(Value::as_u64)
-            .unwrap_or(0) as usize;
-        total_loaded_skills += loaded_skill_count;
-        total_tool_count += tool_count;
-        if loaded_skill_count > 0 {
-            with_loaded_skills += 1;
-        }
-        if tool_count > 0 {
-            with_tools += 1;
-        }
-    }
-
-    json!({
-        "reported": reported,
-        "with_loaded_skills": with_loaded_skills,
-        "with_tools": with_tools,
-        "total_loaded_skills": total_loaded_skills,
-        "total_tool_count": total_tool_count,
-        "unknown_instances": unknown,
-    })
-}
-
-fn not_ready_instance_summary(instance: &Value, direct: &Value) -> Value {
-    json!({
-        "dcc_type": instance.get("dcc_type").cloned().unwrap_or(Value::Null),
-        "instance_id": instance.get("instance_id").cloned().unwrap_or(Value::Null),
-        "instance_short": instance.get("instance_short").cloned().unwrap_or(Value::Null),
-        "display_name": instance.get("display_name").cloned().unwrap_or(Value::Null),
-        "mcp_url": instance.get("mcp_url").cloned().unwrap_or(Value::Null),
-        "reason": direct.get("reason").cloned().unwrap_or(Value::Null),
-        "service_status": direct.get("service_status").cloned().unwrap_or(Value::Null),
-        "dispatch_status": direct.get("dispatch_status").cloned().unwrap_or(Value::Null),
-        "role": direct.get("role").cloned().unwrap_or(Value::Null),
-        "diagnostics": direct.get("diagnostics").cloned().unwrap_or(Value::Null),
-        "recommended_next_action": direct
-            .get("recommended_next_action")
-            .cloned()
-            .unwrap_or(Value::Null),
-    })
 }

@@ -135,18 +135,39 @@ pub fn correct_python_executable(path: &Path) -> PathBuf {
 }
 
 /// Locate the first existing sibling whose file-stem matches one of
-/// `stems`, preserving only a Windows `.exe` suffix (case-insensitive).
-/// Other suffixes, such as Maya's `.bin`, belong to the GUI program, not its
-/// interpreter. Returns `None` if no candidate file is found.
+/// `stems`, preserving the Windows `.exe` suffix for executable and launcher
+/// paths (case-insensitive). Other suffixes, such as Maya's `.bin`, belong to
+/// the GUI program, not its interpreter. Returns `None` if no candidate file
+/// is found.
 fn locate_sibling(gui_path: &Path, stems: &[&str]) -> Option<PathBuf> {
     if stems.is_empty() {
         return None;
     }
+    let mut paths = vec![gui_path.to_path_buf()];
+    if let Ok(resolved) = gui_path.canonicalize()
+        && resolved != gui_path
+    {
+        paths.push(resolved);
+    }
+    for path in paths {
+        if let Some(sibling) = locate_sibling_at_path(&path, stems) {
+            return Some(sibling);
+        }
+    }
+    None
+}
+
+fn locate_sibling_at_path(gui_path: &Path, stems: &[&str]) -> Option<PathBuf> {
     let parent = gui_path.parent()?;
     let extension = gui_path
         .extension()
         .and_then(|e| e.to_str())
-        .filter(|e| e.eq_ignore_ascii_case("exe"));
+        .filter(|e| {
+            e.eq_ignore_ascii_case("exe")
+                || (cfg!(windows)
+                    && (e.eq_ignore_ascii_case("cmd") || e.eq_ignore_ascii_case("bat")))
+        })
+        .map(|_| "exe");
     for stem in stems {
         let mut candidate = parent.join(stem);
         if let Some(extension) = extension {
@@ -307,6 +328,42 @@ mod tests {
         // `Path::canonicalize`/`resolve()` comparison stays sound on every
         // platform.
         assert_eq!(suggested.file_name(), cmd.file_name());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn launcher_wrapper_uses_the_embedded_exe_sibling() {
+        let dir = tempdir().unwrap();
+        let gui = dir.path().join("maya.cmd");
+        let python = dir.path().join("mayapy.exe");
+        fs::write(&gui, b"").unwrap();
+        fs::write(&python, b"").unwrap();
+
+        let hint = is_gui_executable(&gui).expect("maya.cmd must be detected");
+
+        assert_eq!(hint.recommended_replacement, Some(python));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn locates_sibling_next_to_symlink_target() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempdir().unwrap();
+        let target_dir = root.path().join("target");
+        let link_dir = root.path().join("link");
+        fs::create_dir_all(&target_dir).unwrap();
+        fs::create_dir_all(&link_dir).unwrap();
+        let target_gui = target_dir.join("maya");
+        let target_python = target_dir.join("mayapy");
+        fs::write(&target_gui, b"").unwrap();
+        fs::write(&target_python, b"").unwrap();
+        let link_gui = link_dir.join("maya");
+        symlink(&target_gui, &link_gui).unwrap();
+
+        let hint = is_gui_executable(&link_gui).expect("symlinked maya must be detected");
+
+        assert_eq!(hint.recommended_replacement, Some(target_python));
     }
 
     #[test]

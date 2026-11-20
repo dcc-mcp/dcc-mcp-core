@@ -21,6 +21,7 @@ use semver::Version;
 
 use super::manifest::{HostDefinition, PlatformStrings};
 use crate::domain::host::extract_version;
+use crate::domain::install::python::HostCandidate;
 
 /// Hard ceiling for one `--version` call.
 const VERSION_QUERY_TIMEOUT: Duration = Duration::from_secs(20);
@@ -97,6 +98,36 @@ impl HostEnv {
     }
 }
 
+/// Resolve candidate host executables without executing the host.
+///
+/// `dcc_path` is always tried first. The manifest-backed probe is used only
+/// when the caller did not pin a path, and its process environment is
+/// injectable so install planning never depends on an ambient PATH.
+#[must_use]
+pub fn install_candidates(
+    def: &HostDefinition,
+    env: &HostEnv,
+    dcc_path: Option<&Path>,
+) -> Vec<HostCandidate> {
+    let mut found = Vec::new();
+    if let Some(path) = dcc_path {
+        found.push(HostCandidate {
+            path: path.to_path_buf(),
+            explicit: true,
+        });
+    }
+    if dcc_path.is_none() {
+        found.extend(
+            candidates(def, env)
+                .into_iter()
+                .map(|candidate| HostCandidate {
+                    path: candidate.path,
+                    explicit: candidate.source == CandidateSource::EnvOverride,
+                }),
+        );
+    }
+    found
+}
 /// Discover every executable that could be `def`, in precedence order.
 ///
 /// All three sources are collected rather than short-circuiting, so a probe can
@@ -568,6 +599,51 @@ mod tests {
             &env_with_path(dir.path()),
         );
         assert!(found.is_empty());
+    }
+
+    #[test]
+    fn explicit_install_path_does_not_collect_other_host_candidates() {
+        let explicit_dir = tempfile::tempdir().unwrap();
+        let path_host = tempfile::tempdir().unwrap();
+        let explicit = touch(explicit_dir.path(), "maya");
+        let other = touch(path_host.path(), "maya");
+        let found = install_candidates(
+            &def("maya", platform(&["maya"]), PlatformStrings::default()),
+            &env_with_path(path_host.path()),
+            Some(&explicit),
+        );
+
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].path, explicit);
+        assert_ne!(found[0].path, other);
+        assert!(found[0].explicit);
+    }
+
+    #[test]
+    fn environment_host_override_is_an_explicit_install_candidate() {
+        let override_dir = tempfile::tempdir().unwrap();
+        let path_dir = tempfile::tempdir().unwrap();
+        let override_host = touch(override_dir.path(), "maya");
+        let path_host = touch(path_dir.path(), "maya");
+        let path_python = touch(path_dir.path(), "mayapy");
+        let mut env = env_with_path(path_dir.path());
+        env.vars.insert(
+            "DCC_MCP_MAYA_EXECUTABLE".to_string(),
+            override_host.display().to_string(),
+        );
+
+        let found = install_candidates(
+            &def("maya", platform(&["maya"]), PlatformStrings::default()),
+            &env,
+            None,
+        );
+
+        assert_eq!(found.len(), 2);
+        assert_eq!(found[0].path, override_host);
+        assert!(found[0].explicit);
+        assert_eq!(found[1].path, path_host);
+        assert!(!found[1].explicit);
+        assert!(path_python.is_file());
     }
 
     #[test]

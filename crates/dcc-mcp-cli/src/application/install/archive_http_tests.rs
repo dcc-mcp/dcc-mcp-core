@@ -152,6 +152,7 @@ fn archive_http_failure_preserves_the_acquire_report_contract() {
         }],
         next_steps: vec![],
         install_policy: InstallPolicy::enabled(),
+        python_source: None,
     };
     let report = InstallService::bundled().execute_plan(&plan, true);
     server.join().unwrap();
