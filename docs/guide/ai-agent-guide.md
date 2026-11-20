@@ -411,18 +411,19 @@ to the execution tool. The tool returns FileRef/path/hash/TTL/session metadata
 and never echoes raw source. Gateway traces and admin audit rows redact
 script-source input fields by default and keep the descriptor metadata instead.
 
-**Iteration Playbook (re-run, re-parameterize, resume).** Three moves cover almost every
-repeat in a session, and all three are already shipped:
+**Iteration Playbook (re-run, re-parameterize, resume).** Four moves cover almost every
+repeat in a session, and all four are already shipped:
 
 1. **Re-run the same script → reuse it.** Pass `reuse=True` with a stable `reuse_key` so the
    path is derived (`{reuse_key}_{sha256[:12]}`) and a byte-identical repeat returns the same
    `file_path` with `reused=True`. Consumers re-verify with `resolve_materialized_script`,
    which fails closed on a hash or expiry mismatch instead of trusting a stale path.
 2. **Change one value → send new `params` with the same `file_path`.** The contract is
-   `FileBackedScriptExecutionParams`; `params` is delivered to `main(**params)` using the
-   schema derived by `derive_script_parameters_schema` (parsed, never executed). There is no
-   CLI flag and no params file — do not invent one, and do not re-materialize to change an
-   argument.
+   `FileBackedScriptExecutionParams`; `params` matches the schema derived from the typed
+   `def main(...)` signature by `derive_script_parameters_schema` (parsed, never executed).
+   There is no dedicated CLI flag or params-file option — do not invent one, and do not
+   re-materialize to change an argument. The general `dcc-mcp-cli call --json-file` command
+   can supply a large argument object, but it does not create a reusable script identity.
 3. **Repeat a sequence → `workflows_run`.** Once the same multi-step procedure succeeds twice,
    promote it to a workflow spec with stable `idempotency_key` values, then poll with
    `workflows_get_status`. A CLI `--json-file` containing unchanged source is not a reuse

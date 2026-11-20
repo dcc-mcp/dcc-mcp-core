@@ -177,8 +177,11 @@ Repeating work in a DCC host has one normative entry point:
    and pass the returned `file_path` back. A byte-identical repeat returns the same stable
    path with `reused=True`; never re-send the source.
 2. **Change a value → change `params` only.** Re-send the same `file_path` with a new
-   `params` object. `params` is delivered to `main(**params)`; do not rewrite or
-   re-materialize unchanged code. There is no CLI flag and no params file for this.
+   `params` object with values matching the schema derived from the script's typed
+   `def main(...)` signature. Do not rewrite or re-materialize unchanged code. There
+   is no dedicated CLI flag or params-file option for params-only reuse; the general
+   `dcc-mcp-cli call --json-file` command can pass a large argument object but does
+   not create a reusable script identity.
 3. **Repeat a multi-step procedure → `workflows_run`.** After the same sequence succeeds
    twice, promote it to a workflow spec with stable `idempotency_key` values and poll with
    `workflows_get_status`.

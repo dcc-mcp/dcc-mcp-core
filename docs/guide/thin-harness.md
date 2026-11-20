@@ -101,9 +101,9 @@ tools:
       Execute a Python script string inside the live DCC interpreter.
       When to use: when no domain skill covers the operation and you have
       a working maya.cmds / bpy / hou snippet. How to use: pass a host-local
-      'file_path' (or 'script_path' alias); on adapters that still require
-      inline source, materialize it first and never resend unchanged code.
-      Check references/RECIPES.md first.
+      'file_path' or a typed 'script_path' declaration; on adapters that still
+      require inline source, materialize it first and never resend unchanged
+      code. Check references/RECIPES.md first.
     annotations:
       read_only_hint: false
       destructive_hint: true
@@ -117,7 +117,14 @@ tools:
 ```python
 from __future__ import annotations
 
-from dcc_mcp_core import skill_entry, skill_success, skill_error_with_trace
+from pathlib import Path
+
+from dcc_mcp_core import (
+    normalize_file_backed_script_execution_params,
+    skill_entry,
+    skill_error_with_trace,
+    skill_success,
+)
 
 
 @skill_entry
@@ -125,44 +132,66 @@ def execute_python(
     file_path: str,
     script_path: str | None = None,
     params: dict | None = None,
+    sha256: str | None = None,
     timeout_secs: int = 30,
 ) -> dict:
     """Run a host-local Python script in the live DCC interpreter.
 
     Args:
-        file_path: Host-local path of the materialized script.
-        script_path: Backward-compatible alias for file_path.
+        file_path: Host-local path when the execution tool uses this field.
+        script_path: Host-local path when the execution tool uses this alias.
+            Declare both parameters in the tool schema; business arguments
+            belong in ``params``.
         params: Values passed to the script's ``main(**params)`` entrypoint.
+        sha256: Materialization descriptor digest. It is optional only for
+            scripts under the canonical materialization root.
         timeout_secs: Execution timeout. Default 30 s.
 
     Returns:
         skill_success with 'output' key on success, skill_error on failure.
     """
-    import ast
     import traceback
 
-    source_path = script_path or file_path
-    source = open(source_path, encoding="utf-8").read()
-    tree = ast.parse(source, filename=source_path)
-    has_main = any(
-        isinstance(node, ast.FunctionDef) and node.name == "main"
-        for node in tree.body
-    )
-    params = params or {}
-    local_ns: dict = {}
     try:
-        exec(compile(source, source_path, "exec"), {}, local_ns)  # noqa: S102
-        if has_main:
-            main = local_ns["main"]
-            output = main(**params)
+        request = {
+            "timeout_secs": timeout_secs,
+        }
+        if script_path is not None:
+            request["script_path"] = script_path
         else:
-            output = local_ns.get("result", None)
+            request["file_path"] = file_path
+        if params is not None:
+            request["params"] = params
+        if sha256 is not None:
+            request["sha256"] = sha256
+        script = normalize_file_backed_script_execution_params(
+            request,
+            dcc_type="maya",
+            instance_id="maya-session-1",
+            session_id="mcp-session-1",
+            trusted_roots=(Path.home() / "studio" / "maya-scripts",),
+            policy="require",
+            default_timeout_secs=30,
+        )
+        if script.parameters_schema is None:
+            raise ValueError("params require a fully typed main(...) entry point")
+        namespace: dict = {}
+        exec(compile(script.code, script.file_path, "exec"), namespace)  # noqa: S102
+        entrypoint = namespace["main"]
+        output = entrypoint(**script.params)
         return skill_success("Script executed", output=output)
     except Exception as exc:  # noqa: BLE001
+        if "script" not in locals():
+            return skill_error_with_trace(
+                f"Script rejected before execution: {type(exc).__name__}: {exc}",
+                "script_validation_failed",
+                underlying_call=request,
+                tb=traceback.format_exc(),
+            )
         return skill_error_with_trace(
             f"Script raised {type(exc).__name__}: {exc}",
             "script_execution_failed",
-            underlying_call=source[:200],
+            underlying_call=script.file_path,
             tb=traceback.format_exc(),
         )
 ```
@@ -172,9 +201,10 @@ def execute_python(
 ## references/RECIPES.md Contract
 
 A flat Markdown file with anchored `##` sections. Each section:
-- One sentence describing when to use the recipe.
-- A ready-to-run Python snippet (≤15 lines).
-- No boilerplate imports — assume `import maya.cmds as cmds` etc. are in scope.
+
+1. One sentence describing when to use the recipe.
+2. A ready-to-run Python snippet (≤15 lines).
+3. A typed `def main(...)` entry point with any imports the snippet needs.
 
 ```markdown
 ## create_polygon_cube
@@ -213,15 +243,24 @@ execution tool. A byte-identical repeat with the same key returns the same
 path with `reused=true`; never re-send unchanged code. Reject stale or
 unexpected hashes instead of executing them.
 
-Write generated scripts as typed `def main(**params)` functions and keep
-varying values in the `params` object. The runner reads the host-local file
-and passes `params` to `main(**params)`. There is no CLI flag and no params
-file for this channel.
+Write generated scripts with explicit, fully typed `def main(...)` parameters
+and keep varying values in the `params` object. `derive_script_parameters_schema`
+derives a closed schema with `additionalProperties=false`, so a `main(**params)`
+template rejects declared parameters. The runner reads the host-local file,
+verifies the optional `sha256` assertion, and passes `params` to `main(**params)`.
+There is no dedicated reuse flag or params-file option: pass `file_path` and an
+inline `params` object to the execution tool. The general `dcc-mcp-cli call
+--json-file` command can supply a large argument object, but it does not create
+a reusable script identity.
 
 For the cube recipe above, the second run changes only `params`:
 
 ```json
-{"file_path": "<host-local-recipe.py>", "params": {"name": "heroCube", "width": 2.0, "height": 2.0, "depth": 2.0}}
+{
+  "file_path": "<host-local-recipe.py>",
+  "sha256": "<descriptor sha256>",
+  "params": {"name": "heroCube", "width": 2.0, "height": 2.0, "depth": 2.0}
+}
 ```
 
 Author recipes as parameterized templates. A hardcoded literal recipe forces
@@ -229,8 +268,10 @@ the agent to copy and re-send source for every value; a parameterized recipe
 changes only `params`.
 
 After the same multi-step sequence succeeds twice, promote it with
-`workflows_run` using stable `idempotency_key` values; recover an interrupted
-run with `workflows_resume`. See
+`workflows_run` using stable `idempotency_key` values, poll with
+`workflows_get_status`, and recover an interrupted run with `workflows_resume`.
+If resume is unavailable, report the interruption and wait for a storage-capable
+backend; restarting `workflows_run` can replay mutations. See
 [`agents-reference.md`](agents-reference.md#iteration-playbook).
 
 ---

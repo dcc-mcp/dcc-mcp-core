@@ -419,7 +419,7 @@ links without exposing hidden reasoning or raw prompts.
 ## Iteration Playbook (re-run, re-parameterize, resume)
 
 Most wasted tokens in a long session come from re-sending work the host already
-has. Three moves cover it:
+has. Four moves cover it:
 
 1. **Re-run a script — reuse the materialized path.** Call the backend
    `materialize_script` tool with `reuse=true` and a stable `reuse_key`. The
@@ -429,26 +429,25 @@ has. Three moves cover it:
    Pass **only** `file_path` to the execution tool afterwards — never the
    source. A changed byte yields a new script id on purpose.
 2. **Change a value — send new `params` with the same `file_path`.** The
-   execution contract is `params` delivered to `main(**params)`; there is no
-   CLI flag and no params file. Do not re-materialize just to change an
-   argument, and do not inline `code` again.
-3. **Recover a dead multi-step run — `workflows_resume`.** Send `workflow_id`
+   execution contract is `params` matching the schema derived from the typed
+   `main(...)` signature. There is no dedicated CLI flag or params-file option
+   for this channel; the general `dcc-mcp-cli call --json-file` command can
+   supply a large argument object but does not create a reusable script identity.
+   Do not re-materialize just to change an argument, and do not inline `code` again.
+3. **Repeat a sequence — `workflows_run`.** After the same multi-step procedure
+   succeeds twice, start a persisted run with stable `idempotency_key` values on
+   mutating steps and poll with `workflows_get_status`. A CLI `--json-file`
+   containing unchanged source is not a reuse contract.
+4. **Recover a dead multi-step run — `workflows_resume`.** Send `workflow_id`
    plus optional `force_steps`, `expected_spec_hash`, and `strict`. It
    re-drives the persisted run from the first non-completed step. The handler
    exists only when the executor was built with `WorkflowStorage` and the
    `job-persist-sqlite` feature, so a `tools/list` entry is not proof it will
-   run — fall back to `workflows_run` and report the interruption.
+   run. If resume is unavailable, report the interruption and wait for a
+   storage-capable resume. Do not fall back to `workflows_run`: a fresh run can
+   replay mutations.
 
 Normative text: `docs/guide/agents-reference.md#iteration-playbook`.
-
-### Repeatable multi-step procedures
-
-Graduate to the workflow engine once the same multi-step procedure succeeds
-twice: start a run with `workflows_run` using a spec whose mutating steps
-carry stable `idempotency_key` values, poll with `workflows_get_status`, and
-resume an interrupted run with `workflows_resume`. Do not replay a completed
-run from step one. A CLI `--json-file` containing unchanged source is not a
-reuse contract; it still re-sends the same code.
 
 ---
 

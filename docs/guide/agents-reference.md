@@ -1887,10 +1887,11 @@ elsewhere.
 
 ## Iteration Playbook
 
-Agent sessions in a DCC repeat the same three moves: re-run a script that
-already exists, change one value without rewriting the script, and pick a
-multi-step run back up after it died. Each move has a shipped mechanism. This
-section is the normative agent-facing entry point for all three.
+Agent sessions in a DCC repeat the same four moves: re-run a script that
+already exists, change one value without rewriting the script, graduate a stable
+sequence to a persisted run, and pick an interrupted run back up. Each move has
+a shipped mechanism. This section is the normative agent-facing entry point for
+all four.
 
 ### 1. Reuse the materialized script — do not re-send source
 
@@ -1956,8 +1957,10 @@ and no source crosses the boundary again.
   with `params` only when `params_provided` is set, and falls back to a plain
   run otherwise.
 
-There is **no CLI flag and no params file** for this. Do not invent one, and do
-not re-materialize the script just to change an argument.
+There is **no dedicated CLI flag or params-file option** for this channel. Do not
+invent one, and do not re-materialize the script just to change an argument. The
+general `dcc-mcp-cli call --json-file` command can supply a large argument object,
+but it does not create a reusable script identity.
 
 ```json
 {
@@ -1974,7 +1977,20 @@ Script-backed sidecar dispatch resolves its source through `script_path` and
 descriptor's `file_path` through every hop; an inline `code` fallback is not a
 reuse path.
 
-### 3. Resume an interrupted workflow with `workflows_resume`
+### 3. Start a repeatable sequence with `workflows_run`
+After the same multi-step sequence succeeds twice, start a persisted run with
+`workflows_run` and give mutating steps stable `idempotency_key` values. Poll the
+returned `workflow_id` with `workflows_get_status`.
+Do not use a CLI `--json-file` containing unchanged source as a reuse contract;
+it still re-sends the code. `workflows_run` is a Rust-side MCP tool with no Python
+wrapper or CLI subcommand: call it through MCP `tools/call` or REST `/v1/call`.
+
+Resume an interrupted run with `workflows_resume` as described below. If resume
+is unavailable, report the interruption and wait for a storage-capable backend.
+Do not start a new `workflows_run` to recover the run, because that can replay
+mutations.
+
+### 4. Resume with `workflows_resume` only through storage
 
 A workflow still in flight when the process died recovers as `interrupted`.
 Resume it through `workflows_resume` instead of replaying the whole run:
