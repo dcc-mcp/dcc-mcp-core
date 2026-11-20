@@ -444,9 +444,7 @@ def build_unconfigured_host_capabilities(
 ) -> dict[str, Any]:
     """Build an honest NOT_RUN manifest covering the initial key set."""
     message = reason or (f"No host capability provider is configured for {dcc_name}; capabilities were not probed")
-    capabilities = [
-        make_host_capability(key, False, PROBE_NOT_RUN, reason=message) for key in INITIAL_CAPABILITY_KEYS
-    ]
+    capabilities = [make_host_capability(key, False, PROBE_NOT_RUN, reason=message) for key in INITIAL_CAPABILITY_KEYS]
     return build_host_capabilities(
         host_version=host_version,
         adapter_version=adapter_version,

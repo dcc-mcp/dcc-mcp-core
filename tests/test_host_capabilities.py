@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from threading import Event
 import time
 
 import jsonschema
@@ -578,6 +579,26 @@ def test_tool_cache_uses_current_identity_and_does_not_stale_on_version_change()
     assert calls == ["20.5", "21.0"]
 
 
+def test_tool_cache_derives_and_reuses_identity_without_a_key_callback():
+    server = _Server()
+    calls = []
+
+    def provider():
+        calls.append(True)
+        return _manifest([])
+
+    cache = HostCapabilityCache(ttl_secs=300)
+    assert register_host_capability_tool(server, dcc_name="comfyui", provider=provider, cache=cache)
+    handler = server._server.registry.handlers["describe_capabilities"]
+
+    first = handler({})
+    second = handler({})
+
+    assert first["context"] == second["context"]
+    assert len(calls) == 1
+    assert len(cache) == 1
+
+
 def test_tool_returns_structured_error_when_provider_fails():
     server = _Server()
 
@@ -685,6 +706,21 @@ def test_probe_runner_maps_typed_outcomes_and_adapter_context():
     assert "malformed record" in records[2]["reason"]
 
 
+def test_probe_runner_fail_closes_malformed_unsupported_outcomes():
+    def probe(key):
+        return {
+            "probe_result": PROBE_UNSUPPORTED,
+            "supported": False,
+            "reason": "x" * 600,
+            "probed_at": "2026-11-20T00:00:00Z",
+        }
+
+    record = CapabilityProbeRunner(probe, keys=("render.lpe",)).run_one("render.lpe")
+
+    assert record["probe_result"] == PROBE_FAIL
+    assert "malformed record" in record["reason"]
+
+
 def test_probe_timeout_returns_before_a_long_adapter_operation_finishes():
     cancelled = []
 
@@ -705,6 +741,66 @@ def test_probe_timeout_returns_before_a_long_adapter_operation_finishes():
     assert record["probe_result"] == PROBE_FAIL
     assert "Core wait" in record["reason"]
     assert cancelled == ["render.lpe"]
+
+
+def test_probe_timeout_does_not_wait_for_a_blocking_cancel_callback():
+    cancel_started = Event()
+    release_cancel = Event()
+
+    def slow_probe(key):
+        time.sleep(0.6)
+        return {"probe_result": PROBE_PASS, "supported": True}
+
+    def blocking_cancel(key):
+        cancel_started.set()
+        release_cancel.wait(5.0)
+
+    runner = CapabilityProbeRunner(
+        slow_probe,
+        keys=("render.lpe",),
+        timeout_secs=0.02,
+        cancel=blocking_cancel,
+        cancel_timeout_secs=0.01,
+    )
+    started = time.monotonic()
+    record = runner.run_one("render.lpe")
+    elapsed = time.monotonic() - started
+
+    assert elapsed < 0.2
+    assert cancel_started.wait(0.2)
+    assert record["probe_result"] == PROBE_FAIL
+    release_cancel.set()
+
+
+def test_cache_conditional_write_rejects_results_after_invalidation():
+    cache = HostCapabilityCache(ttl_secs=300)
+    key = HostCapabilityCache.cache_key("houdini", "20.5", "0.1.6")
+    payload = _manifest([_capability()])
+    cache.put(key, payload)
+    version, _ = cache.snapshot(key)
+
+    cache.invalidate(key)
+
+    assert cache.put_if_version(key, payload, version) is False
+    assert cache.get(key) is None
+
+
+def test_cache_merge_preserves_existing_record_ttl():
+    now = [100.0]
+    cache = HostCapabilityCache(ttl_secs=10, clock=lambda: now[0])
+    key = HostCapabilityCache.cache_key("houdini", "20.5", "0.1.6")
+    first = _manifest([_capability(key="render.lpe")])
+    cache.put(key, first)
+    version, _ = cache.snapshot(key)
+
+    now[0] = 109.0
+    second = _manifest([_capability(key="render.lpe"), _capability(key="render.cryptomatte")])
+    assert cache.put_if_version(key, second, version, preserve_existing=True) is True
+
+    now[0] = 111.0
+    cached = cache.get(key)
+    assert cached is not None
+    assert [record["key"] for record in cached["capabilities"]] == ["render.cryptomatte"]
 
 
 class _GetActionRegistry(_Registry):

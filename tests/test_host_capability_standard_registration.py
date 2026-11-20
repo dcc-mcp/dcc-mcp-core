@@ -10,6 +10,7 @@ from types import SimpleNamespace
 
 from dcc_mcp_core.capabilities import INITIAL_CAPABILITY_KEYS
 from dcc_mcp_core.capabilities import PROBE_NOT_RUN
+from dcc_mcp_core.capabilities import CapabilityProbeRunner
 from dcc_mcp_core.capabilities import build_host_capabilities
 from dcc_mcp_core.capabilities import build_unconfigured_host_capabilities
 from dcc_mcp_core.capabilities import make_host_capability
@@ -138,6 +139,27 @@ def test_provider_lifecycle_restores_not_run_without_duplicate_registration():
         "describe_capabilities",
         "dcc_host_capabilities",
     ]
+
+
+def test_removing_probe_runner_rebinds_existing_probe_tool_to_safe_error():
+    server = _make_server("maya")
+    runner = CapabilityProbeRunner(
+        lambda key: {
+            "probe_result": "PASS",
+            "supported": True,
+            "evidence_ref": f"probe://{key}",
+        },
+        keys=("render.arnold",),
+    )
+
+    server.set_host_capability_provider(_passed_manifest, probe_runner=runner)
+    assert "capability_probe" in server._server.registry.actions
+
+    server.set_host_capability_provider(_passed_manifest, probe_runner=None)
+    result = server._server.registry.handlers["capability_probe"]({})
+
+    assert result["success"] is False
+    assert result["error"] == "capability_probe_not_configured"
 
 
 def test_registration_delegates_provider_state_and_cache_configuration(monkeypatch):
