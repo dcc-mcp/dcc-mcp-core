@@ -17,6 +17,7 @@ use dcc_mcp_workflow::{
     compile_recording, schema_fingerprint,
 };
 
+use super::super::infra::activity::collect_traces;
 use crate::gateway::admin::trace::AgentContext;
 use crate::gateway::record_replay::{RecordingStoreError, StartRecording};
 
@@ -44,6 +45,17 @@ pub struct CompileBody {
     inputs: Value,
     /// Explicit review acknowledgement; compilation never implies replay approval.
     #[serde(default)]
+    reviewed: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SessionCompileBody {
+    session_id: String,
+    name: String,
+    #[serde(default)]
+    description: String,
+    #[serde(default)]
+    inputs: Value,
     reviewed: bool,
 }
 
@@ -322,6 +334,223 @@ pub async fn handle_recording_compile(
             &error.to_string(),
         ),
     }
+}
+
+/// `POST /v1/recordings/compile-session` — compile retained, redacted history.
+///
+/// The retroactive path is limited to the caller's session and keeps the
+/// explicit review gate, redaction history, schema resolution, and semantic
+/// UI guards used by an explicit recording.
+pub async fn handle_session_compile(
+    State(state): State<AdminState>,
+    headers: HeaderMap,
+    Json(body): Json<SessionCompileBody>,
+) -> impl IntoResponse {
+    let Some(caller_session_id) = caller_session(&headers) else {
+        return error_response(
+            StatusCode::BAD_REQUEST,
+            "session_required",
+            "A bounded x-dcc-mcp-agent-session-id header is required.",
+        );
+    };
+    if !body.reviewed {
+        return error_response(
+            StatusCode::PRECONDITION_REQUIRED,
+            "review_required",
+            "Review the completed session history and set reviewed=true before compilation.",
+        );
+    }
+    if body.session_id != caller_session_id {
+        return error_response(
+            StatusCode::FORBIDDEN,
+            "session_scope_mismatch",
+            "Session history can only be compiled by its originating caller session.",
+        );
+    }
+    let mut traces = collect_traces(&state, 2_000)
+        .await
+        .into_iter()
+        .filter(|trace| trace.session_id.as_deref() == Some(body.session_id.as_str()))
+        .filter(|trace| trace.ok && trace.tool_slug.is_some())
+        .collect::<Vec<_>>();
+    traces.sort_by_key(|trace| trace.started_at);
+    if traces.is_empty() {
+        return error_response(
+            StatusCode::NOT_FOUND,
+            "session_history_not_found",
+            "No successful retained tool calls were found for this session.",
+        );
+    }
+    let snapshot = state.gateway.capability_index.snapshot();
+    let mut events = Vec::with_capacity(traces.len());
+    let mut ui_queries: HashMap<String, Value> = HashMap::new();
+    let mut target_dcc = None;
+    let mut target_instance = None;
+    for (index, trace) in traces.into_iter().enumerate() {
+        let tool_slug = trace.tool_slug.as_deref().unwrap_or_default();
+        let Some((captured_dcc, _, _)) = crate::gateway::capability::parse_slug(tool_slug) else {
+            return compile_error("invalid_recorded_slug", tool_slug);
+        };
+        if target_dcc.is_none() {
+            target_dcc = Some(captured_dcc.to_owned());
+        }
+        if target_instance.is_none() {
+            target_instance = trace.instance_id.clone();
+        }
+        let Some(input) = trace.input else {
+            return compile_error("session_input_missing", &trace.request_id);
+        };
+        if input.truncated {
+            return compile_error("session_input_truncated", &trace.request_id);
+        }
+        let arguments: Value = match serde_json::from_str(&input.content) {
+            Ok(value) => value,
+            Err(_) => return compile_error("session_input_invalid", &trace.request_id),
+        };
+        if let Err(response) = compile_trace_event(
+            &state,
+            &snapshot,
+            index as u64 + 1,
+            tool_slug,
+            arguments,
+            &mut ui_queries,
+            &mut events,
+        )
+        .await
+        {
+            return response;
+        }
+    }
+    let manifest = RecordingManifest {
+        version: 1,
+        recording_id: format!("session-history:{}", body.session_id),
+        session_namespace: caller_session_id,
+        target: RecordingTarget {
+            dcc_type: target_dcc.unwrap_or_else(|| "unknown".to_owned()),
+            instance_id: target_instance,
+        },
+        events,
+    };
+    match compile_recording(
+        &manifest,
+        &CompileOptions {
+            name: body.name,
+            description: body.description,
+            inputs: body.inputs,
+        },
+    ) {
+        Ok(compiled) => (
+            StatusCode::OK,
+            Json(json!({
+                "recording": manifest,
+                "compiled": compiled,
+                "source": "session_history",
+                "replay_authorized": false,
+                "publish_authorized": false,
+            })),
+        )
+            .into_response(),
+        Err(error) => error_response(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "recording_compile_failed",
+            &error.to_string(),
+        ),
+    }
+}
+
+async fn compile_trace_event(
+    state: &AdminState,
+    snapshot: &crate::gateway::capability::IndexSnapshot,
+    sequence: u64,
+    tool_slug: &str,
+    arguments: Value,
+    ui_queries: &mut HashMap<String, Value>,
+    events: &mut Vec<RecordedEvent>,
+) -> Result<(), axum::response::Response> {
+    let Some((captured_dcc, _, captured_tool)) = crate::gateway::capability::parse_slug(tool_slug)
+    else {
+        return Err(compile_error("invalid_recorded_slug", tool_slug));
+    };
+    let matches = snapshot
+        .records
+        .iter()
+        .filter(|record| {
+            record.loaded
+                && record.dcc_type.eq_ignore_ascii_case(captured_dcc)
+                && record.callable_id == captured_tool
+        })
+        .collect::<Vec<_>>();
+    let [current] = matches.as_slice() else {
+        return Err(compile_error(
+            if matches.is_empty() {
+                "tool_missing_or_unloaded"
+            } else {
+                "tool_ambiguous"
+            },
+            tool_slug,
+        ));
+    };
+    if captured_tool == "ui_control__snapshot" || captured_tool == "ui_control__stop_computer_use" {
+        return Ok(());
+    }
+    if captured_tool == "ui_control__find" {
+        let session = recording_ui_session(&arguments);
+        ui_queries.insert(session, recording_semantic_query(&arguments));
+        return Ok(());
+    }
+    if captured_tool == "ui_control__wait_for" {
+        return Ok(());
+    }
+    if captured_tool == "ui_control__act" {
+        let action = arguments
+            .get("action")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        if ![
+            "click",
+            "set_text",
+            "toggle",
+            "set_checked",
+            "select_option",
+            "focus",
+        ]
+        .contains(&action)
+        {
+            return Err(compile_error(
+                "raw_ui_action_requires_visual_guard",
+                tool_slug,
+            ));
+        }
+        let session = recording_ui_session(&arguments);
+        let Some(query) = ui_queries.get(&session).cloned() else {
+            return Err(compile_error(
+                "semantic_query_missing",
+                "ui_control__act must follow a successful ui_control__find in the same session",
+            ));
+        };
+        let postcondition = recording_default_postcondition(&query);
+        events.push(RecordedEvent::UiSemanticAction {
+            sequence,
+            query,
+            action: action.to_owned(),
+            value: arguments.get("value").cloned(),
+            postcondition,
+        });
+        return Ok(());
+    }
+    let (record, tool) =
+        crate::gateway::capability_service::describe_tool_full(&state.gateway, &current.tool_slug)
+            .await
+            .map_err(|error| compile_error(&error.kind, &error.message))?;
+    events.push(RecordedEvent::ToolCall {
+        sequence,
+        tool: record.callable_id,
+        dcc_type: record.dcc_type,
+        arguments_template: arguments,
+        schema_fingerprint: schema_fingerprint(&tool.input_schema),
+        success: true,
+    });
+    Ok(())
 }
 
 /// `POST /v1/recordings/replay/validate` — fail closed on missing, ambiguous, or drifted tools.

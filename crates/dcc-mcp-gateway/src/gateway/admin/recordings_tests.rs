@@ -4,11 +4,17 @@ use axum::Router;
 use axum::body::to_bytes;
 use axum::http::{Request, StatusCode};
 use serde_json::{Value, json};
+use std::sync::Arc;
+use std::time::SystemTime;
+use tokio::sync::oneshot;
 use tower::ServiceExt;
 
 use crate::gateway::admin::application::router::build_v1_debug_router;
 use crate::gateway::admin::sqlite_lane::AdminSqliteLane;
-use crate::gateway::admin::tests::admin_tests::{make_admin_state, post_json_as_session};
+use crate::gateway::admin::tests::admin_tests::{
+    make_admin_state, make_service_entry, post_json_as_session,
+};
+use crate::gateway::admin::trace::{DispatchTrace, TraceLog, TracePayload};
 use crate::gateway::traffic::{TrafficFrame, basic_gateway_source, correlation, mcp_message};
 
 async fn get_json_as_session(router: Router, uri: &str, session_id: &str) -> (StatusCode, Value) {
@@ -25,6 +31,179 @@ async fn get_json_as_session(router: Router, uri: &str, session_id: &str) -> (St
     let status = response.status();
     let bytes = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
     (status, serde_json::from_slice(&bytes).unwrap())
+}
+
+fn tool_trace(session_id: &str, tool_slug: String, arguments: Value) -> DispatchTrace {
+    DispatchTrace {
+        request_id: format!("{session_id}-request"),
+        trace_id: format!("{session_id}-trace"),
+        span_id: None,
+        parent_span_id: None,
+        parent_request_id: None,
+        trace_flags: None,
+        trace_state: None,
+        method: "tools/call".into(),
+        tool_slug: Some(tool_slug),
+        instance_id: None,
+        session_id: Some(session_id.to_owned()),
+        dcc_type: Some("maya".into()),
+        transport: Some("mcp".into()),
+        agent_context: None,
+        started_at: SystemTime::now(),
+        total_ms: 12,
+        ok: true,
+        spans: vec![],
+        input: Some(TracePayload::from_value(&arguments, 1024)),
+        output: None,
+        script_execution: None,
+        token_accounting: None,
+        llm_usage: None,
+    }
+}
+
+fn register_backend(state: &crate::gateway::admin::state::AdminState, port: u16) -> uuid::Uuid {
+    let mut entry = make_service_entry("maya", "127.0.0.1", port, None);
+    entry.metadata.insert(
+        crate::gateway::http_registration::DISCOVERY_MCP_URL_METADATA_KEY.to_string(),
+        format!("http://127.0.0.1:{port}/mcp"),
+    );
+    let instance_id = entry.instance_id;
+    state.gateway.registry.register(entry).unwrap();
+    instance_id
+}
+
+fn register_tool(
+    state: &crate::gateway::admin::state::AdminState,
+    instance_id: uuid::Uuid,
+    tool: &str,
+) -> String {
+    let tool_slug = crate::gateway::capability::tool_slug("maya", &instance_id, tool);
+    state.gateway.capability_index.upsert_instance(
+        instance_id,
+        vec![crate::gateway::capability::CapabilityRecord::new(
+            tool_slug.clone(),
+            tool.to_string(),
+            tool.to_string(),
+            Some("maya-primitives".to_string()),
+            "Maya tool",
+            vec![],
+            "maya".to_string(),
+            instance_id,
+            true,
+            true,
+            None,
+        )],
+        crate::gateway::capability::InstanceFingerprint(1),
+    );
+    tool_slug
+}
+#[tokio::test]
+async fn retroactive_session_compile_keeps_explicit_review_gate() {
+    let router = build_v1_debug_router(make_admin_state());
+    let (status, body) = post_json_as_session(
+        router,
+        "/v1/recordings/compile-session",
+        "completed-session",
+        json!({
+            "session_id": "completed-session",
+            "name": "reviewed-session-workflow",
+            "reviewed": false
+        }),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::PRECONDITION_REQUIRED);
+    assert_eq!(body["error"], "review_required");
+}
+
+#[tokio::test]
+async fn completed_session_history_compiles_without_prior_recording_start() {
+    let backend = Router::new().route(
+        "/v1/describe",
+        axum::routing::post(|| async {
+            axum::Json(json!({
+                "entry": {"action": "maya_primitives__create_sphere", "skill": "maya-primitives"},
+                "description": "Create a sphere",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"radius": {"type": "number"}}
+                }
+            }))
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (stop_tx, stop_rx) = oneshot::channel::<()>();
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, backend)
+            .with_graceful_shutdown(async {
+                let _ = stop_rx.await;
+            })
+            .await;
+    });
+
+    let state = make_admin_state();
+    let instance_id = register_backend(&state, port);
+    let tool_slug = register_tool(&state, instance_id, "maya_primitives__create_sphere");
+    let mut trace = tool_trace(
+        "completed-session",
+        tool_slug,
+        json!({"radius": 2.0, "note": "public scene review"}),
+    );
+    trace.instance_id = Some(instance_id.to_string());
+    let traces = Arc::new(TraceLog::new(10));
+    traces.push(trace);
+    let router = build_v1_debug_router(state.with_trace_log(traces, None));
+
+    let (status, body) = post_json_as_session(
+        router,
+        "/v1/recordings/compile-session",
+        "completed-session",
+        json!({
+            "session_id": "completed-session",
+            "name": "reviewed-session-workflow",
+            "reviewed": true
+        }),
+    )
+    .await;
+    let _ = stop_tx.send(());
+
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["source"], "session_history");
+    assert_eq!(body["replay_authorized"], false);
+    assert_eq!(
+        body["compiled"]["workflow"]["steps"][0]["tool"],
+        "maya_primitives__create_sphere"
+    );
+}
+
+#[tokio::test]
+async fn retroactive_session_compile_rejects_ui_act_without_semantic_find() {
+    let state = make_admin_state();
+    let instance_id = register_backend(&state, 0);
+    let tool_slug = register_tool(&state, instance_id, "ui_control__act");
+    let traces = Arc::new(TraceLog::new(10));
+    traces.push(tool_trace(
+        "ui-session",
+        tool_slug,
+        json!({"action": "click", "session": "default"}),
+    ));
+    let router = build_v1_debug_router(state.with_trace_log(traces, None));
+
+    let (status, body) = post_json_as_session(
+        router,
+        "/v1/recordings/compile-session",
+        "ui-session",
+        json!({
+            "session_id": "ui-session",
+            "name": "unsafe-ui-history",
+            "reviewed": true
+        }),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert_eq!(body["error"], "semantic_query_missing");
 }
 
 #[tokio::test]

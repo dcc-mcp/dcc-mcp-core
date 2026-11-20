@@ -49,6 +49,7 @@ automation.
 | An AI agent in Cursor / Claude Desktop / VS Code with MCP enabled | **Either works**, prefer CLI+REST | CLI+REST via `dcc-mcp` is preferred; IDE MCP is available as fallback |
 | Running a CI/CD or automation script | **CLI+REST** | `dcc-mcp-cli` with structured output and exit codes |
 | Troubleshooting DCC connectivity | **CLI+REST** | `dcc-mcp-cli health/list/smoke` |
+| Recurring re-execution of a stored WorkflowSpec with stored inputs | Put a reviewed `*.schedules.yaml` beside `SKILL.md`, enable the `scheduler` feature, and follow [`docs/guide/scheduler.md`](docs/guide/scheduler.md); no agent loop is required |
 | A human IDE user reading this guide | **IDE MCP** | Configure `mcp_servers.json` → gateway MCP tools |
 | A GUI artist using DCC plugin directly | **IDE MCP** | DCC's built-in MCP plugin |
 

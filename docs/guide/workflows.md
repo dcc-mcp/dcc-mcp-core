@@ -40,7 +40,7 @@ executor PR) for full end-to-end demos.
 
 Every step may declare an optional **policy** block that controls how the
 executor runs it. All fields are optional; omitting the block yields a
-default `StepPolicy` (no timeout, no retry, no idempotency key).
+default `StepPolicy` (no timeout or retry, with automatic result reuse).
 
 ::: v-pre
 ```yaml
@@ -59,6 +59,7 @@ steps:
     idempotency_key: "export_{{scene_id}}_{{frame_range}}"
     idempotency_scope: workflow     # or "global" (default: "workflow")
     idempotency_ttl_secs: 86400     # optional; None / 0 = no expiry within scope
+    reuse_result: true              # default; false opts this step out
 ```
 :::
 
@@ -100,7 +101,15 @@ never outlive a `workflows_cancel` call. Each attempt is recorded as a
 separate child job under the workflow's root job (parent-job id from
 issue #318).
 
-### `idempotency_key`
+### Automatic result reuse and `idempotency_key`
+
+Tool steps reuse successful results by default. When `idempotency_key` is
+omitted, the executor hashes the canonical tool identity plus fully rendered
+arguments. A second run therefore skips unchanged calls while a call whose
+rendered input changed executes again. Automatic keys use the cross-run global
+namespace; explicitly authored keys retain the existing `idempotency_scope`
+semantics below. Set `reuse_result: false` on stateful calls that must execute
+every time.
 
 Mustache-style template rendered against the step context **just before**
 execution. The executor consults the JobManager for an existing

@@ -26,12 +26,61 @@ use std::time::{Duration, Instant};
 
 use parking_lot::RwLock;
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::policy::IdempotencyScope;
+use crate::{Step, StepKind};
 
 /// Convenient type alias: a shared, dyn-dispatched idempotency store.
 pub type SharedIdempotencyStore = Arc<dyn IdempotencyStore>;
+
+/// Derive a stable cross-run cache key for an unannotated tool step.
+///
+/// Object keys are sorted recursively before hashing, so semantically equal
+/// argument objects reuse the same result regardless of source key order.
+#[must_use]
+pub fn automatic_result_key(step: &Step, rendered_args: &Value) -> Option<String> {
+    let identity = match &step.kind {
+        StepKind::Tool { tool, .. } => serde_json::json!({"kind": "tool", "tool": tool}),
+        StepKind::ToolRemote { dcc, tool, .. } => {
+            serde_json::json!({"kind": "tool_remote", "dcc": dcc, "tool": tool})
+        }
+        _ => return None,
+    };
+    let payload = canonical_json(&serde_json::json!({
+        "identity": identity,
+        "arguments": rendered_args,
+    }));
+    let bytes = serde_json::to_vec(&payload).ok()?;
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let digest: String = Sha256::digest(bytes)
+        .iter()
+        .flat_map(|byte| {
+            [
+                HEX[usize::from(byte >> 4)] as char,
+                HEX[usize::from(byte & 0x0f)] as char,
+            ]
+        })
+        .collect();
+    Some(format!("auto:v1:{digest}"))
+}
+
+fn canonical_json(value: &Value) -> Value {
+    match value {
+        Value::Object(map) => {
+            let mut keys = map.keys().collect::<Vec<_>>();
+            keys.sort_unstable();
+            Value::Object(
+                keys.into_iter()
+                    .map(|key| (key.clone(), canonical_json(&map[key])))
+                    .collect(),
+            )
+        }
+        Value::Array(items) => Value::Array(items.iter().map(canonical_json).collect()),
+        other => other.clone(),
+    }
+}
 
 /// Pluggable idempotency cache. Implementations are responsible for
 /// honouring the optional per-entry TTL passed to [`IdempotencyStore::put`].
