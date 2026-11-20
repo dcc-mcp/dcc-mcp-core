@@ -384,6 +384,32 @@ async fn session_compile_rejects_mixed_slug_instances_without_trace_instance_ids
 }
 
 #[tokio::test]
+async fn session_compile_rejects_overlapping_short_instance_prefixes() {
+    let state = make_admin_state();
+    let traces = Arc::new(TraceLog::new(10));
+    let mut first_trace = tool_trace(
+        "overlapping-instance-session",
+        "maya.abcd.maya_primitives__create_sphere".into(),
+        json!({"radius": 1.0}),
+    );
+    first_trace.request_id = "overlapping-first".into();
+    let mut second_trace = tool_trace(
+        "overlapping-instance-session",
+        "maya.abcdef12.maya_primitives__create_sphere".into(),
+        json!({"radius": 2.0}),
+    );
+    second_trace.request_id = "overlapping-second".into();
+    traces.push(first_trace);
+    traces.push(second_trace);
+    let router = build_v1_debug_router(state.with_trace_log(traces, None));
+
+    let (status, body) = post_compile_session(router, "overlapping-instance-session").await;
+
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert_eq!(body["error"], "mixed_target_instance");
+}
+
+#[tokio::test]
 async fn session_compile_rejects_history_over_the_bounded_limit() {
     let state = make_admin_state();
     let instance_id = register_backend(&state, 0);

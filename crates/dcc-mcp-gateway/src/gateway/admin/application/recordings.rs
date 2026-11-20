@@ -595,20 +595,49 @@ async fn compile_trace_event(
 
 fn instance_matches_slug(instance_id: uuid::Uuid, slug_instance: &str) -> bool {
     let actual = instance_id.simple().to_string();
-    let expected = slug_instance.replace('-', "").to_ascii_lowercase();
-    actual.starts_with(&expected)
+    normalize_instance_hint(slug_instance).is_some_and(|expected| actual.starts_with(&expected))
 }
 
 fn instance_id_matches_slug(instance_id: &str, slug_instance: &str) -> bool {
-    let actual = instance_id.replace('-', "").to_ascii_lowercase();
-    let expected = slug_instance.replace('-', "").to_ascii_lowercase();
-    actual.starts_with(&expected) || expected.starts_with(&actual)
+    let Some(actual) = normalize_instance_hint(instance_id) else {
+        return false;
+    };
+    let Some(expected) = normalize_instance_hint(slug_instance) else {
+        return false;
+    };
+    same_instance_hint(&actual, &expected)
 }
 
 fn instance_hints_match(left: &str, right: &str) -> bool {
-    let left = left.replace('-', "").to_ascii_lowercase();
-    let right = right.replace('-', "").to_ascii_lowercase();
-    left.starts_with(&right) || right.starts_with(&left)
+    let Some(left) = normalize_instance_hint(left) else {
+        return false;
+    };
+    let Some(right) = normalize_instance_hint(right) else {
+        return false;
+    };
+    same_instance_hint(&left, &right)
+}
+
+fn normalize_instance_hint(value: &str) -> Option<String> {
+    let normalized = value.replace('-', "").to_ascii_lowercase();
+    if !(4..=32).contains(&normalized.len())
+        || !normalized
+            .chars()
+            .all(|character| character.is_ascii_hexdigit())
+    {
+        return None;
+    }
+    Some(normalized)
+}
+
+fn same_instance_hint(left: &str, right: &str) -> bool {
+    if left == right {
+        return true;
+    }
+    let left_is_full = left.len() == 32;
+    let right_is_full = right.len() == 32;
+    (left_is_full && right.len() >= 8 && left.starts_with(right))
+        || (right_is_full && left.len() >= 8 && right.starts_with(left))
 }
 
 /// `POST /v1/recordings/replay/validate` — fail closed on missing, ambiguous, or drifted tools.
