@@ -328,7 +328,8 @@ Resolve the target interpreter in this order:
 Hosted adapters MUST NOT silently fall back to an arbitrary `python` on
 `PATH`. Record the executable, version, and resolution source. Verify that the
 target interpreter can import the exact adapter version and a Core version that
-satisfies `min_core_version` before claiming success.
+satisfies the catalog's bounded `core_requirement` when present, or
+`min_core_version` for legacy entries, before claiming success.
 
 Implementation progress (partial): pip plans honor an explicit Python selection
 (including `DCC_MCP_INSTALL_PYTHON`) and catalog `python_path` before discovery.

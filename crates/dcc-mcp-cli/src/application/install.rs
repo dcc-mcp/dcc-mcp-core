@@ -6,6 +6,9 @@ use crate::domain::install_catalog::CatalogSource;
 use dcc_mcp_catalog::CatalogEntry;
 use thiserror::Error;
 
+use crate::application::adapter_import::{
+    AdapterImportTarget, core_compatibility_for_requirement, import_module, probe_target,
+};
 use crate::domain::install::{
     InstallPlan, InstallPlanError, InstallPlanner, InstallPolicy, InstallRequest,
     InstallStepAction, normalized_dcc_key,
@@ -758,6 +761,7 @@ fn execute_verify(plan: &InstallPlan) -> Result<Option<StepRollback>, InstallErr
             message: format!("DCC path does not exist: {}", path.display()),
         });
     }
+    let mut pip_target = None;
     for step in &plan.steps {
         let Some(action) = &step.action else {
             continue;
@@ -771,14 +775,83 @@ fn execute_verify(plan: &InstallPlan) -> Result<Option<StepRollback>, InstallErr
                 version,
                 python,
                 ..
-            } => verify_pip_package(package, version.as_deref(), python.as_deref())?,
+            } => {
+                verify_pip_package(package, version.as_deref(), python.as_deref())?;
+                pip_target = Some((package.clone(), python.clone()));
+            }
             InstallStepAction::AdobePluginLink { dest, manifest, .. } => {
                 adobe::verify_linked_plugin(dest, manifest.as_deref())?
             }
             InstallStepAction::RegisterDcc { .. } | InstallStepAction::Verify => {}
         }
     }
+    if let Some(requirement) = plan.adapter.core_requirement.as_deref() {
+        let Some((package, python)) = pip_target else {
+            return Err(InstallError::StepFailed {
+                step: "verify".into(),
+                message: format!(
+                    "cannot verify Core requirement '{requirement}' without a target Python package"
+                ),
+            });
+        };
+        verify_target_core_requirement(plan, requirement, &package, python.as_deref())?;
+    }
     Ok(None)
+}
+
+fn verify_target_core_requirement(
+    plan: &InstallPlan,
+    requirement: &str,
+    package: &str,
+    python: Option<&str>,
+) -> Result<(), InstallError> {
+    let Some(python) = python.filter(|value| !value.trim().is_empty()) else {
+        return Err(InstallError::StepFailed {
+            step: "verify".into(),
+            message: format!(
+                "no target Python interpreter is available to verify Core requirement '{requirement}'"
+            ),
+        });
+    };
+    let target = AdapterImportTarget {
+        dcc_type: plan.dcc_type.clone(),
+        module: import_module(&plan.adapter, package),
+        distribution: package.to_string(),
+        python: Some(PathBuf::from(python)),
+        python_source: Some("install_plan".into()),
+    };
+    let probe = probe_target(&target);
+    if !probe
+        .get("imported")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+    {
+        let status = probe
+            .get("status")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("unavailable");
+        return Err(InstallError::StepFailed {
+            step: "verify".into(),
+            message: format!(
+                "target adapter import failed while verifying Core requirement '{requirement}' ({status})"
+            ),
+        });
+    }
+    let report = probe
+        .as_object()
+        .expect("adapter import probe is a JSON object");
+    let core = core_compatibility_for_requirement(report, requirement);
+    if !core.is_ok() {
+        return Err(InstallError::StepFailed {
+            step: "verify".into(),
+            message: format!(
+                "target Core version '{}' does not satisfy '{requirement}': {}",
+                core.running.as_deref().unwrap_or("unknown"),
+                core.bound.message()
+            ),
+        });
+    }
+    Ok(())
 }
 
 fn verify_installed_path(path: &Path) -> Result<(), InstallError> {

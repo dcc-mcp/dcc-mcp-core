@@ -376,6 +376,19 @@ pub(crate) fn probe_target(target: &AdapterImportTarget) -> Value {
     probe_target_with_env(target, Vec::new())
 }
 
+/// Check a catalog-declared Core requirement against the version reported by
+/// the target interpreter probe.
+pub(crate) fn core_compatibility_for_requirement(
+    report: &Map<String, Value>,
+    requirement: &str,
+) -> CoreRuntimeReport {
+    let running = report
+        .get("core_version")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    check_runtime(requirement, running, &CoreBoundPolicy::default())
+}
+
 #[cfg(test)]
 mod tests;
 
@@ -492,15 +505,7 @@ fn grade(report: &Map<String, Value>, core: Option<&CoreRuntimeReport>) -> Adapt
 
 fn core_compatibility(report: &Map<String, Value>) -> Option<CoreRuntimeReport> {
     let requirement = report.get("core_requirement")?.as_str()?;
-    let running = report
-        .get("core_version")
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    Some(check_runtime(
-        requirement,
-        running,
-        &CoreBoundPolicy::default(),
-    ))
+    Some(core_compatibility_for_requirement(report, requirement))
 }
 
 /// Read back the status recorded on a probe row.
