@@ -198,7 +198,7 @@ fn is_supported_host_family(dcc_type: &str) -> bool {
 ///
 /// Maya and Houdini adapters use an embedded host interpreter when no explicit
 /// interpreter is configured. Generic pip adapters keep the existing plan-only
-/// behavior until an operator supplies a host path or interpreter.
+/// behavior when no explicit interpreter is configured.
 pub(crate) fn requires_interpreter(dcc_type: &str) -> bool {
     is_supported_host_family(&normalized_host_family(dcc_type))
 }
