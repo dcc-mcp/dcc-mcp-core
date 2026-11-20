@@ -28,17 +28,23 @@ from typing import Any
 from typing import Callable
 
 from dcc_mcp_core import json_dumps
+from dcc_mcp_core.host.capabilities import CAPABILITY_PROBE_TOOL
+from dcc_mcp_core.host.capabilities import DESCRIBE_CAPABILITIES_TOOL
 from dcc_mcp_core.host.capabilities import HOST_CAPABILITIES_SCHEMA_ID
 from dcc_mcp_core.host.capabilities import HOST_CAPABILITIES_SCHEMA_VERSION
+from dcc_mcp_core.host.capabilities import INITIAL_CAPABILITY_KEYS
+from dcc_mcp_core.host.capabilities import LEGACY_HOST_CAPABILITIES_TOOL
 from dcc_mcp_core.host.capabilities import PROBE_FAIL
 from dcc_mcp_core.host.capabilities import PROBE_NOT_RUN
 from dcc_mcp_core.host.capabilities import PROBE_PASS
 from dcc_mcp_core.host.capabilities import PROBE_RESULTS
 from dcc_mcp_core.host.capabilities import PROBE_UNSUPPORTED
+from dcc_mcp_core.host.capabilities import CapabilityProbeRunner
 from dcc_mcp_core.host.capabilities import HostCapabilityCache
 from dcc_mcp_core.host.capabilities import HostCapabilityValidationError
 from dcc_mcp_core.host.capabilities import build_host_capabilities
 from dcc_mcp_core.host.capabilities import make_host_capability
+from dcc_mcp_core.host.capabilities import register_capability_tools
 from dcc_mcp_core.host.capabilities import register_host_capability_tool
 from dcc_mcp_core.host.capabilities import summarize_host_capabilities
 from dcc_mcp_core.host.capabilities import validate_host_capabilities
@@ -46,14 +52,19 @@ from dcc_mcp_core.host.capabilities import validate_host_capabilities
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "CAPABILITY_PROBE_TOOL",
+    "DESCRIBE_CAPABILITIES_TOOL",
     "HOST_CAPABILITIES_SCHEMA_ID",
     "HOST_CAPABILITIES_SCHEMA_VERSION",
+    "INITIAL_CAPABILITY_KEYS",
+    "LEGACY_HOST_CAPABILITIES_TOOL",
     "PROBE_FAIL",
     "PROBE_NOT_RUN",
     "PROBE_PASS",
     "PROBE_RESULTS",
     "PROBE_UNSUPPORTED",
     "CapabilityManifestBuilder",
+    "CapabilityProbeRunner",
     "CapabilityRecord",
     "HostCapabilityCache",
     "HostCapabilityValidationError",
@@ -62,6 +73,7 @@ __all__ = [
     "build_unconfigured_host_capabilities",
     "make_host_capability",
     "register_capability_mcp_tool",
+    "register_capability_tools",
     "register_host_capability_tool",
     "summarize_host_capabilities",
     "validate_host_capabilities",
@@ -430,18 +442,13 @@ def build_unconfigured_host_capabilities(
     adapter_version: str,
     reason: str | None = None,
 ) -> dict[str, Any]:
-    """Build an honest NOT_RUN manifest when an adapter has no provider."""
+    """Build an honest NOT_RUN manifest covering the initial key set."""
     message = reason or (f"No host capability provider is configured for {dcc_name}; capabilities were not probed")
-    capability = make_host_capability(
-        "host.capabilities",
-        False,
-        PROBE_NOT_RUN,
-        reason=message,
-    )
+    capabilities = [make_host_capability(key, False, PROBE_NOT_RUN, reason=message) for key in INITIAL_CAPABILITY_KEYS]
     return build_host_capabilities(
         host_version=host_version,
         adapter_version=adapter_version,
-        capabilities=[capability],
+        capabilities=capabilities,
         dcc_type=dcc_name,
     )
 

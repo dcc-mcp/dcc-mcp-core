@@ -262,6 +262,7 @@ fn command_shows_maintenance(command: &Command, requested: bool) -> bool {
                 | Command::Search { .. }
                 | Command::Describe { .. }
                 | Command::Capabilities { .. }
+                | Command::DescribeCapabilities { .. }
         )
 }
 
@@ -469,14 +470,29 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             instance_id,
             keys,
             force_refresh,
+            invalidate,
+        }
+        | Command::DescribeCapabilities {
+            dcc_type,
+            instance_id,
+            keys,
+            force_refresh,
+            invalidate,
         } => {
             let effective_timeout = global_timeout_secs
                 .unwrap_or(DEFAULT_CALL_TIMEOUT_SECS)
                 .max(1);
             let meta = attach_agent_session_id(None, agent_session_id.as_deref())?;
-            let result = CapabilitiesCommand::new(dcc_type, instance_id, keys, force_refresh, meta)
-                .run(&control, Duration::from_secs(effective_timeout))
-                .await?;
+            let result = CapabilitiesCommand::new(
+                dcc_type,
+                instance_id,
+                keys,
+                force_refresh,
+                invalidate,
+                meta,
+            )
+            .run(&control, Duration::from_secs(effective_timeout))
+            .await?;
             failed = !capabilities_result::command_succeeded(&result);
             if failed {
                 exit_code = ExitCode::Unavailable;

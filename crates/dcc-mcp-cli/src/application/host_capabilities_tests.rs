@@ -11,8 +11,54 @@ use crate::application::capabilities_result::backend_summary;
 use crate::application::client::TransportMode;
 use crate::application::gateway_profile::GatewayTarget;
 use crate::application::local_control::call_result_succeeded;
+use crate::domain::capabilities::DESCRIBE_CAPABILITIES_TOOL;
 use crate::domain::rest::Endpoint;
 use crate::presentation::cli::capabilities_output::render_human;
+
+#[test]
+fn legacy_capability_tool_fallback_only_matches_missing_tool_errors() {
+    assert!(super::missing_capability_tool_response(&json!({
+        "success": false,
+        "error": "tool_not_found"
+    })));
+    assert!(!super::missing_capability_tool_response(&json!({
+        "success": false,
+        "error": "host_capability_provider_failed"
+    })));
+    assert!(!super::missing_capability_tool_response(&json!({
+        "success": true,
+        "error": "tool_not_found"
+    })));
+}
+
+#[test]
+fn legacy_capability_tool_fallback_recognizes_wrapped_json_rpc_errors() {
+    assert!(super::missing_capability_tool_response(&json!({
+        "result": {
+            "content": [{
+                "type": "text",
+                "text": "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32601,\"message\":\"Unknown tool: describe_capabilities\"}}"
+            }],
+            "isError": true
+        }
+    })));
+    assert!(super::missing_capability_tool_response(&json!({
+        "success": false,
+        "error": {
+            "code": -32601,
+            "message": "Unknown tool"
+        }
+    })));
+    assert!(!super::missing_capability_tool_response(&json!({
+        "result": {
+            "content": [{
+                "type": "text",
+                "text": "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32603,\"message\":\"probe failed\"}}"
+            }],
+            "isError": true
+        }
+    })));
+}
 
 fn summary() -> Value {
     json!({
@@ -122,6 +168,7 @@ async fn repeated_keys_and_force_refresh_reach_the_direct_gateway_call() {
             "render.lpe".to_string(),
         ],
         true,
+        false,
         Some(json!({"agent_context": {"session_id": "capabilities-session"}})),
     )
     .run(&control, Duration::from_secs(2))
@@ -135,7 +182,7 @@ async fn repeated_keys_and_force_refresh_reach_the_direct_gateway_call() {
         seen[0]["instance_id"],
         "abc12345-0000-0000-0000-000000000000"
     );
-    assert_eq!(seen[0]["body"]["backend_tool"], "dcc_host_capabilities");
+    assert_eq!(seen[0]["body"]["backend_tool"], "describe_capabilities");
     assert_eq!(seen[0]["body"]["arguments"]["force_refresh"], true);
     assert_eq!(
         seen[0]["body"]["arguments"]["keys"][0],
@@ -159,6 +206,68 @@ async fn repeated_keys_and_force_refresh_reach_the_direct_gateway_call() {
     assert!(rendered.contains("host=20.5 adapter=0.3.1"));
     assert!(rendered.contains("AVAILABLE (1)"));
     assert!(rendered.contains("render.lpe [PASS]"));
+    server.abort();
+}
+
+#[tokio::test]
+async fn legacy_adapter_error_wrapper_falls_back_to_legacy_tool() {
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let seen = calls.clone();
+    let app = axum::Router::new()
+        .route("/v1/instances", get(|| async { Json(inventory()) }))
+        .route("/admin/api/health", get(|| async { Json(json!({})) }))
+        .route(
+            "/v1/dcc/{dcc_type}/instances/{instance_id}/call",
+            post(
+                move |headers: HeaderMap, Json(body): Json<Value>| async move {
+                    let backend_tool = body["backend_tool"].as_str().unwrap_or_default();
+                    seen.lock().unwrap().push(backend_tool.to_string());
+                    let response = if backend_tool == DESCRIBE_CAPABILITIES_TOOL {
+                        json!({
+                            "success": false,
+                            "error": {
+                                "code": -32601,
+                                "message": "Method not found: describe_capabilities"
+                            }
+                        })
+                    } else {
+                        summary()
+                    };
+                    correlated_json(&headers, response)
+                },
+            ),
+        );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let control = DccControlPlane::new(
+        GatewayTarget::Local,
+        Endpoint::new(format!("http://{addr}")),
+        None,
+        true,
+    );
+
+    let result = CapabilitiesCommand::new(
+        Some("houdini".to_string()),
+        Some("abc12345".to_string()),
+        Vec::new(),
+        false,
+        false,
+        None,
+    )
+    .run(&control, Duration::from_secs(2))
+    .await
+    .unwrap();
+
+    assert_eq!(
+        *calls.lock().unwrap(),
+        vec![
+            DESCRIBE_CAPABILITIES_TOOL.to_string(),
+            HOST_CAPABILITIES_TOOL.to_string()
+        ]
+    );
+    assert_eq!(result["backend_tool"], HOST_CAPABILITIES_TOOL);
+    assert!(call_result_succeeded(&result));
     server.abort();
 }
 
@@ -197,11 +306,17 @@ async fn unique_instance_id_is_resolved_without_caller_supplying_one() {
         true,
     );
 
-    let result =
-        CapabilitiesCommand::new(Some("photoshop".to_string()), None, Vec::new(), false, None)
-            .run(&control, Duration::from_secs(2))
-            .await
-            .unwrap();
+    let result = CapabilitiesCommand::new(
+        Some("photoshop".to_string()),
+        None,
+        Vec::new(),
+        false,
+        false,
+        None,
+    )
+    .run(&control, Duration::from_secs(2))
+    .await
+    .unwrap();
 
     assert_eq!(result["dcc_type"], "photoshop");
     assert_eq!(
@@ -278,7 +393,7 @@ fn mcp_transport_keeps_the_existing_direct_call_guard() {
     let error = runtime.block_on(async {
         control
             .call(
-                HOST_CAPABILITIES_TOOL.to_string(),
+                DESCRIBE_CAPABILITIES_TOOL.to_string(),
                 Some("nuke".to_string()),
                 Some("abc12345-0000-0000-0000-000000000000".to_string()),
                 json!({}),

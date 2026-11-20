@@ -25,7 +25,7 @@ fn successful_result_keeps_evidence_and_routing_metadata() {
 #[test]
 fn gateway_envelope_reads_context_through_output() {
     let result = json!({
-        "slug": "dcc_host_capabilities",
+        "slug": "describe_capabilities",
         "output": {
             "success": true,
             "context": {
@@ -73,7 +73,7 @@ fn backend_failure_keeps_the_original_payload_and_identity() {
     );
     assert_eq!(projected["dcc_type"], "comfyui");
     assert_eq!(projected["instance_short"], "abc12345");
-    assert_eq!(projected["backend_tool"], "dcc_host_capabilities");
+    assert_eq!(projected["backend_tool"], "describe_capabilities");
 }
 
 #[test]

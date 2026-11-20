@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from threading import Event
+import time
 
 import jsonschema
 import pytest
@@ -18,9 +20,11 @@ from dcc_mcp_core.capabilities import PROBE_FAIL
 from dcc_mcp_core.capabilities import PROBE_NOT_RUN
 from dcc_mcp_core.capabilities import PROBE_PASS
 from dcc_mcp_core.capabilities import PROBE_UNSUPPORTED
+from dcc_mcp_core.capabilities import CapabilityProbeRunner
 from dcc_mcp_core.capabilities import HostCapabilityCache
 from dcc_mcp_core.capabilities import HostCapabilityValidationError
 from dcc_mcp_core.capabilities import build_host_capabilities
+from dcc_mcp_core.capabilities import build_unconfigured_host_capabilities
 from dcc_mcp_core.capabilities import make_host_capability
 from dcc_mcp_core.capabilities import register_host_capability_tool
 from dcc_mcp_core.capabilities import summarize_host_capabilities
@@ -527,8 +531,9 @@ def test_tool_registration_serves_the_summary_from_a_provider():
         return _manifest([_capability()])
 
     assert register_host_capability_tool(server, dcc_name="comfyui", provider=provider) is True
-    name = server._server.registry.registered[0][0]
-    assert name == "dcc_host_capabilities"
+    names = [name for name, _ in server._server.registry.registered]
+    assert names == ["describe_capabilities", "dcc_host_capabilities"]
+    name = names[0]
 
     handler = server._server.registry.handlers[name]
     result = handler({})
@@ -572,6 +577,26 @@ def test_tool_cache_uses_current_identity_and_does_not_stale_on_version_change()
         "21.0",
     ]
     assert calls == ["20.5", "21.0"]
+
+
+def test_tool_cache_derives_and_reuses_identity_without_a_key_callback():
+    server = _Server()
+    calls = []
+
+    def provider():
+        calls.append(True)
+        return _manifest([])
+
+    cache = HostCapabilityCache(ttl_secs=300)
+    assert register_host_capability_tool(server, dcc_name="comfyui", provider=provider, cache=cache)
+    handler = server._server.registry.handlers["describe_capabilities"]
+
+    first = handler({})
+    second = handler({})
+
+    assert first["context"] == second["context"]
+    assert len(calls) == 1
+    assert len(cache) == 1
 
 
 def test_tool_returns_structured_error_when_provider_fails():
@@ -624,3 +649,256 @@ def test_tool_registration_is_skipped_without_a_server_registry():
         pass
 
     assert register_host_capability_tool(_Bare(), dcc_name="comfyui", provider=lambda: _manifest([])) is False
+
+
+def test_initial_capability_keys_are_extensible_and_cover_the_issue_set():
+    assert capabilities.INITIAL_CAPABILITY_KEYS == (
+        "render.extra_image_planes",
+        "render.material_exports",
+        "render.lpe",
+        "render.cryptomatte",
+        "render.object_id_integer",
+        "sim.rbd_field_writes",
+        "capture.in_process_qt",
+        "script.terminal_mode",
+        "script.in_process_python",
+    )
+    manifest = build_unconfigured_host_capabilities(
+        dcc_name="houdini",
+        host_version="20.5",
+        adapter_version="0.1.6",
+    )
+    assert [record["key"] for record in manifest["capabilities"]] == list(capabilities.INITIAL_CAPABILITY_KEYS)
+    assert all(record["probe_result"] == PROBE_NOT_RUN and record["reason"] for record in manifest["capabilities"])
+
+
+def test_probe_runner_maps_typed_outcomes_and_adapter_context():
+    seen = []
+
+    def probe(key, context):
+        seen.append((key, context))
+        if key == "render.lpe":
+            return {
+                "probe_result": PROBE_PASS,
+                "supported": True,
+                "evidence_ref": "artifact://render/lpe",
+                "probed_at": "2026-11-20T00:00:00Z",
+            }
+        if key == "render.cryptomatte":
+            return {
+                "probe_result": PROBE_UNSUPPORTED,
+                "supported": False,
+                "reason": "locked HDA, no editable VOP network",
+                "probed_at": "2026-11-20T00:00:00Z",
+            }
+        return {"unexpected": True}
+
+    runner = CapabilityProbeRunner(
+        probe,
+        keys=("render.lpe", "render.cryptomatte", "sim.rbd_field_writes"),
+        context={"session": "hou-1"},
+    )
+    records = runner.run_all()
+    assert seen == [(key, {"session": "hou-1"}) for key in runner.keys]
+    assert [record["probe_result"] for record in records] == [PROBE_PASS, PROBE_UNSUPPORTED, PROBE_FAIL]
+    assert records[0]["evidence_ref"] == "artifact://render/lpe"
+    assert records[1]["reason"] == "locked HDA, no editable VOP network"
+    assert "malformed record" in records[2]["reason"]
+
+
+def test_probe_runner_fail_closes_malformed_unsupported_outcomes():
+    def probe(key):
+        return {
+            "probe_result": PROBE_UNSUPPORTED,
+            "supported": False,
+            "reason": "x" * 600,
+            "probed_at": "2026-11-20T00:00:00Z",
+        }
+
+    record = CapabilityProbeRunner(probe, keys=("render.lpe",)).run_one("render.lpe")
+
+    assert record["probe_result"] == PROBE_FAIL
+    assert "malformed record" in record["reason"]
+
+
+def test_probe_timeout_returns_before_a_long_adapter_operation_finishes():
+    cancelled = []
+
+    def slow_probe(key):
+        time.sleep(0.6)
+        return {"probe_result": PROBE_PASS, "supported": True}
+
+    runner = CapabilityProbeRunner(
+        slow_probe,
+        keys=("render.lpe",),
+        timeout_secs=0.05,
+        cancel=lambda key: cancelled.append(key),
+    )
+    started = time.monotonic()
+    record = runner.run_one("render.lpe")
+    elapsed = time.monotonic() - started
+    assert elapsed < 0.5
+    assert record["probe_result"] == PROBE_FAIL
+    assert "Core wait" in record["reason"]
+    assert cancelled == ["render.lpe"]
+
+
+def test_probe_timeout_does_not_wait_for_a_blocking_cancel_callback():
+    cancel_started = Event()
+    release_cancel = Event()
+
+    def slow_probe(key):
+        time.sleep(0.6)
+        return {"probe_result": PROBE_PASS, "supported": True}
+
+    def blocking_cancel(key):
+        cancel_started.set()
+        release_cancel.wait(5.0)
+
+    runner = CapabilityProbeRunner(
+        slow_probe,
+        keys=("render.lpe",),
+        timeout_secs=0.02,
+        cancel=blocking_cancel,
+        cancel_timeout_secs=0.01,
+    )
+    started = time.monotonic()
+    record = runner.run_one("render.lpe")
+    elapsed = time.monotonic() - started
+
+    assert elapsed < 0.2
+    assert cancel_started.wait(0.2)
+    assert record["probe_result"] == PROBE_FAIL
+    release_cancel.set()
+
+
+def test_cache_conditional_write_rejects_results_after_invalidation():
+    cache = HostCapabilityCache(ttl_secs=300)
+    key = HostCapabilityCache.cache_key("houdini", "20.5", "0.1.6")
+    payload = _manifest([_capability()])
+    cache.put(key, payload)
+    version, _ = cache.snapshot(key)
+
+    cache.invalidate(key)
+
+    assert cache.put_if_version(key, payload, version) is False
+    assert cache.get(key) is None
+
+
+def test_cache_merge_preserves_existing_record_ttl():
+    now = [100.0]
+    cache = HostCapabilityCache(ttl_secs=10, clock=lambda: now[0])
+    key = HostCapabilityCache.cache_key("houdini", "20.5", "0.1.6")
+    first = _manifest([_capability(key="render.lpe")])
+    cache.put(key, first)
+    version, _ = cache.snapshot(key)
+
+    now[0] = 109.0
+    second = _manifest([_capability(key="render.lpe"), _capability(key="render.cryptomatte")])
+    assert cache.put_if_version(key, second, version, preserve_existing=True) is True
+
+    now[0] = 111.0
+    cached = cache.get(key)
+    assert cached is not None
+    assert [record["key"] for record in cached["capabilities"]] == ["render.cryptomatte"]
+    summary = summarize_host_capabilities(cached)
+    assert summary["totals"] == {"available": 1, "declared": 0, "unavailable": 0, "not_run": 0}
+
+
+def test_cache_refresh_after_expiry_gets_a_new_record_timestamp():
+    now = [100.0]
+    cache = HostCapabilityCache(ttl_secs=10, clock=lambda: now[0])
+    key = HostCapabilityCache.cache_key("houdini", "20.5", "0.1.6")
+    payload = _manifest([_capability(key="render.lpe")])
+    cache.put(key, payload)
+
+    now[0] = 111.0
+    version, cached = cache.snapshot(key)
+    assert cached is None
+    assert cache.put_if_version(key, payload, version, preserve_existing=True) is True
+    assert cache.get(key) is payload
+
+
+class _GetActionRegistry(_Registry):
+    def __init__(self):
+        super().__init__()
+
+        self.actions = {}
+
+    def get_action(self, name):
+        return self.actions.get(name)
+
+
+class _GetActionInner:
+    def __init__(self):
+        self.registry = _GetActionRegistry()
+
+    def register_handler(self, name, handler):
+        self.registry.handlers[name] = handler
+
+
+class _GetActionServer:
+    def __init__(self):
+        self._server = _GetActionInner()
+
+
+def test_canonical_aliases_and_probe_registration_share_cache_and_invalidation():
+    server = _GetActionServer()
+    calls = []
+
+    def provider():
+        calls.append(1)
+        manifest = _manifest([_capability()])
+        manifest["probed_at"] = f"2026-11-20T00:00:{len(calls):02d}Z"
+        return manifest
+
+    probe_calls = []
+
+    def probe(key):
+        probe_calls.append(key)
+        return {
+            "probe_result": PROBE_PASS,
+            "supported": True,
+            "evidence_ref": f"artifact://{key}",
+            "probed_at": "2026-11-20T00:00:00Z",
+        }
+
+    runner = CapabilityProbeRunner(
+        probe,
+        keys=("render.lpe",),
+    )
+    cache = HostCapabilityCache(ttl_secs=300)
+    assert capabilities.register_capability_tools(
+        server,
+        dcc_name="houdini",
+        provider=provider,
+        cache=cache,
+        provider_cache_key=lambda: ("houdini", "20.5", "0.1.6"),
+        probe_runner=runner,
+    )
+
+    registered = [name for name, _ in server._server.registry.registered]
+    assert registered == [
+        "describe_capabilities",
+        "dcc_host_capabilities",
+        "capability_probe",
+    ]
+    handlers = server._server.registry.handlers
+    first = handlers["describe_capabilities"]({})
+    alias = handlers["dcc_host_capabilities"]({})
+    assert first["context"]["probed_at"] == alias["context"]["probed_at"]
+    assert len(calls) == 1
+
+    assert handlers["dcc_host_capabilities"]({"invalidate": True})["success"] is True
+    assert len(calls) == 2
+
+    probed = handlers["capability_probe"]({"key": "render.lpe"})
+    assert probed["context"]["available"][0]["key"] == "render.lpe"
+    cached = handlers["describe_capabilities"]({})
+    assert cached["context"]["available"][0]["key"] == "render.lpe"
+    assert probe_calls == ["render.lpe"]
+    handlers["capability_probe"]({"key": "render.lpe"})
+    assert probe_calls == ["render.lpe"]
+    handlers["capability_probe"]({"key": "render.lpe", "invalidate": True})
+    assert probe_calls == ["render.lpe", "render.lpe"]
+    assert len(cache) == 1

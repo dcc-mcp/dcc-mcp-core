@@ -200,6 +200,7 @@ fn capabilities_contract_accepts_repeated_keys_and_global_output() {
         "--keys",
         "render.cryptomatte,script.in_process_python",
         "--force-refresh",
+        "--invalidate",
     ])
     .expect("parse capabilities command");
 
@@ -209,6 +210,7 @@ fn capabilities_contract_accepts_repeated_keys_and_global_output() {
         instance_id,
         keys,
         force_refresh,
+        invalidate,
     } = args.command
     else {
         panic!("expected capabilities command");
@@ -223,6 +225,7 @@ fn capabilities_contract_accepts_repeated_keys_and_global_output() {
         ]
     );
     assert!(force_refresh);
+    assert!(invalidate);
 }
 
 #[test]
@@ -233,6 +236,7 @@ fn capabilities_uses_the_same_maintenance_policy_as_inventory_commands() {
             instance_id: None,
             keys: Vec::new(),
             force_refresh: false,
+            invalidate: false,
         },
         false
     ));
@@ -1656,4 +1660,31 @@ fn doctor_disables_automatic_update_maintenance_without_an_opt_out() {
     assert!(doctor.no_update_maintenance);
     let health = Args::try_parse_annotated_from(["dcc-mcp-cli", "health"]).unwrap();
     assert!(!health.no_update_maintenance);
+}
+
+#[test]
+fn describe_capabilities_is_a_canonical_cli_alias() {
+    let args = Args::try_parse_from([
+        "dcc-mcp-cli",
+        "describe-capabilities",
+        "--dcc-type",
+        "maya",
+        "--keys",
+        "render.lpe",
+        "--invalidate",
+    ])
+    .expect("parse canonical capabilities alias");
+
+    let Command::DescribeCapabilities {
+        dcc_type,
+        keys,
+        invalidate,
+        ..
+    } = args.command
+    else {
+        panic!("expected describe-capabilities command");
+    };
+    assert_eq!(dcc_type.as_deref(), Some("maya"));
+    assert_eq!(keys, vec!["render.lpe".to_string()]);
+    assert!(invalidate);
 }
