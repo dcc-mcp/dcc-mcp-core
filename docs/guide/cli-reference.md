@@ -629,7 +629,8 @@ plus the manual host-plugin start step. Pass `--python` (or
 `DCC_MCP_INSTALL_PYTHON`) when a pip-based adapter must be installed into a DCC
 interpreter such as `mayapy`, `hython`, or Blender's bundled Python. When both
 overrides are omitted, automatic selection requires an unambiguous selected
-host.
+host. A catalog `python_path` is considered after these overrides and before
+host discovery.
 Maya and Houdini plans can discover an existing adjacent `mayapy` or `hython`.
 Multiple discovered installations require `--dcc-path` or `--python`, and a
 missing hosted interpreter fails preflight. The JSON plan records the selected

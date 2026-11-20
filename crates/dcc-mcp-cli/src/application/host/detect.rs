@@ -122,7 +122,7 @@ pub fn install_candidates(
                 .into_iter()
                 .map(|candidate| HostCandidate {
                     path: candidate.path,
-                    explicit: false,
+                    explicit: candidate.source == CandidateSource::EnvOverride,
                 }),
         );
     }
@@ -617,6 +617,33 @@ mod tests {
         assert_eq!(found[0].path, explicit);
         assert_ne!(found[0].path, other);
         assert!(found[0].explicit);
+    }
+
+    #[test]
+    fn environment_host_override_is_an_explicit_install_candidate() {
+        let override_dir = tempfile::tempdir().unwrap();
+        let path_dir = tempfile::tempdir().unwrap();
+        let override_host = touch(override_dir.path(), "maya");
+        let path_host = touch(path_dir.path(), "maya");
+        let path_python = touch(path_dir.path(), "mayapy");
+        let mut env = env_with_path(path_dir.path());
+        env.vars.insert(
+            "DCC_MCP_MAYA_EXECUTABLE".to_string(),
+            override_host.display().to_string(),
+        );
+
+        let found = install_candidates(
+            &def("maya", platform(&["maya"]), PlatformStrings::default()),
+            &env,
+            None,
+        );
+
+        assert_eq!(found.len(), 2);
+        assert_eq!(found[0].path, override_host);
+        assert!(found[0].explicit);
+        assert_eq!(found[1].path, path_host);
+        assert!(!found[1].explicit);
+        assert!(path_python.is_file());
     }
 
     #[test]

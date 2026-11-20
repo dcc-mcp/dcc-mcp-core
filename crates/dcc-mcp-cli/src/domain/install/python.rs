@@ -163,7 +163,10 @@ pub(crate) fn resolve_python(
                 source: PythonSource::DiscoveredHost,
             });
         }
-        if let Some(previous) = discovered {
+        if let Some(previous) = discovered.as_ref() {
+            if same_interpreter_path(Path::new(previous), Path::new(&python)) {
+                continue;
+            }
             return Err(PythonResolutionError::AmbiguousHostedInterpreters {
                 paths: vec![PathBuf::from(previous), PathBuf::from(python)],
             });
@@ -191,6 +194,23 @@ fn normalized_host_family(dcc_type: &str) -> String {
 
 fn is_supported_host_family(dcc_type: &str) -> bool {
     matches!(dcc_type, "maya" | "houdini")
+}
+
+/// Return whether a pip install must resolve an interpreter before planning.
+///
+/// Maya and Houdini adapters use an embedded host interpreter when no explicit
+/// interpreter is configured. Generic pip adapters keep the existing plan-only
+/// behavior until an operator supplies a host path or interpreter. An explicit
+/// DCC path also opts the generic adapter into the fail-closed preflight.
+pub(crate) fn requires_interpreter(dcc_type: &str, explicit_dcc_path: bool) -> bool {
+    is_supported_host_family(&normalized_host_family(dcc_type)) || explicit_dcc_path
+}
+
+fn same_interpreter_path(first: &Path, second: &Path) -> bool {
+    match (first.canonicalize(), second.canonicalize()) {
+        (Ok(first), Ok(second)) => first == second,
+        _ => first == second,
+    }
 }
 
 #[cfg(test)]
@@ -232,5 +252,71 @@ mod tests {
             PythonResolutionError::AmbiguousHostedInterpreters { paths }
                 if paths == vec![first_python, second_python]
         ));
+    }
+
+    #[test]
+    fn equivalent_discovered_interpreter_paths_are_not_ambiguous() {
+        let dir = tempfile::tempdir().unwrap();
+        let host = dir.path().join("maya");
+        let alias_host = dir.path().join("nested").join("..").join("maya");
+        let python = dir.path().join("mayapy");
+        std::fs::create_dir(dir.path().join("nested")).unwrap();
+        for path in [&host, &python] {
+            std::fs::write(path, b"stub").unwrap();
+        }
+
+        let resolved = resolve_python(
+            None,
+            None,
+            &InstallEnv::default(),
+            &[
+                HostCandidate {
+                    path: host,
+                    explicit: false,
+                },
+                HostCandidate {
+                    path: alias_host,
+                    explicit: false,
+                },
+            ],
+            "maya",
+        )
+        .unwrap();
+
+        assert_eq!(resolved.source, PythonSource::DiscoveredHost);
+        assert!(same_interpreter_path(Path::new(&resolved.path), &python));
+    }
+
+    #[test]
+    fn explicit_host_override_does_not_fall_back_to_other_discovered_hosts() {
+        let override_dir = tempfile::tempdir().unwrap();
+        let fallback_dir = tempfile::tempdir().unwrap();
+        let override_host = override_dir.path().join("maya");
+        let fallback_host = fallback_dir.path().join("maya");
+        let fallback_python = fallback_dir.path().join("mayapy");
+        std::fs::write(&override_host, b"stub").unwrap();
+        for path in [&fallback_host, &fallback_python] {
+            std::fs::write(path, b"stub").unwrap();
+        }
+
+        let error = resolve_python(
+            None,
+            None,
+            &InstallEnv::default(),
+            &[
+                HostCandidate {
+                    path: override_host,
+                    explicit: true,
+                },
+                HostCandidate {
+                    path: fallback_host,
+                    explicit: false,
+                },
+            ],
+            "maya",
+        )
+        .unwrap_err();
+
+        assert!(matches!(error, PythonResolutionError::GuiExecutable(_)));
     }
 }

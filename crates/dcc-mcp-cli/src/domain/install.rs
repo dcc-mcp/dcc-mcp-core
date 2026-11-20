@@ -395,8 +395,13 @@ impl InstallPlanner {
                             path: hint.gui_path.display().to_string(),
                         });
                     }
-                    Err(python::PythonResolutionError::MissingHostedInterpreter) => {
+                    Err(python::PythonResolutionError::MissingHostedInterpreter)
+                        if python::requires_interpreter(&dcc_key, request.dcc_path.is_some()) =>
+                    {
                         return Err(InstallPlanError::MissingHostInterpreter(dcc_type.clone()));
+                    }
+                    Err(python::PythonResolutionError::MissingHostedInterpreter) => {
+                        (None, python::PythonSource::NotRequired)
                     }
                     Err(python::PythonResolutionError::AmbiguousHostedInterpreters { paths }) => {
                         return Err(InstallPlanError::AmbiguousHostInterpreters {

@@ -135,9 +135,10 @@ pub fn correct_python_executable(path: &Path) -> PathBuf {
 }
 
 /// Locate the first existing sibling whose file-stem matches one of
-/// `stems`, preserving only a Windows `.exe` suffix (case-insensitive).
-/// Other suffixes, such as Maya's `.bin`, belong to the GUI program, not its
-/// interpreter. Returns `None` if no candidate file is found.
+/// `stems`, preserving the Windows `.exe` suffix for executable and launcher
+/// paths (case-insensitive). Other suffixes, such as Maya's `.bin`, belong to
+/// the GUI program, not its interpreter. Returns `None` if no candidate file
+/// is found.
 fn locate_sibling(gui_path: &Path, stems: &[&str]) -> Option<PathBuf> {
     if stems.is_empty() {
         return None;
@@ -146,7 +147,12 @@ fn locate_sibling(gui_path: &Path, stems: &[&str]) -> Option<PathBuf> {
     let extension = gui_path
         .extension()
         .and_then(|e| e.to_str())
-        .filter(|e| e.eq_ignore_ascii_case("exe"));
+        .filter(|e| {
+            e.eq_ignore_ascii_case("exe")
+                || (cfg!(windows)
+                    && (e.eq_ignore_ascii_case("cmd") || e.eq_ignore_ascii_case("bat")))
+        })
+        .map(|_| "exe");
     for stem in stems {
         let mut candidate = parent.join(stem);
         if let Some(extension) = extension {
@@ -307,6 +313,20 @@ mod tests {
         // `Path::canonicalize`/`resolve()` comparison stays sound on every
         // platform.
         assert_eq!(suggested.file_name(), cmd.file_name());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn launcher_wrapper_uses_the_embedded_exe_sibling() {
+        let dir = tempdir().unwrap();
+        let gui = dir.path().join("maya.cmd");
+        let python = dir.path().join("mayapy.exe");
+        fs::write(&gui, b"").unwrap();
+        fs::write(&python, b"").unwrap();
+
+        let hint = is_gui_executable(&gui).expect("maya.cmd must be detected");
+
+        assert_eq!(hint.recommended_replacement, Some(python));
     }
 
     #[test]

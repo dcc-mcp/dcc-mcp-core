@@ -379,7 +379,8 @@ and SHA-256. `--version` may only repeat that reviewed artifact version.
 如果没有传 `--python`，也没有设置 `DCC_MCP_INSTALL_PYTHON`，Maya 和 Houdini
 的 plan 会在宿主程序旁边查找 `mayapy` 或 `hython`。只有发现唯一可用的宿主时
 才会自动选择；发现多个宿主时必须传 `--dcc-path` 或 `--python`，找不到可用宿主
-解释器则在 preflight 阶段失败。JSON plan 会在 `python_source` 中记录选择来源。
+解释器则在 preflight 阶段失败。catalog 的 `python_path` 会在这些 override 之后、
+宿主自动发现之前参与选择。JSON plan 会在 `python_source` 中记录选择来源。
 
 如果工作室有专门的 Pipeline 部署流程，可以设置
 `DCC_MCP_INSTALL_DISABLED=1` 禁用自动执行安装。plan 仍会返回 adapter metadata 和

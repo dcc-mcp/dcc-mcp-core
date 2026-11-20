@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 use dcc_mcp_catalog::{CatalogEntry, CatalogInstall};
 use dcc_mcp_cli::domain::install::{
-    InstallPlanError, InstallPlanner, InstallRequest, InstallStepAction,
+    InstallPlanError, InstallPlanner, InstallRequest, InstallStepAction, python::PythonSource,
 };
 
 fn catalog_entry(name: &str, dcc: &[&str], install: Option<CatalogInstall>) -> CatalogEntry {
@@ -585,6 +585,47 @@ fn planner_prefers_requested_python_for_pip_install() {
         }
         other => panic!("expected PipInstall action, got {other:?}"),
     }
+}
+
+#[test]
+fn planner_keeps_generic_pip_adapters_planable_without_a_host_interpreter() {
+    let install = CatalogInstall {
+        install_type: "pip".into(),
+        url: Some(
+            "https://files.pythonhosted.org/packages/example/dcc_mcp_obs-0.3.0-py3-none-any.whl"
+                .into(),
+        ),
+        ref_: None,
+        sha256: Some("a".repeat(64)),
+        skill_roots: None,
+        pip_package: Some("dcc-mcp-obs".into()),
+        pip_extras: None,
+        python_path: None,
+        entry_point: None,
+        instructions_url: None,
+        adobe: None,
+        sop_version: None,
+        sop_schema_digest: None,
+    };
+    let plan = InstallPlanner::plan(
+        &[catalog_entry("dcc-mcp-obs", &["obs"], Some(install))],
+        InstallRequest {
+            dcc_type: "obs".into(),
+            version: None,
+            catalog_path: None,
+            python: None,
+            dcc_path: None,
+            plugin_source: None,
+            adobe_debug_root: None,
+        },
+    )
+    .unwrap();
+
+    assert_eq!(plan.python_source, Some(PythonSource::NotRequired));
+    assert!(matches!(
+        plan.steps[0].action,
+        Some(InstallStepAction::PipInstall { python: None, .. })
+    ));
 }
 
 #[test]
