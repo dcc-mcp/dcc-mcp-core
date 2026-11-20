@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 
 use crate::application::control_plane::DccControlPlane;
 use crate::application::instance_selection::{instance_field, select_instances};
-use crate::domain::capabilities::CapabilitiesRequest;
+use crate::domain::capabilities::{CapabilitiesRequest, HOST_CAPABILITIES_TOOL};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CapabilitiesCommand {
@@ -57,18 +57,91 @@ impl CapabilitiesCommand {
             force_refresh: self.force_refresh,
             invalidate: self.invalidate,
         };
-        let result = control
+        let arguments = request.arguments();
+        let canonical_tool = request.backend_tool();
+        let result = match control
             .call(
-                request.backend_tool().to_string(),
+                canonical_tool.to_string(),
                 Some(request.dcc_type.clone()),
                 Some(request.instance_id.clone()),
-                request.arguments(),
+                arguments.clone(),
                 self.meta.clone(),
                 timeout,
             )
-            .await?;
-        Ok(attach_target(&result, &target, request.backend_tool()))
+            .await
+        {
+            Ok(result) if missing_capability_tool_response(&result) => {
+                let legacy_result = control
+                    .call(
+                        HOST_CAPABILITIES_TOOL.to_string(),
+                        Some(request.dcc_type.clone()),
+                        Some(request.instance_id.clone()),
+                        arguments,
+                        self.meta.clone(),
+                        timeout,
+                    )
+                    .await?;
+                return Ok(attach_target(
+                    &legacy_result,
+                    &target,
+                    HOST_CAPABILITIES_TOOL,
+                ));
+            }
+            Ok(result) => result,
+            Err(error) if missing_capability_tool_error(&error) => {
+                let legacy_result = control
+                    .call(
+                        HOST_CAPABILITIES_TOOL.to_string(),
+                        Some(request.dcc_type.clone()),
+                        Some(request.instance_id.clone()),
+                        arguments,
+                        self.meta.clone(),
+                        timeout,
+                    )
+                    .await?;
+                return Ok(attach_target(
+                    &legacy_result,
+                    &target,
+                    HOST_CAPABILITIES_TOOL,
+                ));
+            }
+            Err(error) => return Err(error),
+        };
+        Ok(attach_target(&result, &target, canonical_tool))
     }
+}
+
+fn missing_capability_tool_response(result: &Value) -> bool {
+    if result.get("success").and_then(Value::as_bool) != Some(false) {
+        return false;
+    }
+    let text = result.to_string().to_ascii_lowercase();
+    [
+        "tool_not_found",
+        "tool not found",
+        "unknown_tool",
+        "unknown tool",
+        "method_not_found",
+        "method not found",
+        "-32601",
+    ]
+    .iter()
+    .any(|marker| text.contains(marker))
+}
+
+fn missing_capability_tool_error(error: &anyhow::Error) -> bool {
+    let text = error.to_string().to_ascii_lowercase();
+    [
+        "tool_not_found",
+        "tool not found",
+        "unknown_tool",
+        "unknown tool",
+        "method_not_found",
+        "method not found",
+        "-32601",
+    ]
+    .iter()
+    .any(|marker| text.contains(marker))
 }
 
 fn normalize_keys(keys: Vec<String>) -> Vec<String> {

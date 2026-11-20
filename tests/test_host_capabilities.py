@@ -801,6 +801,22 @@ def test_cache_merge_preserves_existing_record_ttl():
     cached = cache.get(key)
     assert cached is not None
     assert [record["key"] for record in cached["capabilities"]] == ["render.cryptomatte"]
+    summary = summarize_host_capabilities(cached)
+    assert summary["totals"] == {"available": 1, "declared": 0, "unavailable": 0, "not_run": 0}
+
+
+def test_cache_refresh_after_expiry_gets_a_new_record_timestamp():
+    now = [100.0]
+    cache = HostCapabilityCache(ttl_secs=10, clock=lambda: now[0])
+    key = HostCapabilityCache.cache_key("houdini", "20.5", "0.1.6")
+    payload = _manifest([_capability(key="render.lpe")])
+    cache.put(key, payload)
+
+    now[0] = 111.0
+    version, cached = cache.snapshot(key)
+    assert cached is None
+    assert cache.put_if_version(key, payload, version, preserve_existing=True) is True
+    assert cache.get(key) is payload
 
 
 class _GetActionRegistry(_Registry):

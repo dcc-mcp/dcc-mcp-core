@@ -673,13 +673,18 @@ class HostCapabilityCache:
         record_stored_at: dict[str, float] = {}
         for record in payload.get("capabilities", []):
             record_key = record.get("key")
+            previous_stored_at = previous.record_stored_at.get(record_key) if previous is not None else None
+            previous_is_fresh = previous_stored_at is not None and (
+                not self._ttl or now - previous_stored_at <= self._ttl
+            )
             if (
                 preserve_existing
                 and previous is not None
                 and record_key in previous_by_key
                 and previous_by_key[record_key] == record
+                and previous_is_fresh
             ):
-                record_stored_at[record_key] = previous.record_stored_at.get(record_key, now)
+                record_stored_at[record_key] = previous_stored_at
             else:
                 record_stored_at[record_key] = now
         if not record_stored_at:

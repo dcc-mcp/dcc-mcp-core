@@ -15,6 +15,22 @@ use crate::domain::capabilities::DESCRIBE_CAPABILITIES_TOOL;
 use crate::domain::rest::Endpoint;
 use crate::presentation::cli::capabilities_output::render_human;
 
+#[test]
+fn legacy_capability_tool_fallback_only_matches_missing_tool_errors() {
+    assert!(super::missing_capability_tool_response(&json!({
+        "success": false,
+        "error": "tool_not_found"
+    })));
+    assert!(!super::missing_capability_tool_response(&json!({
+        "success": false,
+        "error": "host_capability_provider_failed"
+    })));
+    assert!(!super::missing_capability_tool_response(&json!({
+        "success": true,
+        "error": "tool_not_found"
+    })));
+}
+
 fn summary() -> Value {
     json!({
         "slug": "dcc_host_capabilities",
