@@ -188,6 +188,10 @@ pub enum InstallPlanError {
         required: String,
         current: String,
     },
+    #[error("catalog entry '{name}' has invalid core_requirement '{required}'")]
+    InvalidCoreRequirement { name: String, required: String },
+    #[error("catalog entry '{name}' declares core_requirement but install type is not pip")]
+    CoreRequirementRequiresPip { name: String },
     #[error("'{path}' is not a usable pip interpreter; specify --python with a Python executable")]
     InvalidPythonExecutable { path: String },
     #[error(

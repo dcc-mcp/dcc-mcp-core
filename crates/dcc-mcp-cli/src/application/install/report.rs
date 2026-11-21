@@ -228,7 +228,13 @@ pub(super) fn stable_step_id(action: &InstallStepAction) -> String {
     .into()
 }
 
-pub(super) fn action_failure(action: &InstallStepAction) -> (&'static str, i32, &'static str) {
+pub(super) fn action_failure(
+    action: &InstallStepAction,
+    error: &super::InstallError,
+) -> (&'static str, i32, &'static str) {
+    if matches!(error, super::InstallError::CoreRequirementFailed { .. }) {
+        return ("verify", 40, "ADAPTER_CORE_INCOMPATIBLE");
+    }
     match action {
         InstallStepAction::GitClone { .. } | InstallStepAction::ZipExtract { .. } => {
             ("acquire", 20, "ACQUIRE_STEP_FAILED")

@@ -198,6 +198,72 @@ fn core_bounds_grade_the_target_version_without_guessing_unknown_versions() {
 }
 
 #[test]
+fn catalog_core_requirement_uses_the_target_probe_version() {
+    let requirement = "dcc-mcp-core>=0.20.24,<0.21.0";
+    for (running, verdict) in [
+        ("0.20.48", RuntimeVerdict::Supported),
+        ("0.20.0", RuntimeVerdict::CoreOlderThanDeclared),
+        ("0.21.0", RuntimeVerdict::CoreNewerThanDeclared),
+    ] {
+        let report = json!({
+            "imported": true,
+            "core_version": running,
+            "core_version_source": "imported_module",
+        });
+        let core = core_compatibility_for_requirement(report.as_object().unwrap(), requirement);
+        assert_eq!(core.verdict, verdict);
+    }
+
+    let no_version = json!({
+        "imported": true,
+        "core_version": null,
+        "core_version_source": "imported_module",
+    });
+    let core = core_compatibility_for_requirement(no_version.as_object().unwrap(), requirement);
+    assert_eq!(core.verdict, RuntimeVerdict::UnknownCoreVersion);
+
+    let unimportable = json!({
+        "imported": false,
+        "dist_version": "1.0.0",
+    });
+    assert_eq!(
+        grade(unimportable.as_object().unwrap(), None),
+        AdapterImportStatus::Unimportable
+    );
+}
+
+#[test]
+fn catalog_core_requirement_does_not_trust_distribution_metadata() {
+    let report = json!({
+        "imported": true,
+        "core_version": "0.20.48",
+        "core_version_source": "importlib.metadata",
+    });
+    let core = core_compatibility_for_requirement(
+        report.as_object().unwrap(),
+        "dcc-mcp-core>=0.20.24,<0.21.0",
+    );
+    assert_eq!(core.verdict, RuntimeVerdict::UnknownCoreVersion);
+}
+
+#[test]
+fn probe_grade_rejects_unverified_core_source() {
+    let report = json!({
+        "imported": true,
+        "dist_version": "1.0.0",
+        "module_version": "1.0.0",
+        "core_requirement": "dcc-mcp-core>=0.20.24,<0.21.0",
+        "core_version": "0.20.48",
+        "core_version_source": "importlib.metadata",
+    });
+    let core = core_compatibility(report.as_object().unwrap());
+    assert_eq!(
+        grade(report.as_object().unwrap(), core.as_ref()),
+        AdapterImportStatus::IncompatibleCore
+    );
+}
+
+#[test]
 fn interpreter_probe_uses_imported_core_and_actual_distribution_requirement() {
     let dir = tempfile::tempdir().unwrap();
     for (name, text) in [
