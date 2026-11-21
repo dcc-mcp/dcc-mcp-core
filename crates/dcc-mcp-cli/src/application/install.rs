@@ -864,6 +864,18 @@ fn verify_target_core_requirement(
     let report = probe
         .as_object()
         .expect("adapter import probe is a JSON object");
+    if report.get("status").and_then(serde_json::Value::as_str) != Some("ok") {
+        let status = report
+            .get("status")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("unavailable");
+        return Err(InstallError::StepFailed {
+            step: "verify".into(),
+            message: format!(
+                "target adapter/Core probe is not healthy while verifying Core requirement '{requirement}' ({status})"
+            ),
+        });
+    }
     let core = core_compatibility_for_requirement(report, requirement);
     if !core.is_ok() {
         return Err(InstallError::CoreRequirementFailed {

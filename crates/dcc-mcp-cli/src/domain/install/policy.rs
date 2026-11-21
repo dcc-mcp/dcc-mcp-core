@@ -38,6 +38,16 @@ pub(crate) fn validate(entry: &CatalogEntry) -> Result<(), InstallPlanError> {
         }
     }
     validate_core_requirement(entry)?;
+    if entry.core_requirement.is_some()
+        && entry
+            .install
+            .as_ref()
+            .is_some_and(|install| install.install_type != "pip")
+    {
+        return Err(InstallPlanError::CoreRequirementRequiresPip {
+            name: entry.name.clone(),
+        });
+    }
     Ok(())
 }
 
@@ -137,6 +147,33 @@ mod tests {
             assert!(validate(&adapter).is_ok());
             adapter.policy = None;
         }
+    }
+
+    #[test]
+    fn core_requirement_requires_pip_install_type() {
+        let mut adapter = entry("blender");
+        adapter.core_requirement = Some(">=0.20.0,<0.21.0".into());
+        adapter.install = Some(dcc_mcp_catalog::CatalogInstall {
+            install_type: "git".into(),
+            url: Some("https://github.com/dcc-mcp/example".into()),
+            ref_: Some("0123456789012345678901234567890123456789".into()),
+            sha256: None,
+            skill_roots: None,
+            pip_package: None,
+            pip_extras: None,
+            python_path: None,
+            entry_point: None,
+            instructions_url: None,
+            sop_version: None,
+            sop_schema_digest: None,
+            adobe: None,
+        });
+        assert_eq!(
+            validate(&adapter),
+            Err(InstallPlanError::CoreRequirementRequiresPip {
+                name: adapter.name.clone(),
+            })
+        );
     }
 
     #[test]
