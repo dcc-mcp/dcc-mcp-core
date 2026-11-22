@@ -338,12 +338,18 @@ fn is_blender_version_dir(name: &str) -> bool {
 
 fn is_blender_python_name(name: &str) -> bool {
     let lower = name.to_ascii_lowercase();
-    lower.starts_with("python")
-        && !lower.contains("config")
-        && !lower.contains("idle")
-        && !lower.ends_with(".dll")
-        && !lower.ends_with(".pdb")
-        && !lower.ends_with(".py")
+    #[cfg(windows)]
+    let Some(lower) = lower.strip_suffix(".exe") else {
+        return false;
+    };
+    let Some(version) = lower.strip_prefix("python") else {
+        return false;
+    };
+    version.is_empty()
+        || version
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || byte == b'.')
+            && version.bytes().any(|byte| byte.is_ascii_digit())
 }
 
 fn is_usable_interpreter(path: &Path) -> bool {
