@@ -135,21 +135,18 @@ pub(crate) fn resolve_python(
     let host_key = normalized_host_family(dcc_type);
     let mut discovered = None;
     for candidate in host_candidates {
-        let Some(hint) = is_gui_executable(&candidate.path) else {
+        let executable_path = normalize_host_executable(&candidate.path, &host_key);
+        let Some(hint) = is_gui_executable(&executable_path) else {
             continue;
         };
         // Commandlet/GUI replacements are not generic `python -m pip` interpreters.
         if hint.dcc_kind != host_key || !is_supported_host_family(&host_key) {
             continue;
         }
-        if candidate.explicit && !candidate.path.is_file() {
+        if candidate.explicit && !executable_path.is_file() {
             return Err(PythonResolutionError::GuiExecutable(hint));
         }
-        let Some(python) = hint
-            .recommended_replacement
-            .as_ref()
-            .and_then(|path| discovered_interpreter_path(path))
-        else {
+        let Some(python) = discover_host_interpreter(&executable_path, &hint)? else {
             if candidate.explicit {
                 return Err(PythonResolutionError::GuiExecutable(hint));
             }
@@ -181,6 +178,21 @@ pub(crate) fn resolve_python(
     Err(PythonResolutionError::MissingHostedInterpreter)
 }
 
+fn normalize_host_executable(path: &Path, host_key: &str) -> PathBuf {
+    if host_key != "blender" || !path.is_dir() {
+        return path.to_path_buf();
+    }
+
+    [
+        path.join("Contents").join("MacOS").join("Blender"),
+        path.join("blender.exe"),
+        path.join("blender"),
+    ]
+    .into_iter()
+    .find(|candidate| candidate.is_file())
+    .unwrap_or_else(|| path.to_path_buf())
+}
+
 /// Normalize a DCC type to the GUI detector's family names.
 fn normalized_host_family(dcc_type: &str) -> String {
     match dcc_type.to_ascii_lowercase().as_str() {
@@ -191,7 +203,7 @@ fn normalized_host_family(dcc_type: &str) -> String {
 }
 
 fn is_supported_host_family(dcc_type: &str) -> bool {
-    matches!(dcc_type, "maya" | "houdini")
+    matches!(dcc_type, "maya" | "houdini" | "blender")
 }
 
 /// Return whether a pip install must resolve an interpreter before planning.
@@ -217,6 +229,121 @@ fn discovered_interpreter_path(path: &Path) -> Option<String> {
         })
     };
     absolute.to_str().map(str::to_owned)
+}
+
+fn discover_host_interpreter(
+    path: &Path,
+    hint: &GuiExecutableHint,
+) -> Result<Option<String>, PythonResolutionError> {
+    if let Some(replacement) = hint.recommended_replacement.as_ref() {
+        return Ok(discovered_interpreter_path(replacement));
+    }
+
+    if hint.dcc_kind != "blender" {
+        return Ok(None);
+    }
+
+    let mut locations = vec![path.to_path_buf()];
+    if let Ok(canonical) = path.canonicalize() {
+        if canonical != *path {
+            locations.push(canonical);
+        }
+    }
+
+    let mut roots = Vec::new();
+    for location in locations {
+        let Some(parent) = location.parent() else {
+            continue;
+        };
+        roots.push(parent.to_path_buf());
+        let is_macos_bundle = parent
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.eq_ignore_ascii_case("macos"));
+        if is_macos_bundle {
+            if let Some(contents) = parent.parent() {
+                roots.push(contents.join("Resources"));
+            }
+        }
+    }
+
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    for root in roots {
+        for candidate in blender_python_candidates(&root) {
+            if !candidates
+                .iter()
+                .any(|existing| same_interpreter_path(existing, &candidate))
+            {
+                candidates.push(candidate);
+            }
+        }
+    }
+    candidates.sort();
+
+    match candidates.as_slice() {
+        [] => Ok(None),
+        [candidate] => Ok(discovered_interpreter_path(candidate)),
+        _ => Err(PythonResolutionError::AmbiguousHostedInterpreters { paths: candidates }),
+    }
+}
+
+fn blender_python_candidates(root: &Path) -> Vec<PathBuf> {
+    let mut python_bins = vec![root.join("python").join("bin")];
+    let mut versioned_bins = std::fs::read_dir(root)
+        .ok()
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+        .filter_map(|entry| {
+            let name = entry.file_name();
+            is_blender_version_dir(name.to_str()?).then(|| entry.path().join("python").join("bin"))
+        })
+        .collect::<Vec<_>>();
+    versioned_bins.sort();
+    python_bins.extend(versioned_bins);
+
+    python_bins
+        .into_iter()
+        .flat_map(|bin| {
+            std::fs::read_dir(bin)
+                .ok()
+                .into_iter()
+                .flatten()
+                .flatten()
+                .map(|entry| entry.path())
+                .filter(|candidate| {
+                    is_usable_interpreter(candidate)
+                        && candidate
+                            .file_name()
+                            .and_then(|name| name.to_str())
+                            .is_some_and(is_blender_python_name)
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+fn is_blender_version_dir(name: &str) -> bool {
+    let mut components = name.split('.');
+    let Some(first) = components.next() else {
+        return false;
+    };
+    !first.is_empty()
+        && first.bytes().all(|byte| byte.is_ascii_digit())
+        && components.all(|component| {
+            !component.is_empty() && component.bytes().all(|byte| byte.is_ascii_digit())
+        })
+}
+
+fn is_blender_python_name(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    lower.starts_with("python")
+        && !lower.contains("config")
+        && !lower.contains("idle")
+        && !lower.ends_with(".dll")
+        && !lower.ends_with(".pdb")
+        && !lower.ends_with(".py")
 }
 
 fn is_usable_interpreter(path: &Path) -> bool {

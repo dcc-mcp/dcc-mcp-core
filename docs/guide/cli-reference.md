@@ -632,7 +632,11 @@ overrides are omitted, automatic selection requires an unambiguous selected
 host. A catalog `python_path` is considered after these overrides and before
 host discovery.
 Maya and Houdini plans can discover an existing adjacent `mayapy` or `hython`.
-Multiple discovered installations require `--dcc-path` or `--python`, and a
+Blender plans discover an executable under the selected host's
+versioned runtime directory, such as `4.3/python/bin/python3.11`, or under
+the macOS app bundle's `Contents/Resources` directory. Multiple runtimes
+require `--python` to select one explicitly. Multiple discovered installations
+of a host require `--dcc-path` or `--python`, and a
 missing hosted interpreter fails preflight. The JSON plan records the selected
 source in `python_source`. Pass
 `--execute` to prompt for consent and run executable package-install steps.

@@ -334,14 +334,16 @@ satisfies the catalog's bounded `core_requirement` when present, or
 Implementation progress (partial): pip plans honor an explicit Python selection
 (including `DCC_MCP_INSTALL_PYTHON`) and catalog `python_path` before discovery.
 The planner reuses Core's read-only host detector and GUI/sibling detector to
-find Maya/Houdini installations and select an existing mayapy/hython file, then
-records the selected source in `python_source` and the pip action's `python`
-field. A recognized host with no usable embedded interpreter, or a configured
-Python value naming a known GUI binary, fails preflight before execution. No
-executable is launched to build this plan. This does not discover all installed
-host versions, resolve app bundles, record interpreter versions, or verify target
-imports/readiness. Other hosts keep their current policy; #2252 remains open for
-the complete contract above.
+find Maya/Houdini installations and select an existing mayapy/hython file, or
+find Blender's bundled Python under a flat or versioned `python/bin` directory,
+then records the selected
+source in `python_source` and the pip action's `python` field. A recognized
+host with no usable embedded interpreter, or a configured Python value naming a
+known GUI binary, fails preflight before execution. No executable is launched to
+build this plan. This does not discover all installed host versions, resolve app
+bundles, record interpreter versions, or verify target imports/readiness. Other
+hosts keep their current policy; #2252 remains open for the complete contract
+above.
 
 The Core verify path now derives the bounded runtime requirement from
 `min_core_version` when `core_requirement` is absent and checks the Core module
