@@ -35,6 +35,8 @@ pub struct InstallPlan {
     pub dcc_path: Option<PathBuf>,
     pub adapter: CatalogEntry,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub probe_tool: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub catalog: Option<crate::domain::install_catalog::CatalogProvenance>,
     pub steps: Vec<InstallStep>,
     #[serde(default)]
@@ -160,6 +162,9 @@ pub enum InstallStepAction {
         /// Optional Python entry point for the adapter.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         entry_point: Option<String>,
+        /// Optional read-only MCP tool used for post-install readiness checks.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        probe_tool: Option<String>,
         /// Optional user-provided DCC executable/application path.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         dcc_path: Option<PathBuf>,
@@ -441,6 +446,7 @@ impl InstallPlanner {
         };
 
         let next_steps = Self::build_next_steps(&adapter, &dcc_type, dcc_path.as_deref());
+        let probe_tool = install_probe_tool(&adapter);
 
         Ok(InstallPlan {
             next_steps,
@@ -448,6 +454,7 @@ impl InstallPlanner {
             version,
             dcc_path,
             adapter,
+            probe_tool,
             catalog: None,
             steps,
             install_policy: InstallPolicy::enabled(),
@@ -548,6 +555,7 @@ impl InstallPlanner {
             action: Some(InstallStepAction::RegisterDcc {
                 dcc_type: dcc_type.to_string(),
                 entry_point: install.entry_point.clone(),
+                probe_tool: install_probe_tool(entry),
                 dcc_path,
             }),
         });
@@ -654,6 +662,11 @@ impl InstallPlanner {
         dcc_path: Option<&std::path::Path>,
     ) -> Vec<InstallNextStep> {
         let mut steps = Vec::new();
+        let probe_tool = entry
+            .install
+            .as_ref()
+            .and_then(|install| install.probe_tool.as_deref())
+            .filter(|value| !value.trim().is_empty());
 
         if let Some(url) = install_instructions_url(entry) {
             steps.push(InstallNextStep {
@@ -697,9 +710,14 @@ impl InstallPlanner {
             },
             InstallNextStep {
                 name: "wait-ready".into(),
-                description: format!(
-                    "Wait until the {dcc_type} adapter reports readiness before issuing tool calls."
-                ),
+                description: match probe_tool {
+                    Some(probe_tool) => format!(
+                        "Wait until the {dcc_type} adapter reports readiness, then call the read-only probe tool '{probe_tool}' before issuing other tool calls."
+                    ),
+                    None => format!(
+                        "Wait until the {dcc_type} adapter reports readiness before issuing tool calls."
+                    ),
+                },
                 url: None,
                 command: Some(command_with_dcc(
                     ["dcc-mcp-cli", "wait-ready", "--dcc-type"],
@@ -806,6 +824,14 @@ fn command_with_dcc<const P: usize, const S: usize>(
         .chain(suffix)
         .map(str::to_string)
         .collect()
+}
+
+fn install_probe_tool(entry: &CatalogEntry) -> Option<String> {
+    entry
+        .install
+        .as_ref()
+        .and_then(|install| install.probe_tool.clone())
+        .filter(|value| !value.trim().is_empty())
 }
 
 fn install_instructions_url(entry: &CatalogEntry) -> Option<String> {

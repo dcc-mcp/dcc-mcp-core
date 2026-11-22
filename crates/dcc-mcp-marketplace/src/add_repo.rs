@@ -302,6 +302,7 @@ pub fn install_from_repo_at_commit(
         pip_extras: None,
         python_path: None,
         entry_point: None,
+        probe_tool: None,
         instructions_url: None,
         adobe: None,
         sop_version: None,

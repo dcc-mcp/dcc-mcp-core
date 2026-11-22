@@ -163,6 +163,7 @@ mod tests {
             pip_extras: None,
             python_path: None,
             entry_point: None,
+            probe_tool: None,
             instructions_url: None,
             sop_version: None,
             sop_schema_digest: None,

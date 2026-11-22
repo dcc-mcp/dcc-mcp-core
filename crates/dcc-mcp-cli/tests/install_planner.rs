@@ -127,6 +127,7 @@ fn planner_generates_executable_steps_for_pip_install() {
         pip_extras: Some(vec!["maya".into()]),
         python_path: Some("/usr/bin/mayapy".into()),
         entry_point: Some("dcc_mcp_maya.cli:main".into()),
+        probe_tool: Some("maya_diagnostics__ping".into()),
         instructions_url: None,
         adobe: None,
         sop_version: None,
@@ -177,9 +178,20 @@ fn planner_generates_executable_steps_for_pip_install() {
 
     assert_eq!(plan.steps[1].name, "register-dcc");
     assert!(matches!(
-        plan.steps[1].action,
-        Some(InstallStepAction::RegisterDcc { .. })
+        &plan.steps[1].action,
+        Some(InstallStepAction::RegisterDcc {
+            probe_tool: Some(tool),
+            ..
+        }) if tool == "maya_diagnostics__ping"
     ));
+
+    assert_eq!(plan.probe_tool.as_deref(), Some("maya_diagnostics__ping"));
+    let wait_ready = plan
+        .next_steps
+        .iter()
+        .find(|step| step.name == "wait-ready")
+        .expect("wait-ready next step");
+    assert!(wait_ready.description.contains("maya_diagnostics__ping"));
 
     assert_eq!(plan.steps[2].name, "verify");
     assert!(
@@ -191,6 +203,57 @@ fn planner_generates_executable_steps_for_pip_install() {
         plan.steps[2].action,
         Some(InstallStepAction::Verify)
     ));
+}
+
+#[test]
+fn planner_omits_blank_probe_tool_metadata() {
+    let install = CatalogInstall {
+        install_type: "pip".into(),
+        url: Some(
+            "https://files.pythonhosted.org/packages/example/dcc_mcp_maya-0.3.0-py3-none-any.whl"
+                .into(),
+        ),
+        ref_: None,
+        sha256: Some("a".repeat(64)),
+        skill_roots: None,
+        pip_package: Some("dcc-mcp-maya".into()),
+        pip_extras: None,
+        python_path: Some("/usr/bin/mayapy".into()),
+        entry_point: None,
+        probe_tool: Some("  \t".into()),
+        instructions_url: None,
+        adobe: None,
+        sop_version: None,
+        sop_schema_digest: None,
+    };
+    let plan = InstallPlanner::plan(
+        &[catalog_entry("dcc-mcp-maya", &["maya"], Some(install))],
+        InstallRequest {
+            dcc_type: "maya".into(),
+            version: None,
+            catalog_path: None,
+            python: None,
+            dcc_path: None,
+            plugin_source: None,
+            adobe_debug_root: None,
+        },
+    )
+    .unwrap();
+
+    assert_eq!(plan.probe_tool, None);
+    assert!(matches!(
+        &plan.steps[1].action,
+        Some(InstallStepAction::RegisterDcc {
+            probe_tool: None,
+            ..
+        })
+    ));
+    let wait_ready = plan
+        .next_steps
+        .iter()
+        .find(|step| step.name == "wait-ready")
+        .expect("wait-ready next step");
+    assert!(!wait_ready.description.contains("probe tool"));
 }
 
 #[test]
@@ -322,6 +385,7 @@ fn planner_prefers_catalog_install_instructions_url() {
         pip_extras: None,
         python_path: None,
         entry_point: None,
+        probe_tool: None,
         instructions_url: Some("https://example.com/custom-install.md".into()),
         adobe: None,
         sop_version: None,
@@ -361,6 +425,7 @@ fn planner_generates_executable_steps_for_git_install() {
         pip_extras: None,
         python_path: None,
         entry_point: None,
+        probe_tool: None,
         instructions_url: None,
         adobe: None,
         sop_version: None,
@@ -405,6 +470,7 @@ fn planner_rejects_mutable_git_and_unverified_zip_installs() {
         pip_extras: None,
         python_path: None,
         entry_point: None,
+        probe_tool: None,
         instructions_url: None,
         adobe: None,
         sop_version: None,
@@ -466,6 +532,7 @@ fn planner_rejects_unpinned_pip_artifacts_and_version_overrides() {
         pip_extras: None,
         python_path: None,
         entry_point: None,
+        probe_tool: None,
         instructions_url: None,
         adobe: None,
         sop_version: None,
@@ -560,6 +627,7 @@ fn planner_prefers_requested_python_for_pip_install() {
         pip_extras: None,
         python_path: Some("/catalog/mayapy".into()),
         entry_point: None,
+        probe_tool: None,
         instructions_url: None,
         adobe: None,
         sop_version: None,
@@ -603,6 +671,7 @@ fn planner_keeps_generic_pip_adapters_planable_without_a_host_interpreter() {
         pip_extras: None,
         python_path: None,
         entry_point: None,
+        probe_tool: None,
         instructions_url: None,
         adobe: None,
         sop_version: None,
@@ -645,6 +714,7 @@ fn planner_builds_adobe_debug_link_from_operator_paths() {
         pip_extras: None,
         python_path: None,
         entry_point: Some("dcc_mcp_premiere:PremiereMcpServer".into()),
+        probe_tool: None,
         instructions_url: None,
         adobe: Some(dcc_mcp_catalog::CatalogAdobeInstall {
             product: "premierepro".into(),
@@ -707,6 +777,7 @@ fn planner_prefers_adapter_entry_over_skill_pack() {
         pip_extras: None,
         python_path: None,
         entry_point: Some("dcc_mcp_photoshop.cli:main".into()),
+        probe_tool: None,
         instructions_url: None,
         adobe: None,
         sop_version: None,
