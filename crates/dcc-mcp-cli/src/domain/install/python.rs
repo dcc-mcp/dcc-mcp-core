@@ -245,9 +245,7 @@ fn discover_host_interpreter(
 
     let mut locations = vec![path.to_path_buf()];
     if let Ok(canonical) = path.canonicalize() {
-        if canonical != *path {
-            locations.push(canonical);
-        }
+        locations.extend((canonical != *path).then_some(canonical));
     }
 
     let mut roots = Vec::new();
@@ -261,9 +259,7 @@ fn discover_host_interpreter(
             .and_then(|name| name.to_str())
             .is_some_and(|name| name.eq_ignore_ascii_case("macos"));
         if is_macos_bundle {
-            if let Some(contents) = parent.parent() {
-                roots.push(contents.join("Resources"));
-            }
+            roots.extend(parent.parent().map(|contents| contents.join("Resources")));
         }
     }
 
