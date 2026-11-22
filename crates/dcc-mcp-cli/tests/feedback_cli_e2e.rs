@@ -140,6 +140,11 @@ fn feedback_route_resolves_adapter_issue_tracker_without_a_gateway() {
         .unwrap(),
     )
     .unwrap();
+    std::fs::write(
+        temp.path().join("dcc-mcp-catalog.yml"),
+        include_str!("../../../dcc-mcp-catalog.yml"),
+    )
+    .unwrap();
     let finding_arg = finding_path.to_string_lossy().into_owned();
 
     let output = cli_command()
@@ -153,6 +158,10 @@ fn feedback_route_resolves_adapter_issue_tracker_without_a_gateway() {
         output.status.success(),
         "stderr: {}",
         String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("shadows the bundled installation catalog")
     );
     let body: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(body["repo"], "dcc-mcp/dcc-mcp-godot");

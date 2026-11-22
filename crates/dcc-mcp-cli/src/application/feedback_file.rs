@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -265,7 +265,7 @@ impl<'a, T: FeedbackIssueTracker> FeedbackFileService<'a, T> {
                 recommendation.clone(),
                 &dedup,
             )?;
-            return Ok(FeedbackFileResult {
+            let result = FeedbackFileResult {
                 schema_version: FEEDBACK_FILE_SCHEMA_VERSION,
                 authorized: false,
                 status: FeedbackFileStatus::Planned,
@@ -277,7 +277,13 @@ impl<'a, T: FeedbackIssueTracker> FeedbackFileService<'a, T> {
                 next_step,
                 review_options,
                 issue: None,
-            });
+            };
+            if inputs.implicit_cwd_catalog {
+                crate::application::install::warn_if_implicit_cwd_catalog(Path::new(
+                    DEFAULT_CATALOG_PATH,
+                ));
+            }
+            return Ok(result);
         }
 
         let issue = match request
@@ -335,7 +341,7 @@ impl<'a, T: FeedbackIssueTracker> FeedbackFileService<'a, T> {
             Some(FeedbackFileDecision::Existing(_)) => FeedbackFileStatus::Commented,
             None => unreachable!("authorized requests require a filing decision"),
         };
-        Ok(FeedbackFileResult {
+        let result = FeedbackFileResult {
             schema_version: FEEDBACK_FILE_SCHEMA_VERSION,
             authorized: true,
             preview: None,
@@ -347,7 +353,13 @@ impl<'a, T: FeedbackIssueTracker> FeedbackFileService<'a, T> {
             next_step: None,
             review_options: Vec::new(),
             issue: Some(issue),
-        })
+        };
+        if inputs.implicit_cwd_catalog {
+            crate::application::install::warn_if_implicit_cwd_catalog(Path::new(
+                DEFAULT_CATALOG_PATH,
+            ));
+        }
+        Ok(result)
     }
 
     fn search_exact(
@@ -415,6 +427,7 @@ struct FeedbackFileInputs {
     route: crate::domain::feedback::FeedbackRoute,
     document: crate::domain::feedback_file::FeedbackIssueDocument,
     authorization: FeedbackFileAuthorization,
+    implicit_cwd_catalog: bool,
 }
 
 impl FeedbackFileInputs {
@@ -444,6 +457,7 @@ impl FeedbackFileInputs {
             route: snapshot.route,
             document,
             authorization,
+            implicit_cwd_catalog: snapshot.implicit_cwd_catalog,
         })
     }
 
