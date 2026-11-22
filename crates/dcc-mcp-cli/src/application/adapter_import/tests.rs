@@ -174,6 +174,7 @@ fn core_bounds_grade_the_target_version_without_guessing_unknown_versions() {
         let report = json!({
             "imported": true, "dist_version": "1.0.0", "module_version": "1.0.0",
             "core_requirement": "dcc-mcp-core>=0.20.24,<0.21.0", "core_version": running,
+            "core_version_source": "imported_module",
         });
         let report = report.as_object().unwrap();
         let core = core_compatibility(report).unwrap();
@@ -186,6 +187,7 @@ fn core_bounds_grade_the_target_version_without_guessing_unknown_versions() {
     let prerelease = json!({
         "imported": true, "dist_version": "1.0.0", "module_version": "1.0.0",
         "core_requirement": "dcc-mcp-core>=0.20.24,<0.21.0", "core_version": "0.20.24rc1",
+        "core_version_source": "imported_module",
     });
     let prerelease = prerelease.as_object().unwrap();
     let core = core_compatibility(prerelease).unwrap();

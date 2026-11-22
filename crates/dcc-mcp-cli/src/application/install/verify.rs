@@ -84,12 +84,14 @@ impl InstallService {
                     .expect("adapter import probe is a JSON object"),
                 requirement,
             );
-            report.verify.observed_core_compatibility = Some(json!({
-                "requirement": core.declaration,
-                "running": core.running,
-                "status": core.verdict.as_str(),
-                "declaration_valid": core.bound.is_ok(),
-            }));
+            if probe.get("status").and_then(Value::as_str) != Some("incompatible_core") {
+                report.verify.observed_core_compatibility = Some(json!({
+                    "requirement": core.declaration,
+                    "running": core.running,
+                    "status": core.verdict.as_str(),
+                    "declaration_valid": core.bound.is_ok(),
+                }));
+            }
             core
         });
         let pinned_version = version.as_deref();
