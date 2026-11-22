@@ -207,6 +207,28 @@ gate. The report records the versioned `rotorcraft-v1` baseline, bare-script
 share, behavior assertion pass rate, and every stage result. Adapter repositories
 provide host-specific callbacks and live-DCC setup.
 
+The callback must return a mapping or `StageObservation`. A bare status string
+is rejected. Each call record may include `read_only` and `script` booleans,
+which determine the typed-call and bare-script metrics. A behavior report may
+use assertion counts such as `{"passed": 9, "total": 10}` or a finite numeric
+`{"pass_rate": 0.9}`. Every stage must provide the same evidence format, and a
+counted report must contain at least one assertion. Skipped and degraded stages
+require a non-empty `reason`. Adapter-specific output belongs in the optional
+`adapter_results` mapping.
+
+```python
+def run_stage(stage):
+    return {
+        "status": "pass",
+        "calls": [
+            {"name": "create_asset", "read_only": False, "script": False},
+            {"name": "inspect_asset", "read_only": True, "script": False},
+        ],
+        "behavior_report": {"passed": 9, "total": 10},
+        "adapter_results": {"scene_id": "asset-001"},
+    }
+```
+
 ## Related
 
 - [`dcc-thread-safety.md`](dcc-thread-safety.md) — main-thread

@@ -108,6 +108,29 @@ def test_mixed_behavior_report_formats_fail_closed():
 
     report = run_pipeline_benchmark(execute, bare_script_share_target=1.0)
     assert report.behavior_assertion_pass_rate == 0.0
+    assert report.gate_passed is False
+
+
+def test_missing_behavior_evidence_fails_even_with_zero_target():
+    report = run_pipeline_benchmark(
+        lambda stage: {"status": STAGE_PASS},
+        behavior_assertion_target=0.0,
+        bare_script_share_target=1.0,
+    )
+    assert report.behavior_assertion_evidence_valid is False
+    assert report.gate_passed is False
+
+
+def test_empty_behavior_report_fails_the_stage():
+    report = run_pipeline_benchmark(lambda stage: {"status": STAGE_PASS, "behavior_report": BehaviorReport()})
+    assert all(result.status == "failed" for result in report.stages)
+
+
+def test_non_finite_rate_fails_the_stage():
+    report = run_pipeline_benchmark(
+        lambda stage: {"status": STAGE_PASS, "behavior_report": {"pass_rate": float("nan")}}
+    )
+    assert all(result.status == "failed" for result in report.stages)
 
 
 def test_invalid_behavior_counts_fail_the_stage():

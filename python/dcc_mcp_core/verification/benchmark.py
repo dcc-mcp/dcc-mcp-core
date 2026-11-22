@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 from dataclasses import dataclass
+import math
 from typing import Any
 from typing import Callable
 from typing import Dict
@@ -78,6 +79,8 @@ class StageObservation:
         behavior = value.get("behavior_report")
         if behavior is not None and not isinstance(behavior, (Mapping, BehaviorReport)):
             raise TypeError("behavior_report must be a mapping")
+        if isinstance(behavior, BehaviorReport) and behavior.total <= 0:
+            raise ValueError("behavior assertion reports require at least one check")
         if isinstance(behavior, Mapping) and ("passed" in behavior or "total" in behavior):
             passed = behavior.get("passed")
             total = behavior.get("total")
@@ -185,10 +188,20 @@ class PipelineBenchmarkReport:
         return sum(reports) / len(reports) if reports else 0.0
 
     @property
+    def behavior_assertion_evidence_valid(self) -> bool:
+        """Return whether every stage has one consistent evidence format."""
+        if not self.stages or any(result.behavior_assertion_pass_rate is None for result in self.stages):
+            return False
+        has_counted = any(result.behavior_assertion_total is not None for result in self.stages)
+        has_rate_only = any(result.behavior_assertion_total is None for result in self.stages)
+        return has_counted != has_rate_only
+
+    @property
     def gate_passed(self) -> bool:
         return (
             bool(self.stages)
             and all(result.status == STAGE_PASS for result in self.stages)
+            and self.behavior_assertion_evidence_valid
             and (
                 self.bare_script_share < self.bare_script_share_target
                 and self.behavior_assertion_pass_rate >= self.behavior_assertion_target
@@ -241,7 +254,13 @@ def _behavior_metrics(value: Optional[Any]) -> tuple[Optional[float], Optional[i
     ):
         return max(0.0, min(1.0, passed / float(total))), passed, total
     if isinstance(raw, (int, float)) and not isinstance(raw, bool):
-        return max(0.0, min(1.0, float(raw))), None, None
+        try:
+            raw_float = float(raw)
+        except (OverflowError, ValueError):
+            raise ValueError("behavior assertion pass_rate must be numeric") from None
+        if not math.isfinite(raw_float):
+            raise ValueError("behavior assertion pass_rate must be finite")
+        return max(0.0, min(1.0, raw_float)), None, None
     return None, None, None
 
 
