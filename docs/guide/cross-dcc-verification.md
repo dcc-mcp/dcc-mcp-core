@@ -186,6 +186,49 @@ Return `vertex_count=0` and set an explanatory note in `extra`. Round-
 trip tests that target that DCC should then pass `has_mesh` as the
 only real assertion.
 
+## Pipeline benchmark contract
+
+The core verification package also provides a deterministic seven-stage
+pipeline runner for adapter-owned benchmark callbacks:
+
+```python
+from dcc_mcp_core.verification import run_pipeline_benchmark
+
+report = run_pipeline_benchmark(run_stage)
+if not report.gate_passed:
+    raise RuntimeError(report.to_dict())
+```
+
+The default stages are modeling, rig, animation, texturing, material, render,
+and composite. A callback returns `pass`, `failed`, `skipped`, or `degraded`,
+plus call records and an optional behavior assertion report. Skipped and
+degraded stages remain in the serialized output and always fail the release
+gate. The report records the versioned `rotorcraft-v1` baseline, bare-script
+share, behavior assertion pass rate, and every stage result. Adapter repositories
+provide host-specific callbacks and live-DCC setup.
+
+The callback must return a mapping or `StageObservation`. A bare status string
+is rejected. Each call record may include `read_only` and `script` booleans,
+which determine the typed-call and bare-script metrics. A behavior report may
+use assertion counts such as `{"passed": 9, "total": 10}` or a finite numeric
+`{"pass_rate": 0.9}`. Every stage must provide the same evidence format, and a
+counted report must contain at least one assertion. Skipped and degraded stages
+require a non-empty `reason`. Adapter-specific output belongs in the optional
+`adapter_results` mapping.
+
+```python
+def run_stage(stage):
+    return {
+        "status": "pass",
+        "calls": [
+            {"name": "create_asset", "read_only": False, "script": False},
+            {"name": "inspect_asset", "read_only": True, "script": False},
+        ],
+        "behavior_report": {"passed": 9, "total": 10},
+        "adapter_results": {"scene_id": "asset-001"},
+    }
+```
+
 ## Related
 
 - [`dcc-thread-safety.md`](dcc-thread-safety.md) — main-thread
