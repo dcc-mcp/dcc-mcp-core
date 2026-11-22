@@ -100,6 +100,21 @@ def test_malformed_call_records_fail_the_stage():
     assert all(result.status == "failed" for result in report.stages)
 
 
+def test_non_boolean_call_flags_fail_the_stage():
+    report = run_pipeline_benchmark(
+        lambda stage: {
+            "status": STAGE_PASS,
+            "calls": [{"name": "typed", "read_only": "false"}],
+        }
+    )
+    assert all(result.status == "failed" for result in report.stages)
+
+
+def test_blank_skip_reason_fails_the_stage():
+    report = run_pipeline_benchmark(lambda stage: {"status": STAGE_SKIPPED, "reason": "  \t"})
+    assert all(result.status == "failed" for result in report.stages)
+
+
 def test_mixed_behavior_report_formats_fail_closed():
     def execute(stage):
         if stage.name == "modeling":

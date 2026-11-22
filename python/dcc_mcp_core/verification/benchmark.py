@@ -72,9 +72,13 @@ class StageObservation:
             raise TypeError("stage calls must be a sequence of mappings")
         if any(not isinstance(call, Mapping) for call in raw_calls):
             raise TypeError("each stage call must be a mapping")
+        for call in raw_calls:
+            for field in ("read_only", "script"):
+                if field in call and not isinstance(call[field], bool):
+                    raise TypeError("stage call flags must be booleans")
         calls = tuple(raw_calls)
         reason = value.get("reason")
-        if status in (STAGE_SKIPPED, STAGE_DEGRADED) and not isinstance(reason, str):
+        if status in (STAGE_SKIPPED, STAGE_DEGRADED) and (not isinstance(reason, str) or not reason.strip()):
             raise ValueError("skipped and degraded stages require a reason")
         behavior = value.get("behavior_report")
         if behavior is not None and not isinstance(behavior, (Mapping, BehaviorReport)):
