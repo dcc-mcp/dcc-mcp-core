@@ -3,9 +3,12 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use crate::domain::install_catalog::CatalogSource;
-use dcc_mcp_catalog::CatalogEntry;
+use dcc_mcp_catalog::{CatalogEntry, CoreRuntimeReport};
 use thiserror::Error;
 
+use crate::application::adapter_import::{
+    AdapterImportTarget, core_compatibility_for_requirement, import_module, probe_target,
+};
 use crate::domain::install::{
     InstallPlan, InstallPlanError, InstallPlanner, InstallPolicy, InstallRequest,
     InstallStepAction, normalized_dcc_key,
@@ -49,6 +52,14 @@ pub enum InstallError {
     ConsentDenied,
     #[error("step '{step}' failed: {message}")]
     StepFailed { step: String, message: String },
+    #[error("target Core version '{running}' does not satisfy '{requirement}': {reason}")]
+    CoreRequirementFailed {
+        requirement: String,
+        running: String,
+        verdict: String,
+        declaration_valid: bool,
+        reason: String,
+    },
     #[error("rollback of step '{step}' failed: {message}")]
     RollbackFailed { step: String, message: String },
     #[error("io error: {0}")]
@@ -305,11 +316,27 @@ impl InstallService {
                     report.steps[*step_index].rollback.status = "not_available".into();
                     has_deferred_steps = true;
                 }
-                Err(_) => {
+                Err(error) => {
                     eprintln!("FAILED");
                     report.steps[*step_index].status = "failed".into();
                     report.steps[*step_index].rollback.status = "not_available".into();
-                    let (failure_stage, failure_exit, failure_code) = action_failure(action);
+                    if let InstallError::CoreRequirementFailed {
+                        requirement,
+                        running,
+                        verdict,
+                        declaration_valid,
+                        ..
+                    } = &error
+                    {
+                        report.verify.observed_core_compatibility = Some(serde_json::json!({
+                            "requirement": requirement,
+                            "running": running,
+                            "status": verdict,
+                            "declaration_valid": declaration_valid,
+                        }));
+                    }
+                    let (failure_stage, failure_exit, failure_code) =
+                        action_failure(action, &error);
 
                     let mut rollback_attempted = false;
                     let mut rollback_failures = 0;
@@ -758,6 +785,7 @@ fn execute_verify(plan: &InstallPlan) -> Result<Option<StepRollback>, InstallErr
             message: format!("DCC path does not exist: {}", path.display()),
         });
     }
+    let mut pip_target = None;
     for step in &plan.steps {
         let Some(action) = &step.action else {
             continue;
@@ -771,14 +799,107 @@ fn execute_verify(plan: &InstallPlan) -> Result<Option<StepRollback>, InstallErr
                 version,
                 python,
                 ..
-            } => verify_pip_package(package, version.as_deref(), python.as_deref())?,
+            } => {
+                verify_pip_package(package, version.as_deref(), python.as_deref())?;
+                pip_target = Some((package.clone(), python.clone()));
+            }
             InstallStepAction::AdobePluginLink { dest, manifest, .. } => {
                 adobe::verify_linked_plugin(dest, manifest.as_deref())?
             }
             InstallStepAction::RegisterDcc { .. } | InstallStepAction::Verify => {}
         }
     }
+    if let Some(requirement) = plan.adapter.core_requirement.as_deref() {
+        let Some((package, python)) = pip_target else {
+            return Err(InstallError::StepFailed {
+                step: "verify".into(),
+                message: format!(
+                    "cannot verify Core requirement '{requirement}' without a target Python package"
+                ),
+            });
+        };
+        verify_target_core_requirement(plan, requirement, &package, python.as_deref())?;
+    }
     Ok(None)
+}
+
+fn verify_target_core_requirement(
+    plan: &InstallPlan,
+    requirement: &str,
+    package: &str,
+    python: Option<&str>,
+) -> Result<(), InstallError> {
+    let Some(python) = python.filter(|value| !value.trim().is_empty()) else {
+        return Err(InstallError::StepFailed {
+            step: "verify".into(),
+            message: format!(
+                "no target Python interpreter is available to verify Core requirement '{requirement}'"
+            ),
+        });
+    };
+    let target = AdapterImportTarget {
+        dcc_type: plan.dcc_type.clone(),
+        module: import_module(&plan.adapter, package),
+        distribution: package.to_string(),
+        python: Some(PathBuf::from(python)),
+        python_source: Some("install_plan".into()),
+    };
+    let probe = probe_target(&target);
+    if !probe
+        .get("imported")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+    {
+        let status = probe
+            .get("status")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("unavailable");
+        return Err(InstallError::StepFailed {
+            step: "verify".into(),
+            message: format!(
+                "target adapter import failed while verifying Core requirement '{requirement}' ({status})"
+            ),
+        });
+    }
+    let report = probe
+        .as_object()
+        .expect("adapter import probe is a JSON object");
+    let probe_status = report.get("status").and_then(serde_json::Value::as_str);
+    if probe_status == Some("incompatible_core") {
+        let declared_requirement = report
+            .get("core_requirement")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or(requirement);
+        let core = core_compatibility_for_requirement(report, declared_requirement);
+        return Err(core_requirement_failure(&core));
+    }
+    if probe_status != Some("ok") {
+        let status = report
+            .get("status")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("unavailable");
+        return Err(InstallError::StepFailed {
+            step: "verify".into(),
+            message: format!(
+                "target adapter/Core probe is not healthy while verifying Core requirement '{requirement}' ({status})"
+            ),
+        });
+    }
+    let core = core_compatibility_for_requirement(report, requirement);
+    if !core.is_ok() {
+        return Err(core_requirement_failure(&core));
+    }
+    Ok(())
+}
+
+fn core_requirement_failure(core: &CoreRuntimeReport) -> InstallError {
+    InstallError::CoreRequirementFailed {
+        requirement: core.declaration.clone(),
+        running: core.running.as_deref().unwrap_or("unknown").into(),
+        verdict: core.verdict.as_str().into(),
+        declaration_valid: core.bound.is_ok(),
+        reason: core.bound.message(),
+    }
 }
 
 fn verify_installed_path(path: &Path) -> Result<(), InstallError> {

@@ -2,14 +2,16 @@
 
 use std::path::PathBuf;
 
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use super::InstallService;
 use super::report::{
     InstallExecutionReport, execution_report_for_plan, failed_report, plan_failure_report,
     safe_report_identifier, success_next_steps,
 };
-use crate::application::adapter_import::{AdapterImportTarget, import_module, probe_target};
+use crate::application::adapter_import::{
+    AdapterImportTarget, core_compatibility_for_requirement, import_module, probe_target,
+};
 use crate::domain::install::{InstallRequest, InstallStepAction};
 
 fn observed_version(value: &Value) -> Option<String> {
@@ -75,6 +77,23 @@ impl InstallService {
         {
             report.verify.observed_core_compatibility = Some(probe["core_compatibility"].clone());
         }
+        let catalog_core = plan.adapter.core_requirement.as_deref().map(|requirement| {
+            let core = core_compatibility_for_requirement(
+                probe
+                    .as_object()
+                    .expect("adapter import probe is a JSON object"),
+                requirement,
+            );
+            if probe.get("status").and_then(Value::as_str) != Some("incompatible_core") {
+                report.verify.observed_core_compatibility = Some(json!({
+                    "requirement": core.declaration,
+                    "running": core.running,
+                    "status": core.verdict.as_str(),
+                    "declaration_valid": core.bound.is_ok(),
+                }));
+            }
+            core
+        });
         let pinned_version = version.as_deref();
         let code = if probe["status"] == "version_mismatch" {
             Some("ADAPTER_VERSION_MISMATCH")
@@ -86,6 +105,8 @@ impl InstallService {
             Some("ADAPTER_IMPORT_FAILED")
         } else if pinned_version.is_none_or(|expected| probe["dist_version"] != expected) {
             Some("ADAPTER_VERSION_MISMATCH")
+        } else if catalog_core.is_some_and(|core| !core.is_ok()) {
+            Some("ADAPTER_CORE_INCOMPATIBLE")
         } else {
             None
         };

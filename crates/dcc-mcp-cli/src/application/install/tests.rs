@@ -505,6 +505,49 @@ fn execution_report_mid_failure_rolls_back_completed_steps_in_reverse() {
 }
 
 #[test]
+fn execution_report_preserves_core_compatibility_failure_details() {
+    let service = InstallService::new(PathBuf::from("__unused__.yml"));
+    let plan = verify_plan(InstallStepAction::PathCopy {
+        source: PathBuf::from("source"),
+        dest: PathBuf::from("dest"),
+    });
+
+    let report = service.execute_plan_with(
+        &plan,
+        true,
+        |action, _plan| {
+            if matches!(action, InstallStepAction::Verify) {
+                return Err(InstallError::CoreRequirementFailed {
+                    requirement: ">=0.20.0,<0.21.0".into(),
+                    running: "0.21.0".into(),
+                    verdict: "core_newer_than_declared".into(),
+                    declaration_valid: true,
+                    reason: "ok".into(),
+                });
+            }
+            Ok(StepExecution::Completed(None))
+        },
+        |_rollback| Ok(()),
+    );
+
+    assert_eq!(report.status, "failed");
+    assert_eq!(report.stage, "verify");
+    assert_eq!(
+        report.error.as_ref().unwrap().code,
+        "ADAPTER_CORE_INCOMPATIBLE"
+    );
+    assert_eq!(
+        report.verify.observed_core_compatibility,
+        Some(serde_json::json!({
+            "requirement": ">=0.20.0,<0.21.0",
+            "running": "0.21.0",
+            "status": "core_newer_than_declared",
+            "declaration_valid": true,
+        }))
+    );
+}
+
+#[test]
 fn execution_report_rollback_failure_is_partial_and_stable() {
     let service = InstallService::new(PathBuf::from("__unused__.yml"));
     let mut plan = verify_plan(InstallStepAction::PathCopy {

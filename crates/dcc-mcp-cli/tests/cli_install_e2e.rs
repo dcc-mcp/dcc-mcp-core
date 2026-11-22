@@ -65,6 +65,18 @@ fn fake_pip(temp: &TempDir, version: &str) -> std::path::PathBuf {
         ),
     )
     .unwrap();
+    // The install verification probes the target interpreter directly. Keep
+    // the fixture importable without relying on packages from the test host.
+    std::fs::write(
+        temp.path().join("dcc_mcp_maya.py"),
+        format!("__version__ = '{version}'\n"),
+    )
+    .unwrap();
+    std::fs::write(
+        temp.path().join("dcc_mcp_core.py"),
+        "__version__ = '0.20.53'\n",
+    )
+    .unwrap();
     temp.path().to_path_buf()
 }
 

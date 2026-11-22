@@ -1,4 +1,4 @@
-use dcc_mcp_catalog::CatalogEntry;
+use dcc_mcp_catalog::{CatalogEntry, CoreBoundPolicy, evaluate};
 use semver::Version;
 
 use super::InstallPlanError;
@@ -18,22 +18,48 @@ pub(crate) fn validate(entry: &CatalogEntry) -> Result<(), InstallPlanError> {
         }
     }
 
-    let Some(required) = entry.min_core_version.as_deref() else {
+    if let Some(required) = entry.min_core_version.as_deref() {
+        let required_version =
+            Version::parse(required).map_err(|_| InstallPlanError::InvalidMinCoreVersion {
+                name: entry.name.clone(),
+                required: required.into(),
+            })?;
+        if entry.core_requirement.is_none() {
+            let current = env!("CARGO_PKG_VERSION");
+            let current_version =
+                Version::parse(current).expect("workspace package version must be SemVer");
+            if current_version < required_version {
+                return Err(InstallPlanError::IncompatibleCoreVersion {
+                    name: entry.name.clone(),
+                    required: required.into(),
+                    current: current.into(),
+                });
+            }
+        }
+    }
+    validate_core_requirement(entry)?;
+    if entry.core_requirement.is_some()
+        && entry
+            .install
+            .as_ref()
+            .is_some_and(|install| install.install_type != "pip")
+    {
+        return Err(InstallPlanError::CoreRequirementRequiresPip {
+            name: entry.name.clone(),
+        });
+    }
+    Ok(())
+}
+
+fn validate_core_requirement(entry: &CatalogEntry) -> Result<(), InstallPlanError> {
+    let Some(required) = entry.core_requirement.as_deref() else {
         return Ok(());
     };
-    let required_version =
-        Version::parse(required).map_err(|_| InstallPlanError::InvalidMinCoreVersion {
+
+    if !evaluate(required, &CoreBoundPolicy::default()).is_ok() {
+        return Err(InstallPlanError::InvalidCoreRequirement {
             name: entry.name.clone(),
             required: required.into(),
-        })?;
-    let current = env!("CARGO_PKG_VERSION");
-    let current_version =
-        Version::parse(current).expect("workspace package version must be SemVer");
-    if current_version < required_version {
-        return Err(InstallPlanError::IncompatibleCoreVersion {
-            name: entry.name.clone(),
-            required: required.into(),
-            current: current.into(),
         });
     }
     Ok(())
@@ -120,6 +146,78 @@ mod tests {
             });
             assert!(validate(&adapter).is_ok());
             adapter.policy = None;
+        }
+    }
+
+    #[test]
+    fn core_requirement_requires_pip_install_type() {
+        let mut adapter = entry("blender");
+        adapter.core_requirement = Some(">=0.20.0,<0.21.0".into());
+        adapter.install = Some(dcc_mcp_catalog::CatalogInstall {
+            install_type: "git".into(),
+            url: Some("https://github.com/dcc-mcp/example".into()),
+            ref_: Some("0123456789012345678901234567890123456789".into()),
+            sha256: None,
+            skill_roots: None,
+            pip_package: None,
+            pip_extras: None,
+            python_path: None,
+            entry_point: None,
+            instructions_url: None,
+            sop_version: None,
+            sop_schema_digest: None,
+            adobe: None,
+        });
+        assert_eq!(
+            validate(&adapter),
+            Err(InstallPlanError::CoreRequirementRequiresPip {
+                name: adapter.name.clone(),
+            })
+        );
+    }
+
+    #[test]
+    fn bounded_core_requirement_is_validated_without_using_cli_core_version() {
+        let mut adapter = entry("blender");
+        adapter.core_requirement = Some(">=999.0.0,<999.1.0".into());
+
+        assert!(validate(&adapter).is_ok());
+    }
+
+    #[test]
+    fn bounded_core_requirement_takes_precedence_over_legacy_minimum() {
+        let mut adapter = entry("blender");
+        adapter.min_core_version = Some("999.0.0".into());
+        adapter.core_requirement = Some(">=0.20.0,<0.21.0".into());
+
+        assert!(validate(&adapter).is_ok());
+    }
+
+    #[test]
+    fn bounded_core_requirement_rejects_invalid_range() {
+        let mut adapter = entry("blender");
+        adapter.core_requirement = Some(">=0.20.0".into());
+        assert_eq!(
+            validate(&adapter),
+            Err(InstallPlanError::InvalidCoreRequirement {
+                name: adapter.name.clone(),
+                required: ">=0.20.0".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn invalid_core_requirement_is_rejected_closed() {
+        let mut adapter = entry("blender");
+        for required in [">=0.20.0", ">=not-semver,<0.21.0", "dcc-mcp-core"] {
+            adapter.core_requirement = Some(required.into());
+            assert_eq!(
+                validate(&adapter),
+                Err(InstallPlanError::InvalidCoreRequirement {
+                    name: adapter.name.clone(),
+                    required: required.into(),
+                })
+            );
         }
     }
 }

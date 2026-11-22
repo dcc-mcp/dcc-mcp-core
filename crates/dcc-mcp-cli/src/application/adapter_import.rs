@@ -376,6 +376,25 @@ pub(crate) fn probe_target(target: &AdapterImportTarget) -> Value {
     probe_target_with_env(target, Vec::new())
 }
 
+/// Check a catalog-declared Core requirement against the version reported by
+/// the target interpreter probe.
+pub(crate) fn core_compatibility_for_requirement(
+    report: &Map<String, Value>,
+    requirement: &str,
+) -> CoreRuntimeReport {
+    // Distribution metadata is not evidence that the target interpreter can
+    // actually import Core.  Only grade a runtime version observed from the
+    // imported module; otherwise the caller must treat this as unverified.
+    if report.get("core_version_source").and_then(Value::as_str) != Some("imported_module") {
+        return check_runtime(requirement, "", &CoreBoundPolicy::default());
+    }
+    let running = report
+        .get("core_version")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    check_runtime(requirement, running, &CoreBoundPolicy::default())
+}
+
 #[cfg(test)]
 mod tests;
 
@@ -477,6 +496,11 @@ fn grade(report: &Map<String, Value>, core: Option<&CoreRuntimeReport>) -> Adapt
     {
         return AdapterImportStatus::VersionMismatch;
     }
+    if core.is_some()
+        && report.get("core_version_source").and_then(Value::as_str) != Some("imported_module")
+    {
+        return AdapterImportStatus::IncompatibleCore;
+    }
     let conclusive_core_mismatch = core.is_some_and(|core| {
         matches!(
             core.verdict,
@@ -492,15 +516,7 @@ fn grade(report: &Map<String, Value>, core: Option<&CoreRuntimeReport>) -> Adapt
 
 fn core_compatibility(report: &Map<String, Value>) -> Option<CoreRuntimeReport> {
     let requirement = report.get("core_requirement")?.as_str()?;
-    let running = report
-        .get("core_version")
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    Some(check_runtime(
-        requirement,
-        running,
-        &CoreBoundPolicy::default(),
-    ))
+    Some(core_compatibility_for_requirement(report, requirement))
 }
 
 /// Read back the status recorded on a probe row.
@@ -1203,10 +1219,18 @@ if module_name:
 
 version, source, _ = _dist_version("dcc-mcp-core")
 report["core_dist_version"] = version
-core_module = sys.modules.get("dcc_mcp_core")
-observed = getattr(core_module, "__version__", None) if core_module is not None else None
-report["core_version"] = str(observed) if observed is not None else version
-report["core_version_source"] = "imported_module" if observed is not None else source
+try:
+    # Import Core explicitly instead of trusting distribution metadata.  An
+    # adapter that does not import Core itself still needs a real Core probe.
+    core_module = __import__("dcc_mcp_core")
+    observed = getattr(core_module, "__version__", None)
+    report["core_version"] = str(observed) if observed is not None else None
+    report["core_version_source"] = "imported_module"
+except Exception as exc:
+    report["core_version"] = None
+    report["core_version_source"] = None
+    report["core_error_type"] = type(exc).__name__
+    report["core_error"] = str(exc)
 
 print(json.dumps(report))
 "#;
