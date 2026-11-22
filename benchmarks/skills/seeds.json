@@ -4784,7 +4784,7 @@
         },
         {
           "name": "make_comparison_sheet",
-          "description": "Composite reference and render images side-by-side (or stacked) into one comparison sheet using ffmpeg hstack/vstack. Packages evidence and computes no scores. Fails loudly when any input is missing.",
+          "description": "Composite reference and render images side-by-side (or stacked) into one comparison sheet using ffmpeg hstack/vstack. Packages evidence and computes no scores. Fails loudly when any input is missing. After success, call image_stats with the returned output_path to verify the sheet.",
           "input_schema": {
             "type": "object",
             "required": [
@@ -4837,7 +4837,9 @@
           "defer-loading": false,
           "source_file": "scripts/make_comparison_sheet.py",
           "next-tools": {
-            "on-success": [],
+            "on-success": [
+              "image_stats"
+            ],
             "on-failure": []
           },
           "group": "",
