@@ -111,7 +111,8 @@ tools:
     description: >-
       Composite reference and render images side-by-side (or stacked) into one
       comparison sheet using ffmpeg hstack/vstack. Packages evidence and
-      computes no scores. Fails loudly when any input is missing.
+      computes no scores. Fails loudly when any input is missing. After success,
+      call image_stats with the returned output_path to verify the sheet.
     input_schema:
       type: object
       required: [reference_path, render_paths, output_path]
@@ -149,3 +150,6 @@ tools:
     affinity: any
     timeout_hint_secs: 30
     source_file: scripts/make_comparison_sheet.py
+    next-tools:
+      on-success:
+        - image_stats
