@@ -28,6 +28,7 @@ mod policy;
 mod report;
 mod verify;
 
+pub(crate) use catalog::{is_implicit_cwd_catalog, warn_if_implicit_cwd_catalog};
 pub use discovery::{DccAdapterSummary, DccTypeSummary, DccTypesCatalog};
 use pip::{pip_install_args, pip_show_args, pip_uninstall_args};
 use policy::{AutoInstallPolicy, ask_consent, render_install_policy_prompt};

@@ -95,6 +95,55 @@ fn default_catalog_fallback_reports_bundled_and_cannot_bypass_freshness() {
 }
 
 #[test]
+fn only_the_implicit_relative_catalog_path_is_a_shadowing_candidate() {
+    assert!(catalog::is_implicit_cwd_catalog(Path::new(
+        "dcc-mcp-catalog.yml"
+    )));
+    assert!(catalog::is_implicit_cwd_catalog(
+        Path::new(".").join("dcc-mcp-catalog.yml").as_path()
+    ));
+    assert!(!catalog::is_implicit_cwd_catalog(Path::new("catalog.yml")));
+    assert!(!catalog::is_implicit_cwd_catalog(
+        Path::new("nested").join("dcc-mcp-catalog.yml").as_path()
+    ));
+    assert!(!catalog::is_implicit_cwd_catalog(
+        Path::new("..").join("dcc-mcp-catalog.yml").as_path()
+    ));
+}
+
+#[test]
+fn implicit_cwd_catalog_emits_a_shadow_warning() {
+    if std::env::var_os("DCC_MCP_CATALOG_WARNING_CHILD").is_some() {
+        let service = InstallService::new("dcc-mcp-catalog.yml".into());
+        assert!(!service.load_entries(None).unwrap().is_empty());
+        return;
+    }
+
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join("dcc-mcp-catalog.yml"), BUNDLED_CATALOG).unwrap();
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .arg("application::install::catalog_contract_tests::implicit_cwd_catalog_emits_a_shadow_warning")
+        .arg("--exact")
+        .arg("--nocapture")
+        .current_dir(root.path())
+        .env("DCC_MCP_CATALOG_WARNING_CHILD", "1")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "child test failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("shadows the bundled installation catalog"),
+        "stderr did not contain the shadow warning: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn existing_default_and_requested_catalogs_report_explicit_source() {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("catalog.yml");

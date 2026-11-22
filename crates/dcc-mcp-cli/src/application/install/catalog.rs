@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 use std::io::{Read, Write};
-use std::path::Path;
+use std::path::{Component, Path};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use dcc_mcp_attestation::{GitHubAttestationPolicy, verify_attested_bytes};
@@ -17,6 +17,7 @@ const FEED_URL: &str =
 const WORKFLOW: &str = "https://github.com/dcc-mcp/dcc-mcp-core/.github/workflows/publish-install-catalog.yml@refs/heads/main";
 const MAX_BYTES: usize = 4 * 1024 * 1024;
 const MAX_LIFETIME: u64 = 7 * 24 * 60 * 60;
+const DEFAULT_CATALOG_FILE_NAME: &str = "dcc-mcp-catalog.yml";
 
 #[derive(Debug, Clone)]
 pub(super) struct ResolvedCatalog {
@@ -91,6 +92,36 @@ fn load_local_file(path: &Path) -> Result<Vec<CatalogEntry>, dcc_mcp_catalog::Ca
     let text = std::fs::read_to_string(path)
         .map_err(|error| dcc_mcp_catalog::CatalogError::Io(path.display().to_string(), error))?;
     load_local_entries(&text)
+}
+
+pub(crate) fn is_implicit_cwd_catalog(path: &Path) -> bool {
+    if !path.is_relative() {
+        return false;
+    }
+
+    let mut found_catalog_name = false;
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::Normal(name) if name == DEFAULT_CATALOG_FILE_NAME => {
+                if found_catalog_name {
+                    return false;
+                }
+                found_catalog_name = true;
+            }
+            _ => return false,
+        }
+    }
+    found_catalog_name
+}
+
+pub(crate) fn warn_if_implicit_cwd_catalog(path: &Path) {
+    if is_implicit_cwd_catalog(path) {
+        eprintln!(
+            "warning: implicit current-directory catalog '{}' shadows the bundled installation catalog; pass --catalog explicitly to select a custom catalog",
+            path.display()
+        );
+    }
 }
 
 fn validate_local_entries(
@@ -197,6 +228,7 @@ impl super::InstallService {
         if let Some(path) = &self.default_catalog_path {
             let entries = load_local_file(path)?;
             if !entries.is_empty() {
+                warn_if_implicit_cwd_catalog(path);
                 return Ok(ResolvedCatalog {
                     entries,
                     provenance: CatalogProvenance::local(CatalogSource::Explicit),

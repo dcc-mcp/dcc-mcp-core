@@ -15,6 +15,7 @@ pub(crate) struct FeedbackRouteSnapshot {
     pub finding: FindingV1,
     pub canonical_catalog_path: Option<PathBuf>,
     pub catalog_bytes: Vec<u8>,
+    pub implicit_cwd_catalog: bool,
     pub route: FeedbackRoute,
 }
 
@@ -28,6 +29,7 @@ struct CatalogSnapshot {
     canonical_path: Option<PathBuf>,
     bytes: Vec<u8>,
     entries: Vec<dcc_mcp_catalog::CatalogEntry>,
+    implicit_cwd_catalog: bool,
 }
 
 /// Offline application service for deterministic Finding v1 routing.
@@ -48,7 +50,11 @@ impl FeedbackRouteService {
         finding_path: &Path,
         catalog_path: Option<&Path>,
     ) -> Result<FeedbackRoute, FeedbackRouteServiceError> {
-        Ok(self.snapshot(finding_path, catalog_path)?.route)
+        let snapshot = self.snapshot(finding_path, catalog_path)?;
+        if snapshot.implicit_cwd_catalog {
+            crate::application::install::warn_if_implicit_cwd_catalog(&self.default_catalog_path);
+        }
+        Ok(snapshot.route)
     }
 
     pub(crate) fn snapshot(
@@ -67,6 +73,7 @@ impl FeedbackRouteService {
             finding: finding.finding,
             canonical_catalog_path: catalog.canonical_path,
             catalog_bytes: catalog.bytes,
+            implicit_cwd_catalog: catalog.implicit_cwd_catalog,
             route,
         })
     }
@@ -88,6 +95,7 @@ impl FeedbackRouteService {
                 canonical_path: Some(canonical),
                 bytes,
                 entries,
+                implicit_cwd_catalog: false,
             });
         }
         if self.default_catalog_path.exists() {
@@ -99,6 +107,9 @@ impl FeedbackRouteService {
                     canonical_path: Some(canonical),
                     bytes,
                     entries,
+                    implicit_cwd_catalog: crate::application::install::is_implicit_cwd_catalog(
+                        &self.default_catalog_path,
+                    ),
                 });
             }
         }
@@ -108,6 +119,7 @@ impl FeedbackRouteService {
             canonical_path: None,
             bytes,
             entries,
+            implicit_cwd_catalog: false,
         })
     }
 }
