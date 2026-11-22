@@ -186,6 +186,27 @@ Return `vertex_count=0` and set an explanatory note in `extra`. Round-
 trip tests that target that DCC should then pass `has_mesh` as the
 only real assertion.
 
+## Pipeline benchmark contract
+
+The core verification package also provides a deterministic seven-stage
+pipeline runner for adapter-owned benchmark callbacks:
+
+```python
+from dcc_mcp_core.verification import run_pipeline_benchmark
+
+report = run_pipeline_benchmark(run_stage)
+if not report.gate_passed:
+    raise RuntimeError(report.to_dict())
+```
+
+The default stages are modeling, rig, animation, texturing, material, render,
+and composite. A callback returns `pass`, `failed`, `skipped`, or `degraded`,
+plus call records and an optional behavior assertion report. Skipped and
+degraded stages remain in the serialized output and always fail the release
+gate. The report records the versioned `rotorcraft-v1` baseline, bare-script
+share, behavior assertion pass rate, and every stage result. Adapter repositories
+provide host-specific callbacks and live-DCC setup.
+
 ## Related
 
 - [`dcc-thread-safety.md`](dcc-thread-safety.md) — main-thread
