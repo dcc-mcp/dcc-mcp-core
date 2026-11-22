@@ -150,6 +150,66 @@ fn verify_requires_explicit_python_and_rejects_gui_before_any_probe() {
     assert_eq!(report["rollback"]["attempted"], false);
 }
 
+#[test]
+fn verify_rejects_target_core_below_catalog_minimum() {
+    let python = target_python();
+    let root = TempDir::new().unwrap();
+    let site = root.path().join("site");
+    std::fs::create_dir(&site).unwrap();
+    std::fs::write(site.join("verify_fixture.py"), "__version__ = '1.0.0'\n").unwrap();
+    std::fs::write(site.join("dcc_mcp_core.py"), "__version__ = '0.19.9'\n").unwrap();
+    let metadata = site.join("dcc_mcp_verifyfixture-1.0.0.dist-info");
+    std::fs::create_dir(&metadata).unwrap();
+    std::fs::write(
+        metadata.join("METADATA"),
+        "Metadata-Version: 2.1\nName: dcc-mcp-verifyfixture\nVersion: 1.0.0\n",
+    )
+    .unwrap();
+    let catalog = root.path().join("catalog.json");
+    std::fs::write(
+        &catalog,
+        json!({"entries":[{
+            "name":"dcc-mcp-verifyfixture", "description":"Verification fixture",
+            "dcc":["verify-fixture"], "tags":["adapter"], "version":"1.0.0",
+            "min_core_version":"0.20.0",
+            "install":{"type":"pip","pip_package":"dcc-mcp-verifyfixture",
+                "url":"https://example.invalid/dcc_mcp_verifyfixture-1.0.0-py3-none-any.whl",
+                "sha256":"a".repeat(64),"entry_point":"verify_fixture:create_server"}
+        }]})
+        .to_string(),
+    )
+    .unwrap();
+
+    let output = support::cli_command()
+        .args([
+            "--gateway",
+            "must-not-be-opened",
+            "verify",
+            "--dcc-type",
+            "verify-fixture",
+            "--python",
+            &python,
+            "--json",
+            "--catalog",
+        ])
+        .arg(&catalog)
+        .env("PYTHONPATH", &site)
+        .env("DCC_MCP_INSTALL_DISABLED", "true")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(40));
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["error"]["code"], "ADAPTER_CORE_INCOMPATIBLE");
+    assert_eq!(
+        report["verify"]["observed_core_compatibility"]["requirement"],
+        ">=0.20.0,<0.21.0"
+    );
+    assert_eq!(
+        report["verify"]["observed_core_compatibility"]["status"],
+        "core_older_than_declared"
+    );
+}
+
 // Compile-gated CLI process evidence for the combined 2852 + 2862 slice. The
 // fixture declares a bounded Core requirement so the probe returns
 // incompatible_core. Run it after rebasing 2862 onto the corrected 2852.

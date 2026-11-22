@@ -343,6 +343,11 @@ host versions, resolve app bundles, record interpreter versions, or verify targe
 imports/readiness. Other hosts keep their current policy; #2252 remains open for
 the complete contract above.
 
+The Core verify path now derives the bounded runtime requirement from
+`min_core_version` when `core_requirement` is absent and checks the Core module
+imported by the selected target interpreter. A target below that floor fails
+verification with exit `40`.
+
 Catalog entries may also declare `install.probe_tool` with the exact read-only
 MCP tool used to verify adapter readiness after the host registers. The install
 plan preserves this value in the `RegisterDcc` action and emits it in the
@@ -531,8 +536,7 @@ the adapter's executable tests.
 ## Deferred Core slices
 
 Issue #2252 tracks later, separately reviewable work for embedded-interpreter
-detection in the Rust CLI, `min_core_version` enforcement, JSON execution
-reports, idempotent executor rollback, lock-aware removal integration,
-first-class Core verify/uninstall, and catalog migration. Adapter conformance
-work can use this schema and documentation foundation without waiting for those
-executor changes.
+detection in the Rust CLI, idempotent executor rollback, lock-aware removal
+integration, first-class Core uninstall, and catalog migration. Adapter
+conformance work can use this schema and documentation foundation without
+waiting for those executor changes.

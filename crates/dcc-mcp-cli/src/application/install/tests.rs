@@ -392,6 +392,22 @@ fn verify_rejects_empty_installed_directory() {
 }
 
 #[test]
+fn target_core_requirement_prefers_bounded_contract_and_derives_legacy_floor() {
+    let mut plan = verify_plan(InstallStepAction::Verify);
+    plan.adapter.min_core_version = Some("0.20.14".into());
+    assert_eq!(
+        target_core_requirement(&plan).as_deref(),
+        Some(">=0.20.14,<0.21.0")
+    );
+
+    plan.adapter.core_requirement = Some(">=0.20.20,<0.21.0".into());
+    assert_eq!(
+        target_core_requirement(&plan).as_deref(),
+        Some(">=0.20.20,<0.21.0")
+    );
+}
+
+#[test]
 fn execution_report_success_keeps_live_dcc_readiness_unproven() {
     let service = InstallService::new(PathBuf::from("__unused__.yml"));
     let plan = verify_plan(InstallStepAction::PathCopy {

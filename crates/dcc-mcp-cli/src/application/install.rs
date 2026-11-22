@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use crate::domain::install_catalog::CatalogSource;
-use dcc_mcp_catalog::{CatalogEntry, CoreRuntimeReport};
+use dcc_mcp_catalog::{CatalogEntry, CoreRuntimeReport, derive_requirement};
 use thiserror::Error;
 
 use crate::application::adapter_import::{
@@ -810,7 +810,7 @@ fn execute_verify(plan: &InstallPlan) -> Result<Option<StepRollback>, InstallErr
             InstallStepAction::RegisterDcc { .. } | InstallStepAction::Verify => {}
         }
     }
-    if let Some(requirement) = plan.adapter.core_requirement.as_deref() {
+    if let Some(requirement) = target_core_requirement(plan) {
         let Some((package, python)) = pip_target else {
             return Err(InstallError::StepFailed {
                 step: "verify".into(),
@@ -819,9 +819,18 @@ fn execute_verify(plan: &InstallPlan) -> Result<Option<StepRollback>, InstallErr
                 ),
             });
         };
-        verify_target_core_requirement(plan, requirement, &package, python.as_deref())?;
+        verify_target_core_requirement(plan, &requirement, &package, python.as_deref())?;
     }
     Ok(None)
+}
+
+pub(super) fn target_core_requirement(plan: &InstallPlan) -> Option<String> {
+    plan.adapter.core_requirement.clone().or_else(|| {
+        plan.adapter
+            .min_core_version
+            .as_deref()
+            .and_then(derive_requirement)
+    })
 }
 
 fn verify_target_core_requirement(

@@ -77,12 +77,12 @@ impl InstallService {
         {
             report.verify.observed_core_compatibility = Some(probe["core_compatibility"].clone());
         }
-        let catalog_core = plan.adapter.core_requirement.as_deref().map(|requirement| {
+        let catalog_core = super::target_core_requirement(&plan).map(|requirement| {
             let core = core_compatibility_for_requirement(
                 probe
                     .as_object()
                     .expect("adapter import probe is a JSON object"),
-                requirement,
+                &requirement,
             );
             if probe.get("status").and_then(Value::as_str) != Some("incompatible_core") {
                 report.verify.observed_core_compatibility = Some(json!({
