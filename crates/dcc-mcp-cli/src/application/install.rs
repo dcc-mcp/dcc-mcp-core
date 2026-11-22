@@ -438,6 +438,7 @@ fn execute_action(action: &InstallStepAction) -> Result<StepExecution, InstallEr
             dcc_type,
             entry_point,
             dcc_path,
+            ..
         } => Ok(execute_register_dcc(
             dcc_type,
             entry_point.as_deref(),

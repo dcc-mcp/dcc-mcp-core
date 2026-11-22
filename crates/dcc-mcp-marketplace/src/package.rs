@@ -188,6 +188,7 @@ pub fn publish_marketplace_package(
             pip_extras: None,
             python_path: None,
             entry_point: None,
+            probe_tool: None,
             instructions_url: None,
             adobe: None,
             sop_version: None,

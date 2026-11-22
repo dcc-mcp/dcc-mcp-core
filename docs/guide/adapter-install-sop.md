@@ -343,6 +343,13 @@ host versions, resolve app bundles, record interpreter versions, or verify targe
 imports/readiness. Other hosts keep their current policy; #2252 remains open for
 the complete contract above.
 
+Catalog entries may also declare `install.probe_tool` with the exact read-only
+MCP tool used to verify adapter readiness after the host registers. The install
+plan preserves this value in the `RegisterDcc` action and emits it in the
+`wait-ready` next-step description. The CLI still leaves host registration and
+probe execution to the adapter-owned live instance, so a plan never reports a
+probe as completed without a real host response.
+
 ### Filesystem and current state
 
 - Check parent-directory writability and any project-specific policy boundary.

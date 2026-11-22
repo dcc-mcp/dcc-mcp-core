@@ -54,6 +54,7 @@ fn sop_entry(version: Option<u32>, digest: Option<&str>) -> CatalogEntry {
             pip_extras: None,
             python_path: None,
             entry_point: None,
+            probe_tool: Some("maya_diagnostics__ping".into()),
             instructions_url: None,
             sop_version: version,
             sop_schema_digest: digest.map(str::to_string),
@@ -72,6 +73,10 @@ fn test_validate_entry_accepts_install_sop_metadata() {
     let install = entry.install.as_ref().unwrap();
     assert_eq!(install.sop_version, Some(2));
     assert_eq!(install.sop_schema_digest.as_deref(), Some(SOP_V1_DIGEST));
+    assert_eq!(
+        install.probe_tool.as_deref(),
+        Some("maya_diagnostics__ping")
+    );
 }
 
 #[test]

@@ -252,6 +252,9 @@ pub struct CatalogInstall {
     /// Python entry point for running the adapter (e.g. `dcc_mcp_maya.cli:main`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub entry_point: Option<String>,
+    /// Read-only MCP tool used to verify adapter readiness after installation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub probe_tool: Option<String>,
     /// Agent-facing installation runbook, usually the adapter repo's raw install.md.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub instructions_url: Option<String>,
@@ -961,6 +964,7 @@ entries:
                 pip_extras: None,
                 python_path: None,
                 entry_point: None,
+                probe_tool: None,
                 instructions_url: Some("https://example.com/install.md".into()),
                 adobe: None,
                 sop_version: None,
@@ -985,6 +989,7 @@ entries:
             pip_extras: None,
             python_path: None,
             entry_point: None,
+            probe_tool: None,
             instructions_url: None,
             adobe: None,
             sop_version: None,
@@ -1009,6 +1014,7 @@ entries:
             pip_extras: None,
             python_path: None,
             entry_point: None,
+            probe_tool: None,
             instructions_url: None,
             adobe: None,
             sop_version: None,
@@ -1050,6 +1056,7 @@ entries:
                 pip_extras: Some(vec!["maya".into()]),
                 python_path: Some("/usr/autodesk/maya2026/bin/mayapy".into()),
                 entry_point: Some("dcc_mcp_maya.cli:main".into()),
+                probe_tool: None,
                 instructions_url: None,
                 adobe: None,
                 sop_version: None,
@@ -1143,6 +1150,7 @@ entries:
                 pip_extras: None,
                 python_path: None,
                 entry_point: None,
+                probe_tool: None,
                 instructions_url: None,
                 adobe: None,
                 sop_version: None,
