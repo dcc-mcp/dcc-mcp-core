@@ -206,6 +206,57 @@ fn planner_generates_executable_steps_for_pip_install() {
 }
 
 #[test]
+fn planner_omits_blank_probe_tool_metadata() {
+    let install = CatalogInstall {
+        install_type: "pip".into(),
+        url: Some(
+            "https://files.pythonhosted.org/packages/example/dcc_mcp_maya-0.3.0-py3-none-any.whl"
+                .into(),
+        ),
+        ref_: None,
+        sha256: Some("a".repeat(64)),
+        skill_roots: None,
+        pip_package: Some("dcc-mcp-maya".into()),
+        pip_extras: None,
+        python_path: Some("/usr/bin/mayapy".into()),
+        entry_point: None,
+        probe_tool: Some("  \t".into()),
+        instructions_url: None,
+        adobe: None,
+        sop_version: None,
+        sop_schema_digest: None,
+    };
+    let plan = InstallPlanner::plan(
+        &[catalog_entry("dcc-mcp-maya", &["maya"], Some(install))],
+        InstallRequest {
+            dcc_type: "maya".into(),
+            version: None,
+            catalog_path: None,
+            python: None,
+            dcc_path: None,
+            plugin_source: None,
+            adobe_debug_root: None,
+        },
+    )
+    .unwrap();
+
+    assert_eq!(plan.probe_tool, None);
+    assert!(matches!(
+        &plan.steps[1].action,
+        Some(InstallStepAction::RegisterDcc {
+            probe_tool: None,
+            ..
+        })
+    ));
+    let wait_ready = plan
+        .next_steps
+        .iter()
+        .find(|step| step.name == "wait-ready")
+        .expect("wait-ready next step");
+    assert!(!wait_ready.description.contains("probe tool"));
+}
+
+#[test]
 fn planner_emits_cli_next_steps_for_live_control_and_skill_install() {
     let entries = vec![catalog_entry("dcc-mcp-blender", &["blender"], None)];
     let plan = InstallPlanner::plan(

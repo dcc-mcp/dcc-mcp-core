@@ -140,6 +140,7 @@ fn archive_http_failure_preserves_the_acquire_report_contract() {
             "description": "Local HTTP archive fixture"
         }))
         .unwrap(),
+        probe_tool: None,
         catalog: None,
         steps: vec![InstallStep {
             name: "Acquire archive".into(),

@@ -555,7 +555,7 @@ impl InstallPlanner {
             action: Some(InstallStepAction::RegisterDcc {
                 dcc_type: dcc_type.to_string(),
                 entry_point: install.entry_point.clone(),
-                probe_tool: install.probe_tool.clone(),
+                probe_tool: install_probe_tool(entry),
                 dcc_path,
             }),
         });
@@ -665,7 +665,8 @@ impl InstallPlanner {
         let probe_tool = entry
             .install
             .as_ref()
-            .and_then(|install| install.probe_tool.as_deref());
+            .and_then(|install| install.probe_tool.as_deref())
+            .filter(|value| !value.trim().is_empty());
 
         if let Some(url) = install_instructions_url(entry) {
             steps.push(InstallNextStep {

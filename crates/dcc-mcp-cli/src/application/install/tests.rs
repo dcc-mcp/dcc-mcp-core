@@ -322,6 +322,7 @@ fn verify_plan(action: InstallStepAction) -> InstallPlan {
             icon: None,
             showcase: None,
         },
+        probe_tool: None,
         steps: vec![
             InstallStep {
                 name: "install".into(),
@@ -449,6 +450,7 @@ fn execution_report_mid_failure_rolls_back_completed_steps_in_reverse() {
             action: Some(InstallStepAction::RegisterDcc {
                 dcc_type: "maya".into(),
                 entry_point: None,
+                probe_tool: None,
                 dcc_path: None,
             }),
         },
@@ -562,6 +564,7 @@ fn execution_report_rollback_failure_is_partial_and_stable() {
             action: Some(InstallStepAction::RegisterDcc {
                 dcc_type: "maya".into(),
                 entry_point: None,
+                probe_tool: None,
                 dcc_path: None,
             }),
         },
@@ -640,6 +643,7 @@ fn failed_execution_report_matches_shared_cross_language_fixture() {
             action: Some(InstallStepAction::RegisterDcc {
                 dcc_type: "maya".into(),
                 entry_point: None,
+                probe_tool: None,
                 dcc_path: None,
             }),
         },
