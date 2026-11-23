@@ -548,5 +548,7 @@ The shared pip executor now records the installed version and direct URL
 metadata reported by the target environment before an upgrade. It restores the
 same HTTPS wheel with its recorded SHA-256 during rollback, and refuses an
 upgrade when that verified rollback artifact is unavailable. Receipt-backed
-ownership, staged non-pip replacement, and the remaining idempotent executor
-contract are still separate slices.
+pip installs now write a bounded identity receipt and converge on a repeated
+install of the same catalog target without invoking pip again. Receipt-backed
+ownership for non-pip payloads, staged non-pip replacement, and the remaining
+idempotent executor contract are still separate slices.

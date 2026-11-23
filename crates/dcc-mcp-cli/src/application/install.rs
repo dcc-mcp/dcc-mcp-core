@@ -26,6 +26,7 @@ mod catalog_contract_tests;
 mod discovery;
 mod pip;
 mod policy;
+mod receipt;
 mod report;
 mod verify;
 
@@ -36,6 +37,7 @@ use pip::{
     pip_uninstall_args,
 };
 use policy::{AutoInstallPolicy, ask_consent, render_install_policy_prompt};
+use receipt::{commit_pip_receipt, receipt_matches_pip, receipt_path_for_plan};
 pub use report::{
     InstallExecutionError, InstallExecutionReport, InstallReportNextStep, InstallRollbackReport,
     InstallStepReport, InstallStepRollbackReport, InstallVerifyReport,
@@ -223,27 +225,64 @@ impl InstallService {
     }
 
     fn execute_plan(&self, plan: &InstallPlan, skip_confirmation: bool) -> InstallExecutionReport {
-        self.execute_plan_with(
+        self.execute_plan_with_commit(
             plan,
             skip_confirmation,
             |action, plan| match action {
                 InstallStepAction::Verify => execute_verify(plan).map(StepExecution::Completed),
+                InstallStepAction::PipInstall { .. }
+                    if receipt_matches_pip(plan).map_err(|message| {
+                        InstallError::StepFailed {
+                            step: "install-receipt".into(),
+                            message,
+                        }
+                    })? =>
+                {
+                    Ok(StepExecution::Completed(None))
+                }
                 _ => execute_action(action),
             },
             execute_rollback,
+            |plan| {
+                commit_pip_receipt(plan)
+                    .map(|written| written.then(|| receipt_path_for_plan(plan)))
+                    .map_err(|message| InstallError::StepFailed {
+                        step: "install-receipt".into(),
+                        message,
+                    })
+            },
         )
     }
 
+    #[cfg(test)]
     fn execute_plan_with<E, R>(
+        &self,
+        plan: &InstallPlan,
+        skip_confirmation: bool,
+        execute_step: E,
+        rollback_step: R,
+    ) -> InstallExecutionReport
+    where
+        E: FnMut(&InstallStepAction, &InstallPlan) -> Result<StepExecution, InstallError>,
+        R: FnMut(&StepRollback) -> Result<(), InstallError>,
+    {
+        self.execute_plan_with_commit(plan, skip_confirmation, execute_step, rollback_step, |_| {
+            Ok(None)
+        })
+    }
+
+    fn execute_plan_with_commit<E, R, C>(
         &self,
         plan: &InstallPlan,
         skip_confirmation: bool,
         mut execute_step: E,
         mut rollback_step: R,
+        mut commit: C,
     ) -> InstallExecutionReport
     where
         E: FnMut(&InstallStepAction, &InstallPlan) -> Result<StepExecution, InstallError>,
         R: FnMut(&StepRollback) -> Result<(), InstallError>,
+        C: FnMut(&InstallPlan) -> Result<Option<PathBuf>, InstallError>,
     {
         let mut report = execution_report_for_plan(plan);
 
@@ -391,6 +430,49 @@ impl InstallService {
             }
         }
 
+        let receipt_path = match commit(plan) {
+            Ok(path) => path,
+            Err(_error) => {
+                let mut rollback_attempted = false;
+                let mut rollback_failures = 0;
+                for (completed_index, rollback) in completed.iter().rev() {
+                    let Some(rollback) = rollback else {
+                        continue;
+                    };
+                    rollback_attempted = true;
+                    let rollback_report = &mut report.steps[*completed_index].rollback;
+                    rollback_report.attempted = true;
+                    if rollback_step(rollback).is_ok() {
+                        rollback_report.status = "ok".into();
+                    } else {
+                        rollback_report.status = "failed".into();
+                        rollback_failures += 1;
+                    }
+                }
+                report.rollback = InstallRollbackReport {
+                    attempted: rollback_attempted,
+                    status: if rollback_failures > 0 {
+                        "failed".into()
+                    } else if rollback_attempted {
+                        "ok".into()
+                    } else {
+                        "not_attempted".into()
+                    },
+                    failure_count: rollback_failures,
+                };
+                if rollback_failures > 0 {
+                    return failed_report(
+                        report,
+                        "rollback",
+                        30,
+                        "ROLLBACK_FAILED",
+                        Some("INSTALL_STEP_FAILED"),
+                    );
+                }
+                return failed_report(report, "install", 30, "INSTALL_STEP_FAILED", None);
+            }
+        };
+
         if has_deferred_steps {
             eprintln!("Installation execution completed with deferred manual steps.");
             report.status = "partial".into();
@@ -401,6 +483,7 @@ impl InstallService {
         report.stage = "complete".into();
         report.exit_code = 0;
         report.next_steps = success_next_steps(&report.dcc_type);
+        report.receipt_path = receipt_path.map(|path| path.display().to_string());
         report.verify.failure_stage = Some("host-readiness".into());
         report.verify.failure_reason = Some("LIVE_DCC_VERIFICATION_REQUIRED".into());
         report
