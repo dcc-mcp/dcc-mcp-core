@@ -50,6 +50,7 @@ pub(super) fn ask_consent(prompt: &str) -> Result<bool, InstallError> {
     let stdin = std::io::stdin();
     let mut stderr = std::io::stderr();
 
+    let default_yes = prompt.contains("[Y/n]");
     loop {
         write!(stderr, "{prompt} ")?;
         stderr.flush()?;
@@ -59,7 +60,9 @@ pub(super) fn ask_consent(prompt: &str) -> Result<bool, InstallError> {
         let trimmed = line.trim().to_lowercase();
 
         match trimmed.as_str() {
-            "" | "y" | "yes" => return Ok(true),
+            "" if default_yes => return Ok(true),
+            "" => return Ok(false),
+            "y" | "yes" => return Ok(true),
             "n" | "no" => return Ok(false),
             _ => {
                 write!(stderr, "  Please answer Y or n: ")?;

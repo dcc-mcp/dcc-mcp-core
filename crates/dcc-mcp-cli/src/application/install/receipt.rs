@@ -3,6 +3,7 @@ use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 
+use fs4::FileExt;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -17,6 +18,72 @@ pub(super) use receipt_matching::receipt_match_details;
 const RECEIPT_SCHEMA_VERSION: u8 = 1;
 const MAX_RECEIPT_BYTES: u64 = 128 * 1024;
 const OWNED_DIGEST_VERSION: u8 = 2;
+
+pub(super) struct ReceiptLock {
+    file: fs::File,
+}
+
+impl Drop for ReceiptLock {
+    fn drop(&mut self) {
+        let _ = FileExt::unlock(&self.file);
+    }
+}
+
+pub(super) fn lock_receipt_for_plan(plan: &InstallPlan) -> Result<Option<ReceiptLock>, String> {
+    if receipt_for_plan(plan).is_none() {
+        return Ok(None);
+    }
+    let path = receipt_path_for_plan(plan);
+    validate_receipt_location(plan, &path)?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| "install receipt has no parent directory".to_string())?;
+    fs::create_dir_all(parent)
+        .map_err(|error| format!("failed to create install receipt directory: {error}"))?;
+    let lock_path = receipt_lock_path(plan, &path);
+    lock_receipt_at(&lock_path).map(Some)
+}
+
+fn lock_receipt_at(lock_path: &Path) -> Result<ReceiptLock, String> {
+    let file = fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(lock_path)
+        .map_err(|error| format!("failed to open install receipt lock: {error}"))?;
+    FileExt::try_lock(&file).map_err(|error| format!("install receipt is busy: {error}"))?;
+    Ok(ReceiptLock { file })
+}
+
+fn receipt_lock_path(plan: &InstallPlan, receipt_path: &Path) -> PathBuf {
+    let pip_identity = receipt_actions(plan).filter_map(|action| match action {
+        InstallStepAction::PipInstall {
+            package, python, ..
+        } => Some(format!(
+            "{package}\n{}",
+            python
+                .as_deref()
+                .and_then(python_environment_identity)
+                .unwrap_or_else(|| python.as_deref().unwrap_or_default().to_string())
+        )),
+        _ => None,
+    });
+    let identity = pip_identity.collect::<Vec<_>>().join("\n");
+    if !identity.is_empty() {
+        let digest = Sha256::digest(identity.as_bytes());
+        let suffix = digest
+            .iter()
+            .take(16)
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        return receipt_path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join(format!(".pip-{suffix}.lock"));
+    }
+    receipt_path.with_extension("lock")
+}
 
 fn legacy_digest_version() -> u8 {
     1
@@ -264,6 +331,298 @@ pub(super) fn read_receipt(path: &Path) -> Result<Option<InstallReceipt>, String
     Ok(Some(receipt))
 }
 
+pub(super) fn receipt_for_uninstall(
+    plan: &InstallPlan,
+) -> Result<Option<(PathBuf, InstallReceipt)>, String> {
+    if owned_path_specs(plan)
+        .iter()
+        .any(|(_, path, _, _, _)| path.to_str().is_none())
+    {
+        return Err("install destination path is not representable in the receipt format".into());
+    }
+    let directory = receipt_path_for_plan(plan)
+        .parent()
+        .ok_or_else(|| "install receipt has no parent directory".to_string())?
+        .to_path_buf();
+    let mut candidate_paths = vec![receipt_path_for_plan(plan)];
+    if let Some(path) = legacy_receipt_path_for_plan(plan) {
+        candidate_paths.push(path);
+    }
+    if let Some(path) = legacy_non_pip_receipt_path_for_plan(plan) {
+        candidate_paths.push(path);
+    }
+    let known_receipt_paths = candidate_paths.clone();
+    match fs::read_dir(&directory) {
+        Ok(entries) => {
+            for entry in entries {
+                let entry = entry
+                    .map_err(|error| format!("failed to inspect install receipts: {error}"))?;
+                let path = entry.path();
+                if path
+                    .extension()
+                    .is_some_and(|extension| extension == "json")
+                {
+                    candidate_paths.push(path);
+                }
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(format!("failed to inspect install receipts: {error}")),
+    }
+    candidate_paths.sort();
+    candidate_paths.dedup();
+
+    let mut matches = Vec::new();
+    let mut target_conflict = false;
+    for path in candidate_paths {
+        if let Err(error) = validate_receipt_location(plan, &path) {
+            if known_receipt_paths.iter().any(|known| known == &path) {
+                return Err(error);
+            }
+            continue;
+        }
+        let receipt = match read_receipt(&path) {
+            Ok(receipt) => receipt,
+            Err(error) if known_receipt_paths.iter().any(|known| known == &path) => {
+                return Err(error);
+            }
+            Err(_) => continue,
+        };
+        let Some(receipt) = receipt else {
+            continue;
+        };
+        if receipt_matches_uninstall_target(plan, &receipt) {
+            matches.push((path, receipt));
+        } else if receipt_has_install_identity(plan, &receipt) {
+            target_conflict = true;
+        }
+    }
+    if matches.is_empty() {
+        if target_conflict {
+            return Err("install receipt does not match the current install target".into());
+        }
+        return Ok(None);
+    }
+    if matches.len() == 1 {
+        return Ok(matches.pop());
+    }
+
+    if matches[0].1.install_type != "pip" {
+        let safe = matches
+            .into_iter()
+            .filter_map(
+                |candidate| match receipt_uninstall_ownership_is_safe(plan, &candidate.1) {
+                    Ok(true) => Some(Ok(candidate)),
+                    Ok(false) => None,
+                    Err(error) => Some(Err(error)),
+                },
+            )
+            .collect::<Result<Vec<_>, _>>()?;
+        return match safe.as_slice() {
+            [candidate] => Ok(Some(candidate.clone())),
+            [] => Err("no unambiguous install receipt matches the current adapter state".into()),
+            _ => Err("multiple install receipts match the current adapter state".into()),
+        };
+    }
+    let mut matching = Vec::new();
+    let mut absent = Vec::new();
+    for candidate in matches {
+        match pip_receipt_state(&candidate.1)? {
+            PipReceiptState::Matching => matching.push(candidate),
+            PipReceiptState::Absent => absent.push(candidate),
+            PipReceiptState::Drifted => {}
+        }
+    }
+    match matching.as_slice() {
+        [candidate] => return Ok(Some(candidate.clone())),
+        [] => {}
+        _ => {
+            return Err(
+                "multiple installed package receipts match the current adapter state".into(),
+            );
+        }
+    }
+    if let Some(current) = absent
+        .iter()
+        .position(|(path, _)| *path == receipt_path_for_plan(plan))
+    {
+        return Ok(Some(absent.remove(current)));
+    }
+    match absent.as_slice() {
+        [candidate] => Ok(Some(candidate.clone())),
+        [] => Err("no unambiguous install receipt matches the current adapter state".into()),
+        _ => Err("multiple absent package receipts match the current adapter state".into()),
+    }
+}
+
+fn receipt_matches_uninstall_target(plan: &InstallPlan, receipt: &InstallReceipt) -> bool {
+    let Some(expected) = receipt_for_plan(plan) else {
+        return false;
+    };
+    if receipt.schema_version != expected.schema_version
+        || receipt.dcc_type != expected.dcc_type
+        || receipt.adapter_name != expected.adapter_name
+        || receipt.install_type != expected.install_type
+    {
+        return false;
+    }
+    if receipt.install_type == "pip" {
+        receipt.package == expected.package
+            && python_environments_match(receipt.python.as_deref(), expected.python.as_deref())
+    } else {
+        same_owned_path_set(&receipt.owned_paths, &owned_path_specs(plan))
+    }
+}
+
+fn receipt_has_install_identity(plan: &InstallPlan, receipt: &InstallReceipt) -> bool {
+    let Some(expected) = receipt_for_plan(plan) else {
+        return false;
+    };
+    receipt.schema_version == expected.schema_version
+        && receipt.dcc_type == expected.dcc_type
+        && receipt.adapter_name == expected.adapter_name
+        && receipt.install_type == expected.install_type
+}
+
+pub(super) fn receipt_uninstall_ownership_is_safe(
+    plan: &InstallPlan,
+    receipt: &InstallReceipt,
+) -> Result<bool, String> {
+    if !receipt_matches_uninstall_target(plan, receipt) {
+        return Ok(false);
+    }
+    let expected = owned_path_specs(plan);
+    if !same_owned_path_set(&receipt.owned_paths, &expected) {
+        return Ok(false);
+    }
+    let mut seen = Vec::new();
+    for owned in &receipt.owned_paths {
+        if !seen.iter().all(|path: &String| path != &owned.path) {
+            return Ok(false);
+        }
+        seen.push(owned.path.clone());
+        let Some((action, path, nested, root, exclude_git)) = expected
+            .iter()
+            .find(|(_, path, _, _, _)| path.display().to_string() == owned.path)
+            .map(|(action, path, nested, root, exclude_git)| {
+                (action, path, nested, root, exclude_git)
+            })
+        else {
+            return Ok(false);
+        };
+        match fs::symlink_metadata(path) {
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(format!("failed to inspect owned path: {error}")),
+        }
+        let digest = path_digest_for_receipt(
+            path,
+            *nested,
+            *root,
+            *exclude_git,
+            receipt.owned_digest_version,
+        )?;
+        if digest.as_deref() != Some(owned.sha256.as_str()) {
+            return Ok(false);
+        }
+        if matches!(action, InstallStepAction::GitClone { .. })
+            && !git_repository_is_safe_to_remove(path, receipt_git_ref(receipt))?
+        {
+            return Ok(false);
+        }
+    }
+    if receipt.install_type == "pip" && !pip_receipt_is_safe_to_uninstall(receipt)? {
+        return Ok(false);
+    }
+    Ok(true)
+}
+
+fn same_owned_path_set(
+    actual: &[ReceiptOwnedPath],
+    expected: &[(InstallStepAction, PathBuf, bool, bool, bool)],
+) -> bool {
+    let mut actual_paths = actual
+        .iter()
+        .map(|owned| owned.path.clone())
+        .collect::<Vec<_>>();
+    let expected_paths = expected
+        .iter()
+        .map(|(_, path, _, _, _)| path.to_str().map(str::to_owned))
+        .collect::<Option<Vec<_>>>();
+    let Some(mut expected_paths) = expected_paths else {
+        return false;
+    };
+    actual_paths.sort_unstable();
+    expected_paths.sort_unstable();
+    actual_paths == expected_paths && actual_paths.windows(2).all(|paths| paths[0] != paths[1])
+}
+
+fn git_repository_is_safe_to_remove(
+    path: &Path,
+    expected_ref: Option<&str>,
+) -> Result<bool, String> {
+    let Some(expected_ref) = expected_ref else {
+        return Ok(false);
+    };
+    let status = Command::new("git")
+        .arg("-C")
+        .arg(path)
+        .arg("--no-optional-locks")
+        .args(["status", "--porcelain=v1", "--untracked-files=all"])
+        .output()
+        .map_err(|error| format!("failed to inspect Git ownership state: {error}"))?;
+    if !status.status.success() || !status.stdout.is_empty() {
+        return Ok(false);
+    }
+    let head = Command::new("git")
+        .arg("-C")
+        .arg(path)
+        .arg("rev-parse")
+        .arg("HEAD")
+        .output()
+        .map_err(|error| format!("failed to inspect Git HEAD: {error}"))?;
+    if !head.status.success()
+        || !String::from_utf8_lossy(&head.stdout)
+            .trim()
+            .eq_ignore_ascii_case(expected_ref)
+    {
+        return Ok(false);
+    }
+    let stashes = Command::new("git")
+        .arg("-C")
+        .arg(path)
+        .arg("--no-optional-locks")
+        .args(["stash", "list", "--format=%H"])
+        .output()
+        .map_err(|error| format!("failed to inspect Git stash state: {error}"))?;
+    Ok(stashes.status.success() && stashes.stdout.is_empty())
+}
+
+fn receipt_git_ref(receipt: &InstallReceipt) -> Option<&str> {
+    (receipt.install_type == "git")
+        .then(|| {
+            receipt
+                .source
+                .rsplit_once('@')
+                .map(|(_, reference)| reference)
+        })
+        .flatten()
+}
+
+pub(super) fn receipt_pip_target(receipt: &InstallReceipt) -> Option<(String, String)> {
+    (receipt.install_type == "pip")
+        .then(|| Some((receipt.package.clone(), receipt.python.clone()?)))
+        .flatten()
+}
+
+pub(super) fn receipt_owned_paths(receipt: &InstallReceipt) -> Vec<PathBuf> {
+    receipt
+        .owned_paths
+        .iter()
+        .map(|owned| PathBuf::from(&owned.path))
+        .collect()
+}
+
 #[cfg(test)]
 pub(super) fn receipt_matches_install(plan: &InstallPlan) -> Result<bool, String> {
     let mut found_action = false;
@@ -289,6 +648,21 @@ pub(super) fn commit_install_receipt(
     skipped_actions: &[(InstallStepAction, Option<ReceiptOwnershipDigest>)],
     acquired_actions: &[InstallStepAction],
 ) -> Result<bool, String> {
+    if receipt_for_plan(plan).is_none() {
+        return Ok(false);
+    }
+    let lock = lock_receipt_for_plan(plan)?.ok_or_else(|| {
+        "install receipt lock is unavailable for a receipted install plan".to_string()
+    })?;
+    commit_install_receipt_with_lock(plan, skipped_actions, acquired_actions, &lock)
+}
+
+pub(super) fn commit_install_receipt_with_lock(
+    plan: &InstallPlan,
+    skipped_actions: &[(InstallStepAction, Option<ReceiptOwnershipDigest>)],
+    acquired_actions: &[InstallStepAction],
+    _receipt_lock: &ReceiptLock,
+) -> Result<bool, String> {
     let Some(mut receipt) = receipt_for_plan(plan) else {
         return Ok(false);
     };
@@ -296,6 +670,11 @@ pub(super) fn commit_install_receipt(
     validate_receipt_location(plan, &configured_path)?;
     let path = resolve_receipt_for_containment(&configured_path)?;
     validate_receipt_location(plan, &path)?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| "install receipt has no parent directory".to_string())?;
+    fs::create_dir_all(parent)
+        .map_err(|error| format!("failed to create install receipt directory: {error}"))?;
     receipt.owned_paths = owned_paths_for_plan(plan, skipped_actions, acquired_actions)?;
     if !skipped_candidate_matches(&receipt, skipped_actions)? {
         return Err("a skipped install destination changed before receipt commit".into());
@@ -315,11 +694,6 @@ pub(super) fn commit_install_receipt(
         }
         None => {}
     }
-    let parent = path
-        .parent()
-        .ok_or_else(|| "install receipt has no parent directory".to_string())?;
-    fs::create_dir_all(parent)
-        .map_err(|error| format!("failed to create install receipt directory: {error}"))?;
     let bytes = serde_json::to_vec_pretty(&receipt)
         .map_err(|error| format!("failed to serialize install receipt: {error}"))?;
     if bytes.len() as u64 > MAX_RECEIPT_BYTES {
@@ -353,6 +727,9 @@ fn pip_receipt_is_healthy(expected: &InstallReceipt) -> Result<bool, String> {
     {
         return Ok(false);
     }
+    if !pip_receipt_matches_artifact(expected, &output.stdout) {
+        return Ok(false);
+    }
     let check = match Command::new(python).args(["-m", "pip", "check"]).output() {
         Ok(output) => output,
         Err(_) => return Ok(false),
@@ -360,18 +737,99 @@ fn pip_receipt_is_healthy(expected: &InstallReceipt) -> Result<bool, String> {
     if !check.status.success() {
         return Ok(false);
     }
-    let output_text = String::from_utf8_lossy(&output.stdout);
+    Ok(true)
+}
+
+fn pip_receipt_matches_artifact(expected: &InstallReceipt, stdout: &[u8]) -> bool {
+    let output_text = String::from_utf8_lossy(stdout);
     let Some(location) = output_text
         .lines()
         .find_map(|line| line.strip_prefix("Location:").map(str::trim))
         .filter(|value| !value.is_empty())
     else {
-        return Ok(false);
+        return false;
     };
-    let Some((url, sha256)) = direct_url_identity(Path::new(location), &expected.package) else {
-        return Ok(false);
+    let Some((url, sha256)) = direct_url_identity(
+        Path::new(location),
+        &expected.package,
+        Some(&expected.adapter_version),
+    ) else {
+        return false;
     };
-    Ok(credential_free_url(&url) == expected.artifact_url && sha256 == expected.sha256)
+    credential_free_url(&url) == expected.artifact_url && sha256 == expected.sha256
+}
+
+fn pip_receipt_is_safe_to_uninstall(expected: &InstallReceipt) -> Result<bool, String> {
+    Ok(!matches!(
+        pip_receipt_state(expected)?,
+        PipReceiptState::Drifted
+    ))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PipReceiptState {
+    Absent,
+    Matching,
+    Drifted,
+}
+
+fn pip_receipt_state(expected: &InstallReceipt) -> Result<PipReceiptState, String> {
+    let Some(python) = expected.python.as_deref().filter(|value| !value.is_empty()) else {
+        return Ok(PipReceiptState::Drifted);
+    };
+    let output = Command::new(python)
+        .args(pip_show_args(&expected.package))
+        .output()
+        .map_err(|error| format!("failed to inspect the installed package: {error}"))?;
+    if !output.status.success() {
+        return Ok(if pip_show_reports_missing_package(&output.stderr) {
+            PipReceiptState::Absent
+        } else {
+            PipReceiptState::Drifted
+        });
+    }
+    Ok(
+        if pip_show_version(&output.stdout).as_deref() == Some(expected.adapter_version.as_str())
+            && pip_receipt_matches_artifact(expected, &output.stdout)
+        {
+            PipReceiptState::Matching
+        } else {
+            PipReceiptState::Drifted
+        },
+    )
+}
+
+fn pip_show_reports_missing_package(stderr: &[u8]) -> bool {
+    String::from_utf8_lossy(stderr)
+        .to_ascii_lowercase()
+        .contains("package(s) not found")
+}
+
+fn python_environments_match(actual: Option<&str>, expected: Option<&str>) -> bool {
+    match (actual, expected) {
+        (Some(actual), Some(expected)) => {
+            python_environment_identity(actual) == python_environment_identity(expected)
+        }
+        _ => false,
+    }
+}
+
+fn python_environment_identity(python: &str) -> Option<String> {
+    let output = Command::new(python)
+        .args(["-c", "import sys; print(sys.executable)"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let value = String::from_utf8(output.stdout).ok()?;
+    let resolved = value.trim();
+    if resolved.is_empty() {
+        return None;
+    }
+    fs::canonicalize(resolved)
+        .ok()
+        .map(|path| path.to_string_lossy().to_ascii_lowercase())
 }
 
 fn pip_receipt_is_healthy_for_action(
@@ -700,7 +1158,7 @@ fn git_checkout_is_healthy(dest: &Path, ref_: Option<&str>) -> bool {
 fn validate_receipt_location(plan: &InstallPlan, receipt_path: &Path) -> Result<(), String> {
     let receipt_path = resolve_receipt_for_containment(receipt_path)?;
     for (_, destination, _, _, _) in owned_path_specs(plan) {
-        if receipt_path.starts_with(resolve_for_containment(&destination)?) {
+        if receipt_path.starts_with(resolve_receipt_for_containment(&destination)?) {
             return Err(format!(
                 "install receipt must not be stored inside an owned destination: {}",
                 destination.display()
@@ -852,7 +1310,11 @@ fn owned_path_specs(plan: &InstallPlan) -> Vec<(InstallStepAction, PathBuf, bool
     paths
 }
 
-fn direct_url_identity(location: &Path, package: &str) -> Option<(String, String)> {
+fn direct_url_identity(
+    location: &Path,
+    package: &str,
+    version: Option<&str>,
+) -> Option<(String, String)> {
     let normalized_package = package
         .chars()
         .map(|character| match character {
@@ -866,7 +1328,16 @@ fn direct_url_identity(location: &Path, package: &str) -> Option<(String, String
             continue;
         }
         let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
-        if !name.starts_with(&format!("{normalized_package}-")) || !name.ends_with(".dist-info") {
+        let prefix = version.map_or_else(
+            || format!("{normalized_package}-"),
+            |version| {
+                format!(
+                    "{normalized_package}-{}-",
+                    normalize_distribution_version(version)
+                )
+            },
+        );
+        if !name.starts_with(&prefix) || !name.ends_with(".dist-info") {
             continue;
         }
         let metadata = fs::read_to_string(entry.path().join("direct_url.json")).ok()?;
@@ -888,6 +1359,16 @@ fn direct_url_identity(location: &Path, package: &str) -> Option<(String, String
         return Some((url, sha256));
     }
     None
+}
+
+fn normalize_distribution_version(version: &str) -> String {
+    version
+        .chars()
+        .map(|character| match character {
+            '-' => '_',
+            other => other.to_ascii_lowercase(),
+        })
+        .collect()
 }
 
 #[cfg(test)]

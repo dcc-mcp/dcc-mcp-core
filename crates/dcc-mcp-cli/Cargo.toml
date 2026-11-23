@@ -31,6 +31,7 @@ dcc-mcp-models.workspace = true
 dcc-mcp-skills.workspace = true
 dirs.workspace = true
 flate2 = "1"
+fs4 = "1.1.0"
 jsonschema = "0.28"
 reqwest.workspace = true
 semver.workspace = true
@@ -51,7 +52,6 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 axum = { workspace = true, features = ["http1", "tokio"] }
 dcc-mcp-actions.workspace = true
 dcc-mcp-http.workspace = true
-fs4 = "1.1.0"
 hex = "0.4"
 
 [target.'cfg(unix)'.dependencies]

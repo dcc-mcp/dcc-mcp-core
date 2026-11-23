@@ -357,6 +357,29 @@ pub(crate) enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Remove only adapter state recorded by a validated install receipt.
+    Uninstall {
+        #[arg(long, env = "DCC_MCP_INSTALL_OFFLINE")]
+        offline: bool,
+        #[arg(long)]
+        dcc_type: String,
+        #[arg(long)]
+        version: Option<String>,
+        #[arg(long, env = "DCC_MCP_CATALOG_PATH")]
+        catalog: Option<PathBuf>,
+        #[arg(long)]
+        python: Option<String>,
+        #[arg(long, env = "DCC_MCP_DCC_PATH")]
+        dcc_path: Option<PathBuf>,
+        #[arg(long, env = "DCC_MCP_PLUGIN_SOURCE")]
+        plugin_source: Option<PathBuf>,
+        #[arg(long, env = "DCC_MCP_ADOBE_DEBUG_ROOT")]
+        adobe_debug_root: Option<PathBuf>,
+        #[arg(long, short = 'y')]
+        yes: bool,
+        #[arg(long)]
+        json: bool,
+    },
     /// Verify installed pip metadata and adapter imports without installing or starting a host.
     Verify {
         #[arg(long)]

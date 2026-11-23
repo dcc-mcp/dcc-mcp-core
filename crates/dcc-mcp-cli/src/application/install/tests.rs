@@ -439,6 +439,16 @@ fn adapter_import_verification_requires_the_target_interpreter() {
 }
 
 #[test]
+fn uninstall_state_is_absent_when_receipted_destination_is_missing() {
+    let root = tempfile::tempdir().unwrap();
+    let plan = verify_plan(InstallStepAction::PathCopy {
+        source: root.path().join("source"),
+        dest: root.path().join("missing"),
+    });
+    assert!(install_state_is_absent(&plan));
+}
+
+#[test]
 fn target_core_requirement_prefers_bounded_contract_and_derives_legacy_floor() {
     let mut plan = verify_plan(InstallStepAction::Verify);
     plan.adapter.min_core_version = Some("0.20.14".into());
