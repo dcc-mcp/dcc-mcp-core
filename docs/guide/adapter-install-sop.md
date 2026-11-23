@@ -543,3 +543,10 @@ detection in the Rust CLI, idempotent executor rollback, lock-aware removal
 integration, first-class Core uninstall, and catalog migration. Adapter
 conformance work can use this schema and documentation foundation without
 waiting for those executor changes.
+
+The shared pip executor now records the installed version and direct URL
+metadata reported by the target environment before an upgrade. It restores the
+same HTTPS wheel with its recorded SHA-256 during rollback, and refuses an
+upgrade when that verified rollback artifact is unavailable. Receipt-backed
+ownership, staged non-pip replacement, and the remaining idempotent executor
+contract are still separate slices.

@@ -194,7 +194,7 @@ fn pip_install_missing_python_reports_error() {
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert!(
-        matches!(&err, InstallError::StepFailed { step, .. } if step.contains("pip-install")),
+        matches!(&err, InstallError::StepFailed { step, .. } if step.contains("pip-")),
         "expected StepFailed, got {err}"
     );
 }
@@ -294,6 +294,42 @@ fn pip_install_uses_verified_direct_artifact_reference() {
             "dcc-mcp-maya".to_string(),
         ]
     );
+    assert_eq!(
+        pip_show_version(b"Name: dcc-mcp-maya\nVersion: 0.9.21\n"),
+        Some("0.9.21".into())
+    );
+    assert_eq!(pip_show_version(b"Name: dcc-mcp-maya\n"), None);
+    assert_eq!(pip_show_version(b"Version: 0.9.21 beta\n"), None);
+}
+
+#[test]
+fn pip_rollback_restores_previous_version_and_uninstalls_new_packages() {
+    let artifact = PipArtifact {
+        version: "0.9.21".into(),
+        url: "https://files.pythonhosted.org/example.whl".into(),
+        sha256: "a".repeat(64),
+        path: PathBuf::from("/tmp/dcc_mcp_maya-0.9.21-py3-none-any.whl"),
+        metadata_path: PathBuf::from("/tmp/dcc_mcp_maya-0.9.21.dist-info/direct_url.json"),
+        metadata: "{}".into(),
+    };
+    let expected_args = pip_restore_args_for_artifact("dcc-mcp-maya", &artifact);
+    let expected_path = artifact.path.clone();
+    let rollback = pip_rollback("dcc-mcp-maya", "python", Some(artifact));
+    let StepRollback::PipCommand {
+        args,
+        artifact: restored,
+        ..
+    } = rollback
+    else {
+        panic!("expected pip rollback command");
+    };
+    assert_eq!(args, expected_args);
+    assert_eq!(restored.path, expected_path);
+
+    let StepRollback::Command { args, .. } = pip_rollback("dcc-mcp-maya", "python", None) else {
+        panic!("expected uninstall rollback command");
+    };
+    assert_eq!(args, pip_uninstall_args("dcc-mcp-maya"));
 }
 
 fn verify_plan(action: InstallStepAction) -> InstallPlan {
