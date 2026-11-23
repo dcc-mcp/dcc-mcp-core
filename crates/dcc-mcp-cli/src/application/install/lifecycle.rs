@@ -172,8 +172,24 @@ pub(super) fn resume_pending(
         let payload = entry.recovery_dir.join("payload");
         let result = match operation {
             "restore" => {
-                let payload_exists = fs::symlink_metadata(&payload).is_ok();
-                let original_exists = fs::symlink_metadata(&entry.original).is_ok();
+                let payload_exists = match fs::symlink_metadata(&payload) {
+                    Ok(_) => true,
+                    Err(error) if error.kind() == io::ErrorKind::NotFound => false,
+                    Err(error) => {
+                        return Err(classify_with_recovery(&payload, error, entries.to_vec()));
+                    }
+                };
+                let original_exists = match fs::symlink_metadata(&entry.original) {
+                    Ok(_) => true,
+                    Err(error) if error.kind() == io::ErrorKind::NotFound => false,
+                    Err(error) => {
+                        return Err(classify_with_recovery(
+                            &entry.original,
+                            error,
+                            entries.to_vec(),
+                        ));
+                    }
+                };
                 if !payload_exists && original_exists {
                     Ok(())
                 } else if original_exists {
@@ -210,7 +226,15 @@ pub(super) fn resume_pending(
                 entries.to_vec(),
             ));
         }
-        let _ = fs::remove_dir(&entry.recovery_dir);
+        if let Err(error) = fs::remove_dir(&entry.recovery_dir)
+            && error.kind() != io::ErrorKind::NotFound
+        {
+            return Err(classify_with_recovery(
+                &entry.recovery_dir,
+                error,
+                entries.to_vec(),
+            ));
+        }
     }
     Ok(())
 }
