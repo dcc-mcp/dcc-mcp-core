@@ -1,3 +1,4 @@
+use std::cell::{Cell, RefCell};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -37,7 +38,10 @@ use pip::{
     pip_uninstall_args,
 };
 use policy::{AutoInstallPolicy, ask_consent, render_install_policy_prompt};
-use receipt::{commit_pip_receipt, receipt_matches_pip, receipt_path_for_plan};
+use receipt::{
+    commit_install_receipt, receipt_matches_action, receipt_owns_destinations,
+    receipt_path_for_plan,
+};
 pub use report::{
     InstallExecutionError, InstallExecutionReport, InstallReportNextStep, InstallRollbackReport,
     InstallStepReport, InstallStepRollbackReport, InstallVerifyReport,
@@ -225,31 +229,60 @@ impl InstallService {
     }
 
     fn execute_plan(&self, plan: &InstallPlan, skip_confirmation: bool) -> InstallExecutionReport {
+        let prior_receipt_owned = Cell::new(false);
+        let prior_receipt_checked = Cell::new(false);
+        let skipped_actions = RefCell::new(Vec::new());
+        let acquired_actions = RefCell::new(Vec::new());
         self.execute_plan_with_commit(
             plan,
             skip_confirmation,
-            |action, plan| match action {
-                InstallStepAction::Verify => execute_verify(plan).map(StepExecution::Completed),
-                InstallStepAction::PipInstall { .. }
-                    if receipt_matches_pip(plan).map_err(|message| {
-                        InstallError::StepFailed {
+            |action, plan| {
+                if !prior_receipt_checked.get() {
+                    prior_receipt_owned.set(receipt_owns_destinations(plan).map_err(
+                        |message| InstallError::StepFailed {
                             step: "install-receipt".into(),
                             message,
-                        }
-                    })? =>
-                {
-                    Ok(StepExecution::Completed(None))
+                        },
+                    )?);
+                    prior_receipt_checked.set(true);
                 }
-                _ => execute_action(action),
+                let result = if matches!(action, InstallStepAction::Verify) {
+                    execute_verify(plan).map(StepExecution::Completed)
+                } else if is_receipt_action(action) {
+                    let matches_receipt =
+                        receipt_matches_action(plan, action).map_err(|message| {
+                            InstallError::StepFailed {
+                                step: "install-receipt".into(),
+                                message,
+                            }
+                        })?;
+                    if matches_receipt {
+                        skipped_actions.borrow_mut().push(action.clone());
+                        Ok(StepExecution::Completed(None))
+                    } else {
+                        execute_action(action)
+                    }
+                } else {
+                    execute_action(action)
+                };
+                if matches!(&result, Ok(StepExecution::Completed(Some(_)))) {
+                    acquired_actions.borrow_mut().push(action.clone());
+                }
+                result
             },
             execute_rollback,
             |plan| {
-                commit_pip_receipt(plan)
-                    .map(|written| written.then(|| receipt_path_for_plan(plan)))
-                    .map_err(|message| InstallError::StepFailed {
-                        step: "install-receipt".into(),
-                        message,
-                    })
+                commit_install_receipt(
+                    plan,
+                    prior_receipt_owned.get(),
+                    &skipped_actions.borrow(),
+                    &acquired_actions.borrow(),
+                )
+                .map(|written| written.then(|| receipt_path_for_plan(plan)))
+                .map_err(|message| InstallError::StepFailed {
+                    step: "install-receipt".into(),
+                    message,
+                })
             },
         )
     }
@@ -488,6 +521,17 @@ impl InstallService {
         report.verify.failure_reason = Some("LIVE_DCC_VERIFICATION_REQUIRED".into());
         report
     }
+}
+
+fn is_receipt_action(action: &InstallStepAction) -> bool {
+    matches!(
+        action,
+        InstallStepAction::PipInstall { .. }
+            | InstallStepAction::GitClone { .. }
+            | InstallStepAction::ZipExtract { .. }
+            | InstallStepAction::PathCopy { .. }
+            | InstallStepAction::AdobePluginLink { .. }
+    )
 }
 
 // ── step executors ───────────────────────────────────────────────────────────────
