@@ -528,7 +528,7 @@ fn install_bundled_catalog_pins_office_adapter_wheels() {
                 plan["next_steps"][0]["url"],
                 concat!(
                     "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-word/",
-                    "8e59aa34b34ac23ffc9c419979c5644046561d22/README.md"
+                    "8e59aa34b34ac23ffc9c419979c5644046561d22/install.md"
                 )
             );
         }

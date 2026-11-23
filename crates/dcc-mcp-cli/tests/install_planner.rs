@@ -414,6 +414,72 @@ fn planner_prefers_catalog_install_instructions_url() {
 }
 
 #[test]
+fn planner_normalizes_github_readme_instructions_to_raw_install_sop() {
+    for (instructions_url, expected_url) in [
+        (
+            "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-maya/main/README.md",
+            "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-maya/main/install.md",
+        ),
+        (
+            "https://github.com/dcc-mcp/dcc-mcp-maya/blob/main/README.md",
+            "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-maya/main/install.md",
+        ),
+        (
+            "https://github.com/dcc-mcp/dcc-mcp-maya/blob/main/install.md",
+            "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-maya/main/install.md",
+        ),
+        (
+            "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-maya/refs/heads/main/README.md",
+            "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-maya/refs/heads/main/install.md",
+        ),
+        (
+            "https://github.com/dcc-mcp/dcc-mcp-maya/blob/refs/heads/main/README.md#installation",
+            "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-maya/refs/heads/main/install.md",
+        ),
+        (
+            "https://github.com/dcc-mcp/dcc-mcp-maya/blob/main/install.md?plain=1",
+            "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-maya/main/install.md",
+        ),
+    ] {
+        let install = CatalogInstall {
+            install_type: "pip".into(),
+            url: Some(
+                "https://files.pythonhosted.org/packages/example/dcc_mcp_maya-0.3.0-py3-none-any.whl"
+                    .into(),
+            ),
+            ref_: None,
+            sha256: Some("a".repeat(64)),
+            skill_roots: None,
+            pip_package: Some("dcc-mcp-maya".into()),
+            pip_extras: None,
+            python_path: None,
+            entry_point: None,
+            probe_tool: None,
+            instructions_url: Some(instructions_url.into()),
+            adobe: None,
+            sop_version: None,
+            sop_schema_digest: None,
+        };
+        let entry = catalog_entry("dcc-mcp-maya", &["maya"], Some(install));
+        let plan = InstallPlanner::plan(
+            &[entry],
+            InstallRequest {
+                dcc_type: "maya".into(),
+                version: None,
+                catalog_path: None,
+                python: Some("test-python".into()),
+                dcc_path: None,
+                plugin_source: None,
+                adobe_debug_root: None,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(plan.next_steps[0].url.as_deref(), Some(expected_url));
+    }
+}
+
+#[test]
 fn planner_generates_executable_steps_for_git_install() {
     let install = CatalogInstall {
         install_type: "git".into(),
