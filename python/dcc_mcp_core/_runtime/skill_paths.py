@@ -7,6 +7,7 @@ from pathlib import Path
 
 from dcc_mcp_core._runtime.core_availability import is_core_extension_available
 from dcc_mcp_core.constants import ENV_DCC_SKILL_PATHS_TEMPLATE
+from dcc_mcp_core.constants import ENV_MARKETPLACE_INSTALL_ROOT
 from dcc_mcp_core.constants import ENV_SKILL_PATHS
 
 
@@ -58,7 +59,7 @@ def get_skills_dir() -> str | None:
 
 def get_marketplace_skill_paths(dcc_name: str | None) -> list[str]:
     """Return shared and host-specific marketplace roots in priority order."""
-    raw_root = os.environ.get("DCC_MCP_MARKETPLACE_INSTALL_ROOT", "").strip()
+    raw_root = os.environ.get(ENV_MARKETPLACE_INSTALL_ROOT, "").strip()
     root = Path(raw_root) if raw_root else Path.home() / ".dcc-mcp" / "marketplace"
     paths = [root / "any", root / "all"]
     slug = str(dcc_name or "").strip().lower()
