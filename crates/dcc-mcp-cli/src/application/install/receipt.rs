@@ -11,6 +11,9 @@ use crate::domain::install::{InstallPlan, InstallStepAction};
 use super::pip::{pip_show_args, pip_show_version};
 use super::resolve_install_source_path;
 
+mod receipt_matching;
+pub(super) use receipt_matching::receipt_match_details;
+
 const RECEIPT_SCHEMA_VERSION: u8 = 1;
 const MAX_RECEIPT_BYTES: u64 = 128 * 1024;
 const OWNED_DIGEST_VERSION: u8 = 2;
@@ -210,18 +213,6 @@ pub(super) fn receipt_for_plan(plan: &InstallPlan) -> Option<InstallReceipt> {
     Some(receipt)
 }
 
-fn plan_for_action(plan: &InstallPlan, action: &InstallStepAction) -> InstallPlan {
-    let mut scoped = plan.clone();
-    scoped
-        .steps
-        .retain(|step| step.action.as_ref() == Some(action));
-    scoped
-}
-
-fn receipt_for_action(plan: &InstallPlan, action: &InstallStepAction) -> Option<InstallReceipt> {
-    receipt_for_plan(&plan_for_action(plan, action))
-}
-
 pub(super) fn read_receipt(path: &Path) -> Result<Option<InstallReceipt>, String> {
     let metadata = match fs::metadata(path) {
         Ok(metadata) => metadata,
@@ -285,79 +276,12 @@ pub(super) fn receipt_matches_install(plan: &InstallPlan) -> Result<bool, String
     Ok(found_action)
 }
 
-pub(super) fn receipt_match_details(
-    plan: &InstallPlan,
-    action: &InstallStepAction,
-) -> Result<(bool, Option<ReceiptOwnershipDigest>), String> {
-    let Some(expected) = receipt_for_plan(plan) else {
-        return Ok((false, None));
-    };
-    let Some(action_expected) = receipt_for_action(plan, action) else {
-        return Ok((false, None));
-    };
-    let receipt_path = receipt_path_for_plan(plan);
-    validate_receipt_location(plan, &receipt_path)?;
-    for actual in read_receipts_for_action(plan, action)? {
-        if !same_identity(&actual, &expected) && !same_identity(&actual, &action_expected) {
-            continue;
-        }
-        return match action {
-            InstallStepAction::PipInstall { .. } => Ok((
-                pip_receipt_is_healthy_for_action(&action_expected, action)?,
-                None,
-            )),
-            InstallStepAction::GitClone { ref_, dest, .. } => {
-                if !git_checkout_is_healthy(dest, ref_.as_deref()) {
-                    return Ok((false, None));
-                }
-                let digest = receipt_ownership_digest_for_action(&actual, action)?;
-                Ok((digest.is_some(), digest))
-            }
-            InstallStepAction::ZipExtract { .. }
-            | InstallStepAction::PathCopy { .. }
-            | InstallStepAction::AdobePluginLink { .. } => {
-                let digest = receipt_ownership_digest_for_action(&actual, action)?;
-                Ok((digest.is_some(), digest))
-            }
-            InstallStepAction::RegisterDcc { .. } | InstallStepAction::Verify => Ok((false, None)),
-        };
-    }
-    Ok((false, None))
-}
-
 #[cfg(test)]
 pub(super) fn receipt_matches_action(
     plan: &InstallPlan,
     action: &InstallStepAction,
 ) -> Result<bool, String> {
     Ok(receipt_match_details(plan, action)?.0)
-}
-
-fn read_receipts_for_action(
-    plan: &InstallPlan,
-    action: &InstallStepAction,
-) -> Result<Vec<InstallReceipt>, String> {
-    let scoped = plan_for_action(plan, action);
-    let paths = [
-        Some(receipt_path_for_plan(plan)),
-        Some(receipt_path_for_plan(&scoped)),
-        legacy_receipt_path_for_plan(plan),
-        legacy_receipt_path_for_plan(&scoped),
-        legacy_non_pip_receipt_path_for_plan(plan),
-        legacy_non_pip_receipt_path_for_plan(&scoped),
-    ];
-    let mut receipts = Vec::new();
-    let mut seen_paths = Vec::new();
-    for path in paths.into_iter().flatten() {
-        if seen_paths.iter().any(|seen| seen == &path) {
-            continue;
-        }
-        seen_paths.push(path.clone());
-        if let Some(receipt) = read_receipt(&path)? {
-            receipts.push(receipt);
-        }
-    }
-    Ok(receipts)
 }
 
 pub(super) fn commit_install_receipt(
