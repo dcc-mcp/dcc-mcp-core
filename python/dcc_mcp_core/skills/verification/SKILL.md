@@ -40,13 +40,19 @@ The four tools map to the four legs of the deterministic capture contract:
 - `image_stats` — mean luma, stddev, histogram, uniformity, and bad-frame flags
   (white playblast, near-black render, missing display transform).
 - `validate_scene_vs_spec` — hierarchy names, material bindings, per-mesh UV
-  coverage, part existence, non-manifold, and Euler checks, before export.
+  coverage, part existence, non-manifold, and Euler checks, before export. It
+  accepts a strict `model-spec@1` document and returns `pass`, `fail`, or
+  `unknown`.
 - `make_comparison_sheet` — reference + renders side-by-side into one image;
   packages evidence and computes no scores.
 
 Pixel-level metrics (pHash / dHash / aHash, silhouette IoU, SSIM, CIEDE2000,
 Sobel edge maps) live in `dcc_mcp_core.verification` as deterministic library
 functions, not skill tools, so callers gate on them directly.
+
+Adapters may provide a `dcc-mcp/model-state@1` payload to validate the geometry
+evidence before any check runs. Partial exports and explicitly unavailable
+checks produce `unknown`, so missing evidence is not treated as a pass.
 
 ## Safety Contract
 

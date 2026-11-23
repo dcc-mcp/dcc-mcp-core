@@ -8,6 +8,7 @@ import pytest
 
 from dcc_mcp_core.verification import SCHEMA_ANIM_CURVES
 from dcc_mcp_core.verification import SCHEMA_GRAPH_STATE
+from dcc_mcp_core.verification import SCHEMA_MODEL_STATE
 from dcc_mcp_core.verification import SCHEMA_RIG_STATE
 from dcc_mcp_core.verification import SCHEMA_SIM_STATUS
 from dcc_mcp_core.verification import SchemaValidationError
@@ -78,13 +79,35 @@ def _graph_state_payload():
     }
 
 
+def _model_state_payload():
+    return {
+        "schema_name": "dcc-mcp/model-state",
+        "schema_version": 1,
+        "partial": False,
+        "unavailable": [],
+        "parts": ["body"],
+        "hierarchy": ["root", "root/body"],
+        "meshes": [
+            {
+                "name": "body",
+                "uv_sets": 1,
+                "material": "mat_body",
+                "is_non_manifold": False,
+                "vertex_count": 8,
+            }
+        ],
+        "objects": [{"name": "body", "transform": {}, "euler": [0.0, 0.0, 0.0]}],
+    }
+
+
 class TestSchemaRegistry:
-    def test_schema_names_are_the_four_vocabularies(self):
+    def test_schema_names_include_modeling_state_vocabulary(self):
         assert set(schema_names()) == {
             SCHEMA_ANIM_CURVES,
             SCHEMA_RIG_STATE,
             SCHEMA_SIM_STATUS,
             SCHEMA_GRAPH_STATE,
+            SCHEMA_MODEL_STATE,
         }
 
     def test_schema_documents_are_valid_json_objects(self):
@@ -315,6 +338,28 @@ class TestCountFieldsAreNonNegativeIntegers:
         payload["skins"][0]["influences"] = 0
         payload["skins"][0]["unnormalized_vertices"] = 0
         validate_state_export(payload, SCHEMA_RIG_STATE)
+
+
+class TestModelState:
+    def test_valid_payload_passes(self):
+        validate_state_export(_model_state_payload(), SCHEMA_MODEL_STATE)
+
+    def test_unknown_unavailable_check_rejected(self):
+        payload = _model_state_payload()
+        payload["unavailable"] = ["materials_typo"]
+        with pytest.raises(SchemaValidationError, match="unknown checks"):
+            validate_state_export(payload, SCHEMA_MODEL_STATE)
+
+    def test_mesh_counts_and_euler_shape_are_validated(self):
+        payload = _model_state_payload()
+        payload["meshes"][0]["vertex_count"] = True
+        with pytest.raises(SchemaValidationError, match="vertex_count"):
+            validate_state_export(payload, SCHEMA_MODEL_STATE)
+
+        payload = _model_state_payload()
+        payload["objects"][0]["euler"] = [0.0, 0.0]
+        with pytest.raises(SchemaValidationError, match="three numbers"):
+            validate_state_export(payload, SCHEMA_MODEL_STATE)
 
 
 class TestSamplingValidatesElements:

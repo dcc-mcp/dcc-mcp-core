@@ -11,6 +11,7 @@ from _common import read_params
 from _common import success
 
 from dcc_mcp_core.verification import validate_scene_vs_spec as _validate
+from dcc_mcp_core.verification import validate_spec_document
 
 
 def _resolve(key: str, inline: Any, path_value: Any) -> Any:
@@ -27,16 +28,22 @@ def validate_scene_vs_spec(
     scene_path: Any = None,
     spec_path: Any = None,
 ) -> Dict[str, Any]:
-    """Validate a scene export against a spec and return {passed, failures[]}."""
+    """Validate a scene export against a strict modeling spec document."""
     resolved_scene = _resolve("scene", scene, scene_path)
     resolved_spec = _resolve("spec", spec, spec_path)
     if not isinstance(resolved_scene, dict):
         raise ValueError("scene is required and must be a JSON object")
     if not isinstance(resolved_spec, dict):
         raise ValueError("spec is required and must be a JSON object")
+    validate_spec_document(resolved_spec)
     result = _validate(resolved_scene, resolved_spec)
     payload = result.to_dict()
-    message = "Scene matches spec." if result.passed else f"Scene failed {len(result.failures)} check(s)."
+    if result.status == "pass":
+        message = "Scene matches spec."
+    elif result.status == "unknown":
+        message = "Scene spec validation is inconclusive."
+    else:
+        message = f"Scene failed {len(result.failures)} check(s)."
     return success(message, result=payload)
 
 

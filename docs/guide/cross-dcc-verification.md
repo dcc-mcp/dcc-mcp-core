@@ -67,6 +67,20 @@ Extra fields beyond the three core ones belong in `extra`. The
 comparator does not read `extra`, which keeps DCC-specific telemetry
 from ever breaking a round-trip assertion.
 
+## Modeling state and spec validation
+
+Modeling adapters can exchange a normalized `dcc-mcp/model-state@1` payload
+with the verification skill. It carries parts, hierarchy paths, mesh UV and
+topology facts, object transforms, and explicit `partial` / `unavailable`
+markers. The markers make missing evidence observable during acceptance.
+
+The matching `model-spec@1` document requires a non-empty `checks` list and
+rejects unknown configuration keys. `verification__validate_scene_vs_spec`
+returns `status` as `pass`, `fail`, or `unknown`. The legacy `passed` field is
+retained as the compatibility value `status == "pass"` during migration.
+Malformed documents are rejected before checks run. A failed check is reported
+and never blocks the modeling mutation that produced the state export.
+
 ## Deterministic capture responses
 
 Capture implementations can use `dcc_mcp_core.runtime.capture_contract` to

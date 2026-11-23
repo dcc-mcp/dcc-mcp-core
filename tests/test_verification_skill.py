@@ -152,10 +152,15 @@ def test_validate_scene_vs_spec_script_reports_uv_gap(tmp_path):
             {"name": "body", "uv_sets": 0, "material": None, "is_non_manifold": False},
         ],
     }
-    spec = {"min_uv_coverage": 1.0, "required_materials": ["mat"]}
+    spec = {
+        "checks": ["materials", "uv_coverage"],
+        "min_uv_coverage": 1.0,
+        "required_materials": ["mat"],
+    }
     result = module.main(scene=scene, spec=spec)
     assert result["success"] is True
     assert result["context"]["result"]["passed"] is False
+    assert result["context"]["result"]["status"] == "fail"
     assert {failure["check"] for failure in result["context"]["result"]["failures"]} == {"uv_coverage", "materials"}
 
 
