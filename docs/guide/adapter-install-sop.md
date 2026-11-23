@@ -419,6 +419,7 @@ The Core CLI currently records the source, destination, and SHA-256 for Git
 clones, verified ZIP extracts, local path copies, and Adobe debug links. It
 recursively digests regular files and directories, includes empty directories,
 rejects a symbolic link used as the root of a ZIP or local-copy destination,
+rejects ZIP archives that contain symbolic-link entries before extraction,
 and records exact target text for nested payload links, Git checkouts, and
 Adobe debug links without traversing them. After the receipt identity matches,
 each eligible acquisition action checks its own destination and digest before
@@ -429,10 +430,12 @@ rollback consume the receipt rather than rediscovering ownership by filename.
 Re-running the same desired version converges without duplicating hooks or
 configuration.
 
-When a Git, ZIP, local-path, or Adobe destination exists with a stale receipt,
-the Core CLI leaves that destination untouched and reports the mismatch. Keep
-the destination for inspection and retry with a clean destination until staged
-replacement support is available.
+When a Git, ZIP, local-path, or Adobe destination exists with a readable stale
+receipt, the Core CLI refuses to overwrite the destination and reports the
+step failure. Local copies use `INSTALL_STEP_FAILED`, while Git and ZIP
+acquisition uses `ACQUIRE_STEP_FAILED`. Preserve the destination for
+inspection. If a receipt cannot be read, preserve the receipt and retry with a
+clean receipt location after recording the failure for inspection.
 
 Uninstall MUST remove only receipted adapter-owned state and be idempotent when
 that state is already absent. It MUST preserve user files and refuse ambiguous

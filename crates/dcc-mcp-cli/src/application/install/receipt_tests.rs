@@ -39,6 +39,14 @@ fn receipt_filename_is_bounded_to_an_adapter_identity() {
 }
 
 #[test]
+fn overlong_legacy_receipt_names_are_treated_as_missing() {
+    let mut plan = path_plan(Path::new("destination"));
+    plan.adapter.name = "a".repeat(226);
+    assert!(legacy_receipt_path_for_plan(&plan).is_none());
+    assert!(legacy_non_pip_receipt_path_for_plan(&plan).is_none());
+}
+
+#[test]
 fn directory_digest_detects_content_and_empty_directory_changes() {
     let root = tempfile::tempdir().unwrap();
     let target = root.path().join("payload");
@@ -65,7 +73,8 @@ fn receipt_ownership_rejects_changed_or_unexpected_paths() {
     fs::write(destination.join("payload.txt"), "payload").unwrap();
     let plan = path_plan(&destination);
     let mut receipt = receipt_for_plan(&plan).unwrap();
-    receipt.owned_paths = owned_paths_for_plan(&plan).unwrap();
+    receipt.owned_paths =
+        owned_paths_for_plan(&plan, &[], &[plan.steps[0].action.clone().unwrap()]).unwrap();
 
     assert!(receipt_ownership_matches(&plan, &receipt).unwrap());
     receipt.owned_paths.push(receipt.owned_paths[0].clone());
@@ -202,7 +211,8 @@ fn receipt_commit_and_match_use_the_configured_directory() {
         let destination = PathBuf::from(std::env::var_os("DCC_MCP_RECEIPT_DEST").unwrap());
         let receipt_dir = PathBuf::from(std::env::var_os("DCC_MCP_INSTALL_RECEIPT_DIR").unwrap());
         let plan = path_plan(&destination);
-        assert!(commit_install_receipt(&plan, false, &[], &[]).unwrap());
+        let action = plan.steps[0].action.clone().unwrap();
+        assert!(commit_install_receipt(&plan, &[], &[action]).unwrap());
         assert_eq!(
             receipt_path_for_plan(&plan).parent(),
             Some(receipt_dir.as_path())
@@ -213,7 +223,7 @@ fn receipt_commit_and_match_use_the_configured_directory() {
             .unwrap()
             .unwrap();
         fs::write(destination.join("payload.txt"), "drifted").unwrap();
-        assert!(commit_install_receipt(&plan, false, &[], &[]).is_err());
+        assert!(commit_install_receipt(&plan, &[], &[]).is_err());
         assert_eq!(
             read_receipt(&receipt_path_for_plan(&plan))
                 .unwrap()

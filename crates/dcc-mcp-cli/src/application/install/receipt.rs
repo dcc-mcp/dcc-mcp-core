@@ -9,6 +9,7 @@ use sha2::{Digest, Sha256};
 use crate::domain::install::{InstallPlan, InstallStepAction};
 
 use super::pip::{pip_show_args, pip_show_version};
+use super::resolve_install_source_path;
 
 const RECEIPT_SCHEMA_VERSION: u8 = 1;
 const MAX_RECEIPT_BYTES: u64 = 128 * 1024;
@@ -21,6 +22,12 @@ fn legacy_digest_version() -> u8 {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(super) struct ReceiptOwnedPath {
     pub path: String,
+    pub sha256: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct ReceiptOwnershipDigest {
+    pub version: u8,
     pub sha256: String,
 }
 
@@ -92,10 +99,8 @@ fn legacy_receipt_path_for_plan(plan: &InstallPlan) -> Option<PathBuf> {
         .take(12)
         .map(|byte| format!("{byte:02x}"))
         .collect::<String>();
-    Some(directory.join(format!(
-        "{}-{suffix}.json",
-        legacy_safe_filename(&plan.adapter.name)
-    )))
+    legacy_safe_filename(&plan.adapter.name)
+        .map(|name| directory.join(format!("{name}-{suffix}.json")))
 }
 
 fn legacy_non_pip_receipt_path_for_plan(plan: &InstallPlan) -> Option<PathBuf> {
@@ -119,10 +124,8 @@ fn legacy_non_pip_receipt_path_for_plan(plan: &InstallPlan) -> Option<PathBuf> {
         .take(12)
         .map(|byte| format!("{byte:02x}"))
         .collect::<String>();
-    Some(directory.join(format!(
-        "{}-{suffix}.json",
-        legacy_safe_filename(&plan.adapter.name)
-    )))
+    legacy_safe_filename(&plan.adapter.name)
+        .map(|name| directory.join(format!("{name}-{suffix}.json")))
 }
 
 pub(super) fn receipt_for_plan(plan: &InstallPlan) -> Option<InstallReceipt> {
@@ -187,7 +190,7 @@ pub(super) fn receipt_for_plan(plan: &InstallPlan) -> Option<InstallReceipt> {
         }
         InstallStepAction::PathCopy { source, dest } => {
             receipt.install_type = "path".into();
-            receipt.source = source.display().to_string();
+            receipt.source = resolve_install_source_path(source).display().to_string();
             receipt.destination = Some(dest.display().to_string());
         }
         InstallStepAction::AdobePluginLink {
@@ -205,6 +208,18 @@ pub(super) fn receipt_for_plan(plan: &InstallPlan) -> Option<InstallReceipt> {
     }
     receipt.actions = receipt_actions(plan).map(action_identity).collect();
     Some(receipt)
+}
+
+fn plan_for_action(plan: &InstallPlan, action: &InstallStepAction) -> InstallPlan {
+    let mut scoped = plan.clone();
+    scoped
+        .steps
+        .retain(|step| step.action.as_ref() == Some(action));
+    scoped
+}
+
+fn receipt_for_action(plan: &InstallPlan, action: &InstallStepAction) -> Option<InstallReceipt> {
+    receipt_for_plan(&plan_for_action(plan, action))
 }
 
 pub(super) fn read_receipt(path: &Path) -> Result<Option<InstallReceipt>, String> {
@@ -270,90 +285,105 @@ pub(super) fn receipt_matches_install(plan: &InstallPlan) -> Result<bool, String
     Ok(found_action)
 }
 
+pub(super) fn receipt_match_details(
+    plan: &InstallPlan,
+    action: &InstallStepAction,
+) -> Result<(bool, Option<ReceiptOwnershipDigest>), String> {
+    let Some(expected) = receipt_for_plan(plan) else {
+        return Ok((false, None));
+    };
+    let Some(action_expected) = receipt_for_action(plan, action) else {
+        return Ok((false, None));
+    };
+    let receipt_path = receipt_path_for_plan(plan);
+    validate_receipt_location(plan, &receipt_path)?;
+    for actual in read_receipts_for_action(plan, action)? {
+        if !same_identity(&actual, &expected) && !same_identity(&actual, &action_expected) {
+            continue;
+        }
+        return match action {
+            InstallStepAction::PipInstall { .. } => Ok((
+                pip_receipt_is_healthy_for_action(&action_expected, action)?,
+                None,
+            )),
+            InstallStepAction::GitClone { ref_, dest, .. } => {
+                if !git_checkout_is_healthy(dest, ref_.as_deref()) {
+                    return Ok((false, None));
+                }
+                let digest = receipt_ownership_digest_for_action(&actual, action)?;
+                Ok((digest.is_some(), digest))
+            }
+            InstallStepAction::ZipExtract { .. }
+            | InstallStepAction::PathCopy { .. }
+            | InstallStepAction::AdobePluginLink { .. } => {
+                let digest = receipt_ownership_digest_for_action(&actual, action)?;
+                Ok((digest.is_some(), digest))
+            }
+            InstallStepAction::RegisterDcc { .. } | InstallStepAction::Verify => Ok((false, None)),
+        };
+    }
+    Ok((false, None))
+}
+
+#[cfg(test)]
 pub(super) fn receipt_matches_action(
     plan: &InstallPlan,
     action: &InstallStepAction,
 ) -> Result<bool, String> {
-    let Some(expected) = receipt_for_plan(plan) else {
-        return Ok(false);
-    };
-    let receipt_path = receipt_path_for_plan(plan);
-    validate_receipt_location(plan, &receipt_path)?;
-    let Some(actual) = read_receipt_for_plan(plan)? else {
-        return Ok(false);
-    };
-    if !same_identity(&actual, &expected) {
-        return Ok(false);
-    }
-    match action {
-        InstallStepAction::PipInstall { .. } => {
-            pip_receipt_is_healthy_for_action(&expected, action)
-        }
-        InstallStepAction::GitClone { ref_, dest, .. } => {
-            Ok(git_checkout_is_healthy(dest, ref_.as_deref())
-                && receipt_ownership_matches_action(&actual, action)?)
-        }
-        InstallStepAction::ZipExtract { .. }
-        | InstallStepAction::PathCopy { .. }
-        | InstallStepAction::AdobePluginLink { .. } => {
-            receipt_ownership_matches_action(&actual, action)
-        }
-        InstallStepAction::RegisterDcc { .. } | InstallStepAction::Verify => Ok(false),
-    }
+    Ok(receipt_match_details(plan, action)?.0)
 }
 
-pub(super) fn receipt_owns_destinations(plan: &InstallPlan) -> Result<bool, String> {
-    let receipt_path = receipt_path_for_plan(plan);
-    validate_receipt_location(plan, &receipt_path)?;
-    let actual = match read_receipt_for_plan(plan) {
-        Ok(Some(receipt)) => receipt,
-        Ok(None) => return Ok(false),
-        Err(error) => return Err(error),
-    };
-    receipt_ownership_matches(plan, &actual)
-}
-
-fn read_receipt_for_plan(plan: &InstallPlan) -> Result<Option<InstallReceipt>, String> {
-    let path = receipt_path_for_plan(plan);
-    if let Some(receipt) = read_receipt(&path)? {
-        return Ok(Some(receipt));
-    }
-    for legacy_path in [
+fn read_receipts_for_action(
+    plan: &InstallPlan,
+    action: &InstallStepAction,
+) -> Result<Vec<InstallReceipt>, String> {
+    let scoped = plan_for_action(plan, action);
+    let paths = [
+        Some(receipt_path_for_plan(plan)),
+        Some(receipt_path_for_plan(&scoped)),
         legacy_receipt_path_for_plan(plan),
+        legacy_receipt_path_for_plan(&scoped),
         legacy_non_pip_receipt_path_for_plan(plan),
-    ]
-    .into_iter()
-    .flatten()
-    {
-        if legacy_path != path
-            && let Some(receipt) = read_receipt(&legacy_path)?
-        {
-            return Ok(Some(receipt));
+        legacy_non_pip_receipt_path_for_plan(&scoped),
+    ];
+    let mut receipts = Vec::new();
+    let mut seen_paths = Vec::new();
+    for path in paths.into_iter().flatten() {
+        if seen_paths.iter().any(|seen| seen == &path) {
+            continue;
+        }
+        seen_paths.push(path.clone());
+        if let Some(receipt) = read_receipt(&path)? {
+            receipts.push(receipt);
         }
     }
-    Ok(None)
+    Ok(receipts)
 }
 
 pub(super) fn commit_install_receipt(
     plan: &InstallPlan,
-    allow_validated_upgrade: bool,
-    skipped_actions: &[InstallStepAction],
+    skipped_actions: &[(InstallStepAction, Option<ReceiptOwnershipDigest>)],
     acquired_actions: &[InstallStepAction],
 ) -> Result<bool, String> {
     let Some(mut receipt) = receipt_for_plan(plan) else {
         return Ok(false);
     };
-    let path = receipt_path_for_plan(plan);
+    let configured_path = receipt_path_for_plan(plan);
+    validate_receipt_location(plan, &configured_path)?;
+    let path = resolve_receipt_for_containment(&configured_path)?;
     validate_receipt_location(plan, &path)?;
-    receipt.owned_paths = owned_paths_for_plan(plan)?;
+    receipt.owned_paths = owned_paths_for_plan(plan, skipped_actions, acquired_actions)?;
+    if !skipped_candidate_matches(&receipt, skipped_actions)? {
+        return Err("a skipped install destination changed before receipt commit".into());
+    }
     let existing_receipt = read_receipt(&path)?;
     match existing_receipt {
         Some(existing) if existing == receipt => return Ok(true),
         Some(existing)
-            if (allow_validated_upgrade || !acquired_actions.is_empty())
+            if (!skipped_actions.is_empty() || !acquired_actions.is_empty())
                 && same_receipt_scope(&existing, &receipt)
                 && same_destination_set(&existing, &receipt)
-                && skipped_ownership_matches(&existing, &receipt, skipped_actions)? => {}
+                && skipped_ownership_matches(&existing, &mut receipt, skipped_actions)? => {}
         Some(existing) if receipt_can_be_extended(&existing, &receipt) => {}
         Some(existing) if same_install_target(&existing, &receipt) => {}
         Some(_) => {
@@ -473,11 +503,12 @@ fn same_install_target(actual: &InstallReceipt, expected: &InstallReceipt) -> bo
     actual == expected
 }
 
+#[cfg(test)]
 fn receipt_ownership_matches(plan: &InstallPlan, receipt: &InstallReceipt) -> Result<bool, String> {
     let expected = owned_path_specs(plan);
     let mut expected_paths = expected
         .iter()
-        .map(|(path, _, _, _)| path.display().to_string())
+        .map(|(_, path, _, _, _)| path.display().to_string())
         .collect::<Vec<_>>();
     let mut actual_paths = receipt
         .owned_paths
@@ -492,7 +523,8 @@ fn receipt_ownership_matches(plan: &InstallPlan, receipt: &InstallReceipt) -> Re
     for owned in &receipt.owned_paths {
         let Some((path, allow_nested_symlink, allow_root_symlink, exclude_git)) = expected
             .iter()
-            .find(|(path, _, _, _)| path.display().to_string() == owned.path)
+            .find(|(_, path, _, _, _)| path.display().to_string() == owned.path)
+            .map(|(_, path, nested, root, git)| (path, nested, root, git))
         else {
             return Ok(false);
         };
@@ -512,14 +544,14 @@ fn receipt_ownership_matches(plan: &InstallPlan, receipt: &InstallReceipt) -> Re
     Ok(true)
 }
 
-fn receipt_ownership_matches_action(
+fn receipt_ownership_digest_for_action(
     receipt: &InstallReceipt,
     action: &InstallStepAction,
-) -> Result<bool, String> {
+) -> Result<Option<ReceiptOwnershipDigest>, String> {
     let Some((path, allow_nested_symlink, allow_root_symlink, exclude_git)) =
         owned_path_spec_for_action(action)
     else {
-        return Ok(false);
+        return Ok(None);
     };
     let matching = receipt
         .owned_paths
@@ -527,7 +559,7 @@ fn receipt_ownership_matches_action(
         .filter(|owned| owned.path == path.display().to_string())
         .collect::<Vec<_>>();
     if matching.len() != 1 {
-        return Ok(false);
+        return Ok(None);
     }
     let digest = path_digest_for_receipt(
         path,
@@ -536,7 +568,13 @@ fn receipt_ownership_matches_action(
         exclude_git,
         receipt.owned_digest_version,
     )?;
-    Ok(digest.as_deref() == Some(matching[0].sha256.as_str()))
+    if digest.as_deref() != Some(matching[0].sha256.as_str()) {
+        return Ok(None);
+    }
+    Ok(digest.map(|sha256| ReceiptOwnershipDigest {
+        version: receipt.owned_digest_version,
+        sha256,
+    }))
 }
 
 fn receipt_can_be_extended(existing: &InstallReceipt, expected: &InstallReceipt) -> bool {
@@ -603,17 +641,55 @@ fn same_receipt_scope(existing: &InstallReceipt, expected: &InstallReceipt) -> b
 
 fn skipped_ownership_matches(
     receipt: &InstallReceipt,
-    candidate: &InstallReceipt,
-    skipped_actions: &[InstallStepAction],
+    candidate: &mut InstallReceipt,
+    skipped_actions: &[(InstallStepAction, Option<ReceiptOwnershipDigest>)],
 ) -> Result<bool, String> {
-    for action in skipped_actions {
+    for (action, validated_digest) in skipped_actions {
         let Some((path, _, _, _)) = owned_path_spec_for_action(action) else {
             continue;
         };
         let path = path.display().to_string();
-        let Some(previous) = receipt.owned_paths.iter().find(|owned| owned.path == path) else {
+        let Some(validated_digest) = validated_digest else {
+            continue;
+        };
+        let Some(current) = candidate
+            .owned_paths
+            .iter_mut()
+            .find(|owned| owned.path == path)
+        else {
             return Ok(false);
         };
+        if validated_digest.version == candidate.owned_digest_version {
+            if validated_digest.sha256 != current.sha256 {
+                return Ok(false);
+            }
+            current.sha256 = validated_digest.sha256.clone();
+        } else {
+            let Some(previous) = receipt.owned_paths.iter().find(|owned| owned.path == path) else {
+                return Ok(false);
+            };
+            if receipt_ownership_digest_for_action(receipt, action)?
+                .is_none_or(|digest| digest.sha256 != previous.sha256)
+            {
+                return Ok(false);
+            }
+        }
+    }
+    Ok(true)
+}
+
+fn skipped_candidate_matches(
+    candidate: &InstallReceipt,
+    skipped_actions: &[(InstallStepAction, Option<ReceiptOwnershipDigest>)],
+) -> Result<bool, String> {
+    for (action, validated) in skipped_actions {
+        let Some(validated) = validated else {
+            continue;
+        };
+        let Some((path, _, _, _)) = owned_path_spec_for_action(action) else {
+            continue;
+        };
+        let path = path.display().to_string();
         let Some(current) = candidate
             .owned_paths
             .iter()
@@ -621,11 +697,27 @@ fn skipped_ownership_matches(
         else {
             return Ok(false);
         };
-        if receipt.owned_digest_version == candidate.owned_digest_version {
-            if previous.sha256 != current.sha256 {
+        if validated.version == candidate.owned_digest_version {
+            if current.sha256 != validated.sha256 {
                 return Ok(false);
             }
-        } else if !receipt_ownership_matches_action(receipt, action)? {
+            continue;
+        }
+        let Some((path, allow_nested_symlink, allow_root_symlink, exclude_git)) =
+            owned_path_spec_for_action(action)
+        else {
+            continue;
+        };
+        if path_digest_for_receipt(
+            path,
+            allow_nested_symlink,
+            allow_root_symlink,
+            exclude_git,
+            validated.version,
+        )?
+        .as_deref()
+            != Some(validated.sha256.as_str())
+        {
             return Ok(false);
         }
     }
@@ -683,7 +775,7 @@ fn git_checkout_is_healthy(dest: &Path, ref_: Option<&str>) -> bool {
 
 fn validate_receipt_location(plan: &InstallPlan, receipt_path: &Path) -> Result<(), String> {
     let receipt_path = resolve_receipt_for_containment(receipt_path)?;
-    for (destination, _, _, _) in owned_path_specs(plan) {
+    for (_, destination, _, _, _) in owned_path_specs(plan) {
         if receipt_path.starts_with(resolve_for_containment(&destination)?) {
             return Err(format!(
                 "install receipt must not be stored inside an owned destination: {}",
@@ -759,9 +851,34 @@ fn last_path_component(path: &Path) -> Option<std::ffi::OsString> {
     }
 }
 
-fn owned_paths_for_plan(plan: &InstallPlan) -> Result<Vec<ReceiptOwnedPath>, String> {
+fn owned_paths_for_plan(
+    plan: &InstallPlan,
+    skipped_actions: &[(InstallStepAction, Option<ReceiptOwnershipDigest>)],
+    acquired_actions: &[InstallStepAction],
+) -> Result<Vec<ReceiptOwnedPath>, String> {
+    let has_execution_state = !skipped_actions.is_empty() || !acquired_actions.is_empty();
     let mut owned = Vec::new();
-    for (path, allow_nested_symlink, allow_root_symlink, exclude_git) in owned_path_specs(plan) {
+    for (_action, path, allow_nested_symlink, allow_root_symlink, exclude_git) in
+        owned_path_specs(plan).into_iter().filter_map(
+            |(action, path, allow_nested_symlink, allow_root_symlink, exclude_git)| {
+                if has_execution_state
+                    && !skipped_actions
+                        .iter()
+                        .any(|(skipped, _)| skipped == &action)
+                    && !acquired_actions.iter().any(|acquired| acquired == &action)
+                {
+                    return None;
+                }
+                Some((
+                    action,
+                    path,
+                    allow_nested_symlink,
+                    allow_root_symlink,
+                    exclude_git,
+                ))
+            },
+        )
+    {
         let digest =
             path_digest_with_policy(&path, allow_nested_symlink, allow_root_symlink, exclude_git)?
                 .ok_or_else(|| {
@@ -778,24 +895,36 @@ fn owned_paths_for_plan(plan: &InstallPlan) -> Result<Vec<ReceiptOwnedPath>, Str
     Ok(owned)
 }
 
-fn owned_path_specs(plan: &InstallPlan) -> Vec<(PathBuf, bool, bool, bool)> {
+fn owned_path_specs(plan: &InstallPlan) -> Vec<(InstallStepAction, PathBuf, bool, bool, bool)> {
     let mut paths = plan
         .steps
         .iter()
         .filter_map(|step| match step.action.as_ref()? {
-            InstallStepAction::GitClone { dest, .. } => Some((dest.clone(), true, false, true)),
-            InstallStepAction::ZipExtract { dest, .. }
-            | InstallStepAction::PathCopy { dest, .. } => Some((dest.clone(), true, false, false)),
-            InstallStepAction::AdobePluginLink { dest, .. } => {
-                Some((dest.clone(), false, true, false))
+            action @ InstallStepAction::GitClone { dest, .. } => {
+                Some((action.clone(), dest.clone(), true, false, true))
             }
+            InstallStepAction::ZipExtract { dest, .. }
+            | InstallStepAction::PathCopy { dest, .. } => Some((
+                step.action.as_ref()?.clone(),
+                dest.clone(),
+                true,
+                false,
+                false,
+            )),
+            InstallStepAction::AdobePluginLink { dest, .. } => Some((
+                step.action.as_ref()?.clone(),
+                dest.clone(),
+                false,
+                true,
+                false,
+            )),
             InstallStepAction::PipInstall { .. }
             | InstallStepAction::RegisterDcc { .. }
             | InstallStepAction::Verify => None,
         })
         .collect::<Vec<_>>();
-    paths.sort_by(|left, right| left.0.cmp(&right.0));
-    paths.dedup();
+    paths.sort_by(|left, right| left.1.cmp(&right.1));
+    paths.dedup_by(|left, right| left.1 == right.1);
     paths
 }
 
@@ -1095,23 +1224,47 @@ fn replace_receipt_file(
 
     #[cfg(windows)]
     {
-        let previous = destination
-            .exists()
-            .then(|| fs::read(destination))
-            .transpose()
-            .map_err(|error| format!("failed to back up install receipt: {error}"))?;
-        if destination.exists() {
-            fs::remove_file(destination)
-                .map_err(|error| format!("failed to replace install receipt: {error}"))?;
+        let temporary = temporary.into_temp_path();
+        use std::os::windows::ffi::OsStrExt;
+        use windows_sys::Win32::Storage::FileSystem::{
+            FILE_ATTRIBUTE_TEMPORARY, GetFileAttributesW, INVALID_FILE_ATTRIBUTES,
+            MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH, MoveFileExW, SetFileAttributesW,
+        };
+        let from = temporary
+            .as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect::<Vec<_>>();
+        let attributes = unsafe { GetFileAttributesW(from.as_ptr()) };
+        if attributes != INVALID_FILE_ATTRIBUTES
+            && attributes & FILE_ATTRIBUTE_TEMPORARY != 0
+            && unsafe { SetFileAttributesW(from.as_ptr(), attributes & !FILE_ATTRIBUTE_TEMPORARY) }
+                == 0
+        {
+            return Err(format!(
+                "failed to prepare install receipt for commit: {}",
+                std::io::Error::last_os_error()
+            ));
         }
-        match temporary.persist(destination) {
-            Ok(_) => Ok(()),
-            Err(error) => {
-                if let Some(previous) = previous {
-                    let _ = fs::write(destination, previous);
-                }
-                Err(format!("failed to commit install receipt: {error}"))
-            }
+        let to = destination
+            .as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect::<Vec<_>>();
+        let ok = unsafe {
+            MoveFileExW(
+                from.as_ptr(),
+                to.as_ptr(),
+                MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+            )
+        };
+        if ok == 0 {
+            Err(format!(
+                "failed to commit install receipt: {}",
+                std::io::Error::last_os_error()
+            ))
+        } else {
+            Ok(())
         }
     }
 }
@@ -1188,7 +1341,11 @@ fn action_identity(action: &InstallStepAction) -> String {
             )
         }
         InstallStepAction::PathCopy { source, dest } => {
-            format!("path\n{}\n{}", source.display(), dest.display())
+            format!(
+                "path\n{}\n{}",
+                resolve_install_source_path(source).display(),
+                dest.display()
+            )
         }
         InstallStepAction::AdobePluginLink {
             source,
@@ -1245,6 +1402,13 @@ fn normalized_git_ref(value: Option<&str>) -> String {
 
 fn credential_free_url(value: &str) -> String {
     let Ok(mut url) = reqwest::Url::parse(value) else {
+        if let Some((user_host, repository)) = value.split_once(':')
+            && let Some(host) = user_host.rsplit_once('@').map(|(_, host)| host)
+            && !host.is_empty()
+            && !repository.is_empty()
+        {
+            return format!("ssh://{host}/{repository}");
+        }
         return value
             .split(['?', '#'])
             .next()
@@ -1346,7 +1510,7 @@ fn safe_filename(value: &str) -> String {
     }
 }
 
-fn legacy_safe_filename(value: &str) -> String {
+fn legacy_safe_filename(value: &str) -> Option<String> {
     let sanitized = value
         .chars()
         .map(|character| {
@@ -1358,9 +1522,11 @@ fn legacy_safe_filename(value: &str) -> String {
         })
         .collect::<String>();
     if sanitized.is_empty() {
-        "adapter".into()
+        Some("adapter".into())
+    } else if sanitized.len() > 225 {
+        None
     } else {
-        sanitized
+        Some(sanitized)
     }
 }
 
