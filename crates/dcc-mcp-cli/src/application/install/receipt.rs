@@ -191,7 +191,7 @@ fn replace_receipt_file(
         temporary
             .persist(destination)
             .map_err(|error| format!("failed to commit install receipt: {error}"))?;
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(windows)]
