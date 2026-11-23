@@ -44,11 +44,9 @@ fn load_nonexistent_dirs() {
 fn load_keeps_first_occurrence_on_duplicate_name() {
     let tmp = tempfile::tempdir().unwrap();
 
-    // Search-root order matters: the first directory models a host-specific
-    // marketplace root, the second the shared host-neutral `any` root.
-    let host_dir = tmp.path().join("maya").join("demo");
     let neutral_dir = tmp.path().join("any").join("demo");
-    for dir in [&host_dir, &neutral_dir] {
+    let host_dir = tmp.path().join("maya").join("demo");
+    for dir in [&neutral_dir, &host_dir] {
         std::fs::create_dir_all(dir).unwrap();
         std::fs::write(
             dir.join(SKILL_METADATA_FILE),
@@ -58,15 +56,15 @@ fn load_keeps_first_occurrence_on_duplicate_name() {
     }
 
     let dirs = vec![
-        host_dir.to_string_lossy().to_string(),
         neutral_dir.to_string_lossy().to_string(),
+        host_dir.to_string_lossy().to_string(),
     ];
     let (skills, skipped) = load_all_skills(&dirs);
 
-    // One name -> one skill, and it is the higher-priority (first) root.
+    // One name -> one skill, and it is the shared root with higher priority.
     assert_eq!(skills.len(), 1);
     assert_eq!(skills[0].name, "demo");
-    assert_eq!(skills[0].skill_path, host_dir.to_string_lossy());
+    assert_eq!(skills[0].skill_path, neutral_dir.to_string_lossy());
 
     // A shadowed duplicate parsed fine, so it is not a load failure: strict
     // mode must not reject it.

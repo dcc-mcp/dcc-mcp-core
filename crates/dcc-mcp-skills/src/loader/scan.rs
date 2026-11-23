@@ -217,9 +217,8 @@ pub(crate) fn load_all_skills(dirs: &[String]) -> (Vec<SkillMetadata>, Vec<Strin
     let mut skipped = Vec::new();
     // The catalog keys skills by name, so two directories claiming the same
     // name are one skill with two candidates, not two skills. Keep the first
-    // occurrence: `dirs` follows the skill search path order, so an earlier
-    // root (a host-specific marketplace directory) outranks a later one (the
-    // shared host-neutral `any` directory).
+    // occurrence: `dirs` follows the skill search path order, so the shared
+    // host-neutral `any` directory outranks a later host-specific directory.
     //
     // Without this, `SkillCatalog::discover` picks the first (it skips names
     // already present) but `SkillCatalog::rediscover` overwrites the entry

@@ -187,6 +187,7 @@ pub async fn handle_marketplace_install(
                 path: result.path,
                 skill_search_path: result.skill_search_path,
                 install_type: result.install_type,
+                superseded: result.superseded,
                 reload_required: result.reload_required,
             })
             .into_response()

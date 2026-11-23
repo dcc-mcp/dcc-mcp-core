@@ -282,7 +282,7 @@ wrong instead of seeing `Unexpected token '<'`.
 |-------|-------------|-------------|
 | `GET /admin/api/marketplace/catalog` | `application/json` | List available packages from all configured sources. Returns `{ entries: MarketplaceEntry[] }`. |
 | `GET /admin/api/marketplace/installed` | `application/json` | List locally installed packages with per-DCC grouping. Returns `{ packages: InstalledMarketplacePackage[] }`. |
-| `POST /admin/api/marketplace/install` | `application/json` | Install a package. Body: `{ name, dcc, source?, force? }`. Returns `InstallResultResponse` with `reload_required` flag. |
+| `POST /admin/api/marketplace/install` | `application/json` | Install a package. Body: `{ name, dcc, source?, force? }`. Returns `InstallResultResponse` with `reload_required` and optional `superseded` legacy-copy paths. |
 | `POST /admin/api/marketplace/uninstall` | `application/json` | Uninstall a package. Body: `{ name, dcc }`. Returns `UninstallResultResponse` with `reload_required` flag. |
 | `GET /admin/api/marketplace/sources` | `application/json` | List configured marketplace sources with origin (builtin, config, env). |
 | `POST /admin/api/marketplace/sources` | `application/json` | Add a marketplace source to the persistent config. Body: `{ source }`. Duplicate additions are idempotent. |

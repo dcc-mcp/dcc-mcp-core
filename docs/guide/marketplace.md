@@ -103,13 +103,14 @@ dcc-mcp-cli marketplace install dcc-asset-polyhaven --dcc all
 |-------------------------|----------------------------------|-------------------------------|
 | One host (`["maya"]`)   | omitted, or `maya`               | `marketplace/maya/<name>/`    |
 | Several hosts           | omitted, `all`, or `any`         | `marketplace/any/<name>/`     |
-| Host-neutral (`["any"]`)| omitted, `all`, `any`, or a host | `marketplace/any/<name>/`, or the named host |
+| Host-neutral (`["any"]`)| omitted, `all`, `any`, or a host | `marketplace/any/<name>/` |
 
 The shared `any` directory is already part of every host's skill search path,
-so one copy is found by all of them, and a host-specific copy still outranks it
-for that host. `--dcc all` on an entry that declares a single concrete host is
-rejected: such an entry is host-specific and keeps landing in its own
-directory.
+so one copy is found by all of them. Shared marketplace roots are searched
+before host-specific roots, which keeps one canonical multi-host version from
+being shadowed by an older per-host copy. `--dcc all` on an entry that declares
+a single concrete host is rejected: such an entry is host-specific and keeps
+landing in its own directory.
 
 Because a host really does load shared packages, `marketplace list-installed
 --dcc <host>` reports them and `marketplace uninstall <name> --dcc <host>`
@@ -117,8 +118,8 @@ removes them.
 
 Packages installed before this behaviour existed left one copy per host behind.
 Installing the shared copy reports those paths in the install JSON as
-`superseded`; they keep shadowing the shared copy — and keep costing disk —
-until they are removed:
+`superseded`; they remain duplicate files and keep costing disk until they are
+removed:
 
 ```bash
 dcc-mcp-cli marketplace uninstall dcc-asset-polyhaven --dcc maya
@@ -348,6 +349,10 @@ Installed packages land under:
 ~/.dcc-mcp/marketplace/
 ├── sources.json              # registered source list
 ├── installed.json            # installed-package state
+├── any/                      # shared host-neutral and multi-host installs
+│   └── dcc-asset-polyhaven/
+├── all/                      # legacy shared-install directory
+│   └── legacy-skill/
 ├── maya/
 │   ├── dcc-mcp-maya-skills/  # installed git clone
 │   ├── my-custom-skill/      # installed path copy
@@ -357,9 +362,11 @@ Installed packages land under:
     └── dcc-blender-skills/
 ```
 
-DCC adapters automatically include `~/.dcc-mcp/marketplace/<dcc>` in their
-skill search paths (see `collect_skill_search_paths()` in `server_base.py`),
-so installed skills appear on adapter startup or `reload_skill_paths`.
+DCC adapters automatically include `~/.dcc-mcp/marketplace/any`, the legacy
+`~/.dcc-mcp/marketplace/all`, and `~/.dcc-mcp/marketplace/<dcc>` in that order
+in their skill search paths (see `collect_skill_search_paths()` in
+`server_base.py`), so installed skills appear on adapter startup or
+`reload_skill_paths`.
 
 ## Environment Variables
 

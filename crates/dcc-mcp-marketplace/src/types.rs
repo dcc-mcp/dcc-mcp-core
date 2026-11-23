@@ -89,8 +89,8 @@ pub struct MarketplaceInstallResult {
     /// Per-host installs that this install replaces, for entries that now land
     /// in the shared host-neutral directory.
     ///
-    /// Older per-host copies keep shadowing the shared one until they are
-    /// removed, so the paths are reported instead of deleted silently.
+    /// Older per-host copies remain duplicate files until they are removed,
+    /// so the paths are reported instead of deleted silently.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub superseded: Vec<String>,
     /// Immutable git revision that was actually installed, when the source supplies one.

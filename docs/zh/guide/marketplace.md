@@ -92,18 +92,18 @@ dcc-mcp-cli marketplace install dcc-asset-polyhaven --dcc all
 |---------------------------|--------------------------------|-----------------------------|
 | 单个宿主（`["maya"]`）    | 省略，或 `maya`                | `marketplace/maya/<name>/`  |
 | 多个宿主                  | 省略、`all` 或 `any`           | `marketplace/any/<name>/`   |
-| 宿主无关（`["any"]`）     | 省略、`all`、`any` 或具体宿主  | `marketplace/any/<name>/`，或指定宿主目录 |
+| 宿主无关（`["any"]`）     | 省略、`all`、`any` 或具体宿主  | `marketplace/any/<name>/` |
 
 共享目录 `any` 本来就在每个宿主的 skill 搜索路径里，所以一份副本即可被所有宿主
-发现；某个宿主自己的副本仍然存在时，对该宿主的优先级更高。对只声明单个具体宿主
-的条目，`--dcc all` 会被拒绝：这类条目与宿主绑定，仍落在自己的目录里。
+发现。共享 Marketplace 目录会排在宿主专属目录之前，避免旧的宿主副本遮蔽多宿主包
+的统一版本。对只声明单个具体宿主的条目，`--dcc all` 会被拒绝：这类条目与宿主绑定，
+仍落在自己的目录里。
 
 宿主确实会加载共享包，因此 `marketplace list-installed --dcc <host>` 会列出它们，
 `marketplace uninstall <name> --dcc <host>` 也能移除它们。
 
 在此行为之前安装的包会在每个宿主目录下各留一份。安装共享副本时，这些路径会以
-`superseded` 出现在安装 JSON 里；它们会继续遮蔽共享副本并继续占用磁盘，直到被
-移除：
+`superseded` 出现在安装 JSON 里；它们仍是重复文件并继续占用磁盘，直到被移除：
 
 ```bash
 dcc-mcp-cli marketplace uninstall dcc-asset-polyhaven --dcc maya
@@ -218,6 +218,10 @@ jobs:
 ~/.dcc-mcp/marketplace/
 ├── sources.json              # 注册的源列表
 ├── installed.json            # 已安装包的状态
+├── any/                      # 共享的宿主无关、多宿主安装
+│   └── dcc-asset-polyhaven/
+├── all/                      # 兼容旧版本的共享安装目录
+│   └── legacy-skill/
 ├── maya/
 │   ├── dcc-mcp-maya-skills/  # 已安装的 git 克隆
 │   ├── my-custom-skill/      # 已安装的路径复制
@@ -227,9 +231,10 @@ jobs:
     └── dcc-blender-skills/
 ```
 
-DCC 适配器会自动将 `~/.dcc-mcp/marketplace/<dcc>` 加入其技能搜索路径
-（参见 `server_base.py` 中的 `collect_skill_search_paths()`），因此
-已安装的技能会在适配器启动或 `reload_skill_paths` 时被发现。
+DCC 适配器会按 `~/.dcc-mcp/marketplace/any`、旧版共享目录
+`~/.dcc-mcp/marketplace/all`、`~/.dcc-mcp/marketplace/<dcc>` 的顺序加入技能搜索路径
+（参见 `server_base.py` 中的 `collect_skill_search_paths()`），因此已安装的技能会在
+适配器启动或 `reload_skill_paths` 时被发现。
 
 ## 环境变量
 
