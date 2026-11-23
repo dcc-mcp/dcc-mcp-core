@@ -839,8 +839,73 @@ fn install_instructions_url(entry: &CatalogEntry) -> Option<String> {
         .install
         .as_ref()
         .and_then(|install| non_empty(install.instructions_url.as_deref()))
-        .map(str::to_string)
+        .and_then(normalize_instructions_url)
         .or_else(|| entry.url.as_deref().and_then(github_install_md_raw_url))
+}
+
+fn normalize_instructions_url(url: &str) -> Option<String> {
+    let url = url.trim();
+    if url.is_empty() {
+        return None;
+    }
+    normalize_github_instructions_url(url).or_else(|| Some(url.to_string()))
+}
+
+fn normalize_github_instructions_url(url: &str) -> Option<String> {
+    let url = url.split(['?', '#']).next()?;
+    let raw_prefix = "https://raw.githubusercontent.com/";
+    if let Some(path) = url.strip_prefix(raw_prefix) {
+        let mut parts = path.splitn(3, '/');
+        let owner = parts.next()?;
+        let name = parts.next()?;
+        let (reference, document) = parts.next()?.rsplit_once('/')?;
+        return normalized_github_document_url(raw_prefix, owner, name, reference, document);
+    }
+
+    let github_prefix = "https://github.com/";
+    let path = url.strip_prefix(github_prefix)?;
+    let mut parts = path.splitn(4, '/');
+    let owner = parts.next()?;
+    let name = parts.next()?;
+    if parts.next()? != "blob" {
+        return None;
+    }
+    let (reference, document) = parts.next()?.rsplit_once('/')?;
+    normalized_github_document_url(raw_prefix, owner, name, reference, document)
+}
+
+fn normalized_github_document_url(
+    raw_prefix: &str,
+    owner: &str,
+    name: &str,
+    reference: &str,
+    document: &str,
+) -> Option<String> {
+    if owner.is_empty() || name.is_empty() || reference.is_empty() {
+        return None;
+    }
+    let document = if is_readme_document(document) {
+        "install.md"
+    } else if is_install_document(document) {
+        document
+    } else {
+        return None;
+    };
+    Some(format!("{raw_prefix}{owner}/{name}/{reference}/{document}"))
+}
+
+fn is_readme_document(document: &str) -> bool {
+    matches!(
+        document.rsplit('/').next(),
+        Some("README" | "README.md" | "readme" | "readme.md")
+    )
+}
+
+fn is_install_document(document: &str) -> bool {
+    document
+        .rsplit('/')
+        .next()
+        .is_some_and(|name| name.eq_ignore_ascii_case("install.md"))
 }
 
 fn github_install_md_raw_url(url: &str) -> Option<String> {
