@@ -134,6 +134,107 @@ fn normalized_dcc_aliases_still_discover_host_python() {
 }
 
 #[test]
+fn blender_discovers_python_from_its_bundled_runtime_layout() {
+    let dir = tempfile::tempdir().unwrap();
+    let host = dir.path().join("blender.exe");
+    let python_dir = dir.path().join("4.3").join("python").join("bin");
+    std::fs::create_dir_all(&python_dir).unwrap();
+    let python = python_dir.join(if cfg!(windows) {
+        "python.exe"
+    } else {
+        "python3.11"
+    });
+    write_executable(&host);
+    write_executable(&python);
+
+    let result = plan("blender", Some(host), None, None).unwrap();
+
+    assert_eq!(result["python_source"], "discovered_host");
+    assert_eq!(
+        result["steps"][0]["action"]["python"],
+        python.to_str().unwrap()
+    );
+}
+
+#[test]
+fn blender_discovers_python_from_a_macos_app_resources_layout() {
+    let dir = tempfile::tempdir().unwrap();
+    let contents = dir.path().join("Blender.app").join("Contents");
+    let bundle = dir.path().join("Blender.app");
+    let host = contents.join("MacOS").join("Blender");
+    let python_dir = contents
+        .join("Resources")
+        .join("4.3")
+        .join("python")
+        .join("bin");
+    std::fs::create_dir_all(host.parent().unwrap()).unwrap();
+    std::fs::create_dir_all(&python_dir).unwrap();
+    let python = python_dir.join(if cfg!(windows) {
+        "python.exe"
+    } else {
+        "python3.11"
+    });
+    write_executable(&host);
+    write_executable(&python);
+
+    let result = plan("blender", Some(bundle), None, None).unwrap();
+
+    assert_eq!(result["python_source"], "discovered_host");
+    assert_eq!(
+        result["steps"][0]["action"]["python"],
+        python.to_str().unwrap()
+    );
+}
+
+#[test]
+fn multiple_blender_runtimes_fail_closed_without_an_explicit_python() {
+    let dir = tempfile::tempdir().unwrap();
+    let host = dir.path().join("blender.exe");
+    write_executable(&host);
+    for version in ["4.2", "4.3"] {
+        let python = dir
+            .path()
+            .join(version)
+            .join("python")
+            .join("bin")
+            .join(if cfg!(windows) {
+                "python.exe"
+            } else {
+                "python3.11"
+            });
+        std::fs::create_dir_all(python.parent().unwrap()).unwrap();
+        write_executable(python);
+    }
+
+    assert!(matches!(
+        plan("blender", Some(host), None, None),
+        Err(InstallPlanError::AmbiguousHostInterpreters { .. })
+    ));
+}
+
+#[cfg(windows)]
+#[test]
+fn blender_ignores_backup_python_executables() {
+    let dir = tempfile::tempdir().unwrap();
+    let host = dir.path().join("blender.exe");
+    let python_dir = dir.path().join("4.3").join("python").join("bin");
+    std::fs::create_dir_all(&python_dir).unwrap();
+    let python = python_dir.join("python.exe");
+    let backup = python_dir.join("python.exe.bak");
+    write_executable(&host);
+    write_executable(&python);
+    write_executable(&backup);
+
+    let result = plan("blender", Some(host), None, None).unwrap();
+
+    assert_eq!(result["python_source"], "discovered_host");
+    assert_eq!(
+        result["steps"][0]["action"]["python"],
+        python.to_str().unwrap()
+    );
+}
+
+#[test]
 fn gui_interpreters_and_missing_embedded_siblings_fail_preflight() {
     for (python, catalog) in [(Some("maya.exe"), None), (None, Some("houdini.exe"))] {
         assert!(matches!(
@@ -159,7 +260,6 @@ fn gui_interpreters_and_missing_embedded_siblings_fail_preflight() {
 fn unsupported_hosts_keep_plan_only_behavior() {
     for (dcc, gui, sibling) in [
         ("unreal", "UnrealEditor.exe", "UnrealEditor-Cmd.exe"),
-        ("blender", "blender.exe", "python.exe"),
         ("custom-editor", "maya.exe", "mayapy.exe"),
     ] {
         let dir = tempfile::tempdir().unwrap();
