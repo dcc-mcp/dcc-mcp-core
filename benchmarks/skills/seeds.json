@@ -4742,7 +4742,7 @@
         },
         {
           "name": "validate_scene_vs_spec",
-          "description": "Validate a normalised scene-state export against a written spec before export: hierarchy names, material bindings, per-mesh UV coverage, part existence, non-manifold geometry, and Euler bounds. Returns {passed, failures[]} and never mutates the scene.",
+          "description": "Validate a normalised scene-state export against a strict modeling spec before export: hierarchy names, material bindings, per-mesh UV coverage, part existence, non-manifold geometry, and Euler bounds. Returns a pass/fail/unknown status and never mutates the scene. Versioned dcc-mcp/model-state@1 scene exports are validated before checks run.",
           "input_schema": {
             "type": "object",
             "required": [
@@ -4756,7 +4756,59 @@
               },
               "spec": {
                 "type": "object",
-                "description": "Spec of required parts/hierarchy/materials, min_uv_coverage, and bounds."
+                "additionalProperties": false,
+                "required": [
+                  "checks"
+                ],
+                "description": "Strict model-spec@1 document. checks must name at least one modeling check.",
+                "properties": {
+                  "checks": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "parts",
+                        "hierarchy",
+                        "materials",
+                        "uv_coverage",
+                        "non_manifold",
+                        "euler"
+                      ]
+                    }
+                  },
+                  "required_parts": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "required_hierarchy": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "required_materials": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "min_uv_coverage": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "allow_non_manifold": {
+                    "type": "boolean"
+                  },
+                  "euler_max_abs_degrees": {
+                    "type": "number",
+                    "minimum": 0
+                  }
+                }
               },
               "scene_path": {
                 "type": "string",
