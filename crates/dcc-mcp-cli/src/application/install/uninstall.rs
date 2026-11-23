@@ -1,4 +1,5 @@
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
@@ -57,8 +58,21 @@ fn write_pending_marker(
     };
     let content = serde_json::to_vec_pretty(&marker)
         .map_err(|error| format!("failed to encode pending uninstall marker: {error}"))?;
-    fs::write(&path, content)
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let mut temporary = tempfile::Builder::new()
+        .prefix(".dcc-mcp-uninstall-pending-")
+        .tempfile_in(parent)
+        .map_err(|error| format!("failed to create pending uninstall marker: {error}"))?;
+    temporary
+        .write_all(&content)
         .map_err(|error| format!("failed to write pending uninstall marker: {error}"))?;
+    temporary
+        .as_file()
+        .sync_all()
+        .map_err(|error| format!("failed to flush pending uninstall marker: {error}"))?;
+    temporary
+        .persist(&path)
+        .map_err(|error| format!("failed to commit pending uninstall marker: {}", error.error))?;
     Ok(path)
 }
 
@@ -84,8 +98,42 @@ fn recovery_message(
     }
     match write_pending_marker(receipt_path, operation, entries) {
         Ok(path) => format!("{message}; recovery marker: {}", path.display()),
-        Err(error) => format!("{message}; {error}"),
+        Err(error) => format!(
+            "{message}; {error}; pending recovery ({operation}): {}",
+            format_recovery_entries(entries)
+        ),
     }
+}
+
+fn existing_recovery_message(
+    receipt_path: &Path,
+    operation: &str,
+    entries: &[RecoveryEntry],
+    message: &str,
+) -> String {
+    let marker = pending_marker_path(receipt_path);
+    if marker.exists() {
+        format!("{message}; recovery marker: {}", marker.display())
+    } else {
+        format!(
+            "{message}; pending recovery ({operation}): {}",
+            format_recovery_entries(entries)
+        )
+    }
+}
+
+fn format_recovery_entries(entries: &[RecoveryEntry]) -> String {
+    entries
+        .iter()
+        .map(|entry| {
+            format!(
+                "{} -> {}",
+                entry.original.display(),
+                entry.recovery_dir.display()
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 impl InstallService {
@@ -96,6 +144,7 @@ impl InstallService {
     ) -> InstallExecutionReport {
         let requested_dcc = safe_report_identifier(&request.dcc_type, "unknown");
         let catalog_path = request.catalog_path.clone();
+        let adobe_debug_root = request.adobe_debug_root.clone();
         request.version = None;
         let plan = match self.plan(request) {
             Ok(plan) => plan,
@@ -159,10 +208,19 @@ impl InstallService {
                 );
             }
         } {
+            if pending.schema_version != 1 {
+                return failed_report(
+                    report,
+                    "uninstall",
+                    30,
+                    "UNINSTALL_STEP_FAILED",
+                    Some("unsupported pending uninstall marker schema"),
+                );
+            }
             if let Err(error) = resume_pending(&pending.operation, &pending.entries) {
                 return match error {
                     RemovalError::RequiresRestart { path, message, .. } => {
-                        let message = recovery_message(
+                        let message = existing_recovery_message(
                             &receipt_path,
                             &pending.operation,
                             &pending.entries,
@@ -174,6 +232,7 @@ impl InstallService {
                             &path,
                             &message,
                             catalog_path.as_deref(),
+                            adobe_debug_root.as_deref(),
                         )
                     }
                     RemovalError::Failed { path, message, .. } => failed_report(
@@ -261,6 +320,7 @@ impl InstallService {
                     &path,
                     &message,
                     catalog_path.as_deref(),
+                    adobe_debug_root.as_deref(),
                 );
             }
             Err(RemovalError::Failed {
@@ -344,6 +404,7 @@ impl InstallService {
                         &path,
                         &message,
                         catalog_path.as_deref(),
+                        adobe_debug_root.as_deref(),
                     )
                 }
                 RemovalError::Failed {

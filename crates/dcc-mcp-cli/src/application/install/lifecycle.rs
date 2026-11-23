@@ -172,7 +172,11 @@ pub(super) fn resume_pending(
         let payload = entry.recovery_dir.join("payload");
         let result = match operation {
             "restore" => {
-                if fs::symlink_metadata(&entry.original).is_ok() {
+                let payload_exists = fs::symlink_metadata(&payload).is_ok();
+                let original_exists = fs::symlink_metadata(&entry.original).is_ok();
+                if !payload_exists && original_exists {
+                    Ok(())
+                } else if original_exists {
                     Err(io::Error::new(
                         io::ErrorKind::AlreadyExists,
                         format!(
@@ -180,11 +184,20 @@ pub(super) fn resume_pending(
                             entry.original.display()
                         ),
                     ))
+                } else if !payload_exists {
+                    Err(io::Error::new(
+                        io::ErrorKind::NotFound,
+                        format!("pending recovery payload is missing: {}", payload.display()),
+                    ))
                 } else {
                     fs::rename(&payload, &entry.original)
                 }
             }
-            "cleanup" => remove_path(&payload),
+            "cleanup" => match fs::symlink_metadata(&payload) {
+                Ok(_) => remove_path(&payload),
+                Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+                Err(error) => Err(error),
+            },
             _ => Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!("unknown pending uninstall operation: {operation}"),
@@ -275,8 +288,7 @@ fn error_message(error: &RemovalError) -> &str {
 fn is_windows_lock_error(error: &io::Error) -> bool {
     #[cfg(windows)]
     {
-        error.kind() == io::ErrorKind::PermissionDenied
-            || matches!(error.raw_os_error(), Some(5 | 32 | 33))
+        matches!(error.raw_os_error(), Some(32 | 33))
     }
     #[cfg(not(windows))]
     {

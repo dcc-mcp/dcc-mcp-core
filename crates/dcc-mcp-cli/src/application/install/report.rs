@@ -192,6 +192,7 @@ pub(super) fn requires_restart_report(
     locked_path: &std::path::Path,
     message: &str,
     catalog_path: Option<&std::path::Path>,
+    adobe_debug_root: Option<&std::path::Path>,
 ) -> InstallExecutionReport {
     report.status = "requires_restart".into();
     report.stage = "uninstall".into();
@@ -216,6 +217,10 @@ pub(super) fn requires_restart_report(
     if let Some(catalog_path) = catalog_path {
         command.push("--catalog".into());
         command.push(catalog_path.display().to_string());
+    }
+    if let Some(adobe_debug_root) = adobe_debug_root {
+        command.push("--adobe-debug-root".into());
+        command.push(adobe_debug_root.display().to_string());
     }
     report.next_steps = vec![InstallReportNextStep {
         id: "retry-after-restart".into(),
