@@ -1,9 +1,12 @@
 use std::fs;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+
+use serde::{Deserialize, Serialize};
 
 use crate::domain::install::{InstallPlan, InstallRequest, InstallStepAction};
 
-use super::lifecycle::{RemovalError, RemovalTransaction};
+use super::lifecycle::{RecoveryEntry, RemovalError, RemovalTransaction, resume_pending};
 use super::pip::{pip_show_args, pip_uninstall_args};
 use super::policy::ask_consent;
 use super::receipt::{
@@ -15,6 +18,76 @@ use super::report::{
 };
 use super::{InstallExecutionReport, InstallService, report};
 
+#[derive(Debug, Deserialize, Serialize)]
+struct PendingRemoval {
+    schema_version: u8,
+    operation: String,
+    entries: Vec<RecoveryEntry>,
+}
+
+fn pending_marker_path(receipt_path: &Path) -> PathBuf {
+    let file_name = receipt_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("install-receipt.json");
+    receipt_path.with_file_name(format!("{file_name}.uninstall-pending.json"))
+}
+
+fn read_pending_marker(receipt_path: &Path) -> Result<Option<PendingRemoval>, String> {
+    let path = pending_marker_path(receipt_path);
+    match fs::read_to_string(&path) {
+        Ok(content) => serde_json::from_str(&content)
+            .map(Some)
+            .map_err(|error| format!("invalid pending uninstall marker: {error}")),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(format!("failed to read pending uninstall marker: {error}")),
+    }
+}
+
+fn write_pending_marker(
+    receipt_path: &Path,
+    operation: &str,
+    entries: &[RecoveryEntry],
+) -> Result<PathBuf, String> {
+    let path = pending_marker_path(receipt_path);
+    let marker = PendingRemoval {
+        schema_version: 1,
+        operation: operation.into(),
+        entries: entries.to_vec(),
+    };
+    let content = serde_json::to_vec_pretty(&marker)
+        .map_err(|error| format!("failed to encode pending uninstall marker: {error}"))?;
+    fs::write(&path, content)
+        .map_err(|error| format!("failed to write pending uninstall marker: {error}"))?;
+    Ok(path)
+}
+
+fn remove_pending_marker(receipt_path: &Path) -> Result<(), String> {
+    let path = pending_marker_path(receipt_path);
+    match fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(format!(
+            "failed to remove pending uninstall marker: {error}"
+        )),
+    }
+}
+
+fn recovery_message(
+    receipt_path: &Path,
+    operation: &str,
+    entries: &[RecoveryEntry],
+    message: &str,
+) -> String {
+    if entries.is_empty() {
+        return message.into();
+    }
+    match write_pending_marker(receipt_path, operation, entries) {
+        Ok(path) => format!("{message}; recovery marker: {}", path.display()),
+        Err(error) => format!("{message}; {error}"),
+    }
+}
+
 impl InstallService {
     pub fn uninstall(
         &self,
@@ -22,6 +95,7 @@ impl InstallService {
         skip_confirmation: bool,
     ) -> InstallExecutionReport {
         let requested_dcc = safe_report_identifier(&request.dcc_type, "unknown");
+        let catalog_path = request.catalog_path.clone();
         request.version = None;
         let plan = match self.plan(request) {
             Ok(plan) => plan,
@@ -73,6 +147,54 @@ impl InstallService {
             }
         };
         report.adapter_version = safe_report_identifier(&receipt.adapter_version, "unknown");
+        if let Some(pending) = match read_pending_marker(&receipt_path) {
+            Ok(pending) => pending,
+            Err(message) => {
+                return failed_report(
+                    report,
+                    "uninstall",
+                    30,
+                    "UNINSTALL_STEP_FAILED",
+                    Some(&message),
+                );
+            }
+        } {
+            if let Err(error) = resume_pending(&pending.operation, &pending.entries) {
+                return match error {
+                    RemovalError::RequiresRestart { path, message, .. } => {
+                        let message = recovery_message(
+                            &receipt_path,
+                            &pending.operation,
+                            &pending.entries,
+                            &message,
+                        );
+                        requires_restart_report(
+                            report,
+                            &receipt_path,
+                            &path,
+                            &message,
+                            catalog_path.as_deref(),
+                        )
+                    }
+                    RemovalError::Failed { path, message, .. } => failed_report(
+                        report,
+                        "uninstall",
+                        30,
+                        "UNINSTALL_STEP_FAILED",
+                        Some(&format!("{}: {message}", path.display())),
+                    ),
+                };
+            }
+            if let Err(message) = remove_pending_marker(&receipt_path) {
+                return failed_report(
+                    report,
+                    "uninstall",
+                    30,
+                    "UNINSTALL_STEP_FAILED",
+                    Some(&message),
+                );
+            }
+        }
         let ownership_safe = match receipt_uninstall_ownership_is_safe(&plan, &receipt) {
             Ok(safe) => safe,
             Err(message) => {
@@ -127,10 +249,26 @@ impl InstallService {
         let owned_paths = receipt_owned_paths(&receipt);
         let removal = match RemovalTransaction::stage(owned_paths) {
             Ok(transaction) => transaction,
-            Err(RemovalError::RequiresRestart { path, message }) => {
-                return requires_restart_report(report, &receipt_path, &path, &message);
+            Err(RemovalError::RequiresRestart {
+                path,
+                message,
+                recovery,
+            }) => {
+                let message = recovery_message(&receipt_path, "restore", &recovery, &message);
+                return requires_restart_report(
+                    report,
+                    &receipt_path,
+                    &path,
+                    &message,
+                    catalog_path.as_deref(),
+                );
             }
-            Err(RemovalError::Failed { path, message }) => {
+            Err(RemovalError::Failed {
+                path,
+                message,
+                recovery,
+            }) => {
+                let message = recovery_message(&receipt_path, "restore", &recovery, &message);
                 return failed_report(
                     report,
                     "uninstall",
@@ -150,61 +288,88 @@ impl InstallService {
             {
                 Ok(status) => status,
                 Err(error) => {
-                    if let Some(transaction) = removal.as_mut() {
-                        let _ = transaction.restore();
-                    }
-                    return failed_report(
+                    return restore_after_failure(
                         report,
-                        "uninstall",
-                        30,
+                        &receipt_path,
+                        &mut removal,
                         "UNINSTALL_STEP_FAILED",
-                        Some(&error.to_string()),
+                        Some(error.to_string()),
                     );
                 }
             };
             if !status.success() {
-                if let Some(transaction) = removal.as_mut() {
-                    let _ = transaction.restore();
-                }
-                return failed_report(report, "uninstall", 30, "UNINSTALL_STEP_FAILED", None);
+                return restore_after_failure(
+                    report,
+                    &receipt_path,
+                    &mut removal,
+                    "UNINSTALL_STEP_FAILED",
+                    None,
+                );
             }
             let package_absent = match pip_package_is_absent(&python, &package) {
                 Ok(absent) => absent,
                 Err(message) => {
-                    if let Some(transaction) = removal.as_mut() {
-                        let _ = transaction.restore();
-                    }
-                    return failed_report(
+                    return restore_after_failure(
                         report,
-                        "uninstall",
-                        30,
+                        &receipt_path,
+                        &mut removal,
                         "UNINSTALL_STEP_FAILED",
-                        Some(&message),
+                        Some(message),
                     );
                 }
             };
             if !package_absent {
-                if let Some(transaction) = removal.as_mut() {
-                    let _ = transaction.restore();
-                }
-                return failed_report(report, "uninstall", 30, "UNINSTALL_STEP_FAILED", None);
+                return restore_after_failure(
+                    report,
+                    &receipt_path,
+                    &mut removal,
+                    "UNINSTALL_STEP_FAILED",
+                    None,
+                );
             }
         }
         if let Some(transaction) = removal.take()
             && let Err(error) = transaction.commit()
         {
             return match error {
-                RemovalError::RequiresRestart { path, message } => {
-                    requires_restart_report(report, &receipt_path, &path, &message)
+                RemovalError::RequiresRestart {
+                    path,
+                    message,
+                    recovery,
+                } => {
+                    let message = recovery_message(&receipt_path, "cleanup", &recovery, &message);
+                    requires_restart_report(
+                        report,
+                        &receipt_path,
+                        &path,
+                        &message,
+                        catalog_path.as_deref(),
+                    )
                 }
-                RemovalError::Failed { path, message } => failed_report(
-                    report,
-                    "uninstall",
-                    30,
-                    "UNINSTALL_STEP_FAILED",
-                    Some(&format!("{}: {message}", path.display())),
-                ),
+                RemovalError::Failed {
+                    path,
+                    message,
+                    recovery,
+                } => {
+                    let message = recovery_message(&receipt_path, "cleanup", &recovery, &message);
+                    failed_report(
+                        report,
+                        "uninstall",
+                        30,
+                        "UNINSTALL_STEP_FAILED",
+                        Some(&format!("{}: {message}", path.display())),
+                    )
+                }
             };
+        }
+        if let Err(message) = remove_pending_marker(&receipt_path) {
+            return failed_report(
+                report,
+                "uninstall",
+                30,
+                "UNINSTALL_STEP_FAILED",
+                Some(&message),
+            );
         }
         if let Err(error) = fs::remove_file(&receipt_path)
             && error.kind() != std::io::ErrorKind::NotFound
@@ -227,6 +392,30 @@ impl InstallService {
         report
     }
 }
+
+fn restore_after_failure(
+    report: InstallExecutionReport,
+    receipt_path: &Path,
+    removal: &mut Option<RemovalTransaction>,
+    code: &str,
+    message: Option<String>,
+) -> InstallExecutionReport {
+    if let Some(transaction) = removal.as_mut()
+        && let Err(error) = transaction.restore()
+    {
+        let recovery = transaction.retain_recovery();
+        let primary = message.unwrap_or_else(|| code.into());
+        let detail = recovery_message(
+            receipt_path,
+            "restore",
+            &recovery,
+            &format!("{primary}; rollback failed: {error}"),
+        );
+        return failed_report(report, "rollback", 30, "ROLLBACK_FAILED", Some(&detail));
+    }
+    failed_report(report, "uninstall", 30, code, message.as_deref())
+}
+
 fn successful_uninstall_report(mut report: InstallExecutionReport) -> InstallExecutionReport {
     report.status = "ok".into();
     report.stage = "complete".into();

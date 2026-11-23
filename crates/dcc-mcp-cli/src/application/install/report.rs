@@ -191,6 +191,7 @@ pub(super) fn requires_restart_report(
     receipt_path: &std::path::Path,
     locked_path: &std::path::Path,
     message: &str,
+    catalog_path: Option<&std::path::Path>,
 ) -> InstallExecutionReport {
     report.status = "requires_restart".into();
     report.stage = "uninstall".into();
@@ -205,6 +206,17 @@ pub(super) fn requires_restart_report(
         exit_code: 50,
         primary_code: Some(message.into()),
     });
+    let mut command = vec![
+        "dcc-mcp-cli".into(),
+        "uninstall".into(),
+        "--dcc-type".into(),
+        report.dcc_type.clone(),
+        "--yes".into(),
+    ];
+    if let Some(catalog_path) = catalog_path {
+        command.push("--catalog".into());
+        command.push(catalog_path.display().to_string());
+    }
     report.next_steps = vec![InstallReportNextStep {
         id: "retry-after-restart".into(),
         description: "Restart the owning DCC host, then retry receipt-driven uninstall.".into(),
@@ -212,13 +224,7 @@ pub(super) fn requires_restart_report(
             "The adapter-owned path remains locked: {}",
             locked_path.display()
         ),
-        command: vec![
-            "dcc-mcp-cli".into(),
-            "uninstall".into(),
-            "--dcc-type".into(),
-            report.dcc_type.clone(),
-            "--yes".into(),
-        ],
+        command,
     }];
     report
 }

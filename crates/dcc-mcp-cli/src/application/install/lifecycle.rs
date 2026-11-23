@@ -2,17 +2,33 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use serde::{Deserialize, Serialize};
+
 #[derive(Debug)]
 pub(super) enum RemovalError {
-    RequiresRestart { path: PathBuf, message: String },
-    Failed { path: PathBuf, message: String },
+    RequiresRestart {
+        path: PathBuf,
+        message: String,
+        recovery: Vec<RecoveryEntry>,
+    },
+    Failed {
+        path: PathBuf,
+        message: String,
+        recovery: Vec<RecoveryEntry>,
+    },
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub(super) struct RecoveryEntry {
+    pub(super) original: PathBuf,
+    pub(super) recovery_dir: PathBuf,
 }
 
 #[derive(Debug)]
 struct Backup {
     original: PathBuf,
     staged: PathBuf,
-    _directory: tempfile::TempDir,
+    directory: Option<tempfile::TempDir>,
 }
 
 #[derive(Debug)]
@@ -32,25 +48,31 @@ impl RemovalTransaction {
                 Err(error) => return Err(failed(&path, error)),
             }
             let parent = path.parent().unwrap_or_else(|| Path::new("."));
-            let directory = tempfile::Builder::new()
+            let directory = match tempfile::Builder::new()
                 .prefix(".dcc-mcp-uninstall-")
                 .tempdir_in(parent)
-                .map_err(|error| failed(&path, error))?;
+            {
+                Ok(directory) => directory,
+                Err(error) => {
+                    let result = transaction.finish_stage_error(failed(&path, error));
+                    return Err(result);
+                }
+            };
             let staged = directory.path().join("payload");
             if let Err(error) = fs::rename(&path, &staged) {
                 let result = classify(&path, error);
                 if let Err(restore_error) = transaction.restore() {
-                    return Err(RemovalError::Failed {
+                    return Err(transaction.rollback_failure(
                         path,
-                        message: format!("rollback failed after removal error: {restore_error}"),
-                    });
+                        format!("rollback failed after removal error: {restore_error}"),
+                    ));
                 }
                 return Err(result);
             }
             transaction.backups.push(Backup {
                 original: path,
                 staged,
-                _directory: directory,
+                directory: Some(directory),
             });
         }
         Ok(transaction)
@@ -62,13 +84,7 @@ impl RemovalTransaction {
             let original = backup.original.clone();
             if let Err(error) = remove_path(&backup.staged) {
                 let result = classify(&original, error);
-                if let Err(restore_error) = self.restore() {
-                    return Err(RemovalError::Failed {
-                        path: original,
-                        message: format!("cleanup failed; rollback failed: {restore_error}"),
-                    });
-                }
-                return Err(result);
+                return Err(self.with_recovery(result));
             }
         }
         Ok(())
@@ -92,6 +108,98 @@ impl RemovalTransaction {
         }
         Ok(())
     }
+
+    fn finish_stage_error(&mut self, error: RemovalError) -> RemovalError {
+        match self.restore() {
+            Ok(()) => error,
+            Err(restore_error) => self.rollback_failure(
+                error_path(&error),
+                format!(
+                    "{}; rollback failed: {restore_error}",
+                    error_message(&error)
+                ),
+            ),
+        }
+    }
+
+    fn rollback_failure(&mut self, path: PathBuf, message: String) -> RemovalError {
+        let recovery = self.retain_backups();
+        RemovalError::Failed {
+            path,
+            message,
+            recovery,
+        }
+    }
+
+    fn with_recovery(&mut self, error: RemovalError) -> RemovalError {
+        let recovery = self.retain_backups();
+        match error {
+            RemovalError::RequiresRestart { path, message, .. } => RemovalError::RequiresRestart {
+                path,
+                message,
+                recovery,
+            },
+            RemovalError::Failed { path, message, .. } => RemovalError::Failed {
+                path,
+                message,
+                recovery,
+            },
+        }
+    }
+
+    fn retain_backups(&mut self) -> Vec<RecoveryEntry> {
+        self.backups
+            .iter_mut()
+            .filter_map(|backup| {
+                backup.directory.take().map(|directory| RecoveryEntry {
+                    original: backup.original.clone(),
+                    recovery_dir: directory.keep(),
+                })
+            })
+            .collect()
+    }
+
+    pub(super) fn retain_recovery(&mut self) -> Vec<RecoveryEntry> {
+        self.retain_backups()
+    }
+}
+
+pub(super) fn resume_pending(
+    operation: &str,
+    entries: &[RecoveryEntry],
+) -> Result<(), RemovalError> {
+    for entry in entries {
+        let payload = entry.recovery_dir.join("payload");
+        let result = match operation {
+            "restore" => {
+                if fs::symlink_metadata(&entry.original).is_ok() {
+                    Err(io::Error::new(
+                        io::ErrorKind::AlreadyExists,
+                        format!(
+                            "rollback destination already exists: {}",
+                            entry.original.display()
+                        ),
+                    ))
+                } else {
+                    fs::rename(&payload, &entry.original)
+                }
+            }
+            "cleanup" => remove_path(&payload),
+            _ => Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("unknown pending uninstall operation: {operation}"),
+            )),
+        };
+        if let Err(error) = result {
+            return Err(classify_with_recovery(
+                &entry.original,
+                error,
+                entries.to_vec(),
+            ));
+        }
+        let _ = fs::remove_dir(&entry.recovery_dir);
+    }
+    Ok(())
 }
 
 fn remove_path(path: &Path) -> Result<(), io::Error> {
@@ -115,6 +223,7 @@ fn classify(path: &Path, error: io::Error) -> RemovalError {
         return RemovalError::RequiresRestart {
             path: path.to_path_buf(),
             message: error.to_string(),
+            recovery: Vec::new(),
         };
     }
     failed(path, error)
@@ -124,6 +233,42 @@ fn failed(path: &Path, error: io::Error) -> RemovalError {
     RemovalError::Failed {
         path: path.to_path_buf(),
         message: error.to_string(),
+        recovery: Vec::new(),
+    }
+}
+
+fn classify_with_recovery(
+    path: &Path,
+    error: io::Error,
+    recovery: Vec<RecoveryEntry>,
+) -> RemovalError {
+    match classify(path, error) {
+        RemovalError::RequiresRestart { path, message, .. } => RemovalError::RequiresRestart {
+            path,
+            message,
+            recovery,
+        },
+        RemovalError::Failed { path, message, .. } => RemovalError::Failed {
+            path,
+            message,
+            recovery,
+        },
+    }
+}
+
+fn error_path(error: &RemovalError) -> PathBuf {
+    match error {
+        RemovalError::RequiresRestart { path, .. } | RemovalError::Failed { path, .. } => {
+            path.clone()
+        }
+    }
+}
+
+fn error_message(error: &RemovalError) -> &str {
+    match error {
+        RemovalError::RequiresRestart { message, .. } | RemovalError::Failed { message, .. } => {
+            message
+        }
     }
 }
 
@@ -170,5 +315,37 @@ mod tests {
         let transaction = RemovalTransaction::stage([original.clone()]).unwrap();
         transaction.commit().unwrap();
         assert!(!original.exists());
+    }
+
+    #[test]
+    fn pending_restore_resumes_from_a_retained_recovery_entry() {
+        let root = tempfile::tempdir().unwrap();
+        let original = root.path().join("adapter");
+        fs::create_dir(&original).unwrap();
+        fs::write(original.join("payload.txt"), "payload").unwrap();
+
+        let mut transaction = RemovalTransaction::stage([original.clone()]).unwrap();
+        let entries = transaction.retain_recovery();
+        resume_pending("restore", &entries).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(original.join("payload.txt")).unwrap(),
+            "payload"
+        );
+    }
+
+    #[test]
+    fn pending_cleanup_resumes_without_recreating_the_original_path() {
+        let root = tempfile::tempdir().unwrap();
+        let original = root.path().join("adapter");
+        fs::create_dir(&original).unwrap();
+        fs::write(original.join("payload.txt"), "payload").unwrap();
+
+        let mut transaction = RemovalTransaction::stage([original.clone()]).unwrap();
+        let entries = transaction.retain_recovery();
+        resume_pending("cleanup", &entries).unwrap();
+
+        assert!(!original.exists());
+        assert!(!entries[0].recovery_dir.exists());
     }
 }
