@@ -1342,12 +1342,17 @@ fn direct_url_identity(
             || format!("{normalized_package}-"),
             |version| {
                 format!(
-                    "{normalized_package}-{}-",
+                    "{normalized_package}-{}",
                     normalize_distribution_version(version)
                 )
             },
         );
-        if !name.starts_with(&prefix) || !name.ends_with(".dist-info") {
+        let Some(suffix) = name.strip_prefix(&prefix) else {
+            continue;
+        };
+        if !name.ends_with(".dist-info")
+            || (version.is_some() && !suffix.starts_with(".dist-info") && !suffix.starts_with('-'))
+        {
             continue;
         }
         let metadata = fs::read_to_string(entry.path().join("direct_url.json")).ok()?;
