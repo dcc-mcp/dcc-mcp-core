@@ -439,7 +439,11 @@ clean receipt location after recording the failure for inspection.
 
 Uninstall MUST remove only receipted adapter-owned state and be idempotent when
 that state is already absent. It MUST preserve user files and refuse ambiguous
-unreceipted deletion. Upgrade MUST restore the prior working version when the
+unreceipted deletion. Core receipt-driven uninstall stages owned paths on the
+same filesystem before removing them. A Windows lock returns exit `50`, keeps
+the receipt and owned state available for retry, and emits a structured
+restart-and-retry next step. If pip removal or final cleanup fails, the staged
+paths are restored before the failure is reported. Upgrade MUST restore the prior working version when the
 new transaction fails; rollback to "nothing installed" is non-conforming.
 
 ## Verify to usable
