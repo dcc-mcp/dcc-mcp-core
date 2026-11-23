@@ -4,6 +4,7 @@ use std::process::{Command, Stdio};
 
 use crate::domain::install_catalog::CatalogSource;
 use dcc_mcp_catalog::{CatalogEntry, CoreRuntimeReport, derive_requirement};
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 use crate::application::adapter_import::{
@@ -30,7 +31,10 @@ mod verify;
 
 pub(crate) use catalog::{is_implicit_cwd_catalog, warn_if_implicit_cwd_catalog};
 pub use discovery::{DccAdapterSummary, DccTypeSummary, DccTypesCatalog};
-use pip::{pip_install_args, pip_show_args, pip_uninstall_args};
+use pip::{
+    PipArtifact, pip_install_args, pip_restore_args_for_artifact, pip_show_args, pip_show_version,
+    pip_uninstall_args,
+};
 use policy::{AutoInstallPolicy, ask_consent, render_install_policy_prompt};
 pub use report::{
     InstallExecutionError, InstallExecutionReport, InstallReportNextStep, InstallRollbackReport,
@@ -74,6 +78,12 @@ enum StepRollback {
     RemovePath(PathBuf),
     /// Run a shell command to revert.
     Command { program: String, args: Vec<String> },
+    /// Restore a pinned wheel and remove its retained staging file afterward.
+    PipCommand {
+        program: String,
+        args: Vec<String>,
+        artifact: Box<PipArtifact>,
+    },
 }
 
 #[derive(Debug)]
@@ -469,6 +479,7 @@ fn execute_pip_install(
         });
     };
     let package_spec = verified_pip_artifact_spec(package, version, extras, artifact_url, sha256)?;
+    let previous_artifact = discover_pip_artifact(python_cmd, package)?;
     let mut cmd = Command::new(python_cmd);
     cmd.args(pip_install_args(&package_spec))
         .stdout(Stdio::null())
@@ -486,11 +497,226 @@ fn execute_pip_install(
         });
     }
 
-    // Rollback: pip uninstall
-    Ok(Some(StepRollback::Command {
+    Ok(Some(pip_rollback(package, python_cmd, previous_artifact)))
+}
+
+fn pip_rollback(
+    package: &str,
+    python_cmd: &str,
+    previous_artifact: Option<PipArtifact>,
+) -> StepRollback {
+    let Some(previous) = previous_artifact else {
+        return StepRollback::Command {
+            program: python_cmd.to_string(),
+            args: pip_uninstall_args(package),
+        };
+    };
+    let args = pip_restore_args_for_artifact(package, &previous);
+    StepRollback::PipCommand {
         program: python_cmd.to_string(),
-        args: pip_uninstall_args(package),
-    }))
+        args,
+        artifact: Box::new(previous),
+    }
+}
+
+fn discover_pip_artifact(
+    python_cmd: &str,
+    package: &str,
+) -> Result<Option<PipArtifact>, InstallError> {
+    let output = Command::new(python_cmd)
+        .args(pip_show_args(package))
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output();
+    let Ok(output) = output else {
+        return Err(pip_rollback_preflight_error(
+            package,
+            "failed to inspect the installed package",
+        ));
+    };
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if stderr.contains("Package(s) not found") {
+            return Ok(None);
+        }
+        return Err(pip_rollback_preflight_error(
+            package,
+            "pip show failed while inspecting the installed package",
+        ));
+    }
+
+    let metadata = String::from_utf8_lossy(&output.stdout);
+    let version = pip_show_version(&output.stdout).ok_or_else(|| {
+        pip_rollback_preflight_error(
+            package,
+            "pip show did not report a usable installed version",
+        )
+    })?;
+    let location = metadata
+        .lines()
+        .find_map(|line| line.strip_prefix("Location:").map(str::trim))
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            pip_rollback_preflight_error(package, "pip show did not report a location")
+        })?;
+    let (metadata_path, direct_url) = find_direct_url_metadata(Path::new(location), package)
+        .ok_or_else(|| {
+            pip_rollback_preflight_error(
+                package,
+                "the installed package has no trusted direct URL metadata",
+            )
+        })?;
+    let document: serde_json::Value = serde_json::from_str(&direct_url).map_err(|_| {
+        pip_rollback_preflight_error(package, "the installed direct URL metadata is invalid")
+    })?;
+    let url = document
+        .get("url")
+        .and_then(serde_json::Value::as_str)
+        .filter(|value| value.starts_with("https://"))
+        .map(str::to_owned)
+        .ok_or_else(|| {
+            pip_rollback_preflight_error(package, "the prior artifact URL is not HTTPS")
+        })?;
+    let sha256 = document
+        .get("archive_info")
+        .and_then(|archive| archive.get("hashes"))
+        .and_then(|hashes| hashes.get("sha256"))
+        .and_then(serde_json::Value::as_str)
+        .or_else(|| {
+            document
+                .get("archive_info")
+                .and_then(|archive| archive.get("hash"))
+                .and_then(serde_json::Value::as_str)
+                .and_then(|value| value.strip_prefix("sha256="))
+        })
+        .filter(|value| value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .map(str::to_owned)
+        .ok_or_else(|| {
+            pip_rollback_preflight_error(package, "the prior artifact has no SHA-256")
+        })?;
+    let normalized_package = package
+        .chars()
+        .map(|character| match character {
+            '-' | '.' => '_',
+            other => other.to_ascii_lowercase(),
+        })
+        .collect::<String>();
+    let filename = url.rsplit('/').next().unwrap_or_default();
+    let expected_prefix = format!("{normalized_package}-{version}-");
+    if !filename
+        .to_ascii_lowercase()
+        .starts_with(&expected_prefix.to_ascii_lowercase())
+        || !filename.to_ascii_lowercase().ends_with(".whl")
+    {
+        return Err(pip_rollback_preflight_error(
+            package,
+            "the prior artifact URL does not bind the installed package and version",
+        ));
+    }
+
+    let artifact = PipArtifact {
+        version,
+        url,
+        sha256,
+        path: PathBuf::new(),
+        metadata_path,
+        metadata: direct_url,
+    };
+    Ok(Some(prepare_pip_artifact(python_cmd, package, artifact)?))
+}
+
+fn prepare_pip_artifact(
+    python_cmd: &str,
+    package: &str,
+    artifact: PipArtifact,
+) -> Result<PipArtifact, InstallError> {
+    let staging = tempfile::tempdir().map_err(|_| {
+        pip_rollback_preflight_error(package, "failed to create rollback staging directory")
+    })?;
+    let spec = format!("{package} @ {}#sha256={}", artifact.url, artifact.sha256);
+    let status = Command::new(python_cmd)
+        .args([
+            "-m",
+            "pip",
+            "download",
+            "--no-deps",
+            "--only-binary=:all:",
+            "--dest",
+            staging.path().to_str().unwrap_or_default(),
+            &spec,
+        ])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map_err(|_| {
+            pip_rollback_preflight_error(package, "failed to prepare the rollback wheel")
+        })?;
+    if !status.success() {
+        return Err(pip_rollback_preflight_error(
+            package,
+            "the prior rollback wheel could not be downloaded",
+        ));
+    }
+    let wheel = std::fs::read_dir(staging.path())
+        .ok()
+        .and_then(|entries| {
+            entries.flatten().map(|entry| entry.path()).find(|path| {
+                path.extension()
+                    .is_some_and(|extension| extension.eq_ignore_ascii_case("whl"))
+            })
+        })
+        .ok_or_else(|| {
+            pip_rollback_preflight_error(package, "pip did not produce a rollback wheel")
+        })?;
+    let bytes = std::fs::read(&wheel)
+        .map_err(|_| pip_rollback_preflight_error(package, "failed to read the rollback wheel"))?;
+    let digest = Sha256::digest(&bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    if digest != artifact.sha256 {
+        return Err(pip_rollback_preflight_error(
+            package,
+            "the rollback wheel SHA-256 does not match its recorded digest",
+        ));
+    }
+    let retained = staging.keep();
+    let retained_wheel = retained.join(wheel.file_name().unwrap_or_default());
+    let mut artifact = artifact;
+    artifact.path = retained_wheel;
+    Ok(artifact)
+}
+
+fn pip_rollback_preflight_error(package: &str, message: &str) -> InstallError {
+    InstallError::StepFailed {
+        step: format!("pip-rollback-{package}"),
+        message: format!("cannot prepare a verified rollback: {message}"),
+    }
+}
+
+fn find_direct_url_metadata(location: &Path, package: &str) -> Option<(PathBuf, String)> {
+    let normalized_package = package
+        .chars()
+        .map(|character| match character {
+            '-' | '.' => '_',
+            other => other.to_ascii_lowercase(),
+        })
+        .collect::<String>();
+    for entry in std::fs::read_dir(location).ok()?.flatten() {
+        let file_type = entry.file_type().ok()?;
+        if !file_type.is_dir() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+        if !name.starts_with(&format!("{normalized_package}-")) || !name.ends_with(".dist-info") {
+            continue;
+        }
+        let path = entry.path().join("direct_url.json");
+        if let Ok(content) = std::fs::read_to_string(&path) {
+            return Some((path, content));
+        }
+    }
+    None
 }
 
 fn verified_pip_artifact_spec(
@@ -1004,6 +1230,38 @@ fn execute_rollback(rollback: &StepRollback) -> Result<(), InstallError> {
                     message: format!("{program} exited with {status}"),
                 });
             }
+            Ok(())
+        }
+        StepRollback::PipCommand {
+            program,
+            args,
+            artifact,
+        } => {
+            let status = Command::new(program)
+                .args(args)
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .map_err(|e| InstallError::RollbackFailed {
+                    step: program.clone(),
+                    message: format!("failed to launch {program}: {e}"),
+                })?;
+            if !status.success() {
+                return Err(InstallError::RollbackFailed {
+                    step: program.clone(),
+                    message: format!("{program} exited with {status}"),
+                });
+            }
+            std::fs::write(&artifact.metadata_path, &artifact.metadata).map_err(|e| {
+                InstallError::RollbackFailed {
+                    step: program.clone(),
+                    message: format!("failed to restore direct URL metadata: {e}"),
+                }
+            })?;
+            std::fs::remove_file(&artifact.path).map_err(|e| InstallError::RollbackFailed {
+                step: program.clone(),
+                message: format!("failed to remove retained rollback wheel: {e}"),
+            })?;
             Ok(())
         }
     }

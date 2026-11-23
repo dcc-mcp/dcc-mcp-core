@@ -61,7 +61,7 @@ fn fake_pip(temp: &TempDir, version: &str) -> std::path::PathBuf {
     std::fs::write(
         package.join("__main__.py"),
         format!(
-            "import sys\nif len(sys.argv) > 1 and sys.argv[1] == 'show':\n    print('Name: dcc-mcp-maya')\n    print('Version: {version}')\n"
+            "import os\nimport sys\nmarker = os.path.join(os.path.dirname(__file__), 'installed')\nif len(sys.argv) > 1 and sys.argv[1] == 'show':\n    if not os.path.exists(marker):\n        print('WARNING: Package(s) not found: dcc-mcp-maya', file=sys.stderr)\n        raise SystemExit(1)\n    print('Name: dcc-mcp-maya')\n    print('Version: {version}')\nelif len(sys.argv) > 1 and sys.argv[1] == 'install':\n    open(marker, 'w').close()\n"
         ),
     )
     .unwrap();
