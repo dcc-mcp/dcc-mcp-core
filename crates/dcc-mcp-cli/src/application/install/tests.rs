@@ -428,6 +428,17 @@ fn verify_rejects_empty_installed_directory() {
 }
 
 #[test]
+fn adapter_import_verification_requires_the_target_interpreter() {
+    let plan = verify_plan(InstallStepAction::Verify);
+    let error = verify_target_adapter_import(&plan, "dcc-mcp-maya", None).unwrap_err();
+    assert!(
+        matches!(error, InstallError::StepFailed { ref step, ref message }
+            if step == "verify" && message.contains("target Python interpreter")),
+        "expected missing interpreter verification error, got {error}"
+    );
+}
+
+#[test]
 fn target_core_requirement_prefers_bounded_contract_and_derives_legacy_floor() {
     let mut plan = verify_plan(InstallStepAction::Verify);
     plan.adapter.min_core_version = Some("0.20.14".into());
