@@ -2078,3 +2078,90 @@ def test_plan_runtime_updates_marks_host_only_runtime_manual() -> None:
 
     assert plan["plans"][0]["action"] == "manual_restart_required"
     assert plan["plans"][0]["restart_scope"] == "host-process"
+
+
+def test_prepare_runtime_update_stops_only_stale_sidecars(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = {
+        "registry_dir": "C:/registry",
+        "entries": [
+            {
+                "dcc_type": "maya",
+                "instance_id": "old-sidecar",
+                "versions": {"core": "0.17.20"},
+                "sidecar_pid": 1111,
+            },
+            {
+                "dcc_type": "maya",
+                "instance_id": "current-sidecar",
+                "versions": {"core": "0.17.21"},
+                "sidecar_pid": 2222,
+            },
+        ],
+    }
+    monkeypatch.setattr(lifecycle, "query_runtime_state", lambda *args, **kwargs: state)
+    stopped = []
+
+    def fake_stop(*args: object, **kwargs: object) -> dict:
+        stopped.append((args, kwargs))
+        return {"success": True, "status": "stopped", "results": []}
+
+    monkeypatch.setattr(lifecycle, "stop_runtime_entries", fake_stop)
+
+    result = lifecycle.prepare_runtime_update(
+        dcc_type="maya",
+        target_versions={"core": "0.17.21"},
+    )
+
+    assert result["success"] is True
+    assert result["status"] == "ready"
+    assert result["reason"] == "sidecars_stopped"
+    assert len(stopped) == 1
+    assert stopped[0][1]["instance_ids"] == ["old-sidecar"]
+
+
+def test_prepare_runtime_update_blocks_host_owned_runtime_without_stopping(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = {
+        "registry_dir": "C:/registry",
+        "entries": [
+            {
+                "dcc_type": "photoshop",
+                "instance_id": "host-owned",
+                "versions": {"core": "0.17.20"},
+                "sidecar_pid": None,
+                "parent_pid": 3333,
+            }
+        ],
+    }
+    monkeypatch.setattr(lifecycle, "query_runtime_state", lambda *args, **kwargs: state)
+    monkeypatch.setattr(
+        lifecycle,
+        "stop_runtime_entries",
+        lambda *args, **kwargs: pytest.fail("host-owned runtime must not be stopped"),
+    )
+
+    result = lifecycle.prepare_runtime_update(
+        dcc_type="photoshop",
+        target_versions={"core": "0.17.21"},
+    )
+
+    assert result["success"] is False
+    assert result["status"] == "blocked"
+    assert result["reason"] == "manual_runtime_action_required"
+    assert result["blocked"][0]["action"] == "manual_restart_required"
+
+
+def test_prepare_runtime_update_requires_target_versions() -> None:
+    result = lifecycle.prepare_runtime_update(target_versions={})
+
+    assert result == {
+        "success": False,
+        "status": "failed",
+        "reason": "missing_target_versions",
+        "plan": None,
+        "stop": None,
+        "blocked": [],
+    }

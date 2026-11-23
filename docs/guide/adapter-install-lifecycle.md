@@ -371,6 +371,32 @@ By default, `stop_runtime_entries()` only targets rows that publish
 `metadata.sidecar_pid`. It does not terminate the parent DCC process unless
 `include_host_processes=True` is passed explicitly.
 
+Upgrade entry points should use `prepare_runtime_update()` before replacing
+adapter-owned files. It compares the registered package versions with the
+requested targets, stops only rows whose action is `restart_sidecar`, and
+returns a blocking result for host-owned runtimes, command-managed runtimes,
+or incomplete version metadata:
+
+```python
+from dcc_mcp_core.deployment import prepare_runtime_update
+
+prepared = prepare_runtime_update(
+    dcc_type="maya",
+    install_root=adapter_root,
+    target_versions={
+        "core": "0.17.21",
+        "server": "0.17.21",
+        "adapter": "1.2.0",
+    },
+)
+if not prepared["success"]:
+    raise RuntimeError(prepared["reason"])
+```
+
+The import-light CLI exposes the same contract as
+`dcc-mcp-install-lifecycle prepare-update`. It requires at least one
+`--target-version KEY=VERSION` argument and never terminates a host process.
+
 ## Mixed Runtime Version Plan
 
 A gateway can see several DCC runtimes at once. For example, Maya may still be
@@ -485,5 +511,6 @@ dcc-mcp-install-lifecycle sidecar-command --dcc maya --host-rpc commandport://12
 dcc-mcp-install-lifecycle launch-sidecar --dcc maya --host-rpc commandport://127.0.0.1:6000 --watch-pid 12345
 dcc-mcp-install-lifecycle sidecar-ready --dcc maya --timeout-secs 5
 dcc-mcp-install-lifecycle plan-update --target-version core=0.17.21 --target-version server=0.17.21
+dcc-mcp-install-lifecycle prepare-update --dcc-type maya --target-version core=0.17.21 --target-version server=0.17.21
 dcc-mcp-install-lifecycle remove C:\path\to\adapter
 ```

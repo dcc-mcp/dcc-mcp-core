@@ -15,6 +15,7 @@ from dcc_mcp_core.install_lifecycle import build_sidecar_command
 from dcc_mcp_core.install_lifecycle import inspect_install_root
 from dcc_mcp_core.install_lifecycle import launch_sidecar
 from dcc_mcp_core.install_lifecycle import plan_runtime_updates
+from dcc_mcp_core.install_lifecycle import prepare_runtime_update
 from dcc_mcp_core.install_lifecycle import query_runtime_state
 from dcc_mcp_core.install_lifecycle import resolve_deployment_layout
 from dcc_mcp_core.install_lifecycle import safe_remove_tree
@@ -69,6 +70,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     stop.add_argument("--dcc-type")
     stop.add_argument("--role", default=ROLE_PER_DCC_SIDECAR)
     stop.add_argument("--install-root")
+    stop.add_argument("--instance-id", action="append")
     stop.add_argument("--timeout-secs", type=float, default=5.0)
     stop.add_argument("--include-host-processes", action="store_true")
 
@@ -116,6 +118,22 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         help="Target version as KEY=VERSION, for example core=0.17.21.",
     )
 
+    prepare = sub.add_parser(
+        "prepare-update",
+        help="Stop only stale adapter-owned sidecars before an upgrade.",
+    )
+    prepare.add_argument("--registry-dir")
+    prepare.add_argument("--dcc-type")
+    prepare.add_argument("--role")
+    prepare.add_argument("--install-root")
+    prepare.add_argument("--timeout-secs", type=float, default=5.0)
+    prepare.add_argument(
+        "--target-version",
+        action="append",
+        default=[],
+        help="Target version as KEY=VERSION, for example core=0.17.21.",
+    )
+
     inspect = sub.add_parser("inspect", help="Inspect an install root for loaded native artifacts.")
     inspect.add_argument("install_root")
 
@@ -144,6 +162,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 dcc_type=args.dcc_type,
                 role=args.role,
                 install_root=args.install_root,
+                instance_ids=args.instance_id,
                 timeout_secs=args.timeout_secs,
                 include_host_processes=args.include_host_processes,
             )
@@ -218,6 +237,29 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 dcc_type=args.dcc_type,
                 role=args.role,
                 target_versions=target_versions,
+            )
+        )
+    if args.command == "prepare-update":
+        try:
+            target_versions = _parse_target_versions(args.target_version)
+        except ValueError as exc:
+            return _print_json(_failed("invalid_target_version", str(exc), None))
+        if not target_versions:
+            return _print_json(
+                _failed(
+                    "missing_target_version",
+                    "At least one --target-version KEY=VERSION is required.",
+                    None,
+                )
+            )
+        return _print_json(
+            prepare_runtime_update(
+                registry_dir=args.registry_dir,
+                dcc_type=args.dcc_type,
+                role=args.role,
+                install_root=args.install_root,
+                target_versions=target_versions,
+                timeout_secs=args.timeout_secs,
             )
         )
     if args.command == "inspect":
