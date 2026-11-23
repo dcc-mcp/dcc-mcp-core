@@ -1168,6 +1168,9 @@ fn execute_verify(plan: &InstallPlan) -> Result<Option<StepRollback>, InstallErr
                 ..
             } => {
                 verify_pip_package(package, version.as_deref(), python.as_deref())?;
+                if target_core_requirement(plan).is_none() {
+                    verify_target_adapter_import(plan, package, python.as_deref())?;
+                }
                 pip_target = Some((package.clone(), python.clone()));
             }
             InstallStepAction::AdobePluginLink { dest, manifest, .. } => {
@@ -1196,6 +1199,45 @@ pub(super) fn target_core_requirement(plan: &InstallPlan) -> Option<String> {
             .min_core_version
             .as_deref()
             .and_then(derive_requirement)
+    })
+}
+
+fn verify_target_adapter_import(
+    plan: &InstallPlan,
+    package: &str,
+    python: Option<&str>,
+) -> Result<(), InstallError> {
+    let Some(python) = python.filter(|value| !value.trim().is_empty()) else {
+        return Err(InstallError::StepFailed {
+            step: "verify".into(),
+            message: format!(
+                "no target Python interpreter is available to verify adapter import '{package}'"
+            ),
+        });
+    };
+    let target = AdapterImportTarget {
+        dcc_type: plan.dcc_type.clone(),
+        module: import_module(&plan.adapter, package),
+        distribution: package.to_string(),
+        python: Some(PathBuf::from(python)),
+        python_source: Some("install_plan".into()),
+    };
+    let probe = probe_target(&target);
+    if probe
+        .get("imported")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+        && probe.get("status").and_then(serde_json::Value::as_str) == Some("ok")
+    {
+        return Ok(());
+    }
+    let status = probe
+        .get("status")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("unavailable");
+    Err(InstallError::StepFailed {
+        step: "verify".into(),
+        message: format!("target adapter import is not healthy for '{package}' ({status})"),
     })
 }
 
