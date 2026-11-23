@@ -71,6 +71,8 @@ pub struct InstallResultResponse {
     pub path: String,
     pub skill_search_path: String,
     pub install_type: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub superseded: Vec<String>,
     pub reload_required: bool,
 }
 

@@ -701,8 +701,9 @@ supports `install.type: git`, `install.type: path`, and `install.type: zip`.
 Git installs require and verify a full 40-character commit object ID. Archive
 installs require `install.sha256` before I/O, verify the received bytes, and
 reject entries that escape the install root. DCC adapters include
-`~/.dcc-mcp/marketplace/<dcc>` in their skill search paths, so installed skills
-are discovered on adapter startup. To expose an exact package to running
+`~/.dcc-mcp/marketplace/any`, the legacy `~/.dcc-mcp/marketplace/all`, and
+`~/.dcc-mcp/marketplace/<dcc>` in that order in their skill search paths, so
+installed skills are discovered on adapter startup. To expose an exact package to running
 adapters immediately, use
 `dcc-mcp-cli marketplace install <name> --dcc <dcc> --reload`; otherwise run
 `dcc-mcp-cli reload-skills --dcc-type <dcc>` separately. After a reload, run

@@ -1025,8 +1025,8 @@ class TestDccServerBase:
 
         assert str(marketplace_root / "any") not in paths
 
-    def test_collect_skill_search_paths_prefers_host_specific_marketplace_dir(self, tmp_path, monkeypatch):
-        """Host-specific marketplace skills keep priority over host-neutral ones."""
+    def test_collect_skill_search_paths_prefers_shared_marketplace_dir(self, tmp_path, monkeypatch):
+        """Shared marketplace skills keep priority over host-specific copies."""
         monkeypatch.delenv("DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS", raising=False)
         server = self._make_server(tmp_path)
         marketplace_root = tmp_path / "marketplace"
@@ -1038,9 +1038,22 @@ class TestDccServerBase:
 
         paths = server.collect_skill_search_paths(include_bundled=False, filter_existing=True)
 
-        assert paths.index(str(host_dir)) < paths.index(str(host_neutral_dir))
+        assert paths.index(str(host_neutral_dir)) < paths.index(str(host_dir))
         assert paths.count(str(host_dir)) == 1
         assert paths.count(str(host_neutral_dir)) == 1
+
+    def test_collect_skill_search_paths_includes_legacy_shared_marketplace_dir(self, tmp_path, monkeypatch):
+        """Legacy ``all`` installs remain visible to every DCC adapter."""
+        monkeypatch.delenv("DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS", raising=False)
+        server = self._make_server(tmp_path)
+        marketplace_root = tmp_path / "marketplace"
+        legacy_shared_dir = marketplace_root / "all"
+        legacy_shared_dir.mkdir(parents=True)
+        monkeypatch.setenv("DCC_MCP_MARKETPLACE_INSTALL_ROOT", str(marketplace_root))
+
+        paths = server.collect_skill_search_paths(include_bundled=False, filter_existing=True)
+
+        assert str(legacy_shared_dir) in paths
 
     def test_collect_skill_search_paths_host_neutral_dir_deduplicated_for_any_host(self, tmp_path, monkeypatch):
         """A host literally named ``any`` must not register the same directory twice."""

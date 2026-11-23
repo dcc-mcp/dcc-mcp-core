@@ -604,6 +604,7 @@ async fn handle_install(
                 "dcc": result.dcc,
                 "version": result.version,
                 "path": result.path,
+                "superseded": result.superseded,
                 "reload_required": result.reload_required,
             });
             serde_json::to_string(&JsonRpcResponse::success(id, response)).unwrap_or_default()

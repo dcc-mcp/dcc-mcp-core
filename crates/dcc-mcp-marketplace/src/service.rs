@@ -402,10 +402,10 @@ impl MarketplaceService {
     /// Per-host installs that a shared install replaces.
     ///
     /// Entries that used to require `--dcc <host>` leave one copy per host
-    /// behind. A host-specific directory outranks the shared one in the skill
-    /// search path, so the leftovers keep shadowing the new shared install and
-    /// keep costing disk until they are removed. They are reported, never
-    /// deleted: removing a working host-specific copy is the operator's call.
+    /// behind. The shared directory now has higher discovery priority, so the
+    /// leftovers no longer win resolution but still cost disk until they are
+    /// removed. They are reported, never deleted: removing a working
+    /// host-specific copy is the operator's call.
     fn superseded_host_installs(&self, package_name: &str, dcc: &str) -> Vec<String> {
         if !is_host_neutral_dcc(dcc) {
             return Vec::new();

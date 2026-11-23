@@ -14,12 +14,12 @@ import os
 from pathlib import Path
 from typing import Any
 
+from dcc_mcp_core._runtime.skill_paths import get_marketplace_skill_paths
 from dcc_mcp_core._runtime.skill_paths import skill_env_slug
 from dcc_mcp_core._server.minimal_mode import MinimalModeConfig
 from dcc_mcp_core._server.minimal_mode import apply_minimal_mode
 from dcc_mcp_core.constants import ENV_DCC_SKILL_PATHS_TEMPLATE
 from dcc_mcp_core.constants import ENV_DISABLE_DEFAULT_SKILL_PATHS
-from dcc_mcp_core.constants import ENV_MARKETPLACE_INSTALL_ROOT
 from dcc_mcp_core.constants import ENV_SKILL_PATHS
 from dcc_mcp_core.hotreload import DccSkillHotReloader
 from dcc_mcp_core.skill import _get_bundled_skill_discovery_paths
@@ -54,12 +54,6 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-#: Subdirectory of the marketplace install root that holds host-neutral catalog
-#: entries (``dcc: ["any"]``). The marketplace crate uses the same marker as
-#: the install directory name, so host-neutral skills land in ``<root>/any``
-#: while no host is ever named ``any``.
-MARKETPLACE_HOST_NEUTRAL_DIR = "any"
-
 
 def _default_skill_paths_disabled() -> bool:
     value = os.environ.get(ENV_DISABLE_DEFAULT_SKILL_PATHS, "")
@@ -91,15 +85,16 @@ class SkillDiscoveryController:
         3. ``DCC_MCP_{DCC_NAME}_SKILL_PATHS`` env var (DCC-specific)
         4. ``DCC_MCP_SKILL_PATHS`` env var (global fallback)
         5. Local developer skills in ``~/.dcc-mcp/{dcc_name}/skills``
-        6. Marketplace-installed skills in ``~/.dcc-mcp/marketplace/{dcc_name}``
-        7. Host-neutral marketplace skills in ``~/.dcc-mcp/marketplace/any``
-        8. Bundled skills shipped with dcc-mcp-core (when ``include_bundled=True``)
-        9. Platform default skills dir
-        10. Admin-UI-added skill discovery roots from the gateway SQLite lane
+        6. Host-neutral marketplace skills in ``~/.dcc-mcp/marketplace/any``
+        7. Legacy host-neutral marketplace skills in ``~/.dcc-mcp/marketplace/all``
+        8. Marketplace-installed skills in ``~/.dcc-mcp/marketplace/{dcc_name}``
+        9. Bundled skills shipped with dcc-mcp-core (when ``include_bundled=True``)
+        10. Platform default skills dir
+        11. Admin-UI-added skill discovery roots from the gateway SQLite lane
             (when ``include_admin_custom=True``; issue #1400)
 
         When ``DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS=1``, operator-owned roots
-        from items 5, 6, 7, 9, and 10 are omitted. Explicit, bundled, and
+        from items 5, 6, 7, 8, 10, and 11 are omitted. Explicit, bundled, and
         environment-provided paths remain active.
         """
         owner = self._owner
@@ -123,28 +118,9 @@ class SkillDiscoveryController:
 
         if not defaults_disabled:
             try:
-                marketplace_root = Path(
-                    os.environ.get(
-                        ENV_MARKETPLACE_INSTALL_ROOT,
-                        str(Path.home() / ".dcc-mcp" / "marketplace"),
-                    )
-                )
-                # Host-specific entries install into ``<root>/<dcc_name>``; host-neutral
-                # entries (``dcc: ["any"]``) install into ``<root>/any``. No host is
-                # named ``any``, so the host-specific directory never resolves to them
-                # and they stay invisible unless the shared directory is listed too.
-                # Host-specific is listed first so it wins on a name collision.
-                # The winner is actually decided in the Rust loader, which keeps
-                # the first skill for a given name; this ordering is what makes
-                # "first" mean "host-specific".
-                for marketplace_dir in (
-                    marketplace_root / owner._dcc_name.lower(),
-                    marketplace_root / MARKETPLACE_HOST_NEUTRAL_DIR,
-                ):
-                    if marketplace_dir.is_dir():
-                        marketplace_dir_str = str(marketplace_dir)
-                        if marketplace_dir_str not in paths:
-                            paths.append(marketplace_dir_str)
+                for marketplace_dir in get_marketplace_skill_paths(owner._dcc_name):
+                    if marketplace_dir not in paths:
+                        paths.append(marketplace_dir)
             except Exception as exc:
                 logger.debug("[%s] Could not resolve marketplace skill path: %s", owner._dcc_name, exc)
 

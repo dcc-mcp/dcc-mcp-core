@@ -156,9 +156,9 @@ pub fn save_config(path: &Path, config: &MarketplaceSourceConfig) -> Result<(), 
 ///
 /// Resolution rules:
 ///
-/// - An explicit `--dcc <host>` wins whenever the entry targets it. `"any"`
-///   and `"all"` are not host names: they request the shared host-neutral
-///   landing spot.
+/// - An explicit `--dcc <host>` selects the entry when it targets that host.
+///   Host-neutral and multi-host entries still use the shared landing spot.
+///   `"any"` and `"all"` request that same shared host-neutral location.
 /// - An entry declaring exactly one host resolves to it, with or without
 ///   `--dcc`. That includes the host-neutral `"any"`: the entry already says
 ///   it is not tied to a specific host, so it installs into the shared
@@ -184,6 +184,13 @@ pub fn resolve_install_dcc(
 
     if let Some(dcc) = requested {
         let dcc_name = path_component("DCC name", dcc)?.to_lowercase();
+        if let Some(shared) = shared_install_dcc(&dccs)
+            && (dccs.contains(&dcc_name)
+                || is_shared_dcc_request(&dcc_name)
+                || entry_targets_dcc(entry, &dcc_name))
+        {
+            return Ok(shared);
+        }
         if dccs.contains(&dcc_name) {
             return Ok(dcc_name);
         }

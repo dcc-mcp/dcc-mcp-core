@@ -15,6 +15,7 @@ from dcc_mcp_core._runtime.mcp_http_config import McpHttpConfig
 from dcc_mcp_core._runtime.pure_skill_catalog import PurePythonSkillCatalog
 from dcc_mcp_core._runtime.skill_paths import get_app_skill_paths_from_env
 from dcc_mcp_core._runtime.skill_paths import get_local_skills_dir
+from dcc_mcp_core._runtime.skill_paths import get_marketplace_skill_paths
 from dcc_mcp_core._runtime.skill_paths import get_skill_paths_from_env
 from dcc_mcp_core._runtime.skill_paths import skill_env_slug
 from dcc_mcp_core._runtime.tool_registry_py import PurePythonToolRegistry
@@ -123,6 +124,7 @@ class SidecarBackedSkillServer:
             with suppress(OSError):
                 local.mkdir(parents=True, exist_ok=True)
             paths.append((str(local), "repo"))
+            paths.extend((path, "repo") for path in get_marketplace_skill_paths(self._dcc_name))
         return list(dict.fromkeys((path, scope) for path, scope in paths if str(path).strip()))
 
     def _launch_environment(self) -> dict[str, str]:

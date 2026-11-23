@@ -15,6 +15,39 @@ use dcc_mcp_paths::{FilesystemError, get_data_dir, path_to_string};
 use std::env;
 use std::path::{Path, PathBuf};
 
+const ENV_MARKETPLACE_INSTALL_ROOT: &str = "DCC_MCP_MARKETPLACE_INSTALL_ROOT";
+const MARKETPLACE_HOST_NEUTRAL_DIR: &str = "any";
+
+/// Return marketplace-installed skill roots in discovery priority order.
+///
+/// The shared `any` root is checked before the legacy `all` root and the
+/// host-specific root so one multi-DCC package cannot be shadowed by an older
+/// per-host copy.
+#[must_use]
+pub fn get_marketplace_skill_paths(dcc_name: Option<&str>) -> Vec<String> {
+    let root = env::var(ENV_MARKETPLACE_INSTALL_ROOT)
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .map(PathBuf::from)
+        .or_else(|| dirs::home_dir().map(|home| home.join(".dcc-mcp").join("marketplace")));
+    let Some(root) = root else {
+        return Vec::new();
+    };
+
+    let mut candidates = vec![root.join(MARKETPLACE_HOST_NEUTRAL_DIR), root.join("all")];
+    if let Some(dcc) = dcc_name.map(str::trim).filter(|dcc| !dcc.is_empty()) {
+        candidates.push(root.join(dcc.to_lowercase()));
+    }
+
+    let mut seen = std::collections::HashSet::new();
+    candidates
+        .into_iter()
+        .filter(|path| path.is_dir())
+        .map(|path| path_to_string(&path))
+        .filter(|path| seen.insert(path.clone()))
+        .collect()
+}
+
 /// Get skills directory.
 ///
 /// # Errors
@@ -380,6 +413,29 @@ mod tests {
             std::path::MAIN_SEPARATOR,
             std::path::MAIN_SEPARATOR
         )));
+    }
+
+    #[test]
+    fn test_marketplace_skill_paths_put_shared_roots_first() {
+        let tmp = tempfile::tempdir().unwrap();
+        let any = tmp.path().join("any");
+        let all = tmp.path().join("all");
+        let blender = tmp.path().join("blender");
+        for path in [&any, &all, &blender] {
+            std::fs::create_dir_all(path).unwrap();
+        }
+        let root = tmp.path().to_string_lossy().to_string();
+        let _guard =
+            dcc_mcp_test_utils::EnvVarGuard::set("DCC_MCP_MARKETPLACE_INSTALL_ROOT", Some(&root));
+
+        assert_eq!(
+            get_marketplace_skill_paths(Some("BLENDER")),
+            vec![
+                any.to_string_lossy().to_string(),
+                all.to_string_lossy().to_string(),
+                blender.to_string_lossy().to_string(),
+            ]
+        );
     }
 
     #[test]

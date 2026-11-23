@@ -214,7 +214,7 @@ Admin API 路由意外返回 HTML shell（例如 dev server 或反向代理把
 |------|-------------|------|
 | `GET /admin/api/marketplace/catalog` | `application/json` | 列出所有已配置来源中的可用包。返回 `{ entries: MarketplaceEntry[] }`。 |
 | `GET /admin/api/marketplace/installed` | `application/json` | 列出本地已安装的包（按 DCC 分组）。返回 `{ packages: InstalledMarketplacePackage[] }`。 |
-| `POST /admin/api/marketplace/install` | `application/json` | 安装包。请求体：`{ name, dcc, source?, force? }`。返回带 `reload_required` 标志的结果。 |
+| `POST /admin/api/marketplace/install` | `application/json` | 安装包。请求体：`{ name, dcc, source?, force? }`。返回带 `reload_required` 和可选旧副本 `superseded` 路径的结果。 |
 | `POST /admin/api/marketplace/uninstall` | `application/json` | 卸载包。请求体：`{ name, dcc }`。返回带 `reload_required` 标志的结果。 |
 | `GET /admin/api/marketplace/sources` | `application/json` | 列出已配置的市场来源及其来源类型（builtin、config、env）。 |
 | `POST /admin/api/marketplace/sources` | `application/json` | 添加市场来源到持久化配置。请求体：`{ source }`。重复添加是幂等的。 |

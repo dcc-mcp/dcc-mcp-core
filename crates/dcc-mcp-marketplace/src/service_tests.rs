@@ -669,9 +669,9 @@ fn host_neutral_entry_installs_under_any_without_an_explicit_dcc() {
 }
 
 #[test]
-fn host_neutral_entry_still_honours_a_concrete_dcc() {
+fn host_neutral_entry_uses_the_shared_directory_for_a_concrete_dcc() {
     let entry = catalog_entry("host-neutral", &["any"]);
-    assert_eq!(resolve_install_dcc(&entry, Some("Maya")).unwrap(), "maya");
+    assert_eq!(resolve_install_dcc(&entry, Some("Maya")).unwrap(), "any");
 }
 
 #[test]
@@ -683,11 +683,8 @@ fn multi_host_entry_installs_once_into_the_shared_directory() {
     // `--dcc all` and `--dcc any` ask for the same shared landing spot.
     assert_eq!(resolve_install_dcc(&entry, Some("all")).unwrap(), "any");
     assert_eq!(resolve_install_dcc(&entry, Some("Any")).unwrap(), "any");
-    // A concrete host is still honoured for callers who want the copy local.
-    assert_eq!(
-        resolve_install_dcc(&entry, Some("blender")).unwrap(),
-        "blender"
-    );
+    // A concrete host selects the entry but still uses the shared directory.
+    assert_eq!(resolve_install_dcc(&entry, Some("blender")).unwrap(), "any");
 }
 
 #[test]
@@ -978,7 +975,7 @@ fn write_path_catalog(
 }
 
 #[tokio::test]
-async fn installing_a_multi_host_entry_places_one_copy_in_the_shared_directory() {
+async fn installing_a_multi_host_entry_with_explicit_host_places_one_shared_copy() {
     let temp = tempfile::tempdir().unwrap();
     let skill_src = temp.path().join("skill-src");
     fs::create_dir_all(&skill_src).unwrap();
@@ -997,7 +994,7 @@ async fn installing_a_multi_host_entry_places_one_copy_in_the_shared_directory()
     let result = service
         .install(
             "dcc-asset-polyhaven".into(),
-            None,
+            Some("blender".into()),
             sources.clone(),
             false,
             true,
@@ -1052,17 +1049,30 @@ async fn shared_install_reports_the_per_host_copies_it_supersedes() {
 
     // Legacy state: one copy per host, as installs before this change produced.
     for dcc in ["maya", "blender"] {
+        let path = root.join(dcc).join("dcc-asset-polyhaven");
+        fs::create_dir_all(&path).unwrap();
+        fs::write(path.join("SKILL.md"), "# legacy shared copy\n").unwrap();
         service
-            .install(
-                "dcc-asset-polyhaven".into(),
-                Some(dcc.to_string()),
-                sources.clone(),
-                false,
-                true,
-            )
-            .await
+            .upsert_installed(InstalledMarketplacePackage {
+                name: "dcc-asset-polyhaven".into(),
+                dcc: dcc.into(),
+                target: CatalogTarget {
+                    kind: CatalogTargetKind::Dcc,
+                    id: dcc.into(),
+                },
+                components: Vec::new(),
+                package_format: Some(CatalogPackageFormat::Skill),
+                version: Some("1.0.0".into()),
+                path: path.display().to_string(),
+                source_name: "legacy-test".into(),
+                source_url: catalog_path.display().to_string(),
+                install_type: "path".into(),
+                install_url: Some(skill_src.display().to_string()),
+                install_ref: None,
+                resolved_commit: None,
+                installed_at_ms: 1,
+            })
             .unwrap();
-        assert!(root.join(dcc).join("dcc-asset-polyhaven").is_dir());
     }
 
     let result = service

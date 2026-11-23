@@ -192,8 +192,9 @@ impl SkillScanner {
     /// 1. `extra_paths` — caller-provided explicit paths ([`SkillPathSource::ExplicitArg`])
     /// 2. `DCC_MCP_{APP}_SKILL_PATHS` / `DCC_MCP_SKILL_PATHS` ([`SkillPathSource::EnvVar`])
     /// 3. Local developer skills directory under `~/.dcc-mcp/{dcc}/skills` ([`SkillPathSource::LocalDev`])
-    /// 4. Platform-specific skills directory for this DCC ([`SkillPathSource::Platform`])
-    /// 5. Global skills directory ([`SkillPathSource::Platform`])
+    /// 4. Marketplace roots, shared before host-specific ([`SkillPathSource::Platform`])
+    /// 5. Platform-specific skills directory for this DCC ([`SkillPathSource::Platform`])
+    /// 6. Global skills directory ([`SkillPathSource::Platform`])
     ///
     /// Deduplication preserves the highest-priority source for any path
     /// that appears in more than one bucket (e.g. an env-var path that
@@ -231,14 +232,20 @@ impl SkillScanner {
                 search_paths.push((local_dir, SkillPathSource::LocalDev));
             }
 
-            // 4. Platform-specific skills directory.
+            // 4. Marketplace roots. Shared roots come first so a multi-DCC
+            // package has one canonical version across host adapters.
+            for marketplace_dir in crate::paths::get_marketplace_skill_paths(dcc_name) {
+                search_paths.push((marketplace_dir, SkillPathSource::Platform));
+            }
+
+            // 5. Platform-specific skills directory.
             if let Ok(platform_dir) = crate::paths::get_skills_dir(dcc_name)
                 && Path::new(&platform_dir).is_dir()
             {
                 search_paths.push((platform_dir, SkillPathSource::Platform));
             }
 
-            // 5. Global (dcc-less) skills dir is also platform-installed.
+            // 6. Global (dcc-less) skills dir is also platform-installed.
             if dcc_name.is_some()
                 && let Ok(global_dir) = crate::paths::get_skills_dir(None)
                 && Path::new(&global_dir).is_dir()
