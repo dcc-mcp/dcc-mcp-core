@@ -54,17 +54,39 @@ fn install_cli_records_environment_python_source() {
     assert_eq!(plan["python_source"], "environment");
 }
 
-fn fake_pip(temp: &TempDir, version: &str) -> std::path::PathBuf {
+fn fake_pip(temp: &TempDir, version: &str, artifact_url: &str, sha256: &str) -> std::path::PathBuf {
     let package = temp.path().join("pip");
     std::fs::create_dir(&package).unwrap();
     std::fs::write(package.join("__init__.py"), "").unwrap();
-    std::fs::write(
-        package.join("__main__.py"),
-        format!(
-            "import os\nimport sys\nmarker = os.path.join(os.path.dirname(__file__), 'installed')\nif len(sys.argv) > 1 and sys.argv[1] == 'show':\n    if not os.path.exists(marker):\n        print('WARNING: Package(s) not found: dcc-mcp-maya', file=sys.stderr)\n        raise SystemExit(1)\n    print('Name: dcc-mcp-maya')\n    print('Version: {version}')\nelif len(sys.argv) > 1 and sys.argv[1] == 'install':\n    open(marker, 'w').close()\n"
-        ),
-    )
-    .unwrap();
+    let pip_script = r#"import json
+import os
+import sys
+root = os.path.dirname(os.path.dirname(__file__))
+marker = os.path.join(os.path.dirname(__file__), 'installed')
+count_file = os.path.join(os.path.dirname(__file__), 'install-count')
+dist_info = os.path.join(root, 'dcc_mcp_maya-{version}.dist-info')
+if len(sys.argv) > 1 and sys.argv[1] == 'show':
+    if not os.path.exists(marker):
+        print('WARNING: Package(s) not found: dcc-mcp-maya', file=sys.stderr)
+        raise SystemExit(1)
+    print('Name: dcc-mcp-maya')
+    print('Version: {version}')
+    print('Location:', root)
+elif len(sys.argv) > 1 and sys.argv[1] == 'check':
+    pass
+elif len(sys.argv) > 1 and sys.argv[1] == 'install':
+    count = int(open(count_file).read()) if os.path.exists(count_file) else 0
+    with open(count_file, 'w') as stream:
+        stream.write(str(count + 1))
+    os.makedirs(dist_info, exist_ok=True)
+    with open(os.path.join(dist_info, 'direct_url.json'), 'w') as stream:
+        json.dump({'url': '{artifact_url}', 'archive_info': {'hashes': {'sha256': '{sha256}'}}}, stream)
+    open(marker, 'w').close()
+"#
+    .replace("{version}", version)
+    .replace("{artifact_url}", artifact_url)
+    .replace("{sha256}", sha256);
+    std::fs::write(package.join("__main__.py"), pip_script).unwrap();
     // The install verification probes the target interpreter directly. Keep
     // the fixture importable without relying on packages from the test host.
     std::fs::write(
@@ -83,24 +105,35 @@ fn fake_pip(temp: &TempDir, version: &str) -> std::path::PathBuf {
 #[test]
 fn install_execute_json_reports_manual_registration_as_deferred() {
     let temp = TempDir::new().unwrap();
+    let receipt_temp = TempDir::new().unwrap();
     let plan = run_json(&["install", "--dcc-type", "maya", "--python", "python"]);
-    let python_path = fake_pip(&temp, plan["version"].as_str().unwrap());
-    let output = cli_command()
-        .args([
-            "install",
-            "--dcc-type",
-            "maya",
-            "--python",
-            "python",
-            "--execute",
-            "--json",
-        ])
-        .env_remove("DCC_MCP_INSTALL_DISABLED")
-        .env_remove("DCC_MCP_CATALOG_PATH")
-        .env_remove("DCC_MCP_INSTALL_PYTHON")
-        .env("PYTHONPATH", &python_path)
-        .output()
-        .unwrap();
+    let python_path = fake_pip(
+        &temp,
+        plan["version"].as_str().unwrap(),
+        plan["steps"][0]["action"]["artifact_url"].as_str().unwrap(),
+        plan["steps"][0]["action"]["sha256"].as_str().unwrap(),
+    );
+    let receipt_dir = receipt_temp.path().join("receipts");
+    let run_install = || {
+        cli_command()
+            .args([
+                "install",
+                "--dcc-type",
+                "maya",
+                "--python",
+                "python",
+                "--execute",
+                "--json",
+            ])
+            .env_remove("DCC_MCP_INSTALL_DISABLED")
+            .env_remove("DCC_MCP_CATALOG_PATH")
+            .env_remove("DCC_MCP_INSTALL_PYTHON")
+            .env("DCC_MCP_INSTALL_RECEIPT_DIR", &receipt_dir)
+            .env("PYTHONPATH", &python_path)
+            .output()
+            .unwrap()
+    };
+    let output = run_install();
 
     assert_eq!(
         output.status.code(),
@@ -125,6 +158,12 @@ fn install_execute_json_reports_manual_registration_as_deferred() {
     assert_eq!(register_step["rollback"]["attempted"], false);
     assert_eq!(register_step["rollback"]["status"], "not_available");
     assert_eq!(report["verify"]["directly_usable"], false);
+    let receipt_path = report["receipt_path"].as_str().expect("receipt path");
+    assert!(std::path::Path::new(receipt_path).is_file());
+    let receipt: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(receipt_path).unwrap()).unwrap();
+    assert_eq!(receipt["schema_version"], 1);
+    assert_eq!(receipt["package"], "dcc-mcp-maya");
 
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert_eq!(stdout.lines().count(), 1);
@@ -133,6 +172,36 @@ fn install_execute_json_reports_manual_registration_as_deferred() {
     assert!(!stderr.contains("register-dcc ... OK"));
     assert!(!stdout.contains(python_path.to_str().unwrap()));
     assert!(!stderr.contains(python_path.to_str().unwrap()));
+
+    let second = run_install();
+    assert_eq!(
+        second.status.code(),
+        Some(0),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&second.stdout),
+        String::from_utf8_lossy(&second.stderr)
+    );
+    let second_report: serde_json::Value = serde_json::from_slice(&second.stdout).unwrap();
+    assert_eq!(second_report["status"], "partial");
+    assert_eq!(second_report["receipt_path"], receipt_path);
+    assert_eq!(
+        std::fs::read_to_string(temp.path().join("pip/install-count")).unwrap(),
+        "1"
+    );
+
+    std::fs::remove_file(temp.path().join("pip/installed")).unwrap();
+    let third = run_install();
+    assert_eq!(
+        third.status.code(),
+        Some(0),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&third.stdout),
+        String::from_utf8_lossy(&third.stderr)
+    );
+    assert_eq!(
+        std::fs::read_to_string(temp.path().join("pip/install-count")).unwrap(),
+        "2"
+    );
 }
 
 #[test]
