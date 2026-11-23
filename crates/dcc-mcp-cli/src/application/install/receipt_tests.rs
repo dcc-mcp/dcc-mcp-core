@@ -254,3 +254,43 @@ fn receipt_commit_and_match_use_the_configured_directory() {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+#[test]
+fn uninstall_ownership_allows_missing_receipted_destinations() {
+    let root = tempfile::tempdir().unwrap();
+    let destination = root.path().join("adapter");
+    fs::create_dir_all(&destination).unwrap();
+    fs::write(destination.join("payload.txt"), "payload").unwrap();
+    let plan = path_plan(&destination);
+    let action = plan.steps[0].action.clone().unwrap();
+    let mut receipt = receipt_for_plan(&plan).unwrap();
+    receipt.owned_paths = owned_paths_for_plan(&plan, &[], &[action]).unwrap();
+    fs::remove_dir_all(&destination).unwrap();
+    assert!(receipt_uninstall_ownership_is_safe(&plan, &receipt).unwrap());
+}
+
+#[test]
+fn uninstall_ownership_rejects_drifted_receipted_destinations() {
+    let root = tempfile::tempdir().unwrap();
+    let destination = root.path().join("adapter");
+    fs::create_dir_all(&destination).unwrap();
+    fs::write(destination.join("payload.txt"), "payload").unwrap();
+    let plan = path_plan(&destination);
+    let action = plan.steps[0].action.clone().unwrap();
+    let mut receipt = receipt_for_plan(&plan).unwrap();
+    receipt.owned_paths = owned_paths_for_plan(&plan, &[], &[action]).unwrap();
+    fs::write(destination.join("payload.txt"), "user data").unwrap();
+    assert!(!receipt_uninstall_ownership_is_safe(&plan, &receipt).unwrap());
+}
+
+#[test]
+fn uninstall_ownership_rejects_non_pip_receipts_without_owned_paths() {
+    let root = tempfile::tempdir().unwrap();
+    let destination = root.path().join("adapter");
+    fs::create_dir_all(&destination).unwrap();
+    fs::write(destination.join("payload.txt"), "payload").unwrap();
+    let plan = path_plan(&destination);
+    let receipt = receipt_for_plan(&plan).unwrap();
+
+    assert!(!receipt_uninstall_ownership_is_safe(&plan, &receipt).unwrap());
+}

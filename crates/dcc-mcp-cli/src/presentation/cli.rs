@@ -289,9 +289,9 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
     let transport = transport_args.transport;
     let output = match &command {
         Command::Feedback(args) => args.resolve_output(output),
-        Command::Install { json: true, .. } | Command::Verify { json: true, .. } => {
-            Ok(OutputFormat::Json)
-        }
+        Command::Install { json: true, .. }
+        | Command::Uninstall { json: true, .. }
+        | Command::Verify { json: true, .. } => Ok(OutputFormat::Json),
         _ => Ok(output.unwrap_or_else(OutputFormat::auto_detect)),
     };
     let writer = OutputWriter::new(output.map_err(anyhow::Error::msg)?);
@@ -869,6 +869,38 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             } else {
                 to_json(service.plan(req)?)?
             }
+        }
+        Command::Uninstall {
+            offline,
+            dcc_type,
+            version,
+            catalog,
+            python,
+            dcc_path,
+            plugin_source,
+            adobe_debug_root,
+            yes,
+            json,
+        } => {
+            let service = if catalog.is_some() {
+                InstallService::bundled()
+            } else {
+                InstallService::refreshed(offline).await
+            };
+            let report = service.uninstall(
+                InstallRequest {
+                    dcc_type,
+                    version,
+                    catalog_path: catalog,
+                    python,
+                    dcc_path,
+                    plugin_source,
+                    adobe_debug_root,
+                },
+                non_interactive || json || yes,
+            );
+            explicit_exit_code = Some(report.exit_code);
+            to_json(report)?
         }
         Command::Marketplace { action } => {
             let service = new_service()?;

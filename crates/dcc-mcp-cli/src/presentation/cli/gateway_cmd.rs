@@ -87,6 +87,7 @@ pub(crate) fn gateway_endpoint_for_command(
         // MCP where that is the richer path, but the CLI owns gateway
         // lifecycle by default so agents can rely on the admin/control plane.
         Command::Install { .. }
+        | Command::Uninstall { .. }
         | Command::Marketplace { .. }
         | Command::Lint(_)
         | Command::Components { .. }

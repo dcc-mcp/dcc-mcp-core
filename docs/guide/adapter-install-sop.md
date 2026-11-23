@@ -557,7 +557,8 @@ the adapter's executable tests.
 
 Issue #2252 tracks later, separately reviewable work for embedded-interpreter
 detection in the Rust CLI, idempotent executor rollback, lock-aware removal
-integration, first-class Core uninstall, and catalog migration. Adapter
+integration, and catalog migration. The Core CLI now provides a receipt-driven
+uninstall path that refuses ambiguous or drifted ownership. Adapter
 conformance work can use this schema and documentation foundation without
 waiting for those executor changes.
 

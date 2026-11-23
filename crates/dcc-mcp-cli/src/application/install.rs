@@ -25,20 +25,28 @@ mod catalog;
 #[cfg(test)]
 mod catalog_contract_tests;
 mod discovery;
+mod file_ops;
 mod pip;
 mod policy;
 mod receipt;
 mod report;
+mod uninstall;
 mod verify;
+#[cfg(test)]
+use uninstall::install_state_is_absent;
 
 pub(crate) use catalog::{is_implicit_cwd_catalog, warn_if_implicit_cwd_catalog};
 pub use discovery::{DccAdapterSummary, DccTypeSummary, DccTypesCatalog};
+use file_ops::copy_dir_recursive;
 use pip::{
     PipArtifact, pip_install_args, pip_restore_args_for_artifact, pip_show_args, pip_show_version,
     pip_uninstall_args,
 };
 use policy::{AutoInstallPolicy, ask_consent, render_install_policy_prompt};
-use receipt::{commit_install_receipt, receipt_match_details, receipt_path_for_plan};
+use receipt::{
+    commit_install_receipt, commit_install_receipt_with_lock, lock_receipt_for_plan,
+    receipt_match_details, receipt_path_for_plan,
+};
 pub use report::{
     InstallExecutionError, InstallExecutionReport, InstallReportNextStep, InstallRollbackReport,
     InstallStepReport, InstallStepRollbackReport, InstallVerifyReport,
@@ -228,6 +236,18 @@ impl InstallService {
     fn execute_plan(&self, plan: &InstallPlan, skip_confirmation: bool) -> InstallExecutionReport {
         let skipped_actions = RefCell::new(Vec::new());
         let acquired_actions = RefCell::new(Vec::new());
+        let receipt_lock = match lock_receipt_for_plan(plan) {
+            Ok(lock) => lock,
+            Err(message) => {
+                return failed_report(
+                    execution_report_for_plan(plan),
+                    "preflight",
+                    30,
+                    "INSTALL_RECEIPT_LOCK_FAILED",
+                    Some(&message),
+                );
+            }
+        };
         self.execute_plan_with_commit(
             plan,
             skip_confirmation,
@@ -260,7 +280,20 @@ impl InstallService {
             },
             execute_rollback,
             |plan| {
-                commit_install_receipt(plan, &skipped_actions.borrow(), &acquired_actions.borrow())
+                let commit = match receipt_lock.as_ref() {
+                    Some(lock) => commit_install_receipt_with_lock(
+                        plan,
+                        &skipped_actions.borrow(),
+                        &acquired_actions.borrow(),
+                        lock,
+                    ),
+                    None => commit_install_receipt(
+                        plan,
+                        &skipped_actions.borrow(),
+                        &acquired_actions.borrow(),
+                    ),
+                };
+                commit
                     .map(|written| written.then(|| receipt_path_for_plan(plan)))
                     .map_err(|message| InstallError::StepFailed {
                         step: "install-receipt".into(),
@@ -1446,27 +1479,6 @@ fn execute_rollback(rollback: &StepRollback) -> Result<(), InstallError> {
             Ok(())
         }
     }
-}
-
-/// Recursively copy a directory and its contents.
-fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), InstallError> {
-    if !dst.exists() {
-        std::fs::create_dir_all(dst)?;
-    }
-    for entry in std::fs::read_dir(src)? {
-        let entry = entry?;
-        let file_type = entry.file_type()?;
-        let src_path = entry.path();
-        let file_name = entry.file_name();
-        let dst_path = dst.join(&file_name);
-
-        if file_type.is_dir() {
-            copy_dir_recursive(&src_path, &dst_path)?;
-        } else {
-            std::fs::copy(&src_path, &dst_path)?;
-        }
-    }
-    Ok(())
 }
 
 // ── tests ────────────────────────────────────────────────────────────────────────
