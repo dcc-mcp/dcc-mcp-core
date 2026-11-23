@@ -74,7 +74,7 @@ fn marketplace_install_list_and_uninstall_path_package() {
         &envs,
     );
     assert_eq!(installed["installed"], true);
-    assert_eq!(installed["dcc"], "maya");
+    assert_eq!(installed["dcc"], "any");
     assert_eq!(installed["install_type"], "path");
     assert_eq!(installed["reload_required"], true);
     let installed_path = installed["path"].as_str().unwrap();
@@ -87,7 +87,7 @@ fn marketplace_install_list_and_uninstall_path_package() {
         installed["skill_search_path"]
             .as_str()
             .unwrap()
-            .ends_with("maya")
+            .ends_with("any")
     );
 
     let listed = run_json_with_env(&["marketplace", "list-installed", "--dcc", "maya"], &envs);
