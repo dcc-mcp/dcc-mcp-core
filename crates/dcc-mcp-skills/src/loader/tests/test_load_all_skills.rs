@@ -39,3 +39,31 @@ fn load_nonexistent_dirs() {
     assert!(skills.is_empty());
     assert_eq!(skipped.len(), 1);
 }
+
+#[test]
+fn load_duplicate_skill_names_keeps_highest_priority_directory() {
+    let tmp = tempfile::tempdir().unwrap();
+    let preferred = tmp.path().join("preferred");
+    let shadowed = tmp.path().join("shadowed");
+    std::fs::create_dir_all(&preferred).unwrap();
+    std::fs::create_dir_all(&shadowed).unwrap();
+    std::fs::write(
+        preferred.join(SKILL_METADATA_FILE),
+        "---\nname: duplicate\nmetadata:\n  dcc-mcp:\n    version: \"2.0.0\"\n---\n",
+    )
+    .unwrap();
+    std::fs::write(
+        shadowed.join(SKILL_METADATA_FILE),
+        "---\nname: duplicate\nmetadata:\n  dcc-mcp:\n    version: \"1.0.0\"\n---\n",
+    )
+    .unwrap();
+
+    let (skills, skipped) = load_all_skills(&[
+        preferred.to_string_lossy().to_string(),
+        shadowed.to_string_lossy().to_string(),
+    ]);
+
+    assert!(skipped.is_empty());
+    assert_eq!(skills.len(), 1);
+    assert_eq!(skills[0].version.as_str(), "2.0.0");
+}

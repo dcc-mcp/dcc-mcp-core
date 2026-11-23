@@ -50,6 +50,9 @@ Marketplace **源**是指向目录文件的命名引用。源持久化存储在 
 | 原始 JSON URL       | `https://example.com/catalog.json`            |
 | 本地文件            | `/path/to/local-catalog.yml`                  |
 
+远程目录和安装 URL 必须使用 HTTPS。回环地址的 HTTP 仅用于本地开发服务，
+本地目录和路径安装继续使用文件系统路径。
+
 ### 源优先级
 
 1. 内置官方源（`dcc-mcp/marketplace`）
@@ -76,6 +79,9 @@ Marketplace **源**是指向目录文件的命名引用。源持久化存储在 
 | `marketplace publish <path> --catalog <file>` | 更新 marketplace catalog 条目 |
 
 完整参数参考：[cli-reference.md](cli-reference.md#marketplace)。
+
+主机中立和多 DCC 条目只安装一次到 `~/.dcc-mcp/marketplace/any/<name>/`，
+所有匹配的 DCC 都会搜索共享目录。`--dcc all` 也指向共享目录。
 
 ## 安装类型
 
@@ -170,6 +176,8 @@ jobs:
 ~/.dcc-mcp/marketplace/
 ├── sources.json              # 注册的源列表
 ├── installed.json            # 已安装包的状态
+├── any/                      # 所有 DCC 主机共享的包
+│   └── dcc-cross-dcc-skill/
 ├── maya/
 │   ├── dcc-mcp-maya-skills/  # 已安装的 git 克隆
 │   └── my-custom-skill/      # 已安装的路径复制
@@ -177,9 +185,12 @@ jobs:
     └── dcc-blender-skills/
 ```
 
-DCC 适配器会自动将 `~/.dcc-mcp/marketplace/<dcc>` 加入其技能搜索路径
-（参见 `server_base.py` 中的 `collect_skill_search_paths()`），因此
-已安装的技能会在适配器启动或 `reload_skill_paths` 时被发现。
+DCC 适配器会按顺序自动将 `~/.dcc-mcp/marketplace/any`、旧版
+`~/.dcc-mcp/marketplace/all`，以及 `~/.dcc-mcp/marketplace/<dcc>` 加入技能
+搜索路径（参见 `server_base.py` 中的 `collect_skill_search_paths()`），因此
+已安装的技能会在适配器启动或 `reload_skill_paths` 时被发现。相同名称的
+共享 Marketplace 包在所有 DCC 主机使用同一个规范版本，共享目录具有更高
+优先级。
 
 ## 环境变量
 
@@ -196,9 +207,12 @@ DCC 适配器会自动将 `~/.dcc-mcp/marketplace/<dcc>` 加入其技能搜索�
 
 - **路径遍历保护**：`marketplace_path_component()` 拒绝空组件、`.`、`..`、
   前导点和非 ASCII 字母数字字符。
-- **SHA256 校验**：ZIP 安装会验证 `install.sha256`（如果存在），在哈希不匹配
-  时拒绝安装，且不会修改已有包。
+- **SHA256 校验**：远程 ZIP 安装必须提供 `install.sha256`，哈希不匹配时拒绝
+  安装，且不会修改已有包。
+- **HTTPS 传输**：远程目录、Git 源和包归档拒绝公开 HTTP URL。
 - **压缩包逃逸检测**：ZIP 解压会拒绝逃脱安装根目录的条目。
+- **卸载根目录保护**：已记录的包路径必须位于 DCC Marketplace 根目录内才允许删除。
+- **ClawHub 打包保护**：发布归档会排除版本控制目录、缓存、字节码和符号链接文件。
 - **强制模式**：`--force` 会在安装失败时重试，但当替换本身失败时会保留
   现有包。
 

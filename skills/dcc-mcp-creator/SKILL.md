@@ -78,7 +78,7 @@ does not replace a running server binary.
 5. Route host API calls through `HostExecutionBridge`; do not hand-roll a second script executor.
 6. Keep DCC identity data-driven: `dcc_name`, `server_name`, env-var prefix, skill names, and gateway metadata.
    Leave the instance port unset so core resolves `DCC_MCP_<DCC>_PORT` or asks the OS for a free port.
-7. Use core helpers for skill discovery, `MinimalModeConfig`, project tools, resources, diagnostics, context snapshots, install lifecycle, and gateway failover before writing adapter-local wrappers. Python `DccServerBase.collect_skill_search_paths()` includes marketplace-installed skills under `~/.dcc-mcp/marketplace/<dcc>` (or `DCC_MCP_MARKETPLACE_INSTALL_ROOT/<dcc>`) when the directory exists, so adapters should not add a second marketplace path convention. Hermetic adapter tests should set `DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS=1`; this excludes implicit local/platform defaults, marketplace installs, and Admin custom paths while explicit, bundled, and environment-provided skill paths remain active.
+7. Use core helpers for skill discovery, `MinimalModeConfig`, project tools, resources, diagnostics, context snapshots, install lifecycle, and gateway failover before writing adapter-local wrappers. Python `DccServerBase.collect_skill_search_paths()` includes the shared `~/.dcc-mcp/marketplace/any` directory, the legacy `all` directory, and then `~/.dcc-mcp/marketplace/<dcc>` (or the matching `DCC_MCP_MARKETPLACE_INSTALL_ROOT` roots) when they exist, so adapters should not add a second marketplace path convention. Hermetic adapter tests should set `DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS=1`; this excludes implicit local/platform defaults, marketplace installs, and Admin custom paths while explicit, bundled, and environment-provided skill paths remain active.
    - For Windows visual UI fallback, reuse the bundled `app-ui` skill and the
      isolated `dcc-mcp-ui-control-host.exe`; do not instantiate
      `ComputerUseSession` or add adapter-local screenshot/`SendInput` wrappers.
@@ -133,6 +133,14 @@ does not replace a running server binary.
 18. For gateway/admin observability, surface explicit state instead of silent zeroes: traffic panels should report disabled, unavailable, filtered, or genuine no-traffic states; skill panels should distinguish discovered, loaded, searched, selected, called, failed, and low-adoption skills; and admin-facing frames/paths should stay metadata-only or aliased unless an operator explicitly configures a private raw sink. Keep `ServiceEntry.version` as the DCC application version; use core-published `dcc_mcp_server_version` and `dcc_mcp_instance_type=gui|standalone` metadata for server regression and runtime-shape diagnostics instead of overloading DCC or adapter versions.
 19. Preserve workflow observability: adapter calls should carry request, parent, trace, session, DCC, transport, and artifact/validation metadata so the Admin workflow graph can show Intent → Discovery → Skill Load → Tool Calls → Fallbacks → Artifacts → Validation → Report without raw log reading.
 20. Preserve bounded `agent_context` task/session/turn metadata and artifact/validation-friendly tool names so Admin task outcomes can group workflows, calls, deliverables, and checks without reading raw payloads or local paths.
+
+## Install and release contract
+
+Use the core installer plan and detected host metadata before adding adapter
+specific setup scripts. Remote package URLs must use HTTPS. Remote ZIP
+packages must publish a SHA-256 digest. The release workflow publishes raw DCC,
+MCP server, and CLI assets together with checksum sidecars so shell and wget
+installers verify the bytes before replacing an executable.
 
 ## Example: New Nuke Adapter
 

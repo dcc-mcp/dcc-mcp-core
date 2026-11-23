@@ -1,5 +1,165 @@
 use super::*;
 
+fn catalog_entry(name: &str, dcc: &[&str]) -> CatalogEntry {
+    CatalogEntry {
+        name: name.into(),
+        description: "test entry".into(),
+        dcc: dcc.iter().map(|value| (*value).into()).collect(),
+        url: None,
+        tags: Vec::new(),
+        version: None,
+        min_core_version: None,
+        install: None,
+        maintainer: None,
+        category: None,
+        policy: None,
+        requires: None,
+        icon: None,
+        showcase: None,
+    }
+}
+
+#[test]
+fn host_neutral_entry_resolves_to_shared_directory_for_every_host() {
+    let entry = catalog_entry("host-neutral", &["any"]);
+
+    assert_eq!(resolve_install_dcc(&entry, None).unwrap(), "any");
+    assert_eq!(resolve_install_dcc(&entry, Some("blender")).unwrap(), "any");
+    assert_eq!(resolve_install_dcc(&entry, Some("all")).unwrap(), "any");
+}
+
+#[test]
+fn legacy_all_entry_resolves_to_shared_directory_for_every_host() {
+    let entry = catalog_entry("legacy-shared", &["all"]);
+
+    assert_eq!(resolve_install_dcc(&entry, None).unwrap(), "any");
+    assert_eq!(resolve_install_dcc(&entry, Some("blender")).unwrap(), "any");
+}
+
+#[test]
+fn multi_host_entry_installs_once_into_shared_directory() {
+    let entry = catalog_entry("multi-host", &["maya", "blender"]);
+
+    assert_eq!(resolve_install_dcc(&entry, None).unwrap(), "any");
+    assert_eq!(resolve_install_dcc(&entry, Some("maya")).unwrap(), "any");
+    assert_eq!(resolve_install_dcc(&entry, Some("blender")).unwrap(), "any");
+    assert_eq!(resolve_install_dcc(&entry, Some("all")).unwrap(), "any");
+}
+
+#[test]
+fn shared_request_does_not_install_single_host_entry_into_any() {
+    let entry = catalog_entry("maya-only", &["maya"]);
+
+    assert_eq!(resolve_install_dcc(&entry, None).unwrap(), "maya");
+    assert!(resolve_install_dcc(&entry, Some("blender")).is_err());
+    assert!(resolve_install_dcc(&entry, Some("all")).is_err());
+}
+
+#[test]
+fn shared_installed_state_hides_legacy_host_copy() {
+    let tmp = tempfile::tempdir().unwrap();
+    let service = MarketplaceService::new(tmp.path().to_path_buf());
+    service
+        .upsert_installed(InstalledMarketplacePackage {
+            name: "shared-skill".into(),
+            dcc: "blender".into(),
+            version: Some("1.0.0".into()),
+            path: tmp
+                .path()
+                .join("blender/shared-skill")
+                .display()
+                .to_string(),
+            source_name: "test".into(),
+            source_url: "file://test".into(),
+            install_type: "path".into(),
+            install_url: None,
+            install_ref: None,
+            resolved_commit: None,
+            installed_at_ms: 1,
+        })
+        .unwrap();
+    service
+        .upsert_installed(InstalledMarketplacePackage {
+            name: "shared-skill".into(),
+            dcc: "any".into(),
+            version: Some("2.0.0".into()),
+            path: tmp.path().join("any/shared-skill").display().to_string(),
+            source_name: "test".into(),
+            source_url: "file://test".into(),
+            install_type: "path".into(),
+            install_url: None,
+            install_ref: None,
+            resolved_commit: None,
+            installed_at_ms: 2,
+        })
+        .unwrap();
+
+    let listed = service.list_installed(Some("blender")).unwrap();
+    assert_eq!(listed.count, 1);
+    assert_eq!(listed.packages[0].dcc, "any");
+    assert_eq!(listed.packages[0].version.as_deref(), Some("2.0.0"));
+}
+
+#[test]
+fn uninstall_shared_package_removes_legacy_host_copy_and_state() {
+    let tmp = tempfile::tempdir().unwrap();
+    let any_path = tmp.path().join("any/shared-skill");
+    let blender_path = tmp.path().join("blender/shared-skill");
+    std::fs::create_dir_all(&any_path).unwrap();
+    std::fs::create_dir_all(&blender_path).unwrap();
+    std::fs::write(any_path.join("SKILL.md"), "---\nname: shared-skill\n---\n").unwrap();
+    std::fs::write(
+        blender_path.join("SKILL.md"),
+        "---\nname: shared-skill\n---\n",
+    )
+    .unwrap();
+
+    let state = MarketplaceInstalledState {
+        packages: vec![
+            InstalledMarketplacePackage {
+                name: "shared-skill".into(),
+                dcc: "any".into(),
+                version: Some("2.0.0".into()),
+                path: any_path.display().to_string(),
+                source_name: "test".into(),
+                source_url: "file://test".into(),
+                install_type: "path".into(),
+                install_url: None,
+                install_ref: None,
+                resolved_commit: None,
+                installed_at_ms: 2,
+            },
+            InstalledMarketplacePackage {
+                name: "shared-skill".into(),
+                dcc: "blender".into(),
+                version: Some("1.0.0".into()),
+                path: blender_path.display().to_string(),
+                source_name: "test".into(),
+                source_url: "file://test".into(),
+                install_type: "path".into(),
+                install_url: None,
+                install_ref: None,
+                resolved_commit: None,
+                installed_at_ms: 1,
+            },
+        ],
+    };
+    std::fs::create_dir_all(tmp.path()).unwrap();
+    std::fs::write(
+        tmp.path().join("installed.json"),
+        serde_json::to_string_pretty(&state).unwrap(),
+    )
+    .unwrap();
+
+    let service = MarketplaceService::new(tmp.path().to_path_buf());
+    let result = service.uninstall("shared-skill", "blender").unwrap();
+
+    assert!(result.uninstalled);
+    assert!(!any_path.exists());
+    assert!(!blender_path.exists());
+    assert!(service.list_installed(None).unwrap().packages.is_empty());
+}
+
 #[tokio::test]
 async fn outdated_fetches_each_catalog_once() {
     use std::io::{Read, Write};

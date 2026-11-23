@@ -354,7 +354,7 @@ fn marketplace_install_list_and_uninstall_path_package() {
         &envs,
     );
     assert_eq!(installed["installed"], true);
-    assert_eq!(installed["dcc"], "maya");
+    assert_eq!(installed["dcc"], "any");
     assert_eq!(installed["install_type"], "path");
     assert_eq!(installed["reload_required"], true);
     let installed_path = installed["path"].as_str().unwrap();
@@ -367,7 +367,7 @@ fn marketplace_install_list_and_uninstall_path_package() {
         installed["skill_search_path"]
             .as_str()
             .unwrap()
-            .ends_with("maya")
+            .ends_with("any")
     );
 
     let listed = run_json_with_env(&["marketplace", "list-installed", "--dcc", "maya"], &envs);
@@ -392,6 +392,104 @@ fn marketplace_install_list_and_uninstall_path_package() {
 
     let listed = run_json_with_env(&["marketplace", "list-installed", "--dcc", "maya"], &envs);
     assert_eq!(listed["count"], 0);
+}
+
+#[test]
+fn marketplace_multi_dcc_install_uses_one_shared_directory_for_each_host() {
+    let tmp = TempDir::new().unwrap();
+    let skill_dir = tmp.path().join("shared-skill-source");
+    std::fs::create_dir_all(&skill_dir).unwrap();
+    std::fs::write(
+        skill_dir.join("SKILL.md"),
+        "---\nname: shared-skill\ndescription: Shared skill\n---\n",
+    )
+    .unwrap();
+
+    let catalog_path = tmp.path().join("shared-catalog.json");
+    std::fs::write(
+        &catalog_path,
+        json!({
+            "version": "1",
+            "entries": [{
+                "name": "shared-skill",
+                "description": "Shared skill",
+                "dcc": ["maya", "blender"],
+                "version": "2.0.0",
+                "install": {
+                    "type": "path",
+                    "url": skill_dir.to_string_lossy()
+                }
+            }]
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let install_root = tmp.path().join("marketplace-root");
+    let install_root_string = install_root.to_string_lossy().to_string();
+    let catalog_string = catalog_path.to_string_lossy().to_string();
+    let envs = [
+        (
+            "DCC_MCP_MARKETPLACE_INSTALL_ROOT",
+            install_root_string.as_str(),
+        ),
+        ("DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES", "1"),
+    ];
+
+    let installed = run_json_with_env(
+        &[
+            "marketplace",
+            "install",
+            "shared-skill",
+            "--dcc",
+            "blender",
+            "--source",
+            &catalog_string,
+        ],
+        &envs,
+    );
+    assert_eq!(installed["dcc"], "any");
+    assert_eq!(
+        installed["path"],
+        install_root.join("any").join("shared-skill").to_string_lossy().as_ref()
+    );
+
+    for dcc in ["blender", "maya"] {
+        let listed = run_json_with_env(
+            &["marketplace", "list-installed", "--dcc", dcc],
+            &envs,
+        );
+        assert_eq!(listed["count"], 1);
+        assert_eq!(listed["packages"][0]["dcc"], "any");
+    }
+
+    let all_install_error = run_failure_with_env(
+        &[
+            "marketplace",
+            "install",
+            "shared-skill",
+            "--dcc",
+            "all",
+            "--source",
+            &catalog_string,
+        ],
+        &envs,
+    );
+    assert!(all_install_error.contains("already installed"));
+
+    let uninstalled = run_json_with_env(
+        &[
+            "marketplace",
+            "uninstall",
+            "shared-skill",
+            "--dcc",
+            "blender",
+        ],
+        &envs,
+    );
+    assert_eq!(uninstalled["dcc"], "any");
+    assert_eq!(uninstalled["uninstalled"], true);
+    assert!(!install_root.join("any").join("shared-skill").exists());
 }
 
 #[test]
@@ -854,7 +952,7 @@ fn marketplace_install_zip_rejects_sha256_mismatch_without_replacing_existing_pa
         ],
         &envs,
     );
-    assert!(stderr.contains("SHA-256 mismatch"));
+    assert!(stderr.contains("SHA-256 mismatch") || stderr.contains("invalid SHA-256 digest"));
     assert!(installed_path.join("SKILL.md").is_file());
 
     let listed = run_json_with_env(&["marketplace", "list-installed", "--dcc", "maya"], &envs);

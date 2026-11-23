@@ -17,13 +17,15 @@ use crate::types::{
     MarketplaceOutdatedList, MarketplaceSearchResult, MarketplaceSource, MarketplaceSourceOrigin,
     MarketplaceUninstallResult, MarketplaceUpdateResult, OutdatedMarketplacePackage,
     RepoInstallResult, RepoSkillList, StoredMarketplaceSource, entry_targets_dcc,
+    is_shared_dcc_request, is_shared_install_dcc, package_serves_dcc,
 };
 
 #[path = "service_internals.rs"]
 mod service_internals;
 use service_internals::*;
 pub(crate) use service_internals::{
-    copy_dir_recursive, promote_single_nested_skill_directory, remove_path, write_atomic,
+    copy_dir_recursive, ensure_path_within_root, ensure_secure_remote_url,
+    promote_single_nested_skill_directory, remove_path, require_archive_sha256, write_atomic,
 };
 pub use service_internals::{default_sources_disabled, env_sources, path_component};
 
@@ -81,6 +83,9 @@ impl MarketplaceService {
     /// Add a source to the persistent config (if a config path is set).
     pub fn add_source(&self, raw_source: &str) -> Result<Vec<MarketplaceSource>, MarketplaceError> {
         let source = normalise_source(raw_source, MarketplaceSourceOrigin::Config);
+        if source.url.starts_with("http://") || source.url.starts_with("https://") {
+            ensure_secure_remote_url(&source.url, "marketplace source")?;
+        }
         let Some(ref config_path) = self.config_path else {
             return self.list_sources();
         };
@@ -295,6 +300,7 @@ impl MarketplaceService {
             }
         };
         let resolved_commit = resolved_git_commit(&install, &final_path);
+        let superseded = self.superseded_host_installs(&package_name, &dcc);
 
         let package = InstalledMarketplacePackage {
             name: package_name.clone(),
@@ -321,6 +327,7 @@ impl MarketplaceService {
             source: hit.source,
             entry: hit.entry,
             install_type: install.install_type.clone(),
+            superseded,
             resolved_commit,
             reload_required: true,
         })
@@ -332,25 +339,70 @@ impl MarketplaceService {
         dcc: &str,
     ) -> Result<MarketplaceUninstallResult, MarketplaceError> {
         let name = path_component("package name", name)?;
-        let dcc_root = self.dcc_dir(dcc);
-        let dest = self
-            .load_installed_state()?
-            .packages
-            .into_iter()
-            .find(|package| package.name == name && package.dcc.eq_ignore_ascii_case(dcc))
-            .map(|package| PathBuf::from(package.path))
+        let packages = self.load_installed_state()?.packages;
+        let installed = packages
+            .iter()
+            .find(|package| package.name == name && is_shared_install_dcc(&package.dcc))
+            .or_else(|| {
+                packages
+                    .iter()
+                    .find(|package| package.name == name && package.dcc.eq_ignore_ascii_case(dcc))
+            })
+            .or_else(|| {
+                packages
+                    .iter()
+                    .find(|package| package.name == name && package_serves_dcc(package, dcc))
+            })
+            .cloned();
+        let shared_install = installed
+            .as_ref()
+            .is_some_and(|package| is_shared_install_dcc(&package.dcc));
+        let mut installed_dcc = installed
+            .as_ref()
+            .map_or_else(|| dcc.to_lowercase(), |package| package.dcc.clone());
+        let mut dcc_root = self.dcc_dir(&installed_dcc);
+        let mut dest = installed
+            .as_ref()
+            .map(|package| PathBuf::from(&package.path))
             .unwrap_or_else(|| dcc_root.join(&name));
-        let removed_files = if dest.exists() {
-            remove_installed_path(&dcc_root, &dest)?;
-            true
-        } else {
-            false
-        };
-        let removed_state = self.remove_installed(&name, dcc)?;
+        if installed.is_none() && !dest.exists() && !is_shared_dcc_request(dcc) {
+            for shared_dcc in ["any", "all"] {
+                let shared_root = self.dcc_dir(shared_dcc);
+                let shared_dest = shared_root.join(&name);
+                if shared_dest.exists() {
+                    installed_dcc = shared_dcc.into();
+                    dcc_root = shared_root;
+                    dest = shared_dest;
+                    break;
+                }
+            }
+        }
+        let mut file_candidates = vec![(dcc_root.clone(), dest.clone())];
+        if shared_install || is_shared_install_dcc(&installed_dcc) {
+            for package in &packages {
+                if package.name == name && !is_shared_install_dcc(&package.dcc) {
+                    file_candidates
+                        .push((self.dcc_dir(&package.dcc), PathBuf::from(&package.path)));
+                }
+            }
+        }
+        let mut seen_paths = std::collections::HashSet::new();
+        let mut removed_files = false;
+        for (root, path) in file_candidates {
+            if path.exists() && seen_paths.insert(path.clone()) {
+                remove_installed_path(&root, &path)?;
+                removed_files = true;
+            }
+        }
+        let removed_state = self.remove_installed_for_request(
+            &name,
+            &installed_dcc,
+            shared_install || is_shared_install_dcc(&installed_dcc),
+        )?;
         Ok(MarketplaceUninstallResult {
             uninstalled: removed_files || removed_state,
             name,
-            dcc: dcc.to_string(),
+            dcc: installed_dcc,
             path: dest.display().to_string(),
             removed_state,
             removed_files,
@@ -364,9 +416,9 @@ impl MarketplaceService {
         &self,
         dcc: Option<&str>,
     ) -> Result<MarketplaceInstalledList, MarketplaceError> {
-        let mut packages = self.load_installed_state()?.packages;
+        let mut packages = deduplicate_shared_packages(self.load_installed_state()?.packages);
         if let Some(dcc) = dcc {
-            packages.retain(|package| package.dcc.eq_ignore_ascii_case(dcc));
+            packages.retain(|package| package_serves_dcc(package, dcc));
         }
         Ok(MarketplaceInstalledList {
             dcc: dcc.map(String::from),
@@ -541,11 +593,31 @@ impl MarketplaceService {
         self.root.join(dcc.to_lowercase())
     }
 
+    fn superseded_host_installs(&self, package_name: &str, dcc: &str) -> Vec<String> {
+        if !is_shared_install_dcc(dcc) {
+            return Vec::new();
+        }
+        let Ok(state) = self.load_installed_state() else {
+            return Vec::new();
+        };
+        state
+            .packages
+            .into_iter()
+            .filter(|package| {
+                package.name == package_name
+                    && !is_shared_install_dcc(&package.dcc)
+                    && Path::new(&package.path).exists()
+            })
+            .map(|package| package.path)
+            .collect()
+    }
+
     async fn load_source_entries(
         &self,
         source: &MarketplaceSource,
     ) -> Result<Vec<CatalogEntry>, MarketplaceError> {
         let text = if source.url.starts_with("http://") || source.url.starts_with("https://") {
+            ensure_secure_remote_url(&source.url, "marketplace source")?;
             self.client
                 .get(&source.url)
                 .header("User-Agent", "dcc-mcp marketplace")
@@ -643,6 +715,7 @@ impl MarketplaceService {
         dest: &Path,
     ) -> Result<(), MarketplaceError> {
         let (url, bytes) = self.load_archive(install).await?;
+        require_archive_sha256(&url, install.sha256.as_deref())?;
         verify_archive_sha256(&bytes, install.sha256.as_deref(), &url)?;
         extract_zip_archive(&bytes, dest)?;
         flatten_single_skill_directory(dest)?;
@@ -681,6 +754,7 @@ impl MarketplaceService {
             .as_deref()
             .ok_or_else(|| MarketplaceError::MissingInstall("zip.url".into()))?;
         if url.starts_with("http://") || url.starts_with("https://") {
+            ensure_secure_remote_url(url, "marketplace archive")?;
             let bytes = self
                 .client
                 .get(url)
@@ -856,18 +930,42 @@ impl MarketplaceService {
         self.save_installed_state(&state)
     }
 
-    fn remove_installed(&self, name: &str, dcc: &str) -> Result<bool, MarketplaceError> {
+    fn remove_installed_for_request(
+        &self,
+        name: &str,
+        dcc: &str,
+        remove_all_dcc_copies: bool,
+    ) -> Result<bool, MarketplaceError> {
         let mut state = self.load_installed_state()?;
         let before = state.packages.len();
-        state
-            .packages
-            .retain(|package| !(package.name == name && package.dcc.eq_ignore_ascii_case(dcc)));
+        state.packages.retain(|package| {
+            if package.name != name {
+                return true;
+            }
+            !remove_all_dcc_copies && !package.dcc.eq_ignore_ascii_case(dcc)
+        });
         let changed = state.packages.len() != before;
         if changed {
             self.save_installed_state(&state)?;
         }
         Ok(changed)
     }
+}
+
+fn deduplicate_shared_packages(
+    packages: Vec<InstalledMarketplacePackage>,
+) -> Vec<InstalledMarketplacePackage> {
+    let shared_names: std::collections::HashSet<String> = packages
+        .iter()
+        .filter(|package| is_shared_install_dcc(&package.dcc))
+        .map(|package| package.name.clone())
+        .collect();
+    packages
+        .into_iter()
+        .filter(|package| {
+            is_shared_install_dcc(&package.dcc) || !shared_names.contains(&package.name)
+        })
+        .collect()
 }
 
 // ── tests ─────────────────────────────────────────────────────────────────────
@@ -905,6 +1003,26 @@ mod tests {
     fn path_component_trims_whitespace() {
         let result = path_component("name", "  hello  ").unwrap();
         assert_eq!(result, "hello");
+    }
+
+    #[test]
+    fn public_marketplace_http_is_rejected() {
+        assert!(matches!(
+            ensure_secure_remote_url("http://example.com/catalog.json", "marketplace source"),
+            Err(MarketplaceError::InsecureUrl { .. })
+        ));
+    }
+
+    #[test]
+    fn remote_zip_requires_sha256() {
+        assert!(matches!(
+            require_archive_sha256("https://example.com/package.zip", None),
+            Err(MarketplaceError::MissingIntegrity(_))
+        ));
+        assert!(
+            require_archive_sha256("https://example.com/package.zip", Some(&"a".repeat(64)))
+                .is_ok()
+        );
     }
 
     #[test]

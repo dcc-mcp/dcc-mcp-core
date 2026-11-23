@@ -18,8 +18,9 @@ use crate::error::MarketplaceError;
 use crate::git_command;
 use crate::source::normalise_source;
 use crate::types::{
-    InstalledMarketplacePackage, MarketplaceSource, MarketplaceSourceConfig,
-    MarketplaceSourceOrigin, entry_targets_dcc,
+    HOST_NEUTRAL_DCC, InstalledMarketplacePackage, MarketplaceSource, MarketplaceSourceConfig,
+    MarketplaceSourceOrigin, entry_dcc_ids, entry_targets_dcc, is_host_neutral_dcc,
+    is_shared_dcc_request,
 };
 
 pub const ENV_MARKETPLACE_SOURCES: &str = "DCC_MCP_MARKETPLACE_SOURCES";
@@ -131,6 +132,27 @@ pub fn path_component(kind: &str, value: &str) -> Result<String, MarketplaceErro
     Ok(trimmed.to_string())
 }
 
+/// Require encrypted transport for remote marketplace metadata and packages.
+/// Loopback HTTP remains available for local test servers and development
+/// gateways. Local filesystem paths are validated by their callers instead.
+pub fn ensure_secure_remote_url(url: &str, kind: &str) -> Result<(), MarketplaceError> {
+    let parsed = reqwest::Url::parse(url).map_err(|error| {
+        MarketplaceError::CommandFailed(format!("invalid {kind} URL '{url}': {error}"))
+    })?;
+    match parsed.scheme() {
+        "https" => Ok(()),
+        "http" if parsed.host_str().is_some_and(is_loopback_host) => Ok(()),
+        _ => Err(MarketplaceError::InsecureUrl {
+            kind: kind.to_string(),
+            url: url.to_string(),
+        }),
+    }
+}
+
+fn is_loopback_host(host: &str) -> bool {
+    matches!(host, "localhost" | "127.0.0.1" | "::1")
+}
+
 pub fn load_config(path: &Path) -> Result<MarketplaceSourceConfig, MarketplaceError> {
     if !path.exists() {
         return Ok(MarketplaceSourceConfig::default());
@@ -155,10 +177,30 @@ pub fn resolve_install_dcc(
     entry: &CatalogEntry,
     requested: Option<&str>,
 ) -> Result<String, MarketplaceError> {
+    let dccs = entry_dcc_ids(entry);
+    for dcc in &dccs {
+        path_component("DCC name", dcc)?;
+    }
+
     if let Some(dcc) = requested {
         let dcc_name = path_component("DCC name", dcc)?.to_lowercase();
+        if is_shared_dcc_request(&dcc_name) {
+            return shared_install_dcc(&dccs).ok_or_else(|| MarketplaceError::DccMismatch {
+                name: entry.name.clone(),
+                dcc: dcc.to_string(),
+            });
+        }
+        if dccs.iter().any(|value| value == &dcc_name) {
+            return Ok(shared_install_dcc(&dccs).unwrap_or(dcc_name));
+        }
         if entry_targets_dcc(entry, &dcc_name) {
-            return Ok(dcc_name);
+            return Ok(
+                if dccs.len() > 1 || dccs.iter().any(|value| is_host_neutral_dcc(value)) {
+                    HOST_NEUTRAL_DCC.to_string()
+                } else {
+                    dcc_name
+                },
+            );
         }
         return Err(MarketplaceError::DccMismatch {
             name: entry.name.clone(),
@@ -166,18 +208,22 @@ pub fn resolve_install_dcc(
         });
     }
 
-    let mut dccs: Vec<String> = entry
-        .dcc
-        .iter()
-        .map(|dcc| path_component("DCC name", dcc).map(|s| s.to_lowercase()))
-        .collect::<Result<_, _>>()?;
-    dccs.sort();
-    dccs.dedup();
+    if let Some(shared) = shared_install_dcc(&dccs) {
+        return Ok(shared);
+    }
     match dccs.as_slice() {
         [dcc] => Ok(dcc.clone()),
         _ => Err(MarketplaceError::AmbiguousDcc {
             name: entry.name.clone(),
         }),
+    }
+}
+
+fn shared_install_dcc(dccs: &[String]) -> Option<String> {
+    if dccs.len() > 1 || dccs.iter().any(|dcc| is_host_neutral_dcc(dcc)) {
+        Some(HOST_NEUTRAL_DCC.to_string())
+    } else {
+        None
     }
 }
 
@@ -189,23 +235,45 @@ pub fn ensure_entry_installable(entry: &CatalogEntry) -> Result<(), MarketplaceE
     {
         return Err(MarketplaceError::NotAvailable(entry.name.clone()));
     }
-    let Some(required) = entry.min_core_version.as_deref() else {
+    if let Some(required) = entry.min_core_version.as_deref() {
+        let required_version =
+            Version::parse(required).map_err(|_| MarketplaceError::InvalidMinCoreVersion {
+                name: entry.name.clone(),
+                required: required.to_string(),
+            })?;
+        let current = env!("CARGO_PKG_VERSION");
+        let current_version =
+            Version::parse(current).expect("workspace package version must be SemVer");
+        if current_version < required_version {
+            return Err(MarketplaceError::IncompatibleCoreVersion {
+                name: entry.name.clone(),
+                required: required.to_string(),
+                current: current.to_string(),
+            });
+        }
+    }
+    validate_install_metadata(entry)?;
+    Ok(())
+}
+
+pub fn validate_install_metadata(entry: &CatalogEntry) -> Result<(), MarketplaceError> {
+    let Some(install) = entry.install.as_ref() else {
         return Ok(());
     };
-    let required_version =
-        Version::parse(required).map_err(|_| MarketplaceError::InvalidMinCoreVersion {
-            name: entry.name.clone(),
-            required: required.to_string(),
-        })?;
-    let current = env!("CARGO_PKG_VERSION");
-    let current_version =
-        Version::parse(current).expect("workspace package version must be SemVer");
-    if current_version < required_version {
-        return Err(MarketplaceError::IncompatibleCoreVersion {
-            name: entry.name.clone(),
-            required: required.to_string(),
-            current: current.to_string(),
-        });
+    let Some(url) = install.url.as_deref() else {
+        if install.install_type == "pip" {
+            return Ok(());
+        }
+        return Err(MarketplaceError::MissingInstall(format!(
+            "{}.url",
+            install.install_type
+        )));
+    };
+    if url.starts_with("http://") || url.starts_with("https://") {
+        ensure_secure_remote_url(url, "marketplace install")?;
+    }
+    if install.install_type == "zip" {
+        require_archive_sha256(url, install.sha256.as_deref())?;
     }
     Ok(())
 }
@@ -220,6 +288,9 @@ pub fn install_from_git_command(
         .url
         .as_deref()
         .ok_or_else(|| MarketplaceError::MissingInstall("git.url".into()))?;
+    if url.starts_with("http://") || url.starts_with("https://") {
+        ensure_secure_remote_url(url, "git install")?;
+    }
     let mut command = git_command();
     command.arg("clone").arg("--depth").arg("1");
     if let Some(ref_) = install.ref_.as_deref().filter(|v| !v.trim().is_empty()) {
@@ -395,6 +466,11 @@ pub fn verify_archive_sha256(
     else {
         return Ok(());
     };
+    if expected.len() != 64 || !expected.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(MarketplaceError::CommandFailed(format!(
+            "invalid SHA-256 digest for '{url}'; expected 64 hexadecimal characters"
+        )));
+    }
     let actual = sha256_hex(bytes);
     if actual.eq_ignore_ascii_case(&expected) {
         return Ok(());
@@ -404,6 +480,29 @@ pub fn verify_archive_sha256(
         expected,
         actual,
     })
+}
+
+pub fn require_archive_sha256(url: &str, expected: Option<&str>) -> Result<(), MarketplaceError> {
+    if (url.starts_with("http://") || url.starts_with("https://"))
+        && expected
+            .map(normalize_sha256)
+            .is_none_or(|value| value.len() != 64)
+    {
+        return Err(MarketplaceError::MissingIntegrity(url.to_string()));
+    }
+    Ok(())
+}
+
+pub fn ensure_path_within_root(root: &Path, path: &Path) -> Result<(), MarketplaceError> {
+    let root = fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+    let path = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    if path == root || !path.starts_with(&root) {
+        return Err(MarketplaceError::PathOutsideRoot {
+            path: path.display().to_string(),
+            root: root.display().to_string(),
+        });
+    }
+    Ok(())
 }
 
 fn normalize_sha256(value: &str) -> String {

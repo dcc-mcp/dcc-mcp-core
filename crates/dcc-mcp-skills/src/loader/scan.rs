@@ -215,11 +215,26 @@ fn resolve_dependencies_soft(
 pub(crate) fn load_all_skills(dirs: &[String]) -> (Vec<SkillMetadata>, Vec<String>) {
     let mut skills = Vec::new();
     let mut skipped = Vec::new();
+    // Search roots are ordered by priority. A host-specific marketplace root
+    // therefore wins over the shared `any` root when both contain the same
+    // skill. Keeping this rule in the loader makes startup and rediscovery
+    // resolve the same version.
+    let mut seen_names = std::collections::HashSet::new();
 
     for dir_str in dirs {
         let dir = Path::new(dir_str);
         match parse_skill_md_with_diagnostic(dir) {
-            Ok(meta) => skills.push(meta),
+            Ok(meta) => {
+                if seen_names.insert(meta.name.clone()) {
+                    skills.push(meta);
+                } else {
+                    tracing::debug!(
+                        skill_name = %meta.name,
+                        shadowed_directory = %dir_str,
+                        "Duplicate skill name from a lower-priority search root; keeping the first occurrence."
+                    );
+                }
+            }
             Err(diagnostic) => {
                 tracing::warn!(
                     directory = %dir_str,

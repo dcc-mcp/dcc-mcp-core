@@ -485,6 +485,10 @@ dcc-mcp-cli marketplace update <package_name> --dcc maya
 dcc-mcp-cli reload-skills --dcc-type maya
 ```
 
+Host-neutral and multi-DCC packages are installed once under the shared
+`~/.dcc-mcp/marketplace/any` root. DCC adapters search that root before the
+host-specific marketplace root, and `--dcc all` addresses the shared root.
+
 Use marketplace release commands for package authors and CI:
 
 ```bash

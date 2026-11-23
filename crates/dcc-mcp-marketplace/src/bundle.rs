@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 use crate::add_repo::collect_skill_dirs;
 use crate::error::MarketplaceError;
 use crate::service::{
-    copy_dir_recursive, path_component, promote_single_nested_skill_directory, remove_path,
-    write_atomic,
+    copy_dir_recursive, ensure_path_within_root, path_component,
+    promote_single_nested_skill_directory, remove_path, write_atomic,
 };
 
 const BUNDLE_DIR: &str = ".packages";
@@ -70,6 +70,7 @@ pub(crate) fn bundle_package_dir(dcc_root: &Path, package_name: &str) -> PathBuf
 }
 
 pub(crate) fn remove_installed_path(dcc_root: &Path, dest: &Path) -> Result<(), MarketplaceError> {
+    ensure_path_within_root(dcc_root, dest)?;
     if let Some(manifest) = read_bundle_manifest(dest)? {
         for skill in manifest.skills {
             let target = dcc_root.join(path_component("skill name", &skill)?);

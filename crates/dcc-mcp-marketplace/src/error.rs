@@ -19,6 +19,12 @@ pub enum MarketplaceError {
     #[error("marketplace source read failed for '{0}': {1}")]
     Read(String, #[source] std::io::Error),
 
+    #[error("marketplace remote URL for {kind} must use HTTPS: {url}")]
+    InsecureUrl { kind: String, url: String },
+
+    #[error("marketplace remote archive '{0}' must declare a SHA-256 digest")]
+    MissingIntegrity(String),
+
     #[error(transparent)]
     Catalog(#[from] dcc_mcp_catalog::CatalogError),
 
@@ -74,6 +80,9 @@ pub enum MarketplaceError {
         expected: String,
         actual: String,
     },
+
+    #[error("marketplace path '{path}' is outside the install root '{root}'")]
+    PathOutsideRoot { path: String, root: String },
 
     #[error("marketplace archive error for '{0}': {1}")]
     Archive(String, String),

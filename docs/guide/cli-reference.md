@@ -173,8 +173,8 @@ dcc-mcp-cli lint path/to/skills
 | `marketplace list` | local source registry | List the built-in, configured, and environment-provided marketplace sources. |
 | `marketplace search [--query <q>] [--dcc <dcc>] [--source <source>]` | marketplace catalog JSON/YAML | Search skill package entries across configured or explicit sources. |
 | `marketplace inspect <name> [--source <source>]` | marketplace catalog JSON/YAML | Print exact entry metadata including version and install fields. |
-| `marketplace install <name> [--dcc <dcc>] [--source <source>] [--force]` | marketplace catalog + local filesystem/git | Install a skill package to `~/.dcc-mcp/marketplace/<dcc>/<name>/`. |
-| `marketplace list-installed [--dcc <dcc>]` | local installed-state file | List locally installed marketplace packages and their versions/paths. |
+| `marketplace install <name> [--dcc <dcc>] [--source <source>] [--force]` | marketplace catalog + local filesystem/git | Install host-neutral and multi-DCC packages to `~/.dcc-mcp/marketplace/any/<name>/`, otherwise use `~/.dcc-mcp/marketplace/<dcc>/<name>/`. |
+| `marketplace list-installed [--dcc <dcc>]` | local installed-state file | List locally installed marketplace packages and their versions/paths. Shared packages are listed once for each matching host. |
 | `marketplace uninstall <name> --dcc <dcc>` | local installed-state file + filesystem | Remove an installed marketplace package. |
 | `marketplace outdated [NAME...] [--dcc <dcc>]` | marketplace catalog + local installed state | Compare installed versions against latest catalog entries and list packages with newer versions available. |
 | `marketplace update [<name>] [--all] [--dcc <dcc>]` | marketplace catalog + git/filesystem + local installed state | Upgrade installed packages to the latest catalog version. For `git` installs, fetches the new ref in place; for other types, re-installs from the catalog. Use `--all` to update every outdated package. |
@@ -248,8 +248,12 @@ Additional sources are persisted under
 `~/.dcc-mcp/marketplace/<dcc>/<name>/`, with
 `DCC_MCP_MARKETPLACE_INSTALL_ROOT` overriding the root. The current installer
 supports `install.type: git`, `install.type: path`, and `install.type: zip`.
-Archive installs verify `install.sha256` when present and reject entries that
-escape the install root. DCC adapters include
+Host-neutral and multi-DCC entries use `~/.dcc-mcp/marketplace/any/<name>/`
+and are visible to every matching DCC. The legacy `all` directory remains a
+read-only discovery fallback.
+Remote catalogs, git sources, and package archives require HTTPS. Remote ZIP
+installs require `install.sha256` and reject entries that escape the install
+root. DCC adapters include
 `~/.dcc-mcp/marketplace/<dcc>` in their skill search paths, so installed skills
 are discovered on adapter startup or the next
 `dcc-mcp-cli reload-skills --dcc-type <dcc>`. After a reload, run

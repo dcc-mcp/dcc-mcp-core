@@ -15,6 +15,9 @@ use dcc_mcp_paths::{FilesystemError, get_data_dir, path_to_string};
 use std::env;
 use std::path::{Path, PathBuf};
 
+const ENV_MARKETPLACE_INSTALL_ROOT: &str = "DCC_MCP_MARKETPLACE_INSTALL_ROOT";
+const MARKETPLACE_HOST_NEUTRAL_DIR: &str = "any";
+
 /// Get skills directory.
 ///
 /// # Errors
@@ -46,6 +49,41 @@ pub fn get_local_skills_dir(dcc_name: Option<&str>) -> Result<String, Filesystem
         dir = dir.join("skills");
     }
     Ok(path_to_string(&dir))
+}
+
+/// Get marketplace-installed skill roots for a DCC.
+///
+/// Shared packages are searched before host-specific packages so a package
+/// installed for multiple DCCs has one canonical version. The legacy `all`
+/// directory remains a read-only fallback for installations created before
+/// the shared directory was renamed to `any`.
+/// The root follows the marketplace installer override and the same per-user
+/// default used by the Rust marketplace service.
+#[must_use]
+pub fn get_marketplace_skill_paths(dcc_name: Option<&str>) -> Vec<String> {
+    let root = env::var(ENV_MARKETPLACE_INSTALL_ROOT)
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .map(PathBuf::from)
+        .or_else(|| dirs::home_dir().map(|home| home.join(".dcc-mcp").join("marketplace")));
+    let Some(root) = root else {
+        return Vec::new();
+    };
+
+    let mut candidates = Vec::new();
+    candidates.push(root.join(MARKETPLACE_HOST_NEUTRAL_DIR));
+    candidates.push(root.join("all"));
+    if let Some(dcc) = dcc_name.map(str::trim).filter(|dcc| !dcc.is_empty()) {
+        candidates.push(root.join(dcc.to_lowercase()));
+    }
+
+    let mut seen = std::collections::HashSet::new();
+    candidates
+        .into_iter()
+        .filter(|path| path.is_dir())
+        .map(|path| path_to_string(&path))
+        .filter(|path| seen.insert(path.clone()))
+        .collect()
 }
 
 /// Get skill search paths from environment variable.
@@ -380,6 +418,29 @@ mod tests {
             std::path::MAIN_SEPARATOR,
             std::path::MAIN_SEPARATOR
         )));
+    }
+
+    #[test]
+    fn test_marketplace_skill_paths_include_host_neutral_root() {
+        let tmp = tempfile::tempdir().unwrap();
+        let host = tmp.path().join("blender");
+        let shared = tmp.path().join("any");
+        let legacy = tmp.path().join("all");
+        std::fs::create_dir_all(&host).unwrap();
+        std::fs::create_dir_all(&shared).unwrap();
+        std::fs::create_dir_all(&legacy).unwrap();
+        let root = tmp.path().to_string_lossy().to_string();
+        let _guard =
+            dcc_mcp_test_utils::EnvVarGuard::set("DCC_MCP_MARKETPLACE_INSTALL_ROOT", Some(&root));
+
+        assert_eq!(
+            get_marketplace_skill_paths(Some("BLENDER")),
+            vec![
+                shared.to_string_lossy().to_string(),
+                legacy.to_string_lossy().to_string(),
+                host.to_string_lossy().to_string()
+            ]
+        );
     }
 
     #[test]

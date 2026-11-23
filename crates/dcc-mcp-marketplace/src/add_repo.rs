@@ -12,7 +12,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::error::MarketplaceError;
 use crate::git_command;
 use crate::path_component;
-use crate::types::{RepoInstallResult, RepoSkillInfo, RepoSkillList};
+use crate::types::{
+    RepoInstallResult, RepoSkillInfo, RepoSkillList, is_host_neutral_dcc, is_shared_dcc_request,
+};
 
 /// Parse a repo reference into a clone URL and optional subpath.
 ///
@@ -324,7 +326,12 @@ pub fn install_from_repo(
                 .find(|s| {
                     s.dcc
                         .as_deref()
-                        .map(|d| d.eq_ignore_ascii_case(requested_dcc))
+                        .map(|d| {
+                            (is_shared_dcc_request(requested_dcc) && is_host_neutral_dcc(d))
+                                || (is_shared_dcc_request(d)
+                                    && is_shared_dcc_request(requested_dcc))
+                                || d.eq_ignore_ascii_case(requested_dcc)
+                        })
                         .unwrap_or(false)
                 })
                 .ok_or_else(|| {
@@ -344,8 +351,21 @@ pub fn install_from_repo(
     };
 
     // Determine the final DCC name
-    let final_dcc = match dcc {
-        Some(explicit) => path_component("DCC name", explicit)?.to_lowercase(),
+    let requested_dcc = match dcc {
+        Some(explicit) => Some(path_component("DCC name", explicit)?.to_lowercase()),
+        None => target_skill
+            .dcc
+            .as_deref()
+            .map(|value| path_component("DCC name", value))
+            .transpose()?
+            .map(|value| value.to_lowercase()),
+    };
+    let final_dcc = match requested_dcc.as_deref() {
+        Some(value) if is_shared_dcc_request(value) => "any".to_string(),
+        Some(_value) if target_skill.dcc.as_deref().is_some_and(is_host_neutral_dcc) => {
+            "any".to_string()
+        }
+        Some(value) => value.to_string(),
         None => match &target_skill.dcc {
             Some(d) => path_component("DCC name", d)?.to_lowercase(),
             None => {

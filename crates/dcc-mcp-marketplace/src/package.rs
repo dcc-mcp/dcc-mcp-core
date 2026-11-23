@@ -10,6 +10,7 @@ use zip::write::SimpleFileOptions;
 
 use crate::error::MarketplaceError;
 use crate::path_component;
+use crate::service::{ensure_secure_remote_url, require_archive_sha256};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MarketplacePackOptions {
@@ -345,6 +346,14 @@ fn marketplace_v1_entry_value(entry: &CatalogEntry) -> Result<Value, Marketplace
     }
     if install.install_type == "zip" && install.sha256.as_deref().is_none_or(str::is_empty) {
         return Err(MarketplaceError::MissingInstall("source.sha256".into()));
+    }
+    if let Some(url) = install.url.as_deref()
+        && (url.starts_with("http://") || url.starts_with("https://"))
+    {
+        ensure_secure_remote_url(url, "marketplace source")?;
+        if install.install_type == "zip" {
+            require_archive_sha256(url, install.sha256.as_deref())?;
+        }
     }
 
     let mut value = json!({

@@ -52,5 +52,6 @@ pub use types::{
     MarketplaceOutdatedList, MarketplaceSearchResult, MarketplaceSource, MarketplaceSourceConfig,
     MarketplaceSourceOrigin, MarketplaceUninstallResult, MarketplaceUpdateResult,
     OFFICIAL_MARKETPLACE_SOURCE, OutdatedMarketplacePackage, RepoInstallResult, RepoSkillInfo,
-    RepoSkillList, StoredMarketplaceSource, entry_targets_dcc,
+    RepoSkillList, StoredMarketplaceSource, entry_dcc_ids, entry_targets_dcc, is_host_neutral_dcc,
+    is_shared_dcc_request, is_shared_install_dcc, package_serves_dcc,
 };

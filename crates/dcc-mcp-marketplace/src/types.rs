@@ -6,6 +6,12 @@
 use dcc_mcp_catalog::CatalogEntry;
 use serde::{Deserialize, Serialize};
 
+/// Directory used for marketplace packages that serve every DCC host.
+pub const HOST_NEUTRAL_DCC: &str = "any";
+
+/// CLI spellings that request the shared host-neutral install directory.
+pub const SHARED_DCC_REQUESTS: [&str; 2] = [HOST_NEUTRAL_DCC, "all"];
+
 // ── source ────────────────────────────────────────────────────────────────────
 
 /// Canonical URL for the official dcc-mcp/marketplace catalog.
@@ -76,6 +82,9 @@ pub struct MarketplaceInstallResult {
     pub source: MarketplaceSource,
     pub entry: CatalogEntry,
     pub install_type: String,
+    /// Existing host-specific copies that can shadow this shared install.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub superseded: Vec<String>,
     /// Immutable git revision that was actually installed, when the source supplies one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resolved_commit: Option<String>,
@@ -208,10 +217,46 @@ pub struct RepoInstallResult {
 
 /// Check whether `entry` targets the given DCC type (case-insensitive).
 pub fn entry_targets_dcc(entry: &CatalogEntry, dcc: &str) -> bool {
-    entry
-        .dcc
+    let dccs = entry_dcc_ids(entry);
+    if is_shared_dcc_request(dcc) {
+        return dccs.len() > 1 || dccs.iter().any(|value| is_host_neutral_dcc(value));
+    }
+    dccs.iter()
+        .any(|value| is_host_neutral_dcc(value) || value.eq_ignore_ascii_case(dcc))
+}
+
+/// Return the declared DCC ids in declaration order, normalized and deduplicated.
+pub fn entry_dcc_ids(entry: &CatalogEntry) -> Vec<String> {
+    let mut ids = Vec::new();
+    for dcc in &entry.dcc {
+        let normalized = dcc.to_lowercase();
+        if !ids.iter().any(|known| known == &normalized) {
+            ids.push(normalized);
+        }
+    }
+    ids
+}
+
+/// True for the reserved host-neutral marketplace directory name.
+pub fn is_host_neutral_dcc(dcc: &str) -> bool {
+    is_shared_dcc_request(dcc)
+}
+
+/// True for current and legacy spellings of the shared marketplace directory.
+pub fn is_shared_install_dcc(dcc: &str) -> bool {
+    is_shared_dcc_request(dcc)
+}
+
+/// True when a CLI request addresses the shared host-neutral directory.
+pub fn is_shared_dcc_request(dcc: &str) -> bool {
+    SHARED_DCC_REQUESTS
         .iter()
-        .any(|value| value.eq_ignore_ascii_case(dcc))
+        .any(|request| dcc.eq_ignore_ascii_case(request))
+}
+
+/// True when an installed package is visible to the requested DCC.
+pub fn package_serves_dcc(package: &InstalledMarketplacePackage, dcc: &str) -> bool {
+    is_shared_install_dcc(&package.dcc) || package.dcc.eq_ignore_ascii_case(dcc)
 }
 
 // ── tests ─────────────────────────────────────────────────────────────────────
@@ -241,5 +286,28 @@ mod tests {
         assert!(entry_targets_dcc(&entry, "Maya"));
         assert!(entry_targets_dcc(&entry, "BLENDER"));
         assert!(!entry_targets_dcc(&entry, "houdini"));
+    }
+
+    #[test]
+    fn legacy_all_entry_is_host_neutral() {
+        let entry = CatalogEntry {
+            name: "legacy-shared".into(),
+            description: "legacy shared entry".into(),
+            dcc: vec!["all".into()],
+            url: None,
+            tags: vec![],
+            version: None,
+            min_core_version: None,
+            install: None,
+            maintainer: None,
+            category: None,
+            policy: None,
+            requires: None,
+            icon: None,
+            showcase: None,
+        };
+
+        assert!(is_host_neutral_dcc("all"));
+        assert!(entry_targets_dcc(&entry, "blender"));
     }
 }
