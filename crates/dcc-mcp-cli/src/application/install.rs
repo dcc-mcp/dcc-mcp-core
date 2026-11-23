@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -37,7 +38,7 @@ use pip::{
     pip_uninstall_args,
 };
 use policy::{AutoInstallPolicy, ask_consent, render_install_policy_prompt};
-use receipt::{commit_pip_receipt, receipt_matches_pip, receipt_path_for_plan};
+use receipt::{commit_install_receipt, receipt_match_details, receipt_path_for_plan};
 pub use report::{
     InstallExecutionError, InstallExecutionReport, InstallReportNextStep, InstallRollbackReport,
     InstallStepReport, InstallStepRollbackReport, InstallVerifyReport,
@@ -225,26 +226,41 @@ impl InstallService {
     }
 
     fn execute_plan(&self, plan: &InstallPlan, skip_confirmation: bool) -> InstallExecutionReport {
+        let skipped_actions = RefCell::new(Vec::new());
+        let acquired_actions = RefCell::new(Vec::new());
         self.execute_plan_with_commit(
             plan,
             skip_confirmation,
-            |action, plan| match action {
-                InstallStepAction::Verify => execute_verify(plan).map(StepExecution::Completed),
-                InstallStepAction::PipInstall { .. }
-                    if receipt_matches_pip(plan).map_err(|message| {
+            |action, plan| {
+                let result = if matches!(action, InstallStepAction::Verify) {
+                    execute_verify(plan).map(StepExecution::Completed)
+                } else if is_receipt_action(action) {
+                    let (matches_receipt, validated_digest) = receipt_match_details(plan, action)
+                        .map_err(|message| {
                         InstallError::StepFailed {
                             step: "install-receipt".into(),
                             message,
                         }
-                    })? =>
-                {
-                    Ok(StepExecution::Completed(None))
+                    })?;
+                    if matches_receipt {
+                        skipped_actions
+                            .borrow_mut()
+                            .push((action.clone(), validated_digest));
+                        Ok(StepExecution::Completed(None))
+                    } else {
+                        execute_action(action)
+                    }
+                } else {
+                    execute_action(action)
+                };
+                if matches!(&result, Ok(StepExecution::Completed(Some(_)))) {
+                    acquired_actions.borrow_mut().push(action.clone());
                 }
-                _ => execute_action(action),
+                result
             },
             execute_rollback,
             |plan| {
-                commit_pip_receipt(plan)
+                commit_install_receipt(plan, &skipped_actions.borrow(), &acquired_actions.borrow())
                     .map(|written| written.then(|| receipt_path_for_plan(plan)))
                     .map_err(|message| InstallError::StepFailed {
                         step: "install-receipt".into(),
@@ -488,6 +504,17 @@ impl InstallService {
         report.verify.failure_reason = Some("LIVE_DCC_VERIFICATION_REQUIRED".into());
         report
     }
+}
+
+fn is_receipt_action(action: &InstallStepAction) -> bool {
+    matches!(
+        action,
+        InstallStepAction::PipInstall { .. }
+            | InstallStepAction::GitClone { .. }
+            | InstallStepAction::ZipExtract { .. }
+            | InstallStepAction::PathCopy { .. }
+            | InstallStepAction::AdobePluginLink { .. }
+    )
 }
 
 // ── step executors ───────────────────────────────────────────────────────────────
@@ -1025,6 +1052,21 @@ fn execute_zip_extract(
         message: format!("failed to open zip archive: {e}"),
     })?;
 
+    for index in 0..archive.len() {
+        let entry = archive
+            .by_index(index)
+            .map_err(|e| InstallError::StepFailed {
+                step: "zip-extract".into(),
+                message: format!("failed to inspect ZIP archive entry: {e}"),
+            })?;
+        if entry.is_symlink() {
+            return Err(InstallError::StepFailed {
+                step: "zip-extract".into(),
+                message: "ZIP archives must not contain symbolic links".into(),
+            });
+        }
+    }
+
     archive
         .extract(dest)
         .map_err(|e| InstallError::StepFailed {
@@ -1048,6 +1090,7 @@ fn required_archive_sha256(sha256: Option<&str>) -> Result<String, InstallError>
 }
 
 fn execute_path_copy(source: &Path, dest: &Path) -> Result<Option<StepRollback>, InstallError> {
+    let source = resolve_install_source_path(source);
     if dest.exists() {
         return Err(InstallError::StepFailed {
             step: "path-copy".into(),
@@ -1068,12 +1111,25 @@ fn execute_path_copy(source: &Path, dest: &Path) -> Result<Option<StepRollback>,
     }
 
     if source.is_dir() {
-        copy_dir_recursive(source, dest)?;
+        copy_dir_recursive(&source, dest)?;
     } else {
-        std::fs::copy(source, dest)?;
+        std::fs::copy(&source, dest)?;
     }
 
     Ok(Some(StepRollback::RemovePath(dest.to_path_buf())))
+}
+
+pub(super) fn resolve_install_source_path(source: &Path) -> PathBuf {
+    if source.exists() {
+        return std::fs::canonicalize(source).unwrap_or_else(|_| source.to_path_buf());
+    }
+    if source.is_absolute() {
+        source.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map(|cwd| cwd.join(source))
+            .unwrap_or_else(|_| source.to_path_buf())
+    }
 }
 
 fn execute_register_dcc(
