@@ -1,16 +1,18 @@
 use std::fs;
-use std::path::Path;
 use std::process::{Command, Stdio};
 
 use crate::domain::install::{InstallPlan, InstallRequest, InstallStepAction};
 
+use super::lifecycle::{RemovalError, RemovalTransaction};
 use super::pip::{pip_show_args, pip_uninstall_args};
 use super::policy::ask_consent;
 use super::receipt::{
     lock_receipt_for_plan, read_receipt, receipt_for_uninstall, receipt_owned_paths,
     receipt_pip_target, receipt_uninstall_ownership_is_safe,
 };
-use super::report::{execution_report_for_plan, failed_report, safe_report_identifier};
+use super::report::{
+    execution_report_for_plan, failed_report, requires_restart_report, safe_report_identifier,
+};
 use super::{InstallExecutionReport, InstallService, report};
 
 impl InstallService {
@@ -122,6 +124,23 @@ impl InstallService {
                 );
             }
         }
+        let owned_paths = receipt_owned_paths(&receipt);
+        let removal = match RemovalTransaction::stage(owned_paths) {
+            Ok(transaction) => transaction,
+            Err(RemovalError::RequiresRestart { path, message }) => {
+                return requires_restart_report(report, &receipt_path, &path, &message);
+            }
+            Err(RemovalError::Failed { path, message }) => {
+                return failed_report(
+                    report,
+                    "uninstall",
+                    30,
+                    "UNINSTALL_STEP_FAILED",
+                    Some(&format!("{}: {message}", path.display())),
+                );
+            }
+        };
+        let mut removal = Some(removal);
         if let Some((package, python)) = receipt_pip_target(&receipt) {
             let status = match Command::new(&python)
                 .args(pip_uninstall_args(&package))
@@ -131,6 +150,9 @@ impl InstallService {
             {
                 Ok(status) => status,
                 Err(error) => {
+                    if let Some(transaction) = removal.as_mut() {
+                        let _ = transaction.restore();
+                    }
                     return failed_report(
                         report,
                         "uninstall",
@@ -141,11 +163,17 @@ impl InstallService {
                 }
             };
             if !status.success() {
+                if let Some(transaction) = removal.as_mut() {
+                    let _ = transaction.restore();
+                }
                 return failed_report(report, "uninstall", 30, "UNINSTALL_STEP_FAILED", None);
             }
             let package_absent = match pip_package_is_absent(&python, &package) {
                 Ok(absent) => absent,
                 Err(message) => {
+                    if let Some(transaction) = removal.as_mut() {
+                        let _ = transaction.restore();
+                    }
                     return failed_report(
                         report,
                         "uninstall",
@@ -156,40 +184,27 @@ impl InstallService {
                 }
             };
             if !package_absent {
+                if let Some(transaction) = removal.as_mut() {
+                    let _ = transaction.restore();
+                }
                 return failed_report(report, "uninstall", 30, "UNINSTALL_STEP_FAILED", None);
             }
         }
-        for path in receipt_owned_paths(&receipt) {
-            match receipt_uninstall_ownership_is_safe(&plan, &receipt) {
-                Ok(true) => {}
-                Ok(false) => {
-                    return failed_report(
-                        report,
-                        "uninstall",
-                        30,
-                        "UNINSTALL_OWNERSHIP_MISMATCH",
-                        None,
-                    );
+        if let Some(transaction) = removal.take()
+            && let Err(error) = transaction.commit()
+        {
+            return match error {
+                RemovalError::RequiresRestart { path, message } => {
+                    requires_restart_report(report, &receipt_path, &path, &message)
                 }
-                Err(message) => {
-                    return failed_report(
-                        report,
-                        "uninstall",
-                        30,
-                        "UNINSTALL_OWNERSHIP_CHECK_FAILED",
-                        Some(&message),
-                    );
-                }
-            }
-            if let Err(error) = remove_owned_path(&path) {
-                return failed_report(
+                RemovalError::Failed { path, message } => failed_report(
                     report,
                     "uninstall",
                     30,
                     "UNINSTALL_STEP_FAILED",
-                    Some(&error.to_string()),
-                );
-            }
+                    Some(&format!("{}: {message}", path.display())),
+                ),
+            };
         }
         if let Err(error) = fs::remove_file(&receipt_path)
             && error.kind() != std::io::ErrorKind::NotFound
@@ -212,26 +227,6 @@ impl InstallService {
         report
     }
 }
-fn remove_owned_path(path: &Path) -> std::io::Result<()> {
-    let metadata = match fs::symlink_metadata(path) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => return Err(error),
-    };
-    if metadata.file_type().is_symlink() {
-        #[cfg(windows)]
-        if std::os::windows::fs::FileTypeExt::is_symlink_dir(&metadata.file_type()) {
-            return fs::remove_dir(path);
-        }
-        return fs::remove_file(path);
-    }
-    if metadata.is_dir() {
-        fs::remove_dir_all(path)
-    } else {
-        fs::remove_file(path)
-    }
-}
-
 fn successful_uninstall_report(mut report: InstallExecutionReport) -> InstallExecutionReport {
     report.status = "ok".into();
     report.stage = "complete".into();

@@ -26,6 +26,7 @@ mod catalog;
 mod catalog_contract_tests;
 mod discovery;
 mod file_ops;
+mod lifecycle;
 mod pip;
 mod policy;
 mod receipt;
