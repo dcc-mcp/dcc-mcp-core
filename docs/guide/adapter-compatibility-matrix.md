@@ -71,7 +71,7 @@ drops both bounds.
 | Godot | [dcc-mcp-godot](https://github.com/dcc-mcp/dcc-mcp-godot) | 0.9.6 | >=0.20.41,<1.0.0 | 4.x | EditorPlugin + runtime bridge | 2026-10 |
 | Unity | [dcc-mcp-unity](https://github.com/dcc-mcp/dcc-mcp-unity) | 0.11.2 | >=0.19.45,<1.0.0 | 2018.4.36f1+ | EditorApplication.update + WebSocket bridge | — |
 | OpenUSD | [dcc-mcp-openusd](https://github.com/dcc-mcp/dcc-mcp-openusd) | 0.8.2 | >=0.19.45,<1.0.0 | — | Headless USD stage adapter | — |
-| Roblox Studio | [dcc-mcp-roblox-studio](https://github.com/dcc-mcp/dcc-mcp-roblox-studio) | 0.1.0 | >=0.20.54,<1.0.0 | current Studio | Luau Studio plugin + local stdio sidecar + instance-routed WebSocket bridge | 2026-11 |
+| Roblox Studio | [dcc-mcp-roblox-studio](https://github.com/dcc-mcp/dcc-mcp-roblox-studio) | 0.1.1 | >=0.20.54,<1.0.0 | current Studio | Luau Studio plugin + local stdio sidecar + instance-routed WebSocket bridge | 2026-11 |
 | PowerPoint | [dcc-mcp-PowerPoint](https://github.com/dcc-mcp/dcc-mcp-PowerPoint) | 0.2.3 | >=0.18.2,<1.0.0 | — | Deck IR → Open XML compile → COM render | — |
 | Excel | [dcc-mcp-excel](https://github.com/dcc-mcp/dcc-mcp-excel) | 0.1.3 | >=0.18.2,<1.0.0 | — | Headless Workbook IR → XLSX compile (Open XML) with read-back verification | 2026-10 |
 | Word | [dcc-mcp-word](https://github.com/dcc-mcp/dcc-mcp-word) | 0.1.2 | >=0.18.2,<1.0.0 | — | Headless Word IR → DOCX compile (Open XML) with read-back verification | 2026-10 |

@@ -38,7 +38,7 @@ registry is the source of truth, and the count is reproducible from a checkout:
 rg -c '^    tags: \[.*"adapter".*\]' dcc-mcp-catalog.yml
 ~~~
 
-That reports **48 adapter entries** in [`dcc-mcp-catalog.yml`](dcc-mcp-catalog.yml).
+That reports **49 adapter entries** in [`dcc-mcp-catalog.yml`](dcc-mcp-catalog.yml).
 See the [complete generated host list](docs/adapter-coverage.md) for every current
 entry and its install metadata. The count includes experimental discovery-only
 PhotoCraft; it does not establish release-qualified support or automatic

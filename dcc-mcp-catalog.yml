@@ -711,6 +711,23 @@ entries:
       sha256: "8e03a04dbc37c0fa8d19e74d963d8a41bc3a120d29888cadc9077c9b8d7081c4"
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-openusd/fd62299342ea1ac59aca20780c5335126e963af1/install.md"
 
+  - name: "dcc-mcp-roblox-studio"
+    description: "Roblox Studio adapter with a Luau plugin, typed Studio operations, and instance-routed WebSocket bridge"
+    dcc: ["roblox-studio", "roblox"]
+    url: "https://github.com/dcc-mcp/dcc-mcp-roblox-studio"
+    issues_url: "https://github.com/dcc-mcp/dcc-mcp-roblox-studio/issues"
+    tags: ["adapter", "roblox-studio", "roblox", "official", "pip", "game-engine", "websocket"]
+    version: "0.1.1"
+    min_core_version: "0.20.54"
+    maintainer: "dcc-mcp"
+    install:
+      type: pip
+      pip_package: "dcc-mcp-roblox-studio"
+      url: "https://files.pythonhosted.org/packages/41/c6/5de208cb2e239f9df4fd34dc54bb9eab488cb799fc4237a3d254cc1a9ed1/dcc_mcp_roblox_studio-0.1.1-py3-none-any.whl"
+      sha256: "4372cfdfa50ea18a402a273eb311b0a5d3cfbe9fd1643884912d16dc24f2f18d"
+      entry_point: "dcc_mcp_roblox_studio.server:main"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-roblox-studio/535ff98f192a29a07cc583fddbdb478aff2376de/install.md"
+
   - name: "autodesk-product-help"
     description: "Opt-in Autodesk Product Help remote MCP connector for read-only documentation lookup"
     dcc: ["autodesk-help"]

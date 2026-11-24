@@ -1,6 +1,6 @@
 {
   "source": "dcc-mcp-catalog.yml",
-  "adapter_count": 48,
+  "adapter_count": 49,
   "entries": [
     {
       "name": "dcc-mcp-photocraft",
@@ -497,6 +497,19 @@
       "url": "https://github.com/dcc-mcp/dcc-mcp-openusd",
       "version": "0.8.2",
       "pip_package": "dcc-mcp-openusd",
+      "pointer": true,
+      "registry": "pending",
+      "blocker": "registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first"
+    },
+    {
+      "name": "dcc-mcp-roblox-studio",
+      "dcc": [
+        "roblox-studio",
+        "roblox"
+      ],
+      "url": "https://github.com/dcc-mcp/dcc-mcp-roblox-studio",
+      "version": "0.1.1",
+      "pip_package": "dcc-mcp-roblox-studio",
       "pointer": true,
       "registry": "pending",
       "blocker": "registry entry waits on the Pass B gate: the core entry must be queryable on registry.modelcontextprotocol.io first"
