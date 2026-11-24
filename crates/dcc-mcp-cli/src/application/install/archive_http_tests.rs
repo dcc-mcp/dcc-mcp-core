@@ -1,3 +1,4 @@
+use super::acquire::required_archive_sha256;
 use super::*;
 use crate::domain::install::InstallStep;
 use sha2::{Digest, Sha256};
