@@ -5,6 +5,114 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.54](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.53...v0.20.54) (2026-11-24)
+
+
+### Features
+
+* add bounded host capability probes ([fd41acb](https://github.com/dcc-mcp/dcc-mcp-core/commit/fd41acb209708c13ea88181393868d0a41fca3f1))
+* add cross-DCC modeling verification contracts ([6a35206](https://github.com/dcc-mcp/dcc-mcp-core/commit/6a3520646242b682ba8dbd852ff80a225f952ffc))
+* **bridge:** define shared capacity contract ([e3ebd69](https://github.com/dcc-mcp/dcc-mcp-core/commit/e3ebd69e9a4937a15ad07d35a639e8cfb0ad96d7))
+* **capabilities:** register host capability discovery by default ([8d8c969](https://github.com/dcc-mcp/dcc-mcp-core/commit/8d8c9696287698caf85351ac46e34fcd72ab8d4b))
+* **cli:** add host capabilities summary ([9b90fc1](https://github.com/dcc-mcp/dcc-mcp-core/commit/9b90fc1a38305436f63cbd400fb57b916531ff71))
+* **cli:** make `dcc-mcp-cli update` a one-step update ([#2858](https://github.com/dcc-mcp/dcc-mcp-core/issues/2858)) ([1b24f3d](https://github.com/dcc-mcp/dcc-mcp-core/commit/1b24f3d42f2fe150e0601d566927c06820815b80))
+* **cli:** verify installed adapters in an explicit interpreter ([1f39a82](https://github.com/dcc-mcp/dcc-mcp-core/commit/1f39a8295c5989d497b522d24e3c62a448e09881))
+* **cua:** add an exclusive owned-worker launch boundary ([93f4297](https://github.com/dcc-mcp/dcc-mcp-core/commit/93f4297462db89dc7112ffa1e1ba7e5a171fa7b7))
+* define the host capability contract ([c919d7f](https://github.com/dcc-mcp/dcc-mcp-core/commit/c919d7ff1725eafab7599b12b1e66e777842bbca))
+* extend external plugin bridge protocol ([83532b8](https://github.com/dcc-mcp/dcc-mcp-core/commit/83532b86ac6f01aaaa3762d266eeb0537e24d83f))
+* **install:** add non-pip receipt ownership ([97237ee](https://github.com/dcc-mcp/dcc-mcp-core/commit/97237eeb2e06549d0bd785658e4ced8efed953d7))
+* **install:** add pip install receipts ([e405624](https://github.com/dcc-mcp/dcc-mcp-core/commit/e405624f7b003cea6a8a615259e05c78352ea0ac))
+* **install:** discover Blender embedded Python ([#2906](https://github.com/dcc-mcp/dcc-mcp-core/issues/2906)) ([eaa9b16](https://github.com/dcc-mcp/dcc-mcp-core/commit/eaa9b1684715a62e9dbe814255b8e822d8ffa4a2))
+* **install:** normalize GitHub install instructions ([#2907](https://github.com/dcc-mcp/dcc-mcp-core/issues/2907)) ([7d584c7](https://github.com/dcc-mcp/dcc-mcp-core/commit/7d584c78ba466c8c3f7faccf7ae5daa8404631d2))
+* **install:** prepare adapter sidecar updates ([5d8e20e](https://github.com/dcc-mcp/dcc-mcp-core/commit/5d8e20ef97e439ffd5c13bc80c5433059a52e7c7))
+* **install:** publish adapter readiness probe metadata ([c4e6ed6](https://github.com/dcc-mcp/dcc-mcp-core/commit/c4e6ed68c992d9f429ad9edd1473ec341544c00b))
+* **install:** restore pip upgrades from verified artifacts ([d91f055](https://github.com/dcc-mcp/dcc-mcp-core/commit/d91f0554f7b325202a5ede83329a00678447f996))
+* **verification:** add pipeline benchmark runner ([0e445df](https://github.com/dcc-mcp/dcc-mcp-core/commit/0e445dfd2eda0dc061a81fcc191b5fce2f7bdce0))
+* **workflow:** reuse results and compile session history ([d97c1e6](https://github.com/dcc-mcp/dcc-mcp-core/commit/d97c1e61292c1f25ad6f025e5af4d6d41f701058))
+
+
+### Bug Fixes
+
+* align pointer PR REST helper ([e4e1eb6](https://github.com/dcc-mcp/dcc-mcp-core/commit/e4e1eb6fcb206501717ce6e4c98c9a7b6cba0a7d))
+* align probe cleanup documentation ([c4802fa](https://github.com/dcc-mcp/dcc-mcp-core/commit/c4802fa7503dff2a9894f6d3140ec411925572b2))
+* check target Core requirements in doctor ([924c61e](https://github.com/dcc-mcp/dcc-mcp-core/commit/924c61ec730b3581d0313011f01cdb1c77e1f01a))
+* **ci:** refresh pointer PRs over REST so the lane survives a rerun ([#2753](https://github.com/dcc-mcp/dcc-mcp-core/issues/2753)) ([5eee9e6](https://github.com/dcc-mcp/dcc-mcp-core/commit/5eee9e630da93bf3b6ca410fa47d61f5556f338f))
+* **ci:** resolve docs and test size gates ([6f62f2f](https://github.com/dcc-mcp/dcc-mcp-core/commit/6f62f2f1c6281ab8d57b9753e9cf7c6e338f3144))
+* **cua:** harden owned startup cleanup ([d245f5d](https://github.com/dcc-mcp/dcc-mcp-core/commit/d245f5d7c5c132a43a68007b0c393c2cf147e95f))
+* **cua:** retain owned workers across startup cancellation ([d58ae39](https://github.com/dcc-mcp/dcc-mcp-core/commit/d58ae39acda0c77b7ff66365247505ad6a142fc8))
+* **cua:** retain transferred owners on startup cleanup failure ([158d098](https://github.com/dcc-mcp/dcc-mcp-core/commit/158d098edb7b5b81e0620fb1ef82345fadb8f181))
+* **gateway:** align doctor capability inventory ([781fba0](https://github.com/dcc-mcp/dcc-mcp-core/commit/781fba02465f021c83e780ef7cd5a0e10e109d3a))
+* **gateway:** align instance readiness signals ([0ad27e6](https://github.com/dcc-mcp/dcc-mcp-core/commit/0ad27e6a9cf64f951fe45e802794330299688788))
+* **gateway:** bootstrap from verified release manifest assets ([#2847](https://github.com/dcc-mcp/dcc-mcp-core/issues/2847)) ([116ccda](https://github.com/dcc-mcp/dcc-mcp-core/commit/116ccda0ea1ed1da069e376fe8c38977689b77d1))
+* **gateway:** expose indexed instance capabilities ([d091952](https://github.com/dcc-mcp/dcc-mcp-core/commit/d09195272545f8eecbd33d68f9b87fa9f8a46b38))
+* harden adapter probe cleanup ([01a7198](https://github.com/dcc-mcp/dcc-mcp-core/commit/01a71982c80188ba15e8ac37506a1e243bbf610f))
+* harden probe exit identity checks ([cd457cd](https://github.com/dcc-mcp/dcc-mcp-core/commit/cd457cd755468e45447cc8f025891a087f89a8c8))
+* **host-rpc:** bound qtserver read phase and fix sidecar stale-response test ([3155968](https://github.com/dcc-mcp/dcc-mcp-core/commit/3155968e69fd2cdfa27eb338a8e368b249aca404))
+* **host-rpc:** clear qtserver reconnect target under the state lock ([bbb4a20](https://github.com/dcc-mcp/dcc-mcp-core/commit/bbb4a206d19bc7fecbedf172b0df2fce13b44f17))
+* **host-rpc:** reconnect qtserver after an invalidated stream ([eb373e4](https://github.com/dcc-mcp/dcc-mcp-core/commit/eb373e4d5db30f97e6d081be5e0df6a3f3eb30d0))
+* **host-rpc:** skip late qtserver responses of abandoned calls ([3864643](https://github.com/dcc-mcp/dcc-mcp-core/commit/38646436005927bff21f1cd4ae7f337ad56ebe95))
+* **install:** add receipt-driven uninstall ([2fe4e4d](https://github.com/dcc-mcp/dcc-mcp-core/commit/2fe4e4d79af61f3daa3b1364bb9474081cbd4e64))
+* **install:** clean up staged non-pip acquisition ([#2921](https://github.com/dcc-mcp/dcc-mcp-core/issues/2921)) ([daa46e1](https://github.com/dcc-mcp/dcc-mcp-core/commit/daa46e18768b718fb55252eb14f75c6eed517c45))
+* **install:** defer locked uninstall cleanup ([364d382](https://github.com/dcc-mcp/dcc-mcp-core/commit/364d38207a9deb2e0116c1b11c9116eb7ae5184c))
+* **install:** discover hosted Python before adapter install ([fca6952](https://github.com/dcc-mcp/dcc-mcp-core/commit/fca695204ceda505e2d79604cc4b955ffc79ca00))
+* **install:** preserve relative Git source resolution ([#2923](https://github.com/dcc-mcp/dcc-mcp-core/issues/2923)) ([cceb84a](https://github.com/dcc-mcp/dcc-mcp-core/commit/cceb84a3598858b596a8561a8d5428193abf9fae))
+* **install:** verify target adapter imports ([6c9513a](https://github.com/dcc-mcp/dcc-mcp-core/commit/6c9513ad67122c576aee0b95fe7d6ec0de35929e))
+* **install:** verify target core minimum ([64f03d5](https://github.com/dcc-mcp/dcc-mcp-core/commit/64f03d5e8ae4cec0b047e7a1e9488cebdf5691b7))
+* **install:** warn on implicit catalog shadowing ([1a6a0b7](https://github.com/dcc-mcp/dcc-mcp-core/commit/1a6a0b76b5a7aaf29a8d8fd3f8082fa802c95d2b))
+* keep probe identity checks portable ([a3735b6](https://github.com/dcc-mcp/dcc-mcp-core/commit/a3735b612fe35bba67a07eb5d45436f9fcdab9bc))
+* **media:** preserve actionable audio failure receipts ([#2849](https://github.com/dcc-mcp/dcc-mcp-core/issues/2849)) ([f66e53d](https://github.com/dcc-mcp/dcc-mcp-core/commit/f66e53dda1b1c40b61f3df59bcc0a256d280dc47))
+* preflight embedded native startup ([d81b1cc](https://github.com/dcc-mcp/dcc-mcp-core/commit/d81b1ccb36dc4e7ef7b6f48c26f446ba80c04dd0))
+* prioritize shared marketplace skill paths ([d78d867](https://github.com/dcc-mcp/dcc-mcp-core/commit/d78d867239491bfd1ecc575c59387c0ed7b8d0c3))
+* **registry:** expose write diagnostics and suppress lock warn storms ([2bb49a1](https://github.com/dcc-mcp/dcc-mcp-core/commit/2bb49a13c2394bc438fec8b823e813bdd1007af3))
+* **registry:** harden diagnostics aging and handle init ([4803ffd](https://github.com/dcc-mcp/dcc-mcp-core/commit/4803ffdb2ea006c7fae57edecdfe84d28048c4cf))
+* **registry:** persist cross-process write diagnostics ([33a3248](https://github.com/dcc-mcp/dcc-mcp-core/commit/33a32483275cb2803ae3da1ab40f79be4e4df64d))
+* **registry:** use a shared user directory ([#2866](https://github.com/dcc-mcp/dcc-mcp-core/issues/2866)) ([2848cd0](https://github.com/dcc-mcp/dcc-mcp-core/commit/2848cd068584699c29409c5df65d04df654d1d89))
+* **release:** classify Core wheels by compressed tag set, not tag order ([bcd6985](https://github.com/dcc-mcp/dcc-mcp-core/commit/bcd69852790ee657b7543e83b122ea2cb965beb5))
+* reuse marketplace environment constant ([aabc75f](https://github.com/dcc-mcp/dcc-mcp-core/commit/aabc75f8269142641bba45142b84a050d7bcb1c5))
+* **server:** report observed remote listener state ([a38ed29](https://github.com/dcc-mcp/dcc-mcp-core/commit/a38ed29b6ca7eba3f0adc667dd92e9e4a491cfac))
+* **test:** merge duplicate doctor test modules ([9b2b5a0](https://github.com/dcc-mcp/dcc-mcp-core/commit/9b2b5a0cd5909fc989ec93def6dfbbd4ad6f3bc2))
+* tolerate exited probe writer races ([e7c9af7](https://github.com/dcc-mcp/dcc-mcp-core/commit/e7c9af7b01b4f5cf98843a716cb6b7f4f2a20afb))
+* **translate:** drop stdio requests whose caller already gave up ([#2881](https://github.com/dcc-mcp/dcc-mcp-core/issues/2881)) ([34e0327](https://github.com/dcc-mcp/dcc-mcp-core/commit/34e03276b175939b629395644886b1e77dc4d290))
+* **ui-control:** retain safe audit diagnostics ([c787973](https://github.com/dcc-mcp/dcc-mcp-core/commit/c7879737eabe78e8f864ece5585dbb037002cb47))
+* **ui-control:** retain safe failure diagnostics in audit ([#2869](https://github.com/dcc-mcp/dcc-mcp-core/issues/2869)) ([d9451ae](https://github.com/dcc-mcp/dcc-mcp-core/commit/d9451ae5cb20281d086b3fee134cf8941493979e))
+* update shared marketplace install test ([480f8ba](https://github.com/dcc-mcp/dcc-mcp-core/commit/480f8babadd8bf729552f58e1dbd3a5f6b27b0d2))
+* **updater:** activate staged updates on Windows when the old image is still mapped ([#2875](https://github.com/dcc-mcp/dcc-mcp-core/issues/2875)) ([fc7f115](https://github.com/dcc-mcp/dcc-mcp-core/commit/fc7f115889ee8aff3b0315b94fcc43d0adc35cab))
+* **verification:** pair comparison sheet with image stats ([#2901](https://github.com/dcc-mcp/dcc-mcp-core/issues/2901)) ([832aa79](https://github.com/dcc-mcp/dcc-mcp-core/commit/832aa797e84bda9d1cc9a2dc07d367d7b426dfda))
+* verify adapter core against target interpreter ([23fb313](https://github.com/dcc-mcp/dcc-mcp-core/commit/23fb3132a258eb2ca52684728cfa93a941bbab05))
+* **verify:** adapt safe report identifier calls ([b367735](https://github.com/dcc-mcp/dcc-mcp-core/commit/b367735e5e5c40167635d09c654feb5b09e5512c))
+* **verify:** bound adapter import probe ([39eb030](https://github.com/dcc-mcp/dcc-mcp-core/commit/39eb0301b5e512804a93d51fad3327425954335e))
+* **verify:** classify inherited writer timeout ([e2c9fe6](https://github.com/dcc-mcp/dcc-mcp-core/commit/e2c9fe627fc0d0a4de360c6b831c27b259370a0e))
+* **verify:** confirm writer exit from owned cleanup ([d22ea57](https://github.com/dcc-mcp/dcc-mcp-core/commit/d22ea57e156c83d09387670a60c687714badefc1))
+* **verify:** correct inherited writer fixture indentation ([63419ba](https://github.com/dcc-mcp/dcc-mcp-core/commit/63419bab7218cf49fb3e962b559298a9f82ca63f))
+* **verify:** correct probe fixture format string ([49ddea4](https://github.com/dcc-mcp/dcc-mcp-core/commit/49ddea4e19ed6e0a391946663ef418c0c23e3a79))
+* **verify:** correct Windows probe handle contracts ([6203a77](https://github.com/dcc-mcp/dcc-mcp-core/commit/6203a772094ada93e9cbf3418dcd8163de12a21b))
+* **verify:** distinguish probe failures and resolve test interpreters ([f426c22](https://github.com/dcc-mcp/dcc-mcp-core/commit/f426c22e6958442a9f84697289c43c2ec53ed063))
+* **verify:** harden adapter import probe cleanup ([fcb5728](https://github.com/dcc-mcp/dcc-mcp-core/commit/fcb5728565f486771c399cfac7d0f2717390ede6))
+* **verify:** harden probe cleanup and output capture ([77f93df](https://github.com/dcc-mcp/dcc-mcp-core/commit/77f93dfe2d46d4d6e5218e63a3ef8b81b11d6c97))
+* **verify:** make probe timeout injection local ([0223168](https://github.com/dcc-mcp/dcc-mcp-core/commit/02231685af17c3fddabed59e73b7a7092632f848))
+* **verify:** preserve core compatibility evidence ([ce9e31b](https://github.com/dcc-mcp/dcc-mcp-core/commit/ce9e31b13b316072640bce9f40dd58a6feb173a3))
+* **verify:** preserve probe script arguments ([76a43bf](https://github.com/dcc-mcp/dcc-mcp-core/commit/76a43bf3c0e70553cc22ab8e3815465e319df528))
+* **verify:** prove inherited writer exit on unix ([39f9c0b](https://github.com/dcc-mcp/dcc-mcp-core/commit/39f9c0b14cefbf9649325c5418aef61eedbd28b7))
+* **verify:** repair probe compile and fixture seams ([52cc38d](https://github.com/dcc-mcp/dcc-mcp-core/commit/52cc38d6e36e5baad322bffa248d286446763e0b))
+* **verify:** resolve probe compile and clippy errors ([fdb59d3](https://github.com/dcc-mcp/dcc-mcp-core/commit/fdb59d3c1b0489ca6b02121ac45b8d5424ed790f))
+* **verify:** resolve probe compile diagnostics ([b1c52c1](https://github.com/dcc-mcp/dcc-mcp-core/commit/b1c52c17d9237ea19619fdd93b41b3e0398342bf))
+* **verify:** satisfy rebased formatting ([1be79ac](https://github.com/dcc-mcp/dcc-mcp-core/commit/1be79ac242b628bdc60f16e4a49d2f2697d94071))
+* **verify:** scale probe cleanup reserve ([d81a016](https://github.com/dcc-mcp/dcc-mcp-core/commit/d81a016aaeea14d51452829cedcffc6387d056e4))
+* **verify:** spool adapter probe output ([91da1b2](https://github.com/dcc-mcp/dcc-mcp-core/commit/91da1b2c592d574b61117772c9f2283d948c4988))
+* **verify:** use TempDir path accessor ([8076dba](https://github.com/dcc-mcp/dcc-mcp-core/commit/8076dba1541e7033d3dbe00dfbeb7789a54103c6))
+
+
+### Code Refactoring
+
+* **verify:** split adapter import tests ([e1ed12b](https://github.com/dcc-mcp/dcc-mcp-core/commit/e1ed12bc7a65dc3f767d5e39b1995b98c504e37a))
+
+
+### Documentation
+
+* **adr-010:** reconcile Tasks claims with the published 2026-07-28 surface ([#2823](https://github.com/dcc-mcp/dcc-mcp-core/issues/2823)) ([226c7af](https://github.com/dcc-mcp/dcc-mcp-core/commit/226c7af150f6e675f7162e5234edda5f7ea9c65c))
+* **readme:** add Try this hero for Blender material 60s showcase ([#2880](https://github.com/dcc-mcp/dcc-mcp-core/issues/2880)) ([7970ea9](https://github.com/dcc-mcp/dcc-mcp-core/commit/7970ea9aaa54587e7c4237bff0181689b702169f))
+* teach repeatable DCC iteration ([b917322](https://github.com/dcc-mcp/dcc-mcp-core/commit/b917322a76718e014c352d98419f35209de19c18))
+
 ## [0.20.53](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.52...v0.20.53) (2026-11-01)
 
 
