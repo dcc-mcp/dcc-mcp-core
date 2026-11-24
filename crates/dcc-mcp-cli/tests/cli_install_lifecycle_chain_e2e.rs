@@ -70,9 +70,13 @@ fn register_instance(registry_dir: &TempDir, mcp_url: &str, dispatch_ready: bool
     let mut entry = ServiceEntry::new("chainfixture", "127.0.0.1", 18081);
     entry.metadata.insert("mcp_url".into(), mcp_url.into());
     if dispatch_ready {
-        entry.metadata.insert("dispatch_status".into(), "ready".into());
+        entry
+            .metadata
+            .insert("dispatch_status".into(), "ready".into());
     } else {
-        entry.metadata.insert("dispatch_status".into(), "pending".into());
+        entry
+            .metadata
+            .insert("dispatch_status".into(), "pending".into());
     }
     registry.register(entry).unwrap();
     registry
@@ -122,7 +126,10 @@ fn install_verify_uninstall_chain_promotes_only_with_live_readiness() {
     let empty_registry = TempDir::new().unwrap();
     let unverified = verify_chain(&catalog, &python, &site, &empty_registry);
     assert_eq!(unverified["verify"]["directly_usable"], false);
-    assert_eq!(unverified["verify"]["failure_reason"], "LIVE_DCC_VERIFICATION_REQUIRED");
+    assert_eq!(
+        unverified["verify"]["failure_reason"],
+        "LIVE_DCC_VERIFICATION_REQUIRED"
+    );
     assert_eq!(unverified["status"], "partial");
     assert_eq!(unverified["steps"][0]["id"], "verify");
 
@@ -152,13 +159,19 @@ fn install_verify_uninstall_chain_promotes_only_with_live_readiness() {
             "--catalog",
         ])
         .arg(&catalog)
-        .env("DCC_MCP_INSTALL_RECEIPT_DIR", receipt_root.path().join("receipts"))
+        .env(
+            "DCC_MCP_INSTALL_RECEIPT_DIR",
+            receipt_root.path().join("receipts"),
+        )
         .env("PYTHONPATH", &site)
         .output()
         .unwrap();
     let uninstall: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(uninstall["stage"], "uninstall");
-    assert!(uninstall["verify"]["failure_stage"].is_null() || uninstall["verify"]["failure_stage"].as_str() == Some("uninstall"));
+    assert!(
+        uninstall["verify"]["failure_stage"].is_null()
+            || uninstall["verify"]["failure_stage"].as_str() == Some("uninstall")
+    );
 }
 
 #[test]

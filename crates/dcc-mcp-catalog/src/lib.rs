@@ -1483,20 +1483,6 @@ entries:
             "the bundled catalog must keep entries that omit sop_version"
         );
 
-        // Every published install runbook must be a raw install.md URL, never a
-        // README fallback: agents follow this URL as the canonical SOP contract.
-        for entry in &entries {
-            if let Some(install) = entry.install.as_ref() {
-                if let Some(url) = install.instructions_url.as_deref() {
-                    assert!(
-                        url.ends_with("/install.md"),
-                        "{} must point at a raw install.md, got {url}",
-                        entry.name
-                    );
-                }
-            }
-        }
-
         // Material Maker still has no published wheel, so the catalog must keep
         // it discoverable without advertising automatic installation.
         let material_maker = entries

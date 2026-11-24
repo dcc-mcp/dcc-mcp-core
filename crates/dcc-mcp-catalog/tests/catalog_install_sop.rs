@@ -209,3 +209,28 @@ fn bundled_sop_schema_digest_matches_the_published_schema_file() {
         );
     }
 }
+
+/// Every published install runbook must be a raw `install.md` URL, never a
+/// README fallback: agents follow this URL as the canonical SOP contract.
+#[test]
+fn bundled_instructions_urls_point_at_raw_install_md() {
+    let catalog_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../dcc-mcp-catalog.yml");
+    let entries = load_from_file(&catalog_path).expect("the bundled catalog must parse");
+    let mut checked = 0;
+    for entry in entries {
+        if let Some(install) = entry.install
+            && let Some(url) = install.instructions_url
+        {
+            assert!(
+                url.ends_with("/install.md"),
+                "{} must point at a raw install.md, got {url}",
+                entry.name
+            );
+            checked += 1;
+        }
+    }
+    assert!(
+        checked > 0,
+        "the bundled catalog must publish install runbook URLs"
+    );
+}

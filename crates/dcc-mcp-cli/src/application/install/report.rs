@@ -442,7 +442,10 @@ mod readiness_tests {
     fn incomplete_readiness_keeps_the_unverified_boundary() {
         let report = apply_readiness(partial_report(), Some(evidence(&["dispatcher"])), true);
         assert!(!report.verify.directly_usable);
-        assert_eq!(report.verify.failure_reason.as_deref(), Some("LIVE_DCC_VERIFICATION_REQUIRED"));
+        assert_eq!(
+            report.verify.failure_reason.as_deref(),
+            Some("LIVE_DCC_VERIFICATION_REQUIRED")
+        );
         assert_eq!(report.status, "partial");
     }
 

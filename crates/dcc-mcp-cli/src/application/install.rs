@@ -568,32 +568,33 @@ fn is_receipt_action(action: &InstallStepAction) -> bool {
 /// untouched (there is nothing to roll back). Fresh installs and receipt
 /// matches never enter this path.
 fn prepare_sidecar_upgrade(plan: &InstallPlan) -> Result<(), InstallError> {
-    let Some((action, package, python)) = plan.steps.iter().find_map(|step| {
-        match step.action.as_ref()? {
-            InstallStepAction::PipInstall { package, python, .. } => {
-                Some((step.action.as_ref()?, package.as_str(), python.as_deref()?))
-            }
-            _ => None,
-        }
-    }) else {
+    let Some((action, package, python)) =
+        plan.steps
+            .iter()
+            .find_map(|step| match step.action.as_ref()? {
+                InstallStepAction::PipInstall {
+                    package, python, ..
+                } => Some((step.action.as_ref()?, package.as_str(), python.as_deref()?)),
+                _ => None,
+            })
+    else {
         return Ok(());
     };
     // A receipt match means no pip mutation will happen; do not stop a sidecar
     // (or block) on a converged re-run.
-    if receipt_match_details(plan, action)
-        .is_ok_and(|(matches, _)| matches)
-    {
+    if receipt_match_details(plan, action).is_ok_and(|(matches, _)| matches) {
         return Ok(());
     }
     if discover_pip_artifact(python, package)?.is_none() {
         return Ok(());
     }
-    let version = plan.steps.iter().find_map(|step| {
-        match step.action.as_ref()? {
+    let version = plan
+        .steps
+        .iter()
+        .find_map(|step| match step.action.as_ref()? {
             InstallStepAction::PipInstall { version, .. } => version.as_deref(),
             _ => None,
-        }
-    });
+        });
     match sidecar_preflight::prepare_sidecar_update(python, &plan.dcc_type, version) {
         sidecar_preflight::UpgradePreflight::RequiresRestart { reason, detail } => {
             Err(InstallError::UpgradeRequiresRestart { reason, detail })

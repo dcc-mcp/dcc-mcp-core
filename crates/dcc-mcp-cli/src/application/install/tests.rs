@@ -800,8 +800,18 @@ fn upgrade_requires_restart_report_is_machine_readable_and_does_not_claim_succes
     assert_eq!(report.stage, "preflight");
     assert_eq!(report.exit_code, 50);
     assert!(!report.verify.directly_usable);
-    assert_eq!(report.error.as_ref().unwrap().code, "UPGRADE_REQUIRES_RESTART");
-    assert_eq!(report.error.as_ref().unwrap().primary_code.as_deref(), Some("sidecar_stop_failed"));
+    assert_eq!(
+        report.error.as_ref().unwrap().code,
+        "UPGRADE_REQUIRES_RESTART"
+    );
+    assert_eq!(
+        report.error.as_ref().unwrap().primary_code.as_deref(),
+        Some("sidecar_stop_failed")
+    );
     assert_eq!(report.next_steps[0].id, "retry-after-restart");
-    assert!(report.next_steps[0].command.contains(&"install".to_string()));
+    assert!(
+        report.next_steps[0]
+            .command
+            .contains(&"install".to_string())
+    );
 }

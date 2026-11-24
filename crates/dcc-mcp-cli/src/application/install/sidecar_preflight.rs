@@ -123,7 +123,9 @@ mod tests {
             classify_lifecycle_report(&report),
             UpgradePreflight::RequiresRestart {
                 reason: "sidecar_stop_failed".into(),
-                detail: serde_json::json!({"success": false, "results": [{"status": "still_running"}]}).to_string(),
+                detail:
+                    serde_json::json!({"success": false, "results": [{"status": "still_running"}]})
+                        .to_string(),
             }
         );
     }

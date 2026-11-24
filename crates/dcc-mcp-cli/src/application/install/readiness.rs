@@ -42,17 +42,18 @@ pub(crate) fn probe_ready(dcc_type: &str) -> Option<ReadinessEvidence> {
             .enable_all()
             .build()
             .ok()?;
-        runtime.block_on(local_control::wait_ready_local(
-            dir,
-            WaitReadyRequest {
-                dcc_type: Some(dcc_type),
-                instance_id: None,
-                required: Vec::new(),
-                timeout: Duration::from_secs(3),
-                interval: Duration::from_millis(1),
-            },
-        ))
-        .ok()
+        runtime
+            .block_on(local_control::wait_ready_local(
+                dir,
+                WaitReadyRequest {
+                    dcc_type: Some(dcc_type),
+                    instance_id: None,
+                    required: Vec::new(),
+                    timeout: Duration::from_secs(3),
+                    interval: Duration::from_millis(1),
+                },
+            ))
+            .ok()
     })
     .join()
     .ok()
