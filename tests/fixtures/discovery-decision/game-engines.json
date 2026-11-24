@@ -11,7 +11,7 @@
         "optional_native_bridge_required": false,
         "evidence_scope": "catalog_and_adapter_contract_only"
       },
-      "expected_instructions_url": "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-unreal/main/README.md"
+      "expected_instructions_url": "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-unreal/main/install.md"
     },
     {
       "id": "unity-standard",

@@ -151,7 +151,7 @@ def test_liquigen_is_installable_from_pinned_pypi_wheel() -> None:
         ),
         "sha256": "130caacfb16b99b9365db071f145a7613f20b45d9b11a7397934c918b7691d0b",
         "entry_point": "dcc_mcp_liquigen.server:main",
-        "instructions_url": "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-liquigen/main/README.md",
+        "instructions_url": "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-liquigen/main/install.md",
     }
 
 
