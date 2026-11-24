@@ -49,6 +49,8 @@ __all__ = [
     "AuditLog",
     "AuditMiddleware",
     "BoundingBox",
+    "BridgeContext",
+    "BridgeRegistry",
     "CaptureBackendKind",
     "CaptureFrame",
     "CaptureResult",
@@ -152,6 +154,7 @@ __all__ = [
     "file_digest_sha256",
     "from_exception",
     "gc_orphans",
+    "get_bridge_context",
     "init_default_telemetry",
     "is_gui_executable",
     "is_telemetry_initialized",
@@ -161,6 +164,7 @@ __all__ = [
     "normalize_tool_arguments",
     "normalize_tool_meta",
     "parse_skill_md",
+    "register_bridge",
     "scan_and_load",
     "scan_and_load_lenient",
     "scan_and_load_strict",
@@ -326,6 +330,150 @@ class BoundingBox:
         r"""
         Maximum corner [x, y, z] in world space (centimeters).
         """
+
+@typing.final
+class BridgeContext:
+    r"""
+    Python-facing bridge connection context.
+
+    Example::
+
+        from dcc_mcp_core import get_bridge_context, register_bridge
+
+        register_bridge("photoshop", "ws://localhost:9001")
+        ctx = get_bridge_context("photoshop")
+        if ctx:
+            print(ctx.dcc_type, ctx.bridge_url, ctx.connected)
+    """
+    @property
+    def dcc_type(self) -> builtins.str: ...
+    @property
+    def bridge_url(self) -> builtins.str: ...
+    @property
+    def connected(self) -> builtins.bool: ...
+    @property
+    def instance_id(self) -> typing.Optional[builtins.str]: ...
+    @property
+    def peer_id(self) -> typing.Optional[builtins.str]: ...
+    @property
+    def host_version(self) -> typing.Optional[builtins.str]: ...
+    @property
+    def project_id(self) -> typing.Optional[builtins.str]: ...
+    @property
+    def document_id(self) -> typing.Optional[builtins.str]: ...
+    @property
+    def ready(self) -> builtins.bool: ...
+    @property
+    def last_heartbeat_ms(self) -> typing.Optional[builtins.int]: ...
+    def __repr__(self) -> builtins.str: ...
+
+@typing.final
+class BridgeRegistry:
+    r"""
+    Python-facing bridge connection registry.
+
+    Thread-safe registry for bridge connections available in gateway mode.
+    Bridge plugins register their connection info, and skill scripts query
+    it to discover available bridges.
+
+    Example::
+
+        from dcc_mcp_core import BridgeRegistry
+
+        registry = BridgeRegistry()
+        registry.register("photoshop", "ws://localhost:9001")
+        registry.register("zbrush", "http://localhost:8765")
+
+        ctx = registry.get("photoshop")
+        print(ctx.bridge_url, ctx.connected)
+
+        for ctx in registry.list_all():
+            print(ctx.dcc_type, ctx.connected)
+
+        registry.set_disconnected("photoshop")
+        registry.unregister("zbrush")
+    """
+    def __new__(cls) -> BridgeRegistry: ...
+    def register(self, dcc_type: builtins.str, url: builtins.str) -> None:
+        r"""
+        Register or update a bridge connection.
+
+        Args:
+            dcc_type: DCC type identifier (e.g., ``"photoshop"``).
+            url: Bridge endpoint URL (e.g., ``"ws://localhost:9001"``).
+
+        Raises:
+            ValueError: If ``dcc_type`` or ``url`` is empty.
+        """
+    def register_instance(self, dcc_type: builtins.str, url: builtins.str, instance_id: builtins.str, peer_id: typing.Optional[builtins.str] = None, host_version: typing.Optional[builtins.str] = None, project_id: typing.Optional[builtins.str] = None, document_id: typing.Optional[builtins.str] = None, ready: builtins.bool = False) -> None:
+        r"""
+        Register one concrete DCC/plugin instance without overwriting peers of
+        the same DCC type.
+        """
+    def get(self, dcc_type: builtins.str) -> typing.Optional[BridgeContext]:
+        r"""
+        Get bridge context for a specific DCC type.
+
+        Returns ``None`` if no bridge is registered for the given DCC type.
+        """
+    def get_instance(self, instance_id: builtins.str) -> typing.Optional[BridgeContext]:
+        r"""
+        Get a bridge context for a concrete instance identifier.
+        """
+    def get_url(self, dcc_type: builtins.str) -> typing.Optional[builtins.str]:
+        r"""
+        Get bridge URL for a specific DCC type (convenience method).
+
+        Returns ``None`` if no bridge is registered.
+        """
+    def list_all(self) -> builtins.list[BridgeContext]:
+        r"""
+        List all registered bridges.
+        """
+    def set_disconnected(self, dcc_type: builtins.str) -> None:
+        r"""
+        Mark a bridge as disconnected without removing it from the registry.
+
+        Raises:
+            ValueError: If the bridge is not found.
+        """
+    def set_instance_disconnected(self, instance_id: builtins.str) -> None:
+        r"""
+        Mark one concrete instance as disconnected.
+        """
+    def unregister(self, dcc_type: builtins.str) -> None:
+        r"""
+        Remove a bridge from the registry.
+
+        Raises:
+            ValueError: If the bridge is not found.
+        """
+    def unregister_instance(self, instance_id: builtins.str) -> None:
+        r"""
+        Remove one concrete bridge instance.
+        """
+    def update_instance(self, instance_id: builtins.str, connected: builtins.bool, ready: builtins.bool, last_heartbeat_ms: typing.Optional[builtins.int] = None, document_id: typing.Optional[builtins.str] = None) -> None:
+        r"""
+        Update liveness and document metadata from a plugin heartbeat.
+        """
+    def clear(self) -> None:
+        r"""
+        Clear all registered bridges.
+        """
+    def contains(self, dcc_type: builtins.str) -> builtins.bool:
+        r"""
+        Check if a bridge is registered for the given DCC type.
+        """
+    def len(self) -> builtins.int:
+        r"""
+        Get the number of registered bridges.
+        """
+    def is_empty(self) -> builtins.bool:
+        r"""
+        Check if the registry is empty.
+        """
+    def __repr__(self) -> builtins.str: ...
+    def __len__(self) -> builtins.int: ...
 
 @typing.final
 class CaptureBackendKind:
@@ -4533,6 +4681,32 @@ def gc_orphans(max_age_secs: builtins.float) -> builtins.int:
         than ``max_age_secs`` are removed.
     """
 
+def get_bridge_context(dcc_type: builtins.str) -> typing.Optional[BridgeContext]:
+    r"""
+    Get bridge context for a specific DCC type.
+
+    In gateway mode, external bridge plugins register their connection info
+    via :func:`register_bridge`, allowing skill scripts to access bridges from
+    other processes.
+
+    Args:
+        dcc_type: DCC type identifier (e.g., ``"photoshop"``, ``"zbrush"``).
+
+    Returns:
+        A :class:`BridgeContext` if registered, or ``None``.
+
+    Example::
+
+        from dcc_mcp_core import get_bridge_context, register_bridge
+
+        register_bridge("photoshop", "ws://localhost:9001")
+        ctx = get_bridge_context("photoshop")
+        if ctx:
+            print(ctx.bridge_url, ctx.connected)
+        else:
+            raise PhotoshopNotAvailableError("Bridge not connected")
+    """
+
 def init_default_telemetry() -> None:
     r"""
     Initialise a minimal no-op telemetry provider if one has not been set yet.
@@ -4599,6 +4773,28 @@ def parse_skill_md(skill_dir: builtins.str) -> typing.Optional[SkillMetadata]:
 
     Returns `None` if the directory contains no valid `SKILL.md`.
     Raises `FileNotFoundError` if the path does not exist at all.
+    """
+
+def register_bridge(dcc_type: builtins.str, url: builtins.str) -> None:
+    r"""
+    Register a bridge connection in the global registry.
+
+    Called by bridge plugins to register their connection info so that
+    skill scripts can discover and use them via :func:`get_bridge_context`.
+
+    Args:
+        dcc_type: DCC type identifier (e.g., ``"photoshop"``).
+        url: Bridge endpoint URL (e.g., ``"ws://localhost:9001"``).
+
+    Raises:
+        ValueError: If ``dcc_type`` or ``url`` is empty.
+
+    Example::
+
+        from dcc_mcp_core import register_bridge
+
+        register_bridge("photoshop", "ws://localhost:9001")
+        register_bridge("zbrush", "http://localhost:8765")
     """
 
 def scan_and_load(extra_paths: typing.Optional[typing.Sequence[builtins.str]] = None, dcc_name: typing.Optional[builtins.str] = None) -> tuple[builtins.list[SkillMetadata], builtins.list[builtins.str]]: ...

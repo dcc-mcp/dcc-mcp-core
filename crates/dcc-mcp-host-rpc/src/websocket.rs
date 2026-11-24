@@ -37,11 +37,15 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use dcc_mcp_protocols::bridge::{
+    BRIDGE_PROTOCOL_VERSION, BridgeEvent, BridgeHeartbeat, BridgeHello, BridgeHelloAck,
+    BridgeMessage,
+};
 use futures_util::{SinkExt, StreamExt};
 use serde::Serialize;
 use serde_json::{Value, json};
 use tokio::net::TcpStream;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, broadcast};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async};
 
@@ -61,6 +65,8 @@ pub const DISPATCH_METHOD: &str = "dispatch";
 pub struct WebSocketHostRpcClient {
     scheme: &'static str,
     state: Arc<Mutex<Option<Connection>>>,
+    hello_ack: Arc<Mutex<Option<BridgeHelloAck>>>,
+    events: broadcast::Sender<BridgeEvent>,
 }
 
 #[derive(Debug)]
@@ -92,7 +98,96 @@ impl WebSocketHostRpcClient {
         Self {
             scheme,
             state: Arc::new(Mutex::new(None)),
+            hello_ack: Arc::new(Mutex::new(None)),
+            events: broadcast::channel(64).0,
         }
+    }
+
+    /// Subscribe to asynchronous events emitted by the host plugin.
+    ///
+    /// Event frames are consumed while a dispatch call is waiting for its
+    /// response and are made available to the adapter through this channel.
+    #[must_use]
+    pub fn subscribe_events(&self) -> broadcast::Receiver<BridgeEvent> {
+        self.events.subscribe()
+    }
+
+    /// Return the most recent server handshake acknowledgement.
+    pub async fn hello_ack(&self) -> Option<BridgeHelloAck> {
+        self.hello_ack.lock().await.clone()
+    }
+
+    /// Negotiate the structured plugin bridge protocol after connecting.
+    ///
+    /// This method is opt-in so existing plugins that only implement the
+    /// historical `dispatch` contract keep working unchanged. New plugins
+    /// such as the Roblox Studio adapter should call it immediately after
+    /// [`HostRpcClient::connect`].
+    pub async fn handshake(
+        &self,
+        mut hello: BridgeHello,
+        timeout: Duration,
+    ) -> Result<BridgeHelloAck, HostRpcError> {
+        if hello.protocol_version.is_none() {
+            hello.protocol_version = Some(BRIDGE_PROTOCOL_VERSION.to_string());
+        }
+        let text = serde_json::to_string(&BridgeMessage::Hello(hello))
+            .map_err(|e| HostRpcError::transport(format!("encode websocket hello: {e}")))?;
+        let mut guard = self.state.lock().await;
+        let conn = guard.as_mut().ok_or_else(|| {
+            HostRpcError::transport("WebSocketHostRpcClient::handshake before connect")
+        })?;
+        conn.stream
+            .send(Message::Text(text.into()))
+            .await
+            .map_err(|e| HostRpcError::transport(format!("websocket hello: {e}")))?;
+
+        let ack = tokio::time::timeout(timeout, async {
+            loop {
+                let Some(message) = conn.stream.next().await else {
+                    return Err(HostRpcError::host_died_idle());
+                };
+                let message = message.map_err(|e| {
+                    HostRpcError::transport(format!("websocket handshake read: {e}"))
+                })?;
+                match message {
+                    Message::Text(text) => {
+                        let parsed: BridgeMessage = serde_json::from_str(&text).map_err(|e| {
+                            HostRpcError::transport(format!(
+                                "websocket handshake returned invalid bridge message: {e}"
+                            ))
+                        })?;
+                        match parsed {
+                            BridgeMessage::HelloAck(ack) => break Ok(ack),
+                            BridgeMessage::Event(event) => {
+                                let _ = self.events.send(event);
+                            }
+                            BridgeMessage::Heartbeat(BridgeHeartbeat { .. }) => {}
+                            other => {
+                                break Err(HostRpcError::transport(format!(
+                                    "unexpected websocket handshake message: {other:?}"
+                                )));
+                            }
+                        }
+                    }
+                    Message::Ping(payload) => {
+                        conn.stream
+                            .send(Message::Pong(payload))
+                            .await
+                            .map_err(|e| {
+                                HostRpcError::transport(format!("websocket handshake pong: {e}"))
+                            })?;
+                    }
+                    Message::Close(_) => break Err(HostRpcError::host_died_idle()),
+                    Message::Binary(_) | Message::Pong(_) | Message::Frame(_) => {}
+                }
+            }
+        })
+        .await
+        .map_err(|_| HostRpcError::Timeout {})??;
+
+        *self.hello_ack.lock().await = Some(ack.clone());
+        Ok(ack)
     }
 }
 
@@ -114,6 +209,7 @@ impl HostRpcClient for WebSocketHostRpcClient {
             .await
             .map_err(|_| HostRpcError::Timeout {})?
             .map_err(|e| HostRpcError::transport(format!("websocket connect {endpoint}: {e}")))?;
+        *self.hello_ack.lock().await = None;
         *self.state.lock().await = Some(Connection { stream });
         Ok(())
     }
@@ -182,6 +278,9 @@ impl HostRpcClient for WebSocketHostRpcClient {
                             "websocket returned non-JSON text ({e}); raw: {text:?}",
                         ))
                     })?;
+                    if consume_async_bridge_message(&envelope, &self.events) {
+                        continue;
+                    }
                     return interpret_envelope(envelope, action, request_id);
                 }
                 Message::Binary(bytes) => {
@@ -190,6 +289,9 @@ impl HostRpcClient for WebSocketHostRpcClient {
                             "websocket returned non-JSON binary frame ({e})",
                         ))
                     })?;
+                    if consume_async_bridge_message(&envelope, &self.events) {
+                        continue;
+                    }
                     return interpret_envelope(envelope, action, request_id);
                 }
                 Message::Ping(payload) => {
@@ -271,6 +373,23 @@ fn interpret_envelope(
     )))
 }
 
+/// Consume lifecycle frames that may arrive while a dispatch response is in
+/// flight. Returning `true` keeps the caller waiting for its matching result.
+fn consume_async_bridge_message(envelope: &Value, events: &broadcast::Sender<BridgeEvent>) -> bool {
+    match envelope.get("type").and_then(Value::as_str) {
+        Some("event") => {
+            if let Ok(BridgeMessage::Event(event)) =
+                serde_json::from_value::<BridgeMessage>(envelope.clone())
+            {
+                let _ = events.send(event);
+            }
+            true
+        }
+        Some("heartbeat") | Some("ready") | Some("hello_ack") => true,
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -344,6 +463,115 @@ mod tests {
             }
             other => panic!("expected BackendError, got {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn websocket_v1_handshake_stores_instance_metadata() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut ws = accept_async(stream).await.unwrap();
+            let request = ws.next().await.unwrap().unwrap();
+            let message: BridgeMessage =
+                serde_json::from_str(&request.into_text().unwrap()).unwrap();
+            assert!(matches!(message, BridgeMessage::Hello(_)));
+            ws.send(Message::Text(
+                serde_json::to_string(&BridgeMessage::HelloAck(BridgeHelloAck {
+                    protocol_version: Some(BRIDGE_PROTOCOL_VERSION.to_string()),
+                    server: "roblox-studio-mcp".to_string(),
+                    version: "0.1.0".to_string(),
+                    session_id: "session-1".to_string(),
+                    instance_id: Some("studio-1".to_string()),
+                    peer_id: Some("plugin".to_string()),
+                    capabilities: serde_json::Map::new(),
+                    ready: true,
+                    metadata: serde_json::Map::new(),
+                }))
+                .unwrap()
+                .into(),
+            ))
+            .await
+            .unwrap();
+        });
+
+        let mut client = WebSocketHostRpcClient::new();
+        client
+            .connect(&format!("ws://{addr}"), Duration::from_secs(2))
+            .await
+            .unwrap();
+        let ack = client
+            .handshake(
+                BridgeHello {
+                    protocol_version: None,
+                    client: "roblox-studio-plugin".to_string(),
+                    version: "0.1.0".to_string(),
+                    dcc_version: Some("0.632".to_string()),
+                    instance_id: Some("studio-1".to_string()),
+                    peer_id: Some("plugin".to_string()),
+                    host_name: Some("Roblox Studio".to_string()),
+                    host_version: Some("0.632".to_string()),
+                    document: Some("place-1".to_string()),
+                    project: Some("experience-1".to_string()),
+                    data_model: Some("DataModel".to_string()),
+                    capabilities: serde_json::Map::new(),
+                    metadata: serde_json::Map::new(),
+                },
+                Duration::from_secs(2),
+            )
+            .await
+            .unwrap();
+        assert_eq!(ack.instance_id.as_deref(), Some("studio-1"));
+        assert_eq!(client.hello_ack().await.unwrap().ready, true);
+    }
+
+    #[tokio::test]
+    async fn websocket_dispatch_skips_event_frames() {
+        let endpoint = {
+            let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            tokio::spawn(async move {
+                let (stream, _) = listener.accept().await.unwrap();
+                let mut ws = accept_async(stream).await.unwrap();
+                let _ = ws.next().await.unwrap().unwrap();
+                ws.send(Message::Text(
+                    serde_json::to_string(&BridgeMessage::Event(BridgeEvent {
+                        event: "studio.changed".to_string(),
+                        data: Some(json!({"place": "place-1"})),
+                    }))
+                    .unwrap()
+                    .into(),
+                ))
+                .await
+                .unwrap();
+                ws.send(Message::Text(
+                    json!({
+                        "jsonrpc": "2.0",
+                        "id": "req-1",
+                        "result": {"success": true}
+                    })
+                    .to_string()
+                    .into(),
+                ))
+                .await
+                .unwrap();
+            });
+            format!("ws://{addr}")
+        };
+
+        let mut client = WebSocketHostRpcClient::new();
+        client
+            .connect(&endpoint, Duration::from_secs(2))
+            .await
+            .unwrap();
+        let mut events = client.subscribe_events();
+        let result = client
+            .call("roblox.get_studio_state", json!({}), "req-1")
+            .await
+            .unwrap();
+        assert_eq!(result["success"], true);
+        let event = events.recv().await.unwrap();
+        assert_eq!(event.event, "studio.changed");
     }
 
     #[test]

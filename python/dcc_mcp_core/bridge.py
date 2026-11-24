@@ -104,6 +104,7 @@ INVALID_PARAMS = -32602
 INTERNAL_ERROR = -32603
 NO_ACTIVE_DOCUMENT = -32001
 DCC_ERROR = -32000
+BRIDGE_PROTOCOL_VERSION = "1"
 
 
 __all__ = [
@@ -337,6 +338,52 @@ class ReverseBridgeSession:
         return request_id
 
 
+# ── External plugin session state ────────────────────────────────────────────
+
+
+@dataclass
+class _BridgeSession:
+    """Lifecycle and routing state for one connected external plugin."""
+
+    key: str
+    websocket: Any
+    instance_id: str | None = None
+    peer_id: str | None = None
+    client: str = "unknown"
+    version: str = "?"
+    dcc_version: str | None = None
+    host_name: str | None = None
+    host_version: str | None = None
+    document: str | None = None
+    project: str | None = None
+    data_model: str | None = None
+    capabilities: dict[str, Any] | None = None
+    metadata: dict[str, Any] | None = None
+    connected: bool = True
+    ready: bool = False
+    last_heartbeat: float | None = None
+
+    def snapshot(self) -> dict[str, Any]:
+        """Return a JSON-friendly snapshot without the live socket object."""
+        return {
+            "instance_id": self.instance_id,
+            "peer_id": self.peer_id,
+            "client": self.client,
+            "version": self.version,
+            "dcc_version": self.dcc_version,
+            "host_name": self.host_name,
+            "host_version": self.host_version,
+            "document": self.document,
+            "project": self.project,
+            "data_model": self.data_model,
+            "capabilities": dict(self.capabilities or {}),
+            "metadata": dict(self.metadata or {}),
+            "connected": self.connected,
+            "ready": self.ready,
+            "last_heartbeat": self.last_heartbeat,
+        }
+
+
 # ── DccBridge ─────────────────────────────────────────────────────────────────
 
 
@@ -392,12 +439,18 @@ class DccBridge:
         # may replace the active socket and later fall back to an older one.
         self._dcc_connections: list[Any] = []
 
-        # Pending futures keyed by request id.
+        # Pending futures keyed by request id. Keep socket ownership in a
+        # parallel map so the existing failure-inspection API remains stable.
         self._pending: dict[str | int, Future] = {}
+        self._pending_websockets: dict[str | int, Any] = {}
         self._send_started: set[str | int] = set()
         self._pending_lock = threading.Lock()
         self._next_id = 0
         self._id_lock = threading.Lock()
+
+        self._sessions: dict[str, _BridgeSession] = {}
+        self._sessions_lock = threading.RLock()
+        self._events: queue.Queue[dict[str, Any]] = queue.Queue()
 
         self._connected = False
         self._closed = False
@@ -412,6 +465,29 @@ class DccBridge:
     def is_connected(self) -> bool:
         """Return ``True`` once a DCC plugin has completed the handshake."""
         return self._connected
+
+    def list_sessions(self) -> list[dict[str, Any]]:
+        """Return lifecycle snapshots for all known plugin sessions."""
+        with self._sessions_lock:
+            return [session.snapshot() for session in self._sessions.values()]
+
+    def get_session(self, instance_id: str) -> dict[str, Any] | None:
+        """Return one session snapshot by its advertised instance identifier."""
+        with self._sessions_lock:
+            for session in self._sessions.values():
+                if session.instance_id == instance_id:
+                    return session.snapshot()
+        return None
+
+    def drain_events(self, max_events: int | None = None) -> list[dict[str, Any]]:
+        """Drain plugin events received since the previous call."""
+        events: list[dict[str, Any]] = []
+        while max_events is None or len(events) < max_events:
+            try:
+                events.append(self._events.get_nowait())
+            except queue.Empty:
+                break
+        return events
 
     def connect(self, wait_for_dcc: bool = False) -> None:
         """Start the WebSocket server.
@@ -451,13 +527,16 @@ class DccBridge:
         # Fail all pending futures.
         self._fail_pending("Bridge disconnected.")
 
-    def call(self, method: str, **params: Any) -> Any:
+    def call(self, method: str, *, target_instance_id: str | None = None, **params: Any) -> Any:
         """Invoke a method on the connected DCC plugin (synchronous).
 
         Parameters
         ----------
         method:
             The method name to invoke (e.g. ``"ps.getDocumentInfo"``).
+        target_instance_id:
+            Optional stable host instance identifier. When omitted, the most
+            recently active plugin session receives the call.
         **params:
             Keyword arguments forwarded as the JSON-RPC ``params`` object.
 
@@ -476,9 +555,9 @@ class DccBridge:
             If the DCC plugin returns a JSON-RPC error response.
 
         """
-        ws = self._ws
+        ws = self._select_websocket(target_instance_id)
         loop = self._loop
-        if not self._connected or ws is None or loop is None or not loop.is_running():
+        if ws is None or loop is None or not loop.is_running():
             raise BridgeConnectionError("No DCC plugin is connected.", outcome="not_dispatched")
 
         req_id = self._next_request_id()
@@ -500,6 +579,7 @@ class DccBridge:
 
         with self._pending_lock:
             self._pending[req_id] = fut
+            self._pending_websockets[req_id] = ws
         send = self._send_request(text, ws, req_id, fut)
         try:
             try:
@@ -514,6 +594,7 @@ class DccBridge:
         finally:
             with self._pending_lock:
                 self._pending.pop(req_id, None)
+                self._pending_websockets.pop(req_id, None)
                 self._send_started.discard(req_id)
 
     def _fail_pending(self, reason: str) -> None:
@@ -523,6 +604,7 @@ class DccBridge:
                     outcome = "unknown" if req_id in self._send_started else "not_dispatched"
                     fut.set_exception(BridgeConnectionError(reason, outcome=outcome))
             self._pending.clear()
+            self._pending_websockets.clear()
             self._send_started.clear()
 
     # ── Context manager ──────────────────────────────────────────────────────
@@ -564,6 +646,10 @@ class DccBridge:
         try:
             async with websockets.serve(self._handle_dcc, self._host, self._port) as server:
                 self._ws_server = server
+                if self._port == 0:
+                    sockets = getattr(server, "sockets", None) or []
+                    if sockets:
+                        self._port = int(sockets[0].getsockname()[1])
                 self._server_ready.set()
                 logger.debug("DccBridge listening on %s", self.endpoint)
                 await shutdown_event.wait()
@@ -582,12 +668,16 @@ class DccBridge:
             logger.debug("DCC plugin connection closed: %s", exc)
         finally:
             self._dcc_connections = [connection for connection in self._dcc_connections if connection is not ws]
+            with self._sessions_lock:
+                for session in self._sessions.values():
+                    if session.websocket is ws:
+                        session.connected = False
+                        session.ready = False
+                        session.websocket = None
             if self._ws is ws:
                 self._ws = self._dcc_connections[-1] if self._dcc_connections and not self._closed else None
                 self._connected = self._ws is not None
-                # Requests already sent to the disconnected active plugin
-                # cannot be completed by a fallback connection.
-                self._fail_pending("DCC plugin disconnected.")
+            self._fail_pending_for_websocket(ws)
             logger.debug("DCC plugin disconnected")
 
     async def _dispatch(self, raw: str, ws: Any) -> None:
@@ -611,9 +701,13 @@ class DccBridge:
         if msg_type == "hello":
             await self._handle_hello(msg, ws)
         elif msg_type == "response":
-            self._handle_response(msg)
+            self._handle_response(msg, ws)
+        elif msg_type == "ready":
+            self._handle_ready(msg, ws)
+        elif msg_type == "heartbeat":
+            await self._handle_heartbeat(msg, ws)
         elif msg_type == "event":
-            self._handle_event(msg)
+            self._handle_event(msg, ws)
         elif msg_type == "disconnect":
             logger.debug("DCC plugin sent disconnect: %s", msg.get("reason"))
         else:
@@ -624,11 +718,38 @@ class DccBridge:
         version = msg.get("version", "?")
         logger.info("DCC plugin hello: client=%s version=%s", client, version)
 
+        instance_id = msg.get("instance_id")
+        session_key = instance_id or f"legacy:{uuid.uuid4()}"
+        session = _BridgeSession(
+            key=session_key,
+            websocket=ws,
+            instance_id=instance_id,
+            peer_id=msg.get("peer_id"),
+            client=client,
+            version=version,
+            dcc_version=msg.get("dcc_version"),
+            host_name=msg.get("host_name"),
+            host_version=msg.get("host_version"),
+            document=msg.get("document"),
+            project=msg.get("project"),
+            data_model=msg.get("data_model"),
+            capabilities=dict(msg.get("capabilities") or {}),
+            metadata=dict(msg.get("metadata") or {}),
+            ready=bool(msg.get("ready", False)),
+        )
+        with self._sessions_lock:
+            self._sessions[session_key] = session
+
         ack = {
             "type": "hello_ack",
+            "protocol_version": BRIDGE_PROTOCOL_VERSION,
             "server": self._server_name,
             "version": self._server_version,
             "session_id": str(uuid.uuid4()),
+            "instance_id": instance_id,
+            "peer_id": msg.get("peer_id"),
+            "capabilities": dict(msg.get("capabilities") or {}),
+            "ready": False,
         }
         await self._send(json_dumps(ack), ws)
         self._dcc_connections = [connection for connection in self._dcc_connections if connection is not ws]
@@ -637,17 +758,26 @@ class DccBridge:
         self._connected = True
         self._dcc_connected.set()
 
-    def _handle_response(self, msg: dict) -> None:
+    def _handle_response(self, msg: dict, ws: Any) -> None:
         req_id = msg.get("id")
         with self._pending_lock:
-            fut = self._pending.pop(req_id, None)
-        if fut is None or fut.done():
+            pending = self._pending.pop(req_id, None)
+            expected_ws = self._pending_websockets.pop(req_id, None)
+        if pending is None:
             logger.warning("Received response for unknown id: %r", req_id)
+            return
+        if expected_ws is not ws:
+            with self._pending_lock:
+                self._pending[req_id] = pending
+                self._pending_websockets[req_id] = expected_ws
+            logger.warning("Received response for id %r from a different bridge session", req_id)
+            return
+        if pending.done():
             return
 
         if "error" in msg and msg["error"] is not None:
             err = msg["error"]
-            fut.set_exception(
+            pending.set_exception(
                 BridgeRpcError(
                     code=err.get("code", INTERNAL_ERROR),
                     message=err.get("message", "unknown error"),
@@ -655,12 +785,60 @@ class DccBridge:
                 )
             )
         else:
-            fut.set_result(msg.get("result"))
+            pending.set_result(msg.get("result"))
 
-    def _handle_event(self, msg: dict) -> None:
+    def _handle_ready(self, msg: dict, ws: Any) -> None:
+        with self._sessions_lock:
+            session = self._session_for_websocket(ws)
+            if session is not None:
+                session.ready = bool(msg.get("ready", False))
+
+    async def _handle_heartbeat(self, msg: dict, ws: Any) -> None:
+        with self._sessions_lock:
+            session = self._session_for_websocket(ws)
+            if session is not None:
+                session.last_heartbeat = time.time()
+                if "ready" in msg:
+                    session.ready = bool(msg["ready"])
+        await self._send(json_dumps({"type": "heartbeat", **msg}), ws)
+
+    def _handle_event(self, msg: dict, ws: Any) -> None:
         event = msg.get("event", "unknown")
         data = msg.get("data")
         logger.debug("DCC event: %s data=%r", event, data)
+        with self._sessions_lock:
+            session = self._session_for_websocket(ws)
+            instance_id = session.instance_id if session is not None else None
+        self._events.put({"event": event, "data": data, "instance_id": instance_id})
+
+    def _select_websocket(self, target_instance_id: str | None) -> Any | None:
+        with self._sessions_lock:
+            if target_instance_id is not None:
+                for session in self._sessions.values():
+                    if session.instance_id == target_instance_id and session.connected:
+                        return session.websocket
+                return None
+            return self._ws if self._connected else None
+
+    def _session_for_websocket(self, ws: Any) -> _BridgeSession | None:
+        return next(
+            (session for session in self._sessions.values() if session.websocket is ws),
+            None,
+        )
+
+    def _fail_pending_for_websocket(self, ws: Any) -> None:
+        with self._pending_lock:
+            pending = [
+                (request_id, future)
+                for request_id, future in self._pending.items()
+                if self._pending_websockets.get(request_id) is ws
+            ]
+            for request_id, _future in pending:
+                self._pending.pop(request_id, None)
+                self._pending_websockets.pop(request_id, None)
+        for _request_id, future in pending:
+            if not future.done():
+                future.set_exception(BridgeConnectionError("DCC plugin disconnected."))
 
     async def _send(self, text: str, ws: Any = None) -> None:
         target = self._ws if ws is None else ws
@@ -673,15 +851,21 @@ class DccBridge:
 
     async def _send_request(self, text: str, ws: Any, req_id: int, fut: Future) -> None:
         with self._pending_lock:
-            if self._pending.get(req_id) is not fut:
+            expected_ws = self._pending_websockets.get(req_id)
+            if self._pending.get(req_id) is not fut or (expected_ws is not None and expected_ws is not ws):
                 return
             self._send_started.add(req_id)
         try:
             await self._send(text, ws)
         except BridgeConnectionError as exc:
             with self._pending_lock:
-                if self._pending.pop(req_id, None) is fut and not fut.done():
-                    fut.set_exception(exc)
+                if self._pending.get(req_id) is fut and (
+                    self._pending_websockets.get(req_id) is None or self._pending_websockets.get(req_id) is ws
+                ):
+                    self._pending.pop(req_id, None)
+                    self._pending_websockets.pop(req_id, None)
+                    if not fut.done():
+                        fut.set_exception(exc)
 
     # ── Internal: id generation ──────────────────────────────────────────────
 

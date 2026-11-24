@@ -50,6 +50,16 @@ The foundational library enabling AI assistants to interact with Digital Content
 | **Gateway Failover** | Automatic gateway election when primary gateway becomes unreachable |
 | **Skill Hot-Reload** | File-watching auto-reload for live skill development |
 
+### External Plugin Bridges
+
+External editor plugins such as Roblox Studio should use the shared bridge
+protocol and keep MCP transport, instance routing, lifecycle state, and audit
+metadata in core. Plugins advertise a stable `instance_id` in `hello`, report
+`ready` and `heartbeat` state, and send typed `event` messages. Use
+`DccBridge.call(..., target_instance_id=...)` for multi-instance routing and
+`DccBridge.list_sessions()` for lifecycle discovery. Existing `dispatch`
+JSON-RPC plugins remain compatible with the structured protocol.
+
 ## Installation
 
 The CLI refreshes the official signed installation catalog independently of its

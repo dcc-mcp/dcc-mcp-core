@@ -38,7 +38,10 @@ WebSocket bridge server that waits for a DCC plugin to connect.
 | Method | Returns | Description |
 |--------|---------|-------------|
 | `connect(wait_for_dcc=False)` | `None` | Start the WebSocket server |
-| `call(method, **params)` | `Any` | Synchronous RPC to the DCC plugin (thread-safe) |
+| `list_sessions()` | `list[dict]` | Lifecycle and host metadata for connected or previously connected plugin sessions |
+| `get_session(instance_id)` | `dict | None` | One plugin session snapshot by stable host instance ID |
+| `drain_events(max_events=None)` | `list[dict]` | Drain asynchronous plugin events received by the bridge |
+| `call(method, *, target_instance_id=None, **params)` | `Any` | Synchronous RPC to one DCC plugin session, or the active session when no target is supplied |
 | `disconnect()` | `None` | Shut down the WebSocket server |
 | `is_connected()` | `bool` | Whether a DCC plugin has completed the handshake |
 
@@ -47,9 +50,15 @@ from dcc_mcp_core import DccBridge
 
 # Context manager
 with DccBridge(port=9001) as bridge:
-    info = bridge.call("ps.getDocumentInfo")
-    layers = bridge.call("ps.listLayers", include_hidden=True)
+    studios = bridge.list_sessions()
+    target = studios[0]["instance_id"]
+    info = bridge.call("ps.getDocumentInfo", target_instance_id=target)
+    layers = bridge.call("ps.listLayers", target_instance_id=target, include_hidden=True)
 ```
+
+The bridge accepts the shared `hello`, `ready`, `heartbeat`, and `event`
+envelopes. A plugin should advertise one stable `instance_id` for each host
+process so multiple editor sessions can be selected independently.
 
 ## Exceptions
 

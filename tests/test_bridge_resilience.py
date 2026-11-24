@@ -153,6 +153,126 @@ def test_dcc_bridge_falls_back_when_newer_plugin_disconnects() -> None:
     asyncio.run(scenario())
 
 
+def test_dcc_bridge_tracks_plugin_lifecycle_and_routes_by_instance() -> None:
+    async def scenario() -> None:
+        bridge = DccBridge(timeout=1.0)
+        bridge._loop = asyncio.get_running_loop()
+        first = _MemoryWebSocket()
+        second = _MemoryWebSocket()
+        first_task = asyncio.create_task(bridge._handle_dcc(first))
+        second_task = asyncio.create_task(bridge._handle_dcc(second))
+        try:
+            await first.client_send(
+                {
+                    "type": "hello",
+                    "client": "roblox-studio-plugin",
+                    "version": "0.1.0",
+                    "instance_id": "studio-1",
+                    "host_name": "Roblox Studio",
+                    "project": "experience-1",
+                }
+            )
+            await second.client_send(
+                {
+                    "type": "hello",
+                    "client": "roblox-studio-plugin",
+                    "version": "0.1.0",
+                    "instance_id": "studio-2",
+                    "host_name": "Roblox Studio",
+                    "project": "experience-2",
+                }
+            )
+            first_ack = await first.client_recv()
+            second_ack = await second.client_recv()
+            assert first_ack["protocol_version"] == "1"
+            assert second_ack["instance_id"] == "studio-2"
+
+            await first.client_send({"type": "ready", "ready": True})
+            await first.client_send({"type": "heartbeat", "sequence": 1, "ready": True})
+            await first.client_send({"type": "event", "event": "studio.changed", "data": {"place": 1}})
+            await asyncio.sleep(0)
+
+            session = bridge.get_session("studio-1")
+            assert session is not None
+            assert session["ready"] is True
+            assert session["project"] == "experience-1"
+            assert bridge.drain_events() == [
+                {"event": "studio.changed", "data": {"place": 1}, "instance_id": "studio-1"}
+            ]
+
+            call = asyncio.get_running_loop().run_in_executor(
+                None,
+                lambda: bridge.call("roblox.get_studio_state", target_instance_id="studio-2"),
+            )
+            request = await asyncio.wait_for(second.client_recv(), timeout=1.0)
+            assert request["method"] == "roblox.get_studio_state"
+            await second.client_send({"type": "response", "id": request["id"], "result": {"place_id": 2}})
+            assert await call == {"place_id": 2}
+        finally:
+            await first.close()
+            await second.close()
+            await first_task
+            await second_task
+            bridge.disconnect()
+
+    asyncio.run(scenario())
+
+
+def test_dcc_bridge_rejects_response_from_different_plugin_session() -> None:
+    async def scenario() -> None:
+        bridge = DccBridge(timeout=1.0)
+        bridge._loop = asyncio.get_running_loop()
+        first = _MemoryWebSocket()
+        second = _MemoryWebSocket()
+        first_task = asyncio.create_task(bridge._handle_dcc(first))
+        second_task = asyncio.create_task(bridge._handle_dcc(second))
+        try:
+            await first.client_send(
+                {
+                    "type": "hello",
+                    "client": "roblox-studio-plugin",
+                    "version": "0.1.0",
+                    "instance_id": "studio-1",
+                }
+            )
+            await second.client_send(
+                {
+                    "type": "hello",
+                    "client": "roblox-studio-plugin",
+                    "version": "0.1.0",
+                    "instance_id": "studio-2",
+                }
+            )
+            await first.client_recv()
+            await second.client_recv()
+
+            call = asyncio.get_running_loop().run_in_executor(
+                None,
+                lambda: bridge.call("roblox.get_studio_state", target_instance_id="studio-1"),
+            )
+            request = await asyncio.wait_for(first.client_recv(), timeout=1.0)
+            await second.client_send(
+                {
+                    "type": "response",
+                    "id": request["id"],
+                    "result": {"place_id": "wrong-session"},
+                }
+            )
+            await asyncio.sleep(0)
+            assert not call.done()
+
+            await first.client_send({"type": "response", "id": request["id"], "result": {"place_id": "place-1"}})
+            assert await call == {"place_id": "place-1"}
+        finally:
+            await first.close()
+            await second.close()
+            await first_task
+            await second_task
+            bridge.disconnect()
+
+    asyncio.run(scenario())
+
+
 def test_retry_policy_retries_operation() -> None:
     attempts = {"count": 0}
     policy = BridgeRetryPolicy(attempts=3, initial_delay_secs=0)

@@ -4,6 +4,9 @@ use super::*;
 use dcc_mcp_skills::paths::{get_app_skill_paths_from_env, get_local_skills_dir};
 use std::sync::OnceLock;
 
+#[cfg(feature = "stub-gen")]
+use pyo3_stub_gen_derive::{gen_stub_pyclass, gen_stub_pyfunction, gen_stub_pymethods};
+
 /// Global bridge context registry (for gateway mode).
 ///
 /// This singleton stores bridge connections that skill scripts can query.
@@ -21,14 +24,23 @@ static BRIDGE_REGISTRY: OnceLock<dcc_mcp_http::BridgeRegistry> = OnceLock::new()
 ///     ctx = get_bridge_context("photoshop")
 ///     if ctx:
 ///         print(ctx.dcc_type, ctx.bridge_url, ctx.connected)
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[pyclass(name = "BridgeContext", get_all, skip_from_py_object)]
 #[derive(Debug, Clone)]
 pub struct PyBridgeContext {
     pub dcc_type: String,
     pub bridge_url: String,
     pub connected: bool,
+    pub instance_id: Option<String>,
+    pub peer_id: Option<String>,
+    pub host_version: Option<String>,
+    pub project_id: Option<String>,
+    pub document_id: Option<String>,
+    pub ready: bool,
+    pub last_heartbeat_ms: Option<u64>,
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pymethods]
 impl PyBridgeContext {
     fn __repr__(&self) -> String {
@@ -45,6 +57,13 @@ impl From<dcc_mcp_http::BridgeContext> for PyBridgeContext {
             dcc_type: ctx.dcc_type,
             bridge_url: ctx.bridge_url,
             connected: ctx.connected,
+            instance_id: ctx.instance_id,
+            peer_id: ctx.peer_id,
+            host_version: ctx.host_version,
+            project_id: ctx.project_id,
+            document_id: ctx.document_id,
+            ready: ctx.ready,
+            last_heartbeat_ms: ctx.last_heartbeat_ms,
         }
     }
 }
@@ -73,12 +92,14 @@ impl From<dcc_mcp_http::BridgeContext> for PyBridgeContext {
 ///
 ///     registry.set_disconnected("photoshop")
 ///     registry.unregister("zbrush")
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[pyclass(name = "BridgeRegistry", skip_from_py_object)]
 #[derive(Debug, Clone)]
 pub struct PyBridgeRegistry {
     inner: dcc_mcp_http::BridgeRegistry,
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pymethods]
 impl PyBridgeRegistry {
     #[new]
@@ -102,11 +123,47 @@ impl PyBridgeRegistry {
             .map_err(pyo3::exceptions::PyValueError::new_err)
     }
 
+    /// Register one concrete DCC/plugin instance without overwriting peers of
+    /// the same DCC type.
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (dcc_type, url, instance_id, peer_id=None, host_version=None, project_id=None, document_id=None, ready=false))]
+    fn register_instance(
+        &self,
+        dcc_type: String,
+        url: String,
+        instance_id: String,
+        peer_id: Option<String>,
+        host_version: Option<String>,
+        project_id: Option<String>,
+        document_id: Option<String>,
+        ready: bool,
+    ) -> PyResult<()> {
+        self.inner
+            .register_instance(
+                dcc_type,
+                url,
+                instance_id,
+                peer_id,
+                host_version,
+                project_id,
+                document_id,
+                ready,
+            )
+            .map_err(pyo3::exceptions::PyValueError::new_err)
+    }
+
     /// Get bridge context for a specific DCC type.
     ///
     /// Returns ``None`` if no bridge is registered for the given DCC type.
     fn get(&self, dcc_type: &str) -> Option<PyBridgeContext> {
         self.inner.get(dcc_type).map(PyBridgeContext::from)
+    }
+
+    /// Get a bridge context for a concrete instance identifier.
+    fn get_instance(&self, instance_id: &str) -> Option<PyBridgeContext> {
+        self.inner
+            .get_instance(instance_id)
+            .map(PyBridgeContext::from)
     }
 
     /// Get bridge URL for a specific DCC type (convenience method).
@@ -135,6 +192,13 @@ impl PyBridgeRegistry {
             .map_err(pyo3::exceptions::PyValueError::new_err)
     }
 
+    /// Mark one concrete instance as disconnected.
+    fn set_instance_disconnected(&self, instance_id: &str) -> PyResult<()> {
+        self.inner
+            .set_instance_disconnected(instance_id)
+            .map_err(pyo3::exceptions::PyValueError::new_err)
+    }
+
     /// Remove a bridge from the registry.
     ///
     /// Raises:
@@ -142,6 +206,34 @@ impl PyBridgeRegistry {
     fn unregister(&self, dcc_type: &str) -> PyResult<()> {
         self.inner
             .unregister(dcc_type)
+            .map_err(pyo3::exceptions::PyValueError::new_err)
+    }
+
+    /// Remove one concrete bridge instance.
+    fn unregister_instance(&self, instance_id: &str) -> PyResult<()> {
+        self.inner
+            .unregister_instance(instance_id)
+            .map_err(pyo3::exceptions::PyValueError::new_err)
+    }
+
+    /// Update liveness and document metadata from a plugin heartbeat.
+    #[pyo3(signature = (instance_id, connected, ready, last_heartbeat_ms=None, document_id=None))]
+    fn update_instance(
+        &self,
+        instance_id: &str,
+        connected: bool,
+        ready: bool,
+        last_heartbeat_ms: Option<u64>,
+        document_id: Option<String>,
+    ) -> PyResult<()> {
+        self.inner
+            .update_instance(
+                instance_id,
+                connected,
+                ready,
+                last_heartbeat_ms,
+                document_id,
+            )
             .map_err(pyo3::exceptions::PyValueError::new_err)
     }
 
@@ -198,6 +290,7 @@ impl PyBridgeRegistry {
 ///         print(ctx.bridge_url, ctx.connected)
 ///     else:
 ///         raise PhotoshopNotAvailableError("Bridge not connected")
+#[cfg_attr(feature = "stub-gen", gen_stub_pyfunction)]
 #[pyfunction]
 #[pyo3(name = "get_bridge_context")]
 pub fn py_get_bridge_context(dcc_type: &str) -> Option<PyBridgeContext> {
@@ -223,6 +316,7 @@ pub fn py_get_bridge_context(dcc_type: &str) -> Option<PyBridgeContext> {
 ///
 ///     register_bridge("photoshop", "ws://localhost:9001")
 ///     register_bridge("zbrush", "http://localhost:8765")
+#[cfg_attr(feature = "stub-gen", gen_stub_pyfunction)]
 #[pyfunction]
 #[pyo3(name = "register_bridge")]
 pub fn py_register_bridge(dcc_type: String, url: String) -> PyResult<()> {
