@@ -221,6 +221,30 @@ fn git_commit_integrity_fails_before_network_or_filesystem_io() {
 }
 
 #[test]
+fn git_failure_cleans_staged_checkout_without_leaving_destination() {
+    let root = tempfile::tempdir().unwrap();
+    let dest = root.path().join("git-install");
+    let result = execute_git_clone(
+        "https://__nonexistent__.invalid/repo.git",
+        Some(&"a".repeat(40)),
+        &dest,
+    );
+
+    assert!(matches!(
+        &result,
+        Err(InstallError::StepFailed { step, .. }) if step == "git-fetch"
+    ));
+    assert!(!dest.exists());
+    assert!(std::fs::read_dir(root.path()).unwrap().all(|entry| {
+        !entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .starts_with(".dcc-mcp-install-git-")
+    }));
+}
+
+#[test]
 fn path_copy_missing_source_fails() {
     let result = execute_path_copy(
         &PathBuf::from("/__nonexistent__/source"),

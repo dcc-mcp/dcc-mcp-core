@@ -18,6 +18,7 @@ use crate::domain::install::{
 
 const BUNDLED_CATALOG: &str = include_str!("../../../../dcc-mcp-catalog.yml");
 
+mod acquire;
 mod adobe;
 #[cfg(test)]
 mod archive_http_tests;
@@ -36,9 +37,9 @@ mod verify;
 #[cfg(test)]
 use uninstall::install_state_is_absent;
 
+use acquire::{execute_git_clone, execute_path_copy, execute_zip_extract};
 pub(crate) use catalog::{is_implicit_cwd_catalog, warn_if_implicit_cwd_catalog};
 pub use discovery::{DccAdapterSummary, DccTypeSummary, DccTypesCatalog};
-use file_ops::copy_dir_recursive;
 use pip::{
     PipArtifact, pip_install_args, pip_restore_args_for_artifact, pip_show_args, pip_show_version,
     pip_uninstall_args,
@@ -940,217 +941,6 @@ fn verified_pip_artifact_spec(
         "{package_with_extras} @ {artifact_url}#sha256={}",
         checksum.to_ascii_lowercase()
     ))
-}
-
-fn execute_git_clone(
-    url: &str,
-    ref_: Option<&str>,
-    dest: &Path,
-) -> Result<Option<StepRollback>, InstallError> {
-    let commit = required_git_commit(ref_)?;
-    if dest.exists() {
-        return Err(InstallError::StepFailed {
-            step: "git-clone".into(),
-            message: format!("destination already exists: {}", dest.display()),
-        });
-    }
-
-    // Ensure parent directory exists
-    if let Some(parent) = dest.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-
-    run_git(
-        dest,
-        "init",
-        &["init", "--quiet", dest.to_string_lossy().as_ref()],
-    )?;
-    run_git(dest, "remote-add", &["remote", "add", "origin", url])?;
-    run_git(dest, "fetch", &["fetch", "--depth", "1", "origin", &commit])?;
-    run_git(
-        dest,
-        "checkout",
-        &["checkout", "--detach", "--quiet", "FETCH_HEAD"],
-    )?;
-
-    let output = Command::new("git")
-        .args(["rev-parse", "HEAD"])
-        .current_dir(dest)
-        .output()
-        .map_err(|error| InstallError::StepFailed {
-            step: "git-verify".into(),
-            message: format!("failed to launch git: {error}"),
-        })?;
-    if !output.status.success() {
-        return Err(InstallError::StepFailed {
-            step: "git-verify".into(),
-            message: String::from_utf8_lossy(&output.stderr).trim().to_string(),
-        });
-    }
-    let actual = String::from_utf8_lossy(&output.stdout)
-        .trim()
-        .to_ascii_lowercase();
-    if actual != commit {
-        return Err(InstallError::StepFailed {
-            step: "git-verify".into(),
-            message: format!("commit mismatch: expected {commit}, got {actual}"),
-        });
-    }
-
-    Ok(Some(StepRollback::RemovePath(dest.to_path_buf())))
-}
-
-fn required_git_commit(ref_: Option<&str>) -> Result<String, InstallError> {
-    let reference = ref_.unwrap_or_default().trim();
-    if reference.len() != 40 || !reference.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        return Err(InstallError::StepFailed {
-            step: "git-integrity".into(),
-            message: "a full 40-character commit object ID is required".into(),
-        });
-    }
-    Ok(reference.to_ascii_lowercase())
-}
-
-fn run_git(dest: &Path, step: &str, args: &[&str]) -> Result<(), InstallError> {
-    let mut command = Command::new("git");
-    command.args(args);
-    if step != "init" {
-        command.current_dir(dest);
-    }
-    let output = command.output().map_err(|error| InstallError::StepFailed {
-        step: format!("git-{step}"),
-        message: format!("failed to launch git: {error}"),
-    })?;
-    if !output.status.success() {
-        return Err(InstallError::StepFailed {
-            step: format!("git-{step}"),
-            message: String::from_utf8_lossy(&output.stderr).trim().to_string(),
-        });
-    }
-    Ok(())
-}
-
-fn execute_zip_extract(
-    url: &str,
-    sha256: Option<&str>,
-    dest: &Path,
-) -> Result<Option<StepRollback>, InstallError> {
-    let expected = required_archive_sha256(sha256)?;
-    if dest.exists() {
-        return Err(InstallError::StepFailed {
-            step: "zip-extract".into(),
-            message: format!("destination already exists: {}", dest.display()),
-        });
-    }
-
-    // Download the archive
-    let response = reqwest::blocking::get(url).map_err(|e| InstallError::StepFailed {
-        step: "zip-download".into(),
-        message: format!("failed to download {url}: {e}"),
-    })?;
-
-    if !response.status().is_success() {
-        return Err(InstallError::StepFailed {
-            step: "zip-download".into(),
-            message: format!("archive download returned HTTP {}", response.status()),
-        });
-    }
-
-    let bytes = response.bytes().map_err(|e| InstallError::StepFailed {
-        step: "zip-download".into(),
-        message: format!("failed to read response from {url}: {e}"),
-    })?;
-
-    use sha2::Digest;
-    let actual = sha2::Sha256::digest(&bytes);
-    let actual_hex = actual
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect::<String>();
-    if !actual_hex.eq_ignore_ascii_case(&expected) {
-        return Err(InstallError::StepFailed {
-            step: "zip-checksum".into(),
-            message: format!("SHA-256 mismatch: expected {expected}, got {actual_hex}"),
-        });
-    }
-
-    // Ensure parent directory exists
-    if let Some(parent) = dest.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-
-    // Extract the archive
-    let reader = std::io::Cursor::new(&bytes);
-    let mut archive = zip::ZipArchive::new(reader).map_err(|e| InstallError::StepFailed {
-        step: "zip-extract".into(),
-        message: format!("failed to open zip archive: {e}"),
-    })?;
-
-    for index in 0..archive.len() {
-        let entry = archive
-            .by_index(index)
-            .map_err(|e| InstallError::StepFailed {
-                step: "zip-extract".into(),
-                message: format!("failed to inspect ZIP archive entry: {e}"),
-            })?;
-        if entry.is_symlink() {
-            return Err(InstallError::StepFailed {
-                step: "zip-extract".into(),
-                message: "ZIP archives must not contain symbolic links".into(),
-            });
-        }
-    }
-
-    archive
-        .extract(dest)
-        .map_err(|e| InstallError::StepFailed {
-            step: "zip-extract".into(),
-            message: format!("failed to extract to {}: {e}", dest.display()),
-        })?;
-
-    Ok(Some(StepRollback::RemovePath(dest.to_path_buf())))
-}
-
-fn required_archive_sha256(sha256: Option<&str>) -> Result<String, InstallError> {
-    let value = sha256.unwrap_or_default().trim();
-    let checksum = value.strip_prefix("sha256:").unwrap_or(value);
-    if checksum.len() != 64 || !checksum.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        return Err(InstallError::StepFailed {
-            step: "zip-integrity".into(),
-            message: "exactly 64 hexadecimal SHA-256 digits are required".into(),
-        });
-    }
-    Ok(checksum.to_ascii_lowercase())
-}
-
-fn execute_path_copy(source: &Path, dest: &Path) -> Result<Option<StepRollback>, InstallError> {
-    let source = resolve_install_source_path(source);
-    if dest.exists() {
-        return Err(InstallError::StepFailed {
-            step: "path-copy".into(),
-            message: format!("destination already exists: {}", dest.display()),
-        });
-    }
-
-    if !source.exists() {
-        return Err(InstallError::StepFailed {
-            step: "path-copy".into(),
-            message: format!("source does not exist: {}", source.display()),
-        });
-    }
-
-    // Ensure parent directory exists
-    if let Some(parent) = dest.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-
-    if source.is_dir() {
-        copy_dir_recursive(&source, dest)?;
-    } else {
-        std::fs::copy(&source, dest)?;
-    }
-
-    Ok(Some(StepRollback::RemovePath(dest.to_path_buf())))
 }
 
 pub(super) fn resolve_install_source_path(source: &Path) -> PathBuf {

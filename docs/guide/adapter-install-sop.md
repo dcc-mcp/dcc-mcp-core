@@ -573,5 +573,7 @@ upgrade when that verified rollback artifact is unavailable. Receipt-backed
 pip installs now write a bounded identity receipt and converge on a repeated
 install of the same catalog target without invoking pip again. Receipt-backed
 ownership now covers Git, ZIP, local path, and Adobe debug-link payloads.
-Staged non-pip replacement and the remaining idempotent executor contract are
-still separate slices.
+Git, ZIP, and local path acquisition now build in a same-filesystem staging
+directory and commit only after acquisition succeeds, so failed retries do not
+leave a partial destination. Staged non-pip replacement and the remaining
+idempotent executor contract are still separate slices.
