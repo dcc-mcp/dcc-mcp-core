@@ -724,7 +724,7 @@ entries:
       type: pip
       pip_package: "dcc-mcp-roblox-studio"
       url: "https://files.pythonhosted.org/packages/41/c6/5de208cb2e239f9df4fd34dc54bb9eab488cb799fc4237a3d254cc1a9ed1/dcc_mcp_roblox_studio-0.1.1-py3-none-any.whl"
-      sha256: "4372cfdfa50ea18a402a273eb311b0a5d3cfbe9fd1643884912d16dc24f2f18"
+      sha256: "4372cfdfa50ea18a402a273eb311b0a5d3cfbe9fd1643884912d16dc24f2f18d"
       entry_point: "dcc_mcp_roblox_studio.server:main"
       instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-roblox-studio/535ff98f192a29a07cc583fddbdb478aff2376de/install.md"
 
