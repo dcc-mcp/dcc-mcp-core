@@ -41,6 +41,24 @@
         "v0.20.31": "a132bfd956ba224403eeae2a66c3b775747af4e080a65d9f9c64e46c03331c56"
       }
     },
+    "https://dcc-mcp.github.io/dcc-mcp-core/schemas/host-capabilities-v1.schema.json": {
+      "path": "python/dcc_mcp_core/schemas/host-capabilities-v1.schema.json",
+      "released": {
+        "v0.20.54": "ad43b2dd7d81be6e12d30c683a00d16d7d62f3e4fa0791fd95deb363c6bef6ea"
+      }
+    },
+    "https://dcc-mcp.github.io/dcc-mcp-core/schemas/model-spec-v1.schema.json": {
+      "path": "python/dcc_mcp_core/schemas/model-spec-v1.schema.json",
+      "released": {
+        "v0.20.54": "110ac96445e8c4666f1609105a54c38621b93f3f91a48ecb51feb0071328da70"
+      }
+    },
+    "https://dcc-mcp.github.io/dcc-mcp-core/schemas/model-state-v1.schema.json": {
+      "path": "python/dcc_mcp_core/schemas/model-state-v1.schema.json",
+      "released": {
+        "v0.20.54": "a1c5f845610f56cf22beaa1c9c0a46068146af93dc5a169b34eb1088e606bb4a"
+      }
+    },
     "https://dcc-mcp.github.io/dcc-mcp-core/schemas/production-acceptance-v1.schema.json": {
       "path": "python/dcc_mcp_core/schemas/production-acceptance-v1.schema.json",
       "released": {
