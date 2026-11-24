@@ -859,12 +859,8 @@ class DccBridge:
             await self._send(text, ws)
         except BridgeConnectionError as exc:
             with self._pending_lock:
-                if (
-                    self._pending.get(req_id) is fut
-                    and (
-                        self._pending_websockets.get(req_id) is None
-                        or self._pending_websockets.get(req_id) is ws
-                    )
+                if self._pending.get(req_id) is fut and (
+                    self._pending_websockets.get(req_id) is None or self._pending_websockets.get(req_id) is ws
                 ):
                     self._pending.pop(req_id, None)
                     self._pending_websockets.pop(req_id, None)

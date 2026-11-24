@@ -189,9 +189,7 @@ def test_dcc_bridge_tracks_plugin_lifecycle_and_routes_by_instance() -> None:
 
             await first.client_send({"type": "ready", "ready": True})
             await first.client_send({"type": "heartbeat", "sequence": 1, "ready": True})
-            await first.client_send(
-                {"type": "event", "event": "studio.changed", "data": {"place": 1}}
-            )
+            await first.client_send({"type": "event", "event": "studio.changed", "data": {"place": 1}})
             await asyncio.sleep(0)
 
             session = bridge.get_session("studio-1")
@@ -263,9 +261,7 @@ def test_dcc_bridge_rejects_response_from_different_plugin_session() -> None:
             await asyncio.sleep(0)
             assert not call.done()
 
-            await first.client_send(
-                {"type": "response", "id": request["id"], "result": {"place_id": "place-1"}}
-            )
+            await first.client_send({"type": "response", "id": request["id"], "result": {"place_id": "place-1"}})
             assert await call == {"place_id": "place-1"}
         finally:
             await first.close()

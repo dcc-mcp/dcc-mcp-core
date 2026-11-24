@@ -10,7 +10,7 @@ description = "HostRpcClient trait + structured envelopes for the sidecar epic (
 
 [dependencies]
 async-trait.workspace = true
-dcc-mcp-protocols = { path = "../dcc-mcp-protocols" }
+dcc-mcp-protocols = { path = "../dcc-mcp-protocols", default-features = false }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

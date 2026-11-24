@@ -125,6 +125,7 @@ impl PyBridgeRegistry {
 
     /// Register one concrete DCC/plugin instance without overwriting peers of
     /// the same DCC type.
+    #[allow(clippy::too_many_arguments)]
     #[pyo3(signature = (dcc_type, url, instance_id, peer_id=None, host_version=None, project_id=None, document_id=None, ready=false))]
     fn register_instance(
         &self,

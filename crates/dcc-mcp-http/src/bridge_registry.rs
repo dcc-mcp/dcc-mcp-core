@@ -128,6 +128,7 @@ impl BridgeRegistry {
     }
 
     /// Register a concrete instance with the common metadata fields.
+    #[allow(clippy::too_many_arguments)]
     pub fn register_instance(
         &self,
         dcc_type: String,
