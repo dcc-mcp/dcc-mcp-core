@@ -93,12 +93,15 @@ fn resolve_git_source(url: &str, destination: &Path) -> String {
     if url.contains("://") || url.starts_with("git@") || Path::new(url).is_absolute() {
         return url.to_owned();
     }
-    destination
-        .parent()
-        .unwrap_or_else(|| Path::new("."))
-        .join(url)
-        .to_string_lossy()
-        .into_owned()
+    let resolved = destination.join(url);
+    let resolved = if resolved.is_absolute() {
+        resolved
+    } else {
+        std::env::current_dir()
+            .map(|directory| directory.join(&resolved))
+            .unwrap_or(resolved)
+    };
+    resolved.to_string_lossy().into_owned()
 }
 
 fn run_git(dest: &Path, step: &str, args: &[&str]) -> Result<(), InstallError> {
@@ -260,4 +263,21 @@ fn stage_destination(
         })?;
     let staged = staging.path().join("payload");
     Ok((staging, staged))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_git_source;
+
+    #[test]
+    fn relative_git_sources_resolve_from_the_final_destination() {
+        let root = tempfile::tempdir().unwrap();
+        let destination = root.path().join("install").join("adapter");
+        let source = resolve_git_source("../mirror.git", &destination);
+
+        assert_eq!(
+            source,
+            destination.join("../mirror.git").display().to_string()
+        );
+    }
 }
