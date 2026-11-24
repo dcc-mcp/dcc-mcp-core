@@ -405,3 +405,8 @@ clean:
     if (Test-Path build) { Remove-Item -Recurse -Force build }
     if (Test-Path target) { Remove-Item -Recurse -Force target }
     Remove-Item -ErrorAction SilentlyContinue -Force .coverage, coverage.xml
+
+
+# Verify the pinned VX and just toolchain.
+toolchain-ci:
+    vx just@1.58 --version
