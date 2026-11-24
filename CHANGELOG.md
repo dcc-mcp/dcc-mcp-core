@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Features
 
+* refine admin dashboard control plane ([9e6646e](https://github.com/dcc-mcp/dcc-mcp-core/commit/9e6646ef9a41f753d46a2c83bb64a156fd4c495b))
 * add bounded host capability probes ([fd41acb](https://github.com/dcc-mcp/dcc-mcp-core/commit/fd41acb209708c13ea88181393868d0a41fca3f1))
 * add cross-DCC modeling verification contracts ([6a35206](https://github.com/dcc-mcp/dcc-mcp-core/commit/6a3520646242b682ba8dbd852ff80a225f952ffc))
 * **bridge:** define shared capacity contract ([e3ebd69](https://github.com/dcc-mcp/dcc-mcp-core/commit/e3ebd69e9a4937a15ad07d35a639e8cfb0ad96d7))
