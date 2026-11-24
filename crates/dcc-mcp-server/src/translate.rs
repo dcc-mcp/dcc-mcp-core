@@ -317,19 +317,59 @@ impl StdioBridge {
     }
 }
 
-/// Parse a shell command string into program + args (very basic: splits on whitespace).
+/// Parse a shell command string into program and arguments.
+///
+/// The translator receives one command string from CLI integrations. Keeping
+/// quote handling here avoids breaking Windows paths and MCP commands that
+/// contain spaces while retaining the existing no-shell process model.
 fn parse_command(cmd: &str) -> (String, Vec<String>) {
-    let mut parts = cmd.split_whitespace();
-    let program = parts.next().unwrap_or_default().to_string();
-    let args = parts.map(String::from).collect();
-    (program, args)
+    let mut parts = Vec::new();
+    let mut current = String::new();
+    let mut quote = None;
+
+    for character in cmd.chars() {
+        match character {
+            '\'' | '"' if quote.is_none() => quote = Some(character),
+            '\'' | '"' if quote == Some(character) => quote = None,
+            character if character.is_whitespace() && quote.is_none() => {
+                if !current.is_empty() {
+                    parts.push(std::mem::take(&mut current));
+                }
+            }
+            character => current.push(character),
+        }
+    }
+    if !current.is_empty() {
+        parts.push(current);
+    }
+
+    let mut parts = parts.into_iter();
+    let program = parts.next().unwrap_or_default();
+    (program, parts.collect())
 }
 
 /// Spawn the child stdio MCP server and return it.
 fn spawn_child(cmd: &str) -> anyhow::Result<Child> {
     let (program, args) = parse_command(cmd);
-    let child = Command::new(&program)
-        .args(&args)
+    #[cfg(windows)]
+    let program_lower = program.to_ascii_lowercase();
+    let mut command = if program_lower.ends_with(".bat") || program_lower.ends_with(".cmd") {
+        let mut command = Command::new("cmd");
+        command.arg("/C").arg(&program).args(&args);
+        command
+    } else {
+        let mut command = Command::new(&program);
+        command.args(&args);
+        command
+    };
+    #[cfg(not(windows))]
+    let mut command = {
+        let mut command = Command::new(&program);
+        command.args(&args);
+        command
+    };
+
+    let child = command
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::inherit())
@@ -1024,5 +1064,20 @@ mod tests {
                 .map(String::as_str),
             Some(crate::GATEWAY_RECOVERY_DRIVER_NONE)
         );
+    }
+
+    #[test]
+    fn parse_command_preserves_quoted_paths_and_arguments() {
+        let (program, args) =
+            parse_command(r#""C:\Program Files\Roblox\mcp.bat" --profile "Studio Preview""#);
+        assert_eq!(program, r#"C:\Program Files\Roblox\mcp.bat"#);
+        assert_eq!(args, vec!["--profile", "Studio Preview"]);
+    }
+
+    #[test]
+    fn parse_command_supports_single_quotes() {
+        let (program, args) = parse_command("python 'script with spaces.py' --mode test");
+        assert_eq!(program, "python");
+        assert_eq!(args, vec!["script with spaces.py", "--mode", "test"]);
     }
 }

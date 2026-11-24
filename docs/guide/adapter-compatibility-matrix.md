@@ -42,6 +42,7 @@ submit a PR updating this matrix before the release PR merges.
 | Substance 3D Painter | [dcc-mcp-substance3d-painter](https://github.com/dcc-mcp/dcc-mcp-substance3d-painter) | 0.1.3 | >=0.19.3,<1.0.0 | — | Host bridge | — |
 | Godot | [dcc-mcp-godot](https://github.com/dcc-mcp/dcc-mcp-godot) | 0.4.0 | >=0.19.45,<1.0.0 | 4.x | EditorPlugin + runtime bridge | 2026-07 |
 | OpenUSD | [dcc-mcp-openusd](https://github.com/dcc-mcp/dcc-mcp-openusd) | 0.8.1 | >=0.19.45,<1.0.0 | — | Headless USD stage adapter | 2026-07 |
+| Roblox Studio | [core example](../../examples/roblox-studio/) | 0.1.0 | >=0.19.60,<1.0.0 | current Studio WebSocket API | Luau Studio plugin + local stdio sidecar | — |
 | Custom Studio Tool | _(your repo here)_ | _your version_ | _your pin_ | _your min_ | _your pattern_ | _date_ |
 
 ## Column Reference

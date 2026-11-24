@@ -103,6 +103,43 @@ class TestBridgeRegistry:
         assert ctx.bridge_url == "ws://localhost:9999"
         assert len(registry) == 1
 
+    def test_register_instances_keeps_same_dcc_type_independent(self) -> None:
+        registry = BridgeRegistry()
+        registry.register_instance(
+            "roblox-studio",
+            "ws://localhost:9001",
+            "studio-1",
+            peer_id="plugin-1",
+            host_version="0.632",
+            project_id="experience-1",
+            document_id="place-1",
+            ready=True,
+        )
+        registry.register_instance(
+            "roblox-studio",
+            "ws://localhost:9002",
+            "studio-2",
+            peer_id="plugin-2",
+            host_version="0.633",
+            project_id="experience-2",
+            document_id="place-2",
+            ready=False,
+        )
+
+        assert len(registry) == 2
+        first = registry.get_instance("studio-1")
+        second = registry.get_instance("studio-2")
+        assert first is not None and second is not None
+        assert first.document_id == "place-1"
+        assert second.ready is False
+
+        registry.update_instance("studio-2", True, True, 123, "place-3")
+        updated = registry.get_instance("studio-2")
+        assert updated is not None
+        assert updated.document_id == "place-3"
+        assert updated.last_heartbeat_ms == 123
+        assert updated.ready is True
+
     def test_set_disconnected(self) -> None:
         registry = BridgeRegistry()
         registry.register("photoshop", "ws://localhost:9001")
@@ -111,6 +148,18 @@ class TestBridgeRegistry:
         registry.set_disconnected("photoshop")
         assert registry.get("photoshop").connected is False
         assert len(registry) == 1  # Still in registry
+
+    def test_dcc_type_lifecycle_operations_cover_all_instances(self) -> None:
+        registry = BridgeRegistry()
+        registry.register_instance("roblox-studio", "ws://localhost:9001", "studio-1", ready=True)
+        registry.register_instance("roblox-studio", "ws://localhost:9002", "studio-2", ready=True)
+
+        registry.set_disconnected("roblox-studio")
+        assert registry.get_instance("studio-1").connected is False
+        assert registry.get_instance("studio-2").connected is False
+
+        registry.unregister("roblox-studio")
+        assert registry.is_empty()
 
     def test_unregister(self) -> None:
         registry = BridgeRegistry()

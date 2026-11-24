@@ -191,6 +191,19 @@ In Python, `DccCapabilities.bridge_kind` is exposed as `Optional[str]` — use t
 - Set `bridge_kind="http"` + `bridge_endpoint=...` for HTTP bridge DCCs
 - Set `bridge_kind="websocket"` + `bridge_endpoint=...` for WebSocket bridge DCCs
 
+### External plugin bridge session
+
+The Rust bridge envelope supports an optional protocol version and structured
+session identity for external editor plugins. A plugin may advertise
+`instance_id`, `peer_id`, host/document/project metadata, capabilities, and
+readiness in `hello`. During the session it can send `ready`, `heartbeat`, and
+`event` messages. The bridge also defines `cancel` and ordered batch envelopes.
+
+The original `hello` fields and `dispatch` JSON-RPC method remain valid for
+existing Photoshop, ZBrush, and custom plugins. New adapters should use one
+stable `instance_id` per host process so multiple instances of the same DCC
+type can be routed independently.
+
 **New DCC adapter projects** (in development):
 - [dcc-mcp-unreal](https://github.com/dcc-mcp/dcc-mcp-unreal) — Unreal Engine (Python embedded)
 - [dcc-mcp-photoshop](https://github.com/dcc-mcp/dcc-mcp-photoshop) — Photoshop (WebSocket bridge via UXP)

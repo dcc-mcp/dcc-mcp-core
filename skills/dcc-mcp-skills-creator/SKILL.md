@@ -73,6 +73,12 @@ CLI is missing, follow the consent-gated official installation instructions in
 `dcc-mcp-cli update apply`; the apply step stages the next CLI launch and does
 not replace a running server binary.
 
+Before publishing a skill package, validate the host discovery and package
+metadata contract with `dcc-mcp-cli discover` and `dcc-mcp-cli lint`. Publish
+remote ZIP entries with an HTTPS install URL and the SHA-256 digest produced by
+`dcc-mcp-cli marketplace pack`. The generated archive must exclude VCS data,
+cache directories, bytecode, and symlinked files.
+
 ## Quick Start
 
 ### Create a new skill
@@ -146,6 +152,10 @@ Generated `tools.yaml` entries follow the modern contract:
 - `enforce_thread_affinity: true` is emitted so adapter dispatch stays honest.
 - `annotations` use MCP hints: read-only, destructive, idempotent, open-world, and deferred.
 - `call_examples`: optional list of ready-to-copy argument payloads. Each entry has `arguments` (JSON object matching `input_schema.properties`) and an optional `note`. Surfaced in describe responses at `metadata.dcc.call_examples` so agents can construct correct arguments on the first attempt.
+- External plugin tools must map to typed bridge methods and carry explicit
+  `affinity`, readiness, and mutation annotations. Keep plugin lifecycle and
+  host metadata in the shared bridge session. Do not expose arbitrary script
+  execution as the default tool for Roblox Studio or other external hosts.
 
 ### Computer Use Fallback Contract
 

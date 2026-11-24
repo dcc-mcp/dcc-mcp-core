@@ -451,7 +451,7 @@ fn run_pid_cleanup_watcher(path: PathBuf, pid: u32) {
 // ── WebSocket bridge (unchanged from original) ────────────────────────────────
 
 async fn run_ws_bridge(port: u16, server_name: String, server_version: String) {
-    use dcc_mcp_protocols::bridge::{BridgeHelloAck, BridgeMessage};
+    use dcc_mcp_protocols::bridge::{BRIDGE_PROTOCOL_VERSION, BridgeHelloAck, BridgeMessage};
     use futures_util::{SinkExt, StreamExt};
     use tokio::net::TcpListener;
     use tokio_tungstenite::tungstenite::Message;
@@ -482,23 +482,62 @@ async fn run_ws_bridge(port: u16, server_name: String, server_version: String) {
                     while let Some(Ok(msg)) = stream.next().await {
                         match msg {
                             Message::Text(t) => {
-                                if let Ok(BridgeMessage::Hello(h)) =
-                                    serde_json::from_str::<BridgeMessage>(&t)
-                                {
-                                    let ack = serde_json::to_string(&BridgeMessage::HelloAck(
-                                        BridgeHelloAck {
-                                            server: sn.clone(),
-                                            version: sv.clone(),
-                                            session_id: uuid::Uuid::new_v4().to_string(),
-                                        },
-                                    ))
-                                    .unwrap_or_default();
-                                    let _ = sink.send(Message::Text(ack.into())).await;
-                                    tracing::info!(
-                                        "DCC connected from {addr}: {} {}",
-                                        h.client,
-                                        h.version
-                                    );
+                                if let Ok(message) = serde_json::from_str::<BridgeMessage>(&t) {
+                                    match message {
+                                        BridgeMessage::Hello(h) => {
+                                            let ack = serde_json::to_string(
+                                                &BridgeMessage::HelloAck(BridgeHelloAck {
+                                                    protocol_version: Some(
+                                                        BRIDGE_PROTOCOL_VERSION.to_string(),
+                                                    ),
+                                                    server: sn.clone(),
+                                                    version: sv.clone(),
+                                                    session_id: uuid::Uuid::new_v4().to_string(),
+                                                    instance_id: h.instance_id.clone(),
+                                                    peer_id: h.peer_id.clone(),
+                                                    capabilities: h.capabilities.clone(),
+                                                    ready: true,
+                                                    metadata: serde_json::Map::new(),
+                                                }),
+                                            )
+                                            .unwrap_or_default();
+                                            let _ = sink.send(Message::Text(ack.into())).await;
+                                            tracing::info!(
+                                                "DCC connected from {addr}: {} {} instance={:?}",
+                                                h.client,
+                                                h.version,
+                                                h.instance_id
+                                            );
+                                        }
+                                        BridgeMessage::Ready(ready) => {
+                                            tracing::info!(
+                                                "DCC bridge {addr} readiness changed: ready={} state={:?}",
+                                                ready.ready,
+                                                ready.state
+                                            );
+                                        }
+                                        BridgeMessage::Heartbeat(heartbeat) => {
+                                            let reply = serde_json::to_string(
+                                                &BridgeMessage::Heartbeat(heartbeat),
+                                            )
+                                            .unwrap_or_default();
+                                            let _ = sink.send(Message::Text(reply.into())).await;
+                                        }
+                                        BridgeMessage::Event(event) => {
+                                            tracing::debug!(
+                                                "DCC bridge event from {addr}: {}",
+                                                event.event
+                                            );
+                                        }
+                                        BridgeMessage::Disconnect(disconnect) => {
+                                            tracing::info!(
+                                                "DCC bridge {addr} disconnected: {:?}",
+                                                disconnect.reason
+                                            );
+                                            break;
+                                        }
+                                        _ => {}
+                                    }
                                 }
                             }
                             Message::Close(_) => break,

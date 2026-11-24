@@ -53,9 +53,25 @@ does not replace a running server binary.
 - Guardian: a lightweight loop inside daemon-backed services that probes gateway `/health` and re-ensures the daemon through `gateway-launch.lock`; it is not a separate process.
 - Service heartbeat: registry freshness for the service row only. Do not describe heartbeat as the gateway restart trigger.
 
+## External Plugin Bridge Protocol
+
+Use the shared bridge protocol for editor plugins that own a native host API,
+including Roblox Studio. The protocol provides optional `instance_id`,
+`peer_id`, host/document metadata, `ready`, `heartbeat`, `event`, `cancel`,
+and ordered batch envelopes. Existing `dispatch` JSON-RPC calls remain the
+compatibility path for older Photoshop, ZBrush, and custom plugins.
+
+Keep MCP transport, skills, gateway registration, audit, and instance routing
+in the sidecar or core. Keep the plugin limited to typed host operations,
+readiness, lifecycle, and structured results. Do not use arbitrary script
+execution as the default bridge method. Register each concrete host session by
+`instance_id` so two open editors of the same DCC type remain independently
+routable.
+
 ## Fast Workflow
 
-1. Run `dcc-mcp-cli dcc-types` before creating a repository. If the DCC type is
+1. Run `dcc-mcp-cli discover` to identify existing host installations, then
+   run `dcc-mcp-cli dcc-types` before creating a repository. If the DCC type is
    already cataloged, improve that adapter instead of creating a duplicate.
    Custom types remain supported; add the new adapter to `dcc-mcp-catalog.yml`
    and the compatibility matrix in the same core PR.
@@ -120,6 +136,9 @@ does not replace a running server binary.
       classification. Do not introduce a model-supplied `confirmed`/`approved`
       flag or environment bypass.
 8. Use CLI profiles (`dcc-mcp-cli gateway ...`, `list/search/describe/call`) as the user UX; treat `dcc-mcp-server` modes as runtime plumbing. Read `docs/guide/gateway.md` before changing daemon, guardian, sentinel, registry, or idle-timeout behavior.
+   Once an instance is selected, reuse `gateway://instances/{instance_id}` or
+   `GET /v1/instances/{instance_id}/context` for live process/machine
+   performance, scene/documents, loaded skills, and canonical follow-up routes.
 9. Use `dcc_mcp_core.install_lifecycle.build_sidecar_command(...)` / `launch_sidecar(...)` for sidecar startup and readiness. Read `docs/guide/adapter-install-lifecycle.md` before changing host RPC, dispatch readiness, launch stdio, `watch_pid`, or `instance_id` handling.
    - The sidecar MCP listener is dispatch-only. A py37-lite factory can expose local skill metadata, but it cannot advertise or activate declarative skills through the gateway. Require a native py37 wheel for that path, or provide a separate discovery MCP URL; never report lite `load_skill` success without an executable catalog.
 10. Pass `instance_id` to sidecar launch helpers only when it is a real UUID for the DCC service. During early startup, omit it or pass `None`; `build_sidecar_command()` rejects cosmetic values such as `"unknown"` with `success=false` and `reason="invalid_instance_id"` so adapters do not spawn a child that can only fail with a CLI argument error.
