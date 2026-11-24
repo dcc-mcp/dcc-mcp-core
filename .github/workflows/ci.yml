@@ -540,6 +540,14 @@ jobs:
         shell: bash
         run: bash scripts/ci/check_server_binary_tls_graph.sh
 
+  license-metadata:
+    name: License metadata gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Check root license metadata
+        run: python scripts/ci/check_license_metadata.py
+
 
   # ── Build ABI3 wheel (one per OS, reused by python-test) ──
   # Intentionally does NOT `needs: [rust-check]` — maturin runs its own compile
