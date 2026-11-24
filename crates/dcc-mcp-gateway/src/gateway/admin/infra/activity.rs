@@ -95,6 +95,10 @@ pub async fn collect_session_traces(
     session_id: &str,
     limit: usize,
 ) -> (Vec<DispatchTrace>, bool) {
+    if let Some(lane) = &state.admin_sqlite_lane {
+        let lane = lane.clone();
+        let _ = tokio::task::spawn_blocking(move || lane.flush()).await;
+    }
     let fetch_limit = limit.saturating_add(1);
     let mut ordered = Vec::new();
     if let Some(lane) = &state.admin_sqlite_lane {

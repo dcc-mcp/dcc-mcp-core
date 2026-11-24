@@ -348,6 +348,11 @@ impl AdminSqliteLane {
         }
     }
 
+    /// Wait until writes queued before this call are visible to readers.
+    pub fn flush(&self) -> bool {
+        self.inner.flush()
+    }
+
     pub fn try_persist_audit(&self, r: &AdminAuditRecord) {
         let row = audit_to_persisted(r);
         if let Ok(json) = serde_json::to_string(&row) {
@@ -683,6 +688,10 @@ impl AdminSqliteLane {
     }
 
     pub fn try_persist_trace(&self, _: &DispatchTrace) {}
+
+    pub fn flush(&self) -> bool {
+        true
+    }
 
     pub fn try_persist_audit(&self, _: &AdminAuditRecord) {}
 

@@ -4,7 +4,7 @@
 //! into its own trace/audit types.
 
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
+use std::sync::mpsc::{Receiver, Sender, SyncSender, channel, sync_channel};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -418,6 +418,8 @@ enum PersistMsg {
     FeedbackReportJson(String),
     /// #2297-A3: Repeat-counter bump (JSON-serialized ScriptPromotionBumpJson).
     ScriptPromotionBumpJson(String),
+    /// A read-after-write barrier for callers that need durable visibility.
+    Flush(Sender<()>),
 }
 
 struct LaneShared {
@@ -481,6 +483,24 @@ impl GatewayAdminSqliteLane {
         {
             let _ = tx.try_send(PersistMsg::TraceJson(trace_json.to_owned()));
         }
+    }
+
+    /// Wait until all writes queued before this call have been applied.
+    pub fn flush(&self) -> bool {
+        let tx = self
+            .inner
+            .tx
+            .lock()
+            .ok()
+            .and_then(|guard| guard.as_ref().cloned());
+        let Some(tx) = tx else {
+            return false;
+        };
+        let (ack_tx, ack_rx) = channel();
+        if tx.send(PersistMsg::Flush(ack_tx)).is_err() {
+            return false;
+        }
+        ack_rx.recv().is_ok()
     }
 
     pub fn try_persist_audit_json(&self, audit_json: &str) {
@@ -813,6 +833,9 @@ fn writer_main(path: PathBuf, retention_days: u32, rx: Receiver<PersistMsg>) {
                     tracing::debug!(error = %e, "admin sqlite: script promotion bump failed");
                 }
             }
+            PersistMsg::Flush(ack) => {
+                let _ = ack.send(());
+            }
         }
         n += 1;
         if n.is_multiple_of(128) {
@@ -943,6 +966,21 @@ mod tests {
         let r = GatewayAdminSqliteReader::new(db);
         let list = r.list_traces_since_json(None, 10);
         assert!(list.iter().any(|s| s.contains("r1")));
+    }
+
+    #[test]
+    fn flush_makes_queued_trace_visible() {
+        let dir = tempdir().unwrap();
+        let db = dir.path().join("flush.sqlite");
+        let lane = GatewayAdminSqliteLane::spawn(db.clone(), 30).expect("spawn");
+        lane.try_persist_trace_json(
+            r#"{"request_id":"flush-r1","method":"tools/call","started_at":1700000000000,"total_ms":12,"ok":true,"spans":[]}"#,
+        );
+
+        assert!(lane.flush());
+        let reader = GatewayAdminSqliteReader::new(db);
+        let list = reader.list_traces_since_json(None, 10);
+        assert!(list.iter().any(|s| s.contains("flush-r1")));
     }
 
     #[test]

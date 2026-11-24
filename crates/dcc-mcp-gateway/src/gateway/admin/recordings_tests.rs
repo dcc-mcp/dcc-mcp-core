@@ -150,7 +150,9 @@ async fn session_compile_uses_persisted_trace_outside_recent_window() {
     // The slug still identifies the exact backend when the trace was
     // captured before instance_id enrichment was added.
     target.instance_id = None;
-    target.started_at = SystemTime::UNIX_EPOCH;
+    // Keep the trace outside the in-memory recent window while retaining it
+    // inside the lane's 30-day SQLite retention window.
+    target.started_at = SystemTime::now() - Duration::from_secs(60 * 60);
     let lane = state.admin_sqlite_lane.as_ref().unwrap();
     lane.try_persist_trace(&target);
     let mut noise = target.clone();
