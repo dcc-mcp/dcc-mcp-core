@@ -30,8 +30,10 @@ mod file_ops;
 mod lifecycle;
 mod pip;
 mod policy;
+mod readiness;
 mod receipt;
 mod report;
+mod sidecar_preflight;
 mod uninstall;
 mod verify;
 #[cfg(test)]
@@ -54,8 +56,8 @@ pub use report::{
     InstallStepReport, InstallStepRollbackReport, InstallVerifyReport,
 };
 use report::{
-    action_failure, execution_report_for_plan, failed_report, safe_report_identifier,
-    stable_step_id, success_next_steps,
+    action_failure, apply_readiness, execution_report_for_plan, failed_report,
+    safe_report_identifier, stable_step_id, success_next_steps, upgrade_requires_restart_report,
 };
 
 #[derive(Debug, Error)]
@@ -78,6 +80,8 @@ pub enum InstallError {
         declaration_valid: bool,
         reason: String,
     },
+    #[error("sidecar blocks upgrade: {reason}")]
+    UpgradeRequiresRestart { reason: String, detail: String },
     #[error("rollback of step '{step}' failed: {message}")]
     RollbackFailed { step: String, message: String },
     #[error("io error: {0}")]
@@ -353,6 +357,12 @@ impl InstallService {
             return failed_report(report, "preflight", 10, "AUTO_INSTALL_DISABLED", None);
         }
 
+        if let Err(InstallError::UpgradeRequiresRestart { reason, detail }) =
+            prepare_sidecar_upgrade(plan)
+        {
+            return upgrade_requires_restart_report(report, &reason, &detail);
+        }
+
         let executable_steps = plan
             .steps
             .iter()
@@ -537,7 +547,7 @@ impl InstallService {
         report.receipt_path = receipt_path.map(|path| path.display().to_string());
         report.verify.failure_stage = Some("host-readiness".into());
         report.verify.failure_reason = Some("LIVE_DCC_VERIFICATION_REQUIRED".into());
-        report
+        apply_readiness(report, readiness::probe_ready(&plan.dcc_type), false)
     }
 }
 
@@ -550,6 +560,46 @@ fn is_receipt_action(action: &InstallStepAction) -> bool {
             | InstallStepAction::PathCopy { .. }
             | InstallStepAction::AdobePluginLink { .. }
     )
+}
+
+/// Stop adapter-owned sidecars before replacing an installed pip package.
+///
+/// Runs once before the step loop so a blocked preflight leaves the system
+/// untouched (there is nothing to roll back). Fresh installs and receipt
+/// matches never enter this path.
+fn prepare_sidecar_upgrade(plan: &InstallPlan) -> Result<(), InstallError> {
+    let Some((action, package, python)) = plan.steps.iter().find_map(|step| {
+        match step.action.as_ref()? {
+            InstallStepAction::PipInstall { package, python, .. } => {
+                Some((step.action.as_ref()?, package.as_str(), python.as_deref()?))
+            }
+            _ => None,
+        }
+    }) else {
+        return Ok(());
+    };
+    // A receipt match means no pip mutation will happen; do not stop a sidecar
+    // (or block) on a converged re-run.
+    if receipt_match_details(plan, action)
+        .is_ok_and(|(matches, _)| matches)
+    {
+        return Ok(());
+    }
+    if discover_pip_artifact(python, package)?.is_none() {
+        return Ok(());
+    }
+    let version = plan.steps.iter().find_map(|step| {
+        match step.action.as_ref()? {
+            InstallStepAction::PipInstall { version, .. } => version.as_deref(),
+            _ => None,
+        }
+    });
+    match sidecar_preflight::prepare_sidecar_update(python, &plan.dcc_type, version) {
+        sidecar_preflight::UpgradePreflight::RequiresRestart { reason, detail } => {
+            Err(InstallError::UpgradeRequiresRestart { reason, detail })
+        }
+        _ => Ok(()),
+    }
 }
 
 // ── step executors ───────────────────────────────────────────────────────────────

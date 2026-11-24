@@ -122,6 +122,6 @@ impl InstallService {
         report.next_steps = success_next_steps(&report.dcc_type);
         report.verify.failure_stage = Some("host-readiness".into());
         report.verify.failure_reason = Some("LIVE_DCC_VERIFICATION_REQUIRED".into());
-        report
+        super::report::apply_readiness(report, super::readiness::probe_ready(&plan.dcc_type), true)
     }
 }

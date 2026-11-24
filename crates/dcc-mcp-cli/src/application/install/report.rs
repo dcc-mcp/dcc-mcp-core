@@ -186,6 +186,66 @@ pub(super) fn failed_report(
     report
 }
 
+/// Promote a successful static verification to a live-usable verdict only
+/// when a registered instance actually answers a complete readiness probe.
+/// Any missing evidence keeps the existing `LIVE_DCC_VERIFICATION_REQUIRED`
+/// boundary, so the probe can never turn an unverified install green.
+pub(super) fn apply_readiness(
+    mut report: InstallExecutionReport,
+    evidence: Option<super::readiness::ReadinessEvidence>,
+    promote_status: bool,
+) -> InstallExecutionReport {
+    if evidence.is_some_and(|evidence| evidence.missing.is_empty()) {
+        report.verify.directly_usable = true;
+        report.verify.failure_stage = None;
+        report.verify.failure_reason = None;
+        if promote_status && report.status == "partial" {
+            report.status = "ok".into();
+        }
+    }
+    report
+}
+
+/// Report a blocked upgrade before any file was changed.
+///
+/// The owning DCC host must be restarted so its sidecar releases the adapter
+/// payload; retrying the install then converges without a rollback.
+pub(super) fn upgrade_requires_restart_report(
+    mut report: InstallExecutionReport,
+    reason: &str,
+    detail: &str,
+) -> InstallExecutionReport {
+    report.status = "requires_restart".into();
+    report.stage = "preflight".into();
+    report.exit_code = 50;
+    report.verify.directly_usable = false;
+    report.verify.failure_stage = Some("preflight".into());
+    report.verify.failure_reason = Some("UPGRADE_REQUIRES_RESTART".into());
+    report.error = Some(InstallExecutionError {
+        code: "UPGRADE_REQUIRES_RESTART".into(),
+        stage: "preflight".into(),
+        exit_code: 50,
+        primary_code: Some(reason.into()),
+    });
+    report.next_steps = vec![InstallReportNextStep {
+        id: "retry-after-restart".into(),
+        description: format!(
+            "Restart the {} host so its sidecar releases the adapter, then retry the install.",
+            report.dcc_type
+        ),
+        why: format!("Adapter-owned sidecar blocks the upgrade ({reason}): {detail}"),
+        command: vec![
+            "dcc-mcp-cli".into(),
+            "install".into(),
+            "--dcc-type".into(),
+            report.dcc_type.clone(),
+            "--execute".into(),
+            "--yes".into(),
+        ],
+    }];
+    report
+}
+
 pub(super) fn requires_restart_report(
     mut report: InstallExecutionReport,
     receipt_path: &std::path::Path,
@@ -348,4 +408,48 @@ fn failure_next_steps(dcc_type: &str) -> Vec<InstallReportNextStep> {
             ],
         },
     ]
+}
+
+#[cfg(test)]
+mod readiness_tests {
+    use super::*;
+    use crate::application::install::readiness::ReadinessEvidence;
+
+    fn partial_report() -> InstallExecutionReport {
+        let mut report = empty_execution_report("maya".into());
+        report.status = "partial".into();
+        report.verify.failure_stage = Some("host-readiness".into());
+        report.verify.failure_reason = Some("LIVE_DCC_VERIFICATION_REQUIRED".into());
+        report
+    }
+
+    fn evidence(missing: &[&str]) -> ReadinessEvidence {
+        ReadinessEvidence {
+            missing: missing.iter().map(|value| value.to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn complete_readiness_promotes_a_partial_verify_to_usable() {
+        let report = apply_readiness(partial_report(), Some(evidence(&[])), true);
+        assert!(report.verify.directly_usable);
+        assert_eq!(report.verify.failure_stage, None);
+        assert_eq!(report.verify.failure_reason, None);
+        assert_eq!(report.status, "ok");
+    }
+
+    #[test]
+    fn incomplete_readiness_keeps_the_unverified_boundary() {
+        let report = apply_readiness(partial_report(), Some(evidence(&["dispatcher"])), true);
+        assert!(!report.verify.directly_usable);
+        assert_eq!(report.verify.failure_reason.as_deref(), Some("LIVE_DCC_VERIFICATION_REQUIRED"));
+        assert_eq!(report.status, "partial");
+    }
+
+    #[test]
+    fn no_live_instance_keeps_the_unverified_boundary() {
+        let report = apply_readiness(partial_report(), None, true);
+        assert!(!report.verify.directly_usable);
+        assert_eq!(report.status, "partial");
+    }
 }

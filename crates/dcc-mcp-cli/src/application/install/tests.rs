@@ -773,3 +773,35 @@ fn failed_execution_report_matches_shared_cross_language_fixture() {
 
     assert_eq!(actual, expected);
 }
+
+#[test]
+fn upgrade_requires_restart_report_is_machine_readable_and_does_not_claim_success() {
+    let service = InstallService::new(PathBuf::from("__missing_dcc_mcp_catalog__.yml"));
+    let plan = service
+        .plan(InstallRequest {
+            dcc_type: "maya".into(),
+            version: None,
+            catalog_path: None,
+            python: Some("test-python".into()),
+            dcc_path: None,
+            plugin_source: None,
+            adobe_debug_root: None,
+        })
+        .unwrap();
+    let mut report = execution_report_for_plan(&plan);
+    report.status = "running".into();
+    let report = upgrade_requires_restart_report(
+        report,
+        "sidecar_stop_failed",
+        "a live sidecar still holds the adapter payload",
+    );
+
+    assert_eq!(report.status, "requires_restart");
+    assert_eq!(report.stage, "preflight");
+    assert_eq!(report.exit_code, 50);
+    assert!(!report.verify.directly_usable);
+    assert_eq!(report.error.as_ref().unwrap().code, "UPGRADE_REQUIRES_RESTART");
+    assert_eq!(report.error.as_ref().unwrap().primary_code.as_deref(), Some("sidecar_stop_failed"));
+    assert_eq!(report.next_steps[0].id, "retry-after-restart");
+    assert!(report.next_steps[0].command.contains(&"install".to_string()));
+}
