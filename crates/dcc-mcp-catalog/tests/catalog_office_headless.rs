@@ -20,7 +20,7 @@ fn bundled_office_adapters_install_headless_backends() {
 }
 
 #[test]
-fn bundled_word_pins_release_install_md_as_install_instructions() {
+fn bundled_word_pins_release_readme_as_install_instructions() {
     let entries = load_from_str(include_str!("../../../dcc-mcp-catalog.yml")).unwrap();
     let word = entries
         .iter()
@@ -32,7 +32,7 @@ fn bundled_word_pins_release_install_md_as_install_instructions() {
         install.instructions_url.as_deref(),
         Some(concat!(
             "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-word/",
-            "8e59aa34b34ac23ffc9c419979c5644046561d22/install.md"
+            "8e59aa34b34ac23ffc9c419979c5644046561d22/README.md"
         ))
     );
 }

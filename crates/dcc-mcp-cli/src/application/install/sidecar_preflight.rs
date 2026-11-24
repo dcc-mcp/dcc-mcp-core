@@ -68,9 +68,17 @@ fn classify_lifecycle_report(parsed: &Value) -> UpgradePreflight {
     if parsed.get("success").and_then(Value::as_bool) == Some(true) {
         return UpgradePreflight::Ready;
     }
+    // `install_lifecycle_cli.py prepare-update` emits the singular form when
+    // no `--target-version` reaches it; the library emits the plural form.
+    // Both mean "no lifecycle metadata available", not "host needs restart".
     if matches!(
         parsed.get("reason").and_then(Value::as_str),
-        Some("missing_target_versions" | "invalid_target_version")
+        Some(
+            "missing_target_version"
+                | "missing_target_versions"
+                | "invalid_target_version"
+                | "invalid_target_versions"
+        )
     ) {
         return UpgradePreflight::NoLifecycleMetadata;
     }
@@ -96,6 +104,25 @@ mod tests {
         // A path that cannot launch never resolves to a lifecycle report.
         assert_eq!(
             prepare_sidecar_update("__dcc_mcp_missing_python__", "maya", Some("1.0.0")),
+            UpgradePreflight::NoLifecycleMetadata
+        );
+    }
+
+    /// Exact JSON emitted by `python -m dcc_mcp_core.install_lifecycle
+    /// prepare-update` when no `--target-version` reaches the CLI. The real
+    /// reason is singular; it must not become a false exit-50 requires-restart.
+    #[test]
+    fn real_cli_missing_target_version_does_not_block_upgrade() {
+        let report = serde_json::json!({
+            "message": "At least one --target-version KEY=VERSION is required.",
+            "path": null,
+            "reason": "missing_target_version",
+            "requires_restart": false,
+            "status": "failed",
+            "success": false
+        });
+        assert_eq!(
+            classify_lifecycle_report(&report),
             UpgradePreflight::NoLifecycleMetadata
         );
     }

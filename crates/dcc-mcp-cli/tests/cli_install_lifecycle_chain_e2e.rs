@@ -40,7 +40,7 @@ fn fixture_catalog(root: &TempDir) -> std::path::PathBuf {
             "dcc":["chainfixture"], "tags":["adapter"], "version":"1.0.0",
             "install":{"type":"pip","pip_package":"dcc-mcp-chainfixture",
                 "url":"https://example.invalid/dcc_mcp_chainfixture-1.0.0-py3-none-any.whl",
-                "sha256":"a".repeat(64),"entry_point":"verify_fixture:create_server"}
+                "sha256":"f36b78f6b00e4ffc0ca0ae15c97cc8653705681563fe446176452b3464f11b33","entry_point":"verify_fixture:create_server"}
         }]})
         .to_string(),
     )
@@ -187,4 +187,93 @@ fn registered_but_unready_instance_stays_unverified() {
     let report = verify_chain(&catalog, &python, &site, &registry);
     assert_eq!(report["verify"]["directly_usable"], false);
     assert_eq!(report["status"], "partial");
+}
+
+/// `install --execute` must also promote `directly_usable` from a real live
+/// readiness probe, without flipping the deferred register-dcc step to ok.
+#[test]
+fn install_execute_promotes_directly_usable_with_live_readiness() {
+    let python = target_python();
+    let root = TempDir::new().unwrap();
+    let catalog = fixture_catalog(&root);
+    let site = site_with_adapter(&root);
+
+    // Minimal fake pip so the execute path can run fully offline: report the
+    // pinned package as installed and record that the install ran once.
+    let package = site.join("pip");
+    std::fs::create_dir(&package).unwrap();
+    std::fs::write(package.join("__init__.py"), "").unwrap();
+    std::fs::write(
+        package.join("__main__.py"),
+        r#"import json
+import os
+import sys
+root = os.path.dirname(os.path.dirname(__file__))
+if sys.argv[1:2] == ['show']:
+    print('Name: dcc-mcp-chainfixture')
+    print('Version: 1.0.0')
+    print('Location: ' + root)
+elif sys.argv[1:2] == ['install']:
+    pass
+elif sys.argv[1:2] == ['download']:
+    dest = sys.argv[sys.argv.index('--dest') + 1]
+    with open(os.path.join(dest, 'dcc_mcp_chainfixture-1.0.0-py3-none-any.whl'), 'wb') as stream:
+        stream.write(b'fixture-wheel')
+"#,
+    )
+    .unwrap();
+    let dist = site.join("dcc_mcp_chainfixture-1.0.0.dist-info");
+    std::fs::write(
+        dist.join("direct_url.json"),
+        json!({
+            "url": "https://example.invalid/dcc_mcp_chainfixture-1.0.0-py3-none-any.whl",
+            "archive_info": {"hashes": {"sha256": "f36b78f6b00e4ffc0ca0ae15c97cc8653705681563fe446176452b3464f11b33"}}
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let live = spawn_local_mcp_fixture();
+    let registry = TempDir::new().unwrap();
+    let _guard = register_instance(&registry, &live.mcp_url(), true);
+    let receipt_dir = root.path().join("receipts");
+
+    let output = cli_command()
+        .args([
+            "install",
+            "--dcc-type",
+            "chainfixture",
+            "--python",
+            &python,
+            "--execute",
+            "--json",
+            "--catalog",
+        ])
+        .arg(&catalog)
+        .env("PYTHONPATH", &site)
+        .env("DCC_MCP_REGISTRY_DIR", registry.path())
+        .env("DCC_MCP_INSTALL_RECEIPT_DIR", &receipt_dir)
+        .env_remove("DCC_MCP_INSTALL_DISABLED")
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["verify"]["directly_usable"], true);
+    assert_eq!(report["verify"]["failure_reason"], Value::Null);
+    assert_eq!(report["verify"]["failure_stage"], Value::Null);
+    // The live probe promotes usability but must not fake host registration.
+    assert_eq!(report["status"], "partial");
+    assert!(
+        report["steps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|step| step["id"] == "register-dcc" && step["status"] == "deferred")
+    );
 }

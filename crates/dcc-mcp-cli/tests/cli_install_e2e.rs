@@ -220,23 +220,30 @@ fn install_execute_json_failure_emits_one_safe_execution_report() {
         .output()
         .unwrap();
 
-    assert_eq!(output.status.code(), Some(30));
+    assert_eq!(output.status.code(), Some(10));
     let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(report["schema_version"], 1);
     assert_eq!(report["status"], "failed");
     assert_eq!(report["dcc_type"], "maya");
-    assert_eq!(report["exit_code"], 30);
-    assert_eq!(report["stage"], "install");
-    assert_eq!(report["error"]["code"], "INSTALL_STEP_FAILED");
-    assert_eq!(report["error"]["stage"], "install");
-    assert_eq!(report["error"]["exit_code"], 30);
-    assert_eq!(report["steps"][0]["id"], "install-pip");
-    assert_eq!(report["steps"][0]["status"], "failed");
-    assert_eq!(report["steps"][1]["status"], "not_run");
+    assert_eq!(report["exit_code"], 10);
+    assert_eq!(report["stage"], "preflight");
+    assert_eq!(report["error"]["code"], "SIDECAR_PREFLIGHT_FAILED");
+    assert_eq!(report["error"]["stage"], "preflight");
+    assert_eq!(report["error"]["exit_code"], 10);
+    assert!(
+        report["steps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|step| step["status"] == "not_run")
+    );
     assert_eq!(report["receipt_path"], serde_json::Value::Null);
     assert_eq!(report["verify"]["directly_usable"], false);
-    assert_eq!(report["verify"]["failure_stage"], "install");
-    assert_eq!(report["verify"]["failure_reason"], "INSTALL_STEP_FAILED");
+    assert_eq!(report["verify"]["failure_stage"], "preflight");
+    assert_eq!(
+        report["verify"]["failure_reason"],
+        "SIDECAR_PREFLIGHT_FAILED"
+    );
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -597,7 +604,7 @@ fn install_bundled_catalog_pins_office_adapter_wheels() {
                 plan["next_steps"][0]["url"],
                 concat!(
                     "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-word/",
-                    "8e59aa34b34ac23ffc9c419979c5644046561d22/install.md"
+                    "8e59aa34b34ac23ffc9c419979c5644046561d22/README.md"
                 )
             );
         }

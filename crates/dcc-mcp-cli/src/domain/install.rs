@@ -885,13 +885,25 @@ fn normalized_github_document_url(
         return None;
     }
     let document = if is_readme_document(document) {
-        "install.md"
+        // A pinned ref explicitly naming README.md is a deliberate fallback:
+        // those releases have no install.md, so rewriting the URL would point
+        // agents at a 404. Only unpinned README links are upgraded.
+        if is_pinned_reference(reference) {
+            document
+        } else {
+            "install.md"
+        }
     } else if is_install_document(document) {
         document
     } else {
         return None;
     };
     Some(format!("{raw_prefix}{owner}/{name}/{reference}/{document}"))
+}
+
+/// True for a full commit SHA rather than a branch/tag reference.
+fn is_pinned_reference(reference: &str) -> bool {
+    reference.len() == 40 && reference.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 fn is_readme_document(document: &str) -> bool {

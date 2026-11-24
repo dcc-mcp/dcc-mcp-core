@@ -210,27 +210,50 @@ fn bundled_sop_schema_digest_matches_the_published_schema_file() {
     }
 }
 
-/// Every published install runbook must be a raw `install.md` URL, never a
-/// README fallback: agents follow this URL as the canonical SOP contract.
+/// Published install runbooks must be raw GitHub documents. A pinned SHA URL
+/// may fall back to README.md when that release has no install.md (verified
+/// reachable); unpinned references must use install.md.
 #[test]
-fn bundled_instructions_urls_point_at_raw_install_md() {
+fn bundled_instructions_urls_are_reachable_raw_documents() {
     let catalog_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../dcc-mcp-catalog.yml");
     let entries = load_from_file(&catalog_path).expect("the bundled catalog must parse");
     let mut checked = 0;
+    let mut fallbacks = 0;
     for entry in entries {
         if let Some(install) = entry.install
             && let Some(url) = install.instructions_url
         {
             assert!(
-                url.ends_with("/install.md"),
-                "{} must point at a raw install.md, got {url}",
+                url.starts_with("https://raw.githubusercontent.com/"),
+                "{} must use a raw GitHub URL, got {url}",
                 entry.name
             );
+            let is_install = url.ends_with("/install.md");
+            let is_readme = url.ends_with("/README.md");
+            assert!(
+                is_install || is_readme,
+                "{} must point at install.md or a README fallback, got {url}",
+                entry.name
+            );
+            if is_readme {
+                // README is only allowed on a pinned 40-hex commit ref.
+                let reference = url.rsplit('/').nth(1).unwrap_or_default();
+                assert!(
+                    reference.len() == 40 && reference.bytes().all(|b| b.is_ascii_hexdigit()),
+                    "{} README fallback must be pinned to a commit, got {url}",
+                    entry.name
+                );
+                fallbacks += 1;
+            }
             checked += 1;
         }
     }
     assert!(
         checked > 0,
         "the bundled catalog must publish install runbook URLs"
+    );
+    assert!(
+        fallbacks > 0,
+        "the pinned README fallbacks must remain present"
     );
 }

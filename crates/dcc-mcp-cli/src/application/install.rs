@@ -257,6 +257,18 @@ impl InstallService {
         self.execute_plan_with_commit(
             plan,
             skip_confirmation,
+            // A failed preflight must never fail open: without the sidecar
+            // stop, a Windows file lock could break the upgrade mid-transaction.
+            |plan| match prepare_sidecar_upgrade(plan) {
+                Ok(()) => Ok(()),
+                Err(InstallError::UpgradeRequiresRestart { reason, detail }) => {
+                    Err(InstallError::UpgradeRequiresRestart { reason, detail })
+                }
+                Err(error) => Err(InstallError::StepFailed {
+                    step: "sidecar-preflight".into(),
+                    message: error.to_string(),
+                }),
+            },
             |action, plan| {
                 let result = if matches!(action, InstallStepAction::Verify) {
                     execute_verify(plan).map(StepExecution::Completed)
@@ -321,20 +333,27 @@ impl InstallService {
         E: FnMut(&InstallStepAction, &InstallPlan) -> Result<StepExecution, InstallError>,
         R: FnMut(&StepRollback) -> Result<(), InstallError>,
     {
-        self.execute_plan_with_commit(plan, skip_confirmation, execute_step, rollback_step, |_| {
-            Ok(None)
-        })
+        self.execute_plan_with_commit(
+            plan,
+            skip_confirmation,
+            |_| Ok(()),
+            execute_step,
+            rollback_step,
+            |_| Ok(None),
+        )
     }
 
-    fn execute_plan_with_commit<E, R, C>(
+    fn execute_plan_with_commit<P, E, R, C>(
         &self,
         plan: &InstallPlan,
         skip_confirmation: bool,
+        mut preflight: P,
         mut execute_step: E,
         mut rollback_step: R,
         mut commit: C,
     ) -> InstallExecutionReport
     where
+        P: FnMut(&InstallPlan) -> Result<(), InstallError>,
         E: FnMut(&InstallStepAction, &InstallPlan) -> Result<StepExecution, InstallError>,
         R: FnMut(&StepRollback) -> Result<(), InstallError>,
         C: FnMut(&InstallPlan) -> Result<Option<PathBuf>, InstallError>,
@@ -357,10 +376,20 @@ impl InstallService {
             return failed_report(report, "preflight", 10, "AUTO_INSTALL_DISABLED", None);
         }
 
-        if let Err(InstallError::UpgradeRequiresRestart { reason, detail }) =
-            prepare_sidecar_upgrade(plan)
-        {
-            return upgrade_requires_restart_report(report, &reason, &detail);
+        match preflight(plan) {
+            Ok(()) => {}
+            Err(InstallError::UpgradeRequiresRestart { reason, detail }) => {
+                return upgrade_requires_restart_report(report, &reason, &detail);
+            }
+            Err(error) => {
+                return failed_report(
+                    report,
+                    "preflight",
+                    10,
+                    "SIDECAR_PREFLIGHT_FAILED",
+                    Some(&error.to_string()),
+                );
+            }
         }
 
         let executable_steps = plan

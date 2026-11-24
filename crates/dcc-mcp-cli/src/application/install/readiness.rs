@@ -59,6 +59,8 @@ pub(crate) fn probe_ready(dcc_type: &str) -> Option<ReadinessEvidence> {
     .ok()
     .flatten()?;
 
+    // Absent `missing` evidence is not an empty (complete) report: treat it as
+    // all-required-missing so a malformed probe can never produce a false green.
     let missing = result
         .get("missing")
         .and_then(Value::as_array)
@@ -69,6 +71,11 @@ pub(crate) fn probe_ready(dcc_type: &str) -> Option<ReadinessEvidence> {
                 .map(str::to_string)
                 .collect()
         })
-        .unwrap_or_default();
+        .unwrap_or_else(|| {
+            ["process", "dcc", "skill_catalog", "dispatcher"]
+                .iter()
+                .map(|field| field.to_string())
+                .collect()
+        });
     Some(ReadinessEvidence { missing })
 }

@@ -677,7 +677,7 @@ entries:
       url: "https://files.pythonhosted.org/packages/ed/9e/95453a48bbeda3a2971fd8d5598105673cf245c793cc43f2ab2280521ebb/dcc_mcp_word-0.1.2-py3-none-any.whl"
       sha256: "f4ac79722b4ad653b0acd9844fa1a992994e8a8935f2a65bb7d473376c833a5c"
       entry_point: "dcc_mcp_word._standalone_entry:main"
-      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-word/8e59aa34b34ac23ffc9c419979c5644046561d22/install.md"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-word/8e59aa34b34ac23ffc9c419979c5644046561d22/README.md"
 
   - name: "dcc-mcp-fpt"
     description: "Autodesk Flow Production Tracking adapter for DCC-MCP"
@@ -766,7 +766,7 @@ entries:
       url: "https://files.pythonhosted.org/packages/e5/79/940c7f086e6061677084e093cd543ca2371da717d56a1ed0635676221823/dcc_mcp_capcut-0.5.0-py3-none-any.whl"
       sha256: "ffdfb6020dae9b07982c4593b0d63912d1439711caac4179687747b6b5de1122"
       entry_point: "dcc_mcp_capcut:CapCutMcpServer"
-      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-capcut/12f5256086e10e814fb6a6ce19c1dbc1c08d9770/install.md"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-capcut/12f5256086e10e814fb6a6ce19c1dbc1c08d9770/README.md"
 
   - name: "dcc-mcp-epic"
     description: "Epic Games Launcher, Fab and Unreal adapter for DCC-MCP — inspect engines, verify projects and search local asset libraries; engine install is plan-only"
@@ -783,7 +783,7 @@ entries:
       url: "https://files.pythonhosted.org/packages/d9/7a/13c4f69b0c04e86716bf6c5a362c06b4cf09306038fbddc3591cc307475a/dcc_mcp_epic-0.2.1-py3-none-any.whl"
       sha256: "fb05a3fbb7c7184f311a97a0ee14a60b882e25432a77072031b8632f28a5bd98"
       entry_point: "dcc_mcp_epic.server:main"
-      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-epic/1157defe203aab4beaa8f7be56f8063caac2a415/install.md"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-epic/1157defe203aab4beaa8f7be56f8063caac2a415/README.md"
 
   - name: "dcc-mcp-gaea"
     description: "Gaea Build Swarm adapter for DCC-MCP — plan terrain builds and verify height and weight-map outputs; real Gaea builds remain unvalidated"
@@ -800,7 +800,7 @@ entries:
       url: "https://files.pythonhosted.org/packages/2a/e9/b2a67becf913a57dcee6911d94c4fec2661e69dccb218d2a1a9245bd4606/dcc_mcp_gaea-0.1.1-py3-none-any.whl"
       sha256: "2fd9aea692803cbb3ab19a0532b86a4dc24acc2a1ad9725c81ddfbab6799e7e6"
       entry_point: "dcc_mcp_gaea.server:main"
-      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-gaea/b95d3f81b8f883732c73d268658100d09d9cad84/install.md"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-gaea/b95d3f81b8f883732c73d268658100d09d9cad84/README.md"
 
   - name: "dcc-mcp-openscreen"
     description: "OpenScreen adapter for DCC-MCP — capture discovery, screen recording and video export workflows through typed CLI operations"
@@ -817,7 +817,7 @@ entries:
       url: "https://files.pythonhosted.org/packages/06/b4/5daa7b649f2b0fe8078ac05935efad2ad2f2f38ae5a5ff2e22941250700c/dcc_mcp_openscreen-0.1.1-py3-none-any.whl"
       sha256: "c3e756014a35579fb9776b4819c9d0ff5b6a5354f16b61d0b0e81f8dc0b083c4"
       entry_point: "dcc_mcp_openscreen.server:main"
-      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-openscreen/5a32837d9d1b3bd2aea04bf61e61b4a54bbd5262/install.md"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-openscreen/5a32837d9d1b3bd2aea04bf61e61b4a54bbd5262/README.md"
 
   - name: "dcc-mcp-speedtree"
     description: "SpeedTree adapter for DCC-MCP — edit experimental native generator graphs, run the licensed Modeler CLI and verify vegetation exports"
@@ -834,7 +834,7 @@ entries:
       url: "https://files.pythonhosted.org/packages/70/75/42856319fe812e13afa65dca17e7c54ba2d06a8e08251d0031e86cfc8460/dcc_mcp_speedtree-0.1.1-py3-none-any.whl"
       sha256: "2bee22d5dd386e39f5714781019b8e394e43bbdc8a0dbb77ea646f035710c27c"
       entry_point: "dcc_mcp_speedtree.server:main"
-      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-speedtree/595f0bd308aa0f4f0635a399c2b63bd76f16caf8/install.md"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-speedtree/595f0bd308aa0f4f0635a399c2b63bd76f16caf8/README.md"
 
   - name: "dcc-mcp-tracy"
     description: "Tracy profiler adapter for DCC-MCP — capture instrumented applications, export trace CSV data and analyze zone timing"
@@ -851,4 +851,4 @@ entries:
       url: "https://files.pythonhosted.org/packages/c6/4b/017613df6a5ec878c466a24146473a56caa1732c60f899517a152432d1b2/dcc_mcp_tracy-0.2.5-py3-none-any.whl"
       sha256: "7f435ee47469a85a066f33b02d6f8708e9f748180e8b73ac7009004aecd72c95"
       entry_point: "dcc_mcp_tracy.server:main"
-      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-tracy/a5e29b7bcef28ccd6a2ee17667dbdbcb7c45b119/install.md"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-tracy/a5e29b7bcef28ccd6a2ee17667dbdbcb7c45b119/README.md"
