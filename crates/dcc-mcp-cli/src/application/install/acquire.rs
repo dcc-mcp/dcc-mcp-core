@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 
 use sha2::Digest;
@@ -93,15 +93,39 @@ fn resolve_git_source(url: &str, destination: &Path) -> String {
     if url.contains("://") || url.starts_with("git@") || Path::new(url).is_absolute() {
         return url.to_owned();
     }
-    let resolved = destination.join(url);
+    let resolved = lexical_normalize(&destination.join(url));
     let resolved = if resolved.is_absolute() {
         resolved
     } else {
         std::env::current_dir()
-            .map(|directory| directory.join(&resolved))
+            .map(|directory| lexical_normalize(&directory.join(&resolved)))
             .unwrap_or(resolved)
     };
     resolved.to_string_lossy().into_owned()
+}
+
+fn lexical_normalize(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                let can_pop_normal = normalized
+                    .components()
+                    .next_back()
+                    .is_some_and(|previous| matches!(previous, Component::Normal(_)));
+                if can_pop_normal {
+                    normalized.pop();
+                } else if !normalized.has_root() {
+                    normalized.push(component.as_os_str());
+                }
+            }
+            Component::Normal(value) => normalized.push(value),
+            Component::Prefix(prefix) => normalized.push(prefix.as_os_str()),
+            Component::RootDir => normalized.push(component.as_os_str()),
+        }
+    }
+    normalized
 }
 
 fn run_git(dest: &Path, step: &str, args: &[&str]) -> Result<(), InstallError> {
@@ -267,7 +291,18 @@ fn stage_destination(
 
 #[cfg(test)]
 mod tests {
-    use super::resolve_git_source;
+    use std::path::Path;
+    use std::process::Command;
+
+    use super::{execute_git_clone, resolve_git_source};
+
+    fn run_git(directory: &Path, args: &[&str]) -> std::process::Output {
+        Command::new("git")
+            .args(args)
+            .current_dir(directory)
+            .output()
+            .unwrap()
+    }
 
     #[test]
     fn relative_git_sources_resolve_from_the_final_destination() {
@@ -277,7 +312,54 @@ mod tests {
 
         assert_eq!(
             source,
-            destination.join("../mirror.git").display().to_string()
+            root.path()
+                .join("install")
+                .join("mirror.git")
+                .display()
+                .to_string()
+        );
+    }
+
+    #[test]
+    fn relative_git_source_fetches_after_staging() {
+        let root = tempfile::tempdir().unwrap();
+        let source = root.path().join("source");
+        std::fs::create_dir_all(&source).unwrap();
+        assert!(run_git(&source, &["init", "--quiet"]).status.success());
+        std::fs::write(source.join("README.md"), "fixture\n").unwrap();
+        assert!(run_git(&source, &["add", "README.md"]).status.success());
+        assert!(
+            run_git(
+                &source,
+                &[
+                    "-c",
+                    "user.name=Install Test",
+                    "-c",
+                    "user.email=install-test@example.invalid",
+                    "commit",
+                    "--quiet",
+                    "-m",
+                    "fixture",
+                ],
+            )
+            .status
+            .success()
+        );
+        let commit = String::from_utf8(run_git(&source, &["rev-parse", "HEAD"]).stdout)
+            .unwrap()
+            .trim()
+            .to_owned();
+
+        let destination = root.path().join("install").join("adapter");
+        let relative_source = Path::new("../..").join("source");
+        let relative_source = relative_source.to_string_lossy();
+        execute_git_clone(&relative_source, Some(&commit), &destination).unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(destination.join("README.md"))
+                .unwrap()
+                .replace("\r\n", "\n"),
+            "fixture\n"
         );
     }
 }
