@@ -26,6 +26,11 @@
 //! 5. Either side may send [`BridgeMessage::Event`] asynchronously.
 //! 6. Either side sends [`BridgeMessage::Disconnect`] to end the session.
 //!
+//! Protocol version `1` adds optional instance metadata and lifecycle
+//! messages. Older clients can continue using the original `hello` and
+//! `dispatch` envelopes because every new field is optional and every new
+//! message has an independent `type` tag.
+//!
 //! ## Standard error codes
 //!
 //! | Code   | Meaning                   |
@@ -39,6 +44,9 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+
+/// Current version of the DCC plugin bridge protocol.
+pub const BRIDGE_PROTOCOL_VERSION: &str = "1";
 
 // ── Top-level envelope ──────────────────────────────────────────────────────
 
@@ -63,6 +71,16 @@ pub enum BridgeMessage {
     Response(BridgeResponse),
     /// An asynchronous notification (no reply expected) sent by either side.
     Event(BridgeEvent),
+    /// Sent by the plugin when host execution is available.
+    Ready(BridgeReady),
+    /// Periodic liveness signal exchanged by the bridge and plugin.
+    Heartbeat(BridgeHeartbeat),
+    /// Best-effort cancellation request for an in-flight operation.
+    Cancel(BridgeCancel),
+    /// Multiple host calls sent as one ordered envelope.
+    BatchRequest(BridgeBatchRequest),
+    /// Results for a [`BridgeBatchRequest`].
+    BatchResponse(BridgeBatchResponse),
     /// Sent by either side to signal a clean close.
     Disconnect(BridgeDisconnect),
     /// Sent by the bridge server when it cannot parse an incoming message.
@@ -78,6 +96,9 @@ pub enum BridgeMessage {
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BridgeHello {
+    /// Bridge protocol version supported by the plugin.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protocol_version: Option<String>,
     /// DCC plugin identifier, e.g. `"photoshop-uxp"`, `"zbrush-zscript"`.
     pub client: String,
     /// Plugin version string, e.g. `"0.1.0"`.
@@ -85,9 +106,33 @@ pub struct BridgeHello {
     /// Optional DCC application version the plugin is running in.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dcc_version: Option<String>,
+    /// Stable identifier for the concrete DCC process or Studio session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instance_id: Option<String>,
+    /// Identifier for a plugin peer inside one host process.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub peer_id: Option<String>,
+    /// Host application name, useful when the plugin name is generic.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_name: Option<String>,
+    /// Host application version. This is separate from the plugin version.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_version: Option<String>,
+    /// Active document or place identifier, when the host exposes one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub document: Option<String>,
+    /// Project or experience identifier, when the host exposes one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
+    /// Host data-model name, for example `"DataModel"` in Roblox Studio.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data_model: Option<String>,
     /// Optional additional capabilities / metadata the plugin wants to advertise.
     #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
     pub capabilities: serde_json::Map<String, Value>,
+    /// Additional non-routing metadata owned by the plugin.
+    #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub metadata: serde_json::Map<String, Value>,
 }
 
 /// Server acknowledgement for a [`BridgeHello`].
@@ -97,12 +142,94 @@ pub struct BridgeHello {
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BridgeHelloAck {
+    /// Bridge protocol version selected by the server.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protocol_version: Option<String>,
     /// Bridge server name.
     pub server: String,
     /// Bridge server version.
     pub version: String,
     /// Opaque session identifier assigned by the server.
     pub session_id: String,
+    /// Stable identifier for the server-side bridge instance.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instance_id: Option<String>,
+    /// Peer identifier assigned or confirmed by the server.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub peer_id: Option<String>,
+    /// Capabilities selected for this session.
+    #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub capabilities: serde_json::Map<String, Value>,
+    /// Whether the server can accept host calls immediately.
+    #[serde(default = "default_ready")]
+    pub ready: bool,
+    /// Additional server-side session metadata.
+    #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub metadata: serde_json::Map<String, Value>,
+}
+
+/// Host readiness state notification.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BridgeReady {
+    /// Whether the plugin can execute host calls.
+    pub ready: bool,
+    /// Optional human-readable state such as `"loading"` or `"ready"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state: Option<String>,
+    /// Readiness bits exposed by the plugin.
+    #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub capabilities: serde_json::Map<String, Value>,
+    /// Additional readiness metadata.
+    #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub metadata: serde_json::Map<String, Value>,
+}
+
+/// Liveness notification for a bridge session.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BridgeHeartbeat {
+    /// Monotonic sequence number generated by the sender.
+    #[serde(default)]
+    pub sequence: u64,
+    /// Optional readiness snapshot carried with the heartbeat.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ready: Option<bool>,
+    /// Optional host-specific health payload.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data: Option<Value>,
+}
+
+/// Best-effort cancellation request for one host call.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BridgeCancel {
+    /// Identifier of the request to cancel.
+    pub id: RequestId,
+    /// Optional cancellation reason for diagnostics.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+/// Ordered group of host calls.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BridgeBatchRequest {
+    /// Always `"2.0"`.
+    #[serde(default = "jsonrpc_version")]
+    pub jsonrpc: String,
+    /// Envelope identifier for the batch operation.
+    pub id: RequestId,
+    /// Requests executed in order by the plugin.
+    pub requests: Vec<BridgeRequest>,
+}
+
+/// Results for an ordered batch of host calls.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BridgeBatchResponse {
+    /// Always `"2.0"`.
+    #[serde(default = "jsonrpc_version")]
+    pub jsonrpc: String,
+    /// Must match the originating batch identifier.
+    pub id: RequestId,
+    /// One response per request, in the original order.
+    pub responses: Vec<BridgeResponse>,
 }
 
 // ── Request / Response ──────────────────────────────────────────────────────
@@ -233,6 +360,10 @@ pub struct BridgeEvent {
     pub data: Option<Value>,
 }
 
+fn default_ready() -> bool {
+    false
+}
+
 // ── Disconnect / ParseError ─────────────────────────────────────────────────
 
 /// Clean close notification.
@@ -295,10 +426,19 @@ mod tests {
     #[test]
     fn test_hello_roundtrip() {
         let msg = BridgeMessage::Hello(BridgeHello {
+            protocol_version: Some(BRIDGE_PROTOCOL_VERSION.to_string()),
             client: "photoshop-uxp".to_string(),
             version: "0.1.0".to_string(),
             dcc_version: Some("25.0".to_string()),
+            instance_id: Some("ps-1".to_string()),
+            peer_id: Some("uxp".to_string()),
+            host_name: Some("Photoshop".to_string()),
+            host_version: Some("25.0".to_string()),
+            document: Some("doc.psd".to_string()),
+            project: None,
+            data_model: None,
             capabilities: serde_json::Map::new(),
+            metadata: serde_json::Map::new(),
         });
         let json = serde_json::to_string(&msg).unwrap();
         assert!(json.contains("\"type\":\"hello\""));
@@ -346,5 +486,90 @@ mod tests {
         let r = BridgeResponse::ok(RequestId::String("req-abc".to_string()), json!(null));
         let json = serde_json::to_string(&r).unwrap();
         assert!(json.contains("\"req-abc\""));
+    }
+
+    #[test]
+    fn legacy_hello_deserialises_without_v1_fields() {
+        let message: BridgeMessage = serde_json::from_value(json!({
+            "type": "hello",
+            "client": "legacy-plugin",
+            "version": "0.1.0"
+        }))
+        .unwrap();
+        let BridgeMessage::Hello(hello) = message else {
+            panic!("expected hello");
+        };
+        assert_eq!(hello.client, "legacy-plugin");
+        assert!(hello.protocol_version.is_none());
+        assert!(hello.metadata.is_empty());
+    }
+
+    #[test]
+    fn v1_lifecycle_messages_roundtrip() {
+        let message = BridgeMessage::Ready(BridgeReady {
+            ready: true,
+            state: Some("ready".to_string()),
+            capabilities: serde_json::Map::new(),
+            metadata: serde_json::Map::new(),
+        });
+        let decoded: BridgeMessage =
+            serde_json::from_str(&serde_json::to_string(&message).unwrap()).unwrap();
+        assert!(matches!(
+            decoded,
+            BridgeMessage::Ready(BridgeReady { ready: true, .. })
+        ));
+
+        let batch = BridgeMessage::BatchRequest(BridgeBatchRequest {
+            jsonrpc: jsonrpc_version(),
+            id: RequestId::String("batch-1".to_string()),
+            requests: vec![BridgeRequest {
+                jsonrpc: jsonrpc_version(),
+                id: RequestId::Number(1),
+                method: "roblox.get_studio_state".to_string(),
+                params: None,
+            }],
+        });
+        let decoded: BridgeMessage =
+            serde_json::from_str(&serde_json::to_string(&batch).unwrap()).unwrap();
+        assert!(matches!(decoded, BridgeMessage::BatchRequest(_)));
+
+        let heartbeat = BridgeMessage::Heartbeat(BridgeHeartbeat {
+            sequence: 7,
+            ready: Some(true),
+            data: Some(json!({"place_id": 123})),
+        });
+        let decoded: BridgeMessage =
+            serde_json::from_str(&serde_json::to_string(&heartbeat).unwrap()).unwrap();
+        assert!(matches!(
+            decoded,
+            BridgeMessage::Heartbeat(BridgeHeartbeat {
+                sequence: 7,
+                ready: Some(true),
+                ..
+            })
+        ));
+
+        let cancel = BridgeMessage::Cancel(BridgeCancel {
+            id: RequestId::String("req-1".to_string()),
+            reason: Some("user requested".to_string()),
+        });
+        let decoded: BridgeMessage =
+            serde_json::from_str(&serde_json::to_string(&cancel).unwrap()).unwrap();
+        assert!(matches!(
+            decoded,
+            BridgeMessage::Cancel(BridgeCancel { .. })
+        ));
+
+        let batch_response = BridgeMessage::BatchResponse(BridgeBatchResponse {
+            jsonrpc: jsonrpc_version(),
+            id: RequestId::String("batch-1".to_string()),
+            responses: vec![BridgeResponse::ok(
+                RequestId::Number(1),
+                json!({"ok": true}),
+            )],
+        });
+        let decoded: BridgeMessage =
+            serde_json::from_str(&serde_json::to_string(&batch_response).unwrap()).unwrap();
+        assert!(matches!(decoded, BridgeMessage::BatchResponse(_)));
     }
 }

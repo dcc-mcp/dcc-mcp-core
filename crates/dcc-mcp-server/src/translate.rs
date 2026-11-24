@@ -496,8 +496,28 @@ impl StdioBridge {
 /// Spawn the child stdio MCP server and return it.
 fn spawn_child(cmd: &str) -> anyhow::Result<Child> {
     let (program, args) = parse_command(cmd)?;
-    let child = Command::new(&program)
-        .args(&args)
+    #[cfg(windows)]
+    let mut command = if {
+        let program_lower = program.to_ascii_lowercase();
+        program_lower.ends_with(".bat") || program_lower.ends_with(".cmd")
+    } {
+        let mut command = Command::new("cmd");
+        command.arg("/C").arg(&program).args(&args);
+        command
+    } else {
+        let mut command = Command::new(&program);
+        command.args(&args);
+        command
+    };
+
+    #[cfg(not(windows))]
+    let mut command = {
+        let mut command = Command::new(&program);
+        command.args(&args);
+        command
+    };
+
+    let child = command
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::inherit())

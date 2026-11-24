@@ -1421,6 +1421,7 @@ name = "dcc-mcp-host-rpc"
 version = "0.20.53"
 dependencies = [
  "async-trait",
+ "dcc-mcp-protocols",
  "futures-util",
  "serde",
  "serde_json",

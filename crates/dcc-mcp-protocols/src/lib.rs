@@ -19,8 +19,9 @@ pub use adapters::{
 };
 pub use bridge::error_codes as bridge_error_codes;
 pub use bridge::{
-    BridgeDisconnect, BridgeEvent, BridgeHello, BridgeHelloAck, BridgeMessage, BridgeParseError,
-    BridgeRequest, BridgeResponse, RequestId, RpcError,
+    BRIDGE_PROTOCOL_VERSION, BridgeBatchRequest, BridgeBatchResponse, BridgeCancel,
+    BridgeDisconnect, BridgeEvent, BridgeHeartbeat, BridgeHello, BridgeHelloAck, BridgeMessage,
+    BridgeParseError, BridgeReady, BridgeRequest, BridgeResponse, RequestId, RpcError,
 };
 #[allow(deprecated)]
 pub use error_envelope::{DccMcpError, ToolCallErrorEnvelope};
