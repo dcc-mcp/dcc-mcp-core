@@ -11,6 +11,8 @@ contracts introduced by the behavior-verification track (core#2269):
   per-frame particle/vertex counts.
 * ``dcc-mcp/graph-state@1`` — node/connection/param/output topology for
   graph-based hosts (Designer, Nuke).
+* ``dcc-mcp/model-state@1`` — normalized modeling state for geometry quality
+  checks and cross-DCC acceptance.
 
 Each schema is packaged as a JSON Schema document (draft 2020-12) so that
 downstream adapters can validate their exports in their own CI, and as a
@@ -32,6 +34,7 @@ SCHEMA_ANIM_CURVES = "dcc-mcp/anim-curves"
 SCHEMA_RIG_STATE = "dcc-mcp/rig-state"
 SCHEMA_SIM_STATUS = "dcc-mcp/sim-status"
 SCHEMA_GRAPH_STATE = "dcc-mcp/graph-state"
+SCHEMA_MODEL_STATE = "dcc-mcp/model-state"
 
 # Schema version published under each marketplace vocabulary name.
 SCHEMA_VERSIONS: dict[str, int] = {
@@ -39,6 +42,7 @@ SCHEMA_VERSIONS: dict[str, int] = {
     SCHEMA_RIG_STATE: 1,
     SCHEMA_SIM_STATUS: 1,
     SCHEMA_GRAPH_STATE: 1,
+    SCHEMA_MODEL_STATE: 1,
 }
 
 # Vocabulary name -> packaged JSON Schema document (relative to this file's
@@ -48,6 +52,7 @@ _SCHEMA_FILENAMES: dict[str, str] = {
     SCHEMA_RIG_STATE: "rig-state-v1.schema.json",
     SCHEMA_SIM_STATUS: "sim-status-v1.schema.json",
     SCHEMA_GRAPH_STATE: "graph-state-v1.schema.json",
+    SCHEMA_MODEL_STATE: "model-state-v1.schema.json",
 }
 
 # Common tangent/edge behaviour labels. Kept permissive on the JSON Schema side
@@ -309,11 +314,92 @@ def _validate_graph_state(payload: Mapping[str, Any]) -> None:
                 _require_field(entry_map, field, SCHEMA_GRAPH_STATE, path=path, expected_type=str)
 
 
+_MODEL_CHECK_NAMES = ("parts", "hierarchy", "materials", "uv_coverage", "non_manifold", "euler")
+
+
+def _require_string_list(
+    payload: Mapping[str, Any],
+    field: str,
+    schema_name: str,
+    *,
+    path: str = "$",
+) -> list[str]:
+    values = _require_field(payload, field, schema_name, path=path, expected_type=list)
+    if not all(isinstance(value, str) and value for value in values):
+        raise SchemaValidationError(
+            schema_name,
+            f"field {field} must contain non-empty strings",
+            path=f"{path}.{field}",
+        )
+    return list(values)
+
+
+def _validate_model_bounds(value: Any, path: str) -> None:
+    bounds = _require_mapping(value, SCHEMA_MODEL_STATE, path)
+    for field in ("min", "max"):
+        values = _require_field(bounds, field, SCHEMA_MODEL_STATE, path=path, expected_type=list)
+        if len(values) != 3 or not all(
+            isinstance(item, (int, float)) and not isinstance(item, bool) for item in values
+        ):
+            raise SchemaValidationError(
+                SCHEMA_MODEL_STATE,
+                f"bounds.{field} must contain three numbers",
+                path=f"{path}.{field}",
+            )
+
+
+def _validate_model_state(payload: Mapping[str, Any]) -> None:
+    _check_schema_identity(payload, SCHEMA_MODEL_STATE)
+    _require_field(payload, "partial", SCHEMA_MODEL_STATE, expected_type=bool)
+    unavailable = _require_string_list(payload, "unavailable", SCHEMA_MODEL_STATE)
+    unknown = set(unavailable)
+    invalid = sorted(unknown.difference(_MODEL_CHECK_NAMES))
+    if invalid:
+        raise SchemaValidationError(
+            SCHEMA_MODEL_STATE,
+            f"unavailable contains unknown checks: {', '.join(invalid)}",
+            path="$.unavailable",
+        )
+    if len(unavailable) != len(unknown):
+        raise SchemaValidationError(SCHEMA_MODEL_STATE, "unavailable must not contain duplicates", path="$.unavailable")
+
+    _require_string_list(payload, "parts", SCHEMA_MODEL_STATE)
+    _require_string_list(payload, "hierarchy", SCHEMA_MODEL_STATE)
+
+    meshes = _require_field(payload, "meshes", SCHEMA_MODEL_STATE, expected_type=list)
+    for index, mesh in enumerate(meshes):
+        path = f"$.meshes[{index}]"
+        mesh_map = _require_mapping(mesh, SCHEMA_MODEL_STATE, path)
+        _require_field(mesh_map, "name", SCHEMA_MODEL_STATE, path=path, expected_type=str)
+        _require_non_negative_int(mesh_map, "uv_sets", SCHEMA_MODEL_STATE, path=path)
+        _require_non_negative_int(mesh_map, "vertex_count", SCHEMA_MODEL_STATE, path=path)
+        _require_field(mesh_map, "material", SCHEMA_MODEL_STATE, path=path, expected_type=(str, type(None)))
+        _require_field(mesh_map, "is_non_manifold", SCHEMA_MODEL_STATE, path=path, expected_type=bool)
+        if "bounds" in mesh_map:
+            _validate_model_bounds(mesh_map["bounds"], f"{path}.bounds")
+
+    objects = _require_field(payload, "objects", SCHEMA_MODEL_STATE, expected_type=list)
+    for index, obj in enumerate(objects):
+        path = f"$.objects[{index}]"
+        object_map = _require_mapping(obj, SCHEMA_MODEL_STATE, path)
+        _require_field(object_map, "name", SCHEMA_MODEL_STATE, path=path, expected_type=str)
+        _require_field(object_map, "transform", SCHEMA_MODEL_STATE, path=path, expected_type=dict)
+        if "euler" in object_map:
+            euler = _require_number_list(object_map, "euler", SCHEMA_MODEL_STATE, path)
+            if len(euler) != 3:
+                raise SchemaValidationError(
+                    SCHEMA_MODEL_STATE,
+                    "object euler must contain three numbers",
+                    path=f"{path}.euler",
+                )
+
+
 _VALIDATORS = {
     SCHEMA_ANIM_CURVES: _validate_anim_curves,
     SCHEMA_RIG_STATE: _validate_rig_state,
     SCHEMA_SIM_STATUS: _validate_sim_status,
     SCHEMA_GRAPH_STATE: _validate_graph_state,
+    SCHEMA_MODEL_STATE: _validate_model_state,
 }
 
 
@@ -430,6 +516,7 @@ __all__ = [
     "INFINITY_KINDS",
     "SCHEMA_ANIM_CURVES",
     "SCHEMA_GRAPH_STATE",
+    "SCHEMA_MODEL_STATE",
     "SCHEMA_RIG_STATE",
     "SCHEMA_SIM_STATUS",
     "SCHEMA_VERSIONS",

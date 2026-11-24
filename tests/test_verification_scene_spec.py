@@ -6,6 +6,7 @@ import pytest
 
 from dcc_mcp_core import SceneSpecResult
 from dcc_mcp_core import validate_scene_vs_spec
+from dcc_mcp_core import validate_spec_document
 
 
 def _scene(**overrides):
@@ -117,6 +118,53 @@ def test_result_to_dict_is_json_safe() -> None:
     assert payload["passed"] is False
     assert isinstance(payload["failures"], list)
     assert payload["failures"][0]["check"] == "parts"
+
+
+def test_partial_model_state_is_unknown() -> None:
+    scene = {
+        "schema_name": "dcc-mcp/model-state",
+        "schema_version": 1,
+        "partial": False,
+        "unavailable": ["euler"],
+        "parts": ["body"],
+        "hierarchy": ["root"],
+        "meshes": [
+            {
+                "name": "body",
+                "uv_sets": 1,
+                "material": "mat",
+                "is_non_manifold": False,
+                "vertex_count": 8,
+            }
+        ],
+        "objects": [{"name": "body", "transform": {}}],
+    }
+    result = validate_scene_vs_spec(scene, {"checks": ["euler"]})
+    assert result.status == "unknown"
+    assert result.passed is False
+    assert next(check for check in result.checks if check["check"] == "euler")["status"] == "unknown"
+
+
+def test_model_spec_rejects_unknown_keys_and_empty_checks() -> None:
+    with pytest.raises(ValueError, match="non-empty"):
+        validate_spec_document({"checks": []})
+    with pytest.raises(ValueError, match="unsupported keys"):
+        validate_spec_document({"checks": ["parts"], "required_part": ["body"]})
+
+
+def test_model_state_schema_rejects_missing_geometry_fields() -> None:
+    scene = {
+        "schema_name": "dcc-mcp/model-state",
+        "schema_version": 1,
+        "partial": False,
+        "unavailable": [],
+        "parts": [],
+        "hierarchy": [],
+        "meshes": [{"name": "body"}],
+        "objects": [],
+    }
+    with pytest.raises(ValueError, match="uv_sets"):
+        validate_scene_vs_spec(scene, {"checks": ["parts"]})
 
 
 def test_non_mapping_inputs_are_rejected() -> None:

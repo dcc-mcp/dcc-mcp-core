@@ -14,8 +14,8 @@ The behavior verification contract (core#2269) is layered on top:
 
 * :mod:`dcc_mcp_core.verification.schemas` — versioned state-export schemas
   (``dcc-mcp/anim-curves@1``, ``dcc-mcp/rig-state@1``, ``dcc-mcp/sim-status@1``,
-  ``dcc-mcp/graph-state@1``), a dependency-free structural validator, and
-  animation-curve sampling helpers.
+  ``dcc-mcp/graph-state@1``, ``dcc-mcp/model-state@1``), a dependency-free
+  structural validator, and animation-curve sampling helpers.
 * :mod:`dcc_mcp_core.verification.assertions` — the dual-layer assertion
   library (exact structural counts, tolerance-band numerics, existence and
   resolution checks) with both fail-fast helpers and a collecting
@@ -102,8 +102,10 @@ from dcc_mcp_core.verification.pixel_metrics import ssim
 from dcc_mcp_core.verification.scene_spec import SceneSpecFailure
 from dcc_mcp_core.verification.scene_spec import SceneSpecResult
 from dcc_mcp_core.verification.scene_spec import validate_scene_vs_spec
+from dcc_mcp_core.verification.scene_spec import validate_spec_document
 from dcc_mcp_core.verification.schemas import SCHEMA_ANIM_CURVES
 from dcc_mcp_core.verification.schemas import SCHEMA_GRAPH_STATE
+from dcc_mcp_core.verification.schemas import SCHEMA_MODEL_STATE
 from dcc_mcp_core.verification.schemas import SCHEMA_RIG_STATE
 from dcc_mcp_core.verification.schemas import SCHEMA_SIM_STATUS
 from dcc_mcp_core.verification.schemas import SCHEMA_VERSIONS
@@ -128,6 +130,7 @@ __all__ = [
     "PRODUCTION_ACCEPTANCE_V1_SCHEMA_VERSION",
     "SCHEMA_ANIM_CURVES",
     "SCHEMA_GRAPH_STATE",
+    "SCHEMA_MODEL_STATE",
     "SCHEMA_RIG_STATE",
     "SCHEMA_SIM_STATUS",
     "SCHEMA_VERSIONS",
@@ -196,6 +199,7 @@ __all__ = [
     "unreal_project",
     "validate_acceptance_schema",
     "validate_scene_vs_spec",
+    "validate_spec_document",
     "validate_state_export",
     "value_at",
     "verify_release_sha256",

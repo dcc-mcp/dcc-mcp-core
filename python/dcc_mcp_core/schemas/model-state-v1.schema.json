@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dcc-mcp.github.io/dcc-mcp-core/schemas/model-state-v1.schema.json",
+  "title": "DCC-MCP Modeling State v1",
+  "description": "Normalized geometry and object state for cross-DCC modeling verification.",
+  "type": "object",
+  "required": ["schema_name", "schema_version", "partial", "unavailable", "parts", "hierarchy", "meshes", "objects"],
+  "properties": {
+    "schema_name": {"const": "dcc-mcp/model-state"},
+    "schema_version": {"const": 1},
+    "partial": {"type": "boolean"},
+    "unavailable": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": ["parts", "hierarchy", "materials", "uv_coverage", "non_manifold", "euler"]
+      }
+    },
+    "parts": {"type": "array", "items": {"type": "string"}},
+    "hierarchy": {"type": "array", "items": {"type": "string"}},
+    "meshes": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/mesh"}
+    },
+    "objects": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/object"}
+    }
+  },
+  "$defs": {
+    "bounds": {
+      "type": "object",
+      "required": ["min", "max"],
+      "properties": {
+        "min": {"type": "array", "prefixItems": [{"type": "number"}, {"type": "number"}, {"type": "number"}], "items": false},
+        "max": {"type": "array", "prefixItems": [{"type": "number"}, {"type": "number"}, {"type": "number"}], "items": false}
+      },
+      "additionalProperties": false
+    },
+    "mesh": {
+      "type": "object",
+      "required": ["name", "uv_sets", "material", "is_non_manifold", "vertex_count"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "uv_sets": {"type": "integer", "minimum": 0},
+        "material": {"type": ["string", "null"]},
+        "is_non_manifold": {"type": "boolean"},
+        "vertex_count": {"type": "integer", "minimum": 0},
+        "bounds": {"$ref": "#/$defs/bounds"}
+      },
+      "additionalProperties": true
+    },
+    "object": {
+      "type": "object",
+      "required": ["name", "transform"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "transform": {"type": "object"},
+        "euler": {"type": "array", "prefixItems": [{"type": "number"}, {"type": "number"}, {"type": "number"}], "items": false}
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}
