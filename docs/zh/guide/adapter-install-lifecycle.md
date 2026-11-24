@@ -315,5 +315,6 @@ dcc-mcp-install-lifecycle layout --adapter-package dcc_mcp_maya
 dcc-mcp-install-lifecycle sidecar-command --dcc maya --host-rpc commandport://127.0.0.1:6000 --watch-pid 12345
 dcc-mcp-install-lifecycle launch-sidecar --dcc maya --host-rpc commandport://127.0.0.1:6000 --watch-pid 12345
 dcc-mcp-install-lifecycle plan-update --target-version core=0.17.21 --target-version server=0.17.21
+dcc-mcp-install-lifecycle prepare-update --dcc-type maya --target-version core=0.17.21 --target-version server=0.17.21
 dcc-mcp-install-lifecycle remove C:\path\to\adapter
 ```

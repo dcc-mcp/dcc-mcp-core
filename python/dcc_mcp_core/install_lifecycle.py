@@ -76,6 +76,7 @@ __all__ = [
     "inspect_install_root",
     "launch_sidecar",
     "plan_runtime_updates",
+    "prepare_runtime_update",
     "probe_sidecar_tool",
     "query_runtime_state",
     "resolve_deployment_layout",
@@ -260,6 +261,7 @@ def stop_runtime_entries(
     dcc_type: Optional[str] = None,
     role: Optional[str] = ROLE_PER_DCC_SIDECAR,
     install_root: Optional[Any] = None,
+    instance_ids: Optional[Iterable[str]] = None,
     timeout_secs: float = 5.0,
     include_host_processes: bool = False,
 ) -> Dict[str, Any]:
@@ -276,8 +278,11 @@ def stop_runtime_entries(
         install_root=install_root,
         include_dead=True,
     )
+    selected_instances = {str(instance_id).strip() for instance_id in (instance_ids or ()) if str(instance_id).strip()}
     results = []
     for entry in state["entries"]:
+        if selected_instances and str(entry.get("instance_id")) not in selected_instances:
+            continue
         sidecar_pid = entry.get("sidecar_pid")
         target_pid = sidecar_pid
         target_kind = "sidecar"
@@ -313,6 +318,89 @@ def stop_runtime_entries(
         "registry_dir": state["registry_dir"],
         "total": len(results),
         "results": results,
+    }
+
+
+def prepare_runtime_update(
+    registry_dir: Optional[Any] = None,
+    *,
+    dcc_type: Optional[str] = None,
+    role: Optional[str] = ROLE_PER_DCC_SIDECAR,
+    install_root: Optional[Any] = None,
+    target_versions: Optional[Dict[str, str]] = None,
+    timeout_secs: float = 5.0,
+) -> Dict[str, Any]:
+    """Prepare an adapter-owned runtime for an upgrade.
+
+    The preflight is deliberately conservative. Only sidecars whose version
+    plan explicitly says ``restart_sidecar`` are stopped. Host-owned runtimes,
+    command-managed runtimes, and rows with incomplete version metadata remain
+    running and block the update with their individual plans attached.
+    """
+    state = query_runtime_state(
+        registry_dir,
+        dcc_type=dcc_type,
+        role=role,
+        install_root=install_root,
+        include_dead=True,
+    )
+    targets = _normalise_target_versions(target_versions or {})
+    if not targets:
+        return {
+            "success": False,
+            "status": "failed",
+            "reason": "missing_target_versions",
+            "plan": None,
+            "stop": None,
+            "blocked": [],
+        }
+    plan = plan_runtime_updates(state, target_versions=targets)
+    blocked = [
+        item
+        for item in plan["plans"]
+        if item["action"]
+        in {
+            "manual_restart_required",
+            "restart_via_command",
+            "verify_runtime_metadata",
+        }
+    ]
+    sidecars = [item for item in plan["plans"] if item["action"] == "restart_sidecar"]
+    result: Optional[Dict[str, Any]] = None
+    if blocked:
+        return {
+            "success": False,
+            "status": "blocked",
+            "reason": "manual_runtime_action_required",
+            "plan": plan,
+            "stop": result,
+            "blocked": blocked,
+        }
+    if sidecars:
+        result = stop_runtime_entries(
+            registry_dir,
+            dcc_type=dcc_type,
+            role=role,
+            install_root=install_root,
+            instance_ids=[item["instance_id"] for item in sidecars],
+            timeout_secs=timeout_secs,
+        )
+        if not result["success"]:
+            return {
+                "success": False,
+                "status": "failed",
+                "reason": "sidecar_stop_failed",
+                "plan": plan,
+                "stop": result,
+                "blocked": [],
+            }
+    return {
+        "success": True,
+        "status": "ready",
+        "reason": "sidecars_stopped" if sidecars else "no_restart_required",
+        "plan": plan,
+        "stop": result,
+        "blocked": [],
     }
 
 
