@@ -548,6 +548,22 @@ jobs:
       - name: Check root license metadata
         run: python scripts/ci/check_license_metadata.py
 
+  spdx-inventory:
+    name: SPDX dependency inventory
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build SPDX inventory
+        run: python scripts/ci/check_spdx_inventory.py --output "$RUNNER_TEMP/spdx-inventory.json"
+      - name: Upload SPDX inventory
+        uses: actions/upload-artifact@v4
+        with:
+          name: spdx-inventory
+          path: ${{ runner.temp }}/spdx-inventory.json
+
 
   # ── Build ABI3 wheel (one per OS, reused by python-test) ──
   # Intentionally does NOT `needs: [rust-check]` — maturin runs its own compile
