@@ -487,6 +487,16 @@ jobs:
           toolchain: '1.95.0'
           components: clippy, rustfmt
 
+      - name: Verify Windows uses the MSVC Rust target
+        if: startsWith(matrix.target, 'windows-')
+        shell: pwsh
+        run: |
+          $hostTarget = ((rustc -vV | Select-String '^host:').ToString() -split ':', 2)[1].Trim()
+          if ($hostTarget -ne 'x86_64-pc-windows-msvc') {
+            throw "Expected x86_64-pc-windows-msvc, got $hostTarget"
+          }
+          rustup target add x86_64-pc-windows-msvc
+
       - name: Setup Python (abi3 build)
         if: endsWith(matrix.target, '-abi3') && !startsWith(matrix.target, 'linux-')
         uses: actions/setup-python@v6
@@ -535,6 +545,7 @@ jobs:
         working-directory: pkg/dcc-mcp-core-semantic
         run: |
           maturin build --release \
+            --target x86_64-pc-windows-msvc \
             --features python-bindings,ext-module,abi3-py38 \
             --out wheels
 
@@ -551,6 +562,7 @@ jobs:
         working-directory: pkg/dcc-mcp-core-semantic
         run: |
           maturin build --release \
+            --target x86_64-pc-windows-msvc \
             --features python-bindings,ext-module \
             -i python3.7 \
             --out wheels

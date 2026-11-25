@@ -177,7 +177,9 @@ jobs:
           ref: ${{ inputs.checkout-ref || github.ref }}
       - uses: ./.github/actions/build-wheel
         with:
-          target: x64
+          # Use the native MSVC Rust target explicitly. Leaving this as the
+          # maturin shorthand can select a GNU linker on a reused runner.
+          target: x86_64-pc-windows-msvc
           python-version: '3.11'
           # Verification tooling follows the workflow; package source stays on the tag.
           test-wheel: 'false'
@@ -340,7 +342,9 @@ jobs:
           ref: ${{ inputs.checkout-ref || github.ref }}
       - uses: ./.github/actions/build-wheel
         with:
-          target: x64
+          # Python 3.7 native wheels use the same MSVC target as current
+          # Windows wheels so the extension never falls back to dlltool.
+          target: x86_64-pc-windows-msvc
           python-version: '3.7'
           maturin-extra-args: '-i python3.7'
           artifact-name: wheels-windows-x64-py37
