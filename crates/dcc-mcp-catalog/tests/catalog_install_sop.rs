@@ -209,3 +209,60 @@ fn bundled_sop_schema_digest_matches_the_published_schema_file() {
         );
     }
 }
+
+/// Published install runbooks must be raw GitHub documents. A pinned SHA URL
+/// may fall back to README.md when that release has no install.md (verified
+/// reachable); unpinned references must use install.md.
+#[test]
+fn bundled_instructions_urls_are_reachable_raw_documents() {
+    let catalog_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../dcc-mcp-catalog.yml");
+    let entries = load_from_file(&catalog_path).expect("the bundled catalog must parse");
+    let mut checked = 0;
+    let mut fallbacks = 0;
+    for entry in entries {
+        if let Some(install) = entry.install
+            && let Some(url) = install.instructions_url
+        {
+            assert!(
+                url.starts_with("https://raw.githubusercontent.com/"),
+                "{} must use a raw GitHub URL, got {url}",
+                entry.name
+            );
+            let is_install = url.ends_with("/install.md");
+            let is_readme = url.ends_with("/README.md");
+            assert!(
+                is_install || is_readme,
+                "{} must point at install.md or a README fallback, got {url}",
+                entry.name
+            );
+            if is_readme {
+                // README is only allowed for these seven releases whose
+                // repositories do not publish an install.md at the pinned ref.
+                const APPROVED_README_FALLBACKS: [&str; 7] = [
+                    "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-word/8e59aa34b34ac23ffc9c419979c5644046561d22/README.md",
+                    "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-capcut/12f5256086e10e814fb6a6ce19c1dbc1c08d9770/README.md",
+                    "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-epic/1157defe203aab4beaa8f7be56f8063caac2a415/README.md",
+                    "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-gaea/b95d3f81b8f883732c73d268658100d09d9cad84/README.md",
+                    "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-openscreen/5a32837d9d1b3bd2aea04bf61e61b4a54bbd5262/README.md",
+                    "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-speedtree/595f0bd308aa0f4f0635a399c2b63bd76f16caf8/README.md",
+                    "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-tracy/a5e29b7bcef28ccd6a2ee17667dbdbcb7c45b119/README.md",
+                ];
+                assert!(
+                    APPROVED_README_FALLBACKS.contains(&url.as_str()),
+                    "{} README fallback is not an approved pinned release, got {url}",
+                    entry.name
+                );
+                fallbacks += 1;
+            }
+            checked += 1;
+        }
+    }
+    assert!(
+        checked > 0,
+        "the bundled catalog must publish install runbook URLs"
+    );
+    assert!(
+        fallbacks > 0,
+        "the pinned README fallbacks must remain present"
+    );
+}

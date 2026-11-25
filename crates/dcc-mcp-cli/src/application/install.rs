@@ -30,8 +30,10 @@ mod file_ops;
 mod lifecycle;
 mod pip;
 mod policy;
+mod readiness;
 mod receipt;
 mod report;
+mod sidecar_preflight;
 mod uninstall;
 mod verify;
 #[cfg(test)]
@@ -54,8 +56,8 @@ pub use report::{
     InstallStepReport, InstallStepRollbackReport, InstallVerifyReport,
 };
 use report::{
-    action_failure, execution_report_for_plan, failed_report, safe_report_identifier,
-    stable_step_id, success_next_steps,
+    action_failure, apply_readiness, execution_report_for_plan, failed_report,
+    safe_report_identifier, stable_step_id, success_next_steps, upgrade_requires_restart_report,
 };
 
 #[derive(Debug, Error)]
@@ -78,6 +80,8 @@ pub enum InstallError {
         declaration_valid: bool,
         reason: String,
     },
+    #[error("sidecar blocks upgrade: {reason}")]
+    UpgradeRequiresRestart { reason: String, detail: String },
     #[error("rollback of step '{step}' failed: {message}")]
     RollbackFailed { step: String, message: String },
     #[error("io error: {0}")]
@@ -253,6 +257,18 @@ impl InstallService {
         self.execute_plan_with_commit(
             plan,
             skip_confirmation,
+            // A failed preflight must never fail open: without the sidecar
+            // stop, a Windows file lock could break the upgrade mid-transaction.
+            |plan| match prepare_sidecar_upgrade(plan) {
+                Ok(()) => Ok(()),
+                Err(InstallError::UpgradeRequiresRestart { reason, detail }) => {
+                    Err(InstallError::UpgradeRequiresRestart { reason, detail })
+                }
+                Err(error) => Err(InstallError::StepFailed {
+                    step: "sidecar-preflight".into(),
+                    message: error.to_string(),
+                }),
+            },
             |action, plan| {
                 let result = if matches!(action, InstallStepAction::Verify) {
                     execute_verify(plan).map(StepExecution::Completed)
@@ -317,20 +333,27 @@ impl InstallService {
         E: FnMut(&InstallStepAction, &InstallPlan) -> Result<StepExecution, InstallError>,
         R: FnMut(&StepRollback) -> Result<(), InstallError>,
     {
-        self.execute_plan_with_commit(plan, skip_confirmation, execute_step, rollback_step, |_| {
-            Ok(None)
-        })
+        self.execute_plan_with_commit(
+            plan,
+            skip_confirmation,
+            |_| Ok(()),
+            execute_step,
+            rollback_step,
+            |_| Ok(None),
+        )
     }
 
-    fn execute_plan_with_commit<E, R, C>(
+    fn execute_plan_with_commit<P, E, R, C>(
         &self,
         plan: &InstallPlan,
         skip_confirmation: bool,
+        mut preflight: P,
         mut execute_step: E,
         mut rollback_step: R,
         mut commit: C,
     ) -> InstallExecutionReport
     where
+        P: FnMut(&InstallPlan) -> Result<(), InstallError>,
         E: FnMut(&InstallStepAction, &InstallPlan) -> Result<StepExecution, InstallError>,
         R: FnMut(&StepRollback) -> Result<(), InstallError>,
         C: FnMut(&InstallPlan) -> Result<Option<PathBuf>, InstallError>,
@@ -388,6 +411,27 @@ impl InstallService {
             .is_some_and(|expires| catalog::now_seconds().map_or(true, |now| expires <= now))
         {
             return failed_report(report, "preflight", 10, "INSTALL_CATALOG_EXPIRED", None);
+        }
+
+        match preflight(plan) {
+            Ok(()) => {}
+            Err(InstallError::UpgradeRequiresRestart { reason, detail }) => {
+                return upgrade_requires_restart_report(
+                    report,
+                    plan.retry_request.as_ref(),
+                    &reason,
+                    &detail,
+                );
+            }
+            Err(error) => {
+                return failed_report(
+                    report,
+                    "preflight",
+                    10,
+                    "SIDECAR_PREFLIGHT_FAILED",
+                    Some(&error.to_string()),
+                );
+            }
         }
 
         let mut completed: Vec<(usize, Option<StepRollback>)> = Vec::new();
@@ -537,7 +581,7 @@ impl InstallService {
         report.receipt_path = receipt_path.map(|path| path.display().to_string());
         report.verify.failure_stage = Some("host-readiness".into());
         report.verify.failure_reason = Some("LIVE_DCC_VERIFICATION_REQUIRED".into());
-        report
+        apply_readiness(report, readiness::probe_ready(&plan.dcc_type), false)
     }
 }
 
@@ -550,6 +594,53 @@ fn is_receipt_action(action: &InstallStepAction) -> bool {
             | InstallStepAction::PathCopy { .. }
             | InstallStepAction::AdobePluginLink { .. }
     )
+}
+
+/// Stop adapter-owned sidecars before replacing an installed pip package.
+///
+/// Runs once before the step loop so a blocked preflight leaves the system
+/// untouched (there is nothing to roll back). Fresh installs and receipt
+/// matches never enter this path.
+fn prepare_sidecar_upgrade(plan: &InstallPlan) -> Result<(), InstallError> {
+    let Some((action, package, python)) =
+        plan.steps
+            .iter()
+            .find_map(|step| match step.action.as_ref()? {
+                InstallStepAction::PipInstall {
+                    package, python, ..
+                } => Some((step.action.as_ref()?, package.as_str(), python.as_deref()?)),
+                _ => None,
+            })
+    else {
+        return Ok(());
+    };
+    // A receipt match means no pip mutation will happen; do not stop a sidecar
+    // (or block) on a converged re-run.
+    if receipt_match_details(plan, action).is_ok_and(|(matches, _)| matches) {
+        return Ok(());
+    }
+    if discover_pip_artifact(python, package)?.is_none() {
+        return Ok(());
+    }
+    let version = plan
+        .steps
+        .iter()
+        .find_map(|step| match step.action.as_ref()? {
+            InstallStepAction::PipInstall { version, .. } => version.as_deref(),
+            _ => None,
+        });
+    match sidecar_preflight::prepare_sidecar_update(python, &plan.dcc_type, version) {
+        sidecar_preflight::UpgradePreflight::RequiresRestart { reason, detail } => {
+            Err(InstallError::UpgradeRequiresRestart { reason, detail })
+        }
+        sidecar_preflight::UpgradePreflight::ExecutionFailed { detail } => {
+            Err(InstallError::StepFailed {
+                step: "sidecar-preflight".into(),
+                message: detail,
+            })
+        }
+        _ => Ok(()),
+    }
 }
 
 // ── step executors ───────────────────────────────────────────────────────────────

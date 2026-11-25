@@ -413,6 +413,48 @@ fn planner_prefers_catalog_install_instructions_url() {
     );
 }
 
+/// Pinned SHA README URLs are deliberate fallbacks for releases that have no
+/// install.md; the planner must not rewrite them into a 404.
+#[test]
+fn planner_preserves_pinned_readme_instructions_url() {
+    let pinned = "8e59aa34b34ac23ffc9c419979c5644046561d22";
+    let url = format!("https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-word/{pinned}/README.md");
+    let install = CatalogInstall {
+        install_type: "pip".into(),
+        url: Some(
+            "https://files.pythonhosted.org/packages/example/dcc_mcp_word-0.3.0-py3-none-any.whl"
+                .into(),
+        ),
+        ref_: None,
+        sha256: Some("a".repeat(64)),
+        skill_roots: None,
+        pip_package: Some("dcc-mcp-word".into()),
+        pip_extras: None,
+        python_path: None,
+        entry_point: None,
+        probe_tool: None,
+        instructions_url: Some(url.clone()),
+        adobe: None,
+        sop_version: None,
+        sop_schema_digest: None,
+    };
+    let entry = catalog_entry("dcc-mcp-word", &["word"], Some(install));
+    let plan = InstallPlanner::plan(
+        &[entry],
+        InstallRequest {
+            dcc_type: "word".into(),
+            version: None,
+            catalog_path: None,
+            python: Some("test-python".into()),
+            dcc_path: None,
+            plugin_source: None,
+            adobe_debug_root: None,
+        },
+    )
+    .unwrap();
+    assert_eq!(plan.next_steps[0].url.as_deref(), Some(url.as_str()));
+}
+
 #[test]
 fn planner_normalizes_github_readme_instructions_to_raw_install_sop() {
     for (instructions_url, expected_url) in [

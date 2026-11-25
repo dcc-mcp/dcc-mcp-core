@@ -61,7 +61,7 @@ fn dcc_types_distinguishes_catalog_support_from_zero_live_instances() {
     );
     assert_eq!(
         value["next_action"]["instructions_url"],
-        "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-unreal/main/README.md"
+        "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-unreal/main/install.md"
     );
 
     validate_decision(&value);
@@ -126,7 +126,7 @@ fn targeted_decision_uses_the_bundled_release_catalog_not_cwd() {
     assert_eq!(value["released_catalog"], "present");
     assert_eq!(
         value["next_action"]["instructions_url"],
-        "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-unreal/main/README.md"
+        "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-unreal/main/install.md"
     );
     assert!(!value.to_string().contains("private.invalid"));
     validate_decision(&value);

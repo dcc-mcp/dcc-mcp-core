@@ -358,6 +358,7 @@ fn pip_rollback_restores_previous_version_and_uninstalls_new_packages() {
 
 fn verify_plan(action: InstallStepAction) -> InstallPlan {
     InstallPlan {
+        retry_request: None,
         catalog: None,
         dcc_type: "maya".into(),
         version: None,
@@ -772,4 +773,86 @@ fn failed_execution_report_matches_shared_cross_language_fixture() {
     .unwrap();
 
     assert_eq!(actual, expected);
+}
+
+#[test]
+fn upgrade_requires_restart_report_is_machine_readable_and_does_not_claim_success() {
+    let service = InstallService::new(PathBuf::from("__missing_dcc_mcp_catalog__.yml"));
+    let plan = service
+        .plan(InstallRequest {
+            dcc_type: "maya".into(),
+            version: None,
+            catalog_path: None,
+            python: Some("test-python".into()),
+            dcc_path: None,
+            plugin_source: None,
+            adobe_debug_root: None,
+        })
+        .unwrap();
+    let mut report = execution_report_for_plan(&plan);
+    report.status = "running".into();
+    let report = upgrade_requires_restart_report(
+        report,
+        plan.retry_request.as_ref(),
+        "sidecar_stop_failed",
+        "a live sidecar still holds the adapter payload",
+    );
+
+    assert_eq!(report.status, "requires_restart");
+    assert_eq!(report.stage, "preflight");
+    assert_eq!(report.exit_code, 50);
+    assert!(!report.verify.directly_usable);
+    assert_eq!(
+        report.error.as_ref().unwrap().code,
+        "UPGRADE_REQUIRES_RESTART"
+    );
+    assert_eq!(
+        report.error.as_ref().unwrap().primary_code.as_deref(),
+        Some("sidecar_stop_failed")
+    );
+    assert_eq!(report.next_steps[0].id, "retry-after-restart");
+    assert!(
+        report.next_steps[0]
+            .command
+            .contains(&"install".to_string())
+    );
+    assert!(
+        report.next_steps[0]
+            .command
+            .contains(&"--python".to_string())
+    );
+    assert!(
+        report.next_steps[0]
+            .command
+            .contains(&"test-python".to_string())
+    );
+}
+
+#[test]
+fn failed_sidecar_preflight_never_fails_open_to_pip() {
+    // A Python interpreter that cannot launch makes discover_pip_artifact fail
+    // during the upgrade preflight. The error must abort before any step runs.
+    let service = InstallService::new(PathBuf::from("__missing_dcc_mcp_catalog__.yml"));
+    let report = service.execute(
+        InstallRequest {
+            dcc_type: "maya".into(),
+            version: None,
+            catalog_path: None,
+            python: Some("/__nonexistent__/python".into()),
+            dcc_path: None,
+            plugin_source: None,
+            adobe_debug_root: None,
+        },
+        true,
+    );
+
+    assert_eq!(report.status, "failed");
+    assert_eq!(report.stage, "preflight");
+    assert_eq!(report.exit_code, 10);
+    assert_eq!(
+        report.error.as_ref().unwrap().code,
+        "SIDECAR_PREFLIGHT_FAILED"
+    );
+    assert!(report.steps.iter().all(|step| step.status == "not_run"));
+    assert!(!report.verify.directly_usable);
 }

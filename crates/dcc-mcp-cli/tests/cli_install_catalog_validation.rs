@@ -32,9 +32,13 @@ fn pip_execution_sentinel(root: &TempDir) -> std::path::PathBuf {
         package.join("__main__.py"),
         concat!(
             "import os\n",
+            "import sys\n",
             "from pathlib import Path\n",
-            "Path(os.environ['INSTALL_TEST_SENTINEL']).write_text('executed')\n",
-            "raise SystemExit(91)\n"
+            "if sys.argv[1:2] != ['show']:\n",
+            "    Path(os.environ['INSTALL_TEST_SENTINEL']).write_text('executed')\n",
+            "    raise SystemExit(91)\n",
+            "print('WARNING: Package(s) not found: sentinel', file=sys.stderr)\n",
+            "raise SystemExit(1)\n"
         ),
     )
     .unwrap();

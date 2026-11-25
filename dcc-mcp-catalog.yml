@@ -184,7 +184,7 @@ entries:
       pip_package: "dcc-mcp-nuke"
       url: "https://files.pythonhosted.org/packages/2f/33/84bbba6cff8bd69d6e33eb2a62fbef678c3d2e18b37e134a809e7cf305df/dcc_mcp_nuke-0.13.1-py3-none-any.whl"
       sha256: "c00aef395d6b6c50724acb093ece25063cc2c50d64348059b334e562fc9a67bf"
-      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-nuke/main/README.md"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-nuke/main/install.md"
 
   - name: "dcc-mcp-unreal"
     description: "Unreal Engine plugin and adapter for DCC-MCP"
@@ -200,7 +200,7 @@ entries:
       pip_package: "dcc-mcp-unreal"
       url: "https://files.pythonhosted.org/packages/0b/e2/e70e3f6d0433ac7155b34668453b131efed2e5fea060ff7f1997494196e6/dcc_mcp_unreal-0.3.0-py3-none-any.whl"
       sha256: "4df543a902bcd771bc0733c1ba894fd802a64e1e897adb65c29800dcf5cb2ccf"
-      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-unreal/main/README.md"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-unreal/main/install.md"
 
   - name: "dcc-mcp-liquigen"
     # Pin the immutable PyPI wheel published through the repository's trusted publisher.
@@ -218,7 +218,7 @@ entries:
       url: "https://files.pythonhosted.org/packages/57/04/09ef0e03c75d0aa2694338a4bb5d3e19d1b5c3d996dac3e635dab2ad450c/dcc_mcp_liquigen-0.1.0-py3-none-any.whl"
       sha256: "130caacfb16b99b9365db071f145a7613f20b45d9b11a7397934c918b7691d0b"
       entry_point: "dcc_mcp_liquigen.server:main"
-      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-liquigen/main/README.md"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-liquigen/main/install.md"
 
   - name: "dcc-mcp-zbrush"
     description: "ZBrush adapter for DCC-MCP"
@@ -367,7 +367,7 @@ entries:
       pip_package: "dcc-mcp-renderdoc"
       url: "https://files.pythonhosted.org/packages/db/ef/0966f1657f016669be5b57bdc5657f140a3863aac459979e1f2a15b1f0be/dcc_mcp_renderdoc-0.3.0-py3-none-any.whl"
       sha256: "f8d0290c825c6e167acade9d1fbdaafc2c5e42edc06eaca6506acde251d4aa17"
-      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-renderdoc/main/README.md"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-renderdoc/main/install.md"
 
   - name: "dcc-mcp-obs"
     description: "Native OBS Studio adapter with exact-process scene and source inspection plus typed recording control"
@@ -400,7 +400,7 @@ entries:
       pip_package: "dcc-mcp-substance3d-designer"
       url: "https://files.pythonhosted.org/packages/c2/3c/e7cacb084b2087380a7785edf83c05f3a05d77779eeb99899a47c9546df6/dcc_mcp_substance3d_designer-0.3.0-py3-none-any.whl"
       sha256: "65e16406a0ba4a15dfdde9dd082a2092685c204c678681da5e228dc68fe9b29c"
-      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-substance3d-designer/main/README.md"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-substance3d-designer/main/install.md"
 
   - name: "dcc-mcp-substance3d-painter"
     description: "Substance 3D Painter adapter for DCC-MCP"
@@ -480,7 +480,7 @@ entries:
       pip_package: "dcc-mcp-openscad"
       url: "https://files.pythonhosted.org/packages/ce/0e/3bcb11f2ebeab949859be9f68fa0391dae8fcbbfa89f14c946190522ecdb/dcc_mcp_openscad-0.2.1-py3-none-any.whl"
       sha256: "ef2ddb3d458fd693581071670165b13d35974e89bb45d78b5c02358d57459354"
-      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-openscad/main/README.md"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-openscad/main/install.md"
 
   - name: "dcc-mcp-freecad"
     description: "FreeCAD adapter for typed parametric modeling, document validation, and CAD exchange"
@@ -496,7 +496,7 @@ entries:
       pip_package: "dcc-mcp-freecad"
       url: "https://files.pythonhosted.org/packages/3e/d4/54b4786c85a692e429a53f941145a406fb1d8444c4f85fa039469b196d76/dcc_mcp_freecad-0.3.0-py3-none-any.whl"
       sha256: "bfd21e4e7d1cd12076f4a93f65396b742e4c563e24c8b208a8663d9fc1e4f59f"
-      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-freecad/main/README.md"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-freecad/main/install.md"
 
   - name: "dcc-mcp-cinema4d"
     description: "Cinema 4D adapter for typed headless modeling, interchange, inspection, and rendering"
@@ -512,7 +512,7 @@ entries:
       pip_package: "dcc-mcp-cinema4d"
       url: "https://files.pythonhosted.org/packages/10/de/c615676821de491c2effab9ca96286f89c4757b333fbebafdf5856006eec/dcc_mcp_cinema4d-0.2.0-py3-none-any.whl"
       sha256: "e0874e4da7ce05c08c857d1e9dfa173ab808e3be71d1ec766f566881f18b5afc"
-      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-cinema4d/main/README.md"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-cinema4d/main/install.md"
 
   - name: "dcc-mcp-comfyui"
     description: "ComfyUI adapter with 21 typed workflow, catalog, queue, and artifact tools"
@@ -545,7 +545,7 @@ entries:
       pip_package: "dcc-mcp-mari"
       url: "https://files.pythonhosted.org/packages/76/81/f1bf615945acd175ff579d0084f35df249fd027d96870fa321647b724bf8/dcc_mcp_mari-0.2.1-py3-none-any.whl"
       sha256: "de160ebe7ee7910238bf05e76a96ab8d35c0945885c1651b2c5809aeb61555a7"
-      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-mari/main/README.md"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-mari/main/install.md"
 
   - name: "dcc-mcp-sketchup"
     description: "SketchUp adapter with typed modeling, materials, scenes, validation, and interchange workflows"
@@ -562,7 +562,7 @@ entries:
       url: "https://files.pythonhosted.org/packages/54/ed/b9e2435bfcb72565931b76f34720901e7e682c6b44a5e85126bf318a4a64/dcc_mcp_sketchup-0.2.0-py3-none-any.whl"
       sha256: "b4bffc71df94c493e5797fc2cdc859b1ba7b2c3532d6eb8011dbc494102cdb4e"
       entry_point: "dcc_mcp_sketchup.server:main"
-      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-sketchup/main/README.md"
+      instructions_url: "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-sketchup/main/install.md"
 
   - name: "dcc-mcp-touchdesigner"
     description: "TouchDesigner adapter with 19 typed operator graph, parameter, DAT, timeline, capture, and project tools dispatched on the main thread"
