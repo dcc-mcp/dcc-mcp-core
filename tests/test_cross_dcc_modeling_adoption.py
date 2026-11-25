@@ -28,7 +28,10 @@ def test_adoption_matrix_tracks_required_adapters_and_evidence() -> None:
         "verify_reference_evidence",
     ]
 
-    adapters = {row["dcc"]: row for row in matrix["adapters"]}
+    rows = matrix["adapters"]
+    identifiers = [row["dcc"] for row in rows]
+    assert len(identifiers) == len(set(identifiers))
+    adapters = {row["dcc"]: row for row in rows}
     assert set(adapters) == {"blender", "houdini", "maya", "3dsmax", "zbrush"}
     for row in adapters.values():
         assert row["repository"].startswith("https://github.com/dcc-mcp/")
@@ -48,4 +51,6 @@ def test_adoption_matrix_tracks_required_adapters_and_evidence() -> None:
                 "real_dcc_smoke",
             )
         ):
+            assert isinstance(row["evidence"], list)
+            assert all(isinstance(link, str) and link.strip() for link in row["evidence"])
             assert row["evidence"], f"pass status without evidence for {row['dcc']}"
