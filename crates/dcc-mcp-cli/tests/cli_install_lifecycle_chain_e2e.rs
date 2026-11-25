@@ -52,7 +52,24 @@ fn site_with_adapter(root: &TempDir) -> std::path::PathBuf {
     let site = root.path().join("site");
     std::fs::create_dir(&site).unwrap();
     std::fs::write(site.join("verify_fixture.py"), "__version__ = '1.0.0'\n").unwrap();
-    std::fs::write(site.join("dcc_mcp_core.py"), "__version__ = '0.20.53'\n").unwrap();
+    let core = site.join("dcc_mcp_core");
+    std::fs::create_dir(&core).unwrap();
+    std::fs::write(core.join("__init__.py"), "__version__ = '0.20.53'\n").unwrap();
+    // The install path invokes Core's import-light lifecycle module through
+    // the target interpreter. Keep the fixture package-shaped so that this
+    // module can coexist with the Core version probe.
+    std::fs::write(
+        core.join("install_lifecycle.py"),
+        r#"import json
+import sys
+
+if sys.argv[1:2] != ['prepare-update']:
+    raise SystemExit(2)
+
+print(json.dumps({"success": True, "status": "ready"}))
+"#,
+    )
+    .unwrap();
     let metadata = site.join("dcc_mcp_chainfixture-1.0.0.dist-info");
     std::fs::create_dir(&metadata).unwrap();
     std::fs::write(
