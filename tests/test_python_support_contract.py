@@ -81,6 +81,8 @@ def test_native_matrix_and_test_toolchain_are_generated_from_contract() -> None:
     assert [row["platform"] for row in matrix["include"] if row["full_suite"]] == ["linux-x86_64"]
     macos_row = next(row for row in matrix["include"] if row["platform"] == "macos-x86_64")
     assert macos_row["target"] == "x86_64-apple-darwin"
+    windows_row = next(row for row in matrix["include"] if row["platform"] == "windows-x86_64")
+    assert windows_row["target"] == "x86_64-pc-windows-msvc"
     assert python37_test_requirements(contract) == [
         "jsonschema==4.17.3",
         "pytest==7.4.4",

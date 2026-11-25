@@ -219,7 +219,8 @@ def test_python37_runtime_smokes_share_version_and_ref_bound_dependency_preparat
 def test_py37_contract_check_keeps_macos_target_gate_off_linux_and_windows() -> None:
     """The macOS cp37 target gate must stay scoped to macOS.
 
-    Linux and Windows pass their own `target` values (`x86_64`, `x64`), so
+    Linux and Windows pass their own `target` values (`x86_64`,
+    `x86_64-pc-windows-msvc`), so
     reusing the Apple triple check for them rejects every non-macOS cp37 lane
     before the wheel contract ever runs.
     """
