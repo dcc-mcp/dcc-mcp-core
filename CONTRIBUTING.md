@@ -48,6 +48,11 @@ The copy-ready standard lives in
 See the [New Adapter Onboarding guide](./docs/guide/new-adapter-onboarding.md)
 for the CI/CD snippet used by new adapters.
 
+Windows native-build contributors should follow the
+[Windows MSVC toolchain guide](./docs/guide/windows-msvc-toolchain.md). The
+guide explains how to select the pinned MSVC Rust host before running `vx just`
+commands and how to diagnose accidental GNU host selection.
+
 ## Development Workflow
 
 1. **Create a branch** from `main`:

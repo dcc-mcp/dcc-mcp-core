@@ -43,6 +43,7 @@ For embedded-host DLL failures and explicit install/startup verification, see
 | [getting-started.md](getting-started.md) | Install the right Agent Skill/CLI, operate a DCC, or expose a first server |
 | [what-is-dcc-mcp-core.md](what-is-dcc-mcp-core.md) | High-level project overview and motivation |
 | [architecture.md](architecture.md) | Rust workspace layout, crate boundaries, PyO3 bridge |
+| [windows-msvc-toolchain.md](windows-msvc-toolchain.md) | Select the MSVC Rust host for Windows native builds and diagnose GNU `dlltool` failures |
 
 ## AI Agent & Skill Authoring
 
