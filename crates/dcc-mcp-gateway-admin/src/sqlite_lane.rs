@@ -349,6 +349,7 @@ impl AdminSqliteLane {
     }
 
     /// Wait until writes queued before this call are visible to readers.
+    #[must_use]
     pub fn flush(&self) -> bool {
         self.inner.flush()
     }
@@ -689,6 +690,7 @@ impl AdminSqliteLane {
 
     pub fn try_persist_trace(&self, _: &DispatchTrace) {}
 
+    #[must_use]
     pub fn flush(&self) -> bool {
         true
     }
