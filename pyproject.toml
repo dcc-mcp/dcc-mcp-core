@@ -229,6 +229,7 @@ known-first-party = ["dcc_mcp_core"]
 "tests/test_metadata_registration.py" = ["UP006", "UP007", "UP045"]
 "tests/test_main_cli.py" = ["UP006"]
 "tests/test_cua_cli.py" = ["UP006"]
+"tests/eval/cases/*.py" = ["UP006", "UP045"]
 "tests/*.py" = ["F401", "F811", "F821", "E711", "E712", "SIM117", "SIM118", "D100", "D101", "D103", "D106", "D205", "D400", "D415", "E501"]
 "examples/**/*.py" = ["D100", "D101", "D103", "D104", "E402", "INP001"]
 
