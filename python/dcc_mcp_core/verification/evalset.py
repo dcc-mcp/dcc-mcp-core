@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass
 import json
+from pathlib import Path
 import time
 from typing import Any
 from typing import Callable
@@ -27,6 +28,10 @@ VERDICT_PASS = "pass"
 VERDICT_FAIL = "fail"
 VERDICT_INCONCLUSIVE = "inconclusive"
 VERDICTS = (VERDICT_PASS, VERDICT_FAIL, VERDICT_INCONCLUSIVE)
+_SCHEMA_FILES = {
+    "set": "eval-set-v1.schema.json",
+    "report": "eval-report-v1.schema.json",
+}
 
 
 def _json_safe(value: Any) -> Any:
@@ -43,6 +48,19 @@ def _checks_from_behavior_report(report: BehaviorReport) -> Tuple[Mapping[str, A
     return tuple(check.to_dict() for check in report.checks)
 
 
+def _normalize_check(check: Mapping[str, Any]) -> Mapping[str, Any]:
+    normalized = dict(_json_safe(check))
+    if "name" not in normalized and "check" in normalized:
+        normalized["name"] = normalized["check"]
+    if "passed" not in normalized and "status" in normalized:
+        normalized["passed"] = normalized["status"] == VERDICT_PASS
+    if not isinstance(normalized.get("name"), str) or not normalized["name"].strip():
+        raise ValueError("grader checks must contain a non-empty name")
+    if not isinstance(normalized.get("passed"), bool):
+        raise ValueError("grader checks must contain a boolean passed field")
+    return normalized
+
+
 def _normalize_grader_result(value: Any) -> Tuple[str, Tuple[Mapping[str, Any], ...], Optional[str]]:
     if isinstance(value, BehaviorReport):
         checks = _checks_from_behavior_report(value)
@@ -57,7 +75,7 @@ def _normalize_grader_result(value: Any) -> Tuple[str, Tuple[Mapping[str, Any], 
             raise TypeError("grader checks must be a sequence of mappings")
         if any(not isinstance(check, Mapping) for check in raw_checks):
             raise TypeError("grader checks must contain mappings")
-        checks = tuple(_json_safe(check) for check in raw_checks)
+        checks = tuple(_normalize_check(check) for check in raw_checks)
         raw_verdict = value.get("verdict")
         if raw_verdict is None:
             if not checks:
@@ -71,7 +89,7 @@ def _normalize_grader_result(value: Any) -> Tuple[str, Tuple[Mapping[str, Any], 
     status = getattr(value, "status", None)
     raw_checks = getattr(value, "checks", None)
     if status in (VERDICT_PASS, VERDICT_FAIL, "unknown") and isinstance(raw_checks, Sequence):
-        checks = tuple(_json_safe(check) for check in raw_checks if isinstance(check, Mapping))
+        checks = tuple(_normalize_check(check) for check in raw_checks if isinstance(check, Mapping))
         verdict = VERDICT_INCONCLUSIVE if status == "unknown" else status
         reason = "verification returned unknown" if status == "unknown" else None
         return verdict, checks, reason
@@ -205,6 +223,24 @@ def run_eval_set(
     return EvalReport(set_version=set_version, runs=tuple(runs), generated_at=generated_at)
 
 
+def _schema_path(kind: str) -> Path:
+    try:
+        filename = _SCHEMA_FILES[kind]
+    except KeyError:
+        raise ValueError(f"unknown evaluation schema kind: {kind!r}") from None
+    return Path(__file__).resolve().parent.parent / "schemas" / filename
+
+
+def eval_set_json_schema() -> Dict[str, Any]:
+    """Load the versioned JSON Schema for persisted evaluation cases."""
+    return json.loads(_schema_path("set").read_text(encoding="utf-8"))
+
+
+def eval_report_json_schema() -> Dict[str, Any]:
+    """Load the versioned JSON Schema for persisted evaluation reports."""
+    return json.loads(_schema_path("report").read_text(encoding="utf-8"))
+
+
 __all__ = [
     "EVAL_SET_SCHEMA_VERSION",
     "VERDICTS",
@@ -214,5 +250,7 @@ __all__ = [
     "EvalCase",
     "EvalReport",
     "EvalRun",
+    "eval_report_json_schema",
+    "eval_set_json_schema",
     "run_eval_set",
 ]
