@@ -81,6 +81,15 @@ from dcc_mcp_core.verification.benchmark import PipelineStage
 from dcc_mcp_core.verification.benchmark import StageObservation
 from dcc_mcp_core.verification.benchmark import StageResult
 from dcc_mcp_core.verification.benchmark import run_pipeline_benchmark
+from dcc_mcp_core.verification.evalset import EVAL_SET_SCHEMA_VERSION
+from dcc_mcp_core.verification.evalset import VERDICT_FAIL
+from dcc_mcp_core.verification.evalset import VERDICT_INCONCLUSIVE
+from dcc_mcp_core.verification.evalset import VERDICT_PASS
+from dcc_mcp_core.verification.evalset import VERDICTS
+from dcc_mcp_core.verification.evalset import EvalCase
+from dcc_mcp_core.verification.evalset import EvalReport
+from dcc_mcp_core.verification.evalset import EvalRun
+from dcc_mcp_core.verification.evalset import run_eval_set
 from dcc_mcp_core.verification.image_stats import ImageStats
 from dcc_mcp_core.verification.image_stats import ImageStatsFlags
 from dcc_mcp_core.verification.image_stats import ImageStatsThresholds
@@ -118,6 +127,7 @@ from dcc_mcp_core.verification.schemas import value_at
 
 __all__ = [
     "DEFAULT_PIPELINE_STAGES",
+    "EVAL_SET_SCHEMA_VERSION",
     "EVIDENCE_SOURCES",
     "LEVELS",
     "MAX_GODOT_CONFIG_VERSION",
@@ -141,6 +151,10 @@ __all__ = [
     "STAGE_STATUSES",
     "STATUSES",
     "TRANSITION_CHAIN",
+    "VERDICTS",
+    "VERDICT_FAIL",
+    "VERDICT_INCONCLUSIVE",
+    "VERDICT_PASS",
     "AcceptanceEvaluation",
     "AcceptanceFinding",
     "AcceptanceValidationError",
@@ -149,6 +163,9 @@ __all__ = [
     "BehaviorVerifier",
     "Check",
     "DeclarationFinding",
+    "EvalCase",
+    "EvalReport",
+    "EvalRun",
     "ImageStats",
     "ImageStatsFlags",
     "ImageStatsThresholds",
@@ -187,6 +204,7 @@ __all__ = [
     "production_acceptance_v1_json_schema",
     "recompute_sha256",
     "record_from_catalog_entry",
+    "run_eval_set",
     "run_pipeline_benchmark",
     "sample_curve",
     "sanitize_evidence_link",
