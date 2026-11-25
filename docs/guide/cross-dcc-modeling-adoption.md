@@ -32,13 +32,13 @@ state document's `unavailable` field.
 
 ## Current matrix
 
-| DCC | Typed coverage | Readback coverage | Reference fit | Real-DCC smoke | Evidence |
-| --- | --- | --- | --- | --- | --- |
-| Blender | unknown | unknown | unknown | unknown | pending downstream evidence |
-| Houdini | unknown | unknown | unknown | unknown | pending downstream evidence |
-| Maya | unknown | unknown | unknown | unknown | pending downstream evidence |
-| 3ds Max | unknown | unknown | unknown | unknown | pending downstream evidence |
-| ZBrush | unknown | unknown | unknown | unknown | pending downstream evidence |
+| DCC | Typed coverage | Readback coverage | Reference fit | Real-DCC smoke | Implementation issue | Evidence |
+| --- | --- | --- | --- | --- | --- | --- |
+| Blender | unknown | unknown | unknown | unknown | [#371](https://github.com/dcc-mcp/dcc-mcp-blender/issues/371) | pending downstream evidence |
+| Houdini | unknown | unknown | unknown | unknown | [#384](https://github.com/dcc-mcp/dcc-mcp-houdini/issues/384) | pending downstream evidence |
+| Maya | unknown | unknown | unknown | unknown | [#612](https://github.com/dcc-mcp/dcc-mcp-maya/issues/612) | pending downstream evidence |
+| 3ds Max | unknown | unknown | unknown | unknown | [#242](https://github.com/dcc-mcp/dcc-mcp-3dsmax/issues/242) | pending downstream evidence |
+| ZBrush | unknown | unknown | unknown | unknown | [#115](https://github.com/dcc-mcp/dcc-mcp-zbrush/issues/115) | pending downstream evidence |
 
 The matrix records the current evidence boundary. It does not infer coverage
 from a skill name, a catalog entry, or a successful process start. Downstream

@@ -21,6 +21,7 @@
     {
       "dcc": "blender",
       "repository": "https://github.com/dcc-mcp/dcc-mcp-blender",
+      "implementation_issue": "https://github.com/dcc-mcp/dcc-mcp-blender/issues/371",
       "typed_coverage": "unknown",
       "readback_coverage": "unknown",
       "reference_fit": "unknown",
@@ -30,6 +31,7 @@
     {
       "dcc": "houdini",
       "repository": "https://github.com/dcc-mcp/dcc-mcp-houdini",
+      "implementation_issue": "https://github.com/dcc-mcp/dcc-mcp-houdini/issues/384",
       "typed_coverage": "unknown",
       "readback_coverage": "unknown",
       "reference_fit": "unknown",
@@ -39,6 +41,7 @@
     {
       "dcc": "maya",
       "repository": "https://github.com/dcc-mcp/dcc-mcp-maya",
+      "implementation_issue": "https://github.com/dcc-mcp/dcc-mcp-maya/issues/612",
       "typed_coverage": "unknown",
       "readback_coverage": "unknown",
       "reference_fit": "unknown",
@@ -48,6 +51,7 @@
     {
       "dcc": "3dsmax",
       "repository": "https://github.com/dcc-mcp/dcc-mcp-3dsmax",
+      "implementation_issue": "https://github.com/dcc-mcp/dcc-mcp-3dsmax/issues/242",
       "typed_coverage": "unknown",
       "readback_coverage": "unknown",
       "reference_fit": "unknown",
@@ -57,6 +61,7 @@
     {
       "dcc": "zbrush",
       "repository": "https://github.com/dcc-mcp/dcc-mcp-zbrush",
+      "implementation_issue": "https://github.com/dcc-mcp/dcc-mcp-zbrush/issues/115",
       "typed_coverage": "unknown",
       "readback_coverage": "unknown",
       "reference_fit": "unknown",
