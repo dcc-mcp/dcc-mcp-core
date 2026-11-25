@@ -78,6 +78,7 @@ packages = ["python/dcc_mcp_cli"]
 "LICENSE" = "LICENSE"
 "NOTICE" = "NOTICE"
 "THIRD_PARTY_NOTICES.txt" = "THIRD_PARTY_NOTICES.txt"
+"THIRD_PARTY_LICENSES.txt" = "THIRD_PARTY_LICENSES.txt"
 
 [tool.hatch.build.targets.sdist]
 include = [
@@ -86,4 +87,5 @@ include = [
     "LICENSE",
     "NOTICE",
     "THIRD_PARTY_NOTICES.txt",
+    "THIRD_PARTY_LICENSES.txt",
 ]

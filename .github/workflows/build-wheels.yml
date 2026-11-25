@@ -659,9 +659,19 @@ jobs:
           persist-credentials: false
       - name: Validate Core release archive notices
         shell: bash
-        run: >-
-          python .workflow-tools/scripts/ci/check_release_notices.py
-          .workflow-tools dist/*.whl dist/*.tar.gz
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          wheel = next(Path("dist").glob("*.whl"))
+          with ZipFile(wheel) as archive:
+              member = next(name for name in archive.namelist() if Path(name).name == "THIRD_PARTY_LICENSES.txt")
+              Path(".workflow-tools/THIRD_PARTY_LICENSES.txt").write_bytes(archive.read(member))
+          PY
+          python .workflow-tools/scripts/ci/check_release_notices.py \
+            .workflow-tools dist/*.whl dist/*.tar.gz
       - name: Validate complete Core distribution set before publication
         env:
           RELEASE_VERSION: ${{ inputs.release-tag-name }}

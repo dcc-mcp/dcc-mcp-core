@@ -22,7 +22,7 @@ version = "0.20.55"  # x-release-please-version
 description = "Native Rust semantic embeddings (fastembed-rs) for dcc-mcp-core"
 readme = "README.md"
 license = { text = "MIT" }
-license-files = ["LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.txt"]
+license-files = ["LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.txt", "THIRD_PARTY_LICENSES.txt"]
 # Matches the main `dcc-mcp-core` baseline. The workspace is on pyo3 0.28
 # which supports Python 3.7 (non-abi3). cp37 wheels are built via the
 # `py37` mode in scripts/release/build_manylinux_semantic_wheel.sh.

@@ -11,7 +11,7 @@ authors = [
 ]
 readme = "README.md"
 license = {text = "MIT"}
-license-files = ["LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.txt"]
+license-files = ["LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.txt", "THIRD_PARTY_LICENSES.txt"]
 requires-python = ">=3.7"
 keywords = ["dcc", "mcp", "maya", "blender", "houdini", "rust", "pyo3"]
 classifiers = [
@@ -217,6 +217,8 @@ known-first-party = ["dcc_mcp_core"]
 "python/dcc_mcp_core/_version_check.py" = ["UP006", "UP007", "UP045"]
 "python/dcc_mcp_core/__main__.py" = ["UP045"]
 "scripts/check_py37_syntax.py" = ["UP032"]  # intentional: f-strings are syntax errors on 3.7; verified by py37-syntax-check CI job. Enforced in CI via check-py37-syntax job.
+"scripts/release/generate_third_party_licenses.py" = ["UP006"]  # Python 3.7 release runners require typing.List/Dict/tuple annotations.
+"scripts/release/extract_third_party_licenses.py" = ["UP006"]  # Python 3.7 release runners require typing.List annotations.
 # Python 3.7 (Maya 2022) compat: the release workflow digest kit is shared
 # byte-for-byte with adapter repositories and keeps typing.Dict in annotations.
 "scripts/ci/check_release_workflow_digest.py" = ["UP006"]

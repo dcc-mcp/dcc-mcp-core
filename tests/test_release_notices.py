@@ -15,11 +15,12 @@ def _write_repository_notices(root: Path) -> None:
     (root / "LICENSE").write_text("license\n", encoding="utf-8")
     (root / "NOTICE").write_text("notice\n", encoding="utf-8")
     (root / "THIRD_PARTY_NOTICES.txt").write_text("third-party\n", encoding="utf-8")
+    (root / "THIRD_PARTY_LICENSES.txt").write_text("license texts\n", encoding="utf-8")
 
 
 def _write_zip(path: Path, root: Path, *, alter_notice: bool = False) -> None:
     with ZipFile(path, "w", ZIP_DEFLATED) as archive:
-        for name in ("LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.txt"):
+        for name in ("LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.txt", "THIRD_PARTY_LICENSES.txt"):
             content = (root / name).read_bytes()
             if alter_notice and name == "NOTICE":
                 content = b"changed\n"
@@ -29,7 +30,7 @@ def _write_zip(path: Path, root: Path, *, alter_notice: bool = False) -> None:
 def _write_sdist(path: Path, root: Path) -> None:
     package_root = "sample-1.0.0"
     with tarfile.open(path, "w:gz") as archive:
-        for name in ("LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.txt"):
+        for name in ("LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.txt", "THIRD_PARTY_LICENSES.txt"):
             source = root / name
             info = tarfile.TarInfo(f"{package_root}/{name}")
             info.size = source.stat().st_size
@@ -65,5 +66,5 @@ def test_stage_package_notices_copies_root_files(tmp_path: Path) -> None:
     stage(tmp_path)
 
     for package_root in PACKAGE_ROOTS:
-        for name in ("LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.txt"):
+        for name in ("LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.txt", "THIRD_PARTY_LICENSES.txt"):
             assert (tmp_path / package_root / name).read_bytes() == (tmp_path / name).read_bytes()

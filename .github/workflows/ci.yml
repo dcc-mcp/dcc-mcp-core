@@ -30,7 +30,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Stage package legal notices
-        run: python scripts/release/stage_package_notices.py
+        run: python scripts/release/stage_package_notices.py --allow-missing-license-texts
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"

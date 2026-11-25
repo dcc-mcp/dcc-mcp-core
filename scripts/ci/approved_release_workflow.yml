@@ -225,9 +225,6 @@ jobs:
         with:
           ref: ${{ needs.release-please.outputs.tag_name }}
 
-      - name: Stage package legal notices
-        run: python scripts/release/stage_package_notices.py
-
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@master
         with:
@@ -253,6 +250,12 @@ jobs:
             target/
           key: ${{ runner.os }}-cargo-binary-${{ hashFiles('**/Cargo.toml') }}
           restore-keys: ${{ runner.os }}-cargo-binary-
+
+      - name: Generate third-party license texts
+        run: python scripts/release/generate_third_party_licenses.py --output THIRD_PARTY_LICENSES.txt
+
+      - name: Stage package legal notices
+        run: python scripts/release/stage_package_notices.py
 
       # ── Raw binary build ──────────────────────────────────────────
       - name: Download admin UI bundle for Linux builds
@@ -480,6 +483,9 @@ jobs:
         with:
           ref: ${{ needs.release-please.outputs.tag_name }}
 
+      - name: Generate third-party license texts
+        run: python scripts/release/generate_third_party_licenses.py --output THIRD_PARTY_LICENSES.txt
+
       - name: Stage package legal notices
         run: python scripts/release/stage_package_notices.py
 
@@ -661,9 +667,6 @@ jobs:
         with:
           ref: ${{ needs.release-please.outputs.tag_name }}
 
-      - name: Stage package legal notices
-        run: python scripts/release/stage_package_notices.py
-
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
@@ -679,6 +682,15 @@ jobs:
           pattern: server-binary-*
           path: dist-binaries
           merge-multiple: true
+
+      - name: Extract generated third-party license texts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/release/extract_third_party_licenses.py \
+            --output THIRD_PARTY_LICENSES.txt \
+            dist-binaries/dcc-mcp-cli-*.zip
+          python scripts/release/stage_package_notices.py
 
       # hatchling names every build `dcc_mcp_cli-<version>-py3-none-any.whl`,
       # so the three platforms must not share one output directory: the
@@ -758,6 +770,9 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.14"
+
+      - name: Generate third-party license texts
+        run: python scripts/release/generate_third_party_licenses.py --output THIRD_PARTY_LICENSES.txt
 
       - name: Download Core distribution archives
         uses: actions/download-artifact@v8

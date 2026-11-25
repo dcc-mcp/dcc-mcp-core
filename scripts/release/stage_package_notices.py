@@ -3,10 +3,11 @@
 
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 import shutil
 
-NOTICE_FILES = ("LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.txt")
+NOTICE_FILES = ("LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.txt", "THIRD_PARTY_LICENSES.txt")
 PACKAGE_ROOTS = (
     Path("pkg/dcc-mcp-server-bin"),
     Path("pkg/dcc-mcp-core-semantic"),
@@ -14,12 +15,14 @@ PACKAGE_ROOTS = (
 )
 
 
-def stage(root: Path) -> None:
+def stage(root: Path, *, allow_missing_license_texts: bool = False) -> None:
     """Copy root legal notices into every standalone package root."""
     for package_root in PACKAGE_ROOTS:
         destination_root = root / package_root
         for name in NOTICE_FILES:
             source = root / name
+            if not source.is_file() and allow_missing_license_texts and name == "THIRD_PARTY_LICENSES.txt":
+                continue
             if not source.is_file():
                 raise FileNotFoundError(f"repository notice not found: {source}")
             destination_root.mkdir(parents=True, exist_ok=True)
@@ -28,7 +31,10 @@ def stage(root: Path) -> None:
 
 def main() -> int:
     """Stage package notices from the current repository root."""
-    stage(Path.cwd().resolve())
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--allow-missing-license-texts", action="store_true")
+    args = parser.parse_args()
+    stage(Path.cwd().resolve(), allow_missing_license_texts=args.allow_missing_license_texts)
     print(f"staged {len(NOTICE_FILES)} legal notice files into {len(PACKAGE_ROOTS)} package roots")
     return 0
 

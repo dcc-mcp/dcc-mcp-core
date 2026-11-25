@@ -4,6 +4,7 @@ This release contains third-party components from the Rust, Python, and npm
 ecosystems. Their package names, versions, SPDX license expressions, and
 upstream source references are recorded by the SPDX dependency inventory gate.
 
-The release workflow validates that this notice is present in every published
-wheel, source distribution, and standalone binary bundle. The SPDX inventory
-is generated from the locked dependency metadata at release time.
+The release workflow validates that this notice and the generated
+THIRD_PARTY_LICENSES.txt bundle are present in every published wheel, source
+distribution, and standalone binary bundle. The SPDX inventory and license
+texts are generated from the locked dependency metadata at release time.
