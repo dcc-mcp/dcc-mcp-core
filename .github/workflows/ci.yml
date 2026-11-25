@@ -977,6 +977,46 @@ jobs:
       - name: Docs playbook coverage (agent-facing entry points)
         run: vx just docs-lint-playbook
 
+  # -- Offline evaluation report-only lane -------------------------------
+  # Runs the deterministic core case set on every PR without granting it
+  # merge authority. The report is retained for release comparisons while
+  # adapters remain free to contribute their own case modules.
+  offline-eval:
+    name: Offline evaluation report
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - uses: loonghao/vx@v0.9.34
+        with:
+          version: "0.9.34"
+          cache-key-prefix: "vx-tools-v0.9.34"
+
+      - name: Run deterministic core evaluation set
+        env:
+          PYTHONPATH: python
+        shell: bash
+        run: |
+          set -euo pipefail
+          vx python scripts/run_eval.py run \
+            --module tests/eval/cases/core_cases.py \
+            --output artifacts/core-eval-report.json \
+            --set-version eval-set-v1 \
+            --generated-at "$GITHUB_SHA"
+          vx python scripts/run_eval.py validate artifacts/core-eval-report.json --kind report
+
+      - name: Upload offline evaluation report
+        uses: actions/upload-artifact@v7
+        with:
+          name: offline-eval-report-${{ github.sha }}
+          path: artifacts/core-eval-report.json
+          if-no-files-found: error
+          retention-days: 14
+
   line-endings:
     name: Line endings
     runs-on: ubuntu-latest
