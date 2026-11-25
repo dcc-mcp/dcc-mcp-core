@@ -84,6 +84,7 @@ def _rust_packages(root: Path) -> List[Dict]:
             check=True,
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
     except (OSError, subprocess.CalledProcessError) as exc:
         detail = getattr(exc, "stderr", None) or str(exc)
