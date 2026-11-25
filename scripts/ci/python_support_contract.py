@@ -151,7 +151,7 @@ def validate_contract(contract: dict[str, Any]) -> None:
         raise ContractError("native_py37.pr_matrix must be a list of objects")
     expected_platforms = {
         "linux-x86_64": {"runner": "ubuntu-22.04", "target": "x86_64"},
-        "windows-x86_64": {"runner": "windows-2022", "target": "x64"},
+        "windows-x86_64": {"runner": "windows-2022", "target": "x86_64-pc-windows-msvc"},
         # macOS has no ARM64 CPython 3.7, so the ARM64 runner cross-compiles
         # the x86_64-apple-darwin target that Maya 2022 on macOS consumes.
         "macos-x86_64": {"runner": "macos-latest", "target": "x86_64-apple-darwin"},

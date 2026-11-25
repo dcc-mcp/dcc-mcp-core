@@ -36,7 +36,7 @@
         {
           "platform": "windows-x86_64",
           "runner": "windows-2022",
-          "target": "x64",
+          "target": "x86_64-pc-windows-msvc",
           "full_suite": false
         },
         {
