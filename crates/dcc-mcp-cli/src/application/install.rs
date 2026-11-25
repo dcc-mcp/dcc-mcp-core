@@ -376,22 +376,6 @@ impl InstallService {
             return failed_report(report, "preflight", 10, "AUTO_INSTALL_DISABLED", None);
         }
 
-        match preflight(plan) {
-            Ok(()) => {}
-            Err(InstallError::UpgradeRequiresRestart { reason, detail }) => {
-                return upgrade_requires_restart_report(report, &reason, &detail);
-            }
-            Err(error) => {
-                return failed_report(
-                    report,
-                    "preflight",
-                    10,
-                    "SIDECAR_PREFLIGHT_FAILED",
-                    Some(&error.to_string()),
-                );
-            }
-        }
-
         let executable_steps = plan
             .steps
             .iter()
@@ -427,6 +411,27 @@ impl InstallService {
             .is_some_and(|expires| catalog::now_seconds().map_or(true, |now| expires <= now))
         {
             return failed_report(report, "preflight", 10, "INSTALL_CATALOG_EXPIRED", None);
+        }
+
+        match preflight(plan) {
+            Ok(()) => {}
+            Err(InstallError::UpgradeRequiresRestart { reason, detail }) => {
+                return upgrade_requires_restart_report(
+                    report,
+                    plan.retry_request.as_ref(),
+                    &reason,
+                    &detail,
+                );
+            }
+            Err(error) => {
+                return failed_report(
+                    report,
+                    "preflight",
+                    10,
+                    "SIDECAR_PREFLIGHT_FAILED",
+                    Some(&error.to_string()),
+                );
+            }
         }
 
         let mut completed: Vec<(usize, Option<StepRollback>)> = Vec::new();
@@ -627,6 +632,12 @@ fn prepare_sidecar_upgrade(plan: &InstallPlan) -> Result<(), InstallError> {
     match sidecar_preflight::prepare_sidecar_update(python, &plan.dcc_type, version) {
         sidecar_preflight::UpgradePreflight::RequiresRestart { reason, detail } => {
             Err(InstallError::UpgradeRequiresRestart { reason, detail })
+        }
+        sidecar_preflight::UpgradePreflight::ExecutionFailed { detail } => {
+            Err(InstallError::StepFailed {
+                step: "sidecar-preflight".into(),
+                message: detail,
+            })
         }
         _ => Ok(()),
     }

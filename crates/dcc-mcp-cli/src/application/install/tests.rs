@@ -358,6 +358,7 @@ fn pip_rollback_restores_previous_version_and_uninstalls_new_packages() {
 
 fn verify_plan(action: InstallStepAction) -> InstallPlan {
     InstallPlan {
+        retry_request: None,
         catalog: None,
         dcc_type: "maya".into(),
         version: None,
@@ -792,6 +793,7 @@ fn upgrade_requires_restart_report_is_machine_readable_and_does_not_claim_succes
     report.status = "running".into();
     let report = upgrade_requires_restart_report(
         report,
+        plan.retry_request.as_ref(),
         "sidecar_stop_failed",
         "a live sidecar still holds the adapter payload",
     );
@@ -813,6 +815,16 @@ fn upgrade_requires_restart_report_is_machine_readable_and_does_not_claim_succes
         report.next_steps[0]
             .command
             .contains(&"install".to_string())
+    );
+    assert!(
+        report.next_steps[0]
+            .command
+            .contains(&"--python".to_string())
+    );
+    assert!(
+        report.next_steps[0]
+            .command
+            .contains(&"test-python".to_string())
     );
 }
 

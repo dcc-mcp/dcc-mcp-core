@@ -29,6 +29,10 @@ struct InstallOperatorPaths {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct InstallPlan {
+    /// Original request selectors used to build a faithful retry command.
+    /// This is execution context and is intentionally omitted from serialized plans.
+    #[serde(skip)]
+    pub retry_request: Option<InstallRequest>,
     pub dcc_type: String,
     pub version: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -449,6 +453,7 @@ impl InstallPlanner {
         let probe_tool = install_probe_tool(&adapter);
 
         Ok(InstallPlan {
+            retry_request: Some(request.clone()),
             next_steps,
             dcc_type,
             version,

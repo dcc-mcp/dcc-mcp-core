@@ -236,11 +236,20 @@ fn bundled_instructions_urls_are_reachable_raw_documents() {
                 entry.name
             );
             if is_readme {
-                // README is only allowed on a pinned 40-hex commit ref.
-                let reference = url.rsplit('/').nth(1).unwrap_or_default();
+                // README is only allowed for these seven releases whose
+                // repositories do not publish an install.md at the pinned ref.
+                const APPROVED_README_FALLBACKS: [&str; 7] = [
+                    "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-word/8e59aa34b34ac23ffc9c419979c5644046561d22/README.md",
+                    "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-capcut/12f5256086e10e814fb6a6ce19c1dbc1c08d9770/README.md",
+                    "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-epic/1157defe203aab4beaa8f7be56f8063caac2a415/README.md",
+                    "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-gaea/b95d3f81b8f883732c73d268658100d09d9cad84/README.md",
+                    "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-openscreen/5a32837d9d1b3bd2aea04bf61e61b4a54bbd5262/README.md",
+                    "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-speedtree/595f0bd308aa0f4f0635a399c2b63bd76f16caf8/README.md",
+                    "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-tracy/a5e29b7bcef28ccd6a2ee17667dbdbcb7c45b119/README.md",
+                ];
                 assert!(
-                    reference.len() == 40 && reference.bytes().all(|b| b.is_ascii_hexdigit()),
-                    "{} README fallback must be pinned to a commit, got {url}",
+                    APPROVED_README_FALLBACKS.contains(&url.as_str()),
+                    "{} README fallback is not an approved pinned release, got {url}",
                     entry.name
                 );
                 fallbacks += 1;

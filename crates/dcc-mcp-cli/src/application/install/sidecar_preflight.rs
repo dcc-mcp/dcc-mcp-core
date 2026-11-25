@@ -18,6 +18,8 @@ pub(super) enum UpgradePreflight {
     Ready,
     /// A sidecar could not be stopped or needs a manual host restart.
     RequiresRestart { reason: String, detail: String },
+    /// Lifecycle execution failed before a trustworthy report was produced.
+    ExecutionFailed { detail: String },
 }
 
 /// Ask Core's install lifecycle to stop stale adapter-owned sidecars.
@@ -54,12 +56,43 @@ pub(super) fn prepare_sidecar_update(
         .output()
     {
         Ok(output) => output,
-        Err(_) => return UpgradePreflight::NoLifecycleMetadata,
+        Err(error) => {
+            return UpgradePreflight::ExecutionFailed {
+                detail: format!("failed to execute lifecycle preflight: {error}"),
+            };
+        }
     };
-    let parsed: Value = match serde_json::from_slice(&output.stdout) {
+    classify_lifecycle_output(&output.stdout, &output.stderr, output.status.success())
+}
+
+fn classify_lifecycle_output(
+    stdout: &[u8],
+    stderr: &[u8],
+    process_succeeded: bool,
+) -> UpgradePreflight {
+    let parsed: Value = match serde_json::from_slice(stdout) {
         Ok(value) => value,
-        Err(_) => return UpgradePreflight::NoLifecycleMetadata,
+        Err(error) => {
+            let stderr = String::from_utf8_lossy(stderr).trim().to_string();
+            if stderr.contains("No module named 'dcc_mcp_core'")
+                || stderr.contains("No module named \"dcc_mcp_core\"")
+            {
+                return UpgradePreflight::NoLifecycleMetadata;
+            }
+            return UpgradePreflight::ExecutionFailed {
+                detail: if stderr.is_empty() {
+                    format!("lifecycle preflight returned invalid JSON: {error}")
+                } else {
+                    format!("lifecycle preflight returned invalid JSON: {error}: {stderr}")
+                },
+            };
+        }
     };
+    if !process_succeeded && parsed.get("success").and_then(Value::as_bool) == Some(true) {
+        return UpgradePreflight::ExecutionFailed {
+            detail: "lifecycle preflight exited unsuccessfully after reporting success".into(),
+        };
+    }
     classify_lifecycle_report(&parsed)
 }
 
@@ -100,12 +133,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn missing_python_module_is_treated_as_no_metadata() {
-        // A path that cannot launch never resolves to a lifecycle report.
-        assert_eq!(
+    fn missing_python_executable_aborts_the_preflight() {
+        // A path that cannot launch is an execution failure, not proof that
+        // the lifecycle module is absent from a working interpreter.
+        assert!(matches!(
             prepare_sidecar_update("__dcc_mcp_missing_python__", "maya", Some("1.0.0")),
-            UpgradePreflight::NoLifecycleMetadata
-        );
+            UpgradePreflight::ExecutionFailed { .. }
+        ));
     }
 
     /// Exact JSON emitted by `python -m dcc_mcp_core.install_lifecycle
@@ -154,6 +188,26 @@ mod tests {
                     serde_json::json!({"success": false, "results": [{"status": "still_running"}]})
                         .to_string(),
             }
+        );
+    }
+
+    #[test]
+    fn invalid_lifecycle_output_aborts_instead_of_claiming_missing_metadata() {
+        assert!(matches!(
+            classify_lifecycle_output(b"not-json", b"unexpected traceback", false),
+            UpgradePreflight::ExecutionFailed { .. }
+        ));
+    }
+
+    #[test]
+    fn missing_core_module_is_the_only_invalid_output_fallback() {
+        assert_eq!(
+            classify_lifecycle_output(
+                b"",
+                b"ModuleNotFoundError: No module named 'dcc_mcp_core'",
+                false
+            ),
+            UpgradePreflight::NoLifecycleMetadata
         );
     }
 

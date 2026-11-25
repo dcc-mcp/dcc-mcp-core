@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use crate::domain::install::InstallRequest;
 use crate::domain::install::{InstallPlan, InstallStepAction, normalized_dcc_key};
 use crate::domain::install_catalog::{CatalogProvenance, CatalogSource};
 
@@ -212,6 +213,7 @@ pub(super) fn apply_readiness(
 /// payload; retrying the install then converges without a rollback.
 pub(super) fn upgrade_requires_restart_report(
     mut report: InstallExecutionReport,
+    retry_request: Option<&InstallRequest>,
     reason: &str,
     detail: &str,
 ) -> InstallExecutionReport {
@@ -234,16 +236,46 @@ pub(super) fn upgrade_requires_restart_report(
             report.dcc_type
         ),
         why: format!("Adapter-owned sidecar blocks the upgrade ({reason}): {detail}"),
-        command: vec![
-            "dcc-mcp-cli".into(),
-            "install".into(),
-            "--dcc-type".into(),
-            report.dcc_type.clone(),
-            "--execute".into(),
-            "--yes".into(),
-        ],
+        command: retry_command(&report.dcc_type, retry_request),
     }];
     report
+}
+
+fn retry_command(dcc_type: &str, request: Option<&InstallRequest>) -> Vec<String> {
+    let mut command = vec![
+        "dcc-mcp-cli".into(),
+        "install".into(),
+        "--dcc-type".into(),
+        dcc_type.into(),
+    ];
+    if let Some(request) = request {
+        if let Some(version) = request.version.as_deref() {
+            command.extend(["--version".into(), version.into()]);
+        }
+        if let Some(catalog_path) = request.catalog_path.as_ref() {
+            command.extend(["--catalog".into(), catalog_path.display().to_string()]);
+        }
+        if let Some(python) = request.python.as_deref() {
+            command.extend(["--python".into(), python.into()]);
+        }
+        if let Some(dcc_path) = request.dcc_path.as_ref() {
+            command.extend(["--dcc-path".into(), dcc_path.display().to_string()]);
+        }
+        if let Some(plugin_source) = request.plugin_source.as_ref() {
+            command.extend([
+                "--plugin-source".into(),
+                plugin_source.display().to_string(),
+            ]);
+        }
+        if let Some(adobe_debug_root) = request.adobe_debug_root.as_ref() {
+            command.extend([
+                "--adobe-debug-root".into(),
+                adobe_debug_root.display().to_string(),
+            ]);
+        }
+    }
+    command.extend(["--execute".into(), "--yes".into()]);
+    command
 }
 
 pub(super) fn requires_restart_report(

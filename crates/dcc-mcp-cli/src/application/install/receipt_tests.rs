@@ -3,6 +3,7 @@ use crate::domain::install::{InstallPolicy, InstallStep};
 
 fn path_plan(dest: &Path) -> InstallPlan {
     InstallPlan {
+        retry_request: None,
         dcc_type: "fixture".into(),
         version: Some("1.2.3".into()),
         dcc_path: None,

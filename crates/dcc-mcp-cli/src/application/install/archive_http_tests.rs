@@ -133,6 +133,7 @@ fn archive_http_failure_preserves_the_acquire_report_contract() {
     let checksum = hex::encode(Sha256::digest(&bytes));
     let (url, server) = serve_archive(vec![("404 Not Found", None)], &bytes);
     let plan = InstallPlan {
+        retry_request: None,
         dcc_type: "godot".into(),
         version: None,
         dcc_path: None,

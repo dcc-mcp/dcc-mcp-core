@@ -27,12 +27,11 @@ pub(crate) fn probe_ready(dcc_type: &str) -> Option<ReadinessEvidence> {
     let dir = gateway_ensure::default_registry_dir().ok()?;
     // A registered row that does not advertise direct-control readiness cannot
     // be promoted, even if a stale readyz endpoint answers positively.
-    if local_instance::select_routable_entries(&dir, Some(dcc_type), None)
-        .map(|entries| entries.is_empty())
-        .unwrap_or(true)
-    {
-        return None;
-    }
+    let entry = local_instance::select_routable_entries(&dir, Some(dcc_type), None)
+        .ok()?
+        .into_iter()
+        .next()?;
+    let instance_id = entry.instance_id.to_string();
 
     // A dedicated thread keeps the synchronous install path working even when
     // the caller already runs inside a tokio runtime.
@@ -47,7 +46,7 @@ pub(crate) fn probe_ready(dcc_type: &str) -> Option<ReadinessEvidence> {
                 dir,
                 WaitReadyRequest {
                     dcc_type: Some(dcc_type),
-                    instance_id: None,
+                    instance_id: Some(instance_id),
                     required: Vec::new(),
                     timeout: Duration::from_secs(3),
                     interval: Duration::from_millis(1),
