@@ -30,7 +30,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Stage package legal notices
-        run: python scripts/release/stage_package_notices.py --allow-missing-license-texts
+        run: |
+          python -c "from pathlib import Path; Path('THIRD_PARTY_LICENSES.txt').write_text('Package-only license text fixture for CI.\\n', encoding='utf-8')"
+          python scripts/release/stage_package_notices.py
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"

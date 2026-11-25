@@ -14,6 +14,7 @@ config/*.json text eol=lf
 *.jsonl text eol=lf
 *.sh text eol=lf
 *.ps1 text eol=lf
+licenses/spdx/*.txt text eol=lf
 
 # Core release projections compare canonical bytes, including on Windows.
 admin-ui/package.json text eol=lf

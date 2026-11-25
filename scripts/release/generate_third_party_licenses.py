@@ -18,6 +18,19 @@ from typing import Tuple
 SPDX_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9.+-]*")
 SPDX_OPERATORS = {"AND", "OR", "WITH"}
 LICENSE_FILE_PREFIXES = ("license", "copying", "notice")
+SUPPLEMENTARY_LICENSE_PREFIX = "notice"
+COPYRIGHT_LICENSES = {"MIT", "ISC", "NCSA"}
+CORE_RELEASE_FEATURES = (
+    "python-bindings,ext-module,abi3-py38,workflow,scheduler,prometheus,job-persist-sqlite,admin,mcp-2026-07-28"
+)
+SEMANTIC_RELEASE_FEATURES = "python-bindings,ext-module,abi3-py38"
+COPYRIGHT_HOLDER_OVERRIDES = {
+    "objc2-foundation": "Mads Marquart",
+    "rsqlite-vfs": "Noz Wu",
+    "uuid-simd": "Nugine",
+    "valuable": "Valuable Contributors",
+    "vsimd": "Nugine",
+}
 
 
 def _source_revision(root: Path) -> str:
@@ -65,35 +78,82 @@ def _canonical_license_files(root: Path, expression: str) -> List[Tuple[str, byt
     return files
 
 
+def _copyright_holders(package: Dict) -> List[str]:
+    authors = []
+    for author in package.get("authors") or []:
+        name = str(author).split("<", 1)[0].strip()
+        if name:
+            authors.append(name)
+    if not authors:
+        override = COPYRIGHT_HOLDER_OVERRIDES.get(str(package.get("name")))
+        if override:
+            authors.append(override)
+    if not authors:
+        raise ValueError(f"package {package.get('name')} has no copyright holder metadata for {package.get('license')}")
+    return sorted(set(authors))
+
+
+def _append_copyright_holders(content: bytes, package: Dict) -> bytes:
+    holders = ", ".join(_copyright_holders(package))
+    suffix = f"\n\nCopyright holders from Cargo metadata: {holders}\n".encode()
+    return content.rstrip(b"\r\n") + suffix
+
+
 def _package_texts(root: Path, package: Dict) -> Tuple[str, List[Tuple[str, bytes]]]:
     expression = str(package.get("license") or "").strip()
     if not expression:
         raise ValueError(f"package {package.get('name')} has no license expression")
     manifest_path = package.get("manifest_path")
     files = _package_license_files(Path(manifest_path).parent) if manifest_path else []
-    if files:
-        return "package", files
-    return "SPDX", _canonical_license_files(root, expression)
+    license_files = [file for file in files if not file[0].lower().startswith(SUPPLEMENTARY_LICENSE_PREFIX)]
+    notice_files = [file for file in files if file[0].lower().startswith(SUPPLEMENTARY_LICENSE_PREFIX)]
+    if license_files:
+        return "package", license_files + notice_files
+    canonical_files = _canonical_license_files(root, expression)
+    if expression in COPYRIGHT_LICENSES:
+        canonical_files = [
+            (filename, _append_copyright_holders(content, package)) for filename, content in canonical_files
+        ]
+    if notice_files:
+        return "SPDX+package", canonical_files + notice_files
+    return "SPDX", canonical_files
 
 
 def _rust_packages(root: Path) -> List[Dict]:
-    try:
-        completed = subprocess.run(
-            ["cargo", "metadata", "--format-version", "1", "--locked"],
-            cwd=root,
-            check=True,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-        )
-    except (OSError, subprocess.CalledProcessError) as exc:
-        detail = getattr(exc, "stderr", None) or str(exc)
-        raise ValueError(f"cargo metadata failed: {detail.strip()}") from exc
-    metadata = json.loads(completed.stdout)
-    return sorted(
-        [package for package in metadata["packages"] if package.get("source")],
-        key=lambda package: (package["name"], package["version"]),
-    )
+    metadata_commands = [
+        ["cargo", "metadata", "--format-version", "1", "--locked", "--features", CORE_RELEASE_FEATURES],
+        [
+            "cargo",
+            "metadata",
+            "--format-version",
+            "1",
+            "--locked",
+            "--manifest-path",
+            "crates/dcc-mcp-semantic/Cargo.toml",
+            "--features",
+            SEMANTIC_RELEASE_FEATURES,
+        ],
+    ]
+    packages = {}
+    for command in metadata_commands:
+        try:
+            completed = subprocess.run(
+                command,
+                cwd=root,
+                check=True,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+            )
+        except (OSError, subprocess.CalledProcessError) as exc:
+            detail = getattr(exc, "stderr", None) or str(exc)
+            raise ValueError(f"cargo metadata failed: {detail.strip()}") from exc
+        metadata = json.loads(completed.stdout)
+        for package in metadata["packages"]:
+            if package.get("source"):
+                key = (package["name"], package["version"], package["source"])
+                packages[key] = package
+    return sorted(packages.values(), key=lambda package: (package["name"], package["version"]))
 
 
 def generate(root: Path) -> str:
