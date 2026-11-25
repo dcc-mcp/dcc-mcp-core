@@ -12,6 +12,9 @@ from zipfile import ZIP_DEFLATED
 from zipfile import ZipFile
 from zipfile import ZipInfo
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+NOTICE_FILES = ("LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.txt")
+
 
 def _github_error(message: str) -> None:
     print(f"::error::{message}", file=sys.stderr)
@@ -40,6 +43,14 @@ def _write_binary(zf: ZipFile, source: Path, archive_name: str) -> None:
         shutil.copyfileobj(src, dst)
 
 
+def _write_notice_files(zf: ZipFile) -> None:
+    for name in NOTICE_FILES:
+        source = REPO_ROOT / name
+        if not source.is_file():
+            raise FileNotFoundError(f"release notice not found: {source}")
+        _write_binary(zf, source, name)
+
+
 def build_bundle(
     *,
     version: str,
@@ -56,6 +67,7 @@ def build_bundle(
     bundle_path = out_dir / f"dcc-mcp-server-{version}-{platform}.zip"
 
     with ZipFile(bundle_path, "w", ZIP_DEFLATED) as zf:
+        _write_notice_files(zf)
         _write_binary(zf, server_bin, _archive_binary_name("server", server_bin))
         _write_binary(zf, cli_bin, _archive_binary_name("cli", cli_bin))
 

@@ -153,21 +153,26 @@ def test_release_workflow_publishes_each_pypi_project_in_its_own_job() -> None:
     jobs = _release_jobs()
     expected = {
         "publish-core-pypi": {
-            "needs": ["release-please", "validate-release-version", "build-wheels"],
+            "needs": ["release-please", "validate-release-version", "build-wheels", "validate-release-notices"],
             "url": "https://pypi.org/p/dcc-mcp-core",
             "artifact_pattern": "wheels-*",
             "artifact_path": "dist",
             "packages_dir": "dist",
         },
         "publish-server-pypi": {
-            "needs": ["release-please", "validate-release-version", "build-binaries"],
+            "needs": ["release-please", "validate-release-version", "build-binaries", "validate-release-notices"],
             "url": "https://pypi.org/p/dcc-mcp-server",
             "artifact_pattern": "server-wheel-*",
             "artifact_path": "dist-server",
             "packages_dir": "dist-server",
         },
         "publish-semantic-pypi": {
-            "needs": ["release-please", "validate-release-version", "build-semantic-wheels"],
+            "needs": [
+                "release-please",
+                "validate-release-version",
+                "build-semantic-wheels",
+                "validate-release-notices",
+            ],
             "url": "https://pypi.org/p/dcc-mcp-core-semantic",
             "artifact_pattern": "semantic-wheel-*",
             "artifact_path": "dist-semantic",
@@ -176,7 +181,7 @@ def test_release_workflow_publishes_each_pypi_project_in_its_own_job() -> None:
         # The dcc-mcp-cli wrapper wheels are built once for all platforms and
         # published from a single artefact, hence the non-glob pattern.
         "publish-cli-pypi": {
-            "needs": ["release-please", "validate-release-version", "build-cli-wheels"],
+            "needs": ["release-please", "validate-release-version", "build-cli-wheels", "validate-release-notices"],
             "url": "https://pypi.org/p/dcc-mcp-cli",
             "artifact_pattern": "cli-wheel-all",
             "artifact_path": "dist-cli",
@@ -236,6 +241,8 @@ def test_release_workflow_keeps_github_release_safety_net_after_pypi_jobs() -> N
         "build-wheels",
         "build-binaries",
         "build-semantic-wheels",
+        "build-cli-wheels",
+        "validate-release-notices",
         "publish-core-pypi",
         "publish-server-pypi",
         "publish-semantic-pypi",
@@ -271,6 +278,7 @@ def test_release_workflow_keeps_github_release_safety_net_after_pypi_jobs() -> N
         "publish-semantic-pypi",
         "publish-cli-pypi",
         "publish-github-release-assets",
+        "validate-release-notices",
         "verify-release-assets",
         "publish-winget",
     ]
@@ -285,6 +293,7 @@ def test_release_workflow_keeps_github_release_safety_net_after_pypi_jobs() -> N
     assert summary_step["env"]["RESULT_SEMANTIC_PYPI"] == "${{ needs.publish-semantic-pypi.result }}"
     assert summary_step["env"]["RESULT_CLI_PYPI"] == "${{ needs.publish-cli-pypi.result }}"
     assert summary_step["env"]["RESULT_RELEASE_ASSETS"] == "${{ needs.publish-github-release-assets.result }}"
+    assert summary_step["env"]["RESULT_RELEASE_NOTICES"] == "${{ needs.validate-release-notices.result }}"
     # A new blocking route must also be gated, or it can fail silently.
     assert 'cli" != "success"' in run
     assert 'cli" != "skipped"' in run

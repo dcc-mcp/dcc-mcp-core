@@ -8,6 +8,7 @@ import sys
 import zipfile
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "release" / "build_standalone_bundle.py"
+NOTICE_MEMBERS = ["LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.txt"]
 
 
 def _build_bundle(tmp_path: Path, binary_name: str, source_name: str) -> zipfile.ZipFile:
@@ -38,11 +39,11 @@ def _build_bundle(tmp_path: Path, binary_name: str, source_name: str) -> zipfile
 
 def test_build_bundle_packages_unsuffixed_unix_binary(tmp_path: Path) -> None:
     with _build_bundle(tmp_path, "dcc-mcp-cli", "dcc-mcp-cli-linux-x86_64") as bundle:
-        assert bundle.namelist() == ["dcc-mcp-cli"]
+        assert bundle.namelist() == [*NOTICE_MEMBERS, "dcc-mcp-cli"]
         assert bundle.read("dcc-mcp-cli") == b"dcc-mcp-cli"
 
 
 def test_build_bundle_preserves_windows_exe_name(tmp_path: Path) -> None:
     with _build_bundle(tmp_path, "dcc-mcp-cli", "dcc-mcp-cli-windows-x86_64.exe") as bundle:
-        assert bundle.namelist() == ["dcc-mcp-cli.exe"]
+        assert bundle.namelist() == [*NOTICE_MEMBERS, "dcc-mcp-cli.exe"]
         assert bundle.read("dcc-mcp-cli.exe") == b"dcc-mcp-cli"

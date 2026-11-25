@@ -653,7 +653,15 @@ jobs:
           sparse-checkout: |
             compatibility
             scripts/ci
+            LICENSE
+            NOTICE
+            THIRD_PARTY_NOTICES.txt
           persist-credentials: false
+      - name: Validate Core release archive notices
+        shell: bash
+        run: >-
+          python .workflow-tools/scripts/ci/check_release_notices.py
+          .workflow-tools dist/*.whl dist/*.tar.gz
       - name: Validate complete Core distribution set before publication
         env:
           RELEASE_VERSION: ${{ inputs.release-tag-name }}
