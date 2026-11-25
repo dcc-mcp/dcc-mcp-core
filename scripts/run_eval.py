@@ -155,6 +155,7 @@ def _run(args: argparse.Namespace) -> int:
         generated_at=args.generated_at,
         clock=None if args.measure_duration else (lambda: 0.0),
     )
+    args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(report.dumps(), encoding="utf-8")
     print(f"wrote {args.output} ({len(report.runs)} cases, pass rate {report.pass_rate:.3f})")
     return 0
