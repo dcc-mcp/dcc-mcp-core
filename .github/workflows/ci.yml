@@ -991,23 +991,21 @@ jobs:
         with:
           python-version: "3.14"
 
-      - uses: loonghao/vx@v0.9.34
-        with:
-          version: "0.9.34"
-          cache-key-prefix: "vx-tools-v0.9.34"
-
       - name: Run deterministic core evaluation set
         env:
           PYTHONPATH: python
         shell: bash
         run: |
           set -euo pipefail
-          vx python scripts/run_eval.py run \
+          # Use the interpreter installed by setup-python. The report lane is
+          # stdlib-only, and resolving the repository's pinned vx Python here
+          # can fail when an older vx catalog does not contain that patch.
+          python scripts/run_eval.py run \
             --module tests/eval/cases/core_cases.py \
             --output artifacts/core-eval-report.json \
             --set-version eval-set-v1 \
             --generated-at "$GITHUB_SHA"
-          vx python scripts/run_eval.py validate artifacts/core-eval-report.json --kind report
+          python scripts/run_eval.py validate artifacts/core-eval-report.json --kind report
 
       - name: Upload offline evaluation report
         uses: actions/upload-artifact@v7
