@@ -225,6 +225,9 @@ jobs:
         with:
           ref: ${{ needs.release-please.outputs.tag_name }}
 
+      - name: Stage package legal notices
+        run: python scripts/release/stage_package_notices.py
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@master
         with:
@@ -477,6 +480,9 @@ jobs:
         with:
           ref: ${{ needs.release-please.outputs.tag_name }}
 
+      - name: Stage package legal notices
+        run: python scripts/release/stage_package_notices.py
+
       # Rust toolchain is only needed for non-Linux builds; the Linux
       # builds (abi3 and py37) run inside the pyo3/maturin docker image
       # which bundles its own pinned toolchain.
@@ -655,6 +661,9 @@ jobs:
         with:
           ref: ${{ needs.release-please.outputs.tag_name }}
 
+      - name: Stage package legal notices
+        run: python scripts/release/stage_package_notices.py
+
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
@@ -727,6 +736,77 @@ jobs:
           overwrite_files: ${{ github.event_name == 'workflow_dispatch' && inputs.backfill_assets == true }}
           fail_on_unmatched_files: true
           files: dist-cli/*.whl
+
+  # ── Verify legal notices in every release archive before publication ──
+  validate-release-notices:
+    needs: [release-please, build-wheels, build-binaries, build-semantic-wheels, build-cli-wheels]
+    if: |
+      always() &&
+      needs.build-wheels.result == 'success' &&
+      needs.build-binaries.result == 'success' &&
+      needs.build-semantic-wheels.result == 'success' &&
+      needs.build-cli-wheels.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - name: Download Core distribution archives
+        uses: actions/download-artifact@v8
+        with:
+          pattern: wheels-*
+          path: dist
+          merge-multiple: true
+
+      - name: Download server distribution archives
+        uses: actions/download-artifact@v8
+        with:
+          pattern: server-wheel-*
+          path: dist-server
+          merge-multiple: true
+
+      - name: Download standalone binary archives
+        uses: actions/download-artifact@v8
+        with:
+          pattern: server-binary-*
+          path: dist-binaries
+          merge-multiple: true
+
+      - name: Download semantic distribution archives
+        uses: actions/download-artifact@v8
+        with:
+          pattern: semantic-wheel-*
+          path: dist-semantic
+          merge-multiple: true
+
+      - name: Download CLI distribution archives
+        uses: actions/download-artifact@v8
+        with:
+          name: cli-wheel-all
+          path: dist-cli
+          merge-multiple: true
+
+      - name: Validate release archive notices
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          archives=(
+            dist/*.whl dist/*.tar.gz
+            dist-server/*.whl
+            dist-semantic/*.whl
+            dist-cli/*.whl
+            dist-binaries/*.zip
+          )
+          python scripts/ci/check_release_notices.py . "${archives[@]}"
 
   # ── Build and validate wheels when release-please creates a release ──
   build-wheels:
@@ -1028,11 +1108,12 @@ jobs:
 
   # ── Publish dcc-mcp-core to PyPI ──
   publish-core-pypi:
-    needs: [release-please, validate-release-version, build-wheels]
+    needs: [release-please, validate-release-version, build-wheels, validate-release-notices]
     if: |
       needs.release-please.outputs.release_created == 'true' &&
       needs.validate-release-version.result == 'success' &&
-      needs.build-wheels.result == 'success'
+      needs.build-wheels.result == 'success' &&
+      needs.validate-release-notices.result == 'success'
     runs-on: ubuntu-latest
     environment:
       name: pypi
@@ -1096,11 +1177,12 @@ jobs:
 
   # ── Publish dcc-mcp-server to PyPI ──
   publish-server-pypi:
-    needs: [release-please, validate-release-version, build-binaries]
+    needs: [release-please, validate-release-version, build-binaries, validate-release-notices]
     if: |
       needs.release-please.outputs.release_created == 'true' &&
       needs.validate-release-version.result == 'success' &&
-      needs.build-binaries.result == 'success'
+      needs.build-binaries.result == 'success' &&
+      needs.validate-release-notices.result == 'success'
     runs-on: ubuntu-latest
     environment:
       name: pypi
@@ -1151,11 +1233,12 @@ jobs:
 
   # ── Publish dcc-mcp-core-semantic to PyPI ──
   publish-semantic-pypi:
-    needs: [release-please, validate-release-version, build-semantic-wheels]
+    needs: [release-please, validate-release-version, build-semantic-wheels, validate-release-notices]
     if: |
       needs.release-please.outputs.release_created == 'true' &&
       needs.validate-release-version.result == 'success' &&
-      needs.build-semantic-wheels.result == 'success'
+      needs.build-semantic-wheels.result == 'success' &&
+      needs.validate-release-notices.result == 'success'
     runs-on: ubuntu-latest
     environment:
       name: pypi
@@ -1206,11 +1289,12 @@ jobs:
 
   # ── Publish dcc-mcp-cli to PyPI (issue PIP-3593) ──
   publish-cli-pypi:
-    needs: [release-please, validate-release-version, build-cli-wheels]
+    needs: [release-please, validate-release-version, build-cli-wheels, validate-release-notices]
     if: |
       needs.release-please.outputs.release_created == 'true' &&
       needs.validate-release-version.result == 'success' &&
-      needs.build-cli-wheels.result == 'success'
+      needs.build-cli-wheels.result == 'success' &&
+      needs.validate-release-notices.result == 'success'
     runs-on: ubuntu-latest
     environment:
       name: pypi
@@ -1269,6 +1353,8 @@ jobs:
       - build-wheels
       - build-binaries
       - build-semantic-wheels
+      - build-cli-wheels
+      - validate-release-notices
       - publish-core-pypi
       - publish-server-pypi
       - publish-semantic-pypi
@@ -1277,7 +1363,9 @@ jobs:
       needs.release-please.outputs.release_created == 'true' &&
       needs.build-wheels.result == 'success' &&
       needs.build-binaries.result == 'success' &&
-      needs.build-semantic-wheels.result == 'success'
+      needs.build-semantic-wheels.result == 'success' &&
+      needs.build-cli-wheels.result == 'success' &&
+      needs.validate-release-notices.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -1601,6 +1689,7 @@ jobs:
       - publish-semantic-pypi
       - publish-cli-pypi
       - publish-github-release-assets
+      - validate-release-notices
       - verify-release-assets
       - publish-winget
     if: always() && needs.release-please.outputs.release_created == 'true'
@@ -1615,6 +1704,7 @@ jobs:
           RESULT_SEMANTIC_PYPI: ${{ needs.publish-semantic-pypi.result }}
           RESULT_CLI_PYPI: ${{ needs.publish-cli-pypi.result }}
           RESULT_RELEASE_ASSETS: ${{ needs.publish-github-release-assets.result }}
+          RESULT_RELEASE_NOTICES: ${{ needs.validate-release-notices.result }}
           RESULT_ASSETS_VERIFIED: ${{ needs.verify-release-assets.result }}
           RESULT_WINGET: ${{ needs.publish-winget.result }}
           CORE_BACKFILL: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag != '' && inputs.backfill_assets != true }}
@@ -1624,6 +1714,7 @@ jobs:
           semantic="$RESULT_SEMANTIC_PYPI"
           cli="$RESULT_CLI_PYPI"
           release_assets="$RESULT_RELEASE_ASSETS"
+          release_notices="$RESULT_RELEASE_NOTICES"
           assets_verified="$RESULT_ASSETS_VERIFIED"
           winget="$RESULT_WINGET"
           core_backfill="$CORE_BACKFILL"
@@ -1633,6 +1724,7 @@ jobs:
           echo "PyPI dcc-mcp-core-semantic: ${semantic}"
           echo "PyPI dcc-mcp-cli: ${cli}"
           echo "GitHub Release assets: ${release_assets}"
+          echo "Release archive notices: ${release_notices}"
           echo "Release asset verification: ${assets_verified}"
           echo "WinGet manifest PR: ${winget}"
           echo "Core-only immutable backfill: ${core_backfill}"
@@ -1664,6 +1756,10 @@ jobs:
             fi
             if [ "$assets_verified" != "success" ]; then
               echo "::error::GitHub Release asset verification failed (result=${assets_verified})."
+              failed=1
+            fi
+            if [ "$release_notices" != "success" ]; then
+              echo "::error::Release archive notice validation failed (result=${release_notices})."
               failed=1
             fi
             # WinGet is best-effort and must never fail a release: winget-pkgs
