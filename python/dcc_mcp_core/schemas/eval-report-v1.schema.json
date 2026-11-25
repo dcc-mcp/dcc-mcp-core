@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dcc-mcp.github.io/dcc-mcp-core/schemas/eval-report-v1.schema.json",
+  "title": "DCC-MCP offline evaluation report v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "set_version", "generated_at", "metrics", "runs"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "set_version": {"type": "string", "minLength": 1},
+    "generated_at": {"type": ["string", "null"]},
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["case_count", "pass_count", "fail_count", "inconclusive_count", "pass_rate", "failure_histogram"],
+      "properties": {
+        "case_count": {"type": "integer", "minimum": 0},
+        "pass_count": {"type": "integer", "minimum": 0},
+        "fail_count": {"type": "integer", "minimum": 0},
+        "inconclusive_count": {"type": "integer", "minimum": 0},
+        "pass_rate": {"type": "number", "minimum": 0, "maximum": 1},
+        "failure_histogram": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 1}}
+      }
+    },
+    "runs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["case", "verdict", "checks", "duration_ms", "artifacts", "reason"],
+        "properties": {
+          "case": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["case_id", "title", "invocation", "tags"],
+            "properties": {
+              "case_id": {"type": "string", "minLength": 1},
+              "title": {"type": "string", "minLength": 1},
+              "invocation": {"type": "object"},
+              "tags": {"type": "array", "items": {"type": "string"}}
+            }
+          },
+          "verdict": {"enum": ["pass", "fail", "inconclusive"]},
+          "checks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["name", "passed"],
+              "properties": {"name": {"type": "string"}, "passed": {"type": "boolean"}}
+            }
+          },
+          "duration_ms": {"type": "integer", "minimum": 0},
+          "artifacts": {"type": "array", "items": {"type": "string"}},
+          "reason": {"type": ["string", "null"]}
+        }
+      }
+    }
+  }
+}

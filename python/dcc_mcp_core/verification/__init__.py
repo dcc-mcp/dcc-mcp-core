@@ -89,6 +89,8 @@ from dcc_mcp_core.verification.evalset import VERDICTS
 from dcc_mcp_core.verification.evalset import EvalCase
 from dcc_mcp_core.verification.evalset import EvalReport
 from dcc_mcp_core.verification.evalset import EvalRun
+from dcc_mcp_core.verification.evalset import eval_report_json_schema
+from dcc_mcp_core.verification.evalset import eval_set_json_schema
 from dcc_mcp_core.verification.evalset import run_eval_set
 from dcc_mcp_core.verification.image_stats import ImageStats
 from dcc_mcp_core.verification.image_stats import ImageStatsFlags
@@ -191,6 +193,8 @@ __all__ = [
     "dhash_64",
     "dumps_report",
     "edge_density",
+    "eval_report_json_schema",
+    "eval_set_json_schema",
     "evaluate_acceptance",
     "evaluate_many",
     "find_unpaired_write_verbs",

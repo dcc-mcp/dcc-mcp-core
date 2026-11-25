@@ -755,6 +755,8 @@ _ALL_LAZY: dict[str, str] = {
     "assert_state_schema": "dcc_mcp_core.verification",
     "assert_within": "dcc_mcp_core.verification",
     "run_eval_set": "dcc_mcp_core.verification",
+    "eval_report_json_schema": "dcc_mcp_core.verification",
+    "eval_set_json_schema": "dcc_mcp_core.verification",
     "VERDICT_FAIL": "dcc_mcp_core.verification",
     "VERDICT_INCONCLUSIVE": "dcc_mcp_core.verification",
     "VERDICT_PASS": "dcc_mcp_core.verification",
