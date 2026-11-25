@@ -134,6 +134,7 @@ For embedded-host DLL failures and explicit install/startup verification, see
 | [host-adapter.md](host-adapter.md) | `HostAdapter` base class for per-DCC dispatcher wiring |
 | [adapter-dispatcher-migration.md](adapter-dispatcher-migration.md) | Dispatcher migration decision table, fake adapter conformance fixtures, and adapter-specific checklist |
 | [cross-dcc-verification.md](cross-dcc-verification.md) | `SceneStats` contract for producer→file→verifier round-trips |
+| [cross-dcc-modeling-adoption.md](cross-dcc-modeling-adoption.md) | Evidence matrix for typed modeling, readback, reference fit, and real-DCC smoke |
 | [py37-lite-architecture.md](py37-lite-architecture.md) | **py37-lite**: Rust/Python decoupling, try/except import fallback, pure-Python wheel, maintenance guide |
 
 ## Adapter Release Train & Onboarding
