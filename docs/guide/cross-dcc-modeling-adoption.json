@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "contract": "dcc-mcp/model-state@1",
+  "status_values": ["pass", "fail", "unknown"],
+  "canonical_checks": [
+    "parts",
+    "hierarchy",
+    "materials",
+    "uv_coverage",
+    "non_manifold",
+    "euler"
+  ],
+  "workflow_stages": [
+    "resolve_entry_skill",
+    "inspect_scene",
+    "apply_bounded_operations",
+    "read_back_state",
+    "verify_reference_evidence"
+  ],
+  "adapters": [
+    {
+      "dcc": "blender",
+      "repository": "https://github.com/dcc-mcp/dcc-mcp-blender",
+      "typed_coverage": "unknown",
+      "readback_coverage": "unknown",
+      "reference_fit": "unknown",
+      "real_dcc_smoke": "unknown",
+      "evidence": []
+    },
+    {
+      "dcc": "houdini",
+      "repository": "https://github.com/dcc-mcp/dcc-mcp-houdini",
+      "typed_coverage": "unknown",
+      "readback_coverage": "unknown",
+      "reference_fit": "unknown",
+      "real_dcc_smoke": "unknown",
+      "evidence": []
+    },
+    {
+      "dcc": "maya",
+      "repository": "https://github.com/dcc-mcp/dcc-mcp-maya",
+      "typed_coverage": "unknown",
+      "readback_coverage": "unknown",
+      "reference_fit": "unknown",
+      "real_dcc_smoke": "unknown",
+      "evidence": []
+    },
+    {
+      "dcc": "3dsmax",
+      "repository": "https://github.com/dcc-mcp/dcc-mcp-3dsmax",
+      "typed_coverage": "unknown",
+      "readback_coverage": "unknown",
+      "reference_fit": "unknown",
+      "real_dcc_smoke": "unknown",
+      "evidence": []
+    },
+    {
+      "dcc": "zbrush",
+      "repository": "https://github.com/dcc-mcp/dcc-mcp-zbrush",
+      "typed_coverage": "unknown",
+      "readback_coverage": "unknown",
+      "reference_fit": "unknown",
+      "real_dcc_smoke": "unknown",
+      "evidence": []
+    }
+  ]
+}
