@@ -7,10 +7,11 @@ selected explicitly.
 
 ## Recommended setup
 
-Open a Visual Studio Developer PowerShell, then select the pinned MSVC host
-for the current shell:
+Open a Visual Studio Developer PowerShell, change to the repository root, then
+select the pinned MSVC host for the current shell:
 
 ```powershell
+Set-Location "C:\path\to\dcc-mcp-core"
 $env:RUSTUP_TOOLCHAIN = "1.95.0-x86_64-pc-windows-msvc"
 rustc -vV
 Get-Command cl.exe
@@ -21,12 +22,18 @@ vx just check
 `rustc -vV` must report `host: x86_64-pc-windows-msvc`. `cl.exe` and
 `link.exe` must resolve from the Visual Studio installation.
 
-For a one-shot command from a regular PowerShell, load the Visual Studio
-environment and set the Rust host in the same `cmd.exe` process:
+For a one-shot command from a regular PowerShell, discover the Visual Studio
+environment, change to the repository root, and set the Rust host in the same
+`cmd.exe` process. Replace the repository path with the checkout location.
 
 ```powershell
-$vsDevCmd = "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat"
-$command = "call `"$vsDevCmd`" -arch=x64 && set RUSTUP_TOOLCHAIN=1.95.0-x86_64-pc-windows-msvc && vx just check"
+$repo = "C:\path\to\dcc-mcp-core"
+$vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+$vsDevCmd = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -find Common7\Tools\VsDevCmd.bat | Select-Object -First 1
+if (-not $vsDevCmd) {
+    throw "Visual Studio C++ tools were not found. Set `$vsDevCmd to your VsDevCmd.bat path."
+}
+$command = "call `"$vsDevCmd`" -arch=x64 && cd /d `"$repo`" && set RUSTUP_TOOLCHAIN=1.95.0-x86_64-pc-windows-msvc && vx just check"
 cmd.exe /d /s /c $command
 ```
 
