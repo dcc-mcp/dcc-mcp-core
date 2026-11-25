@@ -33,8 +33,16 @@ def test_adoption_matrix_tracks_required_adapters_and_evidence() -> None:
     assert len(identifiers) == len(set(identifiers))
     adapters = {row["dcc"]: row for row in rows}
     assert set(adapters) == {"blender", "houdini", "maya", "3dsmax", "zbrush"}
+    expected_issues = {
+        "blender": "https://github.com/dcc-mcp/dcc-mcp-blender/issues/371",
+        "houdini": "https://github.com/dcc-mcp/dcc-mcp-houdini/issues/384",
+        "maya": "https://github.com/dcc-mcp/dcc-mcp-maya/issues/612",
+        "3dsmax": "https://github.com/dcc-mcp/dcc-mcp-3dsmax/issues/242",
+        "zbrush": "https://github.com/dcc-mcp/dcc-mcp-zbrush/issues/115",
+    }
     for row in adapters.values():
         assert row["repository"].startswith("https://github.com/dcc-mcp/")
+        assert row["implementation_issue"] == expected_issues[row["dcc"]]
         for field in (
             "typed_coverage",
             "readback_coverage",
