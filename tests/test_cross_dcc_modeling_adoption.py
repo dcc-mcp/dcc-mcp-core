@@ -3,13 +3,7 @@
 import json
 from pathlib import Path
 
-
-MATRIX_PATH = (
-    Path(__file__).resolve().parents[1]
-    / "docs"
-    / "guide"
-    / "cross-dcc-modeling-adoption.json"
-)
+MATRIX_PATH = Path(__file__).resolve().parents[1] / "docs" / "guide" / "cross-dcc-modeling-adoption.json"
 
 
 def test_adoption_matrix_tracks_required_adapters_and_evidence() -> None:
