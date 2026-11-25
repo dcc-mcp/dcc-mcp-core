@@ -13,7 +13,7 @@ from zipfile import ZipFile
 from zipfile import ZipInfo
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-NOTICE_FILES = ("LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.txt")
+NOTICE_FILES = ("LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.txt", "THIRD_PARTY_LICENSES.txt")
 
 
 def _github_error(message: str) -> None:
@@ -46,6 +46,8 @@ def _write_binary(zf: ZipFile, source: Path, archive_name: str) -> None:
 def _write_notice_files(zf: ZipFile) -> None:
     for name in NOTICE_FILES:
         source = REPO_ROOT / name
+        if name == "THIRD_PARTY_LICENSES.txt" and not source.is_file():
+            continue
         if not source.is_file():
             raise FileNotFoundError(f"release notice not found: {source}")
         _write_binary(zf, source, name)

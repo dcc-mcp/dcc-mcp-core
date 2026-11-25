@@ -9,7 +9,7 @@ import sys
 import tarfile
 import zipfile
 
-REQUIRED_FILES = ("LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.txt")
+REQUIRED_FILES = ("LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.txt", "THIRD_PARTY_LICENSES.txt")
 
 
 def _expected_files(root: Path) -> dict[str, bytes]:

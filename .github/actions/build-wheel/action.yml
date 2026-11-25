@@ -138,6 +138,10 @@ runs:
         echo "cargo: ${CARGO_BIN}"
         "${CARGO_BIN}" --version
 
+    - name: Generate third-party license texts
+      shell: bash
+      run: python scripts/release/generate_third_party_licenses.py --output THIRD_PARTY_LICENSES.txt
+
     # manylinux Docker builds do not have `vx` on PATH. Pre-bundle the Vite admin
     # UI on the GitHub runner (vx + Node from vx.toml), then tell
     # `crates/dcc-mcp-gateway-admin/build.rs` to skip `vx npm` inside the container.

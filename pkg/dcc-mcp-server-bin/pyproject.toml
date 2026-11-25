@@ -17,7 +17,7 @@ version = "0.20.55"  # x-release-please-version
 description = "Standalone dcc-mcp-server CLI binary — gateway, sidecar, stdio bridge (Rust)"
 readme = "README.md"
 license = {text = "MIT"}
-license-files = ["LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.txt"]
+license-files = ["LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.txt", "THIRD_PARTY_LICENSES.txt"]
 requires-python = ">=3.7"
 keywords = ["dcc", "mcp", "gateway", "sidecar", "maya", "blender", "houdini"]
 authors = [

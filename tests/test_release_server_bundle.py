@@ -6,10 +6,18 @@ import subprocess
 import sys
 import zipfile
 
+from scripts.release import build_server_bundle
+
 from conftest import REPO_ROOT
 
 SCRIPT = REPO_ROOT / "scripts" / "release" / "build_server_bundle.py"
-NOTICE_MEMBERS = {"LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.txt"}
+
+
+def _expected_notice_members() -> set[str]:
+    members = {"LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.txt"}
+    if (REPO_ROOT / "THIRD_PARTY_LICENSES.txt").is_file():
+        members.add("THIRD_PARTY_LICENSES.txt")
+    return members
 
 
 def test_build_server_bundle_packages_unsuffixed_unix_binaries(tmp_path) -> None:
@@ -42,7 +50,7 @@ def test_build_server_bundle_packages_unsuffixed_unix_binaries(tmp_path) -> None
     bundle = out_dir / "dcc-mcp-server-0.18.12-linux-x86_64.zip"
     assert result.stdout.strip().endswith(bundle.as_posix())
     with zipfile.ZipFile(bundle) as zf:
-        assert set(zf.namelist()) == NOTICE_MEMBERS | {"dcc-mcp-server", "dcc-mcp-cli"}
+        assert set(zf.namelist()) == _expected_notice_members() | {"dcc-mcp-server", "dcc-mcp-cli"}
         assert zf.read("dcc-mcp-server") == b"server"
         assert zf.read("dcc-mcp-cli") == b"cli"
 
@@ -74,4 +82,30 @@ def test_build_server_bundle_preserves_windows_exe_names(tmp_path) -> None:
 
     bundle = out_dir / "dcc-mcp-server-0.18.12-windows-x86_64.zip"
     with zipfile.ZipFile(bundle) as zf:
-        assert set(zf.namelist()) == NOTICE_MEMBERS | {"dcc-mcp-server.exe", "dcc-mcp-cli.exe"}
+        assert set(zf.namelist()) == _expected_notice_members() | {"dcc-mcp-server.exe", "dcc-mcp-cli.exe"}
+
+
+def test_build_server_bundle_includes_supplied_license_text(tmp_path, monkeypatch) -> None:
+    for name, content in {
+        "LICENSE": "license\n",
+        "NOTICE": "notice\n",
+        "THIRD_PARTY_NOTICES.txt": "third-party notices\n",
+        "THIRD_PARTY_LICENSES.txt": "controlled license text\n",
+    }.items():
+        (tmp_path / name).write_bytes(content.encode("utf-8"))
+    server = tmp_path / "server"
+    cli = tmp_path / "cli"
+    server.write_bytes(b"server")
+    cli.write_bytes(b"cli")
+    monkeypatch.setattr(build_server_bundle, "REPO_ROOT", tmp_path)
+
+    bundle = build_server_bundle.build_bundle(
+        version="0.18.12",
+        platform="linux-x86_64",
+        server_bin=server,
+        cli_bin=cli,
+        out_dir=tmp_path / "dist",
+    )
+
+    with zipfile.ZipFile(bundle) as archive:
+        assert archive.read("THIRD_PARTY_LICENSES.txt") == b"controlled license text\n"

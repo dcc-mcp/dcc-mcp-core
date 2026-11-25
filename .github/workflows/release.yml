@@ -90,6 +90,21 @@ jobs:
           fi
           gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null
 
+      - name: Validate license materialization inputs for asset backfill
+        if: github.event_name == 'workflow_dispatch' && inputs.release_tag != '' && inputs.backfill_assets == true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          for path in scripts/release/generate_third_party_licenses.py licenses/spdx; do
+            if ! gh api "repos/$GITHUB_REPOSITORY/contents/$path?ref=$RELEASE_TAG" >/dev/null; then
+              echo "::error::Release tag $RELEASE_TAG predates the third-party license materialization inputs ($path). Refusing an asset backfill from this tag."
+              exit 1
+            fi
+          done
+
       - uses: googleapis/release-please-action@v5
         if: >-
           (github.event_name != 'workflow_dispatch' || inputs.release_tag == '') &&
@@ -225,9 +240,6 @@ jobs:
         with:
           ref: ${{ needs.release-please.outputs.tag_name }}
 
-      - name: Stage package legal notices
-        run: python scripts/release/stage_package_notices.py
-
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@master
         with:
@@ -253,6 +265,12 @@ jobs:
             target/
           key: ${{ runner.os }}-cargo-binary-${{ hashFiles('**/Cargo.toml') }}
           restore-keys: ${{ runner.os }}-cargo-binary-
+
+      - name: Generate third-party license texts
+        run: python scripts/release/generate_third_party_licenses.py --output THIRD_PARTY_LICENSES.txt
+
+      - name: Stage package legal notices
+        run: python scripts/release/stage_package_notices.py
 
       # ── Raw binary build ──────────────────────────────────────────
       - name: Download admin UI bundle for Linux builds
@@ -480,12 +498,21 @@ jobs:
         with:
           ref: ${{ needs.release-please.outputs.tag_name }}
 
+      - name: Setup Rust for license metadata
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.95.0'
+
+      - name: Generate third-party license texts
+        run: python scripts/release/generate_third_party_licenses.py --output THIRD_PARTY_LICENSES.txt
+
       - name: Stage package legal notices
         run: python scripts/release/stage_package_notices.py
 
-      # Rust toolchain is only needed for non-Linux builds; the Linux
-      # builds (abi3 and py37) run inside the pyo3/maturin docker image
-      # which bundles its own pinned toolchain.
+      # Linux wheel compilation runs inside the pyo3/maturin Docker image,
+      # which bundles its own pinned toolchain. The host toolchain above is
+      # still needed for metadata generation, while components are only
+      # installed for native non-Linux builds.
       - name: Setup Rust
         if: "!startsWith(matrix.target, 'linux-')"
         uses: dtolnay/rust-toolchain@master
@@ -661,9 +688,6 @@ jobs:
         with:
           ref: ${{ needs.release-please.outputs.tag_name }}
 
-      - name: Stage package legal notices
-        run: python scripts/release/stage_package_notices.py
-
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
@@ -679,6 +703,15 @@ jobs:
           pattern: server-binary-*
           path: dist-binaries
           merge-multiple: true
+
+      - name: Extract generated third-party license texts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/release/extract_third_party_licenses.py \
+            --output THIRD_PARTY_LICENSES.txt \
+            dist-binaries/dcc-mcp-cli-*.zip
+          python scripts/release/stage_package_notices.py
 
       # hatchling names every build `dcc_mcp_cli-<version>-py3-none-any.whl`,
       # so the three platforms must not share one output directory: the
@@ -758,6 +791,14 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.14"
+
+      - name: Setup Rust for license metadata
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.95.0'
+
+      - name: Generate third-party license texts
+        run: python scripts/release/generate_third_party_licenses.py --output THIRD_PARTY_LICENSES.txt
 
       - name: Download Core distribution archives
         uses: actions/download-artifact@v8

@@ -6,7 +6,7 @@ from __future__ import annotations
 from pathlib import Path
 import shutil
 
-NOTICE_FILES = ("LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.txt")
+NOTICE_FILES = ("LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.txt", "THIRD_PARTY_LICENSES.txt")
 PACKAGE_ROOTS = (
     Path("pkg/dcc-mcp-server-bin"),
     Path("pkg/dcc-mcp-core-semantic"),
