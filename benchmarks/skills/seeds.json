@@ -384,7 +384,7 @@
           "task_category": "mutate"
         },
         "dcc-mcp.layer": "infrastructure",
-        "dcc-mcp.compatibility": "Cross-platform routing contract. The current DCC-CUA host is installed and verified through the official dcc-mcp-cli component manifest; exact platform capabilities remain runtime-discovered.",
+        "dcc-mcp.compatibility": "Cross-platform routing contract. The current DCC-CUA host is a separately released runtime forwarded by dccmcp; exact platform capabilities remain runtime-discovered.",
         "dcc-mcp.version": "0.1.0",
         "dcc-mcp.search-hint": "dcc-cua DCC CUA dcc cua our dcc-cua our dcc cua 我们的 dcc-cua 我们的 dcc cua project-owned UI control browser DOM exact PID HWND computer use automation",
         "dcc-mcp.tags": "dcc-cua, dcc-ui-control, ui-control, browser-dom, exact-window, computer-use, infrastructure"
@@ -636,14 +636,8 @@
         },
         "dcc-mcp.dcc": "python",
         "dcc-mcp.layer": "infrastructure",
-        "dcc-mcp.recall-context": {
-          "app_type": "python",
-          "domain": "dcc-control",
-          "workflow_stage": "operation",
-          "task_category": "mutate"
-        },
         "dcc-mcp.compatibility": "Cross-platform Windows/macOS/Linux. Prefers dccmcp on PATH; can download release asset from GitHub; local profile needs no gateway env. DCC_MCP_BASE_URL is optional for remote/legacy gateway REST fallback.",
-        "dcc-mcp.version": "0.21.0",
+        "dcc-mcp.version": "0.21.1",
         "dcc-mcp.search-hint": "dcc control operate UI control menu dialog window button click keyboard Maya Blender Houdini Photoshop 3ds Max Nuke Unreal Godot RenderDoc Substance connect create edit render automate cli gateway stats 操作 控制 界面 菜单 弹窗 窗口 按钮 点击 键盘",
         "dcc-mcp.tags": "dcc, dcc-ui-control, ui-control, maya, blender, houdini, photoshop, nuke, unreal, godot, renderdoc, cli, gateway, clawhub, openclaw"
       },
@@ -667,7 +661,7 @@
       ],
       "search-hint": "dcc control operate UI control menu dialog window button click keyboard Maya Blender Houdini Photoshop 3ds Max Nuke Unreal Godot RenderDoc Substance connect create edit render automate cli gateway stats 操作 控制 界面 菜单 弹窗 窗口 按钮 点击 键盘",
       "tools": [],
-      "version": "0.21.0",
+      "version": "0.21.1",
       "depends": [],
       "scripts": [
         "skills/dcc-mcp/scripts/check_cli.py",
@@ -676,13 +670,7 @@
       "skill_path": "skills/dcc-mcp",
       "metadata_files": [],
       "groups": [],
-      "layer": "infrastructure",
-      "recall_context": {
-        "app_type": "python",
-        "domain": "dcc-control",
-        "workflow_stage": "operation",
-        "task_category": "mutate"
-      }
+      "layer": "infrastructure"
     },
     {
       "name": "dcc-mcp-creator",
