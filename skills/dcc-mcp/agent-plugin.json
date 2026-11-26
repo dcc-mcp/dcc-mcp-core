@@ -1,0 +1,40 @@
+{
+  "schema_version": "1",
+  "id": "dcc-mcp",
+  "name": "DCCMCP Agent Plugin",
+  "version": "0.21.0",
+  "runtime": {
+    "kind": "dccmcp-cli",
+    "minimum_cli": "0.21.0",
+    "transports": ["streamable-http", "rest"]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "path": "SKILL.md"
+    }
+  ],
+  "capabilities": [
+    "inventory",
+    "search",
+    "describe",
+    "load_skill",
+    "call",
+    "mcp-tools",
+    "mcp-resources",
+    "mcp-prompts",
+    "ui-control",
+    "gateway-profiles"
+  ],
+  "commands": [
+    {
+      "name": "dccmcp",
+      "compatibility_aliases": ["dcc-mcp-cli"]
+    }
+  ],
+  "permissions": {
+    "network": ["mcp-endpoints", "gateway-rest"],
+    "filesystem": ["dcc-mcp-registry", "skill-packages", "artifact-output"],
+    "process": ["dccmcp-cli", "dcc-mcp-cli-compatibility-alias"]
+  }
+}

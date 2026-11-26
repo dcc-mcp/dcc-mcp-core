@@ -9,7 +9,11 @@ import typing
 
 # ── Module metadata ──
 
+<<<<<<< HEAD
 __version__: builtins.str = "0.20.55"  # x-release-please-version
+=======
+__version__: builtins.str = "0.21.0"  # x-release-please-version
+>>>>>>> ae3d8b55d (feat!: split DCCMCP CLI release boundary)
 __author__: builtins.str = "Hal Long <hal.long@outlook.com>"
 
 # ── Constants (registered via m.add() in src/lib.rs::register_constants) ──

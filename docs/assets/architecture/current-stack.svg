@@ -54,7 +54,7 @@
     <rect x="112" y="209" width="236" height="30" rx="15" fill="#f4f4f5"/>
     <text x="132" y="229" class="label chip">MCP clients</text>
     <rect x="376" y="209" width="238" height="30" rx="15" fill="#f4f4f5"/>
-    <text x="396" y="229" class="label chip">dcc-mcp-cli</text>
+    <text x="396" y="229" class="label chip">dccmcp</text>
     <rect x="642" y="209" width="278" height="30" rx="15" fill="#f4f4f5"/>
     <text x="662" y="229" class="label chip">REST / CI clients</text>
     <rect x="948" y="209" width="314" height="30" rx="15" fill="#f4f4f5"/>

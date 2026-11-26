@@ -11,62 +11,6 @@ use tempfile::{NamedTempFile, TempDir};
 use support::*;
 
 #[test]
-fn global_timeout_does_not_warn_for_an_implicit_command_default() {
-    let fixture = spawn_gateway_fixture();
-    let output = cli_command()
-        .args([
-            "--base-url",
-            &fixture.base_url,
-            "--output",
-            "json",
-            "call",
-            "maya.abc12345.create_sphere",
-            "--json",
-            "{}",
-        ])
-        .env("DCC_MCP_CLI_NO_AUTO_GATEWAY", "true")
-        .env("DCC_MCP_TIMEOUT_SECS", "2")
-        .env_remove("DCC_MCP_CLI_CALL_TIMEOUT_SECS")
-        .output()
-        .unwrap();
-
-    assert!(
-        output.status.success(),
-        "stderr: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert!(
-        !String::from_utf8_lossy(&output.stderr).contains("per-command timeout flags are ignored")
-    );
-}
-
-#[test]
-fn global_timeout_warns_when_a_command_timeout_is_explicitly_configured() {
-    let fixture = spawn_gateway_fixture();
-    let output = cli_command()
-        .args([
-            "--base-url",
-            &fixture.base_url,
-            "--output",
-            "json",
-            "call",
-            "maya.abc12345.create_sphere",
-            "--json",
-            "{}",
-        ])
-        .env("DCC_MCP_CLI_NO_AUTO_GATEWAY", "true")
-        .env("DCC_MCP_TIMEOUT_SECS", "2")
-        .env("DCC_MCP_CLI_CALL_TIMEOUT_SECS", "3")
-        .output()
-        .unwrap();
-
-    assert!(output.status.success());
-    assert!(
-        String::from_utf8_lossy(&output.stderr).contains("per-command timeout flags are ignored")
-    );
-}
-
-#[test]
 fn two_same_type_default_port_instances_are_discoverable() {
     use dcc_mcp_actions::ToolRegistry;
     use dcc_mcp_http::{McpHttpConfig, McpHttpServer};
@@ -348,38 +292,6 @@ fn call_and_call_batch_exit_one_on_tool_failure_after_http_success() {
 }
 
 #[test]
-fn call_wait_streams_progress_to_stderr_and_keeps_stdout_json() {
-    let fixture = spawn_gateway_fixture();
-    let output = cli_command()
-        .args([
-            "--base-url",
-            &fixture.base_url,
-            "--output",
-            "json",
-            "call",
-            "maya.abc12345.long_render",
-            "--json",
-            "{}",
-            "--wait",
-            "--wait-timeout-secs",
-            "10",
-        ])
-        .output()
-        .expect("run long tool call");
-
-    assert!(output.status.success());
-    let body: Value = serde_json::from_slice(&output.stdout).expect("final JSON output");
-    assert_eq!(body["output"]["status"], "completed");
-    assert_eq!(body["output"]["progress"]["current"], 100);
-
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("progress job-progress-42 pending"));
-    assert!(stderr.contains("[#########-----------]  45% (45/100) running: rendering frame 45"));
-    assert!(stderr.contains("[####################] 100% (100/100) completed: render complete"));
-    assert!(!String::from_utf8_lossy(&output.stdout).contains("progress job-progress"));
-}
-
-#[test]
 fn call_falls_back_to_mcp_for_core_tool_missing_from_rest_catalog() {
     let fixture = spawn_gateway_fixture();
 
@@ -443,23 +355,17 @@ fn local_list_reads_file_registry_after_gateway_ensure() {
 }
 
 #[test]
-fn local_list_uses_user_registry_with_redirected_temp() {
+fn local_list_uses_core_default_registry_without_env_override() {
     let fixture = spawn_local_mcp_fixture();
     let temp = TempDir::new().unwrap();
-    let user_home = temp.path().join("user");
-    let agent_temp = temp.path().join("agent-temp");
-    std::fs::create_dir_all(&agent_temp).unwrap();
-    let default_registry = user_home.join(".dcc-mcp").join("registry-live");
+    let default_registry = temp.path().join("dcc-mcp-registry");
     let file_registry = FileRegistry::new(&default_registry).unwrap();
     let port = local_mcp_port(&fixture);
-    for dcc in ["houdini", "photoshop"] {
-        file_registry
-            .register(ServiceEntry::new(dcc, "127.0.0.1", port))
-            .unwrap();
-    }
+    let mut entry = ServiceEntry::new("photoshop", "127.0.0.1", port);
+    entry.display_name = Some("Photoshop-Default-Registry".to_string());
+    file_registry.register(entry).unwrap();
 
-    let temp_s = agent_temp.to_string_lossy().to_string();
-    let home_s = user_home.to_string_lossy().to_string();
+    let temp_s = temp.path().to_string_lossy().to_string();
     let default_registry_s = default_registry.to_string_lossy().to_string();
     let profiles = temp.path().join("gateway-profiles.json");
     let profiles_s = profiles.to_string_lossy().to_string();
@@ -467,12 +373,7 @@ fn local_list_uses_user_registry_with_redirected_temp() {
         ("TMP", temp_s.as_str()),
         ("TEMP", temp_s.as_str()),
         ("TMPDIR", temp_s.as_str()),
-        (
-            if cfg!(windows) { "USERPROFILE" } else { "HOME" },
-            home_s.as_str(),
-        ),
         ("DCC_MCP_GATEWAY_PROFILES_FILE", profiles_s.as_str()),
-        ("DCC_MCP_PYTHON_EXECUTABLE", ""),
         ("DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS", "1"),
         ("DCC_MCP_CLI_NO_AUTO_GATEWAY", "true"),
     ];
@@ -483,46 +384,17 @@ fn local_list_uses_user_registry_with_redirected_temp() {
             "DCC_MCP_REGISTRY_DIR",
             "DCC_MCP_GATEWAY_PROFILE",
             "DCC_MCP_BASE_URL",
-            "LOCALAPPDATA",
-            if cfg!(windows) { "HOME" } else { "USERPROFILE" },
         ],
     );
 
     assert_eq!(list["source"], "local_registry");
     assert_eq!(list["registry_dir"], default_registry_s);
-    assert_eq!(list["total"], 2);
-    let dccs: HashSet<_> = list["instances"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|entry| entry["dcc_type"].as_str().unwrap())
-        .collect();
-    assert_eq!(dccs, HashSet::from(["houdini", "photoshop"]));
-    let before = std::fs::read(default_registry.join("services.json")).unwrap();
-    let doctor = run_json_with_env_removed(
-        &[
-            "--auto-gateway-bin",
-            env!("CARGO_BIN_EXE_dcc-mcp-cli"),
-            "doctor",
-            "--gateway-port",
-            &port.to_string(),
-        ],
-        &envs,
-        &[
-            "DCC_MCP_REGISTRY_DIR",
-            "DCC_MCP_GATEWAY_PROFILE",
-            "DCC_MCP_BASE_URL",
-            "LOCALAPPDATA",
-            if cfg!(windows) { "HOME" } else { "USERPROFILE" },
-        ],
-    );
-    assert_eq!(doctor["local"]["registry_dir"], default_registry_s);
-    assert_eq!(doctor["local"]["inventory"]["total"], 2);
+    assert_eq!(list["total"], 1);
+    assert_eq!(list["instances"][0]["dcc_type"], "photoshop");
     assert_eq!(
-        before,
-        std::fs::read(default_registry.join("services.json")).unwrap()
+        list["instances"][0]["display_name"],
+        "Photoshop-Default-Registry"
     );
-    assert!(!agent_temp.join("dcc-mcp-registry").exists());
 }
 
 #[test]
@@ -561,9 +433,6 @@ fn local_profile_controls_registered_instance_through_direct_mcp() {
     let search = run_json_with_env(&["search", "--query", "scene", "--dcc-type", "maya"], &envs);
     assert_eq!(search["source"], "local_mcp");
     assert_eq!(search["total"], 2);
-    assert_eq!(search["total_matches"], 2);
-    assert_eq!(search["returned"], 2);
-    assert_eq!(search["truncated"], false);
     assert_eq!(
         search["hits"][0]["backend_tool"],
         "maya_scene__get_session_info"
@@ -571,192 +440,48 @@ fn local_profile_controls_registered_instance_through_direct_mcp() {
     assert_eq!(search["hits"][0]["instance_id"], instance_id);
     let slug = search["hits"][0]["slug"].as_str().unwrap();
     assert!(slug.starts_with(&format!("maya.{instance_short}.")));
-    assert_eq!(search["hits"][0]["has_schema"], false);
-    assert_eq!(search["hits"][0]["next_step"]["action"], "call");
 
     let describe = run_json_with_env(&["describe", slug], &envs);
     assert_eq!(describe["source"], "local_mcp");
     assert_eq!(describe["record"]["tool_slug"], slug);
     assert_eq!(describe["tool"]["name"], "maya_scene__get_session_info");
 
-    let stderr = run_failure_with_env(
-        &[
-            "load-skill",
-            "--json",
-            &serde_json::to_string(&serde_json::json!({
-                "skill_name": "broken",
-                "dcc_type": "maya",
-                "instance_id": instance_id,
-                "tool_group": "execution"
-            }))
-            .unwrap(),
-        ],
-        &envs,
-    );
-    assert!(stderr.contains("skill load failed"), "stderr: {stderr}");
-    assert_eq!(fixture.activate_group_calls(), 0);
-
-    for (skill_name, expected_error) in [
-        ("broken-domain", "skill domain failure"),
-        ("not-loaded", "skill not loaded"),
-    ] {
-        let stderr = run_failure_with_env(
-            &[
-                "load-skill",
-                "--json",
-                &serde_json::to_string(&serde_json::json!({
-                    "skill_name": skill_name,
-                    "dcc_type": "maya",
-                    "instance_id": instance_id,
-                    "tool_group": "execution"
-                }))
-                .unwrap(),
-            ],
-            &envs,
-        );
-        assert!(stderr.contains(expected_error), "stderr: {stderr}");
-        assert_eq!(fixture.activate_group_calls(), 0);
-    }
-
-    let load_step = &search["hits"][1]["next_step"];
-    assert_eq!(load_step["action"], "load_skill");
-    assert_eq!(load_step["arguments"]["dcc_type"], "maya");
-    assert_eq!(load_step["arguments"]["instance_id"], instance_id);
-    assert_eq!(load_step["arguments"]["tool_group"], "execution");
-    let load_json = serde_json::to_string(&load_step["arguments"]).unwrap();
-    let loaded = run_json_with_env(&["load-skill", "--json", &load_json], &envs);
-    assert_eq!(loaded["source"], "local_mcp");
-    assert_eq!(loaded["loaded"], true);
-    assert_eq!(loaded["activate_groups"], false);
-    assert_eq!(loaded["strict_tool_group"], true);
-    assert_eq!(loaded["activated_groups"], serde_json::json!(["execution"]));
-    assert_eq!(fixture.activate_group_calls(), 1);
-    assert_eq!(loaded["registered_tools"][0], "workflow__run");
-    let canonical_tool_slug = loaded["compact_schema"]["tool_slug"].as_str().unwrap();
-    assert_ne!(
-        canonical_tool_slug,
-        load_step["arguments"]["target_tool_slug"].as_str().unwrap(),
-        "load response must replace the declarative bare action with the registered callable"
-    );
-    assert!(canonical_tool_slug.ends_with(".workflow__run"));
-    assert_eq!(
-        loaded["compact_schema"]["required"],
-        serde_json::json!(["name"])
-    );
-    assert_eq!(loaded["next_step"]["action"], "call");
-    assert_eq!(
-        loaded["next_step"]["schema_source"],
-        "load_skill.compact_schema"
-    );
-
-    let mut call_arguments = loaded["next_step"]["arguments"].clone();
-    call_arguments["arguments"] = serde_json::json!({"name": "demo"});
-    let target_tool_slug = call_arguments["tool_slug"].as_str().unwrap();
-    let backend_arguments = serde_json::to_string(&call_arguments["arguments"]).unwrap();
-    let call = run_json_with_env(
-        &["call", target_tool_slug, "--json", &backend_arguments],
-        &envs,
-    );
-    assert_eq!(call["source"], "local_mcp");
-    assert_eq!(call["control_route"], "local_mcp_direct");
-    assert_eq!(call["gateway_stats_recorded"], false);
-    assert_eq!(call["success"], true);
-    assert_eq!(call["tool_slug"], target_tool_slug);
-    assert_eq!(call["backend_tool"], "workflow__run");
-    let first_request_id = call["request_id"]
-        .as_str()
-        .expect("local call output must expose its transport correlation id");
-    let first_request_uuid = first_request_id
-        .strip_prefix("dcc-mcp-cli-local-")
-        .expect("local call request id prefix");
-    uuid::Uuid::parse_str(first_request_uuid).expect("local call request id must end in a UUID");
-    assert_eq!(call["result"]["isError"], false);
-
-    let second_call = run_json_with_env(
-        &["call", target_tool_slug, "--json", &backend_arguments],
-        &envs,
-    );
-    let second_request_id = second_call["request_id"]
-        .as_str()
-        .expect("second local call must expose its transport correlation id");
-    let second_request_uuid = second_request_id
-        .strip_prefix("dcc-mcp-cli-local-")
-        .expect("second local call request id prefix");
-    uuid::Uuid::parse_str(second_request_uuid)
-        .expect("second local call request id must end in a UUID");
-    assert_ne!(
-        first_request_id, second_request_id,
-        "repeated tools/call requests must use distinct correlation ids"
-    );
-    assert_eq!(second_call["result"]["isError"], false);
-
-    let skill_only = run_json_with_env(
-        &["search", "--query", "skill-only", "--dcc-type", "maya"],
-        &envs,
-    );
-    assert_eq!(skill_only["total"], 1);
-    assert_eq!(
-        skill_only["hits"][0]["matching_tools"],
-        serde_json::json!([])
-    );
-    let skill_only_load = &skill_only["hits"][0]["next_step"];
-    assert_eq!(skill_only_load["action"], "load_skill");
-    assert!(
-        skill_only_load["arguments"]
-            .get("target_tool_slug")
-            .is_none()
-    );
     let loaded = run_json_with_env(
         &[
             "load-skill",
-            "--json",
-            &serde_json::to_string(&skill_only_load["arguments"]).unwrap(),
+            "workflow",
+            "--dcc-type",
+            "maya",
+            "--instance-id",
+            &instance_short,
         ],
         &envs,
     );
-    assert_eq!(loaded["next_step"]["action"], "call");
-    assert!(
-        loaded["next_step"]["arguments"]["tool_slug"]
-            .as_str()
-            .unwrap()
-            .ends_with(".workflow__run")
-    );
+    assert_eq!(loaded["source"], "local_mcp");
+    assert_eq!(loaded["loaded"], true);
+    assert_eq!(loaded["registered_tools"][0], "workflow__run");
 
-    let inactive = run_json_with_env(
-        &["search", "--query", "inactive", "--dcc-type", "maya"],
-        &envs,
-    );
-    assert_eq!(inactive["total"], 1);
-    let inactive_step = &inactive["hits"][0]["next_step"];
-    assert_eq!(inactive["hits"][0]["enabled"], false);
-    assert_eq!(inactive_step["action"], "load_skill");
-    assert_eq!(inactive_step["arguments"]["skill_name"], "workflow");
-    assert_eq!(inactive_step["arguments"]["tool_group"], "execution");
-    assert_eq!(
-        inactive_step["arguments"]["target_tool_slug"],
-        inactive["hits"][0]["slug"]
-    );
+    let call = run_json_with_env(&["call", slug, "--json", r#"{"detail":true}"#], &envs);
+    assert_eq!(call["source"], "local_mcp");
+    assert_eq!(call["success"], true);
+    assert_eq!(call["tool_slug"], slug);
+    assert_eq!(call["result"]["isError"], false);
 
-    let inactive_load = run_json_with_env(
+    let direct_call = run_json_with_env(
         &[
-            "load-skill",
+            "call",
+            "workflow__run",
+            "--dcc-type",
+            "maya",
+            "--instance-id",
+            &instance_short,
             "--json",
-            &serde_json::to_string(&inactive_step["arguments"]).unwrap(),
+            r#"{"name":"demo"}"#,
         ],
         &envs,
     );
-    assert_eq!(fixture.activate_group_calls(), 2);
-    assert_eq!(
-        inactive_load["activated_groups"],
-        serde_json::json!(["execution"])
-    );
-    assert_eq!(inactive_load["next_step"]["action"], "call");
-    assert!(
-        inactive_load["next_step"]["arguments"]["tool_slug"]
-            .as_str()
-            .unwrap()
-            .ends_with(".workflow__run")
-    );
+    assert_eq!(direct_call["success"], true);
+    assert_eq!(direct_call["backend_tool"], "workflow__run");
 
     let reload = run_json_with_env(
         &[
@@ -785,7 +510,7 @@ fn local_profile_controls_registered_instance_through_direct_mcp() {
             "--instance-id",
             &instance_short,
             "--require",
-            "skill_catalog,dispatcher,host_execution_bridge",
+            "dispatcher,host_execution_bridge",
             "--timeout-secs",
             "1",
         ],
@@ -793,8 +518,6 @@ fn local_profile_controls_registered_instance_through_direct_mcp() {
     );
     assert_eq!(ready["source"], "local_mcp");
     assert_eq!(ready["ready"], true);
-    assert_eq!(ready["readiness"]["skill_catalog"], true);
-    assert_eq!(ready["readiness"]["skill_catalog_source"], "discovery_mcp");
     assert_eq!(ready["missing"].as_array().unwrap().len(), 0);
 
     let stop = run_json_with_env(
@@ -935,114 +658,7 @@ fn local_search_without_query_lists_tools_for_dcc_filter() {
 }
 
 #[test]
-fn local_search_surfaces_ui_control_tools_after_load() {
-    let fixture = spawn_local_mcp_fixture();
-    let registry = TempDir::new().unwrap();
-    let file_registry = FileRegistry::new(registry.path()).unwrap();
-    let mut entry = ServiceEntry::new("maya", "127.0.0.1", 0);
-    let instance_short = entry.instance_id.to_string()[..8].to_string();
-    entry
-        .metadata
-        .insert("mcp_url".to_string(), fixture.mcp_url());
-    file_registry.register(entry).unwrap();
-
-    let registry_s = registry.path().to_string_lossy().to_string();
-    let profiles_s = registry
-        .path()
-        .join("gateway-profiles.json")
-        .to_string_lossy()
-        .to_string();
-    let envs = [
-        ("DCC_MCP_REGISTRY_DIR", registry_s.as_str()),
-        ("DCC_MCP_GATEWAY_PROFILES_FILE", profiles_s.as_str()),
-        ("DCC_MCP_GATEWAY_PROFILE", "local"),
-        ("DCC_MCP_BASE_URL", ""),
-        ("DCC_MCP_CLI_NO_AUTO_GATEWAY", "true"),
-    ];
-
-    let loaded = run_json_with_env(
-        &[
-            "load-skill",
-            "ui-control",
-            "--dcc-type",
-            "maya",
-            "--instance-id",
-            &instance_short,
-        ],
-        &envs,
-    );
-    assert_eq!(loaded["registered_tools"][0], "ui_control__snapshot");
-
-    let search = run_json_with_env(
-        &[
-            "search",
-            "--query",
-            "ui control snapshot",
-            "--dcc-type",
-            "maya",
-            "--instance-id",
-            &instance_short,
-        ],
-        &envs,
-    );
-    assert_eq!(search["source"], "local_mcp");
-    assert_eq!(search["total"], 1);
-    assert_eq!(search["hits"][0]["backend_tool"], "ui_control__snapshot");
-    assert_eq!(search["hits"][0]["kind"], "tool");
-}
-
-#[test]
-fn local_search_and_describe_use_sidecar_discovery_mcp_url() {
-    let fixture = spawn_local_mcp_fixture();
-    let registry = TempDir::new().unwrap();
-    let file_registry = FileRegistry::new(registry.path()).unwrap();
-    let mut entry = ServiceEntry::new("maya", "127.0.0.1", 9);
-    let instance_short = entry.instance_id.to_string()[..8].to_string();
-    entry.status = ServiceStatus::Available;
-    entry
-        .metadata
-        .insert("dcc_mcp_role".to_string(), "per-dcc-sidecar".to_string());
-    entry
-        .metadata
-        .insert("dispatch_status".to_string(), "ready".to_string());
-    entry
-        .metadata
-        .insert("mcp_url".to_string(), "http://127.0.0.1:9/mcp".to_string());
-    entry
-        .metadata
-        .insert("discovery_mcp_url".to_string(), fixture.mcp_url());
-    file_registry.register(entry).unwrap();
-
-    let registry_s = registry.path().to_string_lossy().to_string();
-    let profiles_s = registry
-        .path()
-        .join("gateway-profiles.json")
-        .to_string_lossy()
-        .to_string();
-    let envs = [
-        ("DCC_MCP_REGISTRY_DIR", registry_s.as_str()),
-        ("DCC_MCP_GATEWAY_PROFILES_FILE", profiles_s.as_str()),
-        ("DCC_MCP_GATEWAY_PROFILE", "local"),
-        ("DCC_MCP_BASE_URL", ""),
-        ("DCC_MCP_CLI_NO_AUTO_GATEWAY", "true"),
-    ];
-
-    let search = run_json_with_env(&["search", "--query", "scene", "--dcc-type", "maya"], &envs);
-    assert_eq!(search["source"], "local_mcp");
-    assert!(
-        search["hits"]
-            .as_array()
-            .is_some_and(|hits| !hits.is_empty()),
-        "sidecar discovery search should use discovery_mcp_url: {search}"
-    );
-
-    let slug = format!("maya.{instance_short}.dynamic__run");
-    let describe = run_json_with_env(&["describe", &slug], &envs);
-    assert_eq!(describe["tool"]["name"], "dynamic__run");
-}
-
-#[test]
-fn local_describe_prefers_exact_rest_lookup() {
+fn local_describe_uses_rest_for_loaded_tool_missing_from_tools_list() {
     let fixture = spawn_local_mcp_fixture();
     let registry = TempDir::new().unwrap();
     let file_registry = FileRegistry::new(registry.path()).unwrap();
@@ -1071,11 +687,6 @@ fn local_describe_prefers_exact_rest_lookup() {
     assert_eq!(describe["source"], "local_mcp");
     assert_eq!(describe["tool"]["name"], "dynamic__run");
     assert_eq!(describe["tool"]["inputSchema"]["required"][0], "name");
-    assert_eq!(
-        fixture.tools_list_calls(),
-        0,
-        "exact local describe must not enumerate the full tools/list"
-    );
 }
 
 #[test]
@@ -1194,9 +805,7 @@ fn local_search_routes_ready_sidecar_and_skips_unavailable_rows() {
         diagnostic_row["direct_control"]["recommended_next_action"]
             .as_str()
             .unwrap()
-            .contains("Instance is booting"),
-        "diagnostic row recommended_next_action: {}",
-        diagnostic_row["direct_control"]["recommended_next_action"]
+            .contains("wait-ready")
     );
     let sidecar_row = instances
         .iter()
@@ -1224,9 +833,7 @@ fn local_search_routes_ready_sidecar_and_skips_unavailable_rows() {
         sidecar_row["direct_control"]["recommended_next_action"]
             .as_str()
             .unwrap()
-            .contains("failure stage/reason"),
-        "sidecar row recommended_next_action: {}",
-        sidecar_row["direct_control"]["recommended_next_action"]
+            .contains("dispatch_status=ready")
     );
     let ready_row = instances
         .iter()
@@ -1236,7 +843,7 @@ fn local_search_routes_ready_sidecar_and_skips_unavailable_rows() {
     assert_eq!(ready_row["direct_control"]["route"], "local_mcp");
     assert_eq!(
         ready_row["direct_control"]["recommended_next_action"],
-        "Instance is available for dispatch."
+        "Use this instance through the local MCP route."
     );
 
     let search = run_json_with_env(&["search", "--query", "scene", "--dcc-type", "maya"], &envs);
@@ -1491,6 +1098,63 @@ fn gateway_daemon_status_uses_formal_subcommand() {
 }
 
 #[test]
+fn doctor_reports_local_defaults_without_starting_gateway() {
+    let port = unused_loopback_port();
+    let port_s = port.to_string();
+    let registry = TempDir::new().unwrap();
+    let registry_s = registry.path().to_string_lossy().to_string();
+    let profiles = NamedTempFile::new().unwrap();
+    let profiles_s = profiles.path().to_string_lossy().to_string();
+    let cli_bin = env!("CARGO_BIN_EXE_dcc-mcp-cli");
+    let envs = [
+        ("DCC_MCP_REGISTRY_DIR", registry_s.as_str()),
+        ("DCC_MCP_GATEWAY_PROFILES_FILE", profiles_s.as_str()),
+    ];
+
+    let doctor = run_json_with_env(
+        &[
+            "--auto-gateway-bin",
+            cli_bin,
+            "doctor",
+            "--gateway-port",
+            &port_s,
+        ],
+        &envs,
+    );
+
+    assert_eq!(doctor["status"], "ok");
+    assert_eq!(doctor["cli"]["name"], "dcc-mcp-cli");
+    assert!(doctor["cli"]["version"].as_str().unwrap().starts_with("0."));
+    assert_eq!(doctor["profile"]["stored_current"], "local");
+    assert_eq!(doctor["profile"]["selected"]["name"], "local");
+    assert_eq!(doctor["profile"]["selected"]["mode"], "local");
+    assert_eq!(doctor["local"]["registry_dir"], registry_s);
+    assert_eq!(doctor["local"]["inventory"]["ok"], true);
+    assert_eq!(doctor["local"]["inventory"]["total"], 0);
+    assert_eq!(doctor["local"]["inventory"]["direct_control"]["ready"], 0);
+    assert_eq!(
+        doctor["local"]["inventory"]["direct_control"]["not_ready"],
+        0
+    );
+    assert_eq!(doctor["gateway"]["auto_start_enabled"], true);
+    assert_eq!(
+        doctor["gateway"]["default_base_url"],
+        format!("http://127.0.0.1:{port}")
+    );
+    assert_eq!(doctor["gateway"]["status"]["healthy"], false);
+    assert_eq!(doctor["server_binary"]["status"], "ok");
+    assert_eq!(doctor["server_binary"]["source"], "explicit");
+    assert_eq!(doctor["server_binary"]["path"], cli_bin);
+    assert_eq!(doctor["server_binary"]["would_download_if_started"], false);
+    assert!(
+        doctor["server_binary"]["version"]
+            .as_str()
+            .unwrap()
+            .contains("dccmcp")
+    );
+}
+
+#[test]
 fn doctor_summarizes_local_direct_control_readiness() {
     let port = unused_loopback_port();
     let port_s = port.to_string();
@@ -1646,7 +1310,7 @@ fn update_check_auto_starts_builtin_local_gateway() {
 }
 
 #[test]
-fn version_preserves_staging_and_normal_startup_quarantines_unsigned_updates() {
+fn staged_update_applies_before_version_short_circuit() {
     let temp = TempDir::new().unwrap();
     let source = std::path::Path::new(env!("CARGO_BIN_EXE_dcc-mcp-cli"));
     let cli = temp.path().join(source.file_name().unwrap());
@@ -1681,52 +1345,10 @@ fn version_preserves_staging_and_normal_startup_quarantines_unsigned_updates() {
         "stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert_eq!(std::fs::read(&marker).unwrap(), b"pending");
-    assert_eq!(std::fs::read_dir(&staging).unwrap().count(), 2);
-    assert_eq!(
-        std::fs::read(staging.join("pending.bin")).unwrap(),
-        std::fs::read(source).unwrap(),
-        "--version must leave staged bytes unchanged"
-    );
-
-    // A valid normal command still reaches updater quarantine. The missing
-    // profile stops execution before health I/O, and background work is off.
-    let normal = std::process::Command::new(&cli)
-        .args([
-            "--gateway",
-            "read-only-test-missing-profile",
-            "--no-auto-gateway",
-            "health",
-        ])
-        .env("APPDATA", &appdata)
-        .env("XDG_DATA_HOME", &xdg_data)
-        .env("HOME", &home)
-        .env("DCC_MCP_UPDATE_BACKGROUND", "1")
-        .env_remove("DCC_MCP_UPDATE_JUST_APPLIED")
-        .output()
-        .unwrap();
-    assert!(
-        !normal.status.success(),
-        "the missing profile must reject the command"
-    );
     assert!(
         !marker.exists(),
-        "normal startup must quarantine unsigned staged bytes"
-    );
-    assert_eq!(
-        std::fs::read(&cli).unwrap(),
-        std::fs::read(source).unwrap(),
-        "legacy unsigned bytes must never replace the CLI"
-    );
-    assert!(
-        std::fs::read_dir(&staging)
-            .unwrap()
-            .filter_map(Result::ok)
-            .any(|entry| entry
-                .file_name()
-                .to_string_lossy()
-                .starts_with("legacy-unsigned-")),
-        "legacy update should be retained in a quarantine directory"
+        "--version must apply a staged update before clap exits; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
     );
 }
 
@@ -1808,6 +1430,67 @@ fn smoke_with_explicit_url_does_not_auto_start_gateway() {
 }
 
 #[test]
+fn update_check_supports_server_binary_versions() {
+    let fixture = spawn_gateway_fixture();
+
+    let update = run_json(&[
+        "--base-url",
+        &fixture.base_url,
+        "update",
+        "check",
+        "--binary",
+        "dcc-mcp-server",
+        "--current-version",
+        "0.18.16",
+    ]);
+
+    assert_eq!(update["update_available"], true);
+    assert_eq!(update["current_version"], "0.18.16");
+    assert_eq!(update["latest_version"], "0.19.0");
+    assert_eq!(
+        update["download_url"],
+        "https://example.invalid/dcc-mcp-server.zip"
+    );
+    assert_eq!(update["sha256"], "abc123");
+    assert_eq!(update["release_notes"], "Server update");
+}
+
+#[test]
+fn update_check_preserves_gateway_error_payload() {
+    let fixture = spawn_gateway_fixture();
+
+    let output = cli_command()
+        .args([
+            "--base-url",
+            &fixture.base_url,
+            "update",
+            "check",
+            "--binary",
+            "dcc-mcp-cli",
+            "--current-version",
+            "0.18.16",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        !output.status.success(),
+        "update check should fail when the gateway reports an update error"
+    );
+    let update: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        update["error"],
+        "binary 'dcc-mcp-cli' not found in update manifest"
+    );
+    assert_eq!(update["binary_name"], "dcc-mcp-cli");
+    assert_eq!(update["current_version"], "0.18.16");
+    assert!(
+        !String::from_utf8_lossy(&output.stderr).contains("missing field"),
+        "stderr should not expose serde decode failures"
+    );
+}
+
+#[test]
 fn search_and_load_skill_decode_json_when_gateway_defaults_to_compact() {
     let fixture = spawn_gateway_fixture();
 
@@ -1842,45 +1525,8 @@ fn dcc_types_lists_release_catalog_without_a_gateway() {
 
     assert_eq!(value["custom_types_supported"], true);
     let types = value["dcc_types"].as_array().unwrap();
-    // Registering a new adapter is a legal catalog change, so the catalog size
-    // is not a fixed invariant. What must hold is that the reported total
-    // tracks the listed types and that every host below is still covered.
-    let expected_types = [
-        "aftereffects",
-        "c4d",
-        "comfyui",
-        "freecad",
-        "gimp",
-        "godot",
-        "illustrator",
-        "kdenlive",
-        "krita",
-        "mari",
-        "marmoset",
-        "material-maker",
-        "obs",
-        "openusd",
-        "openscad",
-        "powerpoint",
-        "renderdoc",
-        "shotgrid",
-        "sketchup",
-        "shogun",
-        "tiled",
-        "touchdesigner",
-        "unity",
-        "wwise",
-    ];
-    assert_eq!(
-        value["total"].as_u64(),
-        Some(types.len() as u64),
-        "the reported total must track the number of listed DCC types"
-    );
-    assert!(
-        types.len() >= expected_types.len(),
-        "the release catalog must still cover every DCC type asserted below"
-    );
-    for expected in expected_types {
+    assert_eq!(types.len(), 18);
+    for expected in ["godot", "openusd", "renderdoc", "shotgrid"] {
         assert!(types.iter().any(|entry| entry["dcc_type"] == expected));
     }
 }

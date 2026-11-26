@@ -17,12 +17,8 @@ anyhow.workspace = true
 base64.workspace = true
 clap = { version = "4", features = ["derive", "env"] }
 dcc-mcp-catalog.workspace = true
-dcc-mcp-attestation.workspace = true
+dcc-mcp-client.workspace = true
 dcc-mcp-gateway-ensure.workspace = true
-dcc-mcp-gateway.workspace = true
-dcc-mcp-jsonrpc.workspace = true
-dcc-mcp-http-server.workspace = true
-# Keep the path override: Cargo cannot override inherited workspace default features.
 dcc-mcp-sidecar = { path = "../dcc-mcp-sidecar", default-features = false, features = ["gateway-daemon", "admin"] }
 dcc-mcp-transport.workspace = true
 dcc-mcp-updater.workspace = true
@@ -30,32 +26,18 @@ dcc-mcp-marketplace.workspace = true
 dcc-mcp-models.workspace = true
 dcc-mcp-skills.workspace = true
 dirs.workspace = true
-flate2 = "1"
-fs4 = "1.1.0"
-jsonschema = "0.28"
 reqwest.workspace = true
-semver.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-serde_yaml_ng.workspace = true
-sha2.workspace = true
-tar = "0.4"
-tempfile.workspace = true
+sha2 = "0.11"
+tempfile = "3"
 thiserror.workspace = true
 tokio.workspace = true
-toon-format.workspace = true
-uuid.workspace = true
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
-axum = { workspace = true, features = ["http1", "tokio"] }
+axum = { version = "0.8", features = ["http1", "tokio"] }
 dcc-mcp-actions.workspace = true
 dcc-mcp-http.workspace = true
 hex = "0.4"
-
-[target.'cfg(unix)'.dependencies]
-libc.workspace = true
-
-[target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Diagnostics_ToolHelp", "Win32_System_JobObjects", "Win32_System_Threading"] }

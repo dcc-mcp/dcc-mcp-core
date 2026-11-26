@@ -278,7 +278,7 @@ plan = plan_runtime_updates(
 }
 ```
 
-启动自己的 DCC 进程的发布冒烟测试应发布稳定的公共生命周期元数据（`owner`、`session`），并在支持时发布 `safe_stop_url` 回调。网关和 `dcc-mcp-cli stop-instance` 仅将安全停止请求转发到该显式回调，从不直接终止进程。
+启动自己的 DCC 进程的发布冒烟测试应发布稳定的公共生命周期元数据（`owner`、`session`），并在支持时发布 `safe_stop_url` 回调。网关和 `dccmcp stop-instance` 仅将安全停止请求转发到该显式回调，从不直接终止进程。
 
 ## 安全删除或替换
 

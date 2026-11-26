@@ -1,6 +1,6 @@
-# Marketplace：Plugin、Bundle 与 Skill 目录
+# Marketplace：技能包目录与安装器
 
-Marketplace 是一个 CLI 优先的发现和安装系统，用于官方和社区 Plugin、Bundle 与 Skill。它将人类可读的名称从一个或多个目录源中解析，下载或克隆匹配的包，并注册到系统中，使得 DCC 适配器能够在下次重启或调用 `reload_skill_paths` 时发现它们。
+Marketplace 是一个 CLI 优先的发现和安装系统，用于官方和社区技能包。它将人类可读的名称从一个或多个目录源中解析，下载或克隆匹配的包，并注册到系统中，使得 DCC 适配器能够在下次重启或调用 `reload_skill_paths` 时发现它们。
 
 ## 架构
 
@@ -50,6 +50,9 @@ Marketplace **源**是指向目录文件的命名引用。源持久化存储在 
 | 原始 JSON URL       | `https://example.com/catalog.json`            |
 | 本地文件            | `/path/to/local-catalog.yml`                  |
 
+远程目录和安装 URL 必须使用 HTTPS。回环地址的 HTTP 仅用于本地开发服务，
+本地目录和路径安装继续使用文件系统路径。
+
 ### 源优先级
 
 1. 内置官方源（`dcc-mcp/marketplace`）
@@ -67,9 +70,9 @@ Marketplace **源**是指向目录文件的命名引用。源持久化存储在 
 | `marketplace list`                        | 列出已配置的源            |
 | `marketplace search --query <q>`          | 跨源搜索条目              |
 | `marketplace inspect <name>`              | 显示完整条目元数据        |
-| `marketplace install <name> --dcc <dcc> --reload` | 安装 Plugin、Bundle 或 Skill 并刷新运行中的 adapter |
+| `marketplace install <name> --dcc <dcc>`  | 安装技能包                |
 | `marketplace list-installed --dcc <dcc>`  | 列出已安装的包            |
-| `marketplace uninstall <name> [--dcc <dcc>] [--reload]`| 移除已安装的包并可刷新适配器 |
+| `marketplace uninstall <name> --dcc <dcc>`| 移除已安装的包            |
 | `marketplace outdated [name] --dcc <dcc>` | 检查是否有更新版本        |
 | `marketplace update [name] --all`         | 升级已安装的包            |
 | `marketplace pack <path> --out dist/`     | 生成 zip 包和 SHA-256 摘要 |
@@ -77,53 +80,8 @@ Marketplace **源**是指向目录文件的命名引用。源持久化存储在 
 
 完整参数参考：[cli-reference.md](cli-reference.md#marketplace)。
 
-### 多宿主编排：一次安装，多宿主共享
-
-声明多个宿主的条目（如 `dcc: ["maya", "blender", "houdini"]`）携带的是同一份
-所有宿主都能加载的内容，因此 `marketplace install` 只写**一份**：
-
-```bash
-# 不指定宿主，或显式使用共享落点的写法，安装结果相同
-dcc-mcp-cli marketplace install dcc-asset-polyhaven
-dcc-mcp-cli marketplace install dcc-asset-polyhaven --dcc all
-```
-
-| 条目声明                  | `--dcc`                        | 落点                        |
-|---------------------------|--------------------------------|-----------------------------|
-| 单个宿主（`["maya"]`）    | 省略，或 `maya`                | `marketplace/maya/<name>/`  |
-| 多个宿主                  | 省略、`all` 或 `any`           | `marketplace/any/<name>/`   |
-| 宿主无关（`["any"]`）     | 省略、`all`、`any` 或具体宿主  | `marketplace/any/<name>/` |
-
-共享目录 `any` 本来就在每个宿主的 skill 搜索路径里，所以一份副本即可被所有宿主
-发现。共享 Marketplace 目录会排在宿主专属目录之前，避免旧的宿主副本遮蔽多宿主包
-的统一版本。对只声明单个具体宿主的条目，`--dcc all` 会被拒绝：这类条目与宿主绑定，
-仍落在自己的目录里。
-
-宿主确实会加载共享包，因此 `marketplace list-installed --dcc <host>` 会列出它们，
-`marketplace uninstall <name> --dcc <host>` 也能移除它们。
-
-在此行为之前安装的包会在每个宿主目录下各留一份。安装共享副本时，这些路径会以
-`superseded` 出现在安装 JSON 里；它们仍是重复文件并继续占用磁盘，直到被移除：
-
-```bash
-dcc-mcp-cli marketplace uninstall dcc-asset-polyhaven --dcc maya
-```
-
-## 包结构
-
-安装命令继续兼容单 Skill 包和已有 Bundle；当包根目录存在 `plugin.json`
-时，也会按 [Agent Plugins 1.0](https://agent-plugins.org/specification) 识别。
-Agent Plugin 只从 `skills/<name>/SKILL.md` 的直接子目录发现 Skill，并在安装前
-校验 manifest schema、插件名称及解析后路径边界。
-
-`package.format: agent-plugin` 表示标准 Agent Plugin；
-`package.format: skill-bundle` 表示由多个 `source.skillRoots` 组成的既有
-DCC-MCP Bundle。两者都用 `package.skills` 向商城展示包含的组件。当前
-DCC-MCP 客户端只安装 Skill 组件；可选 `mcp.json` 暂不加载，因为 DCC adapter
-已经拥有运行时 MCP 连接。
-
-`marketplace add-repo <owner/repo> --dcc <dcc>` 也会识别根目录
-`plugin.json`，因此无需 catalog 即可直接安装一个完整 Agent Plugin。
+主机中立和多 DCC 条目只安装一次到 `~/.dcc-mcp/marketplace/any/<name>/`，
+所有匹配的 DCC 都会搜索共享目录。`--dcc all` 也指向共享目录。
 
 ## 安装类型
 
@@ -177,9 +135,9 @@ catalog 明确需要固定宿主 Python 解释器时才使用 `install.python_pa
 再更新 `marketplace.json`：
 
 ```bash
-dcc-mcp-cli marketplace pack . --out dist/
+dccmcp marketplace pack . --out dist/
 gh release upload v0.1.0 dist/my-skill.zip --clobber
-dcc-mcp-cli marketplace publish . \
+dccmcp marketplace publish . \
   --catalog ../marketplace/marketplace.json \
   --install-url https://github.com/<owner>/<repo>/releases/download/v0.1.0/my-skill.zip \
   --sha256 sha256:<digest>
@@ -203,7 +161,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Pack marketplace package
-        run: dcc-mcp-cli marketplace pack . --out dist/
+        run: dccmcp marketplace pack . --out dist/
       - name: Upload release asset
         run: gh release upload "${GITHUB_REF_NAME}" dist/*.zip --clobber
         env:
@@ -218,23 +176,21 @@ jobs:
 ~/.dcc-mcp/marketplace/
 ├── sources.json              # 注册的源列表
 ├── installed.json            # 已安装包的状态
-├── any/                      # 共享的宿主无关、多宿主安装
-│   └── dcc-asset-polyhaven/
-├── all/                      # 兼容旧版本的共享安装目录
-│   └── legacy-skill/
+├── any/                      # 所有 DCC 主机共享的包
+│   └── dcc-cross-dcc-skill/
 ├── maya/
 │   ├── dcc-mcp-maya-skills/  # 已安装的 git 克隆
-│   ├── my-custom-skill/      # 已安装的路径复制
-│   └── .packages/
-│       └── rig-plugin/       # Bundle 统一卸载 manifest
+│   └── my-custom-skill/      # 已安装的路径复制
 └── blender/
     └── dcc-blender-skills/
 ```
 
-DCC 适配器会按 `~/.dcc-mcp/marketplace/any`、旧版共享目录
-`~/.dcc-mcp/marketplace/all`、`~/.dcc-mcp/marketplace/<dcc>` 的顺序加入技能搜索路径
-（参见 `server_base.py` 中的 `collect_skill_search_paths()`），因此已安装的技能会在
-适配器启动或 `reload_skill_paths` 时被发现。
+DCC 适配器会按顺序自动将 `~/.dcc-mcp/marketplace/any`、旧版
+`~/.dcc-mcp/marketplace/all`，以及 `~/.dcc-mcp/marketplace/<dcc>` 加入技能
+搜索路径（参见 `server_base.py` 中的 `collect_skill_search_paths()`），因此
+已安装的技能会在适配器启动或 `reload_skill_paths` 时被发现。相同名称的
+共享 Marketplace 包在所有 DCC 主机使用同一个规范版本，共享目录具有更高
+优先级。
 
 ## 环境变量
 
@@ -251,17 +207,12 @@ DCC 适配器会按 `~/.dcc-mcp/marketplace/any`、旧版共享目录
 
 - **路径遍历保护**：`marketplace_path_component()` 拒绝空组件、`.`、`..`、
   前导点和非 ASCII 字母数字字符。
-- **不可变 Git 安装**：catalog Git source 和 direct repository install 都要求完整
-  commit object ID，并验证 detached checkout。
-- **强制 SHA-256**：ZIP 安装必须先提供有效摘要；缺失、格式错误或不匹配都会在
-  修改 package 前失败。
-- **官方 catalog provenance**：内置 `dcc-mcp/marketplace` catalog 必须匹配其
-  detached Sigstore bundle、GitHub Actions issuer、transparency log 和精确的
-  main-branch workflow identity，之后才会解析条目。显式 local/studio source
-  仍属于 operator 信任的覆盖边界。
+- **SHA256 校验**：远程 ZIP 安装必须提供 `install.sha256`，哈希不匹配时拒绝
+  安装，且不会修改已有包。
+- **HTTPS 传输**：远程目录、Git 源和包归档拒绝公开 HTTP URL。
 - **压缩包逃逸检测**：ZIP 解压会拒绝逃脱安装根目录的条目。
-- **Plugin 路径边界**：Agent Plugin manifest 和固定 Skill 组件必须解析在
-  plugin 根目录内；不支持的 manifest schema 会被拒绝。
+- **卸载根目录保护**：已记录的包路径必须位于 DCC Marketplace 根目录内才允许删除。
+- **ClawHub 打包保护**：发布归档会排除版本控制目录、缓存、字节码和符号链接文件。
 - **强制模式**：`--force` 会在安装失败时重试，但当替换本身失败时会保留
   现有包。
 
@@ -296,9 +247,6 @@ result = client.resources_read("gateway://catalog/dcc-mcp-physics-sim")
     url: "https://github.com/..."
     ref: "v1.2.0"                    # 标签/分支/提交（git 类型）
     sha256: "a1b2c3..."              # 内容哈希（zip 类型）
-  package:
-    format: agent-plugin              # agent-plugin | skill-bundle
-    skills: [maya-rig, rig-review]    # 商城展示的组件
   maintainer: "team@example.com"     # 可选联系方式
 ```
 
@@ -339,18 +287,16 @@ Marketplace 面板反映与 CLI 相同的来源配置。来源管理功能通过
 | 方面 | CLI | Admin UI |
 |------|-----|----------|
 | 目录搜索 | `marketplace search --query <q>` | 浏览标签页，支持搜索 + DCC 筛选 |
-| 安装 | `marketplace install <name> --dcc <dcc> --reload` | 卡片或详情弹窗上的 Install 按钮 |
-| 卸载 | `marketplace uninstall <name> [--dcc <dcc>] [--reload]` | 已安装标签页的 Uninstall 按钮 |
+| 安装 | `marketplace install <name> --dcc <dcc>` | 卡片或详情弹窗上的 Install 按钮 |
+| 卸载 | `marketplace uninstall <name> --dcc <dcc>` | 已安装标签页的 Uninstall 按钮 |
 | 列出已安装 | `marketplace list-installed --dcc <dcc>` | 已安装标签页 |
 | 添加来源 | `marketplace add <source>` | 面板中的来源管理界面 |
 | 更新 | `marketplace update [name] --all` | Admin API (`POST /admin/api/marketplace/update`) |
-| 刷新运行中的 adapter | 安装时由 `--reload` 合并完成；更新/卸载后单独运行 | 后端报告 `reload_required` 时自动刷新 |
+| 刷新运行中的 adapter | 安装/更新/卸载后运行 `reload-skills --dcc-type <dcc>` | 后端报告 `reload_required` 时自动刷新 |
 
-两种界面共享同一套已安装包状态。已知准确 ID 时，CLI 用户可用
-`marketplace install <name> --dcc <dcc> --reload` 一次完成安装和运行时刷新；
-单 DCC 包可省略 `--dcc`，声明多宿主包同样可以省略，此时只安装一份到所有宿主
-都会搜索的共享目录。Admin UI 在后端报告 `reload_required` 时会自动触发
-相同刷新。更新和卸载如需立即生效，仍单独运行 `reload-skills`。
+两种界面共享同一套已安装包状态，但运行中的 adapter 只有在启动时，或显式运行
+`dccmcp reload-skills --dcc-type <dcc>` 后，才会看到 CLI 新安装的包。
+Admin UI 在后端报告 `reload_required` 时会自动触发该刷新。
 
 ## 参见
 

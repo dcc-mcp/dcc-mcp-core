@@ -2,27 +2,23 @@
 
 The Skills system registers scripts (Python, MEL, MaxScript, BAT, Shell, etc.) as MCP-discoverable tools with **zero Python glue code**. `SKILL.md` follows the agentskills.io V1.0 frontmatter shape; dcc-mcp-core extensions live under `metadata.dcc-mcp.*` and point to sibling files such as `tools.yaml` and `groups.yaml`. Keep extension data out of top-level `SKILL.md` keys so generic agentskills.io readers can still parse the package.
 
-For **adapter maintenance** (I/O tool copy, `recipes` / `skill-reference-docs`, gateway-friendly descriptions), use [skill-maintenance.md](skill-maintenance.md). For agent-facing adapter skill development guidance, install [`dcc-mcp-skills-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-skills-creator); its source is maintained in [`dcc-mcp-agent-plugins`](https://github.com/dcc-mcp/dcc-mcp-agent-plugins/tree/main/plugins/dcc-mcp/skills/dcc-mcp-skills-creator). In-tree runtime reference skills: `python/dcc_mcp_core/skills/dcc-diagnostics`, `python/dcc_mcp_core/skills/workflow`.
+For **adapter maintenance** (I/O tool copy, `recipes` / `skill-reference-docs`, gateway-friendly descriptions), use [skill-maintenance.md](skill-maintenance.md). For agent-facing adapter skill development guidance, load `skills/dcc-mcp-skills-creator/`. In-tree reference skills: `python/dcc_mcp_core/skills/dcc-diagnostics`, `python/dcc_mcp_core/skills/workflow`.
 
 ## Evidence-Informed Skill Improvement
 
 Review reusable friction only after the task and its validation are complete.
-Route tool calls through the gateway with one stable task identifier, query the
-narrowest useful gateway window, then invoke the first-class
-`review_skill_improvement` prompt:
+Give tool calls one stable task identifier, query the narrowest useful gateway
+window, then invoke the first-class `review_skill_improvement` prompt:
 
 ```bash
-dcc-mcp-cli call <slug> --require-gateway --agent-session-id task-42 --json '{}'
-dcc-mcp-cli stats --range 24h --dcc-type maya --session-id task-42
+dccmcp stats --range 24h --dcc-type maya --session-id task-42
 ```
 
-The prompt is defined in the public
-[`dcc-mcp-skills-creator` package](https://github.com/dcc-mcp/dcc-mcp-agent-plugins/blob/main/plugins/dcc-mcp/skills/dcc-mcp-skills-creator/prompts.yaml). Supply only bounded task, stats,
+The prompt is defined in
+`skills/dcc-mcp-skills-creator/prompts.yaml`. Supply only bounded task, stats,
 validation, and existing-skill summaries; never send hidden reasoning, raw
 prompts, secrets, private paths, or full tool payloads. Stats are supporting
-evidence, not root-cause proof. Inspect `stats_coverage`: direct local MCP is
-excluded, and `configured_route_recorded=false` means the configured route was
-not measurable. Zero calls means missing evidence, not that no calls occurred. Prefer
+evidence, not root-cause proof. Zero calls means missing evidence. Prefer
 `no_change`, then `update_existing`; create a new skill only for a repeated,
 stable workflow with one clear owner, and validate it before adoption.
 
@@ -165,11 +161,6 @@ as `ensure_within_root`, `atomic_write_text`, `load_json_file`,
 `load_yaml_file`, and `file_digest` for local session files. Use
 `ToolValidator`, `normalize_tool_arguments`, result helpers, and cancellation
 checks from the same namespace so scripts do not mix helper import paths.
-
-JSON uses the native Rust backend when available and stdlib in py37-lite. It
-is a narrow helper contract rather than a full stdlib drop-in; keep using
-stdlib directly where exact canonical bytes, hashing, length budgets, or
-unsupported `json` keyword/file APIs are part of the contract.
 
 Keep a domain-specific dependency only when it owns behavior that
 `skills_helper` intentionally does not cover: sessions, streaming, multipart
@@ -417,10 +408,9 @@ Supported types (stdlib only): `bool`, `int`, `float`, `str`, `bytes`,
 `Literal[...]`, `Enum`, `datetime.datetime`, `datetime.date`,
 `pathlib.Path`, `uuid.UUID`, `@dataclass`, `TypedDict`. On Python 3.7
 (Maya 2022), spell containers and unions with `typing.List`, `typing.Dict`,
-`typing.Tuple`, `typing.Optional`, and `typing.Union`. Core-owned runtime code
-uses the private `_typing.Literal` subset; skill authors who choose external
-`TypedDict` or typing backports must install them explicitly or provide an
-explicit schema. The core package still imports without third-party Python library dependencies. Unsupported
+`typing.Tuple`, `typing.Optional`, and `typing.Union`; `Literal` and
+`TypedDict` require `typing_extensions` in the skill author's environment.
+The core package still imports without third-party Python library dependencies. Unsupported
 types raise `TypeError` with a clear escape hatch: pass an explicit
 `input_schema=...` dict or use pydantic's `MyModel.model_json_schema()`.
 
@@ -478,10 +468,6 @@ When loading a skill, the catalog resolves which script backs each tool declarat
 2. A script in `scripts/` whose stem matches the tool name
 3. If the skill has only one script, it backs all tools
 4. No handler registered (tool visible in registry but not executable)
-
-Re-running a resolved script is not a second lookup: keep the materialized `file_path`
-and change `params` instead. See
-[`agents-reference.md`](./agents-reference.md#iteration-playbook).
 
 ## Low-Level Skill Functions
 
@@ -606,7 +592,7 @@ the exact skill name.
 The layer penalty and the `example` exclusion are bypassed when the caller filters
 by a known layer name through `tags=` (case-insensitive), e.g.
 `search_skills(tags=["thin-harness"])` or `search_skills(tags=["infrastructure"])`.
-The raw shared-scorer order is honoured inside the filtered slice.
+The raw BM25 order is honoured inside the filtered slice.
 :::
 
 ### Description pattern: explicit negative routing
@@ -906,17 +892,6 @@ deps = expand_transitive_dependencies(skills, "maya-animation")
 # ["maya-geometry"]
 ```
 
-`metadata/depends.md` lists one dependency per line, either bare
-(`maya-geometry`) or as a Markdown list item (`- maya-geometry`). A line counts
-as a dependency only when it is shaped like a skill-name slug — kebab-case, at
-most 64 characters, no leading, trailing or consecutive hyphens. Headings and
-list items with interior whitespace are ignored.
-
-The check is a slug check, not a prose detector: a single lowercase word such
-as `optional` is shape-valid and **is** read as a dependency name, and it then
-fails resolution like any other unknown skill. Keep prose behind a `#` comment
-marker; do not rely on the shape check to filter it out.
-
 Dependency declarations are soft during catalog discovery. If a composition
 skill depends on `maya-dev` before that skill has been discovered, the
 composition skill still appears in `search_skills()` / `list_skills()` with
@@ -943,8 +918,7 @@ my-skill/
     └── depends.md    # YAML list of dependency skill names
 ```
 
-**`references/`** — Additional documentation that agents load on demand. Keep each file focused and small (< 2000 tokens recommended) to minimize context consumption. Reference files from the SKILL.md body using relative paths, so agents can pull
-the detail on demand instead of paying for it up front.
+**`references/`** — Additional documentation that agents load on demand. Keep each file focused and small (< 2000 tokens recommended) to minimize context consumption. Reference files from SKILL.md body using relative paths: `See [reference guide](references/REFERENCE.md) for details.`
 
 **`assets/`** — Static resources like document templates, configuration templates, images, or lookup tables. Not automatically loaded; agents access them when needed.
 
@@ -973,35 +947,6 @@ Parsed from agentskills.io `SKILL.md` frontmatter plus sibling files referenced 
 | `compatibility` | `str` | Environment requirements, max 500 chars (agentskills.io spec) |
 | `allowed_tools` | `List[str]` | Pre-approved tools (agentskills.io spec, experimental) |
 | `external_deps` | `str \| None` | External dependency declaration as JSON string (MCP servers, env vars, binaries). Set via `md.external_deps = json.dumps(deps)`, read via `json.loads(md.external_deps)`. See [Skill Scopes & Policies](skill-scopes-policies.md) for the full schema. |
-| `recall_context` | `RecallContext \| None` | Structured discovery context from `metadata.dcc-mcp.recall-context` — `app_type`, `domain`, `workflow_stage`, `task_category`. All four fields are optional; a missing field is `None` ("unknown"). See [Recall Context](#recall-context) below. |
-
-## Recall Context
-
-`metadata.dcc-mcp.recall-context` tells discovery where a capability lives in
-the DCC universe, so the ranker can separate candidates on structured signal
-instead of text similarity alone. Every field is optional — a skill that does
-not opt in loads exactly as before:
-
-```yaml
-metadata:
-  dcc-mcp:
-    dcc: maya
-    recall-context:
-      app_type: maya          # "maya", "blender", "houdini", "any", …
-      domain: modeling        # "modeling", "rigging", "rendering", "io", "diagnostics", …
-      workflow_stage: authoring   # adapter-owned vocabulary
-      task_category: mutate   # "query", "mutate", "export", "import", "diagnose", …
-```
-
-`app_type` and `domain` are free strings, but keep them to one token from a
-small vocabulary: the value is only useful if two skills that belong together
-spell it the same way. `workflow_stage` is owned by the adapter (Maya uses
-`bootstrap` / `scene` / `authoring` / `interchange` / `pipeline`); core stays
-vocabulary-agnostic.
-
-Core's own shipped skills all four fields set, and
-`dcc-mcp-skills-bench` reports coverage for the whole real seed pool so the
-number cannot silently fall. See `benchmarks/skills/README.md`.
 
 ## Tool Groups (Progressive Exposure)
 
@@ -1193,7 +1138,7 @@ and inflected queries (`rendering` vs `render`) still recall the right skill.
 ### Standard fusion setup
 
 ```python
-from dcc_mcp_core.skill_index import LexicalSkillIndex, RrfFusionIndex, VectorSkillIndex
+from dcc_mcp_core import LexicalSkillIndex, RrfFusionIndex, VectorSkillIndex
 
 fused = (
     RrfFusionIndex()
@@ -1211,10 +1156,6 @@ hits = fused.search("how do i create a polygon sphere", k=8)
 | `LexicalSkillIndex` | BM25-style keyword matching | Zero deps (pure Python) |
 | `VectorSkillIndex` | Dense embedding similarity search | Zero deps by default (`HashedEmbedder` + `InMemoryVectorStore`) |
 | `RrfFusionIndex` | Reciprocal Rank Fusion combiner (Cormack et al. 2009) | Zero deps |
-
-`dcc_mcp_core.skill_index` is the canonical namespace. Top-level exports and
-the former `semantic_skill_index` / `vector_skill_index` modules remain
-identity-preserving compatibility aliases.
 | `HashedEmbedder` | Deterministic feature-hashing embedder (~5 µs/doc at dim=256) | Zero deps |
 | `OnnxEmbedder` | High-quality neural embeddings (three-tier backend) | Optional: `dcc-mcp-core-semantic` or `fastembed` |
 
@@ -1239,34 +1180,11 @@ Environment variables for model overrides:
 |----------|---------|
 | `DCC_MCP_EMBED_MODEL` | Override the default ONNX model name |
 | `DCC_MCP_EMBED_MODEL_DIR` | Override the local model cache directory |
-| `DCC_MCP_EMBEDDING_CACHE_DIR` | Override the embedding cache directory (default `~/.dcc-mcp`) |
-
-### Embedding warm start
-
-Only the ONNX *model file* is cached on disk. By default every process start
-re-embeds every skill document in memory, which is pure waste when the docs
-have not changed. Pass `dcc_name` (or an explicit `cache_path` /
-`embedding_cache`) to persist vectors keyed by content hash:
-
-```python
-from dcc_mcp_core.skill_index import VectorSkillIndex
-
-idx = VectorSkillIndex(dcc_name="maya")     # ~/.dcc-mcp/maya/skill-embeddings.json
-idx.index(documents)
-idx.flush_embedding_cache()
-```
-
-The second process start with unchanged documents performs **zero** embedding
-computations — `idx.embedding_stats` reports `hits=5, misses=0` for five
-documents. Cached vectors are invalidated when the document text changes or
-when the embedder changes (the embedder fingerprint is part of every cache
-key), and a missing or corrupt cache file degrades to recomputation.
-Construction without `dcc_name` / `cache_path` stays side-effect free.
 
 ### `SkillDocument` and `SkillSearchHit`
 
 ```python
-from dcc_mcp_core.skill_index import SkillDocument, SkillSearchHit
+from dcc_mcp_core.semantic_skill_index import SkillDocument, SkillSearchHit
 
 doc = SkillDocument(
     skill_id="maya-geometry",
@@ -1281,27 +1199,26 @@ doc = SkillDocument(
 hit = SkillSearchHit(skill_id="maya-geometry", score=0.85, rank=1)
 ```
 
-### Search modes and optional Python semantic indexes
+### Gateway Hybrid Search Mode (opt-in)
 
 The Rust gateway daemon supports three search modes via the `mode` parameter
 in the unified `search` tool:
 
 | `mode` | Strategy | Default |
 |--------|----------|---------|
-| `fuzzy` | Canonical Rust fuzzy scorer with prefix/subsequence bonuses | Yes |
+| `fuzzy` | BM25 + nucleo fuzzy matching with prefix/subsequence bonuses | Yes |
 | `exact` | Substring-only matching (legacy deterministic table) | No |
-| `hybrid` | Reserved compatibility mode; currently falls back to `fuzzy` | No |
+| `hybrid` | Fuzzy primary + semantic boost when the gateway is configured | No |
 
-Python `LexicalSkillIndex`, `VectorSkillIndex`, and `RrfFusionIndex` remain
-optional application-level/offline utilities. They are not a second ranking
-backend for the Rust skill catalog, REST server, or gateway. Installing the
-semantic extra makes those Python utilities available only:
+`mode=hybrid` currently maps to `mode=fuzzy` internally (Phase 1 wire-up).
+When the gateway is configured with `semantic_search_enabled: true`, a future
+release will apply semantic embedding similarity to boost conceptual recall.
+
+**Enable semantic search**:
 ```bash
 pip install 'dcc-mcp-core[semantic]'
+export DCC_MCP_SEMANTIC_SEARCH_ENABLED=1
 ```
-
-The gateway's `semantic_search_enabled` compatibility flag is reserved and
-does not claim or activate a semantic production backend.
 
 The search response includes a `semantic` object indicating whether the
 semantic provider is active and whether a hybrid→fuzzy downgrade occurred:
@@ -1618,7 +1535,7 @@ server.start()
 | Family | Prefix | Tools | Description |
 |--------|--------|-------|-------------|
 | Diagnostics | `dcc_diagnostics__*` | `screenshot`, `audit_log`, `tool_metrics`, `process_status`, `gateway_failover` | Host-local diagnostics and observability |
-| Introspection | `dcc_introspect__*` | `list_module`, `signature`, `search`, `eval` | DCC API discovery plus bounded literal evaluation |
+| Introspection | `dcc_introspect__*` | `list_module`, `signature`, `search`, `eval` | Runtime DCC namespace introspection |
 | Feedback | `dcc_feedback__*` | `report` | Agent feedback / rationale capture |
 | Recipes | `dcc_recipes__*` | `list`, `search`, `get`, `validate`, `apply` | Skill/domain recipe operations |
 | Qt Inspector | `qt_ui_inspector__*` | `list_windows`, `find_widgets`, `describe_widget`, `snapshot_tree`, `wait_for_widget` | DCC-agnostic Qt widget introspection |
@@ -1676,7 +1593,7 @@ automatically, so adapters using that path don't need a separate call.
 
 | Extension | Type | Execution |
 |-----------|------|-----------|
-| `.py` | Python | resolved Python CLI, or the registered in-process executor |
+| `.py` | Python | `python` interpreter |
 | `.sh`, `.bash` | Shell | `bash` |
 | `.bat`, `.cmd` | Batch | `cmd /C` |
 | `.mel` | MEL (Maya) | `python` wrapper |
@@ -1688,14 +1605,7 @@ automatically, so adapters using that path don't need a separate call.
 :::
 
 ::: warning script execution
-Scripts use the execution route owned by the server. The default out-of-process
-route passes input parameters via stdin as JSON and expects one JSON result on
-stdout with exit code 0. Its Python priority is an explicit
-`DCC_MCP_PYTHON_EXECUTABLE`, then the active PyO3-attached `sys.executable` when
-that path is a Python CLI, then `python` on `PATH` for pure-Rust callers. Host
-GUI executables are never auto-selected. Embedded adapters should register the
-Core in-process executor through `HostExecutionBridge` when tools must stay in
-the DCC process.
+All scripts run as subprocesses. Input parameters are passed via stdin as JSON. The script should write a JSON result to stdout and exit with code 0 on success.
 :::
 
 ## On-Demand Skill Discovery (MCP HTTP)
@@ -1760,30 +1670,42 @@ schemas.
 
 #### How `search_skills` ranks results
 
-Skill catalogs, per-DCC REST search, and gateway search share the
-`dcc-mcp-gateway-search::Scorer` contract. The default is the same deterministic
-fuzzy scorer on every surface, so the same records + query yield the same order.
+Since dcc-mcp-core 0.15 (issue [#343](https://github.com/dcc-mcp/dcc-mcp-core/issues/343))
+the ranker is a tokenised BM25-lite scorer. It is deterministic — the same
+skill set + query always yields the same order.
 
-**Matching** — case-insensitive exact, prefix, substring, and subsequence
-matching with typo tolerance. Names, aliases, tags, descriptions, DCC type,
-search hints, and sibling tool metadata project into the shared record contract.
+**Tokeniser** — lowercase, split on `[\s_\-.,;:/]+`, drop a small stopword
+list (`a, an, the, of, and, or, to, for, with, from`). No stemming, no
+fuzzy match.
 
-**Field priority** — exact/prefix tool or skill names rank highest, followed
-by aliases and schema/search terms, tags, and descriptions. The scorer exposes
-match reasons for gateway results instead of publishing unstable numeric
-weights as an API contract.
+**Field weights**
 
-**Scoring** — field-weighted integer scores are produced by the canonical fuzzy
-scorer, then the shared layer/path-source rank policy is applied once.
+| Field | Weight |
+|-------|-------:|
+| `name`                                   | 5.0 |
+| `dcc` (exact token match only)           | 4.0 |
+| `tags`                                   | 3.0 |
+| `search_hint`                            | 3.0 |
+| `search_aliases`                         | 3.0 |
+| `description`                            | 2.0 |
+| sibling tool names (from `tools.yaml`)   | 2.0 |
+| sibling tool search aliases              | 2.0 |
+| sibling tool descriptions                | 1.0 |
+
+**Scoring** — standard BM25 per query token with `k1=1.2`, `b=0.75`, document
+length = total tokens across all weighted fields. The per-field contributions
+are multiplied by the weights above and summed across query tokens.
 
 **Tie-breaks** (in order)
 
 1. **Exact-name fast-path** — if the query equals a skill's name
    (case-insensitive, after trimming), that skill sorts first unconditionally.
-2. **Scope precedence** — `Admin > System > Team > User > Repo`.
-3. **Alphabetical name/tool slug**.
+2. **Name-substring hit** — skills whose `name` contains the query as a
+   raw substring rank above equal-scoring skills that don't.
+3. **Scope precedence** — `Admin > System > User > Repo`.
+4. **Alphabetical name**.
 
-Skills with a total score of `0` (and no exact-name match) are dropped.
+Skills with a total score of `0.0` (and no exact-name match) are dropped.
 The `tags` and `dcc` filter arguments are applied *before* scoring.
 
 `create_skill_server()` only calls `discover()` at startup — skills are **not** automatically loaded. This keeps the initial tool list small and lets agents load only what they need.
@@ -2084,11 +2006,9 @@ The validator checks the following categories:
 
 ### Using the `dcc-mcp-skills-creator` Skill
 
-The published [`dcc-mcp-skills-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-skills-creator)
-Skill provides scaffolding and validation helpers as MCP tools, plus the
-agent-facing authoring guidance for building or modernizing DCC-MCP adapter
-skill packages. Its canonical source is in
-[`dcc-mcp-agent-plugins`](https://github.com/dcc-mcp/dcc-mcp-agent-plugins/tree/main/plugins/dcc-mcp/skills/dcc-mcp-skills-creator):
+The `skills/dcc-mcp-skills-creator/` skill provides scaffolding and validation
+helpers as MCP tools, plus the agent-facing authoring guidance for building or
+modernizing DCC-MCP adapter skill packages:
 
 ```python
 # Scaffold a new skill directory via the loaded MCP tool:

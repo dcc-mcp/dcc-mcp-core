@@ -1,4 +1,4 @@
-//! Local FileRegistry + direct MCP control path for `dcc-mcp-cli`.
+//! Local FileRegistry + direct MCP control path for `dccmcp`.
 //!
 //! Remote profiles use the gateway REST surface. The built-in `local` profile
 //! resolves live instances from the shared FileRegistry, then talks to the
@@ -8,9 +8,9 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 use anyhow::Context;
-use dcc_mcp_jsonrpc::{JsonRpcRequestBuilder, MCP_PROTOCOL_VERSION};
+use dcc_mcp_client::McpHttpClient;
 use dcc_mcp_transport::discovery::types::ServiceEntry;
-use serde_json::{Map, Value, json};
+use serde_json::{Value, json};
 
 use crate::application::local_instance;
 use crate::domain::rest::{
@@ -18,7 +18,6 @@ use crate::domain::rest::{
 };
 use crate::infra::http::HttpGateway;
 
-const MCP_ACCEPT: &str = "application/json, text/event-stream";
 const DEFAULT_REQUIRED_READINESS_FIELDS: &[&str] =
     &["process", "dcc", "skill_catalog", "dispatcher"];
 
@@ -28,47 +27,24 @@ pub async fn search_local(registry_dir: PathBuf, request: SearchRequest) -> anyh
         request.dcc_type.as_deref(),
         request.instance_id.as_deref(),
     )?;
-    let gateway = HttpGateway::default();
     let mut hits = Vec::new();
-    let mut total_matches = 0_usize;
-    // Truncation is tracked in two parts because the gateway-dispatchability
-    // filter has to discard one of them: a backend that says it cut its own
-    // list really did withhold rows, while a raw-hits-vs-reported-total
-    // shortfall stops meaning anything once the totals are recomputed from
-    // the filtered set.
-    let mut backend_truncated = false;
-    let mut backend_shortfall = false;
+    let limit = request.limit.unwrap_or(25).clamp(1, 100);
     let query = request
         .query
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string);
-    let limit = effective_search_limit(query.as_deref(), request.limit);
-    // `--gateway-only` partitions the inventory, so the filter must see every
-    // hit before it runs. Handing the local `limit` to the backend would let
-    // it truncate the very set the filter selects from — `--limit 1` on a
-    // query whose first hit is not dispatchable would report zero matches
-    // although dispatchable ones exist. The unfiltered no-query path already
-    // works this way: `effective_search_limit` returns `usize::MAX` there.
-    let upstream_limit = if request.gateway_only.is_some() {
-        usize::MAX
-    } else {
-        limit
-    };
 
     for entry in &entries {
-        let discovery_mcp_url = local_instance::discovery_mcp_url(entry);
         let payload = if let Some(query) = query.as_deref() {
             let search_result = mcp_call_tool(
-                &gateway,
-                &discovery_mcp_url,
+                &local_instance::mcp_url(entry),
                 "search_tools",
                 json!({
                     "query": query,
                     "dcc": entry.dcc_type,
-                    "limit": upstream_limit,
-                    "include_disabled": true,
+                    "limit": limit,
                 }),
                 None,
             )
@@ -82,7 +58,7 @@ pub async fn search_local(registry_dir: PathBuf, request: SearchRequest) -> anyh
             })?;
             call_result_payload(&search_result).unwrap_or(search_result)
         } else {
-            let tools = list_mcp_tools(&gateway, &discovery_mcp_url)
+            let tools = list_mcp_tools(&local_instance::mcp_url(entry))
                 .await
                 .with_context(|| {
                     format!(
@@ -93,62 +69,16 @@ pub async fn search_local(registry_dir: PathBuf, request: SearchRequest) -> anyh
                 })?;
             json!({ "tools": tools })
         };
-        let previous = hits.len();
         extend_tool_hits(&mut hits, entry, &payload);
         extend_skill_hits(&mut hits, entry, &payload);
-        let payload_returned = hits.len() - previous;
-        let payload_matches = payload
-            .get("total_matches")
-            .or_else(|| payload.get("total"))
-            .and_then(Value::as_u64)
-            .map(|value| value as usize)
-            .unwrap_or(payload_returned)
-            .max(payload_returned);
-        total_matches += payload_matches;
-        backend_truncated |= payload.get("truncated").and_then(Value::as_bool) == Some(true);
-        backend_shortfall |= payload_returned < payload_matches;
+        if hits.len() >= limit {
+            hits.truncate(limit);
+            break;
+        }
     }
-    let mut truncated = backend_truncated || backend_shortfall;
-
-    hits.sort_by(|left, right| {
-        let left_key = left
-            .get("slug")
-            .and_then(Value::as_str)
-            .or_else(|| left.get("skill_name").and_then(Value::as_str));
-        let right_key = right
-            .get("slug")
-            .and_then(Value::as_str)
-            .or_else(|| right.get("skill_name").and_then(Value::as_str));
-        left_key.cmp(&right_key).then_with(|| {
-            left.get("instance_id")
-                .and_then(Value::as_str)
-                .cmp(&right.get("instance_id").and_then(Value::as_str))
-        })
-    });
-    // Apply the gateway-dispatchability filter before the limit so
-    // `--gateway-only=false` reports the true size of the "advertised but
-    // not gateway-routable" set rather than a limit-truncated sample.
-    if let Some(gateway_only) = request.gateway_only {
-        retain_gateway_dispatchable(&mut hits, gateway_only);
-        // Re-derive the counts from the filtered set. These fields describe
-        // the rows being returned, so keeping the backend's unfiltered totals
-        // would report `truncated: true` for a response that withheld
-        // nothing — the filter, not the transport, is what removed rows.
-        // Backend truncation is still honoured: it really did cut its list.
-        total_matches = hits.len();
-        truncated = backend_truncated;
-    }
-    if hits.len() > limit {
-        hits.truncate(limit);
-        truncated = true;
-    }
-    let returned = hits.len();
 
     Ok(json!({
-        "total": returned,
-        "total_matches": total_matches,
-        "returned": returned,
-        "truncated": truncated || returned < total_matches,
+        "total": hits.len(),
         "hits": hits,
         "source": "local_mcp",
         "registry_dir": registry_dir,
@@ -156,53 +86,38 @@ pub async fn search_local(registry_dir: PathBuf, request: SearchRequest) -> anyh
     }))
 }
 
-fn effective_search_limit(query: Option<&str>, requested: Option<usize>) -> usize {
-    match requested {
-        Some(limit) => limit.clamp(1, 100),
-        None if query.is_none() => usize::MAX,
-        None => 25,
-    }
-}
-
 pub async fn describe_local(registry_dir: PathBuf, tool_slug: String) -> anyhow::Result<Value> {
     let route = resolve_tool_route(&registry_dir, &tool_slug, None, None)?;
+    let mcp_url = local_instance::mcp_url(&route.entry);
+    let tools = list_mcp_tools(&mcp_url).await?;
     let gateway = HttpGateway::default();
-    let discovery_mcp_url = local_instance::discovery_mcp_url(&route.entry);
-    let endpoint = Endpoint::from_mcp_url(&discovery_mcp_url);
-    let tool = match gateway
-        .post_json(
-            &endpoint.path("/v1/describe"),
-            &json!({"tool_slug": route.backend_tool, "include_schema": true}),
-        )
-        .await
-    {
-        Ok(described) => json!({
+    let tool = if let Some(tool) = tools.into_iter().find(|tool| {
+        tool.get("name")
+            .and_then(Value::as_str)
+            .is_some_and(|name| name == route.backend_tool)
+    }) {
+        tool
+    } else {
+        let endpoint = Endpoint::from_mcp_url(mcp_url);
+        let described = gateway
+            .post_json(
+                &endpoint.path("/v1/describe"),
+                &json!({"tool_slug": route.backend_tool, "include_schema": true}),
+            )
+            .await
+            .with_context(|| {
+                format!(
+                    "tool '{}' was not found in tools/list and the local describe fallback failed",
+                    route.backend_tool
+                )
+            })?;
+        json!({
             "name": route.backend_tool,
             "description": described.get("description").cloned().unwrap_or(Value::Null),
             "inputSchema": described.get("input_schema").cloned().unwrap_or_else(|| json!({"type": "object"})),
             "annotations": described.get("annotations").cloned().unwrap_or_else(|| json!({})),
             "_meta": described.get("metadata").cloned().unwrap_or(Value::Null),
-        }),
-        Err(describe_error) => list_mcp_tools(&gateway, &discovery_mcp_url)
-            .await
-            .with_context(|| {
-                format!(
-                    "local describe failed for '{}' and tools/list fallback also failed: {describe_error}",
-                    route.backend_tool
-                )
-            })?
-            .into_iter()
-            .find(|tool| {
-                tool.get("name")
-                    .and_then(Value::as_str)
-                    .is_some_and(|name| name == route.backend_tool)
-            })
-            .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "tool '{}' was not found after local describe failed: {describe_error}",
-                    route.backend_tool
-                )
-            })?,
+        })
     };
 
     Ok(json!({
@@ -214,126 +129,34 @@ pub async fn describe_local(registry_dir: PathBuf, tool_slug: String) -> anyhow:
 }
 
 pub async fn load_skill_local(registry_dir: PathBuf, body: Value) -> anyhow::Result<Value> {
-    let LocalLoadSkillRequest {
-        dcc_type,
-        instance_id,
-        target_tool_slug,
-        mut backend_body,
-    } = split_load_skill_request(body)?;
+    let (dcc_type, instance_id, backend_body) = split_load_skill_request(body)?;
     let entry = local_instance::select_one_routable_entry(
         &registry_dir,
         dcc_type.as_deref(),
         instance_id.as_deref(),
     )?;
-    let gateway = HttpGateway::default();
-    let mcp_url = local_instance::mcp_url(&entry);
-    let tool_group = backend_body
-        .get("tool_group")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|group| !group.is_empty())
-        .map(str::to_string);
-    let skill_name = backend_body
-        .get("skill_name")
-        .and_then(Value::as_str)
-        .map(str::to_string);
-    if tool_group.is_some()
-        && backend_body.get("activate_groups").is_none()
-        && let Some(object) = backend_body.as_object_mut()
-    {
-        object.insert("activate_groups".to_string(), Value::Bool(false));
-    }
-    let result = mcp_call_tool(&gateway, &mcp_url, "load_skill", backend_body, None)
-        .await
-        .with_context(|| {
-            format!(
-                "loading skill on local {} instance {}",
-                entry.dcc_type,
-                local_instance::instance_short(&entry)
-            )
-        })?;
-    if !call_result_succeeded(&result) {
-        anyhow::bail!("loading skill failed: {result}");
-    }
+    let result = mcp_call_tool(
+        &local_instance::mcp_url(&entry),
+        "load_skill",
+        backend_body,
+        None,
+    )
+    .await
+    .with_context(|| {
+        format!(
+            "loading skill on local {} instance {}",
+            entry.dcc_type,
+            local_instance::instance_short(&entry)
+        )
+    })?;
     let mut payload = call_result_payload(&result).unwrap_or(result);
-    if payload.get("loaded").and_then(Value::as_bool) == Some(false) {
-        anyhow::bail!("loading skill failed: {payload}");
-    }
-    if let Some(group) = tool_group.as_deref()
-        && !payload
-            .get("activated_groups")
-            .and_then(Value::as_array)
-            .is_some_and(|groups| groups.iter().any(|value| value.as_str() == Some(group)))
-    {
-        let mut arguments = json!({"group_name": group});
-        if let Some(skill_name) = skill_name.as_deref()
-            && let Some(object) = arguments.as_object_mut()
-        {
-            object.insert("skill_name".to_string(), json!(skill_name));
-        }
-        let activation = mcp_call_tool(&gateway, &mcp_url, "activate_tool_group", arguments, None)
-            .await
-            .with_context(|| {
-                format!(
-                    "activating tool group '{group}' on local {} instance {}",
-                    entry.dcc_type,
-                    local_instance::instance_short(&entry)
-                )
-            })?;
-        if !call_result_succeeded(&activation) {
-            anyhow::bail!("activating tool group '{group}' failed: {activation}");
-        }
-        if let Some(groups) = payload
-            .as_object_mut()
-            .map(|object| {
-                object
-                    .entry("activated_groups")
-                    .or_insert_with(|| json!([]))
-            })
-            .and_then(Value::as_array_mut)
-        {
-            groups.push(json!(group));
-        }
-    }
     attach_local_context(&mut payload, &entry, None, "local_mcp");
-    let target_tool_slug = target_tool_slug.or_else(|| {
-        payload
-            .get("registered_tools")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_str)
-            .find(|name| !name.trim().is_empty())
-            .or_else(|| {
-                payload
-                    .get("tools")
-                    .and_then(Value::as_array)
-                    .into_iter()
-                    .flatten()
-                    .filter_map(|tool| tool.get("name").and_then(Value::as_str))
-                    .find(|name| !name.trim().is_empty())
-            })
-            .map(|name| local_instance::local_tool_slug(&entry, name))
-    });
-    if let Some(target_tool_slug) = target_tool_slug {
-        attach_local_post_load_hint(
-            &mut payload,
-            &entry,
-            &target_tool_slug,
-            skill_name.as_deref(),
-        );
-    }
     Ok(payload)
 }
 
-struct LocalLoadSkillRequest {
-    dcc_type: Option<String>,
-    instance_id: Option<String>,
-    target_tool_slug: Option<String>,
-    backend_body: Value,
-}
-
-fn split_load_skill_request(body: Value) -> anyhow::Result<LocalLoadSkillRequest> {
+fn split_load_skill_request(
+    body: Value,
+) -> anyhow::Result<(Option<String>, Option<String>, Value)> {
     let Value::Object(mut object) = body else {
         anyhow::bail!("load-skill local request body must be a JSON object");
     };
@@ -347,177 +170,12 @@ fn split_load_skill_request(body: Value) -> anyhow::Result<LocalLoadSkillRequest
         .get("instance_id")
         .and_then(Value::as_str)
         .map(str::to_string);
-    let target_tool_slug = object
-        .get("target_tool_slug")
-        .and_then(Value::as_str)
-        .map(str::to_string);
 
     object.remove("dcc_type");
     object.remove("dcc");
     object.remove("instance_id");
-    object.remove("target_tool_slug");
-    object.remove("meta");
-    object.remove("_meta");
-    if target_tool_slug.is_some()
-        && ["tool_group", "group", "group_name"].iter().any(|key| {
-            object
-                .get(*key)
-                .and_then(Value::as_str)
-                .is_some_and(|group| !group.trim().is_empty())
-        })
-    {
-        object.insert("strict_tool_group".to_string(), Value::Bool(true));
-    }
 
-    Ok(LocalLoadSkillRequest {
-        dcc_type,
-        instance_id,
-        target_tool_slug,
-        backend_body: Value::Object(object),
-    })
-}
-
-fn attach_local_post_load_hint(
-    payload: &mut Value,
-    entry: &ServiceEntry,
-    target_tool_slug: &str,
-    requested_skill_name: Option<&str>,
-) {
-    if payload.get("loaded").and_then(Value::as_bool) != Some(true) {
-        return;
-    }
-    let requested_backend_tool = parse_local_tool_slug(target_tool_slug).backend_tool;
-    let backend_tool =
-        resolve_loaded_backend_tool(payload, &requested_backend_tool, requested_skill_name);
-    let target_tool_slug = local_instance::local_tool_slug(entry, &backend_tool);
-    let selected_tool = payload
-        .get("tools")
-        .and_then(Value::as_array)
-        .and_then(|tools| {
-            tools.iter().find(|tool| {
-                tool.get("name")
-                    .and_then(Value::as_str)
-                    .is_some_and(|name| name == backend_tool)
-            })
-        });
-    let input_schema = selected_tool
-        .and_then(|tool| tool.get("inputSchema").or_else(|| tool.get("input_schema")))
-        .filter(|schema| schema.is_object())
-        .cloned();
-    let annotations = selected_tool
-        .and_then(|tool| tool.get("annotations"))
-        .cloned()
-        .unwrap_or(Value::Null);
-    let metadata = selected_tool
-        .and_then(|tool| tool.get("metadata"))
-        .cloned()
-        .unwrap_or(Value::Null);
-
-    let Some(object) = payload.as_object_mut() else {
-        return;
-    };
-    let next_step = if let Some(input_schema) = input_schema {
-        let complete_for_call = simple_object_schema(&input_schema);
-        let safe_to_call = complete_for_call && has_safety_hints(&annotations);
-        let required = input_schema
-            .get("required")
-            .cloned()
-            .unwrap_or_else(|| json!([]));
-        let properties = input_schema
-            .get("properties")
-            .cloned()
-            .unwrap_or_else(|| json!({}));
-        let property_keys: Vec<String> = properties
-            .as_object()
-            .map(|properties| properties.keys().cloned().collect())
-            .unwrap_or_default();
-        object.insert(
-            "compact_schema".to_string(),
-            json!({
-                "tool_slug": &target_tool_slug,
-                "has_schema": schema_has_constraints(&input_schema),
-                "complete_for_call": complete_for_call,
-                "required": required,
-                "property_keys": property_keys,
-                "properties": properties,
-                "annotations": annotations,
-                "metadata": metadata,
-            }),
-        );
-        if safe_to_call {
-            json!({
-                "action": "call",
-                "arguments": {"tool_slug": &target_tool_slug, "arguments": {}},
-                "schema_source": "load_skill.compact_schema",
-            })
-        } else {
-            json!({
-                "action": "describe",
-                "arguments": {"tool_slug": &target_tool_slug},
-            })
-        }
-    } else {
-        json!({
-            "action": "describe",
-            "arguments": {"tool_slug": &target_tool_slug},
-        })
-    };
-    object.insert("next_step".to_string(), next_step);
-}
-
-fn resolve_loaded_backend_tool(
-    payload: &Value,
-    requested_backend_tool: &str,
-    requested_skill_name: Option<&str>,
-) -> String {
-    let mut candidates: Vec<&str> = payload
-        .get("tools")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|tool| tool.get("name").and_then(Value::as_str))
-        .chain(
-            payload
-                .get("registered_tools")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-                .filter_map(Value::as_str),
-        )
-        .collect();
-    candidates.sort_unstable();
-    candidates.dedup();
-
-    if candidates.contains(&requested_backend_tool) {
-        return requested_backend_tool.to_string();
-    }
-
-    let skill_name = requested_skill_name.or_else(|| {
-        payload
-            .get("skill_name")
-            .and_then(Value::as_str)
-            .filter(|name| !name.trim().is_empty())
-    });
-    let Some(skill_name) = skill_name else {
-        return requested_backend_tool.to_string();
-    };
-    let canonical_prefix = format!("{}__", skill_name.replace('-', "_"));
-    let requested_action = requested_backend_tool
-        .strip_prefix(&canonical_prefix)
-        .unwrap_or(requested_backend_tool)
-        .replace('-', "_");
-    let mut matches = candidates.into_iter().filter(|candidate| {
-        candidate
-            .strip_prefix(&canonical_prefix)
-            .is_some_and(|action| action == requested_action)
-    });
-    let Some(canonical) = matches.next() else {
-        return requested_backend_tool.to_string();
-    };
-    if matches.next().is_some() {
-        return requested_backend_tool.to_string();
-    }
-    canonical.to_string()
+    Ok((dcc_type, instance_id, Value::Object(object)))
 }
 
 pub async fn call_local(
@@ -536,39 +194,15 @@ pub async fn call_local(
         instance_id.as_deref(),
     )?;
     enforce_active_instance_lease(&route.entry, meta.as_ref())?;
-    let gateway = HttpGateway::with_timeout(timeout);
-    let dispatch_mcp_url = local_dispatch_mcp_url(&route.entry, &route.backend_tool);
-    let mut call = mcp_call_tool_correlated(
-        &gateway,
-        &dispatch_mcp_url,
+    let result = mcp_call_tool_with_timeout(
+        &local_instance::mcp_url(&route.entry),
         &route.backend_tool,
         arguments.clone(),
-        meta.clone(),
+        meta,
+        timeout,
     )
     .await
     .with_context(|| format!("calling local tool {}", route.tool_slug))?;
-    let mut result = call.result;
-
-    if should_retry_local_call_via_discovery(&result) {
-        let discovery_mcp_url = local_instance::discovery_mcp_url(&route.entry);
-        if discovery_mcp_url != dispatch_mcp_url {
-            call = mcp_call_tool_correlated(
-                &gateway,
-                &discovery_mcp_url,
-                &route.backend_tool,
-                arguments.clone(),
-                meta,
-            )
-            .await
-            .with_context(|| {
-                format!(
-                    "calling local discovery tool {} after sidecar returned unknown-action",
-                    route.tool_slug
-                )
-            })?;
-            result = call.result;
-        }
-    }
 
     Ok(json!({
         "success": !result.get("isError").and_then(Value::as_bool).unwrap_or(false),
@@ -577,28 +211,10 @@ pub async fn call_local(
         "dcc_type": route.entry.dcc_type,
         "instance_id": route.entry.instance_id.to_string(),
         "instance_short": local_instance::instance_short(&route.entry),
-        "request_id": call.request_id,
         "arguments": arguments,
         "result": result,
         "source": "local_mcp",
     }))
-}
-
-fn should_retry_local_call_via_discovery(result: &Value) -> bool {
-    (result.get("success").and_then(Value::as_bool) == Some(false)
-        && result.get("error").and_then(Value::as_str) == Some("unknown-action"))
-        || (result.get("isError").and_then(Value::as_bool) == Some(true)
-            && result
-                .pointer("/structuredContent/error")
-                .and_then(Value::as_str)
-                == Some("unknown-action"))
-}
-
-fn local_dispatch_mcp_url(entry: &ServiceEntry, backend_tool: &str) -> String {
-    if backend_tool.starts_with("ui_control__") {
-        return local_instance::discovery_mcp_url(entry);
-    }
-    local_instance::mcp_url(entry)
 }
 
 fn enforce_active_instance_lease(entry: &ServiceEntry, meta: Option<&Value>) -> anyhow::Result<()> {
@@ -643,13 +259,7 @@ pub async fn wait_ready_local(
         attempts += 1;
         match gateway.get_json(&readyz_url).await {
             Ok(value) => {
-                let mut readiness = normalize_readiness_report(&value).unwrap_or(value);
-                if required.iter().any(|field| field == "skill_catalog")
-                    && readiness.get("skill_catalog").and_then(Value::as_bool) != Some(true)
-                {
-                    let catalog_observable = discovery_catalog_observable(&gateway, &entry).await;
-                    readiness = reconcile_catalog_readiness(readiness, catalog_observable);
-                }
+                let readiness = normalize_readiness_report(&value).unwrap_or(value);
                 let missing = missing_required_fields(Some(&readiness), &required);
                 let ready = missing.is_empty();
                 last = json!({
@@ -702,11 +312,9 @@ pub async fn reload_skills_local(
         anyhow::bail!("no live local DCC instance matched the request");
     }
 
-    let gateway = HttpGateway::default();
     let mut results = Vec::new();
     for entry in entries {
         let result = mcp_call_tool(
-            &gateway,
             &local_instance::mcp_url(&entry),
             "dcc_admin__reload_skills",
             json!({}),
@@ -795,15 +403,6 @@ pub async fn stop_instance_local(
     registry_dir: PathBuf,
     request: StopInstanceRequest,
 ) -> anyhow::Result<Value> {
-    // Guarded lifecycle stop: only the operation that launched and owns a
-    // process may stop it. `start-instance` never adopts pre-existing hosts, so
-    // a stop bound to an operation must resolve to that operation's instance.
-    let owned_operation = crate::application::instance_launch::resolve_owned_operation(
-        &registry_dir,
-        Some(&request.dcc_type),
-        Some(&request.instance_id),
-        request.operation_id.as_deref(),
-    )?;
     let entry = local_instance::select_one_entry(
         &registry_dir,
         Some(&request.dcc_type),
@@ -878,15 +477,6 @@ pub async fn stop_instance_local(
         "instance_id": entry.instance_id.to_string(),
         "dcc_type": entry.dcc_type,
         "safe_stop_url": stop_url,
-        "operation": owned_operation
-            .as_ref()
-            .map(crate::application::instance_launch::operation_summary)
-            .unwrap_or(Value::Null),
-        "stop_scope": if owned_operation.is_some() {
-            "owned_operation"
-        } else {
-            "instance_safe_stop"
-        },
         "response": response,
         "source": "local_mcp",
     }))
@@ -957,123 +547,38 @@ fn parse_local_tool_slug(tool_slug: &str) -> ParsedToolSlug {
     }
 }
 
-async fn list_mcp_tools(gateway: &HttpGateway, mcp_url: &str) -> anyhow::Result<Vec<Value>> {
-    let mut cursor: Option<String> = None;
-    let mut tools = Vec::new();
-    for _ in 0..16 {
-        let mut params = Map::new();
-        if let Some(value) = cursor.take() {
-            params.insert("cursor".to_string(), Value::String(value));
-        }
-        let response = mcp_request(gateway, mcp_url, "tools/list", Value::Object(params)).await?;
-        let result = response
-            .get("result")
-            .ok_or_else(|| anyhow::anyhow!("MCP tools/list response did not contain result"))?;
-        tools.extend(
-            result
-                .get("tools")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-                .cloned(),
-        );
-        cursor = result
-            .get("nextCursor")
-            .and_then(Value::as_str)
-            .map(str::to_string);
-        if cursor.is_none() {
-            break;
-        }
-    }
-    Ok(tools)
+async fn list_mcp_tools(mcp_url: &str) -> anyhow::Result<Vec<Value>> {
+    let mut client = McpHttpClient::new(mcp_url)?;
+    Ok(client
+        .tools_list_all()
+        .await?
+        .into_iter()
+        .map(serde_json::to_value)
+        .collect::<Result<Vec<_>, _>>()?)
 }
 
 async fn mcp_call_tool(
-    gateway: &HttpGateway,
     mcp_url: &str,
     name: &str,
     arguments: Value,
     meta: Option<Value>,
 ) -> anyhow::Result<Value> {
-    Ok(
-        mcp_call_tool_correlated(gateway, mcp_url, name, arguments, meta)
-            .await?
-            .result,
-    )
+    mcp_call_tool_with_timeout(mcp_url, name, arguments, meta, Duration::from_secs(30)).await
 }
 
-struct CorrelatedMcpToolCall {
-    request_id: String,
-    result: Value,
-}
-
-async fn mcp_call_tool_correlated(
-    gateway: &HttpGateway,
+async fn mcp_call_tool_with_timeout(
     mcp_url: &str,
     name: &str,
     arguments: Value,
     meta: Option<Value>,
-) -> anyhow::Result<CorrelatedMcpToolCall> {
-    let mut params = Map::new();
-    params.insert("name".to_string(), Value::String(name.to_string()));
-    params.insert("arguments".to_string(), arguments);
-    if let Some(meta) = meta {
-        params.insert("_meta".to_string(), meta);
-    }
-    let response = mcp_request(gateway, mcp_url, "tools/call", Value::Object(params)).await?;
-    let result = response
-        .get("result")
-        .cloned()
-        .ok_or_else(|| anyhow::anyhow!("MCP tools/call response did not contain result"))?;
-    let request_id = response
-        .get("id")
-        .and_then(Value::as_str)
-        .expect("mcp_request validates the generated string id")
-        .to_string();
-    Ok(CorrelatedMcpToolCall { request_id, result })
-}
-
-async fn mcp_request(
-    gateway: &HttpGateway,
-    mcp_url: &str,
-    method: &str,
-    params: Value,
+    timeout: Duration,
 ) -> anyhow::Result<Value> {
-    let request_id = next_local_mcp_request_id();
-    let body = JsonRpcRequestBuilder::new(request_id.clone(), method)
-        .with_params(params)
-        .to_value();
-    let response = gateway
-        .post_json_with_headers(
-            mcp_url,
-            &body,
-            &[
-                ("Mcp-Protocol-Version", MCP_PROTOCOL_VERSION),
-                ("Accept", MCP_ACCEPT),
-            ],
-        )
-        .await
-        .with_context(|| format!("MCP {method} request failed (request_id={request_id})"))?;
-    let expected_id = Value::String(request_id.clone());
-    if response.get("id") != Some(&expected_id) {
-        anyhow::bail!(
-            "transport desync: expected JSON-RPC response id {request_id:?}, got {}",
-            response
-                .get("id")
-                .map_or_else(|| "<missing>".to_string(), Value::to_string),
-        );
-    }
-    if let Some(error) = response.get("error") {
-        anyhow::bail!("MCP {method} failed (request_id={request_id}): {error}");
-    }
-    Ok(response)
+    let mut client = McpHttpClient::with_timeout(mcp_url, timeout)?;
+    let result = client.tools_call(name, arguments, meta).await?;
+    Ok(serde_json::to_value(result)?)
 }
 
-fn next_local_mcp_request_id() -> String {
-    format!("dcc-mcp-cli-local-{}", uuid::Uuid::new_v4())
-}
-
-pub(crate) fn call_result_payload(result: &Value) -> Option<Value> {
+fn call_result_payload(result: &Value) -> Option<Value> {
     if let Some(value) = result.get("structuredContent") {
         return Some(value.clone());
     }
@@ -1096,204 +601,20 @@ fn extend_tool_hits(hits: &mut Vec<Value>, entry: &ServiceEntry, payload: &Value
         let Some(name) = tool.get("name").and_then(Value::as_str) else {
             continue;
         };
-        let tool_slug = local_instance::local_tool_slug(entry, name);
-        let has_schema = tool
-            .get("has_schema")
-            .and_then(Value::as_bool)
-            .unwrap_or(true);
-        let enabled = tool.get("enabled").and_then(Value::as_bool).unwrap_or(true);
-        let group = tool
-            .get("group")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|group| !group.is_empty());
-        let skill_name = tool
-            .get("skill_name")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|skill| !skill.is_empty());
-        let annotations = tool.get("annotations").cloned().unwrap_or(Value::Null);
-        // A tool is reachable through the gateway only when it has skill
-        // ownership: the gateway capability index is built from the
-        // backend's `/v1/search` skill catalog, not from this raw
-        // `tools/list`. Tools with no owning skill are indexed nowhere, so
-        // the gateway's lookup alias bridge has nothing to resolve and the
-        // slug below would 404. Mark them so callers can tell a local-only
-        // tool from a gateway-routable one before they try to dispatch.
-        let gateway_dispatchable = is_gateway_dispatchable(name, skill_name);
-        let next_step = if !enabled {
-            match (skill_name, group) {
-                (Some(skill_name), Some(group)) => json!({
-                    "action": "load_skill",
-                    "arguments": {
-                        "skill_name": skill_name,
-                        "dcc": entry.dcc_type,
-                        "dcc_type": entry.dcc_type,
-                        "instance_id": entry.instance_id.to_string(),
-                        "tool_group": group,
-                        "group_action": "activate",
-                        "target_tool_slug": tool_slug,
-                    }
-                }),
-                _ => json!({"action": "describe", "arguments": {"tool_slug": tool_slug}}),
-            }
-        } else if has_schema || !has_safety_hints(&annotations) {
-            json!({"action": "describe", "arguments": {"tool_slug": tool_slug}})
-        } else {
-            json!({
-                "action": "call",
-                "arguments": {"tool_slug": tool_slug, "arguments": {}}
-            })
-        };
         hits.push(json!({
             "kind": "tool",
-            "slug": tool_slug,
+            "slug": local_instance::local_tool_slug(entry, name),
             "backend_tool": name,
             "instance_id": entry.instance_id.to_string(),
             "instance_short": local_instance::instance_short(entry),
             "dcc": entry.dcc_type,
             "dcc_type": entry.dcc_type,
             "summary": tool.get("description").cloned().unwrap_or(Value::Null),
-            "has_schema": has_schema,
-            "enabled": enabled,
-            "skill_name": skill_name,
-            "tool_group": group,
-            "annotations": annotations,
-            "metadata": tool.get("metadata").cloned().unwrap_or(Value::Null),
             "loaded": true,
-            "gateway_dispatchable": gateway_dispatchable,
-            "next_step": next_step,
             "scope": "local",
             "source": "local_mcp",
             "mcp_url": local_instance::mcp_url(entry),
         }));
-    }
-}
-
-/// Keep only the hits whose gateway-dispatchability equals `gateway_only`.
-///
-/// Inverting the flag (`--gateway-only=false`) is how a caller lists the
-/// difference: tools this CLI advertises from the backend's raw
-/// `tools/list` that the gateway capability index cannot route to.
-fn retain_gateway_dispatchable(hits: &mut Vec<Value>, gateway_only: bool) {
-    hits.retain(|hit| {
-        hit.get("gateway_dispatchable")
-            .and_then(Value::as_bool)
-            // Skill candidates carry no such field and are always
-            // gateway-routable, so keep them under `--gateway-only`.
-            .unwrap_or(true)
-            == gateway_only
-    });
-}
-
-/// Separator a backend places between the owning skill and the action name.
-const SKILL_TOOL_SEP: &str = "__";
-
-/// Whether a raw `tools/list` entry can be dispatched through the gateway.
-///
-/// The gateway indexes the backend's skill catalog, so an action reaches
-/// the gateway only under skill ownership — either declared explicitly via
-/// `skill_name` or encoded into a `<skill>__<tool>` name. Everything else
-/// exists solely on this direct/local path and would 404 through the
-/// gateway, because the lookup alias bridge has no qualified name to
-/// bridge to.
-fn is_gateway_dispatchable(name: &str, skill_name: Option<&str>) -> bool {
-    if skill_name.is_some() {
-        return true;
-    }
-    // A `<skill>__<tool>` name carries its own ownership, so it is
-    // addressable even when the backend omitted the explicit field.
-    let Some((skill, tool)) = name.split_once(SKILL_TOOL_SEP) else {
-        return false;
-    };
-    !skill.is_empty() && !tool.is_empty()
-}
-
-fn has_safety_hints(annotations: &Value) -> bool {
-    annotations.as_object().is_some_and(|annotations| {
-        [
-            ("readOnlyHint", "read_only_hint"),
-            ("destructiveHint", "destructive_hint"),
-            ("idempotentHint", "idempotent_hint"),
-            ("openWorldHint", "open_world_hint"),
-        ]
-        .iter()
-        .all(|(camel, snake)| {
-            annotations
-                .get(*camel)
-                .or_else(|| annotations.get(*snake))
-                .and_then(Value::as_bool)
-                .is_some()
-        })
-    })
-}
-
-fn simple_object_schema(schema: &Value) -> bool {
-    let Some(object) = schema.as_object() else {
-        return false;
-    };
-    if object.get("type").and_then(Value::as_str) != Some("object")
-        || object.keys().any(|key| {
-            !matches!(
-                key.as_str(),
-                "type"
-                    | "properties"
-                    | "required"
-                    | "title"
-                    | "description"
-                    | "$schema"
-                    | "additionalProperties"
-            )
-        })
-    {
-        return false;
-    }
-    !schema_contains_complex_keyword(schema)
-}
-
-fn schema_has_constraints(schema: &Value) -> bool {
-    let Some(object) = schema.as_object() else {
-        return !schema.is_null();
-    };
-    object.iter().any(|(key, value)| match key.as_str() {
-        "type" => value.as_str() != Some("object"),
-        "properties" => value
-            .as_object()
-            .is_none_or(|properties| !properties.is_empty()),
-        "required" => value.as_array().is_none_or(|required| !required.is_empty()),
-        "title" | "description" | "$schema" => false,
-        _ => true,
-    })
-}
-
-fn schema_contains_complex_keyword(schema: &Value) -> bool {
-    const COMPLEX: &[&str] = &[
-        "$ref",
-        "$dynamicRef",
-        "$defs",
-        "definitions",
-        "oneOf",
-        "anyOf",
-        "allOf",
-        "not",
-        "if",
-        "then",
-        "else",
-        "unevaluatedProperties",
-        "patternProperties",
-        "propertyNames",
-        "dependentRequired",
-        "dependentSchemas",
-        "dependencies",
-    ];
-    match schema {
-        Value::Object(object) => object.iter().any(|(key, value)| {
-            (key == "additionalProperties" && value != &Value::Bool(false))
-                || COMPLEX.contains(&key.as_str())
-                || schema_contains_complex_keyword(value)
-        }),
-        Value::Array(items) => items.iter().any(schema_contains_complex_keyword),
-        _ => false,
     }
 }
 
@@ -1312,33 +633,16 @@ fn extend_skill_hits(hits: &mut Vec<Value>, entry: &ServiceEntry, payload: &Valu
             .get("matching_tools")
             .and_then(Value::as_array)
             .and_then(|tools| tools.iter().filter_map(Value::as_str).next());
-        let target_tool_slug = target_tool.map(|tool| local_instance::local_tool_slug(entry, tool));
-        let mut load_arguments = json!({
-            "skill_name": skill_name,
-            "dcc": entry.dcc_type,
-            "dcc_type": entry.dcc_type,
-            "instance_id": entry.instance_id.to_string(),
-        });
-        if let Some(target_tool_slug) = &target_tool_slug {
-            load_arguments["target_tool_slug"] = json!(target_tool_slug);
-        }
-        if let Some(tool_group) = skill.get("tool_group").and_then(Value::as_str) {
-            load_arguments["tool_group"] = json!(tool_group);
-        }
         hits.push(json!({
             "kind": "skill_candidate",
             "skill_name": skill_name,
-            "slug": target_tool_slug,
-            "target_tool_slug": target_tool_slug,
+            "slug": target_tool.map(|tool| local_instance::local_tool_slug(entry, tool)),
+            "target_tool_slug": target_tool.map(|tool| local_instance::local_tool_slug(entry, tool)),
             "matching_tools": skill.get("matching_tools").cloned().unwrap_or_else(|| json!([])),
             "requires_load_skill": true,
             "load_hint": {
                 "tool": "load_skill",
-                "arguments": load_arguments,
-            },
-            "next_step": {
-                "action": "load_skill",
-                "arguments": load_arguments,
+                "arguments": { "skill_name": skill_name },
             },
             "instance_id": entry.instance_id.to_string(),
             "instance_short": local_instance::instance_short(entry),
@@ -1417,35 +721,6 @@ fn normalize_readiness_report(value: &Value) -> Option<Value> {
     None
 }
 
-async fn discovery_catalog_observable(gateway: &HttpGateway, entry: &ServiceEntry) -> bool {
-    list_mcp_tools(gateway, &local_instance::discovery_mcp_url(entry))
-        .await
-        .is_ok_and(|tools| {
-            tools.iter().any(|tool| {
-                tool.get("name")
-                    .and_then(Value::as_str)
-                    .is_some_and(|name| {
-                        matches!(name, "search_tools" | "search_skills" | "load_skill")
-                    })
-            })
-        })
-}
-
-fn reconcile_catalog_readiness(mut readiness: Value, catalog_observable: bool) -> Value {
-    if !catalog_observable || readiness.get("skill_catalog").and_then(Value::as_bool) == Some(true)
-    {
-        return readiness;
-    }
-    if let Some(object) = readiness.as_object_mut() {
-        object.insert("skill_catalog".to_string(), Value::Bool(true));
-        object.insert(
-            "skill_catalog_source".to_string(),
-            Value::String("discovery_mcp".to_string()),
-        );
-    }
-    readiness
-}
-
 fn missing_required_fields(readiness: Option<&Value>, required: &[String]) -> Vec<String> {
     required
         .iter()
@@ -1482,5 +757,73 @@ fn metadata_value<'a>(entry: &'a ServiceEntry, keys: &[&str]) -> Option<&'a str>
 }
 
 #[cfg(test)]
-#[path = "local_control_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn local_tool_slug_round_trips() {
+        let entry = ServiceEntry::new("maya", "127.0.0.1", 18080);
+        let slug = local_instance::local_tool_slug(&entry, "maya_scene__get_session_info");
+        let parsed = parse_local_tool_slug(&slug);
+
+        assert_eq!(parsed.dcc_type.as_deref(), Some("maya"));
+        assert_eq!(
+            parsed.instance_hint.as_deref(),
+            Some(local_instance::instance_short(&entry).as_str())
+        );
+        assert_eq!(parsed.backend_tool, "maya_scene__get_session_info");
+    }
+
+    #[test]
+    fn load_skill_request_strips_local_routing_fields() {
+        let (dcc_type, instance_id, backend_body) = split_load_skill_request(json!({
+            "skill_name": "workflow",
+            "dcc_type": "maya",
+            "dcc": "maya-legacy",
+            "instance_id": "abc12345",
+            "activate_groups": false
+        }))
+        .unwrap();
+
+        assert_eq!(dcc_type.as_deref(), Some("maya"));
+        assert_eq!(instance_id.as_deref(), Some("abc12345"));
+        assert_eq!(
+            backend_body,
+            json!({
+                "skill_name": "workflow",
+                "activate_groups": false
+            })
+        );
+    }
+
+    #[test]
+    fn reload_result_rejects_backend_failure_envelope() {
+        assert!(!reload_result_succeeded(&json!({
+            "success": false,
+            "error": "no-source-file"
+        })));
+    }
+
+    #[test]
+    fn call_result_rejects_nested_tool_failure_but_accepts_transport_success() {
+        assert!(!call_result_succeeded(&json!({
+            "success": true,
+            "output": {"success": false, "message": "domain failure"}
+        })));
+        assert!(!call_result_succeeded(&json!({
+            "success": false,
+            "results": [{"ok": false}]
+        })));
+        assert!(!call_result_succeeded(&json!({
+            "content": [{
+                "type": "text",
+                "text": r#"{"success":false,"message":"sidecar domain failure"}"#
+            }],
+            "isError": false
+        })));
+        assert!(call_result_succeeded(&json!({
+            "success": true,
+            "output": {"success": true}
+        })));
+    }
+}

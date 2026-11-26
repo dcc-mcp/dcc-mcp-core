@@ -1,35 +1,19 @@
-use std::collections::HashSet;
+use std::fmt::Display;
+use std::time::Duration;
 
-use dcc_mcp_jsonrpc::{JsonRpcRequestBuilder, LEGACY_PROTOCOL_VERSIONS, MCP_PROTOCOL_VERSION};
-use dcc_mcp_models::FeedbackReport;
+use dcc_mcp_client::McpHttpClient;
+use serde::Serialize;
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
 use thiserror::Error;
 use tokio::time::{Instant, sleep};
 
 use crate::application::instance_selection::select_one_instance;
 use crate::domain::rest::{
-    CallRequest, DescribeRequest, DirectCallRequest, Endpoint, FeedbackQueryRequest,
-    LoadSkillRequest, SearchRequest, StatsRequest, StopInstanceRequest, WaitReadyRequest,
+    CallRequest, DescribeRequest, DirectCallRequest, Endpoint, LoadSkillRequest, SearchRequest,
+    StatsRequest, StopInstanceRequest, WaitReadyRequest,
 };
 use crate::infra::http::{HttpError, HttpGateway};
 
-const MCP_STREAMABLE_HTTP_ACCEPT: &str = "application/json, text/event-stream";
-
-/// Wire transport used for model-facing tool calls.
-///
-/// `Auto` preserves the historical CLI behavior: use the gateway REST
-/// control-plane endpoint first and fall back to MCP when the REST catalog
-/// does not know the tool.  `Mcp` is useful for protocol parity testing and
-/// for tools that are only exposed through `tools/call`; `Rest` keeps the
-/// control-plane behavior strict and never silently changes transports.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, clap::ValueEnum)]
-pub enum TransportMode {
-    #[default]
-    Auto,
-    Rest,
-    Mcp,
-}
 #[derive(Debug, Error)]
 pub enum ClientError {
     #[error(transparent)]
@@ -41,7 +25,7 @@ pub enum ClientError {
 pub struct DccMcpClient {
     endpoint: Endpoint,
     gateway: HttpGateway,
-    transport: TransportMode,
+    timeout: Duration,
 }
 
 impl DccMcpClient {
@@ -49,7 +33,7 @@ impl DccMcpClient {
         Self {
             endpoint,
             gateway: HttpGateway::default(),
-            transport: TransportMode::Auto,
+            timeout: Duration::from_secs(30),
         }
     }
 
@@ -58,14 +42,17 @@ impl DccMcpClient {
         Self {
             endpoint,
             gateway,
-            transport: TransportMode::Auto,
+            timeout: Duration::from_secs(30),
         }
     }
 
     #[must_use]
-    pub fn with_transport(mut self, transport: TransportMode) -> Self {
-        self.transport = transport;
-        self
+    pub fn with_timeout(endpoint: Endpoint, timeout: Duration) -> Self {
+        Self {
+            endpoint,
+            gateway: HttpGateway::with_timeout(timeout),
+            timeout,
+        }
     }
 
     pub async fn health(&self) -> Result<Value, ClientError> {
@@ -79,38 +66,6 @@ impl DccMcpClient {
         let mut url = reqwest::Url::parse(&self.endpoint.path("/v1/debug/stats"))
             .map_err(|error| ClientError::Protocol(format!("invalid stats endpoint: {error}")))?;
         url.query_pairs_mut().extend_pairs(request.query_pairs());
-        self.gateway
-            .get_json(url.as_str())
-            .await
-            .map_err(Into::into)
-    }
-
-    pub async fn feedback(&self, report: FeedbackReport) -> Result<Value, ClientError> {
-        let body = serde_json::to_value(report)
-            .map_err(|error| ClientError::Protocol(format!("invalid feedback report: {error}")))?;
-        self.gateway
-            .post_json(&self.endpoint.path("/v1/feedback"), &body)
-            .await
-            .map_err(Into::into)
-    }
-
-    pub async fn feedback_entries(
-        &self,
-        request: FeedbackQueryRequest,
-    ) -> Result<Value, ClientError> {
-        let mut url =
-            reqwest::Url::parse(&self.endpoint.path("/admin/api/feedback")).map_err(|error| {
-                ClientError::Protocol(format!("invalid feedback endpoint: {error}"))
-            })?;
-        url.query_pairs_mut().extend_pairs(request.query_pairs());
-        self.gateway
-            .get_json(url.as_str())
-            .await
-            .map_err(Into::into)
-    }
-
-    pub async fn issue_report(&self, request_id: &str) -> Result<Value, ClientError> {
-        let url = issue_report_url(&self.endpoint, request_id)?;
         self.gateway
             .get_json(url.as_str())
             .await
@@ -174,10 +129,6 @@ impl DccMcpClient {
     }
 
     pub async fn call(&self, request: CallRequest) -> Result<Value, ClientError> {
-        let request_id = next_request_id();
-        if self.transport == TransportMode::Mcp {
-            return self.call_mcp_tool(request, &request_id).await;
-        }
         let body = json!({
             "tool_slug": &request.tool_slug,
             "arguments": &request.arguments,
@@ -185,55 +136,26 @@ impl DccMcpClient {
         });
         match self
             .gateway
-            .post_json_correlated(&self.endpoint.path("/v1/call"), &body, &request_id)
+            .post_json(&self.endpoint.path("/v1/call"), &body)
             .await
         {
             Ok(value) => Ok(value),
-            Err(error) if self.transport == TransportMode::Auto && is_unknown_rest_tool(&error) => {
-                self.call_mcp_tool(request, &request_id).await
-            }
+            Err(error) if is_unknown_rest_tool(&error) => self.call_mcp_tool(request).await,
             Err(error) => Err(error.into()),
         }
     }
 
-    async fn call_mcp_tool(
-        &self,
-        request: CallRequest,
-        request_id: &str,
-    ) -> Result<Value, ClientError> {
+    async fn call_mcp_tool(&self, request: CallRequest) -> Result<Value, ClientError> {
         let tool_slug = request.tool_slug;
-        let mut params = json!({
-            "name": &tool_slug,
-            "arguments": request.arguments,
-        });
-        if let Some(meta) = request.meta {
-            params["_meta"] = meta;
-        }
-        let response = self
-            .gateway
-            .post_json_with_headers(
-                &self.endpoint.mcp_url(),
-                &json!({
-                    "jsonrpc": "2.0",
-                    "id": request_id,
-                    "method": "tools/call",
-                    "params": params,
-                }),
-                &[
-                    ("Mcp-Protocol-Version", MCP_PROTOCOL_VERSION),
-                    ("Accept", MCP_STREAMABLE_HTTP_ACCEPT),
-                    ("X-Request-ID", request_id),
-                ],
-            )
-            .await?;
-        validate_jsonrpc_response_id(&response, request_id)?;
-        if let Some(error) = response.get("error") {
-            return Err(ClientError::Protocol(error.to_string()));
-        }
-        let result = response
-            .get("result")
-            .cloned()
-            .ok_or_else(|| ClientError::Protocol("missing tools/call result".to_string()))?;
+        let mut client = McpHttpClient::with_timeout(&self.endpoint.mcp_url(), self.timeout)
+            .map_err(|error| ClientError::Protocol(error.to_string()))?;
+        let result = serde_json::to_value(
+            client
+                .tools_call(&tool_slug, request.arguments, request.meta)
+                .await
+                .map_err(|error| ClientError::Protocol(error.to_string()))?,
+        )
+        .map_err(|error| ClientError::Protocol(error.to_string()))?;
         if result.get("isError").and_then(Value::as_bool) == Some(true) {
             let message = result
                 .pointer("/content/0/text")
@@ -246,15 +168,13 @@ impl DccMcpClient {
     }
 
     pub async fn call_batch(&self, body: Value) -> Result<Value, ClientError> {
-        let request_id = next_request_id();
         self.gateway
-            .post_json_correlated(&self.endpoint.path("/v1/call_batch"), &body, &request_id)
+            .post_json(&self.endpoint.path("/v1/call_batch"), &body)
             .await
             .map_err(Into::into)
     }
 
     pub async fn direct_call(&self, request: DirectCallRequest) -> Result<Value, ClientError> {
-        let request_id = next_request_id();
         let body = json!({
             "backend_tool": request.backend_tool,
             "arguments": request.arguments,
@@ -265,7 +185,7 @@ impl DccMcpClient {
             request.dcc_type, request.instance_id
         );
         self.gateway
-            .post_json_correlated(&self.endpoint.path(&path), &body, &request_id)
+            .post_json(&self.endpoint.path(&path), &body)
             .await
             .map_err(Into::into)
     }
@@ -274,7 +194,6 @@ impl DccMcpClient {
         let body = json!({
             "expected_owner": request.expected_owner,
             "expected_session": request.expected_session,
-            "operation_id": request.operation_id,
         });
         let path = format!(
             "/v1/dcc/{}/instances/{}/stop",
@@ -423,64 +342,46 @@ impl DccMcpClient {
         }
     }
 
-    pub async fn smoke(
-        &self,
-        mcp_url: Option<String>,
-        query: String,
-        limit: usize,
-        max_pages: usize,
-    ) -> Value {
+    pub async fn smoke(&self, mcp_url: Option<String>, query: String, limit: usize) -> Value {
         let mcp_url = mcp_url.unwrap_or_else(|| self.endpoint.mcp_url());
         let mut checks = Vec::new();
 
         let health = self.gateway.get_json(&self.endpoint.path("/health")).await;
         checks.push(check_json("health", &self.endpoint.path("/health"), health));
 
-        let initialize = self
-            .gateway
-            .post_json_with_headers(
-                &mcp_url,
-                &json!({
-                    "jsonrpc": "2.0",
-                    "id": "smoke-initialize",
-                    "method": "initialize",
-                    "params": {
-                        "protocolVersion": MCP_PROTOCOL_VERSION,
-                        "capabilities": {},
-                        "clientInfo": {
-                            "name": "dcc-mcp-cli",
-                            "version": env!("CARGO_PKG_VERSION")
-                        }
-                    }
-                }),
-                &[
-                    ("Mcp-Protocol-Version", MCP_PROTOCOL_VERSION),
-                    ("Accept", MCP_STREAMABLE_HTTP_ACCEPT),
-                ],
-            )
-            .await;
-        let mut initialize = check_json("mcp_initialize", &mcp_url, initialize);
-        let protocol = if initialize["ok"] == true {
-            match validate_initialize(&initialize["response"]) {
-                Ok(protocol) => Some(protocol),
-                Err(error) => {
-                    initialize["ok"] = json!(false);
-                    initialize["error"] = json!(error.to_string());
-                    None
+        match McpHttpClient::with_timeout(&mcp_url, self.timeout) {
+            Ok(mut mcp) => {
+                let initialize = serialize_mcp_result(mcp.initialize().await);
+                let initialized = initialize.is_ok();
+                checks.push(check_json("mcp_initialize", &mcp_url, initialize));
+                if initialized {
+                    let tools_list = serialize_mcp_result(mcp.tools_list().await);
+                    checks.push(check_json("mcp_tools_list", &mcp_url, tools_list));
+                } else {
+                    checks.push(json!({
+                        "name": "mcp_tools_list",
+                        "url": mcp_url,
+                        "ok": false,
+                        "error": "skipped because MCP initialize failed",
+                    }));
                 }
             }
-        } else {
-            None
-        };
-        checks.push(initialize);
-
-        checks.push(if let Some(protocol) = protocol {
-            self.smoke_tools_list(&mcp_url, max_pages, &protocol).await
-        } else {
-            json!({"name":"mcp_tools_list", "url":mcp_url, "ok":false,
-                   "complete":false, "pages":[], "max_pages":max_pages,
-                   "error":"MCP initialize failed; tools/list was not dispatched"})
-        });
+            Err(error) => {
+                let error = error.to_string();
+                checks.push(json!({
+                    "name": "mcp_initialize",
+                    "url": mcp_url,
+                    "ok": false,
+                    "error": error,
+                }));
+                checks.push(json!({
+                    "name": "mcp_tools_list",
+                    "url": mcp_url,
+                    "ok": false,
+                    "error": "skipped because MCP client could not be created",
+                }));
+            }
+        }
 
         let search_body = json!({
             "query": query,
@@ -507,197 +408,6 @@ impl DccMcpClient {
             "checks": checks,
         })
     }
-
-    async fn smoke_tools_list(&self, url: &str, max_pages: usize, protocol: &str) -> Value {
-        let mut pages = Vec::new();
-        let mut cursor = None;
-        let mut cursors = HashSet::new();
-        let mut names = HashSet::new();
-        let mut complete = false;
-        let mut failure = None;
-
-        for page in 0..max_pages {
-            let id = if page == 0 {
-                "smoke-tools-list".to_string()
-            } else {
-                format!("smoke-tools-list-{}", page + 1)
-            };
-            let params = cursor
-                .as_ref()
-                .map_or_else(|| json!({}), |value| json!({"cursor": value}));
-            let request = JsonRpcRequestBuilder::new(id.clone(), "tools/list")
-                .with_params(params)
-                .to_value();
-            let response = self
-                .gateway
-                .post_bytes_with_headers(
-                    url,
-                    &request,
-                    &[
-                        ("Mcp-Protocol-Version", protocol),
-                        ("Accept", MCP_STREAMABLE_HTTP_ACCEPT),
-                    ],
-                )
-                .await;
-            match response {
-                Ok((status, body)) => {
-                    let mut captured = json!({"request":request, "http_status":status,
-                        "raw_body_sha256":Sha256::digest(&body).iter().map(|byte| format!("{byte:02x}")).collect::<String>()});
-                    let response = match std::str::from_utf8(&body) {
-                        Ok(text) => {
-                            captured["raw_body_utf8"] = json!(text);
-                            serde_json::from_slice::<Value>(&body)
-                                .map_err(|error| error.to_string())
-                        }
-                        Err(error) => {
-                            // Invalid UTF-8 cannot be a valid JSON-RPC page. Preserve its
-                            // bytes as numbers rather than manufacturing a lossy body.
-                            captured["raw_body_bytes"] = json!(body);
-                            Err(error.to_string())
-                        }
-                    };
-                    let response = match response {
-                        Ok(response) => {
-                            captured["response"] = response.clone();
-                            pages.push(captured);
-                            response
-                        }
-                        Err(error) => {
-                            captured["error"] = json!(error);
-                            pages.push(captured);
-                            failure = Some(error);
-                            break;
-                        }
-                    };
-                    if !(200..300).contains(&status) {
-                        failure = Some(format!("tools/list returned HTTP {status}"));
-                        break;
-                    }
-                    match validate_tools_page(&response, &id, &names) {
-                        Ok((None, page_names)) => {
-                            names.extend(page_names);
-                            complete = true;
-                            break;
-                        }
-                        Ok((Some(next), page_names)) if cursors.insert(next.clone()) => {
-                            names.extend(page_names);
-                            cursor = Some(next);
-                        }
-                        Ok((Some(_), _)) => {
-                            failure = Some("repeated tools/list cursor".to_string());
-                            break;
-                        }
-                        Err(error) => {
-                            failure = Some(error.to_string());
-                            break;
-                        }
-                    }
-                }
-                Err(error) => {
-                    let message = error.to_string();
-                    pages.push(json!({"request": request, "error": message}));
-                    failure = Some(message);
-                    break;
-                }
-            }
-        }
-        if !complete && failure.is_none() {
-            failure = Some(format!(
-                "tools/list page limit {max_pages} reached before completion"
-            ));
-        }
-        json!({
-            "name": "mcp_tools_list", "url": url, "ok": complete,
-            // Preserve the original first-page field for existing smoke readers.
-            "response": pages.first().and_then(|page| page.get("response")),
-            "pages": pages, "complete": complete, "max_pages": max_pages,
-            "tool_count": names.len(), "error": failure,
-        })
-    }
-}
-
-fn validate_tools_page(
-    response: &Value,
-    request_id: &str,
-    names: &HashSet<String>,
-) -> Result<(Option<String>, HashSet<String>), ClientError> {
-    let result = validate_mcp_result(response, request_id)?;
-    let tools = result
-        .get("tools")
-        .and_then(Value::as_array)
-        .ok_or_else(|| ClientError::Protocol("missing tools/list tools array".into()))?;
-    let mut page_names = HashSet::new();
-    for tool in tools {
-        let name = tool
-            .get("name")
-            .and_then(Value::as_str)
-            .filter(|name| !name.is_empty())
-            .ok_or_else(|| ClientError::Protocol("missing tools/list tool name".into()))?;
-        if !tool.get("inputSchema").is_some_and(|schema| {
-            schema.is_object() && schema.get("type").and_then(Value::as_str) == Some("object")
-        }) {
-            return Err(ClientError::Protocol(format!(
-                "missing tools/list inputSchema: {name}"
-            )));
-        }
-        if names.contains(name) || !page_names.insert(name.to_string()) {
-            return Err(ClientError::Protocol(format!(
-                "duplicate tools/list tool name: {name}"
-            )));
-        }
-    }
-    let next_cursor = match result.get("nextCursor") {
-        None | Some(Value::Null) => None,
-        Some(Value::String(cursor)) if !cursor.is_empty() => Some(cursor.clone()),
-        _ => {
-            return Err(ClientError::Protocol(
-                "invalid tools/list nextCursor".into(),
-            ));
-        }
-    };
-    Ok((next_cursor, page_names))
-}
-
-fn validate_mcp_result<'a>(
-    response: &'a Value,
-    request_id: &str,
-) -> Result<&'a serde_json::Map<String, Value>, ClientError> {
-    validate_jsonrpc_response_id(response, request_id)?;
-    if response.get("jsonrpc").and_then(Value::as_str) != Some("2.0") {
-        return Err(ClientError::Protocol("invalid MCP JSON-RPC version".into()));
-    }
-    if let Some(error) = response.get("error") {
-        return Err(ClientError::Protocol(error.to_string()));
-    }
-    response
-        .get("result")
-        .and_then(Value::as_object)
-        .ok_or_else(|| ClientError::Protocol("missing MCP result object".into()))
-}
-
-fn validate_initialize(response: &Value) -> Result<String, ClientError> {
-    let result = validate_mcp_result(response, "smoke-initialize")?;
-    let info = result.get("serverInfo").and_then(Value::as_object);
-    let valid_info = info.is_some_and(|info| {
-        ["name", "version"].iter().all(|field| {
-            info.get(*field)
-                .and_then(Value::as_str)
-                .is_some_and(|value| !value.is_empty())
-        })
-    });
-    if !valid_info || !result.get("capabilities").is_some_and(Value::is_object) {
-        return Err(ClientError::Protocol(
-            "invalid MCP initialize identity/capabilities".into(),
-        ));
-    }
-    let protocol = result
-        .get("protocolVersion")
-        .and_then(Value::as_str)
-        .filter(|protocol| LEGACY_PROTOCOL_VERSIONS.contains(protocol))
-        .ok_or_else(|| {
-            ClientError::Protocol("unsupported MCP initialize protocolVersion".into())
-        })?;
-    Ok(protocol.to_string())
 }
 
 fn is_unknown_rest_tool(error: &HttpError) -> bool {
@@ -716,41 +426,6 @@ fn is_unknown_rest_tool(error: &HttpError) -> bool {
                 .map(str::to_owned)
         })
         .is_some_and(|message| message.starts_with("invalid tool slug "))
-}
-
-fn issue_report_url(endpoint: &Endpoint, request_id: &str) -> Result<reqwest::Url, ClientError> {
-    let mut url = reqwest::Url::parse(&endpoint.base_url).map_err(|error| {
-        ClientError::Protocol(format!("invalid issue-report endpoint: {error}"))
-    })?;
-    url.path_segments_mut()
-        .map_err(|_| ClientError::Protocol("issue-report endpoint cannot be a base URL".into()))?
-        .pop_if_empty()
-        .extend(["v1", "debug", "issue-reports", request_id]);
-    Ok(url)
-}
-
-fn next_request_id() -> String {
-    use std::sync::atomic::{AtomicU64, Ordering};
-
-    static COUNTER: AtomicU64 = AtomicU64::new(0);
-    let counter = COUNTER.fetch_add(1, Ordering::Relaxed);
-    format!("dcc-mcp-cli-{}-{counter}", std::process::id())
-}
-
-fn validate_jsonrpc_response_id(
-    response: &Value,
-    expected_request_id: &str,
-) -> Result<(), ClientError> {
-    let expected = Value::String(expected_request_id.to_string());
-    if response.get("id") == Some(&expected) {
-        return Ok(());
-    }
-    Err(ClientError::Protocol(format!(
-        "transport desync: expected JSON-RPC response id {expected_request_id:?}, got {}",
-        response
-            .get("id")
-            .map_or_else(|| "<missing>".to_string(), Value::to_string),
-    )))
 }
 
 const READINESS_FIELDS: &[&str] = &[
@@ -863,7 +538,7 @@ fn missing_required_fields(readiness: Option<&Value>, required: &[String]) -> Ve
         .collect()
 }
 
-fn check_json(name: &str, url: &str, result: Result<Value, HttpError>) -> Value {
+fn check_json<E: Display>(name: &str, url: &str, result: Result<Value, E>) -> Value {
     match result {
         Ok(value) => json!({
             "name": name,
@@ -878,6 +553,14 @@ fn check_json(name: &str, url: &str, result: Result<Value, HttpError>) -> Value 
             "error": error.to_string(),
         }),
     }
+}
+
+fn serialize_mcp_result<T: Serialize>(
+    result: Result<T, dcc_mcp_client::McpClientError>,
+) -> Result<Value, String> {
+    result
+        .map_err(|error| error.to_string())
+        .and_then(|value| serde_json::to_value(value).map_err(|error| error.to_string()))
 }
 
 #[cfg(test)]
@@ -925,27 +608,5 @@ mod tests {
         assert_eq!(response["query"]["instance_id"], "instance-a");
         assert_eq!(response["query"]["session_id"], "solar-session");
         server.abort();
-    }
-
-    #[test]
-    fn issue_report_request_id_is_one_encoded_path_segment() {
-        let url = issue_report_url(&Endpoint::new("http://127.0.0.1:9765"), "request/42").unwrap();
-
-        assert_eq!(
-            url.as_str(),
-            "http://127.0.0.1:9765/v1/debug/issue-reports/request%2F42"
-        );
-    }
-
-    #[test]
-    fn jsonrpc_response_id_must_match_exactly() {
-        validate_jsonrpc_response_id(&json!({"id": "current-call"}), "current-call").unwrap();
-
-        let stale = validate_jsonrpc_response_id(&json!({"id": "previous-call"}), "current-call")
-            .unwrap_err();
-        assert!(stale.to_string().contains("transport desync"));
-
-        let missing = validate_jsonrpc_response_id(&json!({}), "current-call").unwrap_err();
-        assert!(missing.to_string().contains("<missing>"));
     }
 }

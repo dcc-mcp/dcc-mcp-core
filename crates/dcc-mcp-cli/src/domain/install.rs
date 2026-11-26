@@ -1,11 +1,9 @@
 use std::path::PathBuf;
 
-use dcc_mcp_catalog::{CatalogAdobeInstall, CatalogEntry, CatalogInstall};
+use crate::application::dcc_discovery::DccInstallation;
+use dcc_mcp_catalog::{CatalogEntry, CatalogInstall};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-
-pub(crate) mod policy;
-pub mod python;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InstallRequest {
@@ -13,42 +11,20 @@ pub struct InstallRequest {
     pub version: Option<String>,
     pub catalog_path: Option<PathBuf>,
     pub python: Option<String>,
-    /// Optional absolute DCC executable or application path supplied by the user.
-    pub dcc_path: Option<PathBuf>,
-    /// Source checkout or internal package root containing the host plugin.
-    pub plugin_source: Option<PathBuf>,
-    /// Adobe UXP/CEP debug root supplied by the operator or studio profile.
-    pub adobe_debug_root: Option<PathBuf>,
-}
-
-#[derive(Debug, Clone, Default)]
-struct InstallOperatorPaths {
-    plugin_source: Option<PathBuf>,
-    adobe_debug_root: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct InstallPlan {
-    /// Original request selectors used to build a faithful retry command.
-    /// This is execution context and is intentionally omitted from serialized plans.
-    #[serde(skip)]
-    pub retry_request: Option<InstallRequest>,
     pub dcc_type: String,
     pub version: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub dcc_path: Option<PathBuf>,
     pub adapter: CatalogEntry,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub probe_tool: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub catalog: Option<crate::domain::install_catalog::CatalogProvenance>,
     pub steps: Vec<InstallStep>,
+    #[serde(default)]
+    pub detected_installations: Vec<DccInstallation>,
     #[serde(default)]
     pub next_steps: Vec<InstallNextStep>,
     #[serde(default = "InstallPolicy::enabled")]
     pub install_policy: InstallPolicy,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub python_source: Option<python::PythonSource>,
 }
 
 /// A single install step with a human-readable description and the action to execute.
@@ -107,37 +83,28 @@ pub enum InstallStepAction {
     PipInstall {
         /// Pip package name (e.g. "dcc-mcp-maya").
         package: String,
-        /// Optional exact package version requested by the user.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        version: Option<String>,
         /// Optional pip extras (e.g. ["maya"]).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         extras: Option<Vec<String>>,
         /// Optional Python/mayapy interpreter path override.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         python: Option<String>,
-        /// Immutable wheel artifact URL declared by the catalog.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        artifact_url: Option<String>,
-        /// Required SHA-256 for the declared wheel artifact.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        sha256: Option<String>,
     },
-    /// Check out a git repository at an immutable commit.
+    /// Clone a git repository.
     GitClone {
         /// Git remote URL.
         url: String,
-        /// Full 40-character commit object ID to check out.
+        /// Git ref, tag, or branch to check out.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         ref_: Option<String>,
         /// Target directory for the clone.
         dest: PathBuf,
     },
-    /// Download, verify, and extract a ZIP archive.
+    /// Download and extract a ZIP archive.
     ZipExtract {
         /// Archive download URL.
         url: String,
-        /// Required SHA-256 hash for integrity verification.
+        /// Optional SHA-256 hash for integrity verification.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         sha256: Option<String>,
         /// Target extract directory.
@@ -150,15 +117,6 @@ pub enum InstallStepAction {
         /// Target directory.
         dest: PathBuf,
     },
-    /// Create an Adobe debug-mode directory link without copying plugin files.
-    AdobePluginLink {
-        source: PathBuf,
-        dest: PathBuf,
-        product: String,
-        extension_type: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        manifest: Option<PathBuf>,
-    },
     /// Register the DCC adapter with the gateway.
     RegisterDcc {
         /// DCC type name (e.g. "maya").
@@ -166,12 +124,6 @@ pub enum InstallStepAction {
         /// Optional Python entry point for the adapter.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         entry_point: Option<String>,
-        /// Optional read-only MCP tool used for post-install readiness checks.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        probe_tool: Option<String>,
-        /// Optional user-provided DCC executable/application path.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        dcc_path: Option<PathBuf>,
     },
     /// Verify local install artefacts. Live DCC readiness is a next step.
     Verify,
@@ -183,45 +135,6 @@ pub enum InstallPlanError {
     UnsupportedDcc(String),
     #[error("no install metadata found in catalog entry for '{0}'")]
     MissingInstallMetadata(String),
-    #[error("catalog entry '{0}' is not available for installation")]
-    NotAvailable(String),
-    #[error("catalog entry '{name}' has unsupported installation policy '{installation}'")]
-    InvalidInstallationPolicy { name: String, installation: String },
-    #[error("catalog entry '{name}' has invalid min_core_version '{required}'")]
-    InvalidMinCoreVersion { name: String, required: String },
-    #[error(
-        "catalog entry '{name}' requires dcc-mcp-core >= {required}; current version is {current}"
-    )]
-    IncompatibleCoreVersion {
-        name: String,
-        required: String,
-        current: String,
-    },
-    #[error("catalog entry '{name}' has invalid core_requirement '{required}'")]
-    InvalidCoreRequirement { name: String, required: String },
-    #[error("catalog entry '{name}' declares core_requirement but install type is not pip")]
-    CoreRequirementRequiresPip { name: String },
-    #[error("'{path}' is not a usable pip interpreter; specify --python with a Python executable")]
-    InvalidPythonExecutable { path: String },
-    #[error(
-        "no safe Python interpreter found for hosted {0}; pass --python or DCC_MCP_INSTALL_PYTHON, or install the host"
-    )]
-    MissingHostInterpreter(String),
-    #[error(
-        "multiple usable Python interpreters found for hosted {dcc}: {paths:?}; pass --dcc-path or --python"
-    )]
-    AmbiguousHostInterpreters {
-        dcc: String,
-        paths: Vec<std::path::PathBuf>,
-    },
-    #[error("git install requires a full 40-character commit object ID")]
-    UnpinnedGitReference,
-    #[error("zip install requires exactly 64 hexadecimal SHA-256 digits")]
-    InvalidArchiveChecksum,
-    #[error("pip install requires a package, version, universal wheel URL, and SHA-256")]
-    InvalidPipArtifact,
-    #[error("requested pip version '{requested}' differs from catalog version '{catalog}'")]
-    PipVersionMismatch { requested: String, catalog: String },
 }
 
 // ── defaults ─────────────────────────────────────────────────────────────────────
@@ -241,109 +154,7 @@ fn dirs_data_dir() -> PathBuf {
 
 pub struct InstallPlanner;
 
-fn validate_install_integrity(
-    entry: &CatalogEntry,
-    install: &CatalogInstall,
-    requested_version: Option<&str>,
-) -> Result<(), InstallPlanError> {
-    match install.install_type.as_str() {
-        "git" => {
-            let reference = install.ref_.as_deref().unwrap_or_default().trim();
-            if reference.len() != 40 || !reference.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-                return Err(InstallPlanError::UnpinnedGitReference);
-            }
-        }
-        "zip" => {
-            let value = install.sha256.as_deref().unwrap_or_default().trim();
-            let checksum = value.strip_prefix("sha256:").unwrap_or(value);
-            if checksum.len() != 64 || !checksum.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-                return Err(InstallPlanError::InvalidArchiveChecksum);
-            }
-        }
-        "pip" => {
-            let package = install.pip_package.as_deref().unwrap_or_default().trim();
-            let catalog_version = entry.version.as_deref().unwrap_or_default().trim();
-            let artifact_url = install.url.as_deref().unwrap_or_default().trim();
-            let value = install.sha256.as_deref().unwrap_or_default().trim();
-            let checksum = value.strip_prefix("sha256:").unwrap_or(value);
-            let normalized_package = package
-                .chars()
-                .map(|character| match character {
-                    '-' | '.' => '_',
-                    other => other.to_ascii_lowercase(),
-                })
-                .collect::<String>();
-            let filename = artifact_url.rsplit('/').next().unwrap_or_default();
-            let expected_prefix = format!("{normalized_package}-{catalog_version}-");
-            let valid_package = !package.is_empty()
-                && package
-                    .as_bytes()
-                    .first()
-                    .is_some_and(u8::is_ascii_alphanumeric)
-                && package
-                    .as_bytes()
-                    .last()
-                    .is_some_and(u8::is_ascii_alphanumeric)
-                && package
-                    .bytes()
-                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'));
-            let valid_extras = install.pip_extras.as_ref().is_none_or(|values| {
-                values.iter().all(|value| {
-                    !value.is_empty()
-                        && value
-                            .as_bytes()
-                            .first()
-                            .is_some_and(u8::is_ascii_alphanumeric)
-                        && value
-                            .as_bytes()
-                            .last()
-                            .is_some_and(u8::is_ascii_alphanumeric)
-                        && value.bytes().all(|byte| {
-                            byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.')
-                        })
-                })
-            });
-            let valid_artifact = artifact_url.starts_with("https://")
-                && !artifact_url.contains('#')
-                && !artifact_url.contains('?')
-                && filename
-                    .to_ascii_lowercase()
-                    .starts_with(&expected_prefix.to_ascii_lowercase())
-                && filename.ends_with("-py3-none-any.whl");
-            if !valid_package
-                || !valid_extras
-                || catalog_version.is_empty()
-                || !valid_artifact
-                || checksum.len() != 64
-                || !checksum.bytes().all(|byte| byte.is_ascii_hexdigit())
-            {
-                return Err(InstallPlanError::InvalidPipArtifact);
-            }
-            if let Some(requested) = requested_version
-                && requested.trim() != catalog_version
-            {
-                return Err(InstallPlanError::PipVersionMismatch {
-                    requested: requested.into(),
-                    catalog: catalog_version.into(),
-                });
-            }
-        }
-        _ => {}
-    }
-    Ok(())
-}
-
 impl InstallPlanner {
-    fn explicit_host_candidates(dcc_path: Option<&std::path::Path>) -> Vec<python::HostCandidate> {
-        dcc_path
-            .map(|path| {
-                vec![python::HostCandidate {
-                    path: path.to_path_buf(),
-                    explicit: true,
-                }]
-            })
-            .unwrap_or_default()
-    }
     /// Generate an install plan from catalog entries and user request.
     ///
     /// If the matching catalog entry has an `install` field, the generated steps
@@ -353,117 +164,31 @@ impl InstallPlanner {
         entries: &[CatalogEntry],
         request: InstallRequest,
     ) -> Result<InstallPlan, InstallPlanError> {
-        let install_env = python::InstallEnv::from_process();
-        let host_candidates = Self::explicit_host_candidates(request.dcc_path.as_deref());
-        Self::plan_with_candidates(entries, request, &install_env, &host_candidates)
-    }
-
-    /// Generate an install plan with an explicit process environment.
-    ///
-    /// This keeps interpreter resolution deterministic for callers that need
-    /// to supply environment values without changing the public request shape.
-    pub fn plan_with_env(
-        entries: &[CatalogEntry],
-        request: InstallRequest,
-        env: &python::InstallEnv,
-    ) -> Result<InstallPlan, InstallPlanError> {
-        let host_candidates = Self::explicit_host_candidates(request.dcc_path.as_deref());
-        Self::plan_with_candidates(entries, request, env, &host_candidates)
-    }
-
-    /// Generate an install plan with explicit interpreter and host candidates.
-    pub fn plan_with_candidates(
-        entries: &[CatalogEntry],
-        request: InstallRequest,
-        install_env: &python::InstallEnv,
-        host_candidates: &[python::HostCandidate],
-    ) -> Result<InstallPlan, InstallPlanError> {
         let dcc_key = normalized_dcc_key(&request.dcc_type);
         let adapter = select_adapter(entries, &dcc_key)
             .cloned()
             .ok_or_else(|| InstallPlanError::UnsupportedDcc(request.dcc_type.clone()))?;
 
-        policy::validate(&adapter)?;
-
         let dcc_type = request.dcc_type.clone();
-        let version = request.version.clone().or_else(|| adapter.version.clone());
-        let dcc_path = request.dcc_path.clone();
+        let version = request.version.clone();
 
-        if let Some(install) = &adapter.install {
-            validate_install_integrity(&adapter, install, request.version.as_deref())?;
-        }
-
-        let pinned_host_candidates = request.dcc_path.as_ref().map(|path| {
-            vec![python::HostCandidate {
-                path: path.clone(),
-                explicit: true,
-            }]
-        });
-        let selected_host_candidates = pinned_host_candidates.as_deref().unwrap_or(host_candidates);
-        let (python, python_source) = match &adapter.install {
-            Some(install) if install.install_type == "pip" => {
-                match python::resolve_python(
-                    request.python.clone(),
-                    install.python_path.clone(),
-                    install_env,
-                    selected_host_candidates,
-                    &dcc_key,
-                ) {
-                    Ok(resolved) => (Some(resolved.path), resolved.source),
-                    Err(python::PythonResolutionError::GuiExecutable(hint)) => {
-                        return Err(InstallPlanError::InvalidPythonExecutable {
-                            path: hint.gui_path.display().to_string(),
-                        });
-                    }
-                    Err(python::PythonResolutionError::MissingHostedInterpreter)
-                        if python::requires_interpreter(&dcc_key) =>
-                    {
-                        return Err(InstallPlanError::MissingHostInterpreter(dcc_type.clone()));
-                    }
-                    Err(python::PythonResolutionError::MissingHostedInterpreter) => {
-                        (None, python::PythonSource::NotRequired)
-                    }
-                    Err(python::PythonResolutionError::AmbiguousHostedInterpreters { paths }) => {
-                        return Err(InstallPlanError::AmbiguousHostInterpreters {
-                            dcc: dcc_type.clone(),
-                            paths,
-                        });
-                    }
-                }
-            }
-            _ => (request.python.clone(), python::PythonSource::NotRequired),
-        };
         let steps = match &adapter.install {
-            Some(install) => Self::build_executable_steps(
-                &adapter,
-                install,
-                &dcc_type,
-                version.clone(),
-                python,
-                dcc_path.clone(),
-                InstallOperatorPaths {
-                    plugin_source: request.plugin_source.clone(),
-                    adobe_debug_root: request.adobe_debug_root.clone(),
-                },
-            ),
+            Some(install) => {
+                Self::build_executable_steps(&adapter, install, &dcc_type, request.python.clone())
+            }
             None => Self::build_info_steps(),
         };
 
-        let next_steps = Self::build_next_steps(&adapter, &dcc_type, dcc_path.as_deref());
-        let probe_tool = install_probe_tool(&adapter);
+        let next_steps = Self::build_next_steps(&adapter, &dcc_type);
 
         Ok(InstallPlan {
-            retry_request: Some(request.clone()),
             next_steps,
             dcc_type,
             version,
-            dcc_path,
             adapter,
-            probe_tool,
-            catalog: None,
             steps,
+            detected_installations: Vec::new(),
             install_policy: InstallPolicy::enabled(),
-            python_source: Some(python_source),
         })
     }
 
@@ -472,10 +197,7 @@ impl InstallPlanner {
         entry: &CatalogEntry,
         install: &CatalogInstall,
         dcc_type: &str,
-        version: Option<String>,
         python_override: Option<String>,
-        dcc_path: Option<PathBuf>,
-        operator_paths: InstallOperatorPaths,
     ) -> Vec<InstallStep> {
         let adapter_dir = default_adapter_dir().join(&entry.name);
 
@@ -488,11 +210,8 @@ impl InstallPlanner {
                         .pip_package
                         .clone()
                         .unwrap_or_else(|| entry.name.clone()),
-                    version,
                     extras: install.pip_extras.clone(),
                     python,
-                    artifact_url: install.url.clone(),
-                    sha256: install.sha256.clone(),
                 }
             }
             "git" => InstallStepAction::GitClone {
@@ -541,15 +260,6 @@ impl InstallPlanner {
             action: Some(install_action),
         });
 
-        if let Some(adobe) = &install.adobe {
-            steps.push(Self::build_adobe_link_step(
-                entry,
-                adobe,
-                operator_paths.plugin_source.as_deref(),
-                operator_paths.adobe_debug_root.as_deref(),
-            ));
-        }
-
         // Register step
         steps.push(InstallStep {
             name: "register-dcc".into(),
@@ -560,8 +270,6 @@ impl InstallPlanner {
             action: Some(InstallStepAction::RegisterDcc {
                 dcc_type: dcc_type.to_string(),
                 entry_point: install.entry_point.clone(),
-                probe_tool: install_probe_tool(entry),
-                dcc_path,
             }),
         });
 
@@ -576,59 +284,6 @@ impl InstallPlanner {
         steps
     }
 
-    fn build_adobe_link_step(
-        entry: &CatalogEntry,
-        adobe: &CatalogAdobeInstall,
-        plugin_source: Option<&std::path::Path>,
-        adobe_debug_root: Option<&std::path::Path>,
-    ) -> InstallStep {
-        let source = plugin_source.map(|root| {
-            adobe
-                .source_subpath
-                .as_deref()
-                .map(|relative| root.join(relative))
-                .unwrap_or_else(|| root.to_path_buf())
-        });
-        let dest = adobe_debug_root.map(|root| {
-            adobe
-                .target_subpath
-                .as_deref()
-                .or(adobe.plugin_id.as_deref())
-                .map(|relative| root.join(relative))
-                .unwrap_or_else(|| root.to_path_buf())
-        });
-        let manifest = match (&source, adobe.manifest_path.as_deref()) {
-            (Some(source), Some(relative)) => Some(source.join(relative)),
-            _ => None,
-        };
-        let action = match (source, dest) {
-            (Some(source), Some(dest)) => Some(InstallStepAction::AdobePluginLink {
-                source,
-                dest,
-                product: adobe.product.clone(),
-                extension_type: adobe.extension_type.clone(),
-                manifest,
-            }),
-            _ => None,
-        };
-        let description = if action.is_some() {
-            format!(
-                "Link {} {} plugin into the Adobe debug root",
-                adobe.product, adobe.extension_type
-            )
-        } else {
-            format!(
-                "Provide --plugin-source and --adobe-debug-root to link the {} {} plugin",
-                entry.name, adobe.product
-            )
-        };
-        InstallStep {
-            name: "install-adobe-debug-link".into(),
-            description,
-            action,
-        }
-    }
-
     /// Build informational-only steps when no install metadata exists.
     fn build_info_steps() -> Vec<InstallStep> {
         vec![
@@ -641,7 +296,7 @@ impl InstallPlanner {
             InstallStep {
                 name: "install-runtime".into(),
                 description:
-                    "Install the cross-platform dcc-mcp-cli and companion runtime binaries.".into(),
+                    "Install the cross-platform dccmcp and companion runtime binaries.".into(),
                 action: None,
             },
             InstallStep {
@@ -661,17 +316,8 @@ impl InstallPlanner {
         ]
     }
 
-    fn build_next_steps(
-        entry: &CatalogEntry,
-        dcc_type: &str,
-        dcc_path: Option<&std::path::Path>,
-    ) -> Vec<InstallNextStep> {
+    fn build_next_steps(entry: &CatalogEntry, dcc_type: &str) -> Vec<InstallNextStep> {
         let mut steps = Vec::new();
-        let probe_tool = entry
-            .install
-            .as_ref()
-            .and_then(|install| install.probe_tool.as_deref())
-            .filter(|value| !value.trim().is_empty());
 
         if let Some(url) = install_instructions_url(entry) {
             steps.push(InstallNextStep {
@@ -701,7 +347,7 @@ impl InstallPlanner {
                     "Inspect CLI, server binary, server version, gateway profile, and default registry diagnostics."
                         .into(),
                 url: None,
-                command: Some(command(["dcc-mcp-cli", "doctor"])),
+                command: Some(command(["dccmcp", "doctor"])),
                 requires_live_instance: false,
             },
             InstallNextStep {
@@ -710,22 +356,17 @@ impl InstallPlanner {
                     "Confirm the {dcc_type} plugin published a direct local MCP/server instance in the shared registry."
                 ),
                 url: None,
-                command: Some(command(["dcc-mcp-cli", "list"])),
+                command: Some(command(["dccmcp", "list"])),
                 requires_live_instance: false,
             },
             InstallNextStep {
                 name: "wait-ready".into(),
-                description: match probe_tool {
-                    Some(probe_tool) => format!(
-                        "Wait until the {dcc_type} adapter reports readiness, then call the read-only probe tool '{probe_tool}' before issuing other tool calls."
-                    ),
-                    None => format!(
-                        "Wait until the {dcc_type} adapter reports readiness before issuing tool calls."
-                    ),
-                },
+                description: format!(
+                    "Wait until the {dcc_type} adapter reports readiness before issuing tool calls."
+                ),
                 url: None,
                 command: Some(command_with_dcc(
-                    ["dcc-mcp-cli", "wait-ready", "--dcc-type"],
+                    ["dccmcp", "wait-ready", "--dcc-type"],
                     dcc_type,
                     [],
                 )),
@@ -738,7 +379,7 @@ impl InstallPlanner {
                 ),
                 url: None,
                 command: Some(command_with_dcc(
-                    ["dcc-mcp-cli", "search", "--dcc-type"],
+                    ["dccmcp", "search", "--dcc-type"],
                     dcc_type,
                     ["--query", "diagnostics"],
                 )),
@@ -751,7 +392,7 @@ impl InstallPlanner {
                 ),
                 url: None,
                 command: Some(command_with_dcc(
-                    ["dcc-mcp-cli", "marketplace", "search", "--dcc"],
+                    ["dccmcp", "marketplace", "search", "--dcc"],
                     dcc_type,
                     ["--query", "skills"],
                 )),
@@ -763,7 +404,7 @@ impl InstallPlanner {
                     "Inspect the selected marketplace skill package before installing it, replacing <package-name> with the chosen package."
                         .into(),
                 url: None,
-                command: Some(command(["dcc-mcp-cli", "marketplace", "inspect", "<package-name>"])),
+                command: Some(command(["dccmcp", "marketplace", "inspect", "<package-name>"])),
                 requires_live_instance: false,
             },
             InstallNextStep {
@@ -773,7 +414,7 @@ impl InstallPlanner {
                         .into(),
                 url: None,
                 command: Some(command_with_dcc(
-                    ["dcc-mcp-cli", "marketplace", "install", "<package-name>", "--dcc"],
+                    ["dccmcp", "marketplace", "install", "<package-name>", "--dcc"],
                     dcc_type,
                     [],
                 )),
@@ -786,29 +427,13 @@ impl InstallPlanner {
                 ),
                 url: None,
                 command: Some(command_with_dcc(
-                    ["dcc-mcp-cli", "reload-skills", "--dcc-type"],
+                    ["dccmcp", "reload-skills", "--dcc-type"],
                     dcc_type,
                     [],
                 )),
                 requires_live_instance: true,
             },
         ]);
-
-        steps.push(InstallNextStep {
-            name: "resolve-dcc-path".into(),
-            description: match dcc_path {
-                Some(path) => format!(
-                    "Use the supplied DCC path '{}' and verify the host plugin starts there.",
-                    path.display()
-                ),
-                None => format!(
-                    "If no {dcc_type} host is found, ask the user for its absolute executable or application path and rerun with --dcc-path."
-                ),
-            },
-            url: None,
-            command: None,
-            requires_live_instance: false,
-        });
 
         steps
     }
@@ -831,98 +456,13 @@ fn command_with_dcc<const P: usize, const S: usize>(
         .collect()
 }
 
-fn install_probe_tool(entry: &CatalogEntry) -> Option<String> {
-    entry
-        .install
-        .as_ref()
-        .and_then(|install| install.probe_tool.clone())
-        .filter(|value| !value.trim().is_empty())
-}
-
 fn install_instructions_url(entry: &CatalogEntry) -> Option<String> {
     entry
         .install
         .as_ref()
         .and_then(|install| non_empty(install.instructions_url.as_deref()))
-        .and_then(normalize_instructions_url)
+        .map(str::to_string)
         .or_else(|| entry.url.as_deref().and_then(github_install_md_raw_url))
-}
-
-fn normalize_instructions_url(url: &str) -> Option<String> {
-    let url = url.trim();
-    if url.is_empty() {
-        return None;
-    }
-    normalize_github_instructions_url(url).or_else(|| Some(url.to_string()))
-}
-
-fn normalize_github_instructions_url(url: &str) -> Option<String> {
-    let url = url.split(['?', '#']).next()?;
-    let raw_prefix = "https://raw.githubusercontent.com/";
-    if let Some(path) = url.strip_prefix(raw_prefix) {
-        let mut parts = path.splitn(3, '/');
-        let owner = parts.next()?;
-        let name = parts.next()?;
-        let (reference, document) = parts.next()?.rsplit_once('/')?;
-        return normalized_github_document_url(raw_prefix, owner, name, reference, document);
-    }
-
-    let github_prefix = "https://github.com/";
-    let path = url.strip_prefix(github_prefix)?;
-    let mut parts = path.splitn(4, '/');
-    let owner = parts.next()?;
-    let name = parts.next()?;
-    if parts.next()? != "blob" {
-        return None;
-    }
-    let (reference, document) = parts.next()?.rsplit_once('/')?;
-    normalized_github_document_url(raw_prefix, owner, name, reference, document)
-}
-
-fn normalized_github_document_url(
-    raw_prefix: &str,
-    owner: &str,
-    name: &str,
-    reference: &str,
-    document: &str,
-) -> Option<String> {
-    if owner.is_empty() || name.is_empty() || reference.is_empty() {
-        return None;
-    }
-    let document = if is_readme_document(document) {
-        // A pinned ref explicitly naming README.md is a deliberate fallback:
-        // those releases have no install.md, so rewriting the URL would point
-        // agents at a 404. Only unpinned README links are upgraded.
-        if is_pinned_reference(reference) {
-            document
-        } else {
-            "install.md"
-        }
-    } else if is_install_document(document) {
-        document
-    } else {
-        return None;
-    };
-    Some(format!("{raw_prefix}{owner}/{name}/{reference}/{document}"))
-}
-
-/// True for a full commit SHA rather than a branch/tag reference.
-fn is_pinned_reference(reference: &str) -> bool {
-    reference.len() == 40 && reference.bytes().all(|byte| byte.is_ascii_hexdigit())
-}
-
-fn is_readme_document(document: &str) -> bool {
-    matches!(
-        document.rsplit('/').next(),
-        Some("README" | "README.md" | "readme" | "readme.md")
-    )
-}
-
-fn is_install_document(document: &str) -> bool {
-    document
-        .rsplit('/')
-        .next()
-        .is_some_and(|name| name.eq_ignore_ascii_case("install.md"))
 }
 
 fn github_install_md_raw_url(url: &str) -> Option<String> {
@@ -979,10 +519,424 @@ fn adapter_rank(entry: &CatalogEntry, dcc_key: &str) -> (bool, bool, bool, bool)
     )
 }
 
-pub(crate) fn normalized_dcc_key(value: &str) -> String {
+fn normalized_dcc_key(value: &str) -> String {
     value
         .chars()
         .filter(|ch| ch.is_ascii_alphanumeric())
         .flat_map(char::to_lowercase)
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn catalog_entry(name: &str, dcc: &[&str], install: Option<CatalogInstall>) -> CatalogEntry {
+        CatalogEntry {
+            name: name.into(),
+            description: "Adapter".into(),
+            dcc: dcc.iter().map(|value| value.to_string()).collect(),
+            url: Some("https://example.invalid/adapter".into()),
+            tags: vec!["official".into()],
+            version: None,
+            min_core_version: None,
+            install,
+            maintainer: None,
+            category: None,
+            policy: None,
+            requires: None,
+            icon: None,
+            showcase: None,
+        }
+    }
+
+    fn argv(args: &[&str]) -> Vec<String> {
+        args.iter().map(|arg| (*arg).to_string()).collect()
+    }
+
+    #[test]
+    fn planner_selects_matching_dcc_case_insensitively() {
+        let entries = vec![catalog_entry("dcc-mcp-maya", &["maya"], None)];
+        let plan = InstallPlanner::plan(
+            &entries,
+            InstallRequest {
+                dcc_type: "MAYA".into(),
+                version: Some("2026".into()),
+                catalog_path: None,
+                python: None,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(plan.adapter.name, "dcc-mcp-maya");
+        assert_eq!(plan.steps.len(), 4);
+        // Without install metadata, steps have no action
+        assert!(plan.steps.iter().all(|s| s.action.is_none()));
+        assert_eq!(plan.next_steps[0].name, "start-dcc-plugin");
+        assert!(plan.next_steps[0].command.is_none());
+    }
+
+    #[test]
+    fn planner_rejects_unknown_dcc() {
+        let err = InstallPlanner::plan(
+            &[],
+            InstallRequest {
+                dcc_type: "custom".into(),
+                version: None,
+                catalog_path: None,
+                python: None,
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(err, InstallPlanError::UnsupportedDcc("custom".into()));
+    }
+
+    #[test]
+    fn planner_generates_executable_steps_for_pip_install() {
+        let install = CatalogInstall {
+            install_type: "pip".into(),
+            url: Some("https://pypi.org/project/dcc-mcp-maya".into()),
+            ref_: None,
+            sha256: None,
+            skill_roots: None,
+            pip_package: Some("dcc-mcp-maya".into()),
+            pip_extras: Some(vec!["maya".into()]),
+            python_path: Some("/usr/bin/mayapy".into()),
+            entry_point: Some("dcc_mcp_maya.cli:main".into()),
+            instructions_url: None,
+        };
+        let entries = vec![catalog_entry("dcc-mcp-maya", &["maya"], Some(install))];
+        let plan = InstallPlanner::plan(
+            &entries,
+            InstallRequest {
+                dcc_type: "maya".into(),
+                version: None,
+                catalog_path: None,
+                python: None,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(plan.steps.len(), 3);
+        assert_eq!(plan.steps[0].name, "install-pip");
+        assert!(matches!(
+            plan.steps[0].action,
+            Some(InstallStepAction::PipInstall { .. })
+        ));
+        if let Some(InstallStepAction::PipInstall {
+            package,
+            extras,
+            python,
+        }) = &plan.steps[0].action
+        {
+            assert_eq!(package, "dcc-mcp-maya");
+            assert_eq!(extras.as_deref(), Some(&["maya".into()][..]));
+            assert_eq!(python.as_deref(), Some("/usr/bin/mayapy"));
+        } else {
+            panic!("expected PipInstall action");
+        }
+
+        assert_eq!(plan.steps[1].name, "register-dcc");
+        assert!(matches!(
+            plan.steps[1].action,
+            Some(InstallStepAction::RegisterDcc { .. })
+        ));
+
+        assert_eq!(plan.steps[2].name, "verify");
+        assert!(
+            plan.steps[2]
+                .description
+                .contains("package or file artefacts")
+        );
+        assert!(matches!(
+            plan.steps[2].action,
+            Some(InstallStepAction::Verify)
+        ));
+    }
+
+    #[test]
+    fn planner_emits_cli_next_steps_for_live_control_and_skill_install() {
+        let entries = vec![catalog_entry("dcc-mcp-blender", &["blender"], None)];
+        let plan = InstallPlanner::plan(
+            &entries,
+            InstallRequest {
+                dcc_type: "blender".into(),
+                version: None,
+                catalog_path: None,
+                python: None,
+            },
+        )
+        .unwrap();
+
+        let wait_ready = plan
+            .next_steps
+            .iter()
+            .find(|step| step.name == "wait-ready")
+            .expect("wait-ready next step");
+        assert_eq!(
+            wait_ready.command.as_ref().unwrap(),
+            &argv(&["dccmcp", "wait-ready", "--dcc-type", "blender"])
+        );
+        assert!(wait_ready.requires_live_instance);
+
+        let search_skills = plan
+            .next_steps
+            .iter()
+            .find(|step| step.name == "search-community-skills")
+            .expect("search-community-skills next step");
+        assert_eq!(
+            search_skills.command.as_ref().unwrap(),
+            &argv(&[
+                "dccmcp",
+                "marketplace",
+                "search",
+                "--dcc",
+                "blender",
+                "--query",
+                "skills",
+            ])
+        );
+        assert!(!search_skills.requires_live_instance);
+
+        let inspect_skill = plan
+            .next_steps
+            .iter()
+            .find(|step| step.name == "inspect-community-skill")
+            .expect("inspect-community-skill next step");
+        assert_eq!(
+            inspect_skill.command.as_ref().unwrap(),
+            &argv(&["dccmcp", "marketplace", "inspect", "<package-name>"])
+        );
+        assert!(!inspect_skill.requires_live_instance);
+
+        let install_skill = plan
+            .next_steps
+            .iter()
+            .find(|step| step.name == "install-community-skill")
+            .expect("install-community-skill next step");
+        assert_eq!(
+            install_skill.command.as_ref().unwrap(),
+            &argv(&[
+                "dccmcp",
+                "marketplace",
+                "install",
+                "<package-name>",
+                "--dcc",
+                "blender",
+            ])
+        );
+        assert!(!install_skill.requires_live_instance);
+
+        let reload = plan
+            .next_steps
+            .iter()
+            .find(|step| step.name == "reload-skills")
+            .expect("reload-skills next step");
+        assert_eq!(
+            reload.command.as_ref().unwrap(),
+            &argv(&["dccmcp", "reload-skills", "--dcc-type", "blender"])
+        );
+        assert!(reload.requires_live_instance);
+    }
+
+    #[test]
+    fn planner_derives_agent_install_instructions_from_adapter_repo_url() {
+        let mut entry = catalog_entry("dcc-mcp-maya", &["maya"], None);
+        entry.url = Some("https://github.com/dcc-mcp/dcc-mcp-maya".into());
+        let plan = InstallPlanner::plan(
+            &[entry],
+            InstallRequest {
+                dcc_type: "maya".into(),
+                version: None,
+                catalog_path: None,
+                python: None,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(plan.next_steps[0].name, "read-install-instructions");
+        assert_eq!(
+            plan.next_steps[0].url.as_deref(),
+            Some("https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-maya/main/install.md")
+        );
+        assert!(plan.next_steps[0].command.is_none());
+    }
+
+    #[test]
+    fn planner_prefers_catalog_install_instructions_url() {
+        let install = CatalogInstall {
+            install_type: "pip".into(),
+            url: None,
+            ref_: None,
+            sha256: None,
+            skill_roots: None,
+            pip_package: Some("dcc-mcp-maya".into()),
+            pip_extras: None,
+            python_path: None,
+            entry_point: None,
+            instructions_url: Some("https://example.com/custom-install.md".into()),
+        };
+        let mut entry = catalog_entry("dcc-mcp-maya", &["maya"], Some(install));
+        entry.url = Some("https://github.com/dcc-mcp/dcc-mcp-maya".into());
+        let plan = InstallPlanner::plan(
+            &[entry],
+            InstallRequest {
+                dcc_type: "maya".into(),
+                version: None,
+                catalog_path: None,
+                python: None,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(
+            plan.next_steps[0].url.as_deref(),
+            Some("https://example.com/custom-install.md")
+        );
+    }
+
+    #[test]
+    fn planner_generates_executable_steps_for_git_install() {
+        let install = CatalogInstall {
+            install_type: "git".into(),
+            url: Some("https://github.com/dcc-mcp/dcc-mcp-maya-mgear".into()),
+            ref_: Some("main".into()),
+            sha256: None,
+            skill_roots: None,
+            pip_package: None,
+            pip_extras: None,
+            python_path: None,
+            entry_point: None,
+            instructions_url: None,
+        };
+        let entries = vec![catalog_entry(
+            "dcc-mcp-maya-mgear",
+            &["maya"],
+            Some(install),
+        )];
+        let plan = InstallPlanner::plan(
+            &entries,
+            InstallRequest {
+                dcc_type: "maya".into(),
+                version: None,
+                catalog_path: None,
+                python: None,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(plan.steps.len(), 3);
+        assert_eq!(plan.steps[0].name, "install-git");
+        assert!(matches!(
+            plan.steps[0].action,
+            Some(InstallStepAction::GitClone { .. })
+        ));
+    }
+
+    #[test]
+    fn planner_missing_install_metadata_uses_info_steps() {
+        let entries = vec![catalog_entry("dcc-mcp-blender", &["blender"], None)];
+        let plan = InstallPlanner::plan(
+            &entries,
+            InstallRequest {
+                dcc_type: "blender".into(),
+                version: None,
+                catalog_path: None,
+                python: None,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(plan.steps.len(), 4);
+        assert!(plan.steps.iter().all(|s| s.action.is_none()));
+    }
+
+    #[test]
+    fn planner_prefers_requested_python_for_pip_install() {
+        let install = CatalogInstall {
+            install_type: "pip".into(),
+            url: None,
+            ref_: None,
+            sha256: None,
+            skill_roots: None,
+            pip_package: Some("dcc-mcp-maya".into()),
+            pip_extras: None,
+            python_path: Some("/catalog/mayapy".into()),
+            entry_point: None,
+            instructions_url: None,
+        };
+        let entries = vec![catalog_entry("dcc-mcp-maya", &["maya"], Some(install))];
+        let plan = InstallPlanner::plan(
+            &entries,
+            InstallRequest {
+                dcc_type: "maya".into(),
+                version: None,
+                catalog_path: None,
+                python: Some("/custom/mayapy".into()),
+            },
+        )
+        .unwrap();
+
+        match &plan.steps[0].action {
+            Some(InstallStepAction::PipInstall { python, .. }) => {
+                assert_eq!(python.as_deref(), Some("/custom/mayapy"));
+            }
+            other => panic!("expected PipInstall action, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn planner_prefers_adapter_entry_over_skill_pack() {
+        let install = CatalogInstall {
+            install_type: "pip".into(),
+            url: None,
+            ref_: None,
+            sha256: None,
+            skill_roots: None,
+            pip_package: Some("dcc-mcp-photoshop".into()),
+            pip_extras: None,
+            python_path: None,
+            entry_point: Some("dcc_mcp_photoshop.cli:main".into()),
+            instructions_url: None,
+        };
+        let mut skill_pack = catalog_entry("dcc-mcp-photoshop-skills", &["photoshop"], None);
+        skill_pack.tags = vec!["skills".into(), "official".into()];
+        let mut adapter = catalog_entry("dcc-mcp-photoshop", &["photoshop"], Some(install));
+        adapter.tags = vec!["adapter".into(), "official".into()];
+
+        let plan = InstallPlanner::plan(
+            &[skill_pack, adapter],
+            InstallRequest {
+                dcc_type: "photoshop".into(),
+                version: None,
+                catalog_path: None,
+                python: None,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(plan.adapter.name, "dcc-mcp-photoshop");
+        assert!(matches!(
+            plan.steps[0].action,
+            Some(InstallStepAction::PipInstall { .. })
+        ));
+    }
+
+    #[test]
+    fn planner_accepts_normalized_dcc_aliases() {
+        let entries = vec![catalog_entry("dcc-mcp-3dsmax", &["3dsmax"], None)];
+        let plan = InstallPlanner::plan(
+            &entries,
+            InstallRequest {
+                dcc_type: "3ds Max".into(),
+                version: None,
+                catalog_path: None,
+                python: None,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(plan.adapter.name, "dcc-mcp-3dsmax");
+    }
 }

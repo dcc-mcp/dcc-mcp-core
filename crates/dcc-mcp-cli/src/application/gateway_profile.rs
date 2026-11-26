@@ -1,8 +1,8 @@
-//! Gateway profile persistence for `dcc-mcp-cli`.
+//! Gateway profile persistence for `dccmcp`.
 //!
 //! The `local` profile is built in and means "use the local FileRegistry /
 //! direct local instance path". Named profiles point at remote gateway base
-//! URLs and are selected with `dcc-mcp-cli gateway set <name>` or
+//! URLs and are selected with `dccmcp gateway set <name>` or
 //! `--gateway <name>`.
 
 use std::collections::BTreeMap;
