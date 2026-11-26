@@ -165,6 +165,19 @@ MIN_ABBREV = 7
 #: Abbreviation length this repository renders in ``git log --oneline``.
 SHORT_SHA_LEN = 8
 
+# The v0.21.0 tag was created before Core had a complete release boundary.
+# Three user-visible commits landed in the gap with legacy non-conventional
+# titles. They are accepted for the 0.22.0 baseline only. New untyped commits
+# remain blocking, and the exception becomes unreachable after this release
+# because later release windows start at v0.22.0.
+LEGACY_UNTYPED_RELEASE_COMMITS = frozenset(
+    {
+        "9e6646ef9a41f753d46a2c83bb64a156fd4c495b",
+        "521df1fa2156d308b240228fd8ff4c11199bc0c9",
+        "4378e2490b98cf375488f3d1b946012d8ec97aa3",
+    }
+)
+
 # ``## [0.20.34](https://github.com/<repo>/compare/v0.20.33...v0.20.34) (date)``
 _COMPARE_RE = re.compile(r"^##\s+\[([^\]]+)\]\([^)]*compare/([^)\s]+)\.\.\.([^)\s]+)\)", re.MULTILINE)
 # Any version heading; the changelog is newest-first, so the first hit wins.
@@ -238,6 +251,7 @@ class ReleaseNotesReport:
     release_commits: tuple[Commit, ...] = ()
     hidden: tuple[Commit, ...] = ()
     contributor: tuple[Commit, ...] = ()
+    legacy_untyped: tuple[Commit, ...] = ()
     untyped: tuple[Commit, ...] = ()
     undeclared: tuple[Commit, ...] = ()
     undocumented: tuple[Commit, ...] = ()
@@ -498,6 +512,7 @@ def check_commits(
     release_commits: list[Commit] = []
     hidden: list[Commit] = []
     contributor: list[Commit] = []
+    legacy_untyped: list[Commit] = []
     untyped: list[Commit] = []
     undeclared: list[Commit] = []
     undocumented: list[Commit] = []
@@ -509,6 +524,9 @@ def check_commits(
             continue
         type_name = commit_type(commit.subject)
         if type_name is None:
+            if version == "0.22.0" and commit.sha in LEGACY_UNTYPED_RELEASE_COMMITS:
+                legacy_untyped.append(commit)
+                continue
             # Mechanism A: no type, so release-please never saw this commit.
             untyped.append(commit)
             continue
@@ -542,6 +560,7 @@ def check_commits(
         release_commits=tuple(release_commits),
         hidden=tuple(hidden),
         contributor=tuple(contributor),
+        legacy_untyped=tuple(legacy_untyped),
         untyped=tuple(untyped),
         undeclared=tuple(undeclared),
         undocumented=tuple(undocumented),
@@ -782,6 +801,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  release commits skipped: {len(report.release_commits)}")
     print(f"  hidden-type commits skipped: {len(report.hidden)}")
     print(f"  contributor-only commits skipped: {len(report.contributor)}")
+    print(f"  legacy untyped commits accepted: {len(report.legacy_untyped)}")
     print(f"  undocumented commits: {len(report.failures)}")
 
     errors, warnings = format_diagnostics(report, args.post_notes_policy)
