@@ -12,7 +12,12 @@ allowed-tools: Bash Read Write
 metadata:
   dcc-mcp:
     dcc: python
-    version: "0.18.9"  # x-release-please-version
+    recall-context:
+      app_type: python
+      domain: marketplace
+      workflow_stage: authoring
+      task_category: mutate
+    version: "0.21.0"  # x-release-please-version
     layer: infrastructure
     search-hint: >-
       create marketplace extension, scaffold extension package, new skill

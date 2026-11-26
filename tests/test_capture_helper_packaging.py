@@ -93,15 +93,5 @@ def test_default_stage_sources_follow_msvc_target(monkeypatch) -> None:
     monkeypatch.setenv("CARGO_TARGET_DIR", "target-msvc")
     monkeypatch.setenv("CARGO_BUILD_TARGET", "x86_64-pc-windows-msvc")
 
-    assert capture_default_source_path() == (
-        Path("target-msvc")
-        / "x86_64-pc-windows-msvc"
-        / "release"
-        / HELPER_NAME
-    )
-    assert host_default_source_path() == (
-        Path("target-msvc")
-        / "x86_64-pc-windows-msvc"
-        / "release"
-        / HOST_NAME
-    )
+    assert capture_default_source_path() == (Path("target-msvc") / "x86_64-pc-windows-msvc" / "release" / HELPER_NAME)
+    assert host_default_source_path() == (Path("target-msvc") / "x86_64-pc-windows-msvc" / "release" / HOST_NAME)

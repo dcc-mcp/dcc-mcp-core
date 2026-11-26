@@ -46,11 +46,18 @@ def _post_json(
     if client.protocol_version >= "2026-07-28":
         request_headers.setdefault("Mcp-Method", body.get("method", ""))
         method = body.get("method")
-        name_key = "uri" if method in {
-            "resources/read",
-            "resources/subscribe",
-            "resources/unsubscribe",
-        } else "name" if method in {"tools/call", "prompts/get"} else None
+        name_key = (
+            "uri"
+            if method
+            in {
+                "resources/read",
+                "resources/subscribe",
+                "resources/unsubscribe",
+            }
+            else "name"
+            if method in {"tools/call", "prompts/get"}
+            else None
+        )
         if name_key and isinstance(params, dict) and params.get(name_key):
             request_headers.setdefault("Mcp-Name", params[name_key])
     code, resp = client.post(body, extra_headers=request_headers)
@@ -293,9 +300,10 @@ def test_skills_extension_lists_and_reads_a_catalogued_skill(tmp_path):
         )
         assert code == 200, discovered
         assert "2026-07-28" in discovered["result"]["supportedVersions"]
-        assert discovered["result"]["capabilities"]["extensions"][
-            "io.modelcontextprotocol/skills"
-        ]["directoryRead"] is True
+        assert (
+            discovered["result"]["capabilities"]["extensions"]["io.modelcontextprotocol/skills"]["directoryRead"]
+            is True
+        )
 
         code, listed = _post_json(
             handle.mcp_url(),
@@ -310,14 +318,8 @@ def test_skills_extension_lists_and_reads_a_catalogued_skill(tmp_path):
         assert listed["result"]["resultType"] == "complete"
         assert listed["result"]["cacheScope"] == "private"
         assert listed["result"]["ttlMs"] == 0
-        skill = next(
-            item for item in listed["result"]["skills"] if item["uri"] == "skill://demo/SKILL.md"
-        )
-        guide_entry = next(
-            item
-            for item in skill["resources"]
-            if item["uri"] == "skill://demo/references/guide.md"
-        )
+        skill = next(item for item in listed["result"]["skills"] if item["uri"] == "skill://demo/SKILL.md")
+        guide_entry = next(item for item in skill["resources"] if item["uri"] == "skill://demo/references/guide.md")
         assert guide_entry["size"] == len(guide)
         assert guide_entry["digest"] == f"sha256:{hashlib.sha256(guide).hexdigest()}"
 

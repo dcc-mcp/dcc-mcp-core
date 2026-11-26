@@ -270,7 +270,7 @@ export function useLogsQuery(enabled: boolean) {
       serverVersion: payload.server_version == null ? null : String(payload.server_version),
     }),
     enabled,
-    refetchInterval: enabled ? PANEL_POLL_INTERVAL_MS : false,
+    refetchInterval: enabled ? LIVE_POLL_INTERVAL_MS : false,
   });
 }
 

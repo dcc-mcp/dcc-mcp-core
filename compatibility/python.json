@@ -232,7 +232,6 @@
     "requires_python_globs": [
       "*.md",
       "AGENTS.md",
-      "docs/guide/ai-agent-guide.md",
       "CONTRIBUTING.md",
       "llms.txt",
       "llms-full.txt",
@@ -244,7 +243,6 @@
     ],
     "calendar_policy_globs": [
       "AGENTS.md",
-      "docs/guide/ai-agent-guide.md",
       "CONTRIBUTING.md",
       "llms.txt",
       "llms-full.txt",

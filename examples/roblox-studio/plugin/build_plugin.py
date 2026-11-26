@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-
 ROOT_REFERENT = "RBX9A8E0F6D4B1C4C4DB1F9E1C4C0A8A6E1"
 SCRIPT_REFERENT = "RBX3F4D2A1C6B8E4F7E9A0C2D5B7E1F3A9C"
 SCRIPT_GUID = "{2C5D0AC9-4F8E-4CB5-9A8F-8E4A6F2D3C1B}"
@@ -19,7 +18,9 @@ def _cdata(source: str) -> str:
 def build_plugin(source_path: Path, output_path: Path) -> None:
     source = source_path.read_text(encoding="utf-8")
     document = f'''<?xml version="1.0" encoding="utf-8"?>
-<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4">
+<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4">
   <External>null</External>
   <External>nil</External>
   <Item class="Folder" referent="{ROOT_REFERENT}">

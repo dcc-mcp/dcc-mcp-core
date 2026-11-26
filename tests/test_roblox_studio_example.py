@@ -7,7 +7,6 @@ import importlib.util
 import json
 from pathlib import Path
 
-
 MODULE_PATH = Path(__file__).parents[1] / "examples" / "roblox-studio" / "server.py"
 SPEC = importlib.util.spec_from_file_location("roblox_studio_example_server", MODULE_PATH)
 assert SPEC is not None and SPEC.loader is not None

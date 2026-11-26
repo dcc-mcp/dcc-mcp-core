@@ -19,6 +19,20 @@ IPC, and workflows needed to operate real desktop sessions. The standalone
 DCCMCP command-line control plane is released from
 [`dcc-mcp/dcc-mcp-cli`](https://github.com/dcc-mcp/dcc-mcp-cli).
 
+**One protocol, across every registered host.** Every host adapter in this
+ecosystem implements the same MCP protocol and the same tool contract. The
+registry is the source of truth, and the count is reproducible from a checkout:
+
+~~~bash
+rg -c '^    tags: \[.*"adapter".*\]' dcc-mcp-catalog.yml
+~~~
+
+That reports **49 adapter entries** in [`dcc-mcp-catalog.yml`](dcc-mcp-catalog.yml).
+See the [complete generated host list](docs/adapter-coverage.md) for every current
+entry and its install metadata. The count includes experimental discovery-only
+PhotoCraft; it does not establish release-qualified support or automatic
+installation for every entry. Selected hosts include:
+
 ## Choose your entry point
 
 | You want to… | Start with |

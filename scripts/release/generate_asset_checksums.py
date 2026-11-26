@@ -7,10 +7,11 @@ import argparse
 import hashlib
 from pathlib import Path
 import sys
-from typing import Iterable, List
+from typing import Iterable
 
 
 def sha256(path: Path) -> str:
+    """Return the SHA-256 hex digest for one release asset."""
     digest = hashlib.sha256()
     with path.open("rb") as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
@@ -19,6 +20,7 @@ def sha256(path: Path) -> str:
 
 
 def write_checksums(assets: Iterable[Path], output: Path) -> Path:
+    """Write sidecar files and the aggregate checksum manifest."""
     checked = []
     for asset in assets:
         if not asset.is_file():
@@ -33,6 +35,7 @@ def write_checksums(assets: Iterable[Path], output: Path) -> Path:
 
 
 def main() -> int:
+    """Parse release assets and write their checksums."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--asset", type=Path, action="append", required=True)

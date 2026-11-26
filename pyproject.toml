@@ -42,12 +42,16 @@ dependencies = [
 
 [project.optional-dependencies]
 test = [
+    "jsonschema>=4.18; python_version>='3.8'",
+    "jsonschema==4.17.3; python_version<'3.8'",
     "pytest>=8.3.0; python_version>='3.8'",  # CVE-2025-71176: fixed line for maintained Python runtimes
     "pytest==7.4.4,<8.0; python_version<'3.8'",  # Last pytest line supporting the Python 3.7 LTS gate
     "pytest-cov>=4.0; python_version>='3.8'",
     "pytest-cov>=4.0,<5.0; python_version<'3.8'",
     "pytest-xdist>=3.0; python_version>='3.8'",
     "pytest-xdist==3.5.0; python_version<'3.8'",
+    "PyYAML>=6.0,<7; python_version>='3.8'",
+    "PyYAML==6.0.1; python_version<'3.8'",
     "typing-extensions==4.7.1; python_version<'3.8'",
     "rez",
     "zipp>=3.19.1; python_version>='3.8'",  # CVE-2024-5569; fixed releases require Python 3.8+
@@ -93,13 +97,17 @@ Homepage = "https://github.com/dcc-mcp/dcc-mcp-core"
 Repository = "https://github.com/dcc-mcp/dcc-mcp-core"
 Issues = "https://github.com/dcc-mcp/dcc-mcp-core/issues"
 
+[tool.dcc-mcp.vfx-platform]
+year = ["CY2026", "py37"]
+host = "core"
+
 [tool.maturin]
 python-source = "python"
 module-name = "dcc_mcp_core._core"
 # Feature list MUST stay in sync with `WHEEL_FEATURES` in the root justfile.
 # The justfile is the single source of truth for CI; this list only matters
 # for downstream `pip install .` / sdist rebuilds that bypass our CI.
-features = ["python-bindings", "ext-module", "abi3-py38", "workflow", "scheduler", "prometheus", "job-persist-sqlite"]
+features = ["python-bindings", "ext-module", "abi3-py38", "workflow", "scheduler", "prometheus", "job-persist-sqlite", "admin", "mcp-2026-07-28"]
 bindings = "pyo3"
 # The Windows build pipeline stages the version-matched capture helper here.
 # It is a wheel runtime artefact, never an sdist input: rebuilding an sdist on
@@ -153,21 +161,45 @@ known-first-party = ["dcc_mcp_core"]
 
 [tool.ruff.lint.per-file-ignores]
 # Python 3.7 (Maya 2022) compat: use typing.Optional/Dict/List instead of PEP 604 syntax.
+"python/dcc_mcp_core/wire/capacity.py" = ["UP006", "UP007", "UP045"]
+"python/dcc_mcp_core/bridge_capacity.py" = ["RUF100"]
 "python/dcc_mcp_core/_server/host_ui_dispatcher.py" = ["UP006", "UP045"]
+"python/dcc_mcp_core/host_errors.py" = ["UP006", "UP045"]
 "python/dcc_mcp_core/_server/tools_list_policy.py" = ["UP006", "UP045"]
 "python/dcc_mcp_core/_install_lifecycle_process.py" = ["UP006", "UP045"]
 "python/dcc_mcp_core/_install_lifecycle_sidecar.py" = ["UP006", "UP045"]
+"python/dcc_mcp_core/cua_cli.py" = ["UP006", "UP045"]
+"python/dcc_mcp_core/deployment/core_bounds.py" = ["UP006", "UP007", "UP045"]
+"python/dcc_mcp_core/deployment/core_bounds_runtime.py" = ["UP006", "UP007", "UP045"]
 "python/dcc_mcp_core/metadata_registration.py" = ["UP006", "UP045"]
 "python/dcc_mcp_core/_registration.py" = ["UP006", "UP045"]
 "python/dcc_mcp_core/usd_resources.py" = ["UP006", "UP007", "UP045"]
 "python/dcc_mcp_core/skills/app-ui/scripts/*.py" = ["UP006", "UP045"]
+"python/dcc_mcp_core/skills/ui-control/scripts/*.py" = ["UP006", "UP045"]
 "python/dcc_mcp_core/skills/media/scripts/*.py" = ["UP006", "UP045"]
+"python/dcc_mcp_core/skills/verification/scripts/*.py" = ["UP006", "UP045"]
+"python/dcc_mcp_core/verification/*.py" = ["UP006", "UP045"]
 "python/dcc_mcp_core/adapter_contracts.py" = ["UP006", "UP037", "UP045"]
 "python/dcc_mcp_core/asset_import.py" = ["UP006", "UP045"]
+"python/dcc_mcp_core/asset_sync.py" = ["UP006", "UP007", "UP045"]
+"python/dcc_mcp_core/spatial.py" = ["UP006", "UP007", "UP045"]
+"skills/spatial-interchange/scripts/*.py" = ["UP006", "UP045"]
 "python/dcc_mcp_core/install_lifecycle.py" = ["UP006", "UP007", "UP045"]
+"python/dcc_mcp_core/install_lifecycle_cli.py" = ["UP006", "UP007", "UP045"]
+"python/dcc_mcp_core/ui_control_server.py" = ["UP045"]
+"python/dcc_mcp_core/_version_check.py" = ["UP006", "UP007", "UP045"]
+"python/dcc_mcp_core/__main__.py" = ["UP045"]
 "scripts/check_py37_syntax.py" = ["UP032"]  # intentional: f-strings are syntax errors on 3.7; verified by py37-syntax-check CI job. Enforced in CI via check-py37-syntax job.
+"scripts/release/generate_third_party_licenses.py" = ["UP006"]
+"scripts/release/extract_third_party_licenses.py" = ["UP006"]
+"scripts/ci/check_release_workflow_digest.py" = ["UP006"]
+"scripts/ci/release_workflow_integrity/check_release_workflow_digest.py" = ["UP006"]
+"scripts/ci/release_workflow_integrity/test_release_workflow_integrity.py" = ["D103", "D202"]
 "__init__.py" = ["F401"]
 "tests/test_metadata_registration.py" = ["UP006", "UP007", "UP045"]
+"tests/test_main_cli.py" = ["UP006"]
+"tests/test_cua_cli.py" = ["UP006"]
+"tests/eval/cases/*.py" = ["UP006", "UP045"]
 "tests/*.py" = ["F401", "F811", "F821", "E711", "E712", "SIM117", "SIM118", "D100", "D101", "D103", "D106", "D205", "D400", "D415", "E501"]
 "examples/**/*.py" = ["D100", "D101", "D103", "D104", "E402", "INP001"]
 

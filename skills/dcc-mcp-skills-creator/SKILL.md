@@ -10,7 +10,12 @@ allowed-tools: Bash Read Write Edit
 metadata:
   dcc-mcp:
     dcc: python
-    version: "0.21.0"  # x-release-please-version
+    recall-context:
+      app_type: python
+      domain: skill-authoring
+      workflow_stage: authoring
+      task_category: mutate
+    version: "0.21.0"
     layer: infrastructure
     compatibility: "Python 3.7+, dcc-mcp-core 0.17+"
     search-hint: "create dcc mcp skill, validate skill, scaffold skill, SKILL.md, tools.yaml, scripts, groups, prompts, skill taxonomy"

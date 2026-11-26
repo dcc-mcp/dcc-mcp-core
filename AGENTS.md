@@ -3,14 +3,12 @@
 > **Navigation map, not a reference manual.**
 > Follow the links; don't read everything upfront. Keep detailed API guidance
 > in `llms.txt` / `llms-full.txt` and detailed human-readable explanations in
-> `docs/guide/*`. **This file is the only agent contract file at the repository
-> root** — see [Agent Contract Files](#agent-contract-files). `CLAUDE.md` /
-> `GEMINI.md` / `COPILOT.md` / `CODEBUDDY.md` / `CURSOR.md` / `ANTHROPIC.md` /
-> `OPENAI.md` / `.cursorrules` are deliberately absent; agents that look for a
-> vendor-named entry point should read this file.
+> `docs/guide/*`. **AGENTS.md is the shared source of truth for agent guidance**
+> — see [Agent Contract Files](#agent-contract-files). Standard vendor entry
+> points are thin shims that delegate back here.
 > Detailed rules, traps, and code examples → [`docs/guide/agents-reference.md`](docs/guide/agents-reference.md)
 
-**🤖 New to this project?** Start with [`docs/guide/ai-agent-guide.md`](docs/guide/ai-agent-guide.md) — a dedicated guide teaching AI agents how to effectively use dcc-mcp-core.
+**🤖 New to this project?** Start with this file, then read [`docs/guide/agents-reference.md`](docs/guide/agents-reference.md) before writing code.
 
 ## ⚡ Critical: Skills-First Philosophy
 
@@ -103,6 +101,16 @@ Start a new agent turn after installation.
   you need to inspect or is unavailable; mention that deviation in validation
   notes when it matters.
 
+## Windows Rust Build Default
+
+- Use the MSVC toolchain and `x86_64-pc-windows-msvc` target for Windows builds
+  and tests in this repository.
+- Do not select the GNU target or depend on `dlltool` for normal local
+  validation. Use an explicit GNU target only when a task or CI matrix requires
+  GNU coverage.
+- Preserve the repository's MSVC linker configuration in `.cargo/config.toml`
+  and report a toolchain failure separately from source-validation results.
+
 ## PR / Commit Authorship
 
 - **Do not append AI-attribution footers** to PR bodies, commit messages,
@@ -128,15 +136,11 @@ Start a new agent turn after installation.
 
 ## Agent Contract Files
 
-`AGENTS.md` is the **only** agent contract file at the repository root. It is the
-native instruction file for Codex, OpenCode, Cursor, GitHub Copilot, Windsurf,
-Cline, Roo Code, Kiro, Trae, and Augment, and Claude Code falls back to it when
-no `CLAUDE.md` exists. `CLAUDE.md`, `GEMINI.md`, `COPILOT.md`, and `CODEBUDDY.md`
-have been removed — they were byte-identical shims whose only unique line was
-their own filename, and every statement in them already lives below.
-
-**Gemini CLI exception:** Gemini CLI defaults its context file to `GEMINI.md`. To
-make it read `AGENTS.md`, set `context.fileName` once in `~/.gemini/settings.json`:
+`AGENTS.md` is the shared source of truth for Codex, OpenCode, Cursor, GitHub
+Copilot, Windsurf, Cline, Roo Code, Kiro, Trae, Augment, and other agent hosts.
+`CLAUDE.md`, `GEMINI.md`, `COPILOT.md`, and `CODEBUDDY.md` are standard thin
+entry-point shims. Keep shared guidance here and update a shim only when its
+vendor requires a genuine divergence.
 
 ```json
 {
@@ -153,7 +157,6 @@ make it read `AGENTS.md`, set `context.fileName` once in `~/.gemini/settings.jso
 | Layer | File | When to read it |
 |-------|------|-----------------|
 | Navigation | `AGENTS.md` (this file) | First contact |
-| AI agent tutorial | [`docs/guide/ai-agent-guide.md`](docs/guide/ai-agent-guide.md) | How to *use* dcc-mcp-core effectively — workflow, key concepts, common tasks, skill authoring |
 | AI-friendly index | `llms.txt` | When you need to *use* APIs |
 | Full index | `llms-full.txt` | When `llms.txt` lacks detail |
 | Detailed rules | [`docs/guide/agents-reference.md`](docs/guide/agents-reference.md) | Before writing code — traps, do/don't, code style |
@@ -294,9 +297,9 @@ Gateway resources/prompts:
   PR.
 
 **API surface** — read in this order:
-1. 🆕 **[`docs/guide/ai-agent-guide.md`](docs/guide/ai-agent-guide.md)** — **START HERE** for using dcc-mcp-core effectively
-2. `llms.txt` — compact AI-friendly API index
-3. `llms-full.txt` — complete AI-friendly API index
+1. **[`llms.txt`](llms.txt)** — compact AI-friendly API index
+2. `llms-full.txt` — complete AI-friendly API index
+3. [`docs/guide/agents-reference.md`](docs/guide/agents-reference.md) — detailed implementation rules and traps
 4. `python/dcc_mcp_core/__init__.py` — every top-level Python re-export
 5. Generated stub `python/dcc_mcp_core/_core.pyi` — parameter names/types after a `stub-gen` or development build; do not treat it as checked-in source of truth
 

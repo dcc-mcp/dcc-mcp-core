@@ -29,4 +29,4 @@ __all__ = [
     "main",
 ]
 
-__version__ = "0.20.55"  # x-release-please-version
+__version__ = "0.21.0"  # x-release-please-version

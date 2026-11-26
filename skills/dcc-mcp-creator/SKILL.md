@@ -12,8 +12,13 @@ metadata:
   dcc-mcp:
     dcc: python
     layer: infrastructure
+    recall-context:
+      app_type: python
+      domain: adapter-development
+      workflow_stage: authoring
+      task_category: mutate
     compatibility: "dcc-mcp-core 0.17+, Python 3.7+"
-    version: "0.21.0"  # x-release-please-version
+    version: "0.21.0"
     search-hint: >-
       create DCC MCP adapter, Nuke MCP, DccServerBase, HostExecutionBridge,
       dispatcher, readiness, resources, gateway, Blender, 3ds Max, Unreal,

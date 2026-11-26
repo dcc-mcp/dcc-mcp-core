@@ -21,12 +21,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 # `AGENTS.md` is the single agent contract file at the repository root. Every
 # mainstream agent runtime reads it natively (Claude Code falls back to it when
 # no CLAUDE.md exists), so vendor-specific files must not come back.
-AGENT_ENTRYPOINTS = ("AGENTS.md",)
+AGENT_ENTRYPOINTS = ("AGENTS.md", "CLAUDE.md", "GEMINI.md", "COPILOT.md", "CODEBUDDY.md")
 DEPRECATED_AGENT_ENTRYPOINTS = (
-    "CLAUDE.md",
-    "GEMINI.md",
-    "COPILOT.md",
-    "CODEBUDDY.md",
     "CURSOR.md",
     "ANTHROPIC.md",
     "OPENAI.md",
@@ -94,12 +90,12 @@ def test_agent_entrypoints_do_not_include_multica_runtime_context() -> None:
             assert marker not in text, f"{relative_path} contains generated Multica marker {marker!r}"
 
 
-def test_agents_md_is_the_only_agent_contract_file() -> None:
+def test_agents_md_is_the_shared_agent_contract_file() -> None:
     tracked = set(_tracked_files())
     assert "AGENTS.md" in tracked, "AGENTS.md is the single agent contract file and must stay tracked"
     offenders = sorted(name for name in DEPRECATED_AGENT_ENTRYPOINTS if name in tracked)
     assert offenders == [], (
-        "AGENTS.md is the single source of agent guidance; remove these vendor files and "
+        "AGENTS.md is the shared source of agent guidance; remove these obsolete vendor files and "
         f"fold their unique content into AGENTS.md: {offenders}"
     )
 

@@ -270,11 +270,7 @@ class McpClient:
         # Extract session ID from response header (stateful mode)
         if headers:
             self.session_id = next(
-                (
-                    value
-                    for key, value in headers.items()
-                    if key.lower() == "mcp-session-id"
-                ),
+                (value for key, value in headers.items() if key.lower() == "mcp-session-id"),
                 None,
             )
         # Unwrap JSON-RPC response envelope
@@ -333,11 +329,7 @@ class McpClient:
                 resp_headers = {k: v for k, v in resp.getheaders()}
                 raw_response = resp.read().decode()
                 content_type = next(
-                    (
-                        value
-                        for key, value in resp_headers.items()
-                        if key.lower() == "content-type"
-                    ),
+                    (value for key, value in resp_headers.items() if key.lower() == "content-type"),
                     "",
                 )
                 return (

@@ -17,7 +17,6 @@ OFFICIAL_RELEASE = "https://github.com/dcc-mcp/dcc-mcp-core/releases/download"
 INSTALL_DOCS = (
     ROOT / "README.md",
     ROOT / "README_zh.md",
-    ROOT / "docs" / "guide" / "ai-agent-guide.md",
     ROOT / "docs" / "guide" / "getting-started.md",
     ROOT / "docs" / "zh" / "guide" / "getting-started.md",
     ROOT / "docs" / "guide" / "cli-reference.md",

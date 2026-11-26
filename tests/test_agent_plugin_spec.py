@@ -8,7 +8,6 @@ from pathlib import Path
 
 from conftest import REPO_ROOT
 
-
 MANIFEST = REPO_ROOT / "skills" / "dcc-mcp" / "agent-plugin.json"
 VALIDATOR = REPO_ROOT / "scripts" / "validate_agent_plugin.py"
 

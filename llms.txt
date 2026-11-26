@@ -47,6 +47,10 @@ next CLI launch and does not replace a running server.
 **New to this project?** Read [`AGENTS.md`](AGENTS.md) FIRST, then use
 `docs/guide/agents-reference.md` for detailed rules.
 
+**Iteration playbook:** reuse materialized scripts and parameters across repeatable
+runs, and use `workflows_resume` for interrupted persisted workflows instead of
+starting a duplicate run.
+
 **Building a DCC-MCP adapter?** Follow the release train docs in order:
 1. [`new-adapter-onboarding.md`](docs/guide/new-adapter-onboarding.md) — scaffolding template
 2. [`adapter-release-checklist.md`](docs/guide/adapter-release-checklist.md) — release gate checklist
